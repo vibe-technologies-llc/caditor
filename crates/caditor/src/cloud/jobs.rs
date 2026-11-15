@@ -24,7 +24,7 @@ use super::{
     failure::Failure,
     private,
     state::{ImportItem, Remembered, SendStage, Shipment, Stage},
-    store::SessionStore,
+    store::{Keeper, Kept, SessionStore, Ticket},
     thumbnails::{self, Thumbnail},
 };
 use crate::{browser::OpenError, model::Waker};
@@ -157,7 +157,7 @@ pub struct SignInJob {
     pub attempt: u64,
     pub provider: Arc<dyn Provider>,
     pub transport: Arc<dyn Transport>,
-    pub store: Option<SessionStore>,
+    pub keeper: Option<Keeper>,
     pub opener: Opener,
     pub port: u16,
     pub stop: Arc<AtomicBool>,
@@ -189,15 +189,39 @@ impl SignInJob {
         if let Err(error) = (self.opener)(&sign_in.url) {
             log::warn!("the browser did not open by itself: {error}");
         }
-        let callback = listener.wait(&self.stop, SIGN_IN_PATIENCE)?;
+        let callback = listener.wait(&sign_in.state, &self.stop, SIGN_IN_PATIENCE)?;
         let session =
             caditor_cloud::finish_sign_in(&*self.provider, &*self.transport, &sign_in, &callback)?;
-        if let Some(store) = &self.store
-            && let Err(error) = store.save(&session)
-        {
-            log::warn!("the sign-in could not be kept for the next start: {error}");
+        match self.keeper.as_ref().map(|keeper| keeper.save(&session)) {
+            Some(Ok(Kept::Late)) => {
+                revoke_late(&*self.provider, &*self.transport, &session);
+                return Err(Error::Stopped.into());
+            }
+            Some(Err(error)) => {
+                log::warn!("the sign-in could not be kept for the next start: {error}");
+            }
+            Some(Ok(Kept::Saved)) | None => {}
         }
         Ok(session)
+    }
+}
+
+pub fn keep_renewed(
+    keeper: Option<&Keeper>,
+    provider: &dyn Provider,
+    transport: &dyn Transport,
+    session: &Session,
+) {
+    match keeper.map(|keeper| keeper.save(session)) {
+        Some(Ok(Kept::Late)) => revoke_late(provider, transport, session),
+        Some(Err(error)) => log::warn!("the renewed sign-in could not be kept: {error}"),
+        Some(Ok(Kept::Saved)) | None => {}
+    }
+}
+
+pub fn revoke_late(provider: &dyn Provider, transport: &dyn Transport, session: &Session) {
+    if let Err(error) = provider.revoke(transport, session) {
+        log::info!("a sign-in that arrived after it was ended could not be revoked: {error}");
     }
 }
 
@@ -205,11 +229,11 @@ pub fn restore(store: &SessionStore) -> Result<Option<Session>, Failure> {
     store.load().map_err(|error| Failure::Save(error.kind()))
 }
 
-pub fn sign_out(client: &Client, store: Option<&SessionStore>) {
+pub fn sign_out(client: &Client, store: Option<&SessionStore>, through: Ticket) {
     if let Err(error) = client.revoke() {
         log::info!("the sign-in could not be revoked at the service: {error}");
     }
-    forget(store);
+    forget(store, through);
     if let Some(store) = store
         && let Err(error) = store.forget_hub()
     {
@@ -255,9 +279,9 @@ pub fn list_workspaces(client: &Client, store: Option<&SessionStore>) -> Result<
     })
 }
 
-pub fn forget(store: Option<&SessionStore>) {
+pub fn forget(store: Option<&SessionStore>, through: Ticket) {
     if let Some(store) = store
-        && let Err(error) = store.forget()
+        && let Err(error) = store.forget(through)
     {
         log::warn!("the saved sign-in could not be removed: {error}");
     }

@@ -78,7 +78,7 @@ mod fake {
         },
     };
 
-    use caditor_cloud::Service;
+    use caditor_cloud::{Service, fake::Hold};
     use parking_lot::Mutex;
 
     use super::{Keyring, KeyringError};
@@ -87,6 +87,7 @@ mod fake {
     pub struct FakeKeyring {
         entries: Mutex<BTreeMap<Service, Vec<u8>>>,
         unreachable: AtomicBool,
+        holding_sets: Mutex<Option<Arc<Hold>>>,
     }
 
     impl FakeKeyring {
@@ -106,6 +107,10 @@ mod fake {
 
         pub fn holds(&self, service: Service) -> Option<Vec<u8>> {
             self.entries.lock().get(&service).cloned()
+        }
+
+        pub fn hold_sets(&self, hold: Arc<Hold>) {
+            *self.holding_sets.lock() = Some(hold);
         }
 
         pub fn put(&self, service: Service, secret: &[u8]) {
@@ -129,6 +134,10 @@ mod fake {
 
         fn set(&self, service: Service, secret: &[u8]) -> Result<(), KeyringError> {
             self.check()?;
+            let held = self.holding_sets.lock().clone();
+            if let Some(hold) = held {
+                hold.stop_here();
+            }
             self.entries.lock().insert(service, secret.to_vec());
             Ok(())
         }

@@ -4,6 +4,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc::{self, Receiver, Sender},
     },
     thread,
     time::Duration,
@@ -174,9 +175,60 @@ impl Transport for ScriptedTransport {
     }
 }
 
+const HOLD_PATIENCE: Duration = Duration::from_secs(60);
+
+#[derive(Debug)]
+pub struct Hold {
+    arrivals: Mutex<Sender<()>>,
+    arrived: Mutex<Receiver<()>>,
+    releases: Mutex<Sender<()>>,
+    released: Mutex<Receiver<()>>,
+    used: AtomicBool,
+}
+
+impl Hold {
+    pub fn new() -> Arc<Self> {
+        let (arrivals, arrived) = mpsc::channel();
+        let (releases, released) = mpsc::channel();
+        Arc::new(Self {
+            arrivals: Mutex::new(arrivals),
+            arrived: Mutex::new(arrived),
+            releases: Mutex::new(releases),
+            released: Mutex::new(released),
+            used: AtomicBool::new(false),
+        })
+    }
+
+    pub fn reached(&self) -> bool {
+        self.arrived.lock().recv_timeout(HOLD_PATIENCE).is_ok()
+    }
+
+    pub fn release(&self) {
+        if self.releases.lock().send(()).is_err() {
+            log::debug!("a held call was released after it gave up");
+        }
+    }
+
+    pub fn stop_here(&self) {
+        if self.used.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let waited = self
+            .arrivals
+            .lock()
+            .send(())
+            .is_ok()
+            .then(|| self.released.lock().recv_timeout(HOLD_PATIENCE));
+        if let Some(Err(error)) = waited {
+            log::debug!("a held call went on without being released: {error}");
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     SignIn,
+    Refresh,
     Revoke,
     Account,
     Workspaces,
@@ -218,6 +270,8 @@ pub struct FakeProvider {
     working_polls: usize,
     web_links: bool,
     holding_sends: Option<Arc<AtomicBool>>,
+    holds: Vec<(Step, Arc<Hold>)>,
+    expiring_at_sign_in: bool,
     failures: Mutex<Vec<(Step, Failure)>>,
     calls: Mutex<Vec<String>>,
     polled: AtomicUsize,
@@ -248,6 +302,8 @@ impl FakeProvider {
             working_polls: 0,
             web_links: true,
             holding_sends: None,
+            holds: Vec::new(),
+            expiring_at_sign_in: false,
             failures: Mutex::new(Vec::new()),
             calls: Mutex::new(Vec::new()),
             polled: AtomicUsize::new(0),
@@ -316,6 +372,16 @@ impl FakeProvider {
         self
     }
 
+    pub fn holding(mut self, step: Step, hold: Arc<Hold>) -> Self {
+        self.holds.push((step, hold));
+        self
+    }
+
+    pub fn expiring_at_sign_in(mut self) -> Self {
+        self.expiring_at_sign_in = true;
+        self
+    }
+
     pub fn without_web_links(mut self) -> Self {
         self.web_links = false;
         self
@@ -381,6 +447,13 @@ impl FakeProvider {
         failure.map_or(Ok(()), |failure| Err(failure()))
     }
 
+    fn wait_if_held(&self, step: Step) {
+        self.holds
+            .iter()
+            .filter(|(held, _)| *held == step)
+            .for_each(|(_, hold)| hold.stop_here());
+    }
+
     fn session(now: u64) -> Session {
         Session {
             access_token: "fake-access".to_owned(),
@@ -416,7 +489,15 @@ impl Provider for FakeProvider {
         now: u64,
     ) -> Result<Session, Error> {
         self.enter(Step::SignIn, "finish sign in".to_owned())?;
-        Ok(Self::session(now))
+        self.wait_if_held(Step::SignIn);
+        let session = Self::session(now);
+        if self.expiring_at_sign_in {
+            return Ok(Session {
+                expires_at: now,
+                ..session
+            });
+        }
+        Ok(session)
     }
 
     fn refresh(
@@ -426,6 +507,7 @@ impl Provider for FakeProvider {
         now: u64,
     ) -> Result<Session, Error> {
         self.calls.lock().push("refresh".to_owned());
+        self.wait_if_held(Step::Refresh);
         Ok(Self::session(now))
     }
 

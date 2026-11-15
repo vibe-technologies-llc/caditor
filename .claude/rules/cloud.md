@@ -81,9 +81,20 @@ a `Transport`; the app never speaks a service's protocol itself.
   (`Form`, `Json`, `JsonApi`: only their size) never print a secret, not even in `Debug`. A token
   endpoint's refusal of a refresh is `SignedOut`; of the first `authorization_code` grant,
   `SignInRefused`, which says the service did not accept the sign-in.
-- `Listener` (`loopback.rs`) listens on 127.0.0.1 only, for one `GET /callback?code=…&state=…`,
-  turns away every other request, honours a stop flag and a deadline fixed before its loop, and
-  answers the browser with a static page that holds nothing from the request.
+- `Listener` (`loopback.rs`) listens on 127.0.0.1 and ::1 on the same port and sends the browser to
+  `http://localhost:<port>/callback`. RFC 8252 §8.3 prefers an IP literal, but the redirect both
+  services are registered with (`docs/RELEASING.md`) is `localhost`, the form their documentation
+  shows, and neither is confirmed to take `127.0.0.1`; a browser resolves `localhost` to either
+  loopback, often `[::1]` first, so both are bound and a port another process holds on either is
+  `ListenerUnavailable` rather than shared. A system without an IPv6 loopback is served on
+  127.0.0.1 alone. It waits for one `GET /callback?code=…&state=…` whose `state` is the attempt's
+  (`wait` is given it): a callback or `?error=` of any other state is turned away and the wait goes
+  on, so only the attempt's own answer is told it signed in or ends the sign-in as declined. Every
+  connection is read without blocking beside the others, at most `MAX_OPEN_CONNECTIONS` at once
+  (the oldest dropped), each with its own `CONNECTION_PATIENCE` for the whole request, while the
+  stop flag and the overall deadline are checked on every round, so no client can hold it. Its
+  page is static and holds nothing from the request. `wait` takes the listener by value, so the
+  port is free once the callback is taken, before the code is traded or the session saved.
 - Errors are `Error` (typed; Display is words that say what to do next, never internals).
   `fake.rs` (feature `test-support`) holds `ScriptedTransport` and `FakeProvider` for the tests of
   this crate and the app; the provider can hold sends until released and answer without web links.
@@ -234,7 +245,18 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
 - Sign-in: bind the listener, `start_sign_in`, publish the URL (Home and the manager show Copy the
   sign-in link, since a browser may not open), open it with `browser::open` (https only, no shell:
   `xdg-open` or `gio`, `rundll32 url.dll,FileProtocolHandler`), wait up to five minutes, trade the
-  code, save the session. Cancel stops the wait.
+  code, save the session. Cancel stops the wait. A sign-in or refresh finishing after Cancel, Sign
+  out, a changed client ID or turning cloud off never keeps its session: each service has a
+  `Keeping` generation that `Cloud::leave` retires on the UI thread (an atomic, never a lock)
+  before queueing the forget. The sign-in job and the client's `Saved` callback save through a
+  `Keeper` holding the `Ticket` of the generation they started in; `SessionStore::save` compares it
+  under the store's lock and drops a save of a retired ticket (`Kept::Late`), and the job or the
+  callback then revokes that session at the service (`jobs::revoke_late`). `forget(through)` (and
+  `load`) takes the same lock, so a save already inside the keyring finishes first and is then removed, and it
+  leaves alone a session saved with a ticket at or after `through`, so a forget queued behind a new
+  sign-in never removes it. A sign-in whose job saved before the retirement reaches the UI as an
+  attempt no longer current and is revoked by a courier job. Leaving a service that is signing in or
+  still restoring forgets its saved sign-in too, whatever `revoke` says.
 - The hub a user chooses is remembered in `<state>/cloud/<service>-hub.json` (written atomically
   by a job on the courier, read by the job that lists the hubs). After a restart or Refresh the
   hub in use wins, then the remembered one if it is still listed, then `first_workspace` (the team
@@ -445,8 +467,13 @@ dependency builds C.
 ## Tests
 
 `caditor-cloud` tests every provider call against Autodesk- and Onshape-shaped JSON through
-`ScriptedTransport`, PKCE against RFC 7636, the listener over a real socket and the client's
-refresh and retry. `ui_tests/opening_in_fusion.rs` drives the open command with a `FakeProvider` and an injected
+`ScriptedTransport`, PKCE against RFC 7636, the listener over a real socket (both loopbacks, other
+states, a client that never finishes its request) and the client's refresh and retry.
+`FakeProvider::holding` stops the code exchange or a refresh at a `Hold` until the test releases
+it, and `FakeKeyring::hold_sets` does the same inside a keyring write, so the store's tests and
+`ui_tests/home.rs` drive each late-session order (Cancel or cloud off during the exchange, Cancel
+during the keyring write, sign-out during a refresh) with channels, never sleeps.
+`ui_tests/opening_in_fusion.rs` drives the open command with a `FakeProvider` and an injected
 `Opener` that records addresses, so no test starts a browser: the first run choosing a folder, the
 second making version 2 without asking, Cancel, a browser that fails, an answer without an address,
 a vanished folder, sign-out and the refusals. `ui_tests/home.rs` drives the app with a

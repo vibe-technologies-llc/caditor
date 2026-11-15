@@ -47,7 +47,7 @@ pub use self::{
 use self::{
     jobs::{Courier, Event, ImportJob, Loaded, SendJob, SignInJob},
     keyring::Keyring,
-    store::SessionStore,
+    store::{Keeping, SessionStore},
     thumbnails::{AT_ONCE, ThumbnailCache},
 };
 #[cfg(test)]
@@ -131,6 +131,7 @@ pub struct Cloud {
     preferences: CloudPreferences,
     connections: Vec<Connection>,
     generations: BTreeMap<Service, u64>,
+    keeping: BTreeMap<Service, Arc<Keeping>>,
     providers: BTreeMap<Service, Arc<dyn Provider>>,
     transport: Option<Arc<dyn Transport>>,
     pinned_backend: bool,
@@ -176,6 +177,10 @@ impl Cloud {
             preferences: preferences.clone(),
             connections,
             generations: BTreeMap::new(),
+            keeping: Service::ALL
+                .into_iter()
+                .map(|service| (service, Arc::default()))
+                .collect(),
             providers: BTreeMap::new(),
             transport: None,
             pinned_backend: false,
@@ -468,9 +473,17 @@ impl Cloud {
     }
 
     fn store(&self, service: Service) -> Option<SessionStore> {
-        self.state_dir
-            .as_deref()
-            .map(|dir| SessionStore::in_state_dir(dir, service, Arc::clone(&self.keyring)))
+        self.state_dir.as_deref().map(|dir| {
+            SessionStore::in_state_dir(dir, service, Arc::clone(&self.keyring))
+                .keeping_with(self.keeping(service))
+        })
+    }
+
+    fn keeping(&self, service: Service) -> Arc<Keeping> {
+        self.keeping
+            .get(&service)
+            .map(Arc::clone)
+            .unwrap_or_default()
     }
 
     fn connection_mut(&mut self, service: Service) -> Option<&mut Connection> {
@@ -501,6 +514,7 @@ impl Cloud {
 
     fn leave(&mut self, service: Service, revoke: bool) {
         self.bump(service);
+        let through = self.keeping(service).retire();
         let store = self.store(service);
         let Some(left) = self
             .connection_mut(service)
@@ -513,6 +527,7 @@ impl Cloud {
                 signing.stop.store(true, Ordering::Relaxed);
                 None
             }
+            Link::Starting => None,
             Link::Linked(linked) => {
                 linked.import.iter().for_each(|import| {
                     import.stop.store(true, Ordering::Relaxed);
@@ -522,13 +537,9 @@ impl Cloud {
                 });
                 Some(Arc::clone(&linked.client))
             }
-            Link::Off | Link::Starting | Link::SignedOut => None,
+            Link::Off | Link::SignedOut => return,
         };
-        let signing_out = match (client, revoke) {
-            (Some(client), true) => Some(client),
-            (_, true) => return,
-            (_, false) => None,
-        };
+        let signing_out = client.filter(|_| revoke);
         if signing_out.is_none() && store.is_none() {
             return;
         }
@@ -536,8 +547,8 @@ impl Cloud {
             service,
             move || {
                 match &signing_out {
-                    Some(client) => jobs::sign_out(client, store.as_ref()),
-                    None => jobs::forget(store.as_ref()),
+                    Some(client) => jobs::sign_out(client, store.as_ref(), through),
+                    None => jobs::forget(store.as_ref(), through),
                 }
                 Ok(())
             },
@@ -589,7 +600,7 @@ impl Cloud {
             attempt,
             provider: self.provider(service),
             transport: self.transport(),
-            store: self.store(service),
+            keeper: self.store(service).map(SessionStore::keeper),
             opener: Arc::clone(&self.opener),
             port: self.callback_port,
             stop,
@@ -621,6 +632,9 @@ impl Cloud {
             Some(Link::SigningIn(signing)) if signing.attempt == attempt
         );
         if !current {
+            if let Ok(session) = outcome {
+                self.revoke_late(service, session);
+            }
             return;
         }
         match outcome {
@@ -640,17 +654,27 @@ impl Cloud {
         }
     }
 
+    fn revoke_late(&mut self, service: Service, session: Session) {
+        let provider = self.provider(service);
+        let transport = self.transport();
+        self.courier.spawn(
+            service,
+            move || {
+                jobs::revoke_late(&*provider, &*transport, &session);
+                Ok(())
+            },
+            |_: Result<(), Failure>| Event::Left,
+        );
+    }
+
     fn link_with(&mut self, service: Service, session: Session) {
         let provider = self.provider(service);
         let transport = self.transport();
-        let mut client = Client::new(provider, transport, session);
-        if let Some(store) = self.store(service) {
-            client = client.saving_with(Arc::new(move |session| {
-                if let Err(error) = store.save(session) {
-                    log::warn!("the renewed sign-in could not be kept: {error}");
-                }
+        let keeper = self.store(service).map(SessionStore::keeper);
+        let client = Client::new(Arc::clone(&provider), Arc::clone(&transport), session)
+            .saving_with(Arc::new(move |session| {
+                jobs::keep_renewed(keeper.as_ref(), &*provider, &*transport, session);
             }));
-        }
         self.bump(service);
         if let Some(connection) = self.connection_mut(service) {
             connection.last_failure = None;

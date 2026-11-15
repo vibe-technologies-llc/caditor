@@ -1,10 +1,14 @@
 use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use caditor_cloud::{FolderId, FolderRef, ProjectId, Service, Session, WorkspaceId};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -23,6 +27,47 @@ pub enum StoreError {
     Keyring(KeyringError),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Ticket(u64);
+
+#[derive(Debug, Default)]
+pub struct Keeping {
+    generation: AtomicU64,
+    last_kept: Mutex<Option<Ticket>>,
+}
+
+impl Keeping {
+    pub fn ticket(&self) -> Ticket {
+        Ticket(self.generation.load(Ordering::SeqCst))
+    }
+
+    pub fn retire(&self) -> Ticket {
+        Ticket(
+            self.generation
+                .fetch_add(1, Ordering::SeqCst)
+                .saturating_add(1),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kept {
+    Saved,
+    Late,
+}
+
+#[derive(Debug, Clone)]
+pub struct Keeper {
+    store: SessionStore,
+    ticket: Ticket,
+}
+
+impl Keeper {
+    pub fn save(&self, session: &Session) -> io::Result<Kept> {
+        self.store.save(session, self.ticket)
+    }
+}
+
 #[derive(Clone)]
 pub struct SessionStore {
     folder: PathBuf,
@@ -32,6 +77,7 @@ pub struct SessionStore {
     thumbnails_dir: PathBuf,
     service: Service,
     keyring: Arc<dyn Keyring>,
+    keeping: Arc<Keeping>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -74,6 +120,24 @@ impl SessionStore {
             folder,
             service,
             keyring,
+            keeping: Arc::default(),
+        }
+    }
+
+    pub fn keeping_with(mut self, keeping: Arc<Keeping>) -> Self {
+        self.keeping = keeping;
+        self
+    }
+
+    pub fn ticket(&self) -> Ticket {
+        self.keeping.ticket()
+    }
+
+    pub fn keeper(self) -> Keeper {
+        let ticket = self.ticket();
+        Keeper {
+            store: self,
+            ticket,
         }
     }
 
@@ -90,6 +154,7 @@ impl SessionStore {
     }
 
     pub fn load(&self) -> io::Result<Option<Session>> {
+        let _kept = self.keeping.last_kept.lock();
         if let Err(error) = private::restrict(&self.folder) {
             log::warn!(
                 "the cloud folder {} could not be made private: {error}",
@@ -109,18 +174,28 @@ impl SessionStore {
         }
     }
 
-    pub fn save(&self, session: &Session) -> io::Result<()> {
+    pub fn save(&self, session: &Session, ticket: Ticket) -> io::Result<Kept> {
+        let mut last_kept = self.keeping.last_kept.lock();
+        if ticket != self.ticket() {
+            return Ok(Kept::Late);
+        }
         let bytes = serde_json::to_vec(session).map_err(io::Error::other)?;
+        *last_kept = Some(ticket);
         match self.keyring.set(self.service, &bytes) {
             Ok(()) => self.remove_file(),
             Err(error) => {
                 log_unreachable("keep the sign-in", &error);
                 self.write_file(&bytes)
             }
-        }
+        }?;
+        Ok(Kept::Saved)
     }
 
-    pub fn forget(&self) -> Result<(), StoreError> {
+    pub fn forget(&self, through: Ticket) -> Result<(), StoreError> {
+        let last_kept = self.keeping.last_kept.lock();
+        if last_kept.is_some_and(|kept| kept >= through) {
+            return Ok(());
+        }
         let file = self.remove_file().map_err(StoreError::File);
         let kept = match self.keyring.delete(self.service) {
             Err(error) if !error.is_absent() => Err(StoreError::Keyring(error)),
@@ -282,6 +357,7 @@ fn log_unreachable(attempt: &str, error: &KeyringError) {
 
 #[cfg(test)]
 mod tests {
+    use caditor_cloud::fake::Hold;
     use tempfile::TempDir;
 
     use super::*;
@@ -318,7 +394,7 @@ mod tests {
         let keyring = FakeKeyring::reachable();
         let store = store(&dir, &keyring);
 
-        store.save(&session()).unwrap();
+        store.save(&session(), store.ticket()).unwrap();
 
         assert_eq!(keyring.holds(Service::Fusion), Some(bytes()));
         assert!(!store.path.exists());
@@ -330,11 +406,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
         let store = store(&dir, &keyring);
-        store.save(&session()).unwrap();
+        store.save(&session(), store.ticket()).unwrap();
         store.write_file(&bytes()).unwrap();
 
-        store.forget().unwrap();
-        store.forget().unwrap();
+        store.forget(store.keeping.retire()).unwrap();
+        store.forget(store.keeping.retire()).unwrap();
 
         assert_eq!(keyring.holds(Service::Fusion), None);
         assert!(!store.path.exists());
@@ -342,16 +418,110 @@ mod tests {
     }
 
     #[test]
+    fn a_save_whose_ticket_a_forget_has_retired_is_dropped() {
+        let dir = TempDir::new().unwrap();
+        let keyring = FakeKeyring::reachable();
+        let store = store(&dir, &keyring);
+        let keeper = store.clone().keeper();
+
+        store.forget(store.keeping.retire()).unwrap();
+
+        assert_eq!(keeper.save(&session()).unwrap(), Kept::Late);
+        assert_eq!(keyring.holds(Service::Fusion), None);
+        assert!(!store.path.exists());
+    }
+
+    #[test]
+    fn a_late_save_writes_no_file_either_when_the_keyring_is_unreachable() {
+        let dir = TempDir::new().unwrap();
+        let store = store(&dir, &FakeKeyring::unreachable());
+        let keeper = store.clone().keeper();
+
+        store.keeping.retire();
+
+        assert_eq!(keeper.save(&session()).unwrap(), Kept::Late);
+        assert!(!store.path.exists());
+    }
+
+    #[test]
+    fn a_forget_after_a_save_of_the_retired_ticket_removes_it() {
+        let dir = TempDir::new().unwrap();
+        let keyring = FakeKeyring::reachable();
+        let store = store(&dir, &keyring);
+        let keeper = store.clone().keeper();
+
+        assert_eq!(keeper.save(&session()).unwrap(), Kept::Saved);
+
+        store.forget(store.keeping.retire()).unwrap();
+
+        assert_eq!(keyring.holds(Service::Fusion), None);
+    }
+
+    #[test]
+    fn a_forget_running_after_a_newer_sign_in_was_saved_leaves_that_sign_in_alone() {
+        let dir = TempDir::new().unwrap();
+        let keyring = FakeKeyring::reachable();
+        let store = store(&dir, &keyring);
+        let through = store.keeping.retire();
+        let newer = store.clone().keeper();
+
+        assert_eq!(newer.save(&session()).unwrap(), Kept::Saved);
+
+        store.forget(through).unwrap();
+
+        assert_eq!(keyring.holds(Service::Fusion), Some(bytes()));
+    }
+
+    #[test]
+    fn a_forget_issued_while_a_save_is_inside_the_keyring_removes_what_it_wrote() {
+        let dir = TempDir::new().unwrap();
+        let keyring = FakeKeyring::reachable();
+        let hold = Hold::new();
+        keyring.hold_sets(Arc::clone(&hold));
+        let store = store(&dir, &keyring);
+        let keeper = store.clone().keeper();
+        let saving = std::thread::spawn(move || keeper.save(&session()).unwrap());
+
+        assert!(hold.reached());
+
+        let through = store.keeping.retire();
+        let forgetting = {
+            let store = store.clone();
+            std::thread::spawn(move || store.forget(through).unwrap())
+        };
+        hold.release();
+
+        assert_eq!(saving.join().unwrap(), Kept::Saved);
+        forgetting.join().unwrap();
+        assert_eq!(keyring.holds(Service::Fusion), None);
+        assert!(!store.path.exists());
+    }
+
+    #[test]
+    fn stores_sharing_a_keeping_share_its_tickets() {
+        let dir = TempDir::new().unwrap();
+        let keeping = Arc::new(Keeping::default());
+        let one = store(&dir, &FakeKeyring::reachable()).keeping_with(Arc::clone(&keeping));
+        let other = store(&dir, &FakeKeyring::reachable()).keeping_with(keeping);
+        let keeper = one.clone().keeper();
+
+        other.keeping.retire();
+
+        assert_eq!(keeper.save(&session()).unwrap(), Kept::Late);
+        assert_eq!(one.ticket(), other.ticket());
+    }
+
+    #[test]
     fn without_a_keyring_the_session_is_kept_in_the_file() {
         let dir = TempDir::new().unwrap();
         let store = store(&dir, &FakeKeyring::unreachable());
 
-        store.save(&session()).unwrap();
+        store.save(&session(), store.ticket()).unwrap();
 
         assert!(store.path.exists());
         assert_eq!(store.load().unwrap(), Some(session()));
 
-        store.forget().unwrap();
+        store.forget(store.keeping.retire()).unwrap();
 
         assert!(!store.path.exists());
         assert_eq!(store.load().unwrap(), None);
@@ -393,14 +563,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
         let store = store(&dir, &keyring);
-        store.save(&session()).unwrap();
+        store.save(&session(), store.ticket()).unwrap();
         let renewed = Session {
             access_token: "b".to_owned(),
             ..session()
         };
 
         keyring.reach(false);
-        store.save(&renewed).unwrap();
+        store.save(&renewed, store.ticket()).unwrap();
         keyring.reach(true);
 
         assert_eq!(store.load().unwrap(), Some(renewed.clone()));
@@ -417,7 +587,7 @@ mod tests {
         let store = store(&dir, &keyring);
         store.write_file(b"left behind").unwrap();
 
-        store.save(&session()).unwrap();
+        store.save(&session(), store.ticket()).unwrap();
 
         assert!(!store.path.exists());
     }
@@ -451,7 +621,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store = store(&dir, &FakeKeyring::unreachable());
 
-        store.save(&session()).unwrap();
+        store.save(&session(), store.ticket()).unwrap();
 
         let mode = fs::metadata(&store.path).unwrap().permissions().mode();
         assert_eq!(mode & 0o077, 0);

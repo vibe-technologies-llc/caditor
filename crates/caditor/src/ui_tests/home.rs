@@ -11,7 +11,7 @@ use caditor_cloud::{
     Design, DesignId, Error, Folder, FolderId, FolderRef, Part, PartId, Project, ProjectId, SendAs,
     Service, Upload, UploadFormat, UploadId, Version, VersionId, Workspace, WorkspaceId,
     WorkspaceKind,
-    fake::{FakeProvider, ScriptedTransport, Step},
+    fake::{FakeProvider, Hold, ScriptedTransport, Step},
 };
 use caditor_document::Document;
 use caditor_file::{
@@ -896,6 +896,135 @@ fn cancelling_a_sign_in_waiting_for_the_browser_goes_back_to_the_advert() {
     });
 
     assert!(provider.calls().iter().all(|call| call != "finish sign in"));
+}
+
+fn session_file(dir: &Path) -> PathBuf {
+    dir.join("state").join("cloud").join("fusion-session.json")
+}
+
+fn revokes(provider: &FakeProvider) -> usize {
+    provider
+        .calls()
+        .iter()
+        .filter(|call| *call == "revoke")
+        .count()
+}
+
+fn trading_the_code(
+    dir: &Path,
+    provider: &Arc<FakeProvider>,
+    keyring: &Arc<FakeKeyring>,
+) -> Harness {
+    let mut harness = with_services(dir, provider, keyring_services(dir, Arc::clone(keyring)));
+    open_home(&mut harness);
+    harness.wait_until("the sign-in button is shown", |harness| {
+        harness.shows(home::SIGN_IN)
+    });
+    harness.click(home::SIGN_IN);
+    harness.wait_until("the browser is awaited", |harness| {
+        harness.shows(home::WAITING_FOR_BROWSER)
+    });
+    keyring.put(Service::Fusion, b"kept before");
+    harness
+}
+
+fn ended_while_the_code_is_traded(end: impl FnOnce(&mut Harness)) {
+    let dir = TempDir::new().unwrap();
+    let hold = Hold::new();
+    let provider = Arc::new(catalogue(b"").holding(Step::SignIn, Arc::clone(&hold)));
+    let keyring = FakeKeyring::reachable();
+    let mut harness = trading_the_code(dir.path(), &provider, &keyring);
+
+    assert!(hold.reached());
+
+    end(&mut harness);
+    harness.wait_until("the forget has run before the exchange ends", |_| {
+        keyring.holds(Service::Fusion).is_none()
+    });
+    hold.release();
+    harness.wait_until("the session that came too late is revoked", |_| {
+        revokes(&provider) == 1
+    });
+
+    assert_eq!(keyring.holds(Service::Fusion), None);
+    assert!(!session_file(dir.path()).exists());
+    assert!(harness.workspace.cloud.linked(Service::Fusion).is_none());
+}
+
+#[test]
+fn a_sign_in_cancelled_while_its_code_is_traded_is_revoked_and_never_kept() {
+    ended_while_the_code_is_traded(|harness| harness.click("Cancel"));
+}
+
+#[test]
+fn turning_cloud_off_while_a_code_is_traded_forgets_and_revokes_the_sign_in() {
+    ended_while_the_code_is_traded(|harness| {
+        harness.perform(Action::Preferences(PreferencesCommand::Change(
+            PreferenceChange::CloudEnabled(false),
+        )));
+    });
+}
+
+#[test]
+fn a_sign_in_cancelled_while_its_session_is_going_into_the_keyring_is_removed_and_revoked() {
+    let dir = TempDir::new().unwrap();
+    let hold = Hold::new();
+    let provider = fusion_provider(b"");
+    let keyring = FakeKeyring::reachable();
+    keyring.hold_sets(Arc::clone(&hold));
+    let mut harness = trading_the_code(dir.path(), &provider, &keyring);
+
+    assert!(hold.reached());
+
+    harness.click("Cancel");
+    harness.wait_until("the advert is back", |harness| {
+        harness.shows(home::ADVERT_TITLE)
+    });
+    hold.release();
+    harness.wait_until("the sign-in is forgotten and revoked", |_| {
+        revokes(&provider) == 1 && keyring.holds(Service::Fusion).is_none()
+    });
+
+    assert!(!session_file(dir.path()).exists());
+    assert!(harness.workspace.cloud.linked(Service::Fusion).is_none());
+}
+
+#[test]
+fn a_refresh_finishing_after_signing_out_is_revoked_and_never_kept() {
+    let dir = TempDir::new().unwrap();
+    let hold = Hold::new();
+    let provider = Arc::new(
+        catalogue(b"")
+            .expiring_at_sign_in()
+            .holding(Step::Refresh, Arc::clone(&hold)),
+    );
+    let keyring = FakeKeyring::reachable();
+    let mut harness = with_services(
+        dir.path(),
+        &provider,
+        keyring_services(dir.path(), keyring.clone()),
+    );
+    open_home(&mut harness);
+    sign_in(&mut harness);
+
+    assert!(hold.reached());
+    assert!(keyring.holds(Service::Fusion).is_some());
+
+    harness.wait_until("the sign-out button is shown", |harness| {
+        harness.shows(home::SIGN_OUT)
+    });
+    harness.click(home::SIGN_OUT);
+    harness.wait_until("the sign-in is revoked and forgotten", |_| {
+        revokes(&provider) == 1 && keyring.holds(Service::Fusion).is_none()
+    });
+    hold.release();
+    harness.wait_until("the renewed session is revoked", |_| {
+        revokes(&provider) == 2
+    });
+
+    assert_eq!(keyring.holds(Service::Fusion), None);
+    assert!(!session_file(dir.path()).exists());
+    assert!(harness.shows(home::ADVERT_TITLE));
 }
 
 #[test]

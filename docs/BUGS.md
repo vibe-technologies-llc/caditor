@@ -46,29 +46,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   startup, so a damaged or crafted journal beside a downloaded model may exhaust memory. How large
   restored transactions can get is unchecked; charge a `Budget` across entries if they can.
 
-## Cloud and the MCP server
-
-- [medium · small] The sign-in listener binds 127.0.0.1 (`loopback.rs`) but sends the browser to
-  `http://localhost:<port>/callback`, which browsers often try as `[::1]` first, where any local
-  process can listen on the same port and take the code; with PKCE that only blocks the sign-in,
-  but Onshape's PKCE is unconfirmed (`DECISIONS.md`). Listen on both, or register `127.0.0.1` as
-  RFC 8252 §8.3 recommends.
-- [medium · small] The sign-in listener can be held or ended by anyone: connections are answered
-  one at a time with a 3 s timeout per read, so a client sending a byte every few seconds holds it
-  for hours, the stop flag and deadline checked only between connections; any `?error=` ends the
-  sign-in without checking `state`, and the first `code` and `state` end the wait with the
-  signed-in page before the state is compared (`client.rs`). It stays bound through the keyring
-  save (`cloud/jobs.rs`, an unlock prompt of up to 2 minutes), blocking the other service's sign-in
-  on the shared port. Give each connection a deadline, ignore callbacks of another state, and drop
-  the listener once the callback is taken.
-- [medium · medium] A sign-in or token refresh finishing after Cancel, Sign out or turning cloud
-  off stores its session anyway: `cloud/jobs.rs` saves after the token exchange without checking
-  `stop` again, Cancel queues a separate forget that can run before that save (and with `revoke`
-  forgets nothing), and a refresh in flight (`client.rs`, `renew`) saves after sign-out's forget,
-  so the session comes back unrevoked at the next start, against `cloud.md`. A forgotten
-  generation the store checks on saving, and revoking a session that arrives late, close it;
-  nothing tests these orders (`FakeProvider` holding the exchange and `FakeKeyring` can).
-
 ## Kernel
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
