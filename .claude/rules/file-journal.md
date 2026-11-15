@@ -10,6 +10,7 @@ paths:
   - "crates/caditor-file/src/logs.rs"
   - "crates/caditor-file/src/crash.rs"
   - "crates/caditor-file/tests/**"
+  - "crates/caditor-file/src/tests/journal_during_saves.rs"
   - "crates/caditor-file/src/os/**"
 ---
 
@@ -27,9 +28,9 @@ paths:
 - The journal carries no preview picture (`file-format.md`): a picture pictures a saved file, and a
   journal restores unsaved work, so the file written when a recovered session is saved draws its
   own. `SaveRequest::preview` reaches only the model file; the worker hands it to `SaveOptions` and
-  the journal rewrite after the save is untouched by it. The worker syncs the journal before a save
-  and waits for the picture inside the save (at most `PREVIEW_PATIENCE`, only while the drawing is
-  still running), so appends queue behind it for that long at most.
+  the journal rewrite after the save is untouched by it. The worker syncs the journal before a save;
+  the save's own thread waits for the picture (at most `PREVIEW_PATIENCE`, only while the drawing
+  is still running), and appends never wait for it (`Storage` below).
 - Undo and redo are journaled by reference when possible (`UndoLast`, `RedoNext`), so undoing an
   import never repeats its STEP text; the storage worker follows the journal in a `Mirror`.
 - A reference image's picture is written into a journal once: the worker keeps the digests the file
@@ -43,7 +44,8 @@ paths:
 - Rebase: once bytes appended since the last rewrite exceed both `StorageConfig::rebase_journal_after`
   and that rewrite's size, the mirror's document becomes the snapshot, its entries are counted in
   `folded` and dropped, and `Report::Rebased` hands the app the new base. Undo steps of folded
-  changes are not recovered.
+  changes are not recovered. It is a background job like a save (below): entries recorded while it
+  runs follow the new snapshot.
 - A rebased snapshot is a `RebasedSnapshot` chunk, never a plain `Snapshot`: it is not the saved
   state, so the scan must not delete it as unchanged. A recovered session with folded changes has
   no known saved state (`Model::saved` is `None`), so it stays modified.
@@ -90,8 +92,32 @@ paths:
 
 ## `Storage`
 
-- One worker thread per open document owns the journal and performs saves, keeping appends, saves
-  and rebases in order; fsyncs after each batch.
+- One worker thread per open document owns the journal and fsyncs it after each batch of commands.
+  A save, a Keep and a rebase are jobs, each run on a `saving` thread of its own, so the worker
+  keeps appending and syncing records and answers a flush at once while one runs: a crash flush
+  (`crash.rs`, `FLUSH_TIMEOUT`) never waits behind a save of many seconds. One job runs at a time;
+  a Save, Keep or Close arriving meanwhile waits in `Busy::waiting` and is handled in order once
+  it finishes. A job that cannot get a thread runs on the worker.
+- The save's snapshot is the document its request carries, so the entries recorded after the
+  request in the channel are exactly those made after it. The worker keeps them whole while the job
+  runs (`Busy::since`); a save queued behind the job keeps only those after its own place in the
+  queue (`Queued::Journaled`). A finished save or rebase makes its document the base and logs those
+  entries again through a fresh `Mirror` (`restart_from`), since an `UndoLast` logged against the
+  old history has nothing to undo on the new base, then writes them after the new snapshot.
+- The job also prepares the next journal: it encodes the header and snapshot and writes them to a
+  locked, synced temporary beside the first candidate not held elsewhere (`JournalPlan::prepare`,
+  `Staged`). The worker appends the entries made meanwhile, syncs and renames it into place
+  (`install_prepared`), so only those bytes and a rename hold up appends. A failure to prepare or
+  install falls back to the worker rewriting the whole journal.
+- Until that rename the old journal holds the old base and every entry, those made during the save
+  included, so a crash at any point restores them all; a failed or refused save changes nothing in
+  it. A crash after the model was replaced but before the rename leaves a journal whose `on_disk`
+  differs from the file, offered as after any outside change, still with every edit.
+- A job reports back as `Command::Finished` on the worker's own channel. The worker holds a sender
+  for that until the `Storage` is dropped (`Command::Released`), so it still stops once the
+  `Storage` and every `Flusher` are gone.
+- Tests hold jobs at a `JobGate` (`StorageConfig::jobs`, test builds only) to record, flush, save
+  again or fail while a save is in flight (`src/tests/journal_during_saves.rs`).
 - After a write error (`Report::JournalFailed`) it keeps the lock, stops appending and rewrites
   the whole journal every `RETRY_INTERVAL` until it succeeds (`Report::JournalRestored`). A
   replaced journal is removed only once the new one is written.
@@ -109,7 +135,8 @@ paths:
   path as is on Unix, the case-folded final path on Windows); `paths::journals_for` gives the
   adjacent journal and that one, and a journal's marker is named the same way (`journal_marker`).
 - A `Flusher` lets the panic hook and the termination handlers (signals, closing console, end of
-  a Windows session) wait for pending entries.
+  a Windows session) wait for pending entries, never for a job in flight; to wait for a save, wait
+  for its report.
 
 ## Preferences and recent files (`settings.rs`, `recent.rs`)
 

@@ -1,7 +1,8 @@
 use std::{
     collections::BTreeSet,
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -16,6 +17,7 @@ use caditor_sketch::{
     ChainSize, Constraint, ConstraintId, Entity, EntityId, FitSpacing, Gear, Sketch, SplineKind,
     Text, TextAlign,
 };
+use parking_lot::{Condvar, Mutex};
 use tempfile::TempDir;
 
 use super::{
@@ -32,6 +34,48 @@ use super::{
 
 const WAIT: Duration = Duration::from_secs(10);
 const LOAD_STEPS_PER_RECORD: usize = 8;
+const GATE_PATIENCE: Duration = Duration::from_secs(60);
+
+#[derive(Clone, Default)]
+pub(crate) struct JobGate(Arc<GateState>);
+
+#[derive(Default)]
+struct GateState {
+    held: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl JobGate {
+    pub(crate) fn hold(&self) {
+        *self.0.held.lock() = true;
+    }
+
+    pub(crate) fn release(&self) {
+        *self.0.held.lock() = false;
+        self.0.changed.notify_all();
+    }
+
+    pub(crate) fn pass(&self) {
+        let mut held = self.0.held.lock();
+        self.0
+            .changed
+            .wait_while_for(&mut held, |held| *held, GATE_PATIENCE);
+    }
+}
+
+impl fmt::Debug for JobGate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("JobGate")
+    }
+}
+
+impl PartialEq for JobGate {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for JobGate {}
 
 fn dimensioned_line(plane: Plane, length: f64, value: Expression) -> Sketch {
     let mut sketch = Sketch::new(plane);
@@ -7532,6 +7576,7 @@ fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
 mod configurations;
 mod corpus;
 mod drawings;
+mod journal_during_saves;
 mod pictures;
 mod save_costs;
 mod seeds;

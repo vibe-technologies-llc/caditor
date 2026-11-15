@@ -7,15 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Saving and recovery
 
-- [high · medium] A crash during a save loses the edits made while it ran: the storage worker
-  (`storage.rs`, `Worker::run`) handles commands one at a time, so the `Record`s the app journals
-  while a save encodes, writes, reads back and rewrites the journal (2.5 to 14 s on the VZ330; the
-  same for `keep_version` and a rebase) wait in its queue, and the crash flush (`crash.rs`,
-  `FLUSH_TIMEOUT` of 2 s) queues behind them. `file-journal.md` says appends wait only for the
-  preview's 1.5 s. Saving on a thread of its own, the worker appending and syncing meanwhile and
-  the rewrite after the save keeping entries made after its snapshot, would keep the
-  seconds-at-most promise; no test crashes with a save queued ahead of records
-  (`tests/crash_flush.rs` flushes an idle worker).
 - [high · medium] A model of more than about 1 GiB uncompressed (half `MAX_DECOMPRESSED`) cannot be
   saved again once changed: the read-back (`binary/model.rs`, `rebuilds_fresh`) rebuilds the
   replaced version, a delta in 7 saves of 8, beside the new snapshot through `unpack_beside`, whose
