@@ -372,6 +372,50 @@ fn each_piece_is_hidden_and_coloured_on_its_own_and_undo_restores_it() {
     assert!(model.document.same_content(&before));
 }
 
+fn coloured(red: u8, green: u8, blue: u8) -> BodyAppearance {
+    BodyAppearance {
+        colour: Some(Rgb { red, green, blue }),
+        ..BodyAppearance::default()
+    }
+}
+
+fn look(id: FeatureId, appearance: BodyAppearance) -> Transaction {
+    Transaction::single("Look", Edit::SetBodyAppearance { id, appearance })
+}
+
+#[test]
+fn undoing_a_deletion_keeps_a_piece_look_that_came_to_equal_the_feature_look() {
+    let mut model = three_rectangles();
+    let first = piece_of(model.extrusion, &model.rectangles[0]);
+    let red = coloured(200, 0, 0);
+    let blue = coloured(0, 0, 200);
+
+    model.document.apply(look(first, red.clone())).unwrap();
+    model
+        .document
+        .apply(look(model.extrusion, red.clone()))
+        .unwrap();
+    let before = model.document.clone();
+    let undo = model
+        .document
+        .apply(Transaction::single(
+            "Delete",
+            Edit::RemoveFeature {
+                id: model.extrusion,
+            },
+        ))
+        .unwrap();
+    model.document.apply(undo).unwrap();
+    let restored = model.document.same_content(&before);
+    model.document.apply(look(model.extrusion, blue)).unwrap();
+
+    assert!(restored);
+    assert_eq!(
+        model.document.body_appearance(first).unwrap().into_owned(),
+        red
+    );
+}
+
 fn redraw_line(model: &mut Model, start: (f64, f64), end: (f64, f64)) -> EntityId {
     let mut transaction = model.document.transaction("Redraw");
     let start =

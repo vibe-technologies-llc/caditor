@@ -249,6 +249,7 @@ impl Editor {
             return false;
         }
         self.document = followed;
+        self.revision += 1;
         true
     }
 

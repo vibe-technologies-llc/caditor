@@ -82,7 +82,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   end, everything removed, the target's inserted with IDs, flags, notes and owners, bar restored),
   never lowering a sketch's ID counter; it restores an earlier version as one undoable change. When
   the configuration tables differ, or the current one names a parameter of the model, it first
-  deactivates and empties the current one, and sets the target's at the end.
+  deactivates and empties the current one, and sets the target's at the end; drawings whose section
+  offsets name a parameter are emptied the same way before the parameters go, since
+  `RemoveParameter` refuses a parameter a drawing uses.
 
 ### Model scale (`model_scale.rs`)
 
@@ -154,8 +156,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   and a copy named otherwise would split it. Features copied from no folder take none.
 - `FeatureKind::rename_features` rewrites every plain feature id a kind holds, those inside axis,
   plane and point references, measured items, mate targets and datums included. Inputs inside the
-  copy are renamed through placeholders above `PLACEHOLDER_BASE`; one still named as a plain id
-  afterwards is `PasteRefusal::Unfollowed`, and users of a left-out feature are `LeftOutInput`.
+  copy are renamed through `Placeholders`: maker ids drawn afresh for each pasted feature from
+  those its kind does not name anywhere (`rename_features`, `features`, `dependencies`, picked
+  corners), never a fixed range, since every `FeatureId` value is a storable id or a piece's. One
+  still named as a plain id afterwards is `PasteRefusal::Unfollowed`, and users of a left-out
+  feature are `LeftOutInput`.
 - One still among the origin features (a face or edge reference names its feature in its digest,
   a section projection's edge included), or a body a corner (`VertexName`) is picked on, is a pick
   of copied geometry (`copied_picks` counts such features, and those of the next bullet).
@@ -1376,8 +1381,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `piece_looks` (`PieceLooks`) holds each piece's own `BodyAppearance` and hidden flag by key. A piece
   without its own look takes the feature's appearance without its name (`Feature::piece_appearance`,
   `inherited_piece_appearance`); `SetBodyAppearance` of an appearance equal to that stores none, so
-  the inverse restores exactly what was there. `InsertFeature` settles them and checks each
-  appearance; their densities count among the feature's parameters, inlining rewrites them per
+  the inverse restores exactly what was there. `InsertFeature` settles each look and checks it but
+  keeps one equal to the inherited look, since a piece's look can come to equal its feature's
+  through a later `SetBodyAppearance` on the maker, and undoing a deletion must bring it back held; their densities count among the feature's parameters, inlining rewrites them per
   piece and pasting carries them. Looks of pieces gone are kept, so a piece drawn again gets its
   look back.
 - `Document::body_name` (a `Cow`) gives a piece's own name, else "<feature> (<curve label>)"
@@ -1387,9 +1393,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   scene's health and `face_splits` see them. `bodies_before_in` and `bodies_standing_in` list the
   bodies with each separating feature's pieces, read from an `Evaluation`; `bodies_before` and
   `bodies_standing` stay by making feature.
-- Pasting maps a piece of a copied feature through a placeholder of its own
-  (`PIECE_PLACEHOLDER_BASE`, below `FIRST_UNSTORABLE_ID` like the plain placeholders), so a copy
-  using a piece of a copy uses the matching piece of the new feature.
+- Pasting maps a piece of a copied feature through the piece of its input's placeholder, so a
+  copy using a piece of a copy uses the matching piece of the new feature.
 
 ### Split face (`split_face.rs`)
 
@@ -1799,9 +1804,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   expression is kept as the latest reading for the ordinary parameter deleting the measurement
   leaves. `Document::following_readings` turns each up-to-date reading that differs into a
   `SetParameterExpression` of `reading_literal`, which `Editor::follow_readings` applies outside the
-  undo history and without a new revision (the app runs it on every evaluation of the current
-  revision, `app.md`); a prepared commit or undo that drops it is followed again on the next
-  evaluation. `Document::deletion` (`keeping_readings`) also writes the stored reading into each
+  undo history as a new revision, so a change prepared off the UI thread before it commits as
+  `Stale` rather than over the readings (the app runs it on every evaluation of the current
+  revision, `app.md`); an undo that drops it is followed again on the next evaluation. `Document::deletion` (`keeping_readings`) also writes the stored reading into each
   surviving measured parameter in its own transaction, so a journal replayed onto a base that never
   followed still leaves the last reading. A failed or suppressed measurement's users still fail; the
   stored value is no fallback.

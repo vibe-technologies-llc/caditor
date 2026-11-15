@@ -497,6 +497,39 @@ fn deleting_a_used_measurement_leaves_its_parameter_at_the_last_reading() {
 }
 
 #[test]
+fn following_readings_is_a_new_revision_a_change_prepared_before_cannot_commit_over() {
+    let mut model = model();
+    let kept = height_of_corner(&model);
+    let (_, gap) = keep(&mut model, "clearance", kept);
+    reader(&mut model, gap);
+    let mut editor = Editor::new(model.document.clone());
+
+    let base = editor.base();
+    let prepared = base
+        .prepare(Transaction::single(
+            "Height",
+            Edit::SetParameterExpression {
+                id: model.height,
+                expression: millimetres(6.5),
+            },
+        ))
+        .unwrap();
+    let before = editor.revision();
+    let evaluation = evaluate(editor.document());
+    let followed = editor.follow_readings(&evaluation);
+    let after = editor.revision();
+    let again = editor.follow_readings(&evaluation);
+    let committed = editor.commit(prepared);
+
+    assert!(followed);
+    assert!(!again);
+    assert_eq!(after, before + 1);
+    assert_eq!(editor.revision(), after);
+    assert_eq!(committed.unwrap_err(), Stale);
+    assert_eq!(editor.undo_labels().count(), 0);
+}
+
+#[test]
 fn a_followed_area_is_kept_in_square_millimetres() {
     let area = Quantity::new(80.0, Dimension::new(2, 0));
 

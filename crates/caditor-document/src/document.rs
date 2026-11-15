@@ -2227,14 +2227,20 @@ impl Document {
             (self.selection_sets != target.selection_sets).then(|| Edit::SetSelectionSets {
                 sets: Box::new(SelectionSets::clone(&target.selection_sets)),
             });
-        let drawings = (!self.drawings.same_content(&target.drawings)).then(|| Edit::SetDrawings {
+        let drawings_name_a_removed_parameter = self.drawings.parameters().next().is_some();
+        let drawings = (drawings_name_a_removed_parameter
+            || !self.drawings.same_content(&target.drawings))
+        .then(|| Edit::SetDrawings {
             drawings: Box::new(Drawings::clone(&target.drawings)),
         });
-        let names_a_removed_parameter = self
+        let drawings_clearing = drawings_name_a_removed_parameter.then(|| Edit::SetDrawings {
+            drawings: Box::default(),
+        });
+        let configurations_name_a_removed_parameter = self
             .configurations
             .parameters_named()
             .any(|id| self.parameter(id).is_some());
-        let configurations = (names_a_removed_parameter
+        let configurations = (configurations_name_a_removed_parameter
             || !self.configurations.same_content(&target.configurations))
         .then(|| Edit::SetConfigurations {
             configurations: Box::new(Configurations::clone(&target.configurations)),
@@ -2253,6 +2259,7 @@ impl Document {
             deactivation
                 .into_iter()
                 .chain(clearing)
+                .chain(drawings_clearing)
                 .chain(removals)
                 .chain(insertions)
                 .chain(visibility)

@@ -1772,6 +1772,7 @@ impl Model {
                     && self.editor.follow_readings(&self.evaluation)
                 {
                     self.dirty = self.dirty && self.differs_from_saved();
+                    self.evaluated_revision = Some(self.revision());
                 }
                 self.parameters.take_readings(&self.evaluation.parameters);
                 self.display.sketches.forget();

@@ -181,6 +181,61 @@ fn references_outside_the_copy_are_kept_in_the_same_model_and_refused_elsewhere(
     assert_eq!(left_out[0].reason, PasteRefusal::OutsideFeature);
 }
 
+fn cutting(sketch: FeatureId, body: FeatureId) -> FeatureKind {
+    FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+        sketch,
+        regions: RegionChoice::All,
+        extent: ExtrudeExtent::one_side(Expression::Number(2.0), false),
+        operation: BodyOperation::Remove(body),
+        start: None,
+        other_bodies: Vec::new(),
+        taper: None,
+        direction: None,
+        wall: None,
+    }))
+}
+
+#[test]
+fn a_reference_to_a_feature_numbered_past_two_to_the_62_is_never_taken_for_a_copy() {
+    let mut document = Document::default();
+    document.reserve_ids_below(0, (1 << 62) - 1);
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let block = transaction.add_feature("Block", extrude(outline, Expression::Number(4.0)));
+    let cutter = transaction.add_feature(
+        "Cutter",
+        FeatureKind::from(rectangle((2.0, 2.0), (4.0, 4.0))),
+    );
+    let cut = transaction.add_feature("Cut", cutting(cutter, block));
+    document.apply(transaction.finish()).unwrap();
+    let features = copied(&document, &[cutter, cut]);
+    let parameters = carried(&document, &features);
+
+    let paste = document
+        .paste_features(&features, &parameters, PasteOrigin::ThisDocument)
+        .unwrap();
+    let refused = Document::default()
+        .paste_features(&features, &parameters, PasteOrigin::Elsewhere)
+        .unwrap();
+    document.apply(paste.transaction.clone()).unwrap();
+
+    assert_eq!(block.raw(), 1 << 62);
+    let [sketch, solid] = paste.pasted[..] else {
+        panic!("two features should be pasted: {:?}", paste.pasted);
+    };
+    let Some(SolidFeature::Extrude(copy)) = document.feature(solid).unwrap().kind.solid() else {
+        panic!("an extrusion");
+    };
+    assert_eq!(copy.sketch, sketch);
+    assert_eq!(copy.operation, BodyOperation::Remove(block));
+    assert_eq!(refused.pasted.len(), 1);
+    assert_eq!(refused.left_out[0].name, "Cut");
+    assert_eq!(refused.left_out[0].reason, PasteRefusal::OutsideFeature);
+}
+
 fn edge_at(solid: &Solid, point: Point3) -> EdgeReference {
     let (id, _) = solid
         .edges()

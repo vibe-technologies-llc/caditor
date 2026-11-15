@@ -3,9 +3,9 @@ use std::sync::Arc;
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{Interrupt, MeshQuality, ProfileError, interruptible};
-use caditor_sketch::{EntityId, Sketch, SketchSolution, SplineKind};
+use caditor_sketch::{Entity, EntityId, Sketch, SketchSolution, SplineKind};
 
-use crate::*;
+use crate::{failure::Upstream, *};
 
 pub(crate) fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketch {
     let mut sketch = Sketch::new(plane);
@@ -555,6 +555,131 @@ fn a_run_cancelled_while_meshing_is_not_complete() {
         });
     assert_eq!(evaluation.failed_count(), 0);
     assert!(!evaluation.is_complete());
+}
+
+struct Interfering {
+    name: &'static str,
+    cut_short: bool,
+}
+
+impl Evaluator for Interfering {
+    fn evaluate(
+        &self,
+        feature: &Feature,
+        inputs: &Inputs<'_>,
+        cancel: &CancelToken,
+    ) -> Result<FeatureResult, Failure> {
+        if feature.name != self.name {
+            return ModelEvaluator.evaluate(feature, inputs, cancel);
+        }
+        if self.cut_short {
+            return Err(Failure::Cancelled);
+        }
+        Err(FeatureError::new(Upstream::Deleted {
+            sketch_attached: false,
+        })
+        .into())
+    }
+}
+
+fn redefined(document: &mut Document, feature: FeatureId, kind: FeatureKind) {
+    document
+        .apply(Transaction::single(
+            "Redefine",
+            Edit::SetFeatureKind { id: feature, kind },
+        ))
+        .unwrap();
+}
+
+#[test]
+fn a_feature_using_one_cut_short_is_outdated_not_failed_through_it() {
+    let mut drawing = rectangle(Plane::XY, (0.0, 0.0), (4.0, 4.0));
+    let mark = drawing.add_point(Point2::new(1.0, 1.0));
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature("Outline", FeatureKind::from(drawing));
+    let solid = transaction.add_feature(
+        "Solid",
+        extrude(outline, "5 mm", false, BodyOperation::NewBody),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default().with_workers(0);
+    let run = |engine: &mut Recompute, document: &Document, cut_short| {
+        let evaluator = Interfering {
+            name: "Outline",
+            cut_short,
+        };
+        engine.run(document, &evaluator, &CancelToken::never(), &|_, _| {})
+    };
+
+    let failed = run(&mut engine, &document, false);
+    document
+        .apply(Transaction::single(
+            "Move",
+            Edit::SetSketchEntity {
+                feature: outline,
+                id: mark,
+                entity: Entity::Point(Point2::new(2.0, 1.0)),
+            },
+        ))
+        .unwrap();
+    let cut = run(&mut engine, &document, true);
+
+    assert!(matches!(
+        failed.feature(solid).unwrap().state,
+        FeatureState::Failed(_)
+    ));
+    assert_eq!(cut.feature(outline).unwrap().state, FeatureState::Outdated);
+    assert_eq!(cut.feature(solid).unwrap().state, FeatureState::Outdated);
+}
+
+#[test]
+fn a_feature_on_a_body_cut_short_is_outdated_not_failed_through_it() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 10.0))),
+    );
+    let plate = transaction.add_feature(
+        "Plate",
+        extrude(outline, "0 mm", false, BodyOperation::NewBody),
+    );
+    let top = Plane::from_frame(Point3::new(0.0, 0.0, 6.0), Vector3::Z, Vector3::X).unwrap();
+    let pocket_outline = transaction.add_feature(
+        "Pocket outline",
+        FeatureKind::from(rectangle(top, (2.0, 2.0), (4.0, 4.0))),
+    );
+    let pocket = transaction.add_feature(
+        "Pocket",
+        extrude(pocket_outline, "3 mm", true, BodyOperation::Remove(plate)),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default().with_workers(0);
+
+    let failed = engine.run(
+        &document,
+        &ModelEvaluator,
+        &CancelToken::never(),
+        &|_, _| {},
+    );
+    redefined(
+        &mut document,
+        plate,
+        extrude(outline, "6 mm", false, BodyOperation::NewBody),
+    );
+    let evaluator = Interfering {
+        name: "Plate",
+        cut_short: true,
+    };
+    let cut = engine.run(&document, &evaluator, &CancelToken::never(), &|_, _| {});
+
+    assert!(matches!(
+        failed.feature(pocket).unwrap().state,
+        FeatureState::Failed(_)
+    ));
+    assert_eq!(cut.feature(plate).unwrap().state, FeatureState::Outdated);
+    assert_eq!(cut.feature(pocket).unwrap().state, FeatureState::Outdated);
 }
 
 #[test]

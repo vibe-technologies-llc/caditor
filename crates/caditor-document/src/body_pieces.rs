@@ -119,13 +119,12 @@ impl PieceLooks {
     }
 
     #[must_use]
-    pub(crate) fn settled(self, inherited: &BodyAppearance) -> Self {
+    pub(crate) fn settled(self) -> Self {
         Self {
             looks: self
                 .looks
                 .into_iter()
                 .map(|(key, appearance)| (key, appearance.settled()))
-                .filter(|(_, appearance)| appearance != inherited)
                 .collect(),
             hidden: self.hidden,
         }

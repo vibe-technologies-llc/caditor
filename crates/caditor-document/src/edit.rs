@@ -1439,7 +1439,8 @@ impl Document {
             || self
                 .configurations
                 .parameters_named()
-                .any(|named| named == id);
+                .any(|named| named == id)
+            || self.drawings.parameters().any(|named| named == id);
         if used {
             self.can_remove_parameter(id)?;
         }
@@ -1587,10 +1588,7 @@ impl Document {
                 Arc::make_mut(&mut feature).kind = kind;
             }
         }
-        let piece_looks = feature
-            .piece_looks
-            .clone()
-            .settled(&feature.inherited_piece_appearance());
+        let piece_looks = feature.piece_looks.clone().settled();
         if piece_looks != feature.piece_looks {
             Arc::make_mut(&mut feature).piece_looks = piece_looks;
         }

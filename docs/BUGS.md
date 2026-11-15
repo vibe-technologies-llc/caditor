@@ -212,13 +212,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [medium · easy] Deleting a parameter only a drawing's section offset uses is not refused:
-  `edit.rs`'s `remove_parameter` asks `can_remove_parameter` only when the graph, a feature or a
-  configuration uses it, while `parameter_users` counts drawings too (`drawings.md` says it is
-  refused). Afterwards every drawing edit fails `MissingParameter`, since the whole set is checked
-  again, until undone, and a reload moves the section to the centre. One in-use test for the edit
-  and the builders fixes it; `transaction_to` must then set the drawings before removing
-  parameters, as it already clears configurations first. No test removes one through `apply`.
 - [medium · medium] A configuration can become one that cannot be switched to: a row's cells are
   checked for cycles only when set (`configurations.rs`, `check_row_cycle`), so a live expression
   set later (`c = a` while a row holds `a = c`) makes `applying` that row a cycle, refused, and
@@ -229,20 +222,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `Measured::overlay` fills only the measurements the pattern reads, so an original sized by a
   measurement fails `CopyEnd` in the copies or lands with other values. Keep the original's values
   in `LandingInputs` when captured; untested with a measured diameter.
-- [low · small] Undoing a deletion can lose a piece's own look: `InsertFeature` drops piece looks
-  equal to the inherited one, while `SetBodyAppearance` on the maker never settles them, so a
-  piece holding a look that has come to equal the maker's comes back without it and follows later
-  colour changes of the feature; the undone document is not `same_content` with the one before.
-- [low · small] After a cancelled run a dependent can show "uses U, which failed" though U was only
-  cut short: the cache is tried before the cancel check (`recompute.rs`), an outdated upstream is
-  `None` in the key, and an older failed entry with a `None` upstream matches it.
-- [low · small] `Editor::follow_readings` applies measured readings without bumping the revision,
-  so a change prepared off the UI thread can commit over them until the next recompute follows
-  them again.
-- [low · small] Paste placeholders are ids from `PLACEHOLDER_BASE` (2^62), inside the storable range
-  (`paste.rs`): once a damaged file or a selection set raises the feature counter past it, a pasted
-  feature referring to such a real id is rewired to a copy and skips the outside-feature check.
-  Use a placeholder type of their own.
 
 ## Sketch solver
 

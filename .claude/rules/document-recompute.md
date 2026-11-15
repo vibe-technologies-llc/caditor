@@ -60,6 +60,10 @@ paths:
     a panic on the pool outside the evaluator, no thread started) it evaluates inline. A cancel
     halts the lookahead, queued evaluations end cancelled unrun, uncommitted features are
     `Outdated`, and whatever the lookahead ran past the cancel is dropped.
+  - After a cancel the walk still reuses an entry whose key matches, except for a feature reached
+    by one cut short (`CutShort`: a feature the cancel left `Outdated`, or a body it makes, changes
+    or consumes, a piece by its maker too). That feature is `Outdated` as well: its key would read
+    the cut-short upstream as missing and match an older entry failed through it.
 - `ResultHistory` (`history.rs`) keeps up to `RESULTS_KEPT_PER_FEATURE` entries per feature, the one
   last used first, so undoing a change or switching a value back finds the earlier entry and its
   result `Arc`, and everything below reuses its own earlier entries in turn. Earlier entries (all

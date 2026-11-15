@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use caditor_expression::{Dimension, Expression, ParameterId, Quantity, Unit};
 
@@ -27,9 +30,6 @@ use crate::{
     values::ParameterValues,
 };
 
-const PLACEHOLDER_BASE: u64 = FIRST_UNSTORABLE_ID / 2;
-const PIECE_PLACEHOLDER_BASE: u64 = PLACEHOLDER_BASE + PLACEHOLDER_BASE / 2;
-const PIECE_KEY_BITS: u32 = u32::BITS;
 const COPY_SUFFIX: &str = "copy";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -428,19 +428,15 @@ impl Document {
                 name: copied.get(missing).copied().unwrap_or_default().to_owned(),
             });
         }
-        let placeholder_of = |input: FeatureId| {
-            let index = inputs
-                .iter()
-                .position(|candidate| *candidate == input.maker())? as u64;
-            Some(FeatureId::from_raw(match input.piece_key() {
-                Some(key) => {
-                    PIECE_PLACEHOLDER_BASE + (index << PIECE_KEY_BITS) + u64::from(key.raw())
-                }
-                None => PLACEHOLDER_BASE + index,
-            }))
-        };
         let mut kind = feature.kind.clone();
-        kind.rename_features(&|id| placeholder_of(id).unwrap_or(id));
+        let placeholders = Placeholders::new(&mut kind, inputs.len());
+        kind.rename_features(&|id| {
+            inputs
+                .iter()
+                .position(|candidate| *candidate == id.maker())
+                .and_then(|index| placeholders.of(index, id.piece_key()))
+                .unwrap_or(id)
+        });
         let unfollowed = kind.features();
         if let Some(input) = inputs.iter().find(|input| unfollowed.contains(input)) {
             return Err(PasteRefusal::Unfollowed {
@@ -454,14 +450,15 @@ impl Document {
             .enumerate()
             .filter(|(index, input)| {
                 dependencies.contains(input)
-                    || picked_corners
-                        .contains(&FeatureId::from_raw(PLACEHOLDER_BASE + *index as u64))
+                    || placeholders
+                        .of(*index, None)
+                        .is_some_and(|placeholder| picked_corners.contains(&placeholder))
             })
             .map(|(_, input)| *input)
             .collect();
-        let outside = dependencies
-            .iter()
-            .filter(|dependency| dependency.raw() < PLACEHOLDER_BASE && !deep.contains(dependency));
+        let outside = dependencies.iter().filter(|dependency| {
+            placeholders.index_of(**dependency).is_none() && !deep.contains(dependency)
+        });
         for dependency in outside {
             match origin {
                 PasteOrigin::Elsewhere => return Err(PasteRefusal::OutsideFeature),
@@ -473,24 +470,17 @@ impl Document {
             }
         }
         kind.rename_features(&|id| {
-            if let Some(placed) = id.raw().checked_sub(PIECE_PLACEHOLDER_BASE) {
-                let index = usize::try_from(placed >> PIECE_KEY_BITS).ok();
-                let key = u32::try_from(placed & u64::from(u32::MAX))
-                    .ok()
-                    .map(PieceKey::from_raw);
-                return index
-                    .and_then(|index| inputs.get(index))
-                    .and_then(|input| renamed.get(input))
-                    .zip(key)
-                    .and_then(|(copy, key)| copy.piece(key))
-                    .unwrap_or(id);
-            }
-            id.raw()
-                .checked_sub(PLACEHOLDER_BASE)
-                .and_then(|index| inputs.get(usize::try_from(index).ok()?))
+            let Some(copy) = placeholders
+                .index_of(id)
+                .and_then(|index| inputs.get(index))
                 .and_then(|input| renamed.get(input))
-                .copied()
-                .unwrap_or(id)
+            else {
+                return id;
+            };
+            match id.piece_key() {
+                Some(key) => copy.piece(key).unwrap_or(id),
+                None => *copy,
+            }
         });
         let mut appearance = feature.appearance.clone();
         let mut inlined = carry_values(&mut kind, &mut appearance, parameters, self, origin)?;
@@ -517,6 +507,49 @@ impl Document {
             deep,
             followers,
         })
+    }
+}
+
+struct Placeholders {
+    makers: Vec<FeatureId>,
+}
+
+impl Placeholders {
+    fn new(kind: &mut FeatureKind, count: usize) -> Self {
+        let followed = RefCell::new(BTreeSet::new());
+        kind.rename_features(&|id| {
+            followed.borrow_mut().insert(id.maker());
+            id
+        });
+        let mut referenced = followed.into_inner();
+        referenced.extend(
+            kind.features()
+                .into_iter()
+                .chain(kind.dependencies())
+                .chain(paste_picks::vertex_bodies(kind))
+                .map(FeatureId::maker),
+        );
+        let makers = (0..FIRST_UNSTORABLE_ID)
+            .map(FeatureId::from_raw)
+            .filter(|id| !referenced.contains(id))
+            .take(count)
+            .collect();
+        Self { makers }
+    }
+
+    fn of(&self, index: usize, piece: Option<PieceKey>) -> Option<FeatureId> {
+        let maker = *self.makers.get(index)?;
+        match piece {
+            Some(key) => maker.piece(key),
+            None => Some(maker),
+        }
+    }
+
+    fn index_of(&self, id: FeatureId) -> Option<usize> {
+        let maker = id.maker();
+        self.makers
+            .iter()
+            .position(|placeholder| *placeholder == maker)
     }
 }
 

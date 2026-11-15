@@ -372,7 +372,8 @@ paths:
   by. Each change is one "Edit <name>" `SetFeatureKind`, checked first.
 - Every evaluation of the current revision that arrives (`Model::poll_recompute`) runs
   `Editor::follow_readings`, so measured parameters' stored values follow the readings outside the
-  undo history (`document.md`); revision and unsaved state do not change for it.
+  undo history (`document.md`). Following moves the revision on, and the evaluation then counts as
+  the new revision's (`evaluated_revision`); unsaved state does not change for it.
 - Show or hide centres of mass (`Command::ToggleCentresOfMass`) is a view aid
   (`ViewAids::centres_of_mass`, session only, in `ViewportState::aids`; reaches the scene through
   `Sources::aids` and `Revisions::aids`). Outside sketch editing it marks each shown body's

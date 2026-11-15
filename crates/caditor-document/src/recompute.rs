@@ -1285,6 +1285,7 @@ impl Recompute {
         let mut lookahead: Option<Lookahead> = None;
         let mut walk = Walk::default();
         let mut cancelled = false;
+        let mut cut_short = CutShort::default();
         let mut glimpsed = Glimpsed::new(Instant::now());
 
         for (index, feature) in features.iter().enumerate() {
@@ -1301,15 +1302,20 @@ impl Recompute {
             let view = walk.view(feature, run.measured);
             let key = Key::of(run, (feature, index), (&tree, &suppressed), &view);
             walk.see_bodies(feature);
-            let reused = self
-                .cache
-                .reuse(id, |entry| entry.matches(feature, &key))
-                .map(CacheEntry::status);
+            let upstream_cut_short = cut_short.reaches(feature, &key.upstream);
+            let reused = if upstream_cut_short {
+                None
+            } else {
+                self.cache
+                    .reuse(id, |entry| entry.matches(feature, &key))
+                    .map(CacheEntry::status)
+            };
             let previous = self.cache.latest(id);
             let status = if let Some(status) = reused {
                 status
-            } else if cancelled || cancel.is_cancelled() {
+            } else if upstream_cut_short || cancelled || cancel.is_cancelled() {
                 cancelled = true;
+                cut_short.add(feature);
                 let last_good = previous.and_then(|entry| entry.result.clone());
                 walk.statuses.insert(id, FeatureStatus::outdated(last_good));
                 continue;
@@ -1341,6 +1347,7 @@ impl Recompute {
                     }
                     Err(Failure::Cancelled) => {
                         cancelled = true;
+                        cut_short.add(feature);
                         walk.statuses.insert(id, FeatureStatus::outdated(last_good));
                         continue;
                     }
@@ -1617,6 +1624,37 @@ impl<'a> Run<'a> {
             evaluator: self.evaluator,
             cancel: self.cancel,
         }
+    }
+}
+
+#[derive(Default)]
+struct CutShort {
+    features: BTreeSet<FeatureId>,
+    bodies: BTreeSet<FeatureId>,
+}
+
+impl CutShort {
+    fn add(&mut self, feature: &Feature) {
+        self.features.insert(feature.id());
+        self.bodies.extend(feature.bodies());
+        self.bodies.extend(feature.kind.consumed_bodies());
+    }
+
+    fn reaches(
+        &self,
+        feature: &Feature,
+        upstream: &[(FeatureId, Option<Arc<FeatureResult>>)],
+    ) -> bool {
+        if self.features.is_empty() {
+            return false;
+        }
+        let body_cut_short =
+            |body: FeatureId| self.bodies.contains(&body) || self.bodies.contains(&body.maker());
+        upstream
+            .iter()
+            .any(|(used, _)| self.features.contains(used))
+            || feature.kind.bodies_used().into_iter().any(body_cut_short)
+            || feature.bodies().into_iter().any(body_cut_short)
     }
 }
 

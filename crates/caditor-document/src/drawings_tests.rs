@@ -722,6 +722,56 @@ fn a_parameter_a_section_offset_names_is_in_use_and_inlines_into_it() {
 }
 
 #[test]
+fn deleting_a_parameter_only_a_section_offset_names_is_refused() {
+    let mut document = pair().document;
+    let id = new_drawing(&mut document);
+    let cut = offset_parameter(&mut document, "5 mm");
+    cut_with(&mut document, id, cut);
+    let before = document.clone();
+
+    let refused = document.apply(Transaction::single(
+        "Delete cut",
+        Edit::RemoveParameter { id: cut },
+    ));
+
+    assert!(matches!(
+        refused.unwrap_err(),
+        EditError::ParameterInUse { .. }
+    ));
+    assert!(document.parameter(cut).is_some());
+    assert!(document.same_content(&before));
+}
+
+#[test]
+fn restoring_versions_keeps_a_section_offset_and_the_parameter_it_names() {
+    let pair = pair();
+    let mut later = pair.document.clone();
+    let id = new_drawing(&mut later);
+    let cut = offset_parameter(&mut later, "5 mm");
+    cut_with(&mut later, id, cut);
+
+    let mut current = later.clone();
+    current
+        .apply(current.transaction_to(&pair.document, "Restore"))
+        .unwrap();
+    let mut back = current.clone();
+    back.apply(back.transaction_to(&later, "Restore")).unwrap();
+    let mut again = back.clone();
+    again
+        .apply(again.transaction_to(&later, "Restore"))
+        .unwrap();
+
+    assert!(current.drawings().is_empty());
+    assert!(current.parameter(cut).is_none());
+    assert!(back.same_content(&later));
+    assert!(again.same_content(&later));
+    assert_eq!(
+        back.drawing(id).unwrap().sections[0].place,
+        SectionPlace::Offset(Expression::Parameter(cut))
+    );
+}
+
+#[test]
 fn an_offset_that_cannot_be_worked_out_is_a_typed_error() {
     let mut document = pair().document;
     let id = new_drawing(&mut document);
