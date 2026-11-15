@@ -840,6 +840,33 @@ fn composite_curves_nested_many_times_are_built_once_each_within_the_budget() {
     );
 }
 
+#[test]
+fn a_hyperbola_with_a_vanishing_semi_axis_leaves_its_curve_unread_instead_of_crashing() {
+    use crate::{
+        part21::parse,
+        read::{
+            geometry::{Geometry, MAX_WORK, Work},
+            graph::Graph,
+            units::Units,
+        },
+    };
+
+    let text = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
+        #1=CARTESIAN_POINT('',(0.,0.,0.));#2=DIRECTION('',(0.,0.,1.));\n\
+        #3=DIRECTION('',(1.,0.,0.));#4=AXIS2_PLACEMENT_3D('',#1,#2,#3);\n\
+        #5=HYPERBOLA('',#4,1.E-306,2.);#6=HYPERBOLA('',#4,2.,1.E-306);\n\
+        #7=HYPERBOLA('',#4,2.,3.);\nENDSEC;\nEND-ISO-10303-21;\n";
+    let exchange = parse(text).unwrap();
+    let geometry = Geometry::new(Graph::new(&exchange), Units::default(), Work::new(MAX_WORK));
+
+    let real = geometry.curve(5).unwrap_err();
+    let imaginary = geometry.curve(6).unwrap_err();
+
+    assert!(real.to_string().contains("resolution"), "{real}");
+    assert!(imaginary.to_string().contains("resolution"), "{imaginary}");
+    assert!(geometry.curve(7).is_ok());
+}
+
 fn spindle(major: f64, minor: f64, outer: bool) -> String {
     let pole = -(minor * minor - major * major).sqrt();
     let select = if outer { ".T." } else { ".F." };

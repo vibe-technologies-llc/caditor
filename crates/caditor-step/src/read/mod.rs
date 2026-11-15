@@ -326,7 +326,8 @@ fn read_placed<T>(
         SyntaxError::TooLarge => ReadError::TooLarge,
     })?;
     let graph = Graph::new(&exchange);
-    let presentation = Presentation::of(&graph);
+    let presentation =
+        Presentation::of(&graph, &Work::new(MAX_WORK)).map_err(|_| ReadError::Cancelled)?;
     let mut structure = Structure::read(&graph);
     let mut model = Read {
         solids: Vec::new(),

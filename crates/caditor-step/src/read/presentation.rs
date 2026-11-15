@@ -3,8 +3,11 @@ use std::{
     sync::Arc,
 };
 
+use caditor_kernel::{Interrupted, check_interrupt};
+
 use crate::read::{
     finish::{Finish, appearance_finish},
+    geometry::Work,
     graph::{Entity, Graph},
     topology::{SolidShells, shell_faces},
 };
@@ -115,6 +118,7 @@ enum Unread {
     Style,
     Missing,
     UnmatchedCopy,
+    TooIntricate,
 }
 
 impl Unread {
@@ -133,6 +137,7 @@ impl Unread {
             Self::UnmatchedCopy => {
                 format!("#{entity}, a style for one copy in the assembly that matches none of them")
             }
+            Self::TooIntricate => format!("#{entity}, a style too intricate to read"),
         }
     }
 }
@@ -260,7 +265,7 @@ fn inner_item(graph: &Graph<'_>, item: u64) -> u64 {
 }
 
 impl Presentation {
-    pub fn of(graph: &Graph<'_>) -> Self {
+    pub fn of(graph: &Graph<'_>, work: &Work) -> Result<Self, Interrupted> {
         let mut presentation = Self {
             styles: BTreeMap::new(),
             overrides: BTreeMap::new(),
@@ -270,35 +275,51 @@ impl Presentation {
             troubles: BTreeMap::new(),
         };
         let mut styled_items = BTreeMap::new();
+        let mut resolved: BTreeMap<u64, Resolved> = BTreeMap::new();
         for entity in graph.entities() {
+            check_interrupt()?;
             let Some(styling) = styling(&entity) else {
                 continue;
             };
             styled_items.insert(entity.id, styling.item);
             let item = inner_item(graph, styling.item);
-            let mut reading = Reading {
-                graph,
-                problems: BTreeMap::new(),
-            };
+            let mut problems = BTreeMap::new();
             let mut general = Sides::default();
             let mut by_context: Vec<(u64, Sides)> = Vec::new();
             for style in &styling.styles {
-                match reading.context_of(*style) {
-                    Some(context) => {
-                        let mut sides = Sides::default();
-                        reading.style(*style, Side::Both, &mut sides, MAX_STYLE_DEPTH);
-                        by_context.push((context, sides));
+                if !resolved.contains_key(style) {
+                    let mut reading = Reading::new(graph, work);
+                    let mut sides = Sides::default();
+                    reading.style(*style, Side::Both, &mut sides, MAX_STYLE_DEPTH);
+                    if reading.cancelled {
+                        return Err(Interrupted);
                     }
-                    None => reading.style(*style, Side::Both, &mut general, MAX_STYLE_DEPTH),
+                    let context = reading.context_of(*style);
+                    resolved.insert(
+                        *style,
+                        Resolved {
+                            context,
+                            sides,
+                            problems: reading.problems,
+                        },
+                    );
+                }
+                let Some(read) = resolved.get(style) else {
+                    continue;
+                };
+                problems.extend(read.problems.iter().map(|(id, unread)| (*id, *unread)));
+                match read.context {
+                    Some(context) => by_context.push((context, read.sides)),
+                    None => general.merge(read.sides),
                 }
             }
-            if !reading.problems.is_empty() {
+            if !problems.is_empty() {
                 presentation
                     .troubles
                     .entry(item)
                     .or_default()
-                    .extend(reading.problems.keys().copied());
-                presentation.unread.extend(reading.problems);
+                    .extend(problems.keys().copied());
+                presentation.unread.extend(problems);
             }
             let shared: Arc<[u64]> = styling.context.clone().unwrap_or_else(|| Arc::from([]));
             let stated = general.stated();
@@ -346,7 +367,7 @@ impl Presentation {
                     .or_insert_with(|| Arc::clone(&name));
             }
         }
-        presentation
+        Ok(presentation)
     }
 
     fn instance(
@@ -559,7 +580,7 @@ fn most_shared<T: PartialEq + Copy>(values: impl IntoIterator<Item = T>) -> Opti
         .map(|(value, _)| value)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Side {
     Outside,
     Inside,
@@ -620,7 +641,21 @@ struct Sides {
     inside: Found,
 }
 
+impl Found {
+    fn merge(&mut self, later: Self) {
+        self.fill = self.fill.or(later.fill);
+        self.rendering = self.rendering.or(later.rendering);
+        self.opacity = self.opacity.or(later.opacity);
+        self.plain |= later.plain;
+    }
+}
+
 impl Sides {
+    fn merge(&mut self, later: Self) {
+        self.outside.merge(later.outside);
+        self.inside.merge(later.inside);
+    }
+
     fn each(&mut self, side: Side, mut change: impl FnMut(&mut Found)) {
         if side != Side::Inside {
             change(&mut self.outside);
@@ -640,12 +675,31 @@ impl Sides {
     }
 }
 
-struct Reading<'g, 'a> {
-    graph: &'g Graph<'a>,
+struct Resolved {
+    context: Option<u64>,
+    sides: Sides,
     problems: BTreeMap<u64, Unread>,
 }
 
-impl Reading<'_, '_> {
+struct Reading<'g, 'a> {
+    graph: &'g Graph<'a>,
+    work: &'g Work,
+    problems: BTreeMap<u64, Unread>,
+    visited: BTreeMap<(u64, Side), usize>,
+    cancelled: bool,
+}
+
+impl<'g, 'a> Reading<'g, 'a> {
+    fn new(graph: &'g Graph<'a>, work: &'g Work) -> Self {
+        Self {
+            graph,
+            work,
+            problems: BTreeMap::new(),
+            visited: BTreeMap::new(),
+            cancelled: false,
+        }
+    }
+
     fn context_of(&self, style: u64) -> Option<u64> {
         let entity = self.graph.entity(style).ok()?;
         if entity.kind() != "PRESENTATION_STYLE_BY_CONTEXT" {
@@ -659,6 +713,22 @@ impl Reading<'_, '_> {
         let Some(depth) = depth.checked_sub(1) else {
             return;
         };
+        if self.cancelled || check_interrupt().is_err() {
+            self.cancelled = true;
+            return;
+        }
+        if self
+            .visited
+            .get(&(id, side))
+            .is_some_and(|seen| *seen >= depth)
+        {
+            return;
+        }
+        self.visited.insert((id, side), depth);
+        if self.work.charge(id).is_err() {
+            self.problems.insert(id, Unread::TooIntricate);
+            return;
+        }
         let Ok(entity) = self.graph.entity(id) else {
             self.problems.insert(id, Unread::Missing);
             return;
@@ -850,4 +920,66 @@ fn rgb(channels: [Option<f64>; 3]) -> Option<[u8; 3]> {
         BYTE_CHANNELS
     };
     Some(values.map(|value| (value * scale).round().clamp(0.0, BYTE_CHANNELS) as u8))
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_kernel::interruptible;
+
+    use super::*;
+    use crate::part21::parse;
+
+    const ASSIGNMENTS: u64 = 8;
+    const REPEATS: usize = 50;
+    const STYLED_ITEMS: u64 = 3;
+
+    fn crafted() -> String {
+        let mut data = vec!["#1=CARTESIAN_POINT('',(0.,0.,0.));".to_owned()];
+        for level in 0..ASSIGNMENTS {
+            let next = vec![format!("#{}", 11 + level); REPEATS].join(",");
+            data.push(format!(
+                "#{}=PRESENTATION_STYLE_ASSIGNMENT(({next}));",
+                10 + level
+            ));
+        }
+        for styled in 0..STYLED_ITEMS {
+            data.push(format!("#{}=STYLED_ITEM('',(#10),#1);", 100 + styled));
+        }
+        format!(
+            "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
+            data.join("\n")
+        )
+    }
+
+    #[test]
+    fn styles_that_list_each_other_many_times_are_read_once_each_within_a_small_budget() {
+        let text = crafted();
+        let exchange = parse(&text).unwrap();
+        let graph = Graph::new(&exchange);
+        let one_visit_each = Work::new(ASSIGNMENTS as usize);
+        let starved = Work::new(ASSIGNMENTS as usize - 1);
+
+        let read = Presentation::of(&graph, &one_visit_each).unwrap();
+        let cut = Presentation::of(&graph, &starved).unwrap();
+
+        assert!(read.unread.is_empty(), "{:?}", read.unread);
+        assert_eq!(cut.unread.len(), 1);
+        assert!(
+            cut.unread
+                .values()
+                .all(|unread| *unread == Unread::TooIntricate)
+        );
+    }
+
+    #[test]
+    fn an_interrupt_stops_the_reading_of_styles() {
+        let text = crafted();
+        let exchange = parse(&text).unwrap();
+        let graph = Graph::new(&exchange);
+        let work = Work::new(usize::MAX);
+
+        let stopped = interruptible(Arc::new(|| true), || Presentation::of(&graph, &work));
+
+        assert!(stopped.is_err());
+    }
 }

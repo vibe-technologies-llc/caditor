@@ -153,15 +153,25 @@ fn measure(graph: &Graph<'_>, unit: Entity<'_>, depth: usize) -> Measure {
         ) else {
             return Measure::Other;
         };
-        return match measure(graph, base, depth + 1) {
+        let converted = match measure(graph, base, depth + 1) {
             Measure::Length(scale) => Measure::Length(value * scale),
             Measure::Angle(scale) => Measure::Angle(value * scale),
             Measure::Other if unit.is("LENGTH_UNIT") => Measure::Length(value),
             Measure::Other if unit.is("PLANE_ANGLE_UNIT") => Measure::Angle(value),
             Measure::Other => Measure::Other,
         };
+        return match converted {
+            Measure::Length(scale) | Measure::Angle(scale) if !usable_factor(scale) => {
+                Measure::Other
+            }
+            usable => usable,
+        };
     }
     Measure::Other
+}
+
+fn usable_factor(factor: f64) -> bool {
+    factor.is_finite() && factor > 0.0
 }
 
 fn prefix_factor(prefix: Option<&str>) -> f64 {
@@ -204,6 +214,33 @@ mod tests {
         );
         let exchange = parse(&text).unwrap();
         context_units(&Graph::new(&exchange), 9).precision
+    }
+
+    fn converted(factor: &str) -> Units {
+        let text = format!(
+            "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
+             #1=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n\
+             #2=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE({factor}),#1);\n\
+             #3=(CONVERSION_BASED_UNIT('INCH',#2) LENGTH_UNIT() NAMED_UNIT(*));\n\
+             #9=(GEOMETRIC_REPRESENTATION_CONTEXT(3) \
+             GLOBAL_UNIT_ASSIGNED_CONTEXT((#3)) REPRESENTATION_CONTEXT('',''));\n\
+             ENDSEC;\nEND-ISO-10303-21;\n"
+        );
+        let exchange = parse(&text).unwrap();
+        context_units(&Graph::new(&exchange), 9)
+    }
+
+    #[test]
+    fn a_conversion_factor_that_is_not_positive_and_finite_reads_as_an_unknown_unit() {
+        let usable = converted("25.4");
+        let unusable = ["0.", "-25.4", "1.E999", "-1.E999"].map(converted);
+
+        assert!(usable.named);
+        assert!((usable.length - 25.4).abs() < 1e-12, "{usable:?}");
+        for units in unusable {
+            assert!(!units.named, "{units:?}");
+            assert_eq!(units.length, 1.0);
+        }
     }
 
     #[test]

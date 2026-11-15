@@ -11,8 +11,8 @@ use std::{
 use caditor_geometry::{Plane, Point3, Similarity, Vector3};
 use caditor_kernel::{
     BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, GeometryError,
-    Interval, Line, MAX_SPLINE_DEGREE, MODEL_EXTENT, PlaneSurface, Revolution, Sense, Sphere,
-    Surface, Torus,
+    Interval, LINEAR_RESOLUTION, Line, MAX_SPLINE_DEGREE, MODEL_EXTENT, PlaneSurface, Revolution,
+    Sense, Sphere, Surface, Torus,
 };
 
 use crate::read::{
@@ -26,6 +26,7 @@ use crate::read::{
 
 const MAX_CURVE_DEPTH: usize = 8;
 const MAX_HYPERBOLA_SPAN: f64 = 0.5;
+const MAX_HYPERBOLA_SEGMENTS: f64 = 1024.0;
 const PIECE_SAMPLES: usize = 64;
 const OFFSET_SAMPLES: usize = 256;
 pub(crate) const MAX_WORK: usize = 4_000_000;
@@ -39,12 +40,17 @@ fn hyperbola(
         if size.is_nan() || size <= 0.0 {
             return Err(GeometryError::NonPositive(size));
         }
+        if size < LINEAR_RESOLUTION {
+            return Err(GeometryError::BelowResolution(size));
+        }
     }
     let point = |cosh: f64, sinh: f64| {
         frame.origin() + frame.x_axis() * (semi_axis * cosh) + frame.y_axis() * (imaginary * sinh)
     };
     let reach = (MODEL_EXTENT / semi_axis.min(imaginary)).max(1.0).acosh();
-    let segments = ((2.0 * reach / MAX_HYPERBOLA_SPAN).ceil() as usize).max(1);
+    let segments = (2.0 * reach / MAX_HYPERBOLA_SPAN)
+        .ceil()
+        .clamp(1.0, MAX_HYPERBOLA_SEGMENTS) as usize;
     let step = 2.0 * reach / segments as f64;
     let half = 0.5 * step;
     let mut points = Vec::with_capacity(2 * segments + 1);
@@ -1031,7 +1037,25 @@ mod tests {
             }
         }
         assert!(hyperbola(&frame, 0.0, 3.0).is_err());
+        assert!(hyperbola(&frame, 3.0, f64::NAN).is_err());
         assert!(parabola(&frame, -1.0).is_err());
+    }
+
+    #[test]
+    fn a_hyperbola_with_a_semi_axis_below_the_resolution_is_refused_not_overflowed() {
+        let frame = Plane::with_x_axis(Point3::ZERO, Vector3::Z, Vector3::X).unwrap();
+
+        for tiny in [1e-300, 1e-305, 5e-324, LINEAR_RESOLUTION / 2.0] {
+            assert_eq!(
+                hyperbola(&frame, tiny, 3.0).unwrap_err(),
+                GeometryError::BelowResolution(tiny)
+            );
+            assert_eq!(
+                hyperbola(&frame, 3.0, tiny).unwrap_err(),
+                GeometryError::BelowResolution(tiny)
+            );
+        }
+        assert!(hyperbola(&frame, LINEAR_RESOLUTION, LINEAR_RESOLUTION).is_ok());
     }
 
     #[test]

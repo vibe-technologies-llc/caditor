@@ -332,19 +332,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## STEP import
 
-- [high · easy] A small crafted STEP file hangs reading past Cancel: `presentation.rs`'s `style`
-  walks every reference of a `PRESENTATION_STYLE_ASSIGNMENT` list (and of side, fill and rendering
-  styles) again at each level down to `MAX_STYLE_DEPTH` (8) with nothing remembered, so eight
-  assignments each listing the next 50 times cost about 10^12 calls, once per styled item
-  (`once_each` removes repeats from the top list only); `read_step` polls the interrupt before
-  parsing and before each solid, never inside `Presentation::of` or `Structure::read`. A model whose
-  import text this computer has not checked goes through `read_step` when opened, so it hangs too.
-  Remember each style's result per side (or charge visits to the work budget) and poll there.
-- [high · easy] A `HYPERBOLA` with a semi-axis below about 1e-305 panics the whole import or model
-  load (`ImportError::Crashed`, `LoadError::Crashed`) rather than leaving its body out:
-  `geometry.rs`'s `hyperbola` refuses only sizes not above zero, then `MODEL_EXTENT / semi_axis`
-  is infinite, the segment count saturates to `usize::MAX` and `Vec::with_capacity(2 * segments +
-  1)` overflows. Refuse sizes below `LINEAR_RESOLUTION` and clamp the reach before the cast.
 - [high · hard] A body whose faces meet only within the file's declared precision (CATIA and
   Autodesk exports whose tangent fillet splines sit micrometres apart) is bent where it can be
   (`step-read.md`, "Bent faces") and otherwise imports as flat facets. On a CATIA V5 export of 11
@@ -388,10 +375,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   interrupt polled. Paths should hold the class key and test context membership through `Classes`.
   The same file starts a fresh `Work::new(MAX_WORK)` per item, not the one budget per file
   `step-read.md` describes.
-- [low · easy] A conversion-based length unit's factor is never checked (`units.rs`): zero collapses
-  every point and a negative one mirrors points but not directions, refused later in words that do
-  not name the unit. Read a factor that is not positive and finite as an unknown unit (millimetres,
-  with a note).
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve

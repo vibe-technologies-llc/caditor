@@ -47,7 +47,7 @@ paths:
   (as import does, so no part is lost to the separate-copies cap) and print copies, volumes, notes
   or refusal and time; run it in release against files whose volumes another reader gives.
 - Cancellation: `read_step` and `read_step_copies` poll the kernel interrupt (`kernel.md`) before
-  parsing and before each solid, answering `ReadError::Cancelled`; nothing installs one by default. A
+  parsing, per entity and per style visited while the presentation is read, and before each solid, answering `ReadError::Cancelled`; nothing installs one by default. A
   body's build also polls it before each looser healing and before trying without its unreadable
   faces (`healed`, `build_one`), since each retry rebuilds and may mesh the whole body again.
 - Solids are built in parallel (`Builds::of`, `built_together`): each distinct solid (one per shells
@@ -91,6 +91,11 @@ paths:
   one of the eight named `DRAUGHTING_PRE_DEFINED_COLOUR`s gives the colour; a transparency in 0-1
   gives the opacity as one minus it. `NULL_STYLE` states the item plain. Curve, point and text styles
   are skipped silently.
+- A style reference is read at most once per side below each top style (`Reading::visited`, a
+  revisit at no more depth is skipped, which changes nothing since the first read already holds
+  every first-wins value) and each top style once per file (`Resolved`), so styles listing each other
+  many times cost their count, not its power. Each visit is charged to a `MAX_WORK` budget of its
+  own (`Presentation::of`); one over it is noted as "a style too intricate to read".
 - Fusion writes no transparency but names each `COLOUR_RGB` after its appearance (`Opaque(r,g,b)`,
   `Acrylic (Clear)`, `Glass (Smoked)`): a name holding a word of `SEE_THROUGH_APPEARANCES` (25% or
   50%, the larger winning) and none of `OPAQUE_APPEARANCES` gives that opacity when the style states
@@ -128,7 +133,9 @@ paths:
 ## Units and precision
 
 - Units come from each representation's context (SI prefixes, conversion-based units); a note names
-  every length unit converted, and a file naming none is read as millimetres, with a note.
+  every length unit converted, and a file naming none is read as millimetres, with a note. A
+  conversion-based unit whose factor is not positive and finite (zero, negative, infinite) is an
+  unknown unit, so it is read the same way.
 - Declared precision is the coarsest length uncertainty of the context, clamped between
   `LINEAR_RESOLUTION` and `COARSEST_PRECISION` so a hostile file sets neither zero nor a huge
   tolerance.
@@ -158,8 +165,9 @@ paths:
 
 - Every kernel surface and curve, B-splines in all forms (unclamped ones clamped by knot insertion),
   trimmed and composite curves, `HYPERBOLA` as rational quadratic arcs of at most
-  `MAX_HYPERBOLA_SPAN` and `PARABOLA` as one quadratic Bezier, both reaching `MODEL_EXTENT` from
-  their centre, `OFFSET_CURVE_3D` as dense polylines that healing rebuilds on the faces.
+  `MAX_HYPERBOLA_SPAN` (at most `MAX_HYPERBOLA_SEGMENTS`; a semi-axis below `LINEAR_RESOLUTION` is
+  refused, so the body is left out with the curve's reason) and `PARABOLA` as one quadratic Bezier,
+  both reaching `MODEL_EXTENT` from their centre, `OFFSET_CURVE_3D` as dense polylines that healing rebuilds on the faces.
 - `DEGENERATE_TOROIDAL_SURFACE`: a spindle is the revolution of the tube's rational arc on one side
   of the axis; a horn turns the whole tube circle about its touch point, so its two poles are one
   vertex. The inside of a horn is refused (no volume).
