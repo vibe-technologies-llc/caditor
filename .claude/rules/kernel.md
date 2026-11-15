@@ -247,11 +247,14 @@ paths:
   `MAX_PROBES` probes stay cheap on fine retries; each probe polls the interrupt.
 - Validation never intersects faces with each other, since every build runs it; `find_crossing`
   does, for importers.
-- `Solid::lumps` takes a solid apart into one solid per outward shell, each void going with the
-  smallest outward shell whose box holds it (`void_shells`, `keeping_shells`); a solid of one shell
-  is its own lump. The document makes a body of each separate piece through it. `Solid::joined`
-  is the reverse, appending solids' arenas into one solid of their shells and validating it, so
-  lumps that overlap are refused.
+- `Solid::lumps` (`lumps::apart`) takes a solid apart into one solid per outward shell, each void
+  going with the smallest outward shell holding it: that shell's `bounding_box` (never the
+  `outline_box`, a sphere's flat seam) encloses the void's, and the first point along the void's
+  edges and at its vertices that the shell's classifier decides is inside. A void no outward shell
+  holds is refused (`VoidOutside`), never handed to some lump, and every lump is validated before it
+  is returned; a solid of one shell is its own lump. The document makes a body of each separate
+  piece through it. `Solid::joined` is the reverse, appending solids' arenas into one solid of their
+  shells and validating it, so lumps that overlap are refused.
 - A coedge a builder marks settled (`SolidBuilder::settle`, from `PlanPcurve::Settled`) was carried
   unchanged (edge curve, interval, face surface, pcurve) from a valid solid, so its geometry check
   against the edge is skipped; nothing else is.

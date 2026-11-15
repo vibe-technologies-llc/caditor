@@ -131,14 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Kernel
 
-- [high · small] `Solid::lumps` can hand a void to the wrong lump and returns lumps unvalidated
-  (`topology/mod.rs`): each shell's box is its `outline_box`, edges and vertices only, which for a
-  sphere is its flat seam half-circle (`kernel.md`: `bounding_box` is the bound), the test is box
-  inside box, and a void no box holds goes to the lump of the lowest shell id. A body of a block
-  and a hollow ball whose void sits off the ball's seam plane can come apart as a block holding the
-  ball's void and a ball without one, both `Ok`; `body_pieces.rs` and `rib_tool.rs` make bodies of
-  them. Decide ownership by `bounding_box` or a probe (`topology/lumps.rs`), refuse rather than fall
-  back, and validate each lump; `topology/tests.rs` tests cuboids only.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,

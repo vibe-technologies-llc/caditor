@@ -1,15 +1,26 @@
-use std::{cell::OnceCell, collections::BTreeSet};
+use std::{
+    cell::OnceCell,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use caditor_geometry::{Aabb, Point3};
 
-use super::{EdgeId, FaceId, ShellId, Solid, ValidationError, validate::face_edges};
+use super::{
+    EdgeId, FaceId, PointClass, ShellId, Solid, SolidClassifier, ValidationError,
+    validate::face_edges,
+};
 use crate::{
-    box_tree::BoxTree, interrupt, intersect::boxes_overlap, sense::Sense,
-    tessellation::TriangleIndex, tolerance::LINEAR_RESOLUTION,
+    box_tree::BoxTree,
+    interrupt::{self, Interrupted},
+    intersect::boxes_overlap,
+    sense::Sense,
+    tessellation::TriangleIndex,
+    tolerance::LINEAR_RESOLUTION,
 };
 
 const EDGE_PROBES: usize = 16;
 const MAX_PROBES: usize = 1024;
+const HOLDING_PROBES: usize = 64;
 const DEVIATION_ALLOWANCE: f64 = 2.0;
 
 #[derive(Debug, Clone)]
@@ -281,6 +292,117 @@ pub(super) fn check(solid: &Solid, lumps: &[Lump]) -> Result<(), ValidationError
         lump.check_against(solid, &others)?;
     }
     Ok(())
+}
+
+struct Outer<'a> {
+    id: ShellId,
+    bounds: Option<Aabb>,
+    classifier: SolidClassifier<'a>,
+}
+
+pub(super) fn apart(solid: &Solid) -> Result<Vec<Solid>, ValidationError> {
+    let voids = solid.void_shells()?;
+    let alone = |id: ShellId| {
+        solid
+            .keeping_shells(&BTreeSet::from([id]))
+            .ok_or(ValidationError::MissingEntity)
+    };
+
+    let shells = solid
+        .shells()
+        .map(|(id, _)| id)
+        .filter(|id| !voids.contains(id))
+        .map(|id| Ok((id, alone(id)?)))
+        .collect::<Result<Vec<_>, ValidationError>>()?;
+    let outers: Vec<Outer> = shells
+        .iter()
+        .map(|(id, shell)| Outer {
+            id: *id,
+            bounds: shell.bounding_box(),
+            classifier: shell.classifier(),
+        })
+        .collect();
+
+    let mut held: BTreeMap<ShellId, BTreeSet<ShellId>> = outers
+        .iter()
+        .map(|outer| (outer.id, BTreeSet::from([outer.id])))
+        .collect();
+    for void in voids {
+        let holder =
+            holder_of(&alone(void)?, &outers)?.ok_or(ValidationError::VoidOutside(void))?;
+        held.entry(holder).or_default().insert(void);
+    }
+
+    held.values()
+        .map(|shells| {
+            let lump = solid
+                .keeping_shells(shells)
+                .ok_or(ValidationError::MissingEntity)?;
+            lump.validate()?;
+            Ok(lump)
+        })
+        .collect()
+}
+
+fn holder_of(void: &Solid, outers: &[Outer]) -> Result<Option<ShellId>, Interrupted> {
+    let Some(inner) = void.bounding_box() else {
+        return Ok(None);
+    };
+    let points = shell_points(void);
+
+    let mut holder: Option<(ShellId, f64)> = None;
+    for outer in outers {
+        let Some(bounds) = outer.bounds.filter(|bounds| encloses(bounds, &inner)) else {
+            continue;
+        };
+        if !holds(&outer.classifier, &points)? {
+            continue;
+        }
+        let size = bounds.diagonal();
+        if holder.is_none_or(|(_, least)| size < least) {
+            holder = Some((outer.id, size));
+        }
+    }
+    Ok(holder.map(|(id, _)| id))
+}
+
+fn shell_points(shell: &Solid) -> Vec<Point3> {
+    let along_edges = shell.edges().flat_map(|(_, edge)| {
+        (1..EDGE_PROBES).map(move |step| {
+            let fraction = step as f64 / EDGE_PROBES as f64;
+            edge.curve().point(edge.interval().at(fraction))
+        })
+    });
+    let corners = shell.vertices().map(|(_, vertex)| vertex.point());
+    let points: Vec<Point3> = along_edges.chain(corners).collect();
+
+    let stride = points.len().div_ceil(HOLDING_PROBES).max(1);
+    points.into_iter().step_by(stride).collect()
+}
+
+fn holds(classifier: &SolidClassifier, points: &[Point3]) -> Result<bool, Interrupted> {
+    for point in points {
+        interrupt::check()?;
+        match classifier.classify(*point) {
+            PointClass::Inside => return Ok(true),
+            PointClass::Outside => return Ok(false),
+            PointClass::OnBoundary(_) | PointClass::Undecided => {}
+        }
+    }
+    interrupt::check()?;
+    Ok(false)
+}
+
+fn encloses(outer: &Aabb, inner: &Aabb) -> bool {
+    let (outer_min, outer_max) = (outer.min(), outer.max());
+    let (inner_min, inner_max) = (inner.min(), inner.max());
+    let margin = LINEAR_RESOLUTION;
+    outer_min.x <= inner_min.x + margin
+        && outer_min.y <= inner_min.y + margin
+        && outer_min.z <= inner_min.z + margin
+        && inner_max.x <= outer_max.x + margin
+        && inner_max.y <= outer_max.y + margin
+        && inner_max.z <= outer_max.z + margin
 }
 
 fn closest_on_triangle(point: Point3, [a, b, c]: &[Point3; 3]) -> Point3 {

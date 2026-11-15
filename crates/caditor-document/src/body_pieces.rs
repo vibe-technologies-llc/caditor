@@ -5,7 +5,7 @@ use std::{
 
 use caditor_expression::ParameterId;
 use caditor_geometry::Point2;
-use caditor_kernel::{FaceOrigin, LINEAR_RESOLUTION, Solid, TessellationError};
+use caditor_kernel::{FaceOrigin, LINEAR_RESOLUTION, Solid, TessellationError, ValidationError};
 use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
@@ -395,8 +395,12 @@ fn too_large(feature: &Feature) -> Failure {
     )
 }
 
-fn apart_failure(feature: &Feature, error: &TessellationError) -> Failure {
-    if matches!(error, TessellationError::Cancelled(_)) {
+fn apart_failure(feature: &Feature, error: &ValidationError) -> Failure {
+    if matches!(
+        error,
+        ValidationError::Cancelled(_)
+            | ValidationError::Tessellation(TessellationError::Cancelled(_))
+    ) {
         return Failure::Cancelled;
     }
     pieces_failure(

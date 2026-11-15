@@ -7,7 +7,7 @@ use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
     BooleanError, BooleanOperation, FaceName, FaceOrigin, Interval, LINEAR_RESOLUTION,
     LinearExtent, PieceBound, PieceId, PointClass, Profile, ProfileCurve, ProfileError,
-    ProfileShape, RayCrossing, Region, Solid, SweepError, TessellationError, WallError, WallSide,
+    ProfileShape, RayCrossing, Region, Solid, SweepError, ValidationError, WallError, WallSide,
     boolean, extrude, extrude_flared, extrude_tapered, wall_regions,
 };
 
@@ -114,7 +114,7 @@ pub(crate) enum RibError {
     #[error(transparent)]
     Boolean(BooleanError),
     #[error("its pieces could not be told apart: {0}")]
-    Lumps(TessellationError),
+    Lumps(ValidationError),
 }
 
 pub(crate) struct RibInput<'a> {

@@ -9,6 +9,7 @@ use crate::{
     interval::Interval,
     surface::{BSplineSurface, Cone, Cylinder, PlaneSurface, Sphere},
     test_support::{assert_cancelled_anywhere, polls_during},
+    tolerance::LINEAR_RESOLUTION,
 };
 
 const PRISM_SIDES: usize = 4000;
@@ -284,9 +285,14 @@ fn shifted_cuboids(offsets: &[Vector3]) -> Solid {
 }
 
 fn add_sphere(fixture: &mut Fixture, radius: f64, sense: Sense) {
-    let south = fixture.vertex(Point3::new(0.0, 0.0, -radius));
-    let north = fixture.vertex(Point3::new(0.0, 0.0, radius));
-    let meridian = Plane::from_frame(Point3::ZERO, Vector3::NEG_Y, Vector3::X).unwrap();
+    add_sphere_at(fixture, Point3::ZERO, radius, sense);
+}
+
+fn add_sphere_at(fixture: &mut Fixture, center: Point3, radius: f64, sense: Sense) {
+    let south = fixture.vertex(center - Vector3::Z * radius);
+    let north = fixture.vertex(center + Vector3::Z * radius);
+    let meridian = Plane::from_frame(center, Vector3::NEG_Y, Vector3::X).unwrap();
+    let equator = Plane::from_frame(center, Vector3::Z, Vector3::X).unwrap();
     let seam = fixture.edge(
         Circle::new(meridian, radius).unwrap(),
         Interval::new(-FRAC_PI_2, FRAC_PI_2).unwrap(),
@@ -295,7 +301,7 @@ fn add_sphere(fixture: &mut Fixture, radius: f64, sense: Sense) {
     );
     let senses = [Sense::Same, Sense::Reversed].map(|turn| (seam, turn.combined(sense)));
     fixture.face(
-        Sphere::new(Plane::XY, radius).unwrap(),
+        Sphere::new(equator, radius).unwrap(),
         sense,
         &[senses.to_vec()],
     );
@@ -1077,4 +1083,91 @@ fn a_solid_of_one_shell_is_its_own_lump() {
     let lumps = solid.lumps().unwrap();
 
     assert_eq!(lumps, [solid]);
+}
+
+fn block_beside_a_hollow_ball(ball_void: Point3, block_void: Option<Point3>) -> Fixture {
+    let mut fixture = Fixture::new();
+    fixtures::add_cuboid(
+        &mut fixture,
+        Point3::new(8.0, -3.0, -3.0),
+        Point3::new(14.0, 3.0, 3.0),
+        Tweak::default(),
+    );
+    fixture.next_shell();
+    add_sphere_at(&mut fixture, Point3::ZERO, 5.0, Sense::Same);
+    fixture.next_shell();
+    add_sphere_at(&mut fixture, ball_void, 1.0, Sense::Reversed);
+    if let Some(center) = block_void {
+        fixture.next_shell();
+        add_sphere_at(&mut fixture, center, 1.0, Sense::Reversed);
+    }
+    fixture
+}
+
+#[test]
+fn a_void_off_its_ball_seam_plane_stays_with_the_ball() {
+    let solid = block_beside_a_hollow_ball(Point3::new(0.0, 2.0, 0.0), None).build();
+
+    let lumps = solid.lumps().unwrap();
+    let shells: Vec<usize> = lumps.iter().map(|lump| lump.shells().count()).collect();
+    let block = lumps.first().unwrap().bounding_box().unwrap();
+
+    assert_eq!(shells, [1, 2]);
+    assert!(block.min().x >= 8.0 - LINEAR_RESOLUTION);
+    assert!(lumps.iter().all(|lump| lump.validate().is_ok()));
+}
+
+#[test]
+fn a_void_in_the_block_beside_a_hollow_ball_stays_with_the_block() {
+    let solid = block_beside_a_hollow_ball(
+        Point3::new(-1.0, -2.0, 1.0),
+        Some(Point3::new(11.0, 1.0, 0.5)),
+    )
+    .build();
+
+    let lumps = solid.lumps().unwrap();
+    let shells: Vec<usize> = lumps.iter().map(|lump| lump.shells().count()).collect();
+    let boxes: Vec<Aabb> = lumps.iter().filter_map(Solid::bounding_box).collect();
+
+    assert_eq!(shells, [2, 2]);
+    assert!(boxes.first().unwrap().min().x >= 8.0 - LINEAR_RESOLUTION);
+    assert!(boxes.get(1).unwrap().max().x <= 5.0 + LINEAR_RESOLUTION);
+    assert!(lumps.iter().all(|lump| lump.validate().is_ok()));
+}
+
+#[test]
+fn a_void_in_a_lump_floating_in_a_void_goes_with_the_floating_lump() {
+    let solid = cuboids(&[
+        (0.0, 6.0, false),
+        (1.0, 5.0, true),
+        (2.0, 4.0, false),
+        (2.5, 3.5, true),
+    ]);
+
+    let lumps = solid.lumps().unwrap();
+    let faces: Vec<usize> = lumps.iter().map(|lump| lump.faces().count()).collect();
+    let boxes: Vec<Aabb> = lumps.iter().filter_map(Solid::bounding_box).collect();
+
+    assert_eq!(solid.validate(), Ok(()));
+    assert_eq!(faces, [12, 12]);
+    assert!(boxes.first().unwrap().min().x <= LINEAR_RESOLUTION);
+    assert!(boxes.get(1).unwrap().min().x >= 2.0 - LINEAR_RESOLUTION);
+    assert!(lumps.iter().all(|lump| lump.validate().is_ok()));
+}
+
+#[test]
+fn a_void_no_lump_holds_is_refused() {
+    let mut fixture = block_beside_a_hollow_ball(Point3::new(0.0, 2.0, 0.0), None);
+    fixture.next_shell();
+    add_sphere_at(
+        &mut fixture,
+        Point3::new(0.0, 20.0, 0.0),
+        1.0,
+        Sense::Reversed,
+    );
+    let solid = fixture.build_unchecked();
+
+    let refused = solid.lumps();
+
+    assert_eq!(refused, Err(ValidationError::VoidOutside(ShellId(3))));
 }

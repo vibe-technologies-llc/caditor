@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_kernel::{
-    BooleanError, BooleanOperation, FaceOrigin, MIN_FLANK_DEGREES, Solid, SweepError, WallError,
-    boolean,
+    BooleanError, BooleanOperation, FaceOrigin, MIN_FLANK_DEGREES, Solid, SweepError,
+    TessellationError, ValidationError, WallError, boolean,
 };
 use caditor_sketch::{EntityId, Sketch};
 
@@ -258,6 +258,10 @@ impl Words<'_> {
                 }),
             RibError::Wall(WallError::Cancelled(_)) => Failure::Cancelled,
             RibError::Boolean(BooleanError::Cancelled(_)) => Failure::Cancelled,
+            RibError::Lumps(
+                ValidationError::Cancelled(_)
+                | ValidationError::Tessellation(TessellationError::Cancelled(_)),
+            ) => Failure::Cancelled,
             other => {
                 log::warn!("{name} could not be built: {other}");
                 self.own(RibCause::Unbuilt { name, body })
