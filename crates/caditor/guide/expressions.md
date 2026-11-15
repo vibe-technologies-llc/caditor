@@ -26,7 +26,8 @@ in the model keep the units they were typed in. A decimal is written with a poin
 
 - `sqrt(x)`, `cbrt(x)`, `abs(x)`, `sign(x)`, `exp(x)`, `ln(x)`, `log10(x)`, `log2(x)`.
 - `sin`, `cos`, `tan` take an angle; a plain number counts as radians, so write `sin(30 deg)`.
-  `asin`, `acos`, `atan` and `atan2(y, x)` give angles.
+  `asin`, `acos`, `atan` and `atan2(y, x)` give angles. `tan(90 deg)` and `atan2(0, 0)` have no
+  value and are refused, like `asin(2)`.
 - `min(a, b, …)`, `max(a, b, …)`, `clamp(x, low, high)`, `hypot(a, b)`, `mod(a, b)`.
 - `round(x)`, `floor(x)`, `ceil(x)` and `trunc(x)` round to whole numbers, or to a step:
   `round(x, 0.5 mm)`.

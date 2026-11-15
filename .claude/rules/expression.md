@@ -28,14 +28,18 @@ paths:
   and a longer limit (`MAX_STORED_LENGTH`). Printing brackets a power of a measure (`(10 mm)^2`,
   `ends_in_unit`); never print a power right after a unit. Changing the grammar so stored text
   would read differently changes the file formats (`file-format.md`).
-- Text accepts SI units only, typed or stored: `in` and `ft` are `ImperialUnit`, refused with the
-  SI units to write instead.
+- Text accepts SI units only, typed or stored: `in` and `ft`, and the spelled-out names (`inches`,
+  `feet`), are `ImperialUnit`, refused with the SI units to write instead, whether after a number
+  or alone; no message suggests an imperial unit.
 - `Naming::split` reads `name = expression` in a value field: a single `=` (not part of `==`,
   `<=`, `>=`, `!=`) after nothing but a name's characters. Anything else is an ordinary
   expression, so `if(a = b, …)` still gets the parser's message.
 
 ## Evaluation
 
+- `asin` and `acos` outside -1 to 1, `tan` at a pole (its cosine below `POLE_TOLERANCE`) and
+  `atan2(0, 0)` are `OutOfDomain`, each with its own message, so a parameter built on them fails
+  instead of taking a meaningless finite value.
 - Comparisons give plain 1 or 0, equal within `EQUALITY_TOLERANCE`; `if`, `and`, `or` are lazy.
 - `round`, `floor`, `ceil` and `trunc` take an optional step; the quotient (or the value without
   a step) is snapped to a whole number within the tolerance, so `floor(0.3, 0.1)` is 0.3 and
@@ -47,6 +51,8 @@ paths:
   decimals goes through `format_decimals` (trims trailing zeros, never writes `-0`) or, keeping its
   zeros, `format_places` (never writes `-0.000`); `trim_decimals` trims text already formatted. No
   other crate trims zeros itself.
+- Printed text (`to_text`) writes a number positionally unless that runs past 20 characters, then
+  in the shorter scientific form, so confirming a field unchanged never exceeds the length limit.
 - Every intermediate value must be finite; a literal too large for an f64 is refused at parse time.
 
 ## Scaling
@@ -61,7 +67,8 @@ paths:
 ## Limits
 
 - Parsing bounds length (`MAX_LENGTH`, more for stored text), nesting and tree depth (checked as
-  each operator is added), so hostile input cannot overflow the stack.
+  each operator, negation, power, unit and call is built, and on the finished tree), so hostile
+  input cannot overflow the stack.
 - Evaluation uses an explicit stack, so the deepest stored expression evaluates on a worker's
   default 2 MiB stack in a debug build. Printing, cloning, comparing and dropping recurse but stay
   within it; a test holds this.

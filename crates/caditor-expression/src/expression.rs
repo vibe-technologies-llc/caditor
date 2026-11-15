@@ -7,6 +7,8 @@ use crate::{
 
 const MISSING_PARAMETER: &str = "⟨missing⟩";
 const EQUALITY_TOLERANCE: f64 = 1e-9;
+const POLE_TOLERANCE: f64 = 1e-12;
+const LONGEST_POSITIONAL_NUMBER: usize = 20;
 pub(crate) const STORED_REFERENCE: char = '$';
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -291,7 +293,7 @@ pub enum EvalError {
         function: Function,
         found: Dimension,
     },
-    #[error("{function} needs a value between -1 and 1")]
+    #[error("{}", out_of_domain_message(*.function))]
     OutOfDomain { function: Function },
     #[error("{function} needs a value above zero")]
     NotPositive { function: Function },
@@ -769,7 +771,24 @@ struct Style<'a> {
 }
 
 fn display_number(value: f64) -> String {
-    value.to_string()
+    let positional = value.to_string();
+    if positional.len() <= LONGEST_POSITIONAL_NUMBER {
+        return positional;
+    }
+    let scientific = format!("{value:e}");
+    if scientific.len() < positional.len() {
+        scientific
+    } else {
+        positional
+    }
+}
+
+fn out_of_domain_message(function: Function) -> String {
+    match function {
+        Function::Tan => "tan is undefined at 90 deg and every 180 deg from it".to_owned(),
+        Function::Atan2 => "atan2 has no direction for 0 and 0".to_owned(),
+        other => format!("{other} needs a value between -1 and 1"),
+    }
 }
 
 fn exact_number(value: f64) -> String {
@@ -1004,7 +1023,13 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
         Function::Min | Function::Max => extreme(function, first, arguments),
         Function::Sin => Ok(Quantity::plain(radians(function, first)?.sin())),
         Function::Cos => Ok(Quantity::plain(radians(function, first)?.cos())),
-        Function::Tan => Ok(Quantity::plain(radians(function, first)?.tan())),
+        Function::Tan => {
+            let angle = radians(function, first)?;
+            if angle.cos().abs() < POLE_TOLERANCE {
+                return Err(EvalError::OutOfDomain { function });
+            }
+            Ok(Quantity::plain(angle.tan()))
+        }
         Function::Asin | Function::Acos => {
             let value = plain_number(function, first)?;
             if !(-1.0..=1.0).contains(&value) {
@@ -1025,6 +1050,9 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
                 .get(1)
                 .ok_or(EvalError::WrongArgumentCount { function })?;
             unify(Operation::Pair(function), first, x)?;
+            if first.value == 0.0 && x.value == 0.0 {
+                return Err(EvalError::OutOfDomain { function });
+            }
             Ok(Quantity::angle(first.value.atan2(x.value).to_degrees()))
         }
     }

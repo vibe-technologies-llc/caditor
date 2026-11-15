@@ -9,7 +9,11 @@ paths:
 
 - A sketch lies on a `Plane`; curves refer to points by `EntityId`. The origin and two axes have
   reserved IDs (`EntityId::REFERENCES`) the counter never reaches; stored IDs stay below
-  `FIRST_UNSTORABLE_ID`. Reference geometry never moves and cannot be removed or changed.
+  `FIRST_UNSTORABLE_ID`. Reference geometry never moves and cannot be removed or changed. A counter
+  that has reached it (loading an entity at the last storable id) names nothing more: the fallible
+  adders (`add_constraint`, `add_text`, `add_parametric_gear`) refuse with `IdsExhausted`, and the
+  infallible ones keep counting into the unstorable range, whose ids `insert_entity` and
+  `insert_constraint` refuse (`ReservedId`) when the document applies them.
 - Construction (`Sketch::set_construction`): any curve, never a point; a set beside the entities,
   part of `same_geometry`. It solves, snaps and takes constraints like any curve, but
   `solid::profile_curves` leaves it out, so it neither splits regions nor changes their keys. It can
@@ -23,9 +27,10 @@ paths:
   `merge_point` drops a moved constraint only as a duplicate of an active one). An inactive
   dimension is a reference: its displayed value is `Sketch::measured`.
   Removing a constraint forgets the flag and label offset; whatever takes a kept constraint out and
-  puts it back carries both (`detach_constraint`, `attach_constraint`, `add_detached_constraint`,
-  `DetachedConstraint`): trim, split and break via `restructure` and `move_constraints`, and the
-  fillet and chamfer when merging the corner's second point into the kept one.
+  puts it back carries both (`detach_constraint`, `attach_constraint`, `DetachedConstraint`):
+  trim, split and break via `restructure` and `move_constraints`, which re-attaches a constraint
+  moved to the far piece under its own `ConstraintId` (a parameter owned by a dimension keeps its
+  owner), and the fillet and chamfer when merging the corner's second point into the kept one.
 - Label offset (`Sketch::set_label_offset`): a map beside the constraints, part of `same_content`
   so moving a label is undoable. Millimetres along and across a frame the app derives from the
   measured geometry (`annotation_layout::label_frame`), so the label follows the geometry. Only
@@ -268,9 +273,10 @@ paths:
 - `check_constraint` refuses constraints that do not fit the entity kinds; the UI asks before
   offering one. `restating` and `contradicting` (`relation.rs`) find the existing constraint a new
   one repeats (same kind on the same items; a level line equals `HorizontalPoints` on its ends; a
-  radius and a diameter of one circle) or cannot hold with. The sketch still accepts both, since
-  stored files may hold them. `Sketch::relations` indexes active constraints by subject (and the
-  level/upright, parallel/perpendicular pairs) in ordered maps, so a candidate check is a lookup.
+  radius and a diameter of one circle) or cannot hold with (level against upright, whether stated
+  on a line or on points at its ends; parallel against perpendicular). The sketch still accepts
+  both, since stored files may hold them. `Sketch::relations` indexes active constraints by
+  subject (and those opposed pairs) in ordered maps, so a candidate check is a lookup.
 - `Distance`: between two lines, both ends of the second at the distance from the first (implies
   parallel). Between circles or arcs, the gap between their full circles, apart or one within the
   other as drawn (`Form::CircleGap`, tangency offset by the value, zero is tangent); line to
@@ -454,7 +460,10 @@ relative to the extent.
   - A new end joins its cutter: `Coincident` with the cutter's end point when the cut lies there,
     else a point on the cutter (an axis included). End points no curve uses are removed.
   - `extend` moves an end to the nearest crossing beyond it and joins it the same way; an end
-    shared with another curve, coincident with another point or fixed is refused.
+    shared with another curve, coincident with another point, fixed or held by any other active
+    constraint (a dimension, `Symmetric`, a point's `HorizontalPoints`) is refused, the last as
+    `Held` naming the constraint, so nothing vanishes unannounced. A point-on-curve `Coincident` on
+    the end is replaced by the new joint, since trimming leaves every end on its cutter.
 - Offset (`offset.rs`): `offset_chains` splits the chosen curves into chains and takes any number
   of them, ordering each run of lines and arcs joined end to end into one open or closed chain
   (walked from a free end so `Side` means the same on the working copy), a circle into a chain of

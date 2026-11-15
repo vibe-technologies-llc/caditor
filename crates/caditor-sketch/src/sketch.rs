@@ -115,6 +115,8 @@ pub enum SketchError {
     DuplicateId(u64),
     #[error("it would replace the sketch's origin or axes")]
     ReservedId(u64),
+    #[error("the sketch has used every number it can name geometry and constraints with")]
+    IdsExhausted,
     #[error("a point must have finite coordinates")]
     NotFinite,
     #[error("a circle's radius must be a finite number greater than zero")]
@@ -1038,7 +1040,7 @@ impl Sketch {
 
     pub fn add_parametric_gear(&mut self, gear: Gear) -> Result<EntityId, SketchError> {
         self.check_gear(None, &gear)?;
-        let id = EntityId::from_raw(self.allocate());
+        let id = EntityId::from_raw(self.allocate()?);
         self.count_uses(&[gear.centre], true);
         self.gears.insert(id, gear);
         Ok(id)
@@ -1139,7 +1141,7 @@ impl Sketch {
 
     pub fn add_text(&mut self, text: Text) -> Result<EntityId, SketchError> {
         self.check_text(&text)?;
-        let id = EntityId::from_raw(self.allocate());
+        let id = EntityId::from_raw(self.allocate()?);
         self.count_uses(&[text.anchor], true);
         self.texts.insert(id, text);
         Ok(id)
@@ -1441,7 +1443,7 @@ impl Sketch {
     pub fn add_constraint(&mut self, constraint: Constraint) -> Result<ConstraintId, SketchError> {
         self.check_constraint(&constraint)?;
         self.check_literal_dimension(&constraint)?;
-        let id = ConstraintId::from_raw(self.allocate());
+        let id = ConstraintId::from_raw(self.allocate()?);
         self.count_uses(&constraint.entities(), true);
         self.constraints.insert(id, constraint);
         Ok(id)
@@ -1975,20 +1977,6 @@ impl Sketch {
         self.carry_constraint_state(id, active, label)
     }
 
-    pub(crate) fn add_detached_constraint(
-        &mut self,
-        detached: DetachedConstraint,
-    ) -> Result<ConstraintId, SketchError> {
-        let DetachedConstraint {
-            constraint,
-            active,
-            label,
-        } = detached;
-        let id = self.add_constraint(constraint)?;
-        self.carry_constraint_state(id, active, label)?;
-        Ok(id)
-    }
-
     fn carry_constraint_state(
         &mut self,
         id: ConstraintId,
@@ -2448,13 +2436,20 @@ impl Sketch {
     }
 
     pub(crate) fn insert(&mut self, entity: Entity) -> EntityId {
-        let id = EntityId::from_raw(self.allocate());
+        let id = EntityId::from_raw(self.allocate_past_the_limit());
         self.count_uses(&entity.points(), true);
         self.entities.insert(id, entity);
         id
     }
 
-    fn allocate(&mut self) -> u64 {
+    fn allocate(&mut self) -> Result<u64, SketchError> {
+        if self.next_id >= FIRST_UNSTORABLE_ID {
+            return Err(SketchError::IdsExhausted);
+        }
+        Ok(self.allocate_past_the_limit())
+    }
+
+    fn allocate_past_the_limit(&mut self) -> u64 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
         id
@@ -2698,6 +2693,35 @@ mod tests {
         let next = sketch.add_point(Point2::ZERO);
         assert!(!next.is_reference());
         assert!(!sketch.add_point(Point2::ZERO).is_reference());
+    }
+
+    #[test]
+    fn a_counter_that_reached_the_unstorable_range_names_nothing_more() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::X);
+        let (start, end) = endpoints(&sketch, line);
+        sketch
+            .insert_entity(
+                EntityId::from_raw(FIRST_UNSTORABLE_ID - 1),
+                Entity::Point(Point2::Y),
+            )
+            .unwrap();
+
+        assert_eq!(sketch.next_id(), FIRST_UNSTORABLE_ID);
+        assert_eq!(
+            sketch.add_constraint(Constraint::Horizontal(line)),
+            Err(SketchError::IdsExhausted)
+        );
+        assert_eq!(
+            sketch.add_constraint(Constraint::Distance {
+                from: start,
+                to: end,
+                value: Expression::Number(1.0),
+            }),
+            Err(SketchError::IdsExhausted)
+        );
+        assert_eq!(sketch.constraints().len(), 0);
+        assert_eq!(sketch.next_id(), FIRST_UNSTORABLE_ID);
     }
 
     #[test]

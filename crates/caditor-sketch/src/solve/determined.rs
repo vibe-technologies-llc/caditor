@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::EvalError;
+use caditor_expression::{EvalError, ParameterId, Quantity};
 
 use crate::{
     constraint::Constraint,
@@ -16,14 +16,14 @@ impl Sketch {
     pub fn determines(
         &self,
         dimensions: &DimensionValues,
+        parameters: &dyn Fn(ParameterId) -> Result<Quantity, EvalError>,
         dimension: &Constraint,
     ) -> Result<bool, SketchError> {
         let (Some(expression), Some(kind)) = (dimension.dimension(), dimension.dimension_kind())
         else {
             return Ok(false);
         };
-        let no_parameters = |_| Err(EvalError::ParameterMissing);
-        let Ok(value) = expression.evaluate_as(kind, &no_parameters) else {
+        let Ok(value) = expression.evaluate_as(kind, &parameters) else {
             return Ok(false);
         };
 

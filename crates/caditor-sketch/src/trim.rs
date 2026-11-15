@@ -57,6 +57,12 @@ pub enum ExtendError {
     },
     #[error("this end of {label} is fixed, so it cannot move")]
     Fixed { entity: EntityId, label: String },
+    #[error("this end of {label} is held by {constraint}, so it cannot move; delete that first")]
+    Held {
+        entity: EntityId,
+        label: String,
+        constraint: String,
+    },
     #[error("{label} follows the geometry it was projected from, so it cannot be extended")]
     Projected { entity: EntityId, label: String },
     #[error(transparent)]
@@ -1303,8 +1309,8 @@ impl Sketch {
         from: EntityId,
         to: EntityId,
     ) -> Result<(), SketchError> {
-        for (_, detached) in moved {
-            self.add_detached_constraint(detached.with_entity_replaced(from, to))?;
+        for (id, detached) in moved {
+            self.attach_constraint(id, detached.with_entity_replaced(from, to))?;
         }
         Ok(())
     }
@@ -1449,10 +1455,19 @@ impl Sketch {
                         });
                     }
                 }
-                _ => {}
+                Some(_) => return Err(self.held_end(curve, id)),
+                None => {}
             }
         }
         Ok(())
+    }
+
+    fn held_end(&self, curve: EntityId, held_by: ConstraintId) -> ExtendError {
+        ExtendError::Held {
+            entity: curve,
+            label: self.entity_label(curve),
+            constraint: self.describe_constraint(held_by),
+        }
     }
 
     fn reach_straight(

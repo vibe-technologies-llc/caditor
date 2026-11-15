@@ -259,6 +259,83 @@ mod tests {
     }
 
     #[test]
+    fn imperial_units_spelled_out_are_refused_without_suggesting_one() {
+        for text in ["2 inches", "2 inch", "3 feet", "3 foot", "1 Inches"] {
+            let error = parse(text).unwrap_err();
+            assert!(
+                matches!(error.kind, ParseErrorKind::ImperialUnit { .. }),
+                "{text}"
+            );
+            assert!(!error.to_string().contains("write in"), "{text}");
+        }
+        for text in ["in", "ft", "2 + in"] {
+            assert!(
+                matches!(error_kind(text), ParseErrorKind::ImperialUnit { .. }),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            error_kind("10 foo"),
+            ParseErrorKind::Unexpected {
+                expected: "an operator such as + or *",
+                found: "foo".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn tan_at_a_pole_and_atan2_of_nothing_are_out_of_domain() {
+        let tan = EvalError::OutOfDomain {
+            function: Function::Tan,
+        };
+        for text in ["tan(90 deg)", "tan(-90 deg)", "tan(270 deg)", "tan(pi / 2)"] {
+            assert_eq!(evaluate(text), Err(tan.clone()), "{text}");
+        }
+        assert!(evaluate("tan(89.9999 deg)").is_ok());
+        assert!(evaluate("tan(45 deg)").is_ok());
+        assert_eq!(
+            evaluate("atan2(0 mm, 0 mm)"),
+            Err(EvalError::OutOfDomain {
+                function: Function::Atan2
+            })
+        );
+        assert!(evaluate("atan2(0 mm, 1 mm)").is_ok());
+        assert!(!tan.to_string().contains("between"));
+    }
+
+    #[test]
+    fn displayed_numbers_are_never_longer_than_stored_ones_may_be() {
+        for value in [1e-300, 1e300, 1.5e-30, 1e21] {
+            let displayed = Expression::Number(value).to_text(&name_of);
+            assert!(displayed.len() < 30, "{displayed}");
+            assert_eq!(parse(&displayed), Ok(Expression::Number(value)));
+        }
+        assert_eq!(Expression::Number(100000.0).to_text(&name_of), "100000");
+        assert_eq!(Expression::Number(0.0001).to_text(&name_of), "0.0001");
+    }
+
+    #[test]
+    fn tree_depth_is_bounded_whatever_the_nesting_adds() {
+        let chain = |terms: usize| vec!["$0"; terms].join("+");
+        let deepest = chain(crate::parse::MAX_TREE_DEPTH);
+        let one_short = chain(crate::parse::MAX_TREE_DEPTH - 1);
+        let wraps = ["-(X)", "(X)^2", "2^(X)", "max(X, 1)", "(X) mm", "(X) mm^2"];
+
+        assert!(Expression::parse_stored(&deepest).is_ok());
+        for wrap in wraps {
+            let refused = Expression::parse_stored(&wrap.replace('X', &deepest));
+            let accepted = Expression::parse_stored(&wrap.replace('X', &one_short));
+
+            assert_eq!(
+                refused.map_err(|error| error.kind),
+                Err(ParseErrorKind::TooDeep),
+                "{wrap}"
+            );
+            assert!(accepted.is_ok(), "{wrap}");
+        }
+    }
+
+    #[test]
     fn arithmetic_follows_precedence_and_tracks_dimensions() {
         assert_eq!(evaluate("width + 2 * height"), Ok(Quantity::length(80.0)));
         assert_eq!(evaluate("(width + 2) * 2"), Ok(Quantity::length(84.0)));

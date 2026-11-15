@@ -69,7 +69,7 @@ fn determines(sketch: &Sketch, dimension: &Constraint) -> bool {
     let solved = solved(sketch);
     solved
         .geometry
-        .determines(solved.solution.dimensions(), dimension)
+        .determines(solved.solution.dimensions(), &no_parameters, dimension)
         .unwrap()
 }
 
@@ -94,6 +94,33 @@ fn the_width_of_a_floating_rectangle_is_determined_across_from_its_dimension() {
         Some(EntityState::UnderConstrained)
     );
     assert!(determines(&sketch, &length_of(&sketch, top, 40.0)));
+}
+
+#[test]
+fn a_width_driven_by_a_parameter_is_determined_like_its_value_and_unknown_without_it() {
+    let Floating { sketch, lines, .. } = floating_rectangle();
+    let [_, right, top, _] = lines;
+    let driven = |line: EntityId| {
+        let (from, to) = ends(&sketch, line);
+        Constraint::Distance {
+            from,
+            to,
+            value: Expression::Parameter(ParameterId::from_raw(7)),
+        }
+    };
+    let forty = |_: ParameterId| Ok(Quantity::length(40.0));
+    let missing = |_: ParameterId| Err(EvalError::ParameterMissing);
+    let solved = solved(&sketch);
+    let determines = |parameters: &dyn Fn(ParameterId) -> Result<Quantity, EvalError>, line| {
+        solved
+            .geometry
+            .determines(solved.solution.dimensions(), parameters, &driven(line))
+            .unwrap()
+    };
+
+    assert!(determines(&forty, top));
+    assert!(!determines(&forty, right));
+    assert!(!determines(&missing, top));
 }
 
 #[test]
@@ -140,7 +167,7 @@ fn a_diagonal_still_free_to_stretch_is_not_determined() {
     assert!(
         !solved
             .geometry
-            .determines(solved.solution.dimensions(), &diagonal)
+            .determines(solved.solution.dimensions(), &no_parameters, &diagonal)
             .unwrap()
     );
 }

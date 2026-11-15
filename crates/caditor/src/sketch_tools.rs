@@ -430,7 +430,7 @@ fn new_relations(
     constraints: Vec<Constraint>,
 ) -> Result<Vec<Constraint>, ConstraintOfferError> {
     for constraint in &constraints {
-        if let Some(existing) = relations.contradicting(constraint) {
+        if let Some(existing) = relations.contradicting(definition, constraint) {
             return Err(ConstraintOfferError::Contradicts {
                 constraint: definition.describe(constraint),
                 existing: definition.describe_constraint(existing),
@@ -1100,7 +1100,7 @@ pub fn add_constraints(
         .iter()
         .map(|constraint| {
             settled.is_some_and(|(geometry, solution)| {
-                determines(geometry, solution, constraint, projections)
+                determines(model, geometry, solution, constraint, projections)
             })
         })
         .collect();
@@ -1132,6 +1132,7 @@ pub fn add_constraints(
 }
 
 fn determines(
+    model: &Model,
     geometry: &Sketch,
     solution: &SketchSolution,
     constraint: &Constraint,
@@ -1146,7 +1147,11 @@ fn determines(
     };
     let measured_already = || {
         geometry
-            .determines(solution.dimensions(), constraint)
+            .determines(
+                solution.dimensions(),
+                &|id| model.parameters().value(id),
+                constraint,
+            )
             .unwrap_or(false)
     };
     constraint.dimension().is_some()

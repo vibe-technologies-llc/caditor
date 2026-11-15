@@ -34,17 +34,23 @@ enum Subject {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Opposed {
-    LineLevel(EntityId),
-    LinePlumb(EntityId),
+    Level([EntityId; 2]),
+    Plumb([EntityId; 2]),
     Parallel([EntityId; 2]),
     Perpendicular([EntityId; 2]),
 }
 
 impl Opposed {
-    fn of(constraint: &Constraint) -> Option<Self> {
+    fn of(sketch: &Sketch, constraint: &Constraint) -> Option<Self> {
         Some(match *constraint {
-            Constraint::Horizontal(line) => Self::LineLevel(line),
-            Constraint::Vertical(line) => Self::LinePlumb(line),
+            Constraint::Horizontal(_)
+            | Constraint::Vertical(_)
+            | Constraint::HorizontalPoints(..)
+            | Constraint::VerticalPoints(..) => match sketch.subject(constraint) {
+                Subject::Direction(Direction::Level, ends) => Self::Level(ends),
+                Subject::Direction(Direction::Plumb, ends) => Self::Plumb(ends),
+                _ => return None,
+            },
             Constraint::Parallel(a, b) => Self::Parallel(ordered(a, b)),
             Constraint::Perpendicular(a, b) => Self::Perpendicular(ordered(a, b)),
             _ => return None,
@@ -53,8 +59,8 @@ impl Opposed {
 
     fn opposite(self) -> Self {
         match self {
-            Self::LineLevel(line) => Self::LinePlumb(line),
-            Self::LinePlumb(line) => Self::LineLevel(line),
+            Self::Level(ends) => Self::Plumb(ends),
+            Self::Plumb(ends) => Self::Level(ends),
             Self::Parallel(pair) => Self::Perpendicular(pair),
             Self::Perpendicular(pair) => Self::Parallel(pair),
         }
@@ -72,8 +78,8 @@ impl Relations {
         self.subjects.get(&sketch.subject(constraint)).copied()
     }
 
-    pub fn contradicting(&self, constraint: &Constraint) -> Option<ConstraintId> {
-        let opposed = Opposed::of(constraint)?.opposite();
+    pub fn contradicting(&self, sketch: &Sketch, constraint: &Constraint) -> Option<ConstraintId> {
+        let opposed = Opposed::of(sketch, constraint)?.opposite();
         self.opposed.get(&opposed).copied()
     }
 
@@ -81,7 +87,7 @@ impl Relations {
         self.subjects
             .entry(sketch.subject(constraint))
             .or_insert(id);
-        if let Some(opposed) = Opposed::of(constraint) {
+        if let Some(opposed) = Opposed::of(sketch, constraint) {
             self.opposed.entry(opposed).or_insert(id);
         }
     }
@@ -104,9 +110,9 @@ impl Sketch {
     }
 
     pub fn contradicting(&self, constraint: &Constraint) -> Option<ConstraintId> {
-        let opposed = Opposed::of(constraint)?.opposite();
+        let opposed = Opposed::of(self, constraint)?.opposite();
         self.active_constraints()
-            .find(|(_, existing)| Opposed::of(existing) == Some(opposed))
+            .find(|(_, existing)| Opposed::of(self, existing) == Some(opposed))
             .map(|(id, _)| id)
     }
 
@@ -338,14 +344,17 @@ mod tests {
         assert_eq!(sketch.contradicting(&Constraint::Horizontal(line)), None);
         let relations = sketch.relations();
         assert_eq!(
-            relations.contradicting(&Constraint::Vertical(line)),
+            relations.contradicting(&sketch, &Constraint::Vertical(line)),
             Some(level)
         );
         assert_eq!(
-            relations.contradicting(&Constraint::Perpendicular(other, line)),
+            relations.contradicting(&sketch, &Constraint::Perpendicular(other, line)),
             Some(parallel)
         );
-        assert_eq!(relations.contradicting(&Constraint::Vertical(other)), None);
+        assert_eq!(
+            relations.contradicting(&sketch, &Constraint::Vertical(other)),
+            None
+        );
         assert_eq!(
             relations.restating(&sketch, &Constraint::Parallel(other, line)),
             Some(parallel)
@@ -353,6 +362,44 @@ mod tests {
         assert_eq!(
             relations.restating(&sketch, &Constraint::Horizontal(other)),
             None
+        );
+    }
+
+    #[test]
+    fn a_line_and_the_points_at_its_ends_oppose_each_other_either_way() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let (line, start, end) = line_with_ends(&mut sketch);
+        let level = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+        let upright_points = Constraint::VerticalPoints(end, start.into());
+        let level_points = Constraint::HorizontalPoints(end, start.into());
+
+        assert_eq!(sketch.contradicting(&upright_points), Some(level));
+        assert_eq!(
+            sketch.relations().contradicting(&sketch, &upright_points),
+            Some(level)
+        );
+        assert_eq!(sketch.contradicting(&level_points), None);
+        assert_eq!(sketch.contradicting(&Constraint::Horizontal(line)), None);
+
+        let mut upright = Sketch::new(Plane::XY);
+        let (line, start, end) = line_with_ends(&mut upright);
+        let plumb = upright
+            .add_constraint(Constraint::VerticalPoints(end, start.into()))
+            .unwrap();
+
+        assert_eq!(
+            upright.contradicting(&Constraint::Horizontal(line)),
+            Some(plumb)
+        );
+        assert_eq!(
+            upright
+                .relations()
+                .contradicting(&upright, &Constraint::Horizontal(line)),
+            Some(plumb)
+        );
+        assert_eq!(
+            upright.contradicting(&Constraint::HorizontalPoints(start, end.into())),
+            Some(plumb)
         );
     }
 }

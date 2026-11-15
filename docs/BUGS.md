@@ -243,45 +243,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   length, or the interpolation rows by 1e3, each removed the jump and left a drift of 2e-6 mm or
   moved it to the closed spline; neither is kept.
 
-## Sketching and expressions
-
-- [medium · easy] Split, trim and break give a dimension they move to the far piece a new id
-  (`trim.rs`, `move_constraints` re-adds it through `add_detached_constraint`), so a model
-  parameter owned by that angle dimension (`ParameterOwner::Dimension`, by `ConstraintId`) keeps an
-  owner that no longer exists: the parameters table cannot focus it, and deleting the dimension
-  later leaves the parameter behind. Re-attach under the old id (`attach_constraint`), which the
-  restructure has already freed.
-- [medium · easy] A sketch's id counter can reach `FIRST_UNSTORABLE_ID` (`reserve_ids_below` caps
-  `next_id` at exactly it and `allocate` never checks), so after loading an entity at 2^63 − 1
-  every new one gets a reserved id in the letter and gear curves' range, and the saved file is
-  refused on reloading (`ReservedId`). Refuse in `allocate`, as the document refuses its own
-  counters.
-- [medium · easy] Spelling an imperial unit out ("2 inches", "3 feet") reads as `Unit::Inch` or
-  `Unit::Foot` and is refused with the hint to write `in` or `ft` (`parse.rs`), offering an
-  imperial unit against `ux.md` and leading to a second refusal; `UnitWithoutNumber` can suggest
-  "10 in" too. Send spelled imperial names to `ImperialUnit`.
-- [low · easy] `tan` at a pole gives about 1.6e16 and `atan2(0 mm, 0 mm)` gives 0°
-  (`expression.rs`), both finite, so a parameter built on them takes a meaningless value where
-  `asin`, `acos`, `ln` and `sqrt` refuse as `OutOfDomain`.
-- [low · easy] A stored expression can display longer than typed text may be: `display_number`
-  writes `1e-300` positionally, about 300 characters, where stored text takes the shorter
-  scientific form, so confirming such a field unchanged is refused as too long. Display numbers the
-  shorter way.
-- [low · easy] `relation.rs`'s `contradicting` does not oppose a horizontal line and
-  `VerticalPoints` on its own ends (or the reverse), though `subject` treats them as one relation,
-  so the pre-check lets through a pair the solver then reports as a conflict.
-- [low · easy] Extend removes every constraint on the end it moves (`trim.rs`): `check_free_end`
-  refuses a shared end, a `Fix` and coincidence with a point, but a distance dimension, a
-  `Symmetric` or a point-on-curve `Coincident` there vanish without a word (`sketch.md` names the
-  refusals, not this). Refuse an end a dimension holds, or name what was dropped.
-- [low · easy] Adding a dimension driven by a parameter never asks whether it would only measure
-  (`solve/determined.rs` answers false for any expression needing parameters), so one on geometry
-  already held is added driving and then reported redundant.
-- [low · easy] The parse depth bound (`deepened`) is checked for sums, products and comparisons
-  but not for negation, powers, units and calls, and `parse_with` checks no final depth, so a tree
-  can pass `MAX_TREE_DEPTH` by the nesting allowed; the recursive print, clone and drop are tested
-  only at the bound.
-
 ## STEP import
 
 - [high · hard] A body whose faces meet only within the file's declared precision (CATIA and

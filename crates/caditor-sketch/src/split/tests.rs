@@ -261,6 +261,22 @@ fn a_dimension_moved_to_the_far_piece_of_a_split_keeps_its_placed_label() {
 }
 
 #[test]
+fn a_dimension_moved_to_the_far_piece_of_a_split_keeps_its_id() {
+    let (mut sketch, arc, line, point, _) = arc_with_a_placed_radius_and_angle();
+    let angle = sketch
+        .constraints()
+        .find_map(|(id, constraint)| matches!(constraint, Constraint::Angle { .. }).then_some(id))
+        .unwrap();
+
+    let piece = sketch.split_at(arc, point).unwrap();
+
+    assert!(matches!(
+        sketch.constraint(angle),
+        Some(Constraint::Angle { from, to, .. }) if *from == piece && *to == line
+    ));
+}
+
+#[test]
 fn pieces_remember_the_curve_they_were_split_from_until_removed() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));

@@ -356,8 +356,10 @@ fn trimming_the_middle_of_an_arc_splits_it_and_the_far_piece_keeps_its_tangent()
     assert_near(at(&sketch, near_end), Point2::new(35.0, 30.0 + side));
     assert_near(at(&sketch, far_start), Point2::new(25.0, 30.0 + side));
     assert_near(at(&sketch, center(&sketch, piece)), Point2::new(30.0, 30.0));
-    assert!(sketch.constraint(tangent).is_none());
-    assert!(has(&sketch, &Constraint::Tangent(leg, piece)));
+    assert_eq!(
+        sketch.constraint(tangent),
+        Some(&Constraint::Tangent(leg, piece))
+    );
     assert!(has(&sketch, &Constraint::Concentric(arc, piece)));
     assert!(has(&sketch, &Constraint::Equal(arc, piece)));
     let solved = assert_solves_in_place(&sketch);
@@ -1168,6 +1170,37 @@ fn a_dimension_moved_to_the_far_piece_of_a_trim_keeps_its_placed_label() {
 }
 
 #[test]
+fn a_dimension_moved_to_the_far_piece_of_a_trim_keeps_its_id() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    let (_, end) = ends(&sketch, line);
+    let leaning = sketch.add_line(Point2::new(30.0, 0.0), Point2::new(30.0, 20.0));
+    let (leaning_start, _) = ends(&sketch, leaning);
+    sketch
+        .add_constraint(Constraint::Coincident(end, leaning_start))
+        .unwrap();
+    let angle = sketch
+        .add_constraint(Constraint::Angle {
+            from: line,
+            to: leaning,
+            reversed: false,
+            value: Expression::Measure(90.0, Unit::Degree),
+        })
+        .unwrap();
+    vertical(&mut sketch, 10.0);
+    vertical(&mut sketch, 20.0);
+
+    let Trimmed::Split { piece } = sketch.trim(line, Point2::new(15.0, 0.1)).unwrap() else {
+        panic!("the line splits");
+    };
+
+    assert!(matches!(
+        sketch.constraint(angle),
+        Some(Constraint::Angle { from, to, .. }) if *from == piece && *to == leaning
+    ));
+}
+
+#[test]
 fn an_end_held_only_by_an_inactive_fix_or_coincident_is_extended() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
@@ -1200,6 +1233,52 @@ fn an_end_held_only_by_an_inactive_fix_or_coincident_is_extended() {
 
     assert_eq!(sketch.check_free_end(line, end), Ok(()));
     assert!(sketch.extend(line, Point2::new(4.0, 0.0)).is_ok());
+}
+
+#[test]
+fn an_end_a_dimension_or_symmetry_holds_is_refused_and_one_resting_on_a_curve_is_extended() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
+    let (start, end) = ends(&sketch, line);
+    let wall = sketch.add_line(Point2::new(20.0, -5.0), Point2::new(20.0, 5.0));
+    let other = sketch.add_point(Point2::new(5.0, 4.0));
+    let mirror = sketch.add_line(Point2::new(0.0, 2.0), Point2::new(10.0, 2.0));
+    let resting = sketch
+        .add_constraint(Constraint::Coincident(end, mirror))
+        .unwrap();
+    let across = sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: mm(5.0),
+        })
+        .unwrap();
+    let before = sketch.clone();
+
+    let refused = sketch.extend(line, Point2::new(4.0, 0.0)).unwrap_err();
+
+    assert!(matches!(refused, ExtendError::Held { .. }), "{refused}");
+    assert!(refused.to_string().contains("Distance"), "{refused}");
+    assert_eq!(sketch, before);
+
+    sketch.set_active(across, false).unwrap();
+    let symmetric = sketch
+        .add_constraint(Constraint::Symmetric {
+            first: end,
+            second: other,
+            about: mirror,
+        })
+        .unwrap();
+    let refused = sketch.extend(line, Point2::new(4.0, 0.0)).unwrap_err();
+
+    assert!(matches!(refused, ExtendError::Held { .. }), "{refused}");
+    assert!(refused.to_string().contains("Symmetric"), "{refused}");
+
+    sketch.remove_constraint(symmetric).unwrap();
+    let extension = sketch.extend(line, Point2::new(4.0, 0.0)).unwrap();
+
+    assert_eq!(extension.target, wall);
+    assert!(sketch.constraint(resting).is_none());
 }
 
 fn held_middle_of(sketch: &mut Sketch, line: EntityId, at: Point2) -> (EntityId, ConstraintId) {

@@ -321,7 +321,8 @@ paths:
   the solution. A constraint adding no rank over older ones is redundant, naming what it duplicates.
 - `Sketch::determines` (`determined.rs`) tells whether a new dimension's measurement is already
   held: on the settled geometry and its solution's dimension values, the dimension is added at its
-  literal value and, without solving, each part holding its equations is linearised
+  value (a parameter-driven one evaluated with the parameters the caller passes; unresolvable is
+  not determined) and, without solving, each part holding its equations is linearised
   (`Solver::adds_rank_over_the_rest`): every other row is merged into a `sparse::Triangular` as the
   large-part analysis does (no null space), and the dimension is determined when none of its rows
   then adds rank, so its gradient lies in the other constraints' row space. A dimension bringing

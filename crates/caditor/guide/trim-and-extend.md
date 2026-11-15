@@ -25,7 +25,8 @@ passes through the cut instead, so its shape near the cut can shift slightly. Ex
 a spline only goes as far as it keeps heading the way its end points: an end that would curl back
 before meeting anything is not extended. Whole ellipses, circles and closed splines cannot be
 extended, having no ends, and neither can projected geometry; the tool says why when you aim at
-one. To trim or extend a projected curve, first keep it as an ordinary curve
+one. An end that is shared with another curve, fixed, or held by a dimension, a symmetry or another
+constraint is not moved: the tool names the constraint, and deleting it lets the end extend. To trim or extend a projected curve, first keep it as an ordinary curve
 ([Project](project-and-intersect)).
 
 From the keyboard, {command:view.highlight_next} steps through the pieces and

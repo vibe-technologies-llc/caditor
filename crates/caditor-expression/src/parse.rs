@@ -73,6 +73,7 @@ pub enum ParseErrorKind {
     UnitPower { found: String, suggestion: String },
 }
 
+const IMPERIAL_SUGGESTION: &str = "mm, cm or m";
 const PLURAL_LENGTH: usize = 3;
 const UNIT_LIST: &str =
     "units are um, mm, cm, m, deg and rad, and mm² or mm³ for areas and volumes";
@@ -210,7 +211,7 @@ fn parse_with(
         Some(token) => Err(parser
             .decimal_comma()
             .unwrap_or_else(|| parser.unexpected(token.clone(), OPERATOR))),
-        None => Ok(expression),
+        None => bounded(expression, 0..text.len()),
     }
 }
 
@@ -359,6 +360,30 @@ fn deepened(depth: usize, right: &Expression, span: Range<usize>) -> Result<usiz
         });
     }
     Ok(deeper)
+}
+
+fn is_imperial(unit: Unit) -> bool {
+    matches!(unit, Unit::Inch | Unit::Foot)
+}
+
+fn imperial(found: String, span: Range<usize>) -> ParseError {
+    ParseError {
+        kind: ParseErrorKind::ImperialUnit {
+            found,
+            suggestion: IMPERIAL_SUGGESTION,
+        },
+        span,
+    }
+}
+
+fn bounded(expression: Expression, span: Range<usize>) -> Result<Expression, ParseError> {
+    if expression.depth() > MAX_TREE_DEPTH {
+        return Err(ParseError {
+            kind: ParseErrorKind::TooDeep,
+            span,
+        });
+    }
+    Ok(expression)
 }
 
 struct BoundUnit {
@@ -526,8 +551,8 @@ impl Parser<'_> {
         match token.kind {
             TokenKind::Minus => {
                 self.advance();
-                let operand = self.nested(token.span, Self::unary)?;
-                Ok(Expression::Negate(Box::new(operand)))
+                let operand = self.nested(token.span.clone(), Self::unary)?;
+                bounded(Expression::Negate(Box::new(operand)), token.span)
             }
             TokenKind::Plus => {
                 self.advance();
@@ -548,14 +573,20 @@ impl Parser<'_> {
             Some(bound) if self.caret().is_some() => {
                 return self.unit_power(atom, bound, start);
             }
-            Some(bound) => bound.applied_to(atom),
+            Some(bound) => {
+                let span = bound.span.clone();
+                bounded(bound.applied_to(atom), span)?
+            }
         };
         let Some(caret) = self.caret() else {
             return Ok(base);
         };
         self.advance();
-        let exponent = self.nested(caret.span, Self::unary)?;
-        Ok(Expression::binary(BinaryOperator::Power, base, exponent))
+        let exponent = self.nested(caret.span.clone(), Self::unary)?;
+        bounded(
+            Expression::binary(BinaryOperator::Power, base, exponent),
+            caret.span,
+        )
     }
 
     fn caret(&self) -> Option<Token> {
@@ -584,7 +615,10 @@ impl Parser<'_> {
         };
         match squared_or_cubed {
             Some(power) if bound.exponent == 1 && bound.unit.dimension() == Dimension::LENGTH => {
-                Ok(Expression::WithUnit(Box::new(atom), bound.unit, power))
+                bounded(
+                    Expression::WithUnit(Box::new(atom), bound.unit, power),
+                    bound.span,
+                )
             }
             _ => {
                 let text = |range: Range<usize>| self.text.get(range).unwrap_or_default();
@@ -658,6 +692,7 @@ impl Parser<'_> {
                 });
             }
             return match spelled_unit(&name) {
+                Some(unit) if !known && is_imperial(unit) => Err(imperial(name, span)),
                 Some(unit) if !known => Err(ParseError {
                     kind: ParseErrorKind::UnknownUnit {
                         found: name,
@@ -668,14 +703,8 @@ impl Parser<'_> {
                 _ => Ok(None),
             };
         };
-        if matches!(unit, Unit::Inch | Unit::Foot) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ImperialUnit {
-                    found: name,
-                    suggestion: "mm, cm or m",
-                },
-                span,
-            });
+        if is_imperial(unit) {
+            return Err(imperial(name, span));
         }
         self.advance();
         Ok(Some(BoundUnit {
@@ -699,7 +728,11 @@ impl Parser<'_> {
             return Ok(Expression::Constant(constant));
         }
         if let Some((unit, _)) = unit_with_power(name) {
-            return Err(error(ParseErrorKind::UnitWithoutNumber(unit)));
+            return Err(if is_imperial(unit) {
+                imperial(name.to_owned(), span.clone())
+            } else {
+                error(ParseErrorKind::UnitWithoutNumber(unit))
+            });
         }
         if let Some(function) = Function::from_name(name) {
             return Err(error(ParseErrorKind::MissingArguments(function)));
@@ -753,6 +786,6 @@ impl Parser<'_> {
                 span,
             });
         }
-        Ok(Expression::Call(function, arguments))
+        bounded(Expression::Call(function, arguments), span)
     }
 }

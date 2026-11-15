@@ -418,7 +418,7 @@ impl<'a> Finder<'a> {
         let sketch = self.sketch;
         if sketch.check_constraint(&constraint).is_err()
             || self.relations.restating(sketch, &constraint).is_some()
-            || self.relations.contradicting(&constraint).is_some()
+            || self.relations.contradicting(sketch, &constraint).is_some()
         {
             return false;
         }
