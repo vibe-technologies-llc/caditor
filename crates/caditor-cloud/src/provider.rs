@@ -17,10 +17,16 @@ pub struct Redirect {
     pub uri: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Callback {
     pub code: String,
     pub state: String,
+}
+
+impl std::fmt::Debug for Callback {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("Callback").finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,5 +178,22 @@ pub trait Provider: Send + Sync {
         _design: &Design,
     ) -> Result<Option<Vec<u8>>, Error> {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_output_of_a_callback_never_holds_the_code_or_the_state() {
+        let callback = Callback {
+            code: "code-secret".to_owned(),
+            state: "state-secret".to_owned(),
+        };
+
+        let text = format!("{callback:?}");
+
+        assert!(!text.contains("secret"));
     }
 }

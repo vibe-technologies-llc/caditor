@@ -164,6 +164,31 @@ fn a_refresh_keeps_the_old_refresh_token_when_the_answer_has_none() {
 }
 
 #[test]
+fn a_refused_first_sign_in_is_a_sign_in_failure_not_an_ended_one() {
+    for status in [400, 401] {
+        let net = ScriptedTransport::new().route(
+            Method::Post,
+            TOKEN,
+            status,
+            r#"{"error":"invalid_client"}"#,
+        );
+        let provider = onshape();
+        let sign_in = provider.start_sign_in(&redirect()).unwrap();
+        let callback = Callback {
+            code: "the-code".to_owned(),
+            state: sign_in.state.clone(),
+        };
+
+        let result = provider.finish_sign_in(&net, &sign_in, &callback, NOW);
+
+        assert!(
+            matches!(result, Err(Error::SignInRefused { .. })),
+            "{status}"
+        );
+    }
+}
+
+#[test]
 fn a_refused_refresh_means_signing_in_again() {
     let net =
         ScriptedTransport::new().route(Method::Post, TOKEN, 400, r#"{"error":"invalid_grant"}"#);
@@ -386,6 +411,30 @@ fn documents_are_the_projects_and_paging_follows_next_inside_onshape() {
     assert_eq!(names, ["Bracket", "Untitled", "Gear"]);
     assert_eq!(projects[0].id.as_str(), "d1");
     assert_eq!(net.requests().len(), 2);
+}
+
+#[test]
+fn a_next_link_to_a_look_alike_host_port_or_scheme_is_never_followed_with_the_token() {
+    let links = [
+        "https://cad.onshape.com.evil.example/api/v10/documents",
+        "https://cad.onshape.com@evil.example/api/v10/documents",
+        "https://cad.onshape.com:8443/api/v10/documents",
+        "http://cad.onshape.com/api/v10/documents",
+    ];
+    for link in links {
+        let net = ScriptedTransport::new().route(
+            Method::Get,
+            &first_page(),
+            200,
+            &format!(r#"{{"items":[],"next":"{link}"}}"#),
+        );
+
+        onshape()
+            .projects(&net, &session(), &WorkspaceId::new(Scope::Mine.id()))
+            .unwrap();
+
+        assert_eq!(net.requests().len(), 1, "{link}");
+    }
 }
 
 #[test]

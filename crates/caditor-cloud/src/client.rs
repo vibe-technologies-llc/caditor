@@ -207,22 +207,38 @@ impl Client {
     }
 
     fn renew(&self, stale: &Session) -> Result<Session, Error> {
+        let renewed = self.renewed(stale)?;
+        if let (Some(saved), Some(renewed)) = (&self.saved, &renewed.fresh) {
+            saved(renewed);
+        }
+        Ok(renewed.session)
+    }
+
+    fn renewed(&self, stale: &Session) -> Result<Renewal, Error> {
         let _only_one = self.renewing.lock();
         let now = (self.clock)();
         let current = self.session();
         if current != *stale && !current.is_expiring(now) {
-            return Ok(current);
+            return Ok(Renewal {
+                session: current,
+                fresh: None,
+            });
         }
         if !current.can_refresh() {
             return Err(Error::SignedOut);
         }
         let renewed = self.provider.refresh(&*self.transport, &current, now)?;
         *self.session.lock() = renewed.clone();
-        if let Some(saved) = &self.saved {
-            saved(&renewed);
-        }
-        Ok(renewed)
+        Ok(Renewal {
+            session: renewed.clone(),
+            fresh: Some(renewed),
+        })
     }
+}
+
+struct Renewal {
+    session: Session,
+    fresh: Option<Session>,
 }
 
 #[cfg(test)]
@@ -289,6 +305,27 @@ mod tests {
         assert_eq!(refreshes(&provider), 1);
         assert_eq!(kept.lock().len(), 1);
         assert_eq!(client.session().access_token, "fake-access");
+    }
+
+    #[test]
+    fn the_renewal_lock_is_free_while_the_new_session_is_being_saved() {
+        let provider = Arc::new(FakeProvider::new());
+        let slot = Arc::new(std::sync::OnceLock::<Arc<Client>>::new());
+        let free = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let saver_slot = Arc::clone(&slot);
+        let saver_free = Arc::clone(&free);
+        let client = Arc::new(client(&provider, session(clock() + 30, true)).saving_with(
+            Arc::new(move |_| {
+                if let Some(client) = saver_slot.get() {
+                    saver_free.lock().push(client.renewing.try_lock().is_some());
+                }
+            }),
+        ));
+        assert!(slot.set(Arc::clone(&client)).is_ok());
+
+        client.account().unwrap();
+
+        assert_eq!(*free.lock(), [true]);
     }
 
     #[test]

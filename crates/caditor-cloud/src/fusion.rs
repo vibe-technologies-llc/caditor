@@ -14,7 +14,7 @@ use crate::{
     error::{Error, Subject},
     pkce::{self, Verifier},
     provider::{Callback, Provider, Redirect, SignIn},
-    rest::{self, Token, checked},
+    rest::{self, Grant, Token, checked},
     service::Service,
     session::Session,
     transport::{Body, Request, Response, Transport},
@@ -88,13 +88,18 @@ impl Fusion {
                 .links
                 .and_then(|links| links.next)
                 .map(|link| link.href)
-                .filter(|href| href.starts_with(API));
+                .filter(|href| rest::is_within(href, API));
         }
         Ok(found)
     }
 
-    fn token(&self, net: &dyn Transport, fields: &[(&str, &str)]) -> Result<Token, Error> {
-        rest::token(SERVICE, net, TOKEN, fields)
+    fn token(
+        &self,
+        net: &dyn Transport,
+        grant: Grant,
+        fields: &[(&str, &str)],
+    ) -> Result<Token, Error> {
+        rest::token(SERVICE, net, TOKEN, grant, fields)
     }
 
     fn version_urn(
@@ -466,6 +471,7 @@ impl Provider for Fusion {
     ) -> Result<Session, Error> {
         let token = self.token(
             net,
+            Grant::Code,
             &[
                 ("grant_type", "authorization_code"),
                 ("client_id", &self.client_id),
@@ -483,6 +489,7 @@ impl Provider for Fusion {
         };
         let token = self.token(
             net,
+            Grant::Refresh,
             &[
                 ("grant_type", "refresh_token"),
                 ("client_id", &self.client_id),

@@ -9,7 +9,7 @@ use caditor_cloud::{Client, Design, Service};
 use caditor_file::{decode_picture, write_atomically};
 use egui::{ColorImage, Context, TextureHandle, TextureOptions};
 
-use super::failure::Failure;
+use super::{failure::Failure, private};
 
 pub const KEPT_THUMBNAILS: usize = 400;
 pub const MAX_THUMBNAIL_BYTES: usize = 1 << 20;
@@ -98,7 +98,7 @@ impl ThumbnailCache {
     }
 
     pub fn write(&self, service: Service, design: &Design, bytes: &[u8]) -> io::Result<()> {
-        fs::create_dir_all(&self.dir)?;
+        private::create_dir_all(&self.dir)?;
         write_atomically(&self.path_for(service, design), bytes)?;
         self.prune(KEPT_THUMBNAILS)
     }

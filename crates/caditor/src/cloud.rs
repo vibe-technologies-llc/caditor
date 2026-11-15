@@ -28,6 +28,7 @@ mod downloads;
 mod failure;
 mod jobs;
 mod keyring;
+mod private;
 mod state;
 mod store;
 mod thumbnails;
@@ -35,6 +36,7 @@ mod thumbnails;
 pub use self::{
     failure::Failure,
     jobs::Opener,
+    private::create_dir_all as create_private_dir_all,
     state::{
         AfterSend, CloudCommand, Connection, Destination, Downloads, Import, ImportItem, Link,
         Linked, Load, Remembered, Send, SendStage, Shipment, SigningIn, Stage, Unopened,

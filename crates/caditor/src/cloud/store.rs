@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     keyring::{Keyring, KeyringError},
+    private,
     state::Remembered,
 };
 
@@ -24,6 +25,7 @@ pub enum StoreError {
 
 #[derive(Clone)]
 pub struct SessionStore {
+    folder: PathBuf,
     path: PathBuf,
     hub_path: PathBuf,
     destination_path: PathBuf,
@@ -69,6 +71,7 @@ impl SessionStore {
             hub_path: folder.join(format!("{}-hub.json", service.id())),
             destination_path: folder.join(format!("{}-destination.json", service.id())),
             thumbnails_dir: folder.join("thumbnails").join(service.id()),
+            folder,
             service,
             keyring,
         }
@@ -87,6 +90,12 @@ impl SessionStore {
     }
 
     pub fn load(&self) -> io::Result<Option<Session>> {
+        if let Err(error) = private::restrict(&self.folder) {
+            log::warn!(
+                "the cloud folder {} could not be made private: {error}",
+                self.folder.display()
+            );
+        }
         if let Some(session) = self.load_file()? {
             return Ok(Some(session));
         }
@@ -133,8 +142,9 @@ impl SessionStore {
             }
             Err(error) => {
                 log::warn!(
-                    "the saved {} sign-in is damaged and was set aside: {error}",
-                    self.path.display()
+                    "the saved {} sign-in is damaged and was set aside ({})",
+                    self.path.display(),
+                    position(&error)
                 );
                 self.remove_file()?;
                 Ok(None)
@@ -159,7 +169,10 @@ impl SessionStore {
         match serde_json::from_slice(bytes) {
             Ok(session) => Some(session),
             Err(error) => {
-                log::warn!("the sign-in kept in the keyring is damaged and was removed: {error}");
+                log::warn!(
+                    "the sign-in kept in the keyring is damaged and was removed ({})",
+                    position(&error)
+                );
                 if let Err(error) = self.keyring.delete(self.service) {
                     log::warn!(
                         "the damaged sign-in could not be removed from the keyring: {error}"
@@ -172,7 +185,7 @@ impl SessionStore {
 
     fn write_file(&self, bytes: &[u8]) -> io::Result<()> {
         if let Some(folder) = self.path.parent() {
-            fs::create_dir_all(folder)?;
+            private::create_dir_all(folder)?;
         }
         caditor_file::write_privately(&self.path, bytes)
     }
@@ -189,7 +202,7 @@ impl SessionStore {
 
     pub fn remember_hub(&self, workspace: &WorkspaceId) -> io::Result<()> {
         if let Some(folder) = self.hub_path.parent() {
-            fs::create_dir_all(folder)?;
+            private::create_dir_all(folder)?;
         }
         let bytes = serde_json::to_vec(&RememberedHub {
             workspace: workspace.as_str().to_owned(),
@@ -226,7 +239,7 @@ impl SessionStore {
             return remove_if_present(&self.destination_path);
         }
         if let Some(folder) = self.destination_path.parent() {
-            fs::create_dir_all(folder)?;
+            private::create_dir_all(folder)?;
         }
         let kept = RememberedDestinations {
             destinations: destinations
@@ -246,6 +259,10 @@ impl SessionStore {
     pub fn forget_destinations(&self) -> io::Result<()> {
         remove_if_present(&self.destination_path)
     }
+}
+
+fn position(error: &serde_json::Error) -> String {
+    format!("line {}, column {}", error.line(), error.column())
 }
 
 fn remove_if_present(path: &Path) -> io::Result<()> {
@@ -438,6 +455,37 @@ mod tests {
 
         let mode = fs::metadata(&store.path).unwrap().permissions().mode();
         assert_eq!(mode & 0o077, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_cloud_folder_is_for_its_owner_alone_whether_made_now_or_by_an_older_version() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let store = store(&dir, &FakeKeyring::unreachable());
+        let folder = dir.path().join("cloud");
+        let mode = || fs::metadata(&folder).unwrap().permissions().mode() & 0o777;
+
+        store.remember_hub(&WorkspaceId::new("hub")).unwrap();
+
+        assert_eq!(mode(), 0o700);
+
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).unwrap();
+        store.load().unwrap();
+
+        assert_eq!(mode(), 0o700);
+    }
+
+    #[test]
+    fn the_position_of_a_damaged_sign_in_names_no_part_of_its_text() {
+        let error =
+            serde_json::from_str::<Session>(r#"{"access_token":"secret-value","x":}"#).unwrap_err();
+
+        let text = position(&error);
+
+        assert!(!text.contains("secret"));
+        assert!(text.contains("line 1"));
     }
 
     #[test]

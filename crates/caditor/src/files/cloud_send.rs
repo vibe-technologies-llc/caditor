@@ -212,7 +212,7 @@ fn clear_outgoing(dir: &Path) -> Result<(), io::ErrorKind> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.kind()),
     }
-    fs::create_dir_all(dir).map_err(|error| error.kind())
+    cloud::create_private_dir_all(dir).map_err(|error| error.kind())
 }
 
 impl Files {

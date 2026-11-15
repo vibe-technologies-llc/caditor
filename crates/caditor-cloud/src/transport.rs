@@ -115,9 +115,9 @@ impl std::fmt::Debug for Body {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Empty => formatter.write_str("Empty"),
-            Self::Form(text) => formatter.debug_tuple("Form").field(text).finish(),
-            Self::Json(text) => formatter.debug_tuple("Json").field(text).finish(),
-            Self::JsonApi(text) => formatter.debug_tuple("JsonApi").field(text).finish(),
+            Self::Form(text) => write!(formatter, "Form({} bytes)", text.len()),
+            Self::Json(text) => write!(formatter, "Json({} bytes)", text.len()),
+            Self::JsonApi(text) => write!(formatter, "JsonApi({} bytes)", text.len()),
             Self::Bytes(bytes) => write!(formatter, "Bytes({} bytes)", bytes.len()),
             Self::Multipart(multipart) => {
                 write!(formatter, "Multipart({} bytes)", multipart.bytes.len())
@@ -285,5 +285,17 @@ mod tests {
             format!("{:?}", Body::Multipart(multipart)),
             "Multipart(6 bytes)"
         );
+    }
+
+    #[test]
+    fn a_debug_print_of_a_text_body_shows_its_size_not_its_text() {
+        let form = Body::Form("refresh_token=secret&code=secret".to_owned());
+        let json = Body::Json(r#"{"uploadKey":"secret"}"#.to_owned());
+        let api = Body::JsonApi(r#"{"data":"secret"}"#.to_owned());
+
+        let printed = format!("{form:?} {json:?} {api:?}");
+
+        assert!(!printed.contains("secret"));
+        assert_eq!(printed, "Form(32 bytes) Json(22 bytes) JsonApi(17 bytes)");
     }
 }

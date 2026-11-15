@@ -66,13 +66,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Cloud and the MCP server
 
-- [high · easy] Fusion follows a next-page link carrying the user's token to any host whose name
-  starts with Autodesk's: `fusion.rs` checks `href.starts_with(API)` with `API` lacking a trailing
-  `/`, so `https://developer.api.autodesk.com.<other domain>/…` or `…autodesk.com@<other host>/…`
-  passes and `self.get` adds the bearer token (`cloud.md` says links are followed only inside
-  `developer.api.autodesk.com`; Onshape's `API_PREFIX` ends in `/api/`). Compare the parsed link's
-  scheme, host and port; `fusion/tests.rs` tries only `evil.example`, so add a look-alike suffix
-  and an `@` host for both providers.
 - [medium · easy] The MCP `export` tool replaces an existing file without a word (`mcp/files.rs`,
   `export`; `save_as` refuses one): a misbehaving or prompt-injected client can overwrite any STEP,
   STL, 3MF, OBJ, glTF or PNG in the allowed folders, the STEP the model was imported from included,
@@ -99,29 +92,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   so the session comes back unrevoked at the next start, against `cloud.md`. A forgotten
   generation the store checks on saving, and revoking a session that arrives late, close it;
   nothing tests these orders (`FakeProvider` holding the exchange and `FakeKeyring` can).
-- [low · easy] Downloads are unbounded: `network.rs`'s `fetch` streams into the file with no byte
-  limit (answers are capped at 16 MiB) for up to 30 minutes, so a misbehaving server or signed link
-  can fill the disk. Cap them (a multiple of `Content-Length`, or a generous fixed size) as
-  `TransportError::TooLarge`.
-- [low · easy] Downloaded designs and thumbnails under `<state>/cloud` are written with default
-  permissions (`cloud/jobs.rs`, `write_atomically`), only the session through `write_privately`, so
-  other local users can read them where the home folder can be traversed. Make `<state>/cloud`
-  owner-only.
-- [low · easy] Secrets would reach a log through one `{:?}`: `transport.rs`'s `Body::Form` prints
-  the whole form (refresh token, code, verifier) and `provider.rs`'s `Callback` derives `Debug`
-  with the code, both public; `cloud/store.rs` logs serde_json's text for a damaged session, which
-  for an invalid type quotes the value met (unchecked whether that can be part of a token). Redact
-  them as `Session` and `Verifier` are, and log only the error's line and column.
-- [low · easy] A token refresh saves to the keyring while holding `renewing` (`client.rs`), so
-  every other job of that service waits through an unlock prompt of up to 2 minutes. Release the
-  lock first.
-- [low · easy] A first sign-in the token endpoint refuses (a redirect or PKCE mismatch, 400 or 401)
-  reads "The sign-in has ended", since `rest.rs` maps every such answer to `SignedOut`; an
-  `authorization_code` grant needs a sign-in failure of its own.
-- [low · easy] Download names are cut at 80 characters, not bytes (`cloud/downloads.rs`), so
-  four-byte characters pass 255 bytes once `.part` is added, and Windows device names (`CON`,
-  `NUL`, `COM1`) are kept as they are. Cut by bytes at a character boundary and prefix reserved
-  names.
 - [low · easy] A repeated MCP request id loses its cancel flag (`mcp/server.rs`, `Cancellations`):
   `register` replaces the first request's flag and the first request's `forget` then removes the
   second's, so cancelling the second does nothing. Refuse an id already in flight.

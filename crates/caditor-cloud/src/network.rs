@@ -20,6 +20,9 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_ANSWER_BYTES: u64 = 16 << 20;
 const COPY_CHUNK: usize = 64 << 10;
+const MAX_DOWNLOAD_BYTES: u64 = 4 << 30;
+const DOWNLOAD_SLACK_BYTES: u64 = 1 << 20;
+const DOWNLOAD_OVERRUN_FACTOR: u64 = 2;
 const MAX_REDIRECTS: u32 = 5;
 
 pub struct Network {
@@ -244,28 +247,52 @@ impl Transport for Network {
             .and_then(|value| value.to_str().ok())
             .and_then(|text| text.trim().parse::<u64>().ok());
         let mut reader = response.into_body().into_reader();
-        let mut chunk = vec![0_u8; COPY_CHUNK];
-        let mut bytes = 0_u64;
-        loop {
-            let read = reader
-                .read(&mut chunk)
-                .map_err(|error| classify(ureq::Error::Io(error)))?;
-            if read == 0 {
-                break;
-            }
-            let filled = chunk.get(..read).unwrap_or_default();
-            sink.write_all(filled)
-                .map_err(|error| TransportError::Io(error.kind()))?;
-            bytes = bytes.saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
-            if !progress(bytes, total) {
-                return Err(TransportError::Stopped);
-            }
-        }
+        let bytes = copy_limited(&mut reader, sink, total, progress)?;
         Ok(Fetched {
             status,
             retry_after_seconds,
             bytes,
         })
+    }
+}
+
+fn download_limit(total: Option<u64>) -> u64 {
+    total
+        .map(|promised| {
+            promised
+                .saturating_mul(DOWNLOAD_OVERRUN_FACTOR)
+                .saturating_add(DOWNLOAD_SLACK_BYTES)
+        })
+        .unwrap_or(MAX_DOWNLOAD_BYTES)
+        .min(MAX_DOWNLOAD_BYTES)
+}
+
+fn copy_limited(
+    reader: &mut dyn Read,
+    sink: &mut dyn Write,
+    total: Option<u64>,
+    progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+) -> Result<u64, TransportError> {
+    let limit = download_limit(total);
+    let mut chunk = vec![0_u8; COPY_CHUNK];
+    let mut bytes = 0_u64;
+    loop {
+        let read = reader
+            .read(&mut chunk)
+            .map_err(|error| classify(ureq::Error::Io(error)))?;
+        if read == 0 {
+            return Ok(bytes);
+        }
+        bytes = bytes.saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
+        if bytes > limit {
+            return Err(TransportError::TooLarge);
+        }
+        let filled = chunk.get(..read).unwrap_or_default();
+        sink.write_all(filled)
+            .map_err(|error| TransportError::Io(error.kind()))?;
+        if !progress(bytes, total) {
+            return Err(TransportError::Stopped);
+        }
     }
 }
 
@@ -327,5 +354,63 @@ mod tests {
         assert!(result.is_err());
         assert!(stopped.get());
         assert_eq!(reader.position, COPY_CHUNK * 2);
+    }
+
+    #[test]
+    fn the_download_limit_is_a_margin_over_what_the_answer_promised_or_a_fixed_cap() {
+        assert_eq!(download_limit(None), MAX_DOWNLOAD_BYTES);
+        assert_eq!(
+            download_limit(Some(100)),
+            100 * DOWNLOAD_OVERRUN_FACTOR + DOWNLOAD_SLACK_BYTES
+        );
+        assert_eq!(download_limit(Some(u64::MAX)), MAX_DOWNLOAD_BYTES);
+    }
+
+    #[test]
+    fn a_download_that_runs_past_its_promised_size_is_cut_off_as_too_large() {
+        let promised = 1000;
+        let body = vec![3_u8; usize::try_from(download_limit(Some(promised))).unwrap() + 1];
+        let mut sink = Vec::new();
+
+        let outcome = copy_limited(
+            &mut body.as_slice(),
+            &mut sink,
+            Some(promised),
+            &mut |_, _| true,
+        );
+
+        assert_eq!(outcome, Err(TransportError::TooLarge));
+        assert!(sink.len() < body.len());
+    }
+
+    #[test]
+    fn a_download_within_its_limit_is_copied_whole() {
+        let body = vec![9_u8; COPY_CHUNK + 5];
+        let mut sink = Vec::new();
+
+        let outcome = copy_limited(
+            &mut body.as_slice(),
+            &mut sink,
+            Some(body.len() as u64),
+            &mut |_, _| true,
+        );
+
+        assert_eq!(outcome, Ok(body.len() as u64));
+        assert_eq!(sink, body);
+    }
+
+    #[test]
+    fn a_download_without_a_promised_size_is_still_capped() {
+        struct Endless;
+
+        impl Read for Endless {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                Ok(buffer.len())
+            }
+        }
+
+        let outcome = copy_limited(&mut Endless, &mut io::sink(), None, &mut |_, _| true);
+
+        assert_eq!(outcome, Err(TransportError::TooLarge));
     }
 }

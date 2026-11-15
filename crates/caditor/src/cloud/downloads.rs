@@ -6,7 +6,10 @@ use std::{
 
 use super::state::ImportItem;
 
-const MAX_NAME_CHARS: usize = 80;
+const MAX_NAME_BYTES: usize = 200;
+const RESERVED_PREFIX: char = '_';
+const RESERVED_DEVICES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+const NUMBERED_DEVICES: [&str; 2] = ["COM", "LPT"];
 const FALLBACK_NAME: &str = "design";
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0100_0000_01b3;
@@ -55,14 +58,54 @@ fn file_stem(name: &str) -> String {
                 symbol
             }
         })
-        .take(MAX_NAME_CHARS)
         .collect();
-    let trimmed = cleaned.trim_matches(|symbol: char| symbol == '.' || symbol.is_whitespace());
+    let trimmed = within_bytes(&cleaned, MAX_NAME_BYTES)
+        .trim_matches(|symbol: char| symbol == '.' || symbol.is_whitespace());
     if trimmed.is_empty() {
         FALLBACK_NAME.to_owned()
+    } else if is_device_name(trimmed) {
+        format!("{RESERVED_PREFIX}{trimmed}")
     } else {
         trimmed.to_owned()
     }
+}
+
+fn within_bytes(text: &str, limit: usize) -> &str {
+    let end = text
+        .char_indices()
+        .map(|(at, symbol)| at + symbol.len_utf8())
+        .take_while(|end| *end <= limit)
+        .last()
+        .unwrap_or(0);
+    text.get(..end).unwrap_or_default()
+}
+
+fn is_device_name(stem: &str) -> bool {
+    let base = stem
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end()
+        .to_ascii_uppercase();
+    RESERVED_DEVICES.contains(&base.as_str())
+        || NUMBERED_DEVICES.iter().any(|device| {
+            base.strip_prefix(device).is_some_and(|number| {
+                matches!(
+                    number,
+                    "1" | "2"
+                        | "3"
+                        | "4"
+                        | "5"
+                        | "6"
+                        | "7"
+                        | "8"
+                        | "9"
+                        | "\u{b9}"
+                        | "\u{b2}"
+                        | "\u{b3}"
+                )
+            })
+        })
 }
 
 pub fn usage(dir: &Path) -> io::Result<Usage> {
@@ -261,8 +304,52 @@ mod tests {
         assert_eq!(stem("a/b\\c:d*e?f\"g<h>i|j"), "a_b_c_d_e_f_g_h_i_j");
         assert_eq!(stem("  ..  "), "design");
         assert_eq!(stem(""), "design");
-        assert_eq!(stem(&"x".repeat(200)).chars().count(), MAX_NAME_CHARS);
+        assert_eq!(stem(&"x".repeat(400)).len(), MAX_NAME_BYTES);
         assert_eq!(stem("tab\there"), "tab_here");
+    }
+
+    #[test]
+    fn a_long_name_is_cut_by_bytes_at_a_character_boundary_leaving_room_for_the_temporary() {
+        let item = design("i", &"\u{e9}".repeat(300));
+        let target = path_for(Path::new("d"), &item);
+
+        let name = target.file_name().unwrap().to_str().unwrap();
+        let temporary = temporary_for(&target);
+
+        assert_eq!(name.len(), MAX_NAME_BYTES + ".step".len());
+        assert!(name.starts_with(&"\u{e9}".repeat(100)));
+        assert!(temporary.file_name().unwrap().len() <= 255);
+        let emoji = path_for(Path::new("d"), &design("i", &"\u{1f600}".repeat(100)));
+        assert!(emoji.file_stem().unwrap().to_str().unwrap().len() <= MAX_NAME_BYTES);
+        assert!(temporary_for(&emoji).file_name().unwrap().len() <= 255);
+    }
+
+    #[test]
+    fn windows_device_names_are_prefixed_so_they_name_a_file() {
+        let stem = |name: &str| {
+            path_for(Path::new("d"), &design("i", name))
+                .file_stem()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        };
+
+        for device in [
+            "CON",
+            "nul",
+            "Aux",
+            "PRN",
+            "COM1",
+            "lpt9",
+            "com\u{b2}",
+            "NUL.txt",
+            "CON ",
+        ] {
+            assert_eq!(stem(device), format!("_{}", device.trim_end()), "{device}");
+        }
+        for fine in ["CONSOLE", "COM0", "COM10", "LPT", "NULL", "my CON"] {
+            assert_eq!(stem(fine), fine, "{fine}");
+        }
     }
 
     #[test]

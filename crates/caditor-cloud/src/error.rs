@@ -49,6 +49,11 @@ pub enum Error {
     Transport(#[from] TransportError),
     #[error("The sign-in has ended. Sign in again.")]
     SignedOut,
+    #[error(
+        "{service} did not accept the sign-in. Try signing in again; if it keeps failing, this \
+         build of caditor may no longer be allowed to sign in to {service}."
+    )]
+    SignInRefused { service: Service },
     #[error("{service} did not allow this. The hub or team may not have allowed caditor yet.")]
     Forbidden { service: Service },
     #[error("{} was not found. It may have been moved or deleted.", .subject.describe())]

@@ -69,14 +69,18 @@ a `Transport`; the app never speaks a service's protocol itself.
   `send_tracked` (the same for a multipart, reporting the body's bytes as they go out and stopping
   when progress says so; `Network` streams it, other bodies fall back to `send`) and `fetch` (a streamed body into a sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
   ureq over rustls with the pure-Rust graviola crypto provider and bundled roots: no OpenSSL, no
-  `ring`, no C. HTTPS only, at most five redirects, an answer capped at 16 MiB, separate timeouts
+  `ring`, no C. HTTPS only, at most five redirects, an answer capped at 16 MiB, a download at twice
+  its `Content-Length` plus 1 MiB (4 GiB when it gives none) as `TransportError::TooLarge`, separate timeouts
   for answers, downloads and uploads (a request carrying bytes or a multipart, which also wait
   for the body to go out), a `caditor/<version>` User-Agent and nothing else identifying.
 - `Client` (`client.rs`) holds a provider, a transport and the `Session`: it refreshes an
   expiring session once under a lock (so two jobs never spend one refresh token twice), retries a
   call once after a 401 and then says `Error::SignedOut`, and hands each renewed session to a
-  `Saved` callback. `finish_sign_in` refuses a callback whose `state` is not the attempt's.
-- `Session` (`session.rs`) and `Verifier` (`pkce.rs`) never print a secret, not even in `Debug`.
+  `Saved` callback after the lock is released, so a keyring unlock prompt holds no other job. `finish_sign_in` refuses a callback whose `state` is not the attempt's.
+- `Session` (`session.rs`), `Verifier` (`pkce.rs`), `Callback` and the text bodies of a `Request`
+  (`Form`, `Json`, `JsonApi`: only their size) never print a secret, not even in `Debug`. A token
+  endpoint's refusal of a refresh is `SignedOut`; of the first `authorization_code` grant,
+  `SignInRefused`, which says the service did not accept the sign-in.
 - `Listener` (`loopback.rs`) listens on 127.0.0.1 only, for one `GET /callback?code=…&state=…`,
   turns away every other request, honours a stop flag and a deadline fixed before its loop, and
   answers the browser with a static page that holds nothing from the request.
@@ -94,7 +98,7 @@ made before `data:create` was added goes on working for everything but sending (
 403, worded as `Error::SendForbidden`, which says to ask for edit access or sign in again).
 
 - Account: the OIDC `userinfo`. Hubs, projects and folders: Data Management (`/project/v1`,
-  `/data/v1`), following `links.next` only inside `developer.api.autodesk.com`, at most
+  `/data/v1`), following `links.next` only when `rest::is_within` finds its scheme, host and port the API's (no userinfo, a look-alike host or another port never gets the bearer), at most
   `MAX_PAGES`. A project with one top folder shows its contents, with several the folders. Only
   `items:autodesk.fusion360:Design` items are listed.
 - Import: the item's tip version (or the version the user chose from `…/items/{id}/versions`, whose
@@ -292,13 +296,16 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   absent (no bus, no Secret Service, no default collection) is not an error, one that refuses
   (locked and not unlocked, prompt dismissed) is logged, since the entry would sign the user in
   again at the next start. Sign-out and turning cloud off revoke at the service (best effort) and
-  forget; every keyring call, forgetting included, runs on a courier thread, never on the UI
+  forget; a damaged file or entry is logged by line and column only, never its text; every keyring call, forgetting included, runs on a courier thread, never on the UI
   thread (`Cloud::leave` spawns even when nothing is linked).
+- `<state>/cloud` (sessions, downloads, thumbnails, the outgoing file) is owner-only on Unix: every
+  folder made under it is mode 0700 (`cloud/private.rs`) and `SessionStore::load` closes one an older
+  version left open. Windows relies on the inheritance of the per-user state folder.
 - An import is one job (`ImportJob`) of an `ImportItem`: a `Design` (the tip), a `Version` of a
   design, a `Part` of one, or an `Upload`. A design, version or part is converted, polled every two seconds for ten
   minutes at most, and streamed; an upload is streamed straight (`Client::fetch_upload`, progress
   `Stage::Downloading` only). Either goes to `<state>/cloud/downloads/<id hash>/<name>.<ext>`
-  through a hidden `.part` file, fsync, rename, then the newest `KEPT_DESIGNS` are kept (`.step`
+  through a hidden `.part` file, fsync, rename (a name is cut to 200 bytes at a character boundary, and a Windows device name such as `CON` or `COM1` gets a `_` prefix), then the newest `KEPT_DESIGNS` are kept (`.step`
   for a design, `Name vN.step` for a version, `Design - Part.step` for a part, the upload's own
   name with its format's extension). The hash covers project, item id and, for a version, the
   version id, for a part, the part id, so a version or a part never replaces the tip's file. One runs at a time; Cancel stops it between and inside steps. The finished file

@@ -15,7 +15,7 @@ use crate::{
     error::{Error, Subject},
     pkce::{self, Verifier},
     provider::{Callback, Provider, Redirect, SignIn},
-    rest::{self, Token, checked},
+    rest::{self, Grant, Token, checked},
     service::Service,
     session::Session,
     transport::{Body, Multipart, Request, Response, Transport},
@@ -58,8 +58,13 @@ impl Onshape {
         rest::get(SERVICE, net, session, url, subject)
     }
 
-    fn token(&self, net: &dyn Transport, fields: &[(&str, &str)]) -> Result<Token, Error> {
-        rest::token(SERVICE, net, TOKEN, fields)
+    fn token(
+        &self,
+        net: &dyn Transport,
+        grant: Grant,
+        fields: &[(&str, &str)],
+    ) -> Result<Token, Error> {
+        rest::token(SERVICE, net, TOKEN, grant, fields)
     }
 
     fn default_workspace(
@@ -295,7 +300,7 @@ impl Onshape {
             };
             let page: Page = self.get(net, session, url, subject)?;
             found.extend(page.items);
-            next = page.next.filter(|link| link.starts_with(API_PREFIX));
+            next = page.next.filter(|link| rest::is_within(link, API_PREFIX));
         }
         Ok(found)
     }
@@ -396,6 +401,7 @@ impl Provider for Onshape {
     ) -> Result<Session, Error> {
         let token = self.token(
             net,
+            Grant::Code,
             &[
                 ("grant_type", "authorization_code"),
                 ("client_id", &self.client_id),
@@ -413,6 +419,7 @@ impl Provider for Onshape {
         };
         let token = self.token(
             net,
+            Grant::Refresh,
             &[
                 ("grant_type", "refresh_token"),
                 ("client_id", &self.client_id),

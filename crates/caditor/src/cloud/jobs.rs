@@ -22,6 +22,7 @@ use parking_lot::Mutex;
 use super::{
     downloads::{self, KEPT_DESIGNS, Usage},
     failure::Failure,
+    private,
     state::{ImportItem, Remembered, SendStage, Shipment, Stage},
     store::SessionStore,
     thumbnails::{self, Thumbnail},
@@ -343,7 +344,7 @@ impl ImportJob {
     ) -> Result<(), Failure> {
         let save = |error: std::io::Error| Failure::Save(error.kind());
         if let Some(folder) = target.parent() {
-            fs::create_dir_all(folder).map_err(save)?;
+            private::create_dir_all(folder).map_err(save)?;
         }
         let mut writer = BufWriter::new(File::create(temporary).map_err(save)?);
         let mut last = None::<Instant>;
