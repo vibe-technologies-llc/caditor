@@ -296,7 +296,7 @@ impl Editor {
         let Some((transaction, serial)) = from.pop() else {
             return Ok(None);
         };
-        match document.apply(transaction.clone()) {
+        match document.replay(transaction.clone()) {
             Ok(inverse) => {
                 let label = inverse.label().to_owned();
                 to.push(inverse, serial);

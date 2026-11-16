@@ -201,7 +201,8 @@ fn a_cell_making_a_parameter_depend_on_itself_in_its_row_is_refused() {
 
     assert_eq!(
         refused.err(),
-        Some(EditError::Cycle {
+        Some(EditError::ConfigurationCycle {
+            configuration: "Other".to_owned(),
             name: "a".to_owned(),
             path: "a → b → a".to_owned(),
         })
@@ -212,6 +213,143 @@ fn a_cell_making_a_parameter_depend_on_itself_in_its_row_is_refused() {
             .configuration_setting(other, ConfiguredValue::Parameter(a)),
         Some(Setting::Expression(expression(editor.document(), "5 mm")))
     );
+}
+
+fn with_a_configured(text: &str) -> (Editor, ParameterId, ParameterId, ConfigurationId) {
+    let mut document = Document::default();
+    let a = parameter(&mut document, "a", "5 mm");
+    let c = parameter(&mut document, "c", text);
+    let mut editor = Editor::new(document);
+    add(&mut editor, "Plain");
+    let configure = editor
+        .document()
+        .configuring(ConfiguredValue::Parameter(a))
+        .unwrap();
+    editor.apply(configure).unwrap();
+    let other = add(&mut editor, "Other");
+    (editor, a, c, other)
+}
+
+fn live(editor: &Editor, id: ParameterId, text: &str) -> Transaction {
+    Transaction::single(
+        "Edit",
+        Edit::SetParameterExpression {
+            id,
+            expression: expression(editor.document(), text),
+        },
+    )
+}
+
+fn circular_other_row() -> (Editor, ParameterId, ParameterId, ConfigurationId) {
+    let (mut editor, a, c, other) = with_a_configured("a");
+    let mut table = editor.document().configurations().clone();
+    let using_c = expression(editor.document(), "c");
+    table
+        .rows
+        .iter_mut()
+        .find(|row| row.id == other)
+        .unwrap()
+        .settings
+        .insert(ConfiguredValue::Parameter(a), Setting::Expression(using_c));
+    editor
+        .apply(Transaction::single(
+            "Bypass",
+            Edit::SetConfigurations {
+                configurations: Box::new(table),
+            },
+        ))
+        .unwrap();
+    (editor, a, c, other)
+}
+
+#[test]
+fn a_live_expression_making_an_inactive_row_circular_is_refused_naming_the_row() {
+    let (mut editor, a, c, other) = with_a_configured("1 mm");
+    let using_c = expression(editor.document(), "c");
+    set(
+        &mut editor,
+        other,
+        ConfiguredValue::Parameter(a),
+        Setting::Expression(using_c),
+    );
+
+    let refused = editor.apply(live(&editor, c, "a"));
+
+    assert_eq!(
+        refused.err(),
+        Some(EditError::ConfigurationCycle {
+            configuration: "Other".to_owned(),
+            name: "c".to_owned(),
+            path: "c → a → c".to_owned(),
+        })
+    );
+    assert_eq!(text(editor.document(), c), "1 mm");
+
+    switch(&mut editor, other);
+
+    assert_eq!(text(editor.document(), a), "c");
+}
+
+#[test]
+fn a_row_cell_making_a_live_expression_circular_is_refused_naming_the_row() {
+    let (mut editor, a, c, other) = with_a_configured("1 mm");
+    editor.apply(live(&editor, c, "a")).unwrap();
+
+    let using_c = expression(editor.document(), "c");
+    let refused = editor.document().setting_configuration(
+        other,
+        ConfiguredValue::Parameter(a),
+        Setting::Expression(using_c),
+    );
+
+    assert_eq!(
+        refused.err(),
+        Some(EditError::ConfigurationCycle {
+            configuration: "Other".to_owned(),
+            name: "a".to_owned(),
+            path: "a → c → a".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn a_circular_row_from_before_the_check_is_refused_when_switched_to_and_skipped_when_deleting() {
+    let (mut editor, a, c, other) = circular_other_row();
+    let plain = editor.document().configurations().rows[0].id;
+
+    let switching = editor.document().activating(other);
+    let deletion = editor.document().deleting_configuration(plain).unwrap();
+    editor.apply(deletion).unwrap();
+
+    assert_eq!(
+        switching.err(),
+        Some(EditError::ConfigurationCircular {
+            configuration: "Other".to_owned(),
+            name: "a".to_owned(),
+            path: "a → c → a".to_owned(),
+        })
+    );
+    assert_eq!(editor.document().configurations().active, None);
+    assert_eq!(editor.document().configurations().rows.len(), 1);
+    assert_eq!(text(editor.document(), a), "5 mm");
+    assert_eq!(text(editor.document(), c), "a");
+}
+
+#[test]
+fn undoing_a_fix_of_a_circular_row_from_before_the_check_restores_it() {
+    let (mut editor, _, c, other) = circular_other_row();
+    editor.apply(live(&editor, c, "1 mm")).unwrap();
+
+    switch(&mut editor, other);
+    editor.undo().unwrap();
+    editor.undo().unwrap();
+
+    assert_eq!(text(editor.document(), c), "a");
+    assert!(editor.document().activating(other).is_err());
+
+    editor.redo().unwrap();
+
+    assert_eq!(text(editor.document(), c), "1 mm");
 }
 
 #[test]

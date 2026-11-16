@@ -4,7 +4,7 @@ use caditor_expression::{Expression, ParameterId};
 
 use crate::{
     body_appearance::Rgb,
-    dependencies::DependencyGraph,
+    dependencies::{DependencyGraph, Overlay},
     document::{Document, FeatureId, ParameterUser},
     edit::{Edit, EditError, Transaction},
     views::view_name,
@@ -376,6 +376,13 @@ impl Document {
         if self.configurations.is_active(id) {
             return Ok(Transaction::new(label, Vec::new()));
         }
+        if let Some(cycle) = self.row_cycle(row) {
+            return Err(EditError::ConfigurationCircular {
+                configuration: row.name.clone(),
+                name: self.cycle_start(&cycle),
+                path: self.cycle_path(&cycle),
+            });
+        }
         let mut edits = vec![Edit::SetActiveConfiguration { active: None }];
         edits.extend(self.applying(row)?);
         edits.push(Edit::SetActiveConfiguration { active: Some(id) });
@@ -532,7 +539,9 @@ impl Document {
         let mut edits = Vec::new();
         let mut table = Configurations::clone(&self.configurations);
         if table.is_active(id) {
-            let next = table.successor(id);
+            let next = table
+                .successor(id)
+                .filter(|next| self.row_cycle(next).is_none());
             edits.push(Edit::SetActiveConfiguration { active: None });
             if let Some(next) = next {
                 edits.extend(self.applying(next)?);
@@ -614,24 +623,65 @@ impl Document {
         target: ParameterId,
         expression: &Expression,
     ) -> Result<(), EditError> {
-        let mut graph = DependencyGraph::of(self);
-        let cells = row.settings.iter().filter_map(|(value, setting)| {
-            let id = value.parameter().filter(|id| *id != target)?;
-            Some((id, setting.expression()?))
-        });
-        for (id, cell) in cells {
-            graph.set(id, cell);
+        let graph = DependencyGraph::of(self);
+        match graph.cycle_overlaid(&self.row_overlay(row), target, &expression.parameters()) {
+            Some(cycle) => Err(self.configuration_cycle(row.id, &cycle)),
+            None => Ok(()),
         }
-        let Some(cycle) = graph.cycle(target, expression) else {
-            return Ok(());
-        };
+    }
+
+    fn row_overlay(&self, row: &Configuration) -> Overlay {
+        Overlay::of(row.settings.iter().filter_map(|(value, setting)| {
+            let id = value
+                .parameter()
+                .filter(|id| self.parameter(*id).is_some())?;
+            Some((id, setting.expression()?))
+        }))
+    }
+
+    pub(crate) fn inactive_row_overlays(&self) -> Vec<(ConfigurationId, Overlay)> {
+        self.configurations
+            .rows
+            .iter()
+            .filter(|row| !self.configurations.is_active(row.id))
+            .map(|row| (row.id, self.row_overlay(row)))
+            .filter(|(_, overlay)| !overlay.is_empty())
+            .collect()
+    }
+
+    pub(crate) fn row_cycle(&self, row: &Configuration) -> Option<Vec<ParameterId>> {
+        DependencyGraph::of(self).overlay_cycle(&self.row_overlay(row))
+    }
+
+    pub(crate) fn configuration_cycle(
+        &self,
+        id: ConfigurationId,
+        cycle: &[ParameterId],
+    ) -> EditError {
+        EditError::ConfigurationCycle {
+            configuration: self
+                .configurations
+                .row(id)
+                .map(|row| row.name.clone())
+                .unwrap_or_default(),
+            name: self.cycle_start(cycle),
+            path: self.cycle_path(cycle),
+        }
+    }
+
+    pub(crate) fn cycle_start(&self, cycle: &[ParameterId]) -> String {
+        cycle
+            .first()
+            .and_then(|id| self.parameter_name(*id))
+            .unwrap_or_default()
+            .to_owned()
+    }
+
+    pub(crate) fn cycle_path(&self, cycle: &[ParameterId]) -> String {
         let names: Vec<&str> = cycle
             .iter()
             .map(|step| self.parameter_name(*step).unwrap_or("?"))
             .collect();
-        Err(EditError::Cycle {
-            name: self.parameter_name(target).unwrap_or_default().to_owned(),
-            path: names.join(" → "),
-        })
+        names.join(" → ")
     }
 }

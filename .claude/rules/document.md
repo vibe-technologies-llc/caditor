@@ -18,7 +18,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `MAX_UNDO_BYTES`, measured by `Transaction::approximate_size` (heap data through `heap_size`
   methods; anything new an edit can hold must be counted there). `Sketch::heap_size` destructures
   the sketch exhaustively so a new field fails to compile until counted. Oldest dropped first,
-  newest always kept.
+  newest always kept. Undo and redo go through `Document::replay`, which is `apply` without the
+  configuration row check of `SetParameterExpression` (Configurations below): a replayed step only
+  returns to a model already held, which may be one loaded with a row that check would refuse.
 - `Editor::apply` drops a transaction that leaves the content as it was (`same_content`, which
   ignores ID counters and decides whether a model is unsaved): no undo step, redo kept, no
   revision bump, not journaled, not recomputed.
@@ -364,9 +366,17 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `renaming_configuration`, `moving_configuration`, `deleting_configuration`, `configuring`,
   `unconfiguring`, `setting_configuration`. A new row copies the live values and is active when none
   is; deleting the active row first switches to the row after it, else before; setting a cell of
-  the active row is the live edit itself; a parameter cell of another row is refused as `Cycle`
-  when, with that row's other cells in place of live expressions, the parameter would depend on
-  itself (`check_row_cycle`), so every row can be switched to.
+  the active row is the live edit itself.
+- Every inactive row can be switched to: with its parameter cells in place of the live expressions
+  (a `dependencies::Overlay` over the live `DependencyGraph`, cells of parameters the model lacks
+  left out, as switching skips them) no parameter depends on itself. Both sides that could break
+  it refuse with `ConfigurationCycle`, naming the row and the circle: a parameter cell of another
+  row (`check_row_cycle`), and `SetParameterExpression` of a parameter some inactive row has no
+  cell for (`ParameterGraph::row_cycle`, overlays built once per transaction from the table and
+  rebuilt after an edit of the table, the active row or the parameter list). A model loaded with a
+  circular row still opens and edits: `activating` that row is refused as `ConfigurationCircular`
+  (`Document::row_cycle`), and deleting the active row leaves none active, keeping the live values,
+  when the row it would switch to is circular.
 
 ### Body appearance (`body_appearance.rs`)
 

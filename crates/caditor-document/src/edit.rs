@@ -22,7 +22,7 @@ use crate::{
         MAX_CONFIGURATIONS, MAX_CONFIGURED_VALUES,
     },
     datum::{Datum, PrincipalGeometry, PrincipalShowing},
-    dependencies::DependencyGraph,
+    dependencies::{DependencyGraph, Overlay},
     document::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
         list_names,
@@ -577,6 +577,22 @@ pub enum EditError {
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
     #[error(
+        "This would make {name} depend on itself in the {configuration} configuration ({path}); change that configuration's values first"
+    )]
+    ConfigurationCycle {
+        configuration: String,
+        name: String,
+        path: String,
+    },
+    #[error(
+        "The {configuration} configuration cannot be switched to, since in it {name} depends on itself ({path}); change its values first"
+    )]
+    ConfigurationCircular {
+        configuration: String,
+        name: String,
+        path: String,
+    },
+    #[error(
         "{feature} cannot use {parameter}, which reads {measurement}, taken further down the tree ({path}); move {measurement} above {feature}"
     )]
     MeasurementBelowUser {
@@ -797,21 +813,63 @@ fn followed_value(edit: &Edit) -> Option<FollowedValue> {
 }
 
 #[derive(Default)]
-struct ParameterGraph(Option<DependencyGraph>);
+struct ParameterGraph {
+    live: Option<DependencyGraph>,
+    rows: Option<Vec<(ConfigurationId, Overlay)>>,
+    replaying: bool,
+}
 
 impl ParameterGraph {
+    fn replaying() -> Self {
+        Self {
+            replaying: true,
+            ..Self::default()
+        }
+    }
+
     fn of(&mut self, document: &Document) -> &mut DependencyGraph {
-        self.0.get_or_insert_with(|| DependencyGraph::of(document))
+        self.live
+            .get_or_insert_with(|| DependencyGraph::of(document))
+    }
+
+    fn row_cycle(
+        &mut self,
+        document: &Document,
+        target: ParameterId,
+        expression: &Expression,
+    ) -> Option<(ConfigurationId, Vec<ParameterId>)> {
+        let first_steps = expression.parameters();
+        if self.replaying || first_steps.is_empty() || document.configurations.rows.is_empty() {
+            return None;
+        }
+        let live = self
+            .live
+            .get_or_insert_with(|| DependencyGraph::of(document));
+        let rows = self
+            .rows
+            .get_or_insert_with(|| document.inactive_row_overlays());
+        rows.iter()
+            .filter(|(_, overlay)| !overlay.covers(target))
+            .find_map(|(id, overlay)| {
+                live.cycle_overlaid(overlay, target, &first_steps)
+                    .map(|cycle| (*id, cycle))
+            })
+    }
+
+    fn rows_changed(&mut self) {
+        self.rows = None;
     }
 
     fn inserted(&mut self, id: ParameterId, expression: &Expression) {
-        if let Some(graph) = &mut self.0 {
+        self.rows_changed();
+        if let Some(graph) = &mut self.live {
             graph.set(id, expression);
         }
     }
 
     fn removed(&mut self, id: ParameterId) {
-        if let Some(graph) = &mut self.0 {
+        self.rows_changed();
+        if let Some(graph) = &mut self.live {
             graph.forget(id);
         }
     }
@@ -953,9 +1011,20 @@ impl Document {
     }
 
     pub fn apply(&mut self, transaction: Transaction) -> Result<Transaction, EditError> {
+        self.apply_with(transaction, ParameterGraph::default())
+    }
+
+    pub(crate) fn replay(&mut self, transaction: Transaction) -> Result<Transaction, EditError> {
+        self.apply_with(transaction, ParameterGraph::replaying())
+    }
+
+    fn apply_with(
+        &mut self,
+        transaction: Transaction,
+        mut graph: ParameterGraph,
+    ) -> Result<Transaction, EditError> {
         let before = self.clone();
         let mut inverse = Vec::with_capacity(transaction.edits.len());
-        let mut graph = ParameterGraph::default();
         for edit in transaction.edits {
             match self.apply_edit(edit, &mut graph) {
                 Ok(undo) => inverse.push(undo),
@@ -1042,8 +1111,14 @@ impl Document {
             Edit::SetSavedViews { views } => self.set_saved_views(*views),
             Edit::SetSelectionSets { sets } => self.set_selection_sets(*sets),
             Edit::SetDrawings { drawings } => self.set_drawings(*drawings),
-            Edit::SetConfigurations { configurations } => self.set_configurations(*configurations),
-            Edit::SetActiveConfiguration { active } => self.set_active_configuration(active),
+            Edit::SetConfigurations { configurations } => {
+                graph.rows_changed();
+                self.set_configurations(*configurations)
+            }
+            Edit::SetActiveConfiguration { active } => {
+                graph.rows_changed();
+                self.set_active_configuration(active)
+            }
             Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
             Edit::SetSketchPlacement {
                 feature,
@@ -1509,18 +1584,16 @@ impl Document {
         self.parameter_position(id)?;
         self.check_references(&expression)?;
         self.check_reading_order(id, &expression)?;
-        let dependencies = graph.of(self);
-        if let Some(cycle) = dependencies.cycle(id, &expression) {
-            let names: Vec<&str> = cycle
-                .iter()
-                .map(|step| self.parameter_name(*step).unwrap_or("?"))
-                .collect();
+        if let Some(cycle) = graph.of(self).cycle(id, &expression) {
             return Err(EditError::Cycle {
                 name: self.parameter_name(id).unwrap_or_default().to_owned(),
-                path: names.join(" → "),
+                path: self.cycle_path(&cycle),
             });
         }
-        dependencies.set(id, &expression);
+        if let Some((row, cycle)) = graph.row_cycle(self, id, &expression) {
+            return Err(self.configuration_cycle(row, &cycle));
+        }
+        graph.of(self).set(id, &expression);
         let previous = self
             .parameters
             .replace_expression(id, expression)
