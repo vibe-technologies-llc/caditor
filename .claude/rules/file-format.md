@@ -718,10 +718,15 @@ Sketch entities:
 - A failed replace removes the temporary only while the target is still there. With the target
   gone (`ERROR_UNABLE_TO_MOVE_REPLACEMENT`, a scanner holding the temporary) the saved copy is put
   in its place (`save::put_in_place`: the rename retried, then a hard link, then a copy into a new
-  file); if that fails too the temporary is kept and the error names it (`save::KeptAside`, worded
-  by `SaveError::KeptAside`, `KeepVersionError::KeptAside` and `WriteFailure::KeptAside`). The
-  replace and the rescue are `save::Moves`, swapped for fakes in `save::tests`
-  (`a_saved_copy_that_cannot_take_the_lost_targets_place_is_kept_and_named`).
+  file); if that fails too the copy is moved to a name the orphan sweep never matches,
+  `<stem>.kept.<ext>` (then `.kept-2` and on, `save::keep_under_kept_name`: a rename onto a fresh
+  placeholder, else a hard link or copy), so later saves to the path leave it and its versions
+  alone, and the error names where it ended up (`save::KeptAside`, worded by
+  `SaveError::KeptAside`, `KeepVersionError::KeptAside` and `WriteFailure::KeptAside`). Only when
+  no such name can be made does it keep the temporary's name, which the sweep removes once its
+  process has gone. The replace and the rescue are `save::Moves`, swapped for fakes in
+  `save::tests` (`a_saved_copy_that_cannot_take_the_lost_targets_place_is_kept_and_named`,
+  `a_copy_kept_aside_survives_later_saves_and_opens_with_its_versions`).
 - Temporaries are `.<name>.<machine>-<boot>-<pid>-<n>.tmp`. After each write, those next to the
   file are removed when from an earlier boot of this machine, or from this boot with their process
   gone; other machines' saves on a shared folder are left alone. The recovery-directory scan

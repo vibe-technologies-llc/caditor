@@ -79,8 +79,7 @@ pub enum WriteFailure {
     #[error("its name is longer than the system allows")]
     NameTooLong,
     #[error(
-        "the new copy could not take the file's place and is kept beside it in a hidden file \
-         ending in “.tmp”"
+        "the new copy could not take the file's place and is kept beside it under another name"
     )]
     KeptAside,
     #[error("the system reported an error (os error {code})")]

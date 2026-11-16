@@ -25,8 +25,8 @@ use super::{
         EARLIER_BUILD_JOURNAL_MAGIC, JOURNAL_MAGIC,
         testing::{
             as_written_by_an_earlier_build, corrupt_chunk, current_model_from_json,
-            model_from_json, records_as_json, rewrite_journal, sharing_from, with_damaged_deltas,
-            with_unknown_codec,
+            decompressing_at_most, model_from_json, records_as_json, rewrite_journal, sharing_from,
+            with_damaged_deltas, with_unknown_codec,
         },
     },
     save, tally, *,
@@ -7200,6 +7200,49 @@ fn a_journal_whose_first_change_cannot_be_read_is_kept() {
     };
     assert_eq!(recovered.changes(), 0);
     assert!(recovered.issues[0].contains("newer version of caditor"));
+    assert!(journal.exists());
+}
+
+#[test]
+fn a_journal_unpacking_past_the_memory_budget_is_recovered_up_to_it() {
+    let dir = TempDir::new().unwrap();
+    let (journal, _) = crashed_beside_its_saved_model(&dir, config(&dir));
+    let bytes = fs::read(&journal).unwrap();
+    let lengths: Vec<usize> = binary::parse(&bytes, &JOURNAL_MAGIC)
+        .unwrap()
+        .chunks()
+        .map(|chunk| chunk.content_length())
+        .collect();
+    let through_snapshot: usize = lengths[..2].iter().sum();
+    let through_first_change = through_snapshot + lengths[2];
+
+    let whole = inspect(&journal).unwrap();
+    let cut = decompressing_at_most(through_first_change, || inspect(&journal).unwrap());
+    let too_large = decompressing_at_most(through_snapshot - 1, || {
+        journal::decode_journal(&bytes).err()
+    });
+    let fitting = decompressing_at_most(through_first_change, || {
+        journal::decode_journal(&bytes).unwrap()
+    });
+
+    let (Inspection::Recoverable(whole), Inspection::Recoverable(cut)) = (whole, cut) else {
+        panic!("the journal should be offered whole and cut at the budget");
+    };
+    assert_eq!(lengths.len(), 5);
+    assert_eq!(whole.changes(), 3);
+    assert_eq!(whole.issues, Vec::<String>::new());
+    assert_eq!(cut.changes(), 1);
+    assert_eq!(
+        cut.issues,
+        [
+            "The most recent changes hold more than caditor unpacks at once and could not be \
+             recovered; everything before them was."
+        ]
+    );
+    assert_eq!(fitting.entries.len(), 1);
+    assert_eq!(fitting.unreadable_entries, 2);
+    assert!(fitting.entries_over_budget);
+    assert_eq!(too_large, Some(journal::UnreadableJournal::OverBudget));
     assert!(journal.exists());
 }
 

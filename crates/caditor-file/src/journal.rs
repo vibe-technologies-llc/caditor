@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     binary::{
-        ChunkKind, EARLIER_BUILD_JOURNAL_MAGIC, EncodeError, FileDigest, JOURNAL_MAGIC, Piece,
-        parse, push_packed_for_recovery, start_file, value,
+        Budget, ChunkKind, EARLIER_BUILD_JOURNAL_MAGIC, EncodeError, FileDigest, JOURNAL_MAGIC,
+        Piece, UnpackError, parse, push_packed_for_recovery, start_file, value,
     },
     configurations::{ConfigurationsRecord, configurations_record},
     drawings::{DrawingsRecord, drawings_record},
@@ -268,6 +268,7 @@ pub(crate) struct JournalContents {
     pub issues: Vec<String>,
     pub entries: Vec<Logged>,
     pub unreadable_entries: usize,
+    pub entries_over_budget: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -278,6 +279,14 @@ pub(crate) enum UnreadableJournal {
     FromNewerVersion,
     #[error("the recovery journal was written by an early development build of caditor")]
     FromEarlierBuild,
+    #[error("the recovery journal holds more than caditor unpacks")]
+    OverBudget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnreadEntry {
+    Damaged,
+    OverBudget,
 }
 
 #[cfg(any(test, feature = "fuzzing"))]
@@ -297,7 +306,8 @@ pub(crate) fn decode_journal_with(
         return Err(UnreadableJournal::FromNewerVersion);
     }
     let mut pieces = container.pieces.iter();
-    let header: JournalHeader = content_of(pieces.next(), ChunkKind::JournalHeader)?;
+    let mut budget = Budget::default();
+    let header: JournalHeader = content_of(pieces.next(), ChunkKind::JournalHeader, &mut budget)?;
     let file = header
         .file
         .map(|bytes| PathBuf::from(os::path_from_bytes(bytes)));
@@ -305,8 +315,11 @@ pub(crate) fn decode_journal_with(
     let mut folded = 0;
     let base = match pieces.next() {
         Some(Piece::Chunk(chunk)) if chunk.kind == Some(ChunkKind::RebasedSnapshot) => {
-            let rebased: RebasedSnapshotRecord =
-                content_of(Some(&Piece::Chunk(*chunk)), ChunkKind::RebasedSnapshot)?;
+            let rebased: RebasedSnapshotRecord = content_of(
+                Some(&Piece::Chunk(*chunk)),
+                ChunkKind::RebasedSnapshot,
+                &mut budget,
+            )?;
             folded = usize::try_from(rebased.folded).unwrap_or(usize::MAX);
             assemble(snapshot_parts(rebased.snapshot, &mut issues), &mut issues)
         }
@@ -325,20 +338,25 @@ pub(crate) fn decode_journal_with(
             saved.document
         }
         piece => {
-            let snapshot = content_of(piece, ChunkKind::Snapshot)?;
+            let snapshot = content_of(piece, ChunkKind::Snapshot, &mut budget)?;
             assemble(snapshot_parts(snapshot, &mut issues), &mut issues)
         }
     };
     let mut entries = Vec::new();
     let mut unreadable_entries = 0;
+    let mut stopped_at = None;
     let mut texts = ImportTexts::with_pictures(Pictures::of(pictures_of(&base)));
     for piece in pieces {
-        let entry = (unreadable_entries == 0)
-            .then(|| decode_entry(piece, &mut texts))
-            .flatten();
-        match entry {
-            Some(entry) => entries.push(entry),
-            None => unreadable_entries += 1,
+        if stopped_at.is_some() {
+            unreadable_entries += 1;
+            continue;
+        }
+        match decode_entry(piece, &mut texts, &mut budget) {
+            Ok(entry) => entries.push(entry),
+            Err(unread) => {
+                stopped_at = Some(unread);
+                unreadable_entries += 1;
+            }
         }
     }
     Ok(JournalContents {
@@ -350,12 +368,14 @@ pub(crate) fn decode_journal_with(
         issues,
         entries,
         unreadable_entries,
+        entries_over_budget: stopped_at == Some(UnreadEntry::OverBudget),
     })
 }
 
 fn content_of<T: for<'de> Deserialize<'de>>(
     piece: Option<&Piece<'_>>,
     kind: ChunkKind,
+    budget: &mut Budget,
 ) -> Result<T, UnreadableJournal> {
     let Some(Piece::Chunk(chunk)) = piece else {
         return Err(UnreadableJournal::Damaged);
@@ -363,17 +383,24 @@ fn content_of<T: for<'de> Deserialize<'de>>(
     if chunk.kind != Some(kind) {
         return Err(UnreadableJournal::Damaged);
     }
-    let content = chunk.unpack(None).map_err(|_| UnreadableJournal::Damaged)?;
+    let content = budget.unpack(chunk, None).map_err(|error| match error {
+        UnpackError::OverBudget => UnreadableJournal::OverBudget,
+        _ => UnreadableJournal::Damaged,
+    })?;
     value::from_bytes(&content).map_err(|_| UnreadableJournal::Damaged)
 }
 
-fn decode_entry(piece: &Piece<'_>, texts: &mut ImportTexts) -> Option<Logged> {
+fn decode_entry(
+    piece: &Piece<'_>,
+    texts: &mut ImportTexts,
+    budget: &mut Budget,
+) -> Result<Logged, UnreadEntry> {
     let Piece::Chunk(chunk) = piece else {
-        return None;
+        return Err(UnreadEntry::Damaged);
     };
-    let entry = match chunk.kind? {
-        ChunkKind::UndoLast => return Some(Logged::UndoLast),
-        ChunkKind::RedoNext => return Some(Logged::RedoNext),
+    let entry = match chunk.kind.ok_or(UnreadEntry::Damaged)? {
+        ChunkKind::UndoLast => return Ok(Logged::UndoLast),
+        ChunkKind::RedoNext => return Ok(Logged::RedoNext),
         ChunkKind::Apply => JournalEntry::Apply,
         ChunkKind::Undo => JournalEntry::Undo,
         ChunkKind::Redo => JournalEntry::Redo,
@@ -385,13 +412,16 @@ fn decode_entry(piece: &Piece<'_>, texts: &mut ImportTexts) -> Option<Logged> {
         | ChunkKind::Snapshot
         | ChunkKind::RebasedSnapshot
         | ChunkKind::Preview
-        | ChunkKind::Padding => return None,
+        | ChunkKind::Padding => return Err(UnreadEntry::Damaged),
     };
-    let content = chunk.unpack(None).ok()?;
-    let record: TransactionRecord = value::from_bytes(&content).ok()?;
-    Some(Logged::Entry(entry(restore_transaction_with(
-        record, texts,
-    )?)))
+    let content = budget.unpack(chunk, None).map_err(|error| match error {
+        UnpackError::OverBudget => UnreadEntry::OverBudget,
+        _ => UnreadEntry::Damaged,
+    })?;
+    let record: TransactionRecord =
+        value::from_bytes(&content).map_err(|_| UnreadEntry::Damaged)?;
+    let transaction = restore_transaction_with(record, texts).ok_or(UnreadEntry::Damaged)?;
+    Ok(Logged::Entry(entry(transaction)))
 }
 
 fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {

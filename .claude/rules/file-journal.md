@@ -21,9 +21,16 @@ paths:
 - Model container (`file-format.md`): header, snapshot of the last saved state, one chunk per
   change (`apply`, `undo`, `redo`). Replay stops at the first damaged chunk and goes through an
   `Editor`, so undo history is restored.
-- `JOURNAL_VERSION` is 1. Decoding fails as `UnreadableJournal`: `Damaged`, `FromNewerVersion`, or
+- `JOURNAL_VERSION` is 1. Decoding fails as `UnreadableJournal`: `Damaged`, `FromNewerVersion`,
   `FromEarlierBuild` for a journal of a development build before version 1 (magic
-  `\x89CJL\r\n\x1a\n`). Each is handled alike: never offered, set aside by `journal_for`.
+  `\x89CJL\r\n\x1a\n`), or `OverBudget` below. Each is handled alike: never offered, set aside
+  by `journal_for`.
+- Decoding charges one `binary::Budget` (`MAX_DECOMPRESSED` unpacked bytes, as loading a model)
+  across the header, the snapshot and every entry in order, since journals are read on every open
+  and at startup. A header or snapshot past it fails as `UnreadableJournal::OverBudget`; an entry
+  past it stops the entries there like a damaged one, keeping all before
+  (`JournalContents::entries_over_budget`, which the recovery issue words as too large rather than
+  damaged; `a_journal_unpacking_past_the_memory_budget_is_recovered_up_to_it`).
   Every shipped version keeps journals in the format corpus (`file-format.md`).
 - The journal carries no preview picture (`file-format.md`): a picture pictures a saved file, and a
   journal restores unsaved work, so the file written when a recovered session is saved draws its

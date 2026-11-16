@@ -26,6 +26,7 @@ use crate::{
 };
 
 const BACKUP_MARKER: &str = "damaged";
+const KEPT_MARKER: &str = "kept";
 const MAX_BACKUP_ATTEMPTS: u32 = 1000;
 const MAX_LINK_DEPTH: usize = 40;
 const TEMPORARY_SUFFIX: &str = ".tmp";
@@ -76,7 +77,7 @@ pub enum SaveError {
     StoppedUnexpectedly,
     #[error(
         "the saved copy could not take the file's place, so the model and its earlier versions \
-         are kept in the hidden file “{}” in the same folder; rename it to open it",
+         are kept in “{}” in the same folder; rename it to the model's name to carry on from it",
         kept.file_name().unwrap_or(kept.as_os_str()).display()
     )]
     KeptAside { kept: PathBuf },
@@ -126,8 +127,8 @@ pub enum KeepVersionError {
     #[error("the change stopped unexpectedly; try it again")]
     StoppedUnexpectedly,
     #[error(
-        "the rewritten copy could not take the file's place, so it is kept in the hidden file \
-         “{}” in the same folder; rename it to open it",
+        "the rewritten copy could not take the file's place, so it is kept in “{}” in the same \
+         folder; rename it to the model's name to carry on from it",
         kept.file_name().unwrap_or(kept.as_os_str()).display()
     )]
     KeptAside { kept: PathBuf },
@@ -602,19 +603,58 @@ fn after_failed_replace(
                 _ => Err(state),
             };
             rescued.map_err(|rescue_error| {
+                let kept = keep_under_kept_name(temporary, target);
                 log::error!(
                     "the saved copy could not take the place of {}, so it is kept as {}: \
                      {rescue_error}",
                     target.display(),
-                    temporary.display()
+                    kept.display()
                 );
-                io::Error::new(
-                    error.kind(),
-                    KeptAside {
-                        path: temporary.to_path_buf(),
-                    },
-                )
+                io::Error::new(error.kind(), KeptAside { path: kept })
             })
+        }
+    }
+}
+
+fn keep_under_kept_name(temporary: &Path, target: &Path) -> PathBuf {
+    match move_aside(temporary, &marked_siblings(target, KEPT_MARKER)) {
+        Ok(Some(kept)) => kept,
+        Ok(None) => {
+            log::warn!(
+                "every name for keeping {} is taken, so it keeps its own",
+                temporary.display()
+            );
+            temporary.to_path_buf()
+        }
+        Err(error) => {
+            log::warn!(
+                "could not give {} a name of its own: {error}",
+                temporary.display()
+            );
+            temporary.to_path_buf()
+        }
+    }
+}
+
+fn move_aside(temporary: &Path, candidates: &[PathBuf]) -> io::Result<Option<PathBuf>> {
+    match rename_to_first_free(temporary, candidates) {
+        Ok(Some(kept)) => {
+            if let Err(error) = sync_parent(&kept) {
+                log::warn!(
+                    "kept {}, but its folder could not be flushed to disk: {error}",
+                    kept.display()
+                );
+            }
+            Ok(Some(kept))
+        }
+        Ok(None) => Ok(None),
+        Err(error) => {
+            log::warn!("could not rename {}: {error}", temporary.display());
+            let kept = keep_copy(temporary, candidates.to_vec())?;
+            if kept.is_some() {
+                remove_placed(temporary);
+            }
+            Ok(kept)
         }
     }
 }
@@ -878,6 +918,15 @@ pub(crate) fn sync_parent(path: &Path) -> io::Result<()> {
 }
 
 fn keep_backup(path: &Path) -> io::Result<PathBuf> {
+    keep_copy(path, marked_siblings(path, BACKUP_MARKER))?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "too many backups of this file already exist",
+        )
+    })
+}
+
+fn marked_siblings(path: &Path, marker: &str) -> Vec<PathBuf> {
     let extension = path.extension().map(|extension| extension.to_os_string());
     let extension_room = extension
         .as_ref()
@@ -886,24 +935,20 @@ fn keep_backup(path: &Path) -> io::Result<PathBuf> {
         path.file_stem().unwrap_or_default(),
         MAX_NAME_BYTES.saturating_sub(extension_room + BACKUP_ROOM),
     );
-    let candidates = (1..=MAX_BACKUP_ATTEMPTS).map(|attempt| {
-        let mut name = stem.clone();
-        name.push(match attempt {
-            1 => format!(".{BACKUP_MARKER}"),
-            _ => format!(".{BACKUP_MARKER}-{attempt}"),
-        });
-        if let Some(extension) = &extension {
-            name.push(".");
-            name.push(extension);
-        }
-        path.with_file_name(name)
-    });
-    keep_copy(path, candidates.collect())?.ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "too many backups of this file already exist",
-        )
-    })
+    (1..=MAX_BACKUP_ATTEMPTS)
+        .map(|attempt| {
+            let mut name = stem.clone();
+            name.push(match attempt {
+                1 => format!(".{marker}"),
+                _ => format!(".{marker}-{attempt}"),
+            });
+            if let Some(extension) = &extension {
+                name.push(".");
+                name.push(extension);
+            }
+            path.with_file_name(name)
+        })
+        .collect()
 }
 
 pub(crate) fn keep_unreadable(path: &Path, stem: &str) -> io::Result<PathBuf> {
@@ -957,15 +1002,22 @@ fn copy_then_place(
 ) -> io::Result<Option<PathBuf>> {
     fs::copy(source, temporary)?;
     OpenOptions::new().write(true).open(temporary)?.sync_all()?;
+    let placed = rename_to_first_free(temporary, candidates)?;
+    if let Some(placed) = &placed {
+        sync_parent(placed)?;
+    }
+    Ok(placed)
+}
+
+fn rename_to_first_free(source: &Path, candidates: &[PathBuf]) -> io::Result<Option<PathBuf>> {
     for candidate in candidates {
         match File::create_new(candidate) {
             Ok(placeholder) => {
                 drop(placeholder);
-                if let Err(error) = fs::rename(temporary, candidate) {
+                if let Err(error) = fs::rename(source, candidate) {
                     let _ = fs::remove_file(candidate);
                     return Err(error);
                 }
-                sync_parent(candidate)?;
                 return Ok(Some(candidate.clone()));
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -1153,7 +1205,7 @@ mod tests {
         let kept = kept_aside(&error).unwrap().to_path_buf();
 
         assert_eq!(fs::read(&kept).unwrap(), b"new");
-        assert_eq!(kept.parent(), target.parent());
+        assert_eq!(kept, dir.path().join("model.kept.caditor"));
         assert!(!target.exists());
         assert_eq!(folder_contents(&dir), [kept.file_name().unwrap()]);
         assert_eq!(WriteFailure::of(&error), WriteFailure::KeptAside);
@@ -1169,6 +1221,67 @@ mod tests {
             SaveError::writing(&error)
                 .to_string()
                 .contains(&*kept.file_name().unwrap().to_string_lossy())
+        );
+    }
+
+    fn with_length(text: &str) -> Document {
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Length");
+        transaction.add_parameter("length", transaction.parse(text).unwrap());
+        document.apply(transaction.finish()).unwrap();
+        document
+    }
+
+    #[test]
+    fn a_copy_kept_aside_survives_later_saves_and_opens_with_its_versions() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("model.caditor");
+        let earlier = with_length("10 mm");
+        let later = with_length("20 mm");
+        save(&earlier, &target, false).unwrap();
+        save(&later, &target, false).unwrap();
+        let with_versions = fs::read(&target).unwrap();
+        let moves = Moves {
+            replace: replace_losing_the_target,
+            rescue: refused,
+        };
+        let orphan = dir.path().join(format!(
+            ".model.caditor.{}-{}-4294967295-3.tmp",
+            machine_tag(),
+            boot_tag()
+        ));
+
+        let first = replace_with(&target, moves, &with_versions).unwrap_err();
+        save(&later, &target, false).unwrap();
+        let second = replace_with(&target, moves, b"newer").unwrap_err();
+        fs::write(&orphan, "partial").unwrap();
+        save(&Document::default(), &target, false).unwrap();
+
+        let kept = kept_aside(&first).unwrap().to_path_buf();
+        let kept_again = kept_aside(&second).unwrap().to_path_buf();
+        let reopened = crate::load(&kept).unwrap();
+        let history = crate::history(&kept).unwrap();
+        let versions: Vec<Document> = (0..history.versions.len())
+            .map(|index| crate::load_version(&kept, index).unwrap().document)
+            .collect();
+
+        assert_eq!(kept, dir.path().join("model.kept.caditor"));
+        assert_eq!(kept_again, dir.path().join("model.kept-2.caditor"));
+        assert!(temporary_tag(kept.file_name().unwrap().as_encoded_bytes()).is_none());
+        assert_eq!(reopened.document, later);
+        assert!(versions.contains(&earlier));
+        assert_eq!(fs::read(&kept_again).unwrap(), b"newer");
+        assert_eq!(!orphan.exists(), boot_tag() != UNKNOWN_TAG);
+        assert_eq!(
+            folder_contents(&dir)
+                .into_iter()
+                .filter(|name| name != orphan.file_name().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                OsString::from("model.caditor"),
+                OsString::from("model.kept-2.caditor"),
+                OsString::from("model.kept.caditor"),
+            ]
         );
     }
 

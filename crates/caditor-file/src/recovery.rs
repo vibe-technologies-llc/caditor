@@ -96,7 +96,13 @@ fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> 
     }
 
     let mut issues = contents.issues;
-    if unapplied > 0 {
+    if contents.entries_over_budget {
+        issues.push(
+            "The most recent changes hold more than caditor unpacks at once and could not be \
+             recovered; everything before them was."
+                .to_owned(),
+        );
+    } else if unapplied > 0 {
         issues.push(
             "The most recent changes were damaged or made by a newer version of caditor and could \
              not be recovered; everything before them was."

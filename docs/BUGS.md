@@ -7,11 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Saving and recovery
 
-- [medium · small] A saved copy kept aside after a failed replace (`save::KeptAside`, named in
-  the save's error) keeps its temporary's name, so once that caditor has exited, the next
-  successful save to the same path removes it as an orphan (`remove_orphaned_temporaries`), with
-  the earlier versions only it holds. Recording the kept name (in the journal or a marker beside
-  it) and sparing it in the sweep would close it.
 - [medium · small] Keep and Restore name a version by its index (`with_version_kept`,
   `load_version`) while a save can be in flight (`history.rs` and `files.rs` allow both): Keep
   queues behind the save, which puts a new version at index 0 and may thin others, and Restore
@@ -41,10 +36,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `.damaged` copy when the journal is in the recovery folder. Open canonicalises the whole path and
   Save As only its folder (`files.rs`), so a model reached through a symbolic link differs the same
   way. Compare by `FileKey` (`os::same_file_path`) at every such site.
-- [low · small] Reading a journal has no memory budget (`journal.rs` unpacks each entry with
-  `unpack(None)` and keeps it), unlike loading a model, and journals are read on every open and at
-  startup, so a damaged or crafted journal beside a downloaded model may exhaust memory. How large
-  restored transactions can get is unchecked; charge a `Budget` across entries if they can.
 
 ## Kernel
 

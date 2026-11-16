@@ -60,7 +60,7 @@ fn max_decompressed() -> usize {
     MAX_DECOMPRESSED
 }
 
-struct Budget {
+pub(crate) struct Budget {
     remaining: usize,
 }
 
@@ -73,7 +73,7 @@ impl Default for Budget {
 }
 
 impl Budget {
-    fn unpack(&mut self, chunk: &Chunk<'_>, newer: Option<&[u8]>) -> Unpacked {
+    pub(crate) fn unpack(&mut self, chunk: &Chunk<'_>, newer: Option<&[u8]>) -> Unpacked {
         self.charge(chunk)?;
         chunk.unpack(newer)
     }
