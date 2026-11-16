@@ -12,7 +12,7 @@ mod tests;
 use std::f64::consts::PI;
 
 use caditor_geometry::{
-    Aabb2, Maths, Plane, Point2, Point3, RigidTransform, Similarity, Vector2, Vector3,
+    Aabb2, Maths, Plane, Point2, Point3, RigidTransform, Similarity, Vector2, Vector3, larger,
 };
 use thiserror::Error;
 
@@ -719,7 +719,7 @@ pub fn sweep_shaped(
     let reach = path
         .iter()
         .map(|segment| segment.curve.bounding_box(segment.range).diagonal())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let tolerance = outline.tolerance.max(reach * RELATIVE_TOLERANCE);
     let chain = path::chain(path, plane, outline.centre, tolerance)?;
     if chain.closed && shape.scale != 1.0 {
@@ -848,7 +848,7 @@ fn meridian(placed: &Plane, outline: &Outline, origin: Point3, axis: Vector3) ->
     let reach = outline
         .placed(placed, &Similarity::IDENTITY)
         .map(|point| point.distance(origin))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     placed.normal().dot(axis).abs() * reach + placed.signed_distance(origin).abs() <= MERIDIAN_SLACK
 }
 
@@ -963,7 +963,7 @@ impl Course {
                             let reach = outline
                                 .placed(plane, &Similarity::IDENTITY)
                                 .map(|point| point.distance(outline.centre))
-                                .fold(0.0, f64::max);
+                                .fold(0.0, larger);
                             FIT_TOLERANCE + 2.0 * CLOSING_SLACK * reach
                         }
                     };

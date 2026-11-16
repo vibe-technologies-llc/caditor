@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use caditor_geometry::{Point2, Vector3};
+use caditor_geometry::{Point2, Vector3, larger};
 
 use crate::{
     constraint::Constraint,
@@ -48,7 +48,7 @@ impl SplineCourse {
             .control_points()
             .iter()
             .map(|point| point.x.abs().max(point.y.abs()))
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 
     pub(super) fn extent(&self) -> f64 {

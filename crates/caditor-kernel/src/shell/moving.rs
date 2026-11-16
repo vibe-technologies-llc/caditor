@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::RigidTransform;
+use caditor_geometry::{RigidTransform, larger};
 use thiserror::Error;
 
 use super::{
@@ -111,7 +111,7 @@ fn travel(solid: &Solid, faces: &[FaceId], motion: &Motion) -> f64 {
                 .collect::<Vec<_>>()
         })
         .map(|point| motion.carried(point).distance(point))
-        .fold(0.0, f64::max)
+        .fold(0.0, larger)
 }
 
 fn carried(solid: &Solid, groups: Vec<Carried<'_>>) -> Result<Solid, MoveError> {
@@ -136,7 +136,7 @@ pub(super) fn carrying<'a>(
     let reach = groups
         .iter()
         .map(|group| travel(solid, group.faces, &group.motion))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     if !reach.is_finite() || reach <= LINEAR_RESOLUTION {
         return Err(MoveError::Unmoved);
     }

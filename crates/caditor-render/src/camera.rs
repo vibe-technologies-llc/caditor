@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use caditor_geometry::{Aabb, Plane, Point3, Ray, Rotation3, Vector3};
+use caditor_geometry::{Aabb, Plane, Point3, Ray, Rotation3, Vector3, larger};
 use glam::{DMat3, DMat4, DVec2, DVec3, DVec4, dcamera::rh::proj::directx};
 
 pub const DEFAULT_FIELD_OF_VIEW_DEGREES: f64 = 30.0;
@@ -508,10 +508,7 @@ impl View {
             };
             distance.max(needed)
         });
-        let in_front = corners
-            .iter()
-            .map(|corner| corner.z)
-            .fold(0.0_f64, f64::max)
+        let in_front = corners.iter().map(|corner| corner.z).fold(0.0, larger)
             + radius * MIN_FIT_DEPTH_FRACTION;
 
         match self.projection {

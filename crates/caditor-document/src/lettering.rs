@@ -1,4 +1,4 @@
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 use caditor_kernel::ProfileCurve;
 use caditor_lettering::{Alignment, Segment, Style, lettered};
 use caditor_sketch::{EntityId, Faceting, Sketch, Text, TextAlign, TextSize, letter_curve};
@@ -97,7 +97,7 @@ fn faceted(segment: &Segment, faceting: Faceting) -> Vec<Point2> {
                     [first, middle, last] => (*first - *middle * 2.0 + *last).length(),
                     _ => 0.0,
                 })
-                .fold(0.0, f64::max);
+                .fold(0.0, larger);
             let deviation = bend * degree * (degree - 1.0).max(0.0) / 8.0;
             (deviation / faceting.chord())
                 .sqrt()

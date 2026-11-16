@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::{
     curve::{BSpline, EllipseGeometry},
@@ -214,7 +214,7 @@ impl Around {
                 let point = curve.point_at(index as f64 / checks as f64);
                 (self.distance_to(point) - distance).abs()
             })
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 }
 

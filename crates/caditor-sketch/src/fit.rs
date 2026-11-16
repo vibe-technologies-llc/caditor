@@ -1,4 +1,4 @@
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::{
     banded::Banded,
@@ -200,7 +200,7 @@ fn fit_with(
         .iter()
         .zip(&parameters)
         .map(|(sample, parameter)| spline.point_at(*parameter).distance(*sample))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     Some(FittedSpline { spline, deviation })
 }
 

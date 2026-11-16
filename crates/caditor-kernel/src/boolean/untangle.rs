@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Aabb, Aabb2, Point2, Point3};
+use caditor_geometry::{Aabb, Aabb2, Point2, Point3, larger};
 
 use crate::{
     boolean::{
@@ -211,7 +211,7 @@ pub(super) fn sharpen(
                 .iter()
                 .flat_map(|traced| traced.coedges.iter())
                 .map(|coedge| coedge.pcurve.tolerance())
-                .fold(0.0, f64::max);
+                .fold(0.0, larger);
             if surely_deep(fragment, chart.surface, coarsest) {
                 break;
             }

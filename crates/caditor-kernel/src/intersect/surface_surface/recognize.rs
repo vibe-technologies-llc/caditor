@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Maths, Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3, larger};
 
 use crate::{
     curve::{Circle, Curve, Ellipse, IntersectionCurve, Line},
@@ -47,7 +47,7 @@ fn candidate(curve: &IntersectionCurve) -> Option<(Curve, Interval)> {
             Some(line) => line.point(line.parameter_of(*point)).distance(*point),
             None => point.distance(first.point),
         })
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     if bulge < MIN_BULGE {
         return None;
     }

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Point2, Point3};
+use caditor_geometry::{Point2, Point3, larger};
 use thiserror::Error;
 
 use super::{
@@ -233,7 +233,7 @@ fn matching_target(solid: &Solid, face: FaceId, targets: &[Target]) -> Option<us
             let farthest = points
                 .iter()
                 .map(|point| target.chord.distance(*point))
-                .fold(0.0, f64::max);
+                .fold(0.0, larger);
             (index, farthest)
         })
         .filter(|(_, farthest)| *farthest <= ON_SURFACE)

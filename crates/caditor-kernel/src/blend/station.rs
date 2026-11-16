@@ -1,4 +1,4 @@
-use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3, larger};
 
 use super::{
     BlendShape, flat,
@@ -119,7 +119,7 @@ pub(super) fn newton<const N: usize>(
             .iter()
             .zip(&current)
             .map(|(a, b)| (a - b).abs())
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         current = trial;
         (values, jacobian) = next;
         if moved <= SMALLEST_STEP {
@@ -461,7 +461,7 @@ pub(super) fn cross(sides: &Sides<'_>, request: &Request) -> Result<Cross, Misse
     let guessed_reach = guessed_feet
         .iter()
         .map(|foot| foot.distance(point))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let near = |feet: &[Contact; 2]| {
         feet.iter()
             .all(|foot| foot.point.distance(point) <= FARTHEST_FOOT * guessed_reach)

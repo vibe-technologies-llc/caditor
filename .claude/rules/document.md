@@ -1219,9 +1219,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   about its X, Y, Z axes (through its origin when turning about the origin) and the distances run
   along its axes (`MoveAxis::direction_in`).
 - It modifies its body like a blend, keeps every face and edge name (`Solid::transformed`), and
-  fails alone when a value is not a length or angle or the result is not finite. With `copy` it
-  leaves the body alone and makes a new body of its own (`makes_body`, `Feature::body` is the move)
-  from the placed copy; a copy others use cannot stop being one.
+  fails alone when a value is not a length or angle or the result is not finite or reaches past
+  `MAX_SIZE` (`MoveCause::TooFar`). With `copy` it leaves the body alone and makes a new body of its
+  own (`makes_body`, `Feature::body` is the move) from the placed copy; a copy others use cannot
+  stop being one.
 
 ### Mate (`mate.rs`, `mate_placement.rs`)
 

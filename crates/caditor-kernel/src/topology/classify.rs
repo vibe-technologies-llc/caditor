@@ -3,7 +3,7 @@ use std::{
     sync::OnceLock,
 };
 
-use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2, Vector3, larger};
 
 use crate::{
     box_tree::BoxTree,
@@ -558,7 +558,7 @@ impl<'a> SolidClassifier<'a> {
             .corners()
             .iter()
             .map(|corner| corner.distance(point))
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
             + RAY_REACH_MARGIN;
         for direction in directions {
             match self.cast(point, *direction, reach) {
@@ -649,7 +649,7 @@ impl<'a> SolidClassifier<'a> {
             .corners()
             .iter()
             .map(|corner| corner.distance(origin))
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
             + RAY_REACH_MARGIN;
         let curve = Curve::Line(line);
         let mut nearest: Option<(f64, FaceId, f64)> = None;
@@ -740,7 +740,7 @@ impl<'a> SolidClassifier<'a> {
             .corners()
             .iter()
             .map(|corner| corner.distance(origin))
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
             + RAY_REACH_MARGIN;
         let curve = Curve::Line(line);
         let mut doubtful = false;

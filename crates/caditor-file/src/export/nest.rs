@@ -1,7 +1,7 @@
 use std::f64::consts::FRAC_PI_2;
 
 use caditor_document::CancelToken;
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use super::{
     ExportError,
@@ -138,7 +138,7 @@ fn cell_size(items: &[Item<'_>], nesting: &Nesting) -> f64 {
     let largest = sizes
         .iter()
         .map(|size| size.max_element())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let area: f64 = sizes.iter().map(|size| size.x * size.y).sum();
     let reference = nesting.width().min(largest.max(area.sqrt()));
     let cell = (reference / CELLS_ACROSS)

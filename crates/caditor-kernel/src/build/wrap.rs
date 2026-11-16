@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Maths, Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector2, Vector3, larger};
 use thiserror::Error;
 
 use crate::{
@@ -416,7 +416,7 @@ fn region_points(regions: &[Region]) -> Vec<Point2> {
         .iter()
         .filter_map(Region::bounds)
         .map(|bounds| bounds.size().length())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let tolerance = SamplingTolerance::for_extent(extent.max(LINEAR_RESOLUTION));
     regions
         .iter()

@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 use parking_lot::Mutex;
 
 use crate::{INTER, INTER_ITALIC, Instance, font::Typeface, overlap::Segment};
@@ -116,7 +116,7 @@ fn lay_out(
         lettered.line_widths.push(laid.width);
         position += line.chars().count() + 1;
     }
-    lettered.width = lettered.line_widths.iter().copied().fold(0.0, f64::max);
+    lettered.width = lettered.line_widths.iter().copied().fold(0.0, larger);
     lettered.line_pitch = pitch;
     lettered
 }

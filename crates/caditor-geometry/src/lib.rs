@@ -11,7 +11,7 @@ pub use glam::{
 
 pub use crate::{
     aabb::{Aabb, Aabb2},
-    maths::Maths,
+    maths::{Maths, larger},
     plane::Plane,
     ray::Ray,
     similarity::Similarity,

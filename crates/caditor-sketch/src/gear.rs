@@ -1,7 +1,7 @@
 use std::f64::consts::{PI, TAU};
 
 use caditor_expression::format_decimals;
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::{
     constraint::{Constraint, MAX_LENGTH},
@@ -754,7 +754,7 @@ fn traced_flank(involute: &Involute, low_roll: f64, tolerance: f64) -> Option<(V
                     .point_at(share)
                     .distance(involute.point(roll_at(share)))
             })
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         if best.as_ref().is_none_or(|best| deviation < best.1) {
             best = Some((spline.control_points().to_vec(), deviation));
         }

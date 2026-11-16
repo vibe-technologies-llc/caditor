@@ -3,7 +3,7 @@ mod tests;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector3, larger};
 use thiserror::Error;
 
 use crate::{
@@ -428,7 +428,7 @@ fn shells(
     let largest = closed
         .iter()
         .map(|(_, volume)| volume.abs())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let boxes: Vec<Option<Aabb>> = closed
         .iter()
         .map(|(shell, _)| {
@@ -488,7 +488,7 @@ fn noise_of(positions: &[Point3]) -> f64 {
     let magnitude = positions
         .iter()
         .map(|point| point.abs().max_element())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     (magnitude * NOISE_FRACTION).max(LINEAR_RESOLUTION)
 }
 

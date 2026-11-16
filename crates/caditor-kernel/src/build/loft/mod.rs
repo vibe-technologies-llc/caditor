@@ -5,7 +5,7 @@ mod skin;
 #[cfg(test)]
 mod tests;
 
-use caditor_geometry::{Plane, Point3};
+use caditor_geometry::{Plane, Point3, larger};
 use thiserror::Error;
 
 use self::{
@@ -229,7 +229,7 @@ fn reach(profiles: &[LoftProfile], apex: Option<Point3>) -> Result<f64, LoftErro
     let farthest = points
         .iter()
         .map(|point| point.abs().max_element())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     if !farthest.is_finite() || farthest > MAX_SIZE {
         return Err(LoftError::TooLarge);
     }

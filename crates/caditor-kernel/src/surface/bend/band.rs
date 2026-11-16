@@ -1,4 +1,4 @@
-use caditor_geometry::Vector3;
+use caditor_geometry::{Vector3, larger};
 
 use crate::error::GeometryError;
 
@@ -41,7 +41,7 @@ impl Band {
     pub(super) fn largest_diagonal(&self) -> f64 {
         (0..self.count)
             .map(|index| self.at(index, index))
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 
     pub(super) fn factored(mut self) -> Result<Self, GeometryError> {

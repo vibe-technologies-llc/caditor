@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use caditor_geometry::{Point2, Point3, Vector2};
+use caditor_geometry::{Point2, Point3, Vector2, larger};
 use thiserror::Error;
 
 use crate::{
@@ -321,7 +321,7 @@ pub(crate) fn shape_tolerance(curve: &Curve, interval: Interval) -> f64 {
     let bow = BOW_SAMPLES
         .iter()
         .map(|fraction| distance_to_segment(curve.point(interval.at(*fraction)), start, end))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     (BOW_SHARE * bow).clamp(LINEAR_RESOLUTION, PCURVE_TOLERANCE)
 }
 

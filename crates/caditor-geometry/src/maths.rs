@@ -123,9 +123,17 @@ impl Maths for f64 {
     }
 }
 
+pub fn larger(first: f64, second: f64) -> f64 {
+    if first.is_nan() || second.is_nan() {
+        f64::NAN
+    } else {
+        first.max(second)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Maths;
+    use super::{Maths, larger};
 
     #[test]
     fn the_functions_match_the_values_they_are_named_for() {
@@ -149,5 +157,28 @@ mod tests {
             assert_eq!(sin, angle.sin_libm());
             assert_eq!(cos, angle.cos_libm());
         }
+    }
+
+    #[test]
+    fn larger_is_the_maximum_and_keeps_a_nan_instead_of_dropping_it() {
+        assert_eq!(larger(1.0, 2.0), 2.0);
+        assert_eq!(larger(2.0, -1.0), 2.0);
+        assert_eq!(larger(f64::NEG_INFINITY, 0.0), 0.0);
+        assert_eq!(larger(f64::INFINITY, 0.0), f64::INFINITY);
+
+        assert!(larger(f64::NAN, 1.0).is_nan());
+        assert!(larger(1.0, f64::NAN).is_nan());
+        assert!(larger(f64::NAN, f64::INFINITY).is_nan());
+    }
+
+    #[test]
+    fn folding_larger_over_values_reports_a_nan_among_them() {
+        let finite = [0.5, 3.0, 2.0];
+        let tainted = [0.5, f64::NAN, 3.0];
+
+        assert_eq!(finite.into_iter().fold(0.0, larger), 3.0);
+        assert_eq!(Vec::<f64>::new().into_iter().fold(0.0, larger), 0.0);
+        assert!(tainted.into_iter().fold(0.0, larger).is_nan());
+        assert!(!tainted.into_iter().fold(0.0, larger).is_finite());
     }
 }

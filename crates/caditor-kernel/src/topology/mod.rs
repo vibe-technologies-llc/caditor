@@ -43,7 +43,7 @@ use crate::{
     shared::SharedBuffer,
     surface::{Surface, Torus},
     tessellation::{self, DisplayMesh, Mesh, MeshedSolid, TessellationError},
-    tolerance::{MeshQuality, SamplingTolerance},
+    tolerance::{MAX_SIZE, MeshQuality, SamplingTolerance},
 };
 
 macro_rules! typed_index {
@@ -427,10 +427,13 @@ impl Solid {
             .iter()
             .map(|vertex| {
                 let point = transform.apply_point(vertex.point);
-                if point.is_finite() {
-                    Ok(Vertex { point })
-                } else {
+                let reach = point.abs().max_element();
+                if !point.is_finite() {
                     Err(GeometryError::NonFinite)
+                } else if reach > MAX_SIZE {
+                    Err(GeometryError::BeyondMaximum(reach))
+                } else {
+                    Ok(Vertex { point })
                 }
             })
             .collect::<Result<_, _>>()?;

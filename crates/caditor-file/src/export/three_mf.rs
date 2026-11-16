@@ -5,6 +5,7 @@ use std::{
 
 use caditor_document::{CancelToken, ModelProperties, ModelProperty, ThreadSide};
 use caditor_expression::format_decimals;
+use caditor_geometry::larger;
 
 use super::{
     APPLICATION, ExportError, ExportThread, Look, MeshBody, exported_properties,
@@ -133,7 +134,7 @@ fn model_size_bound(bodies: &[MeshBody<'_>], properties: &ModelProperties) -> u6
         .iter()
         .flat_map(|body| body.positions.iter())
         .map(|position| position.abs().max_element())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let coordinate = format!("{:.COORDINATE_DECIMALS$}", -largest).len() as u64 + 1;
     let vertex = VERTEX_TEXT.saturating_add(coordinate.saturating_mul(3));
     let described = exported_properties(properties)

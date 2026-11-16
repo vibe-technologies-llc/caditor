@@ -1,3 +1,5 @@
+use caditor_geometry::larger;
+
 const PIVOT_FLOOR: f64 = 1e-300;
 const DAMPING: f64 = 1e-13;
 
@@ -119,7 +121,7 @@ pub(crate) fn damped_least_squares(rows: &[Vec<f64>], values: &[f64]) -> Option<
     }
     let largest = (0..width)
         .map(|i| entry(&normal, width, i, i))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     for i in 0..width {
         if let Some(slot) = normal.get_mut(i * width + i) {
             *slot += DAMPING * largest + PIVOT_FLOOR;

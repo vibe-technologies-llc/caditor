@@ -139,7 +139,7 @@ impl Beziers {
         let segments: Vec<Vec<Homogeneous>> = (0..self.segments())
             .map(|index| {
                 let mut points = self.segment(index).to_vec();
-                while points.len() <= degree {
+                for _ in points.len()..=degree {
                     points = raised(&points);
                 }
                 points
@@ -198,6 +198,9 @@ impl Beziers {
 
 fn raised(points: &[Homogeneous]) -> Vec<Homogeneous> {
     let degree = points.len();
+    if degree == 0 {
+        return Vec::new();
+    }
     let mut raised = Vec::with_capacity(degree + 1);
     for index in 0..=degree {
         let share = index as f64 / degree as f64;
@@ -586,4 +589,58 @@ pub(super) fn skinned_through(
         })
         .collect();
     net(first, &lines, HERMITE_DEGREE, knots)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hollow(degree: usize) -> Beziers {
+        Beziers {
+            degree,
+            breaks: vec![0.0, 0.5, 1.0],
+            points: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn raising_nothing_gives_nothing() {
+        assert!(raised(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_segment_out_of_range_is_empty_rather_than_indexed() {
+        let curve = Beziers::point(Point3::ZERO, 2);
+
+        assert_eq!(curve.segment(0).len(), 3);
+        assert!(curve.segment(1).is_empty());
+        assert!(curve.segment(usize::MAX / 4).is_empty());
+    }
+
+    #[test]
+    fn elevating_a_curve_with_empty_segments_ends_with_them_still_empty() {
+        let curve = hollow(2);
+
+        let elevated = curve.elevated(5);
+
+        assert!(elevated.points().is_empty());
+        assert_eq!(elevated.degree(), 5);
+        assert_eq!(elevated.breaks(), curve.breaks());
+    }
+
+    #[test]
+    fn elevating_a_point_raises_every_segment_to_the_new_degree() {
+        let curve = Beziers::point(Point3::new(1.0, 2.0, 3.0), 1);
+
+        let elevated = curve.elevated(3);
+
+        assert_eq!(elevated.degree(), 3);
+        assert_eq!(elevated.points().len(), 4);
+        assert!(
+            elevated
+                .points()
+                .iter()
+                .all(|point| *point == [1.0, 2.0, 3.0, 1.0])
+        );
+    }
 }

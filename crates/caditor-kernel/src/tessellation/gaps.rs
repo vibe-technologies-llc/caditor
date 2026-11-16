@@ -1,5 +1,6 @@
 use std::f64::consts::SQRT_2;
 
+use caditor_geometry::larger;
 use spade::Point2 as PlanePoint;
 
 use crate::{
@@ -116,7 +117,7 @@ pub(super) fn widest(
         .zip(&inside)
         .filter(|(_, inside)| **inside)
         .map(|(cells, _)| *cells)
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let gap = (widest + CELL_ERROR) * grid.side;
     Ok(gap.is_finite().then_some(gap))
 }

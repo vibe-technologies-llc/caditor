@@ -1,4 +1,4 @@
-use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, Vector3, larger};
 use thiserror::Error;
 
 use super::{
@@ -349,7 +349,7 @@ fn section_tolerance(regions: &[Region]) -> f64 {
 fn path_reach(path: &[PathSegment]) -> f64 {
     path.iter()
         .map(|segment| segment.curve().bounding_box(segment.range()).diagonal())
-        .fold(0.0, f64::max)
+        .fold(0.0, larger)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

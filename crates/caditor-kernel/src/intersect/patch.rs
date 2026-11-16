@@ -1,4 +1,4 @@
-use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Vector3, larger};
 
 use crate::{
     curve::Circle,
@@ -155,7 +155,7 @@ impl<'a> SurfacePatch<'a> {
         [min.y, center.y, max.y]
             .into_iter()
             .map(|v| self.surface.evaluate(center.x, v).du.length())
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 
     fn v_scale(&self) -> f64 {
@@ -164,7 +164,7 @@ impl<'a> SurfacePatch<'a> {
         [min.x, center.x, max.x]
             .into_iter()
             .map(|u| self.surface.evaluate(u, center.y).dv.length())
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 }
 

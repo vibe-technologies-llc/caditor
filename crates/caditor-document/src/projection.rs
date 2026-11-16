@@ -4,7 +4,7 @@ use std::{
     f64::consts::TAU,
 };
 
-use caditor_geometry::{Plane, Point2, Point3, Ray, Vector2};
+use caditor_geometry::{Plane, Point2, Point3, Ray, Vector2, larger};
 use caditor_kernel::{
     BooleanError, Curve, Curve2, Edge, EdgeId, EdgeReference, FaceReference, HiddenLineError,
     HiddenLineView, MeshQuality, OutlinePiece, ReferenceError, Solid, VertexId, VertexName,
@@ -401,7 +401,7 @@ impl Outline {
         let extent = samples
             .iter()
             .map(|sample| sample.distance(first))
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         if extent <= POSITION_TOLERANCE {
             return Some(Self::Point(first));
         }

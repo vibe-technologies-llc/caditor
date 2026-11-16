@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::curve::{ArcGeometry, BSpline, EllipseGeometry, direction_angle};
 
@@ -65,7 +65,7 @@ impl Shape {
                 .control_points()
                 .iter()
                 .map(|point| reach(*point))
-                .fold(0.0, f64::max),
+                .fold(0.0, larger),
             Self::Ellipse(ellipse) => {
                 reach(ellipse.center) + ellipse.major_radius().max(ellipse.minor_radius)
             }

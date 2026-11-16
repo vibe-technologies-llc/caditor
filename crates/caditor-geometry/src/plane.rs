@@ -33,6 +33,9 @@ impl Plane {
     }
 
     pub fn with_x_axis(origin: Point3, normal: Vector3, x_direction: Vector3) -> Option<Self> {
+        if !origin.is_finite() {
+            return None;
+        }
         let normal = normal.try_normalize()?;
         let in_plane = x_direction.reject_from_normalized(normal);
         if in_plane.length() <= FRAME_TOLERANCE * x_direction.length() {
@@ -148,6 +151,19 @@ mod tests {
         assert!(plane.x_axis().dot(plane.normal()).abs() < 1e-12);
         assert!(Plane::new(Point3::ONE, Vector3::ZERO).is_none());
         assert!(Plane::with_x_axis(Point3::ONE, Vector3::Z, Vector3::Z).is_none());
+    }
+
+    #[test]
+    fn a_non_finite_origin_is_refused_by_every_constructor() {
+        for origin in [
+            Point3::new(f64::NAN, 0.0, 0.0),
+            Point3::new(0.0, f64::INFINITY, 0.0),
+            Point3::new(0.0, 0.0, f64::NEG_INFINITY),
+        ] {
+            assert!(Plane::new(origin, Vector3::Z).is_none());
+            assert!(Plane::with_x_axis(origin, Vector3::Z, Vector3::X).is_none());
+            assert!(Plane::from_frame(origin, Vector3::Z, Vector3::X).is_none());
+        }
     }
 
     #[test]

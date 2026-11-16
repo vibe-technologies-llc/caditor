@@ -1,6 +1,6 @@
 use std::f64::consts::FRAC_PI_2;
 
-use caditor_geometry::{Aabb, Maths, Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Maths, Plane, Point2, Point3, Vector2, Vector3, larger};
 
 use crate::{
     curve::{Circle, Curve},
@@ -114,7 +114,7 @@ fn window_of(axis: &Axis, bounds: &Aabb) -> Window {
     let reach = corners
         .iter()
         .map(|corner| axis.radius(*corner))
-        .fold(0.0, f64::max)
+        .fold(0.0, larger)
         + bounds.diagonal();
     Window { low, high, reach }
 }

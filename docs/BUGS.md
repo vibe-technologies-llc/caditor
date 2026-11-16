@@ -138,18 +138,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corner, `Reach::unfolded` cuts the chord's overhang beyond it below `LEAST_OVERHANG`, and the
   lofted tool's sections would cross there. Rounding these needs a tool whose sections are not
   fanned about the rim's curvature axis, or the fillet surface trimmed where it folds.
-- [low · easy] Guards that hold only by what callers do today: `build/loft/skin.rs` raises the
-  degree of an empty segment forever (`raised(&[])` returns empty and `segment` answers an empty
-  slice out of range), `build/loft/mod.rs` and about 25 other places take a largest value with
-  `fold(0.0, f64::max)`, which drops NaN before an `is_finite` check, and `caditor-geometry`'s
-  `Plane::new`, `Plane::with_x_axis` and `Ray::new` accept a non-finite origin that
-  `Plane::from_frame` refuses. Each is masked by an earlier check (`Profile::new`, the loft's
-  construction, `checks::checked_frame`).
-- [low · small] A rigid move puts a body anywhere finite: `Solid::transformed` checks only that
-  vertices are finite, not `MAX_SIZE` as `Solid::mapped` does, so Move (`movement.rs`, whose
-  `MoveCause::TooFar` comes only from a non-finite result) accepts a body 1e11 mm away, where one
-  f64 step exceeds `LINEAR_RESOLUTION` and later booleans fail without naming the cause. Refuse
-  past `MAX_SIZE` there.
+- [low · easy] Largest values that still drop NaN: `caditor_geometry::larger` keeps it, but
+  `fold(0.0, f64::max)` remains in the sketch solver (`solve/mod.rs`, `solve/numeric.rs`), the
+  STEP reader (`read/conform.rs`, `read/loose.rs`, `read/snap.rs`, `read/topology.rs`,
+  `write/shape.rs`) and the app (`annotations.rs`, `body_reach.rs`, `box_selection.rs`, `comb.rs`,
+  `isocurves.rs`, `reach.rs`, `snap.rs`, `solid_panel.rs`), each masked by an earlier finiteness
+  check. The solver ones change what counts as converged, so test them with a NaN residual.
 - [low · medium] Two edges alike in every other part of their names are told apart by
   `occurrence` (`naming/mod.rs`), their midpoints rounded to a 1e-4 grid and ordered by x, then y,
   then z: a midpoint within an ulp of a cell boundary can round either way after an upstream edit,

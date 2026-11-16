@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::import::dxf::geometry::Nurbs;
 
@@ -44,7 +44,7 @@ impl Canonical {
         let farthest = points
             .iter()
             .map(|point| point.distance(origin))
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         let far = points
             .iter()
             .find(|point| point.distance(origin) > farthest * NEGLIGIBLE_LEG)?;

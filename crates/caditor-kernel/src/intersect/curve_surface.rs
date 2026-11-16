@@ -3,7 +3,7 @@ use std::{
     f64::consts::{PI, TAU},
 };
 
-use caditor_geometry::{Aabb, Aabb2, Maths, Plane, Point2, Point3};
+use caditor_geometry::{Aabb, Aabb2, Maths, Plane, Point2, Point3, larger};
 
 use crate::{
     coordinates::angle_between,
@@ -720,7 +720,7 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
             let reach = [bracket.lower, bracket.upper]
                 .map(|end| probe.curve.point(end).distance(center))
                 .into_iter()
-                .fold(0.0, f64::max);
+                .fold(0.0, larger);
             bracket.value < -TOLERANCE || bracket.value - REACH_MARGIN * reach > TOLERANCE
         };
         probe.hint.set(sample.foot);

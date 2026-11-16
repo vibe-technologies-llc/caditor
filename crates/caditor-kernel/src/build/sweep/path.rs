@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector3, larger};
 
 use super::{PathSegment, PathSweepError, WindingAxis};
 use crate::{
@@ -373,7 +373,7 @@ fn opened_at_profile(
     let size = legs
         .iter()
         .map(|leg| leg.curve.bounding_box(leg.range).diagonal())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let nearest = crossings(&legs, plane, size)?
         .into_iter()
         .min_by(|a, b| {

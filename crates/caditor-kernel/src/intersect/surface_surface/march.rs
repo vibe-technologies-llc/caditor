@@ -1,4 +1,4 @@
-use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3, larger};
 
 use crate::{
     coordinates::angle_between,
@@ -89,7 +89,7 @@ fn leaf_size(patch: &SurfacePatch) -> f64 {
                 .map(move |b| Point2::new(u.at(*a), v.at(*b)))
         })
         .map(|uv| surface_curvature(patch.surface(), uv))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let by_curvature = if curvature > 0.0 {
         LEAF_CURVATURE / curvature
     } else {
@@ -166,7 +166,7 @@ fn apart_to_second_order(other: &Surface, patch: &SurfacePatch) -> bool {
     let reach = corners
         .iter()
         .map(|corner| surface.point_at(*corner).distance(point))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let Some(own) = largest_curvature(
         surface,
         &[uv, corners[0], corners[1], corners[2], corners[3]],

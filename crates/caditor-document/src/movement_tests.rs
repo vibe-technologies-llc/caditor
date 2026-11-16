@@ -145,6 +145,31 @@ fn a_distance_given_as_an_angle_fails_the_move_alone_saying_which() {
 }
 
 #[test]
+fn a_move_past_the_largest_size_fails_the_move_alone_saying_it_is_too_far() {
+    let mut pair = pair();
+    let movement = moved(
+        &mut pair,
+        ["100000000000 mm", "0 mm", "0 mm"],
+        ["0 deg", "0 deg", "0 deg"],
+    );
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    let FeatureState::Failed(error) = &evaluation.feature(movement).unwrap().state else {
+        panic!("the move should fail");
+    };
+    assert!(
+        error.reason().contains("too far from the origin"),
+        "{}",
+        error.reason()
+    );
+    assert_eq!(error.remedy(), "Enter smaller distances.");
+    assert_eq!(evaluation.failed_count(), 1);
+    assert!(evaluation.body(pair.peg).is_some());
+}
+
+#[test]
 fn a_move_modifies_its_body_and_is_dependent_on_it() {
     let mut pair = pair();
     let movement = moved(

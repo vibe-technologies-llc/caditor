@@ -5,7 +5,7 @@ use std::{
     f64::consts::TAU,
 };
 
-use caditor_geometry::{Aabb, Aabb2, Maths, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Maths, Point2, Point3, Vector2, Vector3, larger};
 
 use crate::{
     boolean::{BooleanError, imprint::Arrangement, untangle::open_flat},
@@ -826,7 +826,7 @@ pub(super) fn interior_points(fragment: &Fragment, surface: &Surface) -> Vec<Poi
         .iter()
         .flat_map(|traced| &traced.coedges)
         .map(|coedge| coedge.pcurve.tolerance())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let clear: Vec<Point2> = spans
         .iter()
         .copied()

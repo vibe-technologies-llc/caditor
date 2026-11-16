@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use caditor_geometry::{Aabb2, Plane, Point2, Vector2};
+use caditor_geometry::{Aabb2, Plane, Point2, Vector2, larger};
 use caditor_lettering::{Alignment, Style, lettered};
 
 use crate::{
@@ -514,7 +514,7 @@ impl SideColumn {
         self.views
             .iter()
             .map(|view| view.bounds.size().x * view.scale(sheet))
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 
     fn height(&self, sheet: f64) -> f64 {

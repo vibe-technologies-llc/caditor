@@ -1,5 +1,7 @@
 use std::f64::consts::TAU;
 
+use caditor_geometry::larger;
+
 use crate::tolerance::LINEAR_RESOLUTION;
 
 pub const END_CHANGE_TURNS: f64 = 0.5;
@@ -160,7 +162,7 @@ impl PitchLaw {
             .filter(|stop| stop.turns < turns)
             .map(|stop| stop.pitch)
             .chain([self.pitch_at(TAU * turns)])
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 
     fn bounds(&self) -> (PitchStop, PitchStop) {

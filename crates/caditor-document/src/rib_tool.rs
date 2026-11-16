@@ -3,7 +3,7 @@ use std::{
     f64::consts::TAU,
 };
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector2, Vector3, larger};
 use caditor_kernel::{
     BooleanError, BooleanOperation, FaceName, FaceOrigin, Interval, LINEAR_RESOLUTION,
     LinearExtent, PieceBound, PieceId, PointClass, Profile, ProfileCurve, ProfileError,
@@ -217,7 +217,7 @@ fn flank_depth(frame: &Frame, chain: &RibChain) -> f64 {
                 .fold(f64::INFINITY, f64::min)
         })
         .filter(|distance| distance.is_finite())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     reach * FLANK_SAFETY + FLANK_SLACK
 }
 

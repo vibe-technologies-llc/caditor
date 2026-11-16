@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use caditor_geometry::{Aabb, Maths, Plane, Point3, Vector3};
+use caditor_geometry::{Aabb, Maths, Plane, Point3, Vector3, larger};
 
 use crate::{
     curve::{Circle, Curve, Ellipse, Line},
@@ -177,7 +177,7 @@ fn reach_from(point: Point3, window: &Aabb) -> f64 {
         .corners()
         .iter()
         .map(|corner| corner.distance(point))
-        .fold(0.0, f64::max)
+        .fold(0.0, larger)
 }
 
 fn plane_cone(plane: &PlaneSurface, cone: &Cone, window: &Aabb) -> Option<Raw> {

@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, TAU};
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::entity::{MIN_PIECE_POINTS, SplineKind};
 
@@ -566,7 +566,7 @@ impl BSpline {
                 }
                 _ => None,
             })
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
             * spread
             * spread
     }

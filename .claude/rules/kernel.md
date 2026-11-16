@@ -13,7 +13,13 @@ paths:
   optional mirror). Its only tolerances keep frames orthonormal; model tolerances are the kernel's.
   `Plane::with_x_axis` rejects its x direction from the normal a second time when the first leaves
   them further from square than `Plane::from_frame` keeps, so an x direction nearly along the
-  normal still gives a frame that saves and loads to the same bits.
+  normal still gives a frame that saves and loads to the same bits. `Plane::new`,
+  `Plane::with_x_axis`, `Plane::from_frame` and `Ray::new` all refuse a non-finite origin.
+- `caditor_geometry::larger` is the binary maximum that keeps a NaN where `f64::max` drops it: a
+  largest value taken as `.fold(0.0, larger)` stays NaN when any input is, so the `is_finite` or
+  size check that follows it refuses instead of seeing a smaller number. The kernel, document,
+  file, lettering, render and the sketch geometry take their largest values this way outside tests;
+  what is left is in `docs/BUGS.md`.
 - Transcendental maths comes from the pure-Rust `libm` crate through `caditor_geometry::Maths`
   (`x.sin_libm()`, `atan2_libm`, `hypot_libm`, `powf_libm`, `cbrt_libm`, and so on), never from the
   C library `std` calls: glibc and the Windows UCRT round `sin`, `cos`, `atan2` and the rest
@@ -201,8 +207,9 @@ paths:
 
 ## Transforms (`mapping.rs`, `topology/mapping.rs`)
 
-- `RigidTransform` moves geometry and leaves every parameter alone (`transformed`); a `Similarity`
-  goes through `Solid::mapped`, which keeps every face, edge and vertex name and returns a
+- `RigidTransform` moves geometry and leaves every parameter alone (`transformed`, which refuses a
+  non-finite vertex as `NonFinite` and one past `MAX_SIZE` as `BeyondMaximum`, as `mapped` does); a
+  `Similarity` goes through `Solid::mapped`, which keeps every face, edge and vertex name and returns a
   validated solid or a `TransformError`.
 - Each curve and surface maps with an affine change of its parameters: lines and intersection
   curves run by length, so their parameters scale; a mirrored circle or ellipse flips its frame

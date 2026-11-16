@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Point3, Vector3, larger};
 
 use super::{
     BlendError, BlendShape, Blended, End, EndPlane, Ends, Named, SquareEnd, Surroundings, Tool,
@@ -267,7 +267,7 @@ pub(super) fn reach(cross: &Cross) -> f64 {
         .feet
         .iter()
         .map(|foot| foot.point.distance(cross.point))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     cross
         .center
         .map_or(feet, |center| feet.max(center.distance(cross.point)))
@@ -1007,7 +1007,7 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
     let largest = runs
         .iter()
         .flat_map(|run| run.crosses.iter().map(reach))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let own = Named {
         name: runs
             .first()

@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector2};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector2, larger};
 use thiserror::Error;
 
 use super::{
@@ -343,7 +343,7 @@ fn deviation(shape: &Shape<'_>, span: &Span, from: f64) -> f64 {
             let turned = (point.y.atan2_libm(point.x) - from + PI).rem_euclid(TAU) - PI;
             (point.length() - shape.radius_at(from + turned)).abs()
         })
-        .fold(0.0, f64::max)
+        .fold(0.0, larger)
 }
 
 struct Piece {

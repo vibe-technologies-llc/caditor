@@ -1,5 +1,5 @@
 use caditor_document::CancelToken;
-use caditor_geometry::{Aabb2, Point2, Vector2};
+use caditor_geometry::{Aabb2, Point2, Vector2, larger};
 
 use super::{
     Construction, ExportError,
@@ -83,7 +83,7 @@ pub(super) fn text_height<'a>(figures: impl IntoIterator<Item = &'a Figure>) -> 
         .into_iter()
         .filter_map(Figure::bounds)
         .map(|bounds| bounds.size().max_element())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     (largest * TEXT_HEIGHT_FRACTION).max(MIN_TEXT_HEIGHT)
 }
 
@@ -181,7 +181,7 @@ fn side_by_side(parts: &[(Part, Aabb2)]) -> Vec<Motion> {
     let largest = parts
         .iter()
         .map(|(_, bounds)| bounds.size().max_element())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let gap = (largest * SIDE_BY_SIDE_GAP_FRACTION).max(MIN_SIDE_BY_SIDE_GAP);
     let mut placed: Option<Aabb2> = None;
     parts

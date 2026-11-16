@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Aabb2, Point2, Point3};
+use caditor_geometry::{Aabb2, Point2, Point3, larger};
 
 use crate::{surface::Surface, tolerance::SamplingTolerance};
 
@@ -439,7 +439,7 @@ fn cell_deviation(surface: &Surface, low: Point2, high: Point2) -> CellDeviation
                 let offset = middle - (*from + *to) * 0.5;
                 normal.map_or(offset.length(), |normal| offset.dot(normal).abs())
             })
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     };
     let (low_collapsed, high_collapsed) = (collapsed(a, b), collapsed(c, d));
     let along_u = [
@@ -448,7 +448,7 @@ fn cell_deviation(surface: &Surface, low: Point2, high: Point2) -> CellDeviation
     ]
     .into_iter()
     .flatten()
-    .fold(0.0, f64::max);
+    .fold(0.0, larger);
     let along_v = bow(0.0, 0.5, &[(a, c)]).max(bow(1.0, 0.5, &[(b, d)]));
     let across = if low_collapsed || high_collapsed {
         0.0

@@ -3,7 +3,7 @@ use std::{
     f64::consts::TAU,
 };
 
-use caditor_geometry::{Plane, Point2, Vector2};
+use caditor_geometry::{Plane, Point2, Vector2, larger};
 
 use crate::{
     build::{
@@ -694,7 +694,7 @@ pub fn wrap_chain(
         .iter()
         .filter_map(|curve| curve.curve().ok())
         .map(|(path, range)| path.bounding_box(range).size().length())
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let rough = SamplingTolerance::for_extent(extent.max(LINEAR_RESOLUTION));
     let mut points = Vec::new();
     for curve in curves {

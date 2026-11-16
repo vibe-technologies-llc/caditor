@@ -1,4 +1,4 @@
-use caditor_geometry::{Maths, Point2, Vector2};
+use caditor_geometry::{Maths, Point2, Vector2, larger};
 
 use crate::{profile::ProfileCurve, tolerance::LINEAR_RESOLUTION};
 
@@ -363,7 +363,7 @@ impl Section {
             .feet
             .iter()
             .map(|foot| foot.distance(self.corner))
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         let center = match blend.cut {
             Cut::Fillet { center, .. } => center.distance(self.corner),
             Cut::Chamfer => 0.0,

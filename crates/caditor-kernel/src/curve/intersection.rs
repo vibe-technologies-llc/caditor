@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use caditor_geometry::{Aabb, Maths, Point2, Point3, Similarity, Vector3};
+use caditor_geometry::{Aabb, Maths, Point2, Point3, Similarity, Vector3, larger};
 
 use crate::{
     box_tree::BoxTree,
@@ -847,7 +847,7 @@ impl Probe {
                 let foot = surface.point_at(surface.project(self.guess, Some(hint)));
                 foot.distance(self.guess)
             })
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 
     fn solve(&self, surfaces: [&Surface; 2], touching: Touching) -> Option<Contact> {

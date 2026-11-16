@@ -1,4 +1,4 @@
-use caditor_geometry::{Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Point2, Point3, Vector2, Vector3, larger};
 
 use crate::{
     intersect::linear::damped_least_squares,
@@ -279,7 +279,7 @@ pub(crate) fn refine_contact(
             .iter()
             .zip(state)
             .map(|(after, before)| (after - before).abs() / (1.0 + before.abs()))
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         state = next_state;
         current = next;
         if moved <= STEP_EPSILON || stagnant {
@@ -553,7 +553,7 @@ pub(crate) fn parallel_normals(surfaces: [&Surface; 2], start: [Point2; 2]) -> O
             .iter()
             .zip(state)
             .map(|(after, before)| (after - before).abs() / (1.0 + before.abs()))
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         state = next_state;
         current = next;
         if moved <= STEP_EPSILON {

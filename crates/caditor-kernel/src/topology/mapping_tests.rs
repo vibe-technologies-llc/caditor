@@ -172,6 +172,28 @@ fn a_scale_beyond_the_largest_size_or_below_the_resolution_is_refused() {
     ));
 }
 
+#[test]
+fn a_rigid_move_past_the_largest_size_is_refused_like_a_mapped_one() {
+    let solid = fixtures::cuboid(Vector3::new(0.5, 0.3, 0.2));
+    let far = RigidTransform::translation(Vector3::new(1e11, 0.0, 0.0)).unwrap();
+    let edge = RigidTransform::translation(Vector3::new(MAX_SIZE - 1.0, 0.0, 0.0)).unwrap();
+    let beyond = RigidTransform::translation(Vector3::new(MAX_SIZE + 1.0, 0.0, 0.0)).unwrap();
+
+    assert!(matches!(
+        solid.transformed(&far),
+        Err(GeometryError::BeyondMaximum(reach)) if reach > MAX_SIZE
+    ));
+    assert!(matches!(
+        solid.transformed(&beyond),
+        Err(GeometryError::BeyondMaximum(_))
+    ));
+    assert!(solid.transformed(&edge).is_ok());
+    assert!(matches!(
+        solid.mapped(&Similarity::from(far)),
+        Err(TransformError::Geometry(GeometryError::BeyondMaximum(_)))
+    ));
+}
+
 fn pcurve_buffers(solid: &Solid) -> Vec<*const PcurveSample> {
     solid
         .coedges()

@@ -10,6 +10,9 @@ pub struct Ray {
 
 impl Ray {
     pub fn new(origin: Point3, direction: Vector3) -> Option<Self> {
+        if !origin.is_finite() {
+            return None;
+        }
         let direction = direction.try_normalize()?;
         Some(Self { origin, direction })
     }
@@ -50,6 +53,15 @@ impl Ray {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_non_finite_origin_or_direction_is_refused() {
+        assert!(Ray::new(Point3::new(f64::NAN, 0.0, 0.0), Vector3::Z).is_none());
+        assert!(Ray::new(Point3::new(0.0, f64::INFINITY, 0.0), Vector3::Z).is_none());
+        assert!(Ray::new(Point3::ZERO, Vector3::new(f64::NAN, 0.0, 1.0)).is_none());
+        assert!(Ray::new(Point3::ZERO, Vector3::ZERO).is_none());
+        assert!(Ray::new(Point3::ZERO, Vector3::Z).is_some());
+    }
 
     #[test]
     fn hits_a_plane_in_front_and_misses_one_behind_or_parallel() {
