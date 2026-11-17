@@ -234,6 +234,10 @@ pub enum SketchingError {
     AngleAndAlong,
     #[error("a symmetric circular pattern needs the angle it turns each way")]
     SymmetricWithoutAngle,
+    #[error(
+        "direction {number} of the pattern needs an angle or a line to run along; only direction 2 defaults to square to the first"
+    )]
+    DirectionWithoutHeading { number: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

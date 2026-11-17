@@ -462,14 +462,19 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `Modifying::hover` hands the tool, which previews it live; the shown fields come from
   `PatternSettings::shown_fields` and their captions from `Wording` (Spacing reads Extent, Total
   angle Angle each way). Rectangular has a Distribution segmented control (`DISTRIBUTIONS`:
-  Spacing or Extent, `caditor_sketch::Distribution`), then per `Direction` (the row, then with
-  Rows other than 1 the rows): Count or Rows, Spacing, a Direction row naming the chosen line
-  (else "The angle below") with Choose a line in the view and Use an angle instead, the Angle
-  field while no line is chosen, Sides (`SIDES`: One side or Both sides) and, for one side, a
-  Flip checkbox. A row angle left empty is square to the first (`square_to`), or square to its
-  line (`Heading::Along` with `square`). Sides, flips, the distribution and the circular `TurnKind`
-  are kept in `PatternSettings` with the texts; the chosen lines are the tool session's
-  (`Patterning::directions`, dropped when the line goes). Choosing (`Patterning::pick_direction`,
+  Spacing or Extent, `caditor_sketch::Distribution`), then a group per `Direction` (an index into
+  `PatternSettings`' list of `DirectionSettings`, one at first, any number added with Add a
+  direction, every one but the first with a Remove button, later ones renumbering down): Direction
+  N with its Remove, Count, Spacing, a Runs along row naming the chosen line (else "The angle
+  below") with Choose a line and Use an angle for that direction, the Angle field while no line is
+  chosen, Sides (`SIDES`: One side or Both sides) and, for one side, a Flip checkbox. Fields carry
+  their direction (`PatternField::Count(Direction)`, its id keyed by both), and their problems
+  name it ("the count of direction 2"). A later direction's angle left empty is square to the
+  first (`square_to`), or square to its line (`Heading::Along` with `square`); the second starts
+  empty, a third and later at 45° so they are not parallel to it. Sides, flips, the distribution and the circular
+  `TurnKind` are kept in `PatternSettings` with the texts; the chosen lines are the tool
+  session's, by direction (`Patterning::directions`, dropped when the line goes and renumbered
+  with a removed direction). Choosing (`Patterning::pick_direction`,
   the button giving up focus so Escape reaches the view) stops gathering: a click on a line or
   axis (`mirroring::line_under`, as Mirror aims) or a highlighted one with Space or Enter
   (`steps_targets`, stepping axes then lines) sets it, and Escape stops choosing first. Circular

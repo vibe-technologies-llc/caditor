@@ -639,11 +639,9 @@ fn screenshots() {
                 model.click(choice);
                 model.frame();
             }
-            model.type_into_field(
-                crate::sketch_pattern_panel::field_id(crate::patterning::PatternField::Rows),
-                "2",
-            );
-            model.click(crate::patterning::Direction::First.choose_label());
+            model.click(crate::patterning::ADD_DIRECTION);
+            model.frame();
+            model.click(&crate::patterning::Direction::FIRST.choose_label());
             model.frame();
             model.frame();
             shoot(&mut model, &gpu, &out, "sketch-pattern-choosing", look);

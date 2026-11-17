@@ -10,7 +10,7 @@ use super::{
 use crate::{
     editing::Tool,
     filleting, mirroring,
-    patterning::{self, PatternField},
+    patterning::{self, Direction, PatternField},
     preferences::{PreferenceChange, PreferencesCommand},
     selection::Pickable,
     sketch_pattern_panel, sketch_status, sketch_toolbar,
@@ -233,8 +233,14 @@ fn a_rectangular_pattern_takes_what_a_box_drawn_in_the_tool_holds() {
     let to = harness.on_screen(Point2::new(7.4, 2.6));
     drag_screen(&mut harness, from, to);
     assert!(harness.shows(patterning::RECTANGULAR_PROMPT));
-    harness.type_into_field(sketch_pattern_panel::field_id(PatternField::Count), "3");
-    harness.type_into_field(sketch_pattern_panel::field_id(PatternField::Spacing), "20");
+    harness.type_into_field(
+        sketch_pattern_panel::field_id(PatternField::Count(Direction::FIRST)),
+        "3",
+    );
+    harness.type_into_field(
+        sketch_pattern_panel::field_id(PatternField::Spacing(Direction::FIRST)),
+        "20",
+    );
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
     harness.settle();

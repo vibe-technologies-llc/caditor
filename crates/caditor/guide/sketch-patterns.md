@@ -12,23 +12,29 @@ you type. **Make the copies** or Enter makes them. Every value takes units and
 
 ## Rectangular pattern
 
-{command:sketch.rectangular_pattern} repeats along one or two directions:
+{command:sketch.rectangular_pattern} repeats along one direction or several, each a group of its
+own in the panel:
 
 - **Distribution** says what the distance means: **Spacing**, how far apart neighbouring copies
   are, or **Extent**, how far from the original the last copy is, the copies spread evenly over
   it. The distance field is named after the choice.
-- **Count** is how many along the row, the original included.
-- **Direction** is the way the row runs. By default it is the **Angle** from the sketch's
-  horizontal axis, such as 45 for a slanted row. Press **Choose a line in the view** and click a
-  line or axis (or highlight one with the keys and press Space) to run the row along it instead:
-  the copies keep following the line when it turns, so an edge of the shape itself works too,
-  such as a side of a hexagon. **Use an angle instead** goes back to the angle; Escape stops
-  choosing.
-- **Sides**: **One side** runs the copies from the original one way, and **Flip the direction**
+- **Count** is how many along the direction, the original included.
+- **Runs along** is the way the direction runs. By default it is the **Angle** from the sketch's
+  horizontal axis, such as 45 for a slanted row. Press **Choose a line for direction 1** and click
+  a line or axis (or highlight one with the keys and press Space) to run it along that line
+  instead: the copies keep following the line when it turns, so an edge of the shape itself works
+  too, such as a side of a hexagon. **Use an angle for direction 1** goes back to the angle;
+  Escape stops choosing.
+- **Sides**: **One side** runs the copies from the original one way, and **Flip direction 1**
   sends them the other way; **Both sides** puts Count copies on each side of the original.
-- **Rows** above 1 makes a grid, with the same choices for the rows: **Row spacing** (or **Row
-  extent**), **Row direction**, **Row angle**, **Row sides** and **Flip the row direction**. Left
-  without a row angle or line, the rows step square to the row, also square to a chosen line.
+- **Add a direction** adds another group with the same choices, and every combination of steps
+  becomes a copy: two directions make a grid, three a grid repeated along a third way, and so on.
+  Direction 2 starts without an angle and runs square to direction 1, also square to a chosen
+  line; a third and later ones start at 45°, and any left without an angle or line runs square to
+  direction 1 too. **Remove direction 2** takes a direction away, and those after it move up a
+  number, keeping their lines. Directions running along one line, or reaching one place by two
+  routes (such as three sides of a hexagon at one spacing), are refused, since copies would land
+  on each other.
 
 ## Circular pattern
 

@@ -39,6 +39,8 @@ use crate::{
     units::{Units, attach_unit},
 };
 
+const SQUARE_BY_DEFAULT: usize = 2;
+
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SketchEditError {
     #[error("that piece cannot be trimmed: {0}")]
@@ -300,6 +302,7 @@ pub struct RowPatterning {
     pub reversed: Option<bool>,
     pub extent: Option<bool>,
     pub rows: Option<Row>,
+    pub directions: Option<Vec<Row>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -764,21 +767,20 @@ fn heading(
     target: &Target<'_>,
     angle: Option<&String>,
     along: Option<&EntityName>,
-    otherwise: impl FnOnce() -> Heading,
-) -> Result<Heading, ToolError> {
+) -> Result<Option<Heading>, ToolError> {
     match (angle, along) {
         (Some(_), Some(_)) => Err(SketchingError::AngleAndAlong.into()),
-        (Some(text), None) => Ok(Heading::Angle(amount(
+        (Some(text), None) => Ok(Some(Heading::Angle(amount(
             session,
             "angle",
             text,
             Dimension::ANGLE,
-        )?)),
-        (None, Some(line)) => Ok(Heading::Along {
+        )?))),
+        (None, Some(line)) => Ok(Some(Heading::Along {
             line: target.entity(line)?,
             square: false,
-        }),
-        (None, None) => Ok(otherwise()),
+        })),
+        (None, None) => Ok(None),
     }
 }
 
@@ -800,6 +802,27 @@ fn square_to(first: &Heading) -> Heading {
     }
 }
 
+fn further_row(
+    session: &Session,
+    target: &Target<'_>,
+    row: &Row,
+    first: &Heading,
+    number: usize,
+) -> Result<PatternRow, ToolError> {
+    let heading = match heading(session, target, row.angle.as_ref(), row.along.as_ref())? {
+        Some(heading) => heading,
+        None if number == SQUARE_BY_DEFAULT => square_to(first),
+        None => return Err(SketchingError::DirectionWithoutHeading { number }.into()),
+    };
+    Ok(PatternRow {
+        count: row.count,
+        distance: amount(session, "spacing", &row.spacing, Dimension::LENGTH)?,
+        heading,
+        reversed: row.reversed.unwrap_or(false),
+        sides: sides(row.symmetric),
+    })
+}
+
 fn rectangular_pattern(
     session: &Session,
     target: &Target<'_>,
@@ -809,43 +832,24 @@ fn rectangular_pattern(
     let first = PatternRow {
         count: asked.count,
         distance: amount(session, "spacing", &asked.spacing, Dimension::LENGTH)?,
-        heading: heading(
-            session,
-            target,
-            asked.angle.as_ref(),
-            asked.along.as_ref(),
-            || Heading::Angle(patterning::turned(0.0)),
-        )?,
+        heading: heading(session, target, asked.angle.as_ref(), asked.along.as_ref())?
+            .unwrap_or_else(|| Heading::Angle(patterning::turned(0.0))),
         reversed: asked.reversed.unwrap_or(false),
         sides: sides(asked.symmetric),
     };
-    let second = asked
-        .rows
-        .as_ref()
-        .map(|row| {
-            Ok::<_, ToolError>(PatternRow {
-                count: row.count,
-                distance: amount(session, "spacing", &row.spacing, Dimension::LENGTH)?,
-                heading: heading(
-                    session,
-                    target,
-                    row.angle.as_ref(),
-                    row.along.as_ref(),
-                    || square_to(&first.heading),
-                )?,
-                reversed: row.reversed.unwrap_or(false),
-                sides: sides(row.symmetric),
-            })
-        })
-        .transpose()?;
+    let leading = first.heading.clone();
+    let mut directions = vec![first];
+    for row in asked.rows.iter().chain(asked.directions.iter().flatten()) {
+        let number = directions.len() + 1;
+        directions.push(further_row(session, target, row, &leading, number)?);
+    }
     let distribution = if asked.extent.unwrap_or(false) {
         Distribution::Extent
     } else {
         Distribution::Spacing
     };
     let pattern = RectangularPattern {
-        first,
-        second,
+        directions,
         distribution,
     };
     let transaction = target.reshaped(patterning::TRANSACTION.to_owned(), |sketch| {

@@ -12,8 +12,9 @@ use crate::{
     layout::RightPanel,
     model::{Action, Model, Notice},
     patterning::{
-        DISTRIBUTIONS, Direction, PatternEvaluation, PatternField, PatternKind, PatternSettings,
-        Patterning, SIDES, TurnKind,
+        ADD_DIRECTION, ADD_DIRECTION_ABOUT, DISTRIBUTIONS, Direction, PatternEvaluation,
+        PatternField, PatternKind, PatternSettings, Patterning, RUNS_ALONG, SIDES, SIDES_CAPTION,
+        TurnKind,
     },
     trimming::capitalized,
     widgets::{self, PanelTitle, Tone},
@@ -33,9 +34,10 @@ pub const USE_ORIGIN: &str = "Use the origin";
 pub const NOTHING_REPEATED: &str =
     "Nothing yet: click items in the sketch or drag a box around them.";
 pub const MAKE: &str = "Make the copies";
-pub const RECTANGULAR_ABOUT: &str = "Repeat the selection in a row, or in a grid with more than \
-                                     one row. Every value takes units and expressions using your \
-                                     parameters; the copies keep following them.";
+pub const RECTANGULAR_ABOUT: &str = "Repeat the selection along one direction, or along several \
+                                     for a grid, every combination of steps a copy. Every value \
+                                     takes units and expressions using your parameters; the copies \
+                                     keep following them.";
 pub const CIRCULAR_ABOUT: &str = "Repeat the selection about a point. Every value takes units \
                                   and expressions using your parameters; the copies keep \
                                   following them.";
@@ -44,7 +46,11 @@ const PANEL: RightPanel = RightPanel {
 };
 
 pub fn field_id(field: PatternField) -> Id {
-    Id::unique(("sketch-pattern-field", field.key()))
+    Id::unique((
+        "sketch-pattern-field",
+        field.key(),
+        field.direction().map(Direction::index),
+    ))
 }
 
 pub fn close_label(kind: PatternKind) -> String {
@@ -65,10 +71,9 @@ pub fn show(
 ) -> Vec<Action> {
     let mut actions = Vec::new();
     let kind = patterning.kind();
-    let lines = patterning.directions();
-    let evaluation = settings.evaluate(context.model, kind, lines);
-    let rows = settings.shows_rows(context.model);
-    let fields = settings.shown_fields(context.model, kind, lines);
+    let lines = patterning.directions().to_vec();
+    let evaluation = settings.evaluate(context.model, kind, &lines);
+    let fields = settings.shown_fields(kind, &lines);
     let centre = patterning.chosen_centre();
     let ready = evaluation.spec.is_ok()
         && patterning.repeated() > 0
@@ -113,23 +118,23 @@ pub fn show(
                                 fields: &fields,
                                 evaluation: &evaluation,
                             };
-                            let first = [PatternField::Count, PatternField::Spacing];
-                            direction_rows(
-                                ui,
-                                &shown,
-                                (settings, patterning),
-                                Direction::First,
-                                &first,
-                            );
-                            field_rows(ui, &shown, settings, &[PatternField::Rows]);
-                            if rows {
-                                direction_rows(
-                                    ui,
-                                    &shown,
-                                    (settings, patterning),
-                                    Direction::Second,
-                                    &[PatternField::RowSpacing],
-                                );
+                            let mut removed = None;
+                            for direction in settings.directions() {
+                                if direction_rows(ui, &shown, (settings, patterning), direction) {
+                                    removed = Some(direction);
+                                }
+                            }
+                            if let Some(direction) = removed {
+                                settings.remove_direction(direction);
+                                patterning.remove_direction(direction);
+                            }
+                            let add = widgets::property(ui, "", |ui| {
+                                ui.add(widgets::button(ADD_DIRECTION))
+                                    .on_hover_text(ADD_DIRECTION_ABOUT)
+                                    .clicked()
+                            });
+                            if add {
+                                settings.add_direction();
                             }
                         }
                         PatternKind::Circular => {
@@ -234,16 +239,22 @@ fn direction_rows(
     shown: &Shown<'_>,
     (settings, patterning): (&mut PatternSettings, &mut Patterning),
     direction: Direction,
-    leading: &[PatternField],
-) {
-    field_rows(ui, shown, settings, leading);
-    let line = patterning
-        .directions()
-        .get(direction.index())
-        .copied()
-        .flatten();
+) -> bool {
+    let removed = widgets::property(ui, &direction.title(), |ui| {
+        direction != Direction::FIRST && ui.add(widgets::button(direction.remove_label())).clicked()
+    });
+    field_rows(
+        ui,
+        shown,
+        settings,
+        &[
+            PatternField::Count(direction),
+            PatternField::Spacing(direction),
+        ],
+    );
+    let line = patterning.line_of(direction);
     let picking = patterning.picking() == Some(direction);
-    let asked = widgets::property(ui, direction.label(), |ui| {
+    let asked = widgets::property(ui, RUNS_ALONG, |ui| {
         ui.vertical(|ui| {
             let named = line
                 .zip(shown.sketch)
@@ -276,9 +287,9 @@ fn direction_rows(
         Some(DirectionAsk::Angle) => patterning.use_angle(direction),
         None => {}
     }
-    field_rows(ui, shown, settings, &[direction.angle_field()]);
+    field_rows(ui, shown, settings, &[PatternField::Angle(direction)]);
     let current = settings.sides(direction);
-    let sides = widgets::property(ui, direction.sides_label(), |ui| {
+    let sides = widgets::property(ui, SIDES_CAPTION, |ui| {
         let choices = SIDES.map(|(_, label, hover)| (label, hover));
         let index = SIDES
             .iter()
@@ -293,10 +304,11 @@ fn direction_rows(
     let reversed = settings.reversed(direction);
     if current == Sides::One
         && let Some(flipped) =
-            crate::feature_fields::reverse_row(ui, direction.flip_label(), reversed)
+            crate::feature_fields::reverse_row(ui, &direction.flip_label(), reversed)
     {
         settings.set_reversed(direction, flipped);
     }
+    removed
 }
 
 enum DirectionAsk {

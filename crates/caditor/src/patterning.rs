@@ -42,8 +42,7 @@ pub const CIRCULAR_KEYS: &str =
 pub const CENTRE_KEYS: &str =
     "Click a point, or Highlight the next item in the view and press Space   Esc: back to Select";
 pub const GATHERED_CENTRE_KEYS: &str = "Click a point, or Highlight the next item in the view and press Space   Esc: change what is repeated";
-pub const DIRECTION_PROMPT: &str = "Click the line or axis the copies run along";
-pub const ROW_DIRECTION_PROMPT: &str = "Click the line or axis the rows step along";
+pub const DIRECTION_PROMPT: &str = "Click the line or axis this direction runs along";
 pub const DIRECTION_KEYS: &str =
     "Click a line, or Highlight the next item in the view and press Space   Esc: stop choosing";
 const CENTRE_FIRST: &str = "click the point to repeat the selection about first";
@@ -52,7 +51,6 @@ const QUARTER_TURN_DEGREES: f64 = 90.0;
 const FULL_TURN_DEGREES: f64 = 360.0;
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
 const FULL_TURN_TOLERANCE: f64 = 1e-9;
-const SINGLE_ROW: usize = 1;
 const COUNT: Expected = Expected {
     dimension: Some(Dimension::NONE),
     non_negative: false,
@@ -124,76 +122,57 @@ impl PatternKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction {
-    First,
-    Second,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Direction(pub usize);
 
 impl Direction {
+    pub const FIRST: Self = Self(0);
+
     pub fn index(self) -> usize {
-        match self {
-            Self::First => 0,
-            Self::Second => 1,
-        }
+        self.0
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::First => "Direction",
-            Self::Second => "Row direction",
-        }
+    fn number(self) -> usize {
+        self.0.saturating_add(1)
     }
 
-    pub fn sides_label(self) -> &'static str {
-        match self {
-            Self::First => "Sides",
-            Self::Second => "Row sides",
-        }
+    pub fn title(self) -> String {
+        format!("Direction {}", self.number())
     }
 
-    pub fn flip_label(self) -> &'static str {
-        match self {
-            Self::First => "Flip the direction",
-            Self::Second => "Flip the row direction",
-        }
+    pub fn choose_label(self) -> String {
+        format!("Choose a line for direction {}", self.number())
     }
 
-    pub fn choose_label(self) -> &'static str {
-        match self {
-            Self::First => "Choose a line in the view",
-            Self::Second => "Choose a line for the rows",
-        }
+    pub fn angle_label(self) -> String {
+        format!("Use an angle for direction {}", self.number())
     }
 
-    pub fn angle_label(self) -> &'static str {
-        match self {
-            Self::First => "Use an angle instead",
-            Self::Second => "Use a row angle instead",
-        }
+    pub fn flip_label(self) -> String {
+        format!("Flip direction {}", self.number())
     }
 
-    pub fn angle_field(self) -> PatternField {
-        match self {
-            Self::First => PatternField::Angle,
-            Self::Second => PatternField::RowAngle,
-        }
+    pub fn remove_label(self) -> String {
+        format!("Remove direction {}", self.number())
     }
 
-    fn prompt(self) -> &'static str {
-        match self {
-            Self::First => DIRECTION_PROMPT,
-            Self::Second => ROW_DIRECTION_PROMPT,
-        }
+    fn runs(self) -> String {
+        format!("Run direction {} along", self.number())
     }
 
-    fn runs(self) -> &'static str {
-        match self {
-            Self::First => "Run the copies along",
-            Self::Second => "Step the rows along",
+    fn of(self) -> String {
+        match self.0 {
+            0 => String::new(),
+            _ => format!(" of direction {}", self.number()),
         }
     }
 }
+
+pub const ADD_DIRECTION: &str = "Add a direction";
+pub const ADD_DIRECTION_ABOUT: &str =
+    "Repeat everything so far along one more direction, every combination of steps a copy";
+pub const RUNS_ALONG: &str = "Runs along";
+pub const SIDES_CAPTION: &str = "Sides";
 
 pub const SIDES: [(Sides, &str, &str); 2] = [
     (
@@ -264,8 +243,7 @@ pub struct Wording {
 impl Wording {
     pub fn caption(self, field: PatternField) -> &'static str {
         match (field, self.distribution, self.turn) {
-            (PatternField::Spacing, Distribution::Extent, _) => "Extent",
-            (PatternField::RowSpacing, Distribution::Extent, _) => "Row extent",
+            (PatternField::Spacing(_), Distribution::Extent, _) => "Extent",
             (PatternField::TotalAngle, _, TurnKind::Symmetric) => "Angle each way",
             _ => field.label(),
         }
@@ -273,11 +251,8 @@ impl Wording {
 
     pub fn about(self, field: PatternField) -> &'static str {
         match (field, self.distribution, self.turn) {
-            (PatternField::Spacing, Distribution::Extent, _) => {
-                "How far from the original the last copy along the row is"
-            }
-            (PatternField::RowSpacing, Distribution::Extent, _) => {
-                "How far from the original's row the last row is"
+            (PatternField::Spacing(_), Distribution::Extent, _) => {
+                "How far from the original the last copy along this direction is"
             }
             (PatternField::TotalAngle, _, TurnKind::Symmetric) => {
                 "How far each way the last copy turns from the original"
@@ -287,76 +262,64 @@ impl Wording {
     }
 
     fn noun(self, field: PatternField) -> String {
-        self.caption(field).to_lowercase()
+        let of = field.direction().map(Direction::of).unwrap_or_default();
+        format!("{}{of}", self.caption(field).to_lowercase())
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PatternField {
-    Count,
-    Spacing,
-    Angle,
-    Rows,
-    RowSpacing,
-    RowAngle,
+    Count(Direction),
+    Spacing(Direction),
+    Angle(Direction),
     Copies,
     TotalAngle,
 }
 
 impl PatternField {
     pub const CIRCULAR: [Self; 2] = [Self::Copies, Self::TotalAngle];
-    const ALL: [Self; 8] = [
-        Self::Count,
-        Self::Spacing,
-        Self::Angle,
-        Self::Rows,
-        Self::RowSpacing,
-        Self::RowAngle,
-        Self::Copies,
-        Self::TotalAngle,
-    ];
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Count | Self::Copies => "Count",
-            Self::Spacing => "Spacing",
-            Self::Angle => "Angle",
-            Self::Rows => "Rows",
-            Self::RowSpacing => "Row spacing",
-            Self::RowAngle => "Row angle",
+            Self::Count(_) | Self::Copies => "Count",
+            Self::Spacing(_) => "Spacing",
+            Self::Angle(_) => "Angle",
             Self::TotalAngle => "Total angle",
         }
     }
 
     pub fn key(self) -> &'static str {
         match self {
-            Self::Count => "count",
-            Self::Spacing => "spacing",
-            Self::Angle => "angle",
-            Self::Rows => "rows",
-            Self::RowSpacing => "row-spacing",
-            Self::RowAngle => "row-angle",
+            Self::Count(_) => "count",
+            Self::Spacing(_) => "spacing",
+            Self::Angle(_) => "angle",
             Self::Copies => "copies",
             Self::TotalAngle => "total-angle",
         }
     }
 
+    pub fn direction(self) -> Option<Direction> {
+        match self {
+            Self::Count(direction) | Self::Spacing(direction) | Self::Angle(direction) => {
+                Some(direction)
+            }
+            Self::Copies | Self::TotalAngle => None,
+        }
+    }
+
     pub fn about(self) -> &'static str {
         match self {
-            Self::Count => {
-                "How many along the row, the original included; on each side when both sides \
-                 are chosen"
+            Self::Count(_) => {
+                "How many along this direction, the original included; on each side when both \
+                 sides are chosen"
             }
-            Self::Spacing => "How far apart the copies along the row are",
-            Self::Angle => "Which way the row runs, from the sketch's horizontal axis",
-            Self::Rows => {
-                "How many rows, the original's included; 1 makes a single row; on each side when \
-                 both sides are chosen"
+            Self::Spacing(_) => "How far apart the copies along this direction are",
+            Self::Angle(Direction(0)) => {
+                "Which way the copies run, from the sketch's horizontal axis"
             }
-            Self::RowSpacing => "How far apart the rows are",
-            Self::RowAngle => {
-                "Which way the rows step, from the sketch's horizontal axis; left empty, square \
-                 to the row"
+            Self::Angle(_) => {
+                "Which way this direction runs, from the sketch's horizontal axis; left empty, \
+                 square to direction 1"
             }
             Self::Copies => {
                 "How many, the original included; on each side when the copies turn both ways"
@@ -367,42 +330,44 @@ impl PatternField {
 
     pub fn expected(self) -> Expected {
         match self {
-            Self::Count | Self::Rows | Self::Copies => COUNT,
-            Self::Spacing | Self::RowSpacing => SPACING,
-            Self::Angle | Self::RowAngle | Self::TotalAngle => ANGLE,
+            Self::Count(_) | Self::Copies => COUNT,
+            Self::Spacing(_) => SPACING,
+            Self::Angle(_) | Self::TotalAngle => ANGLE,
         }
     }
 
     pub fn placeholder(self) -> &'static str {
         match self {
-            Self::RowAngle => "Square to the row",
-            Self::Count
-            | Self::Spacing
-            | Self::Angle
-            | Self::Rows
-            | Self::RowSpacing
-            | Self::Copies
-            | Self::TotalAngle => "",
+            Self::Angle(Direction(0)) => "",
+            Self::Angle(_) => "Square to direction 1",
+            Self::Count(_) | Self::Spacing(_) | Self::Copies | Self::TotalAngle => "",
         }
     }
+}
 
-    fn initial(self) -> &'static str {
-        match self {
-            Self::Count => "3",
-            Self::Spacing | Self::RowSpacing => "10 mm",
-            Self::Angle => "0°",
-            Self::Rows => "1",
-            Self::RowAngle => "",
-            Self::Copies => "6",
-            Self::TotalAngle => "90°",
+#[derive(Debug, Clone, PartialEq)]
+struct DirectionSettings {
+    count: String,
+    spacing: String,
+    angle: String,
+    sides: Sides,
+    reversed: bool,
+}
+
+impl DirectionSettings {
+    fn initial(direction: Direction) -> Self {
+        let (count, angle) = match direction.index() {
+            0 => ("3", "0°"),
+            1 => ("2", ""),
+            _ => ("2", "45°"),
+        };
+        Self {
+            count: count.to_owned(),
+            spacing: "10 mm".to_owned(),
+            angle: angle.to_owned(),
+            sides: Sides::One,
+            reversed: false,
         }
-    }
-
-    fn index(self) -> usize {
-        Self::ALL
-            .iter()
-            .position(|field| *field == self)
-            .unwrap_or_default()
     }
 }
 
@@ -423,10 +388,10 @@ pub struct PatternEvaluation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PatternSettings {
-    texts: [String; 8],
+    directions: Vec<DirectionSettings>,
+    copies: String,
+    total_angle: String,
     distribution: Distribution,
-    sides: [Sides; 2],
-    reversed: [bool; 2],
     turn: TurnKind,
     evaluated: Option<Spec>,
 }
@@ -434,10 +399,10 @@ pub struct PatternSettings {
 impl Default for PatternSettings {
     fn default() -> Self {
         Self {
-            texts: PatternField::ALL.map(|field| field.initial().to_owned()),
+            directions: vec![DirectionSettings::initial(Direction::FIRST)],
+            copies: "6".to_owned(),
+            total_angle: "90°".to_owned(),
             distribution: Distribution::Spacing,
-            sides: [Sides::One; 2],
-            reversed: [false; 2],
             turn: TurnKind::FullTurn,
             evaluated: None,
         }
@@ -460,29 +425,44 @@ impl PatternSettings {
         self.distribution = distribution;
     }
 
+    pub fn directions(&self) -> impl Iterator<Item = Direction> + use<> {
+        (0..self.directions.len()).map(Direction)
+    }
+
+    pub fn add_direction(&mut self) -> Direction {
+        let added = Direction(self.directions.len());
+        self.directions.push(DirectionSettings::initial(added));
+        added
+    }
+
+    pub fn remove_direction(&mut self, direction: Direction) {
+        if direction != Direction::FIRST && direction.index() < self.directions.len() {
+            self.directions.remove(direction.index());
+        }
+    }
+
     pub fn sides(&self, direction: Direction) -> Sides {
-        self.sides
+        self.directions
             .get(direction.index())
-            .copied()
+            .map(|kept| kept.sides)
             .unwrap_or_default()
     }
 
     pub fn set_sides(&mut self, direction: Direction, sides: Sides) {
-        if let Some(kept) = self.sides.get_mut(direction.index()) {
-            *kept = sides;
+        if let Some(kept) = self.directions.get_mut(direction.index()) {
+            kept.sides = sides;
         }
     }
 
     pub fn reversed(&self, direction: Direction) -> bool {
-        self.reversed
+        self.directions
             .get(direction.index())
-            .copied()
-            .unwrap_or_default()
+            .is_some_and(|kept| kept.reversed)
     }
 
     pub fn set_reversed(&mut self, direction: Direction, reversed: bool) {
-        if let Some(kept) = self.reversed.get_mut(direction.index()) {
-            *kept = reversed;
+        if let Some(kept) = self.directions.get_mut(direction.index()) {
+            kept.reversed = reversed;
         }
     }
 
@@ -494,28 +474,34 @@ impl PatternSettings {
         self.turn = turn;
     }
 
-    pub fn text(&self, field: PatternField) -> &str {
-        self.texts.get(field.index()).map_or("", String::as_str)
-    }
-
     pub fn text_mut(&mut self, field: PatternField) -> Option<&mut String> {
-        self.texts.get_mut(field.index())
+        match field {
+            PatternField::Copies => Some(&mut self.copies),
+            PatternField::TotalAngle => Some(&mut self.total_angle),
+            PatternField::Count(direction) => self
+                .directions
+                .get_mut(direction.index())
+                .map(|kept| &mut kept.count),
+            PatternField::Spacing(direction) => self
+                .directions
+                .get_mut(direction.index())
+                .map(|kept| &mut kept.spacing),
+            PatternField::Angle(direction) => self
+                .directions
+                .get_mut(direction.index())
+                .map(|kept| &mut kept.angle),
+        }
     }
 
     pub fn spec(&self, kind: PatternKind) -> Option<&Spec> {
         self.evaluated.as_ref().filter(|spec| spec.kind() == kind)
     }
 
-    pub fn shows_rows(&self, model: &Model) -> bool {
-        whole_count(model, self.text(PatternField::Rows), "rows")
-            .is_ok_and(|rows| rows != SINGLE_ROW)
-    }
-
     pub fn evaluate(
         &mut self,
         model: &Model,
         kind: PatternKind,
-        lines: [Option<EntityId>; 2],
+        lines: &[Option<EntityId>],
     ) -> PatternEvaluation {
         let mut problems = Vec::new();
         let spec = match kind {
@@ -531,7 +517,7 @@ impl PatternSettings {
             }),
             (None, None) => Err(SpecProblem::MendFirst {
                 field: match kind {
-                    PatternKind::Rectangular => PatternField::Count,
+                    PatternKind::Rectangular => PatternField::Count(Direction::FIRST),
                     PatternKind::Circular => PatternField::Copies,
                 },
                 wording,
@@ -541,34 +527,23 @@ impl PatternSettings {
         PatternEvaluation { problems, spec }
     }
 
-    pub fn shown_fields(
-        &self,
-        model: &Model,
-        kind: PatternKind,
-        lines: [Option<EntityId>; 2],
-    ) -> Vec<PatternField> {
-        let typed_angle = |direction: Direction| {
-            lines
-                .get(direction.index())
-                .is_none_or(Option::is_none)
-                .then_some(direction.angle_field())
-        };
+    pub fn shown_fields(&self, kind: PatternKind, lines: &[Option<EntityId>]) -> Vec<PatternField> {
         match kind {
-            PatternKind::Rectangular => {
-                let mut fields = vec![PatternField::Count, PatternField::Spacing];
-                fields.extend(typed_angle(Direction::First));
-                fields.push(PatternField::Rows);
-                if self.shows_rows(model) {
-                    fields.push(PatternField::RowSpacing);
-                    fields.extend(typed_angle(Direction::Second));
-                }
-                fields
-            }
+            PatternKind::Rectangular => self
+                .directions()
+                .flat_map(|direction| {
+                    let along_line = lines.get(direction.index()).copied().flatten().is_some();
+                    [
+                        Some(PatternField::Count(direction)),
+                        Some(PatternField::Spacing(direction)),
+                        (!along_line).then_some(PatternField::Angle(direction)),
+                    ]
+                })
+                .flatten()
+                .collect(),
             PatternKind::Circular => match self.turn {
                 TurnKind::FullTurn => vec![PatternField::Copies],
-                TurnKind::Angle | TurnKind::Symmetric => {
-                    vec![PatternField::Copies, PatternField::TotalAngle]
-                }
+                TurnKind::Angle | TurnKind::Symmetric => PatternField::CIRCULAR.to_vec(),
             },
         }
     }
@@ -576,96 +551,73 @@ impl PatternSettings {
     fn rectangular(
         &self,
         model: &Model,
-        lines: [Option<EntityId>; 2],
+        lines: &[Option<EntityId>],
         problems: &mut Vec<(PatternField, PatternTextError)>,
     ) -> Option<Spec> {
         let wording = self.wording();
-        let count = noted(
-            problems,
-            PatternField::Count,
-            whole_count(model, self.text(PatternField::Count), "count"),
-        );
-        let spacing = noted(
-            problems,
-            PatternField::Spacing,
-            quantity(
-                model,
-                self.text(PatternField::Spacing),
-                SPACING,
-                &wording.noun(PatternField::Spacing),
-            ),
-        );
-        let heading = match lines[0] {
-            Some(line) => Some(Heading::Along {
-                line,
-                square: false,
-            }),
-            None => noted(
+        let mut first_heading: Option<Heading> = None;
+        let mut rows = Vec::with_capacity(self.directions.len());
+        for (index, kept) in self.directions.iter().enumerate() {
+            let direction = Direction(index);
+            let count = noted(
                 problems,
-                PatternField::Angle,
-                degrees(model, self.text(PatternField::Angle)),
-            )
-            .map(Heading::Angle),
-        };
-        let rows = noted(
-            problems,
-            PatternField::Rows,
-            whole_count(model, self.text(PatternField::Rows), "rows"),
-        );
-        let second = match rows {
-            Some(SINGLE_ROW) => Some(None),
-            Some(rows) => {
-                let spacing = noted(
+                PatternField::Count(direction),
+                whole_count(model, &kept.count, &format!("count{}", direction.of())),
+            );
+            let spacing = noted(
+                problems,
+                PatternField::Spacing(direction),
+                quantity(
+                    model,
+                    &kept.spacing,
+                    SPACING,
+                    &wording.noun(PatternField::Spacing(direction)),
+                ),
+            );
+            let line = lines.get(index).copied().flatten();
+            let heading = match (line, kept.angle.trim().is_empty(), &first_heading, index) {
+                (Some(line), ..) => Some(Heading::Along {
+                    line,
+                    square: false,
+                }),
+                (None, true, Some(Heading::Angle(first)), 1..) => {
+                    Some(Heading::Angle(square_to(first)))
+                }
+                (None, true, Some(Heading::Along { line, .. }), 1..) => Some(Heading::Along {
+                    line: *line,
+                    square: true,
+                }),
+                (None, true, None, 1..) => None,
+                (None, ..) => noted(
                     problems,
-                    PatternField::RowSpacing,
-                    quantity(
+                    PatternField::Angle(direction),
+                    named_degrees(
                         model,
-                        self.text(PatternField::RowSpacing),
-                        SPACING,
-                        &wording.noun(PatternField::RowSpacing),
+                        &kept.angle,
+                        &wording.noun(PatternField::Angle(direction)),
                     ),
-                );
-                let typed = self.text(PatternField::RowAngle);
-                let across = match (lines[1], typed.trim().is_empty(), &heading) {
-                    (Some(line), _, _) => Some(Heading::Along {
-                        line,
-                        square: false,
-                    }),
-                    (None, true, Some(Heading::Angle(first))) => {
-                        Some(Heading::Angle(square_to(first)))
-                    }
-                    (None, true, Some(Heading::Along { line, .. })) => Some(Heading::Along {
-                        line: *line,
-                        square: true,
-                    }),
-                    (None, true, None) => None,
-                    (None, false, _) => {
-                        noted(problems, PatternField::RowAngle, degrees(model, typed))
-                            .map(Heading::Angle)
-                    }
-                };
-                spacing.zip(across).map(|(distance, heading)| {
-                    Some(PatternRow {
-                        count: rows,
+                )
+                .map(Heading::Angle),
+            };
+            if index == 0 {
+                first_heading.clone_from(&heading);
+            }
+            rows.push(
+                count
+                    .zip(spacing)
+                    .zip(heading)
+                    .map(|((count, distance), heading)| PatternRow {
+                        count,
                         distance,
                         heading,
-                        reversed: self.reversed(Direction::Second),
-                        sides: self.sides(Direction::Second),
-                    })
-                })
-            }
-            None => None,
-        };
-        let first = PatternRow {
-            count: count?,
-            distance: spacing?,
-            heading: heading?,
-            reversed: self.reversed(Direction::First),
-            sides: self.sides(Direction::First),
-        };
+                        reversed: kept.reversed,
+                        sides: kept.sides,
+                    }),
+            );
+        }
+        let directions = rows.into_iter().collect::<Option<Vec<PatternRow>>>()?;
         Some(Spec::Rectangular(RectangularPattern {
-            first,
-            second: second?,
+            directions,
             distribution: self.distribution,
         }))
     }
@@ -678,7 +630,7 @@ impl PatternSettings {
         let count = noted(
             problems,
             PatternField::Copies,
-            whole_count(model, self.text(PatternField::Copies), "count"),
+            whole_count(model, &self.copies, "count"),
         );
         let spread = match self.turn {
             TurnKind::FullTurn => Some(Spread::FullTurn),
@@ -686,7 +638,7 @@ impl PatternSettings {
                 let angle = noted(
                     problems,
                     PatternField::TotalAngle,
-                    degrees(model, self.text(PatternField::TotalAngle)),
+                    degrees(model, &self.total_angle),
                 );
                 angle.map(|angle| {
                     let full = (angle.value.abs() - FULL_TURN_DEGREES).abs() <= FULL_TURN_TOLERANCE;
@@ -737,7 +689,7 @@ pub struct Patterning {
     chosen: Option<EntityId>,
     hover: Option<EntityId>,
     highlight: Option<EntityId>,
-    directions: [Option<EntityId>; 2],
+    directions: Vec<Option<EntityId>>,
     picking: Option<Direction>,
     spec: Option<Spec>,
     image: Option<Result<PatternImage, PatternError>>,
@@ -754,15 +706,33 @@ impl Patterning {
             chosen: None,
             hover: None,
             highlight: None,
-            directions: [None; 2],
+            directions: Vec::new(),
             picking: None,
             spec: None,
             image: None,
         }
     }
 
-    pub fn directions(&self) -> [Option<EntityId>; 2] {
-        self.directions
+    pub fn directions(&self) -> &[Option<EntityId>] {
+        &self.directions
+    }
+
+    pub fn line_of(&self, direction: Direction) -> Option<EntityId> {
+        self.directions.get(direction.index()).copied().flatten()
+    }
+
+    pub fn remove_direction(&mut self, direction: Direction) {
+        if direction == Direction::FIRST {
+            return;
+        }
+        if direction.index() < self.directions.len() {
+            self.directions.remove(direction.index());
+        }
+        self.picking = match self.picking {
+            Some(picking) if picking == direction => None,
+            Some(picking) if picking > direction => Some(Direction(picking.index() - 1)),
+            other => other,
+        };
     }
 
     pub fn picking(&self) -> Option<Direction> {
@@ -791,10 +761,13 @@ impl Patterning {
     }
 
     fn choose_line(&mut self, line: EntityId) {
-        if let Some(direction) = self.picking.take()
-            && let Some(kept) = self.directions.get_mut(direction.index())
-        {
-            *kept = Some(line);
+        if let Some(direction) = self.picking.take() {
+            if self.directions.len() <= direction.index() {
+                self.directions.resize(direction.index() + 1, None);
+            }
+            if let Some(kept) = self.directions.get_mut(direction.index()) {
+                *kept = Some(line);
+            }
         }
         self.highlight = None;
         self.hover = None;
@@ -930,7 +903,7 @@ impl Patterning {
                 .highlight
                 .or(self.hover)
                 .into_iter()
-                .chain(self.directions.into_iter().flatten())
+                .chain(self.directions.iter().copied().flatten())
                 .collect(),
             None => self.centre().into_iter().collect::<Vec<_>>(),
         };
@@ -943,7 +916,7 @@ impl Patterning {
         if let Some(direction) = self.picking {
             return Some(match self.highlight.or(self.hover) {
                 Some(line) => format!("{} {}", direction.runs(), sketch.entity_label(line)),
-                None => capitalized(direction.prompt()),
+                None => DIRECTION_PROMPT.to_owned(),
             });
         }
         let centre = self.centre();
@@ -967,9 +940,9 @@ impl Patterning {
     }
 
     pub fn prompt(&self) -> Prompt {
-        if let Some(direction) = self.picking {
+        if self.picking.is_some() {
             return Prompt {
-                text: direction.prompt(),
+                text: DIRECTION_PROMPT,
                 hint: Hint::Keys(DIRECTION_KEYS),
             };
         }
@@ -1211,7 +1184,11 @@ fn whole_count(model: &Model, text: &str, label: &str) -> Result<usize, PatternT
 }
 
 pub(crate) fn degrees(model: &Model, text: &str) -> Result<Dimensioned, PatternTextError> {
-    let angle = quantity(model, text, ANGLE, "angle")?;
+    named_degrees(model, text, "angle")
+}
+
+fn named_degrees(model: &Model, text: &str, label: &str) -> Result<Dimensioned, PatternTextError> {
+    let angle = quantity(model, text, ANGLE, label)?;
     let plain = model
         .parameters()
         .evaluate_expression(&angle.expression)

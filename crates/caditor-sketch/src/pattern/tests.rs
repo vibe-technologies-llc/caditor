@@ -56,8 +56,7 @@ fn across(count: usize, spacing: f64) -> RectangularPattern {
 
 fn grid(first: PatternRow, second: Option<PatternRow>) -> RectangularPattern {
     RectangularPattern {
-        first,
-        second,
+        directions: std::iter::once(first).chain(second).collect(),
         distribution: Distribution::Spacing,
     }
 }
@@ -191,8 +190,7 @@ fn a_grid_repeats_along_a_second_direction_square_to_the_first() {
     let circle = sketch.add_circle(Point2::new(5.0, 5.0), 2.0);
     sketch.set_construction(circle, true).unwrap();
     let pattern = RectangularPattern {
-        first: row(3, 10.0, 0.0),
-        second: Some(row(2, 12.0, 90.0)),
+        directions: vec![row(3, 10.0, 0.0), row(2, 12.0, 90.0)],
         distribution: Distribution::Spacing,
     };
 
@@ -224,8 +222,7 @@ fn a_slanted_row_and_a_negative_spacing_run_the_way_they_were_asked() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
     let pattern = RectangularPattern {
-        first: row(3, 10.0, 30.0),
-        second: None,
+        directions: vec![row(3, 10.0, 30.0)],
         distribution: Distribution::Spacing,
     };
 
@@ -260,15 +257,14 @@ fn a_spacing_naming_a_parameter_moves_every_copy_when_the_parameter_changes() {
     let mut sketch = Sketch::new(Plane::XY);
     let point = sketch.add_point(Point2::ZERO);
     let pattern = RectangularPattern {
-        first: PatternRow::along(
+        directions: vec![PatternRow::along(
             4,
             Dimensioned {
                 expression: Expression::Parameter(SPACING),
                 value: 10.0,
             },
             degrees(0.0),
-        ),
-        second: None,
+        )],
         distribution: Distribution::Spacing,
     };
 
@@ -483,8 +479,7 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
         Err(PatternError::ZeroSpacing)
     );
     let beside = RectangularPattern {
-        first: row(3, 5.0, 0.0),
-        second: Some(row(2, 5.0, 180.0)),
+        directions: vec![row(3, 5.0, 0.0), row(2, 5.0, 180.0)],
         distribution: Distribution::Spacing,
     };
     assert_eq!(
@@ -492,8 +487,7 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
         Err(PatternError::ParallelDirections)
     );
     let many = RectangularPattern {
-        first: row(20, 5.0, 0.0),
-        second: Some(row(20, 5.0, 90.0)),
+        directions: vec![row(20, 5.0, 0.0), row(20, 5.0, 90.0)],
         distribution: Distribution::Spacing,
     };
     assert_eq!(
@@ -663,8 +657,7 @@ fn a_rectangular_pattern_of_an_arc_adds_no_redundant_tie() {
         });
         assert_repeats_without_redundancy(build, |sketch, arc| {
             let pattern = RectangularPattern {
-                first: row(3, 40.0, 30.0),
-                second: Some(row(2, 25.0, 120.0)),
+                directions: vec![row(3, 40.0, 30.0), row(2, 25.0, 120.0)],
                 distribution: Distribution::Spacing,
             };
             sketch.rectangular_pattern(&[arc], &pattern).unwrap()
@@ -681,8 +674,7 @@ fn a_rectangular_pattern_of_an_elliptical_arc_adds_no_redundant_tie() {
     });
     assert_repeats_without_redundancy(slanted_elliptical_arc, |sketch, arc| {
         let pattern = RectangularPattern {
-            first: row(3, 40.0, 30.0),
-            second: Some(row(2, 25.0, 120.0)),
+            directions: vec![row(3, 40.0, 30.0), row(2, 25.0, 120.0)],
             distribution: Distribution::Spacing,
         };
         sketch.rectangular_pattern(&[arc], &pattern).unwrap()
@@ -975,15 +967,14 @@ fn an_extent_spreads_the_count_from_the_original_to_the_last_copy() {
     let mut sketch = Sketch::new(Plane::XY);
     let point = sketch.add_point(Point2::ZERO);
     let pattern = RectangularPattern {
-        first: PatternRow::along(
+        directions: vec![PatternRow::along(
             5,
             Dimensioned {
                 expression: Expression::Parameter(SPACING),
                 value: 40.0,
             },
             degrees(90.0),
-        ),
-        second: None,
+        )],
         distribution: Distribution::Extent,
     };
 
@@ -1077,4 +1068,91 @@ fn a_direction_that_is_no_line_an_empty_extent_and_a_half_turn_each_way_are_refu
         })
     );
     assert_eq!(sketch, before);
+}
+
+#[test]
+fn three_directions_repeat_every_combination_of_steps_tied_as_a_tree_from_the_original() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let point = sketch.add_point(Point2::new(1.0, 2.0));
+    let free = solve(&sketch).solution.degrees_of_freedom();
+    let leaning = PatternRow::along(
+        2,
+        Dimensioned {
+            expression: Expression::Parameter(SPACING),
+            value: 3.0,
+        },
+        degrees(45.0),
+    );
+    let pattern = RectangularPattern {
+        directions: vec![row(2, 10.0, 0.0), row(2, 7.0, 90.0), leaning],
+        distribution: Distribution::Spacing,
+    };
+
+    let copies = sketch.rectangular_pattern(&[point], &pattern).unwrap();
+    let solved = solve_with(&sketch, 3.0);
+    let wider = solve_with(&sketch, 5.0).geometry;
+    let home = wider.point(point).unwrap();
+    let lean = 5.0 / 2.0_f64.sqrt();
+
+    assert_eq!(copies.len(), 7);
+    assert_eq!(count_of(&sketch, "Horizontal"), 4);
+    assert_eq!(count_of(&sketch, "Vertical"), 2);
+    assert_eq!(count_of(&sketch, "Horizontal distance"), 5);
+    assert_eq!(count_of(&sketch, "Vertical distance"), 3);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), free);
+    for (copy, (x, y)) in copies.iter().zip([
+        (10.0, 0.0),
+        (0.0, 7.0),
+        (10.0, 7.0),
+        (lean, lean),
+        (10.0 + lean, lean),
+        (lean, 7.0 + lean),
+        (10.0 + lean, 7.0 + lean),
+    ]) {
+        assert_near(wider.point(*copy).unwrap(), home + Point2::new(x, y));
+    }
+}
+
+#[test]
+fn directions_along_one_line_reaching_one_place_two_ways_or_none_at_all_are_refused() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let point = sketch.add_point(Point2::ZERO);
+    let before = sketch.clone();
+    let three = |angles: [f64; 3], spacings: [f64; 3]| RectangularPattern {
+        directions: angles
+            .into_iter()
+            .zip(spacings)
+            .map(|(angle, spacing)| row(2, spacing, angle))
+            .collect(),
+        distribution: Distribution::Spacing,
+    };
+    let empty = RectangularPattern {
+        directions: Vec::new(),
+        distribution: Distribution::Spacing,
+    };
+
+    assert_eq!(
+        sketch.rectangular_pattern(&[point], &three([0.0, 90.0, 180.0], [10.0, 10.0, 4.0])),
+        Err(PatternError::ParallelDirections)
+    );
+    assert_eq!(
+        sketch.rectangular_pattern(&[point], &three([0.0, 60.0, 120.0], [10.0; 3])),
+        Err(PatternError::OverlappingCopies)
+    );
+    assert_eq!(
+        sketch.rectangular_pattern(&[point], &three([0.0, 120.0, 240.0], [10.0; 3])),
+        Err(PatternError::OverlappingCopies)
+    );
+    assert_eq!(
+        sketch.rectangular_pattern(&[point], &empty),
+        Err(PatternError::NoDirections)
+    );
+    assert_eq!(sketch, before);
+
+    let copies = sketch
+        .rectangular_pattern(&[point], &three([0.0, 60.0, 120.0], [10.0, 10.0, 7.0]))
+        .unwrap();
+    assert_eq!(copies.len(), 7);
+    assert_clean(&solve(&sketch));
 }

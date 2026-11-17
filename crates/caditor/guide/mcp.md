@@ -43,7 +43,7 @@ first, so two programs never change one model at once.
   [dimensions](dimensions), and later remove them, turn them off or on, or change a dimension's
   value.
 - Change a sketch's geometry with the sketch tools: [trim and extend](trim-and-extend),
-  [offset](offset), [mirror](sketch-mirror), repeat in rows or around a point as the
+  [offset](offset), [mirror](sketch-mirror), repeat along several directions or around a point as the
   [sketch patterns](sketch-patterns) do, round or cut corners with
   [Sketch fillet](sketch-fillet), and move, rotate or scale entities, which the sketch's
   constraints hold as a drag does. It can also [project](project-and-intersect) edges, faces,

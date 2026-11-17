@@ -505,6 +505,101 @@ fn mirroring_and_patterns_copy_the_selection_with_expressions() {
 }
 
 #[test]
+fn a_rectangular_pattern_runs_along_any_number_of_directions() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let sketch = new_sketch(&mut client);
+    let circle = draw(
+        &mut client,
+        &sketch,
+        json!([{ "kind": "circle", "center": [10, 10], "radius": 1 }]),
+    );
+    let circle = circle[0]["id"].clone();
+
+    let stacked = modify(
+        &mut client,
+        &sketch,
+        json!({
+            "operation": "rectangular_pattern", "items": [circle], "count": 2, "spacing": "10 mm",
+            "directions": [
+                { "count": 2, "spacing": "10 mm" },
+                { "count": 2, "spacing": "4 mm", "angle": "45 deg" }
+            ]
+        }),
+    );
+    let after_stack = described(&mut client, &sketch);
+    client.tool("undo", json!({}));
+    let with_rows = modify(
+        &mut client,
+        &sketch,
+        json!({
+            "operation": "rectangular_pattern", "items": [circle], "count": 2, "spacing": "10 mm",
+            "rows": { "count": 2, "spacing": "10 mm" },
+            "directions": [{ "count": 3, "spacing": "4 mm", "angle": "45 deg", "symmetric": true }]
+        }),
+    );
+    let after_rows = of_kind(&described(&mut client, &sketch), "circle").len();
+    let unaimed = refused(
+        &mut client,
+        &sketch,
+        json!({
+            "operation": "rectangular_pattern", "items": [circle], "count": 2, "spacing": "10 mm",
+            "directions": [
+                { "count": 2, "spacing": "10 mm", "angle": "90 deg" },
+                { "count": 2, "spacing": "5 mm" }
+            ]
+        }),
+    );
+    let parallel = refused(
+        &mut client,
+        &sketch,
+        json!({
+            "operation": "rectangular_pattern", "items": [circle], "count": 2, "spacing": "10 mm",
+            "rows": { "count": 2, "spacing": "10 mm" },
+            "directions": [{ "count": 2, "spacing": "3 mm", "along": "horizontal_axis" }]
+        }),
+    );
+    let two_routes = refused(
+        &mut client,
+        &sketch,
+        json!({
+            "operation": "rectangular_pattern", "items": [circle], "count": 2, "spacing": "10 mm",
+            "directions": [
+                { "count": 2, "spacing": "10 mm", "angle": "60 deg" },
+                { "count": 2, "spacing": "10 mm", "angle": "120 deg" }
+            ]
+        }),
+    );
+    client.finish();
+
+    assert_eq!(stacked["change"], "Pattern geometry");
+    let circles = of_kind(&after_stack, "circle");
+    assert_eq!(circles.len(), 8);
+    let lean = 4.0 / 2.0_f64.sqrt();
+    for wanted in [[20.0, 10.0], [10.0, 20.0], [20.0 + lean, 20.0 + lean]] {
+        assert!(
+            circles
+                .iter()
+                .any(|circle| near([number(&circle["at"][0]), number(&circle["at"][1])], wanted)),
+            "{wanted:?} in {after_stack}"
+        );
+    }
+    assert_eq!(with_rows["change"], "Pattern geometry");
+    assert_eq!(after_rows, 20);
+    assert!(
+        unaimed
+            .to_lowercase()
+            .contains("direction 3 of the pattern needs an angle"),
+        "{unaimed}"
+    );
+    assert!(
+        parallel.contains("directions run along one line"),
+        "{parallel}"
+    );
+    assert!(two_routes.contains("two routes"), "{two_routes}");
+}
+
+#[test]
 fn filleting_and_chamfering_round_and_cut_corners() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);

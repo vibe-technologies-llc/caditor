@@ -37,8 +37,14 @@ pub enum PatternError {
     ZeroExtent,
     #[error("a value is too large to use")]
     NotFinite,
-    #[error("the two directions run along one line, so their copies would overlap")]
+    #[error("two of the directions run along one line, so their copies would overlap")]
     ParallelDirections,
+    #[error("a pattern needs at least one direction")]
+    NoDirections,
+    #[error(
+        "two copies would land on each other: the directions and spacings reach one place by two routes"
+    )]
+    OverlappingCopies,
     #[error("{label} is not a point, so nothing can be patterned about it")]
     NotAPoint { entity: EntityId, label: String },
     #[error("{label} is not a line, so it gives the pattern no direction")]
@@ -140,15 +146,16 @@ impl PatternRow {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RectangularPattern {
-    pub first: PatternRow,
-    pub second: Option<PatternRow>,
+    pub directions: Vec<PatternRow>,
     pub distribution: Distribution,
 }
 
 impl RectangularPattern {
     pub fn instances(&self) -> usize {
-        let rows = self.second.as_ref().map_or(1, PatternRow::instances);
-        self.first.instances().saturating_mul(rows)
+        self.directions
+            .iter()
+            .map(PatternRow::instances)
+            .fold(1, usize::saturating_mul)
     }
 }
 
@@ -342,12 +349,12 @@ impl Sketch {
         pattern: &RectangularPattern,
     ) -> Result<Plan, PatternError> {
         let chosen = self.pattern_items(items, None)?;
-        let first = self.pattern_course(&pattern.first, pattern.distribution)?;
-        let second = match &pattern.second {
-            Some(row) => Some((row, self.pattern_course(row, pattern.distribution)?)),
-            None => None,
-        };
-        let instances = rectangular_instances(pattern, &first, second.as_ref())?;
+        let courses = pattern
+            .directions
+            .iter()
+            .map(|row| self.pattern_course(row, pattern.distribution))
+            .collect::<Result<Vec<Course>, PatternError>>()?;
+        let instances = rectangular_instances(pattern, &courses)?;
         let plan = Plan {
             points: self.points_of(&chosen.curves, &chosen.lone),
             curves: chosen.curves,
@@ -799,9 +806,11 @@ fn counted(count: usize) -> Result<(), PatternError> {
 
 fn rectangular_instances(
     pattern: &RectangularPattern,
-    first: &Course,
-    second: Option<&(&PatternRow, Course)>,
+    courses: &[Course],
 ) -> Result<Vec<Instance>, PatternError> {
+    if courses.is_empty() {
+        return Err(PatternError::NoDirections);
+    }
     let total = pattern.instances();
     if total > MAX_PATTERN_INSTANCES {
         return Err(PatternError::TooManyInstances {
@@ -809,38 +818,76 @@ fn rectangular_instances(
             most: MAX_PATTERN_INSTANCES,
         });
     }
-    if let Some((_, across)) = second
-        && first
-            .vector
-            .normalize_or_zero()
-            .perp_dot(across.vector.normalize_or_zero())
-            .abs()
-            <= AXIS_TOLERANCE
-    {
-        return Err(PatternError::ParallelDirections);
-    }
-    let rows = second.map_or(0..=0, |(row, _)| row.slots());
-    let slots: Vec<(i64, i64)> = rows
-        .flat_map(|row| pattern.first.slots().map(move |column| (column, row)))
-        .filter(|slot| *slot != (0, 0))
+    let units: Vec<Vector2> = courses
+        .iter()
+        .map(|course| course.vector.normalize_or_zero())
         .collect();
-    let index: BTreeMap<(i64, i64), usize> = slots
+    for (index, unit) in units.iter().enumerate() {
+        if units
+            .iter()
+            .skip(index + 1)
+            .any(|other| unit.perp_dot(*other).abs() <= AXIS_TOLERANCE)
+        {
+            return Err(PatternError::ParallelDirections);
+        }
+    }
+    let slots: Vec<Vec<i64>> = pattern
+        .directions
+        .iter()
+        .fold(vec![Vec::new()], |earlier: Vec<Vec<i64>>, row| {
+            row.slots()
+                .flat_map(|step| {
+                    earlier.iter().map(move |before| {
+                        let mut slot = before.clone();
+                        slot.push(step);
+                        slot
+                    })
+                })
+                .collect()
+        })
+        .into_iter()
+        .filter(|slot| slot.iter().any(|step| *step != 0))
+        .collect();
+    let index: BTreeMap<&[i64], usize> = slots
         .iter()
         .enumerate()
-        .map(|(index, slot)| (*slot, index))
+        .map(|(index, slot)| (slot.as_slice(), index))
         .collect();
-    let across = second.map_or(Vector2::ZERO, |(_, course)| course.vector);
+    let offsets: Vec<Vector2> = slots
+        .iter()
+        .map(|slot| {
+            slot.iter()
+                .zip(courses)
+                .fold(Vector2::ZERO, |sum, (step, course)| {
+                    sum + course.vector * *step as f64
+                })
+        })
+        .collect();
+    let reach = offsets
+        .iter()
+        .map(|offset| offset.length())
+        .fold(1.0, f64::max);
+    for (at, offset) in offsets.iter().enumerate() {
+        let lands_on = |other: &Vector2| offset.distance(*other) <= TOLERANCE * reach;
+        if lands_on(&Vector2::ZERO) || offsets.iter().skip(at + 1).any(lands_on) {
+            return Err(PatternError::OverlappingCopies);
+        }
+    }
     let mut instances = Vec::with_capacity(slots.len());
-    for (column, row) in slots {
-        let motion = Motion::Shift(first.vector * column as f64 + across * row as f64);
-        let (before, course) = match (column, second) {
-            (0, Some((_, course))) => ((0, row - row.signum()), course),
-            (0, None) => continue,
-            _ => ((column - column.signum(), row), first),
+    for (slot, offset) in slots.iter().zip(offsets) {
+        let Some(along) = slot.iter().position(|step| *step != 0) else {
+            continue;
         };
+        let (Some(course), Some(step)) = (courses.get(along), slot.get(along)) else {
+            continue;
+        };
+        let mut before = slot.clone();
+        if let Some(shortened) = before.get_mut(along) {
+            *shortened -= step.signum();
+        }
         instances.push(Instance {
-            motion,
-            from: index.get(&before).copied(),
+            motion: Motion::Shift(offset),
+            from: index.get(before.as_slice()).copied(),
             step: Step::Shift(course.clone()),
         });
     }
