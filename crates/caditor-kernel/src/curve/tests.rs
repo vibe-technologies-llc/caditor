@@ -290,7 +290,12 @@ fn constructors_reject_degenerate_and_non_finite_input() {
         Circle2::new(Point2::ZERO, 1e7),
         Err(GeometryError::BeyondMaximum(1e7))
     );
-    let broken = Plane::new(Point3::new(f64::INFINITY, 0.0, 0.0), Vector3::Z).unwrap();
+
+    let farthest = Plane::new(Point3::new(f64::MAX, 0.0, 0.0), Vector3::Z).unwrap();
+    let overflowing = RigidTransform::translation(Vector3::new(f64::MAX, 0.0, 0.0)).unwrap();
+    let broken = farthest.transformed(&overflowing);
+
+    assert!(!broken.origin().is_finite());
     assert_eq!(Circle::new(broken, 1.0), Err(GeometryError::NonFinite));
 }
 
