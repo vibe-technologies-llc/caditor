@@ -468,8 +468,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   N with its Remove, Count, Spacing, a Runs along row naming the chosen line (else "The angle
   below") with Choose a line and Use an angle for that direction, the Angle field while no line is
   chosen, Sides (`SIDES`: One side or Both sides) and, for one side, a Flip checkbox. Fields carry
-  their direction (`PatternField::Count(Direction)`, its id keyed by both), and their problems
-  name it ("the count of direction 2"). A later direction's angle left empty is square to the
+  their direction (`PatternField::Count(Direction)`, its id keyed by both), as does each Sides
+  control (`push_id` by direction, so the menus it falls back to in a narrow panel never share an
+  id), and their problems name it ("the count of direction 2"). A later direction's angle left empty is square to the
   first (`square_to`), or square to its line (`Heading::Along` with `square`); the second starts
   empty, a third and later at 45° so they are not parallel to it. Sides, flips, the distribution and the circular
   `TurnKind` are kept in `PatternSettings` with the texts; the chosen lines are the tool

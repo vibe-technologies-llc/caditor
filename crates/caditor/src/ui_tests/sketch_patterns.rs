@@ -4,11 +4,12 @@ use caditor_sketch::{EntityId, Sketch};
 use egui::{Key, Modifiers};
 
 use super::{
-    Harness, Wheel, constraints_of_kind, edit_free_sketch, entities_of_kind, entity_pickables,
-    near, run_from_palette,
+    Harness, Wheel, choose, constraints_of_kind, edit_free_sketch, entities_of_kind,
+    entity_pickables, near, run_from_palette,
 };
 use crate::{
     editing::Tool,
+    layout,
     patterning::{self, Direction, PatternField, PatternKind, TurnKind},
     sketch_pattern_panel,
 };
@@ -442,6 +443,41 @@ fn both_sides_and_an_extent_spread_the_copies_either_way_of_the_original() {
         assert!(has_centre(sketch, Point2::new(x, 5.0)), "{x}");
     }
     assert!(solves(&harness, feature));
+}
+
+#[test]
+fn each_directions_sides_menu_opens_on_its_own_when_the_panel_is_too_narrow_for_the_segments() {
+    let mut harness = Harness::new();
+    harness
+        .workspace
+        .panels
+        .set_right_width(Some(layout::MIN_RIGHT_WIDTH));
+
+    let (feature, circle, _) = row_fixture(&mut harness);
+    harness.select(entity_pickables(feature, &[circle]));
+    run_from_palette(&mut harness, RECTANGULAR);
+    set(&mut harness, PatternField::Count(Direction::FIRST), "2");
+    set(&mut harness, PatternField::Spacing(Direction::FIRST), "10");
+    add_direction(&mut harness);
+    set(&mut harness, PatternField::Count(SECOND), "2");
+    set(&mut harness, PatternField::Spacing(SECOND), "12");
+    let panel = harness.position_of(&SECOND.title());
+    harness.wheel_until_shown(panel, &SECOND.flip_label(), Wheel::Down);
+
+    assert!(!harness.shows("Both sides"));
+
+    choose(&mut harness, "One side", "Both sides");
+
+    assert!(!harness.shows(&SECOND.flip_label()));
+    assert!(harness.shows("Repeat 1 item 5 more times"));
+
+    make(&mut harness);
+
+    let sketch = harness.sketch(feature);
+    assert_eq!(entities_of_kind(sketch, "Circle").len(), 6);
+    for (x, y) in [(15.0, -7.0), (5.0, 17.0), (15.0, 17.0)] {
+        assert!(has_centre(sketch, Point2::new(x, y)), "{x}, {y}");
+    }
 }
 
 #[test]

@@ -24,7 +24,7 @@ pub const SIDE_WIDTH_STEP: f32 = 24.0;
 pub const MAX_SIDE_WIDTH: f32 = 1_600.0;
 const MAX_PANELS_SHARE: f32 = 0.6;
 const RIGHT_WIDTH: f32 = 320.0;
-const MIN_RIGHT_WIDTH: f32 = 240.0;
+pub const MIN_RIGHT_WIDTH: f32 = 240.0;
 const CAPPED_SLACK: f32 = 1.0;
 const RESIZED_BY: f32 = 0.5;
 

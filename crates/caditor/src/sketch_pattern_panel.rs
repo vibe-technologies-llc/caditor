@@ -290,13 +290,16 @@ fn direction_rows(
     field_rows(ui, shown, settings, &[PatternField::Angle(direction)]);
     let current = settings.sides(direction);
     let sides = widgets::property(ui, SIDES_CAPTION, |ui| {
-        let choices = SIDES.map(|(_, label, hover)| (label, hover));
-        let index = SIDES
-            .iter()
-            .position(|(sides, ..)| *sides == current)
-            .unwrap_or(usize::MAX);
-        widgets::segmented(ui, &choices, index)
-            .and_then(|index| SIDES.get(index).map(|(sides, ..)| *sides))
+        ui.push_id(("pattern-sides", direction), |ui| {
+            let choices = SIDES.map(|(_, label, hover)| (label, hover));
+            let index = SIDES
+                .iter()
+                .position(|(sides, ..)| *sides == current)
+                .unwrap_or(usize::MAX);
+            widgets::segmented(ui, &choices, index)
+                .and_then(|index| SIDES.get(index).map(|(sides, ..)| *sides))
+        })
+        .inner
     });
     if let Some(sides) = sides {
         settings.set_sides(direction, sides);
