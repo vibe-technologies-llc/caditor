@@ -90,6 +90,14 @@ skip = [
         crate = "hashbrown@0.16.1",
         reason = "accesskit and gpu-allocator have not moved to hashbrown 0.17"
     },
+    {
+        crate = "jiff@0.2.46",
+        reason = "env_logger 0.11's humantime timestamps have not moved to jiff 1"
+    },
+    {
+        crate = "jiff-core@0.1.8",
+        reason = "env_logger 0.11's humantime timestamps have not moved to jiff 1"
+    },
     { crate = "linux-raw-sys@0.4.15", reason = "rustix 0.38 under winit's calloop 0.13" },
     { crate = "miniz_oxide@0.8.9", reason = "png 0.18 has not moved to miniz_oxide 0.9" },
     {
@@ -126,19 +134,7 @@ skip = [
         reason = "rustix 0.38 under winit's calloop 0.13, reached through its Windows target table"
     },
     { crate = "vello_common@0.1.0", reason = "egui-phosphor 0.14 is still on egui 0.36" },
-    { crate = "vello_cpu@0.1.0", reason = "egui-phosphor 0.14 is still on egui 0.36" },
-    {
-        crate = "windows-targets@0.52.6",
-        reason = "windows-sys 0.52 and 0.59 under winit and rustix 0.38"
-    },
-    {
-        crate = "windows_x86_64_gnu@0.52.6",
-        reason = "windows-targets 0.52 under winit and rustix 0.38"
-    },
-    {
-        crate = "windows_x86_64_msvc@0.52.6",
-        reason = "windows-targets 0.52 under winit and rustix 0.38"
-    }
+    { crate = "vello_cpu@0.1.0", reason = "egui-phosphor 0.14 is still on egui 0.36" }
 ]
 
 [sources]

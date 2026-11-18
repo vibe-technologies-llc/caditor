@@ -214,7 +214,7 @@ fn absolute(time: SystemTime, zone: &TimeZone) -> Option<String> {
     let timestamp = Timestamp::try_from(time).ok()?;
     Some(
         timestamp
-            .to_zoned(zone.clone())
+            .to_zoned_datetime(zone.clone())
             .strftime("%-d %b %Y at %H:%M")
             .to_string(),
     )

@@ -27,10 +27,9 @@ paths:
   `caditor-wayland` on Unix; `caditor-windows`, `rfd` on Windows). A build dependency stays
   unconditional, since `cfg` there tests the host: `build.rs` checks `CARGO_CFG_TARGET_OS`.
 - `skrifa` (`std` only, through its `raw` re-export of `read-fonts`) reads outlines, the `wght` axis,
-  cap height and GPOS kerning in `caditor-lettering` (SVG text and sketch text); it is the copy
-  epaint builds, so no second font parser
-  is compiled. Its version follows epaint's rather than the latest release (`cargo deny` refuses the
-  second copy a newer one would add). `ttf-parser` is left only through winit's `sctk-adwaita`, which is why `deny.toml`
+  cap height and GPOS kerning in `caditor-lettering` (SVG text and sketch text). It takes the latest
+  release like every other dependency; epaint's glyph stack (`harfrust`) pins an older `skrifa` and
+  `read-fonts`, so `deny.toml` skips that second copy until epaint catches up. `ttf-parser` is left only through winit's `sctk-adwaita`, which is why `deny.toml`
   ignores its unmaintained advisory; nothing of ours uses it.
 - `zvariant`, `zbus_names` and `zvariant_derive` (merged into `zbus` 6) come in only through
   `egui-winit` → `accesskit_unix` 0.24 → `atspi` → `zbus` 5, so `deny.toml` ignores their
