@@ -13,14 +13,16 @@ User experience and never losing the user's work outrank everything else; see
 
 ```sh
 cargo run -p caditor
-cargo nextest run --workspace
+cargo xtask check [--changed] [--windows]
+cargo xtask fmt | lint [--windows] | test [-- <nextest args>] | deny
 cargo nextest run -p <crate> <test_name>
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo xwin clippy --target x86_64-pc-windows-msvc --workspace --all-targets --all-features -- -D warnings
-rust-formatter
-cargo deny check
 packaging/build-release.sh --snapshot
 ```
+
+`cargo xtask check` is the gate before a push: `rust-formatter --check`, clippy, `cargo deny` and
+the tests, each the line CI runs, one line of output per step with the rest kept under
+`target/xtask/` (`-v` streams it). `--changed` narrows lint and test to the packages changed since
+`origin/master` and those depending on them, plus the conventions tests (`xtask.md`).
 
 `rust-formatter` formats `.rs` and `.toml` and replaces `cargo fmt`. `cargo xwin` lints the Windows
 build from Linux; its wine tests cannot rename over an open file (journals rely on it), so Windows
@@ -51,6 +53,7 @@ inside the workspace.
 | `caditor-checks` | Generators and invariant checks shared by `cargo test` and the fuzz targets: random documents, sketches and profiles, soundness of solids, seeded property suites. | document, expression, file, geometry, kernel, sketch, step |
 | `caditor-cloud` | Cloud services behind one `Provider` abstraction (Fusion 360 first): OAuth with PKCE, a rustls transport, project listing and design conversion to STEP. | none |
 | `caditor-notices` | Release tool: writes `THIRD-PARTY-NOTICES.txt` from `cargo metadata` and the font licences. | none |
+| `caditor-xtask` | The check runner behind `cargo xtask`: CI's format, clippy, deny and test lines, narrowed to what changed. | none |
 | `caditor-render` | wgpu viewport, camera, GPU picking, reference pictures, image export; no winit or document dependency. | geometry (windows on Windows) |
 | `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow, Home and the cloud manager; the headless MCP server. | all but step, zstd and notices (checks as a dev-dependency) (wayland on Unix, windows on Windows) |
 
@@ -108,6 +111,7 @@ rule's `paths:` covers, a rules file with nothing under its title and one missin
 | `cloud.md` | Home, the opt-out cloud services and the Fusion 360 import: the `Provider` abstraction, Autodesk sign-in and conversion, the service, the manager. |
 | `checks.md` | The checks crate: seeded property suites, the generators it shares with the fuzz targets, coverage floors. |
 | `notices.md` | The third-party notices file: which crates and fonts it lists, where the texts come from, how packages install it. |
+| `xtask.md` | The check runner (`cargo xtask`): its tasks, kept output, and how `--changed` picks packages. |
 | `mcp.md` | The headless MCP server (`caditor mcp`): JSON-RPC reader, session, tools, references, files and resources. |
 | `render.md` | Frames, devices, graphics settings, precision, depth, picking, navigation. |
 | `app.md`, `app-look.md`, `app-modelling.md`, `app-files.md`, `app-input.md`, `app-sketching.md`, `app-tests.md` | App shell, `Model` and `Action`s, the user guide; theme, widgets, panels, feature tree; modelling tools; file workflow and preferences; input, commands and keymap; sketch editing; the headless UI test harness. |

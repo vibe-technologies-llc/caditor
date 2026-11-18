@@ -4,6 +4,11 @@
     "pr": ""
   },
   "includeCoAuthoredBy": false,
+  "permissions": {
+    "allow": [
+      "Bash(cargo xtask:*)"
+    ]
+  },
   "hooks": {
     "Stop": [
       {

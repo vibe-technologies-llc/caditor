@@ -870,6 +870,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "caditor-xtask"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "caditor-zstd"
 version = "0.1.0"
 dependencies = [
