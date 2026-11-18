@@ -2084,19 +2084,29 @@ pub(crate) enum AfterFailedFrame {
     ResetInterface,
     SuppressFeatures,
     GiveUp,
+    ResetAgain,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct FrameFailures {
     in_a_row: u32,
+    counted_this_frame: bool,
 }
 
 impl FrameFailures {
+    pub(crate) fn frame_started(&mut self) {
+        self.counted_this_frame = false;
+    }
+
     pub(crate) fn drawn(&mut self) {
         self.in_a_row = 0;
     }
 
     fn failed(&mut self) -> AfterFailedFrame {
+        if self.counted_this_frame {
+            return AfterFailedFrame::ResetAgain;
+        }
+        self.counted_this_frame = true;
         self.in_a_row = self.in_a_row.saturating_add(1);
         match self.in_a_row {
             2 => AfterFailedFrame::SuppressFeatures,
@@ -2122,7 +2132,7 @@ pub(crate) fn after_failed_frame(
         AfterFailedFrame::ResetInterface | AfterFailedFrame::SuppressFeatures => {
             model.set_notice(Notice::failure(FRAME_FAILED));
         }
-        AfterFailedFrame::GiveUp => {}
+        AfterFailedFrame::GiveUp | AfterFailedFrame::ResetAgain => {}
     }
     step
 }
@@ -2229,12 +2239,11 @@ impl ApplicationHandler<AppEvent> for App {
         for event in drops {
             self.contained(event_loop, |app| app.handle_window_event(event_loop, event));
         }
-        if let Some(session) = &mut self.session {
-            session.window_export.poll();
-            let now = Instant::now();
-            session.check_pick_fallback(now);
-            session.redraw_when_due(now);
-        }
+        self.contained(event_loop, |app| {
+            if let Some(session) = &mut app.session {
+                session.tend(Instant::now());
+            }
+        });
         let flow = self
             .session
             .as_ref()
@@ -2253,9 +2262,16 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(mut session) = self.session.take() {
-            session.remember_layout(&mut self.files, Instant::now());
-            session.store_layout(&mut self.files);
+        let session = self.session.take();
+        let files = &mut self.files;
+        let closed = panic::catch_unwind(AssertUnwindSafe(move || {
+            if let Some(mut session) = session {
+                session.remember_layout(files, Instant::now());
+                session.store_layout(files);
+            }
+        }));
+        if closed.is_err() {
+            log::error!("closing the window failed; its layout may not be remembered");
         }
     }
 }
@@ -2329,6 +2345,7 @@ impl App {
             }
             WindowEvent::ScaleFactorChanged { .. } => session.note_display(),
             WindowEvent::RedrawRequested => {
+                session.workspace.frame_failures.frame_started();
                 session.redraw(&mut self.model, &mut self.files);
                 session.workspace.frame_failures.drawn();
                 self.startup_check
@@ -2571,12 +2588,40 @@ impl Session {
         proxy: &EventLoopProxy<AppEvent>,
     ) -> AfterFailedFrame {
         log::error!("a frame failed; resetting the interface");
-        self.overlay = Overlay::new(&self.window, &self.renderer);
-        self.overlay
-            .enable_accessibility(event_loop, &self.window, proxy.clone());
+        self.renew_overlay(event_loop, proxy);
         let step = after_failed_frame(&mut self.workspace, model, files);
-        self.next_repaint = Instant::now().checked_add(self.retry_delay());
+        let now = Instant::now();
+        match step {
+            AfterFailedFrame::ResetAgain => {
+                if let Some(at) = now.checked_add(retry_delay(self.failed_frames)) {
+                    self.schedule_redraw(at);
+                }
+            }
+            AfterFailedFrame::ResetInterface
+            | AfterFailedFrame::SuppressFeatures
+            | AfterFailedFrame::GiveUp => {
+                self.next_repaint = now.checked_add(self.retry_delay());
+            }
+        }
         step
+    }
+
+    fn renew_overlay(&mut self, event_loop: &ActiveEventLoop, proxy: &EventLoopProxy<AppEvent>) {
+        let renewed = panic::catch_unwind(AssertUnwindSafe(|| {
+            let mut overlay = Overlay::new(&self.window, &self.renderer);
+            overlay.enable_accessibility(event_loop, &self.window, proxy.clone());
+            overlay
+        }));
+        match renewed {
+            Ok(overlay) => self.overlay = overlay,
+            Err(_) => log::error!("the interface could not be started afresh; keeping the old one"),
+        }
+    }
+
+    fn tend(&mut self, now: Instant) {
+        self.window_export.poll();
+        self.check_pick_fallback(now);
+        self.redraw_when_due(now);
     }
 
     fn note_adapter(&mut self) {
@@ -3019,5 +3064,52 @@ mod tests {
         assert!(delays.windows(2).all(|pair| pair[1] >= pair[0]));
         assert_eq!(delays[9], MAX_RETRY);
         assert_eq!(retry_delay(u32::MAX), MAX_RETRY);
+    }
+
+    #[test]
+    fn failures_caught_within_one_frame_step_the_ladder_once() {
+        let mut failures = FrameFailures::default();
+
+        let first = [failures.failed(), failures.failed(), failures.failed()];
+        failures.frame_started();
+        let second = [failures.failed(), failures.failed()];
+
+        assert_eq!(
+            first,
+            [
+                AfterFailedFrame::ResetInterface,
+                AfterFailedFrame::ResetAgain,
+                AfterFailedFrame::ResetAgain,
+            ]
+        );
+        assert_eq!(
+            second,
+            [
+                AfterFailedFrame::SuppressFeatures,
+                AfterFailedFrame::ResetAgain
+            ]
+        );
+    }
+
+    #[test]
+    fn failed_frames_in_a_row_give_up_and_a_drawn_frame_starts_again() {
+        let mut failures = FrameFailures::default();
+
+        let steps: Vec<AfterFailedFrame> = (0..GIVE_UP_AFTER_FAILED_FRAMES)
+            .map(|_| {
+                failures.frame_started();
+                failures.failed()
+            })
+            .collect();
+        failures.frame_started();
+        failures.drawn();
+        let fresh = failures.failed();
+        let again = failures.failed();
+
+        assert_eq!(steps.first(), Some(&AfterFailedFrame::ResetInterface));
+        assert_eq!(steps.get(1), Some(&AfterFailedFrame::SuppressFeatures));
+        assert_eq!(steps.last(), Some(&AfterFailedFrame::GiveUp));
+        assert_eq!(fresh, AfterFailedFrame::ResetInterface);
+        assert_eq!(again, AfterFailedFrame::ResetAgain);
     }
 }

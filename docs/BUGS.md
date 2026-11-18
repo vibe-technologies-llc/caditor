@@ -271,17 +271,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   3MF thumbnail job and handing back its pixels (`waiting.rendering`, not reset by
   `close_dialogs`) leaves it stuck the same way. Every `Files` job is contained; one helper for the
   thread-and-slot jobs (`export.rs`, `image_export.rs`, `files.rs`) would keep them alike.
-- [low · easy] `about_to_wait`'s session work (`window_export.poll`, `check_pick_fallback`,
-  `redraw_when_due`) and `exiting` run outside `App::contained`, and `Session::recover` can itself
-  panic in `Overlay::new`, so a panic there ends the process instead of skipping the frame
-  (`reliability.md`); the hook still flushes the journal. The containment path is tested only by
-  calling `after_failed_frame` directly (`ui_tests.rs`).
 - [low · small] The Lighting panel's sun turn, sun height and picture turn are egui sliders whose
   number box takes plain numbers (`lighting_panel.rs`), not units (`0.5 rad`) as every numeric
   field should (`ux.md`).
-- [low · small] The failed-frame steps count caught events, not frames (`FrameFailures::failed` per
-  event, reset only after a redraw), so a panic in input handling could reach suppressing every
-  feature, and then exiting, within milliseconds without a redraw between. Unreproduced.
+- [low · small] A screen reader loses the window after a failed frame: `Session::recover` builds a
+  fresh `Overlay`, whose `egui_winit::State` cannot attach AccessKit to a window already shown
+  (`Overlay::enable_accessibility` logs that and returns), and the old adapter goes with the old
+  state. The adapter has to outlive the reset.
 - [low · medium] When the storage worker cannot be started (no thread can be spawned), Save says to
   try again every time (`model.rs`, `restart_storage`) and has no fallback; a contained
   synchronous save, worded as slow, would still save.

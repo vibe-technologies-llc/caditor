@@ -178,13 +178,17 @@ paths:
   offered (`Files::first_recoverable`) and logs "startup check: restored N changes of <name>" if the
   restored document holds the `startup_check` parameter (an error line otherwise). It has no
   command-line form and is not documented to users.
-- A panic while handling a window or user event is caught in `App::contained` after the hook
-  flushed the journal. The window gets a fresh egui context, `after_failed_frame` drops transient
-  state (selection, tools, sketch editing, palette, dialogs except prompts guarding unsaved work)
-  and a notice says so; the model and undo history stay. A held sketch drag is cancelled
-  (`Model::abandon_held_drag`); a constraint trial in flight is kept, being a user's edit. A second
-  failed frame in a row suppresses every feature as one undoable change, saying how to find the
-  culprit; `GIVE_UP_AFTER_FAILED_FRAMES` in a row exits with the journal kept. The recovery card's
+- A panic while handling a window or user event, or in `about_to_wait`'s session work
+  (`Session::tend`), is caught in `App::contained` after the hook flushed the journal. The window
+  gets a fresh egui context (if building it panics, the old one is kept and logged), and
+  `after_failed_frame` drops transient state (selection, tools, sketch editing, palette, dialogs
+  except prompts guarding unsaved work) and a notice says so; the model and undo history stay. A
+  held sketch drag is cancelled (`Model::abandon_held_drag`); a constraint trial in flight is kept,
+  being a user's edit. `FrameFailures` counts frames, not caught panics: a redraw starts a frame
+  (`frame_started`), and further panics before the next one only reset the interface again
+  (`ResetAgain`). A second failed frame in a row suppresses every feature as one undoable change,
+  saying how to find the culprit; `GIVE_UP_AFTER_FAILED_FRAMES` in a row exits with the journal
+  kept. A panic in `exiting` while remembering the layout is caught and logged. The recovery card's
   Restore suppressed is the same restore followed by suppressing every feature.
 - `logging.rs`: each run logs to stderr and its own owner-only file under the state directory
   (`caditor_file::SessionLog`, `MAX_LOG_SIZE`, `LOGS_KEPT` newest kept), with an end line on a

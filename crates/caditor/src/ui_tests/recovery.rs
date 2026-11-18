@@ -12,8 +12,8 @@ use egui::{Event, Modifiers, PointerButton};
 use tempfile::TempDir;
 
 use super::{
-    FILE_TIMEOUT, Harness, canonical, damage_chunk, edit_free_sketch, fail_a_frame, line_ends,
-    sample_document,
+    FILE_TIMEOUT, Harness, canonical, damage_chunk, edit_free_sketch, fail_a_frame, fail_again,
+    line_ends, sample_document,
 };
 use crate::{
     app::{self, Workspace},
@@ -491,4 +491,31 @@ fn a_failed_frame_resets_the_interface_and_a_second_in_a_row_suppresses_every_fe
         fail_a_frame(&mut harness);
     }
     assert_eq!(fail_a_frame(&mut harness), app::AfterFailedFrame::GiveUp);
+}
+
+#[test]
+fn failures_caught_before_the_next_frame_reset_the_interface_without_suppressing_features() {
+    let mut harness = Harness::new();
+    let before = harness.model.document().clone();
+
+    let first = fail_a_frame(&mut harness);
+    harness.workspace.about_open = true;
+    let again = [fail_again(&mut harness), fail_again(&mut harness)];
+
+    assert_eq!(first, app::AfterFailedFrame::ResetInterface);
+    assert_eq!(again, [app::AfterFailedFrame::ResetAgain; 2]);
+    assert!(!harness.workspace.about_open);
+    assert_eq!(harness.model.document(), &before);
+    assert!(
+        harness
+            .model
+            .notice()
+            .unwrap()
+            .text
+            .starts_with("Something went wrong while drawing the window")
+    );
+    assert_eq!(
+        fail_a_frame(&mut harness),
+        app::AfterFailedFrame::SuppressFeatures
+    );
 }

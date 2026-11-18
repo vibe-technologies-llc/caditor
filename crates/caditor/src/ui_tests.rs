@@ -1621,6 +1621,11 @@ fn damage_chunk(bytes: &[u8], chunk: usize) -> Vec<u8> {
 }
 
 fn fail_a_frame(harness: &mut Harness) -> app::AfterFailedFrame {
+    harness.workspace.frame_failures.frame_started();
+    fail_again(harness)
+}
+
+fn fail_again(harness: &mut Harness) -> app::AfterFailedFrame {
     app::after_failed_frame(
         &mut harness.workspace,
         &mut harness.model,
