@@ -798,7 +798,7 @@ fn met(before: &Cross, after: &Cross) -> Option<Cross> {
         .zip(&after.feet)
         .map(|(a, b)| a.point.distance(b.point))
         .chain(before.center.zip(after.center).map(|(a, b)| a.distance(b)))
-        .fold(before.point.distance(after.point), f64::max);
+        .fold(before.point.distance(after.point), larger);
     if gap > JOINT_GAP {
         return None;
     }

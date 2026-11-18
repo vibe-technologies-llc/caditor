@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use caditor_geometry::larger;
+
 use super::ShellError;
 use crate::{
     tolerance::LINEAR_RESOLUTION,
@@ -51,7 +53,7 @@ impl Walls {
     }
 
     pub(super) fn reach(&self) -> f64 {
-        self.faces.values().copied().fold(self.thickness, f64::max)
+        self.faces.values().copied().fold(self.thickness, larger)
     }
 
     pub(super) fn check(&self, solid: &Solid, open: &[FaceId]) -> Result<(), ShellError> {

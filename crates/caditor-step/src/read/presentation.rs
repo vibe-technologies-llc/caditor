@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use caditor_geometry::larger;
 use caditor_kernel::{Interrupted, check_interrupt};
 
 use crate::read::{
@@ -910,7 +911,7 @@ fn rgb(channels: [Option<f64>; 3]) -> Option<[u8; 3]> {
     };
     let values = [red, green, blue];
     let low = values.iter().copied().fold(f64::INFINITY, f64::min);
-    let high = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let high = values.iter().copied().fold(f64::NEG_INFINITY, larger);
     if low < -CHANNEL_SLACK || high > BYTE_CHANNELS + CHANNEL_SLACK {
         return None;
     }

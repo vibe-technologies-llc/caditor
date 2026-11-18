@@ -4,7 +4,7 @@ use std::{
 };
 
 use caditor_expression::format_decimals;
-use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector3, larger};
 use caditor_kernel::{
     BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, FaceMesh, FacetedError,
     IntersectionCurve, Interval, LINEAR_RESOLUTION, MeshQuality, PlaneSurface, Sense, ShellId,
@@ -1062,7 +1062,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             let left = surfaces
                 .iter()
                 .map(|surface| surface.distance(point))
-                .fold(0.0, f64::max);
+                .fold(0.0, larger);
             self.loosest = self.loosest.max(left);
         }
         let vertex = self
@@ -1100,11 +1100,8 @@ impl<'g, 'a> Topology<'g, 'a> {
             })
             .map(|curve| curve.point(curve.closest_parameter(point, search_range(&curve))))
             .collect();
-        let farthest_foot = |at: Point3| {
-            feet.iter()
-                .map(|foot| foot.distance(at))
-                .fold(0.0, f64::max)
-        };
+        let farthest_foot =
+            |at: Point3| feet.iter().map(|foot| foot.distance(at)).fold(0.0, larger);
         if farthest_foot(point) <= precision {
             return point;
         }
@@ -1172,7 +1169,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             let left = surfaces
                 .iter()
                 .map(|surface| farthest(surface, &samples))
-                .fold(0.0, f64::max);
+                .fold(0.0, larger);
             self.loosest = self.loosest.max(left);
         }
         let edge = self
@@ -1208,7 +1205,7 @@ impl<'g, 'a> Topology<'g, 'a> {
                 curve.point(interval.start()).distance(from),
                 curve.point(interval.end()).distance(to),
             ])
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         if gap <= CLEAN {
             return None;
         }
@@ -1420,7 +1417,7 @@ fn worst_gap(point: Point3, surfaces: &[Surface]) -> f64 {
     surfaces
         .iter()
         .map(|surface| surface.distance(point))
-        .fold(0.0, f64::max)
+        .fold(0.0, larger)
 }
 
 pub(crate) fn settle_on(point: Point3, surfaces: &[Surface], reach: f64) -> (Point3, Option<f64>) {

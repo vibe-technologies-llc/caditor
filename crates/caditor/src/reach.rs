@@ -1,6 +1,6 @@
 use std::sync::{Arc, OnceLock, Weak};
 
-use caditor_geometry::{Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Point2, Point3, Vector2, Vector3, larger};
 use caditor_render::ShadedMesh;
 
 const MOST_CELLS_ACROSS: usize = 512;
@@ -88,7 +88,7 @@ impl Shadow {
         let longest = [b - a, c - b, a - c]
             .into_iter()
             .map(Vector2::length)
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         if area.abs() <= slack * longest {
             return None;
         }

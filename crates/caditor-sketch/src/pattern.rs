@@ -4,7 +4,7 @@ use std::{
 };
 
 use caditor_expression::{BinaryOperator, Expression, Function, Unit};
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::{
     constraint::{Constraint, MAX_LENGTH},
@@ -382,7 +382,7 @@ impl Sketch {
             .chain(chosen.lone.iter().copied())
             .filter_map(|point| self.point(point))
             .map(|position| (position - centre_at).abs().max_element())
-            .fold(1.0, f64::max);
+            .fold(1.0, larger);
         let at_centre = |point: EntityId| {
             self.point(point)
                 .is_some_and(|position| position.distance(centre_at) <= TOLERANCE * reach)
@@ -866,7 +866,7 @@ fn rectangular_instances(
     let reach = offsets
         .iter()
         .map(|offset| offset.length())
-        .fold(1.0, f64::max);
+        .fold(1.0, larger);
     for (at, offset) in offsets.iter().enumerate() {
         let lands_on = |other: &Vector2| offset.distance(*other) <= TOLERANCE * reach;
         if lands_on(&Vector2::ZERO) || offsets.iter().skip(at + 1).any(lands_on) {

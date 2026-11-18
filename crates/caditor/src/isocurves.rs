@@ -8,7 +8,7 @@ use std::{
 };
 
 use caditor_document::FeatureResult;
-use caditor_geometry::Point3;
+use caditor_geometry::{Point3, larger};
 use caditor_kernel::{
     Along, CurveDerivatives, FaceId, IsoparametricError, IsoparametricRun, Surface,
     SurfaceDerivatives,
@@ -95,7 +95,7 @@ impl FaceLines {
         Some(
             teeth
                 .map(|tooth| tooth.curvature.length())
-                .fold(0.0, f64::max),
+                .fold(0.0, larger),
         )
     }
 

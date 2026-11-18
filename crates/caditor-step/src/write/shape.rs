@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Plane, Point3, Vector3, larger};
 use caditor_kernel::{
     BSpline, BSplineSurface, Curve, EdgeId, FaceId, IntersectionCurve, Interval, LINEAR_RESOLUTION,
     ShellId, Solid, Surface, VertexId,
@@ -418,7 +418,7 @@ fn written_nodes(curve: &IntersectionCurve) -> Option<Vec<WrittenNode>> {
                     let parameter = from.parameter + (to.parameter - from.parameter) * fraction;
                     hermite_point(&from, &to, parameter).distance(curve.refined_point(parameter))
                 })
-                .fold(0.0, f64::max);
+                .fold(0.0, larger);
             if farthest <= WRITTEN_DEVIATION || splits_left == 0 {
                 written.push(to);
                 from = to;

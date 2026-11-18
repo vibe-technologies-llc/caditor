@@ -136,7 +136,9 @@ pub(super) fn curvature_bound(surface: &Surface, uv: Point2) -> Option<f64> {
 fn largest_curvature(surface: &Surface, uvs: &[Point2]) -> Option<f64> {
     uvs.iter()
         .map(|uv| curvature_bound(surface, *uv))
-        .try_fold(0.0, |largest: f64, curvature| Some(largest.max(curvature?)))
+        .try_fold(0.0, |largest: f64, curvature| {
+            Some(larger(largest, curvature?))
+        })
 }
 
 fn apart_to_second_order(other: &Surface, patch: &SurfacePatch) -> bool {

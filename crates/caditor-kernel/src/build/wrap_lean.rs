@@ -1,4 +1,4 @@
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, larger};
 
 use crate::{
     build::wrap::WrapError,
@@ -142,7 +142,7 @@ pub(super) fn leanings(
         .map(|bounds| {
             bounds.size().length() + bounds.min().abs().max(bounds.max().abs()).max_element()
         })
-        .fold(1.0, f64::max);
+        .fold(1.0, larger);
     let tolerance = (size * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
     let mut offsets = Vec::with_capacity(regions.len());
     for region in regions {

@@ -28,7 +28,7 @@ use std::{
     f64::consts::{PI, TAU},
 };
 
-use caditor_geometry::{Aabb, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, RigidTransform, Vector2, Vector3, larger};
 use thiserror::Error;
 
 use self::{
@@ -936,7 +936,7 @@ fn farthest_along(solid: &Solid, face: FaceId, point: Point3, out: Vector3) -> O
             })
         })
         .map(|sample| (sample - point).dot(out))
-        .reduce(f64::max)
+        .reduce(larger)
 }
 
 fn out_through_blends(

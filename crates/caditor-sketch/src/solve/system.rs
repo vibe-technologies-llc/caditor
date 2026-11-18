@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::{
     constraint::Constraint,
@@ -1239,7 +1239,7 @@ pub(super) fn scale_of(magnitudes: impl IntoIterator<Item = f64>) -> f64 {
         .into_iter()
         .map(f64::abs)
         .filter(|magnitude| magnitude.is_finite())
-        .fold(1.0, f64::max);
+        .fold(1.0, larger);
     let power_of_two = largest.log2().ceil().exp2();
     if power_of_two.is_finite() {
         power_of_two

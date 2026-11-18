@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Plane, Point3, Vector3, larger};
 use caditor_kernel::{
     BooleanOperation, FaceCopy, FaceId, FaceOrigin, FaceReference, GROOVE_PARTS, Handedness,
     MAX_SIZE, MAX_THREAD_TURNS, RING_ENTITY, Solid, Surface, ThreadEnd, ThreadError, ThreadSpec,
@@ -210,7 +210,7 @@ impl Bore {
         let high = samples
             .iter()
             .map(|(_, at)| *at)
-            .fold(f64::NEG_INFINITY, f64::max);
+            .fold(f64::NEG_INFINITY, larger);
         if !low.is_finite() || !high.is_finite() || high - low <= END_TOLERANCE {
             return Err(BoreError::NoExtent);
         }
@@ -807,7 +807,7 @@ fn modelled_placement(
         .map(along)
         .collect();
     let low = extent.iter().copied().fold(f64::INFINITY, f64::min);
-    let high = extent.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let high = extent.iter().copied().fold(f64::NEG_INFINITY, larger);
     if !low.is_finite() || !high.is_finite() || high - low <= END_TOLERANCE {
         return None;
     }

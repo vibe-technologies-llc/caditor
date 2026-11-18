@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::{
     constraint::Constraint,
@@ -211,7 +211,7 @@ fn solve_dense(mut matrix: Vec<Vec<f64>>, mut right: Vec<[f64; 2]>) -> Option<Ve
     let largest = matrix
         .iter()
         .flatten()
-        .fold(0.0_f64, |largest, entry| largest.max(entry.abs()));
+        .fold(0.0_f64, |largest, entry| larger(largest, entry.abs()));
     for column in 0..size {
         let pivot_row = (column..size).max_by(|a, b| {
             let entry = |row: usize| {

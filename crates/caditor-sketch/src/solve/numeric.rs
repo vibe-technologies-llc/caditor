@@ -4,6 +4,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
+use caditor_geometry::larger;
 use nalgebra::{DMatrix, DVector, SVD};
 
 mod newton;
@@ -451,7 +452,7 @@ impl Solver<'_> {
         let largest = left
             .iter()
             .map(|(_, along_gradient)| along_gradient.abs())
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         component
             .equations
             .iter()
@@ -1247,7 +1248,7 @@ pub(crate) fn duplicates(
             }
         }
     }
-    let largest = weights.values().copied().fold(0.0, f64::max);
+    let largest = weights.values().copied().fold(0.0, larger);
     weights
         .into_iter()
         .filter(|(_, weight)| *weight > DUPLICATE_TOLERANCE * largest && *weight > 0.0)

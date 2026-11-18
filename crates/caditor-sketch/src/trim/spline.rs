@@ -159,7 +159,7 @@ impl Knotted {
             .copied()
             .filter(|knot| *knot > low && *knot < high);
         let width = if at_end {
-            high - inner.fold(low, f64::max)
+            high - inner.fold(low, larger)
         } else {
             inner.fold(high, f64::min) - low
         };
@@ -1176,7 +1176,7 @@ impl Sketch {
                 .cutters(curve)
                 .map(|(_, cutter)| cutter.extent())
                 .chain([SplineCourse::reach_of(&own)])
-                .fold(1.0, f64::max);
+                .fold(1.0, larger);
         let tolerance = TOLERANCE * bound;
         let beyond = |along: f64| if at_end { high + along } else { low - along };
         let window_of = |near: f64, far: f64| {

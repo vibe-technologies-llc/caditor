@@ -3,7 +3,9 @@ use std::{
     f64::consts::{FRAC_PI_2, TAU},
 };
 
-use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{
+    Aabb2, Maths, Plane, Point2, Point3, RigidTransform, Vector2, Vector3, larger,
+};
 
 use crate::{
     bspline::BSpline,
@@ -225,7 +227,7 @@ fn side_of_axis(
             .iter()
             .map(|sample| axis.signed_distance(sample.point))
             .collect();
-        let most = distances.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let most = distances.iter().copied().fold(f64::NEG_INFINITY, larger);
         let least = distances.iter().copied().fold(f64::INFINITY, f64::min);
         match (most > tolerance, least < -tolerance) {
             (true, true) => {

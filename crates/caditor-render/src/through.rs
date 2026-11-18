@@ -1,5 +1,5 @@
 use ahash::AHashMap;
-use caditor_geometry::{Aabb, Point3, Ray};
+use caditor_geometry::{Aabb, Point3, Ray, larger};
 use glam::DVec2;
 
 use crate::{
@@ -150,7 +150,7 @@ impl Probe<'_> {
                 (approach < 0.0).then(|| start / -approach)
             })
             .filter(|entry| *entry > 0.0)
-            .reduce(f64::max)
+            .reduce(larger)
     }
 
     fn eye_plane_origin(&self) -> Point3 {

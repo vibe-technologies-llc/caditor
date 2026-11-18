@@ -8,7 +8,7 @@ use caditor_document::{
     RegionChoice, RevolveAxis, RevolveExtent, SolidFeature, displayed_axis, profile_curve,
 };
 use caditor_expression::Expression;
-use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Vector2};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Vector2, larger};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, Interference, Interrupt,
     LINEAR_RESOLUTION, LinearExtent, Profile, ProfileCurve, Region, SamplingTolerance, Selection,
@@ -330,11 +330,11 @@ impl Swept {
                 let radius = corners
                     .iter()
                     .map(|corner| axis.signed_distance(*corner).abs())
-                    .fold(0.0, f64::max);
+                    .fold(0.0, larger);
                 let along = corners.map(|corner| axis.direction().dot(corner - axis.origin()));
                 let ends = [
                     along.into_iter().fold(f64::INFINITY, f64::min),
-                    along.into_iter().fold(f64::NEG_INFINITY, f64::max),
+                    along.into_iter().fold(f64::NEG_INFINITY, larger),
                 ]
                 .map(|distance| {
                     self.plane
@@ -506,7 +506,7 @@ impl Swept {
             .corners()
             .into_iter()
             .map(|corner| (corner - self.plane.origin()).dot(direction))
-            .reduce(f64::max)
+            .reduce(larger)
     }
 }
 

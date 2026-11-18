@@ -1,4 +1,4 @@
-use caditor_geometry::{Maths, Point2, Point3};
+use caditor_geometry::{Maths, Point2, Point3, larger};
 
 use crate::{
     coordinates::{Coordinates, angle_between},
@@ -623,7 +623,7 @@ fn end_candidates<C: Traceable>(pair: &Pair<C>) -> Vec<Candidate> {
 }
 
 fn cluster_high(cluster: &[Candidate]) -> f64 {
-    cluster.iter().map(Candidate::high).fold(f64::MIN, f64::max)
+    cluster.iter().map(Candidate::high).fold(f64::MIN, larger)
 }
 
 fn cluster_low(cluster: &[Candidate]) -> f64 {

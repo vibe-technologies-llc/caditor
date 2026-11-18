@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use caditor_document::profile_curve;
-use caditor_geometry::{Aabb, Point3, Vector3};
+use caditor_geometry::{Aabb, Point3, Vector3, larger};
 use caditor_kernel::{Curve, CurveDerivatives, Interval};
 use caditor_render::{Batch, Color, Layer, Line, Stroke};
 
@@ -47,7 +47,7 @@ impl Combed {
         self.teeth
             .iter()
             .map(|tooth| tooth.curvature.length())
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 
     pub fn smallest_radius(&self) -> Option<f64> {
@@ -150,7 +150,7 @@ impl Comb {
         self.curves
             .iter()
             .map(Combed::greatest_curvature)
-            .fold(0.0, f64::max)
+            .fold(0.0, larger)
     }
 
     fn size(&self) -> f64 {

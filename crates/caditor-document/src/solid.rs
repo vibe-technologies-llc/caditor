@@ -7,7 +7,9 @@ use std::{
 };
 
 use caditor_expression::{Dimension, Expression, ParameterId};
-use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Ray, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{
+    Aabb, Aabb2, Plane, Point2, Point3, Ray, RigidTransform, Vector2, Vector3, larger,
+};
 use caditor_kernel::{
     Accuracy, AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName,
     EndMoveError, FaceId, FaceName, FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION,
@@ -2445,7 +2447,7 @@ impl Ends<'_> {
                 .corners()
                 .iter()
                 .map(|corner| (*corner - self.plane.origin()).dot(direction))
-                .fold(f64::NEG_INFINITY, f64::max)
+                .fold(f64::NEG_INFINITY, larger)
         });
         if farthest <= LINEAR_RESOLUTION {
             return Err(self.error(SolidCause::NothingToGoThrough {
@@ -2511,7 +2513,7 @@ impl Ends<'_> {
                 .corners()
                 .iter()
                 .map(|corner| (*corner - self.plane.origin()).dot(direction))
-                .fold(f64::NEG_INFINITY, f64::max)
+                .fold(f64::NEG_INFINITY, larger)
         });
         let margin =
             bounds.map_or(0.0, |bounds| bounds.diagonal()) * THROUGH_ALL_REACH + THROUGH_ALL_MARGIN;
@@ -3293,7 +3295,7 @@ fn axis_line(axis: Axis2, bounds: Aabb2) -> ProfileCurve {
     ]
     .map(|corner| axis.direction().dot(corner - axis.origin()));
     let first = along.into_iter().fold(f64::INFINITY, f64::min) - reach;
-    let last = along.into_iter().fold(f64::NEG_INFINITY, f64::max) + reach;
+    let last = along.into_iter().fold(f64::NEG_INFINITY, larger) + reach;
     ProfileCurve::line(
         REVOLUTION_AXIS_ENTITY,
         axis.origin() + axis.direction() * first,

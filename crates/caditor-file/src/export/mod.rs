@@ -27,7 +27,7 @@ use std::{
 };
 
 use caditor_document::{CancelToken, ModelProperties, ModelProperty, Rgb, ThreadSide};
-use caditor_geometry::{Aabb, Point3, Vector3};
+use caditor_geometry::{Aabb, Point3, Vector3, larger};
 use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
 use caditor_step::{
@@ -423,7 +423,7 @@ fn extent(bounds: impl IntoIterator<Item = Aabb>) -> f64 {
         .into_iter()
         .map(|bounds| bounds.diagonal())
         .filter(|diagonal| diagonal.is_finite())
-        .fold(SMALLEST_EXTENT, f64::max)
+        .fold(SMALLEST_EXTENT, larger)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

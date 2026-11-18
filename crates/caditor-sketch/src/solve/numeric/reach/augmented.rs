@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use caditor_geometry::larger;
+
 use crate::solve::{
     equation::value,
     numeric::{
@@ -71,7 +73,7 @@ impl Augmented {
 
 fn largest_move(step: &[f64]) -> f64 {
     step.iter()
-        .fold(0.0_f64, |largest, delta| largest.max(delta.abs()))
+        .fold(0.0_f64, |largest, delta| larger(largest, delta.abs()))
 }
 
 impl Solver<'_> {
@@ -200,7 +202,7 @@ impl Solver<'_> {
             .iter()
             .enumerate()
             .filter_map(|(column, entries)| entries.get(&column))
-            .fold(1.0_f64, |steepest, entry| steepest.max(entry.abs()));
+            .fold(1.0_f64, |steepest, entry| larger(steepest, entry.abs()));
         let augmentation = AUGMENTATION * steepest;
         let mut product = 0;
         for row in rows {

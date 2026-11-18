@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Rotation3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Rotation3, Vector3, larger};
 use caditor_kernel::{Circle, Curve, LINEAR_RESOLUTION, Line, PlaneSurface, Surface};
 
 use crate::read::{
@@ -91,7 +91,7 @@ pub(crate) fn snap(body: &LooseBody<'_>) -> Snapped {
         .values()
         .map(|(_, moved)| *moved)
         .chain(rounds.values().map(|(_, moved)| *moved))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let curved = rounds.len();
     let mut surfaces: BTreeMap<u64, Surface> = moves
         .into_iter()
@@ -351,7 +351,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
                         .abs()
                         .max(second.signed_distance(*point).abs())
                 })
-                .fold(0.0, f64::max);
+                .fold(0.0, larger);
             let movable = self.move_of(*a, second).is_some() || self.move_of(*b, first).is_some();
             if gap > CLEAN && movable {
                 groups.join(*a, *b);
@@ -361,7 +361,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
                         .samples
                         .iter()
                         .map(|point| plane.signed_distance(*point).abs())
-                        .fold(*misfit, f64::max);
+                        .fold(*misfit, larger);
                 }
             }
         }
@@ -397,7 +397,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
             .get(&face)?
             .iter()
             .map(|corner| to.signed_distance(*corner).abs())
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         (moved > CLEAN && moved <= self.body.allowance).then_some(moved)
     }
 }
@@ -568,7 +568,7 @@ fn farthest_from(surface: &Surface, points: &[Point3]) -> f64 {
     points
         .iter()
         .map(|point| surface.distance(*point))
-        .fold(0.0, f64::max)
+        .fold(0.0, larger)
 }
 
 fn misfit(follower: &Surface, master: &Surface, shared: &[Point3]) -> f64 {

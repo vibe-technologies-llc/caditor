@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_document::{Document, FeatureId, FeatureState, Transaction};
 use caditor_expression::{Dimension, Expression, Quantity};
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, Sketch, SketchSolution,
     annotation::{self, Footprint, Measured, Obstacles},
@@ -916,7 +916,7 @@ fn extent_of(sketch: &Sketch) -> f64 {
             | Entity::Ellipse { .. }
             | Entity::EllipticalArc { .. } => None,
         })
-        .fold(0.0, f64::max)
+        .fold(0.0, larger)
 }
 
 fn centre_of(sketch: &Sketch) -> Option<Point2> {

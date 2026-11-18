@@ -2189,3 +2189,34 @@ fn a_conflict_too_small_for_where_it_lands_is_named_rather_than_failing_on_the_n
         })
     );
 }
+
+fn shrinking_misses(rounds: usize) -> Vec<f64> {
+    (0..rounds).map(|round| 1.0 / (1 + round) as f64).collect()
+}
+
+#[test]
+fn misses_that_shrink_keep_converging_and_misses_that_stall_do_not() {
+    let rounds = 2 * super::PARAMETER_ROUNDS;
+
+    assert!(super::keeps_converging(&shrinking_misses(rounds - 1)));
+    assert!(super::keeps_converging(&[1.0, 2.0]));
+    assert!(super::keeps_converging(&shrinking_misses(rounds)));
+    assert!(!super::keeps_converging(&vec![1.0; rounds]));
+}
+
+#[test]
+fn a_nan_miss_is_not_taken_as_converging() {
+    let rounds = 2 * super::PARAMETER_ROUNDS;
+
+    let mut recent_nan = shrinking_misses(rounds);
+    recent_nan[rounds - 1] = f64::NAN;
+
+    let mut earlier_nan = shrinking_misses(rounds);
+    earlier_nan[0] = f64::NAN;
+
+    let all_nan = vec![f64::NAN; rounds];
+
+    assert!(!super::keeps_converging(&recent_nan));
+    assert!(!super::keeps_converging(&earlier_nan));
+    assert!(!super::keeps_converging(&all_nan));
+}

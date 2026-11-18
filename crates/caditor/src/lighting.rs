@@ -2,6 +2,7 @@ use std::{ops::RangeInclusive, sync::Arc};
 
 use caditor_document::Rgb;
 use caditor_file::Settings;
+use caditor_geometry::larger;
 use caditor_render::{Backdrop, Color, Environment, LightDirection, Surroundings};
 
 use crate::preferences::Choice;
@@ -195,7 +196,7 @@ impl Lighting {
     pub fn swatch(&self) -> [u8; 3] {
         let brightest = light_colour(self.temperature)
             .into_iter()
-            .fold(f64::MIN_POSITIVE, f64::max);
+            .fold(f64::MIN_POSITIVE, larger);
         light_colour(self.temperature).map(|channel| encoded(channel / brightest))
     }
 }

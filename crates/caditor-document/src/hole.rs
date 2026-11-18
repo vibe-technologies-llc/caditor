@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, Expression, ParameterId, Quantity};
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3, larger};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanOperation, EndMoveError, FaceId, FaceOrigin, LINEAR_RESOLUTION,
     LinearExtent, MAX_SIZE, Profile, ProfileCurve, RING_ENTITY, ReachError, Region, Solid,
@@ -1277,7 +1277,7 @@ fn reach(body: &Solid, centre: Point3, down: Vector3) -> Option<f64> {
         .corners()
         .iter()
         .map(|corner| (*corner - centre).dot(down))
-        .fold(f64::NEG_INFINITY, f64::max);
+        .fold(f64::NEG_INFINITY, larger);
     (farthest > LINEAR_RESOLUTION)
         .then(|| farthest + bounds.diagonal() * THROUGH_ALL_REACH + MARGIN)
         .map(|depth| depth.min(MAX_SIZE))

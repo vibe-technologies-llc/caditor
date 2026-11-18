@@ -168,9 +168,9 @@ fn as_ellipse(
         .iter()
         .map(|point| ((*point - centroid).dot(e1), (*point - centroid).dot(e2)))
         .collect();
-    let scale = local
-        .iter()
-        .fold(0.0f64, |largest, (x, y)| largest.max(x.abs()).max(y.abs()));
+    let scale = local.iter().fold(0.0f64, |largest, (x, y)| {
+        larger(larger(largest, x.abs()), y.abs())
+    });
     if scale <= f64::MIN_POSITIVE {
         return None;
     }

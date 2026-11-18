@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3, larger};
 use thiserror::Error;
 
 use crate::{
@@ -750,7 +750,7 @@ impl Solid {
                 let least = points().filter_map(&least_of).fold(f64::INFINITY, f64::min);
                 let most = points()
                     .filter_map(&most_of)
-                    .fold(f64::NEG_INFINITY, f64::max);
+                    .fold(f64::NEG_INFINITY, larger);
                 let void = shell_volume(self, shell, &shell_mesh) < 0.0;
                 (shell, ShellSpan { void, least, most })
             })

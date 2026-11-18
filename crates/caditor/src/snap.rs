@@ -4,7 +4,7 @@ use std::{
     f64::consts::TAU,
 };
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 use caditor_sketch::{
     ArcGeometry, Constraint, EllipseEnd, EllipseGeometry, Entity, EntityId, PointTarget, Quadrant,
     Sketch,
@@ -1162,7 +1162,9 @@ fn joined_tolerance(lines: &[OutlineLine]) -> f64 {
     let extent = lines
         .iter()
         .flat_map(|line| [line.start.1, line.end.1])
-        .fold(1.0_f64, |most, point| most.max(point.abs().max_element()));
+        .fold(1.0_f64, |most, point| {
+            larger(most, point.abs().max_element())
+        });
     JOINED_CORNER_TOLERANCE * extent
 }
 
@@ -1337,7 +1339,7 @@ fn centroid(lines: &[OutlineLine], steps: &[OutlineStep]) -> Option<Point2> {
     let span = boundary
         .iter()
         .map(|place| place.distance(anchor))
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     if twice_area.abs() <= DEGENERATE_AREA * span * span {
         return None;
     }
@@ -1711,7 +1713,7 @@ pub fn crossing_along(
                         .control_points()
                         .iter()
                         .map(|point| point.distance(through))
-                        .fold(0.0, f64::max),
+                        .fold(0.0, larger),
                     (None, Some(ellipse)) => {
                         ellipse.center.distance(through)
                             + ellipse.major_radius().max(ellipse.minor_radius)

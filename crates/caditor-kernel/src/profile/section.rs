@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Aabb2, Maths, Point2, Vector2};
+use caditor_geometry::{Aabb2, Maths, Point2, Vector2, larger};
 
 use crate::{
     curve2::{Circle2, Curve2},
@@ -78,7 +78,7 @@ impl Integrals {
             difference.xy / size.powi(4),
         ]
         .into_iter()
-        .fold(0.0, |most, value| most.max(value.abs()))
+        .fold(0.0, |most, value| larger(most, value.abs()))
     }
 
     fn fan(point: Vector2, velocity: Vector2) -> Self {

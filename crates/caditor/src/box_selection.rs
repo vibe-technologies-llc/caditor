@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use caditor_document::FeatureId;
-use caditor_geometry::{Aabb, Point3, Vector2};
+use caditor_geometry::{Aabb, Point3, Vector2, larger};
 use caditor_kernel::Mesh;
 
 use crate::{
@@ -172,7 +172,7 @@ impl Occlusion {
         let units_per_point = corners
             .iter()
             .map(|seen| seen.units_per_point)
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         let slack = self.slack(units_per_point);
         let mut covered = false;
         for (index, weights) in self

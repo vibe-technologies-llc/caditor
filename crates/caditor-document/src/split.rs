@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Aabb2, Plane, Point2, Vector2, Vector3};
+use caditor_geometry::{Aabb2, Plane, Point2, Vector2, Vector3, larger};
 use caditor_kernel::{
     BooleanError, BooleanOperation, LINEAR_RESOLUTION, LinearExtent, Profile, ProfileCurve,
     ProfileError, ProfileShape, Region, Selection, Solid, SweepError, boolean, extrude,
@@ -588,7 +588,7 @@ pub(crate) fn heights(solid: &Solid, plane: &Plane, slant: Vector3) -> Option<He
     let high = local
         .iter()
         .map(|(_, height)| *height)
-        .fold(f64::NEG_INFINITY, f64::max);
+        .fold(f64::NEG_INFINITY, larger);
     Some(Heights {
         low,
         high,

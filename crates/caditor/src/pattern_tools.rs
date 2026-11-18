@@ -6,7 +6,7 @@ use caditor_document::{
     displayed_axis, repeatable_on,
 };
 use caditor_expression::Expression;
-use caditor_geometry::Aabb;
+use caditor_geometry::{Aabb, larger};
 
 use crate::{
     bodies,
@@ -312,7 +312,7 @@ fn default_spacing(
         let bounds = bounds?;
         let along = bounds.corners().map(|corner| ray.direction().dot(corner));
         let low = along.iter().copied().fold(f64::INFINITY, f64::min);
-        let high = along.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let high = along.iter().copied().fold(f64::NEG_INFINITY, larger);
         Some(high - low)
     });
     match extent {

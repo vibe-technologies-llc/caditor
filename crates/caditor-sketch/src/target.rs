@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::{
     entity::{Entity, Role},
@@ -414,7 +414,9 @@ fn crossing_scale(sketch: &Sketch, first: EntityId, second: EntityId) -> f64 {
         .filter_map(|curve| sketch.entity(curve))
         .flat_map(Entity::points)
         .filter_map(|point| sketch.point(point))
-        .fold(1.0_f64, |most, point| most.max(point.abs().max_element()))
+        .fold(1.0_f64, |most, point| {
+            larger(most, point.abs().max_element())
+        })
 }
 
 fn shared_carrier(sketch: &Sketch, first: EntityId, second: EntityId) -> Option<Carrier> {

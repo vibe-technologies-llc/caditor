@@ -1,4 +1,4 @@
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, larger};
 
 use crate::{
     banded::Banded,
@@ -281,7 +281,7 @@ fn cyclic_solve(rows: &[Vec<(usize, f64)>], targets: &[Point2]) -> Option<Vec<Po
     let determinant = a * d - b * c;
     let largest = [a, b, c, d]
         .iter()
-        .fold(0.0_f64, |largest, entry| largest.max(entry.abs()));
+        .fold(0.0_f64, |largest, entry| larger(largest, entry.abs()));
     let singular =
         !determinant.is_finite() || determinant.abs() <= SINGULAR_SHARE * largest * largest;
     if singular {

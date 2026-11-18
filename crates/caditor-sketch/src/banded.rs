@@ -1,3 +1,5 @@
+use caditor_geometry::larger;
+
 const PIVOT_TOLERANCE: f64 = 1e-12;
 
 pub(crate) struct Banded {
@@ -53,7 +55,7 @@ impl Banded {
         let largest = self
             .entries
             .iter()
-            .fold(0.0_f64, |largest, entry| largest.max(entry.abs()));
+            .fold(0.0_f64, |largest, entry| larger(largest, entry.abs()));
         for pivot_row in 0..self.size {
             let pivot = self.get(pivot_row, pivot_row);
             if !pivot.is_finite() || pivot.abs() <= PIVOT_TOLERANCE * largest {

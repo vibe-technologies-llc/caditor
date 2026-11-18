@@ -1,4 +1,4 @@
-use caditor_geometry::Point3;
+use caditor_geometry::{Point3, larger};
 use caditor_kernel::{BSpline, Curve, Interval, LINEAR_RESOLUTION, Line, Surface};
 
 const CLEAN: f64 = 0.25 * LINEAR_RESOLUTION;
@@ -26,7 +26,7 @@ pub(crate) fn farthest(surface: &Surface, samples: &[Point3]) -> f64 {
             hint = Some(foot);
             surface.point_at(foot).distance(*point)
         })
-        .fold(0.0, f64::max)
+        .fold(0.0, larger)
 }
 
 pub(crate) fn met_at_ends(

@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{DensityError, FeatureId, MeasuredItem, Reading, displayed_frame};
 use caditor_expression::format_number;
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Point3, Vector3, larger};
 use caditor_kernel::{Accuracy, MassProperties, SecondMoment};
 use egui::{Label, Popup, TextWrapMode, Ui};
 
@@ -313,7 +313,7 @@ fn inertia_text(grams_square_millimetres: [f64; 3], unit: Units) -> String {
     let scaled = grams_square_millimetres.map(|value| value / unit.millimetres().powi(2));
     let largest = scaled
         .iter()
-        .fold(0.0, |most: f64, value| most.max(value.abs()));
+        .fold(0.0, |most: f64, value| larger(most, value.abs()));
     let (factor, mass) = if largest >= GRAMS_PER_KILOGRAM {
         (GRAMS_PER_KILOGRAM.recip(), "kg")
     } else {

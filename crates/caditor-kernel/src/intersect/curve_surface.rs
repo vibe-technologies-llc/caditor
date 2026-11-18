@@ -868,11 +868,11 @@ fn finish(
     for candidate in candidates {
         match clusters.last_mut() {
             Some(cluster)
-                if cluster.iter().map(Candidate::high).fold(f64::MIN, f64::max)
+                if cluster.iter().map(Candidate::high).fold(f64::MIN, larger)
                     >= candidate.low()
                     || connected(
                         probe,
-                        cluster.iter().map(Candidate::high).fold(f64::MIN, f64::max),
+                        cluster.iter().map(Candidate::high).fold(f64::MIN, larger),
                         candidate.low(),
                     ) =>
             {
@@ -888,7 +888,7 @@ fn finish(
     let mut outcomes = Vec::new();
     for (index, cluster) in clusters.iter().enumerate() {
         let low = lows.get(index).copied().unwrap_or(range.start());
-        let high = cluster.iter().map(Candidate::high).fold(f64::MIN, f64::max);
+        let high = cluster.iter().map(Candidate::high).fold(f64::MIN, larger);
         let along = cluster
             .iter()
             .any(|candidate| matches!(candidate, Candidate::Along(_)));
@@ -901,7 +901,7 @@ fn finish(
                 .checked_sub(1)
                 .and_then(|before| clusters.get(before))
                 .map_or(range.start(), |cluster| {
-                    cluster.iter().map(Candidate::high).fold(f64::MIN, f64::max)
+                    cluster.iter().map(Candidate::high).fold(f64::MIN, larger)
                 });
             let next = lows.get(index + 1).copied().unwrap_or(range.end());
             let start = extend(probe, low, previous.max(range.start()));

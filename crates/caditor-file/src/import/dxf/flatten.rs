@@ -5,7 +5,7 @@ use std::{
     thread,
 };
 
-use caditor_geometry::{Point2, Point3, Vector2};
+use caditor_geometry::{Point2, Point3, Vector2, larger};
 use caditor_kernel::{
     HelperThreads, available_threads, check_interrupt, current_interrupt, interruptible,
 };
@@ -191,7 +191,7 @@ pub(in crate::import) fn flatten(
     let extent = extent(&points);
     if let (Some(low), Some(high)) = (
         points.iter().map(|point| point.z).reduce(f64::min),
-        points.iter().map(|point| point.z).reduce(f64::max),
+        points.iter().map(|point| point.z).reduce(larger),
     ) && high - low > RELATIVE_FLATNESS * extent.max(1.0)
     {
         notes.push("The drawing is not flat, so it was projected onto its XY plane.".to_owned());

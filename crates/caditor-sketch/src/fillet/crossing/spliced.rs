@@ -1,4 +1,4 @@
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, larger};
 
 use super::{Change, Course, CrossingPlan, Pick, Planned, other_crossings};
 use crate::{
@@ -162,7 +162,7 @@ impl Sketch {
         let [first, second] = picks;
         let pair = self.joined_pair([first.curve, second.curve])?;
         let crossings = self.crossings_of_joined(&pair);
-        let reach = pair.iter().map(Joined::extent).fold(1.0, f64::max);
+        let reach = pair.iter().map(Joined::extent).fold(1.0, larger);
         let tolerance = TOLERANCE * reach;
         let corner = crossings
             .iter()
@@ -259,7 +259,7 @@ impl Sketch {
                 reach(*a).total_cmp(&reach(*b))
             })
             .ok_or_else(|| self.never_meet(first, second))?;
-        let tolerance = TOLERANCE * pair.iter().map(Joined::extent).fold(1.0, f64::max);
+        let tolerance = TOLERANCE * pair.iter().map(Joined::extent).fold(1.0, larger);
         let others = other_crossings(&crossings, corner, tolerance);
         let near = |joined: &Joined| match joined {
             Joined::Plain(course) => course.longer_side(corner, &others),

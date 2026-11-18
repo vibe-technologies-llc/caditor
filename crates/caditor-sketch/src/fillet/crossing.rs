@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, larger};
 
 use super::{Corner, FilletError, TOLERANCE, centers, whole};
 use crate::{
@@ -757,7 +757,7 @@ fn widest(circle: &Course, corner: Point2, others: &[Point2], toward: Point2) ->
 }
 
 fn tolerance_of(courses: &[Course; 2]) -> f64 {
-    let extent = courses.iter().map(Course::extent).fold(1.0, f64::max);
+    let extent = courses.iter().map(Course::extent).fold(1.0, larger);
     TOLERANCE * extent
 }
 

@@ -30,7 +30,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector3, larger};
 use thiserror::Error;
 
 use self::taper::Taper;
@@ -275,7 +275,7 @@ impl<'a> Offsets<'a> {
             solid,
             reach: inward
                 .values()
-                .fold(0.0, |most, distance| most.max(distance.abs())),
+                .fold(0.0, |most, distance| larger(most, distance.abs())),
             settled: SETTLED_RESIDUAL,
             motions: None,
             squeezing: false,
@@ -737,9 +737,9 @@ fn opens_curved(solid: &Solid, face: FaceId) -> Result<bool, ShellError> {
 }
 
 pub(crate) fn snapped(solid: &Solid, inward: BTreeMap<FaceId, f64>) -> Option<Solid> {
-    let reach = inward
-        .values()
-        .fold(LINEAR_RESOLUTION, |most, distance| most.max(distance.abs()));
+    let reach = inward.values().fold(LINEAR_RESOLUTION, |most, distance| {
+        larger(most, distance.abs())
+    });
     let offsets = Offsets {
         solid,
         reach,

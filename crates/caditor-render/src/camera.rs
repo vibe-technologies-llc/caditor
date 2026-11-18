@@ -273,7 +273,7 @@ impl View {
             .corners()
             .into_iter()
             .map(|corner| corner.distance(target))
-            .fold(self.scene_reach, f64::max);
+            .fold(self.scene_reach, larger);
         Self {
             scene_reach: if reach.is_finite() {
                 reach

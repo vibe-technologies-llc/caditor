@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector3, larger};
 use spade::Point2 as PlanePoint;
 
 use crate::{
@@ -722,7 +722,7 @@ fn close_gaps(points: Vec<BoundaryPoint>, density: &Density) -> Vec<BoundaryPoin
             .into_iter()
             .filter(|cells| cells.is_finite())
             .map(|cells| cells.abs().ceil())
-            .fold(1.0, f64::max)
+            .fold(1.0, larger)
             .min(MAX_GAP_PIECES) as usize;
         for piece in 1..pieces {
             closed.push(BoundaryPoint {

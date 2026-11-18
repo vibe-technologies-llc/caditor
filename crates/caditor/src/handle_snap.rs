@@ -1,5 +1,5 @@
 use caditor_document::{FeatureId, FeatureKind, SolidResult, face_plane};
-use caditor_geometry::{Plane, Point2, Point3, Ray, Vector2, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Ray, Vector2, Vector3, larger};
 use caditor_kernel::{
     Curve, EdgeName, FaceContainment, FaceId, Interval, Line, intersect_curve_surface,
 };
@@ -240,7 +240,7 @@ fn meeting_curved(
         .corners()
         .map(|corner| (corner - base).dot(line.direction()));
     let low = along.iter().copied().fold(f64::INFINITY, f64::min);
-    let high = along.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let high = along.iter().copied().fold(f64::NEG_INFINITY, larger);
     let range = Interval::new(low - LINE_MARGIN, high + LINE_MARGIN)?;
     let surface = source.solid.face(face)?.surface();
     let found = intersect_curve_surface(&Curve::Line(line), range, surface, None).ok()?;

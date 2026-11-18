@@ -36,7 +36,7 @@ use std::{
 };
 
 use caditor_expression::{EvalError, ParameterId, Quantity};
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, larger};
 
 pub(crate) use crate::solve::{
     ellipse::ellipse_gap,
@@ -126,7 +126,7 @@ fn misses_a_measured_distance(
         .rev()
         .filter_map(|id| Some((*id, miss_of_its_measure(&moved, dimensions, *id)?)))
         .collect();
-    let worst = misses.iter().map(|(_, miss)| *miss).fold(0.0, f64::max);
+    let worst = misses.iter().map(|(_, miss)| *miss).fold(0.0, larger);
     (!misses.is_empty()).then(|| Unsettled {
         moved,
         missing: misses.into_iter().map(|(id, _)| id).collect(),
@@ -179,7 +179,7 @@ fn keeps_converging(worst: &[f64]) -> bool {
         return true;
     };
     let (before, recent) = worst.split_at(start + PARAMETER_ROUNDS);
-    let largest = |misses: &[f64]| misses.iter().copied().fold(0.0, f64::max);
+    let largest = |misses: &[f64]| misses.iter().copied().fold(0.0, larger);
     largest(recent) <= CONVERGING_SHARE * largest(before.get(start..).unwrap_or_default())
 }
 

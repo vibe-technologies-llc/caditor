@@ -5,7 +5,7 @@ use caditor_document::{
     Transaction, Wall, along_plane, capitalized, describe_axis, describe_origin, displayed_axis,
 };
 use caditor_expression::{Dimension, Expression, Unit};
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, larger};
 use caditor_kernel::{SweepOrientation, WallSide};
 use caditor_sketch::{Entity, EntityId, Reference};
 use egui::{Id, Ui};
@@ -694,7 +694,7 @@ impl Panel<'_> {
             .chain(extrude.other_bodies.iter().copied())
             .filter_map(|body| evaluation.body_seen_by(self.id(), body)?.bounding_box())
             .map(|bounds| 2.0 * bounds.bounding_radius())
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         size > 0.0 && reach > FAR_PAST_THE_BODY_TIMES * size
     }
 

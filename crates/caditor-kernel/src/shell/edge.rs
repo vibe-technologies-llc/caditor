@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, Vector3, larger};
 
 use super::{OFFSET_TOLERANCE, Offsets, ShellError};
 use crate::{
@@ -132,9 +132,8 @@ fn window(surface: &Surface, points: &[Point3], reach: f64) -> Option<Aabb2> {
         Point2::new(max.x, min.y),
     ]
     .map(|uv| surface.evaluate(uv.x, uv.y));
-    let fastest = |pick: fn(&SurfaceDerivatives) -> f64| {
-        speeds.iter().map(pick).fold(SLOWEST_SPEED, f64::max)
-    };
+    let fastest =
+        |pick: fn(&SurfaceDerivatives) -> f64| speeds.iter().map(pick).fold(SLOWEST_SPEED, larger);
     let (u_speed, v_speed) = (fastest(|at| at.du.length()), fastest(|at| at.dv.length()));
     let margin = |extent: f64, speed: f64, period: Option<f64>| {
         let margin = extent * WINDOW_GROWTH + reach / speed;

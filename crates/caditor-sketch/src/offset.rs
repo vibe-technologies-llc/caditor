@@ -4,7 +4,7 @@ use std::{
 };
 
 use caditor_expression::Expression;
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Vector2, larger};
 
 use crate::{
     constraint::Constraint,
@@ -666,7 +666,7 @@ impl Chain {
         self.elements
             .iter()
             .map(|element| element.course.extent())
-            .fold(1.0, f64::max)
+            .fold(1.0, larger)
     }
 
     pub fn outline(&self, side: Side, distance: f64) -> Result<Outline, OffsetError> {
@@ -1871,7 +1871,7 @@ fn scale_of(elements: &[Element]) -> f64 {
     elements
         .iter()
         .map(|element| element.course.extent())
-        .fold(1.0, f64::max)
+        .fold(1.0, larger)
 }
 
 fn element_ends(elements: &[Element]) -> Vec<End> {

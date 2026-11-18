@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Point2, Point3, Vector2, Vector3, larger};
 use caditor_kernel::{
     BSpline, BSplineSurface, BendError, BendTarget, Curve, Interval, LINEAR_RESOLUTION, SideBend,
     Surface, SurfaceSide,
@@ -228,7 +228,7 @@ fn study(body: &LooseBody<'_>, edge: &LooseEdge) -> Option<Study> {
             let normals = (a.normal(on_a.x, on_a.y)?, b.normal(on_b.x, on_b.y)?);
             Some(normals.0.cross(normals.1).length().min(1.0).asin())
         })
-        .fold(0.0, f64::max);
+        .fold(0.0, larger);
     let lines = [
         line_of(a, &feet[0], body.allowance),
         line_of(b, &feet[1], body.allowance),
@@ -267,7 +267,7 @@ fn line_of(surface: &Surface, feet: &[Point2], allowance: f64) -> Option<Line> {
                         .point_at(line.at(line.along(*uv)))
                         .distance(surface.point_at(*uv))
                 })
-                .fold(0.0, f64::max)
+                .fold(0.0, larger)
         };
         let chosen = [domain.start(), domain.end(), mean]
             .into_iter()
@@ -550,7 +550,7 @@ fn placed_vertices(
         let off = rigid
             .iter()
             .map(|surface| surface.distance(point))
-            .fold(0.0, f64::max);
+            .fold(0.0, larger);
         if off > VERTEX_HELD {
             return Err(Problem::new(*vertex, Fault::VertexOffBentFaces { off }));
         }

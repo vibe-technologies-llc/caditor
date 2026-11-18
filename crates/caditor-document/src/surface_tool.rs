@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3, larger};
 use caditor_kernel::{
     AngularExtent, Axis2, FaceId, FaceReference, LINEAR_RESOLUTION, LinearExtent, Profile,
     ProfileCurve, ProfileError, ReferenceError, Solid, Surface, SweepError, extrude, revolve,
@@ -118,7 +118,7 @@ fn reach(body: &Solid, origin: Point3, direction: Vector3) -> Option<Reach> {
         .map(|corner| (corner - origin).dot(direction));
     Some(Reach {
         low: heights.iter().copied().fold(f64::INFINITY, f64::min),
-        high: heights.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        high: heights.iter().copied().fold(f64::NEG_INFINITY, larger),
         margin: bounds.diagonal() * HALF_SPACE_REACH + HALF_SPACE_MARGIN,
     })
 }

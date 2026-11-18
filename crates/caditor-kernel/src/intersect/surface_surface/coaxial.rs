@@ -110,7 +110,7 @@ fn window_of(axis: &Axis, bounds: &Aabb) -> Window {
     let corners = bounds.corners();
     let heights = corners.map(|corner| axis.height(corner));
     let low = heights.iter().copied().fold(f64::INFINITY, f64::min);
-    let high = heights.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let high = heights.iter().copied().fold(f64::NEG_INFINITY, larger);
     let reach = corners
         .iter()
         .map(|corner| axis.radius(*corner))

@@ -4,7 +4,7 @@ mod tests;
 
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Maths, Plane, Point2, Vector2};
+use caditor_geometry::{Maths, Plane, Point2, Vector2, larger};
 use thiserror::Error;
 
 pub(crate) use self::groove::helix_knots;
@@ -303,7 +303,7 @@ fn check(spec: &ThreadSpec) -> Result<(), ThreadError> {
     }
     let reach = [form.root_radius, form.crest_radius, spec.face_radius]
         .into_iter()
-        .fold(spec.length, f64::max)
+        .fold(spec.length, larger)
         + spec.frame.origin().abs().max_element();
     if reach > MAX_SIZE {
         return Err(ThreadError::TooLarge);
