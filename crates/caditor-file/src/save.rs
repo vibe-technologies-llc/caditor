@@ -15,8 +15,8 @@ use caditor_document::Document;
 
 use crate::{
     binary::{
-        self, EncodeError, EncodeExtras, Encoded, FileDigest, FreshVersion, KeepError, Retention,
-        Shared, value::ValueError,
+        self, EncodeError, EncodeExtras, Encoded, FileDigest, FreshVersion, KeepError, PackError,
+        Retention, Shared, value::ValueError,
     },
     os::{self, ChangeStamp, FileKey},
     paths::{MAX_NAME_BYTES, fitting},
@@ -56,6 +56,11 @@ pub enum SaveError {
     )]
     HistoryTooLarge,
     #[error(
+        "there was not enough memory to save the model, so the file was left as it was; close \
+         other programs and save again"
+    )]
+    OutOfMemory,
+    #[error(
         "the model is larger than the {} GiB a model file can hold, so caditor could not open it \
          again; remove imported bodies or split the model and save again",
         largest >> 30
@@ -89,6 +94,7 @@ impl SaveError {
             Some(kept) => Self::KeptAside {
                 kept: kept.to_path_buf(),
             },
+            None if error.kind() == io::ErrorKind::OutOfMemory => Self::OutOfMemory,
             None => Self::Writing(WriteFailure::of(error)),
         }
     }
@@ -97,6 +103,7 @@ impl SaveError {
         log::error!("could not encode the model: {error}");
         match error {
             EncodeError::Value(ValueError::NonFinite(_)) => Self::NonFinite,
+            EncodeError::Pack(PackError::OutOfMemory) => Self::OutOfMemory,
             EncodeError::Value(_) | EncodeError::Pack(_) => Self::Unconvertible,
             EncodeError::HistoryTooLarge => Self::HistoryTooLarge,
             EncodeError::ModelTooLarge { largest, .. } => Self::ModelTooLarge { largest: *largest },
@@ -199,7 +206,7 @@ pub(crate) fn keep_version_interleaved(
         |file| file.write_all(&rewritten.bytes),
         |file| {
             check_reads_back(file, &rewritten.digest, &[])?;
-            previous.ensure_still_at(&target)
+            previous.watched.ensure_still_at(&target)
         },
     )
     .map_err(|error| {
@@ -277,7 +284,7 @@ pub(crate) fn save_interleaved(
 ) -> Result<Saved, SaveError> {
     let target = resolve_links(path).map_err(|error| SaveError::writing(&error))?;
     ensure_replaceable(&target).map_err(|error| SaveError::writing(&error))?;
-    let mut previous = options
+    let previous = options
         .history_from
         .map(read_previous)
         .transpose()?
@@ -300,12 +307,22 @@ pub(crate) fn save_interleaved(
         },
     )
     .map_err(|error| SaveError::encoding(&error))?;
+    let mut previous = previous.map(Previous::into_watched);
+    let Encoded {
+        bytes,
+        shared,
+        digest,
+        previous_damaged,
+        dropped_for_size,
+        fresh_versions,
+    } = encoded;
     while_encoding();
-    let ensure_unchanged = |previous: Option<&Previous>| match guarded {
+
+    let ensure_unchanged = |previous: Option<&Watched>| match guarded {
         Some(_) => ensure_unchanged_since_read(previous, &target),
         None => Ok(()),
     };
-    let damaged_in_place = encoded.previous_damaged && reads_target(options, &target);
+    let damaged_in_place = previous_damaged && reads_target(options, &target);
     let backup = if (options.keep_original || damaged_in_place) && target.exists() {
         ensure_unchanged(previous.as_ref()).map_err(|_| SaveError::ChangedOnDisk)?;
         let untouched = previous
@@ -322,16 +339,16 @@ pub(crate) fn save_interleaved(
         None
     };
     let reads_back = |file: &File| {
-        check_reads_back(file, &encoded.digest, &encoded.fresh_versions)?;
+        check_reads_back(file, &digest, &fresh_versions)?;
         ensure_unchanged(previous.as_ref())
     };
     let written = match &previous {
-        Some(previous) if !encoded.shared.is_empty() => replace_checked(
+        Some(source) if !shared.is_empty() => replace_checked(
             &target,
-            |file| write_sharing(file, &encoded, previous),
+            |file| write_sharing(file, bytes, &shared, source),
             reads_back,
         ),
-        _ => replace_checked(&target, |file| file.write_all(&encoded.bytes), reads_back),
+        _ => replace_checked(&target, |file| write_whole(file, bytes), reads_back),
     };
     written.map_err(|error| {
         if changed_meanwhile(&error) {
@@ -342,8 +359,8 @@ pub(crate) fn save_interleaved(
     })?;
     Ok(Saved {
         backup,
-        dropped_for_size: encoded.dropped_for_size,
-        digest: encoded.digest,
+        dropped_for_size,
+        digest,
     })
 }
 
@@ -356,7 +373,7 @@ fn reads_target(options: &SaveOptions<'_>, target: &Path) -> bool {
 
 fn check_reads_back(file: &File, digest: &FileDigest, fresh: &[FreshVersion]) -> io::Result<()> {
     let length = usize::try_from(file.metadata()?.len()).map_err(io::Error::other)?;
-    let mut written = vec![0; length];
+    let mut written = zeroed(length)?;
     os::read_exact_at(file, &mut written, 0)?;
     binary::reads_back(&written, digest, fresh).map_err(|error| {
         log::error!("a saved model did not decode back to what was written: {error}");
@@ -364,9 +381,22 @@ fn check_reads_back(file: &File, digest: &FileDigest, fresh: &[FreshVersion]) ->
     })
 }
 
+fn zeroed(length: usize) -> io::Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(length)
+        .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
+    buffer.resize(length, 0);
+    Ok(buffer)
+}
+
 struct Previous {
-    file: File,
     bytes: Vec<u8>,
+    watched: Watched,
+}
+
+struct Watched {
+    file: File,
     stamp: ChangeStamp,
     key: FileKey,
 }
@@ -378,13 +408,17 @@ impl Previous {
         let key = FileKey::of(&file)?;
         let bytes = read_open(&file)?;
         Ok(Self {
-            file,
             bytes,
-            stamp,
-            key,
+            watched: Watched { file, stamp, key },
         })
     }
 
+    fn into_watched(self) -> Watched {
+        self.watched
+    }
+}
+
+impl Watched {
     fn changed_since_read(&self) -> bool {
         self.file
             .metadata()
@@ -407,7 +441,7 @@ impl Previous {
     }
 }
 
-fn ensure_unchanged_since_read(previous: Option<&Previous>, target: &Path) -> io::Result<()> {
+fn ensure_unchanged_since_read(previous: Option<&Watched>, target: &Path) -> io::Result<()> {
     match previous {
         Some(previous) => previous.ensure_still_at(target),
         None if fs::symlink_metadata(target).is_ok() => Err(outside_change()),
@@ -433,10 +467,19 @@ fn read_previous(path: &Path) -> Result<Option<Previous>, SaveError> {
     }
 }
 
-fn write_sharing(file: &mut File, encoded: &Encoded, source: &Previous) -> io::Result<()> {
-    let bytes = encoded.bytes.as_slice();
+fn write_whole(file: &mut File, bytes: Vec<u8>) -> io::Result<()> {
+    file.write_all(&bytes)
+}
+
+fn write_sharing(
+    file: &mut File,
+    bytes: Vec<u8>,
+    shared: &[Shared],
+    source: &Watched,
+) -> io::Result<()> {
+    let bytes = bytes.as_slice();
     let mut cloned = Vec::new();
-    for range in &encoded.shared {
+    for range in shared {
         let copied = copy_range(&source.file, file, range);
         if copied > 0 {
             cloned.push(Shared {
@@ -448,7 +491,7 @@ fn write_sharing(file: &mut File, encoded: &Encoded, source: &Previous) -> io::R
         write_range(file, bytes, rest, range.at + range.length)?;
     }
     let mut position = 0;
-    for range in &encoded.shared {
+    for range in shared {
         write_range(file, bytes, position, range.at)?;
         position = range.at + range.length;
     }
@@ -1323,6 +1366,22 @@ mod tests {
     }
 
     #[test]
+    fn running_out_of_memory_fails_the_save_in_words_saying_what_to_do() {
+        let read_back = zeroed(usize::MAX).unwrap_err();
+        let packing = EncodeError::Pack(PackError::OutOfMemory);
+
+        assert_eq!(read_back.kind(), io::ErrorKind::OutOfMemory);
+        assert_eq!(SaveError::writing(&read_back), SaveError::OutOfMemory);
+        assert_eq!(SaveError::encoding(&packing), SaveError::OutOfMemory);
+        assert!(
+            SaveError::OutOfMemory
+                .to_string()
+                .contains("close other programs and save again")
+        );
+        assert_eq!(zeroed(2).unwrap(), [0, 0]);
+    }
+
+    #[test]
     fn a_shared_save_writes_exactly_what_was_encoded() {
         let dir = TempDir::new().unwrap();
         let source = dir.path().join("before.caditor");
@@ -1332,7 +1391,15 @@ mod tests {
 
         let previous = Previous::open(&source).unwrap();
         let encoded = sharing_layout(&previous.bytes);
-        replace_atomically(&target, |file| write_sharing(file, &encoded, &previous)).unwrap();
+        replace_atomically(&target, |file| {
+            write_sharing(
+                file,
+                encoded.bytes.clone(),
+                &encoded.shared,
+                &previous.watched,
+            )
+        })
+        .unwrap();
 
         assert_eq!(fs::read(&target).unwrap(), encoded.bytes);
         assert_eq!(fs::read(&source).unwrap(), previous.bytes);
@@ -1348,8 +1415,16 @@ mod tests {
         let previous = Previous::open(&source).unwrap();
         let encoded = sharing_layout(&previous.bytes);
         fs::write(&source, pattern(10 * BLOCK, 5)).unwrap();
-        assert!(previous.changed_since_read());
-        replace_atomically(&target, |file| write_sharing(file, &encoded, &previous)).unwrap();
+        assert!(previous.watched.changed_since_read());
+        replace_atomically(&target, |file| {
+            write_sharing(
+                file,
+                encoded.bytes.clone(),
+                &encoded.shared,
+                &previous.watched,
+            )
+        })
+        .unwrap();
 
         assert_eq!(fs::read(&target).unwrap(), encoded.bytes);
     }

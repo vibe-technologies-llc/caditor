@@ -124,7 +124,7 @@ pub(crate) enum UnpackError {
     #[error("the chunk needs the newer version it was stored against")]
     MissingNewer,
     #[error("the chunk could not be decompressed: {0}")]
-    Zstd(#[from] ZstdError),
+    Zstd(ZstdError),
     #[error("the chunk holds {actual} bytes instead of {expected}")]
     WrongLength { expected: usize, actual: usize },
     #[error("a part of the chunk could not be found again")]
@@ -133,6 +133,29 @@ pub(crate) enum UnpackError {
     OutOfMemory,
     #[error("the file holds more than this version unpacks")]
     OverBudget,
+}
+
+impl From<ZstdError> for UnpackError {
+    fn from(error: ZstdError) -> Self {
+        match error {
+            ZstdError::OutOfMemory | ZstdError::NoMemoryForOutput { .. } => Self::OutOfMemory,
+            error => Self::Zstd(error),
+        }
+    }
+}
+
+fn room_for(length: usize) -> Result<Vec<u8>, UnpackError> {
+    let mut content = Vec::new();
+    content
+        .try_reserve_exact(length)
+        .map_err(|_| UnpackError::OutOfMemory)?;
+    Ok(content)
+}
+
+fn copied(bytes: &[u8]) -> Result<Vec<u8>, UnpackError> {
+    let mut copy = room_for(bytes.len())?;
+    copy.extend_from_slice(bytes);
+    Ok(copy)
 }
 
 impl<'a> Chunk<'a> {
@@ -175,10 +198,7 @@ impl<'a> Chunk<'a> {
         if self.parts == 1 {
             return self.unpack_part(newer);
         }
-        let mut content = Vec::new();
-        content
-            .try_reserve_exact(self.content_length)
-            .map_err(|_| UnpackError::OutOfMemory)?;
+        let mut content = room_for(self.content_length)?;
         let mut position = 0;
         while position < self.whole.len() {
             let (part, end, _, _) =
@@ -197,7 +217,7 @@ impl<'a> Chunk<'a> {
 
     fn unpack_part(&self, newer: Option<&[u8]>) -> Result<Vec<u8>, UnpackError> {
         let content = match self.codec {
-            Some(Codec::Stored) => self.payload.to_vec(),
+            Some(Codec::Stored) => copied(self.payload)?,
             Some(Codec::Zstd) => caditor_zstd::decompress(self.payload, self.content_length)?,
             Some(Codec::ZstdAfterNewer) => caditor_zstd::decompress_after(
                 self.payload,
@@ -428,8 +448,19 @@ fn checksum_of(header: &[u8], payload: &[u8]) -> u64 {
 pub(crate) enum PackError {
     #[error("a part of the model is too large to store")]
     TooLarge,
+    #[error("there is not enough memory to store the model")]
+    OutOfMemory,
     #[error("a part of the model could not be compressed: {0}")]
-    Zstd(#[from] ZstdError),
+    Zstd(ZstdError),
+}
+
+impl From<ZstdError> for PackError {
+    fn from(error: ZstdError) -> Self {
+        match error {
+            ZstdError::OutOfMemory | ZstdError::NoMemoryForOutput { .. } => Self::OutOfMemory,
+            error => Self::Zstd(error),
+        }
+    }
 }
 
 pub(crate) fn start_file(magic: &Magic, version: u32) -> Vec<u8> {
@@ -587,6 +618,9 @@ fn push_raw(
     }
     let checksum = checksum_of(header.get(CHECKED_HEADER).unwrap_or_default(), payload);
     write_checksum(&mut header, checksum);
+    bytes
+        .try_reserve(CHUNK_HEADER_LENGTH.saturating_add(payload.len()))
+        .map_err(|_| PackError::OutOfMemory)?;
     bytes.extend_from_slice(&header);
     bytes.extend_from_slice(payload);
     Ok(())

@@ -60,6 +60,8 @@ impl Level {
 pub enum ZstdError {
     #[error("the compressor could not allocate its working memory")]
     OutOfMemory,
+    #[error("there is not enough memory for the {needed} bytes of output")]
+    NoMemoryForOutput { needed: usize },
     #[error("the data is not a complete zstd frame")]
     NotAFrame,
     #[error("the frame does not record the size of its content")]
@@ -142,6 +144,15 @@ fn single_frame(data: &[u8]) -> Result<(), ZstdError> {
     Ok(())
 }
 
+fn zeroed(length: usize) -> Result<Vec<u8>, ZstdError> {
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(length)
+        .map_err(|_| ZstdError::NoMemoryForOutput { needed: length })?;
+    buffer.resize(length, 0);
+    Ok(buffer)
+}
+
 fn window_log(span: usize) -> c_int {
     let bits = span
         .max(1)
@@ -216,7 +227,7 @@ impl Compressor {
             checked(code)?;
         }
         let capacity = checked(ZSTD_compressBound(data.len()))?;
-        let mut frame = vec![0_u8; capacity];
+        let mut frame = zeroed(capacity)?;
         #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let written = unsafe {
             ZSTD_compress2(
@@ -278,7 +289,7 @@ impl Decompressor {
             };
             checked(code)?;
         }
-        let mut content = vec![0_u8; expected.saturating_add(SPARE_ROOM)];
+        let mut content = zeroed(expected.saturating_add(SPARE_ROOM))?;
         #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let written = unsafe {
             ZSTD_decompressDCtx(

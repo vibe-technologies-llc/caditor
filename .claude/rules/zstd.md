@@ -31,5 +31,8 @@ paths:
 
   The fuzz input that found it, `src/crashes/history-past-output.bin`, is kept by a test; the
   three-frame test needs a prefix large enough to be mapped above the output.
+- Output buffers are reserved fallibly (`zeroed`): one the memory cannot hold is
+  `ZstdError::NoMemoryForOutput { needed }`, never an abort, so a save short of memory fails as a
+  save (`file-format.md`); `ZstdError::OutOfMemory` is the port's own working memory.
 - The port exports no error codes: `ZstdError` classifies the failure from the negated return value
   against the numbers in `code` (a test pins each); an unknown one is `Unclassified { code }`.

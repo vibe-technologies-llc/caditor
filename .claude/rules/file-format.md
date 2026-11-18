@@ -756,6 +756,14 @@ Sketch entities:
   against the digest of what was compressed; versions copied as stored are decoded only as links
   of such a chain. A failure is `NotReadBack::Version`, reported as
   `WriteFailure::VersionNotReadBack`.
+- Running out of memory fails the save, never aborts it (an abort would skip the journal flush):
+  zstd output (`ZstdError::NoMemoryForOutput`), chunk copies and joins (`binary::room_for`), the
+  growing file (`push_raw`) and the read-back buffer (`save::zeroed`) are reserved fallibly. Packing
+  short of memory is `PackError::OutOfMemory`, unpacking `UnpackError::OutOfMemory` (what retention
+  treats as starved), and the save reports `SaveError::OutOfMemory` with the file left as it was.
+  Before the read-back the save keeps only what it checks against: the encoded bytes go to the
+  write by value and are freed when it ends, and the previous file's bytes are dropped once encoding
+  is done (`Previous::into_watched` keeps only the handle, stamp and key the guards need).
 - Overwriting a file that loaded with problems first keeps the original as
   `<name>.damaged.caditor` (`keep_copy`, also used for unreadable preferences and recent files): a
   hard link, else a copy moved into place whole. The same copy is kept when the file being

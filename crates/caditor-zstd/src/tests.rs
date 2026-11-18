@@ -232,6 +232,38 @@ fn the_fuzzed_frames_running_past_their_output_are_errors() {
     assert!(decompress_after(data, prefix, 1 << 20).is_err());
 }
 
+#[test]
+fn output_too_large_for_memory_is_an_error_not_an_abort() {
+    let recorded = 1_u64 << 63;
+    let frame = recording_size(recorded);
+    let needed = usize::try_from(recorded).unwrap() + SPARE_ROOM;
+
+    assert_eq!(content_size(&frame), Ok(recorded));
+    assert_eq!(
+        decompress(&frame, usize::MAX),
+        Err(ZstdError::NoMemoryForOutput { needed })
+    );
+    assert_eq!(
+        zeroed(usize::MAX),
+        Err(ZstdError::NoMemoryForOutput { needed: usize::MAX })
+    );
+    assert_eq!(zeroed(3), Ok(vec![0; 3]));
+}
+
+fn recording_size(size: u64) -> Vec<u8> {
+    const MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
+    const SIZE_IN_EIGHT_BYTES_IN_ONE_SEGMENT: u8 = 0b1110_0000;
+    const LAST_BLOCK_OF_ONE_REPEATED_BYTE: [u8; 4] = [0b1011, 0, 0, b'a'];
+
+    [
+        MAGIC.as_slice(),
+        &[SIZE_IN_EIGHT_BYTES_IN_ONE_SEGMENT],
+        &size.to_le_bytes(),
+        &LAST_BLOCK_OF_ONE_REPEATED_BYTE,
+    ]
+    .concat()
+}
+
 fn recording_no_content(frame: &[u8]) -> Vec<u8> {
     const SIZE_IN_FOUR_BYTES: u8 = 0b1000_0000;
     const SINGLE_SEGMENT: u8 = 0b0010_0000;

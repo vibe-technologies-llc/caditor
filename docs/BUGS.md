@@ -18,13 +18,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `Close { discard: true }` behind the save, which removes the journal even when that save then
   fails (a full disk). Wait for the save (`after_save = Some(Quit)` with a saving note) instead of
   asking.
-- [medium · medium] Running out of memory during a save aborts the process instead of failing the
-  save, and an abort skips the journal flush: `caditor-zstd` allocates its output with an
-  infallible `vec![0; n]`, stored chunks are copied with `to_vec` (`binary/mod.rs`), and the
-  read-back allocates the whole written file (`save.rs`) while the encoded bytes, the previous file
-  and the snapshots are still held. Only `try_reserve_exact` for sliced content yields the
-  `UnpackError::OutOfMemory` retention is written to handle. Allocate fallibly there and drop the
-  held buffers before the read-back.
+- [low · small] A save can still abort for want of memory while it gathers the model in
+  `binary/model.rs`: the record snapshots (`PriorRecords`, `NewRecords`) and the file's chunks
+  (`NewRecords::push_chunks`, `Section::place`) grow with infallible `extend_from_slice`, sized by
+  the model. Reserve them fallibly into `PackError::OutOfMemory` as `push_raw` does.
 - [low · small] A change landing after Quit has closed storage is neither journaled nor asked
   about: `Model::close` takes the storage and `record` then does nothing, `Files::poll` quits when
   closing finishes without checking `is_dirty()` again, and `run_due` still applies due reruns

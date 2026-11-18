@@ -1557,3 +1557,47 @@ fn a_chunk_after_the_head_that_is_not_a_preview_reads_as_none() {
     assert_eq!(preview_of_prefix(b""), None);
     assert_eq!(preview_of_prefix(&MODEL_MAGIC), None);
 }
+
+#[test]
+fn unpacking_more_than_memory_holds_is_out_of_memory_not_an_abort() {
+    const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
+    const SIZE_IN_EIGHT_BYTES_IN_ONE_SEGMENT: u8 = 0b1110_0000;
+    const LAST_BLOCK_OF_ONE_REPEATED_BYTE: [u8; 4] = [0b1011, 0, 0, b'a'];
+
+    let frame = [
+        ZSTD_MAGIC.as_slice(),
+        &[SIZE_IN_EIGHT_BYTES_IN_ONE_SEGMENT],
+        &(1_u64 << 63).to_le_bytes(),
+        &LAST_BLOCK_OF_ONE_REPEATED_BYTE,
+    ]
+    .concat();
+    let claiming = |codec, parts| Chunk {
+        kind: Some(ChunkKind::Record),
+        codec: Some(codec),
+        flags: 0,
+        tag: ChunkKind::Record as u8,
+        parts,
+        content_length: usize::MAX,
+        payload: &frame,
+        whole: &frame,
+    };
+
+    assert_eq!(
+        claiming(Codec::Zstd, 1).unpack(None),
+        Err(UnpackError::OutOfMemory)
+    );
+    assert_eq!(
+        claiming(Codec::Stored, 2).unpack(None),
+        Err(UnpackError::OutOfMemory)
+    );
+    assert_eq!(room_for(usize::MAX), Err(UnpackError::OutOfMemory));
+    assert_eq!(copied(b"stored"), Ok(b"stored".to_vec()));
+    assert_eq!(
+        PackError::from(ZstdError::NoMemoryForOutput { needed: usize::MAX }),
+        PackError::OutOfMemory
+    );
+    assert_eq!(
+        PackError::from(ZstdError::Corrupted),
+        PackError::Zstd(ZstdError::Corrupted)
+    );
+}
