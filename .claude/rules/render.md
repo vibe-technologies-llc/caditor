@@ -37,8 +37,12 @@ paths:
 - `Hidden` (occluded) makes the app stop drawing until shown or a probe timer fires, so a hidden
   Wayland window does not block the UI thread on the acquire timeout. `Skipped` (timeout, outdated
   or lost surface) is a retry, never a reason to stop.
-- A `SurfaceValidation` acquire climbs a ladder, one rung per consecutive failure: reconfigure,
-  recreate the surface, configure conservatively, open a replacement device.
+- A failing surface climbs one ladder (`healing.rs`, `SurfaceLadder::climb`, pure over the failure
+  and the rung, unit tested): a `SurfaceValidation` acquire takes one rung per consecutive failure
+  (reconfigure, recreate the surface, configure conservatively, open a replacement device); a lost
+  surface is recreated; a recreated surface lacking the current format is kept and a replacement
+  device opened for it, which configures it with a format it offers. A good acquire or a new device
+  puts the ladder back on its first rung.
 - Refused scene targets step multisampling down a level (to Off, the preference untouched) and
   draw again; a refused mesh or batch is dropped alone and not retried until it leaves the scene
   or its anchor moves; refused pick targets disable picking. Each is one `RenderFault`
@@ -635,25 +639,32 @@ paths:
 ## Image export (`image.rs`)
 
 - `Renderer::render_image` draws an `ImageRequest` offscreen, independent of the window, at most
-  `MAX_IMAGE_SIDE` a side in tiles of `TILE_SIDE` (or the largest texture side). Each tile writes
-  the view uniform with `image::tile_transform`, the same clip-space transform the pick window uses,
-  so line widths and grid fades stay those of the whole image; one submit per tile, since uniform
-  writes land at the next submit.
+  `MAX_IMAGE_SIDE` a side in tiles of `TILE_SIDE` (or the largest texture side), shrunk under
+  ambient occlusion until a tile and its `MOST_PIXELS` margins fit the largest texture side
+  (`occluded_tile_side`; `ImagePlan::tile_side`), tested on a device limited to 2048. Each tile
+  writes the view uniform with `image::tile_transform`, the same clip-space transform the pick
+  window uses, so line widths and grid fades stay those of the whole image; one submit per tile,
+  since uniform writes land at the next submit.
 - Memory is a small multiple of one band (a row of tiles), never the image: `ImageTiles` (kept by
   the `Renderer`) draws tiles in rows from the top into at most `READBACK_BUFFERS` readback buffers,
   and `ImageBands` (`Send`, for the writer's thread) waits for each tile by polling the device every
-  millisecond (never wgpu's blocking wait, which on GL holds the context the UI thread draws with),
-  copies it into the band, returns the buffer and wakes the app, whose next frame's `advance_image`
-  draws the next tiles. A finished band is straightened and handed out whole rows at a time. Errors
-  after the start reach the bands in order; dropping the bands stops the tiles at the next frame.
+  millisecond (never wgpu's blocking wait, which on GL holds the context the UI thread draws with)
+  for at most `MAPPING_DEADLINE`, so a hang that never reports the device lost ends in
+  `ReadbackTimedOut` instead of pinning the thread, copies it into the band, returns the buffer and
+  wakes the app, whose next frame's `advance_image` draws the next tiles. A finished band is
+  straightened and handed out whole rows at a time. Errors after the start reach the bands in
+  order; dropping the bands stops the tiles at the next frame.
 - The tiles draw with their own `ViewportRenderer` (`image_sibling`): the window's pipelines,
   layouts and uploaded mesh buffers shared, its own uniforms, batches and face styles, so the
   window's frames between tiles neither disturb the image nor upload anything again. When the
   surface is neither `Rgba8Unorm` nor `Bgra8Unorm` a throwaway `Rgba8Unorm` one is built. Output is
   written unconverted, as on screen, so pixels are sRGB.
 - Errors are `ImageError` (`Busy` while another image's tiles are still drawing, `OutOfMemory`,
-  `Refused`, `DeviceLost`, `Readback`, `Abandoned`). Nothing on the UI thread waits on the GPU, and
-  the bands turn the premultiplied colour of a transparent clear into straight alpha.
+  `Refused`, `DeviceLost`, `Readback`, `ReadbackTimedOut`, `Abandoned`). Refused ambient occlusion
+  does not fail an image: it is drawn without it, as the window is, logged and told by
+  `ImageBands::occlusion_dropped`; any other refusal while preparing it is `Refused`. Nothing on
+  the UI thread waits on the GPU, and the bands turn the premultiplied colour of a transparent
+  clear into straight alpha.
 - `OffscreenRenderer` opens a device without a surface and draws the same `ImageRequest` into an
   `Rgba8Unorm` target, its `ImageBands` drawing the tiles inline as it reads them (`drawn_inline`):
   the headless `--export` of a PNG (`app.md`) streams them to the file. Both draw a scene's

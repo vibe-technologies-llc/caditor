@@ -4,7 +4,7 @@ use std::{
         mpsc::{self, Receiver, RecvError, Sender, TryRecvError},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use parking_lot::Mutex;
@@ -22,6 +22,7 @@ pub const TILE_SIDE: u32 = 2048;
 pub const IMAGE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 pub const READBACK_BUFFERS: usize = 3;
 const MAPPING_POLL_INTERVAL: Duration = Duration::from_millis(1);
+const MAPPING_DEADLINE: Duration = Duration::from_secs(60);
 const TEXEL_BYTES: u32 = 4;
 const OPAQUE: u8 = u8::MAX;
 
@@ -66,6 +67,8 @@ pub enum ImageError {
     Refused,
     #[error("the image could not be read back from the graphics card")]
     Readback,
+    #[error("the graphics card did not hand back part of the image within {seconds} seconds")]
+    ReadbackTimedOut { seconds: u64 },
     #[error("drawing the image stopped before it was finished")]
     Abandoned,
 }
@@ -234,7 +237,7 @@ pub fn start(
     }
     let (renderer, plan) = prepared.ok_or(ImageError::Refused)?;
 
-    let tiles = tiles(request.size, tile_side);
+    let tiles = tiles(request.size, plan.tile_side());
     let buffer_bytes = tiles.first().map_or(0, |tile| tile.readback_bytes());
     let (drawn_sender, drawn) = mpsc::channel();
     let (returned_sender, returned) = mpsc::channel();
@@ -243,6 +246,7 @@ pub fn start(
         loss: gpu.loss.clone(),
         size: request.size,
         order: plan.order(),
+        occlusion_dropped: plan.occlusion_dropped(),
         link: Some(Link {
             drawn,
             returned: returned_sender,
@@ -397,6 +401,7 @@ pub struct ImageBands {
     loss: DeviceLoss,
     size: SurfaceSize,
     order: ChannelOrder,
+    occlusion_dropped: bool,
     link: Option<Link>,
     inline: Option<Box<ImageTiles>>,
     wake: Wake,
@@ -407,6 +412,10 @@ pub struct ImageBands {
 impl ImageBands {
     pub fn size(&self) -> SurfaceSize {
         self.size
+    }
+
+    pub fn occlusion_dropped(&self) -> bool {
+        self.occlusion_dropped
     }
 
     pub fn next_band(&mut self) -> Option<Result<&[u8], ImageError>> {
@@ -433,7 +442,12 @@ impl ImageBands {
             if tile.y != self.next_row || tile.x != covered {
                 return Err(ImageError::Readback);
             }
-            self.wait_until_mapped(&drawn.mapped)?;
+            wait_until_mapped(
+                &drawn.mapped,
+                &self.loss,
+                || self.device.poll(wgpu::PollType::Poll).map(drop),
+                MAPPING_DEADLINE,
+            )?;
 
             rows = tile.height as usize;
             let needed = rows * row_bytes;
@@ -470,27 +484,6 @@ impl ImageBands {
         }
     }
 
-    fn wait_until_mapped(&self, mapped: &MapOutcome) -> Result<(), ImageError> {
-        loop {
-            if let Some(outcome) = mapped.lock().take() {
-                return outcome.map_err(|error| {
-                    log::warn!("reading back an exported image failed: {error}");
-                    ImageError::Readback
-                });
-            }
-            if self.loss.is_lost() {
-                return Err(ImageError::DeviceLost);
-            }
-            if let Err(error) = self.device.poll(wgpu::PollType::Poll) {
-                log::warn!("could not poll the graphics device for an exported image: {error}");
-                return Err(ImageError::Readback);
-            }
-            if mapped.lock().is_none() {
-                thread::sleep(MAPPING_POLL_INTERVAL);
-            }
-        }
-    }
-
     fn hang_up(&mut self) {
         self.inline = None;
         if self.link.take().is_some() {
@@ -523,6 +516,43 @@ impl Drop for ImageBands {
     }
 }
 
+fn wait_until_mapped(
+    mapped: &MapOutcome,
+    loss: &DeviceLoss,
+    poll: impl Fn() -> Result<(), wgpu::PollError>,
+    limit: Duration,
+) -> Result<(), ImageError> {
+    let deadline = Instant::now() + limit;
+    loop {
+        if let Some(outcome) = mapped.lock().take() {
+            return outcome.map_err(|error| {
+                log::warn!("reading back an exported image failed: {error}");
+                ImageError::Readback
+            });
+        }
+        if loss.is_lost() {
+            return Err(ImageError::DeviceLost);
+        }
+        if let Err(error) = poll() {
+            log::warn!("could not poll the graphics device for an exported image: {error}");
+            return Err(ImageError::Readback);
+        }
+        if mapped.lock().is_some() {
+            continue;
+        }
+        if Instant::now() >= deadline {
+            log::warn!(
+                "the graphics device did not map an exported image's tile within {} seconds",
+                limit.as_secs()
+            );
+            return Err(ImageError::ReadbackTimedOut {
+                seconds: limit.as_secs(),
+            });
+        }
+        thread::sleep(MAPPING_POLL_INTERVAL);
+    }
+}
+
 fn copy_tile(drawn: &DrawnTile, band: &mut [u8], row_bytes: usize) -> Result<(), ImageError> {
     let tile = drawn.tile;
     let mapped = drawn
@@ -546,6 +576,8 @@ fn copy_tile(drawn: &DrawnTile, band: &mut [u8], row_bytes: usize) -> Result<(),
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
 
     fn size(width: u32, height: u32) -> SurfaceSize {
@@ -658,6 +690,35 @@ mod tests {
         assert_eq!(unpremultiply([50, 0, 100], 128), [100, 0, 199, 128]);
         assert_eq!(unpremultiply([200, 200, 200], 100), [255, 255, 255, 100]);
         assert_eq!(unpremultiply([3, 4, 5], 0), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn a_mapping_that_never_comes_gives_up_at_its_deadline() {
+        let never = MapOutcome::default();
+        let polls = AtomicUsize::new(0);
+
+        let waited = wait_until_mapped(
+            &never,
+            &DeviceLoss::default(),
+            || {
+                polls.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            },
+            Duration::from_millis(20),
+        );
+
+        assert_eq!(waited, Err(ImageError::ReadbackTimedOut { seconds: 0 }));
+        assert!(polls.load(Ordering::Relaxed) > 0);
+    }
+
+    #[test]
+    fn a_mapping_answered_before_the_deadline_is_taken() {
+        let answered = MapOutcome::new(Mutex::new(Some(Ok(()))));
+        let lost = DeviceLoss::default();
+
+        let waited = wait_until_mapped(&answered, &lost, || Ok(()), Duration::ZERO);
+
+        assert_eq!(waited, Ok(()));
     }
 
     #[test]

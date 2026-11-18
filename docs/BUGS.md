@@ -295,15 +295,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
-- [low · small] An image export of 2048 pixels or more in the rendered style with ambient occlusion
-  is refused on a device limited to 2048-pixel textures: the tile side is `TILE_SIDE.min(largest)`
-  and the occlusion targets add `2 × MOST_PIXELS` unclamped (`viewport.rs`, `occlusion.rs`), and an
-  occlusion fault fails the whole image where the window only drops occlusion.
-- [low · small] A lost surface whose replacement lacks the current format fails every frame without
-  stepping up to a new device (`caditor-render`'s `lib.rs`; only `Validation` climbs the ladder),
-  and the image writer waits for its mapping with no deadline (`image.rs`), so a hang that never
-  reports the device lost pins its thread. Neither the recovery ladder nor surface healing has a
-  test (`offscreen_tests.rs` covers `DeviceLoss` and a fresh device only).
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was

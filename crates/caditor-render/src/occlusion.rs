@@ -81,6 +81,17 @@ impl OcclusionUniform {
     }
 }
 
+pub(crate) fn margined_side(side: u32) -> u32 {
+    side.saturating_add(2 * MOST_PIXELS)
+}
+
+pub(crate) fn occluded_tile_side(tile_side: u32, largest: u32) -> u32 {
+    match largest.checked_sub(margined_side(0)) {
+        Some(room) if room > 0 => tile_side.min(room),
+        _ => tile_side,
+    }
+}
+
 pub(crate) struct OcclusionLayouts {
     pub(crate) surfaces: wgpu::BindGroupLayout,
     pub(crate) raw: wgpu::BindGroupLayout,
@@ -508,5 +519,18 @@ mod tests {
         assert_eq!(off.right, uniform.right);
         assert!(!OcclusionUniform::of(1.0, &view, std::iter::empty()).occludes());
         assert_eq!(uniform.read_from(96).frame[0], 96.0);
+    }
+
+    #[test]
+    fn an_occluded_image_tile_shrinks_until_its_margined_targets_fit_the_device() {
+        let small_device = occluded_tile_side(2048, 2048);
+        let large_device = occluded_tile_side(2048, 8192);
+        let tiny_device = occluded_tile_side(64, 128);
+
+        assert_eq!(margined_side(small_device), 2048);
+        assert_eq!(large_device, 2048);
+        assert_eq!(occluded_tile_side(100, 2048), 100);
+        assert_eq!(tiny_device, 64);
+        assert!(margined_side(tiny_device) > 128);
     }
 }

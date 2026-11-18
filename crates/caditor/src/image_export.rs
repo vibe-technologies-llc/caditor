@@ -487,6 +487,10 @@ fn outcome(name: &str, result: Result<SurfaceSize, ImageFailure>) -> Notice {
         ImageFailure::Render(ImageError::Readback) => {
             "the image could not be read back from the graphics card. Try again".to_owned()
         }
+        ImageFailure::Render(ImageError::ReadbackTimedOut { seconds }) => format!(
+            "the graphics card did not hand back part of it within {seconds} seconds. Try a \
+             smaller size, or update the graphics driver"
+        ),
         ImageFailure::Render(ImageError::Abandoned) => {
             "drawing it stopped before it was finished. Export the image again".to_owned()
         }

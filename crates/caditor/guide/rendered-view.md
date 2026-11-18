@@ -71,7 +71,8 @@ Visible floor on, the floor and its shadow are drawn over the plain colour too.
 
 Bright light rolls off smoothly rather than clipping to white, keeping a material's colour
 recognisable. [Exporting](exporting) an image while the Rendered style is shown draws it with the
-same lighting.
+same lighting; where the graphics card refuses the memory for its ambient occlusion, the image is
+drawn without it, as the view is.
 
 ## Sky picture
 

@@ -5898,13 +5898,32 @@ fn a_metal_renders_apart_from_a_dielectric_of_its_colour_and_exposure_brightens_
 
 #[test]
 fn ambient_occlusion_darkens_the_floor_in_an_inside_corner_and_leaves_open_floor_alone() {
+    let view = oblique_view(200.0);
+    let spots = [INSIDE_CORNER, Point3::new(40.0, -40.0, 0.0)];
+
+    let Some(open) = rendered_pixels(&occluded_corner_scene(0.0), &view, &spots) else {
+        return;
+    };
+    let occluded = rendered_pixels(&occluded_corner_scene(1.0), &view, &spots).unwrap();
+
+    assert!(
+        brightness(occluded[0]) + 30 < brightness(open[0]),
+        "{open:?} {occluded:?}"
+    );
+    assert!(
+        brightness(occluded[1]).abs_diff(brightness(open[1])) < 12,
+        "{open:?} {occluded:?}"
+    );
+}
+
+const INSIDE_CORNER: Point3 = Point3::new(1.5, 1.0, 0.0);
+
+fn occluded_corner_scene(occlusion: f32) -> Scene {
     let floor = Arc::new(quad_mesh(0.0, 60.0));
     let cube = Arc::new(box_mesh(15.0));
     let white = Color::from_rgb8(220, 220, 220);
     let standing = RigidTransform::translation(Vector3::new(-15.0, 15.0, 15.0));
-    let view = oblique_view(200.0);
-    let spots = [Point3::new(1.5, 1.0, 0.0), Point3::new(40.0, -40.0, 0.0)];
-    let scene_with = |occlusion: f32| Scene {
+    Scene {
         meshes: vec![
             finished_mesh(&floor, white, MATTE, None),
             finished_mesh(&cube, white, MATTE, standing),
@@ -5916,21 +5935,87 @@ fn ambient_occlusion_darkens_the_floor_in_an_inside_corner_and_leaves_open_floor
             ..lit_by(0.0, std::f64::consts::FRAC_PI_2)
         }),
         ..Scene::default()
-    };
+    }
+}
 
-    let Some(open) = rendered_pixels(&scene_with(0.0), &view, &spots) else {
+fn occluded_corner_image(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    size: SurfaceSize,
+    occlusion: f32,
+) -> (Image, bool, DVec2) {
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::new(0.8, -1.0, 0.9), Point3::ZERO, 200.0).unwrap();
+    let view = View::new(viewpoint, f64::from(size.width), f64::from(size.height));
+    let corner = view.project(INSIDE_CORNER).unwrap();
+    let scene = occluded_corner_scene(occlusion);
+    let request = ImageRequest {
+        size,
+        view: &view,
+        scene: &scene,
+        pixels_per_point: 1.0,
+        background: Background::Viewport,
+    };
+    let renderer = viewport_renderer(device, 4);
+    let largest = device.limits().max_texture_dimension_2d;
+
+    let bands = image::drawn_inline(
+        image_gpu(device, queue),
+        || renderer.image_sibling(device),
+        &request,
+        image::TILE_SIDE.min(largest),
+    )
+    .unwrap();
+    let dropped = bands.occlusion_dropped();
+
+    (bands.into_image().unwrap(), dropped, corner)
+}
+
+#[test]
+fn an_image_wider_than_the_device_s_largest_texture_is_exported_with_ambient_occlusion() {
+    let Some((device, queue)) = gpu_with(wgpu::Limits {
+        max_texture_dimension_2d: 2048,
+        ..wgpu::Limits::default()
+    }) else {
         return;
     };
-    let occluded = rendered_pixels(&scene_with(1.0), &view, &spots).unwrap();
+    let size = SurfaceSize {
+        width: 2100,
+        height: 200,
+    };
 
+    let (open, _, corner) = occluded_corner_image(&device, &queue, size, 0.0);
+    let (occluded, dropped, _) = occluded_corner_image(&device, &queue, size, 1.0);
+
+    assert!(!dropped);
+    assert_eq!((occluded.width, occluded.height), (2100, 200));
     assert!(
-        brightness(occluded[0]) + 30 < brightness(open[0]),
-        "{open:?} {occluded:?}"
+        brightness(image_pixel(&occluded, corner)) + 30 < brightness(image_pixel(&open, corner)),
+        "{:?} {:?}",
+        image_pixel(&open, corner),
+        image_pixel(&occluded, corner)
     );
-    assert!(
-        brightness(occluded[1]).abs_diff(brightness(open[1])) < 12,
-        "{open:?} {occluded:?}"
-    );
+}
+
+#[test]
+fn an_image_whose_ambient_occlusion_the_device_refuses_is_drawn_without_it() {
+    let Some((device, queue)) = gpu_with(wgpu::Limits {
+        max_texture_dimension_2d: 128,
+        ..wgpu::Limits::default()
+    }) else {
+        return;
+    };
+    let size = SurfaceSize {
+        width: 100,
+        height: 100,
+    };
+
+    let (open, open_dropped, _) = occluded_corner_image(&device, &queue, size, 0.0);
+    let (refused, dropped, _) = occluded_corner_image(&device, &queue, size, 1.0);
+
+    assert!(!open_dropped);
+    assert!(dropped);
+    assert_eq!(refused, open);
 }
 
 #[test]

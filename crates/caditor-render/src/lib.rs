@@ -6,6 +6,7 @@ mod culling;
 mod environment;
 mod environment_textures;
 mod gpu;
+mod healing;
 mod image;
 mod kept;
 mod lighting;
@@ -66,6 +67,7 @@ pub use crate::{
 };
 use crate::{
     gpu::DeviceLoss,
+    healing::{SurfaceFailure, SurfaceLadder, SurfaceRepair},
     image::{ChannelOrder, IMAGE_FORMAT, ImageGpu, ImageTiles, TILE_SIDE},
     viewport::{DEPTH_FORMAT, Faults},
 };
@@ -352,7 +354,7 @@ pub struct Renderer {
     pick_dropped: bool,
     image: Option<ImageTiles>,
     recovery: Option<mpsc::Receiver<Result<Recovered, RenderError>>>,
-    validation_failures: u32,
+    ladder: SurfaceLadder,
     faults: Vec<RenderFault>,
 }
 
@@ -392,7 +394,7 @@ impl Renderer {
             pick_dropped: false,
             image: None,
             recovery: None,
-            validation_failures: 0,
+            ladder: SurfaceLadder::default(),
             faults: Vec::new(),
         })
     }
@@ -500,11 +502,11 @@ impl Renderer {
 
         let surface_texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(texture) => {
-                self.validation_failures = 0;
+                self.ladder.settle();
                 texture
             }
             wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
-                self.validation_failures = 0;
+                self.ladder.settle();
                 self.needs_reconfigure = true;
                 texture
             }
@@ -520,11 +522,11 @@ impl Renderer {
                 return Ok(FrameStart::Skipped);
             }
             wgpu::CurrentSurfaceTexture::Lost => {
-                self.recreate_surface()?;
+                self.repair_surface(SurfaceFailure::Lost)?;
                 return Ok(FrameStart::Skipped);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
-                self.heal_surface()?;
+                self.repair_surface(SurfaceFailure::Validation)?;
                 return Err(RenderError::SurfaceValidation);
             }
         };
@@ -700,16 +702,12 @@ impl Renderer {
         }
     }
 
-    fn heal_surface(&mut self) -> Result<(), RenderError> {
-        self.validation_failures = self.validation_failures.saturating_add(1);
-        match self.validation_failures {
-            1 => self.needs_reconfigure = true,
-            2 => self.recreate_surface()?,
-            3 => self.configure_conservatively(),
-            _ => {
-                self.validation_failures = 0;
-                self.start_recovery()?;
-            }
+    fn repair_surface(&mut self, failure: SurfaceFailure) -> Result<(), RenderError> {
+        match self.ladder.climb(failure) {
+            SurfaceRepair::Reconfigure => self.needs_reconfigure = true,
+            SurfaceRepair::Recreate => self.recreate_surface()?,
+            SurfaceRepair::ConfigureConservatively => self.configure_conservatively(),
+            SurfaceRepair::ReplaceDevice => self.start_recovery()?,
         }
         Ok(())
     }
@@ -775,7 +773,7 @@ impl Renderer {
         self.gpu = gpu;
         self.generation = self.generation.wrapping_add(1);
         self.needs_reconfigure = false;
-        self.validation_failures = 0;
+        self.ladder.settle();
         Ok(true)
     }
 
@@ -783,10 +781,14 @@ impl Renderer {
         log::warn!("drawing surface was lost, recreating it");
         let surface = Arc::new(self.instance.create_surface(Arc::clone(&self.window))?);
         let capabilities = surface.get_capabilities(&self.gpu.adapter);
-        if !capabilities.formats.contains(&self.viewport.format()) {
-            return Err(RenderError::UnsupportedSurface);
-        }
         self.surface = surface;
+        let format = self.viewport.format();
+        if !capabilities.formats.contains(&format) {
+            log::warn!(
+                "the new drawing surface cannot present {format:?}, opening a new graphics device for it"
+            );
+            return self.repair_surface(SurfaceFailure::ReplacementLacksFormat);
+        }
         self.gpu.present_modes = capabilities.present_modes;
         self.gpu.present_with(self.graphics.vsync);
         self.resize(self.size());

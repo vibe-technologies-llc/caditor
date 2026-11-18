@@ -19,7 +19,8 @@ use crate::{
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
     occlusion::{
         MOST_PIXELS, Occlusion, OcclusionLayouts, OcclusionPasses, OcclusionReady,
-        OcclusionUniform, PassArea, floor_surfaces_pipeline, screen_pipeline, surfaces_pipeline,
+        OcclusionUniform, PassArea, floor_surfaces_pipeline, margined_side, occluded_tile_side,
+        screen_pipeline, surfaces_pipeline,
     },
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     pictures::PictureCache,
@@ -289,11 +290,21 @@ pub struct ImagePlan {
     occluded: OcclusionUniform,
     sky: bool,
     targets: ImageTargets,
+    tile_side: u32,
+    occlusion_dropped: bool,
 }
 
 impl ImagePlan {
     pub fn order(&self) -> ChannelOrder {
         self.order
+    }
+
+    pub fn tile_side(&self) -> u32 {
+        self.tile_side
+    }
+
+    pub fn occlusion_dropped(&self) -> bool {
+        self.occlusion_dropped
     }
 }
 
@@ -1634,19 +1645,37 @@ impl ViewportRenderer {
             pick_at: None,
             pixels_per_point: request.pixels_per_point,
         };
-        let margined = |side: u32| tile_side.min(side) + 2 * MOST_PIXELS;
+        let occludes = request
+            .scene
+            .lighting
+            .as_ref()
+            .is_some_and(|lighting| lighting.occlusion > 0.0);
+        let tile_side = match occludes {
+            true => occluded_tile_side(tile_side, device.limits().max_texture_dimension_2d),
+            false => tile_side,
+        };
+        let margined = |side: u32| margined_side(tile_side.min(side));
         let occlusion_size = (margined(size.width), margined(size.height));
-        if self
+        let faults = self
             .upload(
                 device,
                 queue,
                 &frame,
                 (UploadBudget::UNLIMITED, Some(occlusion_size)),
             )
-            .faults
-            .any()
+            .faults;
+        if (Faults {
+            occlusion: false,
+            ..faults
+        })
+        .any()
         {
             return None;
+        }
+        if faults.occlusion {
+            log::warn!(
+                "the graphics device refused the exported image's ambient occlusion, so the image is drawn without it"
+            );
         }
         let targets = ImageTargets::new(
             device,
@@ -1675,6 +1704,8 @@ impl ViewportRenderer {
             occluded: self.occluded.read_from(MOST_PIXELS),
             sky: request.background == Background::Viewport,
             targets,
+            tile_side,
+            occlusion_dropped: faults.occlusion,
         })
     }
 
@@ -1753,20 +1784,10 @@ impl ViewportRenderer {
         });
         self.draw_light_pass(&mut encoder);
         if plan.occluded.occludes() {
-            let margin = MOST_PIXELS as f32;
+            let (across, down) = (margined_side(tile.width), margined_side(tile.height));
             let area = PassArea {
-                viewport: [
-                    0.0,
-                    0.0,
-                    tile.width as f32 + 2.0 * margin,
-                    tile.height as f32 + 2.0 * margin,
-                ],
-                scissor: [
-                    0,
-                    0,
-                    tile.width + 2 * MOST_PIXELS,
-                    tile.height + 2 * MOST_PIXELS,
-                ],
+                viewport: [0.0, 0.0, across as f32, down as f32],
+                scissor: [0, 0, across, down],
             };
             self.draw_occlusion(
                 &mut encoder,
