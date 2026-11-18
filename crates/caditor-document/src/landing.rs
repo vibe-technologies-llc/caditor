@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 
 use caditor_geometry::{Plane, Similarity, Vector3};
 use caditor_kernel::{BooleanOperation, PatternCopy, PatternError, Solid, pattern_copies};
@@ -10,6 +10,7 @@ use crate::{
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     repeat_blend::{Repeat, RepeatCause},
     solid::{self, Extrude, SolidFeature},
+    values::ParameterValues,
 };
 
 pub(crate) struct Landing<'a> {
@@ -25,13 +26,15 @@ pub(crate) struct Landing<'a> {
 pub(crate) struct LandingInputs {
     features: BTreeMap<FeatureId, Arc<FeatureResult>>,
     bodies: BTreeMap<FeatureId, (FeatureId, Arc<FeatureResult>)>,
+    readings: Option<ParameterValues>,
 }
 
 impl LandingInputs {
-    pub(crate) fn of(inputs: &Inputs<'_>) -> Self {
+    pub(crate) fn of(feature: &Feature, inputs: &Inputs<'_>) -> Self {
         Self {
             features: inputs.features.clone(),
             bodies: inputs.bodies.clone(),
+            readings: inputs.parameters.readings_among(&feature.kind.parameters()),
         }
     }
 
@@ -41,10 +44,21 @@ impl LandingInputs {
             .chain(self.bodies.values().map(|(_, result)| result))
     }
 
-    fn inputs<'a>(&'a self, outer: &Inputs<'a>) -> Inputs<'a> {
+    fn parameters<'a>(&self, outer: &'a ParameterValues) -> Cow<'a, ParameterValues> {
+        match &self.readings {
+            Some(readings) => {
+                let mut values = outer.clone();
+                values.take_readings(readings);
+                Cow::Owned(values)
+            }
+            None => Cow::Borrowed(outer),
+        }
+    }
+
+    fn inputs<'a>(&'a self, outer: &Inputs<'a>, parameters: &'a ParameterValues) -> Inputs<'a> {
         Inputs {
             document: outer.document,
-            parameters: outer.parameters,
+            parameters,
             features: &self.features,
             bodies: &self.bodies,
             previous: None,
@@ -64,7 +78,7 @@ impl PartialEq for LandingInputs {
                     id == other_id && state == other_state && Arc::ptr_eq(result, other)
                 },
             );
-        same_features && same_bodies
+        same_features && same_bodies && self.readings == other.readings
     }
 }
 
@@ -157,7 +171,8 @@ impl Copies<'_> {
         repeat: &Repeat<'_>,
         cancel: &CancelToken,
     ) -> Result<Landed, Failure> {
-        let seen = self.seen.inputs(inputs);
+        let parameters = self.seen.parameters(inputs.parameters);
+        let seen = self.seen.inputs(inputs, &parameters);
         let inputs = &seen;
         let mut body = standing;
         let mut tools = Vec::new();

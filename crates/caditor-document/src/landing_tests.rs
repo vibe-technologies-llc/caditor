@@ -206,8 +206,13 @@ fn a_copy_whose_end_finds_no_face_fails_the_pattern_naming_the_copy() {
     assert_eq!(error.fix, Some(FixTarget::Feature(pattern)));
 }
 
-#[test]
-fn a_patterned_hole_through_all_goes_through_what_was_added_below_it_since() {
+struct Drilled {
+    document: Document,
+    plate: FeatureId,
+    hole: FeatureId,
+}
+
+fn drilled(diameter: impl FnOnce(&mut TransactionBuilder<'_>) -> Expression) -> Drilled {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
     let outline = transaction.add_feature(
@@ -222,6 +227,7 @@ fn a_patterned_hole_through_all_goes_through_what_was_added_below_it_since() {
             BodyOperation::NewBody,
         ),
     );
+    let diameter = diameter(&mut transaction);
     let mut points = on_plane(Sketch::new(Plane::XY), 10.0);
     points.add_point(Point2::new(-10.0, 5.0));
     let points = transaction.add_feature("Hole sketch", FeatureKind::from(points));
@@ -230,7 +236,7 @@ fn a_patterned_hole_through_all_goes_through_what_was_added_below_it_since() {
         FeatureKind::Hole(Hole {
             sketch: points,
             body: plate,
-            diameter: length("2 mm"),
+            diameter,
             depth: HoleDepth::ThroughAll,
             style: HoleStyle::Plain,
             reversed: false,
@@ -254,27 +260,104 @@ fn a_patterned_hole_through_all_goes_through_what_was_added_below_it_since() {
         ),
     );
     document.apply(transaction.finish()).unwrap();
-    let pattern = Pattern::new(
+    Drilled {
+        document,
         plate,
-        PatternKind::Linear {
-            first: LinearDirection {
-                axis: AxisReference::Principal(PrincipalAxis::X),
-                count: length("2"),
-                spacing: length("20 mm"),
-                measured: LinearSpacing::BetweenCopies,
-                reversed: false,
-            },
-            second: None,
-        },
-    )
-    .repeating(vec![hole]);
-    add(&mut document, "Pattern 1", FeatureKind::from(pattern));
+        hole,
+    }
+}
 
-    let evaluation = evaluate(&document, &mut Recompute::default());
+fn across() -> PatternKind {
+    PatternKind::Linear {
+        first: LinearDirection {
+            axis: AxisReference::Principal(PrincipalAxis::X),
+            count: length("2"),
+            spacing: length("20 mm"),
+            measured: LinearSpacing::BetweenCopies,
+            reversed: false,
+        },
+        second: None,
+    }
+}
+
+fn measured_diameter(transaction: &mut TransactionBuilder<'_>) -> Expression {
+    let gauge = transaction.add_parameter("gauge", length("0 mm"));
+    transaction.add_parameter("bore", transaction.parse("gauge / 2").unwrap());
+    let mark = transaction.add_feature(
+        "Mark",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: PointReference::Origin,
+            offset: [length("40 mm"), length("0 mm"), length("0 mm")],
+        })),
+    );
+    transaction.add_feature(
+        "Measurement 1",
+        FeatureKind::from(Measurement {
+            reading: Reading::Between {
+                quantity: Between::Distance,
+                first: MeasuredItem::Point(PointReference::Datum(mark)),
+                second: MeasuredItem::Point(PointReference::Origin),
+            },
+            parameter: Some(gauge),
+        }),
+    );
+    transaction.parse("bore / 10").unwrap()
+}
+
+#[test]
+fn a_patterned_hole_through_all_goes_through_what_was_added_below_it_since() {
+    let mut drilled = drilled(|_| length("2 mm"));
+    let pattern = Pattern::new(drilled.plate, across()).repeating(vec![drilled.hole]);
+    add(
+        &mut drilled.document,
+        "Pattern 1",
+        FeatureKind::from(pattern),
+    );
+
+    let evaluation = evaluate(&drilled.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
     assert_volume(
-        volume(&evaluation, plate),
+        volume(&evaluation, drilled.plate),
+        BASE + STEP - PI * 10.0 - PI * 20.0,
+    );
+}
+
+#[test]
+fn a_patterned_hole_sized_by_a_measurement_lands_with_the_measured_diameter() {
+    let mut drilled = drilled(measured_diameter);
+    let pattern = Pattern::new(drilled.plate, across()).repeating(vec![drilled.hole]);
+    add(
+        &mut drilled.document,
+        "Pattern 1",
+        FeatureKind::from(pattern),
+    );
+
+    let evaluation = evaluate(&drilled.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(
+        volume(&evaluation, drilled.plate),
+        BASE + STEP - PI * 10.0 - PI * 20.0,
+    );
+}
+
+#[test]
+fn a_mirrored_hole_sized_by_a_measurement_lands_with_the_measured_diameter() {
+    let mut drilled = drilled(measured_diameter);
+    let mirror = Mirror::new(drilled.plate, PlaneReference::Principal(PrincipalPlane::Yz))
+        .mirroring(vec![drilled.hole]);
+    add(
+        &mut drilled.document,
+        "Mirror 1",
+        FeatureKind::Mirror(mirror),
+    );
+
+    let evaluation = evaluate(&drilled.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(
+        volume(&evaluation, drilled.plate),
         BASE + STEP - PI * 10.0 - PI * 20.0,
     );
 }

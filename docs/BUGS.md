@@ -154,14 +154,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   folding in the gap between two samples of a bounding edge can run past the edge there
   (`roots_among` brackets by sign changes at sampled points).
 
-## Modelling
-
-- [medium · medium] Pattern and mirror copies that land a hole or extrusion end (`landing.rs`)
-  evaluate the original with the pattern's parameter values (`LandingInputs::inputs`), and
-  `Measured::overlay` fills only the measurements the pattern reads, so an original sized by a
-  measurement fails `CopyEnd` in the copies or lands with other values. Keep the original's values
-  in `LandingInputs` when captured; untested with a measured diameter.
-
 ## Sketch solver
 
 - [medium · hard] A sketch with a closed centripetal spline through one point twice moves when

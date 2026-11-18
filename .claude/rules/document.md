@@ -1559,7 +1559,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   from (`SolidResult::landing`, a `LandingInputs` of its view's `Arc`s, compared by pointer in
   `same_shapes` and counted in the history's measure) and the copies are evaluated against them:
   up-to targets, a start plane and other bodies resolve as the original's (world planes stay where
-  they are, so a copy meets the same face or plane where it lands). Each copy's tool is named as a rigid
+  they are, so a copy meets the same face or plane where it lands). Since the pattern's parameter
+  values hold only the readings it reads itself, `LandingInputs` also keeps the values the original
+  read of parameters following a measurement (`ParameterValues::readings_among` of its own
+  parameters, none when it reads no measurement), laid over the pattern's for the copies, so a
+  hole sized by a measurement lands at the original's size. Each copy's tool is named as a rigid
   copy's (kernel `pattern_copies` at `Similarity::IDENTITY`) before it is combined, so names and
   `FaceOrigin::Copy` are the same either way. A copy whose end fails fails the pattern or mirror as
   `RepeatCause::CopyEnd`, naming the feature and the copy with the feature's own reason, the fix

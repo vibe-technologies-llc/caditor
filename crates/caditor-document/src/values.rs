@@ -125,6 +125,15 @@ impl ParameterValues {
         }
     }
 
+    pub(crate) fn readings_among(&self, used: &BTreeSet<ParameterId>) -> Option<Self> {
+        let measured: BTreeSet<ParameterId> = self.measured.intersection(used).copied().collect();
+        let entries: BTreeMap<ParameterId, Entry> = measured
+            .iter()
+            .filter_map(|id| Some((*id, self.entries.get(id)?.clone())))
+            .collect();
+        (!entries.is_empty()).then_some(Self { entries, measured })
+    }
+
     pub fn get(&self, id: ParameterId) -> Option<&Result<Quantity, ParameterError>> {
         self.entries.get(&id).map(|entry| &entry.value)
     }

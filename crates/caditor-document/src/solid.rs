@@ -1050,7 +1050,7 @@ impl SolidResult {
     #[must_use]
     pub(crate) fn landing_on(mut self, feature: &Feature, inputs: &Inputs<'_>) -> Self {
         if Lander::of(&feature.kind).is_some() {
-            self.landing = Some(Arc::new(LandingInputs::of(inputs)));
+            self.landing = Some(Arc::new(LandingInputs::of(feature, inputs)));
         }
         self
     }
