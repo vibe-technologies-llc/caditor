@@ -15,7 +15,9 @@ change.
   versions show a bookmark and the word Kept.
 
 One version is restored or kept at a time: while one is, the other Restore and Keep buttons, the
-preview's included, wait until it is done.
+preview's included, wait until it is done. If a save changed the versions after the list was read,
+Restore and Keep refuse rather than act on another version; the list is read again so you can
+choose once more.
 
 ## Thinning
 

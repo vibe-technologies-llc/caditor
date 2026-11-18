@@ -4,6 +4,8 @@ use caditor_sketch::Sketch;
 use egui::{Key, Modifiers};
 
 use super::{Harness, extruded_plate, rectangle, run_from_palette};
+use crate::files::{FileCommand, GuardChoice};
+
 fn side_body_without_a_shape(harness: &mut Harness) -> FeatureId {
     extruded_plate(harness);
     let mut sketch = Sketch::new(Plane::XY);
@@ -147,4 +149,27 @@ fn a_hole_on_a_face_of_a_body_still_recomputing_waits_for_it_instead_of_refusing
     assert_eq!(meanwhile, 0);
     assert_eq!(holes(&harness), 1);
     assert!(!harness.shows_containing("not recomputed up to there"));
+}
+
+#[test]
+fn quitting_drops_a_queued_command_so_the_recompute_landing_while_closing_changes_nothing() {
+    let mut harness = Harness::new();
+    let side = side_body_without_a_shape(&mut harness);
+    ask_to_move(&mut harness, side);
+    let waiting = harness.model.queued().is_some();
+
+    harness.files.perform(FileCommand::Quit, &mut harness.model);
+    harness.files.perform(
+        FileCommand::Guard(GuardChoice::DontSave),
+        &mut harness.model,
+    );
+    let dropped = harness.model.queued().is_none();
+    let revision = harness.model.revision();
+    harness.model.hold_evaluations(false);
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+
+    assert!(waiting);
+    assert!(dropped);
+    assert_eq!(moves(&harness), 0);
+    assert_eq!(harness.model.revision(), revision);
 }

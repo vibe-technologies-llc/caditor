@@ -864,3 +864,187 @@ fn an_export_checked_after_another_model_opened_writes_nothing_and_says_so() {
     assert!(!harness.files.exports_running());
     assert!(!root.join("plate.stl").exists());
 }
+
+fn plate_saved_twice(dir: &TempDir) -> Harness {
+    let plate = Sample::Plate.document().unwrap();
+    let mut harness = Harness::starting(Some(dir.path()), plate, Workspace::new());
+    harness.answer_dialog(Some(dir.path().join("plate.caditor")));
+    harness.command(FileCommand::SaveAs);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    harness.edit_width("45 mm");
+    harness.command(FileCommand::Save);
+    harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
+    harness
+}
+
+fn list_then_save_again_unseen(harness: &mut Harness) -> std::sync::mpsc::Sender<()> {
+    harness.command(FileCommand::History(HistoryCommand::Show));
+    harness.wait_until("the versions are listed", |harness| {
+        harness.shows(version_preview::SHOW)
+    });
+    let release = harness.files.hold_jobs();
+    set_width(harness, "47 mm");
+    harness.command(FileCommand::Save);
+    harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
+    release
+}
+
+#[test]
+fn keep_clicked_in_a_list_a_save_has_since_changed_is_refused_and_the_list_read_again() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = plate_saved_twice(&dir);
+    let path = dir.path().join("plate.caditor");
+    let release = list_then_save_again_unseen(&mut harness);
+
+    harness.click("Keep");
+    harness.wait_until("the keep is refused", |harness| {
+        notice_starts(
+            harness,
+            "Could not change which versions of “plate.caditor” are kept",
+        )
+    });
+    let refusal = harness.model.notice().unwrap().text.clone();
+    release.send(()).unwrap();
+    assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(
+        refusal,
+        "Could not change which versions of “plate.caditor” are kept: the saved versions changed \
+         since the list was read; choose the version again from the updated list."
+    );
+    let listed = caditor_file::history(&path).unwrap();
+    assert_eq!(listed.versions.len(), 2);
+    assert!(listed.versions.iter().all(|version| !version.kept));
+    assert!(!harness.shows("Kept"));
+}
+
+#[test]
+fn restore_clicked_in_a_list_a_save_has_since_changed_is_refused_and_the_model_kept() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = plate_saved_twice(&dir);
+    let release = list_then_save_again_unseen(&mut harness);
+    let revision = harness.model.revision();
+
+    harness.click("Restore");
+    release.send(()).unwrap();
+    harness.wait_until("the restore is refused", |harness| {
+        notice_starts(harness, "Could not restore that version")
+    });
+    assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+    harness.frame();
+
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        "Could not restore that version: the saved versions changed since the list was read; \
+         choose the version again from the updated list."
+    );
+    assert_eq!(harness.model.revision(), revision);
+    assert_eq!(harness.expression_text("width"), "47 mm");
+
+    harness.click("Restore");
+    harness.wait_until("the version is restored", |harness| {
+        notice_starts(harness, "Restored the version saved")
+    });
+    assert_eq!(harness.expression_text("width"), "45 mm");
+}
+
+fn journals_in(folder: &Path) -> Vec<std::path::PathBuf> {
+    fs::read_dir(folder).map_or_else(
+        |_| Vec::new(),
+        |entries| entries.map(|entry| entry.unwrap().path()).collect(),
+    )
+}
+
+#[test]
+fn quitting_while_a_save_runs_waits_for_it_and_then_quits_without_asking() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let path = root.join("plate.caditor");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    harness.edit_width("45 mm");
+    assert!(harness.model.flush_journal(FILE_TIMEOUT));
+
+    harness.model.save_to(path.clone());
+    harness.files.perform(FileCommand::Quit, &mut harness.model);
+    let asked = harness.files.is_blocking();
+    let noted = notice_starts(&harness, crate::files::QUITS_ONCE_SAVED);
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+
+    assert!(!asked);
+    assert!(noted);
+    assert!(!harness.model.is_dirty());
+    assert_eq!(
+        caditor_file::load(&path).unwrap().document,
+        harness.document().clone()
+    );
+    assert_eq!(
+        journals_in(&root.join("recovery")),
+        Vec::<std::path::PathBuf>::new()
+    );
+    assert!(!root.join(".plate.caditor.journal").exists());
+}
+
+#[test]
+fn quitting_while_a_save_runs_asks_as_usual_and_keeps_the_journal_when_the_save_fails() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let recovery = root.join("recovery");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    harness.edit_width("45 mm");
+    assert!(harness.model.flush_journal(FILE_TIMEOUT));
+    let journaled = journals_in(&recovery);
+
+    harness
+        .model
+        .save_to(root.join("missing").join("plate.caditor"));
+    harness.files.perform(FileCommand::Quit, &mut harness.model);
+    let asked_while_saving = harness.files.is_blocking();
+    let noted = notice_starts(&harness, crate::files::QUITS_ONCE_SAVED);
+    harness.wait_until("the unsaved changes are asked about", |harness| {
+        harness.shows("Save changes to “Untitled”?")
+    });
+
+    assert_eq!(journaled.len(), 1);
+    assert!(!asked_while_saving);
+    assert!(noted);
+    assert!(!harness.files.should_quit());
+    assert!(harness.model.is_dirty());
+    assert!(journaled.iter().all(|journal| journal.exists()));
+
+    harness.click("Cancel");
+    assert!(!harness.files.should_quit());
+    assert!(journaled.iter().all(|journal| journal.exists()));
+}
+
+#[test]
+fn a_change_landing_after_quit_closed_storage_is_journaled_and_asked_about() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let recovery = root.join("recovery");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    assert!(!harness.model.is_dirty());
+
+    harness.files.perform(FileCommand::Quit, &mut harness.model);
+    let mut transaction = harness.document().transaction("Add depth");
+    transaction.add_parameter(
+        "depth".to_owned(),
+        harness.model.length_unit().default_length(10.0),
+    );
+    harness.model.perform(Action::Apply(transaction.finish()));
+    harness.wait_until("the late change is asked about", |harness| {
+        harness.shows("Save changes to “Untitled”?")
+    });
+    assert!(harness.model.flush_journal(FILE_TIMEOUT));
+
+    assert!(!harness.files.should_quit());
+    assert!(harness.model.has_storage_worker());
+    assert_eq!(journals_in(&recovery).len(), 1);
+
+    harness.click("Close without saving");
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+    assert!(journals_in(&recovery).is_empty());
+}

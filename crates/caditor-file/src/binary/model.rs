@@ -25,8 +25,8 @@ use crate::{
         suppressed_record, views_record,
     },
     load::{
-        LoadError, Loaded, Parts, assemble, describe_unpack_failure, describe_unreadable_record,
-        newer_version,
+        LoadError, Loaded, Parts, VersionDigest, assemble, describe_unpack_failure,
+        describe_unreadable_record, newer_version,
     },
     parallel::each_in_parallel,
     preview::PreviewSlot,
@@ -149,6 +149,7 @@ pub struct SavedState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Version {
     pub index: usize,
+    pub digest: VersionDigest,
     pub state: SavedState,
     pub available: bool,
     pub kept: bool,
@@ -391,6 +392,13 @@ impl<'a> Parsed<'a> {
             newer = unpack_beside(&version.data, newer.as_deref(), held).ok();
         }
         newer
+    }
+
+    fn lists(&self, index: usize, digest: &VersionDigest) -> bool {
+        self.versions
+            .get(index)
+            .and_then(|version| version.info.as_ref())
+            .is_some_and(|info| info.record.digest == digest.0)
     }
 
     fn verified(&self, index: usize) -> Option<Vec<u8>> {
@@ -1524,6 +1532,7 @@ pub(crate) fn history(bytes: &[u8]) -> History {
                 let info = &version.info.as_ref()?.record;
                 Some(Version {
                     index,
+                    digest: VersionDigest(info.digest.clone()),
                     state: info.state(),
                     available,
                     kept: info.kept,
@@ -1537,6 +1546,8 @@ pub(crate) fn history(bytes: &[u8]) -> History {
 pub(crate) enum KeepError {
     #[error("the file holds no listed version numbered {index}")]
     NoSuchVersion { index: usize },
+    #[error("the version numbered {index} is not the one listed")]
+    VersionsChanged { index: usize },
     #[error("the file has damaged parts")]
     FileDamaged,
     #[error("the file holds something from a newer version of caditor")]
@@ -1556,6 +1567,7 @@ pub(crate) struct Rewritten {
 pub(crate) fn with_version_kept(
     bytes: &[u8],
     index: usize,
+    digest: &VersionDigest,
     kept: bool,
 ) -> Result<Rewritten, KeepError> {
     let parsed = Parsed::of(bytes).ok_or(KeepError::FileDamaged)?;
@@ -1580,6 +1592,9 @@ pub(crate) fn with_version_kept(
         .get(index)
         .and_then(|stored| stored.info.as_ref())
         .ok_or(KeepError::NoSuchVersion { index })?;
+    if target.record.digest != digest.0 {
+        return Err(KeepError::VersionsChanged { index });
+    }
     let changed_info = info_marked(target, kept)?;
 
     let mut rewritten = start_file(&MODEL_MAGIC, version);
@@ -1627,8 +1642,15 @@ fn info_marked(info: &StoredInfo<'_>, kept: bool) -> Result<Vec<u8>, KeepError> 
     Ok(chunk)
 }
 
-pub(crate) fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadError> {
+pub(crate) fn load_version(
+    bytes: &[u8],
+    index: usize,
+    digest: &VersionDigest,
+) -> Result<Loaded, LoadError> {
     let parsed = Parsed::of(bytes).ok_or(LoadError::NotAModel)?;
+    if !parsed.lists(index, digest) {
+        return Err(LoadError::VersionsChanged);
+    }
     let snapshot = parsed
         .verified(index)
         .ok_or(LoadError::VersionUnavailable)?;

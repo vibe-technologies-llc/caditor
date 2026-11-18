@@ -55,7 +55,12 @@ paths:
   unsaved-changes prompt can be raised meanwhile; its Save abandons the pick first (`stop_picking`).
   A save waiting to continue (`after_save`) waits only for a save that was sent or a Save as pick that
   started (`pick`, `pick_save_path` drops the continuation otherwise); only the Save as pick's cancel
-  drops it, so a later save never quits or opens for a long-answered prompt.
+  drops it, so a later save never quits or opens for a long-answered prompt. Quit while a save is in
+  flight (`Model::is_saving`) asks nothing: it waits as `AfterSave::Quit` with a
+  `QUITS_ONCE_SAVED` notice and requests Quit again on `FileEvent::Saved` (asking if the model changed
+  meanwhile); on `FileEvent::SaveFailed` it requests Quit, which asks as usual, so the journal is
+  never discarded behind a save that then fails. A save the prompt's Save started
+  (`AfterSave::Continue`) is dropped on failure instead.
 - A model with a file is proposed under that file's name; one never saved under
   `Model::proposed_stem`: the Title of its properties cleaned of file-name characters
   (`model::file_name_stem`, shared with the drawing sheet's name), else `UNTITLED`. Save as, Save as
@@ -75,6 +80,10 @@ paths:
   raises the exports' cancel; a write cannot be cancelled, so while only writes remain Quit anyway
   appears after `QUIT_ANYWAY_AFTER`. The close button and Quit command both reach the wait through
   `FileCommand::Quit`, which it ignores. `Files::hold_jobs` (test only) blocks the files worker.
+  `close_storage` notes the model's `Since` (`StorageClosing`), and `Model::close` drops the queued
+  action so no due rerun applies while closing; when closing finishes with unsaved changes made
+  since (`Files::closed`), storage starts again (`Model::resume_storage`, journaling them) and the
+  prompt for `Intent::Quit` is raised instead of quitting.
 - Opening shows a cancellable dialog. Each open counts an attempt (`Files::open_attempt`); an
   abandoned one's result is ignored. Cancelling, or starting another open, raises the open's
   `CancelToken`, which `caditor_file::load_cancellable` checks after reading, between records and
@@ -543,7 +552,7 @@ paths:
   the bodies, feature and body counts, failing features and unreadable parts (warning callouts), and
   how it differs from the model now by stable id (`Changes::between`; lists cut at `MAX_NAMED`),
   plus Restore this version. It never touches the document or undo history. The version is read
-  (`caditor_file::load_version_cancellable`), recomputed with display data and meshed
+  (`caditor_file::load_listed_version_cancellable`), recomputed with display data and meshed
   (`snapshot::take_unless`) on a `preview` thread (`Files::spawn_own`) with a spinner, the stage
   (`version_preview::Progress`) and Cancel (`HistoryCommand::StopPreview`). Choosing another version,
   Hide preview, closing, or a listing where the version is gone or changed raises its `CancelToken`;
@@ -567,6 +576,10 @@ paths:
   Undo does not undo it (Stop keeping reverses it) and it works with unsaved changes. The row shows a
   spinner and other buttons are disabled (`VersionHistory::start_keeping`); the list is re-read on
   finish, a failure is a notice.
+- Keep, Restore and Preview carry the listed version's digest with its index (`KeepRequest::digest`,
+  `caditor_file::load_listed_version`), so a save landing after the listing, which shifts indexes
+  and may thin versions, makes them refuse (`KeepVersionError::VersionsChanged`,
+  `LoadError::VersionsChanged`) rather than act on another version; the list is then re-read.
 - One restore or Keep runs at a time (`VersionHistory::is_idle`): meanwhile every Restore and Keep,
   the preview's included, is disabled with `history::ANOTHER_BEING_CHANGED`, and `start_restoring`
   and `start_keeping` refuse, so `finish_restoring` always marks the version it started.

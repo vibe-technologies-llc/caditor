@@ -37,6 +37,8 @@ mod tally;
 mod themes;
 mod untrusted;
 
+#[cfg(any(test, feature = "test-support"))]
+pub use crate::load::load_version;
 pub use crate::{
     binary::{FileDigest, History, MAX_MODEL_RECORDS, Retention, SavedState, Version},
     checked_texts::remember_checked_imports,
@@ -75,8 +77,8 @@ pub use crate::{
     },
     journal::JournalEntry,
     load::{
-        LoadError, Loaded, decode, history, load, load_cancellable, load_version,
-        load_version_cancellable,
+        LoadError, Loaded, VersionDigest, decode, history, load, load_cancellable,
+        load_listed_version, load_listed_version_cancellable,
     },
     logs::{LOGS_KEPT, MAX_LOG_SIZE, SessionLog, ended_unexpectedly, mark_reported, prune_logs},
     parameters::{

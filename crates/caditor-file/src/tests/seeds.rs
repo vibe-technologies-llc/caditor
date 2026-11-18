@@ -255,7 +255,7 @@ fn model_seeds_load_cleanly_with_every_version() {
         assert!(history.versions.len() >= 3, "{}", path.display());
         for version in &history.versions {
             assert!(version.available, "{}", path.display());
-            binary::load_version(&bytes, version.index).unwrap();
+            binary::load_version(&bytes, version.index, &version.digest).unwrap();
         }
     }
 }

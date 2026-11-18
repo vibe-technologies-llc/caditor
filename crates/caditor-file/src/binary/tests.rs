@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     model::{
-        EncodeExtras, FreshVersion, NotReadBack, decode, encode_keeping, encode_over, history,
-        load_version, reads_back, save_bytes,
+        self, EncodeExtras, FreshVersion, NotReadBack, Rewritten, decode, encode_keeping,
+        encode_over, history, reads_back, save_bytes,
     },
     testing::{
         as_written_by_an_earlier_build, corrupt_chunk, decompressing_at_most, files_of_at_most,
@@ -17,8 +17,25 @@ use super::{
 };
 use crate::{
     format::FORMAT_VERSION,
+    load::{LoadError, Loaded, VersionDigest},
     preview::{MAX_PREVIEW_BYTES, PNG_SIGNATURE, Preview, PreviewError, PreviewSlot},
 };
+
+fn listed_digest(bytes: &[u8], index: usize) -> VersionDigest {
+    history(bytes)
+        .versions
+        .into_iter()
+        .find(|version| version.index == index)
+        .map_or_else(|| VersionDigest(String::new()), |version| version.digest)
+}
+
+fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadError> {
+    model::load_version(bytes, index, &listed_digest(bytes, index))
+}
+
+fn with_version_kept(bytes: &[u8], index: usize, kept: bool) -> Result<Rewritten, KeepError> {
+    model::with_version_kept(bytes, index, &listed_digest(bytes, index), kept)
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 enum Shape {
@@ -148,6 +165,58 @@ fn save_step(document: &Document, previous: &[u8], step: u32, spacing: u64) -> V
 }
 
 #[test]
+fn a_version_is_loaded_only_while_its_index_still_holds_the_digest_it_was_listed_with() {
+    let (documents, bytes) = saved_series(3);
+    let listed = history(&bytes);
+    let newer = edited(documents.last().unwrap(), 20);
+    let resaved = save_step(&newer, &bytes, 3, SAVE_SPACING);
+    let relisted = history(&resaved);
+
+    let [newest, older] = [&listed.versions[0], &listed.versions[1]];
+    let moved = relisted
+        .versions
+        .iter()
+        .find(|version| version.digest == newest.digest)
+        .unwrap();
+
+    assert_ne!(relisted.versions[0].digest, newest.digest);
+    assert_eq!(moved.index, 1);
+    assert_eq!(
+        model::load_version(&resaved, newest.index, &newest.digest),
+        Err(LoadError::VersionsChanged)
+    );
+    assert_eq!(
+        model::load_version(&resaved, older.index, &older.digest),
+        Err(LoadError::VersionsChanged)
+    );
+    assert_eq!(
+        model::load_version(&resaved, moved.index, &moved.digest)
+            .unwrap()
+            .document,
+        documents[1]
+    );
+    assert_eq!(
+        model::load_version(&bytes, newest.index, &newest.digest)
+            .unwrap()
+            .document,
+        documents[1]
+    );
+    assert_eq!(
+        model::with_version_kept(&resaved, newest.index, &newest.digest, true),
+        Err(KeepError::VersionsChanged { index: 0 })
+    );
+    assert!(
+        history(
+            &model::with_version_kept(&resaved, moved.index, &moved.digest, true)
+                .unwrap()
+                .bytes
+        )
+        .versions[1]
+            .kept
+    );
+}
+
+#[test]
 fn every_save_keeps_the_previous_state_as_a_version_that_loads_back_exactly() {
     let (documents, bytes) = saved_series(20);
     assert_eq!(decode(&bytes).unwrap().document, *documents.last().unwrap());
@@ -176,7 +245,7 @@ fn every_save_keeps_the_previous_state_as_a_version_that_loads_back_exactly() {
     assert_eq!(listed.versions[18].state.label.as_deref(), Some("First"));
     assert!(matches!(
         load_version(&bytes, 19),
-        Err(crate::LoadError::VersionUnavailable)
+        Err(crate::LoadError::VersionsChanged)
     ));
 
     let (_, small) = saved_series(2);

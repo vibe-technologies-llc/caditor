@@ -3,7 +3,7 @@ use std::{
     time::SystemTime,
 };
 
-use caditor_file::{History, LoadError, Loaded, SavedState};
+use caditor_file::{History, LoadError, Loaded, SavedState, Version, VersionDigest};
 use egui::Ui;
 use jiff::{Timestamp, tz::TimeZone};
 
@@ -82,6 +82,7 @@ impl VersionHistory {
             (Some((_, Listing::Loaded(history))), Some(preview)) => {
                 history.versions.iter().any(|version| {
                     version.index == preview.index
+                        && version.digest == preview.digest
                         && version.available
                         && version.state == preview.saved
                 })
@@ -93,7 +94,18 @@ impl VersionHistory {
         }
     }
 
-    pub fn start_preview(&mut self, index: usize) -> Option<(PathBuf, Started)> {
+    pub fn start_preview(&mut self, index: usize) -> Option<(PathBuf, VersionDigest, Started)> {
+        let (path, version) = self.listed_version(index)?;
+        let path = path.clone();
+        let version = version.clone();
+        self.stop_preview();
+        self.preview_ticket = self.preview_ticket.wrapping_add(1);
+        let (preview, started) = Preview::start(&version, self.preview_ticket);
+        self.preview = Some(preview);
+        Some((path, version.digest, started))
+    }
+
+    fn listed_version(&self, index: usize) -> Option<(&PathBuf, &Version)> {
         let (path, Listing::Loaded(history)) = self.shown.as_ref()? else {
             return None;
         };
@@ -101,13 +113,7 @@ impl VersionHistory {
             .versions
             .iter()
             .find(|version| version.index == index && version.available)?;
-        let path = path.clone();
-        let saved = version.state.clone();
-        self.stop_preview();
-        self.preview_ticket = self.preview_ticket.wrapping_add(1);
-        let (preview, started) = Preview::start(index, saved, self.preview_ticket);
-        self.preview = Some(preview);
-        Some((path, started))
+        Some((path, version))
     }
 
     pub fn stop_preview(&mut self) {
@@ -137,38 +143,28 @@ impl VersionHistory {
         }
     }
 
-    pub fn start_restoring(&mut self, index: usize) -> Option<(PathBuf, SavedState)> {
-        let (path, Listing::Loaded(history)) = self.shown.as_ref()? else {
-            return None;
-        };
+    pub fn start_restoring(&mut self, index: usize) -> Option<(PathBuf, Version)> {
         if !self.is_idle() {
             return None;
         }
-        let version = history
-            .versions
-            .iter()
-            .find(|version| version.index == index && version.available)?;
+        let (path, version) = self.listed_version(index)?;
+        let started = (path.clone(), version.clone());
         self.restoring = Some(index);
-        Some((path.clone(), version.state.clone()))
+        Some(started)
     }
 
     pub fn is_idle(&self) -> bool {
         self.restoring.is_none() && self.keeping.is_none()
     }
 
-    pub fn start_keeping(&mut self, index: usize) -> Option<PathBuf> {
-        let (path, Listing::Loaded(history)) = self.shown.as_ref()? else {
-            return None;
-        };
+    pub fn start_keeping(&mut self, index: usize) -> Option<(PathBuf, VersionDigest)> {
         if !self.is_idle() {
             return None;
         }
-        history
-            .versions
-            .iter()
-            .find(|version| version.index == index && version.available)?;
+        let (path, version) = self.listed_version(index)?;
+        let started = (path.clone(), version.digest.clone());
         self.keeping = Some(index);
-        Some(path.clone())
+        Some(started)
     }
 
     pub fn finish_keeping(&mut self) {
@@ -422,8 +418,6 @@ pub fn ago(time: SystemTime) -> String {
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
-    use caditor_file::Version;
-
     use super::*;
 
     #[test]
@@ -436,6 +430,7 @@ mod tests {
         let versions = (0..2)
             .map(|index| Version {
                 index,
+                digest: VersionDigest::from_hex(&index.to_string()),
                 state: state.clone(),
                 available: true,
                 kept: false,
@@ -470,6 +465,7 @@ mod tests {
         let versions = (0..2)
             .map(|index| Version {
                 index,
+                digest: VersionDigest::from_hex(&index.to_string()),
                 state: state.clone(),
                 available: true,
                 kept: false,
@@ -514,6 +510,7 @@ mod tests {
             .enumerate()
             .map(|(index, available)| Version {
                 index,
+                digest: VersionDigest::from_hex(&index.to_string()),
                 state: state.clone(),
                 available,
                 kept: false,
@@ -533,7 +530,10 @@ mod tests {
 
         assert_eq!(history.start_keeping(1), None);
         assert_eq!(history.start_keeping(5), None);
-        assert_eq!(history.start_keeping(0), Some(path));
+        assert_eq!(
+            history.start_keeping(0),
+            Some((path, VersionDigest::from_hex("0")))
+        );
         assert_eq!(history.start_keeping(0), None);
         assert_eq!(history.start_restoring(0), None);
         history.finish_keeping();

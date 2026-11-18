@@ -514,7 +514,7 @@ fn describe_model(bytes: &[u8]) -> String {
             "version {} saved {seconds} label {:?} kept {} available {}\n",
             version.index, version.state.label, version.kept, version.available
         ));
-        let restored = binary::load_version(bytes, version.index).unwrap();
+        let restored = binary::load_version(bytes, version.index, &version.digest).unwrap();
         for issue in &restored.issues {
             text.push_str(&format!("issue {issue}\n"));
         }
@@ -657,7 +657,8 @@ fn every_corpus_file_loads_without_a_problem() {
                 );
                 for version in binary::history(&bytes).versions {
                     assert!(version.available, "{name}");
-                    let restored = binary::load_version(&bytes, version.index).unwrap();
+                    let restored =
+                        binary::load_version(&bytes, version.index, &version.digest).unwrap();
                     assert_eq!(restored.issues, Vec::<String>::new(), "{name}");
                 }
             }
@@ -4479,8 +4480,8 @@ fn document_with_history() -> Vec<u8> {
             editor.apply(transaction).unwrap();
             save(editor.document(), &path, false).unwrap();
         }
-        let oldest = crate::history(&path).unwrap().versions.len() - 1;
-        set_version_kept(&path, oldest, true, None).unwrap();
+        let oldest = crate::history(&path).unwrap().versions.pop().unwrap();
+        set_version_kept(&path, oldest.index, &oldest.digest, true, None).unwrap();
         editor.apply(last).unwrap();
         save(editor.document(), &path, false).unwrap();
     });

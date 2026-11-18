@@ -69,7 +69,7 @@ fuzz_target!(|bytes: &[u8]| {
         if !version.available {
             continue;
         }
-        let loaded = match fuzzing::load_version(&file, version.index) {
+        let loaded = match fuzzing::load_version(&file, &version) {
             Ok(loaded) => loaded,
             Err(error) => panic!("version {} could not be loaded: {error}", version.index),
         };

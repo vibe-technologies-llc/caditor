@@ -11,7 +11,9 @@ use caditor_document::{
     CancelToken, Document, Evaluation, FeatureId, FeatureState, ModelEvaluator, Recompute,
 };
 use caditor_expression::ParameterId;
-use caditor_file::{LoadError, SavedState, load_version_cancellable};
+use caditor_file::{
+    LoadError, SavedState, Version, VersionDigest, load_listed_version_cancellable,
+};
 use caditor_render::{ImageError, SurfaceSize};
 use egui::{
     ColorImage, Id, Image, Sense, TextureHandle, TextureOptions, Ui, Vec2, load::SizedTexture,
@@ -268,15 +270,19 @@ pub struct Prepared {
 pub fn prepare(
     path: &Path,
     index: usize,
+    digest: &VersionDigest,
     canvas: Canvas,
     progress: &Progress,
     cancel: &CancelToken,
 ) -> Result<Prepared, PreviewFailure> {
     progress.set(Stage::Reading);
-    let loaded = load_version_cancellable(path, index, cancel).map_err(|error| match error {
-        LoadError::Cancelled => PreviewFailure::Cancelled,
-        error => PreviewFailure::Unreadable(error),
-    })?;
+    let loaded =
+        load_listed_version_cancellable(path, index, digest, cancel).map_err(
+            |error| match error {
+                LoadError::Cancelled => PreviewFailure::Cancelled,
+                error => PreviewFailure::Unreadable(error),
+            },
+        )?;
 
     let evaluation =
         Recompute::default().run(&loaded.document, &ModelEvaluator, cancel, &|done, total| {
@@ -340,6 +346,7 @@ pub enum State {
 
 pub struct Preview {
     pub index: usize,
+    pub digest: VersionDigest,
     pub saved: SavedState,
     pub ticket: u64,
     state: State,
@@ -352,7 +359,7 @@ pub struct Started {
 }
 
 impl Preview {
-    pub fn start(index: usize, saved: SavedState, ticket: u64) -> (Self, Started) {
+    pub fn start(version: &Version, ticket: u64) -> (Self, Started) {
         let stopped = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(Progress::default());
         let flag = Arc::clone(&stopped);
@@ -362,8 +369,9 @@ impl Preview {
             progress: Arc::clone(&progress),
         };
         let preview = Self {
-            index,
-            saved,
+            index: version.index,
+            digest: version.digest.clone(),
+            saved: version.state.clone(),
             ticket,
             state: State::Working { stopped, progress },
         };
@@ -699,10 +707,13 @@ mod tests {
         let changed = with_width(&document, "70 mm");
         caditor_file::save(&changed, &path, false).unwrap();
 
+        let listed = caditor_file::history(&path).unwrap().versions[0].clone();
+
         let progress = Progress::default();
         let prepared = prepare(
             &path,
-            0,
+            listed.index,
+            &listed.digest,
             Canvas::default(),
             &progress,
             &CancelToken::never(),
@@ -721,7 +732,8 @@ mod tests {
 
         let cancelled = prepare(
             &path,
-            0,
+            listed.index,
+            &listed.digest,
             Canvas::default(),
             &progress,
             &CancelToken::new(|| true),
@@ -731,11 +743,12 @@ mod tests {
             prepare(
                 &path,
                 7,
+                &listed.digest,
                 Canvas::default(),
                 &progress,
                 &CancelToken::never()
             ),
-            Err(PreviewFailure::Unreadable(LoadError::VersionUnavailable))
+            Err(PreviewFailure::Unreadable(LoadError::VersionsChanged))
         ));
     }
 
@@ -746,9 +759,11 @@ mod tests {
             let path = dir.path().join(name);
             caditor_file::save(document, &path, false).unwrap();
             caditor_file::save(&with_width(document, "70 mm"), &path, false).unwrap();
+            let listed = caditor_file::history(&path).unwrap().versions[0].clone();
             let prepared = prepare(
                 &path,
-                0,
+                listed.index,
+                &listed.digest,
                 Canvas::default(),
                 &Progress::default(),
                 &CancelToken::never(),

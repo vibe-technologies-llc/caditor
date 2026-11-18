@@ -258,7 +258,7 @@ pub enum FileEvent {
     SaveFailed,
     ChangedOnDisk { path: PathBuf, session: u64 },
     VersionKept(PathBuf),
-    KeepFailed,
+    KeepFailed(PathBuf),
 }
 
 pub struct Services {
@@ -1859,12 +1859,11 @@ impl Model {
         self.save_previews.drawn(revision, drawing, rows);
     }
 
-    pub fn keep_version(&mut self, path: PathBuf, index: usize, kept: bool) -> bool {
-        let sent = self.storage.as_ref().is_some_and(|storage| {
-            storage
-                .keep_version(KeepRequest { path, index, kept })
-                .is_ok()
-        });
+    pub fn keep_version(&mut self, request: KeepRequest) -> bool {
+        let sent = self
+            .storage
+            .as_ref()
+            .is_some_and(|storage| storage.keep_version(request).is_ok());
         if !sent {
             self.set_notice(Notice::failure(
                 "Could not change the version, because the background writer stopped. Try again.",
@@ -1932,8 +1931,15 @@ impl Model {
     }
 
     pub fn close(&mut self) -> Option<Closing> {
+        self.queued.let_go();
         *self.services.panic_flush.lock() = None;
         self.storage.take().map(|storage| storage.close(true))
+    }
+
+    pub fn resume_storage(&mut self) {
+        if self.storage.is_none() {
+            self.start_storage(None, None);
+        }
     }
 
     fn switch_to(
@@ -2120,7 +2126,7 @@ impl Model {
                     "Could not change which versions of “{}” are kept: {error}.",
                     display_name(Some(&path))
                 )));
-                self.file_events.push(FileEvent::KeepFailed);
+                self.file_events.push(FileEvent::KeepFailed(path));
             }
             Report::SaveFailed {
                 ticket,

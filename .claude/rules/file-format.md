@@ -653,7 +653,7 @@ Sketch entities:
   land below a user is left out, reported.
 - Records not matching the head's digest with no damaged chunk (cut between chunks) are reported as
   ending early; the model loads with problems and keeps its `.damaged` copy on the next save.
-- `load_cancellable` and `load_version_cancellable` run under a `CancelToken`, checked after
+- `load_cancellable` and `load_listed_version_cancellable` run under a `CancelToken`, checked after
   reading, between records (`binary::decode_cancellable`) and after rebuilding a version;
   cancelled is `LoadError::Cancelled`, never a partial model.
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
@@ -675,6 +675,10 @@ Sketch entities:
   rebuild starting at a version stored whole never unpacks the head (`Parsed::rebuild`). Info belongs only to the data right after it: data with damaged info is kept (unlisted) so
   older deltas decode; info with damaged data is dropped. Rebuilt versions are checked against
   their digest before restoring.
+- A listed `Version` carries its info's digest (`VersionDigest`); `load_listed_version` and
+  `set_version_kept` take it with the index and refuse with `VersionsChanged` when the version at
+  that index no longer has it, checked on the bytes they read, so a save between listing and the
+  request never makes them act on another version. `load_version` by index alone is test-only.
 - `history` judges rebuildability from the chain, not by decoding (`Parsed::rebuildable`). A
   version that passes its checksum but does not rebuild to its digest is listed and refused on
   restore. When the head cannot be rebuilt, the next save drops the deltas that depended on it.

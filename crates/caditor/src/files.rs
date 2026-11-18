@@ -22,13 +22,13 @@ use caditor_document::{
 use caditor_file::{
     Closing, ConfigurationFileError, Construction, DRAWING_IMPORT_EXTENSIONS, DiscardError,
     Drawing, DrawingExported, DrawingSheet, ExportError, ExportFormat, FILE_EXTENSION,
-    FaceExported, FileJournal, Handover, History, ImportError, LoadError, Loaded,
+    FaceExported, FileJournal, Handover, History, ImportError, KeepRequest, LoadError, Loaded,
     MESH_IMPORT_EXTENSIONS, MeshUnit, ModelImport, NamedFace, NamedSketch, PARAMETERS_EXTENSION,
     PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage, RecentChange, RecentFiles,
     Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings,
     SheetExported, SheetFormat, SheetLayout, SketchExported, SketchFormat, TextOutlines,
-    UpdateFailure, describe_set_aside, journal_for, load_cancellable, load_version, read_drawing,
-    scan,
+    UpdateFailure, describe_set_aside, journal_for, load_cancellable, load_listed_version,
+    read_drawing, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -111,6 +111,7 @@ pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geom
                                           layer of its own named Construction, instead of leaving \
                                           it out";
 const OPEN_SAMPLE: &str = "Open sample";
+pub const QUITS_ONCE_SAVED: &str = "caditor closes as soon as the save has finished.";
 const NOT_IMPORTING: &str = "No import is running";
 const IMPORT_RUNNING: &str = "An import is already running. Wait for it to finish, or stop it with \
                               Cancel in the status bar, then import again.";
@@ -1010,6 +1011,26 @@ enum Intent {
     Quit,
 }
 
+enum AfterSave {
+    Continue(Intent),
+    Quit,
+}
+
+impl AfterSave {
+    fn intent(self) -> Intent {
+        match self {
+            Self::Continue(intent) => intent,
+            Self::Quit => Intent::Quit,
+        }
+    }
+}
+
+struct StorageClosing {
+    closing: Closing,
+    since: Instant,
+    model: Since,
+}
+
 struct Candidate {
     recovered: Recovered,
     open_file_on_discard: bool,
@@ -1179,7 +1200,7 @@ pub struct Files {
     recovery_open: bool,
     confirm_discard: Option<PathBuf>,
     guard: Option<Intent>,
-    after_save: Option<Intent>,
+    after_save: Option<AfterSave>,
     report: Option<Report>,
     opening: Option<Opening>,
     open_attempt: u64,
@@ -1206,7 +1227,7 @@ pub struct Files {
     pick_ticket: u64,
     confirm_replace: Option<(Replacement, u64)>,
     changed_on_disk: Option<(PathBuf, u64)>,
-    closing: Option<(Closing, Instant)>,
+    closing: Option<StorageClosing>,
     waiting_for_exports: Option<ExportWait>,
     stored_settings: Option<Settings>,
     templates: Templates,
@@ -1540,7 +1561,7 @@ impl Files {
                 match choice {
                     GuardChoice::Save => {
                         self.stop_picking(model);
-                        self.after_save = Some(intent);
+                        self.after_save = Some(AfterSave::Continue(intent));
                         self.save(model);
                     }
                     GuardChoice::DontSave => self.run(intent, model),
@@ -1874,18 +1895,24 @@ impl Files {
             }
             HistoryCommand::StopPreview => self.history.stop_preview(),
             HistoryCommand::Keep { index, kept } => {
-                if let Some(path) = self.history.start_keeping(index)
-                    && !model.keep_version(path, index, kept)
+                if let Some((path, digest)) = self.history.start_keeping(index)
+                    && !model.keep_version(KeepRequest {
+                        path,
+                        index,
+                        digest,
+                        kept,
+                    })
                 {
                     self.history.finish_keeping();
                 }
             }
             HistoryCommand::Restore(index) => {
-                if let Some((path, state)) = self.history.start_restoring(index) {
+                if let Some((path, version)) = self.history.start_restoring(index) {
+                    let state = version.state;
                     let (failed_path, failed_state) = (path.clone(), state.clone());
                     self.spawn(
                         move || Event::VersionLoaded {
-                            result: load_version(&path, index),
+                            result: load_listed_version(&path, index, &version.digest),
                             path,
                             state,
                         },
@@ -1901,7 +1928,7 @@ impl Files {
     }
 
     fn preview_version(&mut self, index: usize, canvas: Canvas, model: &Model) {
-        let Some((path, started)) = self.history.start_preview(index) else {
+        let Some((path, digest, started)) = self.history.start_preview(index) else {
             return;
         };
         let Started {
@@ -1913,7 +1940,7 @@ impl Files {
             "preview",
             move || Event::PreviewPrepared {
                 ticket,
-                result: version_preview::prepare(&path, index, canvas, &progress, &cancel)
+                result: version_preview::prepare(&path, index, &digest, canvas, &progress, &cancel)
                     .map(Box::new),
             },
             move || Event::PreviewPrepared {
@@ -1996,6 +2023,11 @@ impl Files {
         model: &mut Model,
     ) {
         self.history.finish_restoring(path, &result);
+        if matches!(result, Err(LoadError::VersionsChanged))
+            && self.history.path().map(PathBuf::as_path) == Some(path)
+        {
+            self.list_versions();
+        }
         if model.path() != Some(path) {
             model.set_notice(Notice::warning(format!(
                 "The earlier version of “{}” was not restored, because another model is open now.",
@@ -2070,12 +2102,8 @@ impl Files {
         self.exporter.sync(model);
         self.image.sync(model);
         let mut changed = false;
-        if self
-            .closing
-            .take_if(|(closing, _)| closing.finished())
-            .is_some()
-        {
-            self.quit = true;
+        if let Some(closed) = self.closing.take_if(|closing| closing.closing.finished()) {
+            self.closed(&closed, model);
             changed = true;
         }
         for event in model.take_file_events() {
@@ -2087,8 +2115,8 @@ impl Files {
                         self.list_versions();
                     }
                     self.remember(path);
-                    if let Some(intent) = self.after_save.take() {
-                        self.request(intent, model);
+                    if let Some(after) = self.after_save.take() {
+                        self.request(after.intent(), model);
                     }
                 }
                 FileEvent::VersionKept(path) => {
@@ -2097,8 +2125,17 @@ impl Files {
                         self.list_versions();
                     }
                 }
-                FileEvent::KeepFailed => self.history.finish_keeping(),
-                FileEvent::SaveFailed => self.after_save = None,
+                FileEvent::KeepFailed(path) => {
+                    self.history.finish_keeping();
+                    if self.history.path() == Some(&path) {
+                        self.list_versions();
+                    }
+                }
+                FileEvent::SaveFailed => {
+                    if let Some(AfterSave::Quit) = self.after_save.take() {
+                        self.request(Intent::Quit, model);
+                    }
+                }
                 FileEvent::ChangedOnDisk { path, session } => {
                     self.changed_on_disk = Some((path, session));
                 }
@@ -3121,7 +3158,10 @@ impl Files {
                 display_name(Some(&path))
             )));
         }
-        if model.is_dirty() {
+        if matches!(intent, Intent::Quit) && model.is_saving() {
+            self.after_save = Some(AfterSave::Quit);
+            model.set_notice(Notice::info(QUITS_ONCE_SAVED));
+        } else if model.is_dirty() {
             self.guard = Some(intent);
         } else {
             self.run(intent, model);
@@ -3194,9 +3234,25 @@ impl Files {
     }
 
     fn close_storage(&mut self, model: &mut Model) {
+        let since = Since::now(model);
         match model.close() {
-            Some(closing) => self.closing = Some((closing, Instant::now())),
+            Some(closing) => {
+                self.closing = Some(StorageClosing {
+                    closing,
+                    since: Instant::now(),
+                    model: since,
+                });
+            }
             None => self.quit = true,
+        }
+    }
+
+    fn closed(&mut self, closed: &StorageClosing, model: &mut Model) {
+        if closed.model.has_new_unsaved_changes(model) {
+            model.resume_storage();
+            self.guard = Some(Intent::Quit);
+        } else {
+            self.quit = true;
         }
     }
 
@@ -4566,8 +4622,8 @@ pub fn show(
 ) {
     let ctx = ui.ctx().clone();
     let mut command = None;
-    if let Some((_, since)) = &files.closing {
-        command = closing(&ctx, *since);
+    if let Some(storage) = &files.closing {
+        command = closing(&ctx, storage.since);
     } else if let Some(waiting) = &files.waiting_for_exports {
         command = finishing_exports(
             &ctx,

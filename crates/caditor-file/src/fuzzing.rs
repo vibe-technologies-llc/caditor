@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 use caditor_document::Document;
 
 use crate::{
-    binary::{self, History, Retention},
+    binary::{self, History, Retention, Version},
     journal::{JournalEntry, JournalHead, Logged, Mirror, decode_journal, encode_journal, replay},
     load::{LoadError, Loaded},
     recent::RecentFiles,
@@ -37,8 +37,8 @@ pub fn save_over(
     .map(|encoded| encoded.bytes)
 }
 
-pub fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadError> {
-    binary::load_version(bytes, index)
+pub fn load_version(bytes: &[u8], version: &Version) -> Result<Loaded, LoadError> {
+    binary::load_version(bytes, version.index, &version.digest)
 }
 
 pub fn recover(journal: &[u8]) -> Option<usize> {

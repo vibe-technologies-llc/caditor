@@ -21,6 +21,7 @@ use crate::{
         JournalEntry, JournalHead, Logged, Mirror, WrittenPictures, encode_entry_sharing,
         encode_journal_noting,
     },
+    load::VersionDigest,
     lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
     os, paths,
     preview::PreviewSlot,
@@ -82,6 +83,7 @@ pub struct SaveRequest {
 pub struct KeepRequest {
     pub path: PathBuf,
     pub index: usize,
+    pub digest: VersionDigest,
     pub kept: bool,
 }
 
@@ -487,6 +489,7 @@ impl Job {
                 let result = save::set_version_kept(
                     &request.path,
                     request.index,
+                    &request.digest,
                     request.kept,
                     unless_changed_from.as_ref(),
                 );
@@ -804,7 +807,9 @@ impl Worker {
                 error,
             }),
             Finished::Kept {
-                request: KeepRequest { path, index, kept },
+                request: KeepRequest {
+                    path, index, kept, ..
+                },
                 result,
             } => self.report(match result {
                 Ok(()) => Report::VersionKept { path, index, kept },

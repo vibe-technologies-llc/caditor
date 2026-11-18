@@ -36,6 +36,19 @@ pub struct Loaded {
     pub digest: Option<FileDigest>,
 }
 
+pub(crate) const VERSIONS_CHANGED: &str = "the saved versions changed since the list was read; \
+                                          choose the version again from the updated list";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionDigest(pub(crate) String);
+
+#[cfg(feature = "test-support")]
+impl VersionDigest {
+    pub fn from_hex(hex: &str) -> Self {
+        Self(hex.to_owned())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LoadError {
     #[error("{0}")]
@@ -53,6 +66,8 @@ pub enum LoadError {
     Empty,
     #[error("this version is damaged and cannot be restored")]
     VersionUnavailable,
+    #[error("{}", VERSIONS_CHANGED)]
+    VersionsChanged,
     #[error("opening it was cancelled")]
     Cancelled,
 }
@@ -78,20 +93,36 @@ pub fn history(path: &Path) -> Result<History, LoadError> {
     Ok(binary::history(&bytes))
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub fn load_version(path: &Path, index: usize) -> Result<Loaded, LoadError> {
-    load_version_cancellable(path, index, &CancelToken::never())
+    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
+    let listed = binary::history(&bytes)
+        .versions
+        .into_iter()
+        .find(|version| version.index == index)
+        .ok_or(LoadError::VersionUnavailable)?;
+    binary::load_version(&bytes, index, &listed.digest)
 }
 
-pub fn load_version_cancellable(
+pub fn load_listed_version(
     path: &Path,
     index: usize,
+    digest: &VersionDigest,
+) -> Result<Loaded, LoadError> {
+    load_listed_version_cancellable(path, index, digest, &CancelToken::never())
+}
+
+pub fn load_listed_version_cancellable(
+    path: &Path,
+    index: usize,
+    digest: &VersionDigest,
     cancel: &CancelToken,
 ) -> Result<Loaded, LoadError> {
     let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
     if cancel.is_cancelled() {
         return Err(LoadError::Cancelled);
     }
-    let loaded = binary::load_version(&bytes, index)?;
+    let loaded = binary::load_version(&bytes, index, digest)?;
     if cancel.is_cancelled() {
         return Err(LoadError::Cancelled);
     }

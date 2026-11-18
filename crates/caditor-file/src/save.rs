@@ -18,6 +18,7 @@ use crate::{
         self, EncodeError, EncodeExtras, Encoded, FileDigest, FreshVersion, KeepError, PackError,
         Retention, Shared, value::ValueError,
     },
+    load::{VERSIONS_CHANGED, VersionDigest},
     os::{self, ChangeStamp, FileKey},
     paths::{MAX_NAME_BYTES, fitting},
     preview::PreviewSlot,
@@ -119,6 +120,8 @@ pub enum KeepVersionError {
     Unreadable { name: String, failure: ReadFailure },
     #[error("that version is no longer in the file")]
     NoSuchVersion,
+    #[error("{}", VERSIONS_CHANGED)]
+    VersionsChanged,
     #[error(
         "the file has damaged parts, so its versions cannot be changed until it is saved again"
     )]
@@ -154,6 +157,7 @@ impl KeepVersionError {
     fn rewriting(error: KeepError) -> Self {
         match error {
             KeepError::NoSuchVersion { .. } => Self::NoSuchVersion,
+            KeepError::VersionsChanged { .. } => Self::VersionsChanged,
             KeepError::FileDamaged => Self::FileDamaged,
             KeepError::FromNewerVersion => Self::FromNewerVersion,
             KeepError::Value(_) | KeepError::Pack(_) => Self::Unconvertible,
@@ -164,15 +168,17 @@ impl KeepVersionError {
 pub fn set_version_kept(
     path: &Path,
     index: usize,
+    digest: &VersionDigest,
     kept: bool,
     unless_changed_from: Option<&FileDigest>,
 ) -> Result<(), KeepVersionError> {
-    keep_version_interleaved(path, index, kept, unless_changed_from, || {})
+    keep_version_interleaved(path, index, digest, kept, unless_changed_from, || {})
 }
 
 pub(crate) fn keep_version_interleaved(
     path: &Path,
     index: usize,
+    digest: &VersionDigest,
     kept: bool,
     unless_changed_from: Option<&FileDigest>,
     while_rewriting: impl FnOnce(),
@@ -198,7 +204,7 @@ pub(crate) fn keep_version_interleaved(
     {
         return Err(KeepVersionError::ChangedOnDisk);
     }
-    let rewritten = binary::with_version_kept(&previous.bytes, index, kept)
+    let rewritten = binary::with_version_kept(&previous.bytes, index, digest, kept)
         .map_err(KeepVersionError::rewriting)?;
     while_rewriting();
     replace_checked(

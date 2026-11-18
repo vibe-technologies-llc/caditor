@@ -10830,6 +10830,15 @@ fn a_feature_group_is_saved_journaled_and_cut_to_its_limit_when_too_long() {
     );
 }
 
+fn digest_at(path: &Path, index: usize) -> VersionDigest {
+    crate::history(path)
+        .unwrap()
+        .versions
+        .into_iter()
+        .find(|version| version.index == index)
+        .map_or_else(|| VersionDigest(String::new()), |version| version.digest)
+}
+
 fn saved_twice(path: &Path) -> FileDigest {
     save(&sample(), path, false).unwrap();
     save(&Document::default(), path, false).unwrap().digest
@@ -10844,7 +10853,7 @@ fn a_kept_version_is_stored_in_the_file_and_stays_through_later_saves() {
     assert_eq!(listed.versions.len(), 1);
     assert!(!listed.versions[0].kept);
 
-    set_version_kept(&path, 0, true, Some(&head)).unwrap();
+    set_version_kept(&path, 0, &digest_at(&path, 0), true, Some(&head)).unwrap();
 
     let kept = crate::history(&path).unwrap();
     assert!(kept.versions[0].kept);
@@ -10861,7 +10870,7 @@ fn a_kept_version_is_stored_in_the_file_and_stays_through_later_saves() {
     assert!(!after_save.versions[0].kept);
     assert_eq!(load_version(&path, 1).unwrap().document, sample());
 
-    set_version_kept(&path, 1, false, None).unwrap();
+    set_version_kept(&path, 1, &digest_at(&path, 1), false, None).unwrap();
     assert!(
         crate::history(&path)
             .unwrap()
@@ -10878,9 +10887,10 @@ fn keeping_a_version_refuses_a_file_another_program_replaced_while_it_was_rewrit
     let head = saved_twice(&path);
     let renamed_over = save::encode(&sample()).unwrap();
 
-    let refused = save::keep_version_interleaved(&path, 0, true, Some(&head), || {
-        replace_from_outside(&path, &renamed_over)
-    });
+    let refused =
+        save::keep_version_interleaved(&path, 0, &digest_at(&path, 0), true, Some(&head), || {
+            replace_from_outside(&path, &renamed_over)
+        });
 
     assert_eq!(refused, Err(KeepVersionError::ChangedOnDisk));
     assert_eq!(fs::read(&path).unwrap(), renamed_over);
@@ -10897,18 +10907,24 @@ fn keeping_a_version_refuses_a_file_changed_outside_and_a_version_that_is_gone()
     let outside = fs::read(&path).unwrap();
 
     assert_eq!(
-        set_version_kept(&path, 0, true, Some(&head)),
+        set_version_kept(&path, 0, &digest_at(&path, 0), true, Some(&head)),
         Err(KeepVersionError::ChangedOnDisk)
     );
     assert_eq!(fs::read(&path).unwrap(), outside);
     assert_ne!(outside, before);
 
     assert_eq!(
-        set_version_kept(&path, 7, true, None),
+        set_version_kept(&path, 7, &digest_at(&path, 7), true, None),
         Err(KeepVersionError::NoSuchVersion)
     );
     assert_eq!(
-        set_version_kept(&dir.path().join("missing.caditor"), 0, true, None),
+        set_version_kept(
+            &dir.path().join("missing.caditor"),
+            0,
+            &digest_at(&path, 0),
+            true,
+            None
+        ),
         Err(KeepVersionError::Unreadable {
             name: "missing.caditor".to_owned(),
             failure: crate::ReadFailure::NotFound,
@@ -10923,6 +10939,7 @@ fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_f
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let head = saved_twice(&path);
+    let digest = crate::history(&path).unwrap().versions[0].digest.clone();
     let start = Start {
         file: Some(path.clone()),
         on_disk: Some(head),
@@ -10934,6 +10951,7 @@ fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_f
         .keep_version(KeepRequest {
             path: path.clone(),
             index: 0,
+            digest: digest.clone(),
             kept: true,
         })
         .unwrap();
@@ -10946,6 +10964,7 @@ fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_f
         .keep_version(KeepRequest {
             path: dir.path().join("other.caditor"),
             index: 0,
+            digest,
             kept: true,
         })
         .unwrap();
@@ -10971,6 +10990,100 @@ fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_f
     assert_eq!(listed.versions.len(), 2);
     assert!(listed.versions[1].kept);
     assert!(storage.close(true).wait(WAIT));
+}
+
+#[test]
+fn a_save_landing_between_listing_and_keep_or_restore_is_caught_by_the_version_digest() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let head = saved_twice(&path);
+    let clicked = crate::history(&path).unwrap().versions[0].clone();
+    let start = Start {
+        file: Some(path.clone()),
+        on_disk: Some(head),
+        ..untitled(&Document::default())
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
+    storage
+        .save(save_request(1, &widened("12 mm"), &path, false))
+        .unwrap();
+    let saved = wait_for_report(&storage);
+    storage
+        .keep_version(KeepRequest {
+            path: path.clone(),
+            index: clicked.index,
+            digest: clicked.digest.clone(),
+            kept: true,
+        })
+        .unwrap();
+    let refused = wait_for_report(&storage);
+    let after_refusal = fs::read(&path).unwrap();
+    let restored = load_listed_version(&path, clicked.index, &clicked.digest);
+    let relisted = crate::history(&path).unwrap();
+    let moved = relisted
+        .versions
+        .iter()
+        .find(|version| version.digest == clicked.digest)
+        .unwrap();
+
+    assert!(matches!(saved, Report::Saved { ticket: 1, .. }));
+    assert_eq!(
+        refused,
+        Report::KeepFailed {
+            path: path.clone(),
+            error: KeepVersionError::VersionsChanged,
+        }
+    );
+    assert_eq!(
+        refused_text(&refused),
+        "the saved versions changed since the list was read; choose the version again from the \
+         updated list"
+    );
+    assert!(relisted.versions.iter().all(|version| !version.kept));
+    assert_eq!(restored, Err(LoadError::VersionsChanged));
+    assert_eq!(moved.index, 1);
+    assert_eq!(
+        load_listed_version(&path, moved.index, &moved.digest)
+            .unwrap()
+            .document,
+        sample()
+    );
+
+    storage
+        .keep_version(KeepRequest {
+            path: path.clone(),
+            index: moved.index,
+            digest: moved.digest.clone(),
+            kept: true,
+        })
+        .unwrap();
+    let kept = wait_for_report(&storage);
+
+    assert_eq!(
+        kept,
+        Report::VersionKept {
+            path: path.clone(),
+            index: 1,
+            kept: true,
+        }
+    );
+    assert_ne!(fs::read(&path).unwrap(), after_refusal);
+    assert!(crate::history(&path).unwrap().versions[1].kept);
+    assert!(storage.close(true).wait(WAIT));
+}
+
+fn widened(text: &str) -> Document {
+    let mut document = sample();
+    document.apply(edit_width(&document, text)).unwrap();
+    document
+}
+
+fn refused_text(report: &Report) -> String {
+    match report {
+        Report::KeepFailed { error, .. } => error.to_string(),
+        other => format!("{other:?}"),
+    }
 }
 
 fn threaded_model() -> (Document, FeatureId) {

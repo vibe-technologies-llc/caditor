@@ -7,26 +7,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Saving and recovery
 
-- [medium · small] Keep and Restore name a version by its index (`with_version_kept`,
-  `load_version`) while a save can be in flight (`history.rs` and `files.rs` allow both): Keep
-  queues behind the save, which puts a new version at index 0 and may thin others, and Restore
-  reads the file directly, so either can act on another version than the one clicked, and the one
-  meant to be kept can later be thinned away. Carry the version's digest with the index and refuse
-  on a mismatch.
-- [medium · small] Quitting while a save is in flight asks "Save changes?" (`dirty` clears only on
-  `Report::Saved`): Save is refused as still saving, and Close without saving queues
-  `Close { discard: true }` behind the save, which removes the journal even when that save then
-  fails (a full disk). Wait for the save (`after_save = Some(Quit)` with a saving note) instead of
-  asking.
 - [low · small] A save can still abort for want of memory while it gathers the model in
   `binary/model.rs`: the record snapshots (`PriorRecords`, `NewRecords`) and the file's chunks
   (`NewRecords::push_chunks`, `Section::place`) grow with infallible `extend_from_slice`, sized by
   the model. Reserve them fallibly into `PackError::OutOfMemory` as `push_raw` does.
-- [low · small] A change landing after Quit has closed storage is neither journaled nor asked
-  about: `Model::close` takes the storage and `record` then does nothing, `Files::poll` quits when
-  closing finishes without checking `is_dirty()` again, and `run_due` still applies due reruns
-  (`Rerun::Editing`, `OwnThickness`, `OwnAngle`) while closing. Drop the model's queue in
-  `close_storage` and check dirtiness again before quitting.
 - [low · small] On Windows, Save As to the open file spelled in another letter case compares paths
   as text: `storage.rs`'s `owns` takes its own journal for one locked elsewhere and refuses
   (`OpenInAnotherWindow`), and `save.rs`'s `reads_target` skips the changed-on-disk guard and the
