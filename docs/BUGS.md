@@ -250,13 +250,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
 
-## Drawing and mesh import
-
-- [low · easy] Reference pictures shown by a version preview or snapshot are decoded on the calling
-  thread without `catch_unwind` (`image_textures.rs`, `decoded_for`), while the background path in
-  the same file wraps its decode, so a decoder panic on a crafted picture would end that thread.
-  Unchecked which thread that is; wrap it the same way.
-
 ## Application
 
 - [medium · small] A model export whose thread panics stays running for the session: `export.rs`
@@ -267,9 +260,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   3MF thumbnail job and handing back its pixels (`waiting.rendering`, not reset by
   `close_dialogs`) leaves it stuck the same way. Every `Files` job is contained; one helper for the
   thread-and-slot jobs (`export.rs`, `image_export.rs`, `files.rs`) would keep them alike.
-- [low · small] The Lighting panel's sun turn, sun height and picture turn are egui sliders whose
-  number box takes plain numbers (`lighting_panel.rs`), not units (`0.5 rad`) as every numeric
-  field should (`ux.md`).
 - [low · small] A screen reader loses the window after a failed frame: `Session::recover` builds a
   fresh `Overlay`, whose `egui_winit::State` cannot attach AccessKit to a window already shown
   (`Overlay::enable_accessibility` logs that and returns), and the old adapter goes with the old

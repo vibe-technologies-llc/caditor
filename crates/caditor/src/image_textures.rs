@@ -64,6 +64,13 @@ fn decoded(picture: &Picture) -> Result<Arc<PictureTexture>, PictureFailure> {
         .and_then(texture_of)
 }
 
+fn contained<T>(decode: impl FnOnce() -> Result<T, PictureFailure>) -> Result<T, PictureFailure> {
+    panic::catch_unwind(AssertUnwindSafe(decode)).unwrap_or_else(|_| {
+        log::error!("decoding a reference image panicked");
+        Err(PictureFailure::Unshowable)
+    })
+}
+
 impl ImageTextures {
     pub fn decoded_for(document: &Document) -> Self {
         let mut textures = Self::default();
@@ -75,7 +82,7 @@ impl ImageTextures {
             if textures.entries.contains_key(&digest) {
                 continue;
             }
-            let entry = match decoded(&image.picture) {
+            let entry = match contained(|| decoded(&image.picture)) {
                 Ok(texture) => Entry::Ready(texture),
                 Err(reason) => {
                     log::warn!(
@@ -154,11 +161,7 @@ impl ImageTextures {
             let sender = self.sender.clone();
             let wake = make_waker();
             let work = move || {
-                let result = panic::catch_unwind(AssertUnwindSafe(|| decoded(&picture)))
-                    .unwrap_or_else(|_| {
-                        log::error!("decoding a reference image panicked");
-                        Err(PictureFailure::Unshowable)
-                    });
+                let result = contained(|| decoded(&picture));
                 if sender.send((digest, result)).is_ok() {
                     wake();
                 }
@@ -193,5 +196,26 @@ impl ImageTextures {
             self.generation += 1;
         }
         changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_decoder_that_panics_leaves_the_picture_unshowable() {
+        let result: Result<(), PictureFailure> = contained(|| panic!("a crafted picture"));
+
+        assert!(matches!(result, Err(PictureFailure::Unshowable)));
+    }
+
+    #[test]
+    fn a_decoder_that_returns_keeps_its_result() {
+        let kept = contained(|| Ok(3));
+        let refused: Result<u8, PictureFailure> = contained(|| Err(PictureFailure::Unshowable));
+
+        assert!(matches!(kept, Ok(3)));
+        assert!(matches!(refused, Err(PictureFailure::Unshowable)));
     }
 }

@@ -325,7 +325,11 @@ fn square_icon_padding(side: f32) -> Vec2 {
 
 pub fn slider(ui: &mut Ui, slider: Slider<'_>) -> Response {
     let value = ui.spacing().interact_size.x + ui.spacing().item_spacing.x;
-    let track = (ui.available_width() - value)
+    slider_beside(ui, slider, value)
+}
+
+pub fn slider_beside(ui: &mut Ui, slider: Slider<'_>, reserved: f32) -> Response {
+    let track = (ui.available_width() - reserved)
         .min(ui.spacing().slider_width)
         .max(MIN_SLIDER_WIDTH);
     ui.scope(|ui| {

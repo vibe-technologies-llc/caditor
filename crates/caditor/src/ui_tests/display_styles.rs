@@ -212,6 +212,52 @@ fn the_lighting_panel_opens_from_the_palette_and_its_settings_reach_the_rendered
     assert_eq!(reset, crate::lighting::Lighting::default());
 }
 
+fn sun_field(caption: &str) -> egui::Id {
+    crate::lighting_panel::angle_field_id(
+        crate::lighting_panel::BackdropPlace::LightingPanel,
+        caption,
+    )
+}
+
+#[test]
+fn the_lighting_panel_takes_the_sun_angles_with_units() {
+    let mut harness = plate();
+    choose_from_menu(&mut harness, "Rendered");
+    run_from_palette(&mut harness, "light the rendered view");
+    harness.frame();
+
+    harness.type_into_field(sun_field(crate::lighting_panel::AZIMUTH), "0.5 rad");
+    harness.frame();
+    let turned = harness.workspace.preferences.lighting.azimuth;
+
+    harness.type_into_field(sun_field(crate::lighting_panel::ELEVATION), "30");
+    harness.frame();
+    let raised = harness.workspace.preferences.lighting.elevation;
+
+    assert!((turned - 0.5_f64.to_degrees()).abs() < 1e-9, "{turned}");
+    assert_eq!(raised, 30.0);
+    assert!(harness.shows("28.6°"));
+}
+
+#[test]
+fn a_sun_angle_out_of_range_is_refused_in_words_and_changes_nothing() {
+    let mut harness = plate();
+    choose_from_menu(&mut harness, "Rendered");
+    run_from_palette(&mut harness, "light the rendered view");
+    harness.frame();
+    let before = harness.workspace.preferences.lighting;
+
+    harness.type_into_field(sun_field(crate::lighting_panel::ELEVATION), "120");
+    harness.frame();
+    let said = harness.shows_containing("Use an angle from 0° to 90°");
+
+    harness.type_into_field(sun_field(crate::lighting_panel::ELEVATION), "2 mm");
+    harness.frame();
+
+    assert!(said);
+    assert_eq!(harness.workspace.preferences.lighting, before);
+}
+
 #[test]
 fn the_lighting_panel_offers_a_plain_backdrop_and_a_visible_floor_that_reach_the_rendered_scene() {
     let mut harness = plate();

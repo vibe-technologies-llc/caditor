@@ -87,7 +87,7 @@ paths:
   drawing must feed that key. Image export draws the model's pictures, as do the window's 3MF thumbnail
   (`ViewportState::thumbnail`, from `Model::pictures`) and the headless PNG and 3MF thumbnail,
   which have no model and decode the document's pictures at once (`snapshot::take`,
-  `ImageTextures::decoded_for`; one that cannot be decoded is left out with a logged warning), and
+  `ImageTextures::decoded_for`; one that cannot be decoded, or whose decoder panics, is left out with a logged warning), and
   the version preview, whose `preview` thread decodes the version's own pictures the same way and
   hands them to `snapshot::take_unless`. The hovered `Pickable`s (with the faces and edges chosen modifying rows made and the geometry
   chosen rows refer to, the rest of it drawn on a ghost of the body before the feature, `app-look.md`) and
@@ -569,8 +569,11 @@ paths:
   clamped. Light the
   rendered view (`Command::Lighting`, View › Display style) toggles `LightingTool` in the
   `Workspace`; while open, `lighting_panel.rs` draws a right-hand panel of `lighting_panel::rows`
-  (the same rows Preferences › Appearance › Rendered view draws), sliders previewing while dragged
-  and changing on release, an info callout with Show the Rendered style when another style is
+  (the same rows Preferences › Appearance › Rendered view draws, each taking its `BackdropPlace`),
+  sliders previewing while dragged and changing on release, the three angles (turn, height, picture
+  turn) with a unit field beside the slider (`angle_field_id`; degrees by default, `0.5 rad` and
+  other angle expressions accepted, no parameters; a value outside the slider's range is refused in
+  words and nothing changes), an info callout with Show the Rendered style when another style is
   shown, the sky picture below them and Reset lighting (`Command::ResetLighting`, which also
   puts the plain sky back).
 - The sky picture is a Radiance `.hdr` of the surroundings, the optional environment of the

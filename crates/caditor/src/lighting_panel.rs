@@ -1,7 +1,8 @@
 use std::{ops::RangeInclusive, path::Path};
 
 use caditor_document::Rgb;
-use egui::{Color32, Id, Label, Slider, Ui};
+use caditor_expression::{Dimension, EvalError, Expression, ParseError, format_decimals};
+use egui::{Color32, Id, Label, Slider, SliderClamping, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
@@ -10,6 +11,7 @@ use crate::{
     colour_selector,
     commands::Command,
     display_style::DisplayStyle,
+    field,
     guide::Page,
     icons,
     layout::RightPanel,
@@ -67,6 +69,9 @@ const BACKDROPS: [(&str, Rgb); 5] = [
 const FLOOR_HOVER: &str = "A neutral floor at the model's lowest point that takes the sun's \
                            shadow, fading into the backdrop";
 const SHADOWS_HOVER: &str = "Bodies shade what lies behind them from the sun";
+const ANGLE_FIELD_WIDTH: f32 = 72.0;
+const ANGLE_FIELD: &str = "lighting-angle";
+const ANGLE_HOVER: &str = "Degrees, or a value with a unit such as 0.5 rad";
 const PANEL: RightPanel = RightPanel { id: "lighting" };
 const HEADER: PanelTitle<'static> = PanelTitle {
     glyph: icons::LIGHTING,
@@ -105,36 +110,112 @@ struct Setting {
     range: RangeInclusive<f64>,
     suffix: &'static str,
     decimals: usize,
+    angle: bool,
     value: Value,
 }
 
-fn slider(
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum AngleError {
+    #[error(transparent)]
+    Unreadable(#[from] ParseError),
+    #[error("{}", field::sentence(&.0.to_string()))]
+    Unusable(#[from] EvalError),
+    #[error("Use an angle from {low}° to {high}°")]
+    OutOfRange { low: String, high: String },
+}
+
+pub fn angle_field_id(place: BackdropPlace, caption: &str) -> Id {
+    Id::unique((ANGLE_FIELD, place, caption))
+}
+
+fn angle_in(range: &RangeInclusive<f64>, text: &str) -> Result<f64, AngleError> {
+    let degrees = Expression::parse(text, &|_| None)?
+        .evaluate_as(Dimension::ANGLE, &|_| Err(EvalError::ParameterMissing))?;
+    if range.contains(&degrees) {
+        Ok(degrees)
+    } else {
+        Err(AngleError::OutOfRange {
+            low: format_decimals(*range.start(), 0),
+            high: format_decimals(*range.end(), 0),
+        })
+    }
+}
+
+fn track(
     ui: &mut Ui,
     setting: &Setting,
     lighting: Lighting,
     command: &mut Option<PreferencesCommand>,
 ) {
-    widgets::property(ui, setting.caption, |ui| {
-        let mut changed = lighting;
-        let response = widgets::slider(
-            ui,
-            Slider::new((setting.value)(&mut changed), setting.range.clone())
-                .suffix(setting.suffix)
-                .fixed_decimals(setting.decimals),
-        );
-        widgets::tie_to_caption(ui, &response);
-        let settled = response.drag_stopped() || !response.dragged();
-        if settled && (response.changed() || response.drag_stopped()) {
-            preferences::change(command, PreferenceChange::Lighting(changed));
-        } else if response.changed() {
-            *command = Some(PreferencesCommand::Preview(PreferenceChange::Lighting(
-                changed,
-            )));
-        }
-    });
+    let mut changed = lighting;
+    let plain = Slider::new((setting.value)(&mut changed), setting.range.clone())
+        .suffix(setting.suffix)
+        .fixed_decimals(setting.decimals);
+    let response = if setting.angle {
+        let reserved = ANGLE_FIELD_WIDTH + ui.spacing().item_spacing.x;
+        let beside = plain.show_value(false).clamping(SliderClamping::Never);
+        widgets::slider_beside(ui, beside, reserved)
+    } else {
+        widgets::slider(ui, plain)
+    };
+    widgets::tie_to_caption(ui, &response);
+    let settled = response.drag_stopped() || !response.dragged();
+    if settled && (response.changed() || response.drag_stopped()) {
+        preferences::change(command, PreferenceChange::Lighting(changed));
+    } else if response.changed() {
+        *command = Some(PreferencesCommand::Preview(PreferenceChange::Lighting(
+            changed,
+        )));
+    }
 }
 
-pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCommand>) {
+fn angle_text(setting: &Setting, mut lighting: Lighting) -> String {
+    format!("{}°", format_decimals(*(setting.value)(&mut lighting), 1))
+}
+
+fn slider(
+    ui: &mut Ui,
+    place: BackdropPlace,
+    setting: &Setting,
+    lighting: Lighting,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let mut refusal = None;
+    widgets::property(ui, setting.caption, |ui| {
+        if !setting.angle {
+            track(ui, setting, lighting, command);
+            return;
+        }
+        ui.horizontal(|ui| {
+            track(ui, setting, lighting, command);
+            let typed = field::commit_field(
+                ui,
+                angle_field_id(place, setting.caption),
+                &angle_text(setting, lighting),
+                ANGLE_FIELD_WIDTH,
+                false,
+                |text| angle_in(&setting.range, text),
+            );
+            typed.response.on_hover_text(ANGLE_HOVER);
+            if let Some(degrees) = typed.committed {
+                let mut changed = lighting;
+                *(setting.value)(&mut changed) = degrees;
+                preferences::change(command, PreferenceChange::Lighting(changed));
+            }
+            refusal = typed.error;
+        });
+    });
+    if let Some(error) = refusal {
+        widgets::error_row(ui, &error);
+    }
+}
+
+pub fn rows(
+    ui: &mut Ui,
+    place: BackdropPlace,
+    lighting: Lighting,
+    command: &mut Option<PreferencesCommand>,
+) {
     widgets::property(ui, FOLLOWS, |ui| {
         if let Some(frame) = preferences::pick::<LightFrame>(ui, lighting.frame) {
             preferences::change(
@@ -149,6 +230,7 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             range: lighting::AZIMUTH,
             suffix: "°",
             decimals: 0,
+            angle: true,
             value: |lighting| &mut lighting.azimuth,
         },
         Setting {
@@ -156,6 +238,7 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             range: lighting::ELEVATION,
             suffix: "°",
             decimals: 0,
+            angle: true,
             value: |lighting| &mut lighting.elevation,
         },
         Setting {
@@ -163,6 +246,7 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             range: lighting::STRENGTH,
             suffix: "",
             decimals: 1,
+            angle: false,
             value: |lighting| &mut lighting.strength,
         },
         Setting {
@@ -170,6 +254,7 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             range: lighting::TEMPERATURE,
             suffix: " K",
             decimals: 0,
+            angle: false,
             value: |lighting| &mut lighting.temperature,
         },
         Setting {
@@ -177,6 +262,7 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             range: lighting::ENVIRONMENT,
             suffix: "",
             decimals: 2,
+            angle: false,
             value: |lighting| &mut lighting.environment,
         },
         Setting {
@@ -184,6 +270,7 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             range: lighting::BOUNCE,
             suffix: "",
             decimals: 2,
+            angle: false,
             value: |lighting| &mut lighting.bounce,
         },
         Setting {
@@ -191,6 +278,7 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             range: lighting::OCCLUSION,
             suffix: "",
             decimals: 2,
+            angle: false,
             value: |lighting| &mut lighting.occlusion,
         },
         Setting {
@@ -198,11 +286,12 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             range: lighting::EXPOSURE,
             suffix: " EV",
             decimals: 1,
+            angle: false,
             value: |lighting| &mut lighting.exposure,
         },
     ];
     for setting in &settings {
-        slider(ui, setting, lighting, command);
+        slider(ui, place, setting, lighting, command);
         if setting.caption == TEMPERATURE {
             let [red, green, blue] = lighting.swatch();
             widgets::property(ui, "", |ui| {
@@ -364,6 +453,7 @@ fn sky_picture(ui: &mut Ui, lighting: Lighting, sky: SkyPicture<'_>, asked: &mut
                     range: lighting::BACKDROP_TURN,
                     suffix: "°",
                     decimals: 0,
+                    angle: true,
                     value: |lighting| &mut lighting.backdrop_turn,
                 },
                 Setting {
@@ -371,10 +461,17 @@ fn sky_picture(ui: &mut Ui, lighting: Lighting, sky: SkyPicture<'_>, asked: &mut
                     range: lighting::BACKDROP_EXPOSURE,
                     suffix: " EV",
                     decimals: 1,
+                    angle: false,
                     value: |lighting| &mut lighting.backdrop_exposure,
                 },
             ] {
-                slider(ui, &setting, lighting, &mut asked.command);
+                slider(
+                    ui,
+                    BackdropPlace::LightingPanel,
+                    &setting,
+                    lighting,
+                    &mut asked.command,
+                );
             }
         }
     });
@@ -438,7 +535,12 @@ pub fn show(
                 ui.add_space(SPACE_S);
             }
             widgets::properties(ui, "lighting-properties", |ui| {
-                rows(ui, lighting, &mut asked.command);
+                rows(
+                    ui,
+                    BackdropPlace::LightingPanel,
+                    lighting,
+                    &mut asked.command,
+                );
             });
             ui.add_space(SPACE_M);
             sky_picture(ui, lighting, sky, &mut asked);

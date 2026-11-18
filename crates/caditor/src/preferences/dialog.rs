@@ -1358,7 +1358,12 @@ fn rendered_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
         .unwrap_or(body_appearance::DEFAULT_COLOUR);
     section_card(ui, shown, Section::RenderedView, |ui| {
         widgets::properties(ui, Section::RenderedView.id(), |ui| {
-            lighting_panel::rows(ui, shown.preferences.lighting, command);
+            lighting_panel::rows(
+                ui,
+                lighting_panel::BackdropPlace::Preferences,
+                shown.preferences.lighting,
+                command,
+            );
         });
         ui.add_space(SPACE_M);
         lighting_panel::backdrop_colour(

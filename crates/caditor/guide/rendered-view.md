@@ -28,7 +28,9 @@ shading.
   stay where they fall as you orbit; or the view, so the sun turns round the model with you and
   the side you look at stays lit from any height, top views included.
 - **Turned** and **Height** place the sun: turned from behind you (or from X toward Y when it
-  follows the model), and how high above the horizon, which is always the model's (Z up).
+  follows the model), and how high above the horizon, which is always the model's (Z up). Drag the
+  slider, or type an angle in the box beside it: degrees, or a value with a unit such as
+  `0.5 rad`. An angle outside the slider's range is refused, saying so.
 - **Sun strength** and **Colour temperature**: warm light is around 2700 K, daylight around
   5600 K, an overcast sky 7500 K and above.
 - **Sky light** is the light reaching the bodies from the blue sky above and the sunlit ground
@@ -85,7 +87,8 @@ metallic finish reflects it, sharply for a polished surface and blurred for a ro
 still lights the model as well, so turn Sun strength down to 0 to let the picture do all of it.
 
 - Z is up, and the middle of the picture lies along the X axis. **Picture turned** turns it
-  about Z, in degrees, to bring a window or a lamp to the side you want.
+  about Z, in degrees or with a unit (`0.5 rad`), to bring a window or a lamp to the side
+  you want.
 - **Picture brightness** makes it brighter or darker in stops, and the Exposure setting still
   applies to the whole picture.
 - The picture is kept in your preferences, so it is there the next time caditor starts. A very
