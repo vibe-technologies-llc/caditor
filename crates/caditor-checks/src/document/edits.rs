@@ -958,7 +958,7 @@ pub fn model_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tran
             .deleting_configuration(configuration_id(input, scene)?)
             .ok(),
         10 => document.configuring(configured_value(input, scene)?).ok(),
-        11 => Some(document.unconfiguring(configured_value(input, scene)?)),
+        11 => document.unconfiguring(configured_value(input, scene)?).ok(),
         12 => {
             let value = configured_value(input, scene)?;
             let setting = setting(input, scene, value)?;

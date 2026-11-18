@@ -312,6 +312,105 @@ fn a_row_cell_making_a_live_expression_circular_is_refused_naming_the_row() {
     );
 }
 
+fn with_a_and_c_configured() -> (Editor, ParameterId, ParameterId, ConfigurationId) {
+    let (mut editor, a, c, other) = with_a_configured("a");
+    let configure = editor
+        .document()
+        .configuring(ConfiguredValue::Parameter(c))
+        .unwrap();
+    editor.apply(configure).unwrap();
+    let one = expression(editor.document(), "1 mm");
+    set(
+        &mut editor,
+        other,
+        ConfiguredValue::Parameter(c),
+        Setting::Expression(one),
+    );
+    (editor, a, c, other)
+}
+
+#[test]
+fn stopping_configuring_a_parameter_that_would_leave_a_row_circular_is_refused_naming_the_row() {
+    let (mut editor, a, c, other) = with_a_and_c_configured();
+    let using_c = expression(editor.document(), "c");
+    set(
+        &mut editor,
+        other,
+        ConfiguredValue::Parameter(a),
+        Setting::Expression(using_c),
+    );
+
+    let refused = editor
+        .document()
+        .unconfiguring(ConfiguredValue::Parameter(c));
+
+    assert_eq!(
+        refused.err(),
+        Some(EditError::ConfigurationCycle {
+            configuration: "Other".to_owned(),
+            name: "a".to_owned(),
+            path: "a → c → a".to_owned(),
+        })
+    );
+    assert!(
+        editor
+            .document()
+            .configurations()
+            .configures(ConfiguredValue::Parameter(c))
+    );
+}
+
+#[test]
+fn stopping_configuring_a_parameter_that_leaves_every_row_acyclic_still_works() {
+    let (mut editor, a, c, other) = with_a_and_c_configured();
+    let five = expression(editor.document(), "5 mm");
+    set(
+        &mut editor,
+        other,
+        ConfiguredValue::Parameter(a),
+        Setting::Expression(five),
+    );
+
+    let stopping = editor
+        .document()
+        .unconfiguring(ConfiguredValue::Parameter(c))
+        .unwrap();
+    editor.apply(stopping).unwrap();
+
+    assert!(
+        !editor
+            .document()
+            .configurations()
+            .configures(ConfiguredValue::Parameter(c))
+    );
+    assert_eq!(
+        editor
+            .document()
+            .configuration_setting(other, ConfiguredValue::Parameter(a)),
+        Some(Setting::Expression(expression(editor.document(), "5 mm")))
+    );
+}
+
+#[test]
+fn stopping_configuring_another_parameter_leaves_a_row_that_was_already_circular_alone() {
+    let (mut editor, _, _, _) = circular_other_row();
+    let mut transaction = editor.document().transaction("Add");
+    let expression = transaction.parse("2 mm").unwrap();
+    let d = transaction.add_parameter("d", expression);
+    editor.apply(transaction.finish()).unwrap();
+    let configure = editor
+        .document()
+        .configuring(ConfiguredValue::Parameter(d))
+        .unwrap();
+    editor.apply(configure).unwrap();
+
+    let stopping = editor
+        .document()
+        .unconfiguring(ConfiguredValue::Parameter(d));
+
+    assert!(stopping.is_ok());
+}
+
 #[test]
 fn a_circular_row_from_before_the_check_is_refused_when_switched_to_and_skipped_when_deleting() {
     let (mut editor, a, c, other) = circular_other_row();

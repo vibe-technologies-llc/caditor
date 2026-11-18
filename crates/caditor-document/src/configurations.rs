@@ -576,13 +576,32 @@ impl Document {
         Ok(self.with_table("Configure a value".to_owned(), table))
     }
 
-    pub fn unconfiguring(&self, value: ConfiguredValue) -> Transaction {
+    pub fn unconfiguring(&self, value: ConfiguredValue) -> Result<Transaction, EditError> {
         let mut table = Configurations::clone(&self.configurations);
         table.values.retain(|other| *other != value);
         for row in &mut table.rows {
             row.settings.remove(&value);
         }
-        self.with_table("Stop configuring a value".to_owned(), table)
+        if value.parameter().is_some() {
+            self.check_rows_stay_acyclic(&table)?;
+        }
+        Ok(self.with_table("Stop configuring a value".to_owned(), table))
+    }
+
+    fn check_rows_stay_acyclic(&self, table: &Configurations) -> Result<(), EditError> {
+        let broken = table
+            .rows
+            .iter()
+            .filter(|row| !table.is_active(row.id))
+            .find_map(|row| {
+                let before = self.configurations.row(row.id)?;
+                if self.row_cycle(before).is_some() {
+                    return None;
+                }
+                let cycle = self.row_cycle(row)?;
+                Some(self.configuration_cycle(row.id, &cycle))
+            });
+        broken.map_or(Ok(()), Err)
     }
 
     pub fn setting_configuration(

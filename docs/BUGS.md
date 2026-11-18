@@ -161,10 +161,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `Measured::overlay` fills only the measurements the pattern reads, so an original sized by a
   measurement fails `CopyEnd` in the copies or lands with other values. Keep the original's values
   in `LandingInputs` when captured; untested with a measured diameter.
-- [low · small] Stopping configuring a parameter can leave another row circular: `unconfiguring`
-  drops that column's cells, so a row holding `a = c` falls back to a live `c = a`. The row then
-  refuses to be switched to (`ConfigurationCircular`) and deleting the active row skips it, but
-  `unconfiguring` should refuse first, naming the row (`row_cycle` on the new table).
 
 ## Sketch solver
 

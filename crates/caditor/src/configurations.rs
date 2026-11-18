@@ -273,7 +273,7 @@ fn table(
                     let hover = format!("Stop configuring {name}");
                     if widgets::icon_button(ui, icons::REMOVE, &hover).clicked() {
                         outcome =
-                            applying(draft, checked(document, Ok(document.unconfiguring(*value))));
+                            applying(draft, checked(document, document.unconfiguring(*value)));
                     }
                 });
             }

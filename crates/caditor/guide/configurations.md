@@ -11,9 +11,10 @@ M6 and M8 screws) live in one file. {command:model.configurations} opens the tab
   cannot be switched to (below), none is left active and the model keeps its values.
 - A parameter's cell is refused when, with the other values of that configuration, the parameter
   would depend on itself, and so is a change to a parameter's expression that would make it depend
-  on itself in another configuration; the message names that configuration and the circle. So every
-  configuration can always be switched to. To swap which of two values follows the other, first
-  type a plain value into the one that uses the other.
+  on itself in another configuration, and so is stopping configuring a parameter when the other
+  configurations' values would then depend on themselves; the message names that configuration and
+  the circle. So every configuration can always be switched to. To swap which of two values follows
+  the other, first type a plain value into the one that uses the other.
 - A model saved by an earlier version may hold a configuration in which parameters depend on each
   other in a circle. It opens as usual, but switching to that configuration is refused, naming the
   circle, until its values are changed.

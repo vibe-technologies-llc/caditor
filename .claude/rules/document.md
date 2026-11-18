@@ -377,6 +377,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   circular row still opens and edits: `activating` that row is refused as `ConfigurationCircular`
   (`Document::row_cycle`), and deleting the active row leaves none active, keeping the live values,
   when the row it would switch to is circular.
+  `unconfiguring` a parameter is refused with `ConfigurationCycle`, naming the row, when dropping
+  its column makes an inactive row circular that was not before (`check_rows_stay_acyclic`).
 
 ### Body appearance (`body_appearance.rs`)
 
