@@ -1,5 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
+use caditor_ai::ApiProvider;
 use caditor_cloud::Service;
 
 #[cfg(windows)]
@@ -8,7 +9,7 @@ mod credential_manager;
 mod secret_service;
 
 #[cfg(test)]
-pub use self::fake::FakeKeyring;
+pub use self::fake::{FakeAiKeyring, FakeKeyring};
 
 #[derive(Debug, thiserror::Error)]
 pub enum KeyringError {
@@ -61,7 +62,22 @@ pub trait Keyring: Send + Sync + Debug {
     fn delete(&self, service: Service) -> Result<(), KeyringError>;
 }
 
+pub trait AiKeyring: Send + Sync + Debug {
+    fn get_key(&self, provider: ApiProvider) -> Result<Option<Vec<u8>>, KeyringError>;
+
+    fn set_key(&self, provider: ApiProvider, secret: &[u8]) -> Result<(), KeyringError>;
+
+    fn delete_key(&self, provider: ApiProvider) -> Result<(), KeyringError>;
+}
+
 pub fn system() -> Arc<dyn Keyring> {
+    #[cfg(unix)]
+    return Arc::new(secret_service::SecretService);
+    #[cfg(windows)]
+    return Arc::new(credential_manager::CredentialManager);
+}
+
+pub fn system_ai() -> Arc<dyn AiKeyring> {
     #[cfg(unix)]
     return Arc::new(secret_service::SecretService);
     #[cfg(windows)]
@@ -78,10 +94,11 @@ mod fake {
         },
     };
 
+    use caditor_ai::ApiProvider;
     use caditor_cloud::{Service, fake::Hold};
     use parking_lot::Mutex;
 
-    use super::{Keyring, KeyringError};
+    use super::{AiKeyring, Keyring, KeyringError};
 
     #[derive(Debug, Default)]
     pub struct FakeKeyring {
@@ -145,6 +162,51 @@ mod fake {
         fn delete(&self, service: Service) -> Result<(), KeyringError> {
             self.check()?;
             self.entries.lock().remove(&service);
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Default)]
+    pub struct FakeAiKeyring {
+        entries: Mutex<BTreeMap<ApiProvider, Vec<u8>>>,
+        unreachable: AtomicBool,
+    }
+
+    impl FakeAiKeyring {
+        pub fn reachable() -> Arc<Self> {
+            Arc::new(Self::default())
+        }
+
+        pub fn unreachable() -> Arc<Self> {
+            let keyring = Self::default();
+            keyring.unreachable.store(true, Ordering::Relaxed);
+            Arc::new(keyring)
+        }
+
+        fn check(&self) -> Result<(), KeyringError> {
+            if self.unreachable.load(Ordering::Relaxed) {
+                Err(KeyringError::Unreachable)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl AiKeyring for FakeAiKeyring {
+        fn get_key(&self, provider: ApiProvider) -> Result<Option<Vec<u8>>, KeyringError> {
+            self.check()?;
+            Ok(self.entries.lock().get(&provider).cloned())
+        }
+
+        fn set_key(&self, provider: ApiProvider, secret: &[u8]) -> Result<(), KeyringError> {
+            self.check()?;
+            self.entries.lock().insert(provider, secret.to_vec());
+            Ok(())
+        }
+
+        fn delete_key(&self, provider: ApiProvider) -> Result<(), KeyringError> {
+            self.check()?;
+            self.entries.lock().remove(&provider);
             Ok(())
         }
     }

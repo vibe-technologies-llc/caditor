@@ -57,6 +57,9 @@ pub const REDUNDANT: &str = phosphor::STACK;
 pub const UPDATE_REFERENCES: &str = phosphor::LINK_SIMPLE;
 pub const TIP: &str = phosphor::LIGHTBULB;
 pub const GUIDE: &str = phosphor::BOOK_OPEN_TEXT;
+pub const ASSISTANT: &str = phosphor::CHAT_CIRCLE_TEXT;
+pub const NEW_CHAT: &str = phosphor::CHAT_CIRCLE_DOTS;
+pub const SEND: &str = phosphor::PAPER_PLANE_TILT;
 pub const HELP: &str = phosphor::QUESTION;
 pub const BACK: &str = phosphor::ARROW_LEFT;
 pub const HOME_VIEW: &str = phosphor::HOUSE;
@@ -364,6 +367,7 @@ pub fn command(command: Command) -> &'static str {
         | Command::CancelImport
         | Command::CancelRecompute
         | Command::CancelAnalysis
+        | Command::CancelAssistant
         | Command::CancelMassProperties
         | Command::CancelPreparingBodies
         | Command::CancelUploading
@@ -444,6 +448,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CloudSend => phosphor::CLOUD_ARROW_UP,
         Command::CloudOpenInFusion => phosphor::ARROW_SQUARE_OUT,
         Command::Guide => GUIDE,
+        Command::Assistant => ASSISTANT,
         Command::About => phosphor::INFO,
         Command::Messages => phosphor::CHAT_TEXT,
     }

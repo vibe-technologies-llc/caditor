@@ -316,7 +316,7 @@ impl Tool {
         }
     }
 
-    fn title(self) -> &'static str {
+    pub fn title(self) -> &'static str {
         match self {
             Self::GetModel => "Model summary",
             Self::ListFeatures => "Feature tree",
@@ -383,7 +383,7 @@ impl Tool {
         }
     }
 
-    fn description(self) -> &'static str {
+    pub fn description(self) -> &'static str {
         match self {
             Self::GetModel => {
                 "Summarises the open model: its file, whether it has unsaved changes, what undo \
@@ -689,7 +689,7 @@ impl Tool {
         }
     }
 
-    fn input_schema(self) -> Value {
+    pub fn input_schema(self) -> Value {
         let nothing = json!({ "type": "object", "properties": {}, "additionalProperties": false });
         match self {
             Self::GetModel

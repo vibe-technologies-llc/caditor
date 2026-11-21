@@ -52,6 +52,7 @@ inside the workspace.
 | `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP and STL/OBJ/3MF mesh import, reference picture decoding, STL/3MF/OBJ/glTF/STEP/PNG and DXF/SVG drawing export. | document and everything it uses, step, zstd, windows |
 | `caditor-checks` | Generators and invariant checks shared by `cargo test` and the fuzz targets: random documents, sketches and profiles, soundness of solids, seeded property suites. | document, expression, file, geometry, kernel, sketch, step |
 | `caditor-cloud` | Cloud services behind one `Provider` abstraction (Fusion 360 first): OAuth with PKCE, a rustls transport, project listing and design conversion to STEP. | none |
+| `caditor-ai` | Pure-Rust streaming LLM client for Anthropic Claude, Google Gemini, OpenAI GPT and custom OpenAI-compatible endpoints on the workspace's rustls transport. | none |
 | `caditor-notices` | Release tool: writes `THIRD-PARTY-NOTICES.txt` from `cargo metadata` and the font licences. | none |
 | `caditor-xtask` | The check runner behind `cargo xtask`: CI's format, clippy, deny and test lines, narrowed to what changed. | none |
 | `caditor-render` | wgpu viewport, camera, GPU picking, reference pictures, image export; no winit or document dependency. | geometry (windows on Windows) |
@@ -113,5 +114,6 @@ rule's `paths:` covers, a rules file with nothing under its title and one missin
 | `notices.md` | The third-party notices file: which crates and fonts it lists, where the texts come from, how packages install it. |
 | `xtask.md` | The check runner (`cargo xtask`): its tasks, kept output, and how `--changed` picks packages. |
 | `mcp.md` | The headless MCP server (`caditor mcp`): JSON-RPC reader, session, tools, references, files and resources. |
+| `assistant.md` | In-editor AI assistant chat UI, `caditor-ai` streaming clients, local CLI wrappers, keyring API keys and the live loopback MCP bridge. |
 | `render.md` | Frames, devices, graphics settings, precision, depth, picking, navigation. |
 | `app.md`, `app-look.md`, `app-modelling.md`, `app-files.md`, `app-input.md`, `app-sketching.md`, `app-tests.md` | App shell, `Model` and `Action`s, the user guide; theme, widgets, panels, feature tree; modelling tools; file workflow and preferences; input, commands and keymap; sketch editing; the headless UI test harness. |

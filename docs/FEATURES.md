@@ -274,12 +274,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
     the documented shape), whether opening an uploaded STEP item creates a design by import, and
     whether Autodesk offers a public call that converts a stored STEP into a Fusion design server
     side; if it does, the command could open a design rather than an import.
-- [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
-  assistant cannot work on the model open in the window: the headless server owns its own
-  document. Connecting to the running app needs a transport the app listens on (off by default),
-  the user's approval of each client, a status pill naming the connected client with a Disconnect,
-  its changes landing in the user's undo history interleaved with their own, and its tool calls
-  queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's

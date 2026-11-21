@@ -1,3 +1,4 @@
+pub mod bridge;
 mod curves;
 mod datum_schemas;
 mod datums;
@@ -12,9 +13,9 @@ mod places;
 mod reading;
 mod references;
 mod reshaping;
-mod resources;
-mod server;
-mod session;
+pub mod resources;
+pub mod server;
+pub mod session;
 mod sketch_additions;
 mod sketch_cuts;
 mod sketch_edits;

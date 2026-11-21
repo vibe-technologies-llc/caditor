@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use caditor_ai::ApiProvider;
 use caditor_cloud::{ProjectId, Service};
 use caditor_document::Rgb;
 use caditor_file::{Retention, Settings, SettingsError};
@@ -14,17 +15,22 @@ pub use self::dialog::{
     view_name,
 };
 pub use self::{
+    assistant::AssistantPreferences,
     choices::{
         Choice, ContrastSetting, DoubleClick, ExportMemory, FieldOfView, NewBodies, NoticeTime,
         OrbitAround, RecentListed, Startup, TooltipDelay, Transitions, ZoomToward,
     },
     cloud::CloudPreferences,
-    dialog::{PreferencesView, Shown, change, choice, dialog, pending_changes, pick, section},
+    dialog::{
+        AssistantPrefsView, PreferencesView, Shown, change, choice, dialog, pending_changes, pick,
+        section,
+    },
     sections::Section,
 };
 pub use crate::themes::{Accent, Appearance, BodyColour, GridColour, Theme, ViewChoice};
 use crate::{
     appearance::{self},
+    assistant::{AssistantCommand, Backend, CliTool},
     backdrop,
     body_appearance::SWATCHES,
     commands::{Command, Keymap},
@@ -98,6 +104,7 @@ const PALETTE_RECENT_KEY: &str = "palette.recent";
 const RECENT_COLOURS_KEY: &str = "body.recent_colours";
 pub const RECENT_COLOURS_LIMIT: usize = 6;
 
+mod assistant;
 mod choices;
 mod cloud;
 mod dialog;
@@ -511,6 +518,7 @@ pub struct Preferences {
     pub backdrop: Option<PathBuf>,
     pub onboarding: Onboarding,
     pub cloud: CloudPreferences,
+    pub assistant: AssistantPreferences,
     pub keymap: Keymap,
     pub window: WindowPlacement,
     pub panels: PanelLayout,
@@ -594,6 +602,11 @@ pub enum PreferenceChange {
     CloudEnabled(bool),
     CloudOnHome(bool),
     ClientId(Service, String),
+    AssistantBackend(Backend),
+    AssistantModel(ApiProvider, String),
+    AssistantBaseUrl(String),
+    AssistantCliProgram(CliTool, String),
+    AssistantFolders(Vec<PathBuf>),
     SlicerProgram(String),
     RestoreHints,
     DefenderReminded,
@@ -642,6 +655,7 @@ pub enum PreferencesCommand {
     RememberLast(Vec<(Remembered, String)>),
     RememberExports(RememberedExports),
     RememberImport(StartingPlacement),
+    Assistant(AssistantCommand),
     Search(String),
     Undo,
 }
@@ -813,6 +827,7 @@ impl Preferences {
             backdrop: backdrop::read(&raw),
             onboarding: Onboarding::from_settings(&raw),
             cloud: CloudPreferences::from_settings(&raw),
+            assistant: AssistantPreferences::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
             window: WindowPlacement::from_settings(&raw),
             panels: PanelLayout::from_settings(&raw),
@@ -871,6 +886,7 @@ impl Preferences {
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
         self.cloud.write(&mut settings);
+        self.assistant.write(&mut settings);
         self.window.write(&mut settings);
         self.panels.write(&mut settings);
         templates::write_default_template(self.default_template.as_deref(), &mut settings);
@@ -989,6 +1005,22 @@ impl Preferences {
             PreferenceChange::CloudEnabled(enabled) => self.cloud.enabled = enabled,
             PreferenceChange::CloudOnHome(shown) => self.cloud.on_home = shown,
             PreferenceChange::ClientId(service, id) => self.cloud.set_client_id(service, id),
+            PreferenceChange::AssistantBackend(backend) => self.assistant.backend = backend,
+            PreferenceChange::AssistantModel(provider, model) => {
+                self.assistant.set_model(provider, model);
+            }
+            PreferenceChange::AssistantBaseUrl(url) => {
+                let trimmed = url.trim();
+                self.assistant.custom_base_url = if trimmed.is_empty() {
+                    ApiProvider::Custom.default_base_url().to_owned()
+                } else {
+                    trimmed.to_owned()
+                };
+            }
+            PreferenceChange::AssistantCliProgram(tool, program) => {
+                self.assistant.set_cli_program(tool, program);
+            }
+            PreferenceChange::AssistantFolders(folders) => self.assistant.folders = folders,
             PreferenceChange::SlicerProgram(program) => {
                 let program = program.trim();
                 self.slicer_program = (!program.is_empty()).then(|| PathBuf::from(program));

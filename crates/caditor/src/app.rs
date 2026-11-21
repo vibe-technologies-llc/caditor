@@ -29,6 +29,8 @@ use crate::{
     analysis::{Analysis, AnalysisCommand, AnalysisTool, Kind},
     analysis_panel::{self, AnalysisContext},
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, Skin, Skins},
+    assistant::{Assistant, AssistantServices},
+    assistant_panel,
     backdrop::Backdrop,
     body_selection, canvas,
     cloud::{Cloud, CloudCommand, CloudServices, Refusal},
@@ -78,9 +80,9 @@ use crate::{
     panels::{self, PanelState},
     parameter_table,
     preferences::{
-        self, Appearance, ExportMemory, PreferenceChange, Preferences, PreferencesCommand,
-        PreferencesTab, PreferencesView, Restored, StartingToggles, Startup, TitleBar,
-        TooltipDelay, Transitions,
+        self, Appearance, AssistantPrefsView, ExportMemory, PreferenceChange, Preferences,
+        PreferencesCommand, PreferencesTab, PreferencesView, Restored, StartingToggles, Startup,
+        TitleBar, TooltipDelay, Transitions,
     },
     queued::{self, Rerun},
     reference_picking::{self, Slot},
@@ -188,6 +190,7 @@ pub struct Workspace {
     pub home: Home,
     pub cloud: Cloud,
     pub cloud_dialog: Option<CloudDialog>,
+    pub assistant: Assistant,
     pub about_open: bool,
     pub messages_open: bool,
     pub undo_history_open: bool,
@@ -240,6 +243,7 @@ impl Workspace {
     pub fn with_preferences(preferences: Preferences) -> Self {
         let welcome_open = !preferences.onboarding.welcomed;
         let cloud = Cloud::new(&preferences.cloud, CloudServices::without_files());
+        let assistant = Assistant::new(AssistantServices::without_files());
         let mut viewport = ViewportState::new();
         viewport.set_navigation(preferences.navigation);
         viewport.set_view_details(preferences.view_details);
@@ -262,6 +266,7 @@ impl Workspace {
             home: Home::default(),
             cloud,
             cloud_dialog: None,
+            assistant,
             about_open: false,
             messages_open: false,
             undo_history_open: false,
@@ -315,6 +320,7 @@ impl Workspace {
         self.welcome_open = false;
         self.home.close();
         self.cloud_dialog = None;
+        self.assistant.after_failed_frame();
         self.about_open = false;
         self.messages_open = false;
         self.undo_history_open = false;
@@ -372,9 +378,18 @@ impl Workspace {
     }
 
     fn preview_preference(&mut self, change: PreferenceChange, model: &mut Model) {
+        let refresh_clis = matches!(
+            change,
+            PreferenceChange::AssistantCliProgram(..)
+                | PreferenceChange::SectionDefaults(preferences::Section::Assistant)
+                | PreferenceChange::Defaults(PreferencesTab::General)
+        );
         let before = self.preferences.sketching.at_start;
         self.preferences.apply(change);
         self.follow_preferences(model, before);
+        if refresh_clis {
+            self.assistant.refresh_clis(&self.preferences.assistant);
+        }
     }
 
     fn follow_preferences(&mut self, model: &mut Model, started_with: StartingToggles) {
@@ -400,6 +415,7 @@ impl Workspace {
         match command {
             PreferencesCommand::Show => {
                 self.preferences_open = true;
+                self.assistant.ensure_loaded(&self.preferences.assistant);
                 files.perform(FileCommand::ListTemplates, model);
                 files.perform(FileCommand::ListThemes, model);
             }
@@ -543,6 +559,16 @@ impl Workspace {
                 self.preferences.palette_recent = recent;
                 files.store_settings(self.preferences.settings());
             }
+            PreferencesCommand::Assistant(command) => {
+                let mut follow = Vec::new();
+                self.assistant
+                    .perform(command, &self.preferences.assistant, &mut follow);
+                for action in follow {
+                    if let Action::Inform(notice) = action {
+                        model.perform(Action::Inform(notice));
+                    }
+                }
+            }
         }
     }
 }
@@ -607,6 +633,7 @@ pub fn show(
 ) {
     workspace.sync(model);
     actions.extend(workspace.cloud.poll());
+    workspace.assistant.poll_ui(model, actions);
     workspace.home.follow(model, &workspace.editing);
     workspace.principal_listed = visibility::take_listing(ui.ctx());
     completion::publish(ui.ctx(), model);
@@ -660,6 +687,7 @@ pub fn show(
         home,
         cloud,
         cloud_dialog,
+        assistant,
         about_open,
         messages_open,
         undo_history_open,
@@ -801,6 +829,9 @@ pub fn show(
     if commands.available(Command::Interference) {
         interference.toggle();
     }
+    if commands.available(Command::Assistant) {
+        assistant.toggle(&preferences.assistant);
+    }
     drawings_panel::commands(model, drawings, &bodies_to_export, &mut commands, actions);
     analysis_commands(model, viewport.selection(), analysis, &mut commands);
     if commands.available(Command::Analysis(AnalysisCommand::Comb)) {
@@ -911,7 +942,8 @@ pub fn show(
         + usize::from(gearing_open(editing))
         + usize::from(texting_open(editing))
         + usize::from(section.open)
-        + usize::from(guide.open);
+        + usize::from(guide.open)
+        + usize::from(assistant.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
     layout::share_right_width(ui.ctx(), panels.layout().right_width);
     panels::show(
@@ -927,6 +959,16 @@ pub fn show(
     deferred_commands.append(&mut panels.requested);
     if guide.open {
         guide_panel::show(ui, guide, &preferences.keymap, room);
+    }
+    if assistant.open {
+        assistant_panel::show(
+            ui,
+            assistant,
+            &preferences.assistant,
+            room,
+            &mut commands,
+            actions,
+        );
     }
     route_dimension_focus(panels, editing, viewport);
     if let Some(chosen) = panels.chosen_in_tree.take() {
@@ -1342,6 +1384,7 @@ pub fn show(
             themes: files.themes(),
             search: preferences_search,
             slicer: files.found_slicer(),
+            assistant: AssistantPrefsView { assistant },
         };
         if *preferences_open
             && let Some(command) = preferences::dialog(ui.ctx(), preferences, &view)
@@ -1950,12 +1993,20 @@ pub fn perform(
     let notice_before = model.notice().cloned();
     let mut queue = VecDeque::from(actions);
     let mut stepped = Stepped::default();
+    workspace.assistant.poll_model(model, &mut queue);
     if let Some(shipment) = files.take_cloud_shipment() {
         queue.push_back(Action::Cloud(CloudCommand::Send(shipment)));
     }
     while let Some(action) = queue.pop_front() {
         match action {
             Action::Cloud(command) => queue.extend(workspace.cloud.run(command)),
+            Action::Assistant(command) => {
+                let mut follow = Vec::new();
+                workspace
+                    .assistant
+                    .perform(command, &workspace.preferences.assistant, &mut follow);
+                queue.extend(follow);
+            }
             Action::File(command) => files.perform(command, model),
             Action::Editing(EditingCommand::SetMode(mode))
                 if let Some(reason) = workspace.viewport.refuses_mode(mode) =>
@@ -2202,6 +2253,13 @@ impl ApplicationHandler<AppEvent> for App {
                         caditor_file::state_dir(),
                     ),
                 );
+                session.workspace.assistant.set_services(
+                    AssistantServices::live(
+                        caditor_file::state_dir(),
+                        waker_factory(self.proxy.clone()),
+                    ),
+                    &self.preferences.assistant,
+                );
                 let wanted = self.preferences.onboarding.home
                     && self.preferences.startup == Startup::EmptyModel
                     && !self.opened_a_file;
@@ -2266,6 +2324,7 @@ impl ApplicationHandler<AppEvent> for App {
         let files = &mut self.files;
         let closed = panic::catch_unwind(AssertUnwindSafe(move || {
             if let Some(mut session) = session {
+                session.workspace.assistant.shutdown();
                 session.remember_layout(files, Instant::now());
                 session.store_layout(files);
             }

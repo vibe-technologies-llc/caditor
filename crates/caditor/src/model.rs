@@ -23,6 +23,7 @@ use caditor_render::ImageError;
 use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch, SketchSolution};
 
 use crate::{
+    assistant::AssistantCommand,
     bodies::{self, ShownCut},
     body_picks,
     cloud::CloudCommand,
@@ -110,7 +111,24 @@ pub enum Action {
     Editing(EditingCommand),
     Preferences(PreferencesCommand),
     Cloud(CloudCommand),
+    Assistant(AssistantCommand),
     Filter(SelectionFilter),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SaveOutcome {
+    Saved {
+        path: PathBuf,
+        backup: Option<PathBuf>,
+        dropped_for_size: usize,
+    },
+    ChangedOnDisk {
+        path: PathBuf,
+    },
+    Failed {
+        path: PathBuf,
+        error: caditor_file::SaveError,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -322,6 +340,7 @@ pub struct Model {
     save_previews: SavePreviews,
     next_ticket: u64,
     file_events: Vec<FileEvent>,
+    save_outcomes: Vec<SaveOutcome>,
     length_unit: LengthUnit,
     angle_unit: AngleUnit,
     number_format: NumberFormat,
@@ -383,6 +402,7 @@ impl Model {
             save_previews: SavePreviews::default(),
             next_ticket: 0,
             file_events: Vec::new(),
+            save_outcomes: Vec::new(),
             length_unit: LengthUnit::default(),
             angle_unit: AngleUnit::default(),
             number_format: NumberFormat::default(),
@@ -421,6 +441,10 @@ impl Model {
 
     pub fn threads_shown_cosmetic(&self) -> bool {
         self.threads_cosmetic
+    }
+
+    pub fn take_save_outcomes(&mut self) -> Vec<SaveOutcome> {
+        std::mem::take(&mut self.save_outcomes)
     }
 
     pub fn principal_view(&self) -> PrincipalView {
@@ -1354,6 +1378,10 @@ impl Model {
                 log::warn!("{command:?} reached the model instead of the cloud service");
                 Ok(None)
             }
+            Action::Assistant(command) => {
+                log::warn!("{command:?} reached the model instead of the AI assistant");
+                Ok(None)
+            }
             Action::Filter(filter) => {
                 log::warn!("{filter:?} reached the model instead of the viewport");
                 Ok(None)
@@ -2108,11 +2136,18 @@ impl Model {
                 if let Some(notice) = saved_notice(backup.as_deref(), dropped_for_size) {
                     self.set_notice(notice);
                 }
+                self.save_outcomes.push(SaveOutcome::Saved {
+                    path: path.clone(),
+                    backup,
+                    dropped_for_size,
+                });
                 self.file_events.push(FileEvent::Saved(path));
             }
             Report::ChangedOnDisk { ticket, path } => {
                 self.pending_save
                     .take_if(|pending| pending.ticket == ticket);
+                self.save_outcomes
+                    .push(SaveOutcome::ChangedOnDisk { path: path.clone() });
                 self.file_events.push(FileEvent::ChangedOnDisk {
                     path,
                     session: self.session(),
@@ -2139,6 +2174,7 @@ impl Model {
                     "Could not save “{}”: {error}. Use Save As to choose another location.",
                     display_name(Some(&path))
                 )));
+                self.save_outcomes.push(SaveOutcome::Failed { path, error });
                 self.file_events.push(FileEvent::SaveFailed);
             }
             Report::JournalFailed { failure } => {

@@ -25,6 +25,7 @@ unreachable = "deny"
 unwrap_used = "deny"
 
 [workspace.dependencies]
+caditor-ai.path = "crates/caditor-ai"
 caditor-checks.path = "crates/caditor-checks"
 caditor-cloud.path = "crates/caditor-cloud"
 caditor-document.path = "crates/caditor-document"

@@ -7,13 +7,14 @@ use std::{
     time::Duration,
 };
 
+use caditor_ai::ApiProvider;
 use caditor_cloud::Service;
 use zbus::{
     Connection, Message, OwnedObjectPath, OwnedVariant, Proxy, Variant, block_on,
     export::futures_core::Stream, proxy::SignalStream,
 };
 
-use super::{Keyring, KeyringError};
+use super::{AiKeyring, Keyring, KeyringError};
 
 const BUS_NAME: &str = "org.freedesktop.secrets";
 const SERVICE_PATH: &str = "/org/freedesktop/secrets";
@@ -29,6 +30,8 @@ const ATTRIBUTES_PROPERTY: &str = "org.freedesktop.Secret.Item.Attributes";
 const CONTENT_TYPE: &str = "application/json";
 const APPLICATION: &str = "caditor";
 const KIND: &str = "cloud-session";
+const AI_KIND: &str = "ai-api-key";
+const AI_CONTENT_TYPE: &str = "text/plain";
 const PROMPT_PATIENCE: Duration = Duration::from_secs(120);
 
 type Secret = (OwnedObjectPath, Vec<u8>, Vec<u8>, String);
@@ -93,11 +96,76 @@ impl Keyring for SecretService {
     }
 }
 
+impl AiKeyring for SecretService {
+    fn get_key(&self, provider: ApiProvider) -> Result<Option<Vec<u8>>, KeyringError> {
+        block_on(async {
+            let open = Open::new().await?;
+            let Some(item) = open.find_by(ai_attributes(provider)).await? else {
+                return Ok(None);
+            };
+            let (_, _, value, _): Secret = open
+                .proxy(&item, ITEM_INTERFACE)
+                .await?
+                .call("GetSecret", &(&open.session,))
+                .await
+                .map_err(KeyringError::Refused)?;
+            Ok(Some(value))
+        })
+    }
+
+    fn set_key(&self, provider: ApiProvider, secret: &[u8]) -> Result<(), KeyringError> {
+        block_on(async {
+            let open = Open::new().await?;
+            let label = format!("caditor {provider} API key");
+            let mut properties: BTreeMap<&str, Variant> = BTreeMap::new();
+            properties.insert(LABEL_PROPERTY, Variant::from(label.as_str()));
+            properties.insert(ATTRIBUTES_PROPERTY, Variant::from(ai_attributes(provider)));
+            let wrapped = (
+                &open.session,
+                Vec::<u8>::new(),
+                secret.to_vec(),
+                AI_CONTENT_TYPE,
+            );
+            let (_, prompt): (OwnedObjectPath, OwnedObjectPath) = open
+                .proxy(&open.collection, COLLECTION_INTERFACE)
+                .await?
+                .call("CreateItem", &(properties, wrapped, true))
+                .await
+                .map_err(KeyringError::Refused)?;
+            open.complete(&prompt).await
+        })
+    }
+
+    fn delete_key(&self, provider: ApiProvider) -> Result<(), KeyringError> {
+        block_on(async {
+            let open = Open::new().await?;
+            let Some(item) = open.find_by(ai_attributes(provider)).await? else {
+                return Ok(());
+            };
+            let prompt: OwnedObjectPath = open
+                .proxy(&item, ITEM_INTERFACE)
+                .await?
+                .call("Delete", &())
+                .await
+                .map_err(KeyringError::Refused)?;
+            open.complete(&prompt).await
+        })
+    }
+}
+
 fn attributes(service: Service) -> BTreeMap<&'static str, &'static str> {
     BTreeMap::from([
         ("application", APPLICATION),
         ("kind", KIND),
         ("service", service.id()),
+    ])
+}
+
+fn ai_attributes(provider: ApiProvider) -> BTreeMap<&'static str, &'static str> {
+    BTreeMap::from([
+        ("application", APPLICATION),
+        ("kind", AI_KIND),
+        ("provider", provider.id()),
     ])
 }
 
@@ -177,10 +245,17 @@ impl Open {
     }
 
     async fn find(&self, service: Service) -> Result<Option<OwnedObjectPath>, KeyringError> {
+        self.find_by(attributes(service)).await
+    }
+
+    async fn find_by(
+        &self,
+        attrs: BTreeMap<&'static str, &'static str>,
+    ) -> Result<Option<OwnedObjectPath>, KeyringError> {
         let found: Vec<OwnedObjectPath> = self
             .proxy(&self.collection, COLLECTION_INTERFACE)
             .await?
-            .call("SearchItems", &(attributes(service),))
+            .call("SearchItems", &(attrs,))
             .await
             .map_err(KeyringError::Refused)?;
         Ok(found.into_iter().next())

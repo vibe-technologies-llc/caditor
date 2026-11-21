@@ -149,6 +149,7 @@ const VIEW_BACKGROUND_WORK: [&[Command]; 2] = [
         Command::CancelIsocurves,
         Command::CancelInterference,
         Command::CancelOutline,
+        Command::CancelAssistant,
     ],
     &[
         Command::ShowRestOfBodies,
@@ -931,6 +932,7 @@ impl Menus<'_> {
                 "Window and interface",
                 |ui| {
                     self.item(ui, Command::FullScreen);
+                    self.item(ui, Command::Assistant);
                     ui.separator();
                     self.items(
                         ui,
@@ -984,6 +986,8 @@ impl Menus<'_> {
             self.group(ui, Command::RollToHere, "Rollback", &MODEL_ROLLBACK);
             self.group(ui, Command::AddParameter, "Parameters", &MODEL_PARAMETERS);
             self.group(ui, Command::Recompute, "Recompute", &MODEL_RECOMPUTE);
+            ui.separator();
+            self.item(ui, Command::Assistant);
         });
     }
 

@@ -122,6 +122,37 @@ pub enum SaveFailure {
     },
     #[error("the save did not finish, because the background writer stopped; save again")]
     WriterStopped,
+    #[error("the model has no file yet; use save_as with a .caditor path in an allowed folder")]
+    NoFilePath,
+}
+
+pub type SaveHook = Box<dyn FnMut(Option<PathBuf>) -> Result<Stored, SaveFailure> + Send>;
+
+pub struct AttachedConfig {
+    pub document: Document,
+    pub evaluation: Evaluation,
+    pub model: Option<PathBuf>,
+    pub folders: Vec<PathBuf>,
+    pub exported: BTreeSet<PathBuf>,
+    pub undo_label: Option<String>,
+    pub redo_label: Option<String>,
+    pub is_unsaved: bool,
+    pub load_issues: Vec<String>,
+    pub on_save: Option<SaveHook>,
+}
+
+struct AttachedBacking {
+    has_path: bool,
+    recorded: Vec<Change>,
+    undo_label: Option<String>,
+    redo_label: Option<String>,
+    unsaved: bool,
+    on_save: Option<SaveHook>,
+}
+
+enum Backing {
+    Headless(Box<Journal>),
+    Attached(AttachedBacking),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -195,10 +226,79 @@ pub struct Session {
     evaluation: Evaluation,
     evaluated: Option<u64>,
     before: Option<Standing>,
-    journal: Journal,
+    backing: Backing,
 }
 
 impl Session {
+    pub fn attached(config: AttachedConfig) -> Self {
+        let AttachedConfig {
+            document,
+            evaluation,
+            model,
+            folders,
+            exported,
+            undo_label,
+            redo_label,
+            is_unsaved,
+            load_issues,
+            on_save,
+        } = config;
+        let has_path = model.is_some();
+        let model_path = model.unwrap_or_else(|| PathBuf::from("Untitled.caditor"));
+        let mut allowed = Vec::new();
+        if has_path
+            && let Some(parent) = model_path.parent()
+            && let Ok(canonical) = dunce::canonicalize(parent)
+            && canonical.is_dir()
+        {
+            allowed.push(canonical);
+        }
+        for folder in folders {
+            if let Ok(canonical) = dunce::canonicalize(&folder)
+                && canonical.is_dir()
+                && !allowed.contains(&canonical)
+            {
+                allowed.push(canonical);
+            }
+        }
+        let editor = Editor::new(document);
+        let revision = editor.revision();
+        Self {
+            model: model_path,
+            folders: allowed,
+            exported,
+            editor,
+            saved: None,
+            on_disk: None,
+            keep_original: false,
+            load_issues,
+            retention: Retention::default(),
+            recompute: Recompute::default(),
+            evaluation,
+            evaluated: Some(revision),
+            before: None,
+            backing: Backing::Attached(AttachedBacking {
+                has_path,
+                recorded: Vec::new(),
+                undo_label,
+                redo_label,
+                unsaved: is_unsaved,
+                on_save,
+            }),
+        }
+    }
+
+    pub fn take_changes(&mut self) -> Vec<Change> {
+        match &mut self.backing {
+            Backing::Headless(_) => Vec::new(),
+            Backing::Attached(attached) => std::mem::take(&mut attached.recorded),
+        }
+    }
+
+    pub fn exported_paths(&self) -> &BTreeSet<PathBuf> {
+        &self.exported
+    }
+
     pub fn open(opening: Opening) -> Result<Self, OpenError> {
         let Opening {
             model,
@@ -256,7 +356,7 @@ impl Session {
             evaluation: Evaluation::default(),
             evaluated: None,
             before: None,
-            journal: Journal {
+            backing: Backing::Headless(Box::new(Journal {
                 config: storage,
                 storage: None,
                 wakes,
@@ -268,7 +368,7 @@ impl Session {
                 unprotected: None,
                 next_ticket: 0,
                 pending: None,
-            },
+            })),
         };
         session.start_storage();
         Ok(session)
@@ -328,11 +428,21 @@ impl Session {
     }
 
     pub fn undo_label(&self) -> Option<&str> {
-        self.editor.undo_label()
+        match &self.backing {
+            Backing::Headless(_) => self.editor.undo_label(),
+            Backing::Attached(attached) => {
+                self.editor.undo_label().or(attached.undo_label.as_deref())
+            }
+        }
     }
 
     pub fn redo_label(&self) -> Option<&str> {
-        self.editor.redo_label()
+        match &self.backing {
+            Backing::Headless(_) => self.editor.redo_label(),
+            Backing::Attached(attached) => {
+                self.editor.redo_label().or(attached.redo_label.as_deref())
+            }
+        }
     }
 
     pub fn load_issues(&self) -> &[String] {
@@ -340,14 +450,21 @@ impl Session {
     }
 
     pub fn is_unsaved(&self) -> bool {
-        self.saved
-            .as_ref()
-            .is_none_or(|saved| !self.editor.document().same_content(saved))
+        match &self.backing {
+            Backing::Headless(_) => self
+                .saved
+                .as_ref()
+                .is_none_or(|saved| !self.editor.document().same_content(saved)),
+            Backing::Attached(attached) => attached.unsaved || !attached.recorded.is_empty(),
+        }
     }
 
     pub fn unprotected(&mut self) -> Option<&JournalFailure> {
         self.poll_storage();
-        self.journal.unprotected.as_ref()
+        match &self.backing {
+            Backing::Headless(journal) => journal.unprotected.as_ref(),
+            Backing::Attached(_) => None,
+        }
     }
 
     pub fn forget_evaluation(&mut self) {
@@ -383,6 +500,56 @@ impl Session {
 
     pub fn perform(&mut self, change: Change) -> Result<Performed, ChangeError> {
         self.poll_storage();
+        if let Backing::Attached(attached) = &mut self.backing {
+            return match change {
+                Change::Apply(transaction) => {
+                    let label = transaction.label().to_owned();
+                    let changed = self.editor.apply(transaction.clone()).map_err(|source| {
+                        ChangeError::Refused {
+                            label: label.clone(),
+                            source: Box::new(source),
+                        }
+                    })?;
+                    if changed {
+                        attached.recorded.push(Change::Apply(transaction));
+                        attached.unsaved = true;
+                    }
+                    Ok(Performed { label, changed })
+                }
+                Change::Undo => {
+                    let label = match self.editor.undo() {
+                        Ok(Some(label)) => label,
+                        Ok(None) => attached
+                            .undo_label
+                            .take()
+                            .ok_or(ChangeError::NothingToUndo)?,
+                        Err(error) => return Err(ChangeError::Undo(Box::new(error))),
+                    };
+                    attached.recorded.push(Change::Undo);
+                    attached.unsaved = true;
+                    Ok(Performed {
+                        label,
+                        changed: true,
+                    })
+                }
+                Change::Redo => {
+                    let label = match self.editor.redo() {
+                        Ok(Some(label)) => label,
+                        Ok(None) => attached
+                            .redo_label
+                            .take()
+                            .ok_or(ChangeError::NothingToRedo)?,
+                        Err(error) => return Err(ChangeError::Redo(Box::new(error))),
+                    };
+                    attached.recorded.push(Change::Redo);
+                    attached.unsaved = true;
+                    Ok(Performed {
+                        label,
+                        changed: true,
+                    })
+                }
+            };
+        }
         let performed = match change {
             Change::Apply(transaction) => {
                 let label = transaction.label().to_owned();
@@ -434,47 +601,88 @@ impl Session {
     }
 
     pub fn save(&mut self) -> Result<Stored, SaveFailure> {
+        if let Backing::Attached(attached) = &mut self.backing {
+            if !attached.has_path {
+                return Err(SaveFailure::NoFilePath);
+            }
+            let Some(hook) = attached.on_save.as_mut() else {
+                return Err(SaveFailure::WriterStopped);
+            };
+            let stored = hook(None)?;
+            attached.unsaved = false;
+            return Ok(stored);
+        }
         self.save_to(self.model.clone())
     }
 
     pub fn save_to(&mut self, path: PathBuf) -> Result<Stored, SaveFailure> {
+        if let Backing::Attached(attached) = &mut self.backing {
+            let Some(hook) = attached.on_save.as_mut() else {
+                return Err(SaveFailure::WriterStopped);
+            };
+            let stored = hook(Some(path.clone()))?;
+            self.model = path;
+            attached.has_path = true;
+            attached.unsaved = false;
+            return Ok(stored);
+        }
         self.poll_storage();
-        if self.journal.storage.is_none() {
+        let needs_start =
+            matches!(&self.backing, Backing::Headless(journal) if journal.storage.is_none());
+        if needs_start {
             self.start_storage();
         }
-        let ticket = self.journal.next_ticket;
-        self.journal.next_ticket += 1;
         let document = self.editor.document().clone();
-        let request = SaveRequest {
-            ticket,
-            document: document.clone(),
-            keep_original: self.keep_original && path == self.model,
-            path,
-            label: self.editor.undo_label().map(str::to_owned),
-            replace_outside_changes: false,
-            retention: self.retention,
-            preview: None,
+        let (ticket, request) = {
+            let Backing::Headless(journal) = &mut self.backing else {
+                return Err(SaveFailure::WriterStopped);
+            };
+            let ticket = journal.next_ticket;
+            journal.next_ticket += 1;
+            let request = SaveRequest {
+                ticket,
+                document: document.clone(),
+                keep_original: self.keep_original && path == self.model,
+                path,
+                label: self.editor.undo_label().map(str::to_owned),
+                replace_outside_changes: false,
+                retention: self.retention,
+                preview: None,
+            };
+            (ticket, request)
         };
-        let sent = self
-            .journal
-            .storage
-            .as_ref()
-            .is_some_and(|storage| storage.save(request).is_ok());
+        let sent = match &self.backing {
+            Backing::Headless(journal) => journal
+                .storage
+                .as_ref()
+                .is_some_and(|storage| storage.save(request).is_ok()),
+            Backing::Attached(_) => false,
+        };
         if !sent {
             self.restart_storage();
             return Err(SaveFailure::WriterStopped);
         }
-        self.journal.pending = Some(PendingSave {
-            ticket,
-            document,
-            entries: self.journal.entries.len(),
-        });
+        if let Backing::Headless(journal) = &mut self.backing {
+            journal.pending = Some(PendingSave {
+                ticket,
+                document,
+                entries: journal.entries.len(),
+            });
+        }
         loop {
-            let _ = self.journal.wakes.recv_timeout(STORAGE_POLL);
-            let reports = match self.journal.storage.as_ref().map(Storage::poll) {
+            let reports = {
+                let Backing::Headless(journal) = &mut self.backing else {
+                    return Err(SaveFailure::WriterStopped);
+                };
+                let _ = journal.wakes.recv_timeout(STORAGE_POLL);
+                journal.storage.as_ref().map(Storage::poll)
+            };
+            let reports = match reports {
                 Some(Ok(reports)) => reports,
                 Some(Err(_)) | None => {
-                    self.journal.pending = None;
+                    if let Backing::Headless(journal) = &mut self.backing {
+                        journal.pending = None;
+                    }
                     self.restart_storage();
                     return Err(SaveFailure::WriterStopped);
                 }
@@ -496,65 +704,80 @@ impl Session {
     pub fn close(mut self) -> Option<caditor_file::Closing> {
         self.poll_storage();
         let discard = !self.is_unsaved();
-        *self.journal.panic_flush.lock() = None;
-        self.journal
-            .storage
-            .take()
-            .map(|storage| storage.close(discard))
+        match self.backing {
+            Backing::Headless(mut journal) => {
+                *journal.panic_flush.lock() = None;
+                journal.storage.take().map(|storage| storage.close(discard))
+            }
+            Backing::Attached(_) => None,
+        }
     }
 
     fn record(&mut self, entry: JournalEntry) {
-        self.journal.entries.push(entry.clone());
-        let recorded = self
-            .journal
-            .storage
-            .as_ref()
-            .is_some_and(|storage| storage.record(entry).is_ok());
+        let recorded = match &mut self.backing {
+            Backing::Headless(journal) => {
+                journal.entries.push(entry.clone());
+                journal
+                    .storage
+                    .as_ref()
+                    .is_some_and(|storage| storage.record(entry).is_ok())
+            }
+            Backing::Attached(_) => return,
+        };
         if !recorded {
             self.restart_storage();
         }
     }
 
     fn start_storage(&mut self) {
-        let waker = self.journal.waker.clone();
+        let Backing::Headless(journal) = &mut self.backing else {
+            return;
+        };
+        let waker = journal.waker.clone();
         let start = Start {
             file: Some(self.model.clone()),
             on_disk: self.on_disk.clone(),
             loaded_with_problems: self.keep_original,
-            base: self.journal.base.clone(),
-            folded: self.journal.folded,
-            entries: self.journal.entries.clone(),
+            base: journal.base.clone(),
+            folded: journal.folded,
+            entries: journal.entries.clone(),
             replaces: None,
             after: None,
         };
         let wake = move || {
             let _ = waker.send(());
         };
-        match Storage::spawn(self.journal.config.clone(), start, wake) {
+        match Storage::spawn(journal.config.clone(), start, wake) {
             Ok(storage) => {
-                *self.journal.panic_flush.lock() = Some(storage.flusher());
-                self.journal.storage = Some(storage);
+                *journal.panic_flush.lock() = Some(storage.flusher());
+                journal.storage = Some(storage);
             }
             Err(error) => {
                 log::error!("could not start the storage worker: {error}");
-                *self.journal.panic_flush.lock() = None;
-                self.journal.unprotected = Some(JournalFailure::WriterUnavailable);
+                *journal.panic_flush.lock() = None;
+                journal.unprotected = Some(JournalFailure::WriterUnavailable);
             }
         }
     }
 
     fn restart_storage(&mut self) {
         log::error!("the storage worker stopped; starting a new one");
-        self.journal.storage = None;
-        self.journal.unprotected = None;
+        if let Backing::Headless(journal) = &mut self.backing {
+            journal.storage = None;
+            journal.unprotected = None;
+        }
         self.start_storage();
     }
 
     fn poll_storage(&mut self) {
-        let Some(storage) = &self.journal.storage else {
+        let polled = match &self.backing {
+            Backing::Headless(journal) => journal.storage.as_ref().map(Storage::poll),
+            Backing::Attached(_) => return,
+        };
+        let Some(result) = polled else {
             return;
         };
-        match storage.poll() {
+        match result {
             Ok(reports) => {
                 for report in reports {
                     self.handle_report(report, u64::MAX);
@@ -565,6 +788,9 @@ impl Session {
     }
 
     fn handle_report(&mut self, report: Report, waited: u64) -> Option<Settled> {
+        let Backing::Headless(journal) = &mut self.backing else {
+            return None;
+        };
         match report {
             Report::Saved {
                 ticket,
@@ -573,15 +799,14 @@ impl Session {
                 dropped_for_size,
                 digest,
             } => {
-                let pending = self
-                    .journal
+                let pending = journal
                     .pending
                     .take_if(|pending| pending.ticket == ticket)?;
-                self.journal.base = pending.document.clone();
-                self.journal.folded = 0;
-                self.journal
+                journal.base = pending.document.clone();
+                journal.folded = 0;
+                journal
                     .entries
-                    .drain(..pending.entries.min(self.journal.entries.len()));
+                    .drain(..pending.entries.min(journal.entries.len()));
                 self.saved = Some(pending.document);
                 self.model = path;
                 self.on_disk = Some(digest);
@@ -592,9 +817,7 @@ impl Session {
                 }))
             }
             Report::ChangedOnDisk { ticket, path } => {
-                self.journal
-                    .pending
-                    .take_if(|pending| pending.ticket == ticket);
+                journal.pending.take_if(|pending| pending.ticket == ticket);
                 (ticket == waited).then(|| {
                     Settled::Failed(SaveFailure::ChangedOnDisk {
                         file: display_name(Some(&path)),
@@ -606,9 +829,7 @@ impl Session {
                 path,
                 error,
             } => {
-                self.journal
-                    .pending
-                    .take_if(|pending| pending.ticket == ticket);
+                journal.pending.take_if(|pending| pending.ticket == ticket);
                 (ticket == waited).then(|| {
                     Settled::Failed(SaveFailure::Writing {
                         file: display_name(Some(&path)),
@@ -621,20 +842,18 @@ impl Session {
                 log::warn!(
                     "unsaved changes to {file} are not protected against a crash: {failure}"
                 );
-                self.journal.unprotected = Some(failure);
+                journal.unprotected = Some(failure);
                 None
             }
             Report::JournalRestored => {
-                self.journal.unprotected = None;
+                journal.unprotected = None;
                 None
             }
             Report::Rebased { entries, base } => {
-                self.journal.base = base;
-                self.journal.folded = self.journal.folded.saturating_add(entries);
-                self.journal
-                    .entries
-                    .drain(..entries.min(self.journal.entries.len()));
-                if let Some(pending) = &mut self.journal.pending {
+                journal.base = base;
+                journal.folded = journal.folded.saturating_add(entries);
+                journal.entries.drain(..entries.min(journal.entries.len()));
+                if let Some(pending) = &mut journal.pending {
                     pending.entries = pending.entries.saturating_sub(entries);
                 }
                 None

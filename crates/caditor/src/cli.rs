@@ -15,6 +15,7 @@ pub enum Invocation {
     Run { open: Option<PathBuf> },
     Convert(Conversion),
     Serve(Serving),
+    ConnectMcp { port: u16 },
     Version,
     Help,
     Refused(String),
@@ -42,6 +43,7 @@ impl Invocation {
     fn serving(mut arguments: impl Iterator<Item = OsString>) -> Self {
         let mut models = Vec::new();
         let mut folders = Vec::new();
+        let mut connect: Option<u16> = None;
         let mut options_ended = false;
         while let Some(argument) = arguments.next() {
             if options_ended {
@@ -52,6 +54,19 @@ impl Invocation {
                 Some("--version" | "-V") => return Self::Version,
                 Some("--help" | "-h") => return Self::Help,
                 Some("--") => options_ended = true,
+                Some("--connect") => match arguments
+                    .next()
+                    .and_then(|value| value.into_string().ok())
+                    .and_then(|text| text.parse::<u16>().ok())
+                    .filter(|port| *port > 0)
+                {
+                    Some(port) => connect = Some(port),
+                    None => {
+                        return Self::Refused(
+                            "--connect needs a loopback port number after it".to_owned(),
+                        );
+                    }
+                },
                 Some("--folder") => match arguments.next() {
                     Some(folder) => folders.push(PathBuf::from(folder)),
                     None => return Self::Refused(needs_a_value("--folder", "a folder")),
@@ -66,6 +81,15 @@ impl Invocation {
                 }
                 _ => models.push(argument),
             }
+        }
+        if let Some(port) = connect {
+            if !models.is_empty() || !folders.is_empty() {
+                return Self::Refused(format!(
+                    "{} {SERVE_COMMAND} --connect takes no model file or --folder",
+                    about::NAME
+                ));
+            }
+            return Self::ConnectMcp { port };
         }
         match <[OsString; 1]>::try_from(models) {
             Ok([model]) => Self::Serve(Serving {
@@ -499,6 +523,18 @@ mod tests {
         assert_eq!(
             refused(&["mcp", "--export", "o.stl", "a.caditor"]),
             "caditor mcp does not take --export; run caditor --help to see what it accepts"
+        );
+        assert_eq!(
+            parse(&["mcp", "--connect", "45123"]),
+            Invocation::ConnectMcp { port: 45123 }
+        );
+        assert_eq!(
+            refused(&["mcp", "--connect", "0"]),
+            "--connect needs a loopback port number after it"
+        );
+        assert_eq!(
+            refused(&["mcp", "--connect", "45123", "a.caditor"]),
+            "caditor mcp --connect takes no model file or --folder"
         );
     }
 

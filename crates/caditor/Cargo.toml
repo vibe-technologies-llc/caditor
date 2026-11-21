@@ -20,6 +20,7 @@ workspace = true
 fuzzing = ["caditor-file/fuzzing"]
 
 [dependencies]
+caditor-ai.workspace = true
 caditor-cloud.workspace = true
 caditor-document.workspace = true
 caditor-expression.workspace = true
@@ -37,6 +38,7 @@ egui-phosphor.workspace = true
 egui-wgpu.workspace = true
 egui-winit = { workspace = true, features = ["accesskit"] }
 env_logger.workspace = true
+graviola.workspace = true
 jiff.workspace = true
 log.workspace = true
 parking_lot.workspace = true
@@ -60,6 +62,7 @@ rfd.workspace = true
 winresource.workspace = true
 
 [dev-dependencies]
+caditor-ai = { workspace = true, features = ["test-support"] }
 caditor-checks.workspace = true
 caditor-cloud = { workspace = true, features = ["test-support"] }
 caditor-file = { workspace = true, features = ["test-support"] }

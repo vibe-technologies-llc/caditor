@@ -10,6 +10,7 @@ pub enum Section {
     VersionHistory,
     Exports,
     Cloud,
+    Assistant,
     Keyboard,
     Tips,
     SavingOnWindows,
@@ -30,7 +31,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::Units,
         Self::Numbers,
         Self::Files,
@@ -39,6 +40,7 @@ impl Section {
         Self::VersionHistory,
         Self::Exports,
         Self::Cloud,
+        Self::Assistant,
         Self::Keyboard,
         Self::Tips,
         Self::SavingOnWindows,
@@ -68,6 +70,7 @@ impl Section {
             | Self::VersionHistory
             | Self::Exports
             | Self::Cloud
+            | Self::Assistant
             | Self::Keyboard
             | Self::Tips
             | Self::SavingOnWindows => PreferencesTab::General,
@@ -96,6 +99,7 @@ impl Section {
             Self::VersionHistory => "version-history",
             Self::Exports => "exports",
             Self::Cloud => "cloud",
+            Self::Assistant => "assistant",
             Self::Keyboard => "keyboard",
             Self::Tips => "tips",
             Self::SavingOnWindows => "saving-on-windows",
@@ -126,6 +130,7 @@ impl Section {
             Self::VersionHistory => "Version history",
             Self::Exports => "Exports",
             Self::Cloud => "Cloud",
+            Self::Assistant => "AI assistant",
             Self::Keyboard => "Keyboard",
             Self::Tips => "Tips",
             Self::SavingOnWindows => "Saving on Windows",
@@ -220,6 +225,24 @@ impl Section {
                 "opt out",
                 "client id",
                 "account",
+            ],
+            Self::Assistant => &[
+                "ai",
+                "assistant",
+                "chat",
+                "claude",
+                "anthropic",
+                "gemini",
+                "google",
+                "gpt",
+                "openai",
+                "codex",
+                "mcp",
+                "api key",
+                "cli",
+                "ollama",
+                "model",
+                "endpoint",
             ],
             Self::Keyboard => &["shortcuts", "keys", "keymap"],
             Self::Tips => &["getting started", "show tips", "hints"],
@@ -410,6 +433,7 @@ impl Section {
                 }
             }
             Self::Cloud | Self::Keyboard | Self::Tips | Self::SavingOnWindows => {}
+            Self::Assistant => to.assistant.clone_from(&from.assistant),
             Self::Theme => to.appearance.theme = from.appearance.theme.clone(),
             Self::Colours => {
                 to.appearance.accent = from.appearance.accent;

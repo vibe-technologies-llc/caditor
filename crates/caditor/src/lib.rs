@@ -7,6 +7,8 @@ mod annotation_layout;
 mod annotations;
 mod app;
 mod appearance;
+mod assistant;
+mod assistant_panel;
 mod backdrop;
 mod blend_curving;
 mod blend_panel;
@@ -292,6 +294,7 @@ pub fn run() -> Result<ExitCode> {
         Invocation::Run { open } => open,
         Invocation::Convert(conversion) => return headless::run(&conversion),
         Invocation::Serve(serving) => return mcp::run(&serving),
+        Invocation::ConnectMcp { port } => return mcp::bridge::connect_stdio(port),
         Invocation::Version => {
             println!("{}", about::version_line());
             return Ok(ExitCode::SUCCESS);

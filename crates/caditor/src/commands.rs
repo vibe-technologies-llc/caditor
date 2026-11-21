@@ -277,6 +277,7 @@ pub enum Command {
     Recompute,
     CancelRecompute,
     CancelAnalysis,
+    CancelAssistant,
     AnalyseAgain,
     CancelMassProperties,
     WorkOutMassProperties,
@@ -362,6 +363,7 @@ pub enum Command {
     CloudSend,
     CloudOpenInFusion,
     Guide,
+    Assistant,
     About,
     Messages,
     Mate,
@@ -802,6 +804,7 @@ plain_commands! {
     CloudSend,
     CloudOpenInFusion,
     Guide,
+    Assistant,
     About,
     Messages,
     Quit,
@@ -979,6 +982,7 @@ plain_commands! {
     Recompute,
     CancelRecompute,
     CancelAnalysis,
+    CancelAssistant,
     AnalyseAgain,
     CancelMassProperties,
     WorkOutMassProperties,
@@ -1356,6 +1360,7 @@ impl Command {
             Self::Recompute => "model.recompute",
             Self::CancelRecompute => "model.cancel_recompute",
             Self::CancelAnalysis => "view.cancel_analysis",
+            Self::CancelAssistant => "view.cancel_assistant",
             Self::AnalyseAgain => "view.analyse_again",
             Self::CancelMassProperties => "view.cancel_mass_properties",
             Self::WorkOutMassProperties => "view.work_out_mass_properties",
@@ -1441,6 +1446,7 @@ impl Command {
             Self::CloudSend => "file.cloud_send",
             Self::CloudOpenInFusion => "file.cloud_open_in_fusion",
             Self::Guide => "help.guide",
+            Self::Assistant => "model.assistant",
             Self::About => "help.about",
             Self::Messages => "help.messages",
             Self::Mate => "model.mate",
@@ -1693,6 +1699,7 @@ impl Command {
             Self::Recompute => "Recompute the model",
             Self::CancelRecompute => "Cancel the recompute",
             Self::CancelAnalysis => "Cancel the face analysis",
+            Self::CancelAssistant => "Stop the AI assistant",
             Self::AnalyseAgain => "Analyse faces again",
             Self::CancelMassProperties => "Cancel the mass properties",
             Self::WorkOutMassProperties => "Work out the stopped mass properties",
@@ -1780,6 +1787,7 @@ impl Command {
             Self::CloudSend => "Send model to the cloud…",
             Self::CloudOpenInFusion => "Upload to Fusion 360 and open online",
             Self::Guide => "User guide",
+            Self::Assistant => "AI assistant",
             Self::About => "About caditor",
             Self::Messages => "Recent messages",
             Self::Mate => "Mate body",
@@ -1823,6 +1831,7 @@ impl Command {
             | Self::RenameBodyGroup
             | Self::MoveOutOfBodyGroup => &["folder", "organise", "nest", "assembly"],
             Self::CancelAnalysis
+            | Self::CancelAssistant
             | Self::CancelMassProperties
             | Self::CancelPreparingBodies
             | Self::CancelUploading
@@ -1911,6 +1920,9 @@ impl Command {
             Self::Preferences => &["settings", "options", "units"],
             Self::KeyboardShortcuts => &["keymap", "keys", "bindings", "hotkeys"],
             Self::Guide => &["help", "manual", "documentation"],
+            Self::Assistant => &[
+                "ai", "chat", "claude", "gemini", "gpt", "openai", "mcp", "llm", "agent", "copilot",
+            ],
             Self::Messages => &["log", "notifications", "errors", "history"],
             Self::Home => &["start", "welcome", "recent files", "projects", "samples"],
             Self::Cloud => &[
@@ -2063,6 +2075,7 @@ impl Command {
             | Self::CloudOpenInFusion => Category::File,
             Self::Welcome
             | Self::Guide
+            | Self::Assistant
             | Self::About
             | Self::Messages
             | Self::DismissTip
@@ -2105,6 +2118,7 @@ impl Command {
             | Self::Style(_)
             | Self::Analysis(_)
             | Self::CancelAnalysis
+            | Self::CancelAssistant
             | Self::AnalyseAgain
             | Self::CancelMassProperties
             | Self::WorkOutMassProperties
@@ -2579,6 +2593,7 @@ impl Command {
             | Self::CancelImport
             | Self::CancelRecompute
             | Self::CancelAnalysis
+            | Self::CancelAssistant
             | Self::AnalyseAgain
             | Self::CancelMassProperties
             | Self::WorkOutMassProperties
@@ -2698,7 +2713,8 @@ impl Command {
             | Self::FlatSpiral
             | Self::WiderPanel
             | Self::NarrowerPanel
-            | Self::NormalPanel => Vec::new(),
+            | Self::NormalPanel
+            | Self::Assistant => Vec::new(),
         }
     }
 

@@ -647,6 +647,7 @@ name = "caditor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "caditor-ai",
  "caditor-checks",
  "caditor-cloud",
  "caditor-document",
@@ -665,6 +666,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "env_logger",
+ "graviola",
  "jiff 1.0.1",
  "log",
  "parking_lot 0.13.0",
@@ -679,6 +681,20 @@ dependencies = [
  "winit",
  "winresource",
  "zbus 6.4.0",
+]
+
+[[package]]
+name = "caditor-ai"
+version = "0.1.0"
+dependencies = [
+ "graviola",
+ "log",
+ "parking_lot 0.13.0",
+ "rustls-graviola",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ureq",
 ]
 
 [[package]]

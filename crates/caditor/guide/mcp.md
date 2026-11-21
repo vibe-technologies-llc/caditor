@@ -1,11 +1,40 @@
 # Working with an AI assistant
 
-An AI assistant such as Claude can read and build a model through the Model Context Protocol
-(MCP). `caditor mcp MODEL` starts caditor without a window, serving that one model to the
+caditor lets an AI assistant read, inspect and build parametric models through the Model Context
+Protocol (MCP) in two ways:
+
+1. **Inside the editor** through the built-in **AI assistant** chat panel (**Model › AI assistant**
+   or the command palette).
+2. **Headless** through `caditor mcp MODEL`, serving one `.caditor` file over standard input and
+   output to an external MCP client.
+
+## Using the built-in AI assistant
+
+Open **Model › AI assistant** (or run `AI assistant` from the command palette) to dock the chat
+panel beside the 3D view. You can switch between:
+
+- **API providers**: Claude (Anthropic API), Gemini (Google API), GPT (OpenAI API) and custom
+  OpenAI-compatible endpoints (including local `http://localhost` servers such as Ollama or LM
+  Studio).
+- **Local CLI wrappers**: Claude Code (`claude`), Gemini CLI (`gemini`) and Codex CLI (`codex`)
+  installed on your computer.
+
+Configure models, custom endpoints, API keys, local CLI paths and extra allowed MCP folders under
+**Preferences › General › AI assistant**. API keys are stored in the operating system's keyring
+(never in `preferences.json`) and also fall back to `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` and
+`OPENAI_API_KEY` from the environment.
+
+Every tool call from the built-in assistant runs directly against the live open model: the 3D
+viewport updates as each step finishes, every change lands in your **Undo history** and recovery
+journal, rendered views (`render_view`) appear inline in the chat, and you can stop a running turn
+at any time. Local CLI wrappers connect to the live window through an authenticated loopback MCP
+bridge (`caditor mcp --connect <port>`).
+
+## Connecting an external headless assistant
+
+`caditor mcp MODEL` starts caditor without a window, serving that one model to the
 assistant that started it over standard input and output. The model's file need not exist yet: a
 new name starts an empty model, written by the assistant's first save.
-
-## Connecting an assistant
 
 Add caditor to the assistant's MCP servers as a command, with the model as its argument. For Claude
 Code that is `claude mcp add caditor -- caditor mcp /home/me/parts/bracket.caditor`; other

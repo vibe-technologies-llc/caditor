@@ -27,11 +27,11 @@ use crate::{
 mod downloads;
 mod failure;
 mod jobs;
-mod keyring;
-mod private;
+pub(crate) mod keyring;
+pub(crate) mod private;
 mod state;
 mod store;
-mod thumbnails;
+pub(crate) mod thumbnails;
 
 pub use self::{
     failure::Failure,

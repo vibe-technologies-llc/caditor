@@ -28,7 +28,7 @@ pub const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-2
 const STRUCTURED_FROM: &str = "2025-06-18";
 const CANCELLED: &str = "notifications/cancelled";
 const PROGRESS: &str = "notifications/progress";
-const INSTRUCTIONS: &str = "This server works on one caditor model, a parametric CAD model of \
+pub const INSTRUCTIONS: &str = "This server works on one caditor model, a parametric CAD model of \
                             features in a tree. Lengths are millimetres and angles degrees; \
                             values are expressions that take units and parameter names. Refer to \
                             features, bodies and sketch entities by the ids or names the list \

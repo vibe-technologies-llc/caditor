@@ -1,5 +1,6 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use caditor_ai::ApiProvider;
 use caditor_cloud::Service;
 use caditor_document::Rgb;
 use caditor_file::Retention;
@@ -13,6 +14,7 @@ use super::{
 };
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
+    assistant::{Assistant, AssistantCommand, Backend, CliState, CliTool},
     body_appearance::{self, SWATCHES, color32},
     colour_selector,
     commands::Command,
@@ -44,6 +46,10 @@ pub const SEARCH_FIELD: &str = "preferences-search";
 pub const SEARCH_HINT: &str = "Search settings";
 pub const CLEAR_SEARCH: &str = "Clear the search";
 
+pub struct AssistantPrefsView<'a> {
+    pub assistant: &'a Assistant,
+}
+
 pub struct PreferencesView<'a> {
     pub tab: PreferencesTab,
     pub hardware: &'a Hardware,
@@ -53,6 +59,7 @@ pub struct PreferencesView<'a> {
     pub themes: &'a UserThemes,
     pub search: &'a str,
     pub slicer: Option<&'a Result<Installation, FindError>>,
+    pub assistant: AssistantPrefsView<'a>,
 }
 
 pub struct Shown<'a> {
@@ -243,7 +250,9 @@ fn tab_body(
     command: &mut Option<PreferencesCommand>,
 ) {
     match tab {
-        PreferencesTab::General => general(ui, shown, view.templates, command),
+        PreferencesTab::General => {
+            general(ui, shown, view.templates, view.assistant.assistant, command)
+        }
         PreferencesTab::Appearance => appearance(ui, shown, view.themes, command),
         PreferencesTab::Navigation => motion::navigation(ui, shown, command),
         PreferencesTab::Sketching => motion::sketching(ui, shown, command),
@@ -416,6 +425,7 @@ fn general(
     ui: &mut Ui,
     shown: &Shown<'_>,
     templates: &Templates,
+    assistant_state: &Assistant,
     command: &mut Option<PreferencesCommand>,
 ) {
     units(ui, shown, command);
@@ -426,6 +436,7 @@ fn general(
     version_history(ui, shown, command);
     exports(ui, shown, command);
     cloud(ui, shown, command);
+    assistant_section(ui, shown, assistant_state, command);
     keyboard(ui, shown, command);
     tips(ui, shown, command);
     if defender::ON_WINDOWS {
@@ -580,7 +591,317 @@ pub fn pending_changes(ctx: &egui::Context, preferences: &Preferences) -> Vec<Pr
     {
         pending.push(PreferenceChange::SlicerProgram(text));
     }
+    for provider in ApiProvider::ALL {
+        let key = assistant_model_draft_key(provider);
+        if let Some(text) = draft(&key)
+            && text.trim() != preferences.assistant.model_for(provider)
+        {
+            pending.push(PreferenceChange::AssistantModel(provider, text));
+        }
+    }
+    if let Some(text) = draft(ASSISTANT_CUSTOM_URL_FIELD)
+        && text.trim() != preferences.assistant.custom_base_url
+    {
+        pending.push(PreferenceChange::AssistantBaseUrl(text));
+    }
+    for tool in CliTool::ALL {
+        let key = assistant_cli_draft_key(tool);
+        if let Some(text) = draft(&key)
+            && text.trim() != preferences.assistant.cli_program(tool)
+        {
+            pending.push(PreferenceChange::AssistantCliProgram(tool, text));
+        }
+    }
+    let stored_folders = format_folders(&preferences.assistant.folders);
+    if let Some(text) = draft(ASSISTANT_FOLDERS_FIELD)
+        && text.trim() != stored_folders
+    {
+        pending.push(PreferenceChange::AssistantFolders(parse_folders(&text)));
+    }
     pending
+}
+
+const ASSISTANT_CUSTOM_URL_FIELD: &str = "assistant-custom-url-draft";
+const ASSISTANT_FOLDERS_FIELD: &str = "assistant-folders-draft";
+
+fn assistant_model_draft_key(provider: ApiProvider) -> String {
+    format!("assistant-model-draft-{}", provider.id())
+}
+
+fn assistant_key_draft_key(provider: ApiProvider) -> String {
+    format!("assistant-key-draft-{}", provider.id())
+}
+
+fn assistant_cli_draft_key(tool: CliTool) -> String {
+    format!("assistant-cli-draft-{}", tool.id())
+}
+
+fn format_folders(folders: &[PathBuf]) -> String {
+    folders
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn parse_folders(raw: &str) -> Vec<PathBuf> {
+    raw.split([',', '\n'])
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn assistant_section(
+    ui: &mut Ui,
+    shown: &Shown<'_>,
+    assistant_state: &Assistant,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let prefs = &shown.preferences.assistant;
+    let note = "API keys are kept in the operating system's keyring (never in preferences.json) \
+                or read from ANTHROPIC_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY. Local CLIs \
+                connect to the open model over a token-authenticated loopback MCP bridge.";
+    section(ui, shown, Section::Assistant, Some(note.to_owned()), |ui| {
+        widgets::property(ui, "Default provider", |ui| {
+            let mut picked = None;
+            widgets::combo("preferences-assistant-backend", prefs.backend.label())
+                .width(240.0)
+                .hover("Choose which AI API or local CLI wrapper opens in the AI assistant panel")
+                .show(ui, |ui| {
+                    for option in Backend::ALL {
+                        let chosen = option == prefs.backend;
+                        if widgets::menu_option(ui, chosen, option.label()).clicked() && !chosen {
+                            picked = Some(option);
+                        }
+                    }
+                });
+            if let Some(chosen) = picked {
+                change(command, PreferenceChange::AssistantBackend(chosen));
+            }
+        });
+
+        for provider in ApiProvider::ALL {
+            let caption = format!("{} model", provider.short_label());
+            widgets::property(ui, &caption, |ui| {
+                assistant_model_field(ui, provider, prefs.model_for(provider), command);
+            });
+            if provider == ApiProvider::Custom {
+                widgets::property(ui, "Custom API base URL", |ui| {
+                    assistant_base_url_field(ui, &prefs.custom_base_url, command);
+                });
+            }
+            let key_caption = format!("{} key", provider.short_label());
+            widgets::property(ui, &key_caption, |ui| {
+                assistant_key_row(ui, provider, assistant_state, command);
+            });
+        }
+
+        for tool in CliTool::ALL {
+            widgets::property(ui, tool.short_label(), |ui| {
+                assistant_cli_field(
+                    ui,
+                    tool,
+                    prefs.cli_program(tool),
+                    assistant_state.cli_state(tool),
+                    command,
+                );
+            });
+        }
+
+        widgets::property(ui, "Local CLIs", |ui| {
+            let scan = widgets::small_button(ui, icons::RELOAD, "Scan PATH for CLIs");
+            if ui.add(scan).clicked() {
+                *command = Some(PreferencesCommand::Assistant(AssistantCommand::RefreshClis));
+            }
+        });
+
+        widgets::property(ui, "MCP allowed folders", |ui| {
+            assistant_folders_field(ui, &prefs.folders, command);
+        });
+    });
+}
+
+fn assistant_model_field(
+    ui: &mut Ui,
+    provider: ApiProvider,
+    stored: &str,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let draft_id = Id::unique(assistant_model_draft_key(provider));
+    let mut text = ui
+        .data(|data| data.get_temp::<String>(draft_id))
+        .unwrap_or_else(|| stored.to_owned());
+    let response = widgets::text_field(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut text)
+                .id(Id::unique(("assistant-model-edit", provider.id())))
+                .hint_text(provider.default_model())
+                .desired_width(f32::INFINITY),
+        )
+    });
+    let differs = text.trim() != stored;
+    if response.lost_focus() && differs {
+        change(
+            command,
+            PreferenceChange::AssistantModel(provider, text.clone()),
+        );
+    }
+    keep_draft(ui, draft_id, text, differs);
+}
+
+fn assistant_base_url_field(ui: &mut Ui, stored: &str, command: &mut Option<PreferencesCommand>) {
+    let draft_id = Id::unique(ASSISTANT_CUSTOM_URL_FIELD);
+    let mut text = ui
+        .data(|data| data.get_temp::<String>(draft_id))
+        .unwrap_or_else(|| stored.to_owned());
+    let response = widgets::text_field(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut text)
+                .id(Id::unique("assistant-custom-url-edit"))
+                .hint_text(ApiProvider::Custom.default_base_url())
+                .desired_width(f32::INFINITY),
+        )
+    })
+    .on_hover_text(
+        "HTTPS endpoint or http://localhost:<port>/v1 for local OpenAI-compatible servers such as \
+         Ollama or LM Studio",
+    );
+    let differs = text.trim() != stored;
+    if response.lost_focus() && differs {
+        change(command, PreferenceChange::AssistantBaseUrl(text.clone()));
+    }
+    keep_draft(ui, draft_id, text, differs);
+}
+
+fn assistant_key_row(
+    ui: &mut Ui,
+    provider: ApiProvider,
+    assistant_state: &Assistant,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let draft_id = Id::unique(assistant_key_draft_key(provider));
+    let mut draft = ui
+        .data(|data| data.get_temp::<String>(draft_id))
+        .unwrap_or_default();
+    let source = assistant_state.key_source(provider);
+    ui.vertical(|ui| {
+        let hint = if source.is_available() {
+            "Enter a new key to replace the saved one"
+        } else {
+            "Paste API key"
+        };
+        widgets::text_field(ui, |ui| {
+            widgets::spoken_as(
+                ui.add(
+                    TextEdit::singleline(&mut draft)
+                        .id(Id::unique(("assistant-key-edit", provider.id())))
+                        .password(true)
+                        .hint_text(hint)
+                        .desired_width(f32::INFINITY),
+                ),
+                &format!("{} API key", provider.short_label()),
+            )
+        });
+        ui.add_space(SPACE_S);
+        ui.horizontal_wrapped(|ui| {
+            let save_enabled = !draft.trim().is_empty();
+            let save_clicked = ui
+                .add_enabled_ui(save_enabled, |ui| {
+                    let save = widgets::small_button(ui, icons::DONE, "Save key");
+                    ui.add(save)
+                })
+                .inner
+                .clicked();
+            if save_clicked {
+                let to_save = std::mem::take(&mut draft);
+                *command = Some(PreferencesCommand::Assistant(AssistantCommand::SaveApiKey(
+                    provider, to_save,
+                )));
+            }
+            if source.is_available() {
+                let clear = widgets::small_button(ui, icons::DELETE, "Clear key");
+                if ui.add(clear).clicked() {
+                    draft.clear();
+                    *command = Some(PreferencesCommand::Assistant(
+                        AssistantCommand::ClearApiKey(provider),
+                    ));
+                }
+            }
+            ui.add(Label::new(widgets::muted(source.label(), ui)).wrap());
+        });
+    });
+    keep_draft(ui, draft_id, draft.clone(), !draft.is_empty());
+}
+
+fn assistant_cli_field(
+    ui: &mut Ui,
+    tool: CliTool,
+    stored: &str,
+    state: &CliState,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let draft_id = Id::unique(assistant_cli_draft_key(tool));
+    let mut text = ui
+        .data(|data| data.get_temp::<String>(draft_id))
+        .unwrap_or_else(|| stored.to_owned());
+    let hint = match state {
+        CliState::Checking => format!("Looking for {}…", tool.default_binary()),
+        CliState::Found(path) => path.display().to_string(),
+        CliState::Missing { expected } => format!("{expected} not found on PATH"),
+    };
+    let response = widgets::text_field(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut text)
+                .id(Id::unique(("assistant-cli-edit", tool.id())))
+                .hint_text(hint)
+                .desired_width(f32::INFINITY),
+        )
+    })
+    .on_hover_text(format!(
+        "Leave empty to find {} on PATH, or enter the full path to the executable.",
+        tool.default_binary()
+    ));
+    let differs = text.trim() != stored;
+    if response.lost_focus() && differs {
+        change(
+            command,
+            PreferenceChange::AssistantCliProgram(tool, text.clone()),
+        );
+    }
+    keep_draft(ui, draft_id, text, differs);
+}
+
+fn assistant_folders_field(
+    ui: &mut Ui,
+    stored: &[PathBuf],
+    command: &mut Option<PreferencesCommand>,
+) {
+    let stored_text = format_folders(stored);
+    let draft_id = Id::unique(ASSISTANT_FOLDERS_FIELD);
+    let mut text = ui
+        .data(|data| data.get_temp::<String>(draft_id))
+        .unwrap_or_else(|| stored_text.clone());
+    let response = widgets::text_field(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut text)
+                .id(Id::unique("assistant-folders-edit"))
+                .hint_text("Comma-separated extra folders for export, import and save_as")
+                .desired_width(f32::INFINITY),
+        )
+    })
+    .on_hover_text(
+        "The open model's own folder is allowed automatically. Add extra folders separated by \
+         commas for unsaved models or external exports.",
+    );
+    let differs = text.trim() != stored_text;
+    if response.lost_focus() && differs {
+        change(
+            command,
+            PreferenceChange::AssistantFolders(parse_folders(&text)),
+        );
+    }
+    keep_draft(ui, draft_id, text, differs);
 }
 
 fn feature_tree(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {

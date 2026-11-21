@@ -60,11 +60,6 @@ decision recorded in `docs/` before work starts.
   same live-account run as the Onshape one above should confirm what the command assumes of
   Autodesk: `links.webView` on a created file item and version, and that opening an uploaded STEP
   item in Fusion imports it as a design (`FEATURES.md`, Application).
-- [medium · medium] In-app assistant connection (`FEATURES.md`, Application): which transport the
-  running app listens on for MCP clients (a local socket or named pipe per user, or streamable
-  HTTP on localhost with a token), whether connecting needs a click in the app every time or once
-  per client, whether an assistant's changes are one undo step per call or grouped per request,
-  and whether it may save over the user's file or only export beside it.
 - [low · medium] A body made of one separate piece of a feature (`app-modelling.md`, Separate
   pieces) takes its ID from the range of feature IDs no feature can hold, so body references keep
   their type through the code and the file format; the price is that a body ID is no longer always
