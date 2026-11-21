@@ -44,16 +44,23 @@ fn curves_of(result: &SurfaceIntersection) -> Vec<&Curve> {
 fn planes_meet_in_a_line_and_coincide_with_a_sense() {
     let first = plane(Point3::ZERO, Vector3::Z);
     let second = plane(Point3::new(1.0, 0.0, 0.0), Vector3::new(1.0, 1.0, 0.0));
+
     let result = intersect_surfaces(&square(&first, 10.0), &square(&second, 10.0)).unwrap();
+
     check_all(&result, &first, &second);
+
     assert_eq!(result.branches().len(), 1);
     assert!(matches!(result.branches()[0].curve, Curve::Line(_)));
+
     let flipped = plane(Point3::new(0.0, 0.0, 1e-9), Vector3::NEG_Z);
+
     assert_eq!(
         intersect_surfaces(&square(&first, 1.0), &square(&flipped, 1.0)).unwrap(),
         SurfaceIntersection::Coincident(Sense::Reversed)
     );
+
     let parallel = plane(Point3::new(0.0, 0.0, 1.0), Vector3::Z);
+
     assert!(
         intersect_surfaces(&square(&first, 1.0), &square(&parallel, 1.0))
             .unwrap()
@@ -66,12 +73,17 @@ fn a_plane_cuts_a_cylinder_in_circles_ellipses_and_lines() {
     let radius = 3.0;
     let tube = cylinder(Point3::ZERO, Vector3::Z, radius);
     let side = around(&tube, (-20.0, 20.0));
+
     for angle in [0.0, FRAC_PI_6, 1.2] {
         let cut = tilted_plane(angle, 1.0);
         let result = intersect_surfaces(&square(&cut, 60.0), &side).unwrap();
+
         check_all(&result, &cut, &tube);
+
         assert_eq!(result.branches().len(), 1, "angle {angle}");
+
         let branch = &result.branches()[0];
+
         assert!(branch.closed);
         match &branch.curve {
             Curve::Circle(circle) => {
@@ -85,9 +97,12 @@ fn a_plane_cuts_a_cylinder_in_circles_ellipses_and_lines() {
             other => panic!("unexpected {other:?}"),
         }
     }
+
     let steep = tilted_plane((89.9f64).to_radians(), 0.0);
     let result = intersect_surfaces(&square(&steep, 60.0), &side).unwrap();
+
     check_all(&result, &steep, &tube);
+
     assert_eq!(result.branches().len(), 2);
     assert!(
         result
@@ -95,9 +110,12 @@ fn a_plane_cuts_a_cylinder_in_circles_ellipses_and_lines() {
             .iter()
             .all(|branch| matches!(branch.curve, Curve::Ellipse(_)) && !branch.closed)
     );
+
     let along = plane(Point3::new(1.0, 0.0, 0.0), Vector3::X);
     let result = intersect_surfaces(&square(&along, 60.0), &side).unwrap();
+
     check_all(&result, &along, &tube);
+
     assert_eq!(result.branches().len(), 2);
     assert!(
         result
@@ -106,12 +124,17 @@ fn a_plane_cuts_a_cylinder_in_circles_ellipses_and_lines() {
             .all(|branch| matches!(branch.curve, Curve::Line(_)) && !branch.tangent)
     );
     assert!((total_length(&result) - 80.0).abs() < 1e-6);
+
     let touching = plane(Point3::new(radius, 0.0, 0.0), Vector3::X);
     let result = intersect_surfaces(&square(&touching, 60.0), &side).unwrap();
+
     check_all(&result, &touching, &tube);
+
     assert_eq!(result.branches().len(), 1);
     assert!(result.branches()[0].tangent);
+
     let missing = plane(Point3::new(radius + 1e-3, 0.0, 0.0), Vector3::X);
+
     assert!(
         intersect_surfaces(&square(&missing, 60.0), &side)
             .unwrap()
@@ -128,6 +151,7 @@ fn a_plane_too_shallow_for_its_ellipse_is_marched_rather_than_missed() {
     let result = intersect_surfaces(&square(&shallow, 60.0), &side).unwrap();
 
     check_all(&result, &shallow, &tube);
+
     assert_eq!(result.branches().len(), 2);
 }
 
@@ -136,10 +160,15 @@ fn cylinder_patches_clip_the_intersection() {
     let tube = cylinder(Point3::ZERO, Vector3::Z, 2.0);
     let cut = tilted_plane(0.4, 0.0);
     let half = patch(&tube, (-FRAC_PI_2, FRAC_PI_2), (-5.0, 5.0));
+
     let result = intersect_surfaces(&square(&cut, 20.0), &half).unwrap();
+
     check_all(&result, &cut, &tube);
+
     assert_eq!(result.branches().len(), 1);
+
     let branch = &result.branches()[0];
+
     assert!(!branch.closed);
     assert!((branch.range.length() - PI).abs() < 1e-9);
     for uv in [branch.start_uv[1], branch.end_uv[1]] {
@@ -154,9 +183,11 @@ fn a_long_curve_through_a_tiny_patch_is_found_there() {
         Point3::new(10.0 * 1.0_f64.cos_libm(), 10.0 * 1.0_f64.sin_libm(), 0.0),
         Vector3::Z,
     );
+
     let result = intersect_surfaces(&square(&spot, 0.0005), &around(&tube, (-20.0, 20.0))).unwrap();
 
     check_all(&result, &spot, &tube);
+
     assert_eq!(result.branches().len(), 1);
 
     let branch = &result.branches()[0];
@@ -176,30 +207,45 @@ fn a_plane_cuts_a_cone_in_every_conic() {
     };
     let side = around(&cone, (-4.0, 30.0));
     let circle = plane(Point3::new(0.0, 0.0, 5.0), Vector3::Z);
+
     let result = intersect_surfaces(&square(&circle, 40.0), &side).unwrap();
+
     check_all(&result, &circle, &cone);
+
     assert!(matches!(curves_of(&result)[..], [Curve::Circle(_)]));
+
     let ellipse = tilted_plane(0.3, 5.0);
     let result = intersect_surfaces(&square(&ellipse, 40.0), &side).unwrap();
+
     check_all(&result, &ellipse, &cone);
+
     assert!(matches!(curves_of(&result)[..], [Curve::Ellipse(_)]));
     assert!(result.branches()[0].closed);
+
     let slope = FRAC_PI_2 - half_angle;
     let parabola = plane(
         Point3::new(0.0, 0.0, 5.0),
         Vector3::new(slope.sin_libm(), 0.0, slope.cos_libm()),
     );
     let result = intersect_surfaces(&square(&parabola, 40.0), &side).unwrap();
+
     check_all(&result, &parabola, &cone);
+
     assert_eq!(result.branches().len(), 1);
     assert!(total_length(&result) > 10.0);
+
     let hyperbola = plane(Point3::new(1.0, 0.0, 0.0), Vector3::X);
     let result = intersect_surfaces(&square(&hyperbola, 40.0), &side).unwrap();
+
     check_all(&result, &hyperbola, &cone);
+
     assert_eq!(result.branches().len(), 1);
+
     let through = plane(apex, Vector3::Y);
     let result = intersect_surfaces(&square(&through, 40.0), &side).unwrap();
+
     check_all(&result, &through, &cone);
+
     assert_eq!(result.branches().len(), 2);
     assert!(
         result
@@ -207,16 +253,21 @@ fn a_plane_cuts_a_cone_in_every_conic() {
             .iter()
             .all(|branch| matches!(branch.curve, Curve::Line(_)))
     );
+
     let along_ruling = plane(
         apex,
         Vector3::new(half_angle.cos_libm(), 0.0, -half_angle.sin_libm()),
     );
     let result = intersect_surfaces(&square(&along_ruling, 40.0), &side).unwrap();
+
     check_all(&result, &along_ruling, &cone);
+
     assert_eq!(result.branches().len(), 1);
     assert!(result.branches()[0].tangent);
+
     let only_apex = plane(apex, Vector3::new(0.1, 0.0, 1.0));
     let result = intersect_surfaces(&square(&only_apex, 40.0), &side).unwrap();
+
     assert!(result.branches().is_empty());
     assert_eq!(result.points().len(), 1);
     assert!(result.points()[0].point.distance(apex) < 1e-9);
@@ -232,8 +283,11 @@ fn a_plane_between_the_half_angle_and_its_complement_is_an_ellipse_or_hyperbola_
     let narrow: Surface = Cone::new(Plane::XY, 2.0, FRAC_PI_6).unwrap().into();
     let side = around(&narrow, (-4.0, 30.0));
     let ellipse = tilted(Point3::new(0.0, 0.0, 5.0));
+
     let result = intersect_surfaces(&square(&ellipse, 60.0), &side).unwrap();
+
     check_all(&result, &ellipse, &narrow);
+
     assert!(
         matches!(curves_of(&result)[..], [Curve::Ellipse(_)]),
         "{result:?}"
@@ -249,8 +303,11 @@ fn a_plane_between_the_half_angle_and_its_complement_is_an_ellipse_or_hyperbola_
     };
     let side = around(&drill_point, (-2.0, 10.0));
     let hyperbola = tilted(apex - Vector3::Z);
+
     let result = intersect_surfaces(&square(&hyperbola, 60.0), &side).unwrap();
+
     check_all(&result, &hyperbola, &drill_point);
+
     assert_eq!(result.branches().len(), 1, "{result:?}");
     assert!(!result.branches()[0].closed);
     assert!(total_length(&result) > 5.0);
@@ -260,21 +317,28 @@ fn a_plane_between_the_half_angle_and_its_complement_is_an_ellipse_or_hyperbola_
 fn spheres_meet_in_circles_or_touch() {
     let first = sphere(Point3::ZERO, 5.0);
     let second = sphere(Point3::new(3.0, 4.0, 0.0), 4.0);
+
     let result = intersect_surfaces(&whole_ball(&first), &whole_ball(&second)).unwrap();
+
     check_all(&result, &first, &second);
+
     assert!(matches!(curves_of(&result)[..], [Curve::Circle(_)]));
     assert!((total_length(&result) - TAU * (25.0f64 - 3.4 * 3.4).sqrt()).abs() < 1e-9);
+
     for (center, radius) in [
         (Point3::new(0.0, 0.0, 8.0), 3.0),
         (Point3::new(0.0, 3.0, 0.0), 2.0),
     ] {
         let other = sphere(center, radius);
         let result = intersect_surfaces(&whole_ball(&first), &whole_ball(&other)).unwrap();
+
         assert!(result.branches().is_empty(), "{center:?}");
         assert_eq!(result.points().len(), 1);
         assert!(result.points()[0].tangent);
     }
+
     let apart = sphere(Point3::new(0.0, 0.0, 9.0), 3.0);
+
     assert!(
         intersect_surfaces(&whole_ball(&first), &whole_ball(&apart))
             .unwrap()
@@ -286,12 +350,15 @@ fn spheres_meet_in_circles_or_touch() {
 fn a_small_sphere_barely_poking_through_a_plane_is_found() {
     let ball = sphere(Point3::new(1.0, 2.0, -0.999_99), 1.0);
     let floor = plane(Point3::ZERO, Vector3::Z);
+
     let result = intersect_surfaces(
         &square(&floor, 10.0),
         &patch(&ball, (0.0, TAU), (-FRAC_PI_2, FRAC_PI_2)),
     )
     .unwrap();
+
     check_all(&result, &floor, &ball);
+
     let [branch] = result.branches() else {
         panic!("{result:?}");
     };
@@ -306,28 +373,39 @@ fn a_small_sphere_barely_poking_through_a_plane_is_found() {
 fn coaxial_surfaces_of_revolution_meet_in_circles() {
     let tube = cylinder(Point3::ZERO, Vector3::Z, 2.0);
     let cone: Surface = Cone::new(Plane::XY, 1.0, 0.4).unwrap().into();
+
     let result =
         intersect_surfaces(&around(&tube, (-10.0, 10.0)), &around(&cone, (-2.0, 10.0))).unwrap();
+
     check_all(&result, &tube, &cone);
+
     assert!(matches!(curves_of(&result)[..], [Curve::Circle(_)]));
+
     let ball = sphere(Point3::new(0.0, 0.0, 1.0), 3.0);
     let result = intersect_surfaces(
         &around(&tube, (-10.0, 10.0)),
         &patch(&ball, (0.0, TAU), (-FRAC_PI_2, FRAC_PI_2)),
     )
     .unwrap();
+
     check_all(&result, &tube, &ball);
+
     assert_eq!(result.branches().len(), 2);
+
     let ring: Surface = Torus::new(Plane::XY, 5.0, 1.0).unwrap().into();
     let hugging = cylinder(Point3::ZERO, Vector3::Z, 6.0);
+
     let result = intersect_surfaces(
         &around(&hugging, (-10.0, 10.0)),
         &patch(&ring, (0.0, TAU), (0.0, TAU)),
     )
     .unwrap();
+
     check_all(&result, &hugging, &ring);
+
     assert_eq!(result.branches().len(), 1);
     assert!(result.branches()[0].tangent);
+
     let profile: Curve = BSpline::clamped_uniform(
         3,
         vec![
@@ -343,9 +421,12 @@ fn coaxial_surfaces_of_revolution_meet_in_circles() {
         .unwrap()
         .into();
     let level = plane(Point3::new(0.0, 0.0, 0.5), Vector3::Z);
+
     let result =
         intersect_surfaces(&square(&level, 10.0), &patch(&vase, (0.0, TAU), (0.0, 1.0))).unwrap();
+
     check_all(&result, &level, &vase);
+
     assert!(matches!(curves_of(&result)[..], [Curve::Circle(_)]));
 }
 
@@ -354,35 +435,52 @@ fn a_plane_meets_a_torus_through_along_and_tangent_to_the_tube() {
     let ring: Surface = Torus::new(Plane::XY, 6.0, 2.0).unwrap().into();
     let whole = patch(&ring, (0.0, TAU), (0.0, TAU));
     let through = plane(Point3::new(0.0, 0.0, 1.0), Vector3::Z);
+
     let result = intersect_surfaces(&square(&through, 20.0), &whole).unwrap();
+
     check_all(&result, &through, &ring);
+
     assert_eq!(result.branches().len(), 2);
+
     let top = plane(Point3::new(0.0, 0.0, 2.0), Vector3::Z);
     let result = intersect_surfaces(&square(&top, 20.0), &whole).unwrap();
+
     check_all(&result, &top, &ring);
+
     assert_eq!(result.branches().len(), 1);
     assert!(result.branches()[0].tangent);
+
     match &result.branches()[0].curve {
         Curve::Circle(circle) => assert!((circle.radius() - 6.0).abs() < 1e-9),
         other => panic!("{other:?}"),
     }
+
     let meridian = plane(Point3::ZERO, Vector3::Y);
     let result = intersect_surfaces(&square(&meridian, 20.0), &whole).unwrap();
+
     check_all(&result, &meridian, &ring);
+
     assert_eq!(result.branches().len(), 2);
+
     let near_top = Plane::new(Point3::new(6.0, 0.0, 1.98), Vector3::new(0.05, 0.02, 1.0)).unwrap();
     let cap: Surface = crate::surface::PlaneSurface::new(near_top).unwrap().into();
     let result = intersect_surfaces(&square(&cap, 20.0), &whole).unwrap();
+
     check_all(&result, &cap, &ring);
+
     assert_eq!(result.branches().len(), 1, "{result:?}");
     assert!(result.branches()[0].closed);
+
     let outer = Plane::new(Point3::new(7.99, 0.0, 0.0), Vector3::new(1.0, 0.03, 0.02)).unwrap();
     let skim: Surface = crate::surface::PlaneSurface::new(outer).unwrap().into();
     let result = intersect_surfaces(&square(&skim, 20.0), &whole).unwrap();
+
     check_all(&result, &skim, &ring);
+
     assert_eq!(result.branches().len(), 1, "{result:?}");
     assert!(result.branches()[0].closed);
     assert!(total_length(&result) < 3.0, "{}", total_length(&result));
+
     let barely = Plane::new(
         Point3::new(7.999_99, 0.0, 0.0),
         Vector3::new(1.0, 0.03, 0.02),
@@ -390,7 +488,9 @@ fn a_plane_meets_a_torus_through_along_and_tangent_to_the_tube() {
     .unwrap();
     let barely: Surface = crate::surface::PlaneSurface::new(barely).unwrap().into();
     let result = intersect_surfaces(&square(&barely, 20.0), &whole).unwrap();
+
     check_all(&result, &barely, &ring);
+
     assert_eq!(result.branches().len(), 1, "{result:?}");
     assert!(result.branches()[0].closed);
 }
@@ -401,8 +501,11 @@ fn crossing_cylinders_of_equal_and_unequal_radius() {
     let second = cylinder(Point3::ZERO, Vector3::X, 2.0);
     let a = around(&first, (-6.0, 6.0));
     let b = around(&second, (-6.0, 6.0));
+
     let result = intersect_surfaces(&a, &b).unwrap();
+
     check_all(&result, &first, &second);
+
     assert_eq!(result.branches().len(), 2);
     assert!(
         result
@@ -412,22 +515,34 @@ fn crossing_cylinders_of_equal_and_unequal_radius() {
     );
     assert_eq!(result.points().len(), 2);
     assert!(result.points().iter().all(|point| point.tangent));
+
     let slanted = cylinder(Point3::ZERO, Vector3::new(1.0, 0.0, 1.0), 2.0);
     let result = intersect_surfaces(&a, &around(&slanted, (-8.0, 8.0))).unwrap();
+
     check_all(&result, &first, &slanted);
+
     assert_eq!(result.branches().len(), 2);
+
     let thin = cylinder(Point3::ZERO, Vector3::X, 1.0);
     let result = intersect_surfaces(&a, &around(&thin, (-6.0, 6.0))).unwrap();
+
     check_all(&result, &first, &thin);
+
     assert_eq!(result.branches().len(), 2, "{result:?}");
     assert!(result.branches().iter().all(|branch| branch.closed));
+
     let offset = cylinder(Point3::new(0.0, 0.5, 0.0), Vector3::X, 1.0);
     let result = intersect_surfaces(&a, &around(&offset, (-6.0, 6.0))).unwrap();
+
     check_all(&result, &first, &offset);
+
     assert_eq!(result.branches().len(), 2);
+
     let parallel = cylinder(Point3::new(3.0, 0.0, 0.0), Vector3::Z, 1.5);
     let result = intersect_surfaces(&a, &around(&parallel, (-6.0, 6.0))).unwrap();
+
     check_all(&result, &first, &parallel);
+
     assert_eq!(result.branches().len(), 2);
     assert!(
         result
@@ -435,8 +550,10 @@ fn crossing_cylinders_of_equal_and_unequal_radius() {
             .iter()
             .all(|branch| matches!(branch.curve, Curve::Line(_)))
     );
+
     let touching = cylinder(Point3::new(4.0, 0.0, 0.0), Vector3::Z, 2.0);
     let result = intersect_surfaces(&a, &around(&touching, (-6.0, 6.0))).unwrap();
+
     assert_eq!(result.branches().len(), 1);
     assert!(result.branches()[0].tangent);
 }
@@ -482,20 +599,26 @@ fn cylinders_whose_crossed_axes_lie_their_radii_apart_touch_at_one_point() {
 fn a_sphere_off_a_cylinder_axis_is_marched() {
     let tube = cylinder(Point3::new(1.0, 0.0, 0.0), Vector3::Z, 1.0);
     let ball = sphere(Point3::ZERO, 2.0);
+
     let result = intersect_surfaces(
         &around(&tube, (-5.0, 5.0)),
         &patch(&ball, (0.0, TAU), (-FRAC_PI_2, FRAC_PI_2)),
     )
     .unwrap();
+
     check_all(&result, &tube, &ball);
+
     assert!(!result.branches().is_empty());
+
     let pierced = cylinder(Point3::new(0.5, 0.0, 0.0), Vector3::Z, 0.7);
     let result = intersect_surfaces(
         &around(&pierced, (-5.0, 5.0)),
         &patch(&ball, (0.0, TAU), (-FRAC_PI_2, FRAC_PI_2)),
     )
     .unwrap();
+
     check_all(&result, &pierced, &ball);
+
     assert_eq!(result.branches().len(), 2, "{result:?}");
     assert!(result.branches().iter().all(|branch| branch.closed));
 }
@@ -504,6 +627,7 @@ fn a_sphere_off_a_cylinder_axis_is_marched() {
 fn a_marched_intersection_stops_when_interrupted() {
     let tube = cylinder(Point3::new(1.0, 0.0, 0.0), Vector3::Z, 1.0);
     let ball = sphere(Point3::ZERO, 2.0);
+
     let (tube_patch, ball_patch) = (around(&tube, (-5.0, 5.0)), whole_ball(&ball));
     let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counter = std::sync::Arc::clone(&polls);
@@ -543,12 +667,18 @@ fn a_plane_cuts_a_spline_extrusion_exactly() {
     let wall = spline_extrusion();
     let sheet = patch(&wall, (0.0, 1.0), (-5.0, 5.0));
     let cut = plane(Point3::new(0.0, 0.0, 1.5), Vector3::new(0.2, -0.1, 1.0));
+
     let result = intersect_surfaces(&square(&cut, 30.0), &sheet).unwrap();
+
     check_all(&result, &cut, &wall);
+
     assert!(matches!(curves_of(&result)[..], [Curve::BSpline(_)]));
+
     let upright = plane(Point3::new(4.0, 0.0, 0.0), Vector3::new(1.0, 0.0, -0.1));
     let result = intersect_surfaces(&square(&upright, 30.0), &sheet).unwrap();
+
     check_all(&result, &upright, &wall);
+
     assert!(!result.branches().is_empty());
     assert!(
         result
@@ -562,7 +692,9 @@ fn a_plane_cuts_a_spline_extrusion_exactly() {
 fn identical_and_moved_surfaces_are_coincident() {
     let ring: Surface = Torus::new(Plane::XY, 4.0, 1.0).unwrap().into();
     let turn = RigidTransform::rotation_about(Point3::ZERO, Vector3::Z, FRAC_PI_4).unwrap();
+
     let turned = ring.transformed(&turn).unwrap();
+
     assert_eq!(
         intersect_surfaces(
             &patch(&ring, (0.0, TAU), (0.0, TAU)),
@@ -578,9 +710,13 @@ fn swept_surfaces_are_marched_against_other_surfaces() {
     let wall = spline_extrusion();
     let sheet = patch(&wall, (0.0, 1.0), (-5.0, 5.0));
     let post = cylinder(Point3::new(5.0, 0.5, 0.0), Vector3::new(0.3, 1.0, 0.2), 1.0);
+
     let result = intersect_surfaces(&sheet, &around(&post, (-6.0, 6.0))).unwrap();
+
     check_all(&result, &wall, &post);
+
     assert!(!result.branches().is_empty());
+
     let profile: Curve = BSpline::clamped_uniform(
         3,
         vec![
@@ -596,9 +732,12 @@ fn swept_surfaces_are_marched_against_other_surfaces() {
         .unwrap()
         .into();
     let slant = plane(Point3::new(0.0, 0.0, 0.3), Vector3::new(0.3, 0.1, 1.0));
+
     let result =
         intersect_surfaces(&square(&slant, 10.0), &patch(&vase, (0.0, TAU), (0.0, 1.0))).unwrap();
+
     check_all(&result, &slant, &vase);
+
     assert_eq!(result.branches().len(), 1, "{result:?}");
     assert!(result.branches()[0].closed);
 }
@@ -648,6 +787,7 @@ fn spline_patches_that_share_only_part_of_their_extent_are_coincident() {
     let found = |first: &Surface, second: &Surface| {
         intersect_surfaces(&patch(first, unit, unit), &patch(second, unit, unit)).unwrap()
     };
+
     assert_eq!(
         found(&left, &right),
         SurfaceIntersection::Coincident(Sense::Same)
@@ -660,6 +800,7 @@ fn spline_patches_that_share_only_part_of_their_extent_are_coincident() {
         found(&left, &flipped),
         SurfaceIntersection::Coincident(Sense::Reversed)
     );
+
     let SurfaceIntersection::Branches { branches, .. } = found(&left, &tilted) else {
         panic!("a crossing spline is not coincident");
     };
@@ -668,6 +809,7 @@ fn spline_patches_that_share_only_part_of_their_extent_are_coincident() {
     };
     for fraction in [0.0, 0.5, 1.0] {
         let point = branch.curve.point(branch.range.at(fraction));
+
         assert!(
             (point.x - 7.5).abs() < 1e-6 && point.z.abs() < 1e-6,
             "{point}"

@@ -20,11 +20,11 @@ pub const TRIM_PROMPT: &str = "Click a piece of a curve to trim it away, or drag
 pub const EXTEND_PROMPT: &str =
     "Click near the end of a line, arc, elliptical arc or spline to extend it";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 #[error("The sketch being edited no longer exists.")]
 pub struct SketchGone;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum TrimmingError {
     #[error(transparent)]
     SketchGone(#[from] SketchGone),
@@ -34,13 +34,13 @@ pub enum TrimmingError {
     Extend { source: ExtendError },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Trim(Result<Piece, TrimError>),
     Extend(Result<Extension, ExtendError>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Aim {
     pub curve: EntityId,
     pub near: Point2,
@@ -91,13 +91,13 @@ impl Aim {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct TrimPath {
     last: Option<Point2>,
     crossed: Vec<Piece>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Trimming {
     context: Option<(FeatureId, Tool)>,
     hover: Option<Aim>,
@@ -118,15 +118,18 @@ impl Trimming {
         let context = active
             .filter(|active| active.tool.trims())
             .map(|active| (active.feature, active.tool));
+
         if context != self.context {
             *self = Self {
                 context,
                 ..Self::default()
             };
         }
+
         let (Some((_, tool)), Some(sketch)) = (self.context, sketch) else {
             return;
         };
+
         self.highlight = self
             .highlight
             .take()
@@ -140,6 +143,7 @@ impl Trimming {
             self.hover = None;
             return;
         };
+
         if let (Some(path), Some(pointer)) = (&mut self.path, pointer) {
             path.follow(sketch, pointer.sketch);
         }
@@ -180,9 +184,11 @@ impl Trimming {
         };
         let targets = targets(sketch, tool);
         let count = targets.len();
+
         if count == 0 {
             return;
         }
+
         let current = self.aim().and_then(|aim| {
             targets.iter().position(|target| {
                 target.curve == aim.curve && same_outcome(&target.outcome, &aim.outcome)
@@ -193,6 +199,7 @@ impl Trimming {
             None if step < 0 => count - 1,
             None => 0,
         };
+
         self.highlight = targets.into_iter().nth(next);
     }
 
@@ -203,6 +210,7 @@ impl Trimming {
 
     pub fn activate(&mut self, model: &Model) -> Result<Option<Transaction>, TrimmingError> {
         let aim = self.aim().cloned();
+
         self.highlight = None;
         self.act(model, aim)
     }
@@ -260,6 +268,7 @@ impl Trimming {
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
         let mut preview = Preview::default();
+
         if let Some(path) = &self.path {
             preview.removed = path
                 .crossed
@@ -311,6 +320,7 @@ impl Trimming {
             return Ok(None);
         };
         let sketch = working(model, feature).ok_or(SketchGone)?;
+
         let curve = sketch.entity_label(aim.curve);
         let transaction = match tool {
             Tool::Extend => reshape(model, feature, format!("Extend {curve}"), |sketch| {
@@ -326,6 +336,7 @@ impl Trimming {
                     .map_err(|source| TrimmingError::Trim { source })
             }),
         }?;
+
         self.hover = None;
         Ok(Some(transaction))
     }
@@ -336,9 +347,11 @@ impl TrimPath {
         let Some(from) = self.last.replace(to) else {
             return;
         };
+
         if from == to {
             return;
         }
+
         let trimmable: Vec<EntityId> = sketch
             .entities()
             .filter(|(_, entity)| is_trimmable(entity))
@@ -353,6 +366,7 @@ impl TrimPath {
                     .map(move |point| (from.distance(point), curve, point))
             })
             .collect();
+
         crossings.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, curve, point) in crossings {
             if let Ok(piece) = sketch.trim_piece(curve, point)
@@ -440,6 +454,7 @@ pub(crate) fn carrier(sketch: &Sketch, preferred: EntityId, point: Point2) -> Op
             .closest_on_curve(curve, point)
             .is_some_and(|on| on.distance(point) <= tolerance)
     };
+
     if carries(preferred) {
         return Some(preferred);
     }
@@ -455,6 +470,7 @@ pub fn working(model: &Model, feature: FeatureId) -> Option<Sketch> {
     let definition = owner.kind.sketch()?;
     let shown = model.displayed_sketch(owner)?;
     let mut working = definition.clone();
+
     for (id, entity) in shown.entities() {
         let same = definition
             .entity(id)
@@ -474,8 +490,11 @@ pub fn reshape<E: From<SketchGone>>(
 ) -> Result<Transaction, E> {
     let before = working(model, feature).ok_or(SketchGone)?;
     let mut after = before.clone();
+
     change(&mut after)?;
+
     let mut transaction = sketch_tools::settled_transaction(model, feature, label);
+
     transaction.reshape_sketch(feature, &before, &after);
     Ok(transaction.finish())
 }
@@ -504,6 +523,7 @@ mod tests {
     #[test]
     fn a_trim_against_an_axis_previews_the_piece_removed_and_the_cut_marked() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(-30.0, 20.0), Point2::new(30.0, 20.0));
         let trimming = hovering(&sketch, Tool::Trim, line, Point2::new(-15.0, 20.0));
 
@@ -528,6 +548,7 @@ mod tests {
     #[test]
     fn a_trim_across_a_collinear_overlap_previews_the_overlapped_piece() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(0.0, 20.0), Point2::new(60.0, 20.0));
         let other = sketch.add_line(Point2::new(20.0, 20.0), Point2::new(40.0, 20.0));
         let trimming = hovering(&sketch, Tool::Trim, line, Point2::new(30.0, 20.0));
@@ -557,6 +578,7 @@ mod tests {
     #[test]
     fn an_extension_to_an_axis_is_previewed_and_named() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(10.0, 5.0), Point2::new(20.0, 5.0));
         let trimming = hovering(&sketch, Tool::Extend, line, Point2::new(11.0, 5.0));
 

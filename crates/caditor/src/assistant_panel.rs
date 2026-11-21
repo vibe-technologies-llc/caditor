@@ -69,6 +69,7 @@ pub fn show(
     let busy = assistant.is_busy();
     let working = busy.then_some(()).ok_or(NOT_WORKING);
     let cancel_command = commands.invoke(Command::CancelAssistant, &working);
+
     if cancel_command {
         actions.push(Action::Assistant(AssistantCommand::Cancel));
     }
@@ -77,14 +78,17 @@ pub fn show(
     let header_actions = |ui: &mut Ui| {
         let mut chosen = None;
         let settings = widgets::icon_button(ui, icons::GENERAL, SETTINGS);
+
         if settings.clicked() {
             chosen = Some(AssistantCommand::OpenSettings);
         }
+
         let clear = ui
             .add_enabled_ui(has_entries || busy, |ui| {
                 widgets::icon_button(ui, icons::NEW_CHAT, NEW_CHAT)
             })
             .inner;
+
         if clear.clicked() {
             chosen = Some(AssistantCommand::ClearChat);
         }
@@ -92,6 +96,7 @@ pub fn show(
     };
 
     let mut pending = Vec::new();
+
     let panel = widgets::side_panel_parts(ui, room, PANEL, &HEADER, header_actions, |ui| {
         toolbar(ui, assistant, prefs, &mut pending);
         ui.add_space(SPACE_S);
@@ -126,9 +131,11 @@ fn toolbar(
 ) {
     let backend = prefs.backend;
     let busy = assistant.is_busy();
+
     ui.horizontal_wrapped(|ui| {
         ui.add_enabled_ui(!busy, |ui| {
             let mut picked = None;
+
             widgets::combo("assistant-backend", backend.short_label())
                 .width(150.0)
                 .hover("Choose the AI model provider or local CLI wrapper")
@@ -147,8 +154,10 @@ fn toolbar(
 
         if let Backend::Api(provider) = backend {
             let current_model = prefs.model_for(provider);
+
             ui.add_enabled_ui(!busy, |ui| {
                 let mut picked_model = None;
+
                 widgets::combo("assistant-model", current_model)
                     .width(150.0)
                     .hover("Choose the model preset or edit the model name in Preferences")
@@ -182,6 +191,7 @@ fn toolbar(
                     _ => "CLI not found",
                 },
             };
+
             widgets::status_pill(ui, Tone::Warning, label);
         }
     });
@@ -194,6 +204,7 @@ fn transcript(
     pending: &mut Vec<AssistantCommand>,
 ) {
     let backend = prefs.backend;
+
     if !assistant.backend_ready(backend) {
         setup_callout(ui, assistant, backend, pending);
         ui.add_space(SPACE_M);
@@ -217,6 +228,7 @@ fn transcript(
                             })
                             .inner
                             .on_hover_text(prompt);
+
                         if response.clicked() {
                             pending.push(AssistantCommand::SendPrompt(prompt.to_owned()));
                         }
@@ -272,10 +284,12 @@ fn setup_callout(
                 CliState::Found(_) => String::new(),
             },
         };
+
         ui.add(Label::new(detail).wrap());
         ui.add_space(SPACE_S);
         ui.horizontal_wrapped(|ui| {
             let settings = widgets::small_button(ui, icons::GENERAL, OPEN_SETTINGS);
+
             if ui.add(settings).clicked() {
                 pending.push(AssistantCommand::OpenSettings);
             }
@@ -304,6 +318,7 @@ fn render_entry(
         }
         EntryKind::User => {
             let tokens = appearance::tokens(ui);
+
             Frame::new()
                 .fill(tokens.accent_surface)
                 .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
@@ -327,7 +342,9 @@ fn render_entry(
         EntryKind::Assistant => {
             widgets::card(ui, |ui| {
                 ui.set_width(ui.available_width());
+
                 let tokens = appearance::tokens(ui);
+
                 ui.horizontal(|ui| {
                     widgets::icon_label(ui, icons::ASSISTANT, tokens.accent);
                     ui.add(
@@ -363,6 +380,7 @@ fn render_entry(
                                     pending.push(AssistantCommand::RetryLast);
                                 }
                             }
+
                             let settings = widgets::small_button(ui, icons::GENERAL, OPEN_SETTINGS);
                             if ui.add(settings).clicked() {
                                 pending.push(AssistantCommand::OpenSettings);
@@ -382,6 +400,7 @@ fn render_tool_activity(ui: &mut Ui, entry_id: u64, tool: &ToolActivity) {
         ToolStatus::Succeeded => Tone::Success,
         ToolStatus::Failed => Tone::Error,
     };
+
     Frame::new()
         .fill(tokens.sunken)
         .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
@@ -420,14 +439,17 @@ fn render_tool_activity(ui: &mut Ui, entry_id: u64, tool: &ToolActivity) {
             }
             if let Some(preview) = &tool.preview {
                 ui.add_space(SPACE_S);
+
                 let texture_name = format!("assistant-render-{entry_id}-{}", tool.id);
                 let texture = preview.texture(ui.ctx(), &texture_name);
                 let raw = texture.size_vec2();
                 let max_width = ui.available_width().max(64.0);
+
                 let scale = (max_width / raw.x.max(1.0))
                     .min(PREVIEW_MAX_HEIGHT / raw.y.max(1.0))
                     .min(1.0);
                 let size = vec2((raw.x * scale).max(32.0), (raw.y * scale).max(32.0));
+
                 ui.add(
                     egui::Image::from_texture((texture.id(), size)).corner_radius(WIDGET_RADIUS),
                 );
@@ -439,8 +461,10 @@ fn render_formatted_text(ui: &mut Ui, text: &str) {
     let tokens = appearance::tokens(ui);
     let mut in_code = false;
     let mut code_lines = Vec::new();
+
     for line in text.lines() {
         let trimmed = line.trim();
+
         if trimmed.starts_with("```") {
             if in_code {
                 render_code_block(ui, &code_lines.join("\n"));
@@ -487,6 +511,7 @@ fn render_formatted_text(ui: &mut Ui, text: &str) {
 
 fn render_code_block(ui: &mut Ui, code: &str) {
     let tokens = appearance::tokens(ui);
+
     Frame::new()
         .fill(tokens.sunken)
         .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
@@ -518,8 +543,10 @@ fn composer(
 ) {
     let busy = assistant.is_busy();
     let ready = assistant.backend_ready(prefs.backend);
+
     let can_send = !busy && ready && !assistant.composer.trim().is_empty();
     let focused_before = ui.memory(|memory| memory.has_focus(composer_id()));
+
     let submitted_by_enter = focused_before
         && can_send
         && ui.input_mut(|input| {
@@ -542,6 +569,7 @@ fn composer(
             COMPOSER_HINT,
         )
     });
+
     if std::mem::take(&mut assistant.focus_composer) {
         response.request_focus();
     }
@@ -566,6 +594,7 @@ fn composer(
                     .clicked();
                 if clicked || submitted_by_enter {
                     let text = std::mem::take(&mut assistant.composer);
+
                     pending.push(AssistantCommand::SendPrompt(text));
                 }
             }

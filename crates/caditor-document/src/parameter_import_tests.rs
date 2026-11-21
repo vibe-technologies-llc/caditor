@@ -12,7 +12,9 @@ fn row(name: &str, expression: &str) -> ImportedParameter {
 
 fn model() -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Parameters");
+
     transaction.add_parameter("width", transaction.parse("40 mm").unwrap());
     transaction.add_parameter("height", transaction.parse("width / 2").unwrap());
     document.apply(transaction.finish()).unwrap();
@@ -55,23 +57,29 @@ fn an_import_adds_new_names_changes_existing_ones_and_is_one_undoable_change() {
     assert_eq!(outcome(&plan, "height"), &ImportOutcome::Unchanged);
     assert_eq!(outcome(&plan, "gap"), &ImportOutcome::Added);
     assert_eq!(plan.conflicts(), 1);
+
     let before = document.clone();
     let undo = document.apply(plan.transaction.unwrap()).unwrap();
     let values = ParameterValues::evaluate(&document);
     let value = |name: &str| values.value(document.parameter_named(name).unwrap().id());
+
     assert_eq!(value("depth"), Ok(Quantity::length(6.0)));
     assert_eq!(value("height"), Ok(Quantity::length(25.0)));
     assert_eq!(
         document.parameter_named("gap").unwrap().note,
         "between the plates"
     );
+
     let names: Vec<&str> = document
         .parameters()
         .iter()
         .map(|parameter| parameter.name.as_str())
         .collect();
+
     assert_eq!(names, ["width", "height", "depth", "gap"]);
+
     document.apply(undo).unwrap();
+
     assert_eq!(document.parameters(), before.parameters());
 }
 
@@ -100,10 +108,12 @@ fn conflicting_values_can_be_kept_and_bad_rows_are_refused_alone_in_words() {
             theirs: "60 mm".to_owned()
         }
     );
+
     let refusal = |name: &str| match outcome(&plan, name) {
         ImportOutcome::Refused(refusal) => refusal.to_string(),
         other => panic!("{name} should be refused, got {other:?}"),
     };
+
     assert!(refusal("2wide").contains("must start with a letter"));
     assert!(refusal("loop_a").contains("depends on itself"));
     assert!(refusal("loop_b").contains("depends on itself"));
@@ -115,8 +125,11 @@ fn conflicting_values_can_be_kept_and_bad_rows_are_refused_alone_in_words() {
         plan.rows[8].outcome,
         ImportOutcome::Refused(ImportRefusal::Repeated)
     );
+
     let mut applied = document.clone();
+
     applied.apply(plan.transaction.unwrap()).unwrap();
+
     assert_eq!(applied.parameters().len(), 3);
 }
 
@@ -136,7 +149,10 @@ fn an_import_taking_the_model_past_the_records_a_file_opens_is_refused_whole() {
             records: MAX_RECORDS + 1
         }
     );
+
     let mut fitted = document.clone();
+
     fitted.apply(fitting.unwrap().transaction.unwrap()).unwrap();
+
     assert_eq!(fitted.parameters().len(), MAX_RECORDS);
 }

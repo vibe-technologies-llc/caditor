@@ -6,7 +6,9 @@ use crate::step_cache::tests::block_text;
 
 fn imported(texts: &[&str]) -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
+
     for (index, text) in texts.iter().enumerate() {
         transaction.add_feature(
             format!("Block {index}"),
@@ -38,8 +40,10 @@ fn every_distinct_import_text_is_read_ahead_once_however_its_record_is_wrapped()
     if let Some(last) = records.last_mut() {
         last.kind = wrapped(last.kind.clone());
     }
+
     let ahead = ImportTexts::reading_ahead(&records);
     let mut issues = Vec::new();
+
     let restored: Vec<Feature> = {
         let mut ahead = ImportTexts::reading_ahead(&records);
         records
@@ -74,7 +78,9 @@ fn texts_read_ahead_and_texts_an_import_stores_are_marked_checked() {
         .unwrap();
 
     let unread = crate::checked_texts::is_checked(&blake3::hash(loaded.as_bytes()));
+
     ImportTexts::reading_ahead(&records);
+
     let stored = crate::import::canonical("Peg", &solid).unwrap();
 
     assert!(!unread);

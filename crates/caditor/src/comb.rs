@@ -28,14 +28,14 @@ const CURVATURE_SLACK: f64 = 1e-2;
 const FLAT_CURVATURE: f64 = 1e-9;
 pub const HALO_WIDTH: f32 = 2.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tooth {
     pub at: Point3,
     pub tangent: Vector3,
     pub curvature: Vector3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Combed {
     pub pickable: Pickable,
     pub name: String,
@@ -63,13 +63,13 @@ impl Combed {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum End {
     Start,
     Finish,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Continuity {
     Corner,
     Tangent,
@@ -99,10 +99,13 @@ impl Continuity {
             End::Finish => -tooth.tangent,
         };
         let (out, back) = (leaving(first, first_end), leaving(second, second_end));
+
         let opposed = out.dot(back) < 0.0 && out.cross(back).length() <= TANGENT_SINE;
+
         if !opposed {
             return Self::Corner;
         }
+
         let jump = (first.curvature - second.curvature).length();
         let largest = first.curvature.length().max(second.curvature.length());
         if jump <= CURVATURE_SLACK * largest + FLAT_CURVATURE {
@@ -113,7 +116,7 @@ impl Continuity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Joint {
     pub at: Point3,
     pub curves: [usize; 2],
@@ -122,7 +125,7 @@ pub struct Joint {
     pub curvatures: [f64; 2],
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Comb {
     pub curves: Vec<Combed>,
     pub joints: Vec<Joint>,
@@ -132,6 +135,7 @@ pub struct Comb {
 impl Comb {
     fn of(model: &Model, curves: &[Pickable], teeth: usize) -> Self {
         let mut comb = Self::default();
+
         for pickable in curves {
             match teeth_of(model, *pickable, teeth) {
                 Some(found) if !found.is_empty() => comb.curves.push(Combed {
@@ -175,6 +179,7 @@ impl Comb {
         let reach = self.reach(scale);
         let tip = |tooth: &Tooth| tooth.at - tooth.curvature * reach;
         let mut drawing = CombDrawing::default();
+
         for curve in &self.curves {
             drawing.teeth.extend(
                 curve
@@ -193,6 +198,7 @@ impl Comb {
         for joint in &self.joints {
             let [first, second] = joint.curves;
             let [first_end, second_end] = joint.ends;
+
             let tips = self
                 .curves
                 .get(first)
@@ -219,17 +225,21 @@ fn teeth_of(model: &Model, pickable: Pickable, teeth: usize) -> Option<Vec<Tooth
         Pickable::Edge { body, edge } => {
             let shown = bodies::shown(evaluation, body)?;
             let id = bodies::find_edge(shown, edge)?;
+
             let edge = shown.solid.edge(id)?;
             Some(spaced_teeth(edge.curve(), edge.interval(), teeth))
         }
         Pickable::SketchEntity { feature, entity } => {
             let owner = model.document().feature(feature)?;
             let sketch = model.displayed_sketch(owner)?;
+
             if sketch.point(entity).is_some() {
                 return None;
             }
+
             let plane = scene::sketch_plane(model.document(), evaluation, feature)?;
             let (curve, interval) = profile_curve(&sketch, entity)?.curve().ok()?;
+
             let curve = curve.on_plane(&plane).ok()?;
             Some(spaced_teeth(&curve, interval, teeth))
         }
@@ -258,11 +268,13 @@ pub fn spaced_teeth_along(
     let steps = teeth * STEPS_PER_TOOTH;
     let parameter_at =
         |step: usize| interval.start() + interval.length() * step as f64 / steps as f64;
+
     let points: Vec<Point3> = (0..=steps)
         .map(|step| evaluate(parameter_at(step)).point)
         .collect();
     let mut travelled = Vec::with_capacity(points.len());
     let mut total = 0.0;
+
     travelled.push(total);
     for pair in points.windows(2) {
         if let [from, to] = pair {
@@ -270,6 +282,7 @@ pub fn spaced_teeth_along(
         }
         travelled.push(total);
     }
+
     let parameter_along = |tooth: usize| {
         if tooth == 0 {
             return interval.start();
@@ -280,6 +293,7 @@ pub fn spaced_teeth_along(
         if total <= 0.0 {
             return interval.start() + interval.length() * tooth as f64 / teeth as f64;
         }
+
         let target = total * tooth as f64 / teeth as f64;
         let after = travelled
             .partition_point(|length| *length < target)
@@ -287,6 +301,7 @@ pub fn spaced_teeth_along(
         let (Some(low), Some(high)) = (travelled.get(after - 1), travelled.get(after)) else {
             return interval.end();
         };
+
         let span = high - low;
         let fraction = if span > 0.0 {
             ((target - low) / span).clamp(0.0, 1.0)
@@ -303,6 +318,7 @@ pub fn spaced_teeth_along(
 
 fn joints(curves: &[Combed]) -> Vec<Joint> {
     let mut joints = Vec::new();
+
     for (first, one) in curves.iter().enumerate() {
         for (second, other) in curves.iter().enumerate().skip(first + 1) {
             for first_end in [End::Start, End::Finish] {
@@ -310,6 +326,7 @@ fn joints(curves: &[Combed]) -> Vec<Joint> {
                     let (Some(from), Some(to)) = (one.end(first_end), other.end(second_end)) else {
                         continue;
                     };
+
                     if from.at.distance(to.at) > JOINT_GAP {
                         continue;
                     }
@@ -327,7 +344,7 @@ fn joints(curves: &[Combed]) -> Vec<Joint> {
     joints
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct CombDrawing {
     pub teeth: Vec<[Point3; 2]>,
     pub envelope: Vec<[Point3; 2]>,
@@ -345,6 +362,7 @@ impl CombDrawing {
             pick: None,
             stroke: Stroke::Solid,
         };
+
         let halos =
             self.teeth
                 .iter()
@@ -360,11 +378,12 @@ impl CombDrawing {
             .envelope
             .iter()
             .map(|segment| line(*segment, look.envelope, look.envelope_width));
+
         batch.lines.extend(halos.chain(teeth).chain(envelope));
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Basis {
     curves: Vec<Pickable>,
     teeth: usize,
@@ -445,11 +464,13 @@ impl CombTool {
             return;
         }
         self.followed = Some(selection.generation());
+
         let chosen: Vec<Pickable> = selection
             .in_pick_order()
             .into_iter()
             .filter(|pickable| is_combable(model, *pickable))
             .collect();
+
         if chosen.is_empty() {
             return;
         }
@@ -465,25 +486,31 @@ impl CombTool {
             evaluation: model.evaluation_generation(),
             sketches: model.display().sketches.generation(),
         };
+
         if let Some((combed_basis, comb)) = &self.combed
             && *combed_basis == basis
         {
             return Arc::clone(comb);
         }
+
         let comb = Arc::new(Comb::of(model, &basis.curves, basis.teeth));
+
         self.combed = Some((basis, Arc::clone(&comb)));
         comb
     }
 
     pub fn drawing(&mut self, comb: &Arc<Comb>) -> Arc<CombDrawing> {
         let scale = self.scale.clamp(MIN_SCALE, MAX_SCALE);
+
         if let Some((drawn_scale, drawn_comb, drawing)) = &self.drawn
             && *drawn_scale == scale
             && Arc::ptr_eq(drawn_comb, comb)
         {
             return Arc::clone(drawing);
         }
+
         let drawing = Arc::new(comb.drawing(scale));
+
         self.drawn = Some((scale, Arc::clone(comb), Arc::clone(&drawing)));
         drawing
     }
@@ -539,10 +566,12 @@ mod tests {
                 .distance(Point3::new(0.0, 5.0, 0.0))
                 < 1e-12
         );
+
         let gaps: Vec<f64> = teeth
             .windows(2)
             .map(|pair| pair[0].at.distance(pair[1].at))
             .collect();
+
         assert!(gaps.iter().all(|gap| (gap - gaps[0]).abs() < 1e-3));
     }
 
@@ -568,17 +597,20 @@ mod tests {
             .collect();
 
         assert!((middle.curvature - Vector3::new(0.0, 2.0, 0.0)).length() < 1e-9);
+
         let (shortest, longest) = gaps
             .iter()
             .fold((f64::INFINITY, 0.0_f64), |(low, high), gap| {
                 (low.min(*gap), high.max(*gap))
             });
+
         assert!(longest / shortest < 1.02, "{shortest} {longest}");
     }
 
     #[test]
     fn the_longest_tooth_points_away_from_the_centre_by_a_quarter_of_the_size_times_the_scale() {
         let (curve, interval) = arc(5.0);
+
         let comb = Comb {
             curves: vec![combed(&curve, interval, 8)],
             joints: Vec::new(),
@@ -601,6 +633,7 @@ mod tests {
         let line: Curve = Line::new(Point3::new(5.0, -10.0, 0.0), Vector3::Y)
             .unwrap()
             .into();
+
         let curves = vec![
             combed(&line, Interval::new(0.0, 10.0).unwrap(), 4),
             combed(&curve, interval, 4),
@@ -615,7 +648,9 @@ mod tests {
         let drawing = comb.drawing(1.0);
 
         assert_eq!(found.len(), 1);
+
         let joint = found.first().unwrap();
+
         assert_eq!(joint.continuity, Continuity::Tangent);
         assert_eq!(joint.ends, [End::Finish, End::Start]);
         assert!(joint.at.distance(Point3::new(5.0, 0.0, 0.0)) < 1e-9);
@@ -627,6 +662,7 @@ mod tests {
     fn two_arcs_of_one_circle_continue_their_curvature_and_a_kink_is_a_corner() {
         let circle: Curve = Circle::new(Plane::XY, 5.0).unwrap().into();
         let quarter = std::f64::consts::FRAC_PI_2;
+
         let smooth = vec![
             combed(&circle, Interval::new(0.0, quarter).unwrap(), 4),
             combed(&circle, Interval::new(quarter, 2.0 * quarter).unwrap(), 4),

@@ -12,7 +12,7 @@ use crate::{
 
 const TOLERANCE: f64 = 1e-7;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SplitError {
     #[error("{label} cannot be split; only lines, arcs, elliptical arcs and open splines can")]
     NotSplittable { entity: EntityId, label: String },
@@ -34,12 +34,14 @@ impl Sketch {
             entity: curve,
             label: self.entity_label(curve),
         };
+
         if self.is_projected(curve) {
             return Err(SplitError::Projected {
                 entity: curve,
                 label: self.entity_label(curve),
             });
         }
+
         let at = match self.entity(point) {
             Some(Entity::Point(at)) => *at,
             _ => {
@@ -54,13 +56,16 @@ impl Sketch {
             curve: self.entity_label(curve),
         };
         let entity = self.entity(curve).ok_or_else(not_splittable)?;
+
         if entity.points().contains(&point) {
             return Err(not_on());
         }
+
         let tolerance = TOLERANCE * at.abs().max_element().max(1.0);
         let inside = match entity {
             Entity::Line { .. } => {
                 let (start, end) = self.line_endpoints(curve).ok_or_else(not_splittable)?;
+
                 let along = end - start;
                 let length = along.length();
                 let direction = along.try_normalize().ok_or_else(not_on)?;
@@ -106,10 +111,13 @@ impl Sketch {
 
     pub fn split_at(&mut self, curve: EntityId, point: EntityId) -> Result<EntityId, SplitError> {
         self.check_split(curve, point)?;
+
         let mut working = self.clone();
+
         let piece = working
             .split_curve(curve, point)
             .map_err(SplitError::Edit)?;
+
         *self = working;
         Ok(piece)
     }
@@ -118,6 +126,7 @@ impl Sketch {
         let (Some(ellipse), Some(at)) = (self.ellipse(curve), self.point(point)) else {
             return false;
         };
+
         let across = (at - ellipse.center).dot(ellipse.axis().perp());
         across.abs() <= TOLERANCE * ellipse.major_radius().max(ellipse.minor_radius).max(1.0)
     }
@@ -140,9 +149,11 @@ impl Sketch {
                 Some(Constraint::Midpoint { point: middle, curve: of }) if *middle == point && *of == curve
             )
         });
+
         for id in on_curve {
             self.remove_constraint(id)?;
         }
+
         let entity = self
             .entity(curve)
             .cloned()
@@ -167,6 +178,7 @@ impl Sketch {
                     keeps_length,
                 )?;
                 let piece = self.add_piece(curve, Entity::Line { start: point, end })?;
+
                 self.move_constraints(moved, curve, piece)?;
                 self.settle_midpoints(&[piece], far_midpoints)?;
                 if directions.is_empty() {
@@ -202,6 +214,7 @@ impl Sketch {
                         end,
                     },
                 )?;
+
                 self.move_constraints(moved, curve, piece)?;
                 self.settle_midpoints(&[piece], far_midpoints)?;
                 Ok(piece)
@@ -216,6 +229,7 @@ impl Sketch {
                 let on_axis = self.lies_on_major_axis(curve, point);
                 let moved = self.far_constraints(curve, start, end);
                 let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
+
                 self.restructure(
                     curve,
                     Entity::EllipticalArc {
@@ -228,6 +242,7 @@ impl Sketch {
                     &moved_ids,
                     keeps_sweep,
                 )?;
+
                 let piece = self.add_piece(
                     curve,
                     Entity::EllipticalArc {
@@ -238,6 +253,7 @@ impl Sketch {
                         end,
                     },
                 )?;
+
                 self.move_constraints(moved, curve, piece)?;
                 if on_axis {
                     self.add_constraint(Constraint::Equal(curve, piece))?;

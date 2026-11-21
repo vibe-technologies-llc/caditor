@@ -13,6 +13,7 @@ use crate::{
 #[test]
 fn the_empty_parameters_section_says_what_a_parameter_is_and_adds_the_first() {
     let mut harness = Harness::starting(None, Document::default(), Workspace::new());
+
     harness.frame();
 
     assert!(harness.shows(parameter_table::NONE_YET));
@@ -27,7 +28,9 @@ fn the_empty_parameters_section_says_what_a_parameter_is_and_adds_the_first() {
 #[test]
 fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels() {
     let mut harness = Harness::new();
+
     assert!(harness.shows("Up to date"));
+
     let width = harness.parameter("width");
     let height = harness.parameter("height");
 
@@ -35,17 +38,23 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
         Focus::ParameterValue(height),
         "400 mm * 1 mm / (width - 30 mm)",
     );
+
     assert_eq!(
         harness.expression_text("height"),
         "400 mm * 1 mm / (width - 30 mm)"
     );
+
     harness.settle();
+
     assert!(harness.shows("40 mm"));
 
     harness.type_into(Focus::ParameterValue(width), "30 mm");
     harness.settle();
+
     assert!(harness.shows("1 feature failed"));
+
     assert_failure_shown_once(&harness, "Side sketch");
+
     assert!(harness.shows(
         "Distance between Point 0 and Point 1 cannot be evaluated: it uses height, which has an \
          error."
@@ -53,12 +62,14 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
 
     harness.click("Go to height");
     harness.frame();
+
     assert_eq!(
         harness.focused(),
         Some(Focus::ParameterValue(height).field_id())
     );
 
     harness.type_into(Focus::ParameterValue(height), "wdth");
+
     assert!(harness.shows("There is no parameter named 'wdth'"));
     assert_eq!(
         harness.expression_text("height"),
@@ -69,12 +80,16 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert!(!harness.shows("There is no parameter named 'wdth'"));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(harness.expression_text("width"), "40 mm");
+
     harness.settle();
+
     assert!(harness.shows("Up to date"));
     assert_eq!(harness.model.undo_label(), Some("Edit height"));
 }
@@ -82,13 +97,16 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
 #[test]
 fn a_rejected_draft_gives_way_to_a_value_changed_by_undo() {
     let mut harness = Harness::new();
+
     let height = harness.parameter("height");
     let original = harness.expression_text("height");
 
     harness.type_into(Focus::ParameterValue(height), "30 mm");
     harness.settle();
     harness.type_into(Focus::ParameterValue(height), "wdth");
+
     let rejected = harness.shows("There is no parameter named 'wdth'");
+
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     harness.frame();
@@ -102,6 +120,7 @@ fn a_rejected_draft_gives_way_to_a_value_changed_by_undo() {
 #[test]
 fn a_dimension_edited_in_the_tree_is_undoable_and_rejects_the_wrong_kind() {
     let mut harness = Harness::new();
+
     let base = harness.document().features().next().unwrap().id();
     let sketch = harness
         .document()
@@ -114,16 +133,19 @@ fn a_dimension_edited_in_the_tree_is_undoable_and_rejects_the_wrong_kind() {
         .constraints()
         .find(|(_, constraint)| constraint.dimension().is_some())
         .unwrap();
+
     let focus = Focus::Dimension {
         feature: base,
         constraint,
     };
 
     harness.type_into(focus, "width * width");
+
     assert!(harness.shows("It gives an area, but a length is needed"));
 
     harness.type_into(focus, "width / 4");
     harness.settle();
+
     assert!(harness.shows("= 10 mm"));
     assert_eq!(
         harness.model.undo_label(),
@@ -134,6 +156,7 @@ fn a_dimension_edited_in_the_tree_is_undoable_and_rejects_the_wrong_kind() {
 #[test]
 fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
     let mut harness = Harness::new();
+
     assert_eq!(
         offer(&harness, Command::DeleteParameter).availability,
         Err(
@@ -141,21 +164,28 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
                 .into()
         )
     );
+
     let width = harness.parameter("width");
+
     harness.focus(Focus::ParameterValue(width));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let offered = offer(&harness, Command::DeleteParameter);
+
     assert_eq!(offered.title(), "Delete parameter: width");
     assert!(offered.availability.is_ok());
 
     run_from_palette(&mut harness, "add parameter");
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert!(harness.document().parameter_named("parameter1").is_some());
+
     run_from_palette(&mut harness, "delete parameter");
     harness.settle();
+
     assert!(harness.document().parameter_named("parameter1").is_none());
     assert_eq!(harness.model.undo_label(), Some("Delete parameter1"));
 
@@ -164,19 +194,24 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
             .availability
             .is_err()
     );
+
     let height = harness.parameter("height");
+
     harness.type_into(
         Focus::ParameterValue(height),
         "400 mm * 1 mm / (width - 30 mm)",
     );
     harness.type_into(Focus::ParameterValue(width), "30 mm");
     harness.settle();
+
     assert!(harness.shows("1 feature failed"));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.key(Key::F8, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert_eq!(
         harness.workspace.panels.selected,
         Some(feature_named(&harness, "Side sketch"))
@@ -186,22 +221,30 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
 #[test]
 fn a_used_parameter_is_deleted_by_writing_its_expression_into_its_uses() {
     let mut harness = Harness::new();
+
     assert!(!harness.shows(crate::icons::DELETE));
+
     harness.hover_button("Delete width");
+
     let explained = harness.shows_containing("Delete width and write 40 mm in its place")
         && harness.shows_containing("Used by height and Base sketch.");
 
     let mut transaction = harness.document().transaction("Add spare");
+
     transaction.add_parameter("spare", transaction.parse("3 mm").unwrap());
     harness.perform(Action::Apply(transaction.finish()));
     harness.frame();
+
     let spare_marked = harness.describes("spare is unused: nothing refers to it yet.");
     let width_marked = harness.describes("width is unused: nothing refers to it yet.");
+
     harness.click_button("Delete width");
     harness.settle();
+
     let document = harness.document();
     let height = document.parameter_named("height").unwrap();
     let base = feature_named(&harness, "Base sketch");
+
     let base_value = document
         .feature(base)
         .and_then(|feature| feature.kind.sketch())
@@ -223,14 +266,17 @@ fn a_used_parameter_is_deleted_by_writing_its_expression_into_its_uses() {
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(harness.document().parameter_named("width").is_some());
 }
 
 #[test]
 fn a_parameter_s_menu_lists_what_uses_it_and_goes_to_it() {
     let mut harness = Harness::new();
+
     harness.command(FileCommand::OpenSample(crate::samples::Sample::Bracket));
     harness.settle();
+
     let hole_sketch = harness
         .document()
         .features()
@@ -251,7 +297,9 @@ fn a_parameter_s_menu_lists_what_uses_it_and_goes_to_it() {
         harness.frame();
     }
     harness.show_new_windows();
+
     let listed = harness.shows(crate::parameter_table::USED_BY);
+
     harness.click("Hole sketch");
     harness.frame();
     harness.frame();
@@ -272,18 +320,24 @@ fn parameters_are_reordered_and_noted_from_the_keyboard() {
             .collect()
     };
     let height = harness.parameter("height");
+
     harness.focus(Focus::ParameterName(height));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
     let at_bottom = offer(&harness, Command::MoveParameterDown).availability;
+
     run_from_palette(&mut harness, "move parameter up");
     harness.frame();
+
     let moved = order(&harness);
     let at_top = offer(&harness, Command::MoveParameterUp).availability;
+
     run_from_palette(&mut harness, "parameter's note");
     harness.frame();
+
     let focused = harness.focused() == Some(Id::unique("parameter-note-field"));
+
     harness.type_text("Half the width, for the side");
     harness.click(crate::parameter_table::SAVE_NOTE_LABEL);
     harness.context.enable_accesskit();
@@ -308,6 +362,7 @@ fn parameters_are_reordered_and_noted_from_the_keyboard() {
 #[test]
 fn values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name() {
     let mut harness = Harness::new();
+
     let base = harness.document().features().next().unwrap().id();
     let (constraint, _) = harness
         .sketch(base)
@@ -315,6 +370,7 @@ fn values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name(
         .find(|(_, constraint)| constraint.dimension().is_some())
         .map(|(id, constraint)| (id, constraint.clone()))
         .unwrap();
+
     let dimension = Focus::Dimension {
         feature: base,
         constraint,
@@ -336,16 +392,21 @@ fn values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name(
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     harness.type_into_field(distance, "depth = 12 mm");
     harness.settle();
+
     let depth = harness.parameter("depth");
     let named_label = harness.model.undo_label().map(str::to_owned);
     let shown_in_field = harness.shows("depth = 12 mm");
+
     harness.type_into(dimension, "length = depth * 2");
     harness.settle();
+
     let length = harness.parameter("length");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.focus(Focus::ParameterName(length));
     harness.frame();
+
     let listed = harness.shows(crate::parameter_table::MODEL_PARAMETERS)
         && harness.shows("Extrude 1 · Distance")
         && harness.shows("Base sketch · Distance");
@@ -376,6 +437,7 @@ fn values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name(
 
     harness.type_into_field(distance, "20 mm");
     harness.settle();
+
     let deep = harness.document().parameter_named("deep").unwrap();
 
     assert_eq!(held(&harness), "20 mm");
@@ -400,6 +462,7 @@ fn a_named_value_follows_its_field_into_another_mode_and_goes_when_a_mode_drops_
     use caditor_document::ParameterOwner;
 
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let field = |salt: &str| Id::unique(("solid-field", salt, extrude));
     let owner = |harness: &Harness, name: &str| {
@@ -430,8 +493,10 @@ fn a_named_value_follows_its_field_into_another_mode_and_goes_when_a_mode_drops_
     harness.type_into_field(field("distance"), "h = 20 mm");
     harness.settle();
     choose(&mut harness, "One side", "Symmetric");
+
     let symmetric = owner(&harness, "h");
     let shown = harness.shows("h = 20 mm");
+
     harness.type_into_field(field("distance"), "h = 30 mm");
     harness.settle();
 
@@ -441,11 +506,15 @@ fn a_named_value_follows_its_field_into_another_mode_and_goes_when_a_mode_drops_
     assert_eq!(harness.model.undo_label(), Some("Edit h"));
 
     choose(&mut harness, "Symmetric", "Two sides");
+
     let forward = owner(&harness, "h");
     let copied = backward(&harness);
+
     harness.type_into_field(field("backward"), "b = 5 mm");
     harness.settle();
+
     let named_backward = owner(&harness, "b");
+
     choose(&mut harness, "Two sides", "One side");
 
     assert_eq!(forward, caption("Forward distance"));
@@ -464,29 +533,40 @@ fn a_named_value_follows_its_field_into_another_mode_and_goes_when_a_mode_drops_
 #[test]
 fn parameters_are_added_renamed_given_expressions_and_deleted_in_their_table() {
     let mut harness = Harness::new();
+
     harness.click_beside(crate::icons::ADD, "Parameters");
     harness.frame();
+
     let added = harness.parameter("parameter1");
     let added_label = harness.model.undo_label().map(str::to_owned);
     let focused_on_name = harness.focused() == Some(Focus::ParameterName(added).field_id());
+
     harness.key(Key::A, Modifiers::COMMAND);
     harness.events.push(Event::Text("depth".to_owned()));
     harness.frame();
     harness.key(Key::Enter, Modifiers::NONE);
     harness.settle();
+
     let renamed = harness.document().parameter(added).map(|p| p.name.clone());
+
     harness.type_into(Focus::ParameterValue(added), "width / 4");
     harness.settle();
+
     let quarter_shown = harness.shows("10 mm");
     let width = harness.parameter("width");
+
     harness.type_into(Focus::ParameterName(width), "span");
     harness.settle();
+
     let height_text = harness.expression_text("height");
     let depth_text = harness.expression_text("depth");
+
     harness.click_button("Delete depth");
     harness.settle();
+
     let deleted_label = harness.model.undo_label().map(str::to_owned);
     let deleted = harness.document().parameter(added).is_none();
+
     harness.perform(Action::Undo);
     harness.settle();
 

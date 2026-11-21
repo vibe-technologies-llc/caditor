@@ -26,6 +26,7 @@ fn no_parameters(_: ParameterId) -> Result<Quantity, EvalError> {
 #[test]
 fn a_text_stands_on_a_point_that_cannot_go_while_the_text_stays() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::new(3.0, 4.0));
 
     let text = sketch.add_text(label("Part 7", anchor)).unwrap();
@@ -38,12 +39,14 @@ fn a_text_stands_on_a_point_that_cannot_go_while_the_text_stays() {
     assert_eq!(sketch.entity_label(text), format!("Text {text}"));
 
     sketch.remove_text(text).unwrap();
+
     assert!(sketch.remove_unused_entity(anchor).is_ok());
 }
 
 #[test]
 fn a_text_needs_a_point_and_letters() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::X);
     let anchor = sketch.add_point(Point2::ZERO);
 
@@ -73,6 +76,7 @@ fn a_text_needs_a_point_and_letters() {
 #[test]
 fn texts_share_the_sketch_numbering_and_keep_their_anchor_when_edited() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::ZERO);
     let other = sketch.add_point(Point2::X);
     let text = sketch.add_text(label("A", anchor)).unwrap();
@@ -92,13 +96,16 @@ fn texts_share_the_sketch_numbering_and_keep_their_anchor_when_edited() {
 #[test]
 fn solving_works_out_the_height_and_angle_from_parameters() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::new(1.0, 2.0));
+
     sketch
         .add_constraint(Constraint::Fix {
             point: anchor,
             at: Point2::new(1.0, 2.0),
         })
         .ok();
+
     let text = sketch
         .add_text(Text {
             height: Expression::Parameter(HEIGHT),
@@ -136,7 +143,9 @@ fn solving_works_out_the_height_and_angle_from_parameters() {
 #[test]
 fn a_height_not_above_zero_is_refused_at_solve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::ZERO);
+
     sketch
         .add_text(Text {
             height: Expression::measure(0.0, Unit::Millimetre),
@@ -158,6 +167,7 @@ fn a_height_not_above_zero_is_refused_at_solve() {
 #[test]
 fn changing_a_text_changes_the_geometry() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::ZERO);
     let text = sketch.add_text(label("A", anchor)).unwrap();
     let before = sketch.clone();
@@ -179,6 +189,7 @@ fn changing_a_text_changes_the_geometry() {
 #[test]
 fn letter_curves_name_their_text_and_never_a_stored_entity() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::ZERO);
     let text = sketch.add_text(label("Ab", anchor)).unwrap();
 
@@ -204,6 +215,7 @@ fn letter_curves_name_their_text_and_never_a_stored_entity() {
 #[test]
 fn a_text_may_hold_line_breaks_and_an_alignment_that_edits_keep() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::ZERO);
 
     let text = sketch.add_text(label("Top\nBottom", anchor)).unwrap();
@@ -213,6 +225,7 @@ fn a_text_may_hold_line_breaks_and_an_alignment_that_edits_keep() {
         align: TextAlign::Centre,
         ..label("Top\nBottom", anchor)
     };
+
     sketch.replace_text(text, centred.clone()).unwrap();
 
     assert_eq!(

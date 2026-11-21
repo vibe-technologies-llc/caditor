@@ -67,7 +67,7 @@ impl Thumbnail {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThumbnailCache {
     dir: PathBuf,
 }
@@ -118,6 +118,7 @@ impl ThumbnailCache {
                 )
             })
             .collect();
+
         kept.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
         for (_, stale) in kept.into_iter().skip(keep) {
             fs::remove_file(stale)?;
@@ -147,12 +148,15 @@ pub fn load(
             None => cache.discard(service, design),
         }
     }
+
     let Some(bytes) = client.thumbnail(design)? else {
         return Ok(None);
     };
+
     if bytes.len() > MAX_THUMBNAIL_BYTES {
         return Ok(None);
     }
+
     let Some(thumbnail) = Thumbnail::from_bytes(&bytes) else {
         log::info!(
             "{service} sent a picture of “{}” caditor cannot read",
@@ -160,6 +164,7 @@ pub fn load(
         );
         return Ok(None);
     };
+
     if let Some(cache) = cache
         && let Err(error) = cache.write(service, design, &bytes)
     {
@@ -299,7 +304,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache = ThumbnailCache::new(dir.path().join("thumbnails"));
         let frame = design("d1", 100);
+
         cache.write(Service::Fusion, &frame, b"damaged").unwrap();
+
         let (client, provider) =
             client(FakeProvider::new().thumbnail(frame.id.clone(), &sample_png(4)));
 
@@ -364,6 +371,7 @@ mod tests {
     fn only_the_newest_pictures_are_kept() {
         let dir = TempDir::new().unwrap();
         let cache = ThumbnailCache::new(dir.path().join("thumbnails"));
+
         for index in 0..5 {
             cache
                 .write(Service::Fusion, &design(&format!("d{index}"), 1), b"x")
@@ -374,6 +382,7 @@ mod tests {
         cache.prune(2).unwrap();
 
         let kept = fs::read_dir(dir.path().join("thumbnails")).unwrap().count();
+
         assert_eq!(kept, 2);
         assert!(cache.read(Service::Fusion, &design("d4", 1)).is_some());
         assert!(cache.read(Service::Fusion, &design("d0", 1)).is_none());
@@ -383,6 +392,7 @@ mod tests {
     fn forgetting_removes_the_folder_and_tolerates_its_absence() {
         let dir = TempDir::new().unwrap();
         let cache = ThumbnailCache::new(dir.path().join("thumbnails"));
+
         cache
             .write(Service::Fusion, &design("d1", 1), b"x")
             .unwrap();

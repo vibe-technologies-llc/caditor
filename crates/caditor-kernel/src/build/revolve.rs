@@ -117,25 +117,30 @@ pub fn revolve(
     if regions.is_empty() {
         return Err(SweepError::NoRegions);
     }
+
     let size = regions
         .iter()
         .filter_map(Region::bounds)
         .reduce(Aabb2::union)
         .map_or(0.0, |bounds| bounds.size().length());
     let tolerance = (size * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
+
     let on_right = side_of_axis(regions, &axis, size, tolerance)?;
     let (axis, start, end) = if on_right {
         (axis.reversed(), -extent.start(), -extent.end())
     } else {
         (axis, extent.start(), extent.end())
     };
+
     let (low, high) = (start.min(end), start.max(end));
     let origin = plane.to_world(axis.origin());
     let direction = lift(plane, axis.direction());
+
     let turn = |angle: f64| {
         RigidTransform::rotation_about(origin, direction, angle).ok_or_else(degenerate)
     };
     let full = extent.is_full();
+
     let frame = Frame {
         plane: *plane,
         axis,
@@ -148,9 +153,11 @@ pub fn revolve(
         tolerance,
     };
     let mut plan = Plan::default();
+
     for region in regions {
         interrupt::check()?;
         plan.label(region.entities());
+
         let start_cap = (
             FaceName::start_cap(feature, region.key()),
             FaceOrigin::StartCap { feature },
@@ -159,6 +166,7 @@ pub fn revolve(
             FaceName::end_cap(feature, region.key()),
             FaceOrigin::EndCap { feature },
         );
+
         let caps = if start <= end {
             Caps {
                 low: start_cap,
@@ -172,15 +180,18 @@ pub fn revolve(
         };
         let mut low_loops = Vec::new();
         let mut high_loops = Vec::new();
+
         for profile_loop in region.loops() {
             let (low_loop, high_loop) =
                 revolve_loop(&mut plan, &frame, profile_loop.pieces(), &caps, feature)?;
+
             low_loops.push(low_loop);
             high_loops.push(high_loop);
         }
         if !full {
             let normal = plane.normal();
             let x_axis = plane.x_axis();
+
             let low_plane = Plane::from_frame(
                 origin,
                 -frame.low.apply_vector(normal),
@@ -193,6 +204,7 @@ pub fn revolve(
                 frame.high.apply_vector(x_axis),
             )
             .ok_or_else(degenerate)?;
+
             plan.face(PlanFace {
                 surface: PlaneSurface::new(low_plane)?.into(),
                 sense: Sense::Same,
@@ -220,6 +232,7 @@ fn side_of_axis(
 ) -> Result<bool, SweepError> {
     let sampling = SamplingTolerance::for_extent(size);
     let (mut left, mut right, mut crossing) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
+
     for piece in regions.iter().flat_map(Region::pieces) {
         let distances: Vec<f64> = piece
             .curve()
@@ -258,7 +271,7 @@ fn side_of_axis(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
     OnAxis,
     Flat,
@@ -283,10 +296,12 @@ pub(super) fn prepare(frame: &Frame, piece: &Piece) -> Result<Prepared, SweepErr
                     point
                 }
             };
+
             let (from, to) = (
                 snap(line.point(range.start())),
                 snap(line.point(range.end())),
             );
+
             let rebuilt = Line2::through(from, to)?;
             let length = Interval::new(0.0, from.distance(to)).ok_or_else(degenerate)?;
             let kind = if frame.touches_axis(from) && frame.touches_axis(to) {
@@ -365,15 +380,20 @@ pub(super) fn arc_spline(
     let mut points = Vec::with_capacity(2 * pieces + 1);
     let mut weights = Vec::with_capacity(2 * pieces + 1);
     let mut knots = vec![0.0; 3];
+
     for index in 0..pieces {
         let angle = range.start() + step * index as f64;
+
         points.push(curve.point(angle));
         weights.push(1.0);
+
         let middle = curve.point(angle + 0.5 * step);
+
         points.push(circle.center() + (middle - circle.center()) / weight);
         weights.push(weight);
         if index > 0 {
             let knot = index as f64 / pieces as f64;
+
             knots.extend([knot, knot]);
         }
     }
@@ -396,11 +416,13 @@ pub(super) fn surface_of(frame: &Frame, prepared: &Prepared) -> Result<Surface, 
         }
         (Curve2::Line(_), kind) => {
             let (from, to) = (piece.start(), piece.end());
+
             let (from, to) = if axis.along(from) <= axis.along(to) {
                 (from, to)
             } else {
                 (to, from)
             };
+
             let (low_radius, high_radius) = (axis.signed_distance(from), axis.signed_distance(to));
             let (low_height, high_height) = (axis.along(from), axis.along(to));
             if kind == Kind::Flat {
@@ -479,13 +501,16 @@ fn revolve_loop(
         .collect();
     let mut low_vertices = Vec::with_capacity(count);
     let mut high_vertices = Vec::with_capacity(count);
+
     for (joint, pole) in joints.iter().zip(&poles) {
         if *pole {
             let vertex = plan.vertex(frame.on_axis(*joint));
+
             low_vertices.push(vertex);
             high_vertices.push(vertex);
         } else {
             let vertex = plan.vertex(frame.at_low(*joint));
+
             low_vertices.push(vertex);
             high_vertices.push(if frame.full {
                 vertex
@@ -494,6 +519,7 @@ fn revolve_loop(
             });
         }
     }
+
     let at = |items: &[usize], index: usize| {
         items
             .get(wrap(index))
@@ -506,18 +532,22 @@ fn revolve_loop(
         .collect();
     let side = |index: usize| sides.get(wrap(index)).copied().unwrap_or_default();
     let mut swept: Vec<Option<usize>> = Vec::with_capacity(count);
+
     for (index, (joint, pole)) in joints.iter().zip(&poles).enumerate() {
         if *pole {
             swept.push(None);
             continue;
         }
+
         let center = frame.on_axis(*joint);
         let radius = frame.axis.signed_distance(*joint);
         let start = frame.at_low(*joint);
+
         let circle_frame =
             Plane::from_frame(center, frame.direction, start - center).ok_or_else(degenerate)?;
         let circle = Circle::new(circle_frame, radius)?;
         let interval = Interval::new(0.0, frame.sweep).ok_or_else(degenerate)?;
+
         swept.push(Some(plan.edge(
             circle.into(),
             interval,
@@ -525,9 +555,11 @@ fn revolve_loop(
             EdgeName::between(side(index + count - 1), side(index)),
         )));
     }
+
     let swept_at = |index: usize| swept.get(wrap(index)).copied().flatten();
     let mut low_loop = Vec::with_capacity(count);
     let mut high_loop = Vec::with_capacity(count);
+
     for (index, entry) in prepared.iter().enumerate() {
         let piece = &entry.piece;
         let travel = traversal_sense(piece);
@@ -540,6 +572,7 @@ fn revolve_loop(
             })
         };
         let lifted = piece.curve().on_plane(&frame.plane)?;
+
         if entry.kind == Kind::OnAxis {
             if !frame.full {
                 let edge = plan.edge(
@@ -548,11 +581,13 @@ fn revolve_loop(
                     ends(&low_vertices)?,
                     EdgeName::between(caps.low.0, caps.high.0),
                 );
+
                 low_loop.push(PlanCoedge::new(edge, travel.reversed()));
                 high_loop.push(PlanCoedge::new(edge, travel));
             }
             continue;
         }
+
         let name = side(index);
         let surface = surface_of(frame, entry)?;
         let probe = farthest_from_axis(frame, piece);
@@ -561,6 +596,7 @@ fn revolve_loop(
             .low
             .apply_vector(lift(&frame.plane, Vector2::new(tangent.y, -tangent.x)));
         let near = (entry.kind == Kind::Curved { mapped: true }).then(|| Point2::new(0.0, probe));
+
         let sense = outward_sense(
             &surface,
             frame.at_low(piece.curve().point(probe)),
@@ -571,8 +607,10 @@ fn revolve_loop(
             feature,
             entity: piece.entity(),
         };
+
         if frame.full && entry.kind == Kind::Flat {
             let loops = flat_disc_loops(frame, &joints, &swept, index, sense)?;
+
             plan.face(PlanFace {
                 surface,
                 sense,
@@ -582,6 +620,7 @@ fn revolve_loop(
             });
             continue;
         }
+
         let (low_edge, high_edge) = if frame.full {
             let edge = plan.edge(
                 lifted.transformed(&frame.low)?,
@@ -603,6 +642,7 @@ fn revolve_loop(
                 ends(&high_vertices)?,
                 EdgeName::between(name, caps.high.0),
             );
+
             low_loop.push(PlanCoedge::new(low_edge, travel.reversed()));
             high_loop.push(PlanCoedge::new(high_edge, travel));
             (low_edge, high_edge)
@@ -617,14 +657,17 @@ fn revolve_loop(
                 PlanCoedge::new(edge, sense)
             }
         };
+
         let mut coedges = vec![coedge(
             low_edge,
             travel,
             Point2::new(0.0, range.start()),
             Point2::new(0.0, range.end()),
         )];
+
         if let Some(edge) = swept_at(index + 1) {
             let height = piece.end_parameter();
+
             coedges.push(coedge(
                 edge,
                 Sense::Same,
@@ -640,6 +683,7 @@ fn revolve_loop(
         ));
         if let Some(edge) = swept_at(index) {
             let height = piece.start_parameter();
+
             coedges.insert(
                 0,
                 coedge(
@@ -676,14 +720,17 @@ fn flat_disc_loops(
             .get(joint)
             .map_or(0.0, |point| frame.axis.signed_distance(*point))
     };
+
     let (outer, inner) = if radius(index) >= radius(next) {
         (index, next)
     } else {
         (next, index)
     };
     let circle = |joint: usize| swept.get(joint).copied().flatten();
+
     let outer_edge = circle(outer).ok_or(SweepError::Unassembled)?;
     let mut loops = vec![vec![PlanCoedge::new(outer_edge, sense)]];
+
     if let Some(inner_edge) = circle(inner) {
         loops.push(vec![PlanCoedge::new(inner_edge, sense.reversed())]);
     }

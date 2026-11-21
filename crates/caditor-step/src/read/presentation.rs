@@ -58,7 +58,7 @@ const REFLECTANCES: [&str; 3] = [
     "SURFACE_STYLE_REFLECTANCE_AMBIENT_DIFFUSE_SPECULAR",
 ];
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Look {
     pub colour: Option<[u8; 3]>,
     pub opacity: Option<u8>,
@@ -67,7 +67,7 @@ pub(crate) struct Look {
     pub faces: Vec<FaceLook>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FaceLook {
     pub face: usize,
     pub colour: Option<[u8; 3]>,
@@ -75,7 +75,7 @@ pub struct FaceLook {
     pub finish: Option<Finish>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Stated {
     colour: Option<[u8; 3]>,
     opacity: Option<u8>,
@@ -83,7 +83,7 @@ struct Stated {
     plain: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Effective {
     colour: Option<[u8; 3]>,
     opacity: u8,
@@ -110,7 +110,7 @@ impl Stated {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Unread {
     Colour,
     NamedColour,
@@ -193,8 +193,10 @@ impl SolidParts {
         let Ok(shells) = SolidShells::of(graph, solid) else {
             return parts;
         };
+
         for shell in shells.all() {
             let mut ids = vec![shell];
+
             if let Ok(inner) = graph
                 .entity(shell)
                 .and_then(|entity| entity.record("ORIENTED_CLOSED_SHELL"))
@@ -238,6 +240,7 @@ fn styling(entity: &Entity<'_>) -> Option<Styling> {
         };
         let context = (kind == "CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM")
             .then(|| Arc::from(once_each(fields.references(4).unwrap_or_default())));
+
         return Some(Styling {
             styles: once_each(fields.references(1).ok()?),
             item: fields.reference(2).ok()?,
@@ -245,6 +248,7 @@ fn styling(entity: &Entity<'_>) -> Option<Styling> {
             context,
         });
     }
+
     let fields = entity.find("STYLED_ITEM")?;
     Some(Styling {
         styles: once_each(fields.references(0).ok()?),
@@ -277,25 +281,33 @@ impl Presentation {
         };
         let mut styled_items = BTreeMap::new();
         let mut resolved: BTreeMap<u64, Resolved> = BTreeMap::new();
+
         for entity in graph.entities() {
             check_interrupt()?;
+
             let Some(styling) = styling(&entity) else {
                 continue;
             };
+
             styled_items.insert(entity.id, styling.item);
+
             let item = inner_item(graph, styling.item);
             let mut problems = BTreeMap::new();
             let mut general = Sides::default();
             let mut by_context: Vec<(u64, Sides)> = Vec::new();
+
             for style in &styling.styles {
                 if !resolved.contains_key(style) {
                     let mut reading = Reading::new(graph, work);
                     let mut sides = Sides::default();
+
                     reading.style(*style, Side::Both, &mut sides, MAX_STYLE_DEPTH);
                     if reading.cancelled {
                         return Err(Interrupted);
                     }
+
                     let context = reading.context_of(*style);
+
                     resolved.insert(
                         *style,
                         Resolved {
@@ -305,9 +317,11 @@ impl Presentation {
                         },
                     );
                 }
+
                 let Some(read) = resolved.get(style) else {
                     continue;
                 };
+
                 problems.extend(read.problems.iter().map(|(id, unread)| (*id, *unread)));
                 match read.context {
                     Some(context) => by_context.push((context, read.sides)),
@@ -322,8 +336,10 @@ impl Presentation {
                     .extend(problems.keys().copied());
                 presentation.unread.extend(problems);
             }
+
             let shared: Arc<[u64]> = styling.context.clone().unwrap_or_else(|| Arc::from([]));
             let stated = general.stated();
+
             if stated.states_anything() {
                 match &styling.context {
                     Some(context) => {
@@ -331,10 +347,12 @@ impl Presentation {
                     }
                     None if styling.overriding => {
                         let earlier = presentation.overrides.entry(item).or_default();
+
                         *earlier = earlier.under(stated);
                     }
                     None => {
                         let earlier = presentation.styles.entry(item).or_default();
+
                         *earlier = stated.under(*earlier);
                     }
                 }
@@ -362,6 +380,7 @@ impl Presentation {
             let name: Arc<str> = Arc::from(name);
             for item in items {
                 let item = styled_items.get(&item).copied().unwrap_or(item);
+
                 presentation
                     .layers
                     .entry(inner_item(graph, item))
@@ -405,14 +424,19 @@ impl Presentation {
         if self.troubles.contains_key(&item) {
             consulted.items.insert(item);
         }
+
         let mut stated = self.styles.get(&item).copied().unwrap_or_default();
+
         if let Some(overriding) = self.overrides.get(&item) {
             stated = stated.under(*overriding);
         }
+
         let Some(instances) = self.instanced.get(&item) else {
             return stated;
         };
+
         consulted.items.insert(item);
+
         let matching = instances
             .iter()
             .filter(|instance| instance.elements().all(|element| path.contains(element)))
@@ -434,33 +458,40 @@ impl Presentation {
         consulted: &mut Consulted,
     ) -> Look {
         let mut above = vec![self.stated(parts.id, path, consulted)];
+
         for shell in &parts.shells {
             above.push(self.stated(*shell, path, consulted));
         }
         for container in path {
             above.push(self.stated(*container, path, consulted));
         }
+
         let above: Vec<Stated> = above
             .into_iter()
             .filter(|stated| stated.states_anything())
             .collect();
         let mut face_looks = Vec::with_capacity(faces.len());
+
         for entity in faces {
             let Some(entity) = entity else {
                 face_looks.push(None);
                 continue;
             };
             let mut own = vec![self.stated(*entity, path, consulted)];
+
             for shell in parts.face_shells.get(entity).into_iter().flatten() {
                 own.push(self.stated(*shell, path, consulted));
             }
+
             let levels: Vec<Stated> = own
                 .into_iter()
                 .filter(|stated| stated.states_anything())
                 .chain(above.iter().copied())
                 .collect();
+
             face_looks.push(Some(effective(&levels)));
         }
+
         let body = if above.is_empty() {
             let present: Vec<Effective> = face_looks.iter().flatten().copied().collect();
             let colour = most_shared(present.iter().map(|look| look.colour)).flatten();
@@ -509,7 +540,9 @@ impl Presentation {
         if let Some(layer) = parts.shells.iter().find_map(|shell| self.layers.get(shell)) {
             return Some(layer.to_string());
         }
+
         let mut seen: Option<&Arc<str>> = None;
+
         for face in &parts.faces {
             let layer = self.layers.get(face)?;
             match seen {
@@ -522,6 +555,7 @@ impl Presentation {
 
     pub fn note(&self, consulted: &Consulted) -> Option<String> {
         let mut problems: BTreeMap<u64, Unread> = BTreeMap::new();
+
         for item in &consulted.items {
             for entity in self.troubles.get(item).into_iter().flatten() {
                 if let Some(unread) = self.unread.get(entity) {
@@ -534,12 +568,14 @@ impl Presentation {
                 }
             }
         }
+
         let count = problems.len();
         let named: Vec<String> = problems
             .iter()
             .take(MOST_NAMED_PROBLEMS)
             .map(|(entity, unread)| unread.describe(*entity))
             .collect();
+
         let listed = match named.as_slice() {
             [] => return None,
             [only] => only.clone(),
@@ -568,12 +604,14 @@ fn effective(levels: &[Stated]) -> Effective {
 
 fn most_shared<T: PartialEq + Copy>(values: impl IntoIterator<Item = T>) -> Option<T> {
     let mut counted: Vec<(T, usize)> = Vec::new();
+
     for value in values {
         match counted.iter_mut().find(|(seen, _)| *seen == value) {
             Some((_, count)) => *count += 1,
             None => counted.push((value, 1)),
         }
     }
+
     let most = counted.iter().map(|(_, count)| *count).max()?;
     counted
         .into_iter()
@@ -581,21 +619,21 @@ fn most_shared<T: PartialEq + Copy>(values: impl IntoIterator<Item = T>) -> Opti
         .map(|(value, _)| value)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Side {
     Outside,
     Inside,
     Both,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Paint {
     colour: [u8; 3],
     appearance_opacity: Option<u8>,
     appearance_finish: Option<Finish>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct Found {
     fill: Option<Paint>,
     rendering: Option<Paint>,
@@ -623,6 +661,7 @@ fn appearance_opacity(name: &str) -> Option<u8> {
         .filter(|word| !word.is_empty())
         .map(str::to_lowercase)
         .collect();
+
     if words
         .iter()
         .any(|word| OPAQUE_APPEARANCES.contains(&word.as_str()))
@@ -636,7 +675,7 @@ fn appearance_opacity(name: &str) -> Option<u8> {
         .max()
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct Sides {
     outside: Found,
     inside: Found,
@@ -703,9 +742,11 @@ impl<'g, 'a> Reading<'g, 'a> {
 
     fn context_of(&self, style: u64) -> Option<u64> {
         let entity = self.graph.entity(style).ok()?;
+
         if entity.kind() != "PRESENTATION_STYLE_BY_CONTEXT" {
             return None;
         }
+
         let fields = entity.fields().ok()?;
         fields.reference(1).ok()
     }
@@ -714,6 +755,7 @@ impl<'g, 'a> Reading<'g, 'a> {
         let Some(depth) = depth.checked_sub(1) else {
             return;
         };
+
         if self.cancelled || check_interrupt().is_err() {
             self.cancelled = true;
             return;
@@ -730,14 +772,17 @@ impl<'g, 'a> Reading<'g, 'a> {
             self.problems.insert(id, Unread::TooIntricate);
             return;
         }
+
         let Ok(entity) = self.graph.entity(id) else {
             self.problems.insert(id, Unread::Missing);
             return;
         };
         let kind = entity.kind();
+
         if CURVE_STYLES.contains(&kind) || REFLECTANCES.contains(&kind) {
             return;
         }
+
         let Ok(fields) = entity.fields() else {
             self.problems.insert(id, Unread::Style);
             return;
@@ -834,6 +879,7 @@ impl<'g, 'a> Reading<'g, 'a> {
                     if (-CHANNEL_SLACK..=1.0 + CHANNEL_SLACK).contains(&transparency) =>
                 {
                     let opacity = ((1.0 - transparency.clamp(0.0, 1.0)) * 100.0).round() as u8;
+
                     found.each(side, |found| {
                         found.opacity.get_or_insert(opacity);
                     });
@@ -909,12 +955,15 @@ fn rgb(channels: [Option<f64>; 3]) -> Option<[u8; 3]> {
     let [Some(red), Some(green), Some(blue)] = channels else {
         return None;
     };
+
     let values = [red, green, blue];
     let low = values.iter().copied().fold(f64::INFINITY, f64::min);
     let high = values.iter().copied().fold(f64::NEG_INFINITY, larger);
+
     if low < -CHANNEL_SLACK || high > BYTE_CHANNELS + CHANNEL_SLACK {
         return None;
     }
+
     let scale = if high > 1.0 + CHANNEL_SLACK {
         1.0
     } else {
@@ -936,8 +985,10 @@ mod tests {
 
     fn crafted() -> String {
         let mut data = vec!["#1=CARTESIAN_POINT('',(0.,0.,0.));".to_owned()];
+
         for level in 0..ASSIGNMENTS {
             let next = vec![format!("#{}", 11 + level); REPEATS].join(",");
+
             data.push(format!(
                 "#{}=PRESENTATION_STYLE_ASSIGNMENT(({next}));",
                 10 + level

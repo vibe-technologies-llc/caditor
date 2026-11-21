@@ -19,10 +19,12 @@ pub fn process_running(process: u32) -> bool {
             process,
         )
     };
+
     if handle.is_null() {
         return io::Error::last_os_error().raw_os_error()
             == i32::try_from(ERROR_ACCESS_DENIED).ok();
     }
+
     let process = Process(handle);
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let waited = unsafe { WaitForSingleObject(process.0, NO_WAIT) };

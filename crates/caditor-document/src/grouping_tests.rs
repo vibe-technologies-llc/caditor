@@ -5,7 +5,9 @@ use crate::*;
 
 fn sketches(count: usize) -> (Document, Vec<FeatureId>) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let ids = (1..=count)
         .map(|number| {
             transaction.add_feature(
@@ -14,6 +16,7 @@ fn sketches(count: usize) -> (Document, Vec<FeatureId>) {
             )
         })
         .collect();
+
     document.apply(transaction.finish()).unwrap();
     (document, ids)
 }
@@ -44,6 +47,7 @@ fn grouping_names_the_chosen_features_and_undoing_leaves_them_ungrouped() {
     let undo = document.apply(grouping).unwrap();
     let grouped = groups(&document);
     let run = document.group_run(ids[2]);
+
     document.apply(undo).unwrap();
 
     assert_eq!(name, "Group 1");
@@ -62,6 +66,7 @@ fn grouping_features_apart_brings_them_together_under_the_first() {
     let grouping = document
         .grouping(&[ids[0], ids[3]], "Holes", "Group features")
         .unwrap();
+
     document.apply(grouping).unwrap();
 
     assert_eq!(order(&document), [ids[0], ids[3], ids[1], ids[2]]);
@@ -76,19 +81,24 @@ fn grouping_features_apart_brings_them_together_under_the_first() {
 #[test]
 fn moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it() {
     let (mut document, ids) = sketches(4);
+
     let grouping = document
         .grouping(&ids[0..2], "Base", "Group features")
         .unwrap();
+
     document.apply(grouping).unwrap();
 
     let joining = document
         .move_row(TreeRow::Feature(ids[3]), 1, "Move")
         .unwrap();
+
     document.apply(joining).unwrap();
+
     let joined = groups(&document);
     let leaving = document
         .move_row(TreeRow::Feature(ids[0]), 4, "Move")
         .unwrap();
+
     document.apply(leaving).unwrap();
 
     assert_eq!(
@@ -105,20 +115,26 @@ fn moving_into_the_middle_of_a_group_joins_it_and_moving_out_leaves_it() {
 #[test]
 fn a_feature_created_at_a_rollback_bar_inside_a_group_joins_it() {
     let (mut document, ids) = sketches(3);
+
     let grouping = document
         .grouping(&ids[0..2], "Group 1", "Group features")
         .unwrap();
+
     document.apply(grouping).unwrap();
+
     let rollback = Transaction::single(
         "Roll back",
         Edit::SetRollbackBar {
             bar: RollbackBar::Before(ids[1]),
         },
     );
+
     document.apply(rollback).unwrap();
 
     let mut transaction = document.transaction("Add");
+
     let added = transaction.add_feature("Sketch 4", FeatureKind::from(Sketch::new(Plane::XY)));
+
     document.apply(transaction.finish()).unwrap();
 
     assert_eq!(order(&document), [ids[0], added, ids[1], ids[2]]);
@@ -134,9 +150,13 @@ fn a_feature_created_at_a_rollback_bar_inside_a_group_joins_it() {
             bar: RollbackBar::Before(ids[2]),
         },
     );
+
     document.apply(at_the_end).unwrap();
+
     let mut transaction = document.transaction("Add");
+
     let after = transaction.add_feature("Sketch 5", FeatureKind::from(Sketch::new(Plane::XY)));
+
     document.apply(transaction.finish()).unwrap();
 
     assert_eq!(document.group_of(after), None);
@@ -156,8 +176,11 @@ fn a_group_name_is_one_trimmed_line_and_a_long_one_is_refused() {
     };
 
     document.apply(set("  Mounting\nholes  ")).unwrap();
+
     let trimmed = groups(&document);
+
     document.apply(set("   ")).unwrap();
+
     let blank = groups(&document);
     let refused = document.apply(set(&"x".repeat(MAX_GROUP_NAME_CHARS + 1)));
 
@@ -173,18 +196,24 @@ fn a_group_name_is_one_trimmed_line_and_a_long_one_is_refused() {
 fn renaming_or_ungrouping_a_run_changes_only_its_members_and_counts_as_content() {
     let (mut document, ids) = sketches(3);
     let before = document.clone();
+
     let grouping = document.grouping(&ids[0..2], "A", "Group").unwrap();
+
     document.apply(grouping).unwrap();
+
     let grouped = document.clone();
 
     let renaming = document
         .regrouping(&document.group_run(ids[0]), Some("B".to_owned()), "Rename")
         .unwrap();
+
     document.apply(renaming).unwrap();
+
     let renamed = groups(&document);
     let ungrouping = document
         .regrouping(&document.group_run(ids[1]), None, "Ungroup")
         .unwrap();
+
     document.apply(ungrouping).unwrap();
 
     assert!(!grouped.same_content(&before));

@@ -15,7 +15,7 @@ use crate::{
 
 const FACING_SLACK: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LookError {
     #[error("Select one face, plane, sketch or straight edge to look straight at it")]
     Nothing,
@@ -34,7 +34,7 @@ impl Reason for LookError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LookTarget {
     Normal(Vector3),
     Plane(Plane),
@@ -53,9 +53,11 @@ impl LookTarget {
 
     pub fn viewpoint(self, current: &Viewpoint, target: Point3) -> Viewpoint {
         let toward_eye = self.toward_eye(current);
+
         if faces(current, toward_eye) {
             return quarter_turned(current, toward_eye, target);
         }
+
         let fresh = match self {
             Self::Plane(plane) => Some(Viewpoint::facing(&plane, target, current.distance)),
             Self::Normal(_) | Self::Axis(_) => {
@@ -97,6 +99,7 @@ fn candidate(pickable: Pickable) -> Candidate {
 pub fn look_target(model: &Model, selection: &Selection) -> Result<LookTarget, LookError> {
     let mut sketch = None;
     let mut other = None;
+
     for pickable in selection.iter() {
         match candidate(pickable) {
             Candidate::Sketch(feature) => match sketch {
@@ -125,6 +128,7 @@ fn target_of(model: &Model, pickable: Pickable) -> Result<LookTarget, LookError>
     {
         return Ok(LookTarget::Normal(normal));
     }
+
     let direction = measure::direction_of(model, pickable)
         .filter(|direction| direction.length_squared() > 0.0)
         .ok_or(LookError::NoDirection)?;

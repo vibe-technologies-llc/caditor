@@ -27,9 +27,11 @@ fn drilled(
     reversed: bool,
 ) -> FeatureId {
     let mut sketch = Sketch::new(top());
+
     for (x, y) in points {
         sketch.add_point(Point2::new(*x, *y));
     }
+
     let hole = Hole {
         sketch: FeatureId::from_raw(0),
         body: pair.plate,
@@ -44,8 +46,10 @@ fn drilled(
         thread: TappedThread::default(),
     };
     let mut transaction = pair.document.transaction("Drill");
+
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
     let feature = transaction.add_feature("Hole 1", FeatureKind::Hole(Hole { sketch, ..hole }));
+
     pair.document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -70,14 +74,18 @@ fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
 #[test]
 fn a_plain_blind_hole_removes_a_cylinder_of_its_diameter_and_depth() {
     let mut pair = pair();
+
     plain(&mut pair, &[(5.0, 5.0)], "2 mm");
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let removed = PI * 2.0 * 2.0 * 2.0;
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
@@ -85,10 +93,13 @@ fn a_plain_blind_hole_removes_a_cylinder_of_its_diameter_and_depth() {
 fn each_point_of_the_sketch_gets_a_hole_and_curve_ends_do_not() {
     let mut pair = pair();
     let mut sketch = Sketch::new(top());
+
     sketch.add_point(Point2::new(4.0, 5.0));
     sketch.add_point(Point2::new(10.0, 5.0));
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(3.0, 3.0));
+
     let mut transaction = pair.document.transaction("Drill");
+
     let sketch_id = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
     let hole = transaction.add_feature(
         "Hole 1",
@@ -106,21 +117,26 @@ fn each_point_of_the_sketch_gets_a_hole_and_curve_ends_do_not() {
             thread: TappedThread::default(),
         }),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
     assert_eq!(evaluation.cuts(hole).len(), 2);
+
     let removed = 2.0 * PI * 1.0 * 4.0;
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
 #[test]
 fn a_through_hole_goes_all_the_way_and_a_reversed_one_drills_the_other_way() {
     let mut pair = pair();
+
     let hole = drilled(
         &mut pair,
         &[(5.0, 5.0)],
@@ -133,12 +149,14 @@ fn a_through_hole_goes_all_the_way_and_a_reversed_one_drills_the_other_way() {
     let through = evaluate(&pair.document, &mut engine);
 
     let removed = PI * 2.0 * 2.0 * 4.0;
+
     assert!((PLATE - volume(&through, pair.plate) - removed).abs() < 0.01 * removed);
 
     let kind = pair.document.feature(hole).unwrap().kind.clone();
     let FeatureKind::Hole(definition) = kind else {
         panic!("a hole");
     };
+
     pair.document
         .apply(Transaction::single(
             "Reverse",
@@ -155,6 +173,7 @@ fn a_through_hole_goes_all_the_way_and_a_reversed_one_drills_the_other_way() {
     let away = evaluate(&pair.document, &mut engine);
 
     let error = failure(&away, hole);
+
     assert!(
         error.reason().contains("nothing to go through"),
         "{}",
@@ -165,6 +184,7 @@ fn a_through_hole_goes_all_the_way_and_a_reversed_one_drills_the_other_way() {
 #[test]
 fn a_counterbore_and_a_countersink_cut_their_wider_part_too() {
     let mut pair = pair();
+
     let bore = drilled(
         &mut pair,
         &[(5.0, 5.0)],
@@ -180,8 +200,10 @@ fn a_counterbore_and_a_countersink_cut_their_wider_part_too() {
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let removed = PI * 9.0 * 1.0 + PI * 4.0 * 2.0;
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 
     let FeatureKind::Hole(definition) = pair.document.feature(bore).unwrap().kind.clone() else {
@@ -194,6 +216,7 @@ fn a_counterbore_and_a_countersink_cut_their_wider_part_too() {
         },
         ..definition
     };
+
     pair.document
         .apply(Transaction::single(
             "Countersink",
@@ -207,8 +230,10 @@ fn a_counterbore_and_a_countersink_cut_their_wider_part_too() {
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let removed = PI / 3.0 * 1.0 * (9.0 + 6.0 + 4.0) + PI * 4.0 * 2.0;
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
@@ -253,6 +278,7 @@ fn bad_sizes_fail_the_hole_alone_saying_which() {
         ),
     ] {
         let mut pair = pair();
+
         let hole = drilled(
             &mut pair,
             &[(5.0, 5.0)],
@@ -264,6 +290,7 @@ fn bad_sizes_fail_the_hole_alone_saying_which() {
         else {
             panic!("a hole");
         };
+
         definition.diameter = expression(&pair.document, diameter);
         pair.document
             .apply(Transaction::single(
@@ -274,11 +301,13 @@ fn bad_sizes_fail_the_hole_alone_saying_which() {
                 },
             ))
             .unwrap();
+
         let mut engine = Recompute::default();
 
         let evaluation = evaluate(&pair.document, &mut engine);
 
         let error = failure(&evaluation, hole);
+
         assert!(
             error.reason().contains(expected),
             "{}: {}",
@@ -326,10 +355,14 @@ impl HoleStyleCase {
 #[test]
 fn a_hole_that_misses_the_body_or_a_sketch_without_points_fails_in_words() {
     let mut pair = pair();
+
     let missing = plain(&mut pair, &[(50.0, 5.0)], "2 mm");
     let mut empty = Sketch::new(top());
+
     empty.add_line(Point2::new(0.0, 0.0), Point2::new(3.0, 3.0));
+
     let mut transaction = pair.document.transaction("Empty");
+
     let sketch = transaction.add_feature("Line sketch", FeatureKind::from(empty));
     let blank = transaction.add_feature(
         "Hole 2",
@@ -347,7 +380,9 @@ fn a_hole_that_misses_the_body_or_a_sketch_without_points_fails_in_words() {
             thread: TappedThread::default(),
         }),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -367,13 +402,18 @@ fn a_hole_that_misses_the_body_or_a_sketch_without_points_fails_in_words() {
 #[test]
 fn a_hole_follows_its_parameters_and_names_its_faces_after_the_part_of_the_hole() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Size");
+
     let size = transaction.add_parameter("bore", transaction.parse("4 mm").unwrap());
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let hole = plain(&mut pair, &[(5.0, 5.0)], "2 mm");
     let FeatureKind::Hole(definition) = pair.document.feature(hole).unwrap().kind.clone() else {
         panic!("a hole");
     };
+
     pair.document
         .apply(Transaction::single(
             "Link",
@@ -386,9 +426,12 @@ fn a_hole_follows_its_parameters_and_names_its_faces_after_the_part_of_the_hole(
             },
         ))
         .unwrap();
+
     let mut engine = Recompute::default();
+
     let first = evaluate(&pair.document, &mut engine);
     let expression = pair.document.parse("6 mm").unwrap();
+
     pair.document
         .apply(Transaction::single(
             "Edit",
@@ -402,12 +445,14 @@ fn a_hole_follows_its_parameters_and_names_its_faces_after_the_part_of_the_hole(
     let second = evaluate(&pair.document, &mut engine);
 
     assert!(volume(&second, pair.plate) < volume(&first, pair.plate));
+
     let described: Vec<String> = second
         .body(pair.plate)
         .unwrap()
         .faces()
         .map(|(_, face)| describe_origin(&pair.document, face.origin()))
         .collect();
+
     assert!(
         described.contains(&"Hole 1 wall".to_owned()),
         "{described:?}"
@@ -428,6 +473,7 @@ fn a_hole_follows_its_parameters_and_names_its_faces_after_the_part_of_the_hole(
 #[test]
 fn a_hole_modifies_its_body_and_depends_on_the_body_and_its_sketch() {
     let mut pair = pair();
+
     let hole = plain(&mut pair, &[(5.0, 5.0)], "2 mm");
     let feature = pair.document.feature(hole).unwrap();
     let sketch = *feature
@@ -447,8 +493,10 @@ fn a_hole_modifies_its_body_and_depends_on_the_body_and_its_sketch() {
 #[test]
 fn a_reference_to_the_wall_keeps_the_wall_when_the_style_changes() {
     let mut pair = pair();
+
     let hole = plain(&mut pair, &[(5.0, 5.0)], "3 mm");
     let mut engine = Recompute::default();
+
     let plain_body = evaluate(&pair.document, &mut engine)
         .body(pair.plate)
         .unwrap()
@@ -458,6 +506,7 @@ fn a_reference_to_the_wall_keeps_the_wall_when_the_style_changes() {
         .find(|(_, face)| describe_origin(&pair.document, face.origin()) == "Hole 1 wall")
         .map(|(id, _)| id)
         .unwrap();
+
     let reference = caditor_kernel::FaceReference::capture(&plain_body, wall).unwrap();
     let FeatureKind::Hole(definition) = pair.document.feature(hole).unwrap().kind.clone() else {
         panic!("a hole");
@@ -466,6 +515,7 @@ fn a_reference_to_the_wall_keeps_the_wall_when_the_style_changes() {
         diameter: expression(&pair.document, "7 mm"),
         depth: expression(&pair.document, "1 mm"),
     };
+
     pair.document
         .apply(Transaction::single(
             "Counterbore",
@@ -483,13 +533,17 @@ fn a_reference_to_the_wall_keeps_the_wall_when_the_style_changes() {
 
     let bored = evaluation.body(pair.plate).unwrap();
     let resolved = reference.resolve(bored).unwrap();
+
     let described = describe_origin(&pair.document, bored.face(resolved).unwrap().origin());
+
     assert_eq!(described, "Hole 1 wall");
+
     let parts: BTreeSet<String> = bored
         .faces()
         .map(|(_, face)| describe_origin(&pair.document, face.origin()))
         .filter(|name| name.starts_with("Hole 1"))
         .collect();
+
     assert_eq!(
         parts,
         [
@@ -507,9 +561,13 @@ fn a_reference_to_the_wall_keeps_the_wall_when_the_style_changes() {
 fn a_circle_drawn_where_a_hole_goes_drills_at_its_centre() {
     let mut pair = pair();
     let mut sketch = Sketch::new(top());
+
     sketch.add_circle(Point2::new(5.0, 5.0), 2.0);
+
     let construction = sketch.add_circle(Point2::new(12.0, 5.0), 2.0);
+
     sketch.set_construction(construction, true).unwrap();
+
     let centres = hole_centres(&sketch);
     let hole = Hole {
         sketch: FeatureId::from_raw(0),
@@ -525,9 +583,12 @@ fn a_circle_drawn_where_a_hole_goes_drills_at_its_centre() {
         thread: TappedThread::default(),
     };
     let mut transaction = pair.document.transaction("Drill");
+
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
+
     transaction.add_feature("Hole 1", FeatureKind::Hole(Hole { sketch, ..hole }));
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -535,8 +596,10 @@ fn a_circle_drawn_where_a_hole_goes_drills_at_its_centre() {
     assert_eq!(centres.len(), 1);
     assert_eq!(centres[0].1, Point2::new(5.0, 5.0));
     assert_eq!(evaluation.failed_count(), 0);
+
     let removed = PI * 4.0 * 2.0;
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
@@ -565,6 +628,7 @@ fn slotted(
         },
         ..definition
     };
+
     pair.document
         .apply(Transaction::single(
             "Slot",
@@ -584,48 +648,63 @@ fn stadium(length: f64, diameter: f64) -> f64 {
 #[test]
 fn a_slot_removes_a_stadium_of_its_length_and_diameter() {
     let mut pair = pair();
+
     slotted(&mut pair, (10.0, 5.0), HoleStyle::Plain, "6 mm", "0 deg");
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let removed = stadium(6.0, 4.0) * 2.0;
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
 #[test]
 fn a_counterbored_slot_steps_out_to_the_counterbore_at_its_mouth() {
     let mut pair = pair();
+
     let style = HoleStyle::Counterbore {
         diameter: expression(&pair.document, "6 mm"),
         depth: expression(&pair.document, "1 mm"),
     };
+
     slotted(&mut pair, (10.0, 5.0), style, "6 mm", "0 deg");
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let removed = stadium(6.0, 4.0) * 2.0 + (stadium(6.0, 6.0) - stadium(6.0, 4.0)) * 1.0;
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
 #[test]
 fn a_slot_turns_by_its_angle_in_the_sketch_plane() {
     let mut along = pair();
+
     slotted(&mut along, (2.5, 5.0), HoleStyle::Plain, "4 mm", "0 deg");
+
     let mut across = pair();
+
     slotted(&mut across, (2.5, 5.0), HoleStyle::Plain, "4 mm", "90 deg");
+
     let mut engine = Recompute::default();
 
     let clipped = PLATE - volume(&evaluate(&along.document, &mut engine), along.plate);
     let mut engine = Recompute::default();
+
     let whole = PLATE - volume(&evaluate(&across.document, &mut engine), across.plate);
 
     let full = stadium(4.0, 4.0) * 2.0;
+
     assert!((whole - full).abs() < 0.01 * full, "{whole}");
     assert!(clipped < whole - 0.5, "{clipped} {whole}");
 }
@@ -633,6 +712,7 @@ fn a_slot_turns_by_its_angle_in_the_sketch_plane() {
 #[test]
 fn a_countersunk_slot_is_refused_in_words() {
     let mut pair = pair();
+
     let style = HoleStyle::Countersink {
         diameter: expression(&pair.document, "6 mm"),
         angle: expression(&pair.document, "90 deg"),
@@ -675,10 +755,12 @@ fn metric_sizes_give_clearance_and_tap_drill_diameters_and_name_the_thread() {
         .as_deref(),
         Some("M8 × 1.25")
     );
+
     let fine = HoleStandard {
         size: MetricSize::M10,
         fit: HoleFit::TappedFine(FinePitch::First),
     };
+
     assert_eq!(fine.diameter(), 8.75);
     assert_eq!(fine.label(), "M10 × 1.25 tapped");
     assert_eq!(
@@ -730,10 +812,13 @@ fn circled(
     style: impl FnOnce(&Document) -> HoleStyle,
 ) -> FeatureId {
     let mut sketch = Sketch::new(top());
+
     sketch.add_circle(Point2::new(4.0, 5.0), 1.0);
     sketch.add_circle(Point2::new(10.0, 5.0), 2.5);
     sketch.add_point(Point2::new(16.0, 5.0));
+
     let mut transaction = pair.document.transaction("Drill");
+
     let sketch_id = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
     let hole = Hole {
         sketch: sketch_id,
@@ -749,6 +834,7 @@ fn circled(
         thread: TappedThread::default(),
     };
     let feature = transaction.add_feature("Hole 1", FeatureKind::Hole(hole));
+
     pair.document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -756,8 +842,11 @@ fn circled(
 #[test]
 fn holes_sized_by_circles_take_each_circle_s_diameter_and_points_the_typed_one() {
     let mut typed = pair();
+
     circled(&mut typed, HoleSizing::Typed, |_| HoleStyle::Plain);
+
     let mut by_circles = pair();
+
     circled(&mut by_circles, HoleSizing::Circles, |_| HoleStyle::Plain);
 
     let typed_evaluation = evaluate(&typed.document, &mut Recompute::default());
@@ -767,6 +856,7 @@ fn holes_sized_by_circles_take_each_circle_s_diameter_and_points_the_typed_one()
     let each_own = PI * (1.0 + 2.5 * 2.5 + 1.0) * 4.0;
     let typed_found = PLATE - volume(&typed_evaluation, typed.plate);
     let circled_found = PLATE - volume(&circled_evaluation, by_circles.plate);
+
     assert_eq!(circled_evaluation.failed_count(), 0);
     assert!(
         (typed_found - all_typed).abs() < 0.01 * all_typed,
@@ -781,8 +871,10 @@ fn holes_sized_by_circles_take_each_circle_s_diameter_and_points_the_typed_one()
 #[test]
 fn construction_circles_size_nothing() {
     let mut sketch = Sketch::new(top());
+
     let drawn = sketch.add_circle(Point2::new(10.0, 5.0), 2.0);
     let guide = sketch.add_circle(Point2::new(3.0, 3.0), 1.0);
+
     sketch.set_construction(guide, true).unwrap();
 
     let sizes = circle_sizes(&sketch);
@@ -799,6 +891,7 @@ fn construction_circles_size_nothing() {
 #[test]
 fn a_counterbore_narrower_than_a_circle_names_the_circle() {
     let mut pair = pair();
+
     let hole = circled(&mut pair, HoleSizing::Circles, |document| {
         HoleStyle::Counterbore {
             diameter: expression(document, "4.5 mm"),
@@ -910,8 +1003,10 @@ fn holes_scaled_by_circles_grow_their_counterbore_with_each_circle() {
         depth: expression(document, "1 mm"),
     };
     let mut kept = pair();
+
     let kept_hole = circled(&mut kept, HoleSizing::Circles, counterbore);
     let mut scaled = pair();
+
     circled(&mut scaled, HoleSizing::CirclesAndHeads, counterbore);
 
     let kept_evaluation = evaluate(&kept.document, &mut Recompute::default());
@@ -919,8 +1014,10 @@ fn holes_scaled_by_circles_grow_their_counterbore_with_each_circle() {
 
     let typed = PI * (1.0 * 3.0 + 1.5 * 1.5 * 1.0);
     let wide = PI * (2.5 * 2.5 * 1.5 + 3.75 * 3.75 * 2.5);
+
     let expected = 2.0 * typed + wide;
     let found = PLATE - volume(&scaled_evaluation, scaled.plate);
+
     assert_eq!(
         failure(&kept_evaluation, kept_hole).reason(),
         "The counterbore is not wider than Circle 3."
@@ -969,14 +1066,18 @@ fn hole_parts(evaluation: &Evaluation, pair: &Pair) -> BTreeSet<String> {
 #[test]
 fn a_stepped_hole_narrows_step_by_step_and_names_each_step() {
     let mut pair = pair();
+
     stepped(&mut pair, &[("8 mm", "0.5 mm"), ("6 mm", "1 mm")], "3 mm");
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let removed = PI * (16.0 * 0.5 + 9.0 * 1.0 + 4.0 * 1.5);
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
     assert_eq!(
         hole_parts(&evaluation, &pair),
@@ -996,6 +1097,7 @@ fn a_stepped_hole_narrows_step_by_step_and_names_each_step() {
 #[test]
 fn a_counterbore_turned_into_steps_keeps_its_top_step_and_wall() {
     let mut pair = pair();
+
     let hole = drilled(
         &mut pair,
         &[(5.0, 5.0)],
@@ -1007,6 +1109,7 @@ fn a_counterbore_turned_into_steps_keeps_its_top_step_and_wall() {
         false,
     );
     let mut engine = Recompute::default();
+
     let bored = evaluate(&pair.document, &mut engine)
         .body(pair.plate)
         .unwrap()
@@ -1028,6 +1131,7 @@ fn a_counterbore_turned_into_steps_keeps_its_top_step_and_wall() {
         panic!("a hole");
     };
     let style = steps(&pair.document, &[("8 mm", "0.5 mm"), ("6 mm", "1 mm")]);
+
     pair.document
         .apply(Transaction::single(
             "Steps",
@@ -1051,6 +1155,7 @@ fn a_counterbore_turned_into_steps_keeps_its_top_step_and_wall() {
             describe_origin(&pair.document, face.origin())
         })
         .collect();
+
     assert_eq!(
         found,
         [
@@ -1092,6 +1197,7 @@ fn steps_that_widen_reach_the_bottom_or_no_wider_than_the_hole_are_refused() {
     ];
     for (sizes, depth, reason) in cases {
         let mut pair = pair();
+
         let hole = stepped(&mut pair, &sizes, depth);
         let mut engine = Recompute::default();
 
@@ -1104,16 +1210,21 @@ fn steps_that_widen_reach_the_bottom_or_no_wider_than_the_hole_are_refused() {
 #[test]
 fn a_stepped_slot_steps_out_at_each_step() {
     let mut pair = pair();
+
     let style = steps(&pair.document, &[("8 mm", "0.5 mm"), ("6 mm", "0.5 mm")]);
+
     slotted(&mut pair, (10.0, 5.0), style, "6 mm", "0 deg");
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let removed =
         stadium(6.0, 8.0) * 0.5 + stadium(6.0, 6.0) * 0.5 + stadium(6.0, 4.0) * (2.0 - 1.0);
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
@@ -1126,8 +1237,11 @@ fn ending(pair: &mut Pair, feature: FeatureId, bottom: HoleBottom) {
         .hole()
         .unwrap()
         .clone();
+
     hole.bottom = bottom;
+
     let mut transaction = pair.document.transaction("Drill point");
+
     transaction.edit(Edit::SetFeatureKind {
         id: feature,
         kind: FeatureKind::Hole(hole),
@@ -1142,23 +1256,29 @@ fn drill_point(pair: &Pair, angle: &str) -> HoleBottom {
 #[test]
 fn a_drill_point_adds_its_cone_below_the_depth_counted_to_the_full_diameter() {
     let mut pair = pair();
+
     let hole = plain(&mut pair, &[(5.0, 5.0)], "2 mm");
     let bottom = drill_point(&pair, "118 deg");
+
     ending(&mut pair, hole, bottom);
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let cone = 2.0 / (59.0_f64).to_radians().tan();
     let removed = PI * 2.0 * 2.0 * 2.0 + PI * 2.0 * 2.0 * cone / 3.0;
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
 #[test]
 fn a_drill_point_on_a_through_hole_changes_nothing() {
     let mut pair = pair();
+
     let hole = drilled(
         &mut pair,
         &[(5.0, 5.0)],
@@ -1167,8 +1287,10 @@ fn a_drill_point_on_a_through_hole_changes_nothing() {
         false,
     );
     let mut engine = Recompute::default();
+
     let flat = volume(&evaluate(&pair.document, &mut engine), pair.plate);
     let bottom = drill_point(&pair, "118 deg");
+
     ending(&mut pair, hole, bottom);
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -1180,13 +1302,17 @@ fn a_drill_point_on_a_through_hole_changes_nothing() {
 #[test]
 fn a_drill_point_angle_outside_its_range_or_on_a_slot_fails_the_hole_in_words() {
     let mut pair = pair();
+
     let hole = plain(&mut pair, &[(5.0, 5.0)], "2 mm");
     let mut engine = Recompute::default();
 
     for angle in ["0 deg", "180 deg", "5 mm"] {
         let bottom = drill_point(&pair, angle);
+
         ending(&mut pair, hole, bottom);
+
         let error = failure(&evaluate(&pair.document, &mut engine), hole);
+
         assert!(
             error.reason().contains("drill point angle"),
             "{angle}: {}",
@@ -1195,7 +1321,9 @@ fn a_drill_point_angle_outside_its_range_or_on_a_slot_fails_the_hole_in_words() 
     }
 
     let bottom = drill_point(&pair, "118 deg");
+
     ending(&mut pair, hole, bottom);
+
     let mut slotted = pair
         .document
         .feature(hole)
@@ -1204,11 +1332,14 @@ fn a_drill_point_angle_outside_its_range_or_on_a_slot_fails_the_hole_in_words() 
         .hole()
         .unwrap()
         .clone();
+
     slotted.shape = HoleShape::Slot {
         length: expression(&pair.document, "6 mm"),
         angle: expression(&pair.document, "0 deg"),
     };
+
     let mut transaction = pair.document.transaction("Slot");
+
     transaction.edit(Edit::SetFeatureKind {
         id: hole,
         kind: FeatureKind::Hole(slotted),
@@ -1216,6 +1347,7 @@ fn a_drill_point_angle_outside_its_range_or_on_a_slot_fails_the_hole_in_words() 
     pair.document.apply(transaction.finish()).unwrap();
 
     let error = failure(&evaluate(&pair.document, &mut engine), hole);
+
     assert!(
         error.reason().contains("slot ends flat"),
         "{}",
@@ -1225,6 +1357,7 @@ fn a_drill_point_angle_outside_its_range_or_on_a_slot_fails_the_hole_in_words() 
 
 fn level(pair: &mut Pair, height: &str) -> FeatureId {
     let mut transaction = pair.document.transaction("Level");
+
     let offset = transaction.parse(height).unwrap();
     let level = transaction.add_feature(
         "Level",
@@ -1234,6 +1367,7 @@ fn level(pair: &mut Pair, height: &str) -> FeatureId {
             offset,
         })),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
     level
 }
@@ -1253,6 +1387,7 @@ fn removed_by(depth: f64) -> f64 {
 #[test]
 fn a_hole_drilled_up_to_a_plane_ends_on_it_short_of_it_or_past_it_by_its_offset() {
     let mut pair = pair();
+
     let floor = level(&mut pair, "1 mm");
     let hole = up_to(
         &mut pair,
@@ -1264,6 +1399,7 @@ fn a_hole_drilled_up_to_a_plane_ends_on_it_short_of_it_or_past_it_by_its_offset(
     let on_it = evaluate(&pair.document, &mut engine);
     let on_it_volume = volume(&on_it, pair.plate);
     let mut offsets = Vec::new();
+
     for offset in ["-1 mm", "0.5 mm"] {
         let kind = FeatureKind::Hole(Hole {
             depth: HoleDepth::up_to_face(PlaneReference::Datum(floor))
@@ -1277,14 +1413,18 @@ fn a_hole_drilled_up_to_a_plane_ends_on_it_short_of_it_or_past_it_by_its_offset(
                 .unwrap()
                 .clone()
         });
+
         pair.document
             .apply(Transaction::single(
                 "Offset",
                 Edit::SetFeatureKind { id: hole, kind },
             ))
             .unwrap();
+
         let evaluation = evaluate(&pair.document, &mut engine);
+
         assert_eq!(evaluation.failed_count(), 0);
+
         offsets.push(volume(&evaluation, pair.plate));
     }
 
@@ -1292,7 +1432,9 @@ fn a_hole_drilled_up_to_a_plane_ends_on_it_short_of_it_or_past_it_by_its_offset(
     assert!((PLATE - on_it_volume - removed_by(3.0)).abs() < 0.01 * removed_by(3.0));
     assert!((PLATE - offsets[0] - removed_by(2.0)).abs() < 0.01 * removed_by(2.0));
     assert!((PLATE - offsets[1] - removed_by(3.5)).abs() < 0.01 * removed_by(3.5));
+
     let kind = &pair.document.feature(hole).unwrap().kind;
+
     assert!(kind.planes_used().contains(&floor));
     assert!(kind.parameters().is_empty());
 }
@@ -1300,6 +1442,7 @@ fn a_hole_drilled_up_to_a_plane_ends_on_it_short_of_it_or_past_it_by_its_offset(
 #[test]
 fn a_hole_drilled_up_to_the_next_face_stops_where_it_leaves_the_body() {
     let mut pair = pair();
+
     let hole = up_to(
         &mut pair,
         HoleDepth::up_to_next().with_offset(Some(Expression::Measure(
@@ -1318,6 +1461,7 @@ fn a_hole_drilled_up_to_the_next_face_stops_where_it_leaves_the_body() {
         "{:?}",
         evaluation.feature(hole)
     );
+
     let found = volume(&evaluation, pair.plate);
     let reached = evaluation
         .feature(hole)
@@ -1325,6 +1469,7 @@ fn a_hole_drilled_up_to_the_next_face_stops_where_it_leaves_the_body() {
         .and_then(|result| result.solid())
         .map(|solid| solid.reached().to_vec())
         .unwrap();
+
     assert!(
         (PLATE - found - removed_by(3.0)).abs() < 0.01 * removed_by(3.0),
         "{found}"
@@ -1337,6 +1482,7 @@ fn a_hole_drilled_up_to_the_next_face_stops_where_it_leaves_the_body() {
 #[test]
 fn a_hole_up_to_a_plane_behind_it_or_shallower_than_its_counterbore_fails_in_words() {
     let mut behind_pair = pair();
+
     let above = level(&mut behind_pair, "6 mm");
     let behind = up_to(
         &mut behind_pair,
@@ -1344,6 +1490,7 @@ fn a_hole_up_to_a_plane_behind_it_or_shallower_than_its_counterbore_fails_in_wor
         |_| HoleStyle::Plain,
     );
     let mut shallow_pair = pair();
+
     let floor = level(&mut shallow_pair, "3 mm");
     let shallow = up_to(
         &mut shallow_pair,
@@ -1386,11 +1533,14 @@ fn circle_over_a_square(height: f64) -> (Document, FeatureId) {
         Point2::new(10.0, 10.0),
         Point2::new(0.0, 10.0),
     ];
+
     outline.add_circle(Point2::ZERO, 10.0);
     for index in 0..4 {
         outline.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let mut transaction = document.transaction("Build");
+
     let sketch = transaction.add_feature("Outline", FeatureKind::from(outline));
     let body = transaction.add_feature(
         "Extrude 1",
@@ -1409,6 +1559,7 @@ fn circle_over_a_square(height: f64) -> (Document, FeatureId) {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, body)
 }
@@ -1416,6 +1567,7 @@ fn circle_over_a_square(height: f64) -> (Document, FeatureId) {
 fn drilled_down_the_round_axis(height: f64, depth: &str) -> (Evaluation, FeatureId) {
     let (mut document, body) = circle_over_a_square(height);
     let built = evaluate(&document, &mut Recompute::default());
+
     let solid = built.body(body).unwrap().clone();
     let (face, plane) = solid
         .faces()
@@ -1426,7 +1578,9 @@ fn drilled_down_the_round_axis(height: f64, depth: &str) -> (Evaluation, Feature
         })
         .unwrap();
     let mut sketch = Sketch::new(plane);
+
     sketch.add_point(plane.to_local(Point3::new(0.0, 0.0, height)));
+
     let attachment = FaceAttachment {
         body,
         face: caditor_kernel::FaceReference::capture(&solid, face).unwrap(),
@@ -1446,10 +1600,12 @@ fn drilled_down_the_round_axis(height: f64, depth: &str) -> (Evaluation, Feature
     };
 
     let mut transaction = document.transaction("Drill");
+
     let sketch = transaction.add_feature(
         "Sketch 2",
         FeatureKind::Sketch(SketchFeature::on_face(sketch, attachment)),
     );
+
     transaction.add_feature("Hole 1", FeatureKind::Hole(Hole { sketch, ..hole }));
     document.apply(transaction.finish()).unwrap();
     (evaluate(&document, &mut Recompute::default()), body)
@@ -1466,8 +1622,10 @@ fn a_hole_reaching_the_body_counts_even_when_the_cut_merges_faces_of_the_body() 
         let (evaluation, body) = drilled_down_the_round_axis(height, depth);
 
         assert_eq!(evaluation.failed_count(), 0, "{height} {depth}");
+
         let whole = PI * 10.0 * 10.0 / 2.0 + 10.0 * 20.0;
         let removed = whole * height - volume(&evaluation, body);
+
         assert!(removed > 0.0, "{height} {depth}: {removed}");
     }
 }
@@ -1476,9 +1634,11 @@ fn a_hole_reaching_the_body_counts_even_when_the_cut_merges_faces_of_the_body() 
 fn a_circular_pattern_of_points_drills_every_copy_and_leaves_its_centre() {
     let mut pair = pair();
     let mut sketch = Sketch::new(top());
+
     let centre = sketch.add_point(Point2::new(10.0, 5.0));
     let bolt = sketch.add_point(Point2::new(13.0, 5.0));
     let guide = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(19.0, 1.0));
+
     sketch.set_construction(guide, true).unwrap();
     sketch
         .circular_pattern(
@@ -1490,8 +1650,10 @@ fn a_circular_pattern_of_points_drills_every_copy_and_leaves_its_centre() {
             },
         )
         .unwrap();
+
     let centres = hole_centres(&sketch);
     let mut transaction = pair.document.transaction("Drill");
+
     let sketch_id = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
     let hole = transaction.add_feature(
         "Hole 1",
@@ -1509,7 +1671,9 @@ fn a_circular_pattern_of_points_drills_every_copy_and_leaves_its_centre() {
             thread: TappedThread::default(),
         }),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -1522,17 +1686,22 @@ fn a_circular_pattern_of_points_drills_every_copy_and_leaves_its_centre() {
     );
     assert_eq!(evaluation.failed_count(), 0);
     assert_eq!(evaluation.cuts(hole).len(), 4);
+
     let removed = 4.0 * PI * 0.5 * 0.5 * 4.0;
     let found = volume(&evaluation, pair.plate);
+
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
 pub(crate) fn block_with_touching_bores(document: &mut Document) -> FeatureId {
     let mut outline = crate::combine_tests::rectangle((-10.0, -30.0), (0.0, -20.0));
+
     outline.add_circle(Point2::new(-5.0, -27.0), 2.0);
     outline.add_circle(Point2::new(-5.0, -23.0), 2.0);
+
     let height = expression(document, "16 mm");
     let mut transaction = document.transaction("Block");
+
     let sketch = transaction.add_feature("Outline", FeatureKind::from(outline));
     let block = transaction.add_feature(
         "Block",
@@ -1548,6 +1717,7 @@ pub(crate) fn block_with_touching_bores(document: &mut Document) -> FeatureId {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     block
 }
@@ -1555,14 +1725,18 @@ pub(crate) fn block_with_touching_bores(document: &mut Document) -> FeatureId {
 #[test]
 fn a_hole_beside_two_bores_that_touch_cuts_the_block() {
     let mut document = Document::default();
+
     let block = block_with_touching_bores(&mut document);
     let mut engine = Recompute::default();
+
     let bores = volume(&evaluate(&document, &mut engine), block);
     let mut sketch = Sketch::new(
         Plane::from_frame(Point3::new(0.0, 0.0, 16.0), Vector3::Z, Vector3::X).unwrap(),
     );
+
     sketch.add_point(Point2::new(-2.0, -25.0));
     sketch.add_point(Point2::new(-8.0, -21.0));
+
     let hole = Hole {
         sketch: FeatureId::from_raw(0),
         body: block,
@@ -1577,8 +1751,10 @@ fn a_hole_beside_two_bores_that_touch_cuts_the_block() {
         thread: TappedThread::default(),
     };
     let mut transaction = document.transaction("Drill");
+
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
     let hole = transaction.add_feature("Hole 1", FeatureKind::Hole(Hole { sketch, ..hole }));
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document, &mut engine);
@@ -1593,17 +1769,23 @@ fn a_hole_beside_two_bores_that_touch_cuts_the_block() {
         (bores - (1600.0 - 2.0 * PI * 4.0 * 16.0)).abs() < 1.0,
         "{bores}"
     );
+
     let removed = 2.0 * PI * 0.25 * 5.0;
     let found = volume(&evaluation, block);
+
     assert!((bores - found - removed).abs() < 0.01 * removed, "{found}");
 }
 
 fn channelled(pair: &mut Pair, radius: f64) {
     let across = Plane::from_frame(Point3::new(-1.0, 0.0, 0.0), Vector3::X, Vector3::Y).unwrap();
     let mut sketch = Sketch::new(across);
+
     sketch.add_circle(Point2::new(5.0, 0.0), radius);
+
     let mut transaction = pair.document.transaction("Channel");
+
     let outline = transaction.add_feature("Channel sketch", FeatureKind::from(sketch));
+
     transaction.add_feature(
         "Channel",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -1636,9 +1818,12 @@ fn drilled_to_the_channel(radius: f64) -> f64 {
 #[test]
 fn a_hole_up_to_a_curved_next_face_breaks_through_it() {
     let mut pair = pair();
+
     channelled(&mut pair, 3.0);
+
     let hole = up_to(&mut pair, HoleDepth::up_to_next(), |_| HoleStyle::Plain);
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(
@@ -1647,21 +1832,27 @@ fn a_hole_up_to_a_curved_next_face_breaks_through_it() {
         "{:?}",
         evaluation.feature(hole)
     );
+
     let channel = PLATE - PI * 9.0 / 2.0 * 20.0;
     let found = volume(&evaluation, pair.plate);
     let removed = drilled_to_the_channel(3.0);
+
     assert!(
         (channel - found - removed).abs() < 2e-2 * removed,
         "{found}"
     );
+
     evaluation.body(pair.plate).unwrap().validate().unwrap();
+
     assert_eq!(evaluation.cuts(hole).len(), 1);
 }
 
 #[test]
 fn a_hole_up_to_several_next_faces_stops_where_it_leaves_the_body() {
     let mut pair = pair();
+
     channelled(&mut pair, 1.5);
+
     let hole = up_to(&mut pair, HoleDepth::up_to_next(), |_| HoleStyle::Plain);
     let mut engine = Recompute::default();
 
@@ -1673,13 +1864,16 @@ fn a_hole_up_to_several_next_faces_stops_where_it_leaves_the_body() {
         "{:?}",
         evaluation.feature(hole)
     );
+
     let channel = PLATE - PI * 1.5 * 1.5 / 2.0 * 20.0;
     let found = volume(&evaluation, pair.plate);
     let removed = removed_by(4.0) - drilled_under_the_channel(1.5);
+
     assert!(
         (channel - found - removed).abs() < 2e-2 * removed,
         "{found}"
     );
+
     evaluation.body(pair.plate).unwrap().validate().unwrap();
 }
 
@@ -1705,7 +1899,9 @@ fn offset_hole_in_the_channel(offset: &str) -> (Pair, FeatureId, Evaluation) {
 
 fn offset_hole_in_a_channel(radius: f64, offset: &str) -> (Pair, FeatureId, Evaluation) {
     let mut pair = pair();
+
     channelled(&mut pair, radius);
+
     let offset = expression(&pair.document, offset);
     let hole = up_to(
         &mut pair,
@@ -1734,11 +1930,14 @@ fn a_hole_up_to_a_curved_next_face_stops_short_of_it_or_past_it_by_its_offset() 
             evaluation.feature(hole)
         );
     }
+
     let channel = PLATE - PI * 6.25 / 2.0 * 20.0;
     let removed = |evaluation: &Evaluation| channel - volume(evaluation, pair.plate);
     let circle = PI * 4.0;
+
     assert!((removed(&plain) - removed(&short) - circle).abs() < 0.3);
     assert!((removed(&plain) - removed(&past)).abs() < 0.3);
+
     short.body(pair.plate).unwrap().validate().unwrap();
 }
 
@@ -1773,6 +1972,7 @@ fn a_hole_up_to_a_channel_just_under_the_top_moves_its_end_within_the_skin_left(
         "Ending the hole at Point 0 0.2 mm past the faces of Plate reaches farther than the \
          hole is long in places."
     );
+
     evaluation.body(pair.plate).unwrap().validate().unwrap();
 }
 

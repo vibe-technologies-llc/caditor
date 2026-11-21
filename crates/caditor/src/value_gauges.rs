@@ -55,7 +55,7 @@ pub const PLANE_OFFSET: &str = "Offset";
 pub const PLANE_ANGLE: &str = "Angle";
 pub const SHELL_THICKNESS: &str = "Thickness";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Amount {
     Length,
     Angle,
@@ -95,7 +95,7 @@ impl Amount {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Measured {
     HoleDepth,
     HoleDiameter,
@@ -446,11 +446,13 @@ impl Measured {
             Self::BlendAngle => blend_panel::CHAMFER_ANGLE,
             Self::PrimitiveSize(index) => {
                 let (what, _) = kind.primitive()?.shape.sizes().into_iter().nth(index)?;
+
                 return Some(capitalized(what));
             }
             Self::PrismSides => return Self::PrimitiveSize(0).caption(kind),
             Self::PatternSpacing(index) => {
                 let mut probe = kind.clone();
+
                 let direction = direction_mut(&mut probe, index)?;
                 let captions = pattern_panel::direction_captions(index);
                 match direction.measured {
@@ -929,19 +931,23 @@ impl Measured {
 
     pub fn reversed(self, kind: &FeatureKind) -> Option<FeatureKind> {
         let mut reversed = kind.clone();
+
         match self {
             Self::HoleDepth => {
                 let FeatureKind::Hole(hole) = &mut reversed else {
                     return None;
                 };
+
                 hole.reversed = !hole.reversed;
             }
             Self::PatternSpacing(index) => {
                 let direction = direction_mut(&mut reversed, index)?;
+
                 direction.reversed = !direction.reversed;
             }
             Self::CircularAngle => {
                 let circular = circular_mut(&mut reversed)?;
+
                 circular.reversed = !circular.reversed;
             }
             Self::CoilPitch | Self::CoilHeight => match &mut reversed {
@@ -954,6 +960,7 @@ impl Measured {
                     return None;
                 };
                 let grows_one_way = primitive.anchor != PrimitiveAnchor::Centre;
+
                 (grows_one_way && height_index(&primitive.shape) == Some(index)).then_some(())?;
                 primitive.reversed = !primitive.reversed;
             }
@@ -961,6 +968,7 @@ impl Measured {
                 let FeatureKind::Rib(rib) = &mut reversed else {
                     return None;
                 };
+
                 rib.side = match rib.side {
                     RibSide::OneSide => RibSide::OtherSide,
                     RibSide::OtherSide => RibSide::OneSide,
@@ -971,6 +979,7 @@ impl Measured {
                 let FeatureKind::Shell(shell) = &mut reversed else {
                     return None;
                 };
+
                 shell.side = match shell.side {
                     ShellSide::Inside => ShellSide::Outside,
                     ShellSide::Outside => ShellSide::Inside,
@@ -979,6 +988,7 @@ impl Measured {
             }
             Self::WallThickness => {
                 let wall = wall_mut(&mut reversed)?;
+
                 wall.side = match wall.side {
                     WallSide::Inside => WallSide::Outside,
                     WallSide::Outside => WallSide::Inside,
@@ -1043,7 +1053,7 @@ fn height_index(shape: &PrimitiveShape) -> Option<usize> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Track {
     Line { base: Point3, direction: Vector3 },
     Turn(Swing),
@@ -1068,7 +1078,7 @@ impl Track {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mapping {
     Linear { scale: f64, offset: f64 },
     Tangent { arm: f64 },
@@ -1101,7 +1111,7 @@ impl Mapping {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Gauge {
     pub measured: Measured,
     pub track: Track,
@@ -1148,6 +1158,7 @@ impl Builder<'_> {
             FeatureKind::Blend(blend) => self.blend(blend),
             FeatureKind::Shell(shell) => {
                 let mut gauges: Vec<Gauge> = self.shell(shell).into_iter().collect();
+
                 gauges.extend(self.shell_faces(shell));
                 gauges
             }
@@ -1158,6 +1169,7 @@ impl Builder<'_> {
                     .as_deref()
                     .and_then(|wall| self.wall(extrude.sketch, extrude.start.as_ref(), wall));
                 let mut gauges: Vec<Gauge> = wall.into_iter().collect();
+
                 gauges.extend(self.taper(extrude));
                 gauges.extend(self.end_offsets(extrude));
                 gauges
@@ -1194,6 +1206,7 @@ impl Builder<'_> {
         let sketch = document.feature(hole.sketch)?;
         let displayed = self.model.displayed_sketch(sketch)?;
         let (point, centre) = hole_centres(&displayed).into_iter().next()?;
+
         let circle = hole
             .sizing
             .by_circles()
@@ -1230,6 +1243,7 @@ impl Builder<'_> {
             .into_iter()
             .flatten()
             .collect();
+
         gauges.extend(self.hole_style(hole, &top));
         gauges.extend(self.hole_slot(hole, &top));
         gauges.extend(self.hole_thread_depth(hole, &top));
@@ -1329,6 +1343,7 @@ impl Builder<'_> {
                     wide,
                 );
                 let run = (wide * heads - width) / 2.0;
+
                 let flare = (run > SMALLEST_RADIUS).then(|| Gauge {
                     measured: Measured::CountersinkAngle,
                     track: Track::Line {
@@ -1351,12 +1366,14 @@ impl Builder<'_> {
         let (wall_base, wall) = top.wall(hole, self);
         let mut gauges = Vec::new();
         let mut above = 0.0;
+
         for (index, step) in steps.iter().enumerate() {
             let (Some(wide), Some(deep)) = (self.length(&step.diameter), self.length(&step.depth))
             else {
                 break;
             };
             let level = top.down * above;
+
             gauges.push(Gauge::line(
                 Measured::StepDiameter(index),
                 (rim_base + level, rim),
@@ -1383,6 +1400,7 @@ impl Builder<'_> {
         else {
             return Vec::new();
         };
+
         let tip = Gauge {
             measured: Measured::SlotLength,
             track: Track::Line {
@@ -1414,6 +1432,7 @@ impl Builder<'_> {
 
     fn hole_thread_depth(&self, hole: &Hole, top: &HoleTop) -> Option<Gauge> {
         hole_thread(hole)?;
+
         let depth = hole.thread.depth.as_ref()?;
         let value = self.length(depth)?;
         let width = top.bore?;
@@ -1443,7 +1462,9 @@ impl Builder<'_> {
             .as_deref()
             .map_or(Some(0.0), |offset| self.length(offset))?;
         let facing = face.normal().dot(top.down).abs();
+
         (facing > OFF_THE_LINE).then_some(())?;
+
         let reached = -face.signed_distance(top.top) / face.normal().dot(top.down);
         Some(Gauge::line(
             Measured::HoleEndOffset,
@@ -1458,6 +1479,7 @@ impl Builder<'_> {
         let before = self.model.evaluation().body_before(self.feature)?;
         let solid = &before.solid()?.solid;
         let face = offset.faces.first()?.resolve(solid).ok()?;
+
         let plane = face_plane(solid, face)?;
         let middle = hole_tools::middle_of(solid, face, &plane)?;
         Some(Gauge::line(
@@ -1473,6 +1495,7 @@ impl Builder<'_> {
             let solid = &handle_snap::before(self.model, self.feature)?.solid;
             let faces = moving.resolve(solid).ok()?;
             let first = *faces.first()?;
+
             let (middle, _) = face_stand(solid, first)?;
             let (rim, _) = rim_stand(solid, first)?;
             Some((solid, faces, middle, rim))
@@ -1480,6 +1503,7 @@ impl Builder<'_> {
         let Some((solid, faces, middle, rim)) = stand() else {
             return Vec::new();
         };
+
         let distance = self.move_distance(moving, solid, &faces, middle);
         let angle = self.move_angle(moving, rim);
         distance.into_iter().chain(angle).collect()
@@ -1511,6 +1535,7 @@ impl Builder<'_> {
         let value = self.angle(&moving.angle)?;
         let axis = displayed_axis(self.shown_evaluation(), self.feature, moving.axis.as_ref()?)?;
         let along = axis.direction().try_normalize()?;
+
         let foot = axis.origin() + along * (at - axis.origin()).dot(along);
         let swing = self.swing_to(foot, at - foot, along, along.any_orthonormal_vector())?;
         Some(Gauge {
@@ -1546,6 +1571,7 @@ impl Builder<'_> {
         let value = self.angle(&draft.angle)?;
         let solid = &handle_snap::before(self.model, self.feature)?.solid;
         let faces = draft.resolve(solid).ok()?;
+
         let (face, plane) = faces
             .iter()
             .find_map(|face| Some((*face, face_plane(solid, *face)?)))
@@ -1557,14 +1583,18 @@ impl Builder<'_> {
             neutral.normal()
         };
         let normal = plane.normal();
+
         let hinge = normal.cross(pull).try_normalize()?;
         let across = hinge.cross(normal);
         let toward = pull.dot(neutral.origin() - plane.origin()) / pull.dot(across);
+
         let on_hinge = plane.origin() + across * toward;
         let (at, _) = face_stand(solid, face)?;
+
         let foot = on_hinge + hinge * (at - on_hinge).dot(hinge);
         let swing = self.swing_to(foot, at - foot, hinge, across)?;
         let (sin, cos) = normal.dot(pull).clamp(-1.0, 1.0).asin().sin_cos();
+
         let radial = swing.radial * cos - hinge.cross(swing.radial) * sin;
         Some(Gauge {
             measured: Measured::DraftAngle,
@@ -1587,9 +1617,11 @@ impl Builder<'_> {
         let evaluation = self.model.evaluation();
         let solid = &evaluation.body_before(self.feature)?.solid()?.solid;
         let faces = emboss.resolve(solid).ok()?;
+
         let (sketch, regions) = selection::swept_regions(document, evaluation, self.feature)?;
         let sketch_plane = scene::sketch_plane(document, evaluation, sketch)?;
         let chosen = scene::chosen_regions(&emboss.regions, regions);
+
         let chosen: Vec<&SketchRegion> = regions
             .iter()
             .filter(|region| chosen.contains(&region.region.key()))
@@ -1597,6 +1629,7 @@ impl Builder<'_> {
         let inside = chosen
             .iter()
             .find_map(|region| region.reference().anchor())?;
+
         let (on_face, normal) = match faces
             .iter()
             .map(|face| face_plane(solid, *face))
@@ -1613,6 +1646,7 @@ impl Builder<'_> {
                 let face = solid.face(*faces.first()?)?;
                 let outlines: Vec<Region> =
                     chosen.iter().map(|region| region.region.clone()).collect();
+
                 let (stand, outward) =
                     wrapped_stand(&sketch_plane, &outlines, face.surface(), inside).ok()?;
                 (stand, outward * face.sense().sign())
@@ -1667,6 +1701,7 @@ impl Builder<'_> {
             &shown,
         )
         .unwrap_or_else(|| shown.origin());
+
         let base = middle - shown.normal() * value;
         Some(Gauge::line(
             Measured::PlaneOffset,
@@ -1682,12 +1717,16 @@ impl Builder<'_> {
         let shown = self.shown_plane()?;
         let axis = displayed_axis(self.shown_evaluation(), self.feature, &rotation.axis)?;
         let along = axis.direction();
+
         let foot = axis.origin() + along * (shown.origin() - axis.origin()).dot(along);
         let mut radial = shown.normal().cross(along).try_normalize()?;
+
         if (shown.origin() - foot).dot(radial) < 0.0 {
             radial = -radial;
         }
+
         let (sin, cos) = value.to_radians().sin_cos();
+
         let start = radial * cos - along.cross(radial) * sin;
         let radius = ARROW_POINTS * (self.per_point)(foot)?;
         Some(Gauge {
@@ -1714,11 +1753,13 @@ impl Builder<'_> {
         let size = self.length(&blend.size)?;
         let source = handle_snap::before(self.model, self.feature)?;
         let solid = &source.solid;
+
         let edge = match blend.edges.first() {
             Some(first) => bodies::find_edge(source, first.name())?,
             None => *blend.resolve(self.model.document(), solid).ok()?.first()?,
         };
         let corner = Corner::of(solid, edge)?;
+
         let measured = || {
             let edges = blend
                 .resolve(self.model.document(), solid)
@@ -1729,6 +1770,7 @@ impl Builder<'_> {
             (BlendKind::Fillet, _) => {
                 let half = corner.opening / 2.0;
                 let per_radius = 1.0 / half.cos() - 1.0;
+
                 let per_size = match blend.sizing {
                     FilletSizing::Radius => per_radius,
                     FilletSizing::ChordLength => per_radius / (2.0 * half.cos()),
@@ -1751,9 +1793,11 @@ impl Builder<'_> {
                 let angle = self.angle(angle)?;
                 let first = corner.on_face(solid, near, Measured::BlendSize, size);
                 let foot = first.track.at(size);
+
                 let back = corner.back_from(solid, near, foot)?;
                 let toward_far = far.inward - back * far.inward.dot(back);
                 let turned = toward_far.try_normalize()?;
+
                 let reach = corner.cut_length(solid, foot, (back, turned), angle, far);
                 let radius = reach.or_else(|| Some(ARROW_POINTS * (self.per_point)(foot)?))?;
                 vec![
@@ -1786,13 +1830,16 @@ impl Builder<'_> {
             let face = reference.resolve(solid).ok()?;
             face_plane(solid, face).map(|_| face)
         })?;
+
         let outer = solid.face(face)?.outer_loop()?;
         let first = *solid.face_loop(outer)?.coedges().first()?;
         let coedge = solid.coedge(first)?;
         let edge = solid.edge(coedge.edge())?;
         let middle = edge.interval().middle();
+
         let at = edge.curve().point(middle);
         let along = edge.curve().evaluate(middle).first.try_normalize()? * coedge.sense().sign();
+
         let inward = outward(solid, face, at)?.cross(along).try_normalize()?;
         let (direction, scale) = match shell.side {
             ShellSide::Inside => (inward, 1.0),
@@ -1882,6 +1929,7 @@ impl Builder<'_> {
             return Vec::new();
         };
         let radius = diameter / 2.0;
+
         let centre = match coil.placement {
             CoilPlacement::Inside => radius - size / 2.0,
             CoilPlacement::Centred => radius,
@@ -1890,12 +1938,14 @@ impl Builder<'_> {
         let slope = pitch * taper.to_radians().tan() / TAU;
         let sense = coil.turning.sign();
         let sweep = TAU * turns;
+
         let wire_at = |angle: f64| {
             let around = frame.x_axis() * angle.cos() + frame.y_axis() * (sense * angle.sin());
             frame.origin() + around * (centre + slope * angle)
         };
         let rise = |angle: f64| frame.normal() * (pitch * angle / TAU);
         let half_turn = PI.min(sweep);
+
         let mut gauges = vec![
             Gauge::line(
                 Measured::CoilDiameter,
@@ -1910,6 +1960,7 @@ impl Builder<'_> {
                 size,
             ),
         ];
+
         if coil.length.pitch().is_some() {
             gauges.push(Gauge::line(
                 Measured::CoilPitch,
@@ -1993,6 +2044,7 @@ impl Builder<'_> {
         else {
             return Vec::new();
         };
+
         let spec = SpiralSpec {
             frame,
             radius: diameter / 2.0,
@@ -2012,6 +2064,7 @@ impl Builder<'_> {
             0.5,
             diameter,
         )];
+
         if helix.length.pitch().is_some()
             && let Some(first) = spec.start()
         {
@@ -2042,9 +2095,11 @@ impl Builder<'_> {
         else {
             return Vec::new();
         };
+
         if helix.is_flat() {
             return self.spiral(helix, diameter, start);
         }
+
         let Some(taper) = self.angle(&helix.taper) else {
             return Vec::new();
         };
@@ -2054,6 +2109,7 @@ impl Builder<'_> {
         let Some(plan) = self.pitch_plan(helix) else {
             return Vec::new();
         };
+
         let even = CoilSpan {
             height: pitch * turns,
             pitch,
@@ -2066,6 +2122,7 @@ impl Builder<'_> {
         else {
             return Vec::new();
         };
+
         let spec = HelixSpec {
             frame,
             radius: diameter / 2.0,
@@ -2087,6 +2144,7 @@ impl Builder<'_> {
             0.5,
             diameter,
         )];
+
         if helix.length.pitch().is_some()
             && let Some(turned) = spec.point_at(spec.body_start() + TAU)
         {
@@ -2118,6 +2176,7 @@ impl Builder<'_> {
         let (Some(size), Some(bend)) = (self.length(&pipe.size), self.length(&pipe.bend)) else {
             return Vec::new();
         };
+
         let Some(stand) = pipe_stand(document, self.model.evaluation(), feature, pipe, bend) else {
             return Vec::new();
         };
@@ -2127,14 +2186,17 @@ impl Builder<'_> {
             PipeShape::Round | PipeShape::Square => (0.5, 1.0),
             PipeShape::Triangle => (1.0 / 3.0, TRIANGLE_WALL_SHARE),
         };
+
         let mut gauges = vec![Gauge::line(
             Measured::PipeSize,
             (section.origin(), across),
             outer,
             size,
         )];
+
         if let Some(wall) = pipe.wall.as_ref().and_then(|wall| self.length(wall)) {
             let rim = section.origin() + across * (size * outer);
+
             gauges.push(Gauge::line(Measured::PipeWall, (rim, -across), share, wall));
         }
         gauges.extend(stand.corner.and_then(|corner| bend_gauge(&corner, bend)));
@@ -2148,6 +2210,7 @@ impl Builder<'_> {
         let lift = reach_handles::start_offset(self.model, self.feature, &plane, start)?;
         let owner = document.feature(sketch)?;
         let displayed = self.model.displayed_sketch(owner)?;
+
         let centre = plane.to_local(self.model.sketch_bounds(owner)?.center());
         let (at, left) = displayed.entities().find_map(|(id, entity)| {
             if displayed.is_construction(id) {
@@ -2156,6 +2219,7 @@ impl Builder<'_> {
             match entity {
                 Entity::Line { .. } => {
                     let (start, end) = displayed.line_endpoints(id)?;
+
                     let along = (end - start).try_normalize()?;
                     Some((start.lerp(end, 0.5), along.perp()))
                 }
@@ -2166,6 +2230,7 @@ impl Builder<'_> {
                 _ => None,
             }
         })?;
+
         let inside = if (centre - at).dot(left) < -OFF_THE_LINE {
             -left
         } else {
@@ -2193,6 +2258,7 @@ impl Builder<'_> {
             reach_handles::start_offset(self.model, self.feature, &plane, extrude.start.as_ref())?;
         let bounds = reach_handles::swept_bounds(self.model, extrude, &plane)?;
         let half = bounds.max() - bounds.center();
+
         let middle = plane.to_world(bounds.center()) + plane.normal() * start;
         Some((plane, middle, Point2::new(half.x.abs(), half.y.abs())))
     }
@@ -2201,6 +2267,7 @@ impl Builder<'_> {
         if extrude.direction.is_some() {
             return None;
         }
+
         let value = extrude
             .taper
             .as_deref()
@@ -2213,10 +2280,13 @@ impl Builder<'_> {
             ExtrudeExtent::TwoSides { forward, .. } => (forward.distance()?, 1.0),
         };
         let mut height = self.length(reach)?;
+
         if matches!(extrude.extent, ExtrudeExtent::Symmetric { .. }) {
             height /= 2.0;
         }
+
         let (plane, middle, half) = self.extrude_frame(extrude)?;
+
         let top = middle + plane.normal() * sign * height;
         let edge = top + plane.x_axis() * half.x;
         Some(Gauge {
@@ -2242,12 +2312,15 @@ impl Builder<'_> {
             ],
             ExtrudeExtent::Symmetric { .. } => return Vec::new(),
         };
+
         if extrude.direction.is_some() {
             return Vec::new();
         }
+
         let Some((plane, middle, _)) = self.extrude_frame(extrude) else {
             return Vec::new();
         };
+
         let on_sketch = plane.to_world(plane.to_local(middle));
         sides
             .into_iter()
@@ -2292,6 +2365,7 @@ impl Builder<'_> {
             .iter()
             .filter_map(|arrow| placed.gauge(*arrow))
             .collect();
+
         gauges.extend(placed.sides_gauge());
         gauges
     }
@@ -2331,9 +2405,11 @@ impl Builder<'_> {
         let Some((along, count, spacing)) = found() else {
             return Vec::new();
         };
+
         if count < 2.0 {
             return Vec::new();
         }
+
         let scale = match direction.measured {
             LinearSpacing::BetweenCopies => count - 1.0,
             LinearSpacing::Total => 1.0,
@@ -2371,12 +2447,16 @@ impl Builder<'_> {
     fn curve_gauge(&self, curve: &CurvePattern, centre: Point3) -> Option<Gauge> {
         let path = self.pattern_path(&curve.path)?;
         let count = self.count(&curve.count)?.round();
+
         (count >= 2.0).then_some(())?;
+
         let steps = count - 1.0;
         let length = path.length();
+
         let (measured, mapping, value, now) = match curve.measured {
             CurveSpacing::Distance => {
                 let spacing = self.length(&curve.spacing)?;
+
                 (spacing > 0.0).then_some(())?;
                 (
                     Measured::CurveSpacing,
@@ -2422,11 +2502,14 @@ impl Builder<'_> {
             let axis = circular.axis.as_ref()?;
             let ray = displayed_axis(self.model.evaluation(), self.feature, axis)?;
             let sign = if circular.reversed { -1.0 } else { 1.0 };
+
             let along = ray.direction() * sign;
             let foot = ray.origin() + along * (centre - ray.origin()).dot(along);
             let offset = centre - foot;
             let radius = offset.length();
+
             (radius > SMALLEST_RADIUS).then_some(())?;
+
             let radial = offset / radius;
             Some((
                 Swing {
@@ -2443,6 +2526,7 @@ impl Builder<'_> {
             return Vec::new();
         };
         let full = (angle - FULL_TURN_DEGREES).abs() < 1e-9;
+
         let (each, offset) = match (full, count > 1.0) {
             (true, _) => (FULL_TURN_DEGREES / count, -FULL_TURN_DEGREES / count / 2.0),
             (false, true) => (angle / (count - 1.0), 0.0),
@@ -2464,6 +2548,7 @@ impl Builder<'_> {
                 angle,
             )
         });
+
         let counted = (each > 0.0).then(|| {
             turned(
                 Measured::CircularCount,
@@ -2478,14 +2563,14 @@ impl Builder<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Side {
     face: FaceId,
     normal: Vector3,
     inward: Vector3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Corner {
     at: Point3,
     along: Vector3,
@@ -2498,8 +2583,10 @@ impl Corner {
     fn of(solid: &Solid, edge: EdgeId) -> Option<Self> {
         let edge = solid.edge(edge)?;
         let middle = edge.interval().middle();
+
         let at = edge.curve().point(middle);
         let along = edge.curve().evaluate(middle).first.try_normalize()?;
+
         let mut sides = edge.coedges().iter().filter_map(|coedge| {
             let sense = solid.coedge(*coedge)?.sense().sign();
             let face = solid.coedge_face(*coedge)?;
@@ -2510,8 +2597,11 @@ impl Corner {
                 inward: normal.cross(along * sense).try_normalize()?,
             })
         });
+
         let (first, second) = (sides.next()?, sides.next()?);
+
         let opening = first.normal.dot(second.normal).clamp(-1.0, 1.0).acos();
+
         (opening >= SMALLEST_OPENING).then_some(())?;
         Some(Self {
             at,
@@ -2524,6 +2614,7 @@ impl Corner {
 
     fn bisected(&self, value: f64, per_size: f64) -> Gauge {
         let [first, second] = self.sides;
+
         let bisector = (first.normal + second.normal)
             .try_normalize()
             .unwrap_or(first.normal);
@@ -2545,6 +2636,7 @@ impl Corner {
             base: self.at,
             direction: side.inward,
         };
+
         if face_plane(solid, side.face).is_some() {
             return straight;
         }
@@ -2567,6 +2659,7 @@ impl Corner {
         if face_plane(solid, near.face).is_some() {
             return Some(-near.inward);
         }
+
         let back = self
             .along
             .cross(outward(solid, near.face, foot)?)
@@ -2587,12 +2680,16 @@ impl Corner {
         far: Side,
     ) -> Option<f64> {
         let (sin, cos) = angle.to_radians().sin_cos();
+
         let direction = back * cos + turned * sin;
+
         if let Track::Curve(track) = self.track_on(solid, far, 0.0) {
             return track.first_crossing(foot, direction);
         }
+
         let section = back.cross(far.inward);
         let from_edge = foot - self.at;
+
         let reach =
             -from_edge.cross(far.inward).dot(section) / direction.cross(far.inward).dot(section);
         let landing = from_edge + direction * reach;
@@ -2601,7 +2698,7 @@ impl Corner {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct HoleTop {
     plane: Plane,
     top: Point3,
@@ -2616,6 +2713,7 @@ impl HoleTop {
             return None;
         };
         let (sin, cos) = builder.angle(angle)?.to_radians().sin_cos();
+
         let along = self.plane.x_axis() * cos + self.plane.y_axis() * sin;
         let across = self.plane.y_axis() * cos - self.plane.x_axis() * sin;
         Some((along, across, builder.length(length)?))
@@ -2682,17 +2780,21 @@ fn section_track(
         .map(|index| reach * f64::from(index) / f64::from(SECTION_SAMPLES))
         .chain((now > 0.0).then_some(now))
         .collect();
+
     distances.sort_by(f64::total_cmp);
+
     let mut points = vec![TrackPoint {
         position: 0.0,
         point: at,
     }];
     let mut heading = side.inward;
     let mut hint = None;
+
     for distance in distances {
         let Some((point, uv)) = chord_foot(surface, (at, along), heading, distance, hint) else {
             break;
         };
+
         heading = (point - at).try_normalize().unwrap_or(heading);
         hint = Some(uv);
         points.push(TrackPoint {
@@ -2713,11 +2815,15 @@ fn chord_foot(
     let fit = FOOT_FIT * distance.max(1.0);
     let mut guess = at + heading * distance;
     let mut uv = hint;
+
     for _ in 0..FOOT_ITERATIONS {
         let found = surface.project(guess, uv);
+
         uv = Some(found);
+
         let on = surface.point(found.x, found.y);
         let flat = on - along * (on - at).dot(along);
+
         guess = at + (flat - at).try_normalize()? * distance;
         if on.distance(guess) <= fit {
             return Some((guess, found));
@@ -2729,6 +2835,7 @@ fn chord_foot(
 fn face_stand(solid: &Solid, face: FaceId) -> Option<(Point3, Vector3)> {
     if let Some(plane) = face_plane(solid, face) {
         let middle = hole_tools::middle_of(solid, face, &plane)?;
+
         return Some((plane.to_world(middle), plane.normal()));
     }
     rim_stand(solid, face)
@@ -2758,21 +2865,21 @@ fn outward(solid: &Solid, face: FaceId, point: Point3) -> Option<Vector3> {
     Some(surface.normal(uv.x, uv.y)? * face.sense().sign())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Along {
     X,
     Y,
     Up,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Level {
     Bottom,
     Middle,
     Top,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reaches {
     Side,
     BottomRim,
@@ -2780,7 +2887,7 @@ enum Reaches {
     TopLength,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PrimitiveArrow {
     index: usize,
     along: Along,
@@ -2910,6 +3017,7 @@ impl<'a> PlacedPrimitive<'a> {
 
     fn low(&self, size: [f64; 3]) -> [f64; 3] {
         let [length, width, height] = size;
+
         let (shift, rise) = match self.anchor {
             PrimitiveAnchor::Corner => ([0.0, 0.0], 0.0),
             PrimitiveAnchor::BaseCentre => ([length / 2.0, width / 2.0], 0.0),
@@ -2921,10 +3029,13 @@ impl<'a> PlacedPrimitive<'a> {
 
     fn reach(&self, arrow: PrimitiveArrow, value: f64) -> Option<f64> {
         let mut values = self.values.clone();
+
         *values.get_mut(arrow.index)? = value;
+
         let size = footprint(self.shape, &values)?;
         let [low_x, low_y, low_z] = self.low(size);
         let [length, width, height] = size;
+
         let rim = |diameter: f64| low_x + length / 2.0 + diameter / 2.0;
         Some(match (arrow.along, arrow.reaches) {
             (Along::X, Reaches::BottomRim) => rim(*values.first()?),
@@ -2940,11 +3051,13 @@ impl<'a> PlacedPrimitive<'a> {
         if !matches!(self.shape, PrimitiveShape::Prism { .. }) {
             return None;
         }
+
         let sides = *self.values.first()?;
         let size = footprint(self.shape, &self.values)?;
         let [low_x, low_y, low_z] = self.low(size);
         let [diameter, _, height] = size;
         let radius = diameter / 2.0;
+
         let middle = Point2::new(low_x + radius, low_y + radius);
         Some(Gauge {
             measured: Measured::PrismSides,
@@ -2967,6 +3080,7 @@ impl<'a> PlacedPrimitive<'a> {
         let size = footprint(self.shape, &self.values)?;
         let [low_x, low_y, low_z] = self.low(size);
         let [length, width, height] = size;
+
         let level = match arrow.level {
             Level::Bottom => low_z,
             Level::Middle => low_z + height / 2.0,
@@ -2982,6 +3096,7 @@ impl<'a> PlacedPrimitive<'a> {
             Along::Up => 0.0,
             Along::X | Along::Y => level,
         };
+
         let world = self.plane.to_world(base) + self.up * lift;
         let here = self.reach(arrow, value)?;
         let slope = self.reach(arrow, value + 1.0)? - here;

@@ -12,7 +12,7 @@ use crate::{
 const CHANGE_RESULT: &str = "Result in the panel changes that.";
 const CHANGE_END: &str = "End in the panel sets a distance instead.";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Detected {
     pub operation: BodyOperation,
     pub extent: ExtrudeExtent,
@@ -31,6 +31,7 @@ pub fn extrusion(
     let away_from_face = asked_side.unwrap_or(false);
     let deadline = Instant::now() + REACH_BUDGET;
     let footprint_of = standing_on.filter(|body| chosen.is_none_or(|chosen| chosen == *body));
+
     let sweep = |reversed: bool| {
         let solid = SolidFeature::Extrude(directed(template, reversed));
         body_reach::reaches(
@@ -50,6 +51,7 @@ pub fn extrusion(
 
     let cutting = standing_on.filter(|body| chosen.is_none_or(|chosen| chosen == *body));
     let mut told = None;
+
     if let Some(body) = cutting {
         let cut = |through: bool, told: Option<String>| Detected {
             operation: BodyOperation::Remove(body),
@@ -79,6 +81,7 @@ pub fn extrusion(
                             label(body)
                         )
                     });
+
                     return cut(through, told);
                 }
                 Verdict::Unknown => return cut(false, unsure()),
@@ -98,6 +101,7 @@ pub fn extrusion(
         Some((reached.body, found.meeting(reach.evaluation, reached)))
     };
     let forward = sweep(away_from_face);
+
     let edgewise = match joining(&forward) {
         Some((body, meeting @ (Meeting::Joins | Meeting::Unchecked))) => {
             let note = match meeting {
@@ -111,6 +115,7 @@ pub fn extrusion(
                 )),
                 _ => None,
             };
+
             return Detected {
                 operation: BodyOperation::Add(body),
                 extent: directed(template, away_from_face).extent,
@@ -123,6 +128,7 @@ pub fn extrusion(
         Some((body, Meeting::OnlyAlongAnEdge)) => Some(body),
         None => None,
     };
+
     if asked_side.is_none()
         && forward.is_some()
         && let Some((body, Meeting::Joins | Meeting::Unchecked)) = joining(&sweep(true))
@@ -132,6 +138,7 @@ pub fn extrusion(
         } else {
             "reached no body"
         };
+
         return Detected {
             operation: BodyOperation::Add(body),
             extent: directed(template, true).extent,
@@ -141,7 +148,9 @@ pub fn extrusion(
             )),
         };
     }
+
     let operation = chosen.map_or(BodyOperation::NewBody, BodyOperation::Add);
+
     if let (BodyOperation::NewBody, Some(body)) = (operation, edgewise) {
         told = Some(format!(
             "The extrusion would meet {} only along an edge, so it makes a new body.",
@@ -157,6 +166,7 @@ pub fn extrusion(
 
 fn directed(template: &Extrude, reversed: bool) -> Extrude {
     let mut directed = template.clone();
+
     if let ExtrudeExtent::OneSide {
         reversed: current, ..
     } = &mut directed.extent
@@ -168,6 +178,7 @@ fn directed(template: &Extrude, reversed: bool) -> Extrude {
 
 fn cut_extent(template: &Extrude, through: bool, reversed: bool) -> ExtrudeExtent {
     let mut extent = directed(template, reversed).extent;
+
     if let (true, ExtrudeExtent::OneSide { end, .. }) = (through, &mut extent) {
         *end = ExtrudeEnd::ThroughAll;
     }
@@ -208,7 +219,9 @@ mod tests {
         );
 
         assert_eq!(unknown.operation, BodyOperation::Remove(plate));
+
         let told = unknown.told.unwrap();
+
         assert!(
             told.starts_with("Could not tell where the sketch reaches"),
             "{told}"

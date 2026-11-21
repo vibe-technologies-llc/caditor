@@ -80,12 +80,15 @@ fn mesh_area(solid: &Solid, face: FaceId) -> f64 {
 fn wrapped_patch(plane: &Plane, curves: &[ProfileCurve], pieces: usize) -> f64 {
     let body = rod();
     let (wall, cylinder) = wall_of(&body);
+
     let original = body.face(wall).unwrap().name();
     let tool = wrap_regions(plane, &regions(curves), &Surface::Cylinder(cylinder), TOOL).unwrap();
+
     assert_eq!(tool.validate(), Ok(()));
 
     let split = split_faces(&body, &[wall], &tool, SPLIT).unwrap();
     let inside = FaceName::split(SPLIT, original, SplitPiece::Inside);
+
     let patches: Vec<FaceId> = split
         .faces()
         .filter(|(_, face)| face.name() == inside)
@@ -290,6 +293,7 @@ fn wall_tilts(tool: &Solid) -> Vec<(f64, f64)> {
         .map(|surface| {
             let (u, v) = (surface.u_domain(), 0.5);
             let at = 0.5 * (u.start() + u.end());
+
             let point = surface.point(at, v);
             let normal = surface.normal(at, v).unwrap();
             let radial = Vector3::new(point.x, point.y, 0.0).normalize();

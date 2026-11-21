@@ -10,6 +10,7 @@ fn only(sketch: &Value, kind: &str) -> Value {
     let listed = sketch[kind]
         .as_array()
         .unwrap_or_else(|| panic!("{sketch}"));
+
     assert_eq!(listed.len(), 1, "{sketch}");
     listed[0].clone()
 }
@@ -18,6 +19,7 @@ fn only(sketch: &Value, kind: &str) -> Value {
 fn a_drawn_gear_is_read_back_and_edited() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let before = described(&mut client, &sketch);
@@ -40,6 +42,7 @@ fn a_drawn_gear_is_read_back_and_edited() {
     let large_area = extruded_area(&mut client, &sketch);
 
     client.tool("undo", json!({}));
+
     let undone = only(&described(&mut client, &sketch), "gears");
 
     client.tool(
@@ -51,11 +54,14 @@ fn a_drawn_gear_is_read_back_and_edited() {
         &sketch,
         json!({ "operation": "edit_gear", "gear": id, "module": "pitch", "teeth": "12 + 8" }),
     );
+
     let held = only(&described(&mut client, &sketch), "gears");
+
     client.tool(
         "set_parameter",
         json!({ "name": "pitch", "expression": "4 mm" }),
     );
+
     let followed = only(&described(&mut client, &sketch), "gears");
 
     let nothing = refused(
@@ -83,6 +89,7 @@ fn a_drawn_gear_is_read_back_and_edited() {
         json!({ "sketch": sketch, "entities": [id] }),
     );
     let gone = described(&mut client, &sketch);
+
     client.finish();
 
     assert!(before.get("gears").is_none(), "{before}");
@@ -130,6 +137,7 @@ fn gear_with(sketch: &Value, field: &str, present: bool) -> Value {
 fn a_drawn_pair_follows_its_first_gear_and_its_meshing_gear_takes_only_its_own_values() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let drawn = modify(
@@ -148,6 +156,7 @@ fn a_drawn_pair_follows_its_first_gear_and_its_meshing_gear_takes_only_its_own_v
         &sketch,
         json!({ "operation": "edit_gear", "gear": driver_id, "module": "3 mm" }),
     );
+
     let regenerated = gear_with(&described(&mut client, &sketch), "meshes_with", true);
     let turned = modify(
         &mut client,
@@ -176,6 +185,7 @@ fn a_drawn_pair_follows_its_first_gear_and_its_meshing_gear_takes_only_its_own_v
         json!({ "sketch": sketch, "entities": [driver_id] }),
     );
     let gone = described(&mut client, &sketch);
+
     client.finish();
 
     assert_eq!(drawn["added_gears"].as_array().unwrap().len(), 2, "{drawn}");
@@ -208,6 +218,7 @@ fn a_drawn_pair_follows_its_first_gear_and_its_meshing_gear_takes_only_its_own_v
 fn drawn_text_is_read_back_and_edited() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let drawn = modify(
@@ -234,7 +245,9 @@ fn drawn_text_is_read_back_and_edited() {
     );
     let after = only(&described(&mut client, &sketch), "texts");
     let smaller_area = extruded_area(&mut client, &sketch);
+
     client.tool("undo", json!({}));
+
     let undone = only(&described(&mut client, &sketch), "texts");
 
     let origin = modify(
@@ -272,6 +285,7 @@ fn drawn_text_is_read_back_and_edited() {
         json!({ "sketch": sketch, "entities": [id] }),
     );
     let remaining = described(&mut client, &sketch);
+
     client.finish();
 
     assert_eq!(drawn["change"], "Draw text");
@@ -312,6 +326,7 @@ fn drawn_text_is_read_back_and_edited() {
 fn a_drawn_sprocket_is_read_back_with_its_chain_and_edited_for_chain_teeth_bore_and_turn() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let drawn = modify(
@@ -331,7 +346,9 @@ fn a_drawn_sprocket_is_read_back_with_its_chain_and_edited_for_chain_teeth_bore_
     );
     let after = only(&described(&mut client, &sketch), "gears");
     let large_area = extruded_area(&mut client, &sketch);
+
     client.tool("undo", json!({}));
+
     let undone = only(&described(&mut client, &sketch), "gears");
 
     let spur_value = refused(
@@ -365,12 +382,14 @@ fn a_drawn_sprocket_is_read_back_with_its_chain_and_edited_for_chain_teeth_bore_
         &sketch,
         json!({ "operation": "gear", "teeth": 20, "at": [0, 0] }),
     );
+
     let spur = only(&described(&mut client, &sketch), "gears");
     let no_chain = refused(
         &mut client,
         &sketch,
         json!({ "operation": "edit_gear", "gear": spur["id"].clone(), "chain": "08B" }),
     );
+
     client.finish();
 
     assert_eq!(drawn["change"], "Draw sprocket");

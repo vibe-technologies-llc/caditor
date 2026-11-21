@@ -13,7 +13,7 @@ const SMOOTH_TURN: f64 = 1e-6;
 const FULL_TURN_SLACK: f64 = 1e-9;
 const SAMPLE_ANGLE: f64 = PI / 90.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Strand {
     Line {
         start: Point2,
@@ -27,7 +27,7 @@ pub(crate) enum Strand {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OffsetFailure {
     Shrinks(usize),
     Apart(usize, usize),
@@ -273,10 +273,13 @@ impl Strand {
         let candidates = match (*before, *after) {
             (Self::Line { .. }, Self::Line { .. }) => {
                 let (first, second) = (before.start_tangent(), after.start_tangent());
+
                 let turn = first.perp_dot(second);
+
                 if turn.abs() <= SMOOTH_TURN * SMOOTH_TURN {
                     return None;
                 }
+
                 let along = (after.start() - before.start()).perp_dot(second) / turn;
                 vec![before.start() + first * along]
             }
@@ -306,9 +309,11 @@ impl Strand {
             Self::Line { .. } => {
                 let tangent = self.start_tangent();
                 let turn = direction.perp_dot(tangent);
+
                 if turn.abs() <= SMOOTH_TURN * SMOOTH_TURN {
                     return Vec::new();
                 }
+
                 let along = (self.start() - origin).perp_dot(tangent) / turn;
                 vec![origin + direction * along]
             }
@@ -336,6 +341,7 @@ impl Strand {
                 } else {
                     (from + sweep, from, true)
                 };
+
                 let range = Interval::new(low, high).ok_or(GeometryError::NonFinite)?;
                 Ok((circle.into(), range, reversed))
             }
@@ -377,10 +383,13 @@ fn line_circle(through: Point2, direction: Vector2, center: Point2, radius: f64)
     let offset = through - center;
     let half = direction.dot(offset);
     let rest = offset.length_squared() - radius * radius;
+
     let discriminant = half * half - rest;
+
     if discriminant < -1e-12 * radius * radius {
         return Vec::new();
     }
+
     let root = discriminant.max(0.0).sqrt();
     vec![
         through + direction * (-half - root),
@@ -391,15 +400,19 @@ fn line_circle(through: Point2, direction: Vector2, center: Point2, radius: f64)
 fn circle_circle(first: Point2, radius: f64, second: Point2, other_radius: f64) -> Vec<Point2> {
     let between = second - first;
     let distance = between.length();
+
     if distance <= f64::EPSILON * (radius + other_radius) {
         return Vec::new();
     }
+
     let along =
         (radius * radius - other_radius * other_radius + distance * distance) / (2.0 * distance);
     let squared = radius * radius - along * along;
+
     if squared < -1e-12 * radius * radius {
         return Vec::new();
     }
+
     let across = squared.max(0.0).sqrt();
     let axis = between / distance;
     let foot = first + axis * along;
@@ -423,6 +436,7 @@ pub(crate) fn offset_strands(
         .map(|(index, strand)| strand.offset(by).ok_or(OffsetFailure::Shrinks(index)))
         .collect::<Result<_, _>>()?;
     let count = untrimmed.len();
+
     if by == 0.0 || count == 0 || (closed && count == 1) {
         return match untrimmed
             .iter()
@@ -432,8 +446,10 @@ pub(crate) fn offset_strands(
             None => Ok(untrimmed),
         };
     }
+
     let mut trimmed = untrimmed.clone();
     let first_joint = usize::from(!closed);
+
     for joint in first_joint..count {
         let before = (joint + count - 1) % count;
         let (Some(original_before), Some(original_after)) =
@@ -447,6 +463,7 @@ pub(crate) fn offset_strands(
         };
         let leaving = original_before.end_tangent();
         let entering = original_after.start_tangent();
+
         let point = if leaving.perp_dot(entering).abs() <= SMOOTH_TURN {
             if leaving.dot(entering) < 0.0 {
                 return Err(OffsetFailure::Folds(before, joint));
@@ -460,6 +477,7 @@ pub(crate) fn offset_strands(
             Strand::meeting(moved_before, moved_after, aim)
                 .ok_or(OffsetFailure::Apart(before, joint))?
         };
+
         if let Some(strand) = trimmed.get_mut(before) {
             *strand = strand.with_end(point);
         }
@@ -505,6 +523,7 @@ impl Segment {
         if self.polygon != other.polygon {
             return false;
         }
+
         let (low, high) = (self.index.min(other.index), self.index.max(other.index));
         high - low <= 1 || (low == 0 && high + 1 == self.count)
     }
@@ -540,6 +559,7 @@ pub(crate) fn polygons_cross(polygons: &[Vec<Point2>]) -> bool {
                 })
         })
         .collect();
+
     segments.sort_by(|a, b| a.low().x.total_cmp(&b.low().x));
     for (position, first) in segments.iter().enumerate() {
         let (low, high) = (first.low(), first.high());
@@ -547,6 +567,7 @@ pub(crate) fn polygons_cross(polygons: &[Vec<Point2>]) -> bool {
             if second.low().x > high.x {
                 break;
             }
+
             let overlapping = second.low().y <= high.y && second.high().y >= low.y;
             if overlapping && !first.adjacent(second) && properly_cross(first, second) {
                 return true;

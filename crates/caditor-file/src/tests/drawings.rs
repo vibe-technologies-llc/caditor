@@ -10,6 +10,7 @@ use super::*;
 
 pub(super) fn drawings_of(base: FeatureId) -> Drawings {
     let mut workshop = Drawing::new(DrawingId::from_raw(0), "Workshop".to_owned());
+
     workshop.size = SheetSize::A4;
     workshop.orientation = SheetOrientation::Portrait;
     workshop.projection = Projection::ThirdAngle;
@@ -19,6 +20,7 @@ pub(super) fn drawings_of(base: FeatureId) -> Drawings {
         .collect::<BTreeSet<_>>();
     workshop.bodies = vec![base];
     workshop.hidden_lines = false;
+
     let overview = Drawing::new(DrawingId::from_raw(3), "Overview".to_owned());
     Drawings {
         drawings: vec![workshop, overview],
@@ -28,6 +30,7 @@ pub(super) fn drawings_of(base: FeatureId) -> Drawings {
 
 pub(super) fn sectioned_drawings_of(base: FeatureId) -> Drawings {
     let mut drawings = drawings_of(base);
+
     if let Some(workshop) = drawings.drawings.first_mut() {
         workshop.sections = vec![
             SectionView {
@@ -51,6 +54,7 @@ pub(super) fn sectioned_drawings_of(base: FeatureId) -> Drawings {
 
 pub(super) fn detailed_drawings_of(base: FeatureId) -> Drawings {
     let mut drawings = sectioned_drawings_of(base);
+
     if let Some(workshop) = drawings.drawings.first_mut() {
         workshop.details = vec![
             DetailView {
@@ -109,6 +113,7 @@ pub(super) fn with_drawings() -> (Document, Transaction) {
 fn drawings_survive_saving_the_journal_and_its_snapshot() {
     let (mut document, change) = with_drawings();
     let plain = encode(&document).unwrap();
+
     let undo = document.apply(change.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -207,6 +212,7 @@ fn drawings_that_cannot_be_read_are_repaired_and_reported() {
 #[test]
 fn section_views_survive_saving_and_the_journal() {
     let (mut document, change) = with_section_views();
+
     let undo = document.apply(change.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -280,6 +286,7 @@ pub(super) fn parameter_offset_document() -> (Document, Transaction) {
     let (document, base, _) = solid_model();
     let offset = document.parse("depth + 2 mm").unwrap();
     let mut drawings = drawings_of(base);
+
     if let Some(workshop) = drawings.drawings.first_mut() {
         workshop.sections = vec![SectionView {
             letter: 'D',
@@ -289,6 +296,7 @@ pub(super) fn parameter_offset_document() -> (Document, Transaction) {
             reversed: false,
         }];
     }
+
     let change = Transaction::single(
         "Section views",
         Edit::SetDrawings {
@@ -301,6 +309,7 @@ pub(super) fn parameter_offset_document() -> (Document, Transaction) {
 #[test]
 fn a_section_offset_naming_a_parameter_survives_saving_and_the_journal() {
     let (mut document, change) = parameter_offset_document();
+
     let undo = document.apply(change.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -336,6 +345,7 @@ fn a_section_offset_naming_a_missing_parameter_is_repaired_and_reported() {
 #[test]
 fn detail_views_survive_saving_and_the_journal() {
     let (mut document, change) = with_detail_views();
+
     let undo = document.apply(change.clone()).unwrap();
 
     let text = encode(&document).unwrap();

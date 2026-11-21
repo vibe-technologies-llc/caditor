@@ -90,15 +90,20 @@ impl Overlay {
 
     pub fn run(&mut self, window: &Window, run_ui: impl FnMut(&mut egui::Ui)) -> UiFrame {
         egui_winit::update_viewport_info(&mut self.window, &self.context, window, false);
+
         let mut input = self.state.take_egui_input(window);
+
         input
             .viewports
             .insert(ViewportId::ROOT, self.window.clone());
+
         let mut output = self.context.run_ui(input, run_ui);
+
         self.state
             .handle_platform_output(window, output.platform_output);
 
         let mut root = output.viewport_output.get_mut(&ViewportId::ROOT);
+
         let window_commands = root
             .as_deref_mut()
             .map(|viewport| std::mem::take(&mut viewport.commands))
@@ -106,6 +111,7 @@ impl Overlay {
         let mut repaint_after = root
             .map(|viewport| viewport.repaint_delay)
             .filter(|delay| *delay < LONGEST_SCHEDULED_REPAINT);
+
         if self.follow_window_commands(window, window_commands) {
             repaint_after = Some(Duration::ZERO);
         }
@@ -127,6 +133,7 @@ impl Overlay {
             )
         });
         let mut requested = Vec::new();
+
         egui_winit::process_viewport_commands(
             &self.context,
             &mut self.window,
@@ -134,12 +141,15 @@ impl Overlay {
             window,
             &mut requested,
         );
+
         let pasting = requested
             .iter()
             .any(|action| matches!(action, egui_winit::ActionRequested::Paste));
+
         if pasting && let Some(text) = self.state.clipboard_text() {
             self.state.egui_input_mut().events.push(Event::Paste(text));
         }
+
         let Some(pos) = self
             .context
             .input(|input| input.pointer.interact_pos())
@@ -147,6 +157,7 @@ impl Overlay {
         else {
             return pasting;
         };
+
         self.state
             .egui_input_mut()
             .events
@@ -177,12 +188,14 @@ impl Overlay {
         }
 
         let mut command_buffers = Vec::new();
+
         if let Some(frame) = frame {
             let size = renderer.size();
             let screen = ScreenDescriptor {
                 size_in_pixels: [size.width, size.height],
                 pixels_per_point: ui.pixels_per_point,
             };
+
             command_buffers = self.renderer.update_buffers(
                 renderer.device(),
                 renderer.queue(),
@@ -207,6 +220,7 @@ impl Overlay {
                     ..Default::default()
                 })
                 .forget_lifetime();
+
             self.renderer.render(&mut pass, &ui.primitives, &screen);
         }
 
@@ -280,9 +294,11 @@ impl TextureMirror {
 fn paste(image: &mut ColorImage, patch: &ColorImage, [left, top]: [usize; 2]) {
     let [width, _] = image.size;
     let [patch_width, _] = patch.size;
+
     if patch_width == 0 {
         return;
     }
+
     let columns = patch_width.min(width.saturating_sub(left));
     for (row, source) in patch.pixels.chunks(patch_width).enumerate() {
         let start = (top + row) * width + left;
@@ -292,6 +308,7 @@ fn paste(image: &mut ColorImage, patch: &ColorImage, [left, top]: [usize; 2]) {
         ) else {
             continue;
         };
+
         target.copy_from_slice(source);
     }
 }
@@ -329,11 +346,14 @@ mod tests {
             &ImageDelta::full(filled([1, 1], Color32::RED), TextureOptions::NEAREST),
         );
         mirror.free(freed);
+
         let whole: Vec<(TextureId, ImageDelta)> = mirror.whole().collect();
 
         assert_eq!(whole.len(), 1);
+
         let (id, delta) = &whole[0];
         let ImageData::Color(image) = &delta.image;
+
         assert_eq!(*id, font);
         assert_eq!(delta.pos, None);
         assert_eq!(image.size, [4, 3]);

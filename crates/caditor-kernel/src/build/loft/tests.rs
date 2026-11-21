@@ -19,6 +19,7 @@ fn region(curves: &[ProfileCurve]) -> Region {
         .unwrap()
         .select(&Selection::EvenDepth)
         .unwrap();
+
     assert_eq!(regions.len(), 1);
     regions.remove(0)
 }
@@ -54,8 +55,11 @@ fn assert_close(name: &str, found: f64, expected: f64, relative: f64) {
 
 fn assert_sound(name: &str, solid: &Solid) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
+
     assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
+
     let names: BTreeSet<FaceName> = solid.faces().map(|(_, face)| face.name()).collect();
+
     assert_eq!(
         names.len(),
         solid.faces().count(),
@@ -80,6 +84,7 @@ fn a_square_lofted_to_a_smaller_square_is_the_frustum() {
     assert_sound("ruled", &ruled);
     assert_close("ruled", volume(&ruled), frustum(400.0, 100.0, 10.0), 1e-6);
     assert_close("smooth", volume(&smooth), frustum(400.0, 100.0, 10.0), 1e-6);
+
     assert_eq!(ruled.faces().count(), 6);
 }
 
@@ -94,6 +99,7 @@ fn a_circle_lofted_to_a_square_is_valid_and_watertight() {
     let found = volume(&solid);
 
     assert_sound("circle to square", &solid);
+
     assert_eq!(solid.faces().count(), 6);
     assert!(found > 8.0 * 64.0 && found < 8.0 * PI * 36.0, "{found}");
 }
@@ -111,6 +117,7 @@ fn a_square_lofted_to_a_circle_and_back_runs_smoothly_through_all_three() {
 
     assert_sound("smooth", &smooth);
     assert_sound("ruled", &ruled);
+
     assert_eq!(smooth.faces().count(), 6);
     assert_eq!(ruled.faces().count(), 10);
     assert!(volume(&smooth) < volume(&ruled));
@@ -127,8 +134,11 @@ fn circles_loft_into_a_smooth_vase() {
     let solid = loft(&profiles, None, LoftSkin::Smooth, FEATURE).unwrap();
 
     assert_sound("vase", &solid);
+
     assert_eq!(solid.faces().count(), 3);
+
     let found = volume(&solid);
+
     assert!(
         found > PI * 9.0 * 10.0 && found < PI * 36.0 * 10.0,
         "{found}"
@@ -166,7 +176,9 @@ fn a_loft_ending_at_a_point_is_a_pyramid() {
     .unwrap();
 
     assert_sound("pyramid", &solid);
+
     assert_eq!(solid.faces().count(), 5);
+
     assert_close("pyramid", volume(&solid), 36.0 * 9.0 / 3.0, 1e-6);
 }
 
@@ -222,6 +234,7 @@ fn profiles_of_different_counts_are_matched_by_splitting() {
     let solid = loft(&profiles, None, LoftSkin::Ruled, FEATURE).unwrap();
 
     assert_sound("triangle to square", &solid);
+
     assert_eq!(solid.faces().count(), 6);
 }
 

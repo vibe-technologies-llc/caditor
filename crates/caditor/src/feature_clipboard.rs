@@ -38,6 +38,7 @@ pub fn commands(
     } else {
         Ok(())
     };
+
     if commands.invoke_detailed(Command::CopyFeatures, detail, &copyable) {
         match copied_text(model, targets) {
             Ok(text) => {
@@ -51,6 +52,7 @@ pub fn commands(
         }
     }
     follow_finished_paste(model, state);
+
     let pastable = match editing.active() {
         Some(_) => Err(IN_SKETCH),
         None if model.is_pasting() => Err(STILL_PASTING),
@@ -96,6 +98,7 @@ fn paste(model: &Model, text: &str, state: &mut PanelState, actions: &mut Vec<Ac
             return;
         }
     };
+
     if copied_picks(&copied.features) > 0 {
         actions.push(Action::Paste(Box::new(PasteRequest {
             features: copied.features,
@@ -105,6 +108,7 @@ fn paste(model: &Model, text: &str, state: &mut PanelState, actions: &mut Vec<Ac
         })));
         return;
     }
+
     let planned =
         model
             .document()
@@ -136,6 +140,7 @@ fn follow_finished_paste(model: &Model, state: &mut PanelState) {
     let Some(finished) = model.pasted() else {
         return;
     };
+
     if state.paste_shown >= finished.serial {
         return;
     }
@@ -151,11 +156,13 @@ pub fn activity(
 ) {
     let running = model.paste_progress().ok_or(NOT_PASTING);
     let mut cancel = commands.invoke(Command::CancelPaste, &running);
+
     if let Ok(progress) = running {
         let hover = commands.with_keys(
             Command::CancelPaste,
             "Stop finding the faces and edges the copies pick, and paste nothing",
         );
+
         cancel |= widgets::progress(pasting::progress_text(progress))
             .cancel(hover)
             .show(ui);

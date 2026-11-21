@@ -7,7 +7,7 @@ const ARBITRARY_AXIS_LIMIT: f64 = 1.0 / 64.0;
 const FULL_TURN_TOLERANCE: f64 = 1e-9;
 const CIRCULAR_TOLERANCE: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(in crate::import) struct Affine {
     x: Vector3,
     y: Vector3,
@@ -31,6 +31,7 @@ impl Affine {
             } else {
                 Vector3::Z
             };
+
         let x = helper.cross(normal).try_normalize()?;
         let y = normal.cross(x).try_normalize()?;
         Some(Self {
@@ -98,7 +99,7 @@ impl Affine {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(in crate::import) struct Nurbs {
     pub degree: usize,
     pub knots: Vec<f64>,
@@ -146,21 +147,25 @@ impl Nurbs {
         let Some((start, end)) = self.domain() else {
             return 0;
         };
+
         let mut breaks: Vec<f64> = self
             .knots
             .iter()
             .copied()
             .filter(|knot| *knot >= start && *knot <= end)
             .collect();
+
         breaks.dedup();
         breaks.len().saturating_sub(1).max(1)
     }
 
     pub fn point(&self, parameter: f64) -> Option<Point3> {
         let (start, end) = self.domain()?;
+
         let parameter = parameter.clamp(start, end);
         let degree = self.degree;
         let span = self.span(parameter);
+
         let first = span.checked_sub(degree)?;
         let weight = |index: usize| {
             self.weights
@@ -169,16 +174,19 @@ impl Nurbs {
                 .copied()
                 .unwrap_or(1.0)
         };
+
         let mut local: Vec<(Vector3, f64)> = (first..=span)
             .map(|index| {
                 let w = weight(index);
                 self.points.get(index).map(|point| (*point * w, w))
             })
             .collect::<Option<_>>()?;
+
         for level in 1..=degree {
             for index in (level..=degree).rev() {
                 let low = *self.knots.get(first + index)?;
                 let high = *self.knots.get(first + index + degree + 1 - level)?;
+
                 let width = high - low;
                 let alpha = if width > 0.0 {
                     (parameter - low) / width
@@ -187,10 +195,12 @@ impl Nurbs {
                 };
                 let (previous_point, previous_weight) = *local.get(index - 1)?;
                 let current = local.get_mut(index)?;
+
                 current.0 = previous_point.lerp(current.0, alpha);
                 current.1 = previous_weight + (current.1 - previous_weight) * alpha;
             }
         }
+
         let (point, weight) = *local.get(degree)?;
         (weight > 0.0).then(|| point / weight)
     }
@@ -201,6 +211,7 @@ impl Nurbs {
             .knots
             .get(degree..self.points.len())
             .unwrap_or_default();
+
         let at_or_before = degree + candidates.partition_point(|knot| *knot <= parameter);
         let span = at_or_before.saturating_sub(1).max(degree);
         match (self.knots.get(span), self.knots.get(span + 1)) {
@@ -226,7 +237,7 @@ impl Nurbs {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(in crate::import) enum Shape {
     Point(Point3),
     Line(Point3, Point3),
@@ -241,7 +252,7 @@ pub(in crate::import) enum Shape {
     Interpolated(FitPoints),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(in crate::import) struct FitPoints {
     pub points: Vec<Point3>,
     pub start_tangent: Option<Vector3>,
@@ -287,6 +298,7 @@ impl FitPoints {
 
     pub fn cubic(&self) -> Option<Nurbs> {
         let mut points = self.points.clone();
+
         points.dedup();
 
         let chords = ChordParameters::along(&points)?;
@@ -299,6 +311,7 @@ impl FitPoints {
         };
 
         let mut rows = Vec::with_capacity(spans + 1);
+
         rows.push(chords.start_row(first, slope(self.start_tangent)));
         for (index, point) in points.iter().enumerate().take(spans).skip(1) {
             rows.push(chords.interior_row(isize::try_from(index).ok()?, *point));
@@ -306,9 +319,12 @@ impl FitPoints {
         rows.push(chords.end_row(last, slope(self.end_tangent))?);
 
         let mut control_points = vec![first];
+
         control_points.extend(solve_tridiagonal(&rows)?);
         control_points.push(last);
+
         let mut knots = vec![0.0; CUBIC + 1];
+
         knots.extend(chords.values.iter().take(spans).skip(1));
         knots.extend([1.0; CUBIC + 1]);
         Nurbs::new(CUBIC, knots, control_points, None)
@@ -332,12 +348,14 @@ impl ChordParameters {
             })
             .collect();
         let length: f64 = chords.iter().sum();
+
         if chords.is_empty() || !length.is_finite() || length <= 0.0 {
             return None;
         }
 
         let mut values = vec![0.0];
         let mut travelled = 0.0;
+
         for chord in chords.iter().take(chords.len() - 1) {
             travelled += chord;
             values.push(travelled / length);
@@ -376,6 +394,7 @@ impl ChordParameters {
 
     fn interior_row(&self, index: isize, point: Point3) -> Row {
         let (before, here, after) = (self.at(index - 1), self.at(index), self.at(index + 1));
+
         let below = (after - here).powi(2) / ((after - self.at(index - 2)) * (after - before));
         let above = (here - before).powi(2) / ((self.at(index + 2) - before) * (after - before));
         Row {
@@ -421,6 +440,7 @@ impl Row {
 
 fn solve_tridiagonal(rows: &[Row]) -> Option<Vec<Point3>> {
     let mut reduced: Vec<(f64, f64, Point3)> = Vec::with_capacity(rows.len());
+
     for row in rows {
         let (diagonal, value) = match reduced.last() {
             Some((previous_diagonal, previous_above, previous_value)) => {
@@ -432,14 +452,18 @@ fn solve_tridiagonal(rows: &[Row]) -> Option<Vec<Point3>> {
             }
             None => (row.diagonal, row.value),
         };
+
         if diagonal == 0.0 || !diagonal.is_finite() {
             return None;
         }
         reduced.push((diagonal, row.above, value));
     }
+
     let mut solution: Vec<Point3> = Vec::with_capacity(reduced.len());
+
     for (diagonal, above, value) in reduced.iter().rev() {
         let next = solution.last().map_or(Vector3::ZERO, |next| *next * *above);
+
         solution.push((*value - next) / *diagonal);
     }
     solution.reverse();
@@ -546,6 +570,7 @@ pub(super) fn planar_circle(
 ) -> Option<PlanarCircle> {
     let (a, b) = (flat(major), flat(minor));
     let radius = a.length();
+
     let scale = radius.max(b.length());
     let circular = radius > 0.0
         && (a.length() - b.length()).abs() <= CIRCULAR_TOLERANCE * scale
@@ -569,14 +594,19 @@ mod tests {
     #[test]
     fn the_arbitrary_axis_algorithm_mirrors_a_downward_normal() {
         let up = Affine::object_system(Vector3::Z).unwrap();
+
         assert_eq!(
             up.point(Point3::new(1.0, 2.0, 3.0)),
             Point3::new(1.0, 2.0, 3.0)
         );
+
         let down = Affine::object_system(-Vector3::Z).unwrap();
         let mapped = down.point(Point3::new(1.0, 2.0, 3.0));
+
         assert!(mapped.distance(Point3::new(-1.0, 2.0, -3.0)) < 1e-12);
+
         let tilted = Affine::object_system(Vector3::X).unwrap();
+
         assert!(tilted.vector(Vector3::X).distance(Vector3::Y) < 1e-12);
         assert!(tilted.vector(Vector3::Y).distance(Vector3::Z) < 1e-12);
     }
@@ -585,7 +615,9 @@ mod tests {
     fn transforms_compose_inner_first() {
         let inner = Affine::translation(Vector3::X);
         let outer = Affine::rotation_z(std::f64::consts::FRAC_PI_2);
+
         let both = inner.then(&outer);
+
         assert!(both.point(Point3::ZERO).distance(Point3::Y) < 1e-12);
     }
 
@@ -599,10 +631,13 @@ mod tests {
             Some(vec![1.0, half, 1.0]),
         )
         .unwrap();
+
         for step in 0..=10 {
             let point = nurbs.point(step as f64 / 10.0).unwrap();
+
             assert!((point.length() - 1.0).abs() < 1e-12);
         }
+
         assert_eq!(nurbs.point(0.0), Some(Point3::X));
         assert!(nurbs.point(1.0).unwrap().distance(Point3::Y) < 1e-12);
     }
@@ -617,6 +652,7 @@ mod tests {
             None,
         )
         .unwrap();
+
         assert_eq!(nurbs.domain(), Some((1.0, 3.0)));
         assert!(nurbs.point(1.0).unwrap().distance(Point3::ZERO) < 1e-12);
         assert!(nurbs.point(2.0).unwrap().distance(Point3::X) < 1e-12);
@@ -627,6 +663,7 @@ mod tests {
     #[test]
     fn a_circle_seen_from_below_turns_clockwise() {
         let circle = planar_circle(Point3::ZERO, -Vector3::X, Vector3::Y).unwrap();
+
         assert!(!circle.counter_clockwise);
         assert!(planar_circle(Point3::ZERO, Vector3::X * 2.0, Vector3::Y).is_none());
     }
@@ -653,8 +690,10 @@ mod tests {
             let points = (0..8).map(|index| Point3::X * f64::from(index)).collect();
             let nurbs = Nurbs::new(3, knots.clone(), points, None).unwrap();
             let (start, end) = nurbs.domain().unwrap();
+
             for step in 0..=300 {
                 let parameter = start + (end - start) * f64::from(step) / 300.0;
+
                 assert_eq!(
                     nurbs.span(parameter),
                     scanned_span(&nurbs, parameter),
@@ -681,6 +720,7 @@ mod tests {
         let length: f64 = chords.iter().sum();
         let mut travelled = 0.0;
         let mut parameters = vec![0.0];
+
         for chord in chords {
             travelled += chord;
             parameters.push(travelled / length);
@@ -705,16 +745,19 @@ mod tests {
         let leaving = (both.point(step).unwrap() - both.point(0.0).unwrap()) / step;
         let arriving = (both.point(1.0).unwrap() - both.point(1.0 - step).unwrap()) / step;
         let curvature_step = 1e-4;
+
         let bend = (starting.point(1.0).unwrap()
             - starting.point(1.0 - curvature_step).unwrap() * 2.0
             + starting.point(1.0 - 2.0 * curvature_step).unwrap())
             / (curvature_step * curvature_step);
 
         assert_eq!(both.degree, 3);
+
         for (point, parameter) in points.iter().zip(chord_parameters(&points)) {
             assert!(both.point(parameter).unwrap().distance(*point) < 1e-9);
             assert!(starting.point(parameter).unwrap().distance(*point) < 1e-9);
         }
+
         assert!(leaving.distance(start.normalize() * length) < 1e-3 * length);
         assert!(arriving.distance(end.normalize() * length) < 1e-3 * length);
         assert!(bend.length() < 1e-2 * length, "{bend}");

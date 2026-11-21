@@ -55,15 +55,18 @@ impl Panel<'_> {
             rule,
         };
         let model = self.model;
+
         let drafting =
             feature_fields::expression_row_drafting(ui, model, caption, quantity, |value| {
                 change(model, id, rebuild(value))
             });
+
         self.actions.extend(drafting.into_actions(id));
     }
 
     fn centre_at_row(&mut self, ui: &mut Ui, scale: &Scale) {
         let (model, selection, id) = (self.model, self.selection, self.feature.id());
+
         let picker = Picker {
             feature: id,
             slot: Slot::ScaleCentre,
@@ -76,9 +79,11 @@ impl Panel<'_> {
             ),
             hover: CENTRE_HOVER,
         };
+
         widgets::caption(ui, CENTRE_AT);
         ui.horizontal_wrapped(|ui| {
             feature_fields::reference_picker(ui, model, picker, self.actions);
+
             let button = widgets::small_button(ui, icons::BODY_CENTRE, BODY_CENTRE);
             if ui.add(button).on_hover_text(BODY_CENTRE_HOVER).clicked() {
                 self.actions.push(feature_fields::applied(
@@ -105,6 +110,7 @@ pub fn show(
         feature,
         actions,
     };
+
     widgets::properties(ui, ("scale-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         panel.row(
@@ -117,6 +123,7 @@ pub fn show(
                 ..scale.clone()
             },
         );
+
         let row = feature_fields::FrameRow {
             feature: feature.id(),
             salt: "scale-frame",
@@ -133,6 +140,7 @@ pub fn show(
                 },
             )
         });
+
         panel.actions.extend(chosen);
         if scale.frame.is_some() {
             feature_fields::description_row(ui, FRAME_DESCRIPTION);
@@ -145,6 +153,7 @@ pub fn show(
                 (axis.of(&scale.center), Dimension::LENGTH, Rule::Any),
                 |value| {
                     let mut changed = scale.clone();
+
                     *axis.of_mut(&mut changed.center) = value;
                     changed
                 },

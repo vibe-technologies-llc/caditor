@@ -20,7 +20,7 @@ const HOLE_CLEARANCE: f64 = 1e-6;
 
 pub(super) type Cdt = ConstrainedDelaunayTriangulation<PlanePoint<f64>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Splitting {
     Allowed,
     Refused,
@@ -56,7 +56,7 @@ impl Built {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Hole {
     pub centre: PlanePoint<f64>,
     pub low: f64,
@@ -64,7 +64,7 @@ pub(super) struct Hole {
     pub segments: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Outline {
     pub segments: Vec<(usize, usize)>,
     pub holes: Vec<Hole>,
@@ -74,9 +74,11 @@ pub(super) fn outline(mapped: &[PlanePoint<f64>], loops: &[Vec<usize>]) -> Outli
     let mut seen = BTreeSet::new();
     let mut segments = Vec::new();
     let mut ranges = Vec::with_capacity(loops.len());
+
     for indices in loops {
         let start = segments.len();
         let corners = indices.len();
+
         for (index, from) in indices.iter().enumerate() {
             let Some(to) = indices.get((index + 1) % corners) else {
                 continue;
@@ -97,6 +99,7 @@ fn holes(mapped: &[PlanePoint<f64>], loops: &[Vec<usize>], ranges: &[Range<usize
     let Some(outer) = loops.first().map(|outer| signed_area(mapped, outer)) else {
         return Vec::new();
     };
+
     if !outer.is_normal() {
         return Vec::new();
     }
@@ -134,21 +137,26 @@ fn hole(
         .iter()
         .map(|index| mapped.get(*index).copied())
         .collect::<Option<_>>()?;
+
     if corners.len() < MIN_HOLE_CORNERS {
         return None;
     }
+
     let count = corners.len() as f64;
     let centre = corners.iter().fold(PlanePoint::new(0.0, 0.0), |sum, at| {
         PlanePoint::new(sum.x + at.x / count, sum.y + at.y / count)
     });
+
     for (a, b) in corners.iter().zip(corners.iter().cycle().skip(1)) {
         let (along, towards) = ([b.x - a.x, b.y - a.y], [centre.x - a.x, centre.y - a.y]);
+
         let side = (along[0] * towards[1] - along[1] * towards[0]) * turning;
         let scale = along[0].hypot_libm(along[1]) * towards[0].hypot_libm(towards[1]);
         if side <= HOLE_CLEARANCE * scale || !side.is_finite() {
             return None;
         }
     }
+
     let (low, high) = corners
         .iter()
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), at| {
@@ -171,6 +179,7 @@ pub(super) fn build(
     helpers: &[PlanePoint<f64>],
 ) -> Result<Built, TessellationError> {
     let mut chosen = Vec::with_capacity(members.len());
+
     for member in &members {
         chosen.push(
             *mapped
@@ -178,8 +187,10 @@ pub(super) fn build(
                 .ok_or(TessellationError::Triangulation(face))?,
         );
     }
+
     let order = insertion_order(&chosen);
     let mut cdt = Cdt::new();
+
     for (inserted, helper) in helpers.iter().enumerate() {
         let handle = cdt
             .insert(*helper)
@@ -188,12 +199,15 @@ pub(super) fn build(
             return Err(TessellationError::Triangulation(face));
         }
     }
+
     let mut handles: Vec<Option<FixedVertexHandle>> = vec![None; mapped.len()];
     let mut inserted_members = Vec::with_capacity(order.len());
+
     for (inserted, local) in order.iter().enumerate() {
         if inserted.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
         }
+
         let (Some(point), Some(member)) = (chosen.get(*local), members.get(*local)) else {
             return Err(TessellationError::Triangulation(face));
         };
@@ -203,12 +217,14 @@ pub(super) fn build(
         let slot = handles
             .get_mut(*member)
             .ok_or(TessellationError::Triangulation(face))?;
+
         if handle.index() != helpers.len() + inserted || slot.is_some() {
             return Err(TessellationError::Triangulation(face));
         }
         *slot = Some(handle);
         inserted_members.push(*member);
     }
+
     let handle = |index: usize| {
         handles
             .get(index)
@@ -216,14 +232,18 @@ pub(super) fn build(
             .flatten()
             .ok_or(TessellationError::Triangulation(face))
     };
+
     for (index, (from, to)) in constraints.iter().enumerate() {
         if index.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
         }
+
         let (from, to) = (handle(*from)?, handle(*to)?);
+
         if from == to || cdt.exists_constraint(from, to) {
             continue;
         }
+
         let added = cdt.try_add_constraint(from, to);
         match (added.len(), splitting) {
             (0, _) => return Err(TessellationError::SelfIntersectingBoundary(face)),
@@ -246,6 +266,7 @@ pub(super) fn whole(
 ) -> Result<Vec<[usize; 3]>, TessellationError> {
     let segments = &outline.segments;
     let helpers: Vec<PlanePoint<f64>> = outline.holes.iter().map(|hole| hole.centre).collect();
+
     if !helpers.is_empty() {
         match whole_with(face, mapped, segments, &helpers) {
             Err(TessellationError::Triangulation(_)) => {}
@@ -272,6 +293,7 @@ pub(super) fn inside_triangles(
 ) -> Result<Vec<[usize; 3]>, TessellationError> {
     let inside = inside_from_outside(&built.cdt);
     let mut triangles = Vec::new();
+
     for fixed in built.cdt.fixed_inner_faces() {
         if inside.get(fixed.index()).copied().unwrap_or(false) {
             triangles.push(
@@ -287,11 +309,13 @@ pub(super) fn inside_triangles(
 pub(super) fn inside_from_outside(cdt: &Cdt) -> Vec<bool> {
     let mut parity: Vec<Option<bool>> = vec![None; cdt.num_all_faces()];
     let mut pending: VecDeque<FixedFaceHandle<InnerTag>> = VecDeque::new();
+
     for face in cdt.inner_faces() {
         for edge in face.adjacent_edges() {
             if !edge.rev().face().is_outer() {
                 continue;
             }
+
             let inside = cdt.is_constraint_edge(edge.fix().as_undirected());
             if let Some(slot) = parity.get_mut(face.fix().index())
                 && slot.is_none()
@@ -325,9 +349,11 @@ pub(super) fn spread_parity(
             let Some(neighbour) = edge.rev().face().as_inner() else {
                 continue;
             };
+
             if !reaches(neighbour.fix()) {
                 continue;
             }
+
             let crossing = cdt.is_constraint_edge(edge.fix().as_undirected());
             if let Some(slot) = parity.get_mut(neighbour.fix().index())
                 && slot.is_none()
@@ -350,8 +376,10 @@ mod tests {
             .map(|(x, y)| PlanePoint::new(x, y))
             .to_vec();
         let mut loops = vec![vec![0, 1, 2, 3]];
+
         for hole in holes {
             let first = mapped.len();
+
             mapped.extend(hole.iter().map(|(x, y)| PlanePoint::new(*x, *y)));
             loops.push((first..mapped.len()).collect());
         }
@@ -406,6 +434,7 @@ mod tests {
         let [hole] = outline.holes.as_slice() else {
             panic!("{:?}", outline.holes);
         };
+
         assert!((hole.centre.x - 3.0).abs() < 1e-12 && (hole.centre.y - 5.0).abs() < 1e-12);
         assert!((hole.low - 1.5).abs() < 1e-12 && (hole.high - 4.5).abs() < 1e-12);
         assert_eq!(hole.segments, 4..52);

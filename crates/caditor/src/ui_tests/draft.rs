@@ -67,6 +67,7 @@ fn slope(degrees: f64) -> f64 {
 
 fn drafted(sides: [f64; 4]) -> f64 {
     let [east, west, north, south] = sides.map(slope);
+
     let area = |z: f64| (SIDE - (east + west) * z) * (SIDE - (north + south) * z);
     HEIGHT / 6.0 * (area(0.0) + 4.0 * area(HEIGHT / 2.0) + area(HEIGHT))
 }
@@ -82,6 +83,7 @@ fn close_feature(harness: &mut Harness) {
 #[test]
 fn the_palette_drafts_selected_walls_from_their_floor_and_a_clicked_wall_takes_its_own_angle() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let sides = walls(&mut harness);
     let Some(Pickable::Face { face: first, .. }) = sides.first().copied() else {
@@ -93,6 +95,7 @@ fn the_palette_drafts_selected_walls_from_their_floor_and_a_clicked_wall_takes_i
     harness.select(sides);
     run_from_palette(&mut harness, "Draft");
     harness.settle();
+
     let draft = harness
         .workspace
         .editing
@@ -168,18 +171,21 @@ fn the_palette_drafts_selected_walls_from_their_floor_and_a_clicked_wall_takes_i
 #[test]
 fn flipping_the_pull_widens_the_walls_and_the_split_adds_an_angle_beyond() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let sides = walls(&mut harness);
 
     harness.select(sides);
     run_from_palette(&mut harness, "Draft");
     harness.settle();
+
     let draft = harness
         .workspace
         .editing
         .solid()
         .expect("the draft is open");
     let flipped = draft_of(&harness, draft).flipped;
+
     harness.hold_still();
     harness.click(draft_panel::FLIP);
     harness.settle();
@@ -190,14 +196,18 @@ fn flipping_the_pull_widens_the_walls_and_the_split_adds_an_angle_beyond() {
     assert!(volume_about(&harness, plate, drafted([-3.0; 4])));
 
     let panel = harness.position_of("Pull direction");
+
     harness.wheel_until_shown(panel, draft_panel::SPLIT, Wheel::Down);
     harness.hold_still();
     harness.click(draft_panel::SPLIT);
     harness.settle();
 
     assert!(draft_of(&harness, draft).beyond.is_some());
+
     let panel = harness.position_of(draft_panel::SPLIT);
+
     harness.wheel_until_shown(panel, "Angle beyond", Wheel::Down);
+
     assert!(harness.shows("Angle beyond"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert_eq!(harness.model.undo_label(), Some("Edit Draft 1"));
@@ -206,6 +216,7 @@ fn flipping_the_pull_widens_the_walls_and_the_split_adds_an_angle_beyond() {
 #[test]
 fn dragging_the_draft_angle_arrow_changes_the_angle_in_one_undoable_change() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let sides = walls(&mut harness);
 
@@ -213,6 +224,7 @@ fn dragging_the_draft_angle_arrow_changes_the_angle_in_one_undoable_change() {
     run_from_palette(&mut harness, "Draft");
     harness.settle();
     harness.select([]);
+
     let draft = harness
         .workspace
         .editing
@@ -237,6 +249,7 @@ fn dragging_the_draft_angle_arrow_changes_the_angle_in_one_undoable_change() {
 #[test]
 fn an_angle_typed_over_the_draft_arrow_sets_the_draft_angle() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let sides = walls(&mut harness);
 
@@ -244,6 +257,7 @@ fn an_angle_typed_over_the_draft_arrow_sets_the_draft_angle() {
     run_from_palette(&mut harness, "Draft");
     harness.settle();
     harness.select([]);
+
     let draft = harness
         .workspace
         .editing
@@ -252,11 +266,13 @@ fn an_angle_typed_over_the_draft_arrow_sets_the_draft_angle() {
 
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let at = harness
         .workspace
         .viewport
         .handle_position(Handle::Value(Measured::DraftAngle), 0.0)
         .expect("the draft angle arrow is shown");
+
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     harness.frame();
@@ -275,9 +291,13 @@ const BOSS_HEIGHT: f64 = 6.0;
 
 fn add_boss(harness: &mut Harness, plate: FeatureId) {
     let mut outline = Sketch::new(Plane::XY);
+
     outline.add_circle(Point2::new(20.0, 20.0), BOSS_RADIUS);
+
     let mut transaction = harness.document().transaction("Add a boss");
+
     let sketch = transaction.add_feature("Boss sketch", FeatureKind::from(outline));
+
     transaction.add_feature(
         "Boss",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -335,8 +355,11 @@ fn with_drafted_boss(degrees: f64) -> f64 {
 #[test]
 fn a_boss_drafted_from_the_palette_narrows_into_a_cone_from_the_plate() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     add_boss(&mut harness, plate);
+
     let side = round_faces(&mut harness);
 
     assert_eq!(side.len(), 1);
@@ -345,6 +368,7 @@ fn a_boss_drafted_from_the_palette_narrows_into_a_cone_from_the_plate() {
     harness.select(side);
     run_from_palette(&mut harness, "Draft");
     harness.settle();
+
     let draft = harness
         .workspace
         .editing

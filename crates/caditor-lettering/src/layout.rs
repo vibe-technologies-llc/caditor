@@ -12,7 +12,7 @@ const FALLBACK_LINE_PITCH: f64 = 1.6;
 static INTER_FACE: LazyLock<Option<Mutex<Typeface<'static>>>> =
     LazyLock::new(|| Typeface::parse(INTER, Some(INTER_ITALIC)).map(Mutex::new));
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Style {
     pub bold: bool,
     pub italic: bool,
@@ -28,7 +28,7 @@ impl Style {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Alignment {
     #[default]
     Left,
@@ -46,14 +46,14 @@ impl Alignment {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Letter {
     pub character: char,
     pub position: usize,
     pub segments: Vec<Segment>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Lettered {
     pub letters: Vec<Letter>,
     pub width: f64,
@@ -68,7 +68,7 @@ impl Lettered {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LetteringError {
     #[error("the bundled Inter font could not be read")]
     FontUnreadable,
@@ -96,14 +96,18 @@ fn lay_out(
         .unwrap_or_else(|| typeface.units_per_em())
         .max(f64::MIN_POSITIVE);
     let scale = 1.0 / cap_height;
+
     let pitch = typeface
         .line_height(instance)
         .map_or(FALLBACK_LINE_PITCH, |height| height * scale);
     let mut lettered = Lettered::default();
     let mut position = 0;
+
     for (index, line) in content.split('\n').enumerate() {
         let mut laid = lay_line(typeface, instance, scale, line, position);
+
         let shift = Vector2::new(-alignment.share() * laid.width, -pitch * index as f64);
+
         for mut letter in laid.letters {
             letter.segments = letter
                 .segments
@@ -131,24 +135,31 @@ fn lay_line(
     let mut lettered = Lettered::default();
     let mut pen = 0.0;
     let mut previous = None;
+
     for (offset, character) in line.chars().enumerate() {
         if character.is_control() {
             continue;
         }
+
         let position = first_position + offset;
         let glyph = typeface.glyph(character, instance);
+
         if let (Some(before), Some(glyph)) = (previous, glyph) {
             pen += typeface.kerning(instance, before, glyph) * scale;
         }
+
         let advance = typeface.advance(instance, glyph) * scale;
+
         match glyph {
             Some(glyph) if !character.is_whitespace() => {
                 let outline = typeface.outline(instance, glyph);
                 let offset = Vector2::new(pen, 0.0);
+
                 let segments = outline
                     .iter()
                     .map(|segment| segment.mapped(|point| scaled(point, scale) + offset))
                     .collect();
+
                 lettered.letters.push(Letter {
                     character,
                     position,

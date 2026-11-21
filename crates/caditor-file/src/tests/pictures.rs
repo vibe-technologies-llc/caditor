@@ -42,12 +42,14 @@ fn quad() -> RgbaImage {
 
 fn encoded(image: &DynamicImage, format: ImageFormat) -> Vec<u8> {
     let mut bytes = Cursor::new(Vec::new());
+
     image.write_to(&mut bytes, format).unwrap();
     bytes.into_inner()
 }
 
 fn assert_quad(bytes: &[u8], tolerance: u8, what: &str) {
     let pixels = decode_picture(bytes).unwrap_or_else(|error| panic!("{what}: {error}"));
+
     assert_eq!((pixels.width, pixels.height), (WIDTH, HEIGHT), "{what}");
     for (x, y) in [(1, 1), (6, 1), (1, 4), (6, 4)] {
         let at = ((y * WIDTH + x) * 4) as usize;
@@ -56,6 +58,7 @@ fn assert_quad(bytes: &[u8], tolerance: u8, what: &str) {
             .iter()
             .zip(quad_colour(x, y))
             .all(|(read, wanted)| read.abs_diff(wanted) <= tolerance);
+
         assert!(near, "{what} at {x}, {y} read {read:?}");
     }
 }
@@ -72,12 +75,17 @@ fn every_picture_format_caditor_reads_decodes_to_its_pixels() {
         ImageFormat::Qoi,
         ImageFormat::Tga,
     ];
+
     for format in exact {
         assert_quad(&encoded(&image, format), EXACT, &format!("{format:?}"));
     }
+
     let opaque = DynamicImage::ImageRgb8(image.to_rgb8());
+
     assert_quad(&encoded(&opaque, ImageFormat::Jpeg), LOSSY, "JPEG");
+
     let deep = DynamicImage::ImageRgba16(image.to_rgba16());
+
     assert_quad(&encoded(&deep, ImageFormat::Tiff), EXACT, "16-bit TIFF");
     assert_quad(JPEG_XL, EXACT, "JPEG XL");
     assert_quad(JPEG_XL_CONTAINER, EXACT, "JPEG XL in its container");
@@ -97,6 +105,7 @@ fn every_picture_format_caditor_reads_decodes_to_its_pixels() {
     .into_iter()
     .map(|bytes| read_picture(bytes).unwrap().picture.format())
     .collect();
+
     assert_eq!(formats, PictureFormat::ALL.to_vec());
 }
 
@@ -104,8 +113,10 @@ fn every_picture_format_caditor_reads_decodes_to_its_pixels() {
 fn a_gif_reads_its_first_frame_and_a_tiff_its_first_page() {
     let blank = RgbaImage::from_pixel(WIDTH, HEIGHT, Rgba([255, 255, 255, 255]));
     let mut gif = Vec::new();
+
     {
         let mut encoder = GifEncoder::new(&mut gif);
+
         encoder
             .encode_frames([
                 Frame::from_parts(quad(), 0, 0, Delay::from_numer_denom_ms(100, 1)),
@@ -116,8 +127,10 @@ fn a_gif_reads_its_first_frame_and_a_tiff_its_first_page() {
     assert_quad(&gif, EXACT, "animated GIF");
 
     let mut tiff = Cursor::new(Vec::new());
+
     {
         let mut encoder = tiff::encoder::TiffEncoder::new(&mut tiff).unwrap();
+
         encoder
             .write_image::<tiff::encoder::colortype::RGBA8>(WIDTH, HEIGHT, quad().as_raw())
             .unwrap();
@@ -130,8 +143,11 @@ fn a_gif_reads_its_first_frame_and_a_tiff_its_first_page() {
 
 fn png_chunk(kind: &[u8], data: &[u8]) -> Vec<u8> {
     let mut checked = kind.to_vec();
+
     checked.extend_from_slice(data);
+
     let mut chunk = u32::try_from(data.len()).unwrap().to_be_bytes().to_vec();
+
     chunk.extend_from_slice(&checked);
     chunk.extend_from_slice(&crc32fast::hash(&checked).to_be_bytes());
     chunk
@@ -139,9 +155,12 @@ fn png_chunk(kind: &[u8], data: &[u8]) -> Vec<u8> {
 
 fn png_claiming(width: u32, height: u32) -> Vec<u8> {
     let mut header = width.to_be_bytes().to_vec();
+
     header.extend_from_slice(&height.to_be_bytes());
     header.extend_from_slice(&[8, 6, 0, 0, 0]);
+
     let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+
     bytes.extend(png_chunk(b"IHDR", &header));
     bytes.extend(png_chunk(
         b"IDAT",
@@ -173,7 +192,9 @@ fn hostile_damaged_or_unreadable_pictures_are_refused_in_words_before_decoding()
     );
     assert_eq!(words(b"plain text"), "it is not a picture caditor can read");
     assert_eq!(words(b""), "it is empty");
+
     let png = encoded(&DynamicImage::ImageRgba8(quad()), ImageFormat::Png);
+
     for cut in [png.len() / 2, png.len() - 13, 40] {
         assert!(matches!(
             decode_picture(&png[..cut]),
@@ -183,6 +204,7 @@ fn hostile_damaged_or_unreadable_pictures_are_refused_in_words_before_decoding()
             })
         ));
     }
+
     assert!(matches!(
         decode_picture(&JPEG_XL[..20]),
         Err(PictureReadError::UndecodableJpegXl(_))
@@ -195,6 +217,7 @@ fn millimetres(value: f64) -> Expression {
 
 fn picture(seed: u8) -> Arc<Picture> {
     let mut bytes = encoded(&DynamicImage::ImageRgba8(quad()), ImageFormat::Png);
+
     bytes.extend((0..4096_u32).map(|index| (index as u8).wrapping_mul(seed).wrapping_add(seed)));
     read_picture(bytes).unwrap().picture
 }
@@ -219,7 +242,9 @@ fn image(picture: Arc<Picture>) -> ReferenceImage {
 
 fn with_images(pictures: &[Arc<Picture>]) -> (Document, Vec<FeatureId>) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Insert");
+
     let features = pictures
         .iter()
         .enumerate()
@@ -230,6 +255,7 @@ fn with_images(pictures: &[Arc<Picture>]) -> (Document, Vec<FeatureId>) {
             )
         })
         .collect();
+
     document.apply(transaction.finish()).unwrap();
     (document, features)
 }
@@ -245,6 +271,7 @@ fn carried_pictures(lines: &[String]) -> usize {
 fn a_reference_image_loads_back_with_each_picture_kept_once_in_the_file() {
     let shared = picture(3);
     let other = picture(7);
+
     let (document, _) = with_images(&[Arc::clone(&shared), other, shared]);
 
     let lines = lines_of(&document);
@@ -270,12 +297,15 @@ fn a_picture_kept_with_a_damaged_image_loads_as_a_grey_square_and_says_so() {
     let loaded = decode_lines(&lines);
 
     assert_eq!(loaded.document.features().count(), 2);
+
     for feature in loaded.document.features() {
         let FeatureKind::ReferenceImage(image) = &feature.kind else {
             panic!("not an image");
         };
+
         assert!(image.picture.is_placeholder());
     }
+
     assert!(loaded.issues.iter().any(|issue| issue
         == "The picture of “Photo 0” could not be read, so it shows as a grey square; insert \
             the picture again."));
@@ -304,26 +334,34 @@ fn set_opacity(document: &Document, feature: FeatureId, opacity: u8) -> Transact
 fn the_recovery_journal_writes_a_picture_once_and_replays_every_change_to_it() {
     let dir = TempDir::new().unwrap();
     let base = Document::default();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base.clone());
     let photo = picture(5);
     let mut insert = editor.document().transaction("Insert");
+
     let feature = insert.add_feature(
         "Photo",
         FeatureKind::ReferenceImage(Box::new(image(Arc::clone(&photo)))),
     );
     let insert = insert.finish();
+
     editor.apply(insert.clone()).unwrap();
     storage.record(JournalEntry::Apply(insert)).unwrap();
     for opacity in [20, 40, 80] {
         let change = set_opacity(editor.document(), feature, opacity);
+
         editor.apply(change.clone()).unwrap();
         storage.record(JournalEntry::Apply(change)).unwrap();
     }
+
     let undo = editor.next_undo().cloned().unwrap();
+
     editor.undo().unwrap();
     storage.record(JournalEntry::Undo(undo)).unwrap();
+
     assert!(storage.flusher().flush(super::WAIT));
+
     crash(storage);
 
     let recovery = dir.path().join("recovery");
@@ -353,11 +391,14 @@ fn a_rewritten_journal_keeps_the_pictures_of_its_base_and_entries_once_each() {
     let (base, features) = with_images(&[Arc::clone(&first)]);
     let mut editor = Editor::new(base.clone());
     let mut entries = Vec::new();
+
     for opacity in [20, 100] {
         let change = set_opacity(editor.document(), features[0], opacity);
+
         editor.apply(change.clone()).unwrap();
         entries.push(journal::Logged::Entry(JournalEntry::Apply(change)));
     }
+
     let head = journal::JournalHead {
         file: None,
         on_disk: None,
@@ -378,11 +419,14 @@ fn a_journaled_image_change_the_document_settles_reads_back_as_the_document_hold
     let (base, features) = with_images(&[picture(4)]);
     let mut editor = Editor::new(base.clone());
     let mut entries = Vec::new();
+
     for opacity in [0, 242] {
         let change = set_opacity(editor.document(), features[0], opacity);
+
         editor.apply(change.clone()).unwrap();
         entries.push(journal::Logged::Entry(JournalEntry::Apply(change)));
     }
+
     let head = journal::JournalHead {
         file: None,
         on_disk: None,

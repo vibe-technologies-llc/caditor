@@ -13,7 +13,7 @@ pub struct Display {
     pub dragging: SketchDragging,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Displayed<'a> {
     Borrowed(&'a Sketch),
     Shared(Arc<Sketch>),
@@ -30,14 +30,14 @@ impl Deref for Displayed<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Shown {
     Definition,
     Solved,
     Merged(Arc<Sketch>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Dragged {
     feature: FeatureId,
     sketch: Arc<Sketch>,
@@ -122,6 +122,7 @@ impl DisplayedSketches {
         feature: &'a Feature,
     ) -> Option<Displayed<'a>> {
         let definition = feature.kind.sketch()?;
+
         if let Some(dragged) = self
             .dragged
             .as_ref()
@@ -129,16 +130,19 @@ impl DisplayedSketches {
         {
             return Some(Displayed::Shared(Arc::clone(&dragged.sketch)));
         }
+
         let solved = last_good(evaluation, feature);
         let known = self
             .shown
             .try_borrow()
             .ok()
             .and_then(|shown| shown.get(&feature.id()).cloned());
+
         let shown = match known {
             Some(shown) => shown,
             None => {
                 let shown = self.show(definition, solved);
+
                 if let Ok(mut memo) = self.shown.try_borrow_mut() {
                     memo.insert(feature.id(), shown.clone());
                 }
@@ -163,12 +167,15 @@ impl DisplayedSketches {
             .try_borrow()
             .ok()
             .and_then(|bounds| bounds.get(&feature.id()).copied());
+
         if let Some(known) = known {
             return known;
         }
+
         let measured = self
             .get(evaluation, feature)
             .and_then(|sketch| measure(&sketch));
+
         if let Ok(mut memo) = self.bounds.try_borrow_mut() {
             memo.insert(feature.id(), measured);
         }
@@ -208,10 +215,13 @@ fn merge(definition: &Sketch, solved: &Sketch) -> Option<Sketch> {
                 |((id, defined), (other, settled))| id == other && defined.same_structure(settled),
             );
     let same_construction = definition.construction().eq(solved.construction());
+
     if same_entities && same_construction && definition.plane() == solved.plane() {
         return None;
     }
+
     let mut merged = definition.clone();
+
     merged.set_plane(solved.plane());
     for (id, settled) in solved.entities() {
         let fits = definition
@@ -237,10 +247,15 @@ mod tests {
     fn sketched() -> (Document, FeatureId, Evaluation) {
         let mut document = Document::default();
         let mut sketch = Sketch::new(Plane::XY);
+
         sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Sketch 1", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let evaluation = Recompute::default().run(
             &document,
             &ModelEvaluator,
@@ -266,6 +281,7 @@ mod tests {
     fn a_solved_sketch_is_shown_as_it_was_solved_without_a_copy() {
         let (document, feature, evaluation) = sketched();
         let sketches = DisplayedSketches::default();
+
         let owner = document.feature(feature).unwrap();
 
         let shown = sketches.get(&evaluation, owner).unwrap();
@@ -279,6 +295,7 @@ mod tests {
     #[test]
     fn a_sketch_changed_since_it_was_solved_is_merged_once_until_forgotten() {
         let (mut document, feature, evaluation) = sketched();
+
         document
             .apply(caditor_document::Transaction::single(
                 "Add a point",
@@ -291,11 +308,13 @@ mod tests {
                 },
             ))
             .unwrap();
+
         let mut sketches = DisplayedSketches::default();
         let owner = document.feature(feature).unwrap();
 
         let first = sketches.get(&evaluation, owner).unwrap();
         let second = sketches.get(&evaluation, owner).unwrap();
+
         let (Displayed::Shared(first), Displayed::Shared(second)) = (first, second) else {
             panic!("the changed sketch is merged");
         };
@@ -309,17 +328,20 @@ mod tests {
 
         sketches.forget();
         sketches.get(&evaluation, owner).unwrap();
+
         assert_eq!(sketches.merges(), 2);
     }
 
     #[test]
     fn a_curve_made_construction_since_the_solve_shows_as_construction() {
         let (mut document, feature, evaluation) = sketched();
+
         let line = solved(&evaluation, feature)
             .entities()
             .find(|(_, entity)| matches!(entity, Entity::Line { .. }))
             .map(|(id, _)| id)
             .unwrap();
+
         document
             .apply(caditor_document::Transaction::single(
                 "Make construction",
@@ -330,6 +352,7 @@ mod tests {
                 },
             ))
             .unwrap();
+
         let sketches = DisplayedSketches::default();
         let owner = document.feature(feature).unwrap();
 
@@ -343,6 +366,7 @@ mod tests {
     fn a_sketch_is_measured_once_until_forgotten() {
         let (document, feature, evaluation) = sketched();
         let mut sketches = DisplayedSketches::default();
+
         let owner = document.feature(feature).unwrap();
         let measured = Cell::new(0);
         let measure = |sketch: &Sketch| {
@@ -352,11 +376,13 @@ mod tests {
 
         let first = sketches.bounds(&evaluation, owner, measure);
         let again = sketches.bounds(&evaluation, owner, measure);
+
         assert_eq!(first, again);
         assert_eq!(measured.get(), 1);
 
         sketches.forget();
         sketches.bounds(&evaluation, owner, measure);
+
         assert_eq!(measured.get(), 2);
     }
 
@@ -364,21 +390,32 @@ mod tests {
     fn the_generation_moves_whenever_what_is_shown_may_change_and_only_then() {
         let (document, feature, evaluation) = sketched();
         let mut sketches = DisplayedSketches::default();
+
         let owner = document.feature(feature).unwrap();
         let dragged = Arc::new(solved(&evaluation, feature).clone());
 
         let unchanged = sketches.generation();
+
         sketches.get(&evaluation, owner);
         sketches.bounds(&evaluation, owner, |_| None);
         sketches.stop_showing_dragged();
+
         let after_reading = sketches.generation();
+
         sketches.show_dragged(feature, Arc::clone(&dragged));
+
         let dragging = sketches.generation();
+
         sketches.hold_dragged_until(3);
+
         let held = sketches.generation();
+
         sketches.stop_showing_dragged();
+
         let dropped = sketches.generation();
+
         sketches.forget();
+
         let forgotten = sketches.generation();
 
         assert_eq!(after_reading, unchanged);

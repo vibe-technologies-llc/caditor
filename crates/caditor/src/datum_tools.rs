@@ -26,7 +26,7 @@ pub const DEFAULT_ANGLE: f64 = 45.0;
 pub const SEVERAL_PLANES: &str =
     "Several planes or flat faces are selected; select only the one to use";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum OneChoiceError {
     #[error("{}", SEVERAL_PLANES)]
     SeveralPlanes,
@@ -50,7 +50,7 @@ impl Reason for OneChoiceError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum UnusableSelection {
     #[error("{}", self.text())]
     FaceNeitherFlatNorRound,
@@ -106,7 +106,7 @@ impl UnusableSelection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum DatumFromSelectionError {
     #[error("{}", self.text())]
     PlaneChoices,
@@ -174,6 +174,7 @@ fn only<T: PartialEq>(
     several: OneChoiceError,
 ) -> Result<Option<T>, OneChoiceError> {
     let mut found: Vec<T> = Vec::new();
+
     for candidate in candidates {
         if !found.contains(&candidate) {
             found.push(candidate);
@@ -224,7 +225,7 @@ pub fn only_axis(
     )
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChosenPlane {
     pub plane: PlaneReference,
     pub face: Option<Pickable>,
@@ -237,6 +238,7 @@ pub fn chosen_plane(
 ) -> Result<Option<ChosenPlane>, OneChoiceError> {
     let document = model.document();
     let mut planes = Vec::new();
+
     for pickable in selection.iter() {
         match pickable {
             Pickable::Plane(plane) => planes.push(PlaneReference::Principal(plane)),
@@ -267,6 +269,7 @@ pub fn chosen_plane(
         [_, _, ..] => return Err(OneChoiceError::SeveralPlanes),
         [] => {}
     }
+
     let faces: Vec<ChosenPlane> = selection
         .iter()
         .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
@@ -309,6 +312,7 @@ pub fn plane_middle(
     let solid = evaluation
         .body_seen_by(feature, attachment.body)
         .or_else(|| evaluation.body(attachment.body))?;
+
     let faces = match attachment.face.resolve(solid) {
         Ok(face) => vec![face],
         Err(ReferenceError::Ambiguous(pieces)) => pieces,
@@ -457,6 +461,7 @@ pub fn axis_reference(model: &Model, pickable: Pickable, index: usize) -> Option
         }
         Pickable::SketchEntity { feature, entity } if comes_before(document, feature, index) => {
             let sketch = document.feature(feature)?.kind.sketch()?;
+
             sketch.line_endpoints(entity)?;
             Some(AxisReference::Sketch {
                 sketch: feature,
@@ -508,6 +513,7 @@ pub fn point_reference(model: &Model, pickable: Pickable, index: usize) -> Optio
         }
         Pickable::SketchEntity { feature, entity } if comes_before(document, feature, index) => {
             let sketch = document.feature(feature)?.kind.sketch()?;
+
             sketch.point(entity)?;
             Some(PointReference::Sketch {
                 sketch: feature,
@@ -527,6 +533,7 @@ fn face_before(
     let shown = bodies::shown(model.evaluation(), body)?;
     let reference = FaceReference::capture(&shown.solid, bodies::find_face(shown, face)?)?;
     let state = sketch_placement::body_state_before(model, body, index).ok()?;
+
     let id = reference.resolve(state).ok()?;
     let surface = state.face(id)?.surface().clone();
     Some((FaceReference::capture(state, id)?, surface))
@@ -553,7 +560,9 @@ fn face_tangent(model: &Model, selection: &Selection, index: usize) -> Option<Fa
             let Pickable::Face { body, face } = face else {
                 return None;
             };
+
             let (reference, surface) = face_before(model, body, face, index)?;
+
             if matches!(surface, Surface::Plane(_)) {
                 return None;
             }
@@ -569,6 +578,7 @@ fn face_centre(model: &Model, pickable: Pickable, index: usize) -> Option<PointB
     let Pickable::Face { body, face } = pickable else {
         return None;
     };
+
     let (face, _) = face_before(model, body, face, index)?;
     Some(PointBy::FaceCentre { body, face })
 }
@@ -578,6 +588,7 @@ fn curve_station(model: &Model, pickable: Pickable, index: usize) -> Option<Curv
         return None;
     };
     let shown = bodies::shown(model.evaluation(), body)?;
+
     let reference = EdgeReference::capture(&shown.solid, bodies::find_edge(shown, edge)?)?;
     let state = sketch_placement::body_state_before(model, body, index).ok()?;
     CurveStation::capture(
@@ -590,6 +601,7 @@ fn curve_station(model: &Model, pickable: Pickable, index: usize) -> Option<Curv
 
 fn only_pickable(selection: &Selection) -> Option<Pickable> {
     let mut picked = selection.iter();
+
     let first = picked.next()?;
     picked.next().is_none().then_some(first)
 }
@@ -606,6 +618,7 @@ fn chosen(model: &Model, selection: &Selection, index: usize) -> Chosen {
     let mut axes = Vec::new();
     let mut points = Vec::new();
     let mut unusable = None;
+
     for pickable in selection.iter() {
         if let Some(plane) = plane_reference(model, pickable, index) {
             planes.push(plane);
@@ -685,12 +698,14 @@ fn plane_by_references(
             station,
         ))));
     }
+
     let Chosen {
         planes,
         axes,
         points,
         unusable,
     } = chosen(model, selection, index);
+
     if let Some(unusable) = unusable {
         return Err(DatumFromSelectionError::Unusable(unusable));
     }
@@ -732,6 +747,7 @@ fn plane_by_references(
     if planes.is_empty() && axes.is_empty() && !selection.is_empty() {
         return Err(DatumFromSelectionError::PlaneChoices);
     }
+
     let base = planes
         .into_iter()
         .next()
@@ -777,6 +793,7 @@ fn axis_by_references(
         points,
         unusable,
     } = chosen(model, selection, index);
+
     if let Some(unusable) = unusable {
         return Err(DatumFromSelectionError::Unusable(unusable));
     }
@@ -801,6 +818,7 @@ pub fn point_from_selection(
             offset: [0.0; 3].map(|value| unit.default_length(value)),
         })
     };
+
     if let Some(pickable) = only_pickable(selection) {
         if matches!(pickable, Pickable::Face { .. })
             && let Some(centre) = point_reference(model, pickable, index)
@@ -817,12 +835,14 @@ pub fn point_from_selection(
             return Ok(Datum::PointBy(PointBy::Along(Box::new(station))));
         }
     }
+
     let Chosen {
         planes,
         axes,
         points,
         unusable,
     } = chosen(model, selection, index);
+
     if let Some(unusable) = unusable {
         return Err(DatumFromSelectionError::Unusable(unusable));
     }
@@ -877,6 +897,7 @@ pub fn frame_from_selection(
     let mut origin = None;
     let mut x_axis = None;
     let mut plane = None;
+
     for pickable in selection.iter() {
         let direction = || measure::direction_of(model, pickable);
         if let Some(found) = plane_reference(model, pickable, index) {
@@ -895,6 +916,7 @@ pub fn frame_from_selection(
             return Err(DatumFromSelectionError::Unusable(unusable));
         }
     }
+
     let normal = plane.as_ref().and_then(|(_, normal)| *normal);
     let along = x_axis.as_ref().and_then(|(_, along)| *along);
     let x_axis = x_axis.map(|(axis, _)| axis).unwrap_or_else(|| {
@@ -923,6 +945,7 @@ pub fn frame_from_selection(
 pub fn create(document: &Document, datum: Datum) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, datum.title());
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(name, FeatureKind::Datum(datum));
     (transaction.finish(), feature)
 }
@@ -930,6 +953,7 @@ pub fn create(document: &Document, datum: Datum) -> (Transaction, FeatureId) {
 pub fn create_actions(document: &Document, datum: Datum) -> Vec<Action> {
     let title = datum.title();
     let (transaction, feature) = create(document, datum);
+
     if let Err(error) = document.check(&transaction) {
         return vec![Action::Inform(Notice::warning(format!(
             "{title}: {error}."

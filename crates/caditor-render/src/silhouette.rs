@@ -15,7 +15,7 @@ pub const SILHOUETTE_STRIDE: u64 = SILHOUETTE_BYTES as u64;
 const SILHOUETTE_BINDING: u32 = 3;
 const SILHOUETTE_UNIFORM_BYTES: u64 = 80;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Silhouette {
     pub mesh: Arc<ShadedMesh>,
     pub color: Color,
@@ -36,7 +36,7 @@ impl PartialEq for Silhouette {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Written {
     placed: PlacedAt,
     color: Color,
@@ -80,6 +80,7 @@ impl SilhouetteUpload {
         let per_chunk = usize::try_from(gpu::buffer_limit(device) / SILHOUETTE_STRIDE)
             .unwrap_or(usize::MAX)
             .max(1);
+
         let chunks = (0..total.div_ceil(per_chunk))
             .map(|chunk| {
                 let count = per_chunk.min(total - chunk * per_chunk);
@@ -109,11 +110,14 @@ impl SilhouetteUpload {
             let (chunk, within) = (self.written / self.per_chunk, self.written % self.per_chunk);
             let room = (self.per_chunk - within).min(self.total - self.written);
             let granted = budget.grant(room, SILHOUETTE_STRIDE);
+
             if granted == 0 {
                 return false;
             }
+
             let mut staged = 0;
             let mut next_triangle = self.next_triangle;
+
             let records = self
                 .mesh
                 .curved_triangles(self.next_triangle)
@@ -123,8 +127,10 @@ impl SilhouetteUpload {
                     staged += 1;
                     packed_triangle(&corners)
                 });
+
             if let Some(chunk) = self.chunks.get(chunk) {
                 let offset = within as u64 * SILHOUETTE_STRIDE;
+
                 gpu::write_records(queue, &chunk.buffer, offset, granted, records);
             }
             self.next_triangle = next_triangle;
@@ -139,11 +145,13 @@ impl SilhouetteUpload {
     fn finish(self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> GpuSilhouette {
         let drawn = u32::try_from(self.total).unwrap_or(u32::MAX);
         let mut left = drawn;
+
         let chunks = self
             .chunks
             .into_iter()
             .map(|chunk| {
                 let count = chunk.count.min(left);
+
                 left -= count;
                 Chunk { count, ..chunk }
             })
@@ -225,6 +233,7 @@ impl GpuSilhouette {
         anchor: Point3,
     ) {
         let written = Written::of(silhouette, anchor);
+
         if self.written == Some(written) {
             return;
         }
@@ -233,8 +242,10 @@ impl GpuSilhouette {
             .mesh
             .bounds()
             .map(|bounds| placed_corners(bounds, silhouette.placement));
+
         let placed = Placed::of(self.mesh.origin(), silhouette.placement, anchor);
         let [turn_x, turn_y, turn_z] = placed.turn;
+
         bytes.clear();
         bytes
             .vec4(placed.offset, silhouette.width)
@@ -356,8 +367,10 @@ impl SilhouetteCache {
         self.refused.refill(&mut self.rejected);
         self.stopped = budget.is_stopped();
         self.left_out = 0;
+
         let mut newly_rejected = 0;
         let mut rewritten = false;
+
         for silhouette in silhouettes
             .iter()
             .filter(|silhouette| !silhouette.mesh.is_empty())
@@ -366,21 +379,27 @@ impl SilhouetteCache {
                 self.rejected.push(refused);
                 continue;
             }
+
             let reused = self.previous.take(&silhouette.mesh);
+
             if let Some(ready) = &reused
                 && !ready.needs_writing(silhouette, anchor)
             {
                 self.silhouettes.extend(reused);
                 continue;
             }
+
             let started = self.started.take(&silhouette.mesh);
+
             if self.stopped && reused.is_none() {
                 self.left_out += 1;
                 self.uploads.extend(started);
                 continue;
             }
+
             let staging = &mut self.staging;
             let layout = &self.layout;
+
             let (prepared, error) = gpu::scoped(device, || {
                 let mut ready = match reused {
                     Some(gpu) => gpu,
@@ -388,12 +407,14 @@ impl SilhouetteCache {
                         let mut upload = started.unwrap_or_else(|| {
                             SilhouetteUpload::start(device, Arc::clone(&silhouette.mesh))
                         });
+
                         if !upload.advance(queue, budget) {
                             return Prepared::Uploading(upload);
                         }
                         upload.finish(device, layout)
                     }
                 };
+
                 ready.write(queue, staging, silhouette, anchor);
                 Prepared::Ready(Box::new(ready))
             });
@@ -430,6 +451,7 @@ impl SilhouetteCache {
         anchor: Point3,
     ) -> bool {
         let mut previous: Vec<GpuSilhouette> = self.previous.rest().collect();
+
         if previous.iter().all(|silhouette| {
             silhouette
                 .written
@@ -438,6 +460,7 @@ impl SilhouetteCache {
             self.silhouettes.append(&mut previous);
             return false;
         }
+
         let staging = &mut self.staging;
         let ((), error) = gpu::scoped(device, || {
             for silhouette in &mut previous {
@@ -450,10 +473,12 @@ impl SilhouetteCache {
                         dashed_where_hidden: written.dashed_where_hidden,
                         placement: written.placed.placement,
                     };
+
                     silhouette.write(queue, staging, &kept, anchor);
                 }
             }
         });
+
         match error {
             None => self.silhouettes.append(&mut previous),
             Some(error) => log::warn!(
@@ -502,6 +527,7 @@ impl SilhouetteCache {
                     .is_none_or(|corners| window.sees(&corners))
             })
             .peekable();
+
         if seen.peek().is_none() {
             return;
         }

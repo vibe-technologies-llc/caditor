@@ -23,7 +23,7 @@ use crate::{
     visibility,
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SelectionFilter {
     #[default]
     Everything,
@@ -95,7 +95,7 @@ impl SelectionFilter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Axis {
     X,
     Y,
@@ -142,7 +142,7 @@ impl Axis {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Pickable {
     Origin,
     Axis(Axis),
@@ -565,7 +565,7 @@ impl Pickable {
 
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Selection {
     items: BTreeMap<Pickable, u64>,
     next_pick: u64,
@@ -599,6 +599,7 @@ impl Selection {
 
     fn insert(&mut self, pickable: Pickable) {
         let pick = self.next_pick;
+
         self.next_pick += 1;
         self.items.entry(pickable).or_insert(pick);
     }
@@ -621,6 +622,7 @@ impl Selection {
             .iter()
             .map(|(pickable, pick)| (*pick, *pickable))
             .collect();
+
         picked.sort_unstable();
         picked.into_iter().map(|(_, pickable)| pickable).collect()
     }
@@ -660,6 +662,7 @@ impl Selection {
 
     pub fn retain(&mut self, keep: impl Fn(Pickable) -> bool) {
         let before = self.items.len();
+
         self.items.retain(|pickable, _| keep(*pickable));
         if self.items.len() != before {
             self.changed();
@@ -673,6 +676,7 @@ impl Selection {
         context: Context,
     ) {
         let before = self.items.len();
+
         self.items
             .retain(|pickable, _| pickable.is_available(document, evaluation, context));
         if self.items.len() != before {
@@ -688,14 +692,18 @@ mod tests {
     #[test]
     fn toggling_adds_then_removes_and_replace_keeps_only_one() {
         let mut selection = Selection::default();
+
         selection.toggle(Pickable::Origin);
         selection.toggle(Pickable::Axis(Axis::X));
+
         assert_eq!(selection.iter().count(), 2);
 
         selection.toggle(Pickable::Origin);
+
         assert!(!selection.contains(Pickable::Origin));
 
         selection.replace_with(Pickable::Plane(PrincipalPlane::Xy));
+
         assert_eq!(
             selection.iter().collect::<Vec<_>>(),
             vec![Pickable::Plane(PrincipalPlane::Xy)]
@@ -705,6 +713,7 @@ mod tests {
     #[test]
     fn the_pick_order_is_kept_beside_the_sorted_items() {
         let mut selection = Selection::default();
+
         selection.toggle(Pickable::Plane(PrincipalPlane::Yz));
         selection.toggle(Pickable::Origin);
         selection.extend([Pickable::Axis(Axis::Z), Pickable::Plane(PrincipalPlane::Yz)]);

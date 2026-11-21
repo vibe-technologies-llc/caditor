@@ -21,7 +21,7 @@ pub const ARC_PLACING: &str = "Click an empty place for a dimension of the arc: 
      close inside it or off its sweep the radius, further in the diameter, near its centre its sweep";
 pub const AXIS_KEYS: &str = "Enter: the distance   Esc: start again";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Unfit {
     #[error("Click a line, circle, arc or point to dimension it")]
     PickFirst,
@@ -44,7 +44,7 @@ const LEVEL_TOLERANCE: f64 = 1e-9;
 const RADIUS_FROM: f64 = 0.75;
 const DIAMETER_FROM: f64 = 0.4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Point,
     Line,
@@ -78,7 +78,7 @@ pub fn picks(pickable: Pickable, sketch: FeatureId) -> bool {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fit {
     Ready(ConstraintTool),
     Waiting,
@@ -90,6 +90,7 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
     let Some(kinds) = kinds else {
         return Fit::Refused(Unfit::NotInSketch);
     };
+
     match kinds.as_slice() {
         [Kind::Ellipse] => return Fit::Ready(ConstraintTool::Radius),
         [Kind::Line, Kind::Ellipse] | [Kind::Ellipse, Kind::Line]
@@ -155,9 +156,11 @@ fn offset_ends(sketch: &Sketch, picks: &[EntityId]) -> Option<[(Point2, Point2);
     let &[from, to] = picks else {
         return None;
     };
+
     if sketch.angle_vertex(from, to).is_some() {
         return None;
     }
+
     let measurable = matches!(
         (kind(sketch, from)?, kind(sketch, to)?),
         (
@@ -166,25 +169,30 @@ fn offset_ends(sketch: &Sketch, picks: &[EntityId]) -> Option<[(Point2, Point2);
         ) | (Kind::Circle | Kind::Arc | Kind::Line, Kind::Point)
             | (Kind::Line, Kind::Circle | Kind::Arc)
     );
+
     if !measurable {
         return None;
     }
+
     let value = Expression::Number(0.0);
     let ends = |constraint: Constraint| {
         sketch
             .axis_offset_ends(&constraint)
             .map(|(start, end, _)| (start, end))
     };
+
     let across = ends(Constraint::HorizontalDistance {
         from,
         to,
         value: value.clone(),
     })?;
     let upright = ends(Constraint::VerticalDistance { from, to, value })?;
+
     let (wide, tall) = (
         (across.1 - across.0).x.abs(),
         (upright.1 - upright.0).y.abs(),
     );
+
     let tolerance = LEVEL_TOLERANCE * wide.max(tall);
     (wide > tolerance && tall > tolerance).then_some([across, upright])
 }
@@ -214,6 +222,7 @@ fn about_axis(sketch: &Sketch, picks: &[EntityId]) -> Option<(EntityId, EntityId
 fn across_axis(sketch: &Sketch, point: EntityId, axis: EntityId, pointer: Point2) -> Option<bool> {
     let point = sketch.point(point)?;
     let (start, end) = sketch.line_endpoints(axis)?;
+
     let along = end - start;
     Some(along.perp_dot(point - start) * along.perp_dot(pointer - start) < 0.0)
 }
@@ -230,6 +239,7 @@ pub fn placed(
         return Some(tool);
     };
     let kinds: Vec<Option<Kind>> = picks.iter().map(|id| kind(sketch, *id)).collect();
+
     let placed = match (kinds.as_slice(), picks) {
         ([Some(Kind::Line)], [line]) => sketch
             .line_endpoints(*line)
@@ -279,11 +289,14 @@ fn is_lone_arc(sketch: &Sketch, picks: &[EntityId]) -> bool {
 
 fn oriented(start: Point2, end: Point2, pointer: Point2) -> ConstraintTool {
     let (low, high) = (start.min(end), start.max(end));
+
     let span = high - low;
     let tolerance = LEVEL_TOLERANCE * span.length();
+
     if span.x <= tolerance || span.y <= tolerance {
         return ConstraintTool::Distance;
     }
+
     let within_x = (low.x..=high.x).contains(&pointer.x);
     let within_y = (low.y..=high.y).contains(&pointer.y);
     match (within_x, within_y) {
@@ -371,6 +384,7 @@ pub fn prompt(
     pointer: Option<Point2>,
 ) -> (String, &'static str) {
     let as_placed = placed(sketch, picks, pointer);
+
     if let Some((_, axis)) = about_axis(sketch, picks)
         && let Some(tool) = as_placed
     {
@@ -444,10 +458,13 @@ pub fn hover_words(
     hovered: EntityId,
 ) -> String {
     let label = label_of(sketch, names, hovered);
+
     if picks.contains(&hovered) {
         return format!("Click to let go of {label}");
     }
+
     let picked: Vec<EntityId> = picks.iter().copied().chain([hovered]).collect();
+
     if let Some((point, axis)) = about_axis(sketch, &picked) {
         return format!(
             "Click to pick {label}, then click across {} for the diameter of {}, or on its side \
@@ -477,7 +494,7 @@ pub fn hover_words(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DimensionToolError {
     #[error("{prompt}")]
     Waiting { prompt: String },
@@ -494,6 +511,7 @@ pub fn dimension(
     pointer: Option<Point2>,
 ) -> Result<Added, DimensionToolError> {
     let (definition, shown, picks) = (&staged.definition, &staged.shown, &staged.picks);
+
     let tool = match fitting(shown, picks) {
         Fit::Ready(tool) => placed(shown, picks, pointer).unwrap_or(tool),
         Fit::Waiting => {
@@ -523,6 +541,7 @@ mod tests {
     #[test]
     fn the_picks_choose_the_dimension_that_fits_them() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let level = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
         let above = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(20.0, 5.0));
         let slanted = sketch.add_line(Point2::ZERO, Point2::new(10.0, 10.0));
@@ -571,13 +590,17 @@ mod tests {
             fitting(&sketch, &[spline, circle]),
             Fit::Ready(ConstraintTool::Distance)
         );
+
         let other_spline = sketch.add_spline(&[Point2::new(5.0, 0.0), Point2::new(6.0, 2.0)]);
+
         assert_eq!(
             fitting(&sketch, &[spline, other_spline]),
             Fit::Refused(Unfit::Spline)
         );
+
         let ellipse = sketch.add_ellipse(Point2::new(0.0, 9.0), Point2::new(4.0, 9.0), 2.0);
         let other_ellipse = sketch.add_ellipse(Point2::new(9.0, 9.0), Point2::new(9.0, 12.0), 1.0);
+
         assert_eq!(
             fitting(&sketch, &[spline, ellipse]),
             Fit::Ready(ConstraintTool::Distance)
@@ -594,6 +617,7 @@ mod tests {
             fitting(&sketch, &[level, arc]),
             Fit::Ready(ConstraintTool::Distance)
         );
+
         let Some(&Entity::Arc { start, .. }) = sketch.entity(arc) else {
             panic!("expected an arc");
         };
@@ -601,9 +625,11 @@ mod tests {
         let Some(&Entity::Line { start: joint, .. }) = sketch.entity(leaving) else {
             panic!("expected a line");
         };
+
         sketch
             .add_constraint(caditor_sketch::Constraint::Coincident(joint, start))
             .unwrap();
+
         assert_eq!(
             fitting(&sketch, &[leaving, arc]),
             Fit::Ready(ConstraintTool::Angle)
@@ -617,6 +643,7 @@ mod tests {
     #[test]
     fn the_words_say_what_a_click_or_enter_would_dimension() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let level = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
         let slanted = sketch.add_line(Point2::ZERO, Point2::new(10.0, 10.0));
         let point = sketch.add_point(Point2::new(3.0, 4.0));
@@ -658,8 +685,11 @@ mod tests {
     #[test]
     fn a_point_and_a_construction_line_wait_for_a_click_across_it_for_the_diameter() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let axis = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(0.0, 10.0));
+
         sketch.set_construction(axis, true).unwrap();
+
         let edge = sketch.add_line(Point2::new(10.0, -10.0), Point2::new(10.0, 10.0));
         let point = sketch.add_point(Point2::new(6.0, 2.0));
         let at = |x: f64, y: f64| Some(Point2::new(x, y));
@@ -706,6 +736,7 @@ mod tests {
     #[test]
     fn a_point_or_circle_off_a_slanted_line_and_two_circles_wait_to_be_placed() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let point = sketch.add_point(Point2::new(8.0, 3.0));
         let slanted = sketch.add_line(Point2::ZERO, Point2::new(10.0, 10.0));
         let level = sketch.add_line(Point2::new(0.0, -5.0), Point2::new(10.0, -5.0));
@@ -746,6 +777,7 @@ mod tests {
     #[test]
     fn a_slanted_line_and_an_arc_sharing_an_end_give_their_angle_without_waiting_to_be_placed() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let slanted = sketch.add_line(Point2::new(-8.0, -6.0), Point2::ZERO);
         let Some(Entity::Line { end: joint, .. }) = sketch.entity(slanted).cloned() else {
             panic!("a line was added");
@@ -753,6 +785,7 @@ mod tests {
         let center = sketch.add_point(Point2::new(0.0, 10.0));
         let away = sketch.add_point(Point2::new(10.0, 10.0));
         let arc = EntityId::from_raw(sketch.next_id());
+
         sketch
             .insert_entity(
                 arc,
@@ -763,6 +796,7 @@ mod tests {
                 },
             )
             .unwrap();
+
         let apart = sketch.add_arc(
             Point2::new(30.0, 0.0),
             Point2::new(40.0, 0.0),
@@ -786,11 +820,13 @@ mod tests {
     #[test]
     fn where_the_pointer_is_chooses_horizontal_vertical_or_aligned_and_an_arc_s_part() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let first = sketch.add_point(Point2::ZERO);
         let second = sketch.add_point(Point2::new(10.0, 4.0));
         let level = sketch.add_point(Point2::new(10.0, 0.0));
         let slanted = sketch.add_line(Point2::ZERO, Point2::new(6.0, 8.0));
         let arc = sketch.add_arc(Point2::ZERO, Point2::new(5.0, 0.0), Point2::new(0.0, 5.0));
+
         let points = [first, second];
         let at = |x: f64, y: f64| Some(Point2::new(x, y));
 
@@ -851,6 +887,7 @@ mod tests {
     fn inside_a_wide_arc_s_sweep_the_distance_from_its_centre_chooses_the_dimension() {
         let mut sketch = Sketch::new(Plane::XY);
         let end = Point2::from_angle(300f64.to_radians()) * 10.0;
+
         let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), end);
         let along = |depth: f64| Some(Point2::from_angle(150f64.to_radians()) * 10.0 * depth);
 

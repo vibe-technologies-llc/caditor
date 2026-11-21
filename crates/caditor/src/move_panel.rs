@@ -50,7 +50,7 @@ pub const FRAME_DESCRIPTION: &str = "Turns about and shifts along the X, Y and Z
                                      the origin";
 const PICK_HOVER: &str = "Turn about the selected axis, straight edge, round face or sketch line";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Centre {
     Body,
     Origin,
@@ -151,6 +151,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, TURN_ABOUT, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -167,6 +168,7 @@ impl Panel<'_> {
                 ..self.movement.clone()
             })
         });
+
         self.actions.extend(chosen);
         if self.movement.frame.is_some() {
             feature_fields::description_row(ui, FRAME_DESCRIPTION);
@@ -175,6 +177,7 @@ impl Panel<'_> {
 
     fn axis_rows(&mut self, ui: &mut Ui, turn: &AxisTurn) {
         let (model, id) = (self.model, self.id());
+
         let row = AxisRow {
             caption: AXIS,
             shown: Some(capitalized(&describe_axis(model.document(), &turn.axis))),
@@ -197,6 +200,7 @@ impl Panel<'_> {
             })
         };
         let mut actions = Vec::new();
+
         feature_fields::axis_row(ui, model, row, Some(&listed), &mut actions);
         self.actions.extend(actions);
         self.angle_row(ui, turn);
@@ -212,6 +216,7 @@ impl Panel<'_> {
             dimension: Dimension::ANGLE,
             rule: Rule::Any,
         };
+
         let drafting =
             feature_fields::expression_row_drafting(ui, self.model, ANGLE, quantity, |angle| {
                 self.change(Move {
@@ -222,12 +227,14 @@ impl Panel<'_> {
                     ..movement.clone()
                 })
             });
+
         self.actions.extend(drafting.into_actions(id));
     }
 
     fn distance_row(&mut self, ui: &mut Ui, axis: MoveAxis) {
         let id = self.id();
         let movement = self.movement;
+
         let quantity = Quantity {
             feature: id,
             id: Id::unique(("move-field", "offset", axis.index(), id)),
@@ -242,16 +249,19 @@ impl Panel<'_> {
             quantity,
             |value| {
                 let mut changed = movement.clone();
+
                 *axis.of_mut(&mut changed.offset) = value;
                 self.change(changed)
             },
         );
+
         self.actions.extend(drafting.into_actions(id));
     }
 
     fn turn_row(&mut self, ui: &mut Ui, axis: MoveAxis) {
         let id = self.id();
         let movement = self.movement;
+
         let quantity = Quantity {
             feature: id,
             id: Id::unique(("move-field", "turn", axis.index(), id)),
@@ -266,10 +276,12 @@ impl Panel<'_> {
             quantity,
             |value| {
                 let mut changed = movement.clone();
+
                 *axis.of_mut(&mut changed.turn) = value;
                 self.change(changed)
             },
         );
+
         self.actions.extend(drafting.into_actions(id));
     }
 
@@ -292,6 +304,7 @@ impl Panel<'_> {
         })
         .collect();
         let chosen = feature_fields::segmented_row(ui, RESULT, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 }
@@ -311,8 +324,10 @@ pub fn show(
         movement,
         actions,
     };
+
     widgets::properties(ui, ("move-properties", feature.id()), |ui| {
         let centre = Centre::of(&movement.about);
+
         feature_fields::description_row(ui, centre.description(movement.copy));
         panel.centre_row(ui);
         panel.frame_row(ui);

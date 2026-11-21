@@ -55,6 +55,7 @@ impl Panel<'_> {
 
     fn apply(&mut self, primitive: Primitive) {
         let change = primitive_tools::change(self.model, self.id(), primitive);
+
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
@@ -62,6 +63,7 @@ impl Panel<'_> {
     fn shape_row(&mut self, ui: &mut Ui) {
         let current = self.primitive.shape.kind();
         let unit = self.model.length_unit();
+
         let segments = PrimitiveKind::ALL
             .into_iter()
             .map(|kind| Segment {
@@ -77,6 +79,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Shape", &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -109,6 +112,7 @@ impl Panel<'_> {
             remove: None,
         };
         let mut actions = Vec::new();
+
         plane_selector::row(
             ui,
             self.model,
@@ -151,6 +155,7 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, self.model, caption, quantity, |value| {
                 primitive_tools::change(self.model, self.id(), changed(value))
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
@@ -158,8 +163,10 @@ impl Panel<'_> {
         for (index, caption) in feature_fields::POSITION_CAPTIONS.into_iter().enumerate() {
             let primitive = self.primitive.clone();
             let any = (Dimension::LENGTH, Rule::Any);
+
             self.value_row(ui, caption, ("at", index), any, move |value| {
                 let mut changed = primitive.clone();
+
                 if let Some(slot) = changed.at.get_mut(index) {
                     *slot = value;
                 }
@@ -188,6 +195,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Starts at", &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -207,8 +215,10 @@ impl Panel<'_> {
                 SizeRule::ZeroOrMore => (Dimension::LENGTH, Rule::ZeroOrMore),
                 SizeRule::Sides => (Dimension::NONE, Rule::Sides),
             };
+
             self.value_row(ui, caption, ("size", index), checked, move |value| {
                 let mut changed = primitive.clone();
+
                 if let Some(slot) = changed.shape.sizes_mut().into_iter().nth(index) {
                     *slot = value;
                 }
@@ -246,6 +256,7 @@ impl Panel<'_> {
                 primitive_tools::with_operation(self.primitive, operation),
             )
         });
+
         self.actions.extend(chosen);
     }
 }
@@ -265,6 +276,7 @@ pub fn show(
         primitive,
         actions,
     };
+
     widgets::properties(ui, ("primitive-properties", feature.id()), |ui| {
         panel.shape_row(ui);
         panel.plane_rows(ui);

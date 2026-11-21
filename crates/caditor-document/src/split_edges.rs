@@ -19,7 +19,7 @@ const ANGLE_RESOLUTION: f64 = 1e-9;
 
 type PieceEdges<'a> = Vec<(EdgeId, &'a Edge)>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Followed {
     Resolved(Resolution<EdgeId>),
     PartlyLost(Vec<EdgeId>),
@@ -41,7 +41,7 @@ impl Followed {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Unrun {
     Missing,
     Tied,
@@ -49,7 +49,7 @@ pub(crate) enum Unrun {
     PartlyTraced,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TracedEdge {
     Found(Vec<EdgeId>),
     PartlyTraced,
@@ -95,6 +95,7 @@ pub(crate) struct SplitEdges<'a> {
 impl<'a> SplitEdges<'a> {
     pub(crate) fn new(document: &'a Document, solid: &'a Solid) -> Self {
         let mut around: BTreeMap<VertexId, BTreeSet<FaceId>> = BTreeMap::new();
+
         for (id, edge) in solid.edges() {
             let faces = edge_faces(solid, id);
             for vertex in [edge.start(), edge.end()] {
@@ -146,6 +147,7 @@ impl<'a> SplitEdges<'a> {
         let shared = self.shared_face(along, found)?;
         let mut wanted: Vec<VertexName> = reference.ends().to_vec();
         let mut open = Vec::new();
+
         for vertex in [edge.start(), edge.end()] {
             let name = self.end_name(along, shared, vertex);
             match wanted.iter().position(|end| *end == name) {
@@ -166,6 +168,7 @@ impl<'a> SplitEdges<'a> {
             .partition(|(id, _)| pieces_of_one_edge(self.solid, &[found, *id]));
         let mut widened = vec![found];
         let mut lost = false;
+
         for vertex in open {
             match self.walk(along, shared, edge, vertex, &candidates, &mut wanted) {
                 Walk::Reached(walked) => widened.extend(walked),
@@ -209,8 +212,11 @@ impl<'a> SplitEdges<'a> {
                 Some((travel.distance(midpoint(candidate))?, *id, *candidate))
             })
             .collect();
+
         ahead.sort_by(|first, second| first.0.total_cmp(&second.0));
+
         let mut walked = Vec::new();
+
         for (_, id, candidate) in ahead {
             walked.push(id);
             if let Some(index) = self.reached(along, shared, candidate, wanted) {
@@ -306,6 +312,7 @@ impl SplitCurve {
     fn of(document: &Document, reference: &EdgeReference) -> Option<Self> {
         let [first, second] = reference.faces();
         let [first_origin, second_origin] = reference.origins();
+
         let sides = [(first, first_origin), (second, second_origin)];
         sides
             .iter()
@@ -314,14 +321,17 @@ impl SplitCurve {
                 let FaceOrigin::Side { feature, entity } = (*origin)? else {
                     return None;
                 };
+
                 let pieces = pieces_of(document, feature, entity)?;
                 let (other, other_origin) = sides.get(1 - index)?;
+
                 let split = Self {
                     feature,
                     pieces,
                     side: *side,
                     other: *other,
                 };
+
                 if other_origin.is_some_and(|origin| split.made(origin)) {
                     return None;
                 }

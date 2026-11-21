@@ -25,7 +25,7 @@ use crate::{
 pub const TITLE: &str = "Move face";
 pub const DEFAULT_DISTANCE: f64 = 1.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reference {
     Direction,
     Axis,
@@ -53,7 +53,7 @@ impl Reference {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum MoveFaceError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -83,11 +83,14 @@ pub fn create(
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
+
     if faces.len() < source.faces.len() {
         return Err(FaceToolError::FacesGone);
     }
+
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::MoveFace(MoveFace {
@@ -162,6 +165,7 @@ pub fn reference_change(
     let axis = datum_tools::only_axis(model, selection, index)
         .map_err(MoveFaceError::AxisSelection)?
         .ok_or(MoveFaceError::NoAxis)?;
+
     if reference.of(moving) == Some(&axis) {
         return Err(ChoiceRefusal::AlreadyChosen.into());
     }
@@ -192,6 +196,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let clicked = bodies::find_face(input, face)?;
     let solid = &input.solid;
     let mut changed = moving.clone();
+
     changed.faces = moving
         .faces
         .iter()
@@ -199,6 +204,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
         .filter(|(_, resolution)| !resolution.found().contains(&clicked))
         .map(|(reference, _)| reference.clone())
         .collect();
+
     let label = if changed.faces.len() == moving.faces.len() {
         changed.faces.push(FaceReference::capture(solid, clicked)?);
         format!("Move a face with {}", owner.name)
@@ -223,12 +229,15 @@ pub fn with_selected_faces(
     let moving = owner.kind.move_face()?;
     let input = bodies::input(model.evaluation(), feature)?;
     let solid = &input.solid;
+
     let mut taken = chosen(solid, moving);
     let mut changed = moving.clone();
+
     for pickable in selection.iter() {
         let Pickable::Face { body, face } = pickable else {
             continue;
         };
+
         let Some(found) = (body == moving.body)
             .then(|| bodies::find_face(input, face))
             .flatten()
@@ -236,6 +245,7 @@ pub fn with_selected_faces(
         else {
             continue;
         };
+
         changed.faces.push(FaceReference::capture(solid, found)?);
         taken.insert(found);
     }

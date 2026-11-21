@@ -25,7 +25,7 @@ use crate::{
 pub const RIB_SHAPE: &str = "rib";
 pub const MAX_RIB_DRAFT_DEGREES: f64 = 30.0;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Rib {
     pub sketch: FeatureId,
     pub body: FeatureId,
@@ -61,6 +61,7 @@ impl Rib {
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         let mut parameters = self.thickness.parameters();
+
         parameters.extend(self.draft.parameters());
         parameters
     }
@@ -174,6 +175,7 @@ impl Words<'_> {
 
     fn drawn(&self, entities: &[u64]) -> String {
         let mut drawn: Vec<u64> = entities.iter().map(|entity| run_curve(*entity)).collect();
+
         drawn.sort_unstable();
         drawn.dedup();
         self.curves(&drawn)
@@ -277,6 +279,7 @@ fn draft(
 ) -> Result<f64, Failure> {
     let degrees = context.value_as(expression, "draft angle", Dimension::ANGLE)?;
     let shape = context.shape();
+
     if degrees < 0.0 {
         return Err(context.error(RibCause::DraftNegative {
             shape: shape.to_owned(),
@@ -340,9 +343,11 @@ pub(crate) fn evaluate(
             .unwrap_or_default(),
         definition,
     };
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let input = RibInput {
         plane: sketch.plane(),
         curves: profile_curves(sketch),
@@ -356,22 +361,28 @@ pub(crate) fn evaluate(
         feature: feature.id().raw(),
     };
     let tools = rib_tools(&input).map_err(|error| words.failure(error))?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let mut joined: Solid = body.clone();
+
     for tool in &tools {
         joined = boolean(&joined, tool, BooleanOperation::Union).map_err(|error| {
             if let BooleanError::Cancelled(_) = error {
                 return Failure::Cancelled;
             }
+
             let trouble = trouble::boolean_trouble(
                 inputs.document,
                 [&joined, tool],
                 &error,
                 Adjust::MoveItsCurves,
             );
+
             log::warn!("{} could not be joined: {error}", feature.name);
+
             let place = trouble.place;
             words
                 .own(RibCause::Uncombined {
@@ -425,7 +436,7 @@ pub fn rib_stand(evaluation: &Evaluation, definition: &Rib) -> Option<ThicknessS
     )
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RibCause {
     NoCurves {
         sketch: String,

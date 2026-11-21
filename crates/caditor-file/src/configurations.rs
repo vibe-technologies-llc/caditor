@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::format::Lenient;
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ConfigurationsRecord {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<Lenient<ConfiguredValueRecord>>,
@@ -22,7 +22,7 @@ pub(crate) struct ConfigurationsRecord {
     pub next_id: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ConfiguredValueRecord {
     Parameter(u64),
@@ -30,7 +30,7 @@ pub(crate) enum ConfiguredValueRecord {
     Colour(u64),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ConfigurationRecord {
     pub id: u64,
     pub name: String,
@@ -38,7 +38,7 @@ pub(crate) struct ConfigurationRecord {
     pub settings: Vec<Lenient<SettingRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SettingRecord {
     pub value: ConfiguredValueRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -64,6 +64,7 @@ fn setting_record(value: ConfiguredValue, setting: &Setting) -> SettingRecord {
         suppressed: None,
         colour: None,
     };
+
     match setting {
         Setting::Expression(expression) => record.expression = Some(expression.to_stored_text()),
         Setting::Suppressed(suppressed) => record.suppressed = Some(*suppressed),
@@ -118,6 +119,7 @@ fn restore_value(record: ConfiguredValueRecord) -> Option<ConfiguredValue> {
         }
         ConfiguredValueRecord::Colour(raw) => {
             let body = FeatureId::from_raw(raw);
+
             storable(body.maker().raw())?;
             ConfiguredValue::Colour(body)
         }
@@ -141,8 +143,10 @@ fn restore_setting(record: &SettingRecord) -> Option<(ConfiguredValue, Setting)>
 
 fn fitting_name(name: &str, taken: &Configurations, issues: &mut Vec<String>) -> String {
     let mut name = configuration_name(name);
+
     if name.is_empty() {
         let numbered = taken.unused_name();
+
         issues.push(format!(
             "A configuration had no name, so it is called “{numbered}”."
         ));
@@ -163,12 +167,14 @@ fn fitting_name(name: &str, taken: &Configurations, issues: &mut Vec<String>) ->
     if !taken.is_taken(&name) {
         return name;
     }
+
     let room = MAX_CONFIGURATION_NAME_CHARS - 6;
     let base: String = name.chars().take(room).collect();
     let numbered = (2..)
         .map(|number| format!("{base} {number}"))
         .find(|candidate| !taken.is_taken(candidate))
         .unwrap_or_else(|| name.clone());
+
     issues.push(format!(
         "Two configurations were called “{name}”, so one is called “{numbered}”."
     ));
@@ -182,6 +188,7 @@ fn restore_values(
     let mut values = Vec::new();
     let mut seen = BTreeSet::new();
     let mut unreadable = 0_usize;
+
     for record in records {
         match record {
             Lenient::Read(record) => match restore_value(record) {
@@ -221,6 +228,7 @@ fn restore_settings(
 ) -> BTreeMap<ConfiguredValue, Setting> {
     let mut settings = BTreeMap::new();
     let mut unreadable = 0_usize;
+
     for setting in &record.settings {
         let restored = match setting {
             Lenient::Read(setting) => restore_setting(setting),
@@ -234,7 +242,9 @@ fn restore_settings(
             None => unreadable += 1,
         }
     }
+
     let name = &record.name;
+
     match unreadable {
         0 => {}
         1 => issues.push(format!(
@@ -258,11 +268,13 @@ pub(crate) fn restore_configurations(
         next_id: storable(record.next_id).unwrap_or(0),
         ..Configurations::default()
     };
+
     for row in record.rows {
         let Lenient::Read(row) = row else {
             issues.push("A configuration could not be read, so it was left out.".to_owned());
             continue;
         };
+
         if configurations.rows.len() >= MAX_CONFIGURATIONS {
             issues.push(format!(
                 "A model keeps at most {MAX_CONFIGURATIONS} configurations, so the rest were \
@@ -270,7 +282,9 @@ pub(crate) fn restore_configurations(
             ));
             break;
         }
+
         let id = ConfigurationId::from_raw(row.id);
+
         if storable(row.id).is_none() || configurations.row(id).is_some() {
             issues.push(format!(
                 "The configuration “{}” could not be told apart from another, so it was left out.",
@@ -278,8 +292,10 @@ pub(crate) fn restore_configurations(
             ));
             continue;
         }
+
         let settings = restore_settings(&row, &configurations.values, issues);
         let name = fitting_name(&row.name, &configurations, issues);
+
         configurations.next_id = configurations.next_id.max(row.id.saturating_add(1));
         configurations
             .rows

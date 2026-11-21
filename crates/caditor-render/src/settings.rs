@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 
 use crate::machine::Machine;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Msaa {
     Off,
     X2,
@@ -52,7 +52,7 @@ impl Msaa {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Shading {
     Standard,
     #[default]
@@ -70,7 +70,7 @@ impl Shading {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AdapterPreference {
     #[default]
     Auto,
@@ -97,7 +97,7 @@ impl AdapterPreference {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphicsSettings {
     pub vsync: bool,
     pub msaa: Msaa,
@@ -116,7 +116,7 @@ impl Default for GraphicsSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphicsInfo {
     pub adapter: String,
     pub backend: String,

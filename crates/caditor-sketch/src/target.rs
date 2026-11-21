@@ -14,7 +14,7 @@ const TIED_CHOICE: f64 = 1e-9;
 const CLOSED_ARC_GAP: f64 = 1e-12;
 const FEWEST_CORNERS: usize = 2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Quadrant {
     Right,
     Top,
@@ -48,7 +48,7 @@ impl Quadrant {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EllipseEnd {
     Major,
     FarMajor,
@@ -86,7 +86,7 @@ impl EllipseEnd {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PointTarget {
     Point(EntityId),
     Middle(EntityId),
@@ -184,6 +184,7 @@ impl Sketch {
             _ => self.target_places(target),
         };
         let miss = |place: &Point2| across.dot(held - *place).abs();
+
         let least = places.iter().map(miss).fold(f64::INFINITY, f64::min);
         let slack = TIED_CHOICE * (1.0 + least + held.abs().max_element());
         places
@@ -201,10 +202,13 @@ impl Sketch {
             &Entity::Arc { center, start, end } => {
                 let (center, start, end) =
                     (self.point(center)?, self.point(start)?, self.point(end)?);
+
                 let reach = center.abs().max_element().max(start.abs().max_element());
+
                 if start.distance(end) <= CLOSED_ARC_GAP * reach.max(1.0) {
                     return Some(center * 2.0 - start);
                 }
+
                 let arc = self.arc(curve)?;
                 Some(arc.point_at(arc.start_angle + arc.sweep / 2.0))
             }
@@ -253,16 +257,20 @@ impl Sketch {
         held: EntityId,
     ) -> Result<(), SketchError> {
         let entities = target.entities();
+
         if let Some(missing) = entities.iter().find(|entity| !self.contains(**entity)) {
             return Err(SketchError::MissingEntity(*missing));
         }
+
         let mut seen = BTreeSet::from([held]);
+
         if let Some(repeated) = entities.iter().find(|entity| !seen.insert(**entity)) {
             return Err(SketchError::SameEntity {
                 entity: *repeated,
                 label: self.entity_label(*repeated),
             });
         }
+
         let wrong = |entity: EntityId, needed: &'static str| SketchError::WrongKind {
             entity,
             found: self.entity_label(entity),
@@ -282,6 +290,7 @@ impl Sketch {
             PointTarget::Crossing(first, second) => {
                 let needed = "a line, a circle, an arc, a spline or an ellipse";
                 let curves = [Role::Line, Role::Circular, Role::Spline, Role::Elliptic];
+
                 self.expect_role(*first, &curves, needed)?;
                 self.expect_role(*second, &curves, needed)
             }
@@ -345,6 +354,7 @@ fn end_of(sketch: &Sketch, ellipse: EntityId, end: EllipseEnd) -> Option<Point2>
 
 fn centroid_of(sketch: &Sketch, corners: &[EntityId]) -> Option<Point2> {
     let mut sum = Vector2::ZERO;
+
     for corner in corners {
         sum += sketch.place_in_centroid(*corner)?;
     }
@@ -422,6 +432,7 @@ fn crossing_scale(sketch: &Sketch, first: EntityId, second: EntityId) -> f64 {
 fn shared_carrier(sketch: &Sketch, first: EntityId, second: EntityId) -> Option<Carrier> {
     let tolerance = CROSSING_TOLERANCE * crossing_scale(sketch, first, second);
     let (own, other) = (carrier_of(sketch, first)?, carrier_of(sketch, second)?);
+
     let shared = match (own, other) {
         (
             Carrier::Line { through, direction },
@@ -452,6 +463,7 @@ fn level_places(carrier: Carrier, held: Point2, across: Vector2) -> Vec<Point2> 
         return vec![carrier.closest(held)];
     };
     let level = line_crossings(carrier, held, across.perp(), 0.0);
+
     if !level.is_empty() {
         return level;
     }

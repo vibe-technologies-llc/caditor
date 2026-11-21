@@ -25,14 +25,14 @@ const REPLACE_LABEL: &str = "Replace values the model already has";
 const REPLACE_HINT: &str = "Off, a parameter the model already has keeps its own expression and \
                             the file's is left out";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParametersCommand {
     Replace(bool),
     Apply,
     Cancel,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ParameterImportDraft {
     path: PathBuf,
     session: u64,
@@ -45,10 +45,13 @@ pub fn with_csv_extension(path: PathBuf) -> PathBuf {
     let has = path
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case(PARAMETERS_EXTENSION));
+
     if has {
         return path;
     }
+
     let mut named = path.into_os_string();
+
     named.push(".");
     named.push(PARAMETERS_EXTENSION);
     PathBuf::from(named)
@@ -75,6 +78,7 @@ impl Files {
         let text = parameters_csv(model.document(), model.parameters());
         let exported = model.document().parameters().len();
         let failed = path.clone();
+
         self.spawn_write(
             WriteKind::Parameters,
             path.clone(),
@@ -99,6 +103,7 @@ impl Files {
         model: &mut Model,
     ) {
         let name = display_name(Some(path));
+
         model.set_notice(match result {
             Ok(()) => Notice::success(format!(
                 "Exported {} to “{name}”.",
@@ -113,6 +118,7 @@ impl Files {
     pub(super) fn read_parameter_file(&mut self, path: PathBuf, model: &Model) {
         let session = model.session();
         let failed = path.clone();
+
         self.spawn_own(
             "import",
             move || Event::ParametersRead {
@@ -138,6 +144,7 @@ impl Files {
         if session != model.session() {
             return;
         }
+
         let name = display_name(Some(&path));
         let rows = match result {
             Ok(rows) if rows.is_empty() => {
@@ -192,12 +199,14 @@ impl Files {
                 let Some(draft) = self.parameter_import.take() else {
                     return;
                 };
+
                 if draft.session != model.session() {
                     return;
                 }
                 match plan(model, &draft.path, &draft.rows, draft.replace) {
                     Ok(plan) => {
                         let notice = summary(&plan);
+
                         if let Some(transaction) = plan.transaction {
                             model.perform(Action::Apply(transaction));
                         }
@@ -241,6 +250,7 @@ fn summary(plan: &ParameterImport) -> Notice {
     let kept = plan.count(|outcome| matches!(outcome, ImportOutcome::Kept { .. }));
     let refused = plan.count(|outcome| matches!(outcome, ImportOutcome::Refused(_)));
     let mut parts = Vec::new();
+
     if added > 0 {
         parts.push(format!("added {}", count(added, "parameter", "parameters")));
     }
@@ -261,7 +271,9 @@ fn summary(plan: &ParameterImport) -> Notice {
             "The parameters in the file match the model's, so nothing changed.",
         );
     }
+
     let mut sentence = format!("Imported parameters: {}.", parts.join(", "));
+
     if added + changed > 0 {
         sentence.push_str(" Undo takes the import back in one step.");
     }
@@ -280,6 +292,7 @@ fn outcome_pill(ui: &mut Ui, outcome: &ImportOutcome) {
         ImportOutcome::Unchanged => (Tone::Info, "Same"),
         ImportOutcome::Refused(_) => (Tone::Error, "Left out"),
     };
+
     widgets::status_pill(ui, tone, text);
 }
 
@@ -296,6 +309,7 @@ fn detail(row: &ImportRow) -> String {
 pub(super) fn capitalised(mut text: String) -> String {
     if let Some(first) = text.get(..1) {
         let upper = first.to_uppercase();
+
         text.replace_range(..1, &upper);
     }
     text
@@ -313,6 +327,7 @@ pub fn dialog(ctx: &egui::Context, draft: &ParameterImportDraft) -> Option<FileC
             let plan = &draft.plan;
             let refused = plan.count(|outcome| matches!(outcome, ImportOutcome::Refused(_)));
             let conflicts = plan.conflicts();
+
             ui.label(format!(
                 "{} in the file. Nothing changes until you import.",
                 count(plan.rows.len(), "row", "rows")
@@ -333,9 +348,12 @@ pub fn dialog(ctx: &egui::Context, draft: &ParameterImportDraft) -> Option<FileC
                     ));
                 });
             }
+
             let mut replace = draft.replace;
+
             let toggle =
                 widgets::checkbox(ui, &mut replace, REPLACE_LABEL).on_hover_text(REPLACE_HINT);
+
             if toggle.changed() {
                 command = Some(ParametersCommand::Replace(replace));
             }
@@ -357,10 +375,12 @@ pub fn dialog(ctx: &egui::Context, draft: &ParameterImportDraft) -> Option<FileC
                             });
                     });
             });
+
             let blocker = plan
                 .transaction
                 .is_none()
                 .then_some("Nothing in the file would change the model.");
+
             widgets::footer(ui, |ui| {
                 let import = widgets::primary_button(ui, "Import");
                 let response = ui.add_enabled(blocker.is_none(), import);
@@ -368,6 +388,7 @@ pub fn dialog(ctx: &egui::Context, draft: &ParameterImportDraft) -> Option<FileC
                     Some(blocker) => response.on_disabled_hover_text(blocker),
                     None => response,
                 };
+
                 if response.clicked() {
                     command = Some(ParametersCommand::Apply);
                 }

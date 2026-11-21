@@ -20,7 +20,7 @@ const GRAMS_PER_CUBIC_MILLIMETRE_AT_UNIT_DENSITY: f64 = 1e-3;
 const SPLIT_PASSES: usize = 2;
 const SPLIT_PIECES: [SplitPiece; 2] = [SplitPiece::Inside, SplitPiece::Outside];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct Rgb {
     pub red: u8,
     pub green: u8,
@@ -38,9 +38,11 @@ impl Rgb {
 
     pub fn from_hex(text: &str) -> Option<Self> {
         let digits = text.trim().strip_prefix('#').unwrap_or(text.trim());
+
         if !digits.chars().all(|digit| digit.is_ascii_hexdigit()) {
             return None;
         }
+
         let channel = |range: std::ops::Range<usize>| {
             digits
                 .get(range)
@@ -55,7 +57,7 @@ impl Rgb {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Finish {
     Matte,
     Satin,
@@ -110,7 +112,7 @@ impl Finish {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct BodyAppearance {
     pub colour: Option<Rgb>,
     pub material: Option<String>,
@@ -122,7 +124,7 @@ pub struct BodyAppearance {
     pub faces: Vec<FaceColour>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceColour {
     pub face: FaceReference,
     pub colour: Rgb,
@@ -130,7 +132,7 @@ pub struct FaceColour {
     pub finish: Option<Finish>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FaceSplits {
     splits: Vec<(u64, BTreeSet<FaceName>)>,
 }
@@ -138,6 +140,7 @@ pub struct FaceSplits {
 impl FaceSplits {
     pub fn names_from(&self, name: FaceName) -> BTreeSet<FaceName> {
         let mut names = BTreeSet::from([name]);
+
         for (feature, chosen) in &self.splits {
             let mut round: Vec<FaceName> = names
                 .iter()
@@ -179,7 +182,7 @@ impl Document {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DensityError {
     #[error("the density cannot be worked out, since {0}")]
     Evaluation(EvalError),
@@ -269,12 +272,15 @@ impl BodyAppearance {
         splits: &FaceSplits,
     ) -> BTreeMap<FaceId, &FaceColour> {
         let mut named: BTreeMap<FaceName, Vec<FaceId>> = BTreeMap::new();
+
         if !self.faces.is_empty() {
             for (id, face) in solid.faces() {
                 named.entry(face.name()).or_default().push(id);
             }
         }
+
         let mut looks = BTreeMap::new();
+
         for coloured in &self.faces {
             let found: Vec<FaceId> = splits
                 .names_from(coloured.face.name())
@@ -325,6 +331,7 @@ pub fn density_of(density: &Expression, values: &ParameterValues) -> Result<f64,
     let value = density
         .evaluate_as(Dimension::NONE, &|id| values.value(id))
         .map_err(DensityError::Evaluation)?;
+
     if value <= 0.0 {
         return Err(DensityError::NotAboveZero(value));
     }

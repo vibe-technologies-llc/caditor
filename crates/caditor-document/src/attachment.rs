@@ -14,13 +14,13 @@ use crate::{
     tolerance,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceAttachment {
     pub body: FeatureId,
     pub face: FaceReference,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AttachmentError {
     Missing,
     Ambiguous,
@@ -76,7 +76,7 @@ pub fn face_plane(solid: &Solid, face: FaceId) -> Option<Plane> {
     })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SketchAttachment {
     Face(Box<FaceAttachment>),
     Datum(FeatureId),
@@ -123,7 +123,7 @@ impl SketchAttachment {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SketchFeature {
     pub sketch: Sketch,
     pub attachment: Option<SketchAttachment>,
@@ -291,7 +291,7 @@ fn face_attached_plane(
     })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum AttachCause {
     PlaneUnavailable {
         name: String,

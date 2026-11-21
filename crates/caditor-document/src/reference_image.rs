@@ -17,7 +17,7 @@ pub const IMAGE_OPAQUE_PERCENT: u8 = 100;
 pub const DEFAULT_IMAGE_OPACITY_PERCENT: u8 = 60;
 const LEAST_SPOT_GAP: f64 = 1e-6;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ImagePlane {
     Reference(PlaneReference),
     Sketch(FeatureId),
@@ -39,7 +39,7 @@ impl ImagePlane {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ImageSpot {
     pub across: f64,
     pub up: f64,
@@ -65,7 +65,7 @@ impl ImageSpot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Calibration {
     pub from: ImageSpot,
     pub to: ImageSpot,
@@ -80,7 +80,7 @@ impl Calibration {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ImageSize {
     Width(Expression),
     Calibrated(Calibration),
@@ -109,7 +109,7 @@ impl ImageSize {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReferenceImage {
     pub picture: Arc<Picture>,
     pub plane: ImagePlane,
@@ -196,7 +196,7 @@ impl ReferenceImage {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlacedImage {
     pub centre: Point3,
     pub across: Vector3,
@@ -256,6 +256,7 @@ pub fn placed_on(
     flipped: bool,
 ) -> PlacedImage {
     let (sine, cosine) = turn_degrees.to_radians().sin_cos();
+
     let across = plane.x_axis() * cosine + plane.y_axis() * sine;
     let up = plane.normal().cross(across);
     PlacedImage {
@@ -279,6 +280,7 @@ pub(crate) fn evaluate(
         ImagePlane::Sketch(sketch) => sketch_plane(&resolver, *sketch)?,
     };
     let [along, across] = &definition.at;
+
     let at = Point2::new(
         within_reach(
             &resolver,
@@ -292,9 +294,11 @@ pub(crate) fn evaluate(
         )?,
     );
     let turn = resolver.value(&definition.turn, "angle", Dimension::ANGLE)?;
+
     if !turn.is_finite() {
         return Err(resolver.error(ImageCause::AngleNotANumber));
     }
+
     let aspect = definition.picture.size().aspect();
     let width = image_width(&resolver, &definition.size, aspect)?;
     Ok(FeatureResult::Image(placed_on(
@@ -311,6 +315,7 @@ fn image_width(resolver: &Resolver<'_>, size: &ImageSize, aspect: f64) -> Result
     let width = match size {
         ImageSize::Width(width) => {
             let width = resolver.value(width, "width", Dimension::LENGTH)?;
+
             if !is_above(width, 0.0) {
                 return Err(resolver.error(ImageCause::WidthNotPositive));
             }
@@ -322,16 +327,20 @@ fn image_width(resolver: &Resolver<'_>, size: &ImageSize, aspect: f64) -> Result
                 "distance between the calibration points",
                 Dimension::LENGTH,
             )?;
+
             if !is_above(distance, 0.0) {
                 return Err(resolver.error(ImageCause::CalibrationDistance));
             }
+
             let gap = calibration.spot_gap(aspect);
+
             if !is_above(gap, LEAST_SPOT_GAP) {
                 return Err(resolver.error(ImageCause::CalibrationPoints));
             }
             distance / gap
         }
     };
+
     if width * aspect.max(1.0) > MAX_SIZE {
         return Err(resolver.error(ImageCause::TooWide));
     }
@@ -364,7 +373,7 @@ fn sketch_plane(resolver: &Resolver<'_>, sketch: FeatureId) -> Result<Plane, Fai
         })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ImageCause {
     AngleNotANumber,
     WidthNotPositive,

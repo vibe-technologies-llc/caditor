@@ -34,7 +34,7 @@ pub const FIELD: ValueField = ValueField {
     action: "offset",
 };
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum OffsettingError {
     #[error(transparent)]
     SketchGone(#[from] SketchGone),
@@ -42,7 +42,7 @@ pub enum OffsettingError {
     Refused { source: OffsetError },
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Offsetting {
     mode: OffsetMode,
     chains: Option<Result<Vec<Chain>, OffsetError>>,
@@ -117,6 +117,7 @@ impl Offsetting {
         let chains = self.chains()?;
         let placement = self.placement()?;
         let mut outlines = Vec::new();
+
         for chain in chains {
             let made = match self.mode.caps() {
                 Some(caps) => chain.both_sides(placement.distance, caps),
@@ -134,6 +135,7 @@ impl Offsetting {
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
         let mut preview = Preview::default();
+
         if let Some(Ok(outlines)) = self.outlines() {
             preview.curves = outlines
                 .iter()
@@ -154,6 +156,7 @@ impl Offsetting {
                 sketch.entity_label(curve)
             ));
         }
+
         let chains = match self.chains.as_ref()? {
             Ok(chains) => chains,
             Err(error) => return Some(capitalized(&error.to_string())),
@@ -208,6 +211,7 @@ impl Offsetting {
     pub fn click(&mut self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Outcome {
         if let Some(curve) = self.under {
             let chain = sketch.offset_chain_through(curve);
+
             return match sketch.offset_chains(&chain) {
                 Ok(_) => Outcome::Select(chain),
                 Err(source) => Outcome::Refused(OffsettingError::Refused { source }.into()),
@@ -254,6 +258,7 @@ impl Offsetting {
         };
         let flipped = value.millimetres < 0.0;
         let value = if flipped { value.negated() } else { value };
+
         let sides: Sides = chains
             .iter()
             .map(|chain| (chain.curves(), self.side(chain, flipped)))

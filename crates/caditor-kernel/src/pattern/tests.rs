@@ -37,8 +37,11 @@ fn volume(solid: &Solid) -> f64 {
 
 fn check(name: &str, solid: &Solid, expected: f64) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
+
     assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
+
     let found = volume(solid);
+
     assert!(
         (found - expected).abs() <= 2e-3 * expected.abs().max(1.0),
         "{name}: volume {found} instead of {expected}"
@@ -67,8 +70,10 @@ fn copies_standing_apart_become_lumps_named_after_the_copy() {
     let patterned = pattern(&original, &along_x(20.0, 3), FEATURE).unwrap();
 
     check("apart", &patterned, 3.0 * 500.0);
+
     assert_eq!(patterned.faces().count(), 18);
     assert_eq!(patterned.shells().count(), 3);
+
     let expected: BTreeSet<FaceName> = names(&original)
         .into_iter()
         .flat_map(|name| {
@@ -79,18 +84,21 @@ fn copies_standing_apart_become_lumps_named_after_the_copy() {
             ]
         })
         .collect();
+
     assert_eq!(names(&patterned), expected);
     assert!(patterned.faces().all(|(_, face)| {
         original
             .faces()
             .any(|(_, source)| source.origin() == face.origin().map(FaceOrigin::original))
     }));
+
     let copies: BTreeSet<[u32; 2]> = patterned
         .faces()
         .filter_map(|(_, face)| face.origin()?.copy())
         .inspect(|copy| assert_eq!(copy.pattern, FEATURE))
         .map(|copy| copy.index)
         .collect();
+
     assert_eq!(copies, BTreeSet::from([[1, 0], [2, 0]]));
 }
 
@@ -101,6 +109,7 @@ fn overlapping_copies_join_into_one_lump() {
     let patterned = pattern(&original, &along_x(6.0, 4), FEATURE).unwrap();
 
     check("overlapping", &patterned, 28.0 * 10.0 * 5.0);
+
     assert_eq!(patterned.shells().count(), 1);
 }
 
@@ -136,8 +145,10 @@ fn copies_turned_about_an_axis_keep_their_names_when_the_count_changes() {
     let four = pattern(&original, &turned(4), FEATURE).unwrap();
 
     let disc = std::f64::consts::PI * 16.0 * 3.0;
+
     check("three", &three, 3.0 * disc);
     check("four", &four, 4.0 * disc);
+
     let top = original
         .faces()
         .find(|(_, face)| face.origin() == Some(FaceOrigin::EndCap { feature: 1 }))
@@ -151,6 +162,7 @@ fn copies_turned_about_an_axis_keep_their_names_when_the_count_changes() {
         .unwrap();
     let reference = FaceReference::capture(&three, in_three).unwrap();
     let found = reference.resolve(&four).unwrap();
+
     assert_eq!(four.face(found).unwrap().name(), copied_top);
 }
 
@@ -182,6 +194,7 @@ fn copies_meeting_only_along_an_edge_stay_separate_shells_of_one_body() {
     let patterned = pattern(&original, &along_diagonal(10.0), FEATURE).unwrap();
 
     check("along an edge", &patterned, 2.0 * 500.0);
+
     assert_eq!(patterned.shells().count(), 2);
     assert_eq!(patterned.faces().count(), 12);
 }
@@ -205,6 +218,7 @@ fn three_plates_turned_about_their_shared_edge_stay_separate_shells_of_one_body(
     let patterned = pattern(&original, &copies, FEATURE).unwrap();
 
     check("about the shared edge", &patterned, 3.0 * 16_000.0);
+
     assert_eq!(patterned.shells().count(), 3);
 }
 
@@ -228,6 +242,7 @@ fn round_parts_spaced_one_diameter_apart_become_separate_shells() {
         &patterned,
         4.0 * std::f64::consts::PI * 25.0 * 8.0,
     );
+
     assert_eq!(patterned.shells().count(), 4);
 }
 
@@ -248,6 +263,7 @@ fn a_mirrored_copy_joins_the_original_across_a_face_and_names_its_far_end_its_ow
         .collect();
 
     check("mirrored", &joined, 2.0 * 10.0 * 6.0 * 4.0);
+
     assert_eq!(joined.faces().count(), 6);
     assert_eq!(found.intersection(&names(&original)).count(), 5);
     assert_eq!(found.intersection(&copied).count(), 1);
@@ -257,6 +273,7 @@ fn a_mirrored_copy_joins_the_original_across_a_face_and_names_its_far_end_its_ow
 fn copies_alone_leave_the_original_out_and_cut_a_row_of_pockets() {
     let plate = block((0.0, 0.0), (40.0, 10.0), 4.0);
     let pocket = block((2.0, 2.0), (6.0, 8.0), 4.0);
+
     let cut = boolean(&plate, &pocket, BooleanOperation::Difference).unwrap();
 
     let copies = pattern_copies(&pocket, &along_x(10.0, 4), FEATURE)
@@ -266,6 +283,7 @@ fn copies_alone_leave_the_original_out_and_cut_a_row_of_pockets() {
 
     check("copies", &copies, 3.0 * 4.0 * 6.0 * 4.0);
     check("pocketed", &pocketed, (40.0 * 10.0 - 4.0 * 4.0 * 6.0) * 4.0);
+
     assert!(names(&copies).is_disjoint(&names(&pocket)));
     assert_eq!(pattern_copies(&pocket, &[], FEATURE), Ok(None));
 }
@@ -282,6 +300,7 @@ fn a_blend_on_a_copy_names_its_faces_as_a_copy_of_the_blend() {
         face.and_then(|face| face.origin())
             .is_some_and(|origin| origin == FaceOrigin::EndCap { feature: 1 }.copied(copy))
     };
+
     let top = patterned
         .faces()
         .find(|(_, face)| copied_top(Some(face)))
@@ -310,10 +329,12 @@ fn a_blend_on_a_copy_names_its_faces_as_a_copy_of_the_blend() {
         &blended,
         1000.0 - (1.0 - std::f64::consts::FRAC_PI_4) * 10.0,
     );
+
     let origins: Vec<FaceOrigin> = blended
         .faces()
         .filter_map(|(_, face)| face.origin())
         .collect();
+
     assert!(origins.contains(&FaceOrigin::Fillet { feature: 5 }.copied(copy)));
     assert!(
         origins
@@ -330,11 +351,13 @@ fn a_shell_over_copies_names_their_walls_as_copies_of_the_shell() {
         .unwrap()
         .select(&Selection::EvenDepth)
         .unwrap();
+
     let boss = extrude(&deck, &outline, LinearExtent::one_side(4.0).unwrap(), 2).unwrap();
     let bossed = boolean(&plate, &boss, BooleanOperation::Union).unwrap();
     let copies = pattern_copies(&boss, &along_x(20.0, 2), FEATURE)
         .unwrap()
         .unwrap();
+
     let body = boolean(&bossed, &copies, BooleanOperation::Union).unwrap();
     let bottom = body
         .faces()
@@ -349,6 +372,7 @@ fn a_shell_over_copies_names_their_walls_as_copies_of_the_shell() {
         &shelled,
         800.0 + 2.0 * 144.0 - 304.0 - 2.0 * 64.0,
     );
+
     let copy = FaceCopy {
         pattern: FEATURE,
         index: [1, 0],
@@ -359,6 +383,7 @@ fn a_shell_over_copies_names_their_walls_as_copies_of_the_shell() {
             .filter(|(_, face)| face.origin() == Some(origin))
             .count()
     };
+
     assert_eq!(count(FaceOrigin::Shell { feature: 7 }.copied(copy)), 5);
     assert!(count(FaceOrigin::Shell { feature: 7 }) > 5);
 }

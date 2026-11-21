@@ -34,6 +34,7 @@ fn length(text: &str) -> Expression {
 
 fn elbow() -> (Sketch, Vec<EntityId>) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
     let second = sketch.add_line(Point2::new(20.0, 0.0), Point2::new(20.0, 30.0));
     (sketch, vec![first, second])
@@ -48,6 +49,7 @@ struct Model {
 
 fn line_into_arc() -> (Sketch, Vec<EntityId>) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
     let arc = sketch.add_arc(
         Point2::new(30.0, 0.0),
@@ -66,13 +68,16 @@ fn piped_along(
     pipe: impl FnOnce(SweepPath) -> Pipe,
 ) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let path_sketch = transaction.add_feature("Path", FeatureKind::from(path));
     let made = pipe(SweepPath::Curves {
         sketch: path_sketch,
         curves: curves.clone(),
     });
     let pipe = transaction.add_feature("Pipe 1", FeatureKind::Pipe(made));
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -93,14 +98,18 @@ fn a_pipe_follows_its_path_rounding_the_corner_to_the_bend_radius() {
     let evaluation = evaluate(&model.document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let centreline = 20.0 - 6.0 + 30.0 - 6.0 + 6.0 * FRAC_PI_2;
     let found = volume(&evaluation, model.pipe);
+
     assert!(
         (found - PI * 4.0 * centreline).abs() < 1e-3 * found,
         "{found} {}",
         PI * 4.0 * centreline
     );
+
     let kind = &model.document.feature(model.pipe).unwrap().kind;
+
     assert!(kind.features().contains(&model.path_sketch));
     assert!(kind.reference_sketches().contains(&model.path_sketch));
     assert_eq!(kind.parameters().len(), 0);
@@ -116,13 +125,16 @@ fn a_bend_radius_rounds_the_sharp_corner_where_a_line_meets_an_arc() {
     });
     let reach = 180f64.sqrt();
     let touch = 4f64.atan2(reach);
+
     let centreline = 30.0 - reach + (4.0 + 10.0) * (FRAC_PI_2 - touch);
 
     let evaluation = evaluate(&bent.document);
     let sharp_error = failure(&evaluate(&sharp.document), sharp.pipe);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let found = volume(&evaluation, bent.pipe);
+
     assert!(
         (found - PI * centreline).abs() < 1e-3 * found,
         "{found} {}",
@@ -223,8 +235,11 @@ fn a_size_that_is_not_a_length_above_zero_fails_in_words() {
 #[test]
 fn a_pipe_with_no_path_waits_for_one() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let pipe = transaction.add_feature("Pipe 1", FeatureKind::Pipe(round(SweepPath::Unchosen)));
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -238,7 +253,9 @@ fn a_pipe_with_no_path_waits_for_one() {
 #[test]
 fn a_curve_of_the_path_cannot_be_deleted_while_a_pipe_follows_it() {
     let mut model = piped(round);
+
     let mut transaction = model.document.transaction("Delete");
+
     transaction.remove_sketch_items(model.path_sketch, [model.curves[0]], []);
 
     let refused = model.document.apply(transaction.finish());
@@ -260,11 +277,14 @@ fn naming_a_missing_curve() -> (Model, EntityId) {
         panic!("the pipe is gone");
     };
     let mut changed = pipe.clone();
+
     changed.path = SweepPath::Curves {
         sketch: model.path_sketch,
         curves: vec![model.curves[0], missing],
     };
+
     let mut transaction = model.document.transaction("Path");
+
     transaction.edit(Edit::SetFeatureKind {
         id: model.pipe,
         kind: FeatureKind::Pipe(changed),
@@ -279,9 +299,11 @@ fn a_curve_drawn_in_a_path_sketch_never_takes_a_number_a_pipe_names_and_undoes()
     let before = model.document.clone();
 
     let mut transaction = model.document.transaction("Draw");
+
     let drawn =
         transaction.add_sketch_entity(model.path_sketch, Entity::Point(Point2::new(4.5, 11.5)));
     let inverse = model.document.apply(transaction.finish()).unwrap();
+
     model.document.apply(inverse).unwrap();
 
     assert!(drawn.raw() > missing.raw(), "{drawn:?}");
@@ -307,6 +329,7 @@ fn an_entity_cannot_be_added_under_a_number_a_pipe_names_so_undoing_an_addition_
     let Err(error) = refused else {
         panic!("an entity was added under a number the pipe names: {refused:?}");
     };
+
     assert_eq!(
         error.to_string(),
         "In Path, Point 40 cannot be added: a curve of that number, which the sketch does not \
@@ -318,6 +341,7 @@ fn an_entity_cannot_be_added_under_a_number_a_pipe_names_so_undoing_an_addition_
 #[test]
 fn a_removing_pipe_cuts_a_channel_from_its_body_and_keeps_the_tool() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Block");
     let mut outline = Sketch::new(Plane::XY);
     let corners = [
@@ -326,9 +350,11 @@ fn a_removing_pipe_cuts_a_channel_from_its_body_and_keeps_the_tool() {
         Point2::new(30.0, 40.0),
         Point2::new(-5.0, 40.0),
     ];
+
     for index in 0..4 {
         outline.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = transaction.add_feature(
         "Base",
@@ -345,8 +371,10 @@ fn a_removing_pipe_cuts_a_channel_from_its_body_and_keeps_the_tool() {
         })),
     );
     let mut path = Sketch::new(Plane::XY);
+
     let line = path.add_line(Point2::new(0.0, -10.0), Point2::new(0.0, 50.0));
     let path = transaction.add_feature("Channel path", FeatureKind::from(path));
+
     let channel = transaction.add_feature(
         "Channel",
         FeatureKind::Pipe(Pipe {
@@ -357,6 +385,7 @@ fn a_removing_pipe_cuts_a_channel_from_its_body_and_keeps_the_tool() {
             })
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -367,8 +396,10 @@ fn a_removing_pipe_cuts_a_channel_from_its_body_and_keeps_the_tool() {
         "{:?}",
         evaluation.feature(channel)
     );
+
     let expected = 35.0 * 45.0 * 10.0 - 0.5 * PI * 4.0 * 45.0;
     let found = volume(&evaluation, base);
+
     assert!(
         (found - expected).abs() < 1e-4 * expected,
         "{found} {expected}"
@@ -387,6 +418,7 @@ fn a_pipe_s_faces_are_worded_as_its_outside_and_inside() {
         ..round(path)
     });
     let evaluation = evaluate(&model.document);
+
     let solid = evaluation.body(model.pipe).unwrap();
 
     let words: Vec<String> = solid
@@ -411,12 +443,15 @@ fn a_pipe_s_faces_are_worded_as_its_outside_and_inside() {
 #[test]
 fn a_pipe_s_size_may_be_a_parameter() {
     let mut model = piped(round);
+
     let mut transaction = model.document.transaction("Name");
+
     let diameter = transaction.add_parameter("diameter", length("5 mm"));
     let mut pipe = round(SweepPath::Curves {
         sketch: model.path_sketch,
         curves: model.curves.clone(),
     });
+
     pipe.size = Expression::Parameter(diameter);
     transaction.edit(Edit::SetFeatureKind {
         id: model.pipe,

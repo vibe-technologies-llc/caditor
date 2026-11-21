@@ -70,6 +70,7 @@ fn drilled(solid: &Solid, at: Point3, into: Vector3, radius: f64, depth: f64) ->
         .unwrap()
         .select(&Selection::EvenDepth)
         .unwrap();
+
     let drill = extrude(
         &plane,
         &regions,
@@ -121,33 +122,41 @@ impl Feet {
 
 fn assert_tangent_to(name: &str, solid: &Solid, feet: &Feet) {
     let mut checked = 0;
+
     for (id, edge) in solid.edges() {
         let faces = edge_faces(solid, id);
         let [(first, _), (second, _)] = faces.as_slice() else {
             continue;
         };
+
         let (Some(first_face), Some(second_face)) = (solid.face(*first), solid.face(*second))
         else {
             continue;
         };
         let rounded = |face: &Face| matches!(face.origin(), Some(FaceOrigin::Fillet { .. }));
+
         let foot = (rounded(first_face) && feet.meets(first_face, second_face))
             || (rounded(second_face) && feet.meets(second_face, first_face));
+
         if !foot {
             continue;
         }
+
         let middle = edge.curve().point(edge.interval().middle());
         let normals = [
             face_normal(solid, *first, middle).unwrap(),
             face_normal(solid, *second, middle).unwrap(),
         ];
+
         assert!(
             normals[0].angle_between(normals[1]) <= TANGENT,
             "{name}: the fillet meets its face at {} rad at {middle}",
             normals[0].angle_between(normals[1])
         );
+
         checked += 1;
     }
+
     assert!(
         checked > 0,
         "{name}: no edge of the fillet meets the faces it rounds"
@@ -161,6 +170,7 @@ fn valid(name: &str, solid: &Solid) {
 fn lofted(solid: &Solid, edges: &[EdgeId], shape: BlendShape) -> Solid {
     let topology = Topology::new(solid);
     let chosen = propagate(solid, &topology, edges).unwrap();
+
     let plan = Plan::of(solid, &topology, &chosen, Swept::Lofted).unwrap();
     match apply_plan(solid, &topology, &plan, shape, 50) {
         Ok(result) => result,
@@ -186,6 +196,7 @@ fn a_lofted_blend_matches_a_swept_one_where_both_apply() {
         let lofted_away = before - volume(&lofted);
 
         valid("lofted", &lofted);
+
         assert!(
             (lofted_away - swept_away).abs() <= 2e-3 * swept_away,
             "{shape:?}: the lofted blend removes {lofted_away} where the swept one removes {swept_away}"
@@ -211,10 +222,12 @@ fn rounded_pocket() -> Solid {
 fn the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round() {
     let sharp = pocketed(&cylinder(), &pocket());
     let sharp_rim = rim(&sharp);
+
     let sharp_away = volume(&sharp) - volume(&run(&sharp, &sharp_rim, fillet(2.0)));
     let body = rounded_pocket();
     let edges = rim(&body);
     let before = volume(&body);
+
     let feet = feet_of(&body, &edges);
 
     let (rounded, rounding_work) = tally::measure(|| run(&body, &edges[..1], fillet(2.0)));
@@ -227,9 +240,11 @@ fn the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round()
         4 * rounding_work <= 5 * chamfering_work,
         "rounding the rim took {rounding_work} units of work, chamfering it {chamfering_work}"
     );
+
     valid("rounded", &rounded);
     valid("chamfered", &chamfered);
     assert_tangent_to("rounded", &rounded, &feet);
+
     assert!(
         rounded_away < sharp_away && rounded_away > 0.95 * sharp_away,
         "rounding the rim removes {rounded_away}, the sharp pocket's {sharp_away}"
@@ -248,6 +263,7 @@ fn rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed() {
 
     let started = std::time::Instant::now();
     let rounded = run(&body, &edges[..1], fillet(2.0));
+
     eprintln!("the rim rounded in {:?}", started.elapsed());
 
     valid("rounded", &rounded);
@@ -261,6 +277,7 @@ fn the_elliptical_rim_of_a_slanted_pocket_is_rounded_and_chamfered() {
     let edges = rim(&body);
     let side = edges[..1].to_vec();
     let before = volume(&body);
+
     let feet = feet_of(&body, &side);
 
     let rounded = run(&body, &side, fillet(2.0));
@@ -273,9 +290,11 @@ fn the_elliptical_rim_of_a_slanted_pocket_is_rounded_and_chamfered() {
         body.edge(*edge).map(|edge| edge.curve()),
         Some(Curve::Ellipse(_))
     )));
+
     valid("rounded", &rounded);
     valid("chamfered", &chamfered);
     assert_tangent_to("rounded", &rounded, &feet);
+
     assert!(rounded_away > 0.0 && chamfered_away > 1.2 * rounded_away);
 }
 
@@ -290,6 +309,7 @@ fn rounded_alone(name: &str, body: &Solid, edge: EdgeId) {
 
     valid(name, &rounded);
     assert_tangent_to(name, &rounded, &feet);
+
     assert!(volume(&rounded) < volume(body));
 }
 
@@ -378,6 +398,7 @@ fn the_rims_of_a_level_hole_through_tapered_sides_are_rounded_and_chamfered() {
         })
         .collect();
     let before = volume(&body);
+
     let feet = feet_of(&body, &edges);
     let length: f64 = edges
         .iter()
@@ -390,9 +411,11 @@ fn the_rims_of_a_level_hole_through_tapered_sides_are_rounded_and_chamfered() {
     let rounded_away = before - volume(&rounded);
 
     assert_eq!(edges.len(), 2);
+
     valid("rounded", &rounded);
     valid("chamfered", &chamfered);
     assert_tangent_to("rounded", &rounded, &feet);
+
     assert!(
         (rounded_away - spandrel(0.2) * length).abs() < 0.2 * spandrel(0.2) * length,
         "removed {rounded_away} along {length}"
@@ -403,6 +426,7 @@ fn the_rims_of_a_level_hole_through_tapered_sides_are_rounded_and_chamfered() {
 fn a_rim_along_a_spline_face_is_rounded_and_chamfered() {
     let bulged = crate::fixtures::spline_topped_block(10.0, 4.0, 3.0);
     let edge = edge_through(&bulged, (5.0, 0.0, 4.0));
+
     let feet = feet_of(&bulged, &[edge]);
 
     let rounded = run(&bulged, &[edge], fillet(0.5));
@@ -411,6 +435,7 @@ fn a_rim_along_a_spline_face_is_rounded_and_chamfered() {
     valid("rounded", &rounded);
     valid("chamfered", &chamfered);
     assert_tangent_to("rounded", &rounded, &feet);
+
     assert!(volume(&chamfered) < volume(&rounded) && volume(&rounded) < volume(&bulged));
 }
 
@@ -458,6 +483,7 @@ fn slanted_edges(body: &Solid) -> Vec<EdgeId> {
 fn with_rounded_corners(angle: f64, corner: f64, bottom_too: bool) -> Solid {
     let body = tapered_square(angle);
     let mut edges = slanted_edges(&body);
+
     if bottom_too {
         edges.extend(rim_at(&body, 0.0));
     }
@@ -483,9 +509,12 @@ fn assert_top_rim_rounded(name: &str, body: &Solid, angle: f64, radius: f64) {
     let rounded_away = before - volume(&rounded);
 
     assert_eq!(top.len(), 8, "{name}");
+
     valid(name, &rounded);
     assert_tangent_to(name, &rounded, &feet);
+
     let expected = tapered_spandrel(radius, angle) * length;
+
     assert!(
         (rounded_away - expected).abs() < 0.05 * expected,
         "{name}: removed {rounded_away} where about {expected} was expected"

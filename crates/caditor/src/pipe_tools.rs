@@ -24,7 +24,7 @@ pub const DEFAULT_SIZE: f64 = 10.0;
 pub const DEFAULT_BEND: f64 = 10.0;
 pub const DEFAULT_WALL: f64 = 1.0;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PipeError {
     #[error(transparent)]
     Path(#[from] SweepError),
@@ -47,7 +47,7 @@ impl Reason for PipeError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PipeStart {
     pub path: PathPick,
 }
@@ -56,6 +56,7 @@ pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, PipeErr
     let document = model.document();
     let mut curves: Vec<(FeatureId, EntityId)> = Vec::new();
     let mut edges: Vec<(FeatureId, EdgeName)> = Vec::new();
+
     for pickable in selection.in_pick_order() {
         match pickable {
             Pickable::SketchEntity { feature, entity }
@@ -67,6 +68,7 @@ pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, PipeErr
             _ => {}
         }
     }
+
     let helix =
         sweep_tools::helix_path(document, selection, !curves.is_empty() || !edges.is_empty())?;
     let path = match (curves.first(), edges.first()) {
@@ -105,6 +107,7 @@ pub fn create(
         .body()
         .map_or(BodyOperation::NewBody, BodyOperation::Add);
     let name = editing::next_feature_name(document, TITLE);
+
     let pipe = Pipe {
         operation,
         ..Pipe::new(
@@ -114,6 +117,7 @@ pub fn create(
         )
     };
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(name, FeatureKind::Pipe(pipe));
     Ok((transaction.finish(), feature))
 }
@@ -130,6 +134,7 @@ pub fn create_actions(model: &Model, start: &PipeStart) -> Vec<Action> {
                 Action::Apply(transaction),
                 Action::Editing(EditingCommand::OpenSolid(feature)),
             ];
+
             if start.path == PathPick::Unchosen {
                 actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
                     feature,
@@ -188,6 +193,7 @@ pub fn selected_change(
     pipe: &Pipe,
 ) -> Result<Transaction, PipeError> {
     let path = sweep_tools::selected_path(model, selection, feature, None)?;
+
     if path == pipe.path {
         return Err(SweepError::AlreadyFollowed.into());
     }

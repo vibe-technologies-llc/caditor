@@ -51,6 +51,7 @@ fn a_model_saved_as_a_template_starts_untitled_copies() {
     harness.answer_dialog(Some(template.clone()));
     run_from_palette(&mut harness, "New from template");
     harness.wait_until("the template is copied", has_width);
+
     let saved = fs::read(&template).unwrap();
 
     assert_eq!(harness.model.path(), None);
@@ -67,6 +68,7 @@ fn new_model_starts_from_the_default_template_until_it_is_gone() {
     let mut harness = Harness::with_directories(Some(dir.path()));
     let folder = templates_folder(dir.path());
     let template = folder.join("Base.caditor");
+
     fs::create_dir_all(&folder).unwrap();
     caditor_file::save(&sample_document().unwrap(), &template, false).unwrap();
 
@@ -95,6 +97,7 @@ fn an_unreadable_template_leaves_an_empty_model_and_says_why() {
     let mut harness = Harness::with_directories(Some(dir.path()));
     let folder = templates_folder(dir.path());
     let template = folder.join("Broken.caditor");
+
     fs::create_dir_all(&folder).unwrap();
     fs::write(&template, b"not a model").unwrap();
 
@@ -111,6 +114,7 @@ fn preferences_choose_the_template_new_model_starts_from() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
     let folder = templates_folder(dir.path());
+
     fs::create_dir_all(&folder).unwrap();
     caditor_file::save(
         &sample_document().unwrap(),
@@ -139,13 +143,17 @@ fn a_model_edited_while_the_templates_were_listed_is_not_replaced_without_asking
     let mut harness = Harness::with_directories(Some(dir.path()));
     let folder = templates_folder(dir.path());
     let template = folder.join("Empty.caditor");
+
     fs::create_dir_all(&folder).unwrap();
     caditor_file::save(&Document::default(), &template, false).unwrap();
 
     let release = harness.files.hold_jobs();
+
     harness.answer_dialog(Some(template));
     harness.command(FileCommand::NewFromTemplate(None));
+
     let clean_when_asked = !harness.model.is_dirty();
+
     harness.edit_width("55 mm");
     release.send(()).unwrap();
     harness.wait_until("the unsaved changes are asked about", |harness| {

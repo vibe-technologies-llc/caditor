@@ -18,7 +18,7 @@ use crate::{reason::WriteFailure, save::write_atomically};
 const SHEET_CHORD: f64 = 0.01;
 const SHEET_ANGLE: f64 = 2.0 * std::f64::consts::PI / 180.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum SheetFormat {
     #[default]
     Pdf,
@@ -53,13 +53,13 @@ impl SheetFormat {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SheetView<'a> {
     pub placed: PlacedView,
     pub lines: &'a ViewLines,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SheetExported {
     pub views: usize,
     pub visible: usize,
@@ -185,6 +185,7 @@ pub(super) fn sheet_figure(
 ) -> (Figure, SheetExported) {
     let mut figure = Figure::default();
     let mut exported = SheetExported::default();
+
     for mark in &plan.marks {
         figure.push(
             Layer::Frame,
@@ -233,6 +234,7 @@ pub(super) fn sheet_figure(
                     Layer::Hidden
                 }
             };
+
             if !exact {
                 exported.approximated += 1;
             }
@@ -251,14 +253,17 @@ pub fn export_sheet(
     cancel: &CancelToken,
 ) -> Result<SheetExported, ExportError> {
     let (figure, exported) = sheet_figure(plan, views, hidden_lines);
+
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
     }
+
     let bytes = match format {
         SheetFormat::Dxf => super::dxf::encode(&figure).into_bytes(),
         SheetFormat::Svg => super::svg::encode_page(&figure, plan.width, plan.height)?.into_bytes(),
         SheetFormat::Pdf => pdf::encode(&figure, plan.width, plan.height)?,
     };
+
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
     }

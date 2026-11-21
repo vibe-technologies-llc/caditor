@@ -56,12 +56,15 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         opened,
     } = *row;
     let id = feature.id();
+
     widgets::caption(ui, "Faces to replace");
+
     let evaluation = model.evaluation();
     let mut previewed = Vec::new();
     let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
         face_rows(model.document(), bodies::input(evaluation, id), replace)
     });
+
     ui.vertical(|ui| {
         if replace.faces.is_empty() {
             ui.label(widgets::muted("None: nothing is replaced", ui));
@@ -71,6 +74,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
             let row = widgets::removable_row_hovered(ui, text, "Leave this face out");
+
             if row.hovered && opened {
                 previewed = bodies::input(evaluation, id)
                     .map(|input| {
@@ -84,6 +88,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             }
             if row.removed {
                 let mut changed = replace.clone();
+
                 changed.faces.remove(index);
                 actions.push(feature_fields::applied(
                     &feature.name,
@@ -91,6 +96,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
+
         let chosen = feature_fields::list_in_view(
             ui,
             opened,
@@ -125,6 +131,7 @@ fn target_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
         ..
     } = *row;
     let id = feature.id();
+
     let picker = Picker {
         feature: id,
         slot: Slot::ReplaceTarget,
@@ -145,6 +152,7 @@ fn target_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
         picker,
         remove: None,
     };
+
     plane_selector::row(
         ui,
         model,
@@ -161,6 +169,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         replace,
         ..
     } = *row;
+
     widgets::properties(ui, ("replace-face-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         faces_row(ui, row, cache, actions);

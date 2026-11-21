@@ -8,12 +8,14 @@ use super::*;
 fn saving_over_a_file_keeps_its_permissions_and_leaves_no_temporary_files() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     save(&Document::default(), &path, false).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
 
     save(&sample(), &path, false).unwrap();
 
     let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+
     assert_eq!(mode, 0o640);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
     assert_eq!(load(&path).unwrap().document, sample());
@@ -34,11 +36,15 @@ fn supplementary_group() -> Option<u32> {
 fn saving_over_a_file_keeps_its_group_and_extended_attributes() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     fs::write(&path, "old").unwrap();
+
     let group = supplementary_group();
+
     if let Some(group) = group {
         std::os::unix::fs::chown(&path, None, Some(group)).unwrap();
     }
+
     let tagged = xattr::set(&path, "user.caditor.note", b"kept").is_ok();
 
     save(&sample(), &path, false).unwrap();
@@ -52,6 +58,7 @@ fn saving_over_a_file_keeps_its_group_and_extended_attributes() {
             Some(&b"kept"[..])
         );
     }
+
     assert_eq!(load(&path).unwrap().document, sample());
 }
 
@@ -70,8 +77,11 @@ fn make_fifo(path: &Path) {
 fn pipes_devices_folders_and_huge_files_are_refused_without_reading_them() {
     let dir = TempDir::new().unwrap();
     let fifo = dir.path().join("pipe.caditor");
+
     make_fifo(&fifo);
+
     let huge = dir.path().join("huge.caditor");
+
     fs::File::create(&huge)
         .unwrap()
         .set_len(read::MAX_FILE_SIZE + 1)
@@ -81,6 +91,7 @@ fn pipes_devices_folders_and_huge_files_are_refused_without_reading_them() {
         Err(LoadError::Unreadable(reason)) => reason.to_string(),
         other => panic!("expected a refusal, got {other:?}"),
     };
+
     assert_eq!(refusal(&fifo), "it is a device, pipe or socket, not a file");
     assert_eq!(
         refusal(Path::new("/dev/zero")),
@@ -93,10 +104,13 @@ fn pipes_devices_folders_and_huge_files_are_refused_without_reading_them() {
     assert!(read_dxf(&fifo, &CancelToken::never()).is_err());
 
     let journal = dir.path().join(".pipe.caditor.journal");
+
     make_fifo(&journal);
+
     assert!(matches!(journal_for(&fifo, None), FileJournal::None));
 
     let error = save(&sample(), &fifo, false).unwrap_err();
+
     assert_eq!(
         error.to_string(),
         "a device, pipe or socket with that name already exists"
@@ -107,14 +121,18 @@ fn pipes_devices_folders_and_huge_files_are_refused_without_reading_them() {
 fn restoring_keeps_the_recovered_journal_until_a_new_one_is_written() {
     let dir = TempDir::new().unwrap();
     let base = sample();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let recovery = dir.path().join("recovery");
     let recovered = scan(Some(&recovery), &[]).remove(0);
 
     fs::set_permissions(&recovery, fs::Permissions::from_mode(0o500)).unwrap();
+
     let start = Start {
         file: None,
         on_disk: None,
@@ -126,6 +144,7 @@ fn restoring_keeps_the_recovered_journal_until_a_new_one_is_written() {
         after: None,
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
     assert!(matches!(
         wait_for_report(&storage),
         Report::JournalFailed { .. }
@@ -133,11 +152,15 @@ fn restoring_keeps_the_recovered_journal_until_a_new_one_is_written() {
     assert!(recovered.journal.exists());
 
     fs::set_permissions(&recovery, fs::Permissions::from_mode(0o700)).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
     assert_eq!(wait_for_report(&storage), Report::JournalRestored);
     assert!(!recovered.journal.exists());
+
     crash(storage);
+
     let again = scan(Some(&recovery), &[]);
+
     assert_eq!(again.len(), 1);
     assert_eq!(again[0].editor.document(), editor.document());
 }
@@ -147,6 +170,7 @@ fn saving_through_a_symbolic_link_writes_the_file_it_points_to() {
     let dir = TempDir::new().unwrap();
     let real = dir.path().join("real.caditor");
     let link = dir.path().join("link.caditor");
+
     save(&Document::default(), &real, false).unwrap();
     std::os::unix::fs::symlink("real.caditor", &link).unwrap();
 
@@ -166,8 +190,11 @@ fn saving_through_a_symbolic_link_writes_the_file_it_points_to() {
 fn a_save_that_cannot_read_the_earlier_versions_fails_and_changes_nothing() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     save(&Document::default(), &path, false).unwrap();
+
     let before = fs::read(&path).unwrap();
+
     fs::set_permissions(&path, fs::Permissions::from_mode(0o200)).unwrap();
 
     let error = save(&sample(), &path, false).unwrap_err();
@@ -177,7 +204,9 @@ fn a_save_that_cannot_read_the_earlier_versions_fails_and_changes_nothing() {
         "{}",
         error.to_string()
     );
+
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
     assert_eq!(fs::read(&path).unwrap(), before);
 }
 
@@ -186,27 +215,37 @@ fn journals_take_the_permissions_of_their_model() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: None,
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     let mode = |file: &Path| fs::metadata(file).unwrap().permissions().mode() & 0o777;
+
     assert_eq!(mode(&dir.path().join(".model.caditor.journal")), 0o640);
+
     crash(storage);
 
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     let recovery = dir.path().join("recovery");
     let untitled_journal = fs::read_dir(&recovery)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .find(|journal| journal.to_string_lossy().contains("untitled"))
         .unwrap();
+
     assert_eq!(mode(&untitled_journal), 0o600);
+
     crash(storage);
 }

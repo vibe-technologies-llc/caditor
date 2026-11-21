@@ -32,7 +32,7 @@ pub const FRAME_DESCRIPTION: &str = "A second origin to measure and move from, a
 pub const REVERSE_X: &str = "Reverse X";
 pub const REVERSE_Z: &str = "Reverse Z";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FramePart {
     Origin,
     XAxis,
@@ -81,7 +81,7 @@ impl FramePart {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DatumError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -259,6 +259,7 @@ impl Chooser<'_> {
             return Err(DatumError::NotACoordinateSystem);
         };
         let mut changed = frame.as_ref().clone();
+
         let unchanged = match part {
             FramePart::Origin => {
                 let origin = datum_tools::only_point(self.model, self.selection, self.index)?
@@ -278,6 +279,7 @@ impl Chooser<'_> {
                 std::mem::replace(&mut changed.plane, plane) == changed.plane
             }
         };
+
         if unchanged {
             return Err(DatumError::AlreadyFollowsSelection);
         }
@@ -444,6 +446,7 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, self.model, caption, quantity, |parsed| {
                 self.change(rebuild(parsed))
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
@@ -462,6 +465,7 @@ impl Panel<'_> {
             based,
             "Start from the selected plane or flat face",
         );
+
         let row = plane_selector::Row {
             caption: "Starts from",
             id: Id::unique(("datum-base", self.id())),
@@ -471,6 +475,7 @@ impl Panel<'_> {
             remove: None,
         };
         let mut actions = Vec::new();
+
         plane_selector::row(
             ui,
             self.model,
@@ -506,6 +511,7 @@ impl Panel<'_> {
             "Pass through the selected axis and turn about it by the angle",
         );
         let remove = plane.rotation.is_some().then_some("Stop turning the plane");
+
         let removed = feature_fields::reference_row(
             ui,
             self.model,
@@ -520,6 +526,7 @@ impl Panel<'_> {
                 rotation: None,
                 ..plane.clone()
             }));
+
             self.apply(change);
         }
     }
@@ -563,7 +570,9 @@ impl Panel<'_> {
 
     fn axis_rows(&mut self, ui: &mut Ui, axis: &DatumAxis) {
         let document = self.model.document();
+
         feature_fields::description_row(ui, AXIS_DESCRIPTION);
+
         let (caption, text) = match axis {
             DatumAxis::Along(reference) => (
                 "Runs along",
@@ -598,6 +607,7 @@ impl Panel<'_> {
                 ),
             ),
         };
+
         self.defined_by_row(
             ui,
             caption,
@@ -626,6 +636,7 @@ impl Panel<'_> {
             || chooser.checked(chooser.base(datum)),
         );
         let picker = self.picker(Slot::DatumBase, chosen, hover);
+
         feature_fields::reference_row(
             ui,
             self.model,
@@ -639,6 +650,7 @@ impl Panel<'_> {
 
     fn plane_through_rows(&mut self, ui: &mut Ui, through: &PlaneThrough) {
         let document = self.model.document();
+
         feature_fields::description_row(ui, PLANE_DESCRIPTION);
         self.defined_by_row(
             ui,
@@ -648,6 +660,7 @@ impl Panel<'_> {
             "Pass through the three selected points, lie midway between the two selected \
              planes, or pass through the selected axis and point",
         );
+
         let (axis, point, mode) = match through {
             PlaneThrough::AxisAndPoint(axis, point) => (axis.clone(), point.clone(), 0),
             PlaneThrough::NormalTo(axis, point) => (axis.clone(), point.clone(), 1),
@@ -696,6 +709,7 @@ impl Panel<'_> {
             ),
         ];
         let tangent_offered = matches!(axis, AxisReference::Face { .. });
+
         let offered: Vec<(&str, &str)> = choices
             .into_iter()
             .enumerate()
@@ -720,6 +734,7 @@ impl Panel<'_> {
             _ => return,
         };
         let change = self.change(Datum::PlaneThrough(switched));
+
         self.apply(change);
     }
 
@@ -756,6 +771,7 @@ impl Panel<'_> {
             ),
             (MIDDLE_OF_EDGE, "Sit halfway along the edge"),
         ];
+
         let offered: Vec<(&str, &str)> = choices
             .into_iter()
             .enumerate()
@@ -763,6 +779,7 @@ impl Panel<'_> {
             .map(|(_, choice)| choice)
             .collect();
         let shown = if round { mode } else { mode - 1 };
+
         let chosen = widgets::property(ui, "Edge", |ui| widgets::segmented(ui, &offered, shown))
             .map(|chosen| if round { chosen } else { chosen + 1 });
         let switched = match chosen {
@@ -778,6 +795,7 @@ impl Panel<'_> {
             _ => return,
         };
         let change = self.change(Datum::PointBy(switched));
+
         self.apply(change);
     }
 
@@ -799,6 +817,7 @@ impl Panel<'_> {
 
     fn point_by_rows(&mut self, ui: &mut Ui, by: &PointBy) {
         let document = self.model.document();
+
         feature_fields::description_row(ui, POINT_DESCRIPTION);
         self.defined_by_row(
             ui,
@@ -829,8 +848,11 @@ impl Panel<'_> {
 
     fn frame_rows(&mut self, ui: &mut Ui, frame: &DatumFrame) {
         let document = self.model.document();
+
         feature_fields::description_row(ui, FRAME_DESCRIPTION);
+
         let datum = Datum::Frame(Box::new(frame.clone()));
+
         for (part, shown) in [
             (FramePart::Origin, describe_point(document, &frame.origin)),
             (FramePart::XAxis, describe_axis(document, &frame.x_axis)),
@@ -845,6 +867,7 @@ impl Panel<'_> {
                 || chooser.checked(chooser.frame_part(&datum, part)),
             );
             let picker = self.picker(part.slot(), chosen, part.hover());
+
             if part == FramePart::Plane {
                 self.frame_plane_row(ui, frame, picker);
                 continue;
@@ -864,6 +887,7 @@ impl Panel<'_> {
                 reverse_x,
                 ..frame.clone()
             })));
+
             self.apply(change);
         }
         if let Some(reverse_z) = feature_fields::reverse_row(ui, REVERSE_Z, frame.reverse_z) {
@@ -871,6 +895,7 @@ impl Panel<'_> {
                 reverse_z,
                 ..frame.clone()
             })));
+
             self.apply(change);
         }
     }
@@ -885,6 +910,7 @@ impl Panel<'_> {
             remove: None,
         };
         let mut actions = Vec::new();
+
         plane_selector::row(
             ui,
             self.model,
@@ -902,6 +928,7 @@ impl Panel<'_> {
 
     fn point_rows(&mut self, ui: &mut Ui, point: &DatumPoint) {
         let document = self.model.document();
+
         feature_fields::description_row(ui, POINT_DESCRIPTION);
         self.defined_by_row(
             ui,
@@ -917,8 +944,10 @@ impl Panel<'_> {
             let Some(offset) = point.offset.get(index) else {
                 continue;
             };
+
             self.expression(ui, caption, salt, offset, Dimension::LENGTH, |value| {
                 let mut offset = point.offset.clone();
+
                 if let Some(slot) = offset.get_mut(index) {
                     *slot = value;
                 }
@@ -1025,6 +1054,7 @@ pub fn show(
         index: model.document().feature_index(id).unwrap_or(0),
         actions,
     };
+
     widgets::properties(ui, ("datum-properties", id), |ui| match datum {
         Datum::Plane(plane) => panel.plane_rows(ui, plane),
         Datum::PlaneThrough(through) => panel.plane_through_rows(ui, through),

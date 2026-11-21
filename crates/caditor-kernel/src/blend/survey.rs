@@ -63,6 +63,7 @@ fn turned(curves: &[ProfileCurve]) -> Solid {
 fn brick(min: (f64, f64, f64), size: (f64, f64, f64), feature: u64) -> Solid {
     let (x, y, z) = min;
     let (w, d, h) = size;
+
     let curves = polygon(&[(x, y), (x + w, y), (x + w, y + d), (x, y + d)]);
     let regions = Profile::new(&curves)
         .unwrap()
@@ -336,6 +337,7 @@ fn verdict(solid: &Solid, result: &Result<Solid, BlendError>) -> Option<String> 
 fn corner_sets(solid: &Solid, sharp: &BTreeSet<EdgeId>) -> BTreeSet<Vec<EdgeId>> {
     let topology = Topology::new(solid);
     let mut sets: BTreeSet<Vec<EdgeId>> = sharp.iter().map(|edge| vec![*edge]).collect();
+
     sets.insert(sharp.iter().copied().collect());
     for (vertex, _) in solid.vertices() {
         let at: Vec<EdgeId> = topology

@@ -44,6 +44,7 @@ fn swept_angle(curve: &Curve2, range: Interval, point: Point2) -> f64 {
     if let Curve2::Line(_) = curve {
         return angle_seen(point, curve.point(range.start()), curve.point(range.end()));
     }
+
     let seeds = curve.seeds(range);
     let mut pending: Vec<(f64, f64, usize)> = seeds
         .windows(2)
@@ -53,12 +54,15 @@ fn swept_angle(curve: &Curve2, range: Interval, point: Point2) -> f64 {
         })
         .collect();
     let mut total = 0.0;
+
     while let Some((low, high, depth)) = pending.pop() {
         let (a, b) = (curve.point(low), curve.point(high));
+
         let chord = angle_seen(point, a, b);
         let middle = 0.5 * (low + high);
         let deviation = distance_to_segment(curve.point(middle), a, b);
         let clearance = distance_to_segment(point, a, b);
+
         let settled = deviation * WINDING_CLEARANCE < clearance;
         if settled || depth >= MAX_WINDING_DEPTH || middle <= low || middle >= high {
             total += chord;
@@ -94,13 +98,18 @@ mod tests {
     fn areas_and_windings_of_a_circle() {
         let circle: Curve2 = Circle2::new(Point2::new(3.0, 1.0), 2.0).unwrap().into();
         let area = area_under(&circle, Interval::FULL_TURN);
+
         assert!((area - 4.0 * PI).abs() < 1e-12);
+
         let inside = Point2::new(3.5, 1.2);
         let loop_of = || std::iter::once((&circle, Interval::FULL_TURN, false));
+
         assert_eq!(winding(loop_of(), inside), 1);
         assert_eq!(winding(loop_of(), Point2::new(5.0 + 1e-9, 1.0)), 0);
         assert_eq!(winding(loop_of(), Point2::new(5.0 - 1e-9, 1.0)), 1);
+
         let backwards = std::iter::once((&circle, Interval::FULL_TURN, true));
+
         assert_eq!(winding(backwards, inside), -1);
     }
 
@@ -109,6 +118,7 @@ mod tests {
         let line: Curve2 = Line2::through(Point2::new(1.0, 0.0), Point2::new(1.0, 2.0))
             .unwrap()
             .into();
+
         assert!((area_under(&line, Interval::new(0.0, 2.0).unwrap()) - 1.0).abs() < 1e-15);
     }
 }

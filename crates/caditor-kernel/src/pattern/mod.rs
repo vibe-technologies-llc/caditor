@@ -17,13 +17,13 @@ use crate::{
 
 const ORIGINAL: [u32; 2] = [0, 0];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PatternCopy {
     pub index: [u32; 2],
     pub placement: Similarity,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum PatternError {
     #[error("copy {copy:?} could not be placed: {error}")]
     Placement {
@@ -46,6 +46,7 @@ struct Part {
 
 pub fn pattern(solid: &Solid, copies: &[PatternCopy], feature: u64) -> Result<Solid, PatternError> {
     let mut parts = Vec::with_capacity(copies.len() + 1);
+
     parts.push(Part {
         solid: solid.clone(),
         copies: vec![ORIGINAL],
@@ -69,6 +70,7 @@ pub fn pattern_copies(
     feature: u64,
 ) -> Result<Option<Solid>, PatternError> {
     let mut parts = Vec::with_capacity(copies.len());
+
     for copy in copies {
         interrupt::check()?;
         parts.push(Part {
@@ -158,6 +160,7 @@ fn placed(solid: &Solid, copy: &PatternCopy, feature: u64) -> Result<Solid, Patt
 fn joined_in_pairs(parts: Vec<Part>) -> Result<Vec<Part>, PatternError> {
     let mut joined = Vec::with_capacity(parts.len().div_ceil(2));
     let mut remaining = parts.into_iter();
+
     while let Some(first) = remaining.next() {
         interrupt::check()?;
         match remaining.next() {
@@ -185,6 +188,7 @@ fn union(first: Part, second: Part) -> Result<Part, PatternError> {
 
 fn separate_shells(first: &Solid, second: &Solid) -> Option<Solid> {
     let beside = first.beside(second)?;
+
     beside.validate().ok()?;
     Some(beside)
 }

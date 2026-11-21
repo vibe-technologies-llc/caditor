@@ -13,7 +13,7 @@ pub const PNG_EXTENSION: &str = "png";
 const TEXEL_BYTES: u64 = 4;
 const COMPRESSED_CHUNK_BYTES: usize = 1 << 18;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RgbaImage<'a> {
     pub width: u32,
     pub height: u32,
@@ -51,6 +51,7 @@ pub(super) fn encode_png(image: RgbaImage<'_>) -> Result<Vec<u8>, ImageExportErr
         image,
         given: false,
     };
+
     write_png(&mut encoded, &mut rows, &CancelToken::never()).map_err(|halt| match halt {
         Halt::Stopped(PngExportError::Export(error)) => error,
         Halt::Stopped(PngExportError::Pixels(never)) => match never {},
@@ -64,6 +65,7 @@ pub fn png_bytes<R: PixelRows + ?Sized>(
     cancel: &CancelToken,
 ) -> Result<Vec<u8>, PngExportError<R::Error>> {
     let mut encoded = Vec::new();
+
     write_png(&mut encoded, rows, cancel).map_err(|halt| match halt {
         Halt::Stopped(error) => error,
         Halt::Io(error) => {
@@ -138,7 +140,9 @@ pub fn export_png<R: PixelRows + ?Sized>(
     if cancel.is_cancelled() {
         return Err(ImageExportError::Cancelled.into());
     }
+
     let mut stopped = None;
+
     let written = replace_atomically(path, |file| {
         write_png(BufWriter::new(file), rows, cancel).map_err(|halt| match halt {
             Halt::Io(error) => error,
@@ -161,6 +165,7 @@ fn write_png<R: PixelRows + ?Sized>(
     cancel: &CancelToken,
 ) -> Result<(), Halt<R::Error>> {
     let (width, height) = (rows.width(), rows.height());
+
     let expected = u64::from(width) * u64::from(height) * TEXEL_BYTES;
     let miscounted = |found| {
         Halt::export(ImageExportError::PixelCount {
@@ -172,18 +177,23 @@ fn write_png<R: PixelRows + ?Sized>(
     };
 
     let mut encoder = Encoder::new(out, width, height);
+
     encoder.set_color(ColorType::Rgba);
     encoder.set_depth(BitDepth::Eight);
     encoder.set_compression(Compression::Fast);
     encoder.set_source_srgb(SrgbRenderingIntent::Perceptual);
+
     let mut writer = encoder.write_header().map_err(Halt::encoding)?;
+
     let mut stream = writer
         .stream_writer_with_size(COMPRESSED_CHUNK_BYTES)
         .map_err(Halt::encoding)?;
 
     let mut found = 0u64;
+
     while let Some(next) = rows.next_rows() {
         let pixels = next.map_err(|error| Halt::Stopped(PngExportError::Pixels(error)))?;
+
         found = found.saturating_add(pixels.len() as u64);
         if found > expected {
             return Err(miscounted(found));
@@ -208,7 +218,7 @@ mod tests {
 
     use super::*;
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
     #[error("the device was lost")]
     struct DeviceLost;
 
@@ -223,11 +233,13 @@ mod tests {
         fn of(width: u32, height: u32, rows_per_band: &[u32]) -> Self {
             let pixels = gradient(width, height);
             let mut start = 0;
+
             let bands = rows_per_band
                 .iter()
                 .map(|rows| {
                     let end = (start + (rows * width * 4) as usize).min(pixels.len());
                     let band = pixels[start..end].to_vec();
+
                     start = end;
                     Ok(band)
                 })
@@ -296,9 +308,13 @@ mod tests {
         let mut reader = png::Decoder::new(std::io::BufReader::new(fs::File::open(path).unwrap()))
             .read_info()
             .unwrap();
+
         let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+
         let frame = reader.next_frame(&mut pixels).unwrap();
+
         pixels.truncate(frame.buffer_size());
+
         let srgb = reader.info().srgb.is_some();
         (frame, pixels, srgb)
     }
@@ -317,6 +333,7 @@ mod tests {
         let mut bands = Bands::of(37, 11, &[4, 4, 3]);
 
         export_png(&path, &mut bands, &CancelToken::never()).unwrap();
+
         let (frame, pixels, srgb) = decoded(&path);
 
         assert_eq!((frame.width, frame.height), (37, 11));
@@ -374,6 +391,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("view.png");
         let mut bands = Bands::of(8, 6, &[2, 2]);
+
         bands.bands.push_back(Err(DeviceLost));
         fs::write(&path, b"old").unwrap();
 
@@ -394,9 +412,11 @@ mod tests {
             height: 6,
             pixels,
         };
+
         fs::write(&path, b"old").unwrap();
 
         export_png(&path, &mut image(&pixels), &CancelToken::never()).unwrap();
+
         let cancelled = export_png(
             &dir.path().join("cancelled.png"),
             &mut image(&pixels),

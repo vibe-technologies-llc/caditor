@@ -43,6 +43,7 @@ fn triangle_on_the_helix_start() -> Sketch {
         Point2::new(11.0, 1.0),
         Point2::new(9.0, 0.0),
     ];
+
     for (from, to) in corners.iter().zip(corners.iter().cycle().skip(1)) {
         sketch.add_line(*from, *to);
     }
@@ -52,6 +53,7 @@ fn triangle_on_the_helix_start() -> Sketch {
 #[test]
 fn helix_winds_round_z_from_the_palette_and_a_triangle_swept_along_it_makes_a_thread() {
     let mut harness = Harness::new();
+
     harness.select([Pickable::Axis(Axis::Z)]);
 
     run_from_palette(&mut harness, "helix");
@@ -62,6 +64,7 @@ fn helix_winds_round_z_from_the_palette_and_a_triangle_swept_along_it_makes_a_th
         .editing
         .solid()
         .expect("the helix is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Helix 1"));
     assert_eq!(
         helix_of(&harness, helix).axis,
@@ -74,13 +77,16 @@ fn helix_winds_round_z_from_the_palette_and_a_triangle_swept_along_it_makes_a_th
 
     harness.type_into_field(Id::unique(("helix-field", helix, "turns")), "2");
     harness.settle();
+
     assert_eq!(
         helix_of(&harness, helix).length.turns(),
         Some(&caditor_expression::Expression::number(2.0))
     );
 
     harness.perform(Action::Editing(EditingCommand::CloseSolid));
+
     let profile = harness.add_sketch(triangle_on_the_helix_start());
+
     harness.select([Pickable::Datum(helix)]);
 
     run_from_palette(&mut harness, "sweep");
@@ -97,12 +103,15 @@ fn helix_winds_round_z_from_the_palette_and_a_triangle_swept_along_it_makes_a_th
         .and_then(|feature| feature.kind.solid())
         .expect("a sweep")
         .clone();
+
     assert_eq!(made.sketch(), profile);
     assert_eq!(made.path(), Some(&SweepPath::Helix { helix }));
     assert!(harness.shows(solid_panel::PATH));
     assert!(harness.shows("Helix 1"));
+
     let expected = 2.0 * TAU * 2.0 * (31.0 / 3.0);
     let found = harness.body_volume(sweep);
+
     assert!(
         (found - expected).abs() < 1e-2 * expected,
         "{found} against {expected}"
@@ -110,6 +119,7 @@ fn helix_winds_round_z_from_the_palette_and_a_triangle_swept_along_it_makes_a_th
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert!(harness.document().feature(sweep).is_none());
 }
 
@@ -127,6 +137,7 @@ fn click_removal_beside(harness: &mut Harness, label: &str) {
         .map(|(_, rect)| rect.center())
         .find(|center| (center.y - row.center().y).abs() < row.height() * 2.0)
         .expect("the row can be removed");
+
     harness.click_screen(button);
 }
 
@@ -154,11 +165,13 @@ fn start_of(harness: &Harness, helix: FeatureId) -> Point3 {
 #[test]
 fn typing_a_start_angle_starts_the_helix_further_round_its_axis_in_one_undoable_change() {
     let mut harness = Harness::new();
+
     let helix = open_vertical_helix(&mut harness);
     let before = start_of(&harness, helix);
 
     harness.type_into_field(Id::unique(("helix-field", helix, "start")), "90");
     harness.settle();
+
     let after = start_of(&harness, helix);
 
     assert!(harness.shows(helix_panel::START_ANGLE));
@@ -171,6 +184,7 @@ fn typing_a_start_angle_starts_the_helix_further_round_its_axis_in_one_undoable_
         "{after}"
     );
     assert_eq!(harness.model.undo_label(), Some("Edit Helix 1"));
+
     let angle = |harness: &Harness| {
         harness
             .model
@@ -179,13 +193,16 @@ fn typing_a_start_angle_starts_the_helix_further_round_its_axis_in_one_undoable_
             .unwrap()
             .value
     };
+
     undone_and_redone(&mut harness, "the start angle", angle);
+
     assert_eq!(angle(&harness), 90.0);
 }
 
 #[test]
 fn dragging_a_helix_s_diameter_and_pitch_arrows_changes_them_in_one_undoable_change_each() {
     let mut harness = Harness::new();
+
     let helix = open_vertical_helix(&mut harness);
     let diameter = |harness: &Harness| length_value(harness, &helix_of(harness, helix).diameter);
     let pitch = |harness: &Harness| {
@@ -203,6 +220,7 @@ fn dragging_a_helix_s_diameter_and_pitch_arrows_changes_them_in_one_undoable_cha
         (after - before - 6.0).abs() <= 2.0 * step,
         "{before} to {after} with steps of {step}"
     );
+
     undone_and_redone(&mut harness, "the diameter drag", diameter);
 
     let before = pitch(&harness);
@@ -214,6 +232,7 @@ fn dragging_a_helix_s_diameter_and_pitch_arrows_changes_them_in_one_undoable_cha
         (after - before - 2.0).abs() <= step,
         "{before} to {after} with steps of {step}"
     );
+
     undone_and_redone(&mut harness, "the pitch drag", pitch);
 }
 
@@ -221,10 +240,13 @@ fn dragging_a_helix_s_diameter_and_pitch_arrows_changes_them_in_one_undoable_cha
 fn picking_a_sketch_point_starts_the_helix_at_its_angle_and_follows_it_until_removed() {
     let mut harness = Harness::new();
     let mut drawn = Sketch::new(Plane::XY);
+
     let mark = drawn.add_point(Point2::new(0.0, 7.0));
     let marks = harness.add_sketch(drawn);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let helix = open_vertical_helix(&mut harness);
     let typed = start_of(&harness, helix);
 
@@ -235,6 +257,7 @@ fn picking_a_sketch_point_starts_the_helix_at_its_angle_and_follows_it_until_rem
     harness.frame();
     harness.click_beside(icons::USE_SELECTED, helix_panel::STARTS_AT);
     harness.settle();
+
     let pointed = start_of(&harness, helix);
 
     assert!(harness.shows(helix_panel::STARTS_AT));
@@ -265,6 +288,7 @@ fn picking_a_sketch_point_starts_the_helix_at_its_angle_and_follows_it_until_rem
         },
     )));
     harness.settle();
+
     let followed = start_of(&harness, helix);
 
     assert!(
@@ -289,10 +313,13 @@ fn picking_a_sketch_point_starts_the_helix_at_its_angle_and_follows_it_until_rem
 fn a_point_on_the_helix_axis_fails_the_helix_in_words_naming_the_remedy() {
     let mut harness = Harness::new();
     let mut drawn = Sketch::new(Plane::XY);
+
     let mark = drawn.add_point(Point2::ZERO);
     let marks = harness.add_sketch(drawn);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let helix = open_vertical_helix(&mut harness);
 
     harness.select([Pickable::SketchEntity {
@@ -312,6 +339,7 @@ fn a_point_on_the_helix_axis_fails_the_helix_in_words_naming_the_remedy() {
             _ => None,
         })
         .expect("the helix fails");
+
     assert_eq!(
         reason,
         "The start point of Helix 1 lies on its axis, so it has no angle round it."
@@ -332,6 +360,7 @@ fn reason_of(harness: &Harness, feature: FeatureId) -> Option<String> {
 #[test]
 fn a_flat_spiral_from_the_palette_sized_by_its_outer_diameter_carries_a_pipe_once_thin_enough() {
     let mut harness = Harness::new();
+
     harness.select([Pickable::Axis(Axis::Z)]);
 
     run_from_palette(&mut harness, "flat spiral");
@@ -342,6 +371,7 @@ fn a_flat_spiral_from_the_palette_sized_by_its_outer_diameter_carries_a_pipe_onc
         .editing
         .solid()
         .expect("the spiral is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Spiral 1"));
     assert_eq!(helix_of(&harness, spiral).kind, HelixKind::FlatSpiral);
     assert!(harness.shows(helix_panel::SPIRAL_DESCRIPTION));
@@ -349,7 +379,9 @@ fn a_flat_spiral_from_the_palette_sized_by_its_outer_diameter_carries_a_pipe_onc
     assert!(!harness.shows(coil_panel::TAPER));
 
     choose(&mut harness, "Turns and pitch", "Outer diameter and turns");
+
     let resized = helix_of(&harness, spiral).length;
+
     assert!(harness.shows(helix_panel::OUTER_DIAMETER));
     assert_eq!(
         resized.height().map(|outer| length_value(&harness, outer)),
@@ -358,8 +390,10 @@ fn a_flat_spiral_from_the_palette_sized_by_its_outer_diameter_carries_a_pipe_onc
 
     harness.type_into_field(Id::unique(("helix-field", spiral, "height")), "50");
     harness.settle();
+
     let spec = helix_tools::points(harness.model.evaluation(), spiral);
     let end = spec.last().copied().expect("the spiral is built");
+
     assert!(matches!(
         helix_of(&harness, spiral).length,
         CoilLength::HeightAndTurns { .. }
@@ -373,6 +407,7 @@ fn a_flat_spiral_from_the_palette_sized_by_its_outer_diameter_carries_a_pipe_onc
     harness.settle();
 
     let pipe = harness.workspace.editing.solid().expect("the pipe is open");
+
     assert_eq!(
         harness
             .document()
@@ -382,7 +417,9 @@ fn a_flat_spiral_from_the_palette_sized_by_its_outer_diameter_carries_a_pipe_onc
         Some(SweepPath::Helix { helix: spiral })
     );
     assert_eq!(pipe_tools::DEFAULT_SIZE, 10.0);
+
     let refused = reason_of(&harness, pipe).expect("a 10 mm pipe touches itself");
+
     assert!(
         refused.starts_with("The turns of Pipe 1 would touch along Spiral 1"),
         "{refused}"
@@ -399,11 +436,14 @@ fn a_flat_spiral_from_the_palette_sized_by_its_outer_diameter_carries_a_pipe_onc
 #[test]
 fn turning_a_helix_into_a_flat_spiral_keeps_its_turns_and_pitch_in_one_undoable_change() {
     let mut harness = Harness::new();
+
     let helix = open_vertical_helix(&mut harness);
+
     harness.type_into_field(Id::unique(("helix-field", helix, "turns")), "3");
     harness.settle();
 
     choose(&mut harness, "Helix", "Flat spiral");
+
     let turned = helix_of(&harness, helix);
     let points = helix_tools::points(harness.model.evaluation(), helix);
 
@@ -412,21 +452,27 @@ fn turning_a_helix_into_a_flat_spiral_keeps_its_turns_and_pitch_in_one_undoable_
     assert_eq!(harness.model.undo_label(), Some("Edit Helix 1"));
     assert!(harness.shows(helix_panel::SPIRAL_DESCRIPTION));
     assert!(points.iter().all(|point| point.z.abs() < 1e-9));
+
     let end = points.last().copied().expect("the spiral is built");
+
     assert!(
         (end.truncate().length() - (RADIUS + 3.0 * caditor_document::DEFAULT_PITCH)).abs() < 1e-9,
         "{end}"
     );
+
     let kind = |harness: &Harness| f64::from(u8::from(helix_of(harness, helix).is_flat()));
+
     undone_and_redone(&mut harness, "the shape", kind);
 }
 
 #[test]
 fn a_table_of_pitches_is_chosen_edited_grown_and_shrunk_in_the_panel_in_undoable_changes() {
     let mut harness = Harness::new();
+
     let helix = open_vertical_helix(&mut harness);
 
     choose(&mut harness, "Even", "Table");
+
     let tabled = helix_of(&harness, helix);
 
     assert_eq!(tabled.pitch_table.len(), 2);
@@ -470,9 +516,11 @@ fn spiral_reach(harness: &Harness, spiral: FeatureId) -> f64 {
 #[test]
 fn a_flat_spiral_takes_a_pitch_changing_evenly_or_by_a_table_in_the_panel() {
     let mut harness = Harness::new();
+
     harness.select([Pickable::Axis(Axis::Z)]);
     run_from_palette(&mut harness, "flat spiral");
     harness.settle();
+
     let spiral = harness
         .workspace
         .editing
@@ -493,6 +541,7 @@ fn a_flat_spiral_takes_a_pitch_changing_evenly_or_by_a_table_in_the_panel() {
     assert_eq!(harness.model.undo_label(), Some("Edit Spiral 1"));
 
     choose(&mut harness, "Progressive", "Table");
+
     let tabled = helix_of(&harness, spiral);
 
     assert_eq!(tabled.pitch_table.len(), 2);
@@ -510,12 +559,15 @@ fn a_flat_spiral_takes_a_pitch_changing_evenly_or_by_a_table_in_the_panel() {
 #[test]
 fn a_table_of_pitches_stays_when_the_ends_are_closed_and_counts_its_turns_between_them() {
     let mut harness = Harness::new();
+
     let helix = open_vertical_helix(&mut harness);
+
     harness.type_into_field(Id::unique(("helix-field", helix, "turns")), "9");
     harness.settle();
 
     choose(&mut harness, "Open", "Closed");
     choose(&mut harness, "Even", "Table");
+
     let both = helix_of(&harness, helix);
 
     assert!(both.ends.is_some());

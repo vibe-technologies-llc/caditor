@@ -35,7 +35,7 @@ const AXIS_NAMES: [(PrincipalAxis, &str); 3] = [
     (PrincipalAxis::Z, "Z"),
 ];
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum MeasurementError {
     #[error("The measurement no longer exists")]
     Gone,
@@ -90,7 +90,7 @@ pub enum MeasurementError {
     Rejected(#[from] CheckError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Keepable {
     Distance,
     Angle,
@@ -317,6 +317,7 @@ pub fn item_at(
 ) -> Result<MeasuredItem, MeasurementError> {
     let item = item_of(model, pickable).ok_or(MeasurementError::NotMeasurable)?;
     let document = model.document();
+
     let made_before = item.features().into_iter().all(|feature| {
         document
             .feature_index(feature)
@@ -356,7 +357,7 @@ pub fn item_at(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum MeasuredPart {
     First,
     Second,
@@ -411,7 +412,7 @@ impl MeasuredPart {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Form {
     Point,
     Straight,
@@ -495,7 +496,7 @@ fn position_allows(form: Form) -> bool {
     matches!(form, Form::Point | Form::Body | Form::Unknown)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quantity {
     Between(Between),
     Along,
@@ -653,6 +654,7 @@ pub fn quantity_change(
         reading,
         parameter: measurement.parameter,
     };
+
     let transaction = edit(document, feature, changed).ok_or(MeasurementError::Gone)?;
     field::checked(document, transaction)
 }
@@ -764,9 +766,11 @@ pub fn reading_with(
         .feature_index(feature)
         .ok_or(MeasurementError::Gone)?;
     let reading = with_item(model, &measurement.reading, part, item, index)?;
+
     if reading == measurement.reading {
         return Err(MeasurementError::SameItem);
     }
+
     let changed = Measurement {
         reading,
         parameter: measurement.parameter,
@@ -787,10 +791,13 @@ pub fn item_change(
         .feature_index(feature)
         .ok_or(MeasurementError::Gone)?;
     let mut picked = selection.iter();
+
     let pickable = picked.next().ok_or(MeasurementError::ChooseOne)?;
+
     if picked.next().is_some() {
         return Err(MeasurementError::OnlyOneSelected);
     }
+
     let reads_a_body = matches!(part.item(&measurement.reading), Some(MeasuredItem::Body(_)));
     let item = match part {
         MeasuredPart::Axis => MeasuredItem::Axis(
@@ -827,6 +834,7 @@ pub fn keep(
         }
     };
     let mut transaction = document.transaction(label);
+
     let parameter = transaction.add_parameter(name.clone(), standing);
     let measurement = transaction.add_feature(
         feature.clone(),
@@ -835,6 +843,7 @@ pub fn keep(
             parameter: Some(parameter),
         }),
     );
+
     transaction.edit(Edit::SetParameterOwner {
         id: parameter,
         owner: Some(ParameterOwner::Feature {
@@ -842,7 +851,9 @@ pub fn keep(
             value: READING.to_owned(),
         }),
     });
+
     let transaction = transaction.finish();
+
     document
         .check(&transaction)
         .map_err(MeasurementError::Unkept)?;

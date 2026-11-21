@@ -10,7 +10,7 @@ const SNIPPET_LENGTH: usize = 140;
 const MOST_HITS: usize = 30;
 const TITLE_WEIGHT: usize = 10;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Page {
     Start,
     Window,
@@ -195,7 +195,7 @@ all_variants!(
     Accessibility,
 );
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Chapter {
     Basics,
     Sketching,
@@ -629,7 +629,7 @@ impl Page {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SidePanel {
     Measure,
     Interference,
@@ -642,7 +642,7 @@ pub enum SidePanel {
     Drawings,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Context {
     Tool(Tool),
     Feature(Page),
@@ -702,7 +702,7 @@ pub fn context(situation: &Situation<'_>) -> Option<Context> {
         })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Span {
     Text(String),
     Strong(String),
@@ -711,19 +711,19 @@ pub enum Span {
     Command(Named),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     Page(Page),
     Unknown(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Named {
     Command(Command),
     Unknown(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Block {
     Heading(String),
     Paragraph(Vec<Span>),
@@ -765,6 +765,7 @@ pub fn parse(source: &str) -> Parsed {
         Some(Open::Item(lines)) => blocks.push(Block::Item(spans(&lines.join(" ")))),
         None => {}
     };
+
     for line in source.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -788,6 +789,7 @@ pub fn parse(source: &str) -> Parsed {
         }
     }
     close(&mut open, &mut blocks);
+
     let searched = std::iter::once(title.clone())
         .chain(blocks.iter().map(block_text))
         .collect::<Vec<_>>()
@@ -804,6 +806,7 @@ pub fn spans(text: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     let mut plain = String::new();
     let mut rest = text;
+
     while let Some(next) = rest.chars().next() {
         if let Some((span, after)) = marked(rest) {
             if !plain.is_empty() {
@@ -825,18 +828,22 @@ pub fn spans(text: &str) -> Vec<Span> {
 fn marked(text: &str) -> Option<(Span, &str)> {
     if let Some(inner) = text.strip_prefix("**") {
         let (strong, after) = inner.split_once("**")?;
+
         return Some((Span::Strong(strong.to_owned()), after));
     }
     if let Some(inner) = text.strip_prefix('`') {
         let (code, after) = inner.split_once('`')?;
+
         return Some((Span::Code(code.to_owned()), after));
     }
     if let Some(inner) = text.strip_prefix("{command:") {
         let (id, after) = inner.split_once('}')?;
         let named =
             Command::from_id(id).map_or_else(|| Named::Unknown(id.to_owned()), Named::Command);
+
         return Some((Span::Command(named), after));
     }
+
     let inner = text.strip_prefix('[')?;
     let (shown, rest) = inner.split_once("](")?;
     let (id, after) = rest.split_once(')')?;
@@ -866,7 +873,7 @@ pub fn block_text(block: &Block) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hit {
     pub page: Page,
     pub snippet: String,
@@ -874,9 +881,11 @@ pub struct Hit {
 
 pub fn search(query: &str) -> Vec<Hit> {
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+
     if words.is_empty() {
         return Vec::new();
     }
+
     let mut scored: Vec<(usize, Hit)> = GUIDE
         .iter()
         .filter(|(_, parsed)| words.iter().all(|word| parsed.searched.contains(word)))
@@ -902,6 +911,7 @@ pub fn search(query: &str) -> Vec<Hit> {
             )
         })
         .collect();
+
     scored.sort_by(|(left, _), (right, _)| right.cmp(left));
     scored
         .into_iter()
@@ -919,6 +929,7 @@ fn snippet(parsed: &Parsed, word: &str) -> String {
         .unwrap_or_default();
     let lower = text.to_lowercase();
     let found = lower.find(word).unwrap_or_default();
+
     let characters_before = lower
         .get(..found)
         .map_or(0, |before| before.chars().count());
@@ -975,6 +986,7 @@ mod tests {
     #[test]
     fn every_page_has_a_title_and_content_and_a_unique_id() {
         let ids: BTreeSet<&str> = Page::ALL.into_iter().map(Page::id).collect();
+
         assert_eq!(ids.len(), Page::ALL.len());
         for page in Page::ALL {
             assert!(!page.title().is_empty(), "{} has no title", page.id());
@@ -1005,6 +1017,7 @@ mod tests {
                 _ => None,
             })
             .collect();
+
         assert!(broken.is_empty(), "{broken:#?}");
     }
 
@@ -1031,6 +1044,7 @@ mod tests {
                     .map(move |line| format!("{}: {line}", page.id()))
             })
             .collect();
+
         assert!(unread.is_empty(), "{unread:#?}");
     }
 
@@ -1074,6 +1088,7 @@ mod tests {
             .filter(|page| *page != Page::Start && !linked.contains(page.id()))
             .map(Page::id)
             .collect();
+
         assert!(unlinked.is_empty(), "no page links to {unlinked:?}");
     }
 
@@ -1081,6 +1096,7 @@ mod tests {
     fn every_tool_panel_and_side_panel_has_a_page_of_its_own_chapter() {
         for tool in Tool::ALL {
             let page = Page::of_tool(tool);
+
             assert!(
                 matches!(page.chapter(), Chapter::SketchTools | Chapter::Sketching),
                 "{tool:?} goes to {}",
@@ -1100,14 +1116,17 @@ mod tests {
         ] {
             assert_eq!(Page::of_panel(panel).chapter(), Chapter::Inspecting);
         }
+
         assert_eq!(
             Page::of_panel(SidePanel::Tidying),
             Page::AutomaticConstraints
         );
+
         let listed: usize = Chapter::ALL
             .into_iter()
             .map(|chapter| chapter.pages().count())
             .sum();
+
         assert_eq!(listed, Page::ALL.len());
     }
 
@@ -1117,6 +1136,7 @@ mod tests {
             "# Title\n\nA **bold** `code` [link](start) and {command:file.save}.\n\
              second line\n\n## Heading\n\n- one\n  two\n- [x](nowhere)\n",
         );
+
         assert_eq!(parsed.title, "Title");
         assert_eq!(
             parsed.blocks,
@@ -1152,10 +1172,13 @@ mod tests {
     #[test]
     fn search_finds_pages_by_title_first_and_quotes_where_the_word_is() {
         let hits = search("expression functions");
+
         assert_eq!(hits.first().map(|hit| hit.page), Some(Page::Expressions));
         assert!(search("   ").is_empty());
         assert!(search("zzzz-not-a-word").is_empty());
+
         let fillet = search("fillet");
+
         assert!(fillet.iter().any(|hit| hit.page == Page::FilletAndChamfer));
         assert!(
             fillet
@@ -1177,20 +1200,33 @@ mod tests {
             panels: &panels,
             tree_row: None,
         };
+
         assert_eq!(context(&situation).map(Context::page), Some(Page::Line));
+
         situation.tool = Some(Tool::Select);
+
         assert_eq!(context(&situation).map(Context::page), Some(Page::Measure));
+
         situation.panels = &[];
+
         assert_eq!(context(&situation).map(Context::page), Some(Page::Sketches));
+
         situation.tool = None;
+
         assert_eq!(context(&situation), None);
+
         situation.choosing_plane = true;
+
         assert_eq!(context(&situation).map(Context::page), Some(Page::Sketches));
+
         situation.choosing_plane = false;
         situation.choosing_bodies = true;
+
         assert_eq!(context(&situation).map(Context::page), Some(Page::Combine));
+
         situation.choosing_bodies = false;
         situation.choosing_mirrored = true;
+
         assert_eq!(context(&situation).map(Context::page), Some(Page::Mirror));
     }
 }

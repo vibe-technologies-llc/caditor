@@ -41,14 +41,14 @@ const ANGLE_TOLERANCE: f64 = 1e-9;
 const MAX_NAMED_COPIES: usize = 3;
 pub const ORIGINAL_INSTANCE: Instance = [0, 0];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LinearSpacing {
     #[default]
     BetweenCopies,
     Total,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LinearDirection {
     pub axis: AxisReference,
     pub count: Expression,
@@ -57,7 +57,7 @@ pub struct LinearDirection {
     pub reversed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CircularPattern {
     pub axis: Option<AxisReference>,
     pub count: Expression,
@@ -65,21 +65,21 @@ pub struct CircularPattern {
     pub reversed: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CurveSpacing {
     #[default]
     Spread,
     Distance,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CopyOrientation {
     #[default]
     Kept,
     Following,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CurvePatternPath {
     Sketch(FeatureId),
     Edges {
@@ -130,7 +130,7 @@ impl CurvePatternPath {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CurvePattern {
     pub path: CurvePatternPath,
     pub count: Expression,
@@ -140,13 +140,13 @@ pub struct CurvePattern {
     pub reversed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PointsPattern {
     pub sketch: FeatureId,
     pub base: PointReference,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PatternKind {
     Linear {
         first: LinearDirection,
@@ -163,7 +163,7 @@ const INSTANCE_KEY_SHIFT: u32 = 15;
 const INSTANCE_KEY_STEPS: u32 = 1 << INSTANCE_KEY_SHIFT;
 const DIGESTED_COPY_KEYS: u32 = 1 << 31;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum PatternOutcome {
     #[default]
     AddToBody,
@@ -174,7 +174,7 @@ impl PatternOutcome {
     pub const ALL: [Self; 2] = [Self::AddToBody, Self::NewBodies];
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Pattern {
     pub body: FeatureId,
     pub kind: PatternKind,
@@ -196,6 +196,7 @@ pub fn repeatable_on(kind: &FeatureKind) -> Option<FeatureId> {
     if let Some(emboss) = kind.emboss() {
         return Some(emboss.body);
     }
+
     let operation = if let Some(primitive) = kind.primitive() {
         primitive.operation
     } else if let Some(pipe) = kind.pipe() {
@@ -302,6 +303,7 @@ impl LinearDirection {
 impl Pattern {
     pub(crate) fn settle_skipped(&mut self) {
         let points = matches!(self.kind, PatternKind::Points(_));
+
         self.skipped.retain(|instance| {
             *instance != ORIGINAL_INSTANCE
                 && (points || instance.iter().all(|step| *step < MAX_PATTERN_INSTANCES))
@@ -342,16 +344,21 @@ impl Pattern {
         if along < INSTANCE_KEY_STEPS && across < INSTANCE_KEY_STEPS {
             return PieceKey::from_raw(along | (across << INSTANCE_KEY_SHIFT));
         }
+
         let mut bytes = [0; 8];
+
         let (low, high) = bytes.split_at_mut(4);
+
         low.copy_from_slice(&along.to_le_bytes());
         high.copy_from_slice(&across.to_le_bytes());
+
         let [a, b, c, d, ..] = *blake3::hash(&bytes).as_bytes();
         PieceKey::from_raw(DIGESTED_COPY_KEYS | u32::from_le_bytes([a, b, c, d]))
     }
 
     pub fn copy_instance(&self, key: PieceKey, sketch: Option<&Sketch>) -> Option<Instance> {
         let raw = key.raw();
+
         if raw < DIGESTED_COPY_KEYS {
             return Some([raw % INSTANCE_KEY_STEPS, raw >> INSTANCE_KEY_SHIFT]);
         }
@@ -424,7 +431,9 @@ impl Pattern {
         if instance == ORIGINAL_INSTANCE {
             return None;
         }
+
         let mut toggled = self.clone();
+
         if !toggled.skipped.remove(&instance) {
             toggled.skipped.insert(instance);
         }
@@ -553,6 +562,7 @@ impl Pattern {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         used.extend(self.repeated.iter().copied());
         used.extend(self.axis_datums());
         used.extend(self.point_datums());
@@ -592,6 +602,7 @@ impl Context<'_> {
     fn count(&self, expression: &Expression, what: &str) -> Result<u32, Failure> {
         let value = self.resolver.value(expression, what, Dimension::NONE)?;
         let whole = value.round();
+
         if (value - whole).abs() > WHOLE_TOLERANCE {
             return Err(self.error(PatternCause::NotWhole {
                 what: what.to_owned(),
@@ -623,18 +634,22 @@ impl Context<'_> {
             &format!("{which}{}", direction.measured.what()),
             Dimension::LENGTH,
         )?;
+
         if spacing <= 0.0 {
             return Err(self.error(PatternCause::SpacingNotPositive {
                 what: format!("{which}{}", direction.measured.what()),
             }));
         }
+
         let spacing = match (direction.measured, count) {
             (LinearSpacing::BetweenCopies, _) | (LinearSpacing::Total, 1) => spacing,
             (LinearSpacing::Total, count) => spacing / f64::from(count - 1),
         };
+
         if spacing * f64::from(count.saturating_sub(1)) > MAX_SIZE {
             return Err(self.error(PatternCause::ReachTooFar));
         }
+
         let ray = self.resolver.axis(&direction.axis)?;
         let sign = if direction.reversed { -1.0 } else { 1.0 };
         Ok((
@@ -655,6 +670,7 @@ impl Context<'_> {
         let across = match second {
             Some(direction) => {
                 let (second_ray, across) = self.steps(direction, "second ")?;
+
                 if tolerance::parallel(first_ray.direction(), second_ray.direction()) {
                     return Err(self.error(PatternCause::Parallel));
                 }
@@ -665,17 +681,23 @@ impl Context<'_> {
                 offset: Vector3::ZERO,
             },
         };
+
         let instances = u64::from(along.count) * u64::from(across.count);
+
         if instances > u64::from(MAX_PATTERN_INSTANCES) {
             return Err(self.too_many(instances as f64));
         }
+
         let mut copies = Vec::new();
+
         for row in 0..across.count {
             for column in 0..along.count {
                 if row == 0 && column == 0 {
                     continue;
                 }
+
                 let offset = along.offset * f64::from(column) + across.offset * f64::from(row);
+
                 copies.push(self.copy([column, row], RigidTransform::translation(offset))?);
             }
         }
@@ -687,9 +709,11 @@ impl Context<'_> {
         let angle = self
             .resolver
             .value(&circular.angle, "angle", Dimension::ANGLE)?;
+
         if angle <= 0.0 || angle > FULL_TURN + ANGLE_TOLERANCE {
             return Err(self.error(PatternCause::AngleRange));
         }
+
         let Some(axis) = &circular.axis else {
             return Err(Failure::Waiting(MissingInput::Axis));
         };
@@ -756,11 +780,14 @@ impl Context<'_> {
 
     fn edge_walk(&self, body: FeatureId, edges: &[EdgeReference]) -> Result<PatternPath, Failure> {
         let inputs = self.resolver.inputs;
+
         if edges.is_empty() {
             return Err(Failure::Waiting(MissingInput::Path));
         }
+
         let solid = inputs.body(body).ok_or_else(|| inputs.missing_body(body))?;
         let name = inputs.document.body_label(body).unwrap_or_default();
+
         let found =
             edge_segments(solid, edges).map_err(|error| self.edges_failure(&name, error))?;
         let labels: Vec<String> = found
@@ -807,6 +834,7 @@ impl Context<'_> {
     fn curve(&self, curve: &CurvePattern) -> Result<Vec<PatternCopy>, Failure> {
         let count = self.count(&curve.count, "count")?;
         let walk = self.walk(&curve.path)?;
+
         let step = self.curve_step(curve, count, &walk)?;
         (1..count)
             .map(|index| {
@@ -826,6 +854,7 @@ impl Context<'_> {
     ) -> Result<f64, Failure> {
         let length = path.length();
         let steps = f64::from(count.saturating_sub(1));
+
         let step = match curve.measured {
             CurveSpacing::Spread if path.is_closed() => length / f64::from(count),
             CurveSpacing::Spread if count > 1 => length / steps,
@@ -834,6 +863,7 @@ impl Context<'_> {
                 let spacing = self
                     .resolver
                     .value(&curve.spacing, "spacing", Dimension::LENGTH)?;
+
                 if spacing <= 0.0 {
                     return Err(self.error(PatternCause::SpacingNotPositive {
                         what: "spacing".to_owned(),
@@ -848,6 +878,7 @@ impl Context<'_> {
         } else {
             reach > length + LINEAR_RESOLUTION
         };
+
         if past_end {
             return Err(self.error(PatternCause::PastEnd {
                 closed: path.is_closed(),
@@ -866,16 +897,21 @@ impl Context<'_> {
         let placed = self.sketch(points.sketch)?;
         let plane = placed.sketch.plane();
         let ids = placed.sketch.layout_points();
+
         if ids.is_empty() {
             let name = &placed.name;
+
             return Err(self.error_at(PatternCause::NoPoints { name: name.clone() }, points.sketch));
         }
+
         let mut copies = Vec::with_capacity(ids.len());
+
         for id in ids {
             let (Some(point), Some(index)) = (placed.sketch.point(id), point_instance(id)) else {
                 continue;
             };
             let target = plane.to_world(point);
+
             if target.distance(base) <= LINEAR_RESOLUTION {
                 continue;
             }
@@ -990,6 +1026,7 @@ impl<'a> Seeds<'a> {
             repeated: Vec::with_capacity(features.len()),
             shell: None,
         };
+
         for &feature in features {
             match seed(inputs, feature, body, repeater)? {
                 Repeated::Shell(shell) => seeds.shell = Some(shell),
@@ -1027,6 +1064,7 @@ pub(crate) fn seed<'a>(
             RepeatCause::SeedUnavailable { repeater, name },
         ));
     };
+
     if result.body != body {
         return Err(seed_error(
             seed,
@@ -1043,6 +1081,7 @@ pub(crate) fn seed<'a>(
             let after = last
                 .and_then(|state| inputs.document.feature(state))
                 .map_or_else(|| "another feature".to_owned(), |found| found.name.clone());
+
             return Err(seed_error(
                 seed,
                 RepeatCause::SeedShellLate {
@@ -1052,12 +1091,14 @@ pub(crate) fn seed<'a>(
                 },
             ));
         };
+
         return Ok(Repeated::Shell(RepeatedShell {
             name,
             recipe,
             before,
         }));
     }
+
     let (operation, parts) = match (result.cuts(), result.joins()) {
         ([], []) => {
             return Err(seed_error(
@@ -1111,6 +1152,7 @@ impl Context<'_> {
             repeater: Repeater::Pattern,
             copy: &copy_words,
         };
+
         for (feature, repeated) in seeds.repeated {
             let seed = match repeated {
                 Repeated::Tools(seed) => seed,
@@ -1122,8 +1164,10 @@ impl Context<'_> {
                 }
                 Repeated::Shell(_) => continue,
             };
+
             if let Some(landing) = seed.landing(definition.body) {
                 let landed = landing.land(inputs, body, copies, &base, cancel)?;
+
                 body = landed.body;
                 if seed.operation == BooleanOperation::Difference {
                     cuts.extend(landed.tools);
@@ -1131,6 +1175,7 @@ impl Context<'_> {
                 names.copying_tools_of(feature);
                 continue;
             }
+
             let subject = Context {
                 resolver: Resolver {
                     feature: self.resolver.feature,
@@ -1139,16 +1184,19 @@ impl Context<'_> {
                 subject: seed.name.clone(),
                 at_points: self.at_points,
             };
+
             for tool in &seed.tools {
                 if cancel.is_cancelled() {
                     return Err(Failure::Cancelled);
                 }
+
                 let placed = pattern_copies(tool, copies, raw).map_err(|error| {
                     subject.failure(&error).placed(trouble::union_place(&error))
                 })?;
                 let Some(placed) = placed else {
                     continue;
                 };
+
                 body = boolean(&body, &placed, seed.operation).map_err(|error| {
                     self.combine_failure(inputs, [&body, &placed], &seed, &error)
                 })?;
@@ -1175,6 +1223,7 @@ impl Context<'_> {
     ) -> Failure {
         let name = &seed.name;
         let body = &self.subject;
+
         let cutting = match (error, seed.operation) {
             (BooleanError::Cancelled(_), _) => return Failure::Cancelled,
             (BooleanError::Empty, _) => {
@@ -1186,7 +1235,9 @@ impl Context<'_> {
             (_, BooleanOperation::Difference) => true,
             (_, _) => false,
         };
+
         log::warn!("{} could not be built: {error}", self.resolver.feature.name);
+
         let trouble = trouble::boolean_trouble(
             inputs.document,
             operands,
@@ -1279,10 +1330,13 @@ pub(crate) fn evaluate(
         PatternKind::Curve(curve) => context.curve(curve)?,
         PatternKind::Points(points) => context.points(points)?,
     };
+
     copies.retain(|copy| !definition.is_skipped(copy.index));
+
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -1294,6 +1348,7 @@ pub(crate) fn evaluate(
     if definition.makes_bodies() {
         return context.copy_bodies(&copies, solid, cancel);
     }
+
     let result = pattern(solid, &copies, feature.id().raw())
         .map_err(|error| context.failure(&error).placed(trouble::union_place(&error)))?;
     Ok(FeatureResult::Solid(SolidResult::new(
@@ -1311,10 +1366,12 @@ impl Context<'_> {
     ) -> Result<FeatureResult, Failure> {
         let feature = self.resolver.feature;
         let mut bodies = Vec::with_capacity(copies.len());
+
         for copy in copies {
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
             }
+
             let body = feature
                 .id()
                 .piece(Pattern::copy_key(copy.index))
@@ -1326,6 +1383,7 @@ impl Context<'_> {
             let placed = pattern_copies(solid, std::slice::from_ref(copy), feature.id().raw())
                 .map_err(|error| self.failure(&error))?
                 .ok_or_else(|| self.error(PatternCause::CopyUnplaced))?;
+
             bodies.push(SolidResult::new(body, placed));
         }
         bodies.sort_by_key(|result| result.body);
@@ -1337,7 +1395,9 @@ impl Context<'_> {
                 pattern: feature.name.clone(),
             }));
         }
+
         let mut bodies = bodies.into_iter();
+
         let first = bodies.next().ok_or_else(|| {
             self.error(PatternCause::NoCopies {
                 pattern: feature.name.clone(),
@@ -1347,7 +1407,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PatternCause {
     NotWhole {
         what: String,

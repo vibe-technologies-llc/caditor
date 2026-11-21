@@ -12,9 +12,12 @@ pub(crate) fn encode(bytes: &[u8]) -> String {
                 .unwrap_or(PADDING),
         )
     };
+
     for group in bytes.chunks(3) {
         let [first, second, third] = [0, 1, 2].map(|at| group.get(at).copied().unwrap_or(0));
+
         let joined = u32::from(first) << 16 | u32::from(second) << 8 | u32::from(third);
+
         text.push(digit(joined >> 18));
         text.push(digit(joined >> 12));
         text.push(if group.len() > 1 {
@@ -33,13 +36,18 @@ pub(crate) fn encode(bytes: &[u8]) -> String {
 
 pub(crate) fn decode(text: &str) -> Option<Vec<u8>> {
     let digits = text.as_bytes();
+
     if !digits.len().is_multiple_of(4) {
         return None;
     }
+
     let mut bytes = Vec::new();
+
     bytes.try_reserve_exact(digits.len() / 4 * 3).ok()?;
+
     let (groups, _) = digits.as_chunks::<4>();
     let count = groups.len();
+
     for (index, group) in groups.iter().enumerate() {
         let last = index + 1 == count;
         let padded = group
@@ -47,19 +55,25 @@ pub(crate) fn decode(text: &str) -> Option<Vec<u8>> {
             .rev()
             .take_while(|digit| **digit == PADDING)
             .count();
+
         if padded > 2 || (padded > 0 && !last) {
             return None;
         }
+
         let mut joined = 0_u32;
+
         for (at, digit) in group.iter().enumerate() {
             let value = if at >= 4 - padded {
                 0
             } else {
                 value_of(*digit)?
             };
+
             joined = joined << 6 | u32::from(value);
         }
+
         let [_, first, second, third] = joined.to_be_bytes();
+
         bytes.push(first);
         if padded < 2 {
             bytes.push(second);
@@ -97,6 +111,7 @@ mod tests {
 
             assert_eq!(decode(&text), Some(bytes));
         }
+
         assert_eq!(encode(b"Man"), "TWFu");
         assert_eq!(encode(b"Ma"), "TWE=");
         assert_eq!(encode(b"M"), "TQ==");

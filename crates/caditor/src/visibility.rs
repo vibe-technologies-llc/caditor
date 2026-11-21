@@ -14,7 +14,7 @@ use crate::{
 
 const PRINCIPAL_GROUP: &str = "principal planes, axes and origin";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum VisibilityError {
     #[error("Select a body, sketch, datum, principal plane or axis in the view or the tree first")]
     NothingToHide,
@@ -32,7 +32,7 @@ pub enum VisibilityError {
     PrincipalAlreadyWhenNeeded,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Sketches,
     Datums,
@@ -109,7 +109,7 @@ pub fn is_shown(document: &Document, feature: FeatureId) -> bool {
     document.body_maker(feature).is_some() && !document.body_hidden(feature)
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PrincipalSet(u8);
 
 impl PrincipalSet {
@@ -154,7 +154,7 @@ impl PrincipalSet {
 
 pub const FADE_STEPS: u8 = 12;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PrincipalFading([u8; PrincipalGeometry::ALL.len()]);
 
 impl PrincipalFading {
@@ -182,7 +182,7 @@ impl PrincipalFading {
 
 pub const FADE_SECONDS: f64 = 0.16;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PrincipalFade {
     shown: Option<PrincipalSet>,
     left: [f64; PrincipalGeometry::ALL.len()],
@@ -217,11 +217,13 @@ impl PrincipalFade {
 
     pub fn fading(&self) -> PrincipalFading {
         let mut fading = PrincipalFading::default();
+
         for (geometry, left) in PrincipalGeometry::ALL.into_iter().zip(self.left) {
             let steps = left * f64::from(FADE_STEPS);
             let rounded_up = (1..=FADE_STEPS)
                 .find(|step| f64::from(*step) >= steps)
                 .unwrap_or(FADE_STEPS);
+
             fading.set(geometry, if left > 0.0 { rounded_up } else { 0 });
         }
         fading
@@ -240,12 +242,13 @@ pub const EDGE_ON_STEPS: u8 = 8;
 pub const EDGE_ON_HIDDEN_DEGREES: f64 = 3.0;
 pub const EDGE_ON_FADED_DEGREES: f64 = 12.0;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EdgeOn([u8; PrincipalPlane::ALL.len()]);
 
 impl EdgeOn {
     pub fn seen_along(sight: Vector3) -> Self {
         let mut edge_on = Self::default();
+
         for (plane, steps) in PrincipalPlane::ALL.into_iter().zip(&mut edge_on.0) {
             let degrees = plane
                 .plane()
@@ -258,6 +261,7 @@ impl EdgeOn {
             let toward = (EDGE_ON_FADED_DEGREES - degrees)
                 / (EDGE_ON_FADED_DEGREES - EDGE_ON_HIDDEN_DEGREES)
                 * f64::from(EDGE_ON_STEPS);
+
             *steps = (0..=EDGE_ON_STEPS)
                 .find(|step| f64::from(*step) >= toward)
                 .unwrap_or(EDGE_ON_STEPS);
@@ -277,7 +281,7 @@ impl EdgeOn {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PrincipalView {
     pub tucking: bool,
     pub chosen: PrincipalSet,
@@ -410,6 +414,7 @@ pub fn listing_principal(ctx: &egui::Context, listed: PrincipalSet) {
         let before = data
             .get_temp::<PrincipalSet>(listing_key())
             .unwrap_or_default();
+
         data.insert_temp(listing_key(), before.and(listed));
     });
 }
@@ -419,6 +424,7 @@ pub fn take_listing(ctx: &egui::Context) -> PrincipalSet {
         let listed = data
             .get_temp::<PrincipalSet>(listing_key())
             .unwrap_or_default();
+
         data.remove::<PrincipalSet>(listing_key());
         listed
     })
@@ -490,6 +496,7 @@ pub fn toggle(feature: &Feature) -> Result<Transaction, VisibilityError> {
     if !can_hide(feature) {
         return Err(VisibilityError::NotHideable);
     }
+
     let verb = if feature.hidden { "Show" } else { "Hide" };
     Ok(Transaction::single(
         format!("{verb} {}", feature.name),
@@ -504,6 +511,7 @@ pub fn toggle_body(document: &Document, body: FeatureId) -> Result<Transaction, 
             .ok_or(VisibilityError::NotHideable)
             .and_then(toggle);
     }
+
     let maker = document
         .body_maker(body)
         .ok_or(VisibilityError::NotHideable)?;
@@ -511,6 +519,7 @@ pub fn toggle_body(document: &Document, body: FeatureId) -> Result<Transaction, 
     let hidden = document.body_hidden(body);
     let verb = if hidden { "Show" } else { "Hide" };
     let mut edits = vec![set_hidden(body, !hidden)];
+
     if hidden && maker.hidden {
         edits.push(set_hidden(maker.id(), false));
     }
@@ -525,10 +534,12 @@ pub fn toggle_bodies(
     let hiding = bodies.iter().any(|body| !document.body_hidden(*body));
     let mut edits = Vec::new();
     let mut makers_shown = BTreeSet::new();
+
     for body in bodies {
         let maker = document
             .body_maker(*body)
             .ok_or(VisibilityError::NotHideable)?;
+
         if document.body_hidden(*body) == hiding {
             continue;
         }
@@ -537,6 +548,7 @@ pub fn toggle_bodies(
             edits.push(set_hidden(maker.id(), false));
         }
     }
+
     let verb = if hiding { "Hide" } else { "Show" };
     Ok(Transaction::new(format!("{verb} {name}"), edits))
 }
@@ -560,7 +572,7 @@ pub fn hideable_rows(document: &Document, rows: &[FeatureId]) -> Vec<FeatureId> 
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RowToggle {
     pub hiding: bool,
     pub transaction: Transaction,
@@ -578,6 +590,7 @@ pub fn toggle_rows(document: &Document, rows: &[FeatureId]) -> Result<RowToggle,
         [only] => format!("{verb} {}", only.name),
         many => format!("{verb} {} features", many.len()),
     };
+
     let edits = toggled
         .iter()
         .filter(|feature| feature.hidden != hiding)
@@ -641,6 +654,7 @@ pub fn principal_only_when_needed(document: &Document) -> Result<Transaction, Vi
         .filter(|geometry| document.principal_showing(*geometry) != PrincipalShowing::WhenNeeded)
         .map(|geometry| set_principal_showing(geometry, PrincipalShowing::WhenNeeded))
         .collect();
+
     if edits.is_empty() {
         return Err(VisibilityError::PrincipalAlreadyWhenNeeded);
     }
@@ -659,9 +673,11 @@ pub fn toggle_kind(
         .features()
         .filter(|feature| kind.holds(feature) && Some(feature.id()) != edited)
         .collect();
+
     if held.is_empty() {
         return Err(VisibilityError::NoneOfKind { kind });
     }
+
     let hide = held.iter().any(|feature| !feature.hidden);
     let verb = if hide { "Hide" } else { "Show" };
     Ok(Transaction::new(
@@ -700,6 +716,7 @@ pub fn hide_selection(
         .filter_map(principal)
         .filter(|geometry| !document.is_principal_hidden(*geometry))
         .collect();
+
     let label = match (hiding.as_slice(), principal.len() + pieces.len()) {
         ([], 0) => return Err(VisibilityError::NothingToHide),
         ([only], 0) => format!("Hide {}", only.name),
@@ -748,6 +765,7 @@ pub fn hide_others(
         .filter(|owner| !owner.is_piece())
         .chain(hideable_rows(document, rows))
         .collect();
+
     let kept_features: BTreeSet<FeatureId> = kept_pieces
         .iter()
         .map(|piece| piece.maker())
@@ -755,15 +773,18 @@ pub fn hide_others(
         .collect();
     let kept_principal: BTreeSet<PrincipalGeometry> =
         selection.iter().filter_map(principal).collect();
+
     let kept = kept_features
         .iter()
         .filter_map(|id| document.feature(id.to_owned()))
         .filter(|feature| can_hide(feature))
         .count()
         + kept_principal.len();
+
     if kept == 0 {
         return Err(VisibilityError::NothingToIsolate);
     }
+
     let other_pieces: Vec<FeatureId> = kept_pieces
         .iter()
         .map(|piece| piece.maker())
@@ -796,9 +817,11 @@ pub fn hide_others(
                 .map(|geometry| set_principal_showing(geometry, PrincipalShowing::Hidden)),
         )
         .collect();
+
     if edits.is_empty() {
         return Err(VisibilityError::AlreadyIsolated);
     }
+
     let label = if kept == 1 {
         let name = match (kept_pieces.first(), kept_pieces.len()) {
             (Some(piece), 1) if !kept_whole.contains(&piece.maker()) => {
@@ -843,6 +866,7 @@ pub fn show_all(document: &Document) -> Result<Transaction, VisibilityError> {
                 .map(|geometry| set_principal_showing(geometry, PrincipalShowing::Shown)),
         )
         .collect();
+
     if edits.is_empty() {
         return Err(VisibilityError::NothingHidden);
     }
@@ -859,11 +883,16 @@ mod tests {
     #[test]
     fn hiding_the_selection_hides_each_owner_once_and_show_all_reverses_it() {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Sketches");
+
         let first = transaction.add_feature("First", FeatureKind::from(Sketch::new(Plane::XY)));
         let second = transaction.add_feature("Second", FeatureKind::from(Sketch::new(Plane::XZ)));
+
         document.apply(transaction.finish()).unwrap();
+
         let mut selection = Selection::default();
+
         for pickable in [
             Pickable::SketchEntity {
                 feature: first,
@@ -881,10 +910,13 @@ mod tests {
         let xy = PrincipalGeometry::Plane(crate::selection::PrincipalPlane::Xy);
 
         let hide = hide_selection(&document, &selection, &[], None).unwrap();
+
         document.apply(hide.clone()).unwrap();
+
         let again = hide_selection(&document, &selection, &[], None);
         let hidden_xy = document.is_principal_hidden(xy);
         let show = show_all(&document).unwrap();
+
         document.apply(show).unwrap();
 
         assert_eq!(hide.label(), "Hide 3 items");
@@ -903,12 +935,17 @@ mod tests {
     #[test]
     fn hiding_others_keeps_the_selected_owners_and_principal_geometry() {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Sketches");
+
         let first = transaction.add_feature("First", FeatureKind::from(Sketch::new(Plane::XY)));
         let second = transaction.add_feature("Second", FeatureKind::from(Sketch::new(Plane::XZ)));
         let third = transaction.add_feature("Third", FeatureKind::from(Sketch::new(Plane::YZ)));
+
         document.apply(transaction.finish()).unwrap();
+
         let mut selection = Selection::default();
+
         selection.toggle(Pickable::SketchEntity {
             feature: first,
             entity: caditor_sketch::EntityId::ORIGIN,
@@ -932,7 +969,9 @@ mod tests {
             None,
         )
         .unwrap();
+
         document.apply(isolate.clone()).unwrap();
+
         let again = hide_others(
             &document,
             &evaluation,
@@ -954,18 +993,24 @@ mod tests {
     #[test]
     fn a_kind_hides_while_any_of_it_is_shown_then_shows_it_all_again() {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Sketches");
+
         let first = transaction.add_feature("First", FeatureKind::from(Sketch::new(Plane::XY)));
         let second = transaction.add_feature("Second", FeatureKind::from(Sketch::new(Plane::XZ)));
         let edited = transaction.add_feature("Edited", FeatureKind::from(Sketch::new(Plane::YZ)));
+
         document.apply(transaction.finish()).unwrap();
         document
             .apply(toggle(document.feature(second).unwrap()).unwrap())
             .unwrap();
 
         let hide = toggle_kind(&document, Kind::Sketches, Some(edited)).unwrap();
+
         document.apply(hide.clone()).unwrap();
+
         let show = toggle_kind(&document, Kind::Sketches, Some(edited)).unwrap();
+
         document.apply(show.clone()).unwrap();
 
         assert_eq!(hide.label(), "Hide every sketch");
@@ -1001,7 +1046,9 @@ mod tests {
         let mut document = Document::default();
         let shown = PrincipalView::default();
         let origin = PrincipalGeometry::Origin;
+
         let hide_origin = toggle_principal(&document, shown, origin);
+
         applied(&mut document, &hide_origin);
 
         let hide_rest = toggle_principal_group(&document, shown);
@@ -1037,14 +1084,18 @@ mod tests {
 
         let tucked_at_first = !any_principal_shown(&document, tucking());
         let show = toggle_principal(&document, tucking(), xy);
+
         applied(&mut document, &show);
+
         let kept = tucking().shows(&document, xy);
         let others_tucked = PrincipalGeometry::ALL
             .into_iter()
             .filter(|geometry| *geometry != xy)
             .all(|geometry| !tucking().shows(&document, geometry));
         let hide = toggle_principal(&document, tucking(), xy);
+
         applied(&mut document, &hide);
+
         let measuring = PrincipalView {
             used: PrincipalSet::ALL,
             ..tucking()
@@ -1076,12 +1127,15 @@ mod tests {
         let mut document = Document::default();
         let xy = PrincipalGeometry::Plane(crate::selection::PrincipalPlane::Xy);
         let nothing_to_do = principal_only_when_needed(&document);
+
         for geometry in [xy, PrincipalGeometry::Origin, PrincipalGeometry::Origin] {
             let toggle = toggle_principal(&document, tucking(), geometry);
+
             applied(&mut document, &toggle);
         }
 
         let restore = principal_only_when_needed(&document).unwrap();
+
         applied(&mut document, &restore);
 
         assert_eq!(
@@ -1107,17 +1161,28 @@ mod tests {
         let mut fade = PrincipalFade::default();
 
         fade.follow(PrincipalSet::ALL);
+
         let settled_at_first = !fade.is_fading();
+
         fade.follow(PrincipalSet::AXES);
+
         let starting = fade.fading().steps_left(xy);
+
         fade.advance(half, 1.0);
+
         let halfway = fade.fading().steps_left(xy);
+
         fade.follow(PrincipalSet::ALL);
+
         let reversed = fade.fading().steps_left(xy);
+
         fade.advance(half * 2, 1.0);
+
         let finished = !fade.is_fading();
+
         fade.follow(PrincipalSet::NONE);
         fade.advance(Duration::ZERO, 0.0);
+
         let instant = !fade.is_fading();
 
         assert!(settled_at_first);
@@ -1132,7 +1197,9 @@ mod tests {
         let document = Document::default();
         let xy = PrincipalGeometry::Plane(crate::selection::PrincipalPlane::Xy);
         let mut fading = PrincipalFading::default();
+
         fading.set(xy, FADE_STEPS / 2);
+
         let leaving = PrincipalView {
             fading,
             ..tucking()
@@ -1166,7 +1233,9 @@ mod tests {
         assert_eq!(from_above.share_seen(yz), 0.0);
         assert_eq!(turned(EDGE_ON_HIDDEN_DEGREES / 2.0).share_seen(xy), 0.0);
         assert_eq!(turned(EDGE_ON_FADED_DEGREES + 1.0).share_seen(xy), 1.0);
+
         let midway = turned((EDGE_ON_HIDDEN_DEGREES + EDGE_ON_FADED_DEGREES) / 2.0).share_seen(xy);
+
         assert!(midway > 0.0 && midway < 1.0);
         assert_eq!(EdgeOn::default().share_seen(xz), 1.0);
     }

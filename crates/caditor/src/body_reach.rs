@@ -53,6 +53,7 @@ pub fn reaches(
 ) -> Option<Reaches> {
     let sketch = solved_sketch(document, evaluation, solid.sketch())?;
     let swept = Swept::of(evaluation, parameters, solid, sketch)?;
+
     let reach = swept.bounds(sketch)?;
     let shown: Vec<Standing<'_>> = document
         .bodies_standing_in(evaluation)
@@ -61,11 +62,13 @@ pub fn reaches(
         .filter_map(|body| Standing::of(evaluation, body))
         .collect();
     let examined: Vec<FeatureId> = shown.iter().map(|body| body.body).collect();
+
     let near: Vec<Standing<'_>> = shown
         .into_iter()
         .filter(|body| boxes_meet(&body.bounds, &reach))
         .collect();
     let length = swept.length();
+
     if near.is_empty() {
         return Some(Reaches {
             examined,
@@ -74,6 +77,7 @@ pub fn reaches(
             tool: None,
         });
     }
+
     let interrupt: Interrupt = Arc::new(move || Instant::now() >= deadline);
     let (reached, tool) = interruptible(interrupt, || {
         let tool = swept.tool(sketch, solid)?;
@@ -88,14 +92,14 @@ pub fn reaches(
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Touch {
     Overlap { volume: f64 },
     Contact,
     Unsure,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Reached {
     pub body: FeatureId,
     pub touch: Touch,
@@ -103,21 +107,21 @@ pub struct Reached {
     pub spans_footprint: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Meeting {
     Joins,
     OnlyAlongAnEdge,
     Unchecked,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Verdict {
     Overlaps(Reached),
     Misses,
     Unknown,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Reaches {
     examined: Vec<FeatureId>,
     reached: Vec<Reached>,
@@ -142,6 +146,7 @@ impl Reaches {
         };
         let deadline = Instant::now() + REACH_BUDGET;
         let interrupt: Interrupt = Arc::new(move || Instant::now() >= deadline);
+
         let joined = interruptible(interrupt, || {
             boolean(tool, body.solid, BooleanOperation::Union)
         });
@@ -246,6 +251,7 @@ impl Swept {
         if solid.start().is_some() {
             return None;
         }
+
         let length = |expression: &Expression| {
             parameters
                 .evaluate_expression(expression)
@@ -257,11 +263,13 @@ impl Swept {
             None => None,
         };
         let plane = sketch.plane();
+
         let motion = match solid {
             SolidFeature::Extrude(extrude) => {
                 if extrude.direction.is_some() || extrude.taper.is_some() {
                     return None;
                 }
+
                 let ExtrudeExtent::OneSide {
                     end: ExtrudeEnd::Distance(distance),
                     reversed,
@@ -312,6 +320,7 @@ impl Swept {
         )?;
         let slack =
             outline.size().length() * OUTLINE_SLACK_PER_SIZE + self.wall.unwrap_or(0.0) + BOX_SLACK;
+
         let outline = outline.expanded(slack);
         let corners = [
             outline.min(),
@@ -387,6 +396,7 @@ impl Swept {
             return None;
         };
         let thickness = (body.bounds.diagonal() * SLAB_PER_SIZE).max(SLAB_FLOOR);
+
         let slab = match end > -start {
             true => Motion::Along {
                 start: 0.0,
@@ -411,6 +421,7 @@ impl Swept {
             footprint.max(),
             Point2::new(footprint.min().x, footprint.max().y),
         ];
+
         let curves: Vec<ProfileCurve> = (0..corners.len())
             .filter_map(|index| {
                 let line = around.add_line(*corners.get(index)?, *corners.get((index + 1) % 4)?);
@@ -419,6 +430,7 @@ impl Swept {
             .collect();
         let whole = chosen_regions(&curves, &RegionChoice::All)?;
         let feature = solid.sketch().raw();
+
         let cover = self.swept_regions(&whole, feature, slab)?;
         let profile = self.tool_over(sketch, solid, slab)?;
         let reach_of = |tool: &Solid| match interference(tool, body.solid) {
@@ -430,6 +442,7 @@ impl Swept {
             ),
             Ok(Interference::Apart | Interference::Touching(_)) | Err(_) => None,
         };
+
         let (taken, available) = (reach_of(&profile), reach_of(&cover));
         let tolerance = BOX_SLACK + footprint.size().length() * OUTLINE_SLACK_PER_SIZE;
         match (taken, available) {
@@ -498,6 +511,7 @@ impl Swept {
         let Motion::Along { start, end } = self.motion else {
             return None;
         };
+
         let direction = match end > -start {
             true => self.plane.normal(),
             false => -self.plane.normal(),

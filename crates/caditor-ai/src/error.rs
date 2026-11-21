@@ -1,6 +1,6 @@
 use std::io;
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AiError {
     #[error(
         "No API key is configured for {provider}. Add one in Preferences › General › AI assistant."

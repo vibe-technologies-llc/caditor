@@ -14,28 +14,28 @@ const TEXT_HEIGHT_FRACTION: f64 = 0.02;
 const LABEL_BAND: f64 = 2.0;
 const LABEL_LIFT: f64 = 0.5;
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DrawingSheet {
     pub layout: SheetLayout,
     pub annotations: Annotations,
     pub construction: Construction,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum SheetLayout {
     #[default]
     SideBySide,
     Nested(Nesting),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Annotations {
     #[default]
     LeftOut,
     Included,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Nesting {
     width: f64,
     spacing: f64,
@@ -66,13 +66,13 @@ impl Nesting {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Part {
     pub(super) figure: Figure,
     pub(super) label: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Arranged {
     pub(super) figure: Figure,
     pub(super) too_wide: usize,
@@ -101,9 +101,11 @@ pub(super) fn arranged(
             Some((part, bounds))
         })
         .collect();
+
     if parts.is_empty() {
         return Err(ExportError::NoCurves);
     }
+
     let (motions, too_wide) = match sheet.layout {
         SheetLayout::SideBySide => (side_by_side(&parts), 0),
         SheetLayout::Nested(nesting) => {
@@ -132,18 +134,23 @@ pub(super) fn arranged(
         }
     };
     let mut figure = Figure::default();
+
     for ((part, bounds), motion) in parts.into_iter().zip(motions) {
         let mut moved = Figure::default();
+
         moved.append_moved(part.figure, motion);
+
         let placed = moved
             .bounds()
             .unwrap_or_else(|| moved_bounds(bounds, motion));
+
         figure.shapes.append(&mut moved.shapes);
         if labelled && !part.label.is_empty() {
             let baseline = Point2::new(
                 placed.min().x,
                 placed.min().y - LABEL_BAND * text_height + LABEL_LIFT * text_height,
             );
+
             figure.push(
                 Layer::Labels,
                 Shape::Text(label_text(&part.label, baseline, text_height)),
@@ -196,6 +203,7 @@ fn side_by_side(parts: &[(Part, Aabb2)]) -> Vec<Motion> {
             };
             let motion = Motion::shift(offset);
             let moved = moved_bounds(*bounds, motion);
+
             placed = Some(placed.map_or(moved, |placed| placed.union(moved)));
             motion
         })

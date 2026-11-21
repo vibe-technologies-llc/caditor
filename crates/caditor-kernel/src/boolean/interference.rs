@@ -10,7 +10,7 @@ use crate::{
 
 const TOUCHING: f64 = 10.0 * TOLERANCE;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Interference {
     Apart,
     Touching(Point3),
@@ -19,9 +19,11 @@ pub enum Interference {
 
 pub fn interference(first: &Solid, second: &Solid) -> Result<Interference, BooleanError> {
     interrupt::check()?;
+
     let (Some(first_box), Some(second_box)) = (first.bounding_box(), second.bounding_box()) else {
         return Ok(Interference::Apart);
     };
+
     if !boxes_overlap(&first_box, &second_box, TOUCHING) {
         return Ok(Interference::Apart);
     }
@@ -34,7 +36,7 @@ pub fn interference(first: &Solid, second: &Solid) -> Result<Interference, Boole
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Contact {
     place: Point3,
     reach: f64,
@@ -54,10 +56,12 @@ impl Contact {
 fn touching(first: &Solid, second: &Solid) -> Result<Option<Point3>, Interrupted> {
     let input = Input::new(first, second);
     let mut best: Option<Contact> = None;
+
     for face in input.faces(Operand::First) {
         let reach = face.bounds.expanded(TOUCHING);
         for other in input.faces_near(Operand::Second, &reach) {
             interrupt::check()?;
+
             let apart = distance(
                 Element::Face {
                     solid: first,
@@ -71,9 +75,11 @@ fn touching(first: &Solid, second: &Solid) -> Result<Option<Point3>, Interrupted
             let Ok(apart) = apart else {
                 continue;
             };
+
             if apart.distance > TOUCHING {
                 continue;
             }
+
             let contact = contact_between(
                 (first, face.id, &face.bounds),
                 (second, other.id, &other.bounds),
@@ -116,6 +122,7 @@ fn contact_between(
         },
     )
     .ok()?;
+
     let place = on_first.midpoint(to_second.to);
     (to_second.distance <= TOUCHING).then(|| Contact {
         place,

@@ -11,7 +11,7 @@ use caditor_cloud::{
 
 use super::{downloads::Usage, failure::Failure, thumbnails::Thumbnail};
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Load<T> {
     Idle,
     Loading,
@@ -45,7 +45,7 @@ pub static IDLE_FOLDER: Load<Folder> = Load::Idle;
 pub static IDLE_VERSIONS: Load<Vec<Version>> = Load::Idle;
 pub static IDLE_PARTS: Load<Vec<Part>> = Load::Idle;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Stage {
     Starting,
     Converting(Option<u8>),
@@ -53,7 +53,7 @@ pub enum Stage {
     Failed(Arc<Failure>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImportItem {
     Design(Design),
     Version(Design, Version),
@@ -129,14 +129,14 @@ impl ImportItem {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AfterSend {
     #[default]
     Nothing,
     OpenOnTheWeb,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Destination {
     pub service: Service,
     pub folder: FolderRef,
@@ -151,7 +151,7 @@ impl Destination {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Remembered {
     pub workspace: WorkspaceId,
     pub folder: FolderRef,
@@ -170,20 +170,20 @@ impl Remembered {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Unopened {
     pub name: String,
     pub link: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shipment {
     pub destination: Destination,
     pub name: String,
     pub file: PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum SendStage {
     Starting,
     Uploading { sent: u64, total: Option<u64> },
@@ -191,7 +191,7 @@ pub enum SendStage {
     Failed(Arc<Failure>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Send {
     pub id: u64,
     pub shipment: Shipment,
@@ -205,7 +205,7 @@ impl Send {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Import {
     pub id: u64,
     pub item: ImportItem,
@@ -343,7 +343,7 @@ pub struct Connection {
     pub last_failure: Option<Arc<Failure>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CloudCommand {
     SignIn(Service),
     CancelSignIn(Service),
@@ -374,7 +374,7 @@ pub enum CloudCommand {
     ClearDownloads,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Downloads {
     pub dir: Option<PathBuf>,
     pub usage: Option<Usage>,

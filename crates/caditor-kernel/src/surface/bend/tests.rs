@@ -18,9 +18,11 @@ fn knots(count: usize, degree: usize) -> Vec<f64> {
 fn rolling(weights: bool) -> BSplineSurface {
     let (columns, rows) = (9, 7);
     let mut points = Vec::new();
+
     for row in 0..rows {
         for column in 0..columns {
             let (x, y) = (column as f64 * 4.0, row as f64 * 3.0);
+
             points.push(Point3::new(
                 x,
                 y,
@@ -28,6 +30,7 @@ fn rolling(weights: bool) -> BSplineSurface {
             ));
         }
     }
+
     let weights = weights.then(|| {
         (0..columns * rows)
             .map(|index| 1.0 + 0.25 * (index % 4) as f64)
@@ -111,6 +114,7 @@ fn every_side_follows_a_smooth_target_through_its_pins() {
             let pins = [0.0, 0.37, 1.0]
                 .map(|along| (along, target(along).unwrap()))
                 .to_vec();
+
             let result = bent(&surface, side, &target, pins.clone());
 
             assert!(
@@ -128,6 +132,7 @@ fn every_side_follows_a_smooth_target_through_its_pins() {
 fn bending_a_side_leaves_the_opposite_side_and_the_far_rows_alone() {
     let surface = rolling(false);
     let target = lifted(&surface, SurfaceSide::VStart);
+
     let result = bent(&surface, SurfaceSide::VStart, &target, Vec::new());
     let first_span_end = surface.v_knots().get(4).copied().unwrap();
 
@@ -155,12 +160,14 @@ fn a_held_corner_stays_while_the_rest_of_the_side_moves() {
         knots: Vec::new(),
         held: [true, false],
     };
+
     let result = surface.bent_side(&bend, TOLERANCE).unwrap().surface;
 
     assert_eq!(on_side(&result, SurfaceSide::VEnd, 0.0), corner);
     for index in 0..=400 {
         let along = 0.2 + 0.8 * index as f64 / 400.0;
         let miss = on_side(&result, SurfaceSide::VEnd, along).distance(target(along).unwrap());
+
         assert!(miss <= 2.0 * TOLERANCE, "{miss} at {along}");
     }
 }
@@ -168,6 +175,7 @@ fn a_held_corner_stays_while_the_rest_of_the_side_moves() {
 #[test]
 fn a_straight_side_of_a_ruled_surface_is_raised_to_cubic_and_bent() {
     let (columns, rows) = (6, 2);
+
     let points: Vec<Point3> = (0..rows)
         .flat_map(|row| {
             (0..columns).map(move |column| {
@@ -187,6 +195,7 @@ fn a_straight_side_of_a_ruled_surface_is_raised_to_cubic_and_bent() {
     )
     .unwrap();
     let side = SurfaceSide::UStart;
+
     let target = lifted(&surface, side);
     let result = bent(&surface, side, &target, Vec::new());
 
@@ -199,6 +208,7 @@ fn requested_knots_join_the_side_and_land_on_existing_ones_when_close() {
     let surface = rolling(false);
     let target = lifted(&surface, SurfaceSide::VStart);
     let existing = surface.u_knots().get(6).copied().unwrap();
+
     let bend = SideBend {
         side: SurfaceSide::VStart,
         targets: vec![BendTarget {
@@ -264,12 +274,14 @@ fn a_missing_target_and_a_seam_are_refused() {
         knots: Vec::new(),
         held: [false; 2],
     };
+
     assert!(matches!(
         surface.bent_side(&bend, TOLERANCE),
         Err(BendError::NoTarget(_))
     ));
 
     let (columns, rows) = (7, 4);
+
     let points: Vec<Point3> = (0..rows)
         .flat_map(|row| {
             (0..columns).map(move |column| {
@@ -300,12 +312,14 @@ fn a_missing_target_and_a_seam_are_refused() {
         knots: Vec::new(),
         held: [false; 2],
     };
+
     assert_eq!(tube.bent_side(&bend, TOLERANCE), Err(BendError::Unbendable));
 }
 
 #[test]
 fn a_side_closed_around_stays_closed_while_it_moves() {
     let (columns, rows) = (9, 4);
+
     let points: Vec<Point3> = (0..rows)
         .flat_map(|row| {
             (0..columns).map(move |column| {
@@ -326,11 +340,13 @@ fn a_side_closed_around_stays_closed_while_it_moves() {
     .unwrap();
     let lift = 1e-3;
     let start = tube.point(0.0, 0.0);
+
     let target = |along: f64| {
         let bump = 4.0 * along * (1.0 - along);
         Some(tube.point(along, 0.0) + Vector3::Z * (lift * bump))
     };
     let range = Interval::UNIT;
+
     let bend = SideBend {
         side: SurfaceSide::VStart,
         targets: vec![BendTarget {
@@ -371,6 +387,7 @@ fn a_cancelled_bend_says_so() {
     };
 
     let result = interruptible(Arc::new(|| true), || surface.bent_side(&bend, TOLERANCE));
+
     assert_eq!(result, Err(BendError::Cancelled));
 }
 
@@ -378,6 +395,7 @@ fn a_cancelled_bend_says_so() {
 fn sides_restrictions_and_extensions_agree_with_the_surface() {
     for weighted in [false, true] {
         let surface = rolling(weighted);
+
         for side in [
             SurfaceSide::VStart,
             SurfaceSide::VEnd,
@@ -387,6 +405,7 @@ fn sides_restrictions_and_extensions_agree_with_the_surface() {
             let curve = surface.side(side).unwrap();
             for index in 0..=50 {
                 let along = index as f64 / 50.0;
+
                 assert!(curve.point(along).distance(on_side(&surface, side, along)) <= 1e-12);
             }
         }
@@ -395,21 +414,28 @@ fn sides_restrictions_and_extensions_agree_with_the_surface() {
             Interval::new(0.13, 0.71).unwrap(),
             Interval::new(0.2, 1.0).unwrap(),
         );
+
         let piece = surface.restricted(u, v).unwrap();
+
         assert_eq!(piece.u_domain(), u);
         assert_eq!(piece.v_domain(), v);
+
         for index in 0..=20 {
             let uv = Point2::new(u.at(index as f64 / 20.0), v.at((20 - index) as f64 / 20.0));
+
             assert!(piece.point(uv.x, uv.y).distance(surface.point(uv.x, uv.y)) <= 1e-12);
         }
 
         for inside in [0.3, 0.999_999] {
             let at = surface.extended_evaluate(inside, 0.4);
+
             assert!(at.point.distance(surface.point(inside, 0.4)) <= 1e-12);
         }
+
         let edge = surface.extended_evaluate(1.0, 0.4);
         let beyond = surface.extended_evaluate(1.0 + 1e-4, 0.4);
         let taylor = edge.point + edge.du * 1e-4 + edge.duu * 0.5e-8;
+
         assert!(beyond.point.distance(taylor) <= 1e-8);
     }
 }

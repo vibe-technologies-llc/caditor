@@ -34,7 +34,9 @@ fn seeds_in(kind: &str) -> Vec<(PathBuf, Vec<u8>)> {
             (path, bytes)
         })
         .collect();
+
     seeds.sort();
+
     assert!(!seeds.is_empty(), "no seeds in {}", dir.display());
     seeds
 }
@@ -44,12 +46,17 @@ fn seed_model() -> Vec<u8> {
     let at = |seconds| UNIX_EPOCH + Duration::from_secs(seconds);
     let mut bytes = save_bytes(&sample(), None, at(1_000), Some("Sample")).unwrap();
     let mut editor = Editor::new(sample());
+
     for (index, width) in ["41 mm", "42 mm", "43 mm"].into_iter().enumerate() {
         let edit = edit_width(editor.document(), width);
+
         editor.apply(edit).unwrap();
+
         let time = at(2_000 + index as u64);
+
         bytes = save_bytes(editor.document(), Some(&bytes), time, Some("Edit width")).unwrap();
     }
+
     let (document, _) = with_added_kinds(document);
     save_bytes(&document, Some(&bytes), at(3_000), Some("Datums")).unwrap()
 }
@@ -63,7 +70,9 @@ fn seed_journal() -> Vec<u8> {
 pub(super) fn seed_journal_by_reference(folded: usize) -> Vec<u8> {
     let (base, entries) = seed_journal_entries();
     let mut mirror = Mirror::new(base.clone());
+
     let entries: Vec<_> = entries.into_iter().map(|entry| mirror.log(entry)).collect();
+
     assert!(entries.contains(&journal::Logged::UndoLast));
     assert!(entries.contains(&journal::Logged::RedoNext));
     encode_journal(&seed_journal_head(folded), &base, &entries).unwrap()
@@ -82,13 +91,21 @@ fn seed_journal_entries() -> (Document, Vec<JournalEntry>) {
     let base = sample();
     let first = edit_width(&base, "50 mm");
     let mut editor = Editor::new(base.clone());
+
     editor.apply(first.clone()).unwrap();
+
     let second = edit_width(editor.document(), "45 mm");
+
     editor.apply(second.clone()).unwrap();
+
     let undone = editor.next_undo().cloned().unwrap();
+
     editor.undo().unwrap();
+
     let redone = editor.next_redo().cloned().unwrap();
+
     editor.redo().unwrap();
+
     let entries = vec![
         JournalEntry::Apply(first),
         JournalEntry::Apply(second),
@@ -104,6 +121,7 @@ fn seed_mesh(format: MeshFormat, file: &[u8]) -> Vec<u8> {
         .position(|known| *known == format)
         .unwrap();
     let mut seed = vec![u8::try_from(tag).unwrap()];
+
     seed.extend_from_slice(file);
     seed
 }
@@ -111,6 +129,7 @@ fn seed_mesh(format: MeshFormat, file: &[u8]) -> Vec<u8> {
 fn seed_frame(prefix: &[u8], data: &[u8]) -> Vec<u8> {
     let frame = caditor_zstd::compress_after(data, prefix, Level::FAST).unwrap();
     let mut seed = vec![u8::try_from(prefix.len()).unwrap()];
+
     seed.extend_from_slice(prefix);
     seed.extend_from_slice(&frame);
     seed
@@ -122,9 +141,11 @@ fn write_fuzz_seeds() {
     if std::env::var_os(WRITE_SEEDS).is_none() {
         return;
     }
+
     let model = seed_model();
     let journal = seed_journal();
     let text = b"width = 40 mm; height = width / 2 + 0.1 mm; depth = 3 mm";
+
     let seeds = [
         ("model/datums.caditor", model.clone()),
         ("model/stored.caditor", stored_copy(&model, &MODEL_MAGIC)),
@@ -146,6 +167,7 @@ fn write_fuzz_seeds() {
         ("zstd/plain", seed_frame(&[], text)),
         ("zstd/after-prefix", seed_frame(&text[..32], text)),
     ];
+
     write_seeds(seeds);
 }
 
@@ -155,6 +177,7 @@ fn write_mesh_fuzz_seeds() {
     if std::env::var_os(WRITE_SEEDS).is_none() {
         return;
     }
+
     let seeds = [
         (
             "mesh/cube-binary.stl",
@@ -177,6 +200,7 @@ fn write_mesh_fuzz_seeds() {
             seed_mesh(MeshFormat::ThreeMf, &placed_cube_3mf()),
         ),
     ];
+
     write_seeds(seeds);
 }
 
@@ -186,6 +210,7 @@ fn write_picture_fuzz_seeds() {
     if std::env::var_os(WRITE_SEEDS).is_none() {
         return;
     }
+
     let quad = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(4, 3, |x, y| {
         image::Rgba([
             if x < 2 { 255 } else { 0 },
@@ -196,14 +221,17 @@ fn write_picture_fuzz_seeds() {
     }));
     let encoded = |format: image::ImageFormat| {
         let mut bytes = std::io::Cursor::new(Vec::new());
+
         quad.write_to(&mut bytes, format).unwrap();
         bytes.into_inner()
     };
+
     let seeds = [
         ("picture/quad.png", encoded(image::ImageFormat::Png)),
         ("picture/quad.jpg", {
             let opaque = image::DynamicImage::ImageRgb8(quad.to_rgb8());
             let mut bytes = std::io::Cursor::new(Vec::new());
+
             opaque
                 .write_to(&mut bytes, image::ImageFormat::Jpeg)
                 .unwrap();
@@ -220,6 +248,7 @@ fn write_picture_fuzz_seeds() {
             include_bytes!("../../pictures/quad.jxl").to_vec(),
         ),
     ];
+
     write_seeds(seeds);
 }
 
@@ -228,6 +257,7 @@ fn picture_seeds_decode() {
     for (path, bytes) in seeds_in("picture") {
         let pixels = crate::decode_picture(&bytes)
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+
         assert!(pixels.width > 0 && pixels.height > 0, "{}", path.display());
     }
 }
@@ -241,6 +271,7 @@ fn write_seeds<const N: usize>(seeds: [(&str, Vec<u8>); N]) {
     for (name, bytes) in seeds {
         let path = seed_path(name)
             .unwrap_or_else(|| panic!("the seed {name} would land in the format corpus"));
+
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, bytes).unwrap();
     }
@@ -250,11 +281,15 @@ fn write_seeds<const N: usize>(seeds: [(&str, Vec<u8>); N]) {
 fn model_seeds_load_cleanly_with_every_version() {
     for (path, bytes) in seeds_in("model") {
         let loaded = decode(&bytes).unwrap();
+
         assert_eq!(loaded.issues, Vec::<String>::new(), "{}", path.display());
+
         let history = binary::history(&bytes);
+
         assert!(history.versions.len() >= 3, "{}", path.display());
         for version in &history.versions {
             assert!(version.available, "{}", path.display());
+
             binary::load_version(&bytes, version.index, &version.digest).unwrap();
         }
     }
@@ -279,10 +314,13 @@ fn model_and_journal_seeds_are_written_in_format_one() {
 fn journal_seeds_replay_every_entry() {
     for (path, bytes) in seeds_in("journal") {
         let contents = decode_journal(&bytes).unwrap();
+
         assert_eq!(contents.issues, Vec::<String>::new(), "{}", path.display());
         assert_eq!(contents.unreadable_entries, 0, "{}", path.display());
+
         let count = contents.entries.len();
         let replayed = replay(contents.base, contents.entries);
+
         assert!(!replayed.stopped_early, "{}", path.display());
         assert_eq!(replayed.entries.len(), count, "{}", path.display());
     }
@@ -292,7 +330,9 @@ fn journal_seeds_replay_every_entry() {
 fn zstd_seeds_decompress_after_their_prefix() {
     for (path, bytes) in seeds_in("zstd") {
         let (&split, rest) = bytes.split_first().unwrap();
+
         let (prefix, frame) = rest.split_at(usize::from(split));
+
         caditor_zstd::decompress_after(frame, prefix, 1 << 20)
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     }
@@ -304,11 +344,13 @@ fn step_dxf_and_svg_seeds_import() {
         let text = String::from_utf8(bytes).unwrap();
         let import = parse_step(&text, "seed.step")
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+
         assert!(!import.bodies.is_empty(), "{}", path.display());
     }
     for (path, bytes) in seeds_in("dxf") {
         let drawing =
             parse_dxf(&bytes).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+
         assert!(!drawing.curves.is_empty(), "{}", path.display());
     }
     for (path, bytes) in seeds_in("svg") {
@@ -320,6 +362,7 @@ fn step_dxf_and_svg_seeds_import() {
             },
         )
         .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+
         assert!(!drawing.curves.is_empty(), "{}", path.display());
     }
 }
@@ -329,8 +372,10 @@ fn mesh_seeds_import() {
     for (path, bytes) in seeds_in("mesh") {
         let (&tag, file) = bytes.split_first().unwrap();
         let format = MESH_FORMATS[usize::from(tag)];
+
         let import = parse_mesh(file, format, "seed", "seed")
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+
         assert!(!import.bodies.is_empty(), "{}", path.display());
     }
 }
@@ -341,8 +386,10 @@ fn expression_seeds_parse() {
         let text = String::from_utf8(bytes).unwrap();
         let known =
             |name: &str| (name == "width").then(|| caditor_expression::ParameterId::from_raw(1));
+
         let parsed =
             Expression::parse(&text, &known).is_ok() || Expression::parse_stored(&text).is_ok();
+
         assert!(parsed, "{}", path.display());
     }
 }
@@ -351,8 +398,11 @@ fn expression_seeds_parse() {
 fn resealing_restores_checksums_after_a_payload_changes() {
     let bytes = stored_copy(&seed_model(), &MODEL_MAGIC);
     let mut changed = bytes.clone();
+
     let last = changed.len() - 1;
+
     changed[last] ^= 0x01;
+
     assert_eq!(
         binary::history(&changed).versions.len() + 1,
         binary::history(&bytes).versions.len()

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 const REFRESH_AHEAD_SECONDS: u64 = 120;
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Session {
     pub access_token: String,
     pub refresh_token: Option<String>,

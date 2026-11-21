@@ -26,7 +26,7 @@ const ROW_PADDING: Vec2 = vec2(SPACE_M, SPACE_XS);
 const COLUMN_GAP: f32 = SPACE_M * 2.0;
 const OFFER_LIFE: u64 = 2;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Candidate {
     pub id: ParameterId,
     pub name: String,
@@ -61,6 +61,7 @@ impl Completions {
                 },
             })
             .collect();
+
         candidates.sort_by_cached_key(|candidate| candidate.name.to_lowercase());
         Self {
             candidates: candidates.into(),
@@ -108,19 +109,24 @@ pub fn publish(ctx: &Context, model: &Model) {
     if ctx.memory(|memory| memory.focused()).is_none() {
         return;
     }
+
     let key = Id::unique(COMPLETIONS_KEY);
     let revision = model.revision();
     let evaluation = model.evaluation_generation();
     let units = model.units();
+
     let fresh = ctx.data(|data| {
         data.get_temp::<Built>(key).is_some_and(|built| {
             built.revision == revision && built.evaluation == evaluation && built.units == units
         })
     });
+
     if fresh {
         return;
     }
+
     let completions = Completions::of(model.document(), model.parameters(), units);
+
     ctx.data_mut(|data| {
         data.insert_temp(
             key,
@@ -161,6 +167,7 @@ struct Offer {
 
 pub fn offer_insertion(ctx: &Context, text: String) {
     let pass = ctx.cumulative_pass_nr();
+
     ctx.data_mut(|data| data.insert_temp(Id::unique(OFFER_KEY), Offer { text, pass }));
 }
 
@@ -202,7 +209,7 @@ pub fn dimension_text(document: &Document, expression: &Expression) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token {
     pub start: usize,
     pub end: usize,
@@ -216,6 +223,7 @@ fn is_name_character(character: char) -> bool {
 pub fn token_at(text: &str, caret: usize) -> Option<Token> {
     let characters: Vec<char> = text.chars().collect();
     let caret = caret.min(characters.len());
+
     if characters
         .get(caret)
         .copied()
@@ -223,6 +231,7 @@ pub fn token_at(text: &str, caret: usize) -> Option<Token> {
     {
         return None;
     }
+
     let start = characters
         .get(..caret)?
         .iter()
@@ -230,14 +239,18 @@ pub fn token_at(text: &str, caret: usize) -> Option<Token> {
         .map_or(0, |at| at + 1);
     let token: String = characters.get(start..caret)?.iter().collect();
     let first = token.chars().next()?;
+
     if first.is_numeric() {
         return None;
     }
+
     let before: String = characters.get(..start)?.iter().collect();
     let after: String = characters.get(caret..)?.iter().collect();
+
     let names_a_value = before.trim().is_empty()
         && after.trim_start().starts_with('=')
         && !after.trim_start().starts_with("==");
+
     if names_a_value {
         return None;
     }
@@ -252,9 +265,13 @@ pub fn replaced(text: &str, start: usize, end: usize, with: &str) -> (String, us
     let characters: Vec<char> = text.chars().collect();
     let end = end.min(characters.len());
     let start = start.min(end);
+
     let mut result: String = characters.iter().take(start).collect();
+
     result.push_str(with);
+
     let caret = result.chars().count();
+
     result.extend(characters.iter().skip(end));
     (result, caret)
 }
@@ -268,6 +285,7 @@ pub fn inserted(text: &str, start: usize, end: usize, with: &str) -> (String, us
     let after = characters.get(end).copied();
     let lead = before.is_some_and(|c| is_name_character(c) || c == '.' || c == ')');
     let trail = after.is_some_and(|c| is_name_character(c) || c == '(');
+
     let spaced = format!(
         "{}{with}{}",
         if lead { " " } else { "" },
@@ -284,6 +302,7 @@ pub fn selection_of(ctx: &Context, id: Id, text: &str) -> (usize, usize) {
         .map_or((length, length), |range| {
             let primary: usize = range.primary.index.into();
             let secondary: usize = range.secondary.index.into();
+
             let first = primary.min(secondary);
             let last = primary.max(secondary);
             (first.min(length), last.min(length))
@@ -292,13 +311,14 @@ pub fn selection_of(ctx: &Context, id: Id, text: &str) -> (usize, usize) {
 
 pub fn place_caret(ctx: &Context, id: Id, caret: usize) {
     let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+
     state
         .cursor
         .set_char_range(Some(CCursorRange::one(CCursor::new(caret))));
     egui::TextEdit::store_state(ctx, id, state);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PopupKey {
     Previous,
     Next,
@@ -310,6 +330,7 @@ pub enum PopupKey {
 pub fn take_key(ui: &Ui, navigated: bool) -> Option<PopupKey> {
     ui.input_mut(|input| {
         let mut taken = None;
+
         input.events.retain(|event| {
             let egui::Event::Key {
                 key,
@@ -320,9 +341,11 @@ pub fn take_key(ui: &Ui, navigated: bool) -> Option<PopupKey> {
             else {
                 return true;
             };
+
             if modifiers.command || modifiers.alt {
                 return true;
             }
+
             let pressed = match key {
                 Key::ArrowUp => PopupKey::Previous,
                 Key::ArrowDown => PopupKey::Next,
@@ -331,6 +354,7 @@ pub fn take_key(ui: &Ui, navigated: bool) -> Option<PopupKey> {
                 Key::Escape => PopupKey::Close,
                 _ => return true,
             };
+
             taken = Some(pressed);
             false
         });
@@ -354,6 +378,7 @@ pub fn row_id(field: Id, index: usize) -> Id {
 pub fn list(ui: &Ui, field: &Response, shown: &[Candidate], selected: usize) -> Vec<Rect> {
     let tokens = appearance::tokens(ui);
     let font = egui::TextStyle::Body.resolve(ui.style());
+
     let names: Vec<_> = shown
         .iter()
         .map(|candidate| {
@@ -379,6 +404,7 @@ pub fn list(ui: &Ui, field: &Response, shown: &[Candidate], selected: usize) -> 
         .iter()
         .map(|galley| galley.size().x)
         .fold(0.0, f32::max);
+
     let row_height = names
         .iter()
         .chain(&values)
@@ -388,6 +414,7 @@ pub fn list(ui: &Ui, field: &Response, shown: &[Candidate], selected: usize) -> 
     let width =
         (name_width + COLUMN_GAP + value_width + 2.0 * ROW_PADDING.x).max(field.rect.width());
     let mut rows = Vec::new();
+
     Area::new(field.id.with("suggestions"))
         .order(Order::Foreground)
         .fixed_pos(field.rect.left_bottom() + vec2(0.0, SPACE_XS))
@@ -404,8 +431,10 @@ pub fn list(ui: &Ui, field: &Response, shown: &[Candidate], selected: usize) -> 
                         let (rect, _) =
                             ui.allocate_exact_size(vec2(width, row_height), Sense::hover());
                         let id = row_id(field.id, index);
+
                         let response = ui.interact(rect, id, Sense::hover());
                         let chosen = index == selected;
+
                         ui.ctx().accesskit_node_builder(id, |node| {
                             node.set_role(Role::ListBoxOption);
                             node.set_label(match &candidate.value {
@@ -422,6 +451,7 @@ pub fn list(ui: &Ui, field: &Response, shown: &[Candidate], selected: usize) -> 
                             node.set_position_in_set(index + 1);
                             node.set_size_of_set(shown.len());
                         });
+
                         let fill = if chosen {
                             tokens.accent_subtle
                         } else if response.hovered() {
@@ -430,6 +460,7 @@ pub fn list(ui: &Ui, field: &Response, shown: &[Candidate], selected: usize) -> 
                             egui::Color32::TRANSPARENT
                         };
                         let painter = ui.painter();
+
                         painter.rect_filled(rect, CornerRadius::same(WIDGET_RADIUS), fill);
                         if chosen {
                             painter.rect_stroke(
@@ -439,7 +470,9 @@ pub fn list(ui: &Ui, field: &Response, shown: &[Candidate], selected: usize) -> 
                                 egui::StrokeKind::Inside,
                             );
                         }
+
                         let at = rect.left_center() + vec2(ROW_PADDING.x, 0.0);
+
                         if let Some(name) = names.get(index) {
                             painter.galley(
                                 at - vec2(0.0, name.size().y / 2.0),
@@ -453,6 +486,7 @@ pub fn list(ui: &Ui, field: &Response, shown: &[Candidate], selected: usize) -> 
                             } else {
                                 tokens.text_muted
                             };
+
                             painter.galley(
                                 egui::pos2(
                                     rect.right() - ROW_PADDING.x - value.size().x,

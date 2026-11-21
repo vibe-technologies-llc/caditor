@@ -49,10 +49,12 @@ impl ToplevelExport {
         };
         let (globals, queue) = registry_queue_init::<State>(&window.connection)?;
         let handle = queue.handle();
+
         let exporter: ZxdgExporterV2 = globals
             .bind(&handle, 1..=EXPORTER_VERSION, ())
             .map_err(AttachError::NoExporter)?;
         let exported = exporter.export_toplevel(&window.surface, &handle, ());
+
         let export = Self {
             queue,
             state: State::default(),
@@ -60,6 +62,7 @@ impl ToplevelExport {
             exported,
             window,
         };
+
         export.flush()?;
         Ok(Some(export))
     }

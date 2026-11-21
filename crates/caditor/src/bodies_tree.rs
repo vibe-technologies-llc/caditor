@@ -24,7 +24,7 @@ use crate::{
 
 pub const GROUP_TITLE: &str = "Bodies";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 enum PaintedBodyError {
     #[error("Select a face, edge or vertex of a body, or a body in the tree")]
     NoBody,
@@ -61,15 +61,18 @@ pub fn show(
 ) {
     let document = model.document();
     let bodies = listed(model);
+
     if state
         .painting
         .is_some_and(|painting| !bodies.contains(&painting.body))
     {
         state.painting = None;
     }
+
     let entries = body_groups::arrange(document, &bodies);
     let order = body_groups::in_order(&entries);
     let folders = body_groups::folders(&entries);
+
     if state
         .renaming_body_group
         .as_ref()
@@ -80,6 +83,7 @@ pub fn show(
     if bodies.is_empty() {
         return;
     }
+
     let title = group_title(bodies.len());
     let mut collapsing = CollapsingState::load_with_default_open(
         ui.ctx(),
@@ -90,6 +94,7 @@ pub fn show(
         .renaming_body_group
         .as_ref()
         .is_some_and(|renaming| renaming.focus_pending);
+
     if renaming_group
         || state
             .painting
@@ -97,19 +102,23 @@ pub fn show(
     {
         collapsing.set_open(true);
     }
+
     let muted = appearance::tokens(ui).text_muted;
     let open = collapsing.is_open();
+
     let row = tree_row::show(
         ui,
         Look::default(),
         |ui| {
             let toggle = tree_row::chevron(ui, open, &title);
+
             widgets::icon_label(ui, icons::BODIES, muted);
             ui.add(
                 Label::new(RichText::new(&title))
                     .selectable(false)
                     .truncate(),
             );
+
             let name = tree_row::sense(
                 ui,
                 Id::unique("bodies-group-row"),
@@ -125,16 +134,19 @@ pub fn show(
         },
     );
     let (toggled, name) = row.leading;
+
     if name.has_focus() {
         tree_row::focus_outline(ui, row.rect);
     }
     if toggled || name.clicked() {
         collapsing.toggle(ui);
     }
+
     let listing = Listing {
         order: &order,
         folders: &folders,
     };
+
     collapsing.show_body_unindented(ui, |ui| {
         rows(
             ui,
@@ -163,6 +175,7 @@ fn rows(
                     ui.allocate_space(vec2(ui.available_width(), height));
                     continue;
                 }
+
                 let shown = item(
                     ui,
                     model,
@@ -225,6 +238,7 @@ fn item(
         selected: state.reads_body_selected(body),
         open: false,
     };
+
     let row = tree_row::show(
         ui,
         look,
@@ -255,6 +269,7 @@ fn item(
     );
     let (paint, eye) = row.trailing;
     let row_name = row.leading;
+
     if row_name.has_focus() {
         tree_row::focus_outline(ui, row.rect);
     }
@@ -263,6 +278,7 @@ fn item(
     }
     if row_name.clicked() {
         let modifiers = ui.input(|input| input.modifiers);
+
         feature_tree::choose_among(state, listing.order, body, modifiers);
         state.body_group = None;
     } else if row_name.gained_focus() {
@@ -299,6 +315,7 @@ fn item(
             }),
         };
     }
+
     let Some(painting) = state.painting.filter(|painting| painting.body == body) else {
         return Some(row.rect.height());
     };
@@ -315,6 +332,7 @@ fn item(
             )
         })
     });
+
     if painting.focus_pending && focused {
         state.painting = Some(Painting {
             focus_pending: false,
@@ -405,6 +423,7 @@ fn chosen_body(
     } else {
         tree
     };
+
     match chosen.as_slice() {
         [body] => return Ok(*body),
         [_, _, ..] => return Err(PaintedBodyError::SeveralBodies),
@@ -432,6 +451,7 @@ pub fn commands(
         .ok()
         .and_then(|body| context.model.document().body_name(body))
         .map(Cow::into_owned);
+
     if commands.invoke_detailed(Command::BodyAppearance, detail.clone(), &body)
         && let Ok(body) = body
     {

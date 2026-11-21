@@ -154,7 +154,7 @@ impl Projector {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CubeSize {
     Small,
     #[default]
@@ -172,7 +172,7 @@ impl CubeSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Corner {
     TopLeft,
     #[default]
@@ -214,7 +214,7 @@ impl Corner {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CubePlacement {
     pub size: CubeSize,
     pub corner: Corner,
@@ -242,6 +242,7 @@ impl CubePlacement {
         let side = self.side();
         let controls = canvas::BUTTON_HEIGHT + FIT_BUTTON_GAP;
         let corner = self.corner.point(viewport);
+
         let top = if self.corner.is_top() {
             corner.y
         } else {
@@ -314,6 +315,7 @@ pub fn show(
 ) -> Option<CubeAction> {
     let rect = placement.cube_rect(viewport);
     let id = ui.scope_id().with("view cube");
+
     let response = ui.interact(rect, id, Sense::click_and_drag());
     let orbiting = response.dragged_by(PointerButton::Primary);
     let projector = Projector {
@@ -322,6 +324,7 @@ pub fn show(
         scale: placement.side() * PROJECTION_SCALE,
     };
     let cells = visible_cells(&projector);
+
     let hovered = response
         .hover_pos()
         .filter(|_| !orbiting)
@@ -329,10 +332,14 @@ pub fn show(
         .map(|cell| cell.direction);
     let pressed = response.is_pointer_button_down_on();
     let current = nearest_target(orientation * Vector3::Z);
+
     let target = hovered.unwrap_or(current);
     let name = format!("{NAME}: {}", view_name(target));
+
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &name));
+
     let focused = response.has_focus();
+
     if focused {
         ui.memory_mut(|memory| {
             memory.set_focus_lock_filter(
@@ -345,6 +352,7 @@ pub fn show(
             );
         });
     }
+
     let stepped = focused
         .then(|| {
             ARROWS
@@ -363,8 +371,10 @@ pub fn show(
         })
     };
     let painter = ui.painter_at(rect.expand(PAINT_ROOM));
+
     for cell in &cells {
         let fill = lit(cell.direction).unwrap_or_else(|| chrome.cube_face(cell.facing));
+
         painter.add(Shape::convex_polygon(
             cell.corners.to_vec(),
             fill,
@@ -373,11 +383,14 @@ pub fn show(
     }
     for face in &FACES {
         let facing = projector.facing(face.normal);
+
         if facing <= MIN_VISIBLE_FACING {
             continue;
         }
+
         let outline = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
             .map(|(a, b)| projector.project(face.normal + face.u * a + face.v * b));
+
         painter.add(Shape::closed_line(
             outline.to_vec(),
             Stroke::new(EDGE_WIDTH, chrome.cube_edge),
@@ -388,6 +401,7 @@ pub fn show(
             } else {
                 chrome.cube_label
             };
+
             painter.text(
                 projector.project(face.normal),
                 Align2::CENTER_CENTER,
@@ -410,6 +424,7 @@ pub fn show(
     } else if hovered.is_some() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
+
     let response = match hovered {
         Some(direction) => response.on_hover_text(texts.hover(direction)),
         None => response,
@@ -498,11 +513,14 @@ pub fn show_axis_triad(ui: &Ui, bottom_left: Pos2, orientation: Rotation3, palet
         .into_iter()
         .map(|axis| (projector.facing(axis.direction()), axis))
         .collect();
+
     axes.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     let painter = ui.painter();
+
     for (_, axis) in &axes {
         let tip = projector.project(axis.direction());
+
         painter.line_segment(
             [projector.center, tip],
             Stroke::new(
@@ -518,6 +536,7 @@ pub fn show_axis_triad(ui: &Ui, bottom_left: Pos2, orientation: Rotation3, palet
     for (_, axis) in axes {
         let color = palette.axis_colour(axis);
         let label = projector.project(axis.direction() * f64::from(TRIAD_LABEL_REACH));
+
         canvas::label(
             painter,
             label,
@@ -531,8 +550,10 @@ pub fn show_axis_triad(ui: &Ui, bottom_left: Pos2, orientation: Rotation3, palet
 
 fn visible_cells(projector: &Projector) -> Vec<Cell> {
     let mut cells = Vec::new();
+
     for face in &FACES {
         let facing = projector.facing(face.normal);
+
         if facing <= MIN_VISIBLE_FACING {
             continue;
         }
@@ -540,6 +561,7 @@ fn visible_cells(projector: &Projector) -> Vec<Cell> {
             for (j, v_start, v_end) in CELL_SPANS {
                 let corner =
                     |a: f64, b: f64| projector.project(face.normal + face.u * a + face.v * b);
+
                 cells.push(Cell {
                     direction: face.normal + face.u * f64::from(i) + face.v * f64::from(j),
                     corners: [
@@ -558,11 +580,13 @@ fn visible_cells(projector: &Projector) -> Vec<Cell> {
 
 fn contains(corners: &[Pos2; 4], point: Pos2) -> bool {
     let mut sign = 0.0f32;
+
     for (index, start) in corners.iter().enumerate() {
         let Some(end) = corners.get((index + 1) % corners.len()) else {
             return false;
         };
         let cross = (*end - *start).x * (point - *start).y - (*end - *start).y * (point - *start).x;
+
         if cross.abs() <= f32::EPSILON {
             continue;
         }
@@ -586,14 +610,17 @@ mod tests {
 
     fn triad_shapes(contrast: Contrast, canvas: Canvas) -> Vec<Shape> {
         let context = egui::Context::default();
+
         context.set_fonts(crate::fonts::definitions_with(&[]));
         canvas::set_contrast(&context, contrast);
         canvas::set_canvas(&context, canvas);
+
         let viewport = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
         let orientation = Viewpoint::looking_from(Vector3::new(1.0, -1.0, 1.0), Point3::ZERO, 1.0)
             .unwrap()
             .orientation;
         let mut shapes = Vec::new();
+
         for _ in 0..2 {
             let mut output = context.run_ui(
                 RawInput {
@@ -609,6 +636,7 @@ mod tests {
                     )
                 },
             );
+
             output.textures_delta.clear();
             shapes = output
                 .shapes
@@ -634,22 +662,26 @@ mod tests {
         let cells = visible_cells(&projector);
 
         assert_eq!(cells.len(), 9);
+
         let center = cells
             .iter()
             .find(|cell| contains(&cell.corners, pos2(0.0, 0.0)))
             .unwrap();
+
         assert_eq!(center.direction, Vector3::NEG_Y);
 
         let top_right = cells
             .iter()
             .find(|cell| contains(&cell.corners, pos2(9.0, -9.0)))
             .unwrap();
+
         assert_eq!(top_right.direction, Vector3::new(1.0, -1.0, 1.0));
     }
 
     #[test]
     fn an_isometric_view_shows_three_faces() {
         let projector = projector_looking_from(Vector3::new(1.0, -1.0, 1.0));
+
         assert_eq!(visible_cells(&projector).len(), 27);
     }
 
@@ -662,6 +694,7 @@ mod tests {
             pos2(0.0, 1.0),
         ];
         let mut reversed = square;
+
         reversed.reverse();
         for corners in [square, reversed] {
             assert!(contains(&corners, pos2(0.5, 0.5)));
@@ -680,7 +713,9 @@ mod tests {
             view_name(Vector3::new(-1.0, 1.0, -1.0)),
             "View from bottom, back and left"
         );
+
         let names: Vec<String> = targets().map(view_name).collect();
+
         assert_eq!(names.len(), 26);
         for (index, name) in names.iter().enumerate() {
             assert!(!names[..index].contains(name), "{name} is named twice");
@@ -690,6 +725,7 @@ mod tests {
     #[test]
     fn arrows_step_to_the_neighbouring_target_on_that_side_of_the_cube() {
         let front = projector_looking_from(Vector3::NEG_Y);
+
         assert_eq!(
             neighbour(&front, Vector3::NEG_Y, vec2(1.0, 0.0)),
             Some(Vector3::new(1.0, -1.0, 0.0))
@@ -698,7 +734,9 @@ mod tests {
             neighbour(&front, Vector3::NEG_Y, vec2(0.0, -1.0)),
             Some(Vector3::new(0.0, -1.0, 1.0))
         );
+
         let edge = projector_looking_from(Vector3::new(1.0, -1.0, 0.0));
+
         assert_eq!(
             neighbour(&edge, Vector3::new(1.0, -1.0, 0.0), vec2(1.0, 0.0)),
             Some(Vector3::X)
@@ -714,6 +752,7 @@ mod tests {
         let viewport = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
         let placement = CubePlacement::default();
         let area = area(viewport);
+
         let cube = placement.cube_rect(viewport);
         let fit = placement.fit_rect(viewport);
         let home = placement.home_rect(viewport);
@@ -733,6 +772,7 @@ mod tests {
     #[test]
     fn every_size_and_corner_keeps_the_cube_and_its_buttons_inside_the_view_in_its_corner() {
         let viewport = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+
         for size in [CubeSize::Small, CubeSize::Standard, CubeSize::Large] {
             for corner in Corner::ALL {
                 let placement = CubePlacement { size, corner };
@@ -764,6 +804,7 @@ mod tests {
                 assert_eq!(corner.is_top(), area.center().y < viewport.center().y);
             }
         }
+
         assert!(CubeSize::Small.side() < CubeSize::Standard.side());
         assert!(CubeSize::Standard.side() < CubeSize::Large.side());
     }

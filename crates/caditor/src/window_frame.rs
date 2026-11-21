@@ -37,7 +37,7 @@ const BAR_RECT_KEY: &str = "title-bar-rect";
 const CONTROLS_ROW_KEY: &str = "title-bar-controls-row";
 const MAXIMIZE_BUTTON_KEY: &str = "title-bar-maximize-button";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Unarrangeable {
     #[error("{IN_FULL_SCREEN}")]
     FullScreen,
@@ -61,7 +61,7 @@ impl Reason for Unarrangeable {
 
 static NON_CLIENT_POINTER: AtomicU8 = AtomicU8::new(0);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NonClientPointer {
     #[default]
     Away,
@@ -119,12 +119,13 @@ pub fn take_maximize_button(ctx: &Context) -> Option<Rect> {
     let key = Id::unique(MAXIMIZE_BUTTON_KEY);
     ctx.data_mut(|data| {
         let rect = data.get_temp::<Rect>(key);
+
         data.remove::<Rect>(key);
         rect
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WindowState {
     pub maximized: bool,
     pub fullscreen: bool,
@@ -148,7 +149,7 @@ impl WindowState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Chrome {
     pub state: WindowState,
     pub title_bar: TitleBar,
@@ -171,11 +172,13 @@ pub fn commands(ctx: &Context, state: WindowState, commands: &mut CommandFrame<'
     if commands.available(Command::MinimizeWindow) {
         ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
     }
+
     let maximizable = if state.fullscreen {
         Err(IN_FULL_SCREEN)
     } else {
         Ok(())
     };
+
     if commands.invoke(Command::MaximizeWindow, &maximizable) {
         ctx.send_viewport_cmd(ViewportCommand::Maximized(!state.maximized));
     }
@@ -203,6 +206,7 @@ fn arranged(
     if state.maximized {
         return Err(Unarrangeable::Maximized);
     }
+
     let viewport = ctx.input(|input| input.viewport().clone());
     let (offset, growth) = match step {
         WindowStep::MoveLeft => (vec2(-WINDOW_STEP, 0.0), Vec2::ZERO),
@@ -214,22 +218,27 @@ fn arranged(
         WindowStep::Taller => (Vec2::ZERO, vec2(0.0, WINDOW_STEP)),
         WindowStep::Shorter => (Vec2::ZERO, vec2(0.0, -WINDOW_STEP)),
     };
+
     if growth == Vec2::ZERO {
         let outer = viewport.outer_rect.ok_or(Unarrangeable::PlacedBySystem)?;
+
         return Ok(ViewportCommand::OuterPosition(outer.min + offset));
     }
+
     let inner = viewport.inner_rect.ok_or(Unarrangeable::SizeUnknown)?;
     let largest = viewport
         .monitor_size
         .unwrap_or(Vec2::splat(MAX_WINDOW_SIDE as f32));
     let smallest = vec2(MIN_WINDOW_WIDTH as f32, MIN_WINDOW_HEIGHT as f32);
     let growing = growth.x + growth.y > 0.0;
+
     let stepped = (inner.size() + growth).max(smallest).min(largest);
     let wanted = if growing {
         stepped.max(inner.size())
     } else {
         stepped.min(inner.size())
     };
+
     if wanted == inner.size() {
         return Err(if growing {
             Unarrangeable::AsLargeAsTheScreen
@@ -263,6 +272,7 @@ pub fn remember_bar(ctx: &Context, rect: Rect) {
 
 pub fn remember_controls_row(ctx: &Context, rect: Option<Rect>) {
     let key = Id::unique(CONTROLS_ROW_KEY);
+
     ctx.data_mut(|data| match rect {
         Some(rect) => {
             data.insert_temp(key, rect);
@@ -283,6 +293,7 @@ pub fn drags_window(
     actions: &mut Vec<Action>,
 ) {
     let state = chrome.state;
+
     if response.double_clicked_by(PointerButton::Primary) && !state.fullscreen {
         response
             .ctx
@@ -305,29 +316,37 @@ fn window_menu(
     let item = |ui: &mut Ui, glyph: &str, title: &str, command: Option<Command>| {
         widgets::menu_item(ui, glyph, title, command.and_then(|c| commands.keys(c)))
     };
+
     if item(ui, icons::MINIMIZE, MINIMIZE, None).clicked() {
         ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
     }
+
     let (glyph, title) = maximize_button(state);
+
     let maximize = ui
         .add_enabled_ui(!state.fullscreen, |ui| item(ui, glyph, title, None))
         .inner
         .on_disabled_hover_text(IN_FULL_SCREEN);
+
     if maximize.clicked() {
         ui.ctx()
             .send_viewport_cmd(ViewportCommand::Maximized(!state.maximized));
     }
+
     let (glyph, title) = if state.fullscreen {
         (icons::LEAVE_FULL_SCREEN, LEAVE_FULL_SCREEN)
     } else {
         (icons::FULL_SCREEN, FULL_SCREEN)
     };
+
     if item(ui, glyph, title, Some(Command::FullScreen)).clicked() {
         ui.ctx()
             .send_viewport_cmd(ViewportCommand::Fullscreen(!state.fullscreen));
     }
     ui.separator();
+
     let mut system = chrome.title_bar.decorated();
+
     if widgets::checkbox(ui, &mut system, SYSTEM_TITLE_BAR)
         .on_hover_text("Let the window manager draw the title bar; also in Preferences")
         .changed()
@@ -337,6 +356,7 @@ fn window_menu(
         } else {
             TitleBar::BuiltIn
         };
+
         actions.push(Action::Preferences(PreferencesCommand::Change(
             PreferenceChange::TitleBar(bar),
         )));
@@ -363,12 +383,15 @@ pub fn controls(
     actions: &mut Vec<Action>,
 ) {
     ui.spacing_mut().item_spacing.x = CONTROL_GAP;
+
     let close = commands.with_keys(Command::Quit, CLOSE);
+
     if control(ui, icons::CLOSE, CLOSE, &close, Kind::Close).clicked() {
         actions.push(Action::File(FileCommand::Quit));
     }
     if state.fullscreen {
         let hover = commands.with_keys(Command::FullScreen, LEAVE_FULL_SCREEN);
+
         if control(
             ui,
             icons::LEAVE_FULL_SCREEN,
@@ -383,7 +406,9 @@ pub fn controls(
         }
         return;
     }
+
     let (glyph, name) = maximize_button(state);
+
     if control(ui, glyph, name, name, Kind::Maximize).clicked() {
         ui.ctx()
             .send_viewport_cmd(ViewportCommand::Maximized(!state.maximized));
@@ -396,6 +421,7 @@ pub fn controls(
 fn reaching_the_corner(ui: &mut Ui, button: &Response) -> Response {
     let screen = ui.ctx().content_rect();
     let rect = button.rect;
+
     let reach = Rect::from_min_max(
         pos2(rect.min.x, screen.min.y),
         pos2(screen.max.x, rect.max.y),
@@ -413,12 +439,15 @@ fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, kind: Kind) -> Res
     let closes = kind == Kind::Close;
     let tokens = appearance::tokens(ui);
     let (rect, response) = ui.allocate_exact_size(CONTROL_SIZE, Sense::click());
+
     let response = if closes {
         reaching_the_corner(ui, &response)
     } else {
         response
     };
+
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), name));
+
     let non_client = if kind == Kind::Maximize {
         ui.ctx()
             .data_mut(|data| data.insert_temp(Id::unique(MAXIMIZE_BUTTON_KEY), rect));
@@ -426,9 +455,11 @@ fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, kind: Kind) -> Res
     } else {
         NonClientPointer::Away
     };
+
     if ui.is_rect_visible(rect) {
         let pressed = response.is_pointer_button_down_on() || non_client == NonClientPointer::Down;
         let hovered = response.hovered() || non_client != NonClientPointer::Away;
+
         let fill = match (closes, pressed, hovered) {
             (true, true, _) => tokens.danger_pressed,
             (true, false, true) => tokens.danger,
@@ -441,6 +472,7 @@ fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, kind: Kind) -> Res
         } else {
             Stroke::NONE
         };
+
         ui.painter().rect(
             rect,
             CornerRadius::same(WIDGET_RADIUS),
@@ -448,11 +480,13 @@ fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, kind: Kind) -> Res
             stroke,
             StrokeKind::Inside,
         );
+
         let color = match (closes, pressed || hovered) {
             (true, true) => tokens.text_on_accent,
             (false, true) => tokens.text,
             (_, false) => tokens.text_muted,
         };
+
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -473,10 +507,13 @@ pub fn over_dialogs(
     let Some(bar) = ctx.data(|data| data.get_temp::<Rect>(Id::unique(BAR_RECT_KEY))) else {
         return;
     };
+
     if !chrome.built_in() {
         return;
     }
+
     let id = Id::unique("title-bar-over-dialogs");
+
     Area::new(id)
         .order(Order::Foreground)
         .fixed_pos(bar.min)
@@ -484,11 +521,15 @@ pub fn over_dialogs(
         .interactable(true)
         .show(ctx, |ui| {
             ui.set_min_size(bar.size());
+
             let response = ui.interact(bar, id.with("drag"), Sense::click_and_drag());
+
             drags_window(&response, chrome, commands, actions);
+
             let row = ctx
                 .data(|data| data.get_temp::<Rect>(Id::unique(CONTROLS_ROW_KEY)))
                 .unwrap_or_else(|| bar.shrink2(vec2(ui.spacing().item_spacing.x, 0.0)));
+
             ui.scope_builder(
                 UiBuilder::new()
                     .max_rect(row)
@@ -503,6 +544,7 @@ pub fn frame(ctx: &Context, chrome: Chrome) {
     if !chrome.built_in() || !chrome.state.framed() {
         return;
     }
+
     let screen = ctx.content_rect();
     let outline = LayerId::new(Order::Foreground, Id::unique("window-outline"));
     let border = ctx
@@ -512,6 +554,7 @@ pub fn frame(ctx: &Context, chrome: Chrome) {
         .noninteractive
         .bg_stroke
         .color;
+
     ctx.layer_painter(outline).rect_stroke(
         screen,
         CornerRadius::ZERO,
@@ -522,6 +565,7 @@ pub fn frame(ctx: &Context, chrome: Chrome) {
     for edge in Edge::ALL {
         let rect = edge.rect(screen);
         let id = Id::unique(("window-edge", edge));
+
         Area::new(id)
             .order(Order::Foreground)
             .fixed_pos(rect.min)
@@ -530,10 +574,12 @@ pub fn frame(ctx: &Context, chrome: Chrome) {
             .show(ctx, |ui| {
                 let (_, response) = ui.allocate_exact_size(rect.size(), Sense::click_and_drag());
                 let pointer = ctx.input(|input| input.pointer.interact_pos());
+
                 let Some(pointer) = pointer.filter(|_| response.contains_pointer()) else {
                     return;
                 };
                 let direction = direction_at(screen, pointer);
+
                 ctx.set_cursor_icon(cursor(direction));
                 if response.is_pointer_button_down_on()
                     && ctx.input(|input| input.pointer.primary_pressed())
@@ -545,7 +591,7 @@ pub fn frame(ctx: &Context, chrome: Chrome) {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum Edge {
     Top,
     Bottom,

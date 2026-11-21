@@ -13,7 +13,7 @@ use crate::{
     topology::{EdgeId, Face, LoopId, Solid, continues, fit_pcurve, signed_area},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct SplitFace {
     pub key: FaceKey,
     pub fragments: Vec<Fragment>,
@@ -26,6 +26,7 @@ pub(super) fn split(
 ) -> Result<Vec<SplitFace>, BooleanError> {
     let shared = arrangement.shared_pieces();
     let mut split = Vec::new();
+
     for operand in Operand::BOTH
         .into_iter()
         .filter(|operand| input.traces(*operand))
@@ -33,6 +34,7 @@ pub(super) fn split(
         let solid = input.solid(operand);
         for (id, face) in solid.faces() {
             interrupt::check()?;
+
             let key = FaceKey { operand, face: id };
             let divided = split_face(input, arrangement, &shared, key, face).map_err(|error| {
                 error.or_faces([key]).or_point(|| {
@@ -40,6 +42,7 @@ pub(super) fn split(
                     Some(face.surface().point_at(center))
                 })
             })?;
+
             split.push(divided);
         }
     }
@@ -64,6 +67,7 @@ fn split_face(
         center,
     };
     let Boundary { loops, mut cuts } = boundary(solid, arrangement, key, face)?;
+
     if cuts.is_empty()
         && let Some(fragment) = passed_through(solid, arrangement, key, face)
     {
@@ -73,6 +77,7 @@ fn split_face(
             untouched: true,
         });
     }
+
     let quiet = if input.carrying {
         quiet_loops(solid, arrangement, shared, key, face, &loops, &cuts)
     } else {
@@ -86,23 +91,29 @@ fn split_face(
         .collect();
     let mut loops = loop {
         let mut half_edges = boundary_half_edges.clone();
+
         for piece in &cuts {
             half_edges.push(HalfEdge::new(*piece, Sense::Same, None));
             half_edges.push(HalfEdge::new(*piece, Sense::Reversed, None));
         }
+
         let traced = trace(arrangement, &chart, &half_edges)?
             .into_iter()
             .map(|members| fit_loop(arrangement, &chart, members))
             .collect::<Result<Vec<_>, _>>()?;
         let bridges = bridges(face.surface(), &traced, &cuts);
+
         if bridges.is_empty() {
             break traced;
         }
         cuts.retain(|piece| !bridges.contains(piece));
     };
+
     loops.extend(quiet.into_values());
     untangle(arrangement, &chart, &mut loops)?;
+
     let mut fragments = group(&chart, loops)?;
+
     sharpen(arrangement, &chart, &mut fragments)?;
     Ok(SplitFace {
         key,
@@ -113,6 +124,7 @@ fn split_face(
 
 fn bridges(surface: &Surface, loops: &[TracedLoop], cuts: &BTreeSet<usize>) -> BTreeSet<usize> {
     let mut found = BTreeSet::new();
+
     for traced in loops {
         for (position, coedge) in traced.coedges.iter().enumerate() {
             let piece = coedge.half_edge.piece;
@@ -147,6 +159,7 @@ fn quiet_loops(
         .iter()
         .filter_map(|piece| arrangement.piece(*piece))
         .flat_map(|piece| [piece.start, piece.end]);
+
     for vertex in boundary_starts.chain(cut_ends) {
         *leaving.entry(vertex).or_default() += 1;
     }
@@ -198,10 +211,12 @@ fn alone(
     members: &[HalfEdge],
 ) -> bool {
     let mut own: BTreeMap<usize, usize> = BTreeMap::new();
+
     for half_edge in members {
         let Some(vertex) = start_vertex(arrangement, half_edge) else {
             return false;
         };
+
         *own.entry(vertex).or_default() += 1;
     }
     own.iter()
@@ -231,12 +246,14 @@ fn carried_loop(
 ) -> Option<TracedLoop> {
     let face_loop = solid.face_loop(loop_id)?;
     let mut coedges = Vec::with_capacity(face_loop.coedges().len());
+
     for coedge_id in face_loop.coedges() {
         let coedge = solid.coedge(*coedge_id)?;
         let [piece] = arrangement.edge_pieces(key.operand, coedge.edge()) else {
             return None;
         };
         let (representative, relation) = arrangement.representative(*piece);
+
         let sense = coedge.sense().combined(relation);
         let pcurve = if representative == *piece
             && keeps_its_interval(solid, arrangement, *piece, coedge.edge())
@@ -247,12 +264,14 @@ fn carried_loop(
             let hint = Some(coedge.pcurve().start());
             fit_pcurve(surface, curve, data.interval, sense, hint).ok()?
         };
+
         coedges.push(Coedge {
             half_edge: HalfEdge::new(representative, sense, Some(pcurve.start())),
             pcurve,
         });
     }
     snap_ends(arrangement, surface, &mut coedges);
+
     let count = coedges.len();
     let closed = coedges.iter().enumerate().all(|(index, coedge)| {
         coedges
@@ -260,6 +279,7 @@ fn carried_loop(
             .is_some_and(|next| continues(surface, coedge.pcurve.end(), next.pcurve.start()))
     });
     let mut traced = TracedLoop { coedges, area: 0.0 };
+
     traced.area = signed_area(&traced.polygon());
     (closed && traced.area.is_finite() && traced.area != 0.0).then_some(traced)
 }
@@ -287,12 +307,15 @@ fn boundary(
     face: &Face,
 ) -> Result<Boundary, BooleanError> {
     let mut loops = Vec::with_capacity(face.loops().len());
+
     for loop_id in face.loops() {
         let face_loop = solid.face_loop(*loop_id).ok_or_else(BooleanError::split)?;
         let mut members = Vec::new();
+
         for coedge_id in face_loop.coedges() {
             let coedge = solid.coedge(*coedge_id).ok_or_else(BooleanError::split)?;
             let mut pieces = arrangement.edge_pieces(key.operand, coedge.edge()).to_vec();
+
             if !coedge.sense().is_same() {
                 pieces.reverse();
             }
@@ -304,6 +327,7 @@ fn boundary(
                     data.interval.end()
                 };
                 let (representative, relation) = arrangement.representative(piece);
+
                 members.push(HalfEdge::new(
                     representative,
                     coedge.sense().combined(relation),
@@ -313,6 +337,7 @@ fn boundary(
         }
         loops.push(members);
     }
+
     let on_boundary: BTreeSet<usize> = loops
         .iter()
         .flatten()
@@ -324,6 +349,7 @@ fn boundary(
         .map(|piece| arrangement.representative(*piece).0)
         .filter(|piece| !on_boundary.contains(piece))
         .collect();
+
     prune_dangling(arrangement, loops.iter().flatten(), &mut cuts);
     Ok(Boundary { loops, cuts })
 }
@@ -337,25 +363,30 @@ fn prune_dangling<'a>(
     let pieces = boundary
         .map(|half_edge| half_edge.piece)
         .chain(cuts.iter().copied());
+
     for piece in pieces {
         if let Some(data) = arrangement.piece(piece) {
             incidence.entry(data.start).or_default().insert(piece);
             incidence.entry(data.end).or_default().insert(piece);
         }
     }
+
     let mut pending: Vec<usize> = cuts.iter().copied().collect();
     while let Some(piece) = pending.pop() {
         if !cuts.contains(&piece) {
             continue;
         }
+
         let Some(data) = arrangement.piece(piece) else {
             continue;
         };
         let ends = [data.start, data.end];
+
         let dangling = !data.is_closed()
             && ends
                 .iter()
                 .any(|vertex| incidence.get(vertex).is_none_or(|around| around.len() < 2));
+
         if !dangling {
             continue;
         }

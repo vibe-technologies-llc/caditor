@@ -35,7 +35,9 @@ fn a_filleted_edge_has_the_asked_chord_between_its_tangent_lines() {
     let rounded = run(&block, &[edge], fillet(radius));
 
     let chord_squared = 2.0 * radius * radius;
+
     assert!((chord_squared - 9.0).abs() < 1e-9);
+
     check("chord fillet", &rounded, 1000.0 - spandrel(radius) * 10.0);
 }
 
@@ -59,7 +61,9 @@ fn a_sharper_corner_needs_a_smaller_radius_for_the_same_chord() {
     let acute_radius = chord_fillet_radius(&solid, &[acute], 1.0).unwrap();
 
     assert!(acute_radius < right_radius);
+
     let expected = 1.0 / (2.0 * (135.0_f64.to_radians() / 2.0).sin_libm());
+
     assert!((acute_radius - expected).abs() < 1e-9, "{acute_radius}");
 }
 
@@ -97,8 +101,10 @@ fn an_edge_whose_faces_turn_by_a_changing_angle_is_refused() {
     );
     let tilt =
         RigidTransform::rotation_about(Point3::new(0.0, 0.0, 15.0), Vector3::X, 0.5).unwrap();
+
     let bore = bore.transformed(&tilt).unwrap();
     let body = block_at((-20.0, -20.0, 0.0), (40.0, 40.0, 10.0), 1);
+
     let solid = boolean(&body, &bore, BooleanOperation::Difference).unwrap();
 
     let refusals: Vec<_> = solid

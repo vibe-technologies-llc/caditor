@@ -45,15 +45,19 @@ fn holds(sketch: &Sketch, spline: EntityId) {
         panic!("a fit spline");
     };
     let curve = sketch.spline(spline).unwrap();
+
     let layout = HandledLayout::of(&positions, closed, spacing, &[]).unwrap();
+
     for (index, position) in positions.iter().enumerate() {
         let parameter = layout.parameter(index).unwrap();
+
         assert!(curve.point_at(parameter).distance(*position) < EXACT);
     }
     for handle in sketch.spline_handles(spline) {
         let parameter = layout.parameter(handle.index).unwrap();
         let [slope, _] = curve.derivatives(parameter);
         let reach = sketch.point(handle.end).unwrap() - sketch.point(handle.anchor).unwrap();
+
         assert!((slope * layout.arm(handle.index) - reach).length() < EXACT);
     }
 }
@@ -65,15 +69,18 @@ fn move_point(sketch: &mut Sketch, point: EntityId, to: Point2) {
 #[test]
 fn a_handle_starts_along_the_curve_and_holds_its_direction_and_pull() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&wave(), SplineKind::fit(false));
     let middle = fit_points(&sketch, spline)[2];
     let before = solve(&sketch);
+
     let (line, _) = sketch.add_spline_handle(spline, middle).unwrap();
     let Some(&Entity::Line { end, .. }) = sketch.entity(line) else {
         panic!("the handle is a line");
     };
 
     assert!(sketch.is_construction(line));
+
     holds(&sketch, spline);
 
     let after = solve(&sketch);
@@ -85,6 +92,7 @@ fn a_handle_starts_along_the_curve_and_holds_its_direction_and_pull() {
     assert!(after.solution.redundancies().is_empty());
 
     move_point(&mut sketch, end, Point2::new(25.0, 10.0));
+
     let turned = solve(&sketch);
 
     assert!(
@@ -95,28 +103,35 @@ fn a_handle_starts_along_the_curve_and_holds_its_direction_and_pull() {
             .distance(Point2::new(25.0, 10.0))
             < EXACT
     );
+
     holds(&turned.geometry, spline);
 }
 
 #[test]
 fn a_handle_line_takes_constraints_that_turn_the_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&wave(), SplineKind::fit(false));
     let first = fit_points(&sketch, spline)[0];
+
     let (line, _) = sketch.add_spline_handle(spline, first).unwrap();
+
     sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+
     let solved = solve(&sketch);
     let curve = solved.geometry.spline(spline).unwrap();
     let [slope, _] = curve.derivatives(0.0);
 
     assert!(slope.y.abs() < EXACT * slope.length());
     assert!(slope.x.abs() > 0.0);
+
     holds(&solved.geometry, spline);
 }
 
 #[test]
 fn both_handles_on_two_points_make_the_bezier_leaving_along_them() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(
         &[Point2::new(0.0, 0.0), Point2::new(30.0, 0.0)],
         SplineKind::fit(false),
@@ -124,14 +139,18 @@ fn both_handles_on_two_points_make_the_bezier_leaving_along_them() {
     let [start, finish] = fit_points(&sketch, spline)[..] else {
         panic!("two points");
     };
+
     let (first_line, _) = sketch.add_spline_handle(spline, start).unwrap();
     let (last_line, _) = sketch.add_spline_handle(spline, finish).unwrap();
+
     let ends = [first_line, last_line].map(|line| match sketch.entity(line) {
         Some(&Entity::Line { end, .. }) => end,
         _ => panic!("a line"),
     });
+
     move_point(&mut sketch, ends[0], Point2::new(5.0, 15.0));
     move_point(&mut sketch, ends[1], Point2::new(35.0, 15.0));
+
     let solved = solve(&sketch);
     let curve = solved.geometry.spline(spline).unwrap();
     let expected = [
@@ -150,9 +169,12 @@ fn both_handles_on_two_points_make_the_bezier_leaving_along_them() {
 #[test]
 fn a_second_handle_at_one_point_and_other_splines_are_refused() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&wave(), SplineKind::fit(false));
     let middle = fit_points(&sketch, spline)[2];
+
     sketch.add_spline_handle(spline, middle).unwrap();
+
     let control = sketch.add_spline_of(&wave(), SplineKind::OPEN);
     let stray = sketch.add_point(Point2::new(5.0, 5.0));
 
@@ -164,12 +186,14 @@ fn a_second_handle_at_one_point_and_other_splines_are_refused() {
         sketch.add_spline_handle(spline, stray),
         Err(SketchError::NotAFitPoint { .. })
     ));
+
     let point = fit_points(&sketch, control)[1];
 
     assert!(matches!(
         sketch.add_spline_handle(control, point),
         Err(SketchError::NotAFitPoint { .. })
     ));
+
     let loose = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(1.0, 1.0));
 
     assert!(matches!(
@@ -184,13 +208,16 @@ fn a_second_handle_at_one_point_and_other_splines_are_refused() {
 #[test]
 fn an_inactive_handle_leaves_the_plain_interpolation() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&wave(), SplineKind::fit(false));
     let plain = sketch.spline(spline).unwrap();
     let middle = fit_points(&sketch, spline)[2];
+
     let (line, handle) = sketch.add_spline_handle(spline, middle).unwrap();
     let Some(&Entity::Line { end, .. }) = sketch.entity(line) else {
         panic!("a line");
     };
+
     move_point(&mut sketch, end, Point2::new(25.0, 20.0));
     sketch.set_active(handle, false).unwrap();
 
@@ -206,13 +233,17 @@ fn a_mirrored_spline_takes_its_handle_with_it() {
         .iter()
         .map(|point| *point + Point2::new(10.0, 0.0))
         .collect();
+
     let spline = sketch.add_spline_of(&shifted, SplineKind::fit(false));
     let middle = fit_points(&sketch, spline)[2];
+
     let (line, _) = sketch.add_spline_handle(spline, middle).unwrap();
     let Some(&Entity::Line { end, .. }) = sketch.entity(line) else {
         panic!("a line");
     };
+
     move_point(&mut sketch, end, Point2::new(40.0, 12.0));
+
     let copies = sketch
         .mirror(&[spline, line], EntityId::VERTICAL_AXIS)
         .unwrap();
@@ -281,6 +312,7 @@ fn smooth_all_round(sketch: &Sketch, spline: EntityId) {
 fn a_closed_spline_handle_starts_along_the_curve_and_holds_its_direction_and_pull() {
     for spacing in [FitSpacing::Centripetal, FitSpacing::Even] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline_of(
             &ring(),
             SplineKind::Fit {
@@ -291,6 +323,7 @@ fn a_closed_spline_handle_starts_along_the_curve_and_holds_its_direction_and_pul
         let plain = sketch.spline(spline).unwrap();
         let third = fit_points(&sketch, spline)[2];
         let before = solve(&sketch);
+
         let (line, _) = sketch.add_spline_handle(spline, third).unwrap();
         let end = handle_end(&sketch, line);
         let handled = sketch.spline(spline).unwrap();
@@ -312,6 +345,7 @@ fn a_closed_spline_handle_starts_along_the_curve_and_holds_its_direction_and_pul
         assert!(after.solution.redundancies().is_empty());
 
         move_point(&mut sketch, end, Point2::new(55.0, 30.0));
+
         let turned = solve(&sketch);
 
         assert!(
@@ -322,6 +356,7 @@ fn a_closed_spline_handle_starts_along_the_curve_and_holds_its_direction_and_pul
                 .distance(Point2::new(55.0, 30.0))
                 < EXACT
         );
+
         holds(&turned.geometry, spline);
         smooth_all_round(&turned.geometry, spline);
     }
@@ -330,14 +365,18 @@ fn a_closed_spline_handle_starts_along_the_curve_and_holds_its_direction_and_pul
 #[test]
 fn a_handle_at_a_closed_spline_seam_turns_both_ends_of_the_loop() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&ring(), SplineKind::fit(true));
     let [first, second, ..] = fit_points(&sketch, spline)[..] else {
         panic!("five points");
     };
+
     let (line, _) = sketch.add_spline_handle(spline, first).unwrap();
     let (other, _) = sketch.add_spline_handle(spline, second).unwrap();
+
     sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
     sketch.add_constraint(Constraint::Vertical(other)).unwrap();
+
     let solved = solve(&sketch);
     let curve = solved.geometry.spline(spline).unwrap();
     let [slope, _] = curve.derivatives(0.0);
@@ -345,6 +384,7 @@ fn a_handle_at_a_closed_spline_seam_turns_both_ends_of_the_loop() {
     assert!(solved.solution.redundancies().is_empty());
     assert!(slope.y.abs() < EXACT * slope.length());
     assert!(slope.x.abs() > 0.0);
+
     holds(&solved.geometry, spline);
     smooth_all_round(&solved.geometry, spline);
 }
@@ -352,14 +392,18 @@ fn a_handle_at_a_closed_spline_seam_turns_both_ends_of_the_loop() {
 #[test]
 fn a_closed_spline_with_a_handle_on_every_point_still_solves() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&ring()[..3], SplineKind::fit(true));
+
     for point in fit_points(&sketch, spline) {
         sketch.add_spline_handle(spline, point).unwrap();
     }
+
     let solved = solve(&sketch);
 
     assert_eq!(solved.geometry.spline_handles(spline).len(), 3);
     assert!(solved.solution.redundancies().is_empty());
+
     holds(&solved.geometry, spline);
     smooth_all_round(&solved.geometry, spline);
 }
@@ -371,11 +415,15 @@ fn a_mirrored_closed_spline_takes_its_handle_with_it() {
         .iter()
         .map(|point| *point + Point2::new(20.0, 0.0))
         .collect();
+
     let spline = sketch.add_spline_of(&shifted, SplineKind::fit(true));
     let third = fit_points(&sketch, spline)[2];
+
     let (line, _) = sketch.add_spline_handle(spline, third).unwrap();
     let end = handle_end(&sketch, line);
+
     move_point(&mut sketch, end, Point2::new(75.0, 30.0));
+
     let copies = sketch
         .mirror(&[spline, line], EntityId::VERTICAL_AXIS)
         .unwrap();

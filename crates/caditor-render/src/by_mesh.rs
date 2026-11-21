@@ -57,6 +57,7 @@ impl<T: OfMesh> ByMesh<T> {
             *self.index.get(&mesh_key(mesh))?
         };
         let taken = self.slots.get_mut(found)?.take()?;
+
         self.cursor = found + 1;
         Some(taken)
     }
@@ -97,6 +98,7 @@ impl DrawnOrder {
                 .iter()
                 .zip(drawn)
                 .all(|(key, item)| *key == mesh_key(item.mesh()));
+
         self.changed = rewritten || !same;
         if !same {
             self.keys.clear();
@@ -122,6 +124,7 @@ mod tests {
     fn items_are_taken_by_their_mesh_in_any_order_and_only_once() {
         let all = meshes(4);
         let mut by_mesh = ByMesh::default();
+
         by_mesh.refill(&mut all.clone());
 
         let taken = [3, 0, 1, 1].map(|index| by_mesh.take(&all[index]).is_some());
@@ -139,16 +142,27 @@ mod tests {
         let mut order = DrawnOrder::default();
 
         order.note(&all, false);
+
         let first = order.changed();
+
         order.note(&all, false);
+
         let again = order.changed();
+
         order.note(&all, true);
+
         let rewritten = order.changed();
+
         order.note(&all[..2], false);
+
         let dropped = order.changed();
+
         order.note(&[Arc::clone(&all[1]), Arc::clone(&all[0])], false);
+
         let swapped = order.changed();
+
         order.note(&[Arc::clone(&all[1]), Arc::clone(&all[0])], false);
+
         let settled = order.changed();
 
         assert!(first);

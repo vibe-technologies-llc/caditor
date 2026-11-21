@@ -20,14 +20,17 @@ fn box_name(instance: [u32; 2]) -> String {
 
 fn open_grid(harness: &mut Harness, (reversed_first, reversed_second): (bool, bool)) -> Grid {
     let (plate, _) = extruded_plate(harness);
+
     harness.select([]);
     harness.click("Linear pattern");
     harness.settle();
+
     let pattern = harness
         .workspace
         .editing
         .solid()
         .expect("the pattern is open");
+
     harness.type_into_field(Id::unique(("pattern-field", "count", pattern)), "3");
     harness.settle();
     harness.select([crate::selection::Pickable::Axis(Axis::Y)]);
@@ -117,12 +120,14 @@ fn assert_grid_matches_view(harness: &mut Harness, grid: &Grid) {
             if first == second {
                 continue;
             }
+
             let (box_a, box_b) = (box_position(harness, first), box_position(harness, second));
             let (view_a, view_b) = (
                 copy_position(harness, grid, first),
                 copy_position(harness, grid, second),
             );
             let horizontal = |a: f32, b: f32| (a - b).abs() > 2.0;
+
             if horizontal(view_a.x, view_b.x) {
                 assert_eq!(
                     box_a.x < box_b.x,
@@ -143,15 +148,20 @@ fn assert_grid_matches_view(harness: &mut Harness, grid: &Grid) {
 
 fn top_middle(positions: &[([u32; 2], Pos2)]) -> [u32; 2] {
     let mut rows: Vec<&([u32; 2], Pos2)> = positions.iter().collect();
+
     rows.sort_by(|a, b| a.1.y.total_cmp(&b.1.y));
+
     let mut top: Vec<&([u32; 2], Pos2)> = rows.into_iter().take(COUNT as usize).collect();
+
     top.sort_by(|a, b| a.1.x.total_cmp(&b.1.x));
     top.get(1).map(|(instance, _)| *instance).unwrap()
 }
 
 fn assert_clicking_the_top_middle_box_leaves_out_the_copy_there(reversed: (bool, bool)) {
     let mut harness = Harness::new();
+
     let grid = open_grid(&mut harness, reversed);
+
     assert_eq!(
         pattern_of(&harness, grid.pattern).reversed_directions(),
         reversed
@@ -176,13 +186,16 @@ fn assert_clicking_the_top_middle_box_leaves_out_the_copy_there(reversed: (bool,
 
     assert!(pattern_of(&harness, grid.pattern).is_skipped(target));
     assert_eq!(pattern_of(&harness, grid.pattern).skipped.len(), 1);
+
     let expected = centroid_without(&harness, &grid, target);
+
     assert!(centroid(&harness, &grid).distance(expected) < 0.01);
 }
 
 #[test]
 fn the_instances_grid_lies_the_way_the_copies_do_in_the_top_view() {
     let mut harness = Harness::new();
+
     let grid = open_grid(&mut harness, (false, false));
 
     let origin = harness.workspace.viewport.screen_of(Point3::ZERO).unwrap();
@@ -196,6 +209,7 @@ fn the_instances_grid_lies_the_way_the_copies_do_in_the_top_view() {
         .viewport
         .screen_of(Point3::new(0.0, 10.0, 0.0))
         .unwrap();
+
     assert!(along_x.x > origin.x);
     assert!(along_y.y < origin.y);
 
@@ -205,6 +219,7 @@ fn the_instances_grid_lies_the_way_the_copies_do_in_the_top_view() {
 #[test]
 fn the_instances_grid_follows_a_reversed_second_direction() {
     let mut harness = Harness::new();
+
     let grid = open_grid(&mut harness, (false, true));
 
     assert_grid_matches_view(&mut harness, &grid);
@@ -213,6 +228,7 @@ fn the_instances_grid_follows_a_reversed_second_direction() {
 #[test]
 fn the_instances_grid_follows_a_reversed_first_direction() {
     let mut harness = Harness::new();
+
     let grid = open_grid(&mut harness, (true, false));
 
     assert_grid_matches_view(&mut harness, &grid);

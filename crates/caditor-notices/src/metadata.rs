@@ -82,11 +82,14 @@ impl Package {
 pub fn read(target: Option<&str>) -> Result<Metadata, NoticesError> {
     let cargo = env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
     let mut command = Command::new(cargo);
+
     command.args(["metadata", "--format-version", "1", "--locked"]);
     if let Some(target) = target {
         command.args(["--filter-platform", target]);
     }
+
     let output = command.output().map_err(NoticesError::CargoNotStarted)?;
+
     if !output.status.success() {
         return Err(NoticesError::MetadataFailed {
             status: output.status,
@@ -125,10 +128,12 @@ impl Metadata {
 
         let mut reached = BTreeSet::new();
         let mut pending = vec![self.package_named(root)?.id.as_str()];
+
         while let Some(id) = pending.pop() {
             if !reached.insert(id) {
                 continue;
             }
+
             let Some(node) = nodes.get(id) else {
                 continue;
             };
@@ -138,6 +143,7 @@ impl Metadata {
                 .filter(|dependency| dependency.is_linked())
                 .filter_map(|dependency| packages.get(dependency.pkg.as_str()))
                 .filter(|package| !package.is_proc_macro());
+
             pending.extend(linked.map(|package| package.id.as_str()));
         }
 
@@ -146,6 +152,7 @@ impl Metadata {
             .filter_map(|id| packages.get(id).copied())
             .filter(|package| package.is_external())
             .collect();
+
         linked
             .sort_by(|left, right| (&left.name, &left.version).cmp(&(&right.name, &right.version)));
         Ok(linked)

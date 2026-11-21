@@ -41,7 +41,7 @@ const FOCUS_ATTEMPT_FRAMES: u8 = 30;
 pub const REVEAL_FRAMES: u8 = 20;
 const CAPPED_SLACK: f32 = 1.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Focus {
     ParameterName(ParameterId),
     ParameterValue(ParameterId),
@@ -99,13 +99,13 @@ impl From<FixTarget> for Focus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PendingFocus {
     target: Focus,
     frames_left: u8,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct PanelState {
     focus: Option<PendingFocus>,
     pub double_click: DoubleClick,
@@ -152,26 +152,26 @@ pub struct PanelState {
     pending_width: Option<f32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PendingReveal {
     feature: FeatureId,
     frames_left: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Painting {
     pub body: FeatureId,
     pub focus_pending: bool,
     pub naming: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroupRenaming {
     pub folder: Vec<String>,
     pub focus_pending: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Renaming {
     pub feature: FeatureId,
     pub focus_pending: bool,
@@ -240,6 +240,7 @@ impl PanelState {
         if self.chosen_checked_at.replace(revision) == Some(revision) {
             return;
         }
+
         let chosen = self.chosen();
         let remaining: Vec<FeatureId> = chosen
             .iter()
@@ -263,6 +264,7 @@ impl PanelState {
 
     pub fn toggle_chosen(&mut self, feature: FeatureId) {
         let chosen = self.chosen();
+
         if !chosen.contains(&feature) {
             if self.selected.is_none() {
                 self.also_selected.clear();
@@ -271,7 +273,9 @@ impl PanelState {
             self.also_selected.push(feature);
             return;
         }
+
         let remaining: Vec<FeatureId> = chosen.into_iter().filter(|id| *id != feature).collect();
+
         self.selected = remaining.first().copied();
         self.also_selected = remaining;
     }
@@ -294,15 +298,18 @@ impl PanelState {
 
     pub fn follow_view_selection(&mut self, selection: &Selection, model: &Model) {
         let basis = (selection.generation(), model.evaluation_generation());
+
         if self.view_selection == Some(basis) {
             return;
         }
         self.view_selection = Some(basis);
         self.bodies_in_view = selection.owners();
+
         let makers: BTreeSet<FeatureId> = selection
             .iter()
             .filter_map(|pickable| viewport::tree_row_of(pickable, model))
             .collect();
+
         if makers == self.in_view {
             return;
         }
@@ -341,6 +348,7 @@ impl PanelState {
 
     pub fn take_focus(&mut self, focus: Focus) -> bool {
         let matches = self.wants_focus(focus);
+
         if matches {
             self.focus = None;
         }
@@ -431,20 +439,25 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     state.begin_frame();
+
     let pointer_held =
         ui.input(|input| input.pointer.primary_down() || input.pointer.primary_released());
+
     if !pointer_held {
         state.dragging = None;
     }
     state.restore_layout(ui.ctx());
+
     let widths = layout::panel_widths(room, MIN_SIDE_WIDTH);
     let mut panel = egui::Panel::left("model")
         .resizable(true)
         .default_size(state.layout.side_width)
         .size_range(widths);
+
     if let Some(wanted) = state.pending_width.take() {
         panel = panel.exact_size(wanted.clamp(widths.min, widths.max));
     }
+
     let panel = panel.show(ui, |ui| {
         if state.wants_features() {
             widgets::reveal_section(ui.ctx(), FEATURES_SECTION);
@@ -458,6 +471,7 @@ pub fn show(
                 new_sketch_panel::show(ui, model, actions);
                 ui.add_space(SPACE_L);
             }
+
             let features = model.document().features().len();
             let header = SectionHeader {
                 title: FEATURES_TITLE,
@@ -465,10 +479,12 @@ pub fn show(
                 action: None,
                 explanation: Some(FEATURES_EXPLANATION),
             };
+
             widgets::panel_section(ui, FEATURES_SECTION, header, |ui| {
                 feature_tree::show(ui, model, selection, editing, state, actions);
             });
             ui.add_space(SPACE_L);
+
             let parameters = model.document().parameters().len();
             let header = SectionHeader {
                 title: PARAMETERS_TITLE,
@@ -488,6 +504,7 @@ pub fn show(
         });
     });
     let width = panel.response.rect.width();
+
     state.observe_layout(ui.ctx(), width, width >= widths.max - CAPPED_SLACK);
 }
 

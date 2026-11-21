@@ -25,7 +25,7 @@ const FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 const PANIC_EXIT_CODE: i32 = 101;
 const STATE: &str = "state";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Ending {
     Panic,
     Terminate,
@@ -78,13 +78,18 @@ fn crash_child() {
     .unwrap();
     let panic_flush: PanicFlush = Arc::new(Mutex::new(Some(storage.flusher())));
     let log = SessionLog::create(&Path::new(&dir).join(STATE)).unwrap();
+
     crash::protect(&panic_flush, Some(Arc::new(log)));
 
     let mut document = Document::default();
+
     for index in 0..CHANGES {
         let mut transaction = document.transaction(format!("Add p{index}"));
+
         transaction.add_parameter(format!("p{index}"), Expression::Number(index as f64));
+
         let transaction = transaction.finish();
+
         document.apply(transaction.clone()).unwrap();
         storage.record(JournalEntry::Apply(transaction)).unwrap();
     }
@@ -97,7 +102,9 @@ fn crash_child() {
         }
         Ending::Kill => {
             assert!(storage.flusher().flush(FLUSH_TIMEOUT));
+
             let mut stdout = std::io::stdout().lock();
+
             writeln!(stdout, "{WRITTEN}").unwrap();
             stdout.flush().unwrap();
         }
@@ -123,6 +130,7 @@ mod child {
             .unwrap();
 
         let stdout = child.stdout.take().unwrap();
+
         for line in BufReader::new(stdout).lines() {
             if line.unwrap() == WRITTEN {
                 child.kill().unwrap();
@@ -135,7 +143,9 @@ mod child {
         let recovered = caditor_file::scan(Some(dir), &[]);
 
         assert_eq!(recovered.len(), 1, "{recovered:?}");
+
         let recovered = &recovered[0];
+
         assert_eq!(recovered.changes(), CHANGES);
         assert!(recovered.issues.is_empty(), "{:?}", recovered.issues);
         assert_eq!(recovered.editor.document().parameters().len(), CHANGES);
@@ -155,7 +165,9 @@ fn a_panic_flushes_the_changes_just_recorded() {
     let status = child::run(Ending::Panic, dir.path());
 
     assert_eq!(status.code(), Some(PANIC_EXIT_CODE), "{status:?}");
+
     child::assert_every_change_recovers(dir.path());
+
     assert!(child::ended_unexpectedly(dir.path()));
 }
 
@@ -185,7 +197,9 @@ fn a_termination_signal_flushes_the_changes_just_recorded_and_stops_by_that_sign
         Some(signal_hook::consts::SIGTERM),
         "{status:?}"
     );
+
     child::assert_every_change_recovers(dir.path());
+
     assert!(!child::ended_unexpectedly(dir.path()));
 }
 
@@ -196,6 +210,8 @@ fn a_killed_process_leaves_a_journal_the_next_start_recovers() {
     let status = child::run(Ending::Kill, dir.path());
 
     assert!(killed(status), "{status:?}");
+
     child::assert_every_change_recovers(dir.path());
+
     assert!(child::ended_unexpectedly(dir.path()));
 }

@@ -42,7 +42,7 @@ const SQUARE_HOVER: &str = "Leave the profile square to its plane, as a straight
 pub const START_WEIGHT: &str = "Start weight";
 pub const END_WEIGHT: &str = "End weight";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Side {
     Start,
     End,
@@ -104,6 +104,7 @@ impl Panel<'_> {
 
     fn apply(&mut self, loft: Loft) {
         let change = self.change(loft);
+
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
@@ -113,28 +114,35 @@ impl Panel<'_> {
         let Some(section) = self.loft.profiles.get(index) else {
             return;
         };
+
         let words = loft_tools::profile_words(document, section);
         let count = self.loft.profiles.len();
         let mut wanted = None;
+
         ui.horizontal_top(|ui| {
             let text = match &words {
                 Some(words) => format!("{}. {words}", index + 1),
                 None => format!("{}. {MISSING_PROFILE}", index + 1),
             };
+
             widgets::label_before_icon_buttons(ui, &text, 3);
+
             let earlier = ui
                 .add_enabled_ui(index > 0, |ui| {
                     widgets::icon_button(ui, icons::MOVE_UP, EARLIER)
                 })
                 .inner;
+
             if earlier.clicked() {
                 wanted = loft_tools::moved(self.loft, index, true);
             }
+
             let later = ui
                 .add_enabled_ui(index + 1 < count, |ui| {
                     widgets::icon_button(ui, icons::MOVE_DOWN, LATER)
                 })
                 .inner;
+
             if later.clicked() {
                 wanted = loft_tools::moved(self.loft, index, false);
             }
@@ -149,6 +157,7 @@ impl Panel<'_> {
 
     fn profiles_row(&mut self, ui: &mut Ui) {
         let id = self.id();
+
         widgets::caption(ui, PROFILES);
         ui.vertical(|ui| {
             if self.loft.profiles.is_empty() {
@@ -157,6 +166,7 @@ impl Panel<'_> {
             for index in 0..self.loft.profiles.len() {
                 self.profile_line(ui, index);
             }
+
             let picker = Picker {
                 feature: id,
                 slot: Slot::LoftProfiles,
@@ -169,6 +179,7 @@ impl Panel<'_> {
                 ),
                 hover: THROUGH_SELECTED,
             };
+
             feature_fields::reference_picker(ui, self.model, picker, self.actions);
         });
         ui.end_row();
@@ -192,6 +203,7 @@ impl Panel<'_> {
             ),
             hover: END_AT_SELECTED,
         };
+
         let removed = feature_fields::reference_row(
             ui,
             self.model,
@@ -218,6 +230,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, SIDES, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -233,6 +246,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, CLOSING, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -251,11 +265,14 @@ impl Panel<'_> {
             .collect();
         let chosen =
             feature_fields::segmented_row(ui, side.caption(), &self.feature.name, segments);
+
         self.actions.extend(chosen);
+
         let Some(expression) = weight else {
             return;
         };
         let id = self.id();
+
         let quantity = Quantity {
             feature: id,
             id: Id::unique(("loft-field", id, side.key())),
@@ -265,6 +282,7 @@ impl Panel<'_> {
         };
         let loft = self.loft.clone();
         let model = self.model;
+
         let drafting = feature_fields::expression_row_drafting(
             ui,
             model,
@@ -272,6 +290,7 @@ impl Panel<'_> {
             quantity,
             |value| loft_tools::change(model, id, with_weight(&loft, side, Some(value))),
         );
+
         self.actions.extend(drafting.into_actions(id));
     }
 
@@ -284,6 +303,7 @@ impl Panel<'_> {
         let chosen = feature_fields::body_operation_rows(ui, self.model, &rows, |operation| {
             self.change(loft_tools::with_operation(self.loft, operation))
         });
+
         self.actions.extend(chosen);
     }
 }
@@ -303,6 +323,7 @@ pub fn show(
         loft,
         actions,
     };
+
     widgets::properties(ui, ("loft-properties", feature.id()), |ui| {
         panel.profiles_row(ui);
         panel.closing_row(ui);

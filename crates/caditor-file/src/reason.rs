@@ -6,7 +6,7 @@ use crate::{
     save::{KeptAside, ReadOnly},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ReadFailure {
     #[error("it is a device, pipe or socket, not a file")]
     NotAFile,
@@ -51,7 +51,7 @@ impl ReadFailure {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum WriteFailure {
     #[error("a device, pipe or socket with that name already exists")]
     NameTaken,
@@ -122,7 +122,7 @@ impl WriteFailure {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum UpdateFailure {
     #[error("{0}")]
     Reading(ReadFailure),

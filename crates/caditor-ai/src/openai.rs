@@ -33,10 +33,13 @@ pub fn stream(
             provider: config.provider,
         });
     }
+
     let url = format!("{}/chat/completions", config.effective_base_url());
     let payload = build_payload(config, messages, tools);
     let body = serde_json::to_string(&payload).map_err(|_| AiError::MalformedStream)?;
+
     let mut request = HttpRequest::post_json(url, body).with_header("Accept", "text/event-stream");
+
     if !config.api_key.is_empty() {
         request = request.with_header(
             "Authorization",
@@ -77,10 +80,12 @@ pub fn stream(
     }
 
     let mut tool_calls = Vec::new();
+
     for (index, pending) in pending_tools {
         if pending.name.is_empty() {
             continue;
         }
+
         let id = if pending.id.is_empty() {
             format!("openai_call_{}", index + 1)
         } else {
@@ -91,11 +96,13 @@ pub fn stream(
         } else {
             serde_json::from_str(&pending.arguments).unwrap_or_else(|_| Value::Object(Map::new()))
         };
+
         let call = ToolCall {
             id,
             name: pending.name,
             arguments,
         };
+
         on_event(StreamEvent::ToolCallReady(call.clone()));
         tool_calls.push(call);
     }
@@ -113,6 +120,7 @@ pub fn stream(
 
 fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefinition]) -> Value {
     let mut encoded = Vec::new();
+
     if !config.system_prompt.is_empty() {
         encoded.push(json!({
             "role": "system",
@@ -129,6 +137,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
             }
             Message::Assistant { text, tool_calls } => {
                 let mut item = Map::new();
+
                 item.insert("role".to_owned(), json!("assistant"));
                 if text.is_empty() && !tool_calls.is_empty() {
                     item.insert("content".to_owned(), Value::Null);
@@ -151,12 +160,14 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
                             })
                         })
                         .collect();
+
                     item.insert("tool_calls".to_owned(), Value::Array(calls));
                 }
                 encoded.push(Value::Object(item));
             }
             Message::ToolResults(results) => {
                 let mut images = Vec::new();
+
                 for result in results {
                     encoded.push(json!({
                         "role": "tool",
@@ -172,6 +183,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
                         "type": "text",
                         "text": "Rendered model image from the preceding tool call:",
                     })];
+
                     for (_, png) in images {
                         parts.push(json!({
                             "type": "image_url",
@@ -190,6 +202,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
     }
 
     let mut payload = Map::new();
+
     payload.insert("model".to_owned(), json!(config.effective_model()));
     payload.insert("stream".to_owned(), json!(true));
     payload.insert("max_completion_tokens".to_owned(), json!(config.max_tokens));
@@ -208,6 +221,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
                 })
             })
             .collect();
+
         payload.insert("tools".to_owned(), Value::Array(encoded_tools));
     }
     Value::Object(payload)
@@ -221,24 +235,30 @@ fn handle_chunk(
     on_event: &mut dyn FnMut(StreamEvent),
 ) -> Result<(), AiError> {
     let trimmed = data.trim();
+
     if trimmed.is_empty() || trimmed == "[DONE]" {
         return Ok(());
     }
+
     let parsed: Value = serde_json::from_str(trimmed).map_err(|_| AiError::MalformedStream)?;
+
     if let Some(error) = parsed.get("error") {
         let body = error
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("OpenAI returned a stream error")
             .to_owned();
+
         return Err(AiError::ApiStatus { status: 500, body });
     }
+
     let Some(choices) = parsed.get("choices").and_then(Value::as_array) else {
         return Ok(());
     };
     let Some(choice) = choices.first() else {
         return Ok(());
     };
+
     if let Some(delta) = choice.get("delta") {
         if let Some(chunk) = delta.get("content").and_then(Value::as_str)
             && !chunk.is_empty()
@@ -254,6 +274,7 @@ fn handle_chunk(
                     .and_then(|value| usize::try_from(value).ok())
                     .unwrap_or(0);
                 let entry = pending_tools.entry(index).or_default();
+
                 if let Some(id) = call.get("id").and_then(Value::as_str)
                     && !id.is_empty()
                 {

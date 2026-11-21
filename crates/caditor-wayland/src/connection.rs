@@ -38,6 +38,7 @@ impl WindowConnection {
     {
         let display = window.display_handle()?.as_raw();
         let surface = window.window_handle()?.as_raw();
+
         let (RawDisplayHandle::Wayland(display), RawWindowHandle::Wayland(surface)) =
             (display, surface)
         else {
@@ -49,6 +50,7 @@ impl WindowConnection {
         #[expect(unsafe_code, reason = "adopting winit's Wayland pointers is unsafe")]
         let surface =
             unsafe { ObjectId::from_ptr(WlSurface::interface(), surface.surface.as_ptr().cast()) }?;
+
         let surface = WlSurface::from_id(&connection, surface)?;
         Ok(Some(Self {
             connection,

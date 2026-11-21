@@ -3,7 +3,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiProvider {
     Claude,
@@ -93,7 +93,7 @@ impl fmt::Display for ApiProvider {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct ApiKey(String);
 
 impl ApiKey {
@@ -120,7 +120,7 @@ impl fmt::Debug for ApiKey {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct RequestConfig {
     pub provider: ApiProvider,
     pub model: String,
@@ -152,21 +152,21 @@ impl RequestConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub input_schema: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolResult {
     pub call_id: String,
     pub name: String,
@@ -175,7 +175,7 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Message {
     User {
         text: String,
@@ -187,13 +187,13 @@ pub enum Message {
     ToolResults(Vec<ToolResult>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StreamEvent {
     TextDelta(String),
     ToolCallReady(ToolCall),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StopReason {
     EndTurn,
     ToolUse,
@@ -201,7 +201,7 @@ pub enum StopReason {
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TurnResponse {
     pub text: String,
     pub tool_calls: Vec<ToolCall>,
@@ -212,15 +212,18 @@ const BASE64_TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst
 
 pub fn base64_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+
     for chunk in bytes.chunks(3) {
         let first = chunk.first().copied().unwrap_or(0);
         let second = chunk.get(1).copied().unwrap_or(0);
         let third = chunk.get(2).copied().unwrap_or(0);
+
         let triple = (u32::from(first) << 16) | (u32::from(second) << 8) | u32::from(third);
         let index = |shift: u32| -> char {
             let slot = ((triple >> shift) & 0x3F) as usize;
             char::from(BASE64_TABLE.get(slot).copied().unwrap_or(b'A'))
         };
+
         out.push(index(18));
         out.push(index(12));
         if chunk.len() > 1 {
@@ -242,24 +245,29 @@ pub fn endpoint_allows_http(url: &str) -> bool {
         return false;
     };
     let host_port = rest.split('/').next().unwrap_or_default();
+
     if host_port.starts_with('[') {
         let host = host_port
             .strip_prefix('[')
             .and_then(|value| value.split(']').next())
             .unwrap_or_default();
+
         return host == "::1";
     }
+
     let host = host_port.split(':').next().unwrap_or_default();
     matches!(host, "localhost" | "127.0.0.1")
 }
 
 pub fn validate_endpoint(url: &str) -> bool {
     let trimmed = url.trim();
+
     if trimmed.contains(char::is_whitespace) {
         return false;
     }
     if let Some(rest) = trimmed.strip_prefix("https://") {
         let host = rest.split('/').next().unwrap_or_default();
+
         return !host.is_empty();
     }
     endpoint_allows_http(trimmed)

@@ -7,7 +7,7 @@ use crate::import::{
 
 const MILLIMETRES_PER_PIXEL: f64 = MILLIMETRES_PER_INCH / PIXELS_PER_INCH;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ViewBox {
     pub origin: Vector2,
     pub size: Vector2,
@@ -26,7 +26,7 @@ impl ViewBox {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Fit {
     Meet,
     Slice,
@@ -56,7 +56,7 @@ impl Fit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Sizing {
     pub millimetres: Vector2,
     pub viewport: Vector2,
@@ -78,6 +78,7 @@ pub(super) fn sizing(root: Node<'_, '_>) -> Sizing {
     let (width, height) = (side("width"), side("height"));
     let view_box = ViewBox::of(root);
     let pixels = |length: Option<Length>| length.map(|length| length.pixels(0.0));
+
     let viewport = view_box.map_or_else(
         || {
             Vector2::new(
@@ -96,6 +97,7 @@ pub(super) fn sizing(root: Node<'_, '_>) -> Sizing {
         } else {
             pixel_note("The drawing does not name a unit, so its numbers were read as CSS pixels")
         };
+
         return Sizing {
             millimetres: Vector2::new(MILLIMETRES_PER_PIXEL, -MILLIMETRES_PER_PIXEL),
             viewport,
@@ -104,6 +106,7 @@ pub(super) fn sizing(root: Node<'_, '_>) -> Sizing {
     };
     let millimetres =
         |length: Option<Length>| length.map(|length| length.pixels(0.0) * MILLIMETRES_PER_PIXEL);
+
     let factors = match (millimetres(width), millimetres(height)) {
         (Some(width), Some(height)) => Fit::of(root).scale(Vector2::new(
             width / view_box.size.x,
@@ -113,6 +116,7 @@ pub(super) fn sizing(root: Node<'_, '_>) -> Sizing {
         (None, Some(height)) => Vector2::splat(height / view_box.size.y),
         (None, None) => Vector2::splat(MILLIMETRES_PER_PIXEL),
     };
+
     if !factors.is_finite() || factors.min_element() <= 0.0 {
         return Sizing {
             millimetres: Vector2::new(MILLIMETRES_PER_PIXEL, -MILLIMETRES_PER_PIXEL),

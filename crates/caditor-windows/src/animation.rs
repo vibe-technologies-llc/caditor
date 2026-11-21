@@ -6,6 +6,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 pub fn client_area_animations() -> io::Result<bool> {
     let mut enabled: i32 = 0;
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let read = unsafe {
         SystemParametersInfoW(

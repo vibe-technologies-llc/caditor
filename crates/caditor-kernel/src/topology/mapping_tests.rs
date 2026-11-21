@@ -59,8 +59,11 @@ fn crossing_cylinders() -> Solid {
 
 fn check(name: &str, solid: &Solid, expected_volume: f64) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
+
     assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
+
     let found = volume(solid);
+
     assert!(
         (found - expected_volume).abs() <= 2e-3 * expected_volume.abs().max(1.0),
         "{name}: volume {found}, expected {expected_volume}"
@@ -76,6 +79,7 @@ fn every_fixture_mirrors_into_a_valid_solid_of_the_same_volume_and_names() {
             let label = format!("{name} across {plane}");
 
             check(&label, &mirrored, original);
+
             assert_eq!(face_names(&mirrored), face_names(&solid), "{label}");
             assert_eq!(edge_names(&mirrored), edge_names(&solid), "{label}");
         }
@@ -98,6 +102,7 @@ fn mirroring_puts_every_vertex_at_its_image_and_twice_puts_it_back() {
         for ((_, vertex), (_, back)) in solid.vertices().zip(twice.vertices()) {
             assert!(back.point().distance(vertex.point()) < 1e-9, "{name}");
         }
+
         assert_eq!(twice.validate(), Ok(()), "{name}");
     }
 }
@@ -113,6 +118,7 @@ fn every_fixture_scales_into_a_valid_solid_of_the_scaled_volume() {
             let label = format!("{name} by {factor}");
 
             check(&label, &scaled, original * factor.powi(3));
+
             assert_eq!(face_names(&scaled), face_names(&solid), "{label}");
             assert_eq!(edge_names(&scaled), edge_names(&solid), "{label}");
         }
@@ -123,6 +129,7 @@ fn every_fixture_scales_into_a_valid_solid_of_the_scaled_volume() {
 fn intersection_edges_are_traced_again_when_enlarged() {
     let solid = crossing_cylinders();
     let original = volume(&solid);
+
     assert!(
         solid
             .edges()
@@ -137,6 +144,7 @@ fn intersection_edges_are_traced_again_when_enlarged() {
             let label = format!("{label} by {factor}");
 
             check(&label, &mapped, original * factor.powi(3));
+
             assert_eq!(edge_names(&mapped), edge_names(&solid), "{label}");
         }
     }
@@ -150,6 +158,7 @@ fn a_mirrored_copy_joins_its_original() {
     let mirrored = block
         .mapped(&Similarity::reflection(&Plane::YZ).unwrap())
         .unwrap();
+
     let joined = boolean(&block, &mirrored, BooleanOperation::Union).unwrap();
     let hole = PI * 2.5 * 2.5 * 4.0;
 

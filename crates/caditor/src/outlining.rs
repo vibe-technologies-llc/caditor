@@ -30,7 +30,7 @@ pub const STOPPED: &str = "Stopped projecting the outline. Nothing was added.";
 const CANCEL_HOVER: &str = "Stop working out the outline and project nothing";
 const PROGRESS_REFRESH: Duration = Duration::from_millis(100);
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct OutlineRequest {
     pub sketch: FeatureId,
     pub body: FeatureId,
@@ -89,6 +89,7 @@ impl Outlines {
         if self.running.is_some() {
             return Err(ProjectionError::StillOutlining);
         }
+
         let cancelled = Arc::new(AtomicBool::new(false));
         let (sender, outcome) = mpsc::channel();
         let job = Job {
@@ -97,6 +98,7 @@ impl Outlines {
             #[cfg(test)]
             hold: self.hold.clone(),
         };
+
         let spawned = thread::Builder::new()
             .name("outline".to_owned())
             .spawn(move || {
@@ -109,6 +111,7 @@ impl Outlines {
                     wake();
                 }
             });
+
         if let Err(error) = spawned {
             log::warn!("could not start working out an outline: {error}");
             return Err(ProjectionError::OutlineCrashed { name: request.name });
@@ -159,6 +162,7 @@ impl Outlines {
         let Some(running) = self.running.take() else {
             return false;
         };
+
         running.cancelled.store(true, Ordering::Relaxed);
         true
     }
@@ -204,8 +208,10 @@ pub fn activity(
 ) {
     let running = model.outlining().ok_or(NOT_OUTLINING);
     let mut cancel = commands.invoke(Command::CancelOutline, &running);
+
     if let Ok(name) = running {
         let hover = commands.with_keys(Command::CancelOutline, CANCEL_HOVER);
+
         cancel |= widgets::progress(progress_text(name))
             .cancel(hover)
             .show(ui);

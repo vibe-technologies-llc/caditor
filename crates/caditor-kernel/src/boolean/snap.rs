@@ -22,10 +22,13 @@ pub(super) fn snapped(input: &Input) -> Option<Solid> {
         .transformed(&RigidTransform::translation(shift)?)
         .ok()?;
     let moved = Input::new(input.first, &shifted);
+
     if !contacts(&moved).is_superset(&contacts(input)) {
         return offset_onto(input);
     }
+
     let offset = offset_onto(&moved);
+
     drop(moved);
     offset.or(Some(shifted))
 }
@@ -42,6 +45,7 @@ fn sideways_shift(input: &Input) -> Option<Vector3> {
         )
         .collect();
     let (first, rest) = shifts.split_first()?;
+
     let agreed = rest
         .iter()
         .all(|shift| shift.distance(*first) <= SNAP_FLOOR);
@@ -84,6 +88,7 @@ fn onto_axis(cylinder: &Cylinder, other: &Cylinder) -> Option<Vector3> {
 
 fn off_axis(cylinder: &Cylinder, other: &Cylinder) -> Option<Vector3> {
     let (axis, other_axis) = (cylinder.frame(), other.frame());
+
     let offset: Vector3 = other_axis.origin() - axis.origin();
     parallel(axis.normal(), other_axis.normal())
         .then(|| offset - axis.normal() * offset.dot(axis.normal()))
@@ -96,6 +101,7 @@ fn offset_onto(input: &Input) -> Option<Solid> {
         .filter_map(|bounds| {
             let face = input.second.face(bounds.id)?;
             let surface = face.surface();
+
             let outward = input
                 .faces_near(Operand::First, &bounds.bounds)
                 .filter_map(|near| input.first.face(near.id))
@@ -104,6 +110,7 @@ fn offset_onto(input: &Input) -> Option<Solid> {
             Some((bounds.id, -smallest_snap(outward)?))
         })
         .collect();
+
     if inward.is_empty() {
         return None;
     }
@@ -112,6 +119,7 @@ fn offset_onto(input: &Input) -> Option<Solid> {
 
 fn smallest_snap(offsets: impl Iterator<Item = f64>) -> Option<f64> {
     let within: Vec<f64> = offsets.filter(|offset| offset.abs() <= TOLERANCE).collect();
+
     if within.iter().any(|offset| offset.abs() <= SNAP_FLOOR) {
         return None;
     }

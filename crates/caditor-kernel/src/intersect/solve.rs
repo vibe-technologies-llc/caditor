@@ -22,13 +22,13 @@ const MINIMUM_FLOOR: f64 = 1e-14;
 const COEFFICIENT_FLOOR: f64 = 1e-15;
 const PARALLEL_SINE: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Contact {
     pub uv: [Point2; 2],
     pub point: Point3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Coordinate {
     FirstU,
     FirstV,
@@ -57,7 +57,7 @@ impl Coordinate {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Constraint {
     Free,
     Plane { point: Point3, normal: Vector3 },
@@ -121,6 +121,7 @@ fn near_start(
     constraint: Constraint,
 ) -> [f64; 4] {
     let [first, second] = surfaces;
+
     let periods = [
         first.u_period(),
         first.v_period(),
@@ -132,6 +133,7 @@ fn near_start(
         Constraint::Free | Constraint::Plane { .. } => None,
     };
     let mut wrapped = state;
+
     for (((value, reference), period), coordinate) in
         wrapped.iter_mut().zip(start).zip(periods).zip([
             Coordinate::FirstU,
@@ -168,8 +170,10 @@ fn speed_of(
 fn system(surfaces: [&Surface; 2], state: [f64; 4], constraint: Constraint) -> System {
     let [a, b] = surfaces;
     let [u1, v1, u2, v2] = state;
+
     let first = a.evaluate(u1, v1);
     let second = b.evaluate(u2, v2);
+
     let gap = first.point - second.point;
     let (constraint_row, constraint_value) = match constraint {
         Constraint::Free => ([0.0; 4], 0.0),
@@ -242,20 +246,25 @@ pub(crate) fn refine_contact(
     constraint: Constraint,
 ) -> Option<Contact> {
     let mut state = clamp_state(surfaces, state_of(start));
+
     if !state.iter().all(|value| value.is_finite()) {
         return None;
     }
+
     let origin = state;
     let mut current = system(surfaces, state, constraint);
+
     for _ in 0..MAX_CONTACT_ITERATIONS {
         if converged(&current) {
             break;
         }
+
         let Some(step) = minimal_norm_step(&current.rows, &current.values) else {
             break;
         };
         let mut scale = 1.0;
         let mut accepted = None;
+
         for _ in 0..MAX_HALVINGS {
             let candidate = near_start(
                 surfaces,
@@ -264,12 +273,14 @@ pub(crate) fn refine_contact(
                 constraint,
             );
             let next = system(surfaces, candidate, constraint);
+
             if next.merit().is_finite() && next.merit() < current.merit() {
                 accepted = Some((candidate, next));
                 break;
             }
             scale *= 0.5;
         }
+
         let Some((next_state, next)) = accepted else {
             break;
         };
@@ -280,12 +291,14 @@ pub(crate) fn refine_contact(
             .zip(state)
             .map(|(after, before)| (after - before).abs() / (1.0 + before.abs()))
             .fold(0.0, larger);
+
         state = next_state;
         current = next;
         if moved <= STEP_EPSILON || stagnant {
             break;
         }
     }
+
     let accepted = current.gap() <= CONTACT_ACCEPT && current.constraint_error() <= CONTACT_ACCEPT;
     accepted.then(|| Contact {
         uv: uv_of(state),
@@ -302,6 +315,7 @@ fn carried(
 ) -> Option<Contact> {
     let [first, second] = surfaces;
     let [first_uv, second_uv] = start;
+
     let (carrier, other, mut uv, hint) = if carrier_first {
         (first, second, first_uv, second_uv)
     } else {
@@ -313,6 +327,7 @@ fn carried(
             clamp_parameter(carrier, uv.y, false),
         )
     };
+
     let residual = |uv: Point2, hint: Point2| {
         let derivatives = carrier.evaluate(uv.x, uv.y);
         let other_uv = other.project(derivatives.point, Some(hint));
@@ -326,31 +341,41 @@ fn carried(
             other_normal,
         ))
     };
+
     uv = clamp(uv);
+
     let (mut derivatives, mut other_uv, mut g1, mut g2, mut other_normal) = residual(uv, hint)?;
+
     for _ in 0..MAX_CONTACT_ITERATIONS {
         let merit = g1 * g1 + g2 * g2;
         let scale = 1.0 + derivatives.point.abs().max_element();
+
         if merit.sqrt() <= NOISE_FLOOR * scale {
             break;
         }
+
         let (a, b) = (
             derivatives.du.dot(other_normal),
             derivatives.dv.dot(other_normal),
         );
         let (c, d) = (derivatives.du.dot(normal), derivatives.dv.dot(normal));
+
         let determinant = a * d - b * c;
+
         if determinant.abs() <= f64::MIN_POSITIVE || !determinant.is_finite() {
             break;
         }
+
         let step = Vector2::new(
             -(d * g1 - b * g2) / determinant,
             -(a * g2 - c * g1) / determinant,
         );
         let mut factor = 1.0;
         let mut accepted = None;
+
         for _ in 0..MAX_HALVINGS {
             let candidate = clamp(uv + step * factor);
+
             if let Some(next) = residual(candidate, other_uv)
                 && next.2 * next.2 + next.3 * next.3 < merit
             {
@@ -359,13 +384,17 @@ fn carried(
             }
             factor *= 0.5;
         }
+
         let Some((next_uv, next)) = accepted else {
             break;
         };
+
         uv = next_uv;
         (derivatives, other_uv, g1, g2, other_normal) = next;
     }
+
     let gap = derivatives.point.distance(other.point_at(other_uv));
+
     if gap > CONTACT_ACCEPT || g2.abs() > CONTACT_ACCEPT {
         return None;
     }
@@ -401,17 +430,21 @@ pub(crate) fn carried_on_plane(
 
 pub(crate) fn closest_approach(surfaces: [&Surface; 2], start: [Point2; 2]) -> ([Point2; 2], f64) {
     let mut state = clamp_state(surfaces, state_of(start));
+
     let origin = state;
     let mut current = system(surfaces, state, Constraint::Free);
+
     for _ in 0..MAX_CONTACT_ITERATIONS {
         if converged(&current) {
             break;
         }
+
         let Some(step) = minimal_norm_step(&current.rows, &current.values) else {
             break;
         };
         let mut scale = 1.0;
         let mut accepted = None;
+
         for _ in 0..MAX_HALVINGS {
             let candidate = near_start(
                 surfaces,
@@ -420,17 +453,20 @@ pub(crate) fn closest_approach(surfaces: [&Surface; 2], start: [Point2; 2]) -> (
                 Constraint::Free,
             );
             let next = system(surfaces, candidate, Constraint::Free);
+
             if next.merit().is_finite() && next.merit() < current.merit() {
                 accepted = Some((candidate, next));
                 break;
             }
             scale *= 0.5;
         }
+
         let Some((next_state, next)) = accepted else {
             break;
         };
         let stagnant =
             scale < STAGNANT_SCALE && next.merit() > (1.0 - STAGNANT_GAIN) * current.merit();
+
         state = next_state;
         current = next;
         if stagnant {
@@ -440,7 +476,7 @@ pub(crate) fn closest_approach(surfaces: [&Surface; 2], start: [Point2; 2]) -> (
     (uv_of(state), current.gap())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Touch {
     pub point: Point3,
     pub uv: [Point2; 2],
@@ -472,12 +508,15 @@ impl Parallel {
 fn parallel_system(surfaces: [&Surface; 2], state: [f64; 4]) -> Parallel {
     let [a, b] = surfaces;
     let [u1, v1, u2, v2] = state;
+
     let first = a.evaluate(u1, v1);
     let second = b.evaluate(u2, v2);
+
     let gap = first.point - second.point;
     let normal = second.du.cross(second.dv);
     let normal_u = second.duu.cross(second.dv) + second.du.cross(second.duv);
     let normal_v = second.duv.cross(second.dv) + second.du.cross(second.dvv);
+
     let rows = [
         [
             first.du.dot(second.du),
@@ -521,17 +560,21 @@ fn parallel_system(surfaces: [&Surface; 2], state: [f64; 4]) -> Parallel {
 
 pub(crate) fn parallel_normals(surfaces: [&Surface; 2], start: [Point2; 2]) -> Option<Touch> {
     let mut state = clamp_state(surfaces, state_of(start));
+
     if !state.iter().all(|value| value.is_finite()) {
         return None;
     }
+
     let origin = state;
     let mut current = parallel_system(surfaces, state);
+
     for _ in 0..MAX_CONTACT_ITERATIONS {
         let Some(step) = minimal_norm_step(&current.rows, &current.values) else {
             break;
         };
         let mut scale = 1.0;
         let mut accepted = None;
+
         for _ in 0..MAX_HALVINGS {
             let candidate = near_start(
                 surfaces,
@@ -540,12 +583,14 @@ pub(crate) fn parallel_normals(surfaces: [&Surface; 2], start: [Point2; 2]) -> O
                 Constraint::Free,
             );
             let next = parallel_system(surfaces, candidate);
+
             if next.merit().is_finite() && next.merit() < current.merit() {
                 accepted = Some((candidate, next));
                 break;
             }
             scale *= 0.5;
         }
+
         let Some((next_state, next)) = accepted else {
             break;
         };
@@ -554,12 +599,14 @@ pub(crate) fn parallel_normals(surfaces: [&Surface; 2], start: [Point2; 2]) -> O
             .zip(state)
             .map(|(after, before)| (after - before).abs() / (1.0 + before.abs()))
             .fold(0.0, larger);
+
         state = next_state;
         current = next;
         if moved <= STEP_EPSILON {
             break;
         }
     }
+
     let [first_normal, second_normal] = [
         current.first.du.cross(current.first.dv).try_normalize()?,
         current.second.du.cross(current.second.dv).try_normalize()?,
@@ -567,6 +614,7 @@ pub(crate) fn parallel_normals(surfaces: [&Surface; 2], start: [Point2; 2]) -> O
     let along = (current.first.point - current.second.point)
         .reject_from_normalized(second_normal)
         .length();
+
     let parallel = first_normal.cross(second_normal).length() <= PARALLEL_SINE;
     (parallel && along <= LINEAR_RESOLUTION).then(|| current.touch())
 }
@@ -582,12 +630,13 @@ pub(crate) fn contact_direction(
     contact: &Contact,
 ) -> Option<(Vector3, f64)> {
     let [first, second] = contact_normals(surfaces, contact)?;
+
     let across = first.cross(second);
     let sine = across.length();
     across.try_normalize().map(|direction| (direction, sine))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SeparationForm {
     across: Vector3,
     up: Vector3,
@@ -596,7 +645,7 @@ pub(crate) struct SeparationForm {
     mixed: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct DefiniteBends {
     pub least: f64,
     pub most: f64,
@@ -606,12 +655,14 @@ impl SeparationForm {
     pub(crate) fn at(surfaces: [&Surface; 2], contact: &Contact) -> Option<Self> {
         let [a, b] = surfaces;
         let [first_uv, second_uv] = contact.uv;
+
         let derivatives = [
             a.evaluate(first_uv.x, first_uv.y),
             b.evaluate(second_uv.x, second_uv.y),
         ];
         let [first, second] = &derivatives;
         let normal = first.normal()?;
+
         let across = first.du.reject_from_normalized(normal).try_normalize()?;
         let up = normal.cross(across);
         let bend = |derivatives: &SurfaceDerivatives, direction: Vector3| {
@@ -623,7 +674,9 @@ impl SeparationForm {
             )
         };
         let gap = |direction: Vector3| bend(first, direction) - bend(second, direction);
+
         let (along_across, along_up) = (gap(across), gap(up));
+
         let mixed = 0.5 * (gap(across + up) - along_across - along_up);
         let form = Self {
             across,
@@ -646,9 +699,11 @@ impl SeparationForm {
         if self.discriminant() >= 0.0 {
             return None;
         }
+
         let half_trace = 0.5 * (self.along_across + self.along_up);
         let spread =
             (0.25 * (self.along_across - self.along_up).powi(2) + self.mixed * self.mixed).sqrt();
+
         let (least, most) = (
             (half_trace.abs() - spread).max(0.0),
             half_trace.abs() + spread,
@@ -662,11 +717,14 @@ impl SeparationForm {
 
     fn null_directions(&self) -> Option<[Vector3; 2]> {
         let discriminant = self.discriminant();
+
         if !discriminant.is_finite() || discriminant <= 0.0 {
             return None;
         }
+
         let root = discriminant.sqrt();
         let (across, up, mixed) = (self.across, self.up, self.mixed);
+
         let directions = if self.along_across.abs() >= self.along_up.abs() {
             [-mixed + root, -mixed - root].map(|x| across * x + up * self.along_across)
         } else {
@@ -691,6 +749,7 @@ pub(crate) fn uv_direction(derivatives: &SurfaceDerivatives, direction: Vector3)
         derivatives.dv.dot(derivatives.dv),
     );
     let (first, second) = (derivatives.du.dot(direction), derivatives.dv.dot(direction));
+
     let determinant = a * c - b * b;
     if determinant > 1e-14 * (a * c).max(f64::MIN_POSITIVE) && determinant.is_finite() {
         Vector2::new(
@@ -720,22 +779,29 @@ pub(crate) fn bracket_root(
         if high_value == 0.0 {
             return high;
         }
+
         let width = high - low;
+
         if width.abs() <= 4.0 * f64::EPSILON * (low.abs() + high.abs()) + f64::MIN_POSITIVE {
             break;
         }
+
         let secant = high - high_value * width / (high_value - low_value);
         let lower = low.min(high);
         let upper = low.max(high);
+
         let next = if iteration % 2 == 0 && secant > lower && secant < upper {
             secant
         } else {
             low + 0.5 * width
         };
+
         if next == low || next == high {
             break;
         }
+
         let value = function(next);
+
         if !value.is_finite() {
             break;
         }
@@ -754,7 +820,7 @@ pub(crate) fn bracket_root(
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Sample {
     at: f64,
     value: f64,
@@ -769,6 +835,7 @@ impl Sample {
 fn parabolic_step(best: Sample, second: Sample, third: Sample) -> (f64, f64) {
     let towards_second = (best.at - second.at) * (best.value - third.value);
     let towards_third = (best.at - third.at) * (best.value - second.value);
+
     let numerator = (best.at - third.at) * towards_third - (best.at - second.at) * towards_second;
     let denominator = 2.0 * (towards_third - towards_second);
     if denominator > 0.0 {
@@ -778,7 +845,7 @@ fn parabolic_step(best: Sample, second: Sample, third: Sample) -> (f64, f64) {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Bracket {
     pub lower: f64,
     pub upper: f64,
@@ -797,8 +864,10 @@ pub(crate) fn minimize_bracket(
         at,
         value: function(at),
     };
+
     let ends = [sample(lower), sample(upper)];
     let mut best = sample(lower + SHRINK * (upper - lower));
+
     let (mut second, mut third) = (best, best);
     let (mut step, mut previous) = (0.0_f64, 0.0_f64);
 
@@ -811,19 +880,25 @@ pub(crate) fn minimize_bracket(
             at: best.at,
             value: best.value,
         };
+
         if (best.at - middle).abs() <= 2.0 * tolerance - 0.5 * (upper - lower) || settled(bracket) {
             break;
         }
 
         let earlier = previous;
+
         previous = step;
+
         let (numerator, denominator) = parabolic_step(best, second, third);
+
         let parabolic = earlier.abs() > tolerance
             && numerator.abs() < (0.5 * denominator * earlier).abs()
             && numerator > denominator * (lower - best.at)
             && numerator < denominator * (upper - best.at);
+
         if parabolic {
             step = numerator / denominator;
+
             let landing = best.at + step;
             if landing - lower < 2.0 * tolerance || upper - landing < 2.0 * tolerance {
                 step = tolerance.copysign(middle - best.at);
@@ -892,6 +967,7 @@ fn trimmed(coefficients: &[f64]) -> Vec<f64> {
         largest.max(coefficient.abs())
     });
     let mut kept = coefficients.to_vec();
+
     while kept
         .last()
         .is_some_and(|coefficient| coefficient.abs() <= COEFFICIENT_FLOOR * largest)
@@ -901,7 +977,7 @@ fn trimmed(coefficients: &[f64]) -> Vec<f64> {
     kept
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct PolynomialRoots {
     pub roots: Vec<f64>,
     pub extrema: Vec<f64>,
@@ -928,18 +1004,22 @@ fn roots_between(coefficients: &[f64], low: f64, high: f64) -> Vec<f64> {
         }
         _ => {
             let mut knots = vec![low];
+
             knots.extend(roots_between(
                 &trimmed(&derivative(coefficients)),
                 low,
                 high,
             ));
             knots.push(high);
+
             let value = |at: f64| evaluate_polynomial(coefficients, at);
             let mut roots: Vec<f64> = Vec::new();
+
             for pair in knots.windows(2) {
                 let [start, end] = pair else {
                     continue;
                 };
+
                 let (start_value, end_value) = (value(*start), value(*end));
                 if start_value == 0.0 {
                     roots.push(*start);
@@ -968,12 +1048,17 @@ mod tests {
         let quartic = [24.0, -50.0, 35.0, -10.0, 1.0];
         let found = polynomial_roots(&quartic, -10.0, 10.0);
         let expected = [1.0, 2.0, 3.0, 4.0];
+
         assert_eq!(found.roots.len(), 4);
+
         for (root, exact) in found.roots.iter().zip(expected) {
             assert!((root - exact).abs() < 1e-12);
         }
+
         assert_eq!(found.extrema.len(), 3);
+
         let double = polynomial_roots(&[1.0, -2.0, 1.0], -5.0, 5.0);
+
         assert!(double.roots.len() <= 1);
         assert!((double.extrema[0] - 1.0).abs() < 1e-15);
         assert!(
@@ -986,8 +1071,11 @@ mod tests {
     #[test]
     fn brackets_and_minima_converge() {
         let root = bracket_root(|x| x * x - 2.0, 0.0, 2.0, -2.0, 2.0);
+
         assert!((root - 2f64.sqrt()).abs() < 1e-14);
+
         let (at, value) = minimize_bracket(|x| (x - 0.3).powi(2) + 1.0, -1.0, 2.0, |_| false);
+
         assert!((at - 0.3).abs() < 1e-7);
         assert!((value - 1.0).abs() < 1e-14);
     }
@@ -996,14 +1084,17 @@ mod tests {
     fn contacts_refine_onto_both_surfaces() {
         let plane: Surface = PlaneSurface::new(Plane::XY).unwrap().into();
         let sphere: Surface = Sphere::new(Plane::XY, 2.0).unwrap().into();
+
         let contact = refine_contact(
             [&plane, &sphere],
             [Point2::new(1.5, 0.4), Point2::new(0.3, 0.2)],
             Constraint::Free,
         )
         .unwrap();
+
         assert!(contact.point.z.abs() < 1e-12);
         assert!((contact.point.length() - 2.0).abs() < 1e-12);
+
         let cylinder: Surface = Cylinder::new(Plane::XY, 1.0).unwrap().into();
         let fixed = refine_contact(
             [&plane, &cylinder],
@@ -1014,8 +1105,10 @@ mod tests {
             },
         )
         .unwrap();
+
         assert!((fixed.uv[1].x - 0.5).abs() < 1e-12);
         assert!((fixed.point.x - 0.5f64.cos_libm()).abs() < 1e-12);
+
         let (_, gap) = closest_approach(
             [
                 &plane,
@@ -1023,6 +1116,7 @@ mod tests {
             ],
             [Point2::new(0.1, 0.1), Point2::new(0.0, 0.1)],
         );
+
         assert!(gap < 1e-12);
     }
 }

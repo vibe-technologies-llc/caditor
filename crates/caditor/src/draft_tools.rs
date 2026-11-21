@@ -25,7 +25,7 @@ pub const TITLE: &str = "Draft";
 pub const OWN_ANGLE_TITLE: &str = "Own draft angle";
 pub const DEFAULT_ANGLE: f64 = 3.0;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DraftToolError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -74,16 +74,20 @@ pub fn create(
         .iter()
         .filter_map(|key| bodies::find_face(shown, *key))
         .collect();
+
     let faces: Vec<FaceReference> = ids
         .iter()
         .filter_map(|face| FaceReference::capture(&shown.solid, *face))
         .collect();
+
     if faces.len() < source.faces.len() {
         return Err(FaceToolError::FacesGone);
     }
+
     let (neutral, flipped) = default_neutral(source.body, &shown.solid, &ids);
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Draft(Draft {
@@ -187,6 +191,7 @@ pub fn plane_change(
         .map_err(DraftToolError::ChosenPlane)?
         .ok_or(DraftToolError::NoPlane)?
         .plane;
+
     if plane == draft.neutral {
         return Err(DraftToolError::AlreadyPlane);
     }
@@ -284,6 +289,7 @@ fn without_own_angle(draft: &mut Draft, solid: &Solid, faces: &BTreeSet<FaceId>)
         .filter(|(_, resolution)| !resolution.found().iter().any(|face| faces.contains(face)))
         .map(|(own, _)| own.clone())
         .collect();
+
     draft.own = kept;
 }
 
@@ -295,6 +301,7 @@ fn without_faces(draft: &mut Draft, solid: &Solid, faces: &BTreeSet<FaceId>) {
         .filter(|(_, resolution)| !resolution.found().iter().any(|face| faces.contains(face)))
         .map(|(reference, _)| reference.clone())
         .collect();
+
     draft.faces = kept;
 }
 
@@ -320,12 +327,16 @@ fn own_angle_toggled(
     let input = bodies::input(model.evaluation(), feature)
         .ok_or(DraftToolError::NoShape { body: draft.body })?;
     let solid = &input.solid;
+
     if !is_draftable(solid, clicked) {
         return Err(DraftToolError::NotDraftable);
     }
+
     let clicked_only = BTreeSet::from([clicked]);
     let mut changed = draft.clone();
+
     without_own_angle(&mut changed, solid, &clicked_only);
+
     let label = if changed.own.len() == draft.own.len() {
         without_faces(&mut changed, solid, &clicked_only);
         changed.own.push(FaceAngle {
@@ -369,12 +380,14 @@ fn clicked_face(model: &Model, feature: FeatureId, pickable: Pickable) -> Option
 pub fn own_angle_click(model: &Model, feature: FeatureId, pickable: Pickable) -> Vec<Action> {
     if bodies::input(model.evaluation(), feature).is_none() {
         let rerun = Rerun::OwnAngle { feature, pickable };
+
         return vec![queued::refused_rerun(
             rerun,
             OWN_ANGLE_TITLE,
             &Pending::BodyShape,
         )];
     }
+
     let toggled = clicked_face(model, feature, pickable)
         .ok_or(DraftToolError::NotAFace)
         .and_then(|face| own_angle_toggled(model, feature, face));
@@ -406,8 +419,10 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let solid = &input.solid;
     let clicked_only = BTreeSet::from([clicked]);
     let mut changed = draft.clone();
+
     without_faces(&mut changed, solid, &clicked_only);
     without_own_angle(&mut changed, solid, &clicked_only);
+
     let left_out = changed.faces.len() + changed.own.len() < draft.faces.len() + draft.own.len();
     let label = if left_out {
         format!("Leave a face out of {}", owner.name)
@@ -433,6 +448,7 @@ pub fn with_selected_faces(
     let draft = owner.kind.draft()?;
     let input = bodies::input(model.evaluation(), feature)?;
     let solid = &input.solid;
+
     let mut taken: BTreeSet<FaceId> = draft
         .resolutions(solid)
         .iter()
@@ -440,10 +456,12 @@ pub fn with_selected_faces(
         .chain(own_faces(solid, draft))
         .collect();
     let mut faces = draft.faces.clone();
+
     for pickable in selection.iter() {
         let Pickable::Face { body, face } = pickable else {
             continue;
         };
+
         let Some(found) = (body == draft.body)
             .then(|| bodies::find_face(input, face))
             .flatten()
@@ -451,6 +469,7 @@ pub fn with_selected_faces(
         else {
             continue;
         };
+
         faces.push(FaceReference::capture(solid, found)?);
         taken.insert(found);
     }

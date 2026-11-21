@@ -11,14 +11,14 @@ const MAX_STORED_LENGTH: usize = 64 * MAX_LENGTH;
 pub(crate) const MAX_TREE_DEPTH: usize = MAX_LENGTH;
 const MAX_DEPTH: usize = 64;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 #[error("{kind}")]
 pub struct ParseError {
     pub kind: ParseErrorKind,
     pub span: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ParseErrorKind {
     #[error("Enter a value, such as 10 mm or width / 2")]
     Empty,
@@ -85,6 +85,7 @@ fn spelled_unit(name: &str) -> Option<Unit> {
     } else {
         lower.as_str()
     };
+
     if let Some(unit) = Unit::from_symbol(&lower).or_else(|| Unit::from_symbol(trimmed)) {
         return Some(unit);
     }
@@ -120,14 +121,17 @@ fn power_spelling(name: &str, resolve: &dyn Fn(&str) -> Option<ParameterId>) -> 
         _ => None,
     };
     let mut characters = name.chars();
+
     let last = characters.next_back()?;
     let stem = characters.as_str();
+
     if let Some(power) = superscript(last)
         && unit_with_power(stem)
             .is_some_and(|(unit, exponent)| exponent == 1 && unit.dimension() == Dimension::LENGTH)
     {
         return Some(format!("{stem}{power}"));
     }
+
     let exponent = match last {
         '²' => 2,
         '³' => 3,
@@ -141,7 +145,7 @@ const OPERATOR: &str = "an operator such as + or *";
 const CLOSING: &str = "')'";
 const SEPARATOR: &str = "',' or ')'";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum TokenKind {
     Number(f64),
     Name(String),
@@ -157,13 +161,13 @@ enum TokenKind {
     Compare(BinaryOperator),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Token {
     kind: TokenKind,
     span: Range<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum References {
     ByName,
     Stored,
@@ -192,13 +196,16 @@ fn parse_with(
             span: 0..text.len(),
         });
     }
+
     let tokens = lex(text, references)?;
+
     if tokens.is_empty() {
         return Err(ParseError {
             kind: ParseErrorKind::Empty,
             span: 0..text.len(),
         });
     }
+
     let mut parser = Parser {
         text,
         tokens,
@@ -206,6 +213,7 @@ fn parse_with(
         depth: 0,
         resolve,
     };
+
     let expression = parser.expression()?;
     match parser.peek() {
         Some(token) => Err(parser
@@ -218,6 +226,7 @@ fn parse_with(
 fn lex(text: &str, references: References) -> Result<Vec<Token>, ParseError> {
     let mut tokens = Vec::new();
     let mut position = 0;
+
     while let Some(character) = text.get(position..).and_then(|rest| rest.chars().next()) {
         let start = position;
         let kind = if character.is_whitespace() {
@@ -225,11 +234,13 @@ fn lex(text: &str, references: References) -> Result<Vec<Token>, ParseError> {
             continue;
         } else if character.is_ascii_digit() || character == '.' {
             position = number_end(text, start);
+
             let literal = text.get(start..position).unwrap_or_default();
             let value = literal.parse::<f64>().map_err(|_| ParseError {
                 kind: ParseErrorKind::InvalidNumber(literal.to_owned()),
                 span: start..position,
             })?;
+
             if !value.is_finite() {
                 return Err(ParseError {
                     kind: ParseErrorKind::NumberTooLarge(literal.to_owned()),
@@ -239,6 +250,7 @@ fn lex(text: &str, references: References) -> Result<Vec<Token>, ParseError> {
             TokenKind::Number(value)
         } else if character == STORED_REFERENCE && references == References::Stored {
             position = reference_end(text, start);
+
             let literal = text.get(start..position).unwrap_or_default();
             let id = literal
                 .get(STORED_REFERENCE.len_utf8()..)
@@ -273,6 +285,7 @@ fn lex(text: &str, references: References) -> Result<Vec<Token>, ParseError> {
                 }
             }
         };
+
         tokens.push(Token {
             kind,
             span: start..position,
@@ -319,6 +332,7 @@ fn number_end(text: &str, start: usize) -> usize {
         end
     };
     let mut end = start;
+
     while bytes
         .get(end)
         .is_some_and(|byte| byte.is_ascii_digit() || *byte == b'.')
@@ -327,6 +341,7 @@ fn number_end(text: &str, start: usize) -> usize {
     }
     if matches!(bytes.get(end), Some(b'e' | b'E')) {
         let mut exponent = end + 1;
+
         if matches!(bytes.get(exponent), Some(b'+' | b'-')) {
             exponent += 1;
         }
@@ -339,6 +354,7 @@ fn number_end(text: &str, start: usize) -> usize {
 
 fn name_end(text: &str, start: usize, first: char) -> usize {
     let after_first = start + first.len_utf8();
+
     if first == '°' {
         return after_first;
     }
@@ -353,6 +369,7 @@ fn name_end(text: &str, start: usize, first: char) -> usize {
 
 fn deepened(depth: usize, right: &Expression, span: Range<usize>) -> Result<usize, ParseError> {
     let deeper = depth.max(right.depth()) + 1;
+
     if deeper > MAX_TREE_DEPTH {
         return Err(ParseError {
             kind: ParseErrorKind::TooDeep,
@@ -422,6 +439,7 @@ impl Parser<'_> {
 
     fn advance(&mut self) -> Option<Token> {
         let token = self.tokens.get(self.position).cloned();
+
         if token.is_some() {
             self.position += 1;
         }
@@ -461,7 +479,9 @@ impl Parser<'_> {
             });
         }
         self.depth += 1;
+
         let result = parse(self);
+
         self.depth -= 1;
         result
     }
@@ -475,8 +495,11 @@ impl Parser<'_> {
         else {
             return Ok(left);
         };
+
         self.advance();
+
         let right = self.sum()?;
+
         deepened(left.depth(), &right, span)?;
         if let Some(Token {
             kind: TokenKind::Compare(_),
@@ -495,15 +518,18 @@ impl Parser<'_> {
         let before = self.tokens.get(self.position.checked_sub(1)?)?;
         let comma = self.tokens.get(self.position)?;
         let after = self.tokens.get(self.position + 1)?;
+
         let adjacent = before.span.end == comma.span.start && comma.span.end == after.span.start;
         let (TokenKind::Number(_), TokenKind::Comma, TokenKind::Number(_)) =
             (&before.kind, &comma.kind, &after.kind)
         else {
             return None;
         };
+
         if !adjacent {
             return None;
         }
+
         let whole = self.text.get(before.span.clone())?;
         let fraction = self.text.get(after.span.clone())?;
         Some(ParseError {
@@ -514,6 +540,7 @@ impl Parser<'_> {
 
     fn sum(&mut self) -> Result<Expression, ParseError> {
         let mut left = self.term()?;
+
         let mut depth = left.depth();
         loop {
             let operator = match self.peek_kind() {
@@ -523,6 +550,7 @@ impl Parser<'_> {
             };
             let span = self.advance().map(|token| token.span).unwrap_or_default();
             let right = self.term()?;
+
             depth = deepened(depth, &right, span)?;
             left = Expression::binary(operator, left, right);
         }
@@ -530,6 +558,7 @@ impl Parser<'_> {
 
     fn term(&mut self) -> Result<Expression, ParseError> {
         let mut left = self.unary()?;
+
         let mut depth = left.depth();
         loop {
             let operator = match self.peek_kind() {
@@ -539,6 +568,7 @@ impl Parser<'_> {
             };
             let span = self.advance().map(|token| token.span).unwrap_or_default();
             let right = self.unary()?;
+
             depth = deepened(depth, &right, span)?;
             left = Expression::binary(operator, left, right);
         }
@@ -551,6 +581,7 @@ impl Parser<'_> {
         match token.kind {
             TokenKind::Minus => {
                 self.advance();
+
                 let operand = self.nested(token.span.clone(), Self::unary)?;
                 bounded(Expression::Negate(Box::new(operand)), token.span)
             }
@@ -568,6 +599,7 @@ impl Parser<'_> {
             .map(|token| token.span.start)
             .unwrap_or_default();
         let atom = self.atom()?;
+
         let base = match self.unit_after()? {
             None => atom,
             Some(bound) if self.caret().is_some() => {
@@ -581,7 +613,9 @@ impl Parser<'_> {
         let Some(caret) = self.caret() else {
             return Ok(base);
         };
+
         self.advance();
+
         let exponent = self.nested(caret.span.clone(), Self::unary)?;
         bounded(
             Expression::binary(BinaryOperator::Power, base, exponent),
@@ -682,6 +716,7 @@ impl Parser<'_> {
             let known = Function::from_name(&name).is_some()
                 || Constant::from_name(&name).is_some()
                 || (self.resolve)(&name).is_some();
+
             if !known && let Some(suggestion) = power_spelling(&name, self.resolve) {
                 return Err(ParseError {
                     kind: ParseErrorKind::PowerSpelling {
@@ -703,6 +738,7 @@ impl Parser<'_> {
                 _ => Ok(None),
             };
         };
+
         if is_imperial(unit) {
             return Err(imperial(name, span));
         }
@@ -719,9 +755,11 @@ impl Parser<'_> {
             kind,
             span: span.clone(),
         };
+
         if self.peek_kind() == Some(&TokenKind::Open) {
             let function = Function::from_name(name)
                 .ok_or_else(|| error(ParseErrorKind::UnknownFunction(name.to_owned())))?;
+
             return self.call(function, span.clone());
         }
         if let Some(constant) = Constant::from_name(name) {
@@ -755,6 +793,7 @@ impl Parser<'_> {
             .map(|token| token.span)
             .unwrap_or(span.clone());
         let mut arguments = Vec::new();
+
         if self.peek_kind() == Some(&TokenKind::Close) {
             self.advance();
         } else {
@@ -779,7 +818,9 @@ impl Parser<'_> {
                 }
             }
         }
+
         let expected = function.arity();
+
         if !expected.accepts(arguments.len()) {
             return Err(ParseError {
                 kind: ParseErrorKind::WrongArgumentCount { function, expected },

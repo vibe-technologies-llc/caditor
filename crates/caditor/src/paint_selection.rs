@@ -9,7 +9,7 @@ use crate::{
 pub const BRUSH_STEP_POINTS: f64 = 4.0;
 pub const MAX_BRUSH_SAMPLES: usize = 64;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Painting {
     pub before: Selection,
     last: Vector2,
@@ -30,6 +30,7 @@ impl Painting {
             brush_samples(self.last, cursor, BRUSH_STEP_POINTS * pixels_per_point)
         } else {
             let mut first = vec![self.last];
+
             first.extend(brush_samples(
                 self.last,
                 cursor,
@@ -37,6 +38,7 @@ impl Painting {
             ));
             first
         };
+
         self.started = true;
         self.last = cursor;
         samples
@@ -52,9 +54,11 @@ pub fn takes_faces(filter: SelectionFilter) -> bool {
 
 pub fn brush_samples(from: Vector2, to: Vector2, step: f64) -> Vec<Vector2> {
     let length = (to - from).length();
+
     if !length.is_finite() || length == 0.0 || step.is_nan() || step <= 0.0 {
         return Vec::new();
     }
+
     let count = ((length / step).ceil() as usize).clamp(1, MAX_BRUSH_SAMPLES);
     (1..=count)
         .map(|index| from.lerp(to, index as f64 / count as f64))

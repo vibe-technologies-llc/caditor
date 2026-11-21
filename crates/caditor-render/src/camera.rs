@@ -24,7 +24,7 @@ const ORTHOGRAPHIC_REACH_PER_DISTANCE: f64 = 40.0;
 const ORTHOGRAPHIC_SCENE_MARGIN: f64 = 1.1;
 const SQUARE_TOLERANCE_DEGREES: f64 = 0.1;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum Projection {
     #[default]
     Perspective,
@@ -35,7 +35,7 @@ impl Projection {
     pub const ALL: [Self; 2] = [Self::Perspective, Self::Orthographic];
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum ProjectionMode {
     #[default]
     Perspective,
@@ -70,7 +70,7 @@ impl ProjectionMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Viewpoint {
     pub target: Point3,
     pub orientation: Rotation3,
@@ -86,8 +86,10 @@ impl Viewpoint {
         } else {
             Vector3::Z
         };
+
         let right = forward.cross(up_hint).try_normalize()?;
         let up = right.cross(forward);
+
         let orientation =
             Rotation3::from_mat3(&DMat3::from_cols(right, up, toward_eye)).normalize();
         Some(Self {
@@ -170,9 +172,11 @@ impl Viewpoint {
         if !pivot.is_finite() || !drag.is_finite() || !viewport_height.is_finite() {
             return None;
         }
+
         let radians_per_pixel = ORBIT_RADIANS_PER_VIEWPORT_HEIGHT / viewport_height.max(1.0);
         let forward = self.forward();
         let levelling_limit = drag.length() * radians_per_pixel * LEVELLING_RATE;
+
         let level = Rotation3::from_axis_angle(
             forward,
             roll(&self).clamp(-levelling_limit, levelling_limit),
@@ -182,6 +186,7 @@ impl Viewpoint {
         let tilt =
             (-drag.y * radians_per_pixel).clamp(-FRAC_PI_2 - elevation, FRAC_PI_2 - elevation);
         let tilt_axis = level_right(forward).unwrap_or_else(|| level * self.right());
+
         let pitch = Rotation3::from_axis_angle(tilt_axis, tilt);
         let yaw = Rotation3::from_rotation_z(-drag.x * radians_per_pixel);
 
@@ -192,6 +197,7 @@ impl Viewpoint {
         if !drag.is_finite() || !units_per_pixel.is_finite() {
             return None;
         }
+
         let offset = (self.up() * drag.y - self.right() * drag.x) * units_per_pixel;
         Some(self.translated(offset))
     }
@@ -218,7 +224,7 @@ impl Viewpoint {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct View {
     viewpoint: Viewpoint,
     size: DVec2,
@@ -399,6 +405,7 @@ impl View {
         if !depth.is_finite() || !pixel.is_finite() {
             return None;
         }
+
         let point = match self.projection {
             Projection::Perspective => {
                 let ray = self.ray_through(pixel)?;
@@ -415,9 +422,11 @@ impl View {
     pub fn project(&self, point: Point3) -> Option<DVec2> {
         let local = self.viewpoint.orientation.inverse() * (point - self.eye());
         let depth = -local.z;
+
         if depth <= self.near_plane() {
             return None;
         }
+
         let half_height = self.half_height_at(depth);
         let ndc = DVec2::new(
             local.x / (half_height * self.aspect()),
@@ -464,6 +473,7 @@ impl View {
                 let half_height = self.half_height_at(self.viewpoint.distance);
                 let near = self.near_plane();
                 let far = self.far_plane();
+
                 let depth = far - near;
                 DMat4::from_cols(
                     DVec4::new(1.0 / (half_height * self.aspect()), 0.0, 0.0, 0.0),
@@ -495,6 +505,7 @@ impl View {
         let tan_y = self.tan_half_fov_y();
         let tan_x = tan_y * self.aspect();
         let center = bounds.center();
+
         let corners = bounds.corners().map(|corner| to_view * (corner - center));
 
         let lateral = corners.iter().fold(0.0_f64, |distance, corner| {
@@ -532,13 +543,13 @@ fn level_right(forward: Vector3) -> Option<Vector3> {
     (right.length() > VERTICAL_TOLERANCE).then(|| right.normalize())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Spread {
     Perspective(f64),
     Orthographic(f64),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlaneProjection {
     origin: DVec3,
     x_axis: DVec3,
@@ -553,9 +564,11 @@ impl PlaneProjection {
     pub fn project(&self, point: DVec2) -> Option<DVec2> {
         let local = self.origin + self.x_axis * point.x + self.y_axis * point.y;
         let depth = -local.z;
+
         if depth <= self.near {
             return None;
         }
+
         let half_height = match self.spread {
             Spread::Perspective(per_depth) => depth * per_depth,
             Spread::Orthographic(fixed) => fixed,
@@ -579,7 +592,7 @@ fn field_of_view_radians(degrees: f64) -> f64 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Easing {
     InAndOut,
     Out,
@@ -601,7 +614,7 @@ impl Easing {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Transition {
     from: Viewpoint,
     to: Viewpoint,
@@ -609,7 +622,7 @@ struct Transition {
     easing: Easing,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Camera {
     viewpoint: Viewpoint,
     transition: Option<Transition>,
@@ -715,7 +728,9 @@ impl Camera {
         let Some(transition) = self.transition.as_mut() else {
             return;
         };
+
         transition.elapsed += elapsed;
+
         let duration = transition.easing.duration().as_secs_f64() * self.transition_scale;
         let progress = transition.elapsed.as_secs_f64() / duration;
         if progress >= 1.0 {
@@ -723,6 +738,7 @@ impl Camera {
             self.transition = None;
         } else {
             let eased = transition.easing.eased(progress);
+
             self.viewpoint = transition.from.interpolated(transition.to, eased);
         }
     }
@@ -778,6 +794,7 @@ mod tests {
         )
         .unwrap();
         let points = [DVec2::ZERO, DVec2::new(14.0, -3.0), DVec2::new(-40.0, 25.0)];
+
         for projection in Projection::ALL {
             let view = View::new(isometric(), WIDTH, HEIGHT).with_projection(projection);
             let projected = view.plane_projection(&plane, 2.0);
@@ -785,6 +802,7 @@ mod tests {
             for point in points {
                 let expected = view.project(plane.to_world(point)).unwrap() / 2.0;
                 let actual = projected.project(point).unwrap();
+
                 assert!(
                     actual.distance(expected) < 1e-9,
                     "{actual} is not {expected}"
@@ -816,16 +834,19 @@ mod tests {
     #[test]
     fn standard_directions_put_world_z_up_and_keep_x_rightward_from_above() {
         let front = Viewpoint::looking_from(Vector3::NEG_Y, Point3::ZERO, 10.0).unwrap();
+
         assert_close(front.forward(), Vector3::Y, 1e-12);
         assert_close(front.up(), Vector3::Z, 1e-12);
         assert_close(front.right(), Vector3::X, 1e-12);
         assert_close(front.eye(), Point3::new(0.0, -10.0, 0.0), 1e-12);
 
         let top = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 10.0).unwrap();
+
         assert_close(top.up(), Vector3::Y, 1e-12);
         assert_close(top.right(), Vector3::X, 1e-12);
 
         let bottom = Viewpoint::looking_from(Vector3::NEG_Z, Point3::ZERO, 10.0).unwrap();
+
         assert_close(bottom.up(), Vector3::NEG_Y, 1e-12);
         assert_close(bottom.right(), Vector3::X, 1e-12);
     }
@@ -840,6 +861,7 @@ mod tests {
         .unwrap();
         for plane in [Plane::XY, Plane::XZ, Plane::YZ, tilted] {
             let viewpoint = Viewpoint::facing(&plane, plane.origin(), 50.0);
+
             assert_close(viewpoint.forward(), -plane.normal(), 1e-12);
             assert_close(viewpoint.right(), plane.x_axis(), 1e-12);
             assert_close(viewpoint.up(), plane.y_axis(), 1e-12);
@@ -853,6 +875,7 @@ mod tests {
             let center = view.project(plane.origin()).unwrap();
             let along_x = view.project(plane.to_world(DVec2::new(1.0, 0.0))).unwrap();
             let along_y = view.project(plane.to_world(DVec2::new(0.0, 1.0))).unwrap();
+
             assert!(along_x.x > center.x && (along_x.y - center.y).abs() < 1e-9);
             assert!(along_y.y < center.y && (along_y.x - center.x).abs() < 1e-9);
         }
@@ -862,6 +885,7 @@ mod tests {
     fn project_and_ray_agree() {
         let view = View::new(isometric(), WIDTH, HEIGHT);
         let point = Point3::new(12.0, -7.0, 3.0);
+
         let pixel = view.project(point).unwrap();
         let ray = view.ray_through(pixel).unwrap();
         let along = (point - ray.origin()).dot(ray.direction());
@@ -879,18 +903,22 @@ mod tests {
         let mut camera = Camera::new(isometric());
         let pivot = Point3::new(8.0, 0.0, 4.0);
         let before = camera.view(WIDTH, HEIGHT);
+
         let pivot_pixel = before.project(pivot).unwrap();
         let pivot_distance = before.eye().distance(pivot);
 
         camera.orbit(pivot, DVec2::new(140.0, -60.0), HEIGHT);
+
         let after = camera.view(WIDTH, HEIGHT);
 
         assert!((after.eye().distance(pivot) - pivot_distance).abs() < 1e-9);
+
         assert_close(
             after.project(pivot).unwrap().extend(0.0),
             pivot_pixel.extend(0.0),
             1e-6,
         );
+
         assert_ne!(after.forward(), before.forward());
     }
 
@@ -899,9 +927,11 @@ mod tests {
         let mut camera =
             Camera::new(Viewpoint::looking_from(Vector3::NEG_Y, Point3::ZERO, 10.0).unwrap());
         let marker = Point3::new(0.0, -1.0, 0.0);
+
         let before = camera.view(WIDTH, HEIGHT).project(marker).unwrap();
 
         camera.orbit(Point3::ZERO, DVec2::new(30.0, 0.0), HEIGHT);
+
         let after = camera.view(WIDTH, HEIGHT).project(marker).unwrap();
 
         assert!(after.x > before.x);
@@ -913,7 +943,9 @@ mod tests {
             let mut camera = Camera::new(isometric());
 
             camera.orbit(Point3::ZERO, DVec2::new(0.0, vertical), HEIGHT);
+
             let viewpoint = camera.viewpoint();
+
             assert!((viewpoint.forward().z.abs() - 1.0).abs() < 1e-9);
             assert!(viewpoint.up().z.abs() < 1e-9);
 
@@ -925,14 +957,19 @@ mod tests {
                 DVec2::new(0.0, -vertical.signum() * 60.0),
                 HEIGHT,
             );
+
             let viewpoint = camera.viewpoint();
+
             assert!(viewpoint.forward().z.abs() < 0.999);
             assert!(viewpoint.up().z > 0.0);
 
             let marker = viewpoint.target + viewpoint.right() * -1.0;
             let before = camera.view(WIDTH, HEIGHT).project(marker).unwrap();
+
             camera.orbit(viewpoint.target, DVec2::new(30.0, 0.0), HEIGHT);
+
             let after = camera.view(WIDTH, HEIGHT).project(marker).unwrap();
+
             assert!(after.x > before.x);
         }
     }
@@ -947,16 +984,21 @@ mod tests {
         .unwrap();
         let mut camera = Camera::new(Viewpoint::facing(&plane, plane.origin(), 50.0));
         let pivot = plane.origin() + plane.x_axis() * 3.0;
+
         assert!(camera.viewpoint().right().z.abs() > 0.1);
 
         for _ in 0..40 {
             let before = camera.view(WIDTH, HEIGHT).project(pivot).unwrap();
+
             camera.orbit(pivot, DVec2::new(8.0, 0.0), HEIGHT);
+
             let after = camera.view(WIDTH, HEIGHT).project(pivot).unwrap();
+
             assert_close(after.extend(0.0), before.extend(0.0), 1e-6);
         }
 
         let viewpoint = camera.viewpoint();
+
         assert!(viewpoint.right().z.abs() < 1e-9);
         assert!(viewpoint.up().z > 0.0);
     }
@@ -964,11 +1006,14 @@ mod tests {
     #[test]
     fn zoom_keeps_the_anchor_under_the_cursor() {
         let mut camera = Camera::new(isometric());
+
         let before = camera.view(WIDTH, HEIGHT);
         let cursor = DVec2::new(610.0, 145.0);
+
         let anchor = before.ray_through(cursor).unwrap().at(95.0);
 
         camera.zoom(anchor, 0.4);
+
         let after = camera.view(WIDTH, HEIGHT);
 
         assert_close(
@@ -976,29 +1021,36 @@ mod tests {
             cursor.extend(0.0),
             1e-6,
         );
+
         assert!((camera.viewpoint().distance - 48.0).abs() < 1e-9);
     }
 
     #[test]
     fn zoom_is_clamped_and_ignores_invalid_factors() {
         let mut camera = Camera::new(isometric());
+
         camera.zoom(Point3::ZERO, 0.0);
         camera.zoom(Point3::ZERO, f64::NAN);
+
         assert_eq!(camera.viewpoint(), isometric());
 
         camera.zoom(Point3::ZERO, 1e-30);
+
         assert_eq!(camera.viewpoint().distance, MIN_DISTANCE);
     }
 
     #[test]
     fn pan_moves_a_point_at_the_grab_depth_with_the_cursor() {
         let mut camera = Camera::new(isometric());
+
         let before = camera.view(WIDTH, HEIGHT);
         let grabbed = Point3::new(3.0, 1.0, 9.0);
+
         let pixel = before.project(grabbed).unwrap();
         let drag = DVec2::new(-35.0, 20.0);
 
         camera.pan(drag, before.units_per_pixel_at(before.view_depth(grabbed)));
+
         let after = camera.view(WIDTH, HEIGHT);
 
         assert_close(
@@ -1014,10 +1066,12 @@ mod tests {
         let bounds =
             Aabb::from_points([Point3::new(-40.0, 10.0, 0.0), Point3::new(60.0, 30.0, 25.0)])
                 .unwrap();
+
         let fitted = View::new(view.fitted(bounds), WIDTH, HEIGHT);
 
         for corner in bounds.corners() {
             let pixel = fitted.project(corner).unwrap();
+
             assert!((0.0..=WIDTH).contains(&pixel.x) && (0.0..=HEIGHT).contains(&pixel.y));
         }
         assert_close(fitted.viewpoint().target, bounds.center(), 1e-12);
@@ -1058,6 +1112,7 @@ mod tests {
         let view = View::new(isometric(), WIDTH, HEIGHT);
         let tiny = Aabb::from_points([Point3::new(1.0, 1.0, 1.0), Point3::new(1.01, 1.02, 1.005)])
             .unwrap();
+
         let fitted = View::new(view.fitted(tiny), WIDTH, HEIGHT);
 
         let pixels = tiny.corners().map(|corner| fitted.project(corner).unwrap());
@@ -1069,9 +1124,11 @@ mod tests {
                 .iter()
                 .map(|pixel| pixel.y)
                 .fold(f64::INFINITY, f64::min);
+
         assert!(spread > HEIGHT / 4.0, "{spread}");
 
         let point = view.fitted(Aabb::from_point(Point3::new(3.0, 0.0, 0.0)));
+
         assert_eq!(point.distance, view.viewpoint().distance);
         assert_eq!(point.target, Point3::new(3.0, 0.0, 0.0));
     }
@@ -1083,19 +1140,26 @@ mod tests {
         let mut camera = Camera::new(start);
 
         camera.animate_to(end);
+
         assert_eq!(camera.destination(), end);
+
         camera.advance(TRANSITION_DURATION / 2);
+
         assert!(camera.is_animating());
+
         let halfway = camera.viewpoint();
+
         assert!(halfway.distance < start.distance && halfway.distance > end.distance);
 
         camera.advance(TRANSITION_DURATION);
+
         assert!(!camera.is_animating());
         assert_eq!(camera.viewpoint(), end);
 
         camera.animate_to(start);
         camera.advance(TRANSITION_DURATION / 4);
         camera.pan(DVec2::new(1.0, 0.0), 1.0);
+
         assert!(!camera.is_animating());
     }
 
@@ -1117,10 +1181,12 @@ mod tests {
         assert_eq!(instant.viewpoint(), end);
 
         slow.advance(TRANSITION_DURATION);
+
         assert!(!slow.is_animating());
 
         slow.animate_to(start);
         slow.set_transition_scale(0.0);
+
         assert!(!slow.is_animating());
         assert_eq!(slow.viewpoint(), start);
     }
@@ -1129,18 +1195,26 @@ mod tests {
     fn a_wider_field_of_view_shows_more_and_fits_from_closer() {
         let bounds = Aabb::from_point(Point3::ZERO).expanded(5.0);
         let mut camera = Camera::new(isometric());
+
         let standard = camera.view(WIDTH, HEIGHT);
         let mut chosen_standard = Camera::new(isometric());
+
         chosen_standard.set_field_of_view(DEFAULT_FIELD_OF_VIEW_DEGREES);
         chosen_standard.set_transition_scale(1.0);
+
         assert_eq!(chosen_standard, camera);
         assert_eq!(standard, View::new(isometric(), WIDTH, HEIGHT));
 
         camera.set_field_of_view(60.0);
+
         let wide = camera.view(WIDTH, HEIGHT);
+
         camera.set_field_of_view(f64::NAN);
+
         let fallen_back = camera.view(WIDTH, HEIGHT);
+
         camera.set_field_of_view(500.0);
+
         let clamped = camera.view(WIDTH, HEIGHT);
 
         assert!((standard.field_of_view_degrees() - DEFAULT_FIELD_OF_VIEW_DEGREES).abs() < 1e-9);
@@ -1162,12 +1236,15 @@ mod tests {
         transition.animate_to(end);
         glide.advance(Duration::from_millis(30));
         transition.advance(Duration::from_millis(30));
+
         let glided = glide.viewpoint().target.distance(start.target);
         let eased = transition.viewpoint().target.distance(start.target);
 
         assert!(glided > 3.0 * eased, "{glided} {eased}");
         assert_eq!(glide.destination(), end);
+
         glide.advance(GLIDE_DURATION);
+
         assert!(!glide.is_animating());
         assert_eq!(glide.viewpoint(), end);
         assert!(transition.is_animating());
@@ -1179,15 +1256,21 @@ mod tests {
         let mut camera = Camera::new(isometric());
 
         camera.orbit(pivot, DVec2::new(40.0, -12.0), HEIGHT);
+
         let orbited = isometric().orbited(pivot, DVec2::new(40.0, -12.0), HEIGHT);
+
         assert_eq!(Some(camera.viewpoint()), orbited);
 
         camera.pan(DVec2::new(-5.0, 3.0), 0.2);
+
         let panned = orbited.and_then(|viewpoint| viewpoint.panned(DVec2::new(-5.0, 3.0), 0.2));
+
         assert_eq!(Some(camera.viewpoint()), panned);
 
         camera.zoom(pivot, 0.5);
+
         let zoomed = panned.and_then(|viewpoint| viewpoint.zoomed(pivot, 0.5));
+
         assert_eq!(Some(camera.viewpoint()), zoomed);
 
         assert!(isometric().zoomed(pivot, f64::NAN).is_none());
@@ -1198,13 +1281,16 @@ mod tests {
     fn the_destination_view_resolves_the_automatic_projection_where_the_camera_is_heading() {
         let front = Viewpoint::looking_from(Vector3::NEG_Y, Point3::ZERO, 80.0).unwrap();
         let mut camera = Camera::new(isometric());
+
         camera.set_projection(ProjectionMode::Automatic);
 
         camera.animate_to(front);
         camera.advance(TRANSITION_DURATION / 4);
 
         assert!(!camera.view(WIDTH, HEIGHT).is_orthographic());
+
         let heading = camera.destination_view(WIDTH, HEIGHT);
+
         assert!(heading.is_orthographic());
         assert_eq!(*heading.viewpoint(), front);
     }
@@ -1215,6 +1301,7 @@ mod tests {
 
     fn orthographic_camera() -> Camera {
         let mut camera = Camera::new(isometric());
+
         camera.set_projection(ProjectionMode::Orthographic);
         camera
     }
@@ -1243,7 +1330,9 @@ mod tests {
         assert_close(ray.direction(), view.forward(), 1e-12);
         assert_close(corner_ray.direction(), view.forward(), 1e-12);
         assert_close(ray.at(along), point, 1e-9);
+
         assert!(ray.origin().distance(point) > view.viewpoint().distance);
+
         assert_close(
             view.unproject(pixel, view.view_depth(point)).unwrap(),
             point,
@@ -1288,6 +1377,7 @@ mod tests {
         let far_width = view.project(far + offset).unwrap().x - view.project(far).unwrap().x;
         let perspective = View::new(isometric(), WIDTH, HEIGHT);
         let target = perspective.viewpoint().target;
+
         let target_width = perspective.project(target + offset).unwrap().x
             - perspective.project(target).unwrap().x;
 
@@ -1307,6 +1397,7 @@ mod tests {
         .unwrap();
         let view = orthographic(isometric()).reaching(bounds);
         let matrix = view.rotation_projection();
+
         let clip = |point: Point3| matrix * (point - view.eye()).extend(1.0);
         let point = Point3::new(12.0, -7.0, 3.0);
         let at_near = view.eye() + view.forward() * view.near_plane();
@@ -1319,12 +1410,14 @@ mod tests {
             view.project(point).unwrap().extend(0.0),
             1e-9,
         );
+
         assert!(pixel.z > 0.0 && pixel.z < 1.0);
         assert!((clip(at_near).z - 1.0).abs() < 1e-9);
         assert!(clip(at_far).z.abs() < 1e-9);
         assert!(view.near_plane() < 0.0);
         for corner in bounds.corners() {
             let depth = view.view_depth(corner);
+
             assert!(depth > view.near_plane() && depth < view.far_plane());
         }
     }
@@ -1333,24 +1426,33 @@ mod tests {
     fn orthographic_navigation_keeps_the_anchor_pivot_and_grab_under_the_cursor() {
         let mut camera = orthographic_camera();
         let cursor = DVec2::new(610.0, 145.0);
+
         let anchor = camera.view(WIDTH, HEIGHT).unproject(cursor, 95.0).unwrap();
 
         camera.zoom(anchor, 0.4);
+
         let zoomed = camera.view(WIDTH, HEIGHT);
         let pivot = Point3::new(8.0, 0.0, 4.0);
+
         let pivot_pixel = zoomed.project(pivot).unwrap();
+
         camera.orbit(pivot, DVec2::new(140.0, -60.0), HEIGHT);
+
         let orbited = camera.view(WIDTH, HEIGHT);
         let grabbed = Point3::new(3.0, 1.0, 9.0);
+
         let grab_pixel = orbited.project(grabbed).unwrap();
         let drag = DVec2::new(-35.0, 20.0);
+
         camera.pan(
             drag,
             orbited.units_per_pixel_at(orbited.view_depth(grabbed)),
         );
+
         let panned = camera.view(WIDTH, HEIGHT);
 
         assert!(zoomed.is_orthographic());
+
         assert_close(
             zoomed.project(anchor).unwrap().extend(0.0),
             cursor.extend(0.0),
@@ -1386,6 +1488,7 @@ mod tests {
     #[test]
     fn a_non_finite_anchor_or_pivot_leaves_the_camera_where_it_was() {
         let mut camera = orthographic_camera();
+
         let before = camera.viewpoint();
         let poisoned = Point3::new(f64::NAN, 0.0, 1.0);
 
@@ -1419,13 +1522,16 @@ mod tests {
             Aabb::from_points([Point3::new(-40.0, 10.0, 0.0), Point3::new(60.0, 30.0, 25.0)])
                 .unwrap();
         let view = orthographic(isometric());
+
         let fitted = orthographic(view.fitted(bounds));
         let perspective = View::new(isometric(), WIDTH, HEIGHT).fitted(bounds);
 
         for corner in bounds.corners() {
             let pixel = fitted.project(corner).unwrap();
+
             assert!((0.0..=WIDTH).contains(&pixel.x) && (0.0..=HEIGHT).contains(&pixel.y));
         }
+
         assert!(fitted.viewpoint().distance < perspective.distance);
         assert_eq!(
             ProjectionMode::Perspective.other(),
@@ -1456,17 +1562,24 @@ mod tests {
         let nudged =
             Viewpoint::looking_from(Vector3::new(0.0, -1.0, 0.05), Point3::ZERO, 80.0).unwrap();
         let mut camera = Camera::new(isometric());
+
         camera.set_projection(ProjectionMode::Automatic);
 
         assert!(!camera.view(WIDTH, HEIGHT).is_orthographic());
+
         camera.animate_to(square);
         camera.advance(TRANSITION_DURATION);
+
         assert!(camera.view(WIDTH, HEIGHT).is_orthographic());
+
         camera.animate_to(top);
         camera.advance(TRANSITION_DURATION);
+
         assert!(camera.view(WIDTH, HEIGHT).is_orthographic());
+
         camera.animate_to(nudged);
         camera.advance(TRANSITION_DURATION);
+
         assert!(!camera.view(WIDTH, HEIGHT).is_orthographic());
         assert_eq!(camera.projection(), ProjectionMode::Automatic);
     }

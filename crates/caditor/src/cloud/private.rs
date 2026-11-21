@@ -76,6 +76,7 @@ mod tests {
         fn restricting_closes_a_folder_an_older_version_left_open() {
             let dir = TempDir::new().unwrap();
             let folder = dir.path().join("cloud");
+
             fs::create_dir(&folder).unwrap();
             fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).unwrap();
 

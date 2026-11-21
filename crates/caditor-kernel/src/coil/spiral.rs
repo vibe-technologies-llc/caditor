@@ -26,7 +26,7 @@ const CHECKS_PER_SPAN: [f64; 4] = [0.125, 0.25, 0.75, 0.875];
 const LENGTH_STEPS: usize = 2000;
 const BREAK_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SpiralSpec {
     pub frame: Plane,
     pub radius: f64,
@@ -38,7 +38,7 @@ pub struct SpiralSpec {
     pub table: Vec<PitchStop>,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum SpiralError {
     #[error("a spiral dimension is not a finite number")]
     NonFinite,
@@ -142,6 +142,7 @@ impl SpiralSpec {
         if self.has_changing_pitch() {
             let widest = self.law().widest(self.turns);
             let gap = (LEAST_GAP * across).max(AXIS_CLEARANCE);
+
             return across * self.radius.hypot_libm(widest / TAU) / self.radius + gap;
         }
         (0..LEAST_PITCH_STEPS).fold(across, |pitch, _| self.reach_between_turns(across, pitch))
@@ -151,6 +152,7 @@ impl SpiralSpec {
         if self.has_changing_pitch() {
             return self.integrated_length();
         }
+
         let growth = self.pitch / TAU;
         let primitive = |radius: f64| {
             let reach = radius.hypot_libm(growth);
@@ -168,6 +170,7 @@ impl SpiralSpec {
             .zip(breaks.iter().skip(1))
             .map(|(from, to)| {
                 let (from, to) = (TAU * from, TAU * to);
+
                 let step = (to - from) / LENGTH_STEPS as f64;
                 let inner: f64 = (1..LENGTH_STEPS)
                     .map(|index| {
@@ -260,7 +263,7 @@ fn checked_pitch_table(spec: &SpiralSpec) -> Result<(), SpiralError> {
     })
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Span {
     start: Point2,
     shoulder: Point2,
@@ -291,7 +294,9 @@ fn crossing(
 ) -> Option<f64> {
     let side = |angle: f64| cross(shape.local(angle) - middle, towards);
     let (mut low, mut high) = (from, to);
+
     let low_side = side(low);
+
     if low_side * side(high) >= 0.0 {
         return None;
     }
@@ -309,21 +314,29 @@ fn crossing(
 fn fitted_span(shape: &Shape<'_>, from: f64, to: f64) -> Option<Span> {
     let (start, end) = (shape.local(from), shape.local(to));
     let (leaving, arriving) = (shape.local_tangent(from), shape.local_tangent(to));
+
     let chord = end - start;
     let turning = cross(leaving, arriving);
+
     if turning.abs() <= f64::EPSILON * leaving.length() * arriving.length() {
         return None;
     }
+
     let out = cross(chord, arriving) / turning;
     let back = cross(leaving, chord) / turning;
+
     if !(out > 0.0 && back > 0.0) {
         return None;
     }
+
     let shoulder = start + leaving * out;
     let middle = (start + end) * 0.5;
+
     let towards = shoulder - middle;
     let crossing = crossing(shape, (from, to), middle, towards)?;
+
     let reach = (shape.local(crossing) - middle).dot(towards) / towards.length_squared();
+
     if !(reach > 0.0 && reach < 1.0) {
         return None;
     }
@@ -360,6 +373,7 @@ fn pieces(breaks: &[f64], spans_per_turn: usize) -> Vec<Piece> {
         .flat_map(|(from, to)| {
             let turns = to - from;
             let count = (turns - ROUNDING_SLACK).ceil().max(1.0);
+
             let length = turns / count;
             let spans = ((length * spans_per_turn as f64 - ROUNDING_SLACK).ceil() as usize).max(1);
             (0..count as usize).map(move |index| Piece {
@@ -384,11 +398,13 @@ fn fitted_piece(shape: &Shape<'_>, piece: &Piece) -> Option<Vec<Span>> {
 fn fitted(shape: &Shape<'_>) -> Result<Vec<Vec<Span>>, SpiralError> {
     let breaks = shape.law.breaks(shape.spec.turns);
     let mut spans_per_turn = SPANS_PER_TURN;
+
     while spans_per_turn <= MOST_SPANS_PER_TURN {
         let fits: Option<Vec<Vec<Span>>> = pieces(&breaks, spans_per_turn)
             .iter()
             .map(|piece| fitted_piece(shape, piece))
             .collect();
+
         if let Some(fits) = fits {
             return Ok(fits);
         }
@@ -401,10 +417,12 @@ fn evenly_paced(spans: &[Span]) -> Vec<f64> {
     let mut weights = Vec::with_capacity(2 * spans.len() + 1);
     let mut joint = 1.0;
     let mut arriving = None;
+
     for span in spans {
         let shoulder = arriving.map_or(span.weight, |pace: f64| {
             pace / span.shoulder.distance(span.start)
         });
+
         weights.extend([joint, shoulder]);
         arriving = Some(shoulder * span.end.distance(span.shoulder));
         joint = shoulder * shoulder / (span.weight * span.weight * joint);
@@ -415,14 +433,18 @@ fn evenly_paced(spans: &[Span]) -> Vec<f64> {
 
 fn turn_of(spec: &SpiralSpec, frame: &Plane, spans: &[Span]) -> Result<HelixTurn, SpiralError> {
     let mut points = Vec::with_capacity(2 * spans.len() + 1);
+
     for span in spans {
         points.extend([
             spec.placed(frame, span.start),
             spec.placed(frame, span.shoulder),
         ]);
     }
+
     let last = spans.last().ok_or(SpiralError::Unfitted)?;
+
     points.push(spec.placed(frame, last.end));
+
     let weights = evenly_paced(spans);
     let curve = Curve::BSpline(BSpline::rational(
         2,
@@ -440,6 +462,7 @@ fn turn_of(spec: &SpiralSpec, frame: &Plane, spans: &[Span]) -> Result<HelixTurn
 
 pub fn spiral(spec: &SpiralSpec) -> Result<Vec<HelixTurn>, SpiralError> {
     checked(spec)?;
+
     let frame = spec.start_frame().ok_or(GeometryError::ZeroDirection)?;
     fitted(&Shape::of(spec))?
         .iter()

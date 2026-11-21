@@ -71,12 +71,15 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         opened,
     } = *row;
     let id = feature.id();
+
     widgets::caption(ui, "Faces to emboss");
+
     let evaluation = model.evaluation();
     let mut previewed = Vec::new();
     let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
         face_rows(model.document(), bodies::input(evaluation, id), emboss)
     });
+
     ui.vertical(|ui| {
         if emboss.faces.is_empty() {
             ui.label(widgets::muted("None: nothing is embossed", ui));
@@ -86,6 +89,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
             let row = widgets::removable_row_hovered(ui, text, "Leave this face out");
+
             if row.hovered && opened {
                 previewed = bodies::input(evaluation, id)
                     .map(|input| {
@@ -99,6 +103,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             }
             if row.removed {
                 let mut changed = emboss.clone();
+
                 changed.faces.remove(index);
                 actions.push(feature_fields::applied(
                     &feature.name,
@@ -106,6 +111,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
+
         let chosen = feature_fields::list_in_view(
             ui,
             opened,
@@ -140,7 +146,9 @@ fn sketch_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
     let id = feature.id();
     let document = model.document();
     let named = |sketch: FeatureId| feature_fields::feature_name(document, sketch);
+
     widgets::caption(ui, "Outlines");
+
     let chosen = ui
         .horizontal(|ui| {
             let text =
@@ -166,9 +174,11 @@ fn sketch_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
             })
         })
         .inner;
+
     ui.end_row();
     actions.extend(chosen);
     ui.label("");
+
     let picker = Picker {
         feature: id,
         slot: Slot::EmbossSketch,
@@ -181,6 +191,7 @@ fn sketch_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
         ),
         hover: PICK_HOVER,
     };
+
     ui.vertical(|ui| {
         feature_fields::reference_picker(ui, model, picker, actions);
     });
@@ -195,22 +206,28 @@ fn regions_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
         opened,
         ..
     } = *row;
+
     if emboss.sketch.is_none() {
         return;
     }
+
     let id = feature.id();
+
     widgets::caption(ui, "Regions");
+
     let all = matches!(emboss.regions, RegionChoice::All);
     let chosen_count = selection::swept_regions(model.document(), model.evaluation(), id)
         .map_or(0, |(_, regions)| {
             scene::chosen_regions(&emboss.regions, regions).len()
         });
     let mut change = None;
+
     ui.vertical(|ui| {
         let choices = [
             ("All closed", ALL_REGIONS_HOVER),
             ("Chosen", CHOSEN_REGIONS_HOVER),
         ];
+
         match widgets::segmented(ui, &choices, usize::from(!all)) {
             Some(0) => {
                 change = Some(emboss_tools::change(
@@ -227,7 +244,9 @@ fn regions_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
         ui.horizontal(|ui| {
             if !all {
                 let chosen = format!("{} chosen", count(chosen_count, "region", "regions"));
+
                 ui.label(widgets::muted(chosen, ui));
+
                 let every = widgets::small_button(
                     ui,
                     icons::command(Command::SelectAllRegions),
@@ -297,6 +316,7 @@ fn depth_row(
         dimension: Dimension::LENGTH,
         rule: Rule::AboveZero,
     };
+
     let drafting = feature_fields::expression_row_drafting(ui, model, DEPTH, quantity, |depth| {
         emboss_tools::change(
             model,
@@ -307,6 +327,7 @@ fn depth_row(
             },
         )
     });
+
     actions.extend(drafting.into_actions(id));
 }
 
@@ -325,6 +346,7 @@ fn draft_row(
         dimension: Dimension::ANGLE,
         rule: Rule::EmbossDraft,
     };
+
     let drafting = feature_fields::expression_row_drafting(ui, model, DRAFT, quantity, |draft| {
         emboss_tools::change(
             model,
@@ -335,6 +357,7 @@ fn draft_row(
             },
         )
     });
+
     actions.extend(drafting.into_actions(id));
 }
 
@@ -363,6 +386,7 @@ fn form_row(
         segment("Raise", RAISE_HOVER, EmbossForm::Raised),
         segment("Recess", RECESS_HOVER, EmbossForm::Recessed),
     ];
+
     actions.extend(feature_fields::segmented_row(
         ui,
         "Form",
@@ -379,6 +403,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         ..
     } = *row;
     let id = feature.id();
+
     widgets::properties(ui, ("emboss-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         faces_row(ui, row, cache, actions);

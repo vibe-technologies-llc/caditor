@@ -6,7 +6,7 @@ const BINARY_SENTINEL: &[u8] = b"AutoCAD Binary DXF\r\n\x1a\0";
 const EXTENDED_CODE: u8 = 255;
 const CODE_PAGE_VARIABLE: &[u8] = b"$DWGCODEPAGE";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Value<'a> {
     Text(Cow<'a, str>),
     Real(f64),
@@ -14,7 +14,7 @@ pub(super) enum Value<'a> {
     Bytes,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Pair<'a> {
     pub code: i32,
     pub value: Value<'a>,
@@ -74,6 +74,7 @@ fn declared_code_page<'a>(
 ) -> CodePage {
     let mut opening_section = false;
     let mut naming_page = false;
+
     for token in tokens {
         let Ok(Token { code, value }) = token else {
             break;
@@ -145,6 +146,7 @@ impl<'a> Text<'a> {
     fn next_token(&mut self) -> Option<Result<Token<'a>, ImportError>> {
         let (index, code_line) = self.lines.next()?;
         let code_text = code_line.trim_ascii();
+
         if code_text.is_empty() {
             if self
                 .lines
@@ -155,6 +157,7 @@ impl<'a> Text<'a> {
             }
             return Some(Err(damaged(index)));
         }
+
         let Some(code) = std::str::from_utf8(code_text)
             .ok()
             .and_then(|text| text.parse::<i32>().ok())
@@ -165,6 +168,7 @@ impl<'a> Text<'a> {
             return Some(Err(damaged(index)));
         };
         let value = value_line.strip_suffix(b"\r").unwrap_or(value_line);
+
         self.finished = code == 0 && value.trim_ascii().eq_ignore_ascii_case(b"EOF");
         Some(Ok(Token {
             code,
@@ -180,7 +184,9 @@ impl<'a> Iterator for Text<'a> {
         if self.finished {
             return None;
         }
+
         let token = self.next_token();
+
         if !matches!(token, Some(Ok(_))) {
             self.finished = true;
         }
@@ -213,6 +219,7 @@ impl<'a> Binary<'a> {
     fn take(&mut self, count: usize) -> Result<&'a [u8], ImportError> {
         let end = self.position.checked_add(count).ok_or(Self::damaged())?;
         let taken = self.bytes.get(self.position..end).ok_or(Self::damaged())?;
+
         self.position = end;
         Ok(taken)
     }
@@ -229,6 +236,7 @@ impl<'a> Binary<'a> {
         if self.wide_codes {
             return Ok(i32::from(i16::from_le_bytes(self.array()?)));
         }
+
         let [byte] = self.array()?;
         if byte == EXTENDED_CODE {
             Ok(i32::from(i16::from_le_bytes(self.array()?)))
@@ -246,6 +254,7 @@ impl<'a> Binary<'a> {
                     .and_then(|rest| rest.iter().position(|byte| *byte == 0))
                     .ok_or(Self::damaged())?;
                 let text = self.take(length)?;
+
                 self.take(1)?;
                 Raw::Text(text)
             }
@@ -259,6 +268,7 @@ impl<'a> Binary<'a> {
             }
             Kind::Bytes => {
                 let [length] = self.array()?;
+
                 self.take(usize::from(length))?;
                 Raw::Bytes
             }
@@ -268,6 +278,7 @@ impl<'a> Binary<'a> {
     fn next_token(&mut self) -> Result<Token<'a>, ImportError> {
         let code = self.code()?;
         let value = self.value(code)?;
+
         self.finished = code == 0 && matches!(value, Raw::Text(b"EOF"));
         Ok(Token { code, value })
     }
@@ -280,7 +291,9 @@ impl<'a> Iterator for Binary<'a> {
         if self.finished || self.position >= self.bytes.len() {
             return None;
         }
+
         let token = self.next_token();
+
         if token.is_err() {
             self.finished = true;
         }

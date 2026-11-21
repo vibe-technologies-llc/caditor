@@ -23,7 +23,7 @@ const GRID_KEY: &str = "canvas-grid";
 const BODY_KEY: &str = "canvas-default-body";
 pub const CUBE_DIMMEST_LABELLED_FACING: f64 = 0.3;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Chrome {
     pub backdrop: Color32,
     pub panel: Color32,
@@ -232,6 +232,7 @@ pub fn chrome(ctx: &egui::Context) -> &'static Chrome {
 
 pub fn paint_backdrop(painter: &Painter, rect: Rect) {
     let ctx = painter.ctx();
+
     painter.rect_filled(rect, RADIUS, chrome(ctx).backdrop(contrast(ctx)));
 }
 
@@ -241,6 +242,7 @@ pub fn announce(ui: &Ui, rect: Rect, name: &str, text: &str, live: Option<Live>)
         ui.scope_id().with(("canvas text", name)),
         Sense::hover(),
     );
+
     response.widget_info(|| WidgetInfo::labeled(Role::Label, true, text));
     if let Some(live) = live {
         ui.ctx()
@@ -278,6 +280,7 @@ impl Label {
 
     pub fn paint(self, painter: &Painter, min: Pos2) -> Rect {
         let rect = Rect::from_min_size(min, self.size());
+
         paint_backdrop(painter, rect);
         painter.galley(rect.min + PADDING, self.galley, self.color);
         rect
@@ -312,7 +315,7 @@ pub fn wrapped_label(
     Label::new(painter, text, font, color, max_width).paint_at(painter, anchor, align)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HintPart<'a> {
     Keys { keys: Vec<&'a str>, action: &'a str },
     Text(&'a str),
@@ -343,6 +346,7 @@ pub fn hint_texts(text: &str) -> Vec<&str> {
         .flat_map(|part| match part {
             HintPart::Keys { keys, action } => {
                 let mut texts = Vec::new();
+
                 for (index, key) in keys.into_iter().enumerate() {
                     if index > 0 {
                         texts.push(ALTERNATIVE_WORD);
@@ -357,7 +361,7 @@ pub fn hint_texts(text: &str) -> Vec<&str> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rank {
     #[default]
     Main,
@@ -365,7 +369,7 @@ pub enum Rank {
     Extra,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyHint {
     keys: Vec<String>,
     action: String,
@@ -422,7 +426,7 @@ impl KeyHint {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HintList(Vec<KeyHint>);
 
 impl HintList {
@@ -463,6 +467,7 @@ impl HintList {
 
     fn shown_places(&self, expanded: bool) -> Vec<usize> {
         let mut order: Vec<usize> = (0..self.0.len()).collect();
+
         if expanded || !self.folds() {
             return order;
         }
@@ -503,6 +508,7 @@ impl HintList {
             .iter()
             .flat_map(|hint| {
                 let mut texts = Vec::new();
+
                 for (index, key) in hint.keys.iter().enumerate() {
                     if index > 0 {
                         texts.push(ALTERNATIVE_WORD);
@@ -530,7 +536,7 @@ pub fn more_keys_words(hidden: usize) -> String {
     format!("{MORE_KEYS} ({hidden})")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AtomKind {
     Text,
     Key,
@@ -607,16 +613,20 @@ impl Item {
                 atoms: vec![Atom::text(painter, &hint.action, inner_width)],
             };
         }
+
         let mut item = Self {
             atoms: Self::of_keys(painter, &hint.keys),
         };
+
         let wrap = (inner_width - item.width() - ATOM_GAP).max(MIN_WRAPPED_ACTION);
+
         item.atoms.push(Atom::text(painter, &hint.action, wrap));
         item
     }
 
     fn of_keys(painter: &Painter, keys: &[String]) -> Vec<Atom> {
         let mut atoms = Vec::new();
+
         for (index, key) in keys.iter().enumerate() {
             if index > 0 {
                 atoms.push(Atom::text(painter, ALTERNATIVE_WORD, f32::INFINITY));
@@ -633,14 +643,14 @@ struct Row {
     height: f32,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ChipLook {
     pub hovered: bool,
     pub pressed: bool,
     pub focused: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Folding {
     Whole,
     Folded,
@@ -695,6 +705,7 @@ impl Hints {
     ) -> Self {
         let inner_width = (max_width - padding.x * 2.0).max(0.0);
         let expanded = folding != Folding::Folded;
+
         let mut items: Vec<Item> = hints
             .shown(expanded)
             .into_iter()
@@ -705,12 +716,15 @@ impl Hints {
             Folding::Folded => Some(more_keys_words(hints.hidden(false).len())),
             Folding::Expanded => Some(FEWER_KEYS.to_owned()),
         };
+
         if let Some(words) = chip {
             items.push(Item {
                 atoms: vec![Atom::chip(painter, words)],
             });
         }
+
         let mut rows: Vec<Row> = Vec::new();
+
         for item in items {
             let (width, height) = (item.width(), item.height());
             match rows.last_mut() {
@@ -726,6 +740,7 @@ impl Hints {
                 }),
             }
         }
+
         let width = rows.iter().map(|row| row.width).fold(0.0, f32::max);
         let gaps = rows.len().saturating_sub(1) as f32 * ROW_GAP;
         let height = rows.iter().map(|row| row.height).sum::<f32>() + gaps;
@@ -760,18 +775,21 @@ impl Hints {
         let inner = Rect::from_min_size(min, self.size).shrink2(self.padding);
         let mut top = inner.top();
         let mut placed = Vec::new();
+
         for row in &self.rows {
             let mut x = match self.align {
                 Align::Min => inner.left(),
                 Align::Center => inner.center().x - row.width / 2.0,
                 Align::Max => inner.right() - row.width,
             };
+
             for item in &row.items {
                 for atom in &item.atoms {
                     let atom_rect = Rect::from_min_size(
                         Pos2::new(x, top + (row.height - atom.size.y) / 2.0),
                         atom.size,
                     );
+
                     placed.push(atom_rect);
                     x = atom_rect.right() + ATOM_GAP;
                 }
@@ -788,11 +806,13 @@ impl Hints {
 
     pub fn paint_with(self, painter: &Painter, min: Pos2, look: ChipLook) -> Rect {
         let rect = Rect::from_min_size(min, self.size);
+
         if self.rows.is_empty() {
             return rect;
         }
         if self.padding != Vec2::ZERO {
             let chrome = chrome(painter.ctx());
+
             painter.rect(
                 rect,
                 HINT_RADIUS,
@@ -801,12 +821,14 @@ impl Hints {
                 StrokeKind::Inside,
             );
         }
+
         let placed = self.placed(min);
         let atoms = self
             .rows
             .into_iter()
             .flat_map(|row| row.items)
             .flat_map(|item| item.atoms);
+
         for (atom_rect, atom) in placed.into_iter().zip(atoms) {
             paint_atom(painter, atom_rect, atom, look);
         }
@@ -835,6 +857,7 @@ fn paint_atom(painter: &Painter, rect: Rect, atom: Atom, look: ChipLook) {
             } else {
                 chrome.panel
             };
+
             painter.rect(
                 rect,
                 HINT_RADIUS,
@@ -905,7 +928,9 @@ fn control(
     name: &str,
 ) -> Response {
     let response = ui.interact(rect, id, Sense::click());
+
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), name));
+
     let chrome = chrome(ui.ctx());
     let fill = if response.is_pointer_button_down_on() {
         chrome.control_pressed
@@ -914,10 +939,13 @@ fn control(
     } else {
         chrome.backdrop
     };
+
     if response.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
+
     let painter = ui.painter();
+
     painter.rect(
         rect,
         RADIUS,
@@ -925,6 +953,7 @@ fn control(
         Stroke::new(EDGE_WIDTH, chrome.control_edge),
         StrokeKind::Inside,
     );
+
     let glyph = painter.layout_no_wrap(glyph.to_owned(), icon(), chrome.text);
     let label = text.map(|text| painter.layout_no_wrap(text.to_owned(), emphasis(), chrome.text));
     let caret = trailing.map(|caret| painter.layout_no_wrap(caret.to_owned(), icon(), chrome.text));
@@ -935,17 +964,21 @@ fn control(
         .as_ref()
         .map_or(0.0, |caret| BUTTON_GAP + caret.size().x);
     let glyph_width = glyph.size().x;
+
     let left = rect.center().x - (glyph_width + label_width + caret_width) / 2.0;
     let centred = |height: f32| rect.center().y - height / 2.0;
     let label_left = left + glyph_width + BUTTON_GAP;
+
     painter.galley(Pos2::new(left, centred(glyph.size().y)), glyph, chrome.text);
     if let Some(label) = label {
         let label_top = centred(label.size().y);
+
         painter.galley(Pos2::new(label_left, label_top), label, chrome.text);
     }
     if let Some(caret) = caret {
         let caret_left = left + glyph_width + label_width + BUTTON_GAP;
         let caret_top = centred(caret.size().y);
+
         painter.galley(Pos2::new(caret_left, caret_top), caret, chrome.text);
     }
     if response.has_focus() {
@@ -996,12 +1029,14 @@ mod tests {
         for (name, chrome) in CHROMES {
             for below in below(&chrome) {
                 let backdrop = over(chrome.backdrop, below);
+
                 assert!(
                     contrast_ratio(chrome.text, backdrop) >= HIGHLY_READABLE,
                     "{name}"
                 );
                 for (what, color) in label_colours(&chrome) {
                     let ratio = contrast_ratio(color, backdrop);
+
                     assert!(
                         ratio >= READABLE,
                         "{name} {what} over {below:?} is {ratio:.2}:1"
@@ -1015,12 +1050,17 @@ mod tests {
     fn high_contrast_labels_sit_on_an_opaque_backdrop_holding_every_colour_to_seven_to_one() {
         for (name, chrome) in CHROMES {
             let backdrop = chrome.backdrop(Contrast::High);
+
             assert_eq!(backdrop.a(), 255);
+
             let text = ("text", chrome.text);
+
             for (what, color) in label_colours(&chrome).into_iter().chain([text]) {
                 let ratio = contrast_ratio(color, backdrop);
+
                 assert!(ratio >= HIGHLY_READABLE, "{name} {what} is {ratio:.2}:1");
             }
+
             assert_eq!(chrome.backdrop(Contrast::Standard), chrome.backdrop);
         }
     }
@@ -1044,11 +1084,13 @@ mod tests {
                 contrast_ratio(chrome.error, chrome.panel) >= READABLE,
                 "{name}"
             );
+
             for (what, fill) in [
                 ("hovered chip", chrome.control_hovered),
                 ("pressed chip", chrome.control_pressed),
             ] {
                 let ratio = contrast_ratio(chrome.text, over(fill, chrome.panel));
+
                 assert!(
                     ratio >= READABLE,
                     "{name} text on a {what} over the hint panel is {ratio:.2}:1"
@@ -1061,6 +1103,7 @@ mod tests {
                     ("pressed control", chrome.control_pressed),
                 ] {
                     let ratio = contrast_ratio(chrome.text, over(fill, below));
+
                     assert!(
                         ratio >= READABLE,
                         "{name} text on a {what} over {below:?} is {ratio:.2}:1"
@@ -1078,6 +1121,7 @@ mod tests {
                 let facing = CUBE_DIMMEST_LABELLED_FACING
                     + (1.0 - CUBE_DIMMEST_LABELLED_FACING) * f64::from(step) / f64::from(steps);
                 let ratio = contrast_ratio(chrome.cube_label, chrome.cube_face(facing));
+
                 assert!(
                     ratio >= READABLE,
                     "{name} facing {facing:.2} is {ratio:.2}:1"
@@ -1088,6 +1132,7 @@ mod tests {
                 ("pressed", chrome.cube_pressed),
             ] {
                 let ratio = contrast_ratio(chrome.cube_label_on_hover, fill);
+
                 assert!(ratio >= READABLE, "{name} the {what} cell is {ratio:.2}:1");
             }
         }

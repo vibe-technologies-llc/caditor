@@ -17,7 +17,7 @@ use crate::model::Waker;
 pub const PATIENCE: Duration = Duration::from_millis(400);
 const NAMED_CONFLICTS: usize = 2;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ConstraintTrial {
     pub feature: FeatureId,
     pub transaction: Transaction,
@@ -25,7 +25,7 @@ pub struct ConstraintTrial {
     pub intent: Intent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Intent {
     Added,
     Enabled,
@@ -55,7 +55,7 @@ pub fn editing_dimension(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
     #[error(
         "“{label}” was not applied, because “{running}” was still being checked against the sketch."
@@ -71,14 +71,14 @@ pub enum Refusal {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Verdict {
     Apply(Transaction),
     Refuse(Refusal),
     Outdated { label: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Outcome {
     Holds,
     Conflicts(Refusal),
@@ -119,6 +119,7 @@ impl Trials {
                 running: running.label.clone(),
             }));
         }
+
         let ConstraintTrial {
             feature,
             transaction,
@@ -128,6 +129,7 @@ impl Trials {
         let cancelled = Arc::new(AtomicBool::new(false));
         let (sender, outcome) = mpsc::channel();
         let started = Instant::now();
+
         let job = Job {
             document: document.clone(),
             transaction: transaction.clone(),
@@ -149,6 +151,7 @@ impl Trials {
                     wake();
                 }
             });
+
         if let Err(error) = spawned {
             log::warn!("could not start checking a new constraint: {error}");
             return Some(Verdict::Apply(transaction));
@@ -169,6 +172,7 @@ impl Trials {
         if self.held {
             return None;
         }
+
         let running = self.running.as_ref()?;
         let outcome = match running.outcome.try_recv() {
             Ok(outcome) => outcome,
@@ -189,6 +193,7 @@ impl Trials {
         if self.held {
             return None;
         }
+
         let running = self.running.as_ref()?;
         let outcome = running
             .outcome
@@ -199,6 +204,7 @@ impl Trials {
 
     fn finish(&mut self, outcome: Outcome, revision: u64) -> Option<Verdict> {
         let running = self.running.take()?;
+
         running.cancelled.store(true, Ordering::Relaxed);
         if running.revision != revision {
             return Some(Verdict::Outdated {
@@ -261,6 +267,7 @@ fn outcome(
     if document.apply(trial.transaction.clone()).is_err() {
         return Outcome::Unknown;
     }
+
     let Some(sketch) = document
         .feature(trial.feature)
         .and_then(|feature| feature.kind.sketch())

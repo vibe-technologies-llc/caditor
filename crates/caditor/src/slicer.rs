@@ -14,7 +14,7 @@ pub const PROGRAM_KEY: &str = "slicer.program";
 pub const FOLDER: &str = "slicer";
 const KEPT_FOR: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Slicer {
     OrcaSlicer,
 }
@@ -62,7 +62,7 @@ impl fmt::Display for Slicer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Launch {
     Program(PathBuf),
     #[cfg(unix)]
@@ -72,7 +72,7 @@ pub enum Launch {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Installation {
     pub slicer: Slicer,
     pub launch: Launch,
@@ -91,12 +91,14 @@ impl Installation {
         match &self.launch {
             Launch::Program(program) => {
                 let mut command = Command::new(program);
+
                 command.arg(file);
                 command
             }
             #[cfg(unix)]
             Launch::Flatpak { flatpak, app } => {
                 let mut command = Command::new(flatpak);
+
                 command
                     .args(["run", "--file-forwarding", app, "@@"])
                     .arg(file)
@@ -107,7 +109,7 @@ impl Installation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FindError {
     #[error(
         "{slicer} was not found. Install it, or name its program in Preferences › General › \
@@ -123,7 +125,7 @@ pub enum FindError {
     ChosenMissing { slicer: Slicer, path: PathBuf },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PrepareError {
     #[error(transparent)]
     Find(#[from] FindError),
@@ -135,7 +137,7 @@ pub enum PrepareError {
     Crashed { slicer: Slicer },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LaunchError {
     #[error(
         "caditor could not start {slicer} from “{}”, since it is not allowed to run as a \
@@ -151,7 +153,7 @@ pub enum LaunchError {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Prepared {
     pub installation: Installation,
     pub folder: PathBuf,
@@ -212,6 +214,7 @@ pub fn prepare(
     let installation = installation?;
     let slicer = installation.slicer;
     let folder = folder.ok_or(PrepareError::NoFolder { slicer })?;
+
     make_folder(folder).map_err(|kind| PrepareError::Folder { slicer, kind })?;
     Ok(Prepared {
         installation,
@@ -263,6 +266,7 @@ pub fn launch(installation: &Installation, file: &Path) -> Result<(), LaunchErro
         .stderr(Stdio::null())
         .spawn()
         .map_err(failed)?;
+
     let reaper = thread::Builder::new()
         .name("slicer".to_owned())
         .spawn(move || {
@@ -270,6 +274,7 @@ pub fn launch(installation: &Installation, file: &Path) -> Result<(), LaunchErro
                 log::debug!("the slicer could not be waited for: {error}");
             }
         });
+
     if let Err(error) = reaper {
         log::debug!("the slicer is left to finish by itself: {error}");
     }
@@ -323,6 +328,7 @@ mod os {
         let exported = std::iter::once(PathBuf::from(SYSTEM_FLATPAKS))
             .chain(home.map(|home| under(home, USER_FLATPAKS)))
             .any(|folder| folder.join(app).is_file());
+
         if !exported {
             return None;
         }
@@ -408,6 +414,7 @@ mod tests {
 
     fn program(dir: &Path, name: &str) -> PathBuf {
         let path = dir.join(name);
+
         fs::write(&path, b"").unwrap();
         #[cfg(unix)]
         {
@@ -447,8 +454,10 @@ mod tests {
     fn the_program_is_found_in_the_first_folder_on_the_path_holding_it() {
         let dir = TempDir::new().unwrap();
         let (first, second) = (dir.path().join("first"), dir.path().join("second"));
+
         fs::create_dir(&first).unwrap();
         fs::create_dir(&second).unwrap();
+
         let name = Slicer::OrcaSlicer.programs()[0];
         let expected = program(&second, name);
 
@@ -473,6 +482,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let appimage = program(dir.path(), "OrcaSlicer_Linux_AppImage_V2.3.0.AppImage");
         let locked = dir.path().join("orca-slicer-old.AppImage");
+
         fs::write(&locked, b"").unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
         program(dir.path(), "PrusaSlicer.AppImage");
@@ -499,6 +509,7 @@ mod tests {
 
         let prepared = prepare(Some(&folder), Ok(installation.clone())).unwrap();
         let kept = folder.join("plate.3mf");
+
         fs::write(&kept, b"3mf").unwrap();
         remove_old_files(&folder, SystemTime::now() + KEPT_FOR / 2);
 

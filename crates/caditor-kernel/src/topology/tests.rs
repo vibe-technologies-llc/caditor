@@ -51,6 +51,7 @@ fn fixtures_have_the_expected_topology() {
         ("cone", (2, 2, 2, 2, 1)),
         ("extruded spline", (4, 6, 4, 4, 1)),
     ];
+
     assert_eq!(solids, expected);
 }
 
@@ -71,6 +72,7 @@ fn seam_offsets(solid: &Solid) -> Vec<f64> {
             };
             let first = solid.coedge(*first).unwrap().pcurve();
             let second = solid.coedge(*second).unwrap().pcurve();
+
             let apart = second.uv_at(0.5 * (first.start_parameter() + first.end_parameter()))
                 - first.uv_at(0.5 * (first.start_parameter() + first.end_parameter()));
             apart.x.abs().max(apart.y.abs())
@@ -87,6 +89,7 @@ fn seam_coedges_sit_one_period_apart() {
         ("cone", fixtures::cone(3.0, 4.0)),
     ] {
         let offsets = seam_offsets(&solid);
+
         assert!(!offsets.is_empty(), "{name}");
         for offset in offsets {
             assert!((offset - TAU).abs() < 1e-9, "{name}: {offset}");
@@ -98,16 +101,19 @@ fn seam_coedges_sit_one_period_apart() {
 fn a_sphere_loop_closes_along_its_poles() {
     let solid = fixtures::sphere(4.0);
     let (_, face) = solid.faces().next().unwrap();
+
     let face_loop = solid.face_loop(face.outer_loop().unwrap()).unwrap();
     let pcurves: Vec<&Pcurve> = face_loop
         .coedges()
         .iter()
         .map(|id| solid.coedge(*id).unwrap().pcurve())
         .collect();
+
     assert_eq!(pcurves.len(), 2);
     for (current, next) in [(0, 1), (1, 0)] {
         let end = pcurves[current].end();
         let start = pcurves[next].start();
+
         assert!((end.y - start.y).abs() < 1e-12);
         assert!((end.y.abs() - PI / 2.0).abs() < 1e-12);
         assert!(((end.x - start.x).abs() - TAU).abs() < 1e-12);
@@ -118,10 +124,12 @@ fn a_sphere_loop_closes_along_its_poles() {
 fn a_seam_to_a_cone_apex_between_two_arcs_carries_the_rest_of_the_loop_round() {
     let (radius, height) = (2.0, 3.0);
     let mut fixture = Fixture::new();
+
     let near = fixture.vertex(Point3::new(radius, 0.0, 0.0));
     let far = fixture.vertex(Point3::new(-radius, 0.0, 0.0));
     let apex = fixture.vertex(Point3::new(0.0, 0.0, height));
     let rim = Circle::new(Plane::XY, radius).unwrap();
+
     let first_half = fixture.edge(rim, Interval::new(0.0, PI).unwrap(), near, far);
     let second_half = fixture.edge(rim, Interval::new(PI, TAU).unwrap(), far, near);
     let (seam, _) = fixture.line(far, apex);
@@ -144,6 +152,7 @@ fn a_seam_to_a_cone_apex_between_two_arcs_carries_the_rest_of_the_loop_round() {
             (first_half, Sense::Reversed),
         ]],
     );
+
     let solid = fixture.builder.build();
 
     assert!(solid.is_ok(), "{solid:?}");
@@ -155,6 +164,7 @@ fn a_missing_face_leaves_edges_used_once() {
         missing: Some(3),
         ..Tweak::default()
     });
+
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::EdgeUseCount { uses: 1, .. })
@@ -167,6 +177,7 @@ fn a_flipped_face_winds_its_loop_the_wrong_way() {
         flipped: Some(2),
         ..Tweak::default()
     });
+
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::LoopOrientation { .. })
@@ -193,6 +204,7 @@ fn a_loop_whose_coedges_do_not_chain_is_found() {
         scrambled: Some(1),
         ..Tweak::default()
     });
+
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::LoopBreak { .. })
@@ -202,17 +214,24 @@ fn a_loop_whose_coedges_do_not_chain_is_found() {
 #[test]
 fn an_open_loop_is_found() {
     let mut fixture = Fixture::new();
+
     let corners = fixtures::cuboid_vertices(&mut fixture, Point3::ZERO, Point3::ONE);
+
     for (index, face) in fixtures::CUBOID_FACES.iter().enumerate() {
         let cycle: Vec<VertexId> = face.iter().map(|corner| corners[*corner]).collect();
         let mut coedges = fixture.polygon_loop(&cycle);
+
         if index == 0 {
             coedges.pop();
         }
+
         let plane = fixture.polygon_plane(&cycle);
+
         fixture.face(PlaneSurface::new(plane).unwrap(), Sense::Same, &[coedges]);
     }
+
     let solid = fixture.build_unchecked();
+
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::EdgeUseCount { uses: 1, .. } | ValidationError::LoopBreak { .. })
@@ -225,6 +244,7 @@ fn an_inside_out_solid_is_a_void_without_an_outer_shell() {
         inverted: true,
         ..Tweak::default()
     });
+
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::VoidOutside(_))
@@ -234,6 +254,7 @@ fn an_inside_out_solid_is_a_void_without_an_outer_shell() {
 #[test]
 fn a_void_outside_its_outer_shell_is_found() {
     let mut fixture = Fixture::new();
+
     fixtures::add_cuboid(&mut fixture, Point3::ZERO, Point3::ONE, Tweak::default());
     fixture.next_shell();
     fixtures::add_cuboid(
@@ -245,7 +266,9 @@ fn a_void_outside_its_outer_shell_is_found() {
             ..Tweak::default()
         },
     );
+
     let solid = fixture.build_unchecked();
+
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::VoidOutside(_))
@@ -254,14 +277,17 @@ fn a_void_outside_its_outer_shell_is_found() {
 
 fn cuboids(boxes: &[(f64, f64, bool)]) -> Solid {
     let mut fixture = Fixture::new();
+
     for (index, (low, high, inverted)) in boxes.iter().enumerate() {
         if index > 0 {
             fixture.next_shell();
         }
+
         let tweak = Tweak {
             inverted: *inverted,
             ..Tweak::default()
         };
+
         fixtures::add_cuboid(
             &mut fixture,
             Point3::splat(*low),
@@ -274,11 +300,14 @@ fn cuboids(boxes: &[(f64, f64, bool)]) -> Solid {
 
 fn shifted_cuboids(offsets: &[Vector3]) -> Solid {
     let mut fixture = Fixture::new();
+
     for (index, offset) in offsets.iter().enumerate() {
         if index > 0 {
             fixture.next_shell();
         }
+
         let min = Point3::ZERO + *offset;
+
         fixtures::add_cuboid(&mut fixture, min, min + Vector3::ONE, Tweak::default());
     }
     fixture.build_unchecked()
@@ -293,6 +322,7 @@ fn add_sphere_at(fixture: &mut Fixture, center: Point3, radius: f64, sense: Sens
     let north = fixture.vertex(center + Vector3::Z * radius);
     let meridian = Plane::from_frame(center, Vector3::NEG_Y, Vector3::X).unwrap();
     let equator = Plane::from_frame(center, Vector3::Z, Vector3::X).unwrap();
+
     let seam = fixture.edge(
         Circle::new(meridian, radius).unwrap(),
         Interval::new(-FRAC_PI_2, FRAC_PI_2).unwrap(),
@@ -300,6 +330,7 @@ fn add_sphere_at(fixture: &mut Fixture, center: Point3, radius: f64, sense: Sens
         north,
     );
     let senses = [Sense::Same, Sense::Reversed].map(|turn| (seam, turn.combined(sense)));
+
     fixture.face(
         Sphere::new(equator, radius).unwrap(),
         sense,
@@ -309,6 +340,7 @@ fn add_sphere_at(fixture: &mut Fixture, center: Point3, radius: f64, sense: Sens
 
 fn ball_in_spherical_void(void: f64, ball: f64) -> Solid {
     let mut fixture = Fixture::new();
+
     fixtures::add_cuboid(
         &mut fixture,
         Point3::splat(-5.0),
@@ -325,6 +357,7 @@ fn ball_in_spherical_void(void: f64, ball: f64) -> Solid {
 #[test]
 fn a_lump_inside_another_is_found() {
     let solid = cuboids(&[(0.0, 4.0, false), (1.0, 2.0, false)]);
+
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::LumpsOverlap { .. })
@@ -339,6 +372,7 @@ fn overlapping_lumps_are_found() {
         Vector3::new(0.999, 0.999, 0.0),
     ] {
         let solid = shifted_cuboids(&[Vector3::ZERO, offset]);
+
         assert!(
             matches!(solid.validate(), Err(ValidationError::LumpsOverlap { .. })),
             "{offset}"
@@ -349,6 +383,7 @@ fn overlapping_lumps_are_found() {
 #[test]
 fn coincident_lumps_are_found() {
     let solid = shifted_cuboids(&[Vector3::ZERO, Vector3::ZERO]);
+
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::LumpsCoincide { .. })
@@ -369,6 +404,7 @@ fn lumps_apart_or_touching_validate() {
         Vector3::ONE,
     ] {
         let solid = shifted_cuboids(&[Vector3::ZERO, offset]);
+
         assert_eq!(solid.validate(), Ok(()), "{offset}");
     }
 }
@@ -397,8 +433,11 @@ fn lumps_join_into_one_solid_unless_they_overlap() {
 #[test]
 fn a_lump_inside_a_void_validates_and_one_in_the_wall_does_not() {
     let floating = cuboids(&[(0.0, 6.0, false), (1.0, 5.0, true), (2.0, 4.0, false)]);
+
     assert_eq!(floating.validate(), Ok(()));
+
     let in_the_wall = cuboids(&[(0.0, 6.0, false), (2.0, 4.0, true), (0.5, 1.5, false)]);
+
     assert!(matches!(
         in_the_wall.validate(),
         Err(ValidationError::LumpsOverlap { .. })
@@ -414,6 +453,7 @@ fn a_ball_in_a_spherical_void_validates_unless_it_reaches_the_wall() {
             "{ball}"
         );
     }
+
     assert!(matches!(
         ball_in_spherical_void(3.0, 3.5).validate(),
         Err(ValidationError::LumpsOverlap { .. })
@@ -427,7 +467,9 @@ fn overlapping_or_nested_voids_are_found() {
         [(1.0, 5.0, true), (2.0, 4.0, true)],
     ] {
         let mut boxes = vec![(0.0, 6.0, false)];
+
         boxes.extend(voids);
+
         assert!(matches!(
             cuboids(&boxes).validate(),
             Err(ValidationError::LumpsOverlap { .. })
@@ -438,12 +480,15 @@ fn overlapping_or_nested_voids_are_found() {
 #[test]
 fn a_dangling_edge_inside_a_flat_face_is_found() {
     let mut fixture = Fixture::new();
+
     let corners = fixtures::cuboid_vertices(&mut fixture, Point3::ZERO, Point3::splat(2.0));
     let middle = fixture.vertex(Point3::new(1.0, 1.0, 2.0));
+
     for (index, face) in fixtures::CUBOID_FACES.iter().enumerate() {
         let cycle: Vec<VertexId> = face.iter().map(|corner| corners[*corner]).collect();
         let plane = fixture.polygon_plane(&cycle);
         let mut coedges = Vec::new();
+
         if index == 1 {
             coedges.push(fixture.line(cycle[0], middle));
             coedges.push(fixture.line(middle, cycle[0]));
@@ -451,7 +496,9 @@ fn a_dangling_edge_inside_a_flat_face_is_found() {
         coedges.extend(fixture.polygon_loop(&cycle));
         fixture.face(PlaneSurface::new(plane).unwrap(), Sense::Same, &[coedges]);
     }
+
     let solid = fixture.build_unchecked();
+
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::DanglingEdge { .. })
@@ -461,14 +508,17 @@ fn a_dangling_edge_inside_a_flat_face_is_found() {
 #[test]
 fn builder_rejects_bad_edges() {
     let mut builder = SolidBuilder::new();
+
     assert_eq!(
         builder.vertex(Point3::new(f64::NAN, 0.0, 0.0)),
         Err(BuildError::NonFinitePoint)
     );
+
     let a = builder.vertex(Point3::ZERO).unwrap();
     let b = builder.vertex(Point3::X).unwrap();
     let c = builder.vertex(Point3::new(1e-9, 0.0, 0.0)).unwrap();
     let line = Line::through(Point3::ZERO, Point3::X).unwrap();
+
     assert!(matches!(
         builder.edge(line.into(), Interval::new(0.0, 0.5).unwrap(), a, b),
         Err(BuildError::VertexOffCurve { .. })
@@ -477,16 +527,21 @@ fn builder_rejects_bad_edges() {
         builder.edge(line.into(), Interval::new(0.0, 1e-9).unwrap(), a, c),
         Err(BuildError::ZeroLengthEdge)
     ));
+
     let circle = Circle::new(Plane::XY, 1.0).unwrap();
+
     assert_eq!(
         builder.edge(circle.into(), Interval::new(0.0, 7.0).unwrap(), b, b),
         Err(BuildError::IntervalOutsideDomain)
     );
+
     let missing = VertexId::from_index(99).unwrap();
+
     assert_eq!(
         builder.line_edge(a, missing),
         Err(BuildError::UnknownVertex(missing))
     );
+
     let shell = builder.shell().unwrap();
     let face = builder
         .face(
@@ -495,6 +550,7 @@ fn builder_rejects_bad_edges() {
             Sense::Same,
         )
         .unwrap();
+
     assert_eq!(builder.add_loop(face, &[]), Err(BuildError::EmptyLoop));
     assert!(matches!(builder.build(), Err(BuildError::Invalid(_))));
     assert!(matches!(
@@ -506,9 +562,12 @@ fn builder_rejects_bad_edges() {
 #[test]
 fn names_are_placeholders_until_set() {
     let mut fixture = Fixture::new();
+
     fixtures::add_cuboid(&mut fixture, Point3::ZERO, Point3::ONE, Tweak::default());
+
     let face = FaceId::from_index(0).unwrap();
     let edge = EdgeId::from_index(0).unwrap();
+
     fixture
         .builder
         .set_face_name(face, FaceName::from_digest(7))
@@ -521,7 +580,9 @@ fn names_are_placeholders_until_set() {
         .builder
         .set_edge_name(edge, EdgeName::from_digest(9))
         .unwrap();
+
     let solid = fixture.build();
+
     assert_eq!(solid.face(face).unwrap().name(), FaceName::from_digest(7));
     assert_eq!(
         solid.face(face).unwrap().origin(),
@@ -549,6 +610,7 @@ fn transformed_solids_stay_valid() {
     .then(&RigidTransform::translation(Vector3::new(50.0, -20.0, 5.0)).unwrap());
     for (name, solid) in fixtures::every_solid() {
         let moved = solid.transformed(&transform).unwrap();
+
         assert_eq!(moved.validate(), Ok(()), "{name}");
     }
 }
@@ -559,6 +621,7 @@ fn pcurves_check_their_samples_and_interpolate_by_edge_parameter() {
         parameter,
         uv: caditor_geometry::Point2::new(u, v),
     };
+
     assert_eq!(
         Pcurve::new(vec![sample(0.0, 0.0, 0.0)], 0.0),
         Err(PcurveError::TooFewSamples)
@@ -571,6 +634,7 @@ fn pcurves_check_their_samples_and_interpolate_by_edge_parameter() {
         Pcurve::new(vec![sample(0.0, 0.0, 0.0), sample(1.0, f64::NAN, 0.0)], 0.0),
         Err(PcurveError::NonFinite)
     );
+
     let backwards = Pcurve::new(
         vec![
             sample(2.0, 0.0, 0.0),
@@ -580,6 +644,7 @@ fn pcurves_check_their_samples_and_interpolate_by_edge_parameter() {
         1e-4,
     )
     .unwrap();
+
     assert_eq!(
         backwards.uv_at(1.5),
         caditor_geometry::Point2::new(0.5, 1.0)
@@ -590,7 +655,9 @@ fn pcurves_check_their_samples_and_interpolate_by_edge_parameter() {
     );
     assert_eq!(backwards.uv_at(-4.0), backwards.end());
     assert_eq!(backwards.uv_at(9.0), backwards.start());
+
     let moved = backwards.shifted(caditor_geometry::Vector2::new(TAU, 0.0));
+
     assert_eq!(moved.start().x, TAU);
     assert_eq!(moved.tolerance(), 1e-4);
 }
@@ -614,6 +681,7 @@ fn pcurves_on_curved_faces_stay_close_to_their_edges() {
     for (name, solid) in fixtures::every_solid() {
         for (_, coedge) in solid.coedges() {
             let pcurve = coedge.pcurve();
+
             assert!(pcurve.samples().len() >= 2, "{name}");
             assert!(
                 pcurve.samples().len() < 5000,
@@ -698,6 +766,7 @@ fn a_tilted_torus_is_bounded_by_its_extremes_between_samples() {
 #[test]
 fn overlapping_lumps_cross_and_valid_solids_do_not() {
     let mut fixture = crate::fixtures::Fixture::new();
+
     crate::fixtures::add_cuboid(
         &mut fixture,
         Point3::ZERO,
@@ -711,12 +780,14 @@ fn overlapping_lumps_cross_and_valid_solids_do_not() {
         Point3::splat(6.0),
         crate::fixtures::Tweak::default(),
     );
+
     let overlapping = fixture.build_unchecked();
     let crossing = overlapping
         .find_crossing()
         .unwrap()
         .crossing()
         .expect("the lumps cross");
+
     assert_ne!(crossing.faces[0], crossing.faces[1]);
     assert!(overlapping.classify_point(crossing.point) != crate::PointClass::Outside);
 
@@ -732,6 +803,7 @@ fn overlapping_lumps_cross_and_valid_solids_do_not() {
 #[test]
 fn a_face_folded_onto_its_neighbour_crosses_it() {
     let mut fixture = Fixture::new();
+
     let corners = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(4.0, 0.0, 0.0),
@@ -750,7 +822,9 @@ fn a_face_folded_onto_its_neighbour_crosses_it() {
         .crossing()
         .expect("the flap lies on the base");
     let mut faces = crossing.faces;
+
     faces.sort();
+
     assert_eq!(faces, [base, flap]);
     assert!(crossing.point.z.abs() < 1e-9 && crossing.point.y > 1e-3);
 }
@@ -777,6 +851,7 @@ fn a_curved_flap_passing_through_its_neighbour_crosses_it() {
         Point3::new(-2.0, -1.0, 0.0),
     ]
     .map(|point| fixture.vertex(point));
+
     let base = fixture.polygon(
         &[
             shared[0], shared[1], outline[0], outline[1], outline[2], outline[3],
@@ -793,10 +868,12 @@ fn a_curved_flap_passing_through_its_neighbour_crosses_it() {
     });
     let [first_arc, second_arc] = arcs;
     let range = Interval::new(start, end).unwrap();
+
     let near_arc = fixture.edge(first_arc, range, far[0], shared[0]);
     let far_arc = fixture.edge(second_arc, range, far[1], shared[1]);
     let back = fixture.line(shared[1], shared[0]);
     let across = fixture.line(far[0], far[1]);
+
     let flap = fixture.face(
         Cylinder::new(
             Plane::from_frame(Point3::new(0.0, 1.0, 1.0), Vector3::X, Vector3::Y).unwrap(),
@@ -818,7 +895,9 @@ fn a_curved_flap_passing_through_its_neighbour_crosses_it() {
         .crossing()
         .expect("the flap passes through the base");
     let mut faces = crossing.faces;
+
     faces.sort();
+
     assert_eq!(faces, [base, flap]);
     assert!(
         crossing.point.z.abs() < 1e-6 && (crossing.point.y - 2.0).abs() < 1e-6,
@@ -829,6 +908,7 @@ fn a_curved_flap_passing_through_its_neighbour_crosses_it() {
 #[test]
 fn a_hole_crossing_its_outer_loop_crosses_its_own_face() {
     let mut fixture = Fixture::new();
+
     let outer = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(4.0, 0.0, 0.0),
@@ -844,6 +924,7 @@ fn a_hole_crossing_its_outer_loop_crosses_its_own_face() {
     ]
     .map(|point| fixture.vertex(point));
     let hole_loop = fixture.polygon_loop(&hole);
+
     let plate = fixture.polygon(&outer, &[hole_loop]);
     let solid = fixture.build_unchecked();
     let crossing = solid
@@ -851,6 +932,7 @@ fn a_hole_crossing_its_outer_loop_crosses_its_own_face() {
         .unwrap()
         .crossing()
         .expect("the hole crosses the outer loop");
+
     assert_eq!(crossing.faces, [plate, plate]);
     assert!((crossing.point.x - 4.0).abs() < 1e-9, "{crossing:?}");
 }
@@ -879,6 +961,7 @@ fn blended_solids_do_not_cross() {
     ] {
         let edges: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
         let blended = crate::blend::blend(&solid, &edges, shape, 7).unwrap();
+
         assert_eq!(
             blended.find_crossing().unwrap(),
             CrossingCheck::Clear,
@@ -893,6 +976,7 @@ fn imported_solids_name_faces_by_position_and_edges_uniquely() {
     let right = fixtures::cuboid(Vector3::new(20.0, 20.0, 20.0))
         .transformed(&RigidTransform::translation(Vector3::new(0.0, -10.0, -5.0)).unwrap())
         .unwrap();
+
     let half_drum = crate::boolean::boolean(
         &drum,
         &right,
@@ -904,8 +988,10 @@ fn imported_solids_name_faces_by_position_and_edges_uniquely() {
         .chain([("half drum", half_drum)])
     {
         let imported = solid.clone().imported(9);
+
         for (index, (_, face)) in imported.faces().enumerate() {
             let index = u32::try_from(index).unwrap();
+
             assert_eq!(face.name(), FaceName::imported(9, index), "{name}");
             assert_eq!(
                 face.origin(),
@@ -916,8 +1002,10 @@ fn imported_solids_name_faces_by_position_and_edges_uniquely() {
                 "{name}"
             );
         }
+
         let names: Vec<EdgeName> = imported.edges().map(|(_, edge)| edge.name()).collect();
         let distinct: BTreeSet<EdgeName> = names.iter().copied().collect();
+
         assert_eq!(distinct.len(), names.len(), "{name}");
 
         let moved = solid
@@ -925,6 +1013,7 @@ fn imported_solids_name_faces_by_position_and_edges_uniquely() {
             .unwrap()
             .imported(9);
         let again: Vec<EdgeName> = moved.edges().map(|(_, edge)| edge.name()).collect();
+
         assert_eq!(again, names, "{name}");
     }
 }
@@ -968,10 +1057,12 @@ fn polygonal_prism(sides: usize) -> Solid {
     let top = ring(&mut fixture, 10.0);
 
     let reversed: Vec<VertexId> = bottom.iter().rev().copied().collect();
+
     fixture.polygon(&reversed, &[]);
     fixture.polygon(&top, &[]);
     for index in 0..sides {
         let next = (index + 1) % sides;
+
         fixture.polygon(&[bottom[index], bottom[next], top[next], top[index]], &[]);
     }
     fixture.build_unchecked()
@@ -1043,6 +1134,7 @@ fn a_boxed_surface_counts_towards_the_bytes_a_face_owns() {
 #[test]
 fn a_hollow_lump_keeps_its_void_when_the_lumps_are_taken_apart() {
     let mut fixture = Fixture::new();
+
     fixtures::add_cuboid(
         &mut fixture,
         Point3::ZERO,
@@ -1066,6 +1158,7 @@ fn a_hollow_lump_keeps_its_void_when_the_lumps_are_taken_apart() {
         Point3::new(23.0, 3.0, 3.0),
         Tweak::default(),
     );
+
     let solid = fixture.build();
 
     let lumps = solid.lumps().unwrap();
@@ -1087,6 +1180,7 @@ fn a_solid_of_one_shell_is_its_own_lump() {
 
 fn block_beside_a_hollow_ball(ball_void: Point3, block_void: Option<Point3>) -> Fixture {
     let mut fixture = Fixture::new();
+
     fixtures::add_cuboid(
         &mut fixture,
         Point3::new(8.0, -3.0, -3.0),
@@ -1158,6 +1252,7 @@ fn a_void_in_a_lump_floating_in_a_void_goes_with_the_floating_lump() {
 #[test]
 fn a_void_no_lump_holds_is_refused() {
     let mut fixture = block_beside_a_hollow_ball(Point3::new(0.0, 2.0, 0.0), None);
+
     fixture.next_shell();
     add_sphere_at(
         &mut fixture,
@@ -1165,6 +1260,7 @@ fn a_void_no_lump_holds_is_refused() {
         1.0,
         Sense::Reversed,
     );
+
     let solid = fixture.build_unchecked();
 
     let refused = solid.lumps();

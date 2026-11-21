@@ -10,6 +10,7 @@ impl Files {
         let Some(folder) = self.themes.folder().map(std::path::Path::to_path_buf) else {
             return;
         };
+
         self.spawn(
             move || {
                 let (themes, refused) = themes::sort(caditor_file::read_themes(&folder));

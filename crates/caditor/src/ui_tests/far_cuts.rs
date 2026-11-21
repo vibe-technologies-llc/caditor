@@ -7,6 +7,7 @@ use crate::solid_panel::CUT_THROUGH_ALL;
 
 fn open_cut_on_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
     let (plate, top) = extruded_plate(harness);
+
     harness.select([top]);
     harness.click("New sketch");
     harness.settle();
@@ -18,6 +19,7 @@ fn open_cut_on_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
     harness.settle();
     harness.click("Extrude");
     harness.settle();
+
     let cut = harness.workspace.editing.solid().expect("the cut is open");
     (plate, cut)
 }
@@ -25,12 +27,14 @@ fn open_cut_on_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
 #[test]
 fn a_cut_typed_far_past_the_body_still_cuts_through_it() {
     let mut harness = Harness::new();
+
     let (plate, cut) = open_cut_on_plate(&mut harness);
     let field = Id::unique(("solid-field", "distance", cut));
 
     for distance in ["20 mm", "1000 mm", "100000 mm", "999999 mm"] {
         harness.type_into_field(field, distance);
         harness.settle();
+
         let scene = harness.built_with_overlays(1);
 
         assert!(
@@ -46,6 +50,7 @@ fn a_cut_typed_far_past_the_body_still_cuts_through_it() {
 #[test]
 fn a_cut_being_typed_far_past_the_body_is_previewed_cutting_through_it() {
     let mut harness = Harness::new();
+
     let (plate, cut) = open_cut_on_plate(&mut harness);
     let field = Id::unique(("solid-field", "distance", cut));
 
@@ -58,24 +63,31 @@ fn a_cut_being_typed_far_past_the_body_is_previewed_cutting_through_it() {
 
     harness.key(Key::Enter, Modifiers::NONE);
     harness.settle();
+
     assert!((harness.body_volume(plate) - 14_000.0).abs() < 1.0);
 }
 
 #[test]
 fn a_cut_typed_far_past_the_body_offers_through_all() {
     let mut harness = Harness::new();
+
     let (plate, cut) = open_cut_on_plate(&mut harness);
     let field = Id::unique(("solid-field", "distance", cut));
 
     harness.type_into_field(field, "20 mm");
     harness.settle();
+
     let near = harness.shows(CUT_THROUGH_ALL);
+
     harness.type_into_field(field, "100000 mm");
     harness.settle();
+
     let far = harness.shows(CUT_THROUGH_ALL);
+
     harness.let_animations_finish();
     harness.click(CUT_THROUGH_ALL);
     harness.settle();
+
     let end = match &harness.document().feature(cut).unwrap().kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.extent.clone(),
         other => panic!("{other:?}"),

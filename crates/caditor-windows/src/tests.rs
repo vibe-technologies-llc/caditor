@@ -21,6 +21,7 @@ fn a_replaced_file_takes_the_new_contents_and_keeps_its_attributes() {
     let dir = TempDir::new().unwrap();
     let target = dir.path().join("model.caditor");
     let replacement = dir.path().join("model.tmp");
+
     OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -30,11 +31,13 @@ fn a_replaced_file_takes_the_new_contents_and_keeps_its_attributes() {
         .write_all(b"old")
         .unwrap();
     fs::write(&replacement, "new").unwrap();
+
     let backup = dir.path().join("model.backup");
 
     replace_file(&replacement, &target, &backup).unwrap();
 
     let attributes = fs::metadata(&target).unwrap().file_attributes();
+
     assert_eq!(fs::read_to_string(&target).unwrap(), "new");
     assert_eq!(fs::read_to_string(&backup).unwrap(), "old");
     assert_ne!(attributes & HIDDEN_ATTRIBUTE, 0);
@@ -46,7 +49,9 @@ fn replacing_a_missing_file_fails_and_leaves_the_replacement() {
     let dir = TempDir::new().unwrap();
     let target = dir.path().join("missing.caditor");
     let replacement = dir.path().join("model.tmp");
+
     fs::write(&replacement, "new").unwrap();
+
     let backup = dir.path().join("missing.backup");
 
     assert!(replace_file(&replacement, &target, &backup).is_err());
@@ -60,6 +65,7 @@ fn a_durable_move_replaces_what_is_there() {
     let dir = TempDir::new().unwrap();
     let from = dir.path().join("from");
     let to = dir.path().join("to");
+
     fs::write(&from, "moved").unwrap();
     fs::write(&to, "old").unwrap();
 
@@ -74,12 +80,15 @@ fn a_file_keeps_its_identity_through_a_rename_and_differs_from_others() {
     let dir = TempDir::new().unwrap();
     let first = dir.path().join("first");
     let second = dir.path().join("second");
+
     fs::write(&first, "a").unwrap();
     fs::write(&second, "b").unwrap();
+
     let open = fs::File::open(&first).unwrap();
     let renamed = dir.path().join("renamed");
 
     let before = FileId::of(&open).unwrap();
+
     fs::rename(&first, &renamed).unwrap();
 
     assert_eq!(FileId::of_path(&renamed).unwrap(), before);
@@ -141,7 +150,9 @@ fn verbatim_prefixes_are_dropped_from_final_paths() {
 fn the_final_path_of_a_file_is_absolute_without_a_verbatim_prefix_and_in_its_real_case() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("Model.caditor");
+
     fs::write(&file, "a").unwrap();
+
     let shouted = dir.path().join("MODEL.CADITOR");
 
     let resolved = final_path(&shouted).unwrap();
@@ -156,13 +167,16 @@ fn the_final_path_of_a_file_is_absolute_without_a_verbatim_prefix_and_in_its_rea
 fn a_volume_without_block_cloning_reports_an_error_and_one_with_it_a_cluster_size() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("a");
+
     fs::write(&file, vec![1u8; 3 * 65536]).unwrap();
+
     let open = fs::File::open(&file).unwrap();
 
     match cluster_size(&open) {
         Ok(size) => assert!(size.is_power_of_two() && size >= 4096),
         Err(_) => {
             let target = tempfile::tempfile().unwrap();
+
             assert!(duplicate_extents(&open, &target, 0, 0, 65536).is_err());
         }
     }

@@ -79,7 +79,7 @@ const NOTE_EXPLANATION: &str = "What the parameter is for, where its value comes
                                 to keep in mind when changing it. It shows when hovering the \
                                 note icon beside its value. Leave it empty to remove the note.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("Click or tab into a parameter's name or expression in the Parameters section first")]
 pub struct NoParameterChosen;
 
@@ -89,7 +89,7 @@ impl Reason for NoParameterChosen {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum MoveError {
     #[error(transparent)]
     Unchosen(#[from] NoParameterChosen),
@@ -105,7 +105,7 @@ impl Reason for MoveError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum UnusedError {
     #[error("The model has no parameters")]
     NoParameters,
@@ -121,7 +121,7 @@ impl Reason for UnusedError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 enum ValueEditError {
     #[error(
         "{parameter} is the reading of {measurement}, taken again on every recompute; change the \
@@ -139,6 +139,7 @@ enum ValueEditError {
 
 pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
     let document = model.document();
+
     if document.parameters().is_empty() {
         widgets::empty_state(ui, icons::PARAMETERS, NONE_YET, |ui| {
             let button = widgets::small_button(ui, icons::ADD, ADD_LABEL);
@@ -148,6 +149,7 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         });
         return;
     }
+
     let query = filter_field(ui, state, document.parameters().len());
     let widths = FieldWidths::fitting(
         ui.available_width(),
@@ -159,6 +161,7 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         .iter()
         .filter(|parameter| kept_by_filter(ui, document, state, parameter, &query))
         .partition(|parameter| parameter.is_model_parameter());
+
     if own.is_empty() && named.is_empty() {
         widgets::empty_state(ui, icons::SEARCH, NO_MATCH, |ui| {
             let button = widgets::small_button(ui, icons::CLOSE, CLEAR_FILTER_LABEL);
@@ -184,11 +187,13 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
 fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
     let id = Id::unique(FILTER_FIELD);
     let focused = ui.memory(|memory| memory.has_focus(id));
+
     if count < FILTER_FROM_PARAMETERS && state.parameter_filter.is_empty() && !focused {
         return String::new();
     }
     ui.horizontal(|ui| {
         let muted = appearance::tokens(ui).text_muted;
+
         widgets::icon_label(ui, icons::SEARCH, muted);
         widgets::text_field(ui, |ui| {
             widgets::spoken_as(
@@ -242,14 +247,17 @@ impl UnusedDeletion {
         if document.parameters().is_empty() {
             return Err(UnusedError::NoParameters);
         }
+
         let unused: Vec<&Parameter> = document
             .parameters()
             .iter()
             .filter(|parameter| !used.contains(&parameter.id()))
             .collect();
+
         if unused.is_empty() {
             return Err(UnusedError::AllUsed);
         }
+
         let names: Vec<String> = unused
             .iter()
             .map(|parameter| parameter.name.clone())
@@ -271,6 +279,7 @@ impl UnusedDeletion {
             ))));
             return;
         }
+
         let count = self.names.len();
         let named: Vec<&str> = self
             .names
@@ -289,6 +298,7 @@ impl UnusedDeletion {
         } else {
             "the unused parameters"
         };
+
         actions.push(Action::Apply(self.transaction));
         actions.push(Action::Inform(Notice::info(format!(
             "Deleted {what} {listed}. Undo brings them back."
@@ -314,7 +324,9 @@ fn delete_unused_button(
     let Ok(deletion) = UnusedDeletion::of(document, state.parameter_uses.of(model)) else {
         return;
     };
+
     ui.add_space(SPACE_S);
+
     let label = delete_unused_label(deletion.names.len());
     let button = widgets::small_button(ui, icons::command(Command::DeleteUnusedParameters), &label);
     if ui.add(button).on_hover_text(DELETE_UNUSED_HOVER).clicked() {
@@ -358,6 +370,7 @@ fn cell<R>(
         None => builder,
     };
     let scope = ui.scope_builder(builder, add);
+
     ui.ctx().accesskit_node_builder(scope.response.id, |node| {
         node.set_row_index(place.row);
         node.set_column_index(place.column);
@@ -369,6 +382,7 @@ fn first_cell<R>(ui: &mut Ui, kind: Kind, row: usize, add: impl FnOnce(&mut Ui) 
     let scope = ui.scope_builder(UiBuilder::new().accessibility_role(Role::Row), |ui| {
         cell(ui, kind, None, Place { row, column: 0 }, add).inner
     });
+
     ui.ctx().accesskit_node_builder(scope.response.id, |node| {
         node.set_row_index(row);
     });
@@ -395,15 +409,18 @@ fn table(
                 .spacing(SPACING)
                 .show(ui, |ui| {
                     let mut row_index = 0;
+
                     let (_, header) =
                         first_cell(ui, Kind::Header(FIRST_CAPTION), row_index, |ui| {
                             widgets::column_caption(ui, FIRST_CAPTION);
                         });
+
                     for (column, caption) in OTHER_CAPTIONS.into_iter().enumerate() {
                         let place = Place {
                             row: row_index,
                             column: column + 1,
                         };
+
                         cell(ui, Kind::Header(caption), Some(header), place, |ui| {
                             widgets::column_caption(ui, caption);
                         });
@@ -411,7 +428,9 @@ fn table(
                     ui.end_row();
                     for parameter in parameters {
                         row_index += 1;
+
                         let error = row(ui, model, state, actions, parameter, (widths, row_index));
+
                         ui.end_row();
                         if let Some(owner) = &parameter.owner {
                             row_index += 1;
@@ -433,6 +452,7 @@ fn table(
                 .inner
         },
     );
+
     ui.ctx().accesskit_node_builder(scope.response.id, |node| {
         node.set_row_count(scope.inner);
         node.set_column_count(COLUMNS);
@@ -447,6 +467,7 @@ fn refusal_row(ui: &mut Ui, text: &str, row_index: usize) {
         row: row_index,
         column: 1,
     };
+
     cell(ui, Kind::Data, Some(row), place, |ui| {
         widgets::error_text(ui, text);
     });
@@ -481,6 +502,7 @@ fn owner_row(
                     "{}. {} is kept as a value of its own.",
                     OWNER_GONE, parameter.name
                 );
+
                 ui.add(Label::new(widgets::muted(OWNER_GONE, ui)).truncate())
                     .on_hover_text(hover);
             }
@@ -491,6 +513,7 @@ fn owner_row(
 
 fn go_to_owner(state: &mut PanelState, owner: &ParameterOwner) {
     let feature = owner.feature();
+
     state.choose_only(feature);
     state.reveal(feature);
     state.request_focus(match *owner {
@@ -502,7 +525,7 @@ fn go_to_owner(state: &mut PanelState, owner: &ParameterOwner) {
     });
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Content {
     longest_name: f32,
     widest_expression: f32,
@@ -520,6 +543,7 @@ impl Content {
             widest_expression: 0.0,
             widest_value: 0.0,
         };
+
         for parameter in document.parameters() {
             let id = parameter.id();
             let name = text_width(ui, RichText::new(&parameter.name));
@@ -533,6 +557,7 @@ impl Content {
                 ui,
                 RichText::new(document.expression_text(&parameter.expression)),
             );
+
             content.longest_name = content.longest_name.max(name + field::text_inset());
             content.widest_expression = content
                 .widest_expression
@@ -555,7 +580,7 @@ fn text_width(ui: &Ui, text: RichText) -> f32 {
         .x
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct FieldWidths {
     name: f32,
     expression: f32,
@@ -566,10 +591,12 @@ impl FieldWidths {
     fn fitting(available: f32, delete: f32, content: Content) -> Self {
         let value = content.widest_value.clamp(MIN_VALUE_WIDTH, VALUE_WIDTH);
         let gaps = (COLUMNS - 1) as f32 * SPACING.x;
+
         let fields = available - value - delete - gaps - 2.0 * FIELD_MARGIN - SLACK;
         let expression_floor = content
             .widest_expression
             .clamp(LEAST_EXPRESSION_WIDTH, MIN_EXPRESSION_WIDTH);
+
         let cap = (fields * LONGEST_NAME_SHARE)
             .min(fields - expression_floor)
             .max(fields * NAME_SHARE);
@@ -590,10 +617,13 @@ fn ellipsize_clipped_name(ui: &Ui, response: &egui::Response, name: &str) -> boo
     if ui.memory(|memory| memory.has_focus(response.id)) {
         return false;
     }
+
     let inner = response.rect.width() - field::text_margins();
+
     if text_width(ui, RichText::new(name)) <= inner {
         return false;
     }
+
     let ellipsis = text_width(ui, RichText::new(ELLIPSIS));
     let covered = Rect::from_min_max(
         egui::pos2(
@@ -603,6 +633,7 @@ fn ellipsize_clipped_name(ui: &Ui, response: &egui::Response, name: &str) -> boo
         response.rect.right_bottom() - vec2(1.0, 1.0),
     );
     let painter = ui.painter();
+
     painter.rect_filled(covered, 0.0, ui.visuals().extreme_bg_color);
     painter.text(
         covered.right_center() - vec2(field::text_inset() / 2.0, 0.0),
@@ -618,6 +649,7 @@ pub fn add(model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
     let expression = model
         .length_unit()
         .default_length(NEW_PARAMETER_MILLIMETRES);
+
     add_with(model, state, actions, NEW_PARAMETER_NAME, expression);
 }
 
@@ -631,7 +663,9 @@ pub fn add_with(
     let document = model.document();
     let name = unused_name(document, stem);
     let mut transaction = document.transaction(format!("Add {name}"));
+
     let id = transaction.add_parameter(name.clone(), expression);
+
     actions.push(Action::Apply(transaction.finish()));
     state.request_focus(Focus::ParameterName(id));
     name
@@ -682,7 +716,9 @@ fn row(
         (Some(_), Some(Ok(value))) => model.units().show(*value),
         _ => document.expression_text(&parameter.expression),
     };
+
     completion::editing_parameter(ui, value_focus.field_id(), id);
+
     let expression = cell(ui, Kind::Data, Some(row_id), place(1), |ui| {
         field::value_field(
             ui,
@@ -697,6 +733,7 @@ fn row(
                         measurement: measurement.clone(),
                     });
                 }
+
                 let current = match model.parameters().get(id) {
                     Some(Ok(value)) => Some(value.dimension),
                     _ => None,
@@ -719,6 +756,7 @@ fn row(
         )
     })
     .inner;
+
     if ellipsize_clipped_name(ui, &name.response, &parameter.name) {
         name.response.clone().on_hover_text(&parameter.name);
     }
@@ -732,6 +770,7 @@ fn row(
     }
 
     let used = state.parameter_uses.of(model).contains(&id);
+
     for field in [&name.response, &expression.response] {
         field.context_menu(|ui| {
             widgets::fitted_menu(ui, |ui| {
@@ -739,6 +778,7 @@ fn row(
             });
         });
     }
+
     let insertable = insertable_into_focused(ui, document, id);
     let value_cell = cell(ui, Kind::Data, Some(row_id), place(2), |ui| {
         ui.set_width(widths.value);
@@ -746,10 +786,13 @@ fn row(
             Some(Ok(value)) => {
                 if !used {
                     let color = appearance::tokens(ui).text_muted;
+
                     widgets::described_icon(ui, icons::UNUSED, color, &unused(&parameter.name));
                 }
                 note_icon(ui, parameter);
+
                 let shown = model.units().show(*value);
+
                 ui.add(Label::new(widgets::muted(&shown, ui)).truncate())
                     .on_hover_ui(|ui| {
                         ui.label(&shown);
@@ -761,7 +804,9 @@ fn row(
             }
             Some(Err(error)) => {
                 note_icon(ui, parameter);
+
                 let color = ui.visuals().error_fg_color;
+
                 widgets::described_icon(
                     ui,
                     icons::FAILED,
@@ -775,14 +820,17 @@ fn row(
             None => {}
         });
     });
+
     if insertable && ui.rect_contains_pointer(value_cell.response.rect) {
         completion::offer_insertion(ui.ctx(), parameter.name.clone());
     }
+
     let band = Rect::from_x_y_ranges(
         ui.clip_rect().x_range(),
         name.response.rect.expand(SPACING.y / 2.0).y_range(),
     );
     let hovered = ui.rect_contains_pointer(band);
+
     cell(ui, Kind::Data, Some(row_id), place(3), |ui| {
         delete_button(ui, document, actions, parameter, hovered, used);
     });
@@ -809,7 +857,9 @@ fn note_icon(ui: &mut Ui, parameter: &Parameter) {
     if parameter.note.is_empty() {
         return;
     }
+
     let color = appearance::tokens(ui).text_muted;
+
     widgets::described_icon(
         ui,
         icons::NOTE,
@@ -834,11 +884,13 @@ fn row_menu(
             actions.push(Action::Apply(transaction));
         }
     }
+
     let note_label = if parameter.note.is_empty() {
         "Add a note…"
     } else {
         "Edit the note…"
     };
+
     if widgets::menu_item(ui, icons::EDIT_NOTE, note_label, None).clicked() {
         state.noting = Some(NoteDraft::of(parameter));
         ui.close();
@@ -847,6 +899,7 @@ fn row_menu(
         users_menu(ui, document, state, actions, parameter);
     }
     ui.separator();
+
     let deletion = Deletion::of(document, parameter, used);
     let response = widgets::menu_item(ui, icons::DELETE, &deletion.label(), None)
         .on_hover_text(deletion.hint(document));
@@ -864,6 +917,7 @@ fn users_menu(
     parameter: &Parameter,
 ) {
     let users = document.parameter_user_ids(parameter.id());
+
     ui.separator();
     ui.label(widgets::muted(USED_BY, ui));
     for user in users.iter().take(MAX_LISTED_USERS) {
@@ -892,6 +946,7 @@ fn users_menu(
                 None => continue,
             },
         };
+
         let response = widgets::menu_item(ui, glyph, &name, None)
             .on_hover_text(format!("Go to {name}, which uses {}", parameter.name));
         if response.clicked() {
@@ -909,6 +964,7 @@ fn users_menu(
             ui.close();
         }
     }
+
     let more = users.len().saturating_sub(MAX_LISTED_USERS);
     if more > 0 {
         ui.label(widgets::muted(format!("and {more} more"), ui));
@@ -931,13 +987,14 @@ fn menu_entry<T, E: Display>(
         Ok(_) => response,
     };
     let clicked = response.clicked();
+
     if clicked {
         ui.close();
     }
     clicked
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Direction {
     Up,
     Down,
@@ -980,6 +1037,7 @@ impl Direction {
             .filter(|(_, other)| other.is_model_parameter() == parameter.is_model_parameter())
             .map(|(index, _)| index)
             .collect();
+
         let place = group
             .iter()
             .position(|index| document.parameters().get(*index).map(Parameter::id) == Some(id))
@@ -993,6 +1051,7 @@ impl Direction {
             Self::Up => place.checked_sub(1).and_then(|above| group.get(above)),
             Self::Down => group.get(place + 1),
         };
+
         let target = *target.ok_or_else(|| {
             let name = parameter.name.clone();
             match self {
@@ -1027,6 +1086,7 @@ enum Deletion {
 impl Deletion {
     fn of(document: &Document, parameter: &Parameter, used: bool) -> Self {
         let name = parameter.name.clone();
+
         if !used {
             return Self::Unused {
                 transaction: delete_transaction(parameter),
@@ -1098,6 +1158,7 @@ impl Deletion {
         {
             let count = document.parameter_users(*id).len();
             let uses = if count == 1 { "use" } else { "uses" };
+
             actions.push(Action::Inform(Notice::info(format!(
                 "Deleted {name} and wrote {expression} into its {count} {uses}. Undo brings it back."
             ))));
@@ -1105,7 +1166,7 @@ impl Deletion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NoteDraft {
     parameter: ParameterId,
     text: String,
@@ -1136,9 +1197,11 @@ pub fn note_dialog(
         return;
     };
     let title = format!("Note on {}", parameter.name);
+
     let response = widgets::dialog(ctx, "parameter-note", &title, DialogWidth::Medium, |ui| {
         ui.label(widgets::muted(NOTE_EXPLANATION, ui));
         ui.add_space(SPACE_S);
+
         let field = widgets::dialog_body(ui, |ui| {
             widgets::text_field(ui, |ui| {
                 ui.add(
@@ -1150,6 +1213,7 @@ pub fn note_dialog(
                 )
             })
         });
+
         widgets::named(field.clone(), &title);
         if std::mem::take(&mut draft.focus_pending) {
             field.request_focus();
@@ -1167,6 +1231,7 @@ pub fn note_dialog(
         })
     });
     let closed = response.should_close().then_some(false);
+
     let Some(save) = response.inner.or(closed) else {
         return;
     };
@@ -1181,6 +1246,7 @@ pub fn note_dialog(
         id: parameter.id(),
         note,
     };
+
     state.noting = None;
     if save && changed {
         actions.push(Action::Apply(Transaction::single(label, edit)));
@@ -1223,9 +1289,11 @@ pub fn commands(
     if commands.available(Command::AddParameter) {
         add(model, state, actions);
     }
+
     let document = model.document();
     let chosen = state.parameter.and_then(|id| document.parameter(id));
     let detail = chosen.map(|parameter| parameter.name.clone());
+
     for direction in Direction::BOTH {
         let moving = chosen.map_or_else(
             || Err(NoParameterChosen.into()),
@@ -1237,20 +1305,26 @@ pub fn commands(
             actions.push(Action::Apply(moving));
         }
     }
+
     let noting = chosen.ok_or(NoParameterChosen);
+
     if commands.invoke_detailed(Command::ParameterNote, detail.clone(), &noting)
         && let Ok(parameter) = noting
     {
         state.noting = Some(NoteDraft::of(parameter));
     }
+
     let delete = chosen.ok_or(NoParameterChosen);
+
     if commands.invoke_detailed(Command::DeleteParameter, detail, &delete)
         && let Ok(parameter) = delete
     {
         let used = state.parameter_uses.of(model).contains(&parameter.id());
+
         state.parameter = None;
         Deletion::of(document, parameter, used).perform(document, actions);
     }
+
     let unused = UnusedDeletion::of(document, state.parameter_uses.of(model));
     let detail = unused
         .as_ref()
@@ -1270,7 +1344,7 @@ fn delete_transaction(parameter: &Parameter) -> Transaction {
     )
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ParameterUses {
     revision: Option<u64>,
     used: BTreeSet<ParameterId>,
@@ -1279,6 +1353,7 @@ pub struct ParameterUses {
 impl ParameterUses {
     fn of(&mut self, model: &Model) -> &BTreeSet<ParameterId> {
         let revision = model.revision();
+
         if self.revision != Some(revision) {
             self.used = model.document().used_parameters();
             self.revision = Some(revision);
@@ -1298,6 +1373,7 @@ fn delete_button(
     let hover = format!("Delete {}", parameter.name);
     let focus_key = Id::unique(("parameter-delete-focused", parameter.id()));
     let focused = ui.data(|data| data.get_temp::<bool>(focus_key).unwrap_or(false));
+
     let response = tree_row::slot(ui, |ui| {
         if !row_hovered && !focused {
             ui.set_opacity(0.0);
@@ -1305,10 +1381,12 @@ fn delete_button(
         widgets::icon_button(ui, icons::DELETE, &hover)
     });
     let has_focus = response.has_focus();
+
     if has_focus != focused {
         ui.data_mut(|data| data.insert_temp(focus_key, has_focus));
         ui.ctx().request_repaint();
     }
+
     let response = if used {
         response.on_hover_ui(|ui| {
             ui.label(Deletion::of(document, parameter, used).hint(document));

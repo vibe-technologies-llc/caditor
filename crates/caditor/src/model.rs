@@ -57,7 +57,7 @@ pub type WakerFactory = Box<dyn Fn() -> Waker>;
 
 pub const UNTITLED: &str = "Untitled";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SavedVersionError {
     #[error("The model has never been saved, so there is no saved version to go back to")]
     NeverSaved,
@@ -76,7 +76,7 @@ impl Reason for SavedVersionError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Action {
     Apply(Transaction),
     ApplyTold {
@@ -115,7 +115,7 @@ pub enum Action {
     Filter(SelectionFilter),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SaveOutcome {
     Saved {
         path: PathBuf,
@@ -131,7 +131,7 @@ pub enum SaveOutcome {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecomputeStatus {
     UpToDate,
     Running { since: Instant },
@@ -139,7 +139,7 @@ pub enum RecomputeStatus {
     Stopped,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoticeKind {
     Info,
     Success,
@@ -171,7 +171,7 @@ impl NoticeKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordedNotice {
     pub notice: Notice,
     pub at: SystemTime,
@@ -200,7 +200,7 @@ pub const STEP_NOT_LAST: &str = "That change is no longer the last one, so it wa
                                  Edit › Undo history takes the model back to before it.";
 const JOIN_TOLERANCE: f64 = 1e-6;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notice {
     pub kind: NoticeKind,
     pub text: String,
@@ -208,14 +208,14 @@ pub struct Notice {
     pub action: Option<NoticeAction>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NoticeAction {
     SwitchBack(SwitchBack),
     UndoStep(StepBack),
     ShowInFolder(PathBuf),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StepBack {
     since: UndoMark,
     session: u64,
@@ -270,7 +270,7 @@ impl Notice {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileEvent {
     Saved(PathBuf),
     SaveFailed,
@@ -285,7 +285,7 @@ pub struct Services {
     pub panic_flush: PanicFlush,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct SessionBase {
     pub base: Base,
     pub session: u64,
@@ -430,6 +430,7 @@ impl Model {
             principal: PrincipalView::default(),
             pictures: ImageTextures::default(),
         };
+
         model.start_storage(None, None);
         model.recompute(Retry::Nothing);
         model
@@ -556,6 +557,7 @@ impl Model {
 
     pub fn current_healing(&self, feature: FeatureId) -> Option<&Healing> {
         let current = self.evaluated_revision == Some(self.revision());
+
         if !current || self.evaluation.is_pending(feature) {
             return None;
         }
@@ -572,6 +574,7 @@ impl Model {
             return None;
         };
         let committed = draft.shown?;
+
         let body = if drafted.copy {
             draft.feature
         } else {
@@ -579,6 +582,7 @@ impl Model {
         };
         let pivot = self.move_pivot(draft.feature, drafted)?;
         let frame = self.move_frame(drafted)?;
+
         let placement = drafted.placement(&draft.parameters, pivot, Some(&frame))?;
         Some((body, committed.inverse().then(&placement)))
     }
@@ -596,6 +600,7 @@ impl Model {
         };
         let revision = self.revision();
         let mut document = self.editor.document().clone();
+
         let kind = document
             .apply(transaction.clone())
             .ok()
@@ -610,19 +615,24 @@ impl Model {
                 && draft.kind == kind
                 && draft.transaction == transaction
         });
+
         if same {
             return;
         }
         self.drafts += 1;
+
         let previewed = !matches!(kind, FeatureKind::Move(_));
         let shown = self.shown_placement(feature);
         let mut parameters = ParameterValues::evaluate(&document);
+
         parameters.take_readings(&self.evaluation.parameters);
+
         let replaced = self
             .draft
             .take()
             .filter(|draft| draft.feature == feature && draft.revision == revision)
             .and_then(|draft| draft.evaluation);
+
         self.draft = Some(DraftPreview {
             feature,
             kind,
@@ -634,6 +644,7 @@ impl Model {
             shown,
             held: false,
         });
+
         let submitted = self.as_shown(document);
         if previewed
             && let Some(recomputer) = &mut self.recomputer
@@ -686,6 +697,7 @@ impl Model {
         let settled = !matches!(self.status, RecomputeStatus::Running { .. })
             && !self.bodies_pending()
             && self.draft.as_ref().is_some_and(|draft| draft.held);
+
         if settled {
             self.drop_draft();
         }
@@ -702,16 +714,23 @@ impl Model {
         let Some(draft) = &self.draft else {
             return;
         };
+
         if matches!(draft.kind, FeatureKind::Move(_)) {
             return;
         }
+
         let mut document = self.editor.document().clone();
+
         if document.apply(draft.transaction.clone()).is_err() {
             return;
         }
+
         let submitted = self.as_shown(document);
+
         self.drafts += 1;
+
         let serial = self.drafts;
+
         if let Some(draft) = &mut self.draft {
             draft.serial = serial;
         }
@@ -737,6 +756,7 @@ impl Model {
             return false;
         };
         let revision = self.revision();
+
         let Some(draft) = self
             .draft
             .as_mut()
@@ -744,6 +764,7 @@ impl Model {
         else {
             return false;
         };
+
         draft.evaluation = Some(update.evaluation);
         self.drafts += 1;
         true
@@ -869,7 +890,9 @@ impl Model {
     pub fn suppress_every_feature(&mut self) -> bool {
         let document = self.editor.document();
         let every: Vec<FeatureId> = document.features().map(Feature::id).collect();
+
         let transaction = document.suppression(&every, true, "Suppress every feature");
+
         if transaction.is_empty() {
             return false;
         }
@@ -882,11 +905,13 @@ impl Model {
             NoticeKind::Info | NoticeKind::Success => log::info!("{}", notice.text),
             NoticeKind::Warning | NoticeKind::Error => log::warn!("{}", notice.text),
         }
+
         let recorded = notice.without_action();
         let repeats = self
             .recorded_notices
             .front()
             .is_some_and(|last| last.notice == recorded);
+
         if !repeats {
             self.recorded_notices.push_front(RecordedNotice {
                 notice: recorded,
@@ -968,7 +993,9 @@ impl Model {
         if self.status != RecomputeStatus::UpToDate {
             return None;
         }
+
         let status = self.evaluation.feature(feature)?;
+
         if status.state != FeatureState::UpToDate {
             return None;
         }
@@ -991,6 +1018,7 @@ impl Model {
         if let Some(stem) = self.path().and_then(Path::file_stem) {
             return stem.to_string_lossy().into_owned();
         }
+
         let titled = file_name_stem(&self.document().properties().title);
         if titled.is_empty() {
             UNTITLED.to_owned()
@@ -1033,11 +1061,13 @@ impl Model {
         {
             self.drop_draft();
         }
+
         let drafted = self.draft_body_result().map(|(_, result)| result);
         let ShownWhileOpen { mut open, clipping } = feature
             .map_or_else(Default::default, |feature| {
                 self.shown_while_open(feature, drafted)
             });
+
         open.extend(
             ghosted
                 .iter()
@@ -1049,6 +1079,7 @@ impl Model {
                 .any(|result| Arc::ptr_eq(result, requested))
         });
         self.shown_before = open.clone();
+
         let Some(named) = feature.or_else(|| ghosted.first().copied()) else {
             return;
         };
@@ -1056,6 +1087,7 @@ impl Model {
             .document()
             .feature(named)
             .map_or_else(String::new, |feature| feature.name.clone());
+
         for (cut, within) in clipping {
             if self
                 .mesh_requested
@@ -1064,6 +1096,7 @@ impl Model {
             {
                 continue;
             }
+
             let sent = self.recomputer.as_ref().is_some_and(|recomputer| {
                 recomputer
                     .mesh_within(Arc::clone(&cut), within, name.clone())
@@ -1080,13 +1113,16 @@ impl Model {
                     .request(&result, || (self.services.make_waker)());
                 continue;
             }
+
             let requested = self
                 .mesh_requested
                 .iter()
                 .any(|requested| Arc::ptr_eq(requested, &result));
+
             if requested {
                 continue;
             }
+
             let sent = self.recomputer.as_ref().is_some_and(|recomputer| {
                 recomputer.mesh(Arc::clone(&result), name.clone()).is_ok()
             });
@@ -1120,6 +1156,7 @@ impl Model {
             .into_iter()
             .collect();
         let mut clipping = Vec::new();
+
         for (evaluation, cut) in
             cuts.flat_map(|(evaluation, cuts)| cuts.iter().map(move |cut| (evaluation, cut)))
         {
@@ -1141,6 +1178,7 @@ impl Model {
             .and_then(|feature| self.evaluation.feature(feature))
             .and_then(|status| status.result.clone())
             .filter(|result| result.sketch().is_some());
+
         if let Some(requested) = self.regions_requested.take() {
             if requested
                 .sketch()
@@ -1155,15 +1193,18 @@ impl Model {
                 return;
             }
         }
+
         let Some(result) = current else {
             return;
         };
+
         if result
             .sketch()
             .is_none_or(|sketch| sketch.regions().is_some())
         {
             return;
         }
+
         let sent = self
             .recomputer
             .as_ref()
@@ -1176,6 +1217,7 @@ impl Model {
     pub fn draft_body_result(&self) -> Option<(FeatureId, Arc<FeatureResult>)> {
         let draft = self.draft.as_ref()?;
         let body = self.document().feature(draft.feature)?.body()?;
+
         let result = draft.evaluation.as_ref()?.body_result(body)?;
         Some((body, Arc::clone(result)))
     }
@@ -1283,6 +1325,7 @@ impl Model {
             }
             Action::PrepareStoppedBodies => {
                 let make_waker = &self.services.make_waker;
+
                 self.display.meshing.resume(|| make_waker());
                 Ok(None)
             }
@@ -1312,6 +1355,7 @@ impl Model {
                     since: self.undo_mark(),
                     session: self.session(),
                 };
+
                 self.perform(Action::Apply(transaction));
                 if self.holds(back) {
                     self.set_notice(told.offering(NoticeAction::UndoStep(back)));
@@ -1409,7 +1453,9 @@ impl Model {
         if session != self.session() {
             return Err(Stale);
         }
+
         let transaction = self.editor.commit(prepared)?;
+
         if !transaction.is_empty() {
             self.changed(JournalEntry::Apply(transaction));
         }
@@ -1424,6 +1470,7 @@ impl Model {
             Some(Arc::new(Sketch::clone(&shown)))
         };
         let wake = || (self.services.make_waker)();
+
         let start = drag_solver::Start {
             revision,
             parameters: &self.parameters,
@@ -1431,6 +1478,7 @@ impl Model {
             wake: &wake,
         };
         let polled = self.display.dragging.perform(command, &start);
+
         self.dragged(polled);
     }
 
@@ -1456,7 +1504,9 @@ impl Model {
         let cue_changed = blocked
             .as_ref()
             .is_some_and(|blocked| *blocked != self.drag_blocking);
+
         let changed = shown.is_some() || finished.is_some() || abandoned || cue_changed;
+
         if let Some(blocked) = blocked {
             self.drag_blocking = blocked;
         }
@@ -1483,6 +1533,7 @@ impl Model {
             sketch,
             join,
         } = finished;
+
         if revision != self.revision() {
             self.display.sketches.stop_showing_dragged();
             self.set_notice(Notice::warning(format!(
@@ -1491,8 +1542,10 @@ impl Model {
             )));
             return;
         }
+
         let Some(sketch) = sketch else {
             self.display.sketches.stop_showing_dragged();
+
             let reason = match self.sketch_conflict(feature) {
                 Some(conflict) => format!(
                     "the sketch's constraints conflict ({conflict}); remove or turn one of them off \
@@ -1500,6 +1553,7 @@ impl Model {
                 ),
                 None => "the sketch could not be solved with it moved there".to_owned(),
             };
+
             self.set_notice(Notice::warning(format!(
                 "{label} did nothing, because {reason}."
             )));
@@ -1507,19 +1561,26 @@ impl Model {
         };
         let document = self.editor.document();
         let mut transaction = document.transaction(label);
+
         transaction.settle_sketch(feature, &sketch);
+
         let constraints = join
             .map(|join| reached_with_body(document, feature, &sketch, join, &mut transaction))
             .unwrap_or_default();
+
         for constraint in constraints {
             transaction.add_sketch_constraint(feature, constraint);
         }
+
         let transaction = transaction.finish();
+
         if transaction.is_empty() {
             self.display.sketches.stop_showing_dragged();
             return;
         }
+
         let before = self.revision();
+
         self.perform(Action::Apply(transaction));
         if self.revision() != before {
             self.display.sketches.show_dragged(feature, sketch);
@@ -1544,11 +1605,13 @@ impl Model {
     pub fn poll(&mut self) -> bool {
         let recomputed = self.poll_recompute();
         let revision = self.revision();
+
         self.pictures.want(
             self.editor.document(),
             revision,
             self.services.make_waker.as_ref(),
         );
+
         let decoded = self.pictures.poll();
         recomputed | self.settle_held_draft() | decoded
     }
@@ -1568,15 +1631,19 @@ impl Model {
                 .map(|status| &status.state),
             Some(FeatureState::Failed(_))
         );
+
         if !solved_before || trial.touched.is_empty() {
             self.perform(Action::Apply(trial.transaction));
             return;
         }
+
         let wake = (self.services.make_waker)();
         let revision = self.revision();
+
         let verdict = self
             .trials
             .start(trial, self.editor.document(), revision, wake);
+
         self.judged(verdict);
     }
 
@@ -1584,6 +1651,7 @@ impl Model {
         match verdict {
             Some(Verdict::Apply(transaction)) => {
                 let before = self.revision();
+
                 self.perform(Action::Apply(transaction));
                 self.queued.follow(before, self.revision());
             }
@@ -1654,6 +1722,7 @@ impl Model {
                 projecting::outline_projection(self.document(), &request, pieces),
             ),
         };
+
         for action in actions {
             self.perform(action);
         }
@@ -1693,6 +1762,7 @@ impl Model {
     #[cfg(test)]
     pub fn finish_pasting(&mut self) {
         let finished = self.pastes.wait(self.revision());
+
         self.pasting_finished(finished);
     }
 
@@ -1761,6 +1831,7 @@ impl Model {
     #[cfg(test)]
     pub fn finish_checking_constraints(&mut self) {
         let verdict = self.trials.wait(self.revision());
+
         self.judged(verdict);
     }
 
@@ -1768,10 +1839,13 @@ impl Model {
         let verdict = self.trials.poll(self.revision());
         let judged = self.judged(verdict);
         let finished = self.pastes.poll(self.revision());
+
         let judged = self.pasting_finished(finished) | judged;
         let outlined = self.outlines.poll(self.revision());
+
         let judged = self.outlining_finished(outlined) | judged;
         let polled = self.display.dragging.poll();
+
         let stored =
             judged | self.poll_storage() | self.display.meshing.poll() | self.dragged(polled);
         let recomputed = self.poll_recomputer();
@@ -1839,8 +1913,11 @@ impl Model {
         if self.storage.is_none() {
             self.start_storage(None, None);
         }
+
         let ticket = self.next_ticket;
+
         self.next_ticket += 1;
+
         let document = self.editor.document().clone();
         let request = SaveRequest {
             ticket,
@@ -1884,6 +1961,7 @@ impl Model {
 
     pub fn preview_drawn(&mut self, drawing: PreviewDrawing, rows: Result<ReadPixels, ImageError>) {
         let revision = self.revision();
+
         self.save_previews.drawn(revision, drawing, rows);
     }
 
@@ -1892,6 +1970,7 @@ impl Model {
             .storage
             .as_ref()
             .is_some_and(|storage| storage.keep_version(request).is_ok());
+
         if !sent {
             self.set_notice(Notice::failure(
                 "Could not change the version, because the background writer stopped. Try again.",
@@ -1934,6 +2013,7 @@ impl Model {
             editor,
             ..
         } = recovered;
+
         self.switch_to(
             Session {
                 editor,
@@ -1977,6 +2057,7 @@ impl Model {
         replaces: Option<PathBuf>,
     ) {
         let predecessor = self.storage.take().map(|storage| storage.close(true));
+
         self.trials.cancel();
         self.pastes.cancel();
         self.outlines.cancel();
@@ -2024,6 +2105,7 @@ impl Model {
             .cloned()
             .collect();
         let kept: BTreeSet<*const FeatureResult> = shown.iter().map(Arc::as_ptr).collect();
+
         self.display
             .meshing
             .retain(|source| kept.contains(&Arc::as_ptr(source)));
@@ -2065,6 +2147,7 @@ impl Model {
 
     fn record(&mut self, entry: JournalEntry) {
         self.entries.push(entry.clone());
+
         let recorded = self
             .storage
             .as_ref()
@@ -2076,10 +2159,12 @@ impl Model {
 
     fn restart_storage(&mut self) {
         log::error!("the storage worker stopped; starting a new one");
+
         let replaces = self
             .storage
             .take()
             .and_then(|storage| storage.untitled_journal().map(Path::to_path_buf));
+
         if self.pending_save.take().is_some() {
             self.set_notice(Notice::failure(
                 "The save did not finish, because the background writer stopped. Try saving \
@@ -2103,6 +2188,7 @@ impl Model {
             }
         };
         let any = !reports.is_empty();
+
         for report in reports {
             self.handle_report(report);
         }
@@ -2223,12 +2309,15 @@ impl Model {
                 }
             }
         }
+
         let document = self.as_shown(self.editor.document().clone());
         let revision = self.revision();
+
         let submitted = self.recomputer.as_mut().map(|recomputer| match retry {
             Retry::Nothing => recomputer.submit(document, revision),
             Retry::Failures => recomputer.submit_retrying_failures(document, revision),
         });
+
         self.status = match submitted {
             Some(Ok(())) => RecomputeStatus::Running {
                 since: Instant::now(),
@@ -2285,6 +2374,7 @@ fn saved_notice(backup: Option<&Path>, dropped_for_size: usize) -> Option<Notice
              open again."
         )),
     };
+
     let sentences: Vec<String> = backup.into_iter().chain(dropped).collect();
     (!sentences.is_empty()).then(|| Notice::warning(format!("Saved. {}", sentences.join(" "))))
 }
@@ -2305,7 +2395,9 @@ fn reached_with_body(
     };
     let mut shadow = sketch.clone();
     let mut trial = document.transaction(String::new());
+
     trial.settle_sketch(feature, sketch);
+
     let Some(joined) = body_picks::body_join(
         &mut trial,
         (definition, feature),
@@ -2315,8 +2407,11 @@ fn reached_with_body(
     ) else {
         return reached(sketch, join);
     };
+
     join.constraints.push(joined.constraint.clone());
+
     let constraints = reached(&shadow, join);
+
     if joined.projects && constraints.contains(&joined.constraint) {
         transaction.add_projected(feature, body.projection, &body.outline);
     }
@@ -2333,10 +2428,12 @@ fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {
                 .is_some_and(|centre| (centre.distance(join.at) - radius).abs() <= tolerance),
             _ => false,
         });
+
     let landed = on_rim
         && sketch
             .point(join.point)
             .is_some_and(|at| at.distance(join.at) <= tolerance);
+
     if !landed {
         return Vec::new();
     }
@@ -2350,7 +2447,7 @@ fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {
         .collect()
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct ShownWhileOpen {
     open: Vec<Arc<FeatureResult>>,
     clipping: Vec<(Arc<FeatureResult>, Arc<FeatureResult>)>,

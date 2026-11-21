@@ -37,7 +37,7 @@ fn with_version_kept(bytes: &[u8], index: usize, kept: bool) -> Result<Rewritten
     model::with_version_kept(bytes, index, &listed_digest(bytes, index), kept)
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 enum Shape {
     Empty,
     Wrapped(i64),
@@ -45,7 +45,7 @@ enum Shape {
     Named { x: f64, tags: Vec<Option<bool>> },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 struct Holder {
     shapes: Vec<Shape>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,13 +78,17 @@ fn every_serde_shape_round_trips_exactly() {
     };
     let bytes = to_bytes(&holder).unwrap();
     let back: Holder = from_bytes(&bytes).unwrap();
+
     assert_eq!(back, holder);
+
     let Shape::Named { x, .. } = back.shapes[5] else {
         panic!("expected a named shape");
     };
+
     assert!(x.is_sign_negative());
 
     let as_json: serde_json::Value = from_bytes(&bytes).unwrap();
+
     assert_eq!(as_json["shapes"][1]["Wrapped"], i64::MIN);
     assert_eq!(as_json["shapes"][0], "Empty");
 }
@@ -92,11 +96,15 @@ fn every_serde_shape_round_trips_exactly() {
 #[test]
 fn malformed_values_are_errors_not_panics() {
     let bytes = to_bytes(&vec![vec![1_u64, 2], vec![3]]).unwrap();
+
     for end in 0..bytes.len() {
         assert!(from_bytes::<Vec<Vec<u64>>>(&bytes[..end]).is_err());
     }
+
     let mut trailing = bytes.clone();
+
     trailing.push(0);
+
     assert!(from_bytes::<Vec<Vec<u64>>>(&trailing).is_err());
     assert!(
         from_bytes::<u64>(&[
@@ -106,14 +114,18 @@ fn malformed_values_are_errors_not_panics() {
     );
     assert!(from_bytes::<String>(&[0x06, 0x02, 0xc3, 0x28]).is_err());
     assert!(from_bytes::<serde_json::Value>(&[0x3f]).is_err());
+
     let deep = vec![0x08; 10_000];
+
     assert!(from_bytes::<serde_json::Value>(&deep).is_err());
 }
 
 fn with_width(millimetres: u32) -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Width");
     let text = format!("{millimetres} mm");
+
     transaction.add_parameter("width", transaction.parse(&text).unwrap());
     document.apply(transaction.finish()).unwrap();
     document
@@ -121,8 +133,10 @@ fn with_width(millimetres: u32) -> Document {
 
 fn edited(document: &Document, millimetres: u32) -> Document {
     let mut document = document.clone();
+
     let id = document.parameter_named("width").unwrap().id();
     let expression = document.parse(&format!("{millimetres} mm")).unwrap();
+
     document
         .apply(Transaction::single(
             "Edit width",
@@ -150,8 +164,10 @@ fn saved_series_every(count: u32, spacing: u64) -> (Vec<Document>, Vec<u8>) {
     let first = with_width(10);
     let mut documents = vec![first.clone()];
     let mut bytes = save_bytes(&first, None, at(1_000), Some("First")).unwrap();
+
     for step in 1..count {
         let next = edited(documents.last().unwrap(), 10 + step);
+
         bytes = save_step(&next, &bytes, step, spacing);
         documents.push(next);
     }
@@ -169,6 +185,7 @@ fn a_version_is_loaded_only_while_its_index_still_holds_the_digest_it_was_listed
     let (documents, bytes) = saved_series(3);
     let listed = history(&bytes);
     let newer = edited(documents.last().unwrap(), 20);
+
     let resaved = save_step(&newer, &bytes, 3, SAVE_SPACING);
     let relisted = history(&resaved);
 
@@ -219,9 +236,11 @@ fn a_version_is_loaded_only_while_its_index_still_holds_the_digest_it_was_listed
 #[test]
 fn every_save_keeps_the_previous_state_as_a_version_that_loads_back_exactly() {
     let (documents, bytes) = saved_series(20);
+
     assert_eq!(decode(&bytes).unwrap().document, *documents.last().unwrap());
 
     let listed = history(&bytes);
+
     assert_eq!(
         listed
             .current
@@ -230,11 +249,14 @@ fn every_save_keeps_the_previous_state_as_a_version_that_loads_back_exactly() {
         Some("Step 19")
     );
     assert_eq!(listed.versions.len(), 19);
+
     for (index, version) in listed.versions.iter().enumerate() {
         assert!(version.available);
         assert_eq!(version.index, index);
+
         let expected = &documents[documents.len() - 2 - index];
         let loaded = load_version(&bytes, index).unwrap();
+
         assert!(loaded.issues.is_empty());
         assert_eq!(loaded.document, *expected);
         assert_eq!(
@@ -242,6 +264,7 @@ fn every_save_keeps_the_previous_state_as_a_version_that_loads_back_exactly() {
             at(1_000 + (18 - index) as u64 * SAVE_SPACING)
         );
     }
+
     assert_eq!(listed.versions[18].state.label.as_deref(), Some("First"));
     assert!(matches!(
         load_version(&bytes, 19),
@@ -250,6 +273,7 @@ fn every_save_keeps_the_previous_state_as_a_version_that_loads_back_exactly() {
 
     let (_, small) = saved_series(2);
     let per_version = (bytes.len() - small.len()) / 18;
+
     assert!(
         per_version < small.len() / 2,
         "{per_version} bytes per version"
@@ -259,6 +283,7 @@ fn every_save_keeps_the_previous_state_as_a_version_that_loads_back_exactly() {
 #[test]
 fn saving_an_unchanged_model_adds_no_version() {
     let (documents, bytes) = saved_series(3);
+
     let again = save_bytes(
         documents.last().unwrap(),
         Some(&bytes),
@@ -266,6 +291,7 @@ fn saving_an_unchanged_model_adds_no_version() {
         Some("Again"),
     )
     .unwrap();
+
     assert_eq!(history(&again), history(&bytes));
 }
 
@@ -274,6 +300,7 @@ fn a_damaged_part_loses_only_what_depends_on_it() {
     let (documents, bytes) = saved_series(12);
     let head_record = corrupt_chunk(&bytes, &MODEL_MAGIC, 1);
     let loaded = decode(&head_record).unwrap();
+
     assert_eq!(
         loaded.issues,
         ["A damaged part of the file was skipped; anything it held was left out."]
@@ -287,6 +314,7 @@ fn a_damaged_part_loses_only_what_depends_on_it() {
         .map(|version| version.available)
         .collect();
     let keyframe = available.iter().position(|available| *available).unwrap();
+
     assert!(keyframe > 0 && keyframe < 8, "{available:?}");
     assert!(available[keyframe..].iter().all(|available| *available));
     assert_eq!(
@@ -296,11 +324,13 @@ fn a_damaged_part_loses_only_what_depends_on_it() {
 
     let resaved = save_bytes(&documents[0], Some(&head_record), later(12), None).unwrap();
     let after = history(&resaved);
+
     assert!(after.versions.iter().all(|version| version.available));
     assert_eq!(after.versions.len(), listed.versions.len() - keyframe);
 
     let middle = model_chunk_count(&bytes) / 2;
     let version_damage = corrupt_chunk(&bytes, &MODEL_MAGIC, middle);
+
     assert_eq!(
         decode(&version_damage).unwrap().document,
         *documents.last().unwrap()
@@ -325,6 +355,7 @@ fn a_model_from_an_earlier_development_build_is_refused_in_words_never_salvaged(
     let earlier =
         as_written_by_an_earlier_build(&current, &MODEL_MAGIC, &EARLIER_BUILD_MODEL_MAGIC, 3);
     let mut damaged_start = earlier.clone();
+
     damaged_start[1] ^= 0x55;
 
     let refused = decode(&earlier).unwrap_err();
@@ -366,6 +397,7 @@ fn the_packaged_mime_type_matches_models_by_magic_and_extension() {
             _ => format!("\\x{byte:02x}"),
         })
         .collect();
+
     assert!(mime.contains(&format!(
         "<match type=\"string\" offset=\"0\" value=\"{escaped}\"/>"
     )));
@@ -376,6 +408,7 @@ fn the_packaged_mime_type_matches_models_by_magic_and_extension() {
 fn a_save_time_beyond_what_the_clock_holds_does_not_break_the_history() {
     let state = serde_json::json!({ "saved_at": u64::MAX, "digest": "" });
     let mut bytes = start_file(&MODEL_MAGIC, 1);
+
     push_packed(&mut bytes, ChunkKind::Head, &to_bytes(&state).unwrap()).unwrap();
     push_packed(
         &mut bytes,
@@ -384,7 +417,9 @@ fn a_save_time_beyond_what_the_clock_holds_does_not_break_the_history() {
     )
     .unwrap();
     push_packed(&mut bytes, ChunkKind::VersionData, b"old").unwrap();
+
     let listed = history(&bytes);
+
     assert_eq!(listed.current.unwrap().saved_at, UNIX_EPOCH);
     assert_eq!(listed.versions[0].state.saved_at, UNIX_EPOCH);
     assert_eq!(
@@ -396,10 +431,13 @@ fn a_save_time_beyond_what_the_clock_holds_does_not_break_the_history() {
 #[test]
 fn forged_chunk_headers_cannot_make_the_resync_scan_quadratic() {
     const FORGED: usize = 40_000;
+
     let mut bytes = start_file(&MODEL_MAGIC, 1);
     let body_length = FORGED * CHUNK_HEADER_LENGTH;
+
     for index in 0..FORGED {
         let remaining = body_length - (index + 1) * CHUNK_HEADER_LENGTH;
+
         bytes.extend_from_slice(&SYNC);
         bytes.extend_from_slice(&[ChunkKind::Record as u8, Codec::Stored as u8, 0, 0]);
         bytes.extend_from_slice(&u32::try_from(remaining).unwrap().to_le_bytes());
@@ -421,10 +459,14 @@ fn forged_chunk_headers_cannot_make_the_resync_scan_quadratic() {
 #[test]
 fn a_model_cut_between_chunks_is_reported_as_incomplete() {
     let mut document = with_width(10);
+
     let mut transaction = document.transaction("More");
+
     transaction.add_parameter("depth", transaction.parse("5 mm").unwrap());
     document.apply(transaction.finish()).unwrap();
+
     let bytes = save_bytes(&document, None, at(1_000), None).unwrap();
+
     assert_eq!(decode(&bytes).unwrap().issues, Vec::<String>::new());
 
     let container = parse(&bytes, &MODEL_MAGIC).unwrap();
@@ -433,6 +475,7 @@ fn a_model_cut_between_chunks_is_reported_as_incomplete() {
     };
     let cut = last.whole.as_ptr() as usize - bytes.as_ptr() as usize;
     let loaded = decode(&bytes[..cut]).unwrap();
+
     assert!(loaded.document.parameter_named("width").is_some());
     assert!(loaded.document.parameter_named("depth").is_none());
     assert_eq!(loaded.issues.len(), 1);
@@ -441,12 +484,14 @@ fn a_model_cut_between_chunks_is_reported_as_incomplete() {
 
 fn check_listed_versions(bytes: &[u8], documents: &[Document]) -> History {
     let listed = history(bytes);
+
     for version in listed.versions.iter().filter(|version| version.available) {
         let step = match version.state.label.as_deref() {
             Some("First") => 0,
             Some(label) => label.strip_prefix("Step ").unwrap().parse().unwrap(),
             None => panic!("every save in the series has a label"),
         };
+
         assert_eq!(
             load_version(bytes, version.index).unwrap().document,
             documents[step],
@@ -464,10 +509,13 @@ fn a_damaged_version_info_is_never_paired_with_another_versions_data() {
 
     let lost_info = corrupt_chunk(&bytes, &MODEL_MAGIC, first_info + 2);
     let listed = check_listed_versions(&lost_info, &documents);
+
     assert_eq!(listed.versions.len(), 4);
     assert!(listed.versions.iter().all(|version| version.available));
+
     let resaved = save_bytes(&documents[0], Some(&lost_info), later(6), None).unwrap();
     let after = check_listed_versions(&resaved, &documents);
+
     assert_eq!(after.versions.len(), 5);
     assert!(after.versions.iter().all(|version| version.available));
 
@@ -482,7 +530,9 @@ fn a_damaged_version_info_is_never_paired_with_another_versions_data() {
         .iter()
         .map(|version| version.state.label.as_deref().unwrap())
         .collect();
+
     assert_eq!(labels, ["Step 2", "Step 1", "First"]);
+
     let resaved = save_bytes(
         &documents[0],
         Some(&lost_data_and_next_info),
@@ -490,6 +540,7 @@ fn a_damaged_version_info_is_never_paired_with_another_versions_data() {
         None,
     )
     .unwrap();
+
     check_listed_versions(&resaved, &documents);
 }
 
@@ -498,25 +549,34 @@ fn an_unchanged_record_is_written_back_as_stored_with_fields_this_version_does_n
     let document = with_width(10);
     let bytes = save_bytes(&document, None, at(1_000), None).unwrap();
     let mut records = records_as_json(&bytes);
+
     records[0] = records[0].replace(
         "\"name\":\"width\"",
         "\"name\":\"width\",\"tolerance\":\"future\"",
     );
+
     let future = super::testing::current_model_from_json(&records);
     let loaded = decode(&future).unwrap();
+
     assert_eq!(loaded.issues, Vec::<String>::new());
 
     let mut grown = loaded.document.clone();
+
     let mut transaction = grown.transaction("More");
+
     transaction.add_parameter("depth", transaction.parse("5 mm").unwrap());
     grown.apply(transaction.finish()).unwrap();
+
     let resaved = save_bytes(&grown, Some(&future), at(2_000), None).unwrap();
     let kept = records_as_json(&resaved);
+
     assert!(kept[0].contains("\"tolerance\":\"future\""), "{kept:?}");
+
     let stored = parse(&future, &MODEL_MAGIC).unwrap();
     let Piece::Chunk(first) = stored.pieces[1] else {
         panic!("the record is whole");
     };
+
     assert!(
         resaved
             .windows(first.whole.len())
@@ -526,6 +586,7 @@ fn an_unchanged_record_is_written_back_as_stored_with_fields_this_version_does_n
 
     let edited = edited(&grown, 20);
     let rewritten = save_bytes(&edited, Some(&resaved), at(3_000), None).unwrap();
+
     assert!(!records_as_json(&rewritten)[0].contains("tolerance"));
     assert_eq!(decode(&rewritten).unwrap().document, edited);
     assert_eq!(load_version(&rewritten, 0).unwrap().document, grown);
@@ -535,18 +596,27 @@ fn an_unchanged_record_is_written_back_as_stored_with_fields_this_version_does_n
 fn unknown_chunks_are_kept_unless_they_must_be_understood() {
     let document = with_width(10);
     let mut bytes = save_bytes(&document, None, at(1_000), None).unwrap();
+
     push_foreign(&mut bytes, 200, 0, b"optional");
+
     let loaded = decode(&bytes).unwrap();
+
     assert_eq!(loaded.issues, Vec::<String>::new());
+
     let resaved = save_bytes(&edited(&document, 20), Some(&bytes), at(2_000), None).unwrap();
+
     assert!(resaved.windows(8).any(|window| window == b"optional"));
 
     push_foreign(&mut bytes, 201, MUST_UNDERSTAND, b"required");
+
     let loaded = decode(&bytes).unwrap();
+
     assert_eq!(loaded.issues.len(), 1);
     assert!(loaded.issues[0].contains("a newer version of caditor needs"));
     assert_eq!(loaded.document, document);
+
     let resaved = save_bytes(&loaded.document, Some(&bytes), at(2_000), None).unwrap();
+
     assert!(resaved.windows(8).any(|window| window == b"optional"));
     assert!(!resaved.windows(8).any(|window| window == b"required"));
 }
@@ -575,6 +645,7 @@ fn content_longer_than_a_chunk_holds_continues_in_the_next_ones() {
     let noise = scrambled(1_000);
     let repetitive = b"width = 10 mm; ".repeat(100);
     let mut bytes = start_file(&MODEL_MAGIC, 1);
+
     with_slices_of(64, || {
         push_packed(&mut bytes, ChunkKind::Record, &noise).unwrap();
         push_packed_after(&mut bytes, ChunkKind::VersionData, &repetitive, &noise).unwrap();
@@ -582,8 +653,10 @@ fn content_longer_than_a_chunk_holds_continues_in_the_next_ones() {
     });
 
     assert_eq!(raw_chunk_count(&bytes), 16 + 24 + 1);
+
     let container = parse(&bytes, &MODEL_MAGIC).unwrap();
     let chunks: Vec<Chunk<'_>> = container.chunks().collect();
+
     assert_eq!(container.pieces.len(), 3);
     assert_eq!(chunks[0].content_length(), noise.len());
     assert_eq!(chunks[0].unpack(None).unwrap(), noise);
@@ -594,14 +667,20 @@ fn content_longer_than_a_chunk_holds_continues_in_the_next_ones() {
     let middle_part = start_of(&bytes, &chunks[0]) + 5 * (CHUNK_HEADER_LENGTH + 64);
     let last_part = start_of(&bytes, &chunks[1]) - 1;
     let mut damaged = bytes.clone();
+
     damaged[middle_part] ^= 0x55;
+
     let container = parse(&damaged, &MODEL_MAGIC).unwrap();
+
     assert_eq!(container.pieces[0], Piece::Damaged);
+
     let chunks: Vec<Chunk<'_>> = container.chunks().collect();
+
     assert_eq!(chunks.len(), 2);
     assert_eq!(chunks[0].unpack(Some(&noise)).unwrap(), repetitive);
 
     let cut = parse(&bytes[..last_part], &MODEL_MAGIC).unwrap();
+
     assert_eq!(cut.pieces, [Piece::Damaged]);
 }
 
@@ -612,17 +691,23 @@ fn start_of(bytes: &[u8], chunk: &Chunk<'_>) -> usize {
 #[test]
 fn a_continued_chunk_followed_by_another_kind_is_damaged_and_the_other_kept() {
     let mut bytes = start_file(&MODEL_MAGIC, 1);
+
     with_slices_of(4, || {
         push_packed(&mut bytes, ChunkKind::Record, b"12345678").unwrap();
     });
+
     let second_part = raw_positions(&bytes)[1];
+
     bytes.truncate(second_part);
     push_packed(&mut bytes, ChunkKind::Head, b"head").unwrap();
 
     let container = parse(&bytes, &MODEL_MAGIC).unwrap();
+
     assert_eq!(container.pieces.len(), 2);
     assert_eq!(container.pieces[0], Piece::Damaged);
+
     let head = container.chunks().next().unwrap();
+
     assert_eq!(head.kind, Some(ChunkKind::Head));
     assert_eq!(head.unpack(None).unwrap(), b"head");
 }
@@ -640,10 +725,13 @@ fn raw_positions(bytes: &[u8]) -> Vec<usize> {
 fn a_model_larger_than_a_chunk_keeps_saving_its_history() {
     with_slices_of(40, || {
         let (documents, bytes) = saved_series(12);
+
         assert!(raw_chunk_count(&bytes) > model_chunk_count(&bytes));
         assert_eq!(decode(&bytes).unwrap().issues, Vec::<String>::new());
         assert_eq!(decode(&bytes).unwrap().document, *documents.last().unwrap());
+
         let listed = check_listed_versions(&bytes, &documents);
+
         assert_eq!(listed.versions.len(), 11);
         assert!(listed.versions.iter().all(|version| version.available));
 
@@ -658,11 +746,14 @@ fn a_model_larger_than_a_chunk_keeps_saving_its_history() {
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
         let damaged = corrupt_chunk(&bytes, &MODEL_MAGIC, data[2]);
+
         assert_eq!(
             decode(&damaged).unwrap().document,
             *documents.last().unwrap()
         );
+
         let listed = check_listed_versions(&damaged, &documents);
+
         assert_eq!(listed.versions.len(), 10);
         assert!(listed.versions.iter().any(|version| version.available));
     });
@@ -672,6 +763,7 @@ fn longest_delta_run(bytes: &[u8]) -> usize {
     let container = parse(bytes, &MODEL_MAGIC).unwrap();
     let mut longest = 0;
     let mut run = 0;
+
     for chunk in container.chunks() {
         match (chunk.kind, chunk.codec) {
             (Some(ChunkKind::VersionData), Some(Codec::ZstdAfterNewer)) => {
@@ -688,8 +780,11 @@ fn longest_delta_run(bytes: &[u8]) -> usize {
 #[test]
 fn older_versions_thin_out_and_every_kept_one_loads_back_exactly() {
     const TEN_MINUTES: u64 = 600;
+
     let (documents, bytes) = saved_series_every(60, TEN_MINUTES);
+
     let listed = check_listed_versions(&bytes, &documents);
+
     assert!(
         (10 + 8..=10 + 10).contains(&listed.versions.len()),
         "{}",
@@ -703,18 +798,24 @@ fn older_versions_thin_out_and_every_kept_one_loads_back_exactly() {
 #[test]
 fn thinning_across_weeks_keeps_whole_versions_often_enough() {
     const SIX_HOURS: u64 = 6 * 3_600;
+
     let (documents, bytes) = saved_series_every(240, SIX_HOURS);
+
     let listed = check_listed_versions(&bytes, &documents);
+
     assert!(listed.versions.iter().all(|version| version.available));
     assert!(listed.versions.len() < 60, "{}", listed.versions.len());
     assert!(longest_delta_run(&bytes) < 8);
+
     let oldest = listed.versions.last().unwrap();
+
     assert!(oldest.state.saved_at <= at(1_000 + 30 * 24 * 3_600));
 }
 
 #[test]
 fn thinning_never_passes_off_a_damaged_version_as_another() {
     const HALF_HOUR: u64 = 1_800;
+
     let (mut documents, bytes) = saved_series_every(30, HALF_HOUR);
     let container = parse(&bytes, &MODEL_MAGIC).unwrap();
     let data: Vec<usize> = container
@@ -726,13 +827,17 @@ fn thinning_never_passes_off_a_damaged_version_as_another() {
         })
         .map(|(index, _)| index)
         .collect();
+
     let mut bytes = corrupt_chunk(&bytes, &MODEL_MAGIC, data[12]);
+
     for step in 30..60 {
         let next = edited(documents.last().unwrap(), 10 + step);
+
         bytes = save_step(&next, &bytes, step, HALF_HOUR);
         documents.push(next);
         check_listed_versions(&bytes, &documents);
     }
+
     assert!(longest_delta_run(&bytes) < 8);
 }
 
@@ -743,6 +848,7 @@ fn snapshot_size(bytes: &[u8]) -> usize {
         .filter(|chunk| chunk.kind == Some(ChunkKind::Record))
         .map(|chunk| {
             let mut length = Vec::new();
+
             push_varint(&mut length, chunk.content_length() as u64);
             length.len() + chunk.content_length()
         })
@@ -763,6 +869,7 @@ fn the_replaced_version_is_a_delta_exactly_while_it_fits_the_budget_beside_the_n
     let (documents, bytes) = saved_series(2);
     let next = edited(&documents[1], 40);
     let alone = save_bytes(&next, None, later(2), None).unwrap();
+
     let pair = snapshot_size(&bytes) + snapshot_size(&alone);
 
     let unbounded = encode_over(&next, Some(&bytes), later(2), Some("Step 2")).unwrap();
@@ -804,9 +911,11 @@ fn a_model_over_half_the_budget_saves_again_and_restores_every_version() {
         let first = with_width(10);
         let mut documents = vec![first.clone()];
         let mut bytes = save_bytes(&first, None, later(0), Some("First")).unwrap();
+
         for step in 1..12 {
             let next = edited(documents.last().unwrap(), 10 + step);
             let label = format!("Step {step}");
+
             let encoded = encode_over(&next, Some(&bytes), later(step), Some(&label)).unwrap();
 
             assert_eq!(
@@ -833,6 +942,7 @@ fn a_version_stored_whole_restores_without_unpacking_the_model_beside_it() {
     let budget = snapshot_size(&bytes) * 3 / 2;
 
     assert_eq!(versions_stored_as_deltas(&bytes).first(), Some(&false));
+
     decompressing_at_most(budget, || {
         let listed = history(&bytes);
 
@@ -853,6 +963,7 @@ fn listing_a_long_history_bounds_memory_per_version_not_in_total() {
 
     decompressing_at_most(3 * size, || {
         let listed = check_listed_versions(&bytes, &documents);
+
         assert_eq!(listed.versions.len(), 19);
         assert!(listed.versions.iter().all(|version| version.available));
     });
@@ -873,6 +984,7 @@ fn listing_an_undamaged_history_decodes_none_of_its_versions() {
 #[test]
 fn a_version_that_cannot_be_rewritten_keeps_the_newer_ones_it_is_stored_against() {
     const TEN_MINUTES: u64 = 600;
+
     let (_, sample) = saved_series(2);
     let size = snapshot_size(&sample);
 
@@ -881,6 +993,7 @@ fn a_version_that_cannot_be_rewritten_keeps_the_newer_ones_it_is_stored_against(
     let (_, unstarved) = saved_series_every(60, TEN_MINUTES);
 
     let listed = check_listed_versions(&starved, &documents);
+
     assert!(listed.versions.iter().all(|version| version.available));
     assert!(listed.versions.len() > history(&unstarved).versions.len());
     assert_eq!(decode(&starved).unwrap().document, documents[59]);
@@ -890,7 +1003,9 @@ fn a_version_that_cannot_be_rewritten_keeps_the_newer_ones_it_is_stored_against(
 fn a_history_too_large_for_the_file_drops_its_oldest_versions_and_says_how_many() {
     let (mut documents, bytes) = saved_series(20);
     let next = edited(documents.last().unwrap(), 50);
+
     documents.push(next.clone());
+
     let largest = bytes.len();
 
     let encoded = files_of_at_most(largest, || {
@@ -948,13 +1063,17 @@ fn a_model_whose_records_cannot_be_read_back_is_refused_before_writing() {
 
 fn bulky() -> Document {
     let mut document = with_width(10);
+
     let mut transaction = document.transaction("Bulk");
     let mut state = 0x9e37_79b9_u64;
+
     for index in 0..400 {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
+
         let text = format!("{}.{} mm", state >> 44, (state >> 20) & 0xffff);
+
         transaction.add_parameter(format!("extra{index}"), transaction.parse(&text).unwrap());
     }
     document.apply(transaction.finish()).unwrap();
@@ -972,15 +1091,20 @@ fn padding_chunks(bytes: &[u8]) -> usize {
 #[test]
 fn unchanged_versions_are_placed_where_the_previous_file_can_share_them() {
     const TEN_MINUTES: u64 = 600;
+
     sharing_from(1, || {
         let mut documents = vec![bulky()];
+
         let mut bytes = save_bytes(&documents[0], None, at(1_000), Some("First")).unwrap();
         let mut shared = 0;
+
         for step in 1..60 {
             let next = edited(documents.last().unwrap(), 10 + step);
             let label = format!("Step {step}");
             let time = at(1_000 + u64::from(step) * TEN_MINUTES);
+
             let encoded = encode_over(&next, Some(&bytes), time, Some(&label)).unwrap();
+
             for range in &encoded.shared {
                 assert_eq!(range.at % 4096, 0);
                 assert_eq!(range.from % 4096, 0);
@@ -997,10 +1121,14 @@ fn unchanged_versions_are_placed_where_the_previous_file_can_share_them() {
                 .sum::<usize>();
             bytes = encoded.bytes;
             documents.push(next);
+
             assert_eq!(decode(&bytes).unwrap().issues, Vec::<String>::new());
         }
+
         assert_eq!(decode(&bytes).unwrap().document, documents[59]);
+
         let listed = check_listed_versions(&bytes, &documents);
+
         assert!(listed.versions.iter().all(|version| version.available));
         assert!(longest_delta_run(&bytes) < 8);
         assert!(shared > 40 * 4096, "{shared} bytes shared");
@@ -1016,8 +1144,11 @@ fn unchanged_versions_are_placed_where_the_previous_file_can_share_them() {
 #[test]
 fn small_histories_are_written_without_padding() {
     let (documents, bytes) = saved_series(20);
+
     assert_eq!(padding_chunks(&bytes), 0);
+
     let encoded = encode_over(documents.last().unwrap(), Some(&bytes), later(30), None).unwrap();
+
     assert!(encoded.shared.is_empty());
 }
 
@@ -1025,16 +1156,24 @@ fn small_histories_are_written_without_padding() {
 fn padding_is_neither_a_version_nor_something_from_a_newer_version() {
     sharing_from(1, || {
         let (documents, bytes) = saved_series(12);
+
         assert!(padding_chunks(&bytes) > 0);
+
         let loaded = decode(&bytes).unwrap();
+
         assert_eq!(loaded.issues, Vec::<String>::new());
         assert_eq!(loaded.document, documents[11]);
+
         let listed = check_listed_versions(&bytes, &documents);
+
         assert_eq!(listed.versions.len(), 11);
         assert!(listed.versions.iter().all(|version| version.available));
     });
+
     let (documents, bytes) = sharing_from(1, || saved_series(12));
+
     let resaved = save_bytes(&documents[11], Some(&bytes), later(20), None).unwrap();
+
     assert_eq!(padding_chunks(&resaved), 0);
     assert_eq!(history(&resaved), history(&bytes));
 }
@@ -1044,6 +1183,7 @@ fn a_save_reads_back_only_when_every_record_matches_its_head() {
     let document = with_width(10);
     let encoded = encode_over(&document, None, at(1_000), None).unwrap();
     let previous = encoded.bytes.clone();
+
     let resaved = encode_over(&edited(&document, 20), Some(&previous), at(2_000), None).unwrap();
 
     let damaged_record = corrupt_chunk(&encoded.bytes, &MODEL_MAGIC, 1);
@@ -1087,6 +1227,7 @@ fn with_version_data_replaced(bytes: &[u8], index: usize, content: &[u8]) -> Vec
     let container = parse(bytes, &MODEL_MAGIC).unwrap();
     let mut replaced = start_file(&MODEL_MAGIC, container.version);
     let mut versions = 0;
+
     for chunk in container.chunks() {
         if chunk.kind != Some(ChunkKind::VersionData) {
             replaced.extend_from_slice(chunk.whole);
@@ -1104,10 +1245,13 @@ fn with_version_data_replaced(bytes: &[u8], index: usize, content: &[u8]) -> Vec
 
 fn first_save_rewriting_a_delta() -> (Encoded, FreshVersion) {
     const TEN_MINUTES: u64 = 600;
+
     let (documents, mut bytes) = saved_series_every(2, TEN_MINUTES);
     let mut document = documents.last().unwrap().clone();
+
     for step in 2..60 {
         document = edited(&document, 10 + step);
+
         let time = at(1_000 + u64::from(step) * TEN_MINUTES);
         let encoded = encode_over(&document, Some(&bytes), time, None).unwrap();
         let rewritten = encoded
@@ -1115,6 +1259,7 @@ fn first_save_rewriting_a_delta() -> (Encoded, FreshVersion) {
             .iter()
             .find(|version| version.index > 0)
             .cloned();
+
         if let Some(rewritten) = rewritten {
             return (encoded, rewritten);
         }
@@ -1145,9 +1290,12 @@ fn a_delta_rewritten_by_thinning_reads_back_only_when_it_rebuilds_to_what_was_co
 #[test]
 fn records_beside_a_damaged_one_are_still_written_back_as_stored() {
     let mut document = with_width(10);
+
     let mut transaction = document.transaction("Depth");
+
     transaction.add_parameter("depth", transaction.parse("5 mm").unwrap());
     document.apply(transaction.finish()).unwrap();
+
     let bytes = save_bytes(&document, None, at(1_000), None).unwrap();
     let damaged = corrupt_chunk(&bytes, &MODEL_MAGIC, 1);
     let loaded = decode(&damaged).unwrap().document;
@@ -1207,15 +1355,18 @@ fn with_info_field(bytes: &[u8], position: usize, name: &str, field: serde_json:
     let container = parse(bytes, &MODEL_MAGIC).unwrap();
     let mut rewritten = start_file(&MODEL_MAGIC, container.version);
     let mut infos = 0;
+
     for piece in &container.pieces {
         let Piece::Chunk(chunk) = piece else {
             continue;
         };
+
         if chunk.kind == Some(ChunkKind::VersionInfo) {
             infos += 1;
             if infos - 1 == position {
                 let mut fields: serde_json::Map<String, serde_json::Value> =
                     from_bytes(&chunk.unpack(None).unwrap()).unwrap();
+
                 fields.insert(name.to_owned(), field.clone());
                 push_packed(
                     &mut rewritten,
@@ -1253,15 +1404,19 @@ fn marking_a_version_kept_changes_only_that_version_and_round_trips() {
 
     assert_eq!(reads_back(&marked.bytes, &marked.digest, &[]), Ok(()));
     assert_eq!(Some(marked.digest.clone()), head_digest(&bytes));
+
     let after = history(&marked.bytes);
+
     assert_eq!(after.current, before.current);
     assert_eq!(after.versions.len(), before.versions.len());
+
     for (earlier, later) in before.versions.iter().zip(&after.versions) {
         assert_eq!(later.kept, later.index == index);
         assert_eq!(later.state, earlier.state);
         assert_eq!(later.available, earlier.available);
     }
     check_listed_versions(&marked.bytes, &documents);
+
     assert_eq!(
         decode(&marked.bytes).unwrap().document,
         *documents.last().unwrap()
@@ -1274,9 +1429,11 @@ fn marking_a_version_kept_changes_only_that_version_and_round_trips() {
         Some("Later"),
     )
     .unwrap();
+
     assert!(history(&resaved).versions[listed_after(&resaved, "First")].kept);
 
     let unmarked = with_version_kept(&marked.bytes, index, false).unwrap();
+
     assert_eq!(history(&unmarked.bytes), before);
     assert!(
         info_contents(&unmarked.bytes)
@@ -1293,6 +1450,7 @@ fn saved_on(
 ) -> Vec<u8> {
     for step in steps {
         let next = edited(documents.last().unwrap(), 10 + step);
+
         bytes = save_step(&next, &bytes, step, spacing);
         documents.push(next);
     }
@@ -1302,10 +1460,12 @@ fn saved_on(
 #[test]
 fn a_version_marked_kept_outlives_the_thinning_that_removes_its_neighbours() {
     const TEN_MINUTES: u64 = 600;
+
     let (documents, bytes) = saved_series_every(30, TEN_MINUTES);
     let newest: Vec<Version> = history(&bytes).versions.into_iter().take(10).collect();
 
     let mut ordinary_documents = documents.clone();
+
     let ordinary = saved_on(&mut ordinary_documents, bytes.clone(), 30..90, TEN_MINUTES);
     let thinned_away: Vec<&Version> = newest
         .iter()
@@ -1328,6 +1488,7 @@ fn a_version_marked_kept_outlives_the_thinning_that_removes_its_neighbours() {
 
     let marked = with_version_kept(&bytes, marked_version.index, true).unwrap();
     let mut documents = documents;
+
     let bytes = saved_on(&mut documents, marked.bytes, 30..90, TEN_MINUTES);
 
     let listed = check_listed_versions(&bytes, &documents);
@@ -1336,6 +1497,7 @@ fn a_version_marked_kept_outlives_the_thinning_that_removes_its_neighbours() {
         .iter()
         .filter(|version| version.kept)
         .collect();
+
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].state, marked_version.state);
     assert!(kept[0].available);
@@ -1358,6 +1520,7 @@ fn only_a_listed_version_of_an_undamaged_current_file_can_be_marked() {
     );
 
     let damaged = corrupt_chunk(&bytes, &MODEL_MAGIC, 1);
+
     assert_eq!(
         with_version_kept(&damaged, 0, true),
         Err(KeepError::FileDamaged)
@@ -1368,14 +1531,18 @@ fn only_a_listed_version_of_an_undamaged_current_file_can_be_marked() {
     );
 
     let mut newer = bytes.clone();
+
     newer[8..12].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
+
     assert_eq!(
         with_version_kept(&newer, 0, true),
         Err(KeepError::FromNewerVersion)
     );
 
     let mut needing_more = bytes;
+
     push_foreign(&mut needing_more, 200, MUST_UNDERSTAND, b"future");
+
     assert_eq!(
         with_version_kept(&needing_more, 0, true),
         Err(KeepError::FromNewerVersion)
@@ -1412,14 +1579,17 @@ fn an_older_reader_ignores_the_kept_flag_and_still_lists_the_version() {
 fn fields_of_a_version_record_this_version_does_not_know_survive_marking() {
     let (documents, bytes) = saved_series(4);
     let future = with_info_field(&bytes, 1, "pinned_by", serde_json::json!("future"));
+
     assert_eq!(history(&future), history(&bytes));
 
     let marked = with_version_kept(&future, 1, true).unwrap();
 
     let infos = info_contents(&marked.bytes);
+
     assert_eq!(infos[1]["pinned_by"], "future");
     assert_eq!(infos[1]["kept"], true);
     assert!(infos[0].get("pinned_by").is_none());
+
     check_listed_versions(&marked.bytes, &documents);
 }
 
@@ -1428,10 +1598,14 @@ const SAVES_IN_A_DAY: u32 = 288;
 
 fn a_day_of_saves(save: impl Fn(&Document, &[u8], SystemTime) -> Vec<u8>) -> (Document, Vec<u8>) {
     let mut document = with_width(10);
+
     let mut bytes = save_bytes(&document, None, at(1_000), None).unwrap();
+
     for step in 1..=SAVES_IN_A_DAY {
         document = edited(&document, 10 + step);
+
         let time = at(1_000 + u64::from(step) * FIVE_MINUTES);
+
         bytes = save(&document, &bytes, time);
     }
     (document, bytes)
@@ -1448,6 +1622,7 @@ fn versions_kept_by(retention: Retention) -> (usize, Vec<u8>) {
         .unwrap()
         .bytes
     });
+
     assert_eq!(decode(&bytes).unwrap().document, document);
     (history(&bytes).versions.len(), bytes)
 }
@@ -1467,17 +1642,20 @@ fn a_retention_preset_keeps_more_or_fewer_versions_and_standard_writes_what_it_a
     let (_, as_before) = a_day_of_saves(|document, previous, time| {
         save_bytes(document, Some(previous), time, None).unwrap()
     });
+
     assert_eq!(as_before, kept_as_standard);
 }
 
 fn a_picture(fill: u8) -> Preview {
     let mut png = PNG_SIGNATURE.to_vec();
+
     png.extend(std::iter::repeat_n(fill, 300));
     Preview::from_png(png).unwrap()
 }
 
 fn drawn(preview: Preview) -> PreviewSlot {
     let (slot, drawing) = PreviewSlot::new();
+
     drawing.fill(preview);
     slot
 }
@@ -1513,10 +1691,12 @@ fn a_preview_follows_the_head_and_is_read_from_the_start_of_the_file_alone() {
         .filter_map(|chunk| chunk.kind)
         .take(2)
         .collect();
+
     assert_eq!(kinds, [ChunkKind::Head, ChunkKind::Preview]);
     assert_eq!(preview_of_prefix(&bytes), Some(picture.clone()));
 
     let head_and_preview = 8 + 4 + 2 * CHUNK_HEADER_LENGTH + 2 * 600;
+
     assert_eq!(
         preview_of_prefix(bytes.get(..head_and_preview.min(bytes.len())).unwrap()),
         Some(picture)
@@ -1531,7 +1711,9 @@ fn a_save_without_a_picture_writes_none_and_drops_the_one_before() {
     let with = save_with_preview(&document, None, Some(&drawn(a_picture(1))));
 
     let (declined, drawing) = PreviewSlot::new();
+
     drawing.decline();
+
     let without = save_with_preview(&edited(&document, 11), Some(&with), Some(&declined));
     let unasked = save_with_preview(&edited(&document, 12), Some(&without), None);
 
@@ -1544,6 +1726,7 @@ fn a_save_without_a_picture_writes_none_and_drops_the_one_before() {
 #[test]
 fn a_drawing_dropped_without_a_picture_releases_the_save_at_once() {
     let (slot, drawing) = PreviewSlot::new();
+
     drop(drawing);
 
     let bytes = save_with_preview(&with_width(10), None, Some(&slot));
@@ -1556,9 +1739,11 @@ fn a_save_takes_the_picture_a_thread_draws_while_it_encodes() {
     let (slot, drawing) = PreviewSlot::new();
     let picture = a_picture(3);
     let sent = picture.clone();
+
     let drawing_thread = std::thread::spawn(move || drawing.fill(sent));
 
     let bytes = save_with_preview(&with_width(10), None, Some(&slot));
+
     drawing_thread.join().unwrap();
 
     assert_eq!(preview_of_prefix(&bytes), Some(picture));
@@ -1570,6 +1755,7 @@ fn a_picture_that_never_comes_is_given_up_on_and_a_late_one_is_ignored() {
 
     assert_eq!(slot.wait_at_most(Duration::from_millis(10)), None);
     assert!(!drawing.is_wanted());
+
     drawing.fill(a_picture(5));
 
     assert_eq!(slot.wait_at_most(Duration::from_millis(10)), None);
@@ -1598,7 +1784,9 @@ fn a_preview_that_is_not_a_png_or_is_too_large_is_refused() {
     );
 
     let mut huge = PNG_SIGNATURE.to_vec();
+
     huge.resize(MAX_PREVIEW_BYTES + 1, 0);
+
     assert_eq!(
         Preview::from_png(huge),
         Err(PreviewError::TooLarge {

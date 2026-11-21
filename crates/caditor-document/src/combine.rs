@@ -10,7 +10,7 @@ use crate::{
     trouble::{self, Adjust, Trouble, boolean_trouble},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CombineOperation {
     Join,
     Cut,
@@ -37,7 +37,7 @@ impl CombineOperation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Combine {
     pub body: FeatureId,
     pub tool: FeatureId,
@@ -97,6 +97,7 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let context = Context { feature, inputs };
     let mut seen = BTreeSet::from([definition.body]);
+
     for tool in definition.tools() {
         if tool == definition.body {
             return Err(context.error(CombineCause::WithItself));
@@ -107,22 +108,28 @@ pub(crate) fn evaluate(
             }));
         }
     }
+
     let target = inputs
         .body(definition.body)
         .ok_or_else(|| inputs.missing_body(definition.body))?;
     let mut combined: Option<Solid> = None;
+
     for tool_id in definition.tools() {
         let tool = inputs
             .body(tool_id)
             .ok_or_else(|| inputs.missing_body(tool_id))?;
+
         if cancel.is_cancelled() {
             return Err(Failure::Cancelled);
         }
+
         let base = combined.as_ref().unwrap_or(target);
         let next = boolean(base, tool, definition.operation.kernel())
             .map_err(|error| failure(&context, definition, tool_id, [base, tool], &error))?;
+
         combined = Some(next);
     }
+
     let combined = combined.ok_or_else(|| inputs.missing_body(definition.body))?;
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,
@@ -139,6 +146,7 @@ fn failure(
 ) -> Failure {
     let target = context.name(definition.body);
     let tool = context.name(tool_id);
+
     let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
         BooleanError::Empty => context.error(CombineCause::Nothing {
@@ -156,6 +164,7 @@ fn failure(
                 "{} could not combine its bodies: {error}",
                 context.feature.name
             );
+
             let trouble = boolean_trouble(
                 context.inputs.document,
                 operands,
@@ -172,7 +181,7 @@ fn failure(
     failure.placed(trouble::place(error))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum CombineCause {
     WithItself,
     RepeatedTool {
@@ -264,6 +273,7 @@ impl Document {
 
     fn bodies_made(&self, end: usize, evaluation: Option<&Evaluation>) -> Vec<FeatureId> {
         let mut bodies: Vec<FeatureId> = Vec::new();
+
         for earlier in self
             .features()
             .take(end)

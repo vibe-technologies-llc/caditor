@@ -70,9 +70,11 @@ pub fn rows<G: Copy>(widths: &[(G, f32)], first: f32, rest: f32) -> Vec<Vec<G>> 
     let mut rows = Vec::new();
     let mut row: Vec<G> = Vec::new();
     let mut used = 0.0;
+
     for &(group, width) in widths {
         let room = if rows.is_empty() { first } else { rest };
         let needed = used + GROUP_SPACE + width;
+
         if row.is_empty() {
             used = width;
         } else if needed <= room + WIDTH_TOLERANCE {
@@ -101,7 +103,9 @@ pub fn row<G: Copy + Hash + Debug>(
         if previous.is_some() {
             ui.add_space(DIVIDER_SPACE);
         }
+
         let (rect, natural) = draw(ui, group);
+
         if let Some(right) = previous {
             ui.painter()
                 .vline((right + rect.left()) / 2.0, rect.y_range(), divider);
@@ -141,6 +145,7 @@ pub fn captioned(
             pos2(rect.left(), rect.center().y - galley.size().y / 2.0),
             vec2(rect.width(), galley.size().y),
         );
+
         ui.put(label, Label::new(galley).selectable(false));
     })
 }
@@ -157,12 +162,16 @@ pub fn captioned_by(
         let Some(galley) = galley else {
             return content;
         };
+
         let natural = content.max(galley.size().x);
+
         if show_caption {
             let top = ui.min_rect().bottom();
             let width = ui.min_rect().width().max(galley.size().x);
             let height = caption_row_height(ui);
+
             let rect = Rect::from_min_size(pos2(ui.min_rect().left(), top), vec2(width, height));
+
             caption(ui, rect, galley);
         }
         natural
@@ -213,14 +222,17 @@ pub fn menu_group(
         .map_or(0.0, |title| widgets::group_title_width(ui, title));
     let mut arrow = None;
     let mut caption = None;
+
     let shown = captioned_by(
         ui,
         title,
         show_caption,
         |ui| {
             let tools_width = content(ui);
+
             if !titled {
                 let group = ui.min_rect();
+
                 arrow = Some(widgets::arrow_beside(ui, group, &menu.arrow()));
             }
             tools_width.max(title_width)
@@ -229,10 +241,14 @@ pub fn menu_group(
             let rect =
                 Rect::from_min_size(rect.min, vec2(rect.width().max(title_width), rect.height()));
             let height = rect.height().max(title.size().y);
+
             let strip = Rect::from_min_size(rect.min, vec2(rect.width(), height));
+
             ui.allocate_rect(strip, Sense::hover());
+
             let reach =
                 Rect::from_min_size(rect.min, vec2(rect.width(), CAPTION_REACH.max(height)));
+
             caption = Some(widgets::group_title(
                 ui,
                 reach,
@@ -255,12 +271,15 @@ pub fn group_menu(
     } else {
         entries
     };
+
     let shown = Popup::menu(trigger)
         .align(RectAlign::BOTTOM_START)
         .align_alternatives(&[])
         .show(|ui| {
             widgets::fitted_menu(ui, |ui| body(ui, &mut entries));
+
             let picked = entries.take_chosen();
+
             if !picked.is_empty() {
                 ui.close();
             }

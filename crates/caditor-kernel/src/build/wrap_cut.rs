@@ -26,7 +26,7 @@ const OPEN_GAP: f64 = 1e-3;
 const EDGE_OVERLAP: f64 = 10.0 * LINEAR_RESOLUTION;
 const SAMPLING_ANGLE: f64 = 0.05;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct ChainEnd {
     point: Point2,
     outward: Vector2,
@@ -37,6 +37,7 @@ struct ChainEnd {
 
 fn chain_ends(curves: &[ProfileCurve]) -> Result<[ChainEnd; 2], WrapError> {
     let mut ends = Vec::with_capacity(2 * curves.len());
+
     for (index, curve) in curves.iter().enumerate() {
         if matches!(
             curve.shape,
@@ -44,13 +45,18 @@ fn chain_ends(curves: &[ProfileCurve]) -> Result<[ChainEnd; 2], WrapError> {
         ) {
             return Err(WrapError::NotOneChain);
         }
+
         let (path, range) = curve.curve().map_err(|_| WrapError::NotOneChain)?;
+
         let first = path.evaluate(range.start());
         let last = path.evaluate(range.end());
+
         if first.point.distance(last.point) <= LINEAR_RESOLUTION {
             return Err(WrapError::NotOneChain);
         }
+
         let direction = |tangent: Vector2| tangent.try_normalize().ok_or(WrapError::NotOneChain);
+
         ends.push(ChainEnd {
             point: first.point,
             outward: -direction(first.first)?,
@@ -66,7 +72,9 @@ fn chain_ends(curves: &[ProfileCurve]) -> Result<[ChainEnd; 2], WrapError> {
             entity: curve.entity,
         });
     }
+
     let mut free = Vec::with_capacity(2);
+
     for end in &ends {
         let meeting = ends
             .iter()
@@ -78,6 +86,7 @@ fn chain_ends(curves: &[ProfileCurve]) -> Result<[ChainEnd; 2], WrapError> {
             _ => return Err(WrapError::NotOneChain),
         }
     }
+
     let [one, other] = free.as_slice() else {
         return Err(WrapError::NotOneChain);
     };
@@ -90,7 +99,7 @@ fn chain_ends(curves: &[ProfileCurve]) -> Result<[ChainEnd; 2], WrapError> {
     )
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Span {
     start: f64,
     length: f64,
@@ -134,22 +143,29 @@ fn coverage(
 ) -> Result<Coverage, WrapError> {
     let face = solid.face(face).ok_or(WrapError::Misses)?;
     let mut uses: BTreeMap<EdgeId, usize> = BTreeMap::new();
+
     for loop_id in face.loops() {
         let found = solid.face_loop(*loop_id).ok_or(WrapError::Unassembled)?;
         for coedge in found.coedges() {
             let coedge = solid.coedge(*coedge).ok_or(WrapError::Unassembled)?;
+
             *uses.entry(coedge.edge()).or_default() += 1;
         }
     }
+
     let mut angles = Vec::new();
     let mut seam = None;
     let mut heights = (f64::INFINITY, f64::NEG_INFINITY);
+
     for (edge, count) in uses {
         interrupt::check()?;
+
         let edge = solid.edge(edge).ok_or(WrapError::Unassembled)?;
         let samples = edge.curve().sample(edge.interval(), tolerance);
+
         for sample in &samples {
             let (height, angle) = wrap.angle_of(sample.point);
+
             heights = (heights.0.min(height), heights.1.max(height));
             angles.push(angle.rem_euclid(TAU));
         }
@@ -160,6 +176,7 @@ fn coverage(
         }
     }
     angles.sort_by(f64::total_cmp);
+
     let wrapped_gap = match (angles.first(), angles.last()) {
         (Some(first), Some(last)) => Some(Span {
             start: *last,
@@ -179,6 +196,7 @@ fn coverage(
         .chain(wrapped_gap)
         .max_by(|one, other| one.length.total_cmp(&other.length))
         .filter(|gap| seam.is_none() && gap.length > SEAM_TOLERANCE);
+
     if !heights.0.is_finite() {
         return Err(WrapError::Unassembled);
     }
@@ -212,6 +230,7 @@ fn window(coverages: &[Coverage]) -> Result<Window, WrapError> {
         free: false,
         reach: 0.0,
     };
+
     if let Some(first) = seams.first() {
         let apart = |angle: f64| {
             let ahead = (angle - first).rem_euclid(TAU);
@@ -222,20 +241,26 @@ fn window(coverages: &[Coverage]) -> Result<Window, WrapError> {
                 .iter()
                 .filter(|found| found.seam.is_none())
                 .any(|found| !found.gap.is_some_and(|gap| gap.holds(*first)));
+
         if refused {
             return Err(WrapError::NoSeamPlace);
         }
         return Ok(full(*first));
     }
+
     let mut common: Option<Span> = None;
+
     for found in coverages {
         let gap = found.gap.ok_or(WrapError::NoSeamPlace)?;
+
         common = Some(match common {
             None => gap,
             Some(span) => span.meet(&gap).ok_or(WrapError::NoSeamPlace)?,
         });
     }
+
     let gap = common.ok_or(WrapError::Misses)?;
+
     if gap.length < OPEN_GAP {
         return Ok(full(gap.start + 0.5 * gap.length));
     }
@@ -248,7 +273,7 @@ fn window(coverages: &[Coverage]) -> Result<Window, WrapError> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Role {
     Chain { forward: Option<bool> },
     Start,
@@ -265,6 +290,7 @@ struct Sheet {
 impl Sheet {
     fn add(&mut self, shape: ProfileShape, role: Role) {
         let entity = self.curves.len() as u64 + 1;
+
         self.curves.push(ProfileCurve::new(entity, shape));
         self.roles.insert(entity, role);
     }
@@ -321,6 +347,7 @@ fn moved(
         },
         _ => {
             let (path, range) = curve.curve()?;
+
             let spline = match &path {
                 Curve2::Circle(circle) => arc_spline(circle, range)?,
                 Curve2::Ellipse(ellipse) => ellipse_spline(ellipse, range)?,
@@ -344,13 +371,16 @@ struct Bounds {
 
 fn bounds(wrap: &Wrap<'_>, heights: (f64, f64)) -> Result<Bounds, WrapError> {
     let (low, high) = heights;
+
     let ends = [wrap.along_at_height(low), wrap.along_at_height(high)];
     let least = least_radius(wrap, ends.into_iter())?;
     let slope = wrap.radius_slope().abs();
     let mut margin = MARGIN * ((high - low) + least);
+
     if slope > 0.0 {
         margin = margin.min(APEX_SHARE * least / slope);
     }
+
     let along = (
         wrap.along_at_height(low - margin),
         wrap.along_at_height(high + margin),
@@ -359,6 +389,7 @@ fn bounds(wrap: &Wrap<'_>, heights: (f64, f64)) -> Result<Bounds, WrapError> {
         wrap.along_at_height(low - 2.0 * margin),
         wrap.along_at_height(high + 2.0 * margin),
     );
+
     least_radius(wrap, [reach.0, reach.1].into_iter())?;
     Ok(Bounds { along, reach })
 }
@@ -371,9 +402,11 @@ fn extension(
 ) -> Result<Option<f64>, WrapError> {
     let (along, round) = wrap.unrolled(end.point);
     let (low, high) = bounds.reach;
+
     if along <= low || along >= high {
         return Ok(None);
     }
+
     let rise = end.outward.dot(wrap.axis_in_sketch());
     let turn = end.outward.dot(wrap.across_in_sketch());
     let leaving = if rise > 0.0 {
@@ -384,6 +417,7 @@ fn extension(
         f64::INFINITY
     };
     let mut reach = leaving;
+
     if !window.full {
         let radius = wrap.radius_at(along);
         let angle = round / radius;
@@ -411,13 +445,16 @@ fn angle_spans(
     tolerance: &SamplingTolerance,
 ) -> Result<Vec<(f64, f64)>, WrapError> {
     let mut spans = Vec::new();
+
     for (curve, _) in curves {
         let (path, interval) = curve.curve()?;
+
         let angles: Vec<f64> = path
             .sample(interval, tolerance)
             .iter()
             .map(|sample| wrap.angle(sample.point))
             .collect();
+
         spans.extend(angles.windows(2).filter_map(|pair| match pair {
             [from, to] => Some((from.min(*to), from.max(*to))),
             _ => None,
@@ -432,10 +469,12 @@ fn angle_spans(
 
 fn untouched(spans: &[(f64, f64)]) -> Option<f64> {
     let mut pieces: Vec<(f64, f64)> = Vec::with_capacity(spans.len() + 1);
+
     for (low, high) in spans {
         if high - low >= TAU {
             return None;
         }
+
         let start = low.rem_euclid(TAU);
         let end = start + (high - low);
         if end > TAU {
@@ -445,12 +484,14 @@ fn untouched(spans: &[(f64, f64)]) -> Option<f64> {
         }
     }
     pieces.sort_by(|one, other| one.0.total_cmp(&other.0));
+
     let (first, _) = *pieces.first()?;
     let mut reach = first;
     let mut best = Span {
         start: 0.0,
         length: 0.0,
     };
+
     for (start, end) in &pieces {
         if *start - reach > best.length {
             best = Span {
@@ -485,9 +526,11 @@ fn extended(
             (curve.clone(), Role::Chain { forward })
         })
         .collect();
+
     for (index, end) in ends.iter().enumerate() {
         if let Some(length) = extension(wrap, end, window, bounds)? {
             let forward = (index == 0).then_some(false);
+
             curves.push((
                 ProfileCurve::line(0, end.point, end.point + end.outward * length),
                 Role::Chain { forward },
@@ -510,29 +553,38 @@ fn sheet(
             (least.min(span.0), most.max(span.1))
         });
     let turn_of = |angle: f64| ((angle - window.start) / TAU).floor();
+
     let (first_turn, last_turn) = (turn_of(least), turn_of(most));
+
     let turns = last_turn - first_turn;
+
     if turns.is_nan() || turns >= MAX_TURNS {
         return Err(WrapError::TooIntricate);
     }
+
     let rigid = wrap.radius_slope() == 0.0;
     let across = wrap.across_in_sketch();
     let mut sheet = Sheet::default();
     let mut turn = first_turn;
+
     while turn <= last_turn {
         interrupt::check()?;
+
         let map = |point: Point2| {
             let along = wrap.unrolled(point).0;
             point - across * (TAU * turn * wrap.radius_at(along))
         };
+
         for (curve, role) in curves {
             sheet.add(moved(curve, &map, rigid)?, *role);
         }
         turn += 1.0;
     }
+
     let (low, high) = bounds.along;
     let corner = |along: f64, angle: f64| wrap.sketch_point(along, angle * wrap.radius_at(along));
     let (start, finish) = (window.start, window.start + window.width);
+
     for (from, to, role) in [
         (corner(low, start), corner(low, finish), Role::Rim),
         (corner(low, finish), corner(high, finish), Role::Finish),
@@ -552,6 +604,7 @@ fn sheet(
 
 fn colours(sheet: &Sheet, regions: &[&Region]) -> Result<Vec<bool>, WrapError> {
     let mut sides: BTreeMap<&PieceId, Vec<usize>> = BTreeMap::new();
+
     for (index, region) in regions.iter().enumerate() {
         for piece in region.pieces() {
             if matches!(sheet.role(piece.id()), Some(Role::Chain { .. })) {
@@ -559,8 +612,10 @@ fn colours(sheet: &Sheet, regions: &[&Region]) -> Result<Vec<bool>, WrapError> {
             }
         }
     }
+
     let mut colour: Vec<Option<bool>> = vec![None; regions.len()];
     let mut queue = VecDeque::from([0]);
+
     if let Some(seed) = colour.first_mut() {
         *seed = Some(false);
     }
@@ -629,6 +684,7 @@ fn touches_itself(wrap: &Wrap<'_>, sheet: &Sheet, regions: &[&Region], free: boo
             .collect()
     };
     let (starts, finishes) = (reach(Role::Start), reach(Role::Finish));
+
     if free {
         return !starts.is_empty() || !finishes.is_empty();
     }
@@ -651,8 +707,10 @@ fn attempt(
     let (low, high) = bounds.along;
     let (start, finish) = (window.start, window.start + window.width);
     let mut inside = Vec::new();
+
     for region in profile.regions() {
         interrupt::check()?;
+
         let anchor = region.anchor().ok_or(WrapError::Unassembled)?;
         let along = wrap.unrolled(anchor).0;
         let angle = wrap.angle(anchor);
@@ -660,6 +718,7 @@ fn attempt(
             inside.push(region);
         }
     }
+
     let colours = colours(&sheet, &inside)?;
     let left = left_colour(&sheet, &inside, &colours);
     let chosen = |colour: bool| -> Vec<&Region> {
@@ -670,11 +729,13 @@ fn attempt(
             .map(|(region, _)| *region)
             .collect()
     };
+
     let selected = [left, !left]
         .into_iter()
         .map(chosen)
         .find(|regions| !window.full || !touches_itself(wrap, &sheet, regions, window.free))
         .ok_or(WrapError::ClosesRound)?;
+
     if selected.is_empty() || selected.len() == inside.len() {
         return Err(WrapError::Misses);
     }
@@ -697,17 +758,21 @@ pub fn wrap_chain(
         .fold(0.0, larger);
     let rough = SamplingTolerance::for_extent(extent.max(LINEAR_RESOLUTION));
     let mut points = Vec::new();
+
     for curve in curves {
         let (path, range) = curve.curve()?;
+
         points.extend(
             path.sample(range, &rough)
                 .into_iter()
                 .map(|sample| sample.point),
         );
     }
+
     let wrap = Wrap::new(plane, surface)?.referenced(&points)?;
     let tolerance = SamplingTolerance::new(MARGIN * extent.max(LINEAR_RESOLUTION), SAMPLING_ANGLE)
         .ok_or(WrapError::Unassembled)?;
+
     let coverages = faces
         .iter()
         .map(|face| coverage(&wrap, solid, *face, &tolerance))
@@ -719,9 +784,11 @@ pub fn wrap_chain(
             (low.min(found.heights.0), high.max(found.heights.1))
         });
     let bounds = bounds(&wrap, heights)?;
+
     let extended = extended(&wrap, curves, &ends, &window, &bounds)?;
     let spans = angle_spans(&wrap, &extended, &tolerance)?;
     let mut windows = vec![window];
+
     if let Some(start) = windows
         .first()
         .filter(|window| window.full)
@@ -735,7 +802,9 @@ pub fn wrap_chain(
             reach: 0.0,
         });
     }
+
     let mut outcome = Err(WrapError::ClosesRound);
+
     for window in &windows {
         outcome =
             attempt(&wrap, &extended, &spans, window, &bounds).map(|regions| (regions, window));
@@ -743,8 +812,10 @@ pub fn wrap_chain(
             break;
         }
     }
+
     let (regions, window) = outcome?;
     let (low, high) = bounds.along;
+
     let wrapping = Wrapping {
         seam: window.seam(),
         least_radius: least_radius(&wrap, [low, high].into_iter())?,

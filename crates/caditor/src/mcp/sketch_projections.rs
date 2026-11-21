@@ -20,7 +20,7 @@ use crate::{
 
 const CORNER_TOLERANCE: f64 = 1e-6;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Projecting {
     pub sketch: Named,
@@ -44,7 +44,7 @@ pub struct Projecting {
     pub origin: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Intersecting {
     pub sketch: Named,
@@ -114,8 +114,10 @@ fn body_things(
         };
     };
     let document = target.document;
+
     let body = references::body(document, target.evaluation, named)?;
     let body_name = body_label(document, body);
+
     let seen = target
         .evaluation
         .body_result_seen_by(target.feature, body)
@@ -130,6 +132,7 @@ fn body_things(
         sketch: target.name.to_owned(),
     };
     let plane = target.shown.plane();
+
     if asked.outline {
         wanted.extend(
             projecting::outline_projections(seen, body, &plane, &body_name)
@@ -147,18 +150,22 @@ fn body_things(
                     sketch: target.name.to_owned(),
                 }
             })?;
+
         wanted.push(projection);
     }
     for key in &asked.faces {
         let face_key = references::face_key(key)?;
         let face = bodies::find_face(seen, face_key).ok_or_else(|| not_seen("face", key))?;
+
         wanted.extend(projecting::face_projections(seen, body, &[face], &plane));
     }
     for corner in &asked.corners {
         let [x, y, z] = *corner;
+
         let at = Point3::new(x, y, z);
         let reach = CORNER_TOLERANCE * at.length().max(1.0);
         let keys = bodies::vertex_keys(seen);
+
         let vertex = seen
             .solid
             .vertices()
@@ -175,6 +182,7 @@ fn body_things(
                 y,
                 z,
             })?;
+
         wanted.extend(projections(
             surroundings,
             target,
@@ -191,12 +199,14 @@ fn other_things(
     wanted: &mut Wanted,
 ) -> Result<(), ToolError> {
     let document = target.document;
+
     if let Some(named) = &asked.source_sketch {
         let (source, definition) = references::sketch(document, named)?;
         if asked.source_curves.is_empty() {
             let (_, candidates) =
                 projecting::sketch_candidates(surroundings, target.feature, source.id())
                     .map_err(SketchEditError::Projection)?;
+
             wanted.extend(candidates);
         } else {
             let shown = surroundings
@@ -204,6 +214,7 @@ fn other_things(
                 .unwrap_or(Displayed::Borrowed(definition));
             for curve in &asked.source_curves {
                 let entity = references::entity(&source.name, &shown, curve)?;
+
                 wanted.extend(projections(
                     surroundings,
                     target,
@@ -226,6 +237,7 @@ fn other_things(
     }
     for named in &asked.datums {
         let datum = references::feature(document, named)?;
+
         if !datum_tools::is_axis_or_point(document, datum.id()) {
             return Err(PlaceError::NotADatum {
                 name: datum.name.clone(),
@@ -255,22 +267,28 @@ pub(super) fn project(target: &Target<'_>, asked: &Projecting) -> Result<Planned
         + usize::from(asked.origin)
         + usize::from(asked.outline)
         + usize::from(asked.source_sketch.is_some());
+
     if named == 0 {
         return Err(SketchEditError::NothingToProject.into());
     }
     if named > MOST_ITEMS {
         return Err(SketchingError::TooMany.into());
     }
+
     let document = target.document;
     let surroundings = seen_around(target);
     let mut wanted = Wanted::new();
+
     let body_name = body_things(target, &surroundings, asked, &mut wanted)?;
+
     other_things(target, &surroundings, asked, &mut wanted)?;
+
     let definition = match document.feature(target.feature).map(|found| &found.kind) {
         Some(FeatureKind::Sketch(definition)) => Some(definition),
         _ => None,
     };
     let mut fresh = Wanted::new();
+
     for (source, outline) in wanted {
         let projected = definition.is_some_and(|definition| {
             projecting::existing_projection(definition, &source).is_some()
@@ -286,6 +304,7 @@ pub(super) fn project(target: &Target<'_>, asked: &Projecting) -> Result<Planned
         }
         .into());
     }
+
     let label = match (&body_name, fresh.len()) {
         (Some(body_name), total) => {
             format!("Project {} of {body_name}", count(total, "edge", "edges"))
@@ -296,6 +315,7 @@ pub(super) fn project(target: &Target<'_>, asked: &Projecting) -> Result<Planned
         ),
     };
     let mut transaction = document.transaction(label);
+
     let projected: Vec<_> = fresh
         .iter()
         .map(|(source, outline)| {
@@ -303,6 +323,7 @@ pub(super) fn project(target: &Target<'_>, asked: &Projecting) -> Result<Planned
         })
         .collect();
     let mut planned = Planned::of(transaction.finish());
+
     planned
         .details
         .insert("projected".to_owned(), writing::ids(&projected));
@@ -325,6 +346,7 @@ pub(super) fn intersect(target: &Target<'_>, asked: &Intersecting) -> Result<Pla
             match &asked.face {
                 Some(key) => {
                     let face = references::face_key(key)?;
+
                     bodies::find_face(seen, face).ok_or_else(|| SketchEditError::NotSeen {
                         body: body_label(document, body),
                         what: "face",
@@ -351,15 +373,18 @@ pub(super) fn intersect(target: &Target<'_>, asked: &Intersecting) -> Result<Pla
             if asked.face.is_some() {
                 return Err(SketchEditError::IntersectWays.into());
             }
+
             let datum = references::feature(document, named)?;
             (Pickable::Datum(datum.id()), false)
         }
         (None, None, Some(plane)) => (Pickable::Plane(principal_plane(plane)), false),
         _ => return Err(SketchEditError::IntersectWays.into()),
     };
+
     if asked.face.is_some() && asked.body.is_none() {
         return Err(SketchEditError::IntersectWays.into());
     }
+
     let transaction = projecting::intersect(&surroundings, target.feature, pickable, whole)
         .map_err(SketchEditError::Projection)?;
     Ok(Planned::of(transaction))

@@ -36,6 +36,7 @@ impl CheckedTexts {
             dir: Some(dir.to_path_buf()),
             ..Self::default()
         };
+
         checked.absorb(stored_in(dir));
         checked
     }
@@ -54,8 +55,10 @@ impl CheckedTexts {
         let Some(dir) = self.dir.clone().filter(|_| self.unsaved) else {
             return Ok(());
         };
+
         locked_update(&dir, LOCK_FILE, || {
             let mut merged = Self::default();
+
             merged.absorb(stored_in(&dir));
             merged.absorb(self.order.iter().copied());
             write_atomically(&dir.join(CHECKED_FILE), &merged.encoded())
@@ -88,11 +91,14 @@ impl CheckedTexts {
 
     fn encoded(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(MAGIC.len() + self.order.len() * DIGEST_BYTES + 8);
+
         bytes.extend_from_slice(MAGIC);
         for digest in &self.order {
             bytes.extend_from_slice(digest);
         }
+
         let checksum = xxh3_64(&bytes);
+
         bytes.extend_from_slice(&checksum.to_le_bytes());
         bytes
     }
@@ -101,9 +107,11 @@ impl CheckedTexts {
 fn decoded(bytes: &[u8]) -> Option<Vec<Digest>> {
     let (body, checksum) = bytes.split_at_checked(bytes.len().checked_sub(CHECKSUM_BYTES)?)?;
     let stored = u64::from_le_bytes(checksum.try_into().ok()?);
+
     if xxh3_64(body) != stored {
         return None;
     }
+
     let digests = body.strip_prefix(MAGIC.as_slice())?;
     let (whole, rest) = digests.as_chunks::<DIGEST_BYTES>();
     rest.is_empty().then(|| whole.to_vec())

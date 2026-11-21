@@ -24,9 +24,13 @@ const ZOOMS_OUT: usize = 3;
 
 fn open_photo(dir: &TempDir) -> (Harness, FeatureId) {
     let photo = dir.path().join("photo.png");
+
     write_photo(&photo);
+
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let image = insert(&mut harness, &photo);
+
     run_from_palette(&mut harness, "Fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
@@ -71,10 +75,12 @@ fn drag_handle(harness: &mut Harness, handle: ImageGrip, target: Point3) -> f64 
     let from = grip(harness, handle);
     let to = screen_of(harness, target);
     let step = harness.workspace.viewport.manipulator_step().unwrap();
+
     assert!(
         harness.workspace.viewport.rect().unwrap().contains(to),
         "{to:?} lies outside the view"
     );
+
     drag_screen(harness, from, to);
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
@@ -84,6 +90,7 @@ fn drag_handle(harness: &mut Harness, handle: ImageGrip, target: Point3) -> f64 
 
 fn hover(harness: &mut Harness, handle: ImageGrip) {
     let at = grip(harness, handle);
+
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     harness.frame();
@@ -91,6 +98,7 @@ fn hover(harness: &mut Harness, handle: ImageGrip) {
 
 fn undo_steps_to_insert(harness: &mut Harness) -> usize {
     let mut steps = 0;
+
     while harness.model.undo_label() != Some("Insert photo") {
         harness.perform(Action::Undo);
         harness.settle();
@@ -103,12 +111,14 @@ fn undo_steps_to_insert(harness: &mut Harness) -> usize {
 fn dragging_the_middle_square_moves_the_picture_on_its_plane_as_one_change() {
     let dir = TempDir::new().unwrap();
     let (mut harness, image) = open_photo(&dir);
+
     let start = placed(&harness, image).centre;
     let target = start + Vector3::new(20.0, 10.0, 0.0);
 
     let step = drag_handle(&mut harness, ImageGrip::Move, target);
 
     let moved = placed(&harness, image);
+
     assert!(
         (moved.centre - target).length() <= 2.0 * step,
         "{:?} for {target:?} with steps of {step}",
@@ -124,6 +134,7 @@ fn dragging_the_middle_square_moves_the_picture_on_its_plane_as_one_change() {
 fn dragging_the_knob_on_its_stem_turns_the_picture_about_its_middle_in_steps() {
     let dir = TempDir::new().unwrap();
     let (mut harness, image) = open_photo(&dir);
+
     let centre = placed(&harness, image).centre;
 
     drag_handle(
@@ -133,6 +144,7 @@ fn dragging_the_knob_on_its_stem_turns_the_picture_about_its_middle_in_steps() {
     );
 
     let turned = placed(&harness, image);
+
     assert!((turned.across - Vector3::Y).length() < EXACT, "{turned:?}");
     assert!((turned.centre - centre).length() < EXACT);
     assert_eq!(harness.model.undo_label(), Some("Edit photo"));
@@ -144,6 +156,7 @@ fn dragging_the_knob_on_its_stem_turns_the_picture_about_its_middle_in_steps() {
 fn dragging_the_corner_square_sizes_the_picture_about_its_middle_keeping_its_shape() {
     let dir = TempDir::new().unwrap();
     let (mut harness, image) = open_photo(&dir);
+
     let before = placed(&harness, image);
     let corner = before.centre + Vector3::new(PHOTO_WIDTH / 2.0, PHOTO_HEIGHT / 2.0, 0.0);
 
@@ -154,6 +167,7 @@ fn dragging_the_corner_square_sizes_the_picture_about_its_middle_keeping_its_sha
     );
 
     let sized = placed(&harness, image);
+
     assert!(
         (sized.width - 2.0 * PHOTO_WIDTH).abs() <= 2.0 * step,
         "{} with steps of {step}",
@@ -175,11 +189,14 @@ fn sizing_a_calibrated_picture_scales_its_distance_and_keeps_its_two_points() {
     let dir = TempDir::new().unwrap();
     let (mut harness, image) = open_photo(&dir);
     let spots = (ImageSpot::new(0.25, 0.5), ImageSpot::new(0.75, 0.5));
+
     let calibrated = image_tools::calibrated(&harness.model, image, spots).unwrap();
+
     harness.perform(Action::Apply(calibrated));
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let before = placed(&harness, image);
     let corner = before.centre + Vector3::new(PHOTO_WIDTH / 2.0, PHOTO_HEIGHT / 2.0, 0.0);
 
@@ -193,9 +210,11 @@ fn sizing_a_calibrated_picture_scales_its_distance_and_keeps_its_two_points() {
     let ImageSize::Calibrated(calibration) = image_of(&harness, image).size else {
         panic!("the picture stays calibrated");
     };
+
     let apart = sized
         .point_at(calibration.from)
         .distance(sized.point_at(calibration.to));
+
     assert!(
         (sized.width - PHOTO_WIDTH / 2.0).abs() <= 2.0 * step,
         "{} with steps of {step}",
@@ -221,6 +240,7 @@ fn a_value_typed_over_a_handle_sets_the_field_it_stands_for() {
 
     let (sine, cosine) = 45.0_f64.to_radians().sin_cos();
     let turned = placed(&harness, image);
+
     assert!((turned.across - Vector3::new(cosine, sine, 0.0)).length() < EXACT);
     assert_eq!(harness.model.undo_label(), Some("Edit photo"));
 
@@ -231,6 +251,7 @@ fn a_value_typed_over_a_handle_sets_the_field_it_stands_for() {
     harness.settle();
 
     let moved = placed(&harness, image).centre;
+
     assert!((moved - Point3::new(12.0, -8.0, 0.0)).length() < EXACT);
 
     hover(&mut harness, ImageGrip::Scale);
@@ -249,6 +270,7 @@ fn a_value_that_follows_a_parameter_cannot_be_dragged_and_the_hover_says_what_dr
     let (mut harness, image) = open_photo(&dir);
     let document = harness.document();
     let mut transaction = document.transaction("Add w");
+
     transaction.add_parameter("w", Expression::parse("80 mm", &|_| None).unwrap());
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
@@ -256,12 +278,17 @@ fn a_value_that_follows_a_parameter_cannot_be_dragged_and_the_hover_says_what_dr
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let before = placed(&harness, image);
+
     assert!((before.width - 80.0).abs() < EXACT);
 
     hover(&mut harness, ImageGrip::Scale);
+
     assert!(harness.shows_containing("Width follows w"));
+
     let corner = before.centre + Vector3::new(40.0, 20.0, 0.0);
+
     drag_handle(
         &mut harness,
         ImageGrip::Scale,
@@ -282,16 +309,19 @@ fn the_handles_stand_only_while_the_picture_s_panel_is_open_and_not_while_choosi
 
     harness.click(image_panel::CALIBRATE);
     harness.frame();
+
     assert!(all.into_iter().all(|handle| !shown(&harness, handle)));
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert!(all.into_iter().all(|handle| shown(&harness, handle)));
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert!(all.into_iter().all(|handle| !shown(&harness, handle)));
 }
 

@@ -19,6 +19,7 @@ fn plate_with_rounded_opening() -> Solid {
         (110.0, 120.0, 20.0),
         2,
     );
+
     let opened = boolean(&plate, &opening, BooleanOperation::Difference).unwrap();
     let corners: Vec<EdgeId> = [(-55.0, -60.0), (55.0, -60.0), (55.0, 60.0), (-55.0, 60.0)]
         .into_iter()
@@ -47,17 +48,21 @@ fn a_small_fillet_round_a_rounded_rectangle_opening_in_a_plate_is_rounded() {
     let rim = opening_rim_on_the_bottom(&body);
     let before = volume(&body);
     let rounded = run(&body, &rim, fillet(ROUND));
+
     let removed = before - volume(&rounded);
     let straight = 2.0 * (110.0 - 2.0 * CORNER) + 2.0 * (120.0 - 2.0 * CORNER);
     let round = TAU * (CORNER + SPANDREL_CENTROID * ROUND);
+
     let expected = (straight + round) * spandrel(ROUND);
 
     assert_eq!(rim.len(), 8);
     assert_eq!(rounded.validate(), Ok(()));
+
     assert_watertight(
         "rounded",
         &rounded.tessellate(&rounded.default_tolerance()).unwrap(),
     );
+
     assert!(
         (removed - expected).abs() <= 0.01 * expected,
         "the fillet removes {removed} instead of {expected}"

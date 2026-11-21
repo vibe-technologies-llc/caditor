@@ -18,6 +18,7 @@ fn holed_plate() -> Sketch {
         Point2::new(10.0, 8.0),
         Point2::new(0.0, 8.0),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -41,6 +42,7 @@ fn volume(evaluation: &Evaluation, body: FeatureId) -> f64 {
 
 fn assert_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
     let found = volume(evaluation, body);
+
     assert!(
         (found - expected).abs() < 0.01 * expected,
         "volume {found} instead of {expected}"
@@ -112,7 +114,9 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let lift = transaction.add_parameter("lift", transaction.parse("1 mm").unwrap());
     let outline = transaction.add_feature("Outline", FeatureKind::from(holed_plate()));
     let base = transaction.add_feature(
@@ -129,13 +133,18 @@ fn model() -> Model {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(base).unwrap();
     let top = flat_face(solid, Vector3::Z, Point3::new(1.0, 1.0, 4.0));
+
     let faces = vec![reference(solid, top)];
     let mut transaction = document.transaction("Move face");
+
     let moving = transaction.add_feature(
         "Move face 1",
         FeatureKind::MoveFace(MoveFace {
@@ -147,6 +156,7 @@ fn model() -> Model {
             axis: None,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -159,6 +169,7 @@ fn model() -> Model {
 
 fn set(model: &mut Model, parameter: ParameterId, text: &str) {
     let expression = model.document.parse(text).unwrap();
+
     model
         .document
         .apply(Transaction::single(
@@ -185,6 +196,7 @@ fn set_move(model: &mut Model, change: impl FnOnce(&mut MoveFace, &Solid)) {
         .move_face()
         .unwrap()
         .clone();
+
     change(&mut definition, &before);
     model
         .document
@@ -203,22 +215,30 @@ fn a_moved_face_follows_its_distance_along_its_normal() {
     let mut model = model();
 
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(&evaluation, model.base, (BLOCK - BORE) * 5.0 / 4.0);
 
     let lift = model.lift;
+
     set(&mut model, lift, "-1.5 mm");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_volume(&evaluation, model.base, (BLOCK - BORE) * 2.5 / 4.0);
 }
 
 #[test]
 fn a_wall_tilts_about_its_bottom_edge() {
     let mut model = model();
+
     let base = model.base;
+
     set_move(&mut model, |moving, solid| {
         let side = flat_face(solid, Vector3::X, Point3::new(10.0, 1.0, 1.0));
         let hinge = edge_through(solid, Point3::new(10.0, 4.0, 0.0));
+
         moving.faces = vec![reference(solid, side)];
         moving.distance = length("0 mm");
         moving.angle = length("10 deg");
@@ -228,10 +248,12 @@ fn a_wall_tilts_about_its_bottom_edge() {
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let lean = 0.5 * 4.0 * 4.0 * 10f64.to_radians().tan() * 8.0;
     let found = volume(&evaluation, model.base);
     let leaned_out = BLOCK - BORE + lean;
     let leaned_in = BLOCK - BORE - lean;
+
     assert!(
         (found - leaned_out).abs() < 0.01 * leaned_out
             || (found - leaned_in).abs() < 0.01 * leaned_in,
@@ -242,6 +264,7 @@ fn a_wall_tilts_about_its_bottom_edge() {
 #[test]
 fn an_imported_body_has_its_bore_moved_and_its_top_lowered() {
     let mut built = model();
+
     let evaluation = evaluate(&built.document, &mut built.engine);
     let solid = evaluation
         .body_seen_by(built.moving, built.base)
@@ -249,13 +272,18 @@ fn an_imported_body_has_its_bore_moved_and_its_top_lowered() {
         .clone();
 
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
+
     let imported = transaction.add_feature(
         "Bracket",
         FeatureKind::Import(Import::new("bracket.step", solid, "")),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let read = evaluation.body(imported).unwrap();
     let wall = reference(read, bore(read));
@@ -264,6 +292,7 @@ fn an_imported_body_has_its_bore_moved_and_its_top_lowered() {
         flat_face(read, Vector3::Z, Point3::new(1.0, 1.0, 4.0)),
     );
     let mut transaction = document.transaction("Move faces");
+
     let shifted = transaction.add_feature(
         "Move face 1",
         FeatureKind::MoveFace(MoveFace {
@@ -275,6 +304,7 @@ fn an_imported_body_has_its_bore_moved_and_its_top_lowered() {
             axis: None,
         }),
     );
+
     transaction.add_feature(
         "Move face 2",
         FeatureKind::MoveFace(MoveFace {
@@ -287,12 +317,16 @@ fn an_imported_body_has_its_bore_moved_and_its_top_lowered() {
         }),
     );
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
     assert!(evaluation.body_before(shifted).is_some());
+
     assert_volume(&evaluation, imported, (BLOCK - BORE) * 3.0 / 4.0);
+
     let centre = bore_centre(evaluation.body(imported).unwrap());
+
     assert!((centre.x - 7.0).abs() < 1e-9, "{centre:?}");
     assert!((centre.y - 4.0).abs() < 1e-9, "{centre:?}");
 }
@@ -300,11 +334,14 @@ fn an_imported_body_has_its_bore_moved_and_its_top_lowered() {
 #[test]
 fn move_face_errors_name_the_problem_and_the_fix() {
     let mut model = model();
+
     let lift = model.lift;
 
     set(&mut model, lift, "0 mm");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.moving);
+
     assert_eq!(
         error.reason(),
         "The faces would not move: the distance and the angle are both nought."
@@ -312,23 +349,29 @@ fn move_face_errors_name_the_problem_and_the_fix() {
     assert_eq!(error.fix, Some(FixTarget::Feature(model.moving)));
 
     set(&mut model, lift, "30 deg");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.moving);
+
     assert_eq!(
         error.remedy(),
         "Edit the distance so it gives a length, such as 2 mm."
     );
 
     set(&mut model, lift, "-5 mm");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.moving);
+
     assert_eq!(error.remedy(), "Enter a smaller distance or angle.");
     assert!(evaluation.body(model.base).is_some());
 
     set(&mut model, lift, "1 mm");
     set_move(&mut model, |moving, _| moving.angle = length("5 deg"));
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.moving);
+
     assert_eq!(
         error.reason(),
         "The faces are to tilt, but no axis to tilt them about is chosen."
@@ -338,8 +381,10 @@ fn move_face_errors_name_the_problem_and_the_fix() {
         moving.angle = length("0 deg");
         moving.faces = vec![reference(solid, bore(solid))];
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.moving);
+
     assert!(error.reason().ends_with(
         "is curved and no flat face is chosen, so there is no single direction to move along."
     ));
@@ -353,15 +398,19 @@ fn move_face_errors_name_the_problem_and_the_fix() {
             .faces
             .push(FaceReference::new(FaceName::from_digest(7), None, []));
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.moving);
+
     assert_eq!(
         error.reason(),
         "A face to move is no longer part of the body of Base."
     );
 
     set_move(&mut model, |moving, _| moving.faces.clear());
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert!(matches!(
         evaluation.feature(model.moving).unwrap().state,
         FeatureState::Waiting(MissingInput::FacesToMove { .. })
@@ -372,6 +421,7 @@ fn move_face_errors_name_the_problem_and_the_fix() {
 fn a_moved_face_stays_that_kind_and_tracks_what_it_uses() {
     let mut model = model();
     let sketch = FeatureKind::from(holed_plate());
+
     assert!(matches!(
         model.document.clone().apply(Transaction::single(
             "Change",
@@ -384,16 +434,19 @@ fn a_moved_face_stays_that_kind_and_tracks_what_it_uses() {
     ));
 
     let kind = &model.document.feature(model.moving).unwrap().kind;
+
     assert!(kind.uses_parameter(model.lift));
     assert!(kind.features().contains(&model.base));
 
     let mut transaction = model.document.transaction("Axis");
+
     let datum = transaction.add_feature(
         "Axis 1",
         FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Principal(
             PrincipalAxis::Y,
         )))),
     );
+
     model.document.apply(transaction.finish()).unwrap();
     model
         .document
@@ -408,6 +461,8 @@ fn a_moved_face_stays_that_kind_and_tracks_what_it_uses() {
     set_move(&mut model, |moving, _| {
         moving.direction = Some(AxisReference::Datum(datum));
     });
+
     let kind = &model.document.feature(model.moving).unwrap().kind;
+
     assert!(kind.dependencies().contains(&datum));
 }

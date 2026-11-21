@@ -40,6 +40,7 @@ pub fn listing() -> Value {
             "mimeType": JSON,
         }),
     ];
+
     resources.extend(Page::ALL.into_iter().map(|page| {
         json!({
             "uri": format!("{GUIDE}{}", page.id()),
@@ -78,8 +79,10 @@ pub fn read(session: &mut Session, work: &Work<'_>, uri: &str) -> Result<Value, 
 pub fn page_text(page: Page) -> String {
     let mut text = format!("# {}\n", page.title());
     let mut listing = false;
+
     for block in page.blocks() {
         let item = matches!(block, Block::Item(_));
+
         if !(item && listing) {
             text.push('\n');
         }

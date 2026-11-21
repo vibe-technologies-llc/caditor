@@ -9,6 +9,7 @@ use crate::*;
 
 fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketch {
     let mut sketch = Sketch::new(plane);
+
     add_rectangle(&mut sketch, min, max);
     sketch
 }
@@ -27,6 +28,7 @@ fn add_rectangle(sketch: &mut Sketch, min: (f64, f64), max: (f64, f64)) {
 
 fn circle(plane: Plane, center: (f64, f64), radius: f64) -> Sketch {
     let mut sketch = Sketch::new(plane);
+
     sketch.add_circle(Point2::new(center.0, center.1), radius);
     sketch
 }
@@ -66,7 +68,9 @@ fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
 
 fn add(document: &mut Document, name: &str, kind: FeatureKind) -> FeatureId {
     let mut transaction = document.transaction(format!("Add {name}"));
+
     let feature = transaction.add_feature(name, kind);
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -91,6 +95,7 @@ fn one_side(end: ExtrudeEnd, reversed: bool) -> ExtrudeExtent {
 
 fn set(document: &mut Document, parameter: ParameterId, text: &str) {
     let expression = document.parse(text).unwrap();
+
     document
         .apply(Transaction::single(
             "Edit",
@@ -110,12 +115,15 @@ struct Plate {
 
 fn plate_at(height: f64) -> Plate {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Plate");
+
     let thickness = transaction.add_parameter("thickness", transaction.parse("10 mm").unwrap());
     let outline = transaction.add_feature(
         "Plate sketch",
         FeatureKind::from(rectangle(at(height), (0.0, 0.0), (40.0, 40.0))),
     );
+
     let plate = transaction.add_feature(
         "Plate",
         extrusion(
@@ -124,6 +132,7 @@ fn plate_at(height: f64) -> Plate {
             BodyOperation::NewBody,
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
     Plate {
         document,
@@ -162,11 +171,13 @@ fn face_reference(
 #[test]
 fn through_all_cuts_through_the_whole_body_whatever_its_thickness() {
     let mut model = plate_at(0.0);
+
     let hole = add(
         &mut model.document,
         "Hole sketch",
         FeatureKind::from(circle(Plane::XY, (20.0, 20.0), 5.0)),
     );
+
     add(
         &mut model.document,
         "Hole",
@@ -176,10 +187,13 @@ fn through_all_cuts_through_the_whole_body_whatever_its_thickness() {
             BodyOperation::Remove(model.plate),
         ),
     );
+
     let mut engine = Recompute::default();
 
     let thin = evaluate(&model.document, &mut engine);
+
     set(&mut model.document, model.thickness, "25 mm");
+
     let thick = evaluate(&model.document, &mut engine);
 
     assert_eq!(thin.failed_count(), 0);
@@ -191,11 +205,13 @@ fn through_all_cuts_through_the_whole_body_whatever_its_thickness() {
 #[test]
 fn through_all_both_ways_cuts_from_a_sketch_inside_the_body() {
     let mut model = plate_at(0.0);
+
     let slot = add(
         &mut model.document,
         "Slot sketch",
         FeatureKind::from(rectangle(at(4.0), (10.0, 10.0), (20.0, 15.0))),
     );
+
     add(
         &mut model.document,
         "Slot",
@@ -218,6 +234,7 @@ fn through_all_both_ways_cuts_from_a_sketch_inside_the_body() {
 #[test]
 fn through_all_only_cuts_and_needs_something_of_the_body_ahead() {
     let mut model = plate_at(0.0);
+
     let hole = add(
         &mut model.document,
         "Hole sketch",
@@ -245,12 +262,15 @@ fn through_all_only_cuts_and_needs_something_of_the_body_ahead() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let refused = failure(&evaluation, adding);
+
     assert_eq!(
         refused.reason(),
         "Through all only cuts into a body or intersects with it, so it cannot add material."
     );
     assert_eq!(refused.fix, Some(FixTarget::Feature(adding)));
+
     let behind = failure(&evaluation, backwards);
+
     assert_eq!(
         behind.reason(),
         "No part of the body of Plate lies ahead of the sketch, so there is nothing to go through."
@@ -265,11 +285,13 @@ fn through_all_only_cuts_and_needs_something_of_the_body_ahead() {
 #[test]
 fn up_to_next_fills_the_gap_up_to_the_body_and_follows_it() {
     let mut model = plate_at(10.0);
+
     let boss = add(
         &mut model.document,
         "Boss sketch",
         FeatureKind::from(rectangle(Plane::XY, (5.0, 5.0), (15.0, 15.0))),
     );
+
     add(
         &mut model.document,
         "Boss",
@@ -289,11 +311,13 @@ fn up_to_next_fills_the_gap_up_to_the_body_and_follows_it() {
 #[test]
 fn up_to_next_cuts_until_the_profile_comes_out_of_the_body() {
     let mut model = plate_at(0.0);
+
     let pocket = add(
         &mut model.document,
         "Pocket sketch",
         FeatureKind::from(rectangle(at(10.0), (5.0, 5.0), (15.0, 15.0))),
     );
+
     add(
         &mut model.document,
         "Pocket",
@@ -303,10 +327,13 @@ fn up_to_next_cuts_until_the_profile_comes_out_of_the_body() {
             BodyOperation::Remove(model.plate),
         ),
     );
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&model.document, &mut engine);
+
     set(&mut model.document, model.thickness, "30 mm");
+
     let thicker = evaluate(&model.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
@@ -318,6 +345,7 @@ fn up_to_next_cuts_until_the_profile_comes_out_of_the_body() {
 #[test]
 fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
     let mut model = plate_at(10.0);
+
     let below = add(
         &mut model.document,
         "Below sketch",
@@ -374,6 +402,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Step sketch",
         FeatureKind::from(rectangle(at(5.0), (0.0, 0.0), (20.0, 40.0))),
     );
+
     add(
         &mut model.document,
         "Step",
@@ -383,6 +412,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
             BodyOperation::Add(model.plate),
         ),
     );
+
     let across = add(
         &mut model.document,
         "Across sketch",
@@ -439,6 +469,7 @@ fn under_the_rod(width: f64) -> f64 {
 #[test]
 fn up_to_a_curved_next_face_follows_the_face() {
     let mut document = Document::default();
+
     let rod_sketch = add(&mut document, "Rod sketch", rod());
     let rod = add(
         &mut document,
@@ -454,6 +485,7 @@ fn up_to_a_curved_next_face_follows_the_face() {
         "Strip sketch",
         FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
     );
+
     let stand = add(
         &mut document,
         "Stand",
@@ -488,10 +520,13 @@ fn up_to_a_curved_next_face_follows_the_face() {
         evaluation.feature(groove_cut).unwrap().state,
         FeatureState::UpToDate
     ));
+
     let added = 40.0 - under_the_rod(2.0);
     let removed = 2.0 * under_the_rod(2.0);
+
     let expected = 500.0 * PI + added - removed;
     let found = volume(&evaluation, rod);
+
     assert!(
         (found - expected).abs() < 2e-3 * expected,
         "{found} {expected}"
@@ -501,12 +536,14 @@ fn up_to_a_curved_next_face_follows_the_face() {
 #[test]
 fn up_to_face_ends_on_the_face_and_follows_it_when_the_body_changes() {
     let mut model = plate_at(0.0);
+
     let top = face_reference(&model.document, model.plate, Vector3::Z, 10.0);
     let tower = add(
         &mut model.document,
         "Tower sketch",
         FeatureKind::from(rectangle(at(30.0), (5.0, 5.0), (15.0, 15.0))),
     );
+
     add(
         &mut model.document,
         "Tower",
@@ -516,10 +553,13 @@ fn up_to_face_ends_on_the_face_and_follows_it_when_the_body_changes() {
             BodyOperation::Add(model.plate),
         ),
     );
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&model.document, &mut engine);
+
     set(&mut model.document, model.thickness, "15 mm");
+
     let thicker = evaluate(&model.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
@@ -544,7 +584,9 @@ fn region_at(sketch: &Sketch, x: f64) -> RegionReference {
 fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_shape() {
     let mut model = plate_at(0.0);
     let mut lugs = rectangle(at(10.0), (5.0, 5.0), (15.0, 15.0));
+
     add_rectangle(&mut lugs, (25.0, 25.0), (35.0, 35.0));
+
     let (first, second) = (region_at(&lugs, 10.0), region_at(&lugs, 30.0));
     let lug_sketch = add(&mut model.document, "Lug sketch", FeatureKind::from(lugs));
     let lug_kind = |region: RegionReference| {
@@ -560,6 +602,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
             direction: None,
         }))
     };
+
     let lug = add(&mut model.document, "Lug", lug_kind(first));
     let lug_top = face_reference(&model.document, model.plate, Vector3::Z, 15.0);
     let post = add(
@@ -567,6 +610,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
         "Post sketch",
         FeatureKind::from(rectangle(at(40.0), (8.0, 8.0), (12.0, 12.0))),
     );
+
     let tower = add(
         &mut model.document,
         "Post",
@@ -591,6 +635,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
         ),
     );
     let mut engine = Recompute::default();
+
     let before = evaluate(&model.document, &mut engine);
 
     model
@@ -603,11 +648,14 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
             },
         ))
         .unwrap();
+
     let after = evaluate(&model.document, &mut engine);
 
     assert_eq!(before.failed_count(), 0);
     assert!((volume(&before, tower) - 16.0 * 25.0).abs() < 1e-6);
+
     let error = failure(&after, tower);
+
     assert_eq!(
         error.reason(),
         "The face this extrusion runs up to is no longer part of the body of Plate."
@@ -634,12 +682,14 @@ fn datum_plane(base: PlaneReference, rotation: Option<PlaneRotation>, offset: f6
 #[test]
 fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
     let mut model = plate_at(0.0);
+
     let top = face_reference(&model.document, model.plate, Vector3::Z, 10.0);
     let high = add(
         &mut model.document,
         "High sketch",
         FeatureKind::from(rectangle(at(30.0), (5.0, 5.0), (15.0, 15.0))),
     );
+
     let upwards = add(
         &mut model.document,
         "Upwards",
@@ -678,6 +728,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
         "Centred sketch",
         FeatureKind::from(rectangle(Plane::XY, (-10.0, -10.0), (10.0, 10.0))),
     );
+
     let across = add(
         &mut model.document,
         "Across",
@@ -703,6 +754,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let behind = failure(&evaluation, upwards);
+
     assert_eq!(
         behind.reason(),
         "Plate end face does not lie ahead of the sketch."
@@ -730,6 +782,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
 #[test]
 fn up_to_a_tilted_datum_plane_ends_on_it() {
     let mut document = Document::default();
+
     let slope = add(
         &mut document,
         "Slope",
@@ -747,6 +800,7 @@ fn up_to_a_tilted_datum_plane_ends_on_it() {
         "Base sketch",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 10.0))),
     );
+
     let wedge = add(
         &mut document,
         "Wedge",
@@ -760,6 +814,7 @@ fn up_to_a_tilted_datum_plane_ends_on_it() {
     let evaluation = evaluate(&document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let plane = evaluation
         .feature(slope)
         .and_then(|status| status.result.as_deref())
@@ -767,8 +822,11 @@ fn up_to_a_tilted_datum_plane_ends_on_it() {
         .and_then(DatumResult::plane)
         .unwrap();
     let centre = Point3::new(5.0, 5.0, 0.0);
+
     let height = plane.signed_distance(centre) / -plane.normal().z;
+
     assert!((volume(&evaluation, wedge) - 100.0 * height).abs() < 1e-6);
+
     let solid = evaluation.body(wedge).unwrap();
     let top = solid
         .faces()
@@ -783,6 +841,7 @@ fn up_to_a_tilted_datum_plane_ends_on_it() {
     let Surface::Plane(top) = top else {
         panic!("the end is flat");
     };
+
     assert!(plane.signed_distance(top.frame().origin()).abs() < 1e-9);
     assert!(top.frame().normal().cross(plane.normal()).length() < 1e-9);
 }
@@ -790,6 +849,7 @@ fn up_to_a_tilted_datum_plane_ends_on_it() {
 #[test]
 fn each_side_of_a_two_sided_extrusion_takes_its_own_end() {
     let mut model = plate_at(0.0);
+
     let middle = add(
         &mut model.document,
         "Middle sketch",
@@ -812,6 +872,7 @@ fn each_side_of_a_two_sided_extrusion_takes_its_own_end() {
         "Cut sketch",
         FeatureKind::from(rectangle(at(5.0), (30.0, 30.0), (35.0, 35.0))),
     );
+
     add(
         &mut model.document,
         "Cut",
@@ -829,7 +890,9 @@ fn each_side_of_a_two_sided_extrusion_takes_its_own_end() {
 
     assert_eq!(evaluation.failed_count(), 0);
     assert!((volume(&evaluation, column) - 100.0 * 25.0).abs() < 1e-6);
+
     let reach = evaluation.body(column).unwrap().bounding_box().unwrap();
+
     assert!(reach.min().z.abs() < 1e-9 && (reach.max().z - 25.0).abs() < 1e-9);
     assert!((volume(&evaluation, model.plate) - (16_000.0 - 250.0)).abs() < 1e-6);
 }
@@ -837,12 +900,14 @@ fn each_side_of_a_two_sided_extrusion_takes_its_own_end() {
 #[test]
 fn a_new_body_up_to_a_face_of_another_body_is_recomputed_when_that_body_changes() {
     let mut model = plate_at(0.0);
+
     let top = face_reference(&model.document, model.plate, Vector3::Z, 10.0);
     let tower_sketch = add(
         &mut model.document,
         "Tower sketch",
         FeatureKind::from(rectangle(at(30.0), (5.0, 5.0), (15.0, 15.0))),
     );
+
     let tower = add(
         &mut model.document,
         "Tower",
@@ -855,7 +920,9 @@ fn a_new_body_up_to_a_face_of_another_body_is_recomputed_when_that_body_changes(
     let mut engine = Recompute::default();
 
     let first = evaluate(&model.document, &mut engine);
+
     set(&mut model.document, model.thickness, "12 mm");
+
     let second = evaluate(&model.document, &mut engine);
 
     assert!(
@@ -875,6 +942,7 @@ fn a_new_body_up_to_a_face_of_another_body_is_recomputed_when_that_body_changes(
 #[test]
 fn a_datum_plane_an_extrusion_runs_up_to_is_one_of_its_features_and_must_stay_above_it() {
     let mut document = Document::default();
+
     let level = add(
         &mut document,
         "Level",
@@ -892,6 +960,7 @@ fn a_datum_plane_an_extrusion_runs_up_to_is_one_of_its_features_and_must_stay_ab
             PrincipalAxis::X,
         )))),
     );
+
     let block = add(
         &mut document,
         "Block",
@@ -931,13 +1000,16 @@ fn a_datum_plane_an_extrusion_runs_up_to_is_one_of_its_features_and_must_stay_ab
             .features()
             .contains(&level)
     );
+
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     assert!((volume(&evaluation, block) - 2_000.0).abs() < 1e-6);
 }
 
 #[test]
 fn a_revolve_turns_by_two_angles_that_together_stay_within_a_turn() {
     let mut document = Document::default();
+
     let section = add(
         &mut document,
         "Section",
@@ -965,8 +1037,11 @@ fn a_revolve_turns_by_two_angles_that_together_stay_within_a_turn() {
     let evaluation = evaluate(&document, &mut Recompute::default());
 
     let full = PI * (16.0 - 4.0) * 3.0;
+
     assert!((volume(&evaluation, turned) - full / 3.0).abs() < 1e-3 * full);
+
     let error = failure(&evaluation, too_far);
+
     assert_eq!(error.reason(), "The two angles add up to more than 360°.");
     assert_eq!(error.remedy(), "Enter angles that add up to at most 360°.");
 }
@@ -976,6 +1051,7 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
     let plate = rectangle(at(0.0), (0.0, 0.0), (10.0, 8.0));
     let chosen = region_at(&plate, 5.0);
     let mut document = Document::default();
+
     let sketch = add(&mut document, "Plate sketch", FeatureKind::from(plate));
     let block = add(
         &mut document,
@@ -993,10 +1069,13 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
         })),
     );
     let mut engine = Recompute::default();
+
     let before = evaluate(&document, &mut engine);
 
     let mut transaction = document.transaction("Draw a hole");
+
     let center = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(4.0, 4.0)));
+
     transaction.add_sketch_entity(
         sketch,
         Entity::Circle {
@@ -1005,6 +1084,7 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
         },
     );
     document.apply(transaction.finish()).unwrap();
+
     let after = evaluate(&document, &mut engine);
 
     assert!((volume(&before, block) - 160.0).abs() < 1e-6);
@@ -1013,12 +1093,15 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
     assert!((volume(&after, block) - (160.0 - 8.0 * PI)).abs() < 2e-2);
 
     let healing = after.feature(block).unwrap().healing.clone().unwrap();
+
     assert_eq!(
         healing.reason(),
         "After an upstream change, a chosen region of Plate sketch was matched to the most \
          similar geometry."
     );
+
     document.apply(healing.update(&document).unwrap()).unwrap();
+
     let updated = evaluate(&document, &mut engine);
 
     assert_eq!(updated.feature(block).unwrap().healing, None);
@@ -1028,6 +1111,7 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
 #[test]
 fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
     let mut plate = rectangle(at(0.0), (0.0, 0.0), (10.0, 8.0));
+
     let disc = plate.add_circle(Point2::new(4.0, 4.0), 2.0);
     let regions: Vec<RegionReference> = sketch_regions(&plate)
         .unwrap()
@@ -1035,6 +1119,7 @@ fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
         .map(|region| RegionReference::capture(region, region.anchor()))
         .collect();
     let mut document = Document::default();
+
     let sketch = add(&mut document, "Plate sketch", FeatureKind::from(plate));
     let block = add(
         &mut document,
@@ -1052,14 +1137,18 @@ fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
         })),
     );
     let mut engine = Recompute::default();
+
     evaluate(&document, &mut engine);
 
     let mut transaction = document.transaction("Delete the disc");
+
     transaction.remove_sketch_items(sketch, [disc], []);
     document.apply(transaction.finish()).unwrap();
+
     let after = evaluate(&document, &mut engine);
 
     let healing = after.feature(block).unwrap().healing.clone().unwrap();
+
     assert_eq!(
         healing.reason(),
         "After an upstream change, a chosen region of Plate sketch was matched to the most \
@@ -1071,6 +1160,7 @@ fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
 #[test]
 fn an_offset_stops_an_end_short_of_or_past_the_face_it_reaches() {
     let mut model = plate_at(0.0);
+
     let top = face_reference(&model.document, model.plate, Vector3::Z, 10.0);
     let pocket = add(
         &mut model.document,
@@ -1094,6 +1184,7 @@ fn an_offset_stops_an_end_short_of_or_past_the_face_it_reaches() {
         "Tower sketch",
         FeatureKind::from(rectangle(at(30.0), (25.0, 25.0), (35.0, 35.0))),
     );
+
     let short_tower = add(
         &mut model.document,
         "Tower",
@@ -1140,7 +1231,9 @@ fn an_offset_stops_an_end_short_of_or_past_the_face_it_reaches() {
     ));
     assert!((volume(&evaluation, short_tower) - 1_800.0).abs() < 1e-6);
     assert!((volume(&evaluation, past) - 2_500.0).abs() < 1e-6);
+
     let refused = failure(&evaluation, behind);
+
     assert_eq!(
         refused.reason(),
         "Stopping 25 mm short of Plate end face would end the extrusion before it starts in \
@@ -1164,6 +1257,7 @@ fn curved_face(solid: &Solid) -> FaceId {
 #[test]
 fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face() {
     let mut document = Document::default();
+
     let rod_sketch = add(&mut document, "Rod sketch", rod());
     let rod = add(
         &mut document,
@@ -1175,6 +1269,7 @@ fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face(
         ),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     let solid = evaluation.body(rod).unwrap();
     let side = FaceAttachment {
         body: rod,
@@ -1185,6 +1280,7 @@ fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face(
         "Strip sketch",
         FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
     );
+
     let stand = add(
         &mut document,
         "Stand",
@@ -1199,6 +1295,7 @@ fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face(
         "Block sketch",
         FeatureKind::from(rectangle(at(13.0), (0.0, -3.0), (5.0, 3.0))),
     );
+
     add(
         &mut document,
         "Block",
@@ -1208,6 +1305,7 @@ fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face(
             BodyOperation::Add(rod),
         ),
     );
+
     let blocked = add(
         &mut document,
         "Blocked",
@@ -1224,13 +1322,17 @@ fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face(
         evaluation.feature(stand).unwrap().state,
         FeatureState::UpToDate
     ));
+
     let expected = 40.0 - under_the_rod(2.0);
     let found = volume(&evaluation, stand);
+
     assert!(
         (found - expected).abs() < 2e-3 * expected,
         "{found} {expected}"
     );
+
     let refused = failure(&evaluation, blocked);
+
     assert!(
         refused.reason().starts_with(
             "The profile of Strip sketch meets Block start face of Rod before it reaches"
@@ -1251,6 +1353,7 @@ fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face(
 #[test]
 fn a_revolve_turns_up_to_the_first_face_or_plane_through_its_axis_it_reaches() {
     let mut document = Document::default();
+
     let section = add(
         &mut document,
         "Section",
@@ -1286,6 +1389,7 @@ fn a_revolve_turns_up_to_the_first_face_or_plane_through_its_axis_it_reaches() {
         "Square",
         revolve(PlaneReference::Principal(PrincipalPlane::Yz), false),
     );
+
     let forward = add(
         &mut document,
         "Forward",
@@ -1310,8 +1414,11 @@ fn a_revolve_turns_up_to_the_first_face_or_plane_through_its_axis_it_reaches() {
     let evaluation = evaluate(&document, &mut Recompute::default());
 
     let full = PI * (16.0 - 4.0) * 3.0;
+
     assert!((volume(&evaluation, square) - full / 4.0).abs() < 1e-3 * full);
+
     let (one, other) = (volume(&evaluation, forward), volume(&evaluation, backward));
+
     assert!((one + other - full / 2.0).abs() < 1e-3 * full);
     assert!((one.min(other) - full / 12.0).abs() < 1e-3 * full);
     assert_eq!(
@@ -1336,6 +1443,7 @@ fn a_revolve_turns_up_to_the_first_face_or_plane_through_its_axis_it_reaches() {
 fn an_extrusion_runs_along_a_chosen_line_measuring_its_distance_along_it() {
     let mut document = Document::default();
     let mut guide = Sketch::new(Plane::XZ);
+
     let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
     let guide = add(&mut document, "Guide", FeatureKind::from(guide));
     let level = add(
@@ -1361,6 +1469,7 @@ fn an_extrusion_runs_along_a_chosen_line_measuring_its_distance_along_it() {
             direction: Some(Box::new(direction)),
         }))
     };
+
     let line = AxisReference::Sketch {
         sketch: guide,
         entity: slant,
@@ -1405,15 +1514,22 @@ fn an_extrusion_runs_along_a_chosen_line_measuring_its_distance_along_it() {
     let evaluation = evaluate(&document, &mut Recompute::default());
 
     let rise = 10.0 * std::f64::consts::FRAC_1_SQRT_2;
+
     assert!((volume(&evaluation, leaning) - 100.0 * rise).abs() < 1e-6);
+
     let bounds = evaluation.body(leaning).unwrap().bounding_box().unwrap();
+
     assert!((bounds.max().x - (10.0 + rise)).abs() < 1e-9);
     assert!((volume(&evaluation, to_level) - 500.0).abs() < 1e-6);
+
     let tapered_body = evaluation.body(tapered).unwrap();
+
     tapered_body.validate().unwrap();
+
     let top = 10.0 - 2.0 * 10.0 * 5.0_f64.to_radians().tan();
     let frustum = rise / 3.0 * (100.0 + top * top + 10.0 * top);
     let found = volume(&evaluation, tapered);
+
     assert!(
         (found - frustum).abs() < 1e-3 * frustum,
         "{found} {frustum}"
@@ -1436,6 +1552,7 @@ fn an_extrusion_runs_along_a_chosen_line_measuring_its_distance_along_it() {
 fn a_disc_tapered_along_a_slanted_edge_joins_the_plate_it_stands_on() {
     let mut model = plate_at(0.0);
     let mut guide = Sketch::new(Plane::YZ);
+
     let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(5.0, 10.0));
     let guide = add(&mut model.document, "Guide", FeatureKind::from(guide));
     let disc = add(
@@ -1443,6 +1560,7 @@ fn a_disc_tapered_along_a_slanted_edge_joins_the_plate_it_stands_on() {
         "Disc",
         FeatureKind::from(circle(at(10.0), (10.0, 10.0), 4.0)),
     );
+
     let peg = add(
         &mut model.document,
         "Peg",
@@ -1472,18 +1590,25 @@ fn a_disc_tapered_along_a_slanted_edge_joins_the_plate_it_stands_on() {
         "{:?}",
         evaluation.feature(peg).unwrap().state
     );
+
     let plate = evaluation.body(model.plate).unwrap();
+
     plate.validate().unwrap();
+
     let height = 10.0 * 10.0 / 125.0_f64.sqrt();
     let top = 4.0 - 10.0 * 10.0_f64.to_radians().tan();
+
     let cone = PI * height / 3.0 * (16.0 + 4.0 * top + top * top);
     let expected = 16_000.0 + cone;
     let found = volume(&evaluation, model.plate);
+
     assert!(
         (found - expected).abs() < 1e-3 * expected,
         "{found} {expected}"
     );
+
     let bounds = plate.bounding_box().unwrap();
+
     assert!(
         (bounds.max().z - (10.0 + height)).abs() < 1e-6,
         "{bounds:?}"
@@ -1511,6 +1636,7 @@ fn leaning(
 
 fn guide_line(document: &mut Document, end: (f64, f64)) -> AxisReference {
     let mut guide = Sketch::new(Plane::XZ);
+
     let entity = guide.add_line(Point2::new(0.0, 0.0), Point2::new(end.0, end.1));
     let sketch = add(document, "Guide", FeatureKind::from(guide));
     AxisReference::Sketch { sketch, entity }
@@ -1519,12 +1645,14 @@ fn guide_line(document: &mut Document, end: (f64, f64)) -> AxisReference {
 #[test]
 fn an_extrusion_along_a_slant_runs_up_to_the_next_face_flat_or_curved() {
     let mut model = plate_at(10.0);
+
     let slant = guide_line(&mut model.document, (5.0, 10.0));
     let boss = add(
         &mut model.document,
         "Boss sketch",
         FeatureKind::from(rectangle(Plane::XY, (5.0, 5.0), (15.0, 15.0))),
     );
+
     let reaching = add(
         &mut model.document,
         "Reaching",
@@ -1537,6 +1665,7 @@ fn an_extrusion_along_a_slant_runs_up_to_the_next_face_flat_or_curved() {
     );
 
     let mut document = Document::default();
+
     let steep = guide_line(&mut document, (1.0, 4.0));
     let rod_sketch = add(&mut document, "Rod sketch", rod());
     let rod = add(
@@ -1553,6 +1682,7 @@ fn an_extrusion_along_a_slant_runs_up_to_the_next_face_flat_or_curved() {
         "Strip sketch",
         FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
     );
+
     let stand = add(
         &mut document,
         "Stand",
@@ -1571,16 +1701,22 @@ fn an_extrusion_along_a_slant_runs_up_to_the_next_face_flat_or_curved() {
         flat.feature(reaching).unwrap().state,
         FeatureState::UpToDate
     ));
+
     flat.body(model.plate).unwrap().validate().unwrap();
+
     let found = volume(&flat, model.plate);
+
     assert!((found - 17_000.0).abs() < 1e-6, "{found}");
     assert!(matches!(
         curved.feature(stand).unwrap().state,
         FeatureState::UpToDate
     ));
+
     curved.body(rod).unwrap().validate().unwrap();
+
     let expected = 500.0 * PI + 40.0 - under_the_rod(2.0);
     let found = volume(&curved, rod);
+
     assert!(
         (found - expected).abs() < 2e-3 * expected,
         "{found} {expected}"
@@ -1590,6 +1726,7 @@ fn an_extrusion_along_a_slant_runs_up_to_the_next_face_flat_or_curved() {
 #[test]
 fn an_extrusion_along_a_slant_runs_up_to_a_chosen_curved_face_tapered_or_not() {
     let mut document = Document::default();
+
     let steep = guide_line(&mut document, (1.0, 4.0));
     let rod_sketch = add(&mut document, "Rod sketch", rod());
     let rod = add(
@@ -1602,6 +1739,7 @@ fn an_extrusion_along_a_slant_runs_up_to_a_chosen_curved_face_tapered_or_not() {
         ),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     let solid = evaluation.body(rod).unwrap();
     let side = FaceAttachment {
         body: rod,
@@ -1612,6 +1750,7 @@ fn an_extrusion_along_a_slant_runs_up_to_a_chosen_curved_face_tapered_or_not() {
         "Strip sketch",
         FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
     );
+
     let stand = add(
         &mut document,
         "Stand",
@@ -1628,9 +1767,11 @@ fn an_extrusion_along_a_slant_runs_up_to_a_chosen_curved_face_tapered_or_not() {
         BodyOperation::NewBody,
         steep,
     );
+
     if let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = &mut tapered {
         extrude.taper = Some(Box::new(degrees(0.5)));
     }
+
     let tapered = add(&mut document, "Tapered stand", tapered);
 
     let evaluation = evaluate(&document, &mut Recompute::default());
@@ -1639,9 +1780,12 @@ fn an_extrusion_along_a_slant_runs_up_to_a_chosen_curved_face_tapered_or_not() {
         evaluation.feature(stand).unwrap().state,
         FeatureState::UpToDate
     ));
+
     evaluation.body(stand).unwrap().validate().unwrap();
+
     let expected = 40.0 - under_the_rod(2.0);
     let found = volume(&evaluation, stand);
+
     assert!(
         (found - expected).abs() < 2e-3 * expected,
         "{found} {expected}"
@@ -1650,8 +1794,11 @@ fn an_extrusion_along_a_slant_runs_up_to_a_chosen_curved_face_tapered_or_not() {
         evaluation.feature(tapered).unwrap().state,
         FeatureState::UpToDate
     ));
+
     evaluation.body(tapered).unwrap().validate().unwrap();
+
     let narrowed = volume(&evaluation, tapered);
+
     assert!(
         narrowed < found && narrowed > 0.7 * found,
         "{narrowed} {found}"
@@ -1695,6 +1842,7 @@ fn turning(section: FeatureId, extent: RevolveExtent, operation: BodyOperation) 
 #[test]
 fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
     let mut document = Document::default();
+
     let section = add(
         &mut document,
         "Section",
@@ -1729,6 +1877,7 @@ fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
         ),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     let wall_solid = evaluation.body(wall).unwrap();
     let (side, _) =
         FaceAttachment::capture(wall, wall_solid, facing(wall_solid, Vector3::X)).unwrap();
@@ -1789,11 +1938,14 @@ fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
 
     let quarter = 3.0 * (beside_the_axis(4.0, 0.5) - beside_the_axis(2.0, 0.5));
     let full = PI * (16.0 - 4.0) * 3.0;
+
     assert!(matches!(
         evaluation.feature(forward).unwrap().state,
         FeatureState::UpToDate
     ));
+
     let added = volume(&evaluation, wall) - 50.0;
+
     assert!((added - quarter).abs() < 2e-3 * full, "{added} {quarter}");
     assert!(matches!(
         evaluation.feature(backward).unwrap().state,
@@ -1803,7 +1955,9 @@ fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
         failure(&evaluation, unchanged).reason(),
         "Up to next stops at the body this revolution changes, and it makes a new body instead."
     );
+
     let side_volume = volume(&evaluation, to_side[0]);
+
     assert!(
         (side_volume - quarter).abs() < 2e-3 * full,
         "{side_volume} {quarter}"
@@ -1815,7 +1969,9 @@ fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
         "{}",
         failure(&evaluation, to_side[1]).reason()
     );
+
     let reaching = volume(&evaluation, to_post);
+
     assert!(
         reaching > 0.3 * full && reaching < 0.5 * full,
         "{reaching} {full}"
@@ -1832,6 +1988,7 @@ fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
 
 fn grooved_rod(extent: ExtrudeExtent, taper: Option<Expression>) -> Grooved {
     let mut document = Document::default();
+
     let rod_sketch = add(&mut document, "Rod sketch", rod());
     let rod = add(
         &mut document,
@@ -1847,10 +2004,13 @@ fn grooved_rod(extent: ExtrudeExtent, taper: Option<Expression>) -> Grooved {
         "Groove sketch",
         FeatureKind::from(rectangle(at(20.0), (-6.0, -1.0), (-4.0, 1.0))),
     );
+
     let mut kind = extrusion(groove, extent, BodyOperation::Remove(rod));
+
     if let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = &mut kind {
         extrude.taper = taper.map(Box::new);
     }
+
     let cut = add(&mut document, "Groove", kind);
     let evaluation = evaluate(&document, &mut Recompute::default());
     Grooved {
@@ -1874,6 +2034,7 @@ impl Grooved {
             "{:?}",
             self.evaluation.feature(self.cut)
         );
+
         self.evaluation.body(self.rod).unwrap().validate().unwrap();
         500.0 * PI - volume(&self.evaluation, self.rod)
     }
@@ -1951,6 +2112,7 @@ fn each_side_of_a_two_sided_extrusion_stops_at_the_faces_it_meets() {
 
 fn turned_section(extent: impl FnOnce(FeatureId) -> RevolveExtent) -> (Evaluation, FeatureId) {
     let mut document = Document::default();
+
     let section = add(
         &mut document,
         "Section",
@@ -1970,6 +2132,7 @@ fn turned_section(extent: impl FnOnce(FeatureId) -> RevolveExtent) -> (Evaluatio
             BodyOperation::NewBody,
         ),
     );
+
     let turned = add(
         &mut document,
         "Turned",
@@ -1980,12 +2143,14 @@ fn turned_section(extent: impl FnOnce(FeatureId) -> RevolveExtent) -> (Evaluatio
 
 fn turned_added(extent: impl FnOnce(FeatureId) -> RevolveExtent) -> f64 {
     let (evaluation, turned) = turned_section(extent);
+
     assert_eq!(
         evaluation.failed_count(),
         0,
         "{:?}",
         evaluation.feature(turned)
     );
+
     let body = evaluation
         .feature(turned)
         .unwrap()
@@ -1993,6 +2158,7 @@ fn turned_added(extent: impl FnOnce(FeatureId) -> RevolveExtent) -> f64 {
         .as_deref()
         .unwrap();
     let body = body.solid().unwrap();
+
     body.solid.validate().unwrap();
     volume(&evaluation, body.body) - 50.0
 }
@@ -2014,6 +2180,7 @@ fn a_revolve_up_to_the_next_face_ends_short_of_it_or_past_it_by_its_offset() {
 #[test]
 fn a_revolve_up_to_a_plane_turns_on_past_it_or_stops_short_by_its_offset() {
     let mut document = Document::default();
+
     let section = add(
         &mut document,
         "Section",
@@ -2037,6 +2204,7 @@ fn a_revolve_up_to_a_plane_turns_on_past_it_or_stops_short_by_its_offset() {
     let full = PI * (16.0 - 4.0) * 3.0;
     let tenth = full * 10.0 / 360.0;
     let quarter = volume(&evaluation, plain);
+
     assert!((volume(&evaluation, past) - quarter - tenth).abs() < 1e-3 * full);
     assert!((quarter - volume(&evaluation, short) - tenth).abs() < 1e-3 * full);
     assert_eq!(
@@ -2048,8 +2216,10 @@ fn a_revolve_up_to_a_plane_turns_on_past_it_or_stops_short_by_its_offset() {
 #[test]
 fn a_round_profile_moves_its_curved_end_by_an_offset() {
     let mut volumes = Vec::new();
+
     for offset in [0.0, -1.0, 1.0] {
         let mut document = Document::default();
+
         let rod_sketch = add(&mut document, "Rod sketch", rod());
         let rod = add(
             &mut document,
@@ -2065,6 +2235,7 @@ fn a_round_profile_moves_its_curved_end_by_an_offset() {
             "Groove sketch",
             FeatureKind::from(circle(at(20.0), (-5.0, 0.0), 0.8)),
         );
+
         let cut = add(
             &mut document,
             "Groove",
@@ -2075,17 +2246,20 @@ fn a_round_profile_moves_its_curved_end_by_an_offset() {
             ),
         );
         let evaluation = evaluate(&document, &mut Recompute::default());
+
         assert_eq!(
             evaluation.failed_count(),
             0,
             "{:?}",
             evaluation.feature(cut)
         );
+
         evaluation.body(rod).unwrap().validate().unwrap();
         volumes.push(volume(&evaluation, rod));
     }
 
     let area = PI * 0.64;
+
     assert!((volumes[1] - volumes[0] - area).abs() < 0.2, "{volumes:?}");
     assert!((volumes[0] - volumes[2]).abs() < 0.2, "{volumes:?}");
 }

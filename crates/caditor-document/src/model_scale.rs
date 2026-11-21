@@ -42,21 +42,21 @@ const AGREEMENT: f64 = 1e-9;
 const SCALED_ORIGIN: &str = "Origin, scaled";
 const SCALED_FRAME: &str = "Axes and planes, scaled";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ScaledValues {
     #[default]
     Plain,
     AndParameters,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ModelScale {
     pub factor: f64,
     pub centre: Point3,
     pub values: ScaledValues,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ScaleSummary {
     pub sketches: usize,
     pub features: usize,
@@ -68,7 +68,7 @@ pub struct ScaleSummary {
     pub datums: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DisplacedFeature {
     pub feature: FeatureId,
     pub name: String,
@@ -76,13 +76,13 @@ pub struct DisplacedFeature {
     projects: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ScaledModel {
     pub transaction: Transaction,
     pub summary: ScaleSummary,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ModelScaleError {
     #[error("The factor must be more than zero, and {} is not.", format_number(*.0))]
     FactorNotPositive(f64),
@@ -120,6 +120,7 @@ impl ModelScaleError {
 impl Document {
     pub fn scaled(&self, scale: &ModelScale) -> Result<ScaledModel, ModelScaleError> {
         let factor = scale.factor;
+
         if !factor.is_finite() || factor <= 0.0 {
             return Err(ModelScaleError::FactorNotPositive(factor));
         }
@@ -129,11 +130,13 @@ impl Document {
         if factor == 1.0 {
             return Err(ModelScaleError::FactorIsOne);
         }
+
         let similarity = Similarity::scaling(scale.centre, factor)
             .filter(|_| scale.centre.is_finite())
             .ok_or(ModelScaleError::CentreNotUsable)?;
         let shift = similarity.apply_point(Point3::ZERO);
         let displaced = self.displaced_by_scale(scale.centre);
+
         let placed = placed_datums(self, &displaced, shift);
         let mut rescaler = Rescaler {
             factor,
@@ -148,12 +151,14 @@ impl Document {
             summary: ScaleSummary::default(),
         };
         let mut edits = placed.edits;
+
         edits.extend(rescaler.parameters(self)?);
         for feature in self.features() {
             let changed = match &feature.kind {
                 FeatureKind::Sketch(sketch) => rescaler.sketch(feature, sketch)?,
                 _ => rescaler.feature(feature)?,
             };
+
             match (&feature.kind, changed.is_empty()) {
                 (_, true) => {}
                 (FeatureKind::Sketch(_), false) => rescaler.summary.sketches += 1,
@@ -218,6 +223,7 @@ impl Rescaler {
 
     fn parameters(&mut self, document: &Document) -> Result<Vec<Edit>, ModelScaleError> {
         let mut edits = Vec::new();
+
         for id in evaluation_order(document) {
             let Some(parameter) = document.parameter(id) else {
                 continue;
@@ -226,6 +232,7 @@ impl Rescaler {
                 continue;
             };
             let power = old.dimension.length_power();
+
             let rewritten = match self.values {
                 ScaledValues::AndParameters => true,
                 ScaledValues::Plain => {
@@ -234,13 +241,16 @@ impl Rescaler {
                         && parameter.expression.parameters().is_empty()
                 }
             };
+
             if !rewritten {
                 continue;
             }
             if power != 0 {
                 self.scaled.insert(id, power);
             }
+
             let expression = self.rewritten(&parameter.expression, power, &parameter.name)?;
+
             if let Ok(value) = expression.evaluate(&|used| self.new_value(used)) {
                 self.new.insert(id, value);
             }
@@ -255,6 +265,7 @@ impl Rescaler {
     fn configurations(&self, document: &Document) -> Result<Option<Edit>, ModelScaleError> {
         let mut table = Configurations::clone(document.configurations());
         let mut changed = false;
+
         for row in &mut table.rows {
             if table.active == Some(row.id) {
                 continue;
@@ -270,6 +281,7 @@ impl Rescaler {
                     continue;
                 };
                 let power = old.dimension.length_power();
+
                 let rewritten = match self.values {
                     ScaledValues::AndParameters => true,
                     ScaledValues::Plain => {
@@ -278,9 +290,11 @@ impl Rescaler {
                             && expression.parameters().is_empty()
                     }
                 };
+
                 if !rewritten {
                     continue;
                 }
+
                 let scaled = self.rewritten(expression, power, &parameter.name)?;
                 if scaled != *expression {
                     *expression = scaled;
@@ -304,10 +318,13 @@ impl Rescaler {
             expression.with_lengths_scaled(self.factor, power, &|id| self.old.value(id)),
             name,
         )?;
+
         if self.agrees(&candidate, old, power) {
             return Ok(candidate);
         }
+
         let mut exact = expression.clone();
+
         for id in expression.parameters() {
             if let Some(used) = self.scaled.get(&id) {
                 let unscaled = Expression::binary(
@@ -315,6 +332,7 @@ impl Rescaler {
                     Expression::Parameter(id),
                     Expression::number(self.times(*used)),
                 );
+
                 exact = exact.inlining(id, &unscaled).map_err(|_| too_long(name))?;
             }
         }
@@ -361,7 +379,9 @@ impl Rescaler {
             self.keep(name);
             return Ok(());
         }
+
         let scaled = self.rewritten(expression, 1, name)?;
+
         *expression = shifted(scaled, shift, name)?;
         Ok(())
     }
@@ -390,6 +410,7 @@ impl Rescaler {
         let sketch = &definition.sketch;
         let mut edits = Vec::new();
         let plane = sketch.plane().mapped(&self.similarity);
+
         if plane != sketch.plane() {
             edits.push(Edit::SetSketchPlacement {
                 feature: id,
@@ -438,6 +459,7 @@ impl Rescaler {
         }
         for (text, held) in sketch.texts() {
             let mut scaled = held.clone();
+
             self.length(&mut scaled.height, &feature.name)?;
             if scaled != *held {
                 edits.push(Edit::SetSketchText {
@@ -449,6 +471,7 @@ impl Rescaler {
         }
         for (gear, held) in sketch.gears() {
             let mut scaled = held.clone();
+
             self.length(&mut scaled.module, &feature.name)?;
             self.length(&mut scaled.root_fillet, &feature.name)?;
             self.length(&mut scaled.bore, &feature.name)?;
@@ -464,6 +487,7 @@ impl Rescaler {
             let label = sketch
                 .label_offset(constraint)
                 .map(|offset| offset * self.factor);
+
             if let Constraint::Fix { point, at } = held {
                 edits.push(Edit::RemoveSketchConstraint {
                     feature: id,
@@ -485,6 +509,7 @@ impl Rescaler {
                 && held.dimension_kind() == Some(Dimension::LENGTH)
             {
                 let mut scaled = value.clone();
+
                 self.length(&mut scaled, &feature.name)?;
                 if scaled != *value {
                     edits.push(Edit::SetDimension {
@@ -547,6 +572,7 @@ impl Rescaler {
                 | ProjectionSource::BodyOutline { .. }
                 | ProjectionSource::DatumPoint { .. } => continue,
             };
+
             edits.push(Edit::SetSketchProjection {
                 feature: id,
                 id: *entity,
@@ -559,6 +585,7 @@ impl Rescaler {
     fn feature(&mut self, feature: &Feature) -> Result<Vec<Edit>, ModelScaleError> {
         let name = feature.name.as_str();
         let mut kind = feature.kind.clone();
+
         match &mut kind {
             FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
                 match &mut extrude.extent {
@@ -624,11 +651,13 @@ impl Rescaler {
             }
             FeatureKind::Primitive(primitive) => {
                 let rules = primitive.shape.rules();
+
                 for (size, rule) in primitive.shape.sizes_mut().into_iter().zip(rules) {
                     if rule != SizeRule::Sides {
                         self.length(size, name)?;
                     }
                 }
+
                 let shifts = match &primitive.plane {
                     PlaneReference::Principal(plane)
                         if holds(PrincipalGeometry::Plane(*plane), self.centre) =>
@@ -650,6 +679,7 @@ impl Rescaler {
             }
             FeatureKind::ReferenceImage(image) => {
                 self.length(image.size.expression_mut(), name)?;
+
                 let shifts = match &image.plane {
                     ImagePlane::Reference(PlaneReference::Principal(plane))
                         if holds(PrincipalGeometry::Plane(*plane), self.centre) =>
@@ -680,6 +710,7 @@ impl Rescaler {
                 };
                 for axis in MoveAxis::ALL {
                     let along = *axis.of(&shift.to_array());
+
                     self.placed(axis.of_mut(&mut movement.offset), along, name)?;
                 }
             }
@@ -690,11 +721,13 @@ impl Rescaler {
                 };
                 for axis in MoveAxis::ALL {
                     let along = *axis.of(&shift.to_array());
+
                     self.placed(axis.of_mut(&mut scale.center), along, name)?;
                 }
             }
             FeatureKind::Hole(hole) => {
                 let before = hole.clone();
+
                 self.length(&mut hole.diameter, name)?;
                 self.lengths(hole.depth.expressions_mut(), name)?;
                 match &mut hole.style {
@@ -736,10 +769,13 @@ impl Rescaler {
                     Some(_) => Vector3::ZERO,
                     None => self.shift,
                 };
+
                 for axis in MoveAxis::ALL {
                     let along = *axis.of(&shift.to_array());
+
                     self.placed(axis.of_mut(&mut import.placement.offset), along, name)?;
                 }
+
                 let scale = &mut import.placement.scale;
                 if self.follows_others(scale) {
                     self.keep(name);
@@ -748,6 +784,7 @@ impl Rescaler {
                         Expression::Number(value) => Expression::Number(*value * self.factor),
                         _ => scale.clone().times_number(self.factor),
                     };
+
                     *scale = normalized(multiplied, name)?;
                 }
             }
@@ -818,8 +855,10 @@ impl Rescaler {
                     PointReference::Origin => self.shift,
                     _ => Vector3::ZERO,
                 };
+
                 for axis in MoveAxis::ALL {
                     let along = *axis.of(&shift.to_array());
+
                     self.placed(axis.of_mut(&mut point.offset), along, name)?;
                 }
                 Ok(())
@@ -833,18 +872,23 @@ impl Rescaler {
     fn drawings(&mut self, document: &Document) -> Result<Option<Edit>, ModelScaleError> {
         let mut scaled = document.drawings().clone();
         let mut changed = false;
+
         for drawing in &mut scaled.drawings {
             let name = drawing.name.clone();
+
             for section in &mut drawing.sections {
                 if let SectionPlace::Offset(offset) = &mut section.place {
                     let before = offset.clone();
+
                     self.placed(offset, self.shift.dot(section.plane.normal()), &name)?;
                     changed |= *offset != before;
                 }
             }
+
             let sections = &drawing.sections;
             for detail in &mut drawing.details {
                 let shift = self.view_shift(detail.parent, sections);
+
                 detail.centre = detail.centre * self.factor + shift;
                 detail.radius *= self.factor;
                 changed = true;
@@ -870,15 +914,19 @@ impl Rescaler {
 
     fn views(&self, document: &Document) -> Option<Edit> {
         let views = document.saved_views();
+
         if views.is_empty() {
             return None;
         }
+
         let mut scaled = views.clone();
+
         let views = scaled
             .named
             .iter_mut()
             .map(|named| &mut named.view)
             .chain(scaled.home.as_mut());
+
         for view in views {
             view.target = self.similarity.apply_point(view.target);
             view.distance *= self.factor;
@@ -903,10 +951,12 @@ fn shifted(expression: Expression, shift: f64, name: &str) -> Result<Expression,
     if shift == 0.0 {
         return Ok(expression);
     }
+
     let literal = expression
         .is_literal()
         .then(|| literal_unit(&expression))
         .flatten();
+
     if let Some(unit) = literal
         && let Ok(value) = expression.evaluate(&|_| Err(EvalError::ParameterMissing))
     {
@@ -915,6 +965,7 @@ fn shifted(expression: Expression, shift: f64, name: &str) -> Result<Expression,
             None => Expression::number(value.value + shift),
         });
     }
+
     let (operator, amount) = if shift < 0.0 {
         (BinaryOperator::Subtract, -shift)
     } else {
@@ -964,6 +1015,7 @@ fn unused_name(document: &Document, placed: &[String], stem: &str) -> String {
         placed.iter().any(|placed| placed == name)
             || document.features().any(|feature| feature.name == name)
     };
+
     if !taken(stem) {
         return stem.to_owned();
     }
@@ -995,8 +1047,11 @@ struct DatumPlacing<'a> {
 impl DatumPlacing<'_> {
     fn insert(&mut self, stem: &str, datum: Datum) -> FeatureId {
         let id = FeatureId::from_raw(self.next_id);
+
         self.next_id = self.next_id.saturating_add(1);
+
         let name = unused_name(self.document, &self.names, stem);
+
         self.edits.push(Edit::InsertFeature {
             index: self.edits.len(),
             feature: Arc::new(Feature::new(id, name.clone(), FeatureKind::Datum(datum))),
@@ -1042,6 +1097,7 @@ fn placed_datums(
             .filter(|moved| !moved.projects)
             .flat_map(|moved| &moved.geometry)
     };
+
     let framed =
         !projected_axes.is_empty() || held().any(|geometry| *geometry != PrincipalGeometry::Origin);
     let at_origin = framed
@@ -1054,6 +1110,7 @@ fn placed_datums(
         names: Vec::new(),
     };
     let mut datums = ScaledDatums::default();
+
     if at_origin {
         let origin = placing.insert(
             SCALED_ORIGIN,
@@ -1062,6 +1119,7 @@ fn placed_datums(
                 offset: [shift.x, shift.y, shift.z].map(millimetres),
             }),
         );
+
         datums.origin = Some(origin);
         if framed {
             datums.frame = Some(placing.insert(
@@ -1082,6 +1140,7 @@ fn placed_datums(
                 offset: millimetres(shift.dot(plane.plane().normal())),
             }),
         );
+
         datums.planes.insert(plane, id);
     }
     if let Some(frame) = datums.frame {
@@ -1090,6 +1149,7 @@ fn placed_datums(
                 &format!("{}, scaled", axis.name()),
                 Datum::Axis(DatumAxis::Along(AxisReference::Frame { frame, axis })),
             );
+
             datums.axes.insert(axis, id);
         }
     }
@@ -1301,6 +1361,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
         FeatureKind::Coil(coil) => vec![Anchored::Axis(&mut coil.axis)],
         FeatureKind::Helix(helix) => {
             let mut anchored = vec![Anchored::Axis(&mut helix.axis)];
+
             anchored.extend(helix.start_point.iter_mut().map(Anchored::Point));
             anchored
         }
@@ -1390,6 +1451,7 @@ fn displaced_geometry(kind: &FeatureKind, centre: Point3, used: bool) -> Vec<Pri
         }
     };
     let mut displaced = Vec::new();
+
     for geometry in found {
         if !holds(geometry, centre) && !displaced.contains(&geometry) {
             displaced.push(geometry);

@@ -56,6 +56,7 @@ fn close_feature(harness: &mut Harness) {
 #[test]
 fn move_face_raises_a_top_and_takes_or_leaves_faces_clicked_in_the_view() {
     let mut harness = Harness::new();
+
     let (plate, bore, top) = holed_plate(&mut harness);
     let Pickable::Face { face: bore_key, .. } = bore else {
         panic!("the bore is a face");
@@ -64,11 +65,13 @@ fn move_face_raises_a_top_and_takes_or_leaves_faces_clicked_in_the_view() {
     harness.select([top]);
     harness.use_tool_with(Key::J, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     let moving = harness
         .workspace
         .editing
         .solid()
         .expect("the move face is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Move face 1"));
     assert_eq!(move_face_of(&harness, moving).faces.len(), 1);
     assert!(volume_about(&harness, plate, (PLATE - BORE) * 1.1));
@@ -86,6 +89,7 @@ fn move_face_raises_a_top_and_takes_or_leaves_faces_clicked_in_the_view() {
         },
     );
     harness.settle();
+
     assert_eq!(move_face_of(&harness, moving).faces.len(), 2);
     assert_eq!(
         harness.model.undo_label(),
@@ -102,6 +106,7 @@ fn move_face_raises_a_top_and_takes_or_leaves_faces_clicked_in_the_view() {
         },
     );
     harness.settle();
+
     assert_eq!(move_face_of(&harness, moving).faces.len(), 1);
     assert_eq!(
         harness.model.undo_label(),
@@ -109,6 +114,7 @@ fn move_face_raises_a_top_and_takes_or_leaves_faces_clicked_in_the_view() {
     );
 
     close_feature(&mut harness);
+
     assert_eq!(harness.workspace.editing.solid(), None);
 
     harness.key(Key::Z, Modifiers::COMMAND);
@@ -118,26 +124,31 @@ fn move_face_raises_a_top_and_takes_or_leaves_faces_clicked_in_the_view() {
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     harness.settle();
+
     assert!(volume_about(&harness, plate, PLATE - BORE));
 }
 
 #[test]
 fn move_face_and_delete_face_start_on_the_only_body_and_take_the_faces_clicked_after() {
     let mut harness = Harness::new();
+
     let (plate, bore, _) = holed_plate(&mut harness);
     let Pickable::Face { face: bore_key, .. } = bore else {
         panic!("the bore is a face");
     };
+
     harness.select([]);
 
     harness.use_tool_with(Key::J, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     let moving = harness
         .workspace
         .editing
         .solid()
         .expect("the move face is open");
     let moved_at_first = move_face_of(&harness, moving).faces.len();
+
     harness.click_pickable(
         Plane::XY,
         Point2::new(20.0, 20.0),
@@ -147,19 +158,23 @@ fn move_face_and_delete_face_start_on_the_only_body_and_take_the_faces_clicked_a
         },
     );
     harness.settle();
+
     let moved_after = move_face_of(&harness, moving).faces.len();
+
     harness.perform(Action::Editing(EditingCommand::CancelSolid));
     harness.settle();
 
     harness.select([]);
     harness.use_tool_with(Key::Q, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     let deleting = harness
         .workspace
         .editing
         .solid()
         .expect("the delete face is open");
     let deleted_at_first = delete_face_of(&harness, deleting).faces.len();
+
     harness.click_pickable(
         Plane::XY,
         Point2::new(20.0, 20.0),
@@ -180,16 +195,19 @@ fn move_face_and_delete_face_start_on_the_only_body_and_take_the_faces_clicked_a
 #[test]
 fn a_bore_moves_along_an_axis_chosen_in_the_view_by_a_typed_distance() {
     let mut harness = Harness::new();
+
     let (plate, bore, _) = holed_plate(&mut harness);
 
     harness.select([bore]);
     harness.use_tool_with(Key::J, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     let moving = harness
         .workspace
         .editing
         .solid()
         .expect("the move face is open");
+
     assert_eq!(harness.model.evaluation().failed_count(), 1);
     assert!(harness.shows_containing("no flat face is chosen"));
 
@@ -200,6 +218,7 @@ fn a_bore_moves_along_an_axis_chosen_in_the_view_by_a_typed_distance() {
     harness.frame();
     harness.click_pickable(Plane::XY, Point2::new(0.0, 0.0), Pickable::Axis(Axis::X));
     harness.settle();
+
     assert_eq!(
         move_face_of(&harness, moving).direction,
         Some(AxisReference::Principal(PrincipalAxis::X))
@@ -209,16 +228,19 @@ fn a_bore_moves_along_an_axis_chosen_in_the_view_by_a_typed_distance() {
 
     harness.type_into_field(Id::unique(("move-face-value", "Distance", moving)), "-8 mm");
     harness.settle();
+
     assert!((bore_centre_x(&harness, plate) - 12.0).abs() < 1e-9);
     assert!(volume_about(&harness, plate, PLATE - BORE));
 }
 
 fn open_on_plate_top(harness: &mut Harness) -> (FeatureId, FeatureId) {
     let (plate, top) = extruded_plate(harness);
+
     harness.select([top]);
     harness.use_tool_with(Key::J, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
     harness.select([]);
+
     let moving = harness
         .workspace
         .editing
@@ -229,7 +251,9 @@ fn open_on_plate_top(harness: &mut Harness) -> (FeatureId, FeatureId) {
 
 fn tilt_about_x(harness: &mut Harness, moving: FeatureId) {
     let mut kind = move_face_of(harness, moving).clone();
+
     kind.axis = Some(AxisReference::Principal(PrincipalAxis::X));
+
     let transaction = Transaction::new(
         "Tilt about X",
         vec![Edit::SetFeatureKind {
@@ -237,6 +261,7 @@ fn tilt_about_x(harness: &mut Harness, moving: FeatureId) {
             kind: FeatureKind::MoveFace(kind),
         }],
     );
+
     harness.perform(Action::Apply(transaction));
     harness.settle();
 }
@@ -244,11 +269,13 @@ fn tilt_about_x(harness: &mut Harness, moving: FeatureId) {
 fn hover_arrow(harness: &mut Harness, measured: Measured) {
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let at = harness
         .workspace
         .viewport
         .handle_position(Handle::Value(measured), 0.0)
         .expect("the arrow is shown");
+
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     harness.frame();
@@ -257,6 +284,7 @@ fn hover_arrow(harness: &mut Harness, measured: Measured) {
 #[test]
 fn dragging_the_move_face_distance_arrow_shifts_the_faces_in_one_undoable_change() {
     let mut harness = Harness::new();
+
     let (plate, moving) = open_on_plate_top(&mut harness);
     let undo_label = harness.model.undo_label().map(str::to_owned);
 
@@ -282,6 +310,7 @@ fn dragging_the_move_face_distance_arrow_shifts_the_faces_in_one_undoable_change
 #[test]
 fn a_distance_typed_over_the_move_face_arrow_may_be_an_expression() {
     let mut harness = Harness::new();
+
     let (plate, moving) = open_on_plate_top(&mut harness);
 
     hover_arrow(&mut harness, Measured::MoveDistance);
@@ -298,7 +327,9 @@ fn a_distance_typed_over_the_move_face_arrow_may_be_an_expression() {
 #[test]
 fn the_move_face_angle_arrow_stands_only_with_a_tilt_axis_and_drags_the_angle() {
     let mut harness = Harness::new();
+
     let (_, moving) = open_on_plate_top(&mut harness);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
 
@@ -312,6 +343,7 @@ fn the_move_face_angle_arrow_stands_only_with_a_tilt_axis_and_drags_the_angle() 
 
     tilt_about_x(&mut harness, moving);
     drag_value_arrow(&mut harness, Measured::MoveAngle, 10.0);
+
     let angle = length_value(&harness, &move_face_of(&harness, moving).angle);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Move face 1"));

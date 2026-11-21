@@ -10,7 +10,7 @@ const CASES_PER_TEST: u64 = 20;
 const WIDTHS: [&str; 4] = ["10 mm", "25 mm", "40 mm", "60 mm"];
 const FRAMES_LET_THROUGH: usize = 3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     Width(usize),
     Plate,
@@ -24,6 +24,7 @@ enum Step {
 
 fn step_from(stream: &mut Stream, held: bool) -> Step {
     let word = stream.next_word();
+
     if held {
         return match word % 4 {
             0 => Step::Undo,
@@ -58,6 +59,7 @@ fn redo(harness: &mut Harness) {
 fn assert_shows_the_documents_own_evaluation(harness: &Harness, history: &[Step]) {
     let document = harness.document();
     let cancel = CancelToken::new(|| false);
+
     let fresh = Recompute::default().run(document, &ModelEvaluator, &cancel, &|_, _| {});
     let shown = harness.model.evaluation();
 
@@ -70,6 +72,7 @@ fn assert_shows_the_documents_own_evaluation(harness: &Harness, history: &[Step]
             (FeatureState::Failed(_), FeatureState::Failed(_)) => true,
             (own, theirs) => own == theirs,
         };
+
         assert!(
             same,
             "feature {id:?} shows {:?} though a fresh recompute says {:?}, after {history:?}",
@@ -94,6 +97,7 @@ fn play(seed: u64) -> bool {
             Step::Peg if !plate || peg => Step::Frames,
             other => other,
         };
+
         history.push(step);
         changed_while_held |= held && matches!(step, Step::Undo | Step::Redo);
         match step {
@@ -132,6 +136,7 @@ fn play(seed: u64) -> bool {
 
 fn play_share(share: u64) {
     let mut interleaved = 0;
+
     for case in 0..CASES_PER_TEST {
         let seed = share * CASES_PER_TEST + case;
         match std::panic::catch_unwind(|| play(seed)) {
@@ -142,6 +147,7 @@ fn play_share(share: u64) {
             }
         }
     }
+
     assert!(
         interleaved >= FEWEST_INTERLEAVED,
         "only {interleaved} scenarios undid or redid while a recompute was held"

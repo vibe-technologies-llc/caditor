@@ -7,13 +7,13 @@ use crate::import::{
     xml::{Node, XML_NAMESPACE},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MarkerChoice<'a> {
     Nothing,
     Element(&'a str),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Markers<'a> {
     pub start: Option<&'a str>,
     pub middle: Option<&'a str>,
@@ -26,7 +26,7 @@ impl Markers<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Properties<'a> {
     pub transform: Option<Matrix>,
     pub hidden: bool,
@@ -45,9 +45,11 @@ pub(super) struct Properties<'a> {
 impl<'a> Properties<'a> {
     pub fn of(node: Node<'a, '_>, sheet: &StyleSheet<'a>) -> Self {
         let mut found = sheet.declarations(node);
+
         found.extend(inline_declarations(
             node.attribute("style").unwrap_or_default(),
         ));
+
         let declared = |names: &[&str]| {
             found
                 .iter()
@@ -102,7 +104,7 @@ impl<'a> Properties<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Inherited<'a> {
     pub dashed: bool,
     pub visible: bool,
@@ -165,6 +167,7 @@ fn marker_choice(value: &str) -> Option<MarkerChoice<'_>> {
     if value.eq_ignore_ascii_case("none") {
         return Some(MarkerChoice::Nothing);
     }
+
     let inner = value.strip_prefix("url(")?.strip_suffix(')')?.trim();
     let unquoted = ['"', '\'']
         .into_iter()
@@ -178,12 +181,14 @@ fn is_dashed(value: &str) -> Option<bool> {
     if value == "none" {
         return Some(false);
     }
+
     let lengths: Option<Vec<f64>> = value
         .split(|character: char| character == ',' || character.is_ascii_whitespace())
         .filter(|part| !part.is_empty())
         .map(|part| Length::parse(part).map(|length| length.value))
         .collect();
     let lengths = lengths?;
+
     if lengths.is_empty() || lengths.iter().any(|length| *length < 0.0) {
         return None;
     }

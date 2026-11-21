@@ -2,7 +2,7 @@ pub const MAX_PROPERTY_CHARS: usize = 200;
 pub const MAX_DESCRIPTION_CHARS: usize = 1000;
 pub const MAX_MODEL_NOTES_CHARS: usize = 10_000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ModelProperty {
     Title,
     PartNumber,
@@ -64,6 +64,7 @@ impl ModelProperty {
 
     pub fn normalized(self, text: &str) -> String {
         let trimmed = text.trim();
+
         if self.is_multiline() {
             return trimmed.to_owned();
         }
@@ -76,7 +77,7 @@ impl ModelProperty {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ModelProperties {
     pub title: String,
     pub part_number: String,
@@ -122,6 +123,7 @@ impl ModelProperties {
     pub fn normalized(mut self) -> Self {
         for property in ModelProperty::ALL {
             let field = self.get_mut(property);
+
             *field = property.normalized(field);
         }
         self

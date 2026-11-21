@@ -52,12 +52,14 @@ fn only_volume(imported: &ModelImport) -> f64 {
     let [body] = imported.bodies.as_slice() else {
         panic!("expected one body, found {}", imported.bodies.len());
     };
+
     assert_eq!(body.import.solid.faces().count(), 6);
     volume(&body.import.solid)
 }
 
 pub(crate) fn binary_stl() -> Vec<u8> {
     let mut bytes = vec![0u8; 80];
+
     bytes.extend(12u32.to_le_bytes());
     for triangle in TRIANGLES {
         bytes.extend([0u8; 12]);
@@ -75,6 +77,7 @@ pub(crate) fn binary_stl() -> Vec<u8> {
 fn a_cancelled_mesh_read_stops_with_the_import_stopped() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = dir.path().join("cube.stl");
+
     std::fs::write(&path, binary_stl()).unwrap();
 
     assert_eq!(
@@ -111,10 +114,12 @@ pub(crate) fn text_stl(skipped: usize) -> String {
 
 fn scaled_text_stl(skipped: usize, factor: f64) -> String {
     let mut text = "solid cube\n".to_owned();
+
     for triangle in TRIANGLES.iter().skip(skipped) {
         text.push_str("facet normal 0 0 0\nouter loop\n");
         for corner in triangle {
             let [x, y, z] = CORNERS[*corner].map(|value| value * factor);
+
             writeln!(text, "vertex {x} {y} {z}").unwrap();
         }
         text.push_str("endloop\nendfacet\n");
@@ -139,6 +144,7 @@ fn a_text_stl_with_a_missing_triangle_is_closed_and_says_so() {
 
 pub(crate) fn cube_obj() -> String {
     let mut text = String::new();
+
     for [x, y, z] in CORNERS {
         writeln!(text, "v {x} {y} {z}").unwrap();
     }
@@ -170,6 +176,7 @@ pub(crate) fn placed_cube_3mf() -> Vec<u8> {
          xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\"><resources>\
          <object id=\"1\" type=\"model\"><mesh><vertices>",
     );
+
     for [x, y, z] in CORNERS {
         write!(
             model,
@@ -200,7 +207,9 @@ fn a_3mf_places_its_components_and_converts_its_unit() {
     let imported = parse_mesh(&package, MeshFormat::ThreeMf, "cube.3mf", "cube").unwrap();
 
     assert!((only_volume(&imported) - 2000.0).abs() < 1e-6);
+
     let bounds = imported.bodies[0].import.solid.bounding_box().unwrap();
+
     assert!((bounds.min().x - 50.0).abs() < 1e-9 && (bounds.max().x - 70.0).abs() < 1e-9);
     assert!(imported.notes.is_empty());
 }
@@ -225,6 +234,7 @@ fn damaged_and_open_meshes_are_refused_in_words() {
         parse_mesh(b"not a zip", MeshFormat::ThreeMf, "a.3mf", "a"),
         Err(ImportError::DamagedMesh(MeshFormat::ThreeMf))
     );
+
     let sheet = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
 
     assert!(matches!(
@@ -281,6 +291,7 @@ fn model_package(model: &str) -> Vec<u8> {
 fn a_3mf_nested_a_hundred_thousand_deep_is_refused_instead_of_overflowing_the_stack() {
     let depth = 100_000;
     let mut model = String::from("<model unit=\"millimeter\"><resources>");
+
     model.push_str(&"<a>".repeat(depth));
     model.push_str(&"</a>".repeat(depth));
     model.push_str("</resources></model>");
@@ -301,9 +312,11 @@ fn a_3mf_with_relationships_nested_a_hundred_thousand_deep_is_refused_instead_of
  {
     let depth = 100_000;
     let mut relationships = String::from("<Relationships>");
+
     relationships.push_str(&"<a>".repeat(depth));
     relationships.push_str(&"</a>".repeat(depth));
     relationships.push_str("</Relationships>");
+
     let package = archive(&[
         ZipEntry {
             name: "_rels/.rels",
@@ -330,6 +343,7 @@ fn component_bomb() -> Vec<u8> {
          <vertex x=\"0\" y=\"1\" z=\"0\"/></vertices><triangles>\
          <triangle v1=\"0\" v2=\"1\" v3=\"2\"/></triangles></mesh></object>",
     );
+
     for level in 2..=levels + 1 {
         write!(model, "<object id=\"{level}\"><components>").unwrap();
         for _ in 0..4 {
@@ -358,6 +372,7 @@ fn a_3mf_whose_components_place_billions_of_objects_is_refused_promptly() {
 fn a_3mf_placing_a_triangle_less_object_a_million_times_is_refused_before_its_vertices_are() {
     let mut model =
         String::from("<model unit=\"millimeter\"><resources><object id=\"1\"><mesh><vertices>");
+
     for vertex in 0..1000 {
         write!(model, "<vertex x=\"{vertex}\" y=\"0\" z=\"0\"/>").unwrap();
     }
@@ -395,8 +410,10 @@ const PRODUCTION: &str = "http://schemas.microsoft.com/3dmanufacturing/productio
 
 fn cube_object(id: u32, side: f64) -> String {
     let mut object = format!("<object id=\"{id}\" type=\"model\"><mesh><vertices>");
+
     for [x, y, z] in CORNERS {
         let [x, y, z] = [x, y, z].map(|value| value * side / 10.0);
+
         write!(object, "<vertex x=\"{x}\" y=\"{y}\" z=\"{z}\"/>").unwrap();
     }
     object.push_str("</vertices><triangles>");
@@ -426,6 +443,7 @@ fn parts_package(parts: &[(&str, &str)]) -> Vec<u8> {
         name: "_rels/.rels",
         contents: relationships.as_bytes(),
     }];
+
     entries.extend(parts.iter().map(|&(name, contents)| ZipEntry {
         name,
         contents: contents.as_bytes(),
@@ -451,6 +469,7 @@ fn a_bambu_style_project_places_the_meshes_its_objects_take_from_other_parts() {
          <item objectid=\"4\" transform=\"1 0 0 0 1 0 0 0 1 -100 0 0\" printable=\"1\"/>",
     );
     let object = production_model(&cube_object(1, 10.0), "");
+
     let package = parts_package(&[
         ("3D/3dmodel.model", &root),
         ("3D/Objects/object_1.model", &object),
@@ -459,12 +478,15 @@ fn a_bambu_style_project_places_the_meshes_its_objects_take_from_other_parts() {
     let imported = read_package(&package).unwrap();
 
     assert_eq!(imported.bodies.len(), 2);
+
     let mut lowest: Vec<f64> = imported
         .bodies
         .iter()
         .map(|body| body.import.solid.bounding_box().unwrap().min().x)
         .collect();
+
     lowest.sort_by(f64::total_cmp);
+
     assert!((lowest[0] + 100.0).abs() < 1e-9 && (lowest[1] - 100.0).abs() < 1e-9);
     for body in &imported.bodies {
         assert!((volume(&body.import.solid) - 1000.0).abs() < 1e-6);
@@ -490,6 +512,7 @@ fn an_object_id_the_root_shares_with_another_part_places_that_parts_object() {
         ),
         "",
     );
+
     let package = parts_package(&[
         ("3D/3dmodel.model", &root),
         ("3D/Objects/object_5.model", &object),
@@ -498,7 +521,9 @@ fn an_object_id_the_root_shares_with_another_part_places_that_parts_object() {
     let imported = read_package(&package).unwrap();
 
     assert!((only_volume(&imported) - 1000.0).abs() < 1e-6);
+
     let bounds = imported.bodies[0].import.solid.bounding_box().unwrap();
+
     assert!((bounds.min().z - 20.0).abs() < 1e-9 && (bounds.max().z - 30.0).abs() < 1e-9);
 }
 
@@ -512,6 +537,7 @@ fn a_part_in_its_own_unit_is_placed_in_millimetres() {
     );
     let object = production_model(&cube_object(1, 10.0), "")
         .replace("unit=\"millimeter\"", "unit=\"centimeter\"");
+
     let package = parts_package(&[
         ("3D/3dmodel.model", &root),
         ("3D/Objects/object_1.model", &object),
@@ -520,7 +546,9 @@ fn a_part_in_its_own_unit_is_placed_in_millimetres() {
     let imported = read_package(&package).unwrap();
 
     assert!((only_volume(&imported) - 1_000_000.0).abs() < 1e-3);
+
     let bounds = imported.bodies[0].import.solid.bounding_box().unwrap();
+
     assert!((bounds.min().x - 5.0).abs() < 1e-9 && (bounds.max().x - 105.0).abs() < 1e-9);
 }
 
@@ -579,6 +607,7 @@ fn parts_taking_objects_from_each_other_in_a_loop_are_refused_naming_the_object(
          <component prod:path=\"/3D/Objects/a.model\" objectid=\"1\"/></components></object>",
         "",
     );
+
     let package = parts_package(&[
         ("3D/3dmodel.model", &root),
         ("3D/Objects/a.model", &a),
@@ -609,6 +638,7 @@ fn the_parts_of_a_project_share_one_element_limit() {
         "<item objectid=\"2\"/>",
     );
     let object = production_model(&format!("{filler}{}", cube_object(1, 10.0)), "");
+
     let package = parts_package(&[
         ("3D/3dmodel.model", &root),
         ("3D/Objects/object_1.model", &object),
@@ -641,6 +671,7 @@ fn the_parts_of_a_project_share_one_attribute_budget() {
     let elements = 1_000;
     let budget = Budget::for_elements(elements);
     let attributes_per_filler = 90;
+
     let fillers = budget.attributes / (2 * attributes_per_filler) + 1;
     let list: String = (0..attributes_per_filler)
         .map(|attribute| format!(" a{attribute}=\"\""))
@@ -702,8 +733,10 @@ fn a_model_element_with_thousands_of_attributes_is_refused() {
 
 fn scaled_obj(factor: f64) -> String {
     let mut text = String::new();
+
     for corner in CORNERS {
         let [x, y, z] = corner.map(|value| value * factor);
+
         writeln!(text, "v {x} {y} {z}").unwrap();
     }
     for [a, b, c] in TRIANGLES {
@@ -739,6 +772,7 @@ fn a_part_a_hundredth_across_is_read_as_metres_and_the_report_says_so() {
     let imported = read_stl_in(0.001, None);
 
     let reading = imported.unit.unwrap();
+
     assert_eq!(reading.unit, MeshUnit::Metres);
     assert_eq!(reading.basis, UnitBasis::Guessed);
     assert!(reading.is_guess());
@@ -756,6 +790,7 @@ fn a_part_of_plausible_size_is_assumed_to_be_in_millimetres_without_a_guess() {
     let imported = read_stl_in(1.0, None);
 
     let reading = imported.unit.unwrap();
+
     assert_eq!(reading.unit, MeshUnit::Millimetres);
     assert_eq!(reading.basis, UnitBasis::Assumed);
     assert!(!reading.is_guess());
@@ -773,6 +808,7 @@ fn a_huge_number_of_units_is_guessed_to_be_micrometres() {
     let imported = read_stl_in(2_000.0, None);
 
     let reading = imported.unit.unwrap();
+
     assert_eq!(reading.unit, MeshUnit::Micrometres);
     assert!((only_volume(&imported) - 8_000.0).abs() < 1e-3);
 }
@@ -782,6 +818,7 @@ fn a_chosen_unit_overrides_the_guess_and_the_report_says_it_was_chosen() {
     let imported = read_stl_in(0.05, Some(MeshUnit::Centimetres));
 
     let reading = imported.unit.unwrap();
+
     assert_eq!(reading.unit, MeshUnit::Centimetres);
     assert_eq!(reading.basis, UnitBasis::Chosen);
     assert!(!reading.is_guess());
@@ -800,6 +837,7 @@ fn every_offered_unit_scales_the_part_by_its_size_in_millimetres() {
         let imported = read_stl_in(1.0, Some(unit));
 
         let cubed = unit.millimetres().powi(3);
+
         assert!((only_volume(&imported) - 1000.0 * cubed).abs() < 1e-6 * cubed.max(1.0));
     }
 }
@@ -829,6 +867,7 @@ fn a_3mf_declares_its_units_so_it_is_neither_guessed_nor_offered_a_scale() {
 
 fn nested_cube_objects(depth: usize) -> String {
     let mut model = String::from("<model unit=\"millimeter\"><resources>");
+
     for level in 1..=depth {
         write!(model, "<object id=\"{level}\"><mesh><vertices>").unwrap();
         for [x, y, z] in CORNERS {
@@ -872,6 +911,7 @@ fn a_3mf_with_objects_nested_inside_a_resource_object_does_not_declare_them() {
 fn cancelling_stops_a_3mf_mesh_between_its_vertices() {
     let mut model =
         String::from("<model unit=\"millimeter\"><resources><object id=\"1\"><mesh><vertices>");
+
     model.push_str(&"<vertex x=\"0\" y=\"0\" z=\"0\"/>".repeat(10_000));
     model.push_str("</vertices><triangles/></mesh></object></resources>");
     model.push_str("<build><item objectid=\"1\"/></build></model>");
@@ -891,6 +931,7 @@ fn cancelling_stops_a_3mf_mesh_between_its_vertices() {
 #[test]
 fn a_binary_stl_claiming_more_triangles_than_the_limit_is_refused_by_its_count() {
     let mut bytes = vec![0u8; 80];
+
     bytes.extend(u32::MAX.to_le_bytes());
     bytes.extend([0u8; 50]);
 
@@ -903,6 +944,7 @@ fn a_binary_stl_claiming_more_triangles_than_the_limit_is_refused_by_its_count()
 #[test]
 fn a_binary_stl_with_bytes_after_its_triangles_imports_and_says_so() {
     let mut bytes = binary_stl();
+
     bytes.extend([0u8; 7]);
 
     let imported = parse_mesh(&bytes, MeshFormat::Stl, "cube.stl", "cube").unwrap();
@@ -918,6 +960,7 @@ fn a_binary_stl_with_bytes_after_its_triangles_imports_and_says_so() {
 #[test]
 fn a_binary_stl_whose_body_is_shorter_than_its_count_reads_what_it_holds() {
     let mut bytes = binary_stl();
+
     bytes.truncate(bytes.len() - 50);
 
     let imported = parse_mesh(&bytes, MeshFormat::Stl, "cube.stl", "cube").unwrap();
@@ -931,8 +974,11 @@ fn a_binary_stl_whose_body_is_shorter_than_its_count_reads_what_it_holds() {
 #[test]
 fn a_binary_stl_whose_header_starts_with_solid_is_read_as_binary() {
     let mut exact = binary_stl();
+
     exact[..10].copy_from_slice(b"solid cube");
+
     let mut padded = exact.clone();
+
     padded.extend([0u8; 13]);
 
     for bytes in [exact, padded] {

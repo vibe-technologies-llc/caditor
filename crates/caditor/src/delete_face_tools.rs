@@ -34,11 +34,14 @@ pub fn create(
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
+
     if faces.len() < source.faces.len() {
         return Err(FaceToolError::FacesGone);
     }
+
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::DeleteFace(DeleteFace {
@@ -107,6 +110,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let clicked = bodies::find_face(input, face)?;
     let solid = &input.solid;
     let mut changed = deletion.clone();
+
     changed.faces = deletion
         .faces
         .iter()
@@ -114,6 +118,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
         .filter(|(_, resolution)| !resolution.found().contains(&clicked))
         .map(|(reference, _)| reference.clone())
         .collect();
+
     let label = if changed.faces.len() == deletion.faces.len() {
         changed.faces.push(FaceReference::capture(solid, clicked)?);
         format!("Delete a face with {}", owner.name)
@@ -138,12 +143,15 @@ pub fn with_selected_faces(
     let deletion = owner.kind.delete_face()?;
     let input = bodies::input(model.evaluation(), feature)?;
     let solid = &input.solid;
+
     let mut taken = chosen(solid, deletion);
     let mut changed = deletion.clone();
+
     for pickable in selection.iter() {
         let Pickable::Face { body, face } = pickable else {
             continue;
         };
+
         let Some(found) = (body == deletion.body)
             .then(|| bodies::find_face(input, face))
             .flatten()
@@ -151,6 +159,7 @@ pub fn with_selected_faces(
         else {
             continue;
         };
+
         changed.faces.push(FaceReference::capture(solid, found)?);
         taken.insert(found);
     }

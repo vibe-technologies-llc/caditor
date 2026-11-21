@@ -47,7 +47,7 @@ pub(crate) const MUST_UNDERSTAND: u8 = 1;
 const CONTINUED: u8 = 2;
 const CONTINUATION: u8 = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum ChunkKind {
     Head = 1,
@@ -89,7 +89,7 @@ impl ChunkKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum Codec {
     Stored = 0,
@@ -105,7 +105,7 @@ impl Codec {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Chunk<'a> {
     pub kind: Option<ChunkKind>,
     pub codec: Option<Codec>,
@@ -117,7 +117,7 @@ pub(crate) struct Chunk<'a> {
     pub whole: &'a [u8],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum UnpackError {
     #[error("the chunk is compressed in a way this version cannot read")]
     UnknownCodec,
@@ -146,6 +146,7 @@ impl From<ZstdError> for UnpackError {
 
 fn room_for(length: usize) -> Result<Vec<u8>, UnpackError> {
     let mut content = Vec::new();
+
     content
         .try_reserve_exact(length)
         .map_err(|_| UnpackError::OutOfMemory)?;
@@ -154,6 +155,7 @@ fn room_for(length: usize) -> Result<Vec<u8>, UnpackError> {
 
 fn copied(bytes: &[u8]) -> Result<Vec<u8>, UnpackError> {
     let mut copy = room_for(bytes.len())?;
+
     copy.extend_from_slice(bytes);
     Ok(copy)
 }
@@ -198,11 +200,14 @@ impl<'a> Chunk<'a> {
         if self.parts == 1 {
             return self.unpack_part(newer);
         }
+
         let mut content = room_for(self.content_length)?;
         let mut position = 0;
+
         while position < self.whole.len() {
             let (part, end, _, _) =
                 chunk_at(self.whole, position).ok_or(UnpackError::MissingPart)?;
+
             content.extend_from_slice(&part.unpack_part(newer)?);
             position = end;
         }
@@ -226,6 +231,7 @@ impl<'a> Chunk<'a> {
             )?,
             None => return Err(UnpackError::UnknownCodec),
         };
+
         if content.len() != self.content_length {
             return Err(UnpackError::WrongLength {
                 expected: self.content_length,
@@ -236,13 +242,13 @@ impl<'a> Chunk<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Piece<'a> {
     Chunk(Chunk<'a>),
     Damaged,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Container<'a> {
     pub version: u32,
     pub pieces: Vec<Piece<'a>>,
@@ -281,11 +287,15 @@ pub(crate) fn preview_of_prefix(prefix: &[u8]) -> Option<Preview> {
     let rest = prefix.strip_prefix(&MODEL_MAGIC)?;
     let body = rest.get(VERSION_LENGTH..)?;
     let mut hashing_budget = body.len().saturating_mul(HASHING_ALLOWANCE);
+
     let (head, after_head) = read_chunk(body, 0, &mut hashing_budget).ok()?;
+
     if head.kind != Some(ChunkKind::Head) || head.continues() {
         return None;
     }
+
     let (chunk, _) = read_chunk(body, after_head, &mut hashing_budget).ok()?;
+
     if chunk.kind != Some(ChunkKind::Preview) || chunk.continues() || chunk.is_continuation() {
         return None;
     }
@@ -300,6 +310,7 @@ pub(crate) fn salvage(bytes: &[u8], leading: ChunkKind) -> Option<Vec<Piece<'_>>
     let start = next_sync(bytes.get(..reach)?, 0);
     let body = bytes.get(start..)?;
     let mut hashing_budget = body.len().saturating_mul(HASHING_ALLOWANCE);
+
     let (first, _) = read_chunk(body, 0, &mut hashing_budget).ok()?;
     (first.kind == Some(leading)).then(|| parse_body(body))
 }
@@ -314,6 +325,7 @@ fn scan_body(body: &[u8]) -> (Vec<Piece<'_>>, usize) {
     let allowance = body.len().saturating_mul(HASHING_ALLOWANCE);
     let mut hashing_budget = allowance;
     let mut skipped = 0;
+
     while position < body.len() {
         match read_chunk(body, position, &mut hashing_budget) {
             Ok((chunk, next)) => {
@@ -322,7 +334,9 @@ fn scan_body(body: &[u8]) -> (Vec<Piece<'_>>, usize) {
             }
             Err(Rejected::Chunk) => {
                 pieces.damaged();
+
                 let next = next_sync(body, position + 1);
+
                 skipped += next - position;
                 position = next;
             }
@@ -394,6 +408,7 @@ fn read_chunk<'a>(
     hashing_budget: &mut usize,
 ) -> Result<(Chunk<'a>, usize), Rejected> {
     let (chunk, end, header, checksum) = chunk_at(body, position).ok_or(Rejected::Chunk)?;
+
     *hashing_budget = hashing_budget
         .checked_sub(chunk.payload.len())
         .ok_or(Rejected::OverBudget)?;
@@ -405,20 +420,25 @@ fn read_chunk<'a>(
 
 fn chunk_at(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize, &[u8], u64)> {
     let header = body.get(position..position.checked_add(CHUNK_HEADER_LENGTH)?)?;
+
     if header.get(..SYNC.len())? != SYNC {
         return None;
     }
+
     let kind = *header.get(4)?;
     let codec = *header.get(5)?;
     let flags = *header.get(6)?;
     let stored_length = u32::from_le_bytes(header.get(8..12)?.try_into().ok()?) as usize;
     let content_length = u32::from_le_bytes(header.get(12..16)?.try_into().ok()?) as usize;
     let checksum = u64::from_le_bytes(header.get(CHECKSUM)?.try_into().ok()?);
+
     if content_length > MAX_CONTENT {
         return None;
     }
+
     let payload_start = position + CHUNK_HEADER_LENGTH;
     let end = payload_start.checked_add(stored_length)?;
+
     let payload = body.get(payload_start..end)?;
     Some((
         Chunk {
@@ -439,12 +459,13 @@ fn chunk_at(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize, &[u8], u6
 
 fn checksum_of(header: &[u8], payload: &[u8]) -> u64 {
     let mut hasher = Xxh3::new();
+
     hasher.update(header);
     hasher.update(payload);
     hasher.digest()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum PackError {
     #[error("a part of the model is too large to store")]
     TooLarge,
@@ -465,6 +486,7 @@ impl From<ZstdError> for PackError {
 
 pub(crate) fn start_file(magic: &Magic, version: u32) -> Vec<u8> {
     let mut bytes = magic.to_vec();
+
     bytes.extend_from_slice(&version.to_le_bytes());
     bytes
 }
@@ -541,17 +563,22 @@ fn push_slices(
     if content.len() > MAX_JOINED_CONTENT {
         return Err(PackError::TooLarge);
     }
+
     let mut slices = content.chunks(slice_length()).peekable();
+
     if slices.peek().is_none() {
         return push(content, 0, bytes);
     }
+
     let mut follows = 0;
+
     while let Some(slice) = slices.next() {
         let continued = if slices.peek().is_some() {
             CONTINUED
         } else {
             0
         };
+
         push(slice, follows | continued, bytes)?;
         follows = CONTINUATION;
     }
@@ -562,6 +589,7 @@ fn delta_content(content: &[u8]) -> Cow<'_, [u8]> {
     #[cfg(test)]
     if testing::deltas_damaged() {
         let mut damaged = content.to_vec();
+
         if let Some(last) = damaged.last_mut() {
             *last ^= 0x55;
         }
@@ -603,9 +631,11 @@ fn push_raw(
     if content_length > MAX_CONTENT {
         return Err(PackError::TooLarge);
     }
+
     let stored = u32::try_from(payload.len()).map_err(|_| PackError::TooLarge)?;
     let content = u32::try_from(content_length).map_err(|_| PackError::TooLarge)?;
     let mut header = [0_u8; CHUNK_HEADER_LENGTH];
+
     let fields = [
         SYNC.as_slice(),
         &[kind, codec, flags, 0],
@@ -613,10 +643,13 @@ fn push_raw(
         &content.to_le_bytes(),
     ]
     .concat();
+
     for (slot, byte) in header.iter_mut().zip(fields) {
         *slot = byte;
     }
+
     let checksum = checksum_of(header.get(CHECKED_HEADER).unwrap_or_default(), payload);
+
     write_checksum(&mut header, checksum);
     bytes
         .try_reserve(CHUNK_HEADER_LENGTH.saturating_add(payload.len()))
@@ -637,10 +670,12 @@ fn write_checksum(header: &mut [u8], checksum: u64) {
 pub(crate) fn reseal(bytes: &[u8]) -> Vec<u8> {
     let mut sealed = bytes.to_vec();
     let start = size_of::<Magic>() + VERSION_LENGTH;
+
     let Some(body) = sealed.get_mut(start..) else {
         return sealed;
     };
     let mut position = 0;
+
     while position < body.len() {
         let Some((end, checksum)) = chunk_at(body, position)
             .map(|(chunk, end, header, _)| (end, checksum_of(header, chunk.payload)))
@@ -648,6 +683,7 @@ pub(crate) fn reseal(bytes: &[u8]) -> Vec<u8> {
             position += 1;
             continue;
         };
+
         if let Some(header) = body.get_mut(position..position + CHUNK_HEADER_LENGTH) {
             write_checksum(header, checksum);
         }

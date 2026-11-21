@@ -39,6 +39,7 @@ pub(super) fn opening(ctx: &egui::Context, path: &Path, origin: Origin) -> Optio
             "Stop reading the template and keep the current model",
         ),
     };
+
     let response = widgets::dialog(ctx, "opening", &title, DialogWidth::Medium, |ui| {
         widgets::dialog_body(ui, |ui| {
             widgets::progress(doing).wrapping().show(ui);
@@ -76,6 +77,7 @@ pub(super) fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Opti
         Command::SaveAs.title()
     };
     let title = format!("Save changes to “{name}”?");
+
     let response = widgets::dialog(ctx, "unsaved-changes", &title, DialogWidth::Medium, |ui| {
         widgets::dialog_body(ui, |ui| ui.label(consequence));
         widgets::footer_split(
@@ -101,9 +103,11 @@ pub(super) fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Opti
 
 pub(super) fn closing(ctx: &egui::Context, since: Instant) -> Option<FileCommand> {
     let waited = since.elapsed();
+
     if waited < QUIT_ANYWAY_AFTER {
         ctx.request_repaint_after(QUIT_ANYWAY_AFTER.saturating_sub(waited));
     }
+
     let slow = waited >= QUIT_ANYWAY_AFTER;
     widgets::waiting_dialog(ctx, "closing", "Closing…", |ui| {
         widgets::dialog_body(ui, |ui| {
@@ -141,10 +145,13 @@ pub(super) fn finishing_exports(
 ) -> Option<FileCommand> {
     let waited = waiting.since.elapsed();
     let uncancellable = waiting.stopping || !cancellable;
+
     let slow = uncancellable && waited >= QUIT_ANYWAY_AFTER;
+
     if uncancellable && !slow {
         ctx.request_repaint_after(QUIT_ANYWAY_AFTER.saturating_sub(waited));
     }
+
     let response = widgets::dialog(
         ctx,
         "closing-exports",
@@ -155,6 +162,7 @@ pub(super) fn finishing_exports(
                 for description in running {
                     widgets::progress(description).wrapping().show(ui);
                 }
+
                 let explanation = match (cancellable, waiting.stopping) {
                     (false, _) => "caditor closes as soon as the file is written.",
                     (true, true) => {
@@ -164,6 +172,7 @@ pub(super) fn finishing_exports(
                         "caditor closes when the export is done. Cancelling it writes no file."
                     }
                 };
+
                 ui.label(widgets::muted(explanation, ui));
             });
             widgets::footer_split(
@@ -215,9 +224,11 @@ pub(super) fn confirm_replace(ctx: &egui::Context, replacement: &Replacement) ->
         [only] => format!("Replace “{}”?", display_name(Some(only))),
         _ => format!("Replace {} {kind}s?", replaced.len()),
     };
+
     let response = widgets::dialog(ctx, "replace-model", &title, DialogWidth::Medium, |ui| {
         if let [only] = replaced {
             let name = display_name(Some(only));
+
             widgets::dialog_body(ui, |ui| {
                 ui.label(format!(
                     "A {kind} named “{name}” already exists in “{folder}”. Replacing it \
@@ -336,7 +347,9 @@ pub(super) fn recovery(ctx: &egui::Context, files: &Files) -> Option<FileCommand
         DialogWidth::Medium,
         |ui| {
             ui.label("caditor closed before these changes were saved.");
+
             let mut command = None;
+
             widgets::dialog_body(ui, |ui| {
                 for candidate in &files.recoverable {
                     widgets::card(ui, |ui| {
@@ -369,7 +382,9 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
         Some(file) => display_name(Some(file)),
         None => "Untitled model".to_owned(),
     };
+
     ui.label(widgets::strong(name));
+
     let changes = match recovered.changes() {
         1 => "1 unsaved change".to_owned(),
         count => format!("{count} unsaved changes"),
@@ -378,6 +393,7 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
         .modified
         .map(|modified| format!(", last one {}", history::ago(modified)))
         .unwrap_or_default();
+
     ui.label(widgets::muted(format!("{changes}{when}"), ui));
     if let Some(file) = &recovered.file {
         ui.label(widgets::muted(file.display().to_string(), ui));
@@ -387,10 +403,13 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
             ui.label(issue);
         });
     }
+
     let journal = recovered.journal.clone();
+
     ui.add_space(SPACE_S);
     if files.confirm_discard.as_ref() == Some(&journal) {
         ui.label("Discard these changes permanently?");
+
         let discarding = journal.clone();
         let (discard, keep) = Sides::new().show(
             ui,
@@ -405,6 +424,7 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
                     .then_some(FileCommand::KeepRecovered)
             },
         );
+
         return discard.or(keep);
     }
     ui.horizontal_wrapped(|ui| {

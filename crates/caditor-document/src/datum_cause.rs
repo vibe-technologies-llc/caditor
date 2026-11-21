@@ -1,6 +1,6 @@
 use crate::{attachment::AttachmentError, failure::Cause};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Unplaced {
     PlaneThroughPoints,
     PlaneBetween,
@@ -56,7 +56,7 @@ impl Unplaced {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Run {
     Missing,
     Tied,
@@ -64,7 +64,7 @@ pub(crate) enum Run {
     PartlyTraced,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
     PlaneOrAxis,
     Frame,
@@ -95,13 +95,13 @@ impl Kind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Pair {
     pub first: String,
     pub second: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DatumCause {
     Not {
         name: String,

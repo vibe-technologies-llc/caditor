@@ -46,6 +46,7 @@ impl Keyring for SecretService {
             let Some(item) = open.find(service).await? else {
                 return Ok(None);
             };
+
             let (_, _, value, _): Secret = open
                 .proxy(&item, ITEM_INTERFACE)
                 .await?
@@ -61,8 +62,10 @@ impl Keyring for SecretService {
             let open = Open::new().await?;
             let label = format!("caditor {service} sign-in");
             let mut properties: BTreeMap<&str, Variant> = BTreeMap::new();
+
             properties.insert(LABEL_PROPERTY, Variant::from(label.as_str()));
             properties.insert(ATTRIBUTES_PROPERTY, Variant::from(attributes(service)));
+
             let wrapped = (
                 &open.session,
                 Vec::<u8>::new(),
@@ -85,6 +88,7 @@ impl Keyring for SecretService {
             let Some(item) = open.find(service).await? else {
                 return Ok(());
             };
+
             let prompt: OwnedObjectPath = open
                 .proxy(&item, ITEM_INTERFACE)
                 .await?
@@ -103,6 +107,7 @@ impl AiKeyring for SecretService {
             let Some(item) = open.find_by(ai_attributes(provider)).await? else {
                 return Ok(None);
             };
+
             let (_, _, value, _): Secret = open
                 .proxy(&item, ITEM_INTERFACE)
                 .await?
@@ -118,8 +123,10 @@ impl AiKeyring for SecretService {
             let open = Open::new().await?;
             let label = format!("caditor {provider} API key");
             let mut properties: BTreeMap<&str, Variant> = BTreeMap::new();
+
             properties.insert(LABEL_PROPERTY, Variant::from(label.as_str()));
             properties.insert(ATTRIBUTES_PROPERTY, Variant::from(ai_attributes(provider)));
+
             let wrapped = (
                 &open.session,
                 Vec::<u8>::new(),
@@ -142,6 +149,7 @@ impl AiKeyring for SecretService {
             let Some(item) = open.find_by(ai_attributes(provider)).await? else {
                 return Ok(());
             };
+
             let prompt: OwnedObjectPath = open
                 .proxy(&item, ITEM_INTERFACE)
                 .await?
@@ -191,14 +199,17 @@ impl Open {
             .call("ReadAlias", &(DEFAULT_ALIAS,))
             .await
             .map_err(KeyringError::Refused)?;
+
         if collection.as_str() == NO_OBJECT {
             return Err(KeyringError::NoDefaultCollection);
         }
+
         let open = Self {
             connection,
             session,
             collection,
         };
+
         open.unlock().await?;
         Ok(open)
     }
@@ -230,6 +241,7 @@ impl Open {
         if !self.is_locked().await? {
             return Ok(());
         }
+
         let service = Proxy::new(&self.connection, BUS_NAME, SERVICE_PATH, SERVICE_INTERFACE)
             .await
             .map_err(KeyringError::Refused)?;
@@ -237,6 +249,7 @@ impl Open {
             .call("Unlock", &(vec![&self.collection],))
             .await
             .map_err(KeyringError::Refused)?;
+
         self.complete(&prompt).await?;
         if self.is_locked().await? {
             return Err(KeyringError::Locked);
@@ -265,16 +278,19 @@ impl Open {
         if prompt.as_str() == NO_OBJECT {
             return Ok(());
         }
+
         let proxy = self.proxy(prompt, PROMPT_INTERFACE).await?;
         let mut completed = proxy
             .receive_signal("Completed")
             .await
             .map_err(KeyringError::Refused)?;
         let _deadline = Deadline::start(proxy.clone());
+
         proxy
             .call::<_, _, ()>("Prompt", &("",))
             .await
             .map_err(KeyringError::Refused)?;
+
         let dismissed = next_message(&mut completed)
             .await
             .and_then(|message| message.body().deserialize::<(bool, OwnedVariant)>().ok())
@@ -304,6 +320,7 @@ impl Deadline {
                     }
                 }
             });
+
         if let Err(error) = spawned {
             log::debug!("the keyring prompt has no deadline: {error}");
         }

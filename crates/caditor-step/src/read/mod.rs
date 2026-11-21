@@ -66,7 +66,7 @@ const TESSELLATED_KINDS: [&str; 5] = [
 ];
 const WIREFRAME_KINDS: [&str; 2] = ["GEOMETRIC_CURVE_SET", "GEOMETRIC_SET"];
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StepSolid {
     pub name: String,
     pub solid: Solid,
@@ -77,13 +77,13 @@ pub struct StepSolid {
     pub faces: Vec<FaceLook>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct StepModel {
     pub solids: Vec<StepSolid>,
     pub notes: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StepCopy {
     pub name: String,
     pub solid: Arc<Solid>,
@@ -95,13 +95,13 @@ pub struct StepCopy {
     pub faces: Vec<FaceLook>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ReadProgress {
     pub built: usize,
     pub solids: usize,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct StepCopies {
     pub copies: Vec<StepCopy>,
     pub notes: Vec<String>,
@@ -112,7 +112,7 @@ struct Read<T> {
     notes: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Held {
     pub schema: Option<String>,
     pub surface_bodies: usize,
@@ -123,9 +123,11 @@ pub struct Held {
 impl std::fmt::Display for Held {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut found = Vec::new();
+
         if let Some(schema) = &self.schema {
             found.push(format!("its schema is {schema}"));
         }
+
         let counted = [
             (
                 self.surface_bodies,
@@ -144,6 +146,7 @@ impl std::fmt::Display for Held {
             .filter(|(count, _, _)| *count > 0)
             .map(|(count, one, many)| format!("{count} {}", if count == 1 { one } else { many }))
             .collect();
+
         if !contents.is_empty() {
             found.push(format!("it holds {}", contents.join(", ")));
         }
@@ -171,7 +174,7 @@ fn count_of(graph: &Graph<'_>, kinds: &[&str]) -> usize {
         .count()
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ReadError {
     #[error("it is not a STEP file")]
     NotStep,
@@ -196,7 +199,7 @@ pub enum ReadError {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Misplacement {
     InsideItself,
     Unreadable,
@@ -320,6 +323,7 @@ fn read_placed<T>(
     mut place: impl FnMut(&Arc<Solid>, Similarity) -> Option<T>,
 ) -> Result<Read<T>, ReadError> {
     check_interrupt().map_err(|_| ReadError::Cancelled)?;
+
     let exchange = parse(text).map_err(|error| match error {
         SyntaxError::NotStep => ReadError::NotStep,
         SyntaxError::Damaged { line } => ReadError::Damaged(line),
@@ -353,6 +357,7 @@ fn read_placed<T>(
             })
         })
     };
+
     let solids: Vec<Entity<'_>> = graph
         .entities()
         .filter(|entity| {
@@ -365,11 +370,13 @@ fn read_placed<T>(
         .filter(|entity| entity.kind() == "SHELL_BASED_SURFACE_MODEL" && !encloses(entity))
         .count();
     let mut solids_per_representation: BTreeMap<u64, usize> = BTreeMap::new();
+
     for entity in &solids {
         if let Some(representation) = structure.representation_of(entity.id) {
             *solids_per_representation.entry(representation).or_default() += 1;
         }
     }
+
     let mut consulted = Consulted::default();
     let wanted: Vec<(u64, Units)> = solids
         .iter()
@@ -381,24 +388,30 @@ fn read_placed<T>(
             (entity.id, units)
         })
         .collect();
+
     check_interrupt().map_err(|_| ReadError::Cancelled)?;
+
     let mut builds = Builds::of(graph, &wanted, reading);
     let mut budget = reading.copies;
     let mut unplaced = Vec::new();
+
     for (index, entity) in solids.iter().enumerate() {
         check_interrupt().map_err(|_| ReadError::Cancelled)?;
         if budget == 0 {
             structure.truncated = true;
             continue;
         }
+
         let representation = structure.representation_of(entity.id);
         let units = representation
             .map(|representation| structure.units_of(&graph, representation))
             .unwrap_or_default();
+
         unnamed_units |= !units.named;
         if units.named && (units.length - 1.0).abs() > UNIT_SLACK {
             converted.push(units.length);
         }
+
         let siblings = representation.map_or(1, |representation| {
             solids_per_representation
                 .get(&representation)
@@ -410,6 +423,7 @@ fn read_placed<T>(
             Some(representation) => structure.placements(representation),
             None => Placements::at_origin(),
         };
+
         if let Some(reason) = placements.unplaced {
             unplaced.push((name, reason.into()));
             continue;
@@ -420,6 +434,7 @@ fn read_placed<T>(
         if placements.transforms.len() > budget {
             structure.truncated = true;
         }
+
         let transforms: Vec<(Similarity, Option<Arc<str>>, Vec<u64>)> = placements
             .transforms
             .into_iter()
@@ -438,9 +453,11 @@ fn read_placed<T>(
             .map(|((transform, occurrence), path)| (transform, occurrence, path))
             .take(budget)
             .collect();
+
         if transforms.is_empty() {
             continue;
         }
+
         let named_occurrences: BTreeSet<&str> = transforms
             .iter()
             .filter_map(|(_, occurrence, _)| occurrence.as_deref())
@@ -478,11 +495,13 @@ fn read_placed<T>(
                 if let Some(faces) = unchecked {
                     unchecked_notes.push(unchecked_note(&name, faces));
                 }
+
                 let count = transforms.len();
                 let parts = SolidParts::of(&graph, entity.id);
                 let mut looks: BTreeMap<Vec<u64>, Look> = BTreeMap::new();
                 let mut misplaced = false;
                 let solid = Arc::new(solid);
+
                 for (instance, (placement, occurrence, path)) in transforms.into_iter().enumerate()
                 {
                     let Some(placed) = place(&solid, placement) else {
@@ -498,6 +517,7 @@ fn read_placed<T>(
                         _ if count > 1 && instance > 0 => format!("{name} {}", instance + 1),
                         _ => name.clone(),
                     };
+
                     budget = budget.saturating_sub(1);
                     model.solids.push((name, look, placed));
                 }
@@ -614,6 +634,7 @@ fn read_placed<T>(
 
 fn damage_notes(exchange: &Exchange) -> Vec<String> {
     let mut notes = Vec::new();
+
     if let Some(first) = exchange.unreadable.first() {
         notes.push(match exchange.unreadable.len() {
             1 => format!(
@@ -702,6 +723,7 @@ fn lost_note(name: &str, lost: &Lost) -> String {
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     };
     let plural = faces.len() > 1;
+
     if lost.voids + lost.lumps == 0 {
         return format!(
             "“{name}” was imported without its {} {listed}, because {reason}; the {} left \
@@ -711,7 +733,9 @@ fn lost_note(name: &str, lost: &Lost) -> String {
             if plural { "were" } else { "was" },
         );
     }
+
     let mut parts = Vec::new();
+
     for (count, one, many) in [
         (lost.voids, "hollow", "hollows"),
         (lost.lumps, "separate piece", "separate pieces"),
@@ -786,6 +810,7 @@ impl Builds {
         let mut firsts: BTreeMap<BuildKey, u64> = BTreeMap::new();
         let mut keyed: Vec<(u64, Result<BuildKey, Problem>)> = Vec::with_capacity(wanted.len());
         let mut jobs: Vec<Job> = Vec::new();
+
         for (id, units) in wanted {
             let key = SolidShells::of(&graph, *id).map(|shells| {
                 (
@@ -797,6 +822,7 @@ impl Builds {
                     ],
                 )
             });
+
             if let Ok(key) = &key
                 && !firsts.contains_key(key)
             {
@@ -809,24 +835,30 @@ impl Builds {
             }
             keyed.push((*id, key));
         }
+
         let mut uses: BTreeMap<u64, usize> = BTreeMap::new();
+
         for key in keyed.iter().filter_map(|(_, key)| key.as_ref().ok()) {
             if let Some(first) = firsts.get(key) {
                 *uses.entry(*first).or_default() += 1;
             }
         }
+
         let mut firsts_built: BTreeMap<u64, Result<Built, Problem>> = jobs
             .iter()
             .map(|job| job.id)
             .zip(built_together(graph, &jobs, reading))
             .collect();
+
         let builds = keyed
             .into_iter()
             .map(|(id, key)| {
                 let built = key.and_then(|key| {
                     let first = firsts.get(&key).copied().unwrap_or(id);
                     let left = uses.entry(first).or_default();
+
                     *left = left.saturating_sub(1);
+
                     let built = if *left == 0 {
                         firsts_built.remove(&first)
                     } else {
@@ -879,33 +911,42 @@ fn built_together(
     let work = Work::new(MAX_WORK);
     let finished = AtomicUsize::new(0);
     let total = jobs.len();
+
     let count = || {
         let solids = finished.fetch_add(1, Ordering::Relaxed) + 1;
+
         report(ReadProgress {
             built: solids,
             solids: total,
         });
     };
+
     report(ReadProgress {
         built: 0,
         solids: total,
     });
+
     let threads = available_threads().min(jobs.len());
     let helpers = HelperThreads::take(threads);
+
     if helpers.count() <= 1 {
         let mut geometries = Vec::new();
+
         return jobs
             .iter()
             .map(|job| {
                 let built = build_one(graph, (&work, crossings), &mut geometries, job);
+
                 count();
                 built
             })
             .collect();
     }
+
     let next = AtomicUsize::new(0);
     let interrupt = current_interrupt();
     let mut built: Vec<Option<Result<Built, Problem>>> = jobs.iter().map(|_| None).collect();
+
     thread::scope(|scope| {
         let workers: Vec<_> = (0..helpers.count())
             .map(|_| {
@@ -914,11 +955,13 @@ fn built_together(
                     let serve = || {
                         let mut geometries = Vec::new();
                         let mut done = Vec::new();
+
                         loop {
                             let at = next.fetch_add(1, Ordering::Relaxed);
                             let Some(job) = jobs.get(at) else {
                                 break;
                             };
+
                             if check_interrupt().is_err() {
                                 break;
                             }
@@ -962,6 +1005,7 @@ fn build_one<'a>(
     job: &Job,
 ) -> Result<Built, Problem> {
     work.charge(job.id)?;
+
     let position = match geometries
         .iter()
         .position(|geometry| geometry.units == job.units)
@@ -994,6 +1038,7 @@ fn healed(geometry: &Geometry<'_>, id: u64, shells: &SolidShells) -> Result<Buil
             ],
             None => &[Healing::Extended],
         };
+
         for healing in looser {
             if check_interrupt().is_err() {
                 break;
@@ -1017,6 +1062,7 @@ fn without_unreadable(
         return Err(problem);
     };
     let outer = shells.outer();
+
     let dropped: BTreeSet<u64> = unreadable
         .iter()
         .map(|face| face.shell)
@@ -1028,6 +1074,7 @@ fn without_unreadable(
         .filter(|face| face.shell == outer)
         .map(|face| face.face)
         .collect();
+
     let built = if lost_faces.is_empty() {
         healed(geometry, id, &kept)
     } else {
@@ -1046,6 +1093,7 @@ fn without_unreadable(
         .iter()
         .filter(|shell| shells.is_void(**shell))
         .count();
+
     built.lost = Some(Lost {
         faces: if lost_faces.is_empty() {
             unreadable.iter().map(|face| face.face).collect()

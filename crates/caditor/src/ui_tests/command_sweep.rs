@@ -16,8 +16,11 @@ const FEWEST_WINDOWS_PER_SHARE: usize = 1;
 
 fn at_scale(scale: f32) -> Harness {
     let mut workspace = Workspace::new();
+
     workspace.preferences.appearance.scale = scale;
+
     let mut harness = Harness::starting(None, sample_document().unwrap(), workspace);
+
     harness.settle();
     harness
 }
@@ -35,6 +38,7 @@ fn layers(harness: &Harness) -> Vec<(LayerId, Rect)> {
 
 fn run(harness: &mut Harness, command: Command) -> Vec<Rect> {
     let before = layers(harness);
+
     harness.workspace.queue_command(command);
     for _ in 0..WINDOW_SETTLE_FRAMES {
         harness.frame();
@@ -90,6 +94,7 @@ fn sweep_share(share: usize) {
     for command in Command::all().skip(share).step_by(SHARES) {
         let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
             let mut harness = Harness::new();
+
             let opened = run(&mut harness, command);
             (is_unexplained(&harness, command), !opened.is_empty())
         }));

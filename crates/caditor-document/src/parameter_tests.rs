@@ -44,6 +44,7 @@ fn moving_a_parameter_reorders_the_list_and_undo_puts_it_back() {
             },
         ))
         .unwrap();
+
     let moved = names(editor.document()).join(" ");
     let past_the_end = editor.document().check(&Transaction::single(
         "Move",
@@ -52,6 +53,7 @@ fn moving_a_parameter_reorders_the_list_and_undo_puts_it_back() {
             index: 3,
         },
     ));
+
     editor.undo().unwrap();
 
     assert_eq!(moved, "gap width height");
@@ -80,10 +82,12 @@ fn a_note_is_trimmed_bounded_and_undone() {
     editor
         .apply(note("  Outer width of the bracket \n"))
         .unwrap();
+
     let kept = editor.document().parameter(ids.width).unwrap().note.clone();
     let too_long = editor
         .document()
         .check(&note(&"x".repeat(MAX_PARAMETER_NOTE_CHARS + 1)));
+
     editor.undo().unwrap();
 
     assert_eq!(kept, "Outer width of the bracket");
@@ -105,6 +109,7 @@ fn a_note_is_trimmed_bounded_and_undone() {
 fn deleting_a_used_parameter_writes_its_expression_into_every_use() {
     let (mut document, ids) = sample();
     let mut transaction = document.transaction("Add");
+
     let double = transaction.add_parameter("double", transaction.parse("width * 2").unwrap());
     let extrude = transaction.add_feature(
         "Extrude 1",
@@ -120,15 +125,22 @@ fn deleting_a_used_parameter_writes_its_expression_into_every_use() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut transaction = document.transaction("Use height");
+
     transaction.add_parameter("span", transaction.parse("width + height").unwrap());
     document.apply(transaction.finish()).unwrap();
+
     let mut editor = Editor::new(document);
+
     let before = editor.document().clone();
 
     let inline = editor.document().inline_parameter(ids.width).unwrap();
+
     editor.apply(inline).unwrap();
+
     let after = editor.document();
     let base_value = after
         .feature(ids.base)
@@ -151,6 +163,7 @@ fn deleting_a_used_parameter_writes_its_expression_into_every_use() {
     assert!(!after.used_parameters().contains(&ids.width));
 
     editor.undo().unwrap();
+
     assert_eq!(*editor.document(), before);
 }
 
@@ -158,6 +171,7 @@ fn deleting_a_used_parameter_writes_its_expression_into_every_use() {
 fn inlining_keeps_links_to_the_parameters_the_expression_uses() {
     let (document, ids) = sample();
     let mut editor = Editor::new(document);
+
     editor
         .apply(Transaction::single(
             "Edit gap",
@@ -178,7 +192,9 @@ fn inlining_keeps_links_to_the_parameters_the_expression_uses() {
         .unwrap();
 
     let inline = editor.document().inline_parameter(ids.gap).unwrap();
+
     editor.apply(inline).unwrap();
+
     let document = editor.document();
 
     assert_eq!(

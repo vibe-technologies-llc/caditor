@@ -18,7 +18,7 @@ use crate::{
 
 const AREA_SAMPLES: usize = 8;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct MergedFaces {
     pub keeper: FaceId,
     pub faces: BTreeSet<FaceId>,
@@ -30,7 +30,7 @@ impl MergedFaces {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MergeFailure {
     Unmergeable,
     Cancelled(Interrupted),
@@ -108,18 +108,23 @@ fn internal_edges(solid: &Solid, group: &MergedFaces) -> BTreeSet<EdgeId> {
 
 fn chained(solid: &Solid, boundary: Vec<Walked>) -> Option<Vec<Vec<Walked>>> {
     let mut leaving: BTreeMap<VertexId, Walked> = BTreeMap::new();
+
     for walked in boundary {
         let (start, _) = ends(solid, &walked)?;
         if leaving.insert(start, walked).is_some() {
             return None;
         }
     }
+
     let mut chains = Vec::new();
+
     while let Some((first, walked)) = leaving.pop_first() {
         let (_, mut at) = ends(solid, &walked)?;
         let mut chain = vec![walked];
+
         while at != first {
             let next = leaving.remove(&at)?;
+
             (_, at) = ends(solid, &next)?;
             chain.push(next);
         }
@@ -130,9 +135,11 @@ fn chained(solid: &Solid, boundary: Vec<Walked>) -> Option<Vec<Vec<Walked>>> {
 
 fn enclosed_area(solid: &Solid, surface: &Surface, sense: Sense, chain: &[Walked]) -> Option<f64> {
     let mut outline = Vec::new();
+
     for walked in chain {
         let edge = solid.edge(walked.edge)?;
         let mut stations: Vec<f64> = edge.interval().split(AREA_SAMPLES).collect();
+
         if !walked.sense.is_same() {
             stations.reverse();
         }
@@ -142,6 +149,7 @@ fn enclosed_area(solid: &Solid, surface: &Surface, sense: Sense, chain: &[Walked
                 .map(|parameter| surface.project(edge.curve().point(parameter), None)),
         );
     }
+
     let turning: f64 = outline
         .iter()
         .zip(outline.iter().cycle().skip(1))
@@ -152,13 +160,17 @@ fn enclosed_area(solid: &Solid, surface: &Surface, sense: Sense, chain: &[Walked
 
 fn merged_loops(solid: &Solid, group: &MergedFaces) -> Option<Vec<Vec<Walked>>> {
     let keeper = solid.face(group.keeper)?;
+
     if !matches!(keeper.surface(), Surface::Plane(_)) {
         return None;
     }
+
     let internal = internal_edges(solid, group);
     let mut boundary = Vec::new();
+
     for face in &group.faces {
         let walked = walked_from(solid, *face, *face == group.keeper)?;
+
         boundary.extend(
             walked
                 .into_iter()
@@ -166,8 +178,10 @@ fn merged_loops(solid: &Solid, group: &MergedFaces) -> Option<Vec<Vec<Walked>>> 
                 .filter(|walked| !internal.contains(&walked.edge)),
         );
     }
+
     let mut outer = Vec::new();
     let mut inner = Vec::new();
+
     for chain in chained(solid, boundary)? {
         let area = enclosed_area(solid, keeper.surface(), keeper.sense(), &chain)?;
         if area > 0.0 {
@@ -176,8 +190,10 @@ fn merged_loops(solid: &Solid, group: &MergedFaces) -> Option<Vec<Vec<Walked>>> 
             inner.push(chain);
         }
     }
+
     let [only] = <[Vec<Walked>; 1]>::try_from(outer).ok()?;
     let mut loops = vec![only];
+
     loops.extend(inner);
     Some(loops)
 }
@@ -214,11 +230,15 @@ impl Merging {
         let [first, second] = self.edges_at(vertex)[..] else {
             return None;
         };
+
         if self.users(first) != self.users(second) {
             return None;
         }
+
         let (keep, gone) = (self.drawn.get(&first)?, self.drawn.get(&second)?);
+
         let joined = joined_edge(solid, keep, gone, vertex)?;
+
         self.drawn.insert(first, joined);
         self.drawn.remove(&second);
         self.joined.insert(first);
@@ -241,8 +261,10 @@ fn joined_edge(solid: &Solid, keep: &Drawn, gone: &Drawn, vertex: VertexId) -> O
     if keep.start == keep.end || gone.start == gone.end {
         return None;
     }
+
     let point = |id: VertexId| Some(solid.vertex(id)?.point());
     let far = far_end(gone, vertex);
+
     let (at, reached) = (point(vertex)?, point(far)?);
     let keep_runs_into = keep.end == vertex;
     let (start, end) = if keep_runs_into {
@@ -250,15 +272,20 @@ fn joined_edge(solid: &Solid, keep: &Drawn, gone: &Drawn, vertex: VertexId) -> O
     } else {
         (far, keep.end)
     };
+
     let (curve, interval) = match (&keep.curve, &gone.curve) {
         (Curve::Line(_), Curve::Line(_)) => {
             let near = point(far_end(keep, vertex))?;
+
             if (near - at).dot(reached - at) >= 0.0 {
                 return None;
             }
+
             let (from, to) = (point(start)?, point(end)?);
+
             let line = Line::through(from, to).ok()?;
             let off = line.point(line.parameter_of(at)).distance(at);
+
             if off > LINEAR_RESOLUTION {
                 return None;
             }
@@ -273,9 +300,11 @@ fn joined_edge(solid: &Solid, keep: &Drawn, gone: &Drawn, vertex: VertexId) -> O
                     .cross(other.frame().normal())
                     .length()
                     <= LINEAR_RESOLUTION;
+
             if !same_circle {
                 return None;
             }
+
             let sweep = gone.interval.length();
             let interval = if keep_runs_into {
                 Interval::new(keep.interval.start(), keep.interval.end() + sweep)?
@@ -288,6 +317,7 @@ fn joined_edge(solid: &Solid, keep: &Drawn, gone: &Drawn, vertex: VertexId) -> O
                 interval.start()
             };
             let lands = keep.curve.point(along).distance(reached) <= LINEAR_RESOLUTION;
+
             if !lands || interval.length() > TAU {
                 return None;
             }
@@ -341,16 +371,21 @@ fn into_plan(solid: &Solid, merging: &Merging) -> Option<Plan> {
     let mut plan = Plan::default();
     let mut points: BTreeMap<VertexId, usize> = BTreeMap::new();
     let mut edges: BTreeMap<EdgeId, usize> = BTreeMap::new();
+
     for (id, edge) in &merging.drawn {
         let mut placed = |vertex: VertexId| -> Option<usize> {
             if let Some(known) = points.get(&vertex) {
                 return Some(*known);
             }
+
             let made = plan.vertex(solid.vertex(vertex)?.point());
+
             points.insert(vertex, made);
             Some(made)
         };
+
         let ends = (placed(edge.start)?, placed(edge.end)?);
+
         edges.insert(
             *id,
             plan.edge(edge.curve.clone(), edge.interval, ends, edge.name),
@@ -378,6 +413,7 @@ fn into_plan(solid: &Solid, merging: &Merging) -> Option<Plan> {
                     .collect::<Option<Vec<_>>>()
             })
             .collect::<Option<Vec<_>>>()?;
+
         plan.face(PlanFace {
             surface: face.surface().clone(),
             sense: face.sense(),
@@ -392,11 +428,13 @@ fn into_plan(solid: &Solid, merging: &Merging) -> Option<Plan> {
 pub(super) fn merged_faces(solid: &Solid, groups: &[MergedFaces]) -> Result<Solid, MergeFailure> {
     let mut loops: BTreeMap<FaceId, Vec<Vec<Walked>>> = BTreeMap::new();
     let mut internal = BTreeSet::new();
+
     for (id, _) in solid.faces() {
         interrupt::check()?;
         if groups.iter().any(|group| group.absorbs(id)) {
             continue;
         }
+
         let walked = match groups.iter().find(|group| group.keeper == id) {
             Some(group) => {
                 internal.extend(internal_edges(solid, group));
@@ -404,8 +442,10 @@ pub(super) fn merged_faces(solid: &Solid, groups: &[MergedFaces]) -> Result<Soli
             }
             None => walked_from(solid, id, true),
         };
+
         loops.insert(id, walked.ok_or(MergeFailure::Unmergeable)?);
     }
+
     let touched: BTreeSet<VertexId> = internal
         .iter()
         .filter_map(|edge| solid.edge(*edge))
@@ -416,9 +456,11 @@ pub(super) fn merged_faces(solid: &Solid, groups: &[MergedFaces]) -> Result<Soli
         loops,
         joined: BTreeSet::new(),
     };
+
     for vertex in touched {
         merging.join_at(solid, vertex);
     }
+
     let plan = into_plan(solid, &merging).ok_or(MergeFailure::Unmergeable)?;
     plan.build().map_err(|error| {
         let built = match error {

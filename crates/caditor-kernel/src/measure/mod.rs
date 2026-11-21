@@ -32,7 +32,7 @@ use crate::{
     topology::{EdgeId, FaceContainment, FaceId, Solid, SolidClassifier},
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Element<'a> {
     Point(Point3),
     Edge {
@@ -69,7 +69,7 @@ impl Element<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Accuracy {
     #[default]
     Exact,
@@ -91,7 +91,7 @@ impl Accuracy {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum MeasureError {
     #[error("edge {0:?} is not part of the solid")]
     MissingEdge(EdgeId),
@@ -107,7 +107,7 @@ pub enum MeasureError {
     Cancelled(#[from] Interrupted),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Separation {
     pub distance: f64,
     pub from: Point3,
@@ -175,6 +175,7 @@ impl<'a> EdgeShape<'a> {
             },
         );
         let margin = AXIS_MARGIN.max(bounds.diagonal() * AXIS_MARGIN_FRACTION);
+
         let interval =
             Interval::new(low - margin, high + margin).ok_or(MeasureError::NoClosestPoints)?;
         Ok(Self::of_curve(Cow::Owned(Curve::Line(line)), interval))
@@ -222,8 +223,10 @@ impl<'a> FaceShape<'a> {
             .filter_map(|coedge| solid.coedge(*coedge))
             .map(|coedge| coedge.edge())
             .collect();
+
         edge_ids.sort_unstable();
         edge_ids.dedup();
+
         let edges = edge_ids
             .into_iter()
             .map(|edge| EdgeShape::of(solid, edge))

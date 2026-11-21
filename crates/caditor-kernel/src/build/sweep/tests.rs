@@ -67,6 +67,7 @@ fn assert_close(name: &str, found: f64, expected: f64, relative: f64) {
 
 fn assert_named_apart(name: &str, solid: &Solid) {
     let names: BTreeSet<FaceName> = solid.faces().map(|(_, face)| face.name()).collect();
+
     assert_eq!(
         names.len(),
         solid.faces().count(),
@@ -92,9 +93,12 @@ fn a_straight_path_sweeps_the_profile_like_an_extrusion() {
     let parallel = swept(&upright(), &profile, &path, SweepOrientation::Parallel).unwrap();
 
     assert_eq!(square.validate(), Ok(()));
+
     assert_close("square", volume(&square), 60.0, 1e-6);
     assert_close("parallel", volume(&parallel), 60.0, 1e-6);
+
     assert_eq!(square.faces().count(), 6);
+
     assert_named_apart("square", &square);
 }
 
@@ -119,9 +123,11 @@ fn a_path_starting_at_its_far_end_is_walked_from_the_end_nearest_the_profile() {
 
     assert_close("forward", volume(&first), 20.0, 1e-6);
     assert_close("backward", volume(&second), 20.0, 1e-6);
+
     let names = |solid: &Solid| -> BTreeSet<FaceName> {
         solid.faces().map(|(_, face)| face.name()).collect()
     };
+
     assert_eq!(names(&first), names(&second));
 }
 
@@ -142,12 +148,15 @@ fn an_arc_path_turns_the_profile_about_its_centre_with_pappus_volume() {
     let bar = swept(&upright(), &block, &path, SweepOrientation::Square).unwrap();
 
     assert_eq!(tube.validate(), Ok(()));
+
     assert_close("tube", volume(&tube), PI * radius * FRAC_PI_2, 1e-5);
     assert_close("bar", volume(&bar), 2.0 * radius * FRAC_PI_2, 1e-5);
+
     assert!(
         tube.faces()
             .any(|(_, face)| matches!(face.surface(), Surface::Torus(_)))
     );
+
     assert_named_apart("bar", &bar);
 }
 
@@ -215,6 +224,7 @@ fn rounded_square(side: f64, corner: f64) -> Vec<PathSegment> {
 fn a_closed_path_of_lines_and_tangent_arcs_sweeps_a_closed_tube() {
     let side = 20.0;
     let corner = 4.0;
+
     let path = rounded_square(side, corner);
     let disc = [circle(1, (0.5 * side, 0.0), 1.0)];
     let length = 4.0 * (side - 2.0 * corner) + TAU * corner;
@@ -222,6 +232,7 @@ fn a_closed_path_of_lines_and_tangent_arcs_sweeps_a_closed_tube() {
     let tube = swept(&upright(), &disc, &path, SweepOrientation::Square).unwrap();
 
     assert_eq!(tube.validate(), Ok(()));
+
     assert_close("closed tube", volume(&tube), PI * length, 1e-5);
     assert_named_apart("closed tube", &tube);
 }
@@ -246,6 +257,7 @@ fn a_spline_path_sweeps_a_fitted_tube_of_the_profile_times_its_length() {
     let tube = swept(&upright(), &disc, &path, SweepOrientation::Square).unwrap();
 
     assert_eq!(tube.validate(), Ok(()));
+
     assert_close("spline tube", volume(&tube), PI * 0.25 * length, 1e-4);
 }
 
@@ -264,6 +276,7 @@ fn a_parallel_sweep_along_an_arc_keeps_the_profile_upright() {
     let solid = swept(&upright(), &disc, &path, SweepOrientation::Parallel).unwrap();
 
     assert_eq!(solid.validate(), Ok(()));
+
     assert_close("parallel arc", volume(&solid), PI * rise, 1e-5);
 }
 
@@ -279,7 +292,9 @@ fn a_sharp_corner_between_lines_is_mitred() {
     let solid = swept(&upright(), &profile, &path, SweepOrientation::Square).unwrap();
 
     assert_eq!(solid.validate(), Ok(()));
+
     assert_close("mitred", volume(&solid), 4.0 * 18.0, 1e-6);
+
     assert_eq!(solid.faces().count(), 10);
 }
 
@@ -447,6 +462,7 @@ fn a_parallel_sweep_along_a_spline_is_an_exact_translation_of_the_profile() {
     let solid = swept(&upright(), &disc, &path, SweepOrientation::Parallel).unwrap();
 
     assert_eq!(solid.validate(), Ok(()));
+
     assert_close("parallel spline", volume(&solid), PI * 0.25 * 9.0, 1e-6);
 }
 
@@ -470,7 +486,9 @@ fn a_profile_slanted_to_an_arc_path_is_turned_on_fitted_faces() {
             .faces()
             .any(|(_, face)| matches!(face.surface(), Surface::BSpline(_)))
     );
+
     let lean = 0.3_f64.atan_libm().cos_libm();
+
     assert_close(
         "slanted ring",
         volume(&solid),
@@ -493,6 +511,7 @@ fn a_holed_profile_sweeps_a_hollow_bend() {
     let pipe = swept(&upright(), &ring, &path, SweepOrientation::Square).unwrap();
 
     assert_eq!(pipe.validate(), Ok(()));
+
     assert_close("pipe", volume(&pipe), PI * 0.75 * 5.0 * FRAC_PI_2, 1e-5);
 }
 
@@ -522,6 +541,7 @@ fn a_closed_spline_path_closes_its_fitted_tube() {
     let ring = swept(&upright(), &disc, &path, SweepOrientation::Square).unwrap();
 
     assert_eq!(ring.validate(), Ok(()));
+
     assert_close("spline ring", volume(&ring), PI * 0.25 * length, 1e-4);
     assert_named_apart("spline ring", &ring);
 }
@@ -624,6 +644,7 @@ fn a_triangle_winds_along_a_helix_keeping_its_place_about_the_axis() {
 
     assert_eq!(wound.validate(), Ok(()));
     assert_eq!(backwards.validate(), Ok(()));
+
     assert_close(
         "right",
         meshed_volume(&wound),
@@ -636,7 +657,9 @@ fn a_triangle_winds_along_a_helix_keeping_its_place_about_the_axis() {
         2.0 * TAU * 1.5 * centroid,
         1e-3,
     );
+
     assert_eq!(wound.faces().count(), 3 * 2 + 2);
+
     assert_named_apart("right", &wound);
 
     let top = extreme(&wound, |point| point.z, f64::MIN, f64::max);
@@ -666,6 +689,7 @@ fn a_tapered_helix_carries_the_triangle_outward_as_it_rises() {
     .unwrap();
 
     assert_eq!(wound.validate(), Ok(()));
+
     assert_close(
         "tapered",
         meshed_volume(&wound),
@@ -733,11 +757,13 @@ fn a_triangle_winds_along_a_helix_with_closed_ends() {
     let top = extreme(&wound, |point| point.z, f64::MIN, f64::max);
 
     assert_eq!(wound.validate(), Ok(()));
+
     assert_close(
         "closed ends",
         meshed_volume(&wound),
         2.0 * TAU * 3.0 * centroid,
         1e-3,
     );
+
     assert!((top - spec.height() - 1.0).abs() < 1e-6, "{top}");
 }

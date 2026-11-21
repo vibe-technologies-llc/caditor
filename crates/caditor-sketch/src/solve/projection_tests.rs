@@ -30,8 +30,11 @@ fn project(sketch: &mut Sketch, curve: EntityId) {
 #[test]
 fn a_projected_line_holds_still_and_what_is_joined_to_it_follows() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let edge = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 10.0));
+
     project(&mut sketch, edge);
+
     let drawn = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(5.0, 3.0));
     let (edge_start, edge_end) = ends(&sketch, edge);
     let (start, end) = ends(&sketch, drawn);
@@ -42,6 +45,7 @@ fn a_projected_line_holds_still_and_what_is_joined_to_it_follows() {
     sketch
         .add_constraint(Constraint::Perpendicular(drawn, edge))
         .unwrap();
+
     let solved = solve(&sketch);
 
     assert_eq!(
@@ -70,13 +74,17 @@ fn a_projected_line_holds_still_and_what_is_joined_to_it_follows() {
 #[test]
 fn projected_geometry_adds_no_freedom_and_a_projected_circle_keeps_its_radius() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(3.0, 4.0), 2.5);
+
     project(&mut sketch, circle);
+
     let point = sketch.add_point(Point2::new(9.0, 9.0));
 
     sketch
         .add_constraint(Constraint::Coincident(point, circle))
         .unwrap();
+
     let solved = solve(&sketch);
 
     assert_eq!(solved.solution.degrees_of_freedom(), 1);
@@ -99,8 +107,10 @@ fn projected_geometry_adds_no_freedom_and_a_projected_circle_keeps_its_radius() 
 #[test]
 fn a_constraint_between_projected_geometry_alone_is_refused() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::ZERO, Point2::X);
     let second = sketch.add_line(Point2::Y, Point2::new(1.0, 2.0));
+
     project(&mut sketch, first);
     project(&mut sketch, second);
 
@@ -118,21 +128,28 @@ fn a_constraint_between_projected_geometry_alone_is_refused() {
 #[test]
 fn a_moved_projection_is_solved_afresh_from_the_memo() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let edge = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+
     project(&mut sketch, edge);
+
     let (_, edge_end) = ends(&sketch, edge);
     let point = sketch.add_point(Point2::new(4.0, 4.0));
+
     sketch
         .add_constraint(Constraint::Coincident(point, edge_end))
         .unwrap();
+
     let first = sketch
         .solve_from(&no_parameters, &|| false, &[], None)
         .unwrap();
 
     let mut moved = sketch.clone();
+
     moved
         .replace_entity(edge_end, Entity::Point(Point2::new(30.0, 5.0)))
         .unwrap();
+
     let again = moved
         .solve_from(&no_parameters, &|| false, &[], Some(&first.memo))
         .unwrap();
@@ -150,8 +167,10 @@ fn a_moved_projection_is_solved_afresh_from_the_memo() {
 #[test]
 fn projected_curves_cannot_be_trimmed_extended_or_filleted() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let edge = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let other = sketch.add_line(Point2::new(5.0, -5.0), Point2::new(5.0, 5.0));
+
     project(&mut sketch, edge);
 
     assert!(matches!(

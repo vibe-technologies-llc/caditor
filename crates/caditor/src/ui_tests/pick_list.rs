@@ -17,12 +17,14 @@ fn fitted_plate(harness: &mut Harness) -> Pos2 {
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.frame();
+
     let top = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
     let middle = harness
         .workspace
         .viewport
         .screen_position(top, Point2::new(20.0, 20.0))
         .expect("the top face is in view");
+
     harness.events.push(Event::PointerMoved(middle));
     harness.frame();
     middle
@@ -53,6 +55,7 @@ fn selected(harness: &Harness) -> Vec<Pickable> {
 #[test]
 fn a_press_held_on_the_model_lists_the_faces_behind_one_another_and_a_row_selects_one() {
     let mut harness = Harness::new();
+
     let middle = fitted_plate(&mut harness);
     let bottom = face(&mut harness, BOTTOM);
     let hold_frames = (HOLD_TO_LIST.as_secs_f64() / FRAME_SECONDS).ceil() as usize;
@@ -61,23 +64,31 @@ fn a_press_held_on_the_model_lists_the_faces_behind_one_another_and_a_row_select
     for _ in 0..hold_frames - 2 {
         harness.frame();
     }
+
     let early = harness.workspace.viewport.listed();
+
     for _ in 0..4 {
         harness.frame();
     }
+
     let listed = harness.workspace.viewport.listed().unwrap_or_default();
+
     button(&mut harness, middle, false);
     harness.frame();
     harness.frame();
+
     let after_release = selected(&harness);
     let titled = harness.shows(LIST_TITLE);
 
     let row = harness.position_of(BOTTOM);
+
     harness.events.push(Event::PointerMoved(row));
     harness.frame();
     harness.frame();
+
     let pointed = harness.workspace.viewport.listed_highlight();
     let described = harness.count_shown(BOTTOM);
+
     harness.click_screen(row);
     harness.frame();
 
@@ -98,37 +109,52 @@ fn a_press_held_on_the_model_lists_the_faces_behind_one_another_and_a_row_select
 #[test]
 fn the_list_key_opens_the_same_list_and_the_keyboard_adds_from_it_or_closes_it() {
     let mut harness = Harness::new();
+
     fitted_plate(&mut harness);
+
     let top = face(&mut harness, TOP);
     let bottom = face(&mut harness, BOTTOM);
+
     harness.select([top]);
 
     harness.key(Key::W, Modifiers::ALT);
     harness.frame();
     harness.frame();
+
     let first = harness.workspace.viewport.listed_highlight();
+
     harness.key(Key::ArrowDown, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let second = harness.workspace.viewport.listed_highlight();
+
     harness.hold(Modifiers::SHIFT);
     harness.key(Key::Enter, Modifiers::SHIFT);
     harness.frame();
     harness.hold(Modifiers::NONE);
     harness.frame();
+
     let mut added = selected(&harness);
+
     added.sort();
 
     harness.key(Key::W, Modifiers::ALT);
     harness.frame();
     harness.frame();
+
     let reopened = harness.workspace.viewport.listed().is_some();
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let mut kept = selected(&harness);
+
     kept.sort();
+
     let mut both = vec![top, bottom];
+
     both.sort();
 
     assert_eq!(first, Some(top));

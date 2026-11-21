@@ -22,7 +22,7 @@ use crate::{
 
 pub const TITLE: &str = "Split face";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SplitFaceError {
     #[error("Select the faces of a body to split")]
     ChooseFaces,
@@ -74,7 +74,7 @@ impl Reason for SplitFaceError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SplitFaceSource {
     pub body: FeatureId,
     pub faces: Vec<FaceKey>,
@@ -84,6 +84,7 @@ pub struct SplitFaceSource {
 
 fn without_faces(selection: &Selection) -> Selection {
     let mut rest = selection.clone();
+
     rest.retain(|pickable| !matches!(pickable, Pickable::Face { .. }));
     rest
 }
@@ -91,6 +92,7 @@ fn without_faces(selection: &Selection) -> Selection {
 pub fn source(model: &Model, selection: &Selection) -> Result<SplitFaceSource, SplitFaceError> {
     let mut body = None;
     let mut faces = Vec::new();
+
     for pickable in selection.iter() {
         if let Pickable::Face { body: owner, face } = pickable {
             match body {
@@ -100,11 +102,15 @@ pub fn source(model: &Model, selection: &Selection) -> Result<SplitFaceSource, S
             faces.push(face);
         }
     }
+
     let body = body.ok_or(SplitFaceError::ChooseFaces)?;
+
     bodies::shown(model.evaluation(), body).ok_or(SplitFaceError::ChooseFaces)?;
+
     let rest = without_faces(selection);
     let along = split_tools::chosen_along(model, &rest, model.document().bar_index())?
         .map(|(along, _)| along);
+
     let left_out = rest
         .iter()
         .filter(|pickable| {
@@ -139,11 +145,14 @@ pub fn create(
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
+
     if faces.len() < source.faces.len() {
         return Err(SplitFaceError::FacesGone);
     }
+
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::SplitFace(SplitFace {
@@ -220,6 +229,7 @@ pub fn choices(model: &Model, feature: FeatureId, split: &SplitFace) -> Vec<Spli
         .into_iter()
         .filter(|body| *body != split.body)
         .map(SplitAlong::Body);
+
     let sketches = document
         .features()
         .take(index)
@@ -238,6 +248,7 @@ pub fn along_change(
     let index = document
         .feature_index(feature)
         .ok_or(SplitFaceError::Gone { feature })?;
+
     let along = match split_tools::chosen_along(model, selection, index)? {
         Some((along, _)) => along,
         None => {
@@ -253,6 +264,7 @@ pub fn along_change(
             }
         }
     };
+
     if along == split.along {
         return Err(SplitFaceError::Already);
     }
@@ -272,6 +284,7 @@ pub fn direction_change(
     let axis = datum_tools::only_axis(model, selection, index)
         .map_err(SplitFaceError::ChosenAxis)?
         .ok_or(SplitFaceError::NoDirection)?;
+
     if split.direction() == Some(&axis) {
         return Err(SplitFaceError::AlreadyCarried);
     }
@@ -348,6 +361,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let clicked = bodies::find_face(input, face)?;
     let solid = &input.solid;
     let mut changed = split.clone();
+
     changed.faces = split
         .faces
         .iter()
@@ -355,6 +369,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
         .filter(|(_, resolution)| !resolution.found().contains(&clicked))
         .map(|(reference, _)| reference.clone())
         .collect();
+
     let label = if changed.faces.len() == split.faces.len() {
         changed.faces.push(FaceReference::capture(solid, clicked)?);
         format!("Split a face with {}", owner.name)
@@ -379,16 +394,19 @@ pub fn with_selected_faces(
     let split = owner.kind.split_face()?;
     let input = bodies::input(model.evaluation(), feature)?;
     let solid = &input.solid;
+
     let mut taken: BTreeSet<FaceId> = split
         .resolutions(solid)
         .iter()
         .flat_map(|resolution| resolution.found().iter().copied())
         .collect();
     let mut changed = split.clone();
+
     for pickable in selection.iter() {
         let Pickable::Face { body, face } = pickable else {
             continue;
         };
+
         let Some(found) = (body == split.body)
             .then(|| bodies::find_face(input, face))
             .flatten()
@@ -396,6 +414,7 @@ pub fn with_selected_faces(
         else {
             continue;
         };
+
         changed.faces.push(FaceReference::capture(solid, found)?);
         taken.insert(found);
     }

@@ -108,6 +108,7 @@ fn patch(surface: &Surface) -> Vec<Point2> {
             .chain(net)
             .collect()
     };
+
     let columns = spread(u_range, net_u);
     let rows = spread(v_range, net_v);
     rows.iter()
@@ -128,6 +129,7 @@ fn sampled(a: &Surface, b: &Surface) -> Option<Sense> {
         (false, true) => lies_on(b, a),
         (true, true) | (false, false) => lies_on(a, b) && lies_on(b, a),
     };
+
     if !coincident {
         return None;
     }

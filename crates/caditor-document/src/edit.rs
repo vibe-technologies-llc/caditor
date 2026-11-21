@@ -46,7 +46,7 @@ pub const MAX_PARAMETER_NOTE_CHARS: usize = 2000;
 
 pub const MAX_RECORDS: usize = 10_000;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Edit {
     InsertParameter {
         index: usize,
@@ -230,7 +230,7 @@ pub enum Edit {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Transaction {
     label: String,
     edits: Vec<Edit>,
@@ -266,6 +266,7 @@ impl Transaction {
 
     pub fn touched(&self) -> Touched {
         let mut touched = Touched::default();
+
         for edit in &self.edits {
             match edit {
                 Edit::InsertParameter { parameter, .. } => {
@@ -415,7 +416,7 @@ impl Transaction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum EditError {
     #[error("That parameter no longer exists")]
     MissingParameter,
@@ -716,6 +717,7 @@ fn settled_kind(mut kind: FeatureKind) -> FeatureKind {
 
 fn keep_once(features: &mut Vec<FeatureId>) {
     let mut seen = BTreeSet::new();
+
     features.retain(|feature| seen.insert(*feature));
 }
 
@@ -750,11 +752,13 @@ fn check_appearance(appearance: &BodyAppearance) -> Result<(), EditError> {
             return Err(EditError::GroupNameTooLong(length));
         }
     }
+
     let opacities = appearance
         .faces
         .iter()
         .filter_map(|face| face.opacity)
         .chain(appearance.opacity);
+
     for opacity in opacities {
         if opacity < MIN_OPACITY_PERCENT {
             return Err(EditError::OpacityTooLow(opacity));
@@ -765,6 +769,7 @@ fn check_appearance(appearance: &BodyAppearance) -> Result<(), EditError> {
 
 fn check_note(note: &str) -> Result<(), EditError> {
     let length = note.chars().count();
+
     if length > MAX_PARAMETER_NOTE_CHARS {
         return Err(EditError::NoteTooLong(length));
     }
@@ -780,7 +785,7 @@ fn check_storable(raw: u64) -> Result<(), EditError> {
 
 type Relation = fn(&Measured, &FeatureKind) -> BTreeSet<FeatureId>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum FollowedValue {
     Parameter(ParameterId),
     Feature(FeatureId),
@@ -839,9 +844,11 @@ impl ParameterGraph {
         expression: &Expression,
     ) -> Option<(ConfigurationId, Vec<ParameterId>)> {
         let first_steps = expression.parameters();
+
         if self.replaying || first_steps.is_empty() || document.configurations.rows.is_empty() {
             return None;
         }
+
         let live = self
             .live
             .get_or_insert_with(|| DependencyGraph::of(document));
@@ -875,7 +882,7 @@ impl ParameterGraph {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Touched {
     pub features: BTreeSet<FeatureId>,
     pub named_features: BTreeMap<FeatureId, String>,
@@ -932,8 +939,11 @@ impl TransactionBuilder<'_> {
         expression: Expression,
     ) -> ParameterId {
         let id = ParameterId::from_raw(self.next_parameter_id);
+
         self.next_parameter_id = self.next_parameter_id.saturating_add(1);
+
         let name = name.into();
+
         self.added_parameters.push((name.clone(), id));
         self.edits.push(Edit::InsertParameter {
             index: self.parameter_count,
@@ -950,6 +960,7 @@ impl TransactionBuilder<'_> {
         owner: ParameterOwner,
     ) -> ParameterId {
         let id = self.add_parameter(name, expression);
+
         if let Some(Edit::InsertParameter { parameter, .. }) = self.edits.last_mut() {
             parameter.owner = Some(owner);
         }
@@ -958,8 +969,11 @@ impl TransactionBuilder<'_> {
 
     pub fn add_feature(&mut self, name: impl Into<String>, kind: FeatureKind) -> FeatureId {
         let id = FeatureId::from_raw(self.next_feature_id);
+
         self.next_feature_id = self.next_feature_id.saturating_add(1);
+
         let mut feature = Feature::new(id, name.into(), kind);
+
         feature.group.clone_from(&self.inserted_group);
         self.edits.push(Edit::InsertFeature {
             index: self.next_feature_index,
@@ -971,6 +985,7 @@ impl TransactionBuilder<'_> {
 
     pub fn add_copied_feature(&mut self, mut feature: Feature) -> FeatureId {
         let id = FeatureId::from_raw(self.next_feature_id);
+
         self.next_feature_id = self.next_feature_id.saturating_add(1);
         feature.set_id(id);
         if self.inserted_group.is_some() {
@@ -1025,6 +1040,7 @@ impl Document {
     ) -> Result<Transaction, EditError> {
         let before = self.clone();
         let mut inverse = Vec::with_capacity(transaction.edits.len());
+
         for edit in transaction.edits {
             match self.apply_edit(edit, &mut graph) {
                 Ok(undo) => inverse.push(undo),
@@ -1036,6 +1052,7 @@ impl Document {
         }
 
         let records = self.records();
+
         if records > MAX_RECORDS && records > before.records() {
             *self = before;
             return Err(EditError::TooManyRecords { records });
@@ -1056,6 +1073,7 @@ impl Document {
     pub fn check_moves(&self, transaction: &Transaction) -> Result<(), EditError> {
         let mut document = self.clone();
         let mut graph = ParameterGraph::default();
+
         for edit in transaction.edits() {
             if let Edit::MoveFeature { id, index } = edit {
                 document.check_move_order(*id, *index)?;
@@ -1068,6 +1086,7 @@ impl Document {
     fn apply_edit(&mut self, edit: Edit, graph: &mut ParameterGraph) -> Result<Edit, EditError> {
         let followed = followed_value(&edit);
         let undo = self.apply_bare_edit(edit, graph)?;
+
         if let Some(value) = followed {
             self.follow_active_configuration(value);
         }
@@ -1289,6 +1308,7 @@ impl Document {
                 return Err(EditError::NotASketch(sketch.name.clone()));
             }
         }
+
         let Some(solid) = kind.solid() else {
             return Ok(());
         };
@@ -1298,6 +1318,7 @@ impl Document {
         let Some(definition) = sketch.kind.sketch() else {
             return Err(EditError::NotASketch(sketch.name.clone()));
         };
+
         if let Some(axis) = solid.axis_line()
             && definition.line_direction(axis).is_none()
         {
@@ -1311,6 +1332,7 @@ impl Document {
         let index = self.feature_position(id)?;
         let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
         let name = existing.name.clone();
+
         let same_kind = match (&existing.kind, &kind) {
             (FeatureKind::Solid(old), FeatureKind::Solid(new)) => old.same_kind(new),
             (FeatureKind::Datum(old), FeatureKind::Datum(new)) => old.same_kind(new),
@@ -1344,11 +1366,14 @@ impl Document {
             | (FeatureKind::ReferenceImage(_), FeatureKind::ReferenceImage(_)) => true,
             _ => false,
         };
+
         if !same_kind {
             return Err(EditError::KindChange(name));
         }
+
         let separated = existing.separates_pieces();
         let mut changed = existing.clone();
+
         changed.kind = kind.clone();
         self.check_feature_references(&kind, index)?;
         self.check_measurement_order(&Feature::new(id, name.clone(), kind.clone()), index)?;
@@ -1365,6 +1390,7 @@ impl Document {
         if changed.separates_pieces() != separated {
             self.check_pieces_unused(&changed)?;
         }
+
         let feature = self.feature_mut(id)?;
         let previous = std::mem::replace(&mut feature.kind, kind);
         Ok(Edit::SetFeatureKind { id, kind: previous })
@@ -1398,10 +1424,12 @@ impl Document {
     fn set_feature_pieces(&mut self, id: FeatureId, pieces: Pieces) -> Result<Edit, EditError> {
         let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
         let mut changed = existing.clone();
+
         changed.pieces = pieces;
         if changed.separates_pieces() != existing.separates_pieces() {
             self.check_pieces_unused(existing)?;
         }
+
         let feature = self.unindexed_mut(id)?;
         let previous = std::mem::replace(feature.pieces, pieces);
         Ok(Edit::SetFeaturePieces {
@@ -1435,11 +1463,15 @@ impl Document {
             return Err(EditError::NotASketch(existing.name.clone()));
         };
         let mut placed = sketch.clone();
+
         placed.sketch.set_plane(plane);
         placed.attachment = attachment;
+
         let kind = FeatureKind::Sketch(placed);
+
         self.check_feature_references(&kind, index)?;
         self.reserve_past_references(&kind);
+
         let feature = self.feature_mut(id)?;
         let previous = std::mem::replace(&mut feature.kind, kind);
         let FeatureKind::Sketch(previous) = previous else {
@@ -1493,7 +1525,9 @@ impl Document {
         check_note(&parameter.note)?;
         self.check_references(&parameter.expression)?;
         self.check_reading_order(parameter.id(), &parameter.expression)?;
+
         let id = parameter.id();
+
         self.next_parameter_id = self.next_parameter_id.max(id.raw().saturating_add(1));
         graph.inserted(id, &parameter.expression);
         self.parameters.insert(index, parameter);
@@ -1516,10 +1550,12 @@ impl Document {
                 .parameters_named()
                 .any(|named| named == id)
             || self.drawings.parameters().any(|named| named == id);
+
         if used {
             self.can_remove_parameter(id)?;
         }
         graph.removed(id);
+
         let parameter = self
             .parameters
             .remove(index)
@@ -1529,20 +1565,25 @@ impl Document {
 
     fn move_parameter(&mut self, id: ParameterId, index: usize) -> Result<Edit, EditError> {
         let from = self.parameter_position(id)?;
+
         if index >= self.parameters.len() {
             return Err(EditError::OutOfRange(index));
         }
+
         let parameter = self
             .parameters
             .remove(from)
             .ok_or(EditError::MissingParameter)?;
+
         self.parameters.insert(index, parameter);
         Ok(Edit::MoveParameter { id, index: from })
     }
 
     fn set_parameter_note(&mut self, id: ParameterId, note: String) -> Result<Edit, EditError> {
         let note = note.trim().to_owned();
+
         check_note(&note)?;
+
         let previous = self
             .parameters
             .set_note(id, note)
@@ -1568,6 +1609,7 @@ impl Document {
 
     fn rename_parameter(&mut self, id: ParameterId, name: String) -> Result<Edit, EditError> {
         self.check_parameter_name(&name, Some(id))?;
+
         let previous = self
             .parameters
             .rename(id, name)
@@ -1594,6 +1636,7 @@ impl Document {
             return Err(self.configuration_cycle(row, &cycle));
         }
         graph.of(self).set(id, &expression);
+
         let previous = self
             .parameters
             .replace_expression(id, expression)
@@ -1606,7 +1649,9 @@ impl Document {
 
     pub fn can_remove_parameter(&self, id: ParameterId) -> Result<(), EditError> {
         self.parameter_position(id)?;
+
         let users = self.parameter_users(id);
+
         if users.is_empty() {
             return Ok(());
         }
@@ -1628,12 +1673,15 @@ impl Document {
         if index > self.features.len() {
             return Err(EditError::OutOfRange(index));
         }
+
         let trimmed = feature.name.trim();
+
         if trimmed.is_empty() {
             return Err(EditError::EmptyFeatureName);
         }
         if trimmed.len() != feature.name.len() {
             let trimmed = trimmed.to_owned();
+
             Arc::make_mut(&mut feature).name = trimmed;
         }
         self.check_feature_name(&feature.name, feature.id())?;
@@ -1643,7 +1691,9 @@ impl Document {
         self.check_feature_references(&feature.kind, index)?;
         self.check_users_below(&feature, index)?;
         self.check_measurement_order(&feature, index)?;
+
         let appearance = feature.appearance.clone().settled();
+
         if appearance != feature.appearance {
             Arc::make_mut(&mut feature).appearance = appearance;
         }
@@ -1661,7 +1711,9 @@ impl Document {
                 Arc::make_mut(&mut feature).kind = kind;
             }
         }
+
         let piece_looks = feature.piece_looks.clone().settled();
+
         if piece_looks != feature.piece_looks {
             Arc::make_mut(&mut feature).piece_looks = piece_looks;
         }
@@ -1670,7 +1722,9 @@ impl Document {
             check_appearance(appearance)?;
         }
         self.check_parameters_exist(feature.parameters())?;
+
         let id = feature.id();
+
         self.next_feature_id = self.next_feature_id.max(id.raw().saturating_add(1));
         self.reserve_past_references(&feature.kind);
         self.features.insert(index, feature);
@@ -1701,15 +1755,18 @@ impl Document {
             .map(|used| used.raw().saturating_add(1))
             .max()
             .unwrap_or(0);
+
         self.next_feature_id = self.next_feature_id.max(beyond);
         self.reserve_named_entities(kind);
     }
 
     fn remove_feature(&mut self, id: FeatureId) -> Result<Edit, EditError> {
         let index = self.feature_position(id)?;
+
         if self.rollback == RollbackBar::Before(id) {
             return Err(EditError::RollbackBarAbove(self.feature_name(id)));
         }
+
         let feature = self
             .features
             .remove(index)
@@ -1719,10 +1776,12 @@ impl Document {
 
     fn rename_feature(&mut self, id: FeatureId, name: String) -> Result<Edit, EditError> {
         let name = name.trim().to_owned();
+
         if name.is_empty() {
             return Err(EditError::EmptyFeatureName);
         }
         self.check_feature_name(&name, id)?;
+
         let feature = self.feature_mut(id)?;
         let previous = std::mem::replace(&mut feature.name, name);
         Ok(Edit::RenameFeature { id, name: previous })
@@ -1759,12 +1818,14 @@ impl Document {
         group: Option<String>,
     ) -> Result<Edit, EditError> {
         let group = group.as_deref().and_then(group_name);
+
         if let Some(name) = &group {
             let length = name.chars().count();
             if length > MAX_GROUP_NAME_CHARS {
                 return Err(EditError::GroupNameTooLong(length));
             }
         }
+
         let feature = self.unindexed_mut(id)?;
         let previous = std::mem::replace(feature.group, group);
         Ok(Edit::SetFeatureGroup {
@@ -1780,11 +1841,13 @@ impl Document {
     ) -> Result<Edit, EditError> {
         let appearance = appearance.settled();
         let existing = self.feature(id.maker()).ok_or(EditError::MissingFeature)?;
+
         if !existing.makes_body() {
             return Err(EditError::NotABody(existing.name.clone()));
         }
         check_appearance(&appearance)?;
         self.check_parameters_exist(appearance.parameters())?;
+
         let previous = match id.piece_key() {
             Some(key) => {
                 let inherited = self
@@ -1807,15 +1870,18 @@ impl Document {
         if let RollbackBar::Before(feature) = bar {
             self.feature_position(feature)?;
         }
+
         let previous = std::mem::replace(&mut self.rollback, bar);
         Ok(Edit::SetRollbackBar { bar: previous })
     }
 
     fn set_model_properties(&mut self, properties: ModelProperties) -> Result<Edit, EditError> {
         let properties = properties.normalized();
+
         if let Some((property, length)) = properties.too_long() {
             return Err(EditError::PropertyTooLong { property, length });
         }
+
         let previous = std::mem::replace(&mut self.properties, Arc::new(properties));
         Ok(Edit::SetModelProperties {
             properties: Box::new(Arc::unwrap_or_clone(previous)),
@@ -1824,17 +1890,20 @@ impl Document {
 
     fn set_saved_views(&mut self, views: SavedViews) -> Result<Edit, EditError> {
         let views = views.normalized();
+
         if views.named.len() > MAX_SAVED_VIEWS {
             return Err(EditError::TooManyViews);
         }
         for (index, named) in views.named.iter().enumerate() {
             let length = named.name.chars().count();
+
             if length == 0 {
                 return Err(EditError::ViewNameEmpty);
             }
             if length > MAX_VIEW_NAME_CHARS {
                 return Err(EditError::ViewNameTooLong { length });
             }
+
             let repeated = views
                 .named
                 .iter()
@@ -1847,6 +1916,7 @@ impl Document {
         if let Some(name) = views.unusable() {
             return Err(EditError::ViewNotUsable(name.to_owned()));
         }
+
         let previous = std::mem::replace(&mut self.views, Arc::new(views));
         Ok(Edit::SetSavedViews {
             views: Box::new(Arc::unwrap_or_clone(previous)),
@@ -1867,20 +1937,25 @@ impl Document {
                 members: set.members.len(),
             });
         }
+
         let sets = sets.normalized();
+
         for (index, set) in sets.sets.iter().enumerate() {
             let length = set.name.chars().count();
+
             if length == 0 {
                 return Err(EditError::SetNameEmpty);
             }
             if length > MAX_SET_NAME_CHARS {
                 return Err(EditError::SetNameTooLong { length });
             }
+
             let repeated = sets
                 .sets
                 .iter()
                 .take(index)
                 .any(|other| other.name.to_lowercase() == set.name.to_lowercase());
+
             if repeated {
                 return Err(EditError::SetNameTaken(set.name.clone()));
             }
@@ -1891,12 +1966,15 @@ impl Document {
         for body in sets.bodies() {
             check_storable(body.maker().raw())?;
         }
+
         let beyond = sets
             .bodies()
             .map(|body| body.maker().raw().saturating_add(1))
             .max()
             .unwrap_or(0);
+
         self.next_feature_id = self.next_feature_id.max(beyond);
+
         let previous = std::mem::replace(&mut self.selection_sets, Arc::new(sets));
         Ok(Edit::SetSelectionSets {
             sets: Box::new(Arc::unwrap_or_clone(previous)),
@@ -1905,16 +1983,20 @@ impl Document {
 
     fn set_drawings(&mut self, drawings: Drawings) -> Result<Edit, EditError> {
         let mut drawings = drawings.checked(self)?;
+
         for body in drawings.bodies() {
             check_storable(body.maker().raw())?;
         }
+
         let beyond = drawings
             .bodies()
             .map(|body| body.maker().raw().saturating_add(1))
             .max()
             .unwrap_or(0);
+
         self.next_feature_id = self.next_feature_id.max(beyond);
         drawings.next_id = drawings.first_free_id().max(self.drawings.first_free_id());
+
         let previous = std::mem::replace(&mut self.drawings, Arc::new(drawings));
         Ok(Edit::SetDrawings {
             drawings: Box::new(Arc::unwrap_or_clone(previous)),
@@ -1923,7 +2005,9 @@ impl Document {
 
     fn set_configurations(&mut self, configurations: Configurations) -> Result<Edit, EditError> {
         let mut configurations = configurations.checked()?;
+
         let live = self.live_settings_of(&configurations.values);
+
         if let Some(active) = configurations.active
             && let Some(row) = configurations.rows.iter_mut().find(|row| row.id == active)
         {
@@ -1937,6 +2021,7 @@ impl Document {
             check_storable(id.maker().raw())?;
         }
         check_storable(configurations.next_id)?;
+
         let parameters_beyond = configurations
             .parameters_named()
             .map(|id| id.raw().saturating_add(1))
@@ -1947,9 +2032,11 @@ impl Document {
             .map(|id| id.maker().raw().saturating_add(1))
             .max()
             .unwrap_or(0);
+
         self.next_parameter_id = self.next_parameter_id.max(parameters_beyond);
         self.next_feature_id = self.next_feature_id.max(features_beyond);
         configurations.next_id = configurations.next_id.max(self.configurations.next_id);
+
         let previous = std::mem::replace(&mut self.configurations, Arc::new(configurations));
         Ok(Edit::SetConfigurations {
             configurations: Box::new(Arc::unwrap_or_clone(previous)),
@@ -1969,11 +2056,15 @@ impl Document {
                 return Err(EditError::ConfigurationOutOfStep(row.name.clone()));
             }
         }
+
         let before = Arc::clone(&self.configurations);
+
         if self.configurations.active != active {
             Arc::make_mut(&mut self.configurations).active = active;
         }
+
         let columns = self.configurations.values.clone();
+
         if self.settle_active_row(&columns) {
             return Ok(Edit::SetConfigurations {
                 configurations: Box::new(Arc::unwrap_or_clone(before)),
@@ -1992,6 +2083,7 @@ impl Document {
             .copied()
             .filter(|column| value.covers(*column))
             .collect();
+
         self.settle_active_row(&columns);
     }
 
@@ -2000,12 +2092,14 @@ impl Document {
             return false;
         };
         let mut settled = false;
+
         for column in columns {
             let live = self.live_setting(*column);
             let held = self
                 .configurations
                 .row(active)
                 .and_then(|row| row.setting(*column));
+
             if held == live.as_ref() {
                 continue;
             }
@@ -2050,6 +2144,7 @@ impl Document {
 
     fn move_feature(&mut self, id: FeatureId, index: usize) -> Result<Edit, EditError> {
         let from = self.feature_position(id)?;
+
         if index >= self.features.len() {
             return Err(EditError::OutOfRange(index));
         }
@@ -2067,10 +2162,14 @@ impl Document {
         let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
         let name = moving.name.clone();
         let measured = Measured::of(self);
+
         let mut uses = relation(&measured, &moving.kind);
+
         uses.remove(&id);
+
         let others: Vec<&Feature> = self.features().filter(|other| other.id() != id).collect();
         let (above, below) = others.split_at(index.min(others.len()));
+
         if let Some(needed) = below.iter().find(|other| uses.contains(&other.id())) {
             return Err(EditError::AboveDependency {
                 name,
@@ -2091,11 +2190,13 @@ impl Document {
 
     fn check_move_order(&self, id: FeatureId, index: usize) -> Result<(), EditError> {
         self.check_passing(id, index, Measured::dependencies_of)?;
+
         let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
         let name = moving.name.clone();
         let others: Vec<&Feature> = self.features().filter(|other| other.id() != id).collect();
         let (above, below) = others.split_at(index.min(others.len()));
         let consumed = moving.kind.consumed_bodies();
+
         let used: Vec<FeatureId> = moving
             .kind
             .bodies_used()
@@ -2109,6 +2210,7 @@ impl Document {
                 .into_iter()
                 .find(|body| bodies.contains(body))
         };
+
         if let Some((consumer, body)) = above
             .iter()
             .find_map(|other| Some((other, consuming_one_of(other, &used)?)))
@@ -2146,6 +2248,7 @@ impl Document {
         let measurement = self.feature_name(measurement);
         let parameter = through.first().cloned().unwrap_or_default();
         let mut path = vec![user.to_owned()];
+
         path.extend(through);
         path.extend([measurement.clone(), user.to_owned()]);
         EditError::MeasurementBelowUser {
@@ -2169,9 +2272,11 @@ impl Document {
         expression: &Expression,
     ) -> Result<(), EditError> {
         let used = expression.parameters();
+
         if used.is_empty() {
             return Ok(());
         }
+
         let measured = Measured::of(self);
         let read: Vec<(ParameterId, FeatureId)> = used
             .into_iter()
@@ -2182,6 +2287,7 @@ impl Document {
                     .map(move |measurement| (used, measurement))
             })
             .collect();
+
         if read.is_empty() {
             return Ok(());
         }
@@ -2198,6 +2304,7 @@ impl Document {
                     .into_iter()
                     .find_map(|candidate| self.parameter_path(candidate, parameter))
                     .unwrap_or_default();
+
                 through.extend(self.reading_path(*used, *measurement));
                 return Err(self.below_user(&user.name, through, *measurement));
             }
@@ -2224,6 +2331,7 @@ impl Document {
                 });
             if let Some(measurement) = below {
                 let through = self.reading_path(parameter, measurement);
+
                 return Err(self.below_user(user, through, measurement));
             }
         }
@@ -2232,12 +2340,16 @@ impl Document {
 
     fn check_measurement_order(&self, feature: &Feature, index: usize) -> Result<(), EditError> {
         let used = feature.kind.parameters();
+
         if used.is_empty() && feature.kind.measurement().is_none() {
             return Ok(());
         }
+
         let measured = Measured::of(self);
         let id = feature.id();
+
         self.check_measurements_above(&measured, &feature.name, id, used, index)?;
+
         let Some(parameter) = feature
             .kind
             .measurement()
@@ -2245,6 +2357,7 @@ impl Document {
         else {
             return Ok(());
         };
+
         if let Some(other) = measured.measurement(parameter).filter(|other| *other != id) {
             return Err(EditError::ParameterMeasuredTwice {
                 parameter: self
@@ -2254,6 +2367,7 @@ impl Document {
                 measurement: self.feature_name(other),
             });
         }
+
         let above: BTreeSet<FeatureId> = self
             .features()
             .take(index)
@@ -2273,6 +2387,7 @@ impl Document {
             .find_map(|candidate| self.parameter_path(candidate, parameter))
             .unwrap_or_default();
         let mut path = vec![user.name.clone()];
+
         path.extend(through.iter().cloned());
         path.extend([feature.name.clone(), user.name.clone()]);
         Err(EditError::MeasurementBelowUser {

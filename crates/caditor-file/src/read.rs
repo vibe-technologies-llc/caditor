@@ -25,12 +25,15 @@ pub(crate) fn open_file(path: &Path) -> io::Result<File> {
 
 pub(crate) fn read_open(file: &File) -> io::Result<Vec<u8>> {
     let metadata = file.metadata()?;
+
     ensure_regular(&metadata)?;
     if metadata.len() > MAX_FILE_SIZE {
         return Err(too_large());
     }
+
     let mut bytes = Vec::new();
     let expected = usize::try_from(metadata.len()).map_err(|_| too_large())?;
+
     bytes
         .try_reserve_exact(expected)
         .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;

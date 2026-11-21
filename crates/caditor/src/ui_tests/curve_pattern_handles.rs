@@ -13,6 +13,7 @@ const PLATE_MIDDLE: Point3 = Point3::new(20.0, 20.0, 5.0);
 
 fn open_curve_pattern(harness: &mut Harness, end: f64) -> FeatureId {
     let mut line = Sketch::new(Plane::XY);
+
     line.add_line(Point2::new(0.0, 0.0), Point2::new(end, 0.0));
     open_curve_pattern_along(harness, line)
 }
@@ -55,6 +56,7 @@ fn foot_of(harness: &Harness, measured: Measured) -> Point3 {
 #[test]
 fn a_curve_pattern_spread_over_its_curve_has_a_count_arrow_on_its_second_copy() {
     let mut harness = Harness::new();
+
     let pattern = open_curve_pattern(&mut harness, 60.0);
     let foot = foot_of(&harness, Measured::CurveCount);
 
@@ -77,11 +79,14 @@ fn a_curve_pattern_spread_over_its_curve_has_a_count_arrow_on_its_second_copy() 
 #[test]
 fn a_curve_pattern_spaced_by_distance_has_a_spacing_arrow_on_its_last_copy() {
     let mut harness = Harness::new();
+
     let pattern = open_curve_pattern(&mut harness, -60.0);
+
     harness.click(pattern_panel::BY_DISTANCE);
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let curve = curve_of(&harness, pattern);
     let spacing = length_value(&harness, &curve.spacing);
     let count = count_of(&harness, pattern);
@@ -113,11 +118,13 @@ fn off_the_arc(foot: Point3) -> f64 {
 fn a_curve_pattern_along_an_arc_keeps_its_count_arrow_on_the_arc_while_it_is_dragged() {
     let mut harness = Harness::new();
     let mut arc = Sketch::new(Plane::XY);
+
     arc.add_arc(
         Point2::ZERO,
         Point2::new(ARC_RADIUS, 0.0),
         Point2::new(-ARC_RADIUS, 0.0),
     );
+
     let pattern = open_curve_pattern_along(&mut harness, arc);
     let to_second_copy = Vector3::new(
         ARC_RADIUS * (std::f64::consts::FRAC_PI_3.cos() - 1.0),
@@ -139,7 +146,9 @@ fn a_curve_pattern_along_an_arc_keeps_its_count_arrow_on_the_arc_while_it_is_dra
     let to = viewport
         .handle_position(Handle::Value(Measured::CurveCount), -15.0)
         .expect("the count arrow is shown");
+
     hold_drag(&mut harness, from, to);
+
     let dragged = foot_of(&harness, Measured::CurveCount);
 
     assert!(off_the_arc(dragged) < 0.05, "{dragged:?}");
@@ -148,6 +157,7 @@ fn a_curve_pattern_along_an_arc_keeps_its_count_arrow_on_the_arc_while_it_is_dra
     release_drag(&mut harness, to);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let placed = foot_of(&harness, Measured::CurveCount);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Curve pattern 1"));

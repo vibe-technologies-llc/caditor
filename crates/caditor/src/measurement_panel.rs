@@ -38,8 +38,10 @@ struct Panel<'a> {
 impl Panel<'_> {
     fn quantity_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, QUANTITY);
+
         let current = Quantity::of(&self.measurement.reading);
         let (model, id, measurement) = (self.model, self.feature.id(), self.measurement);
+
         let chosen = feature_fields::combo(
             ui,
             Id::unique(("measurement-quantity", id)),
@@ -61,6 +63,7 @@ impl Panel<'_> {
                     .collect()
             },
         );
+
         self.actions.extend(chosen);
         ui.end_row();
     }
@@ -70,7 +73,9 @@ impl Panel<'_> {
         let Some(item) = part.item(reading) else {
             return;
         };
+
         widgets::caption(ui, part.caption(reading));
+
         let (model, selection, id, measurement) = (
             self.model,
             self.selection,
@@ -78,6 +83,7 @@ impl Panel<'_> {
             self.measurement,
         );
         let slot = Slot::MeasuredItem(part);
+
         let picker = Picker {
             feature: id,
             slot,
@@ -94,6 +100,7 @@ impl Panel<'_> {
             },
         };
         let mut picked = Vec::new();
+
         ui.vertical(|ui| {
             if part == MeasuredPart::Axis {
                 picked.extend(self.axis_combo(ui, item));
@@ -112,6 +119,7 @@ impl Panel<'_> {
             MeasuredItem::Axis(AxisReference::Principal(axis)) => Some(*axis),
             _ => None,
         };
+
         let shown = current.map_or_else(
             || item.describe(model.document()),
             |axis| axis_label(axis).to_owned(),
@@ -137,6 +145,7 @@ impl Panel<'_> {
 
     fn reading_rows(&self, ui: &mut Ui) {
         let document = self.model.document();
+
         widgets::property(ui, measurement_tools::READING, |ui| {
             match measurement_tools::current_reading(self.model, self.feature.id()) {
                 Some(result) => {
@@ -179,6 +188,7 @@ pub fn show(
         measurement,
         actions,
     };
+
     widgets::properties(ui, ("measurement-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         panel.quantity_row(ui);

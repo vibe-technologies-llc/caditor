@@ -24,7 +24,7 @@ const SAME_PLACE: f64 = 1e-6;
 const ARC_PREVIEW_SEGMENTS: usize = 64;
 const SCREEN_SLACK: f64 = 1e-3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BodyPart {
     Corner,
     Middle,
@@ -50,7 +50,7 @@ impl BodyPart {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BodyItem {
     Corner(VertexName),
     Centre(EdgeName),
@@ -82,20 +82,20 @@ impl BodyItem {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Key {
     Vertex(VertexName),
     Edge(EdgeName),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BodyTarget {
     pub source: usize,
     pub part: BodyPart,
     pub generation: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Source {
     pub projection: ProjectionSource,
     pub outline: Outline,
@@ -104,7 +104,7 @@ pub struct Source {
     key: Key,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Bounds {
     min: Point2,
     max: Point2,
@@ -137,6 +137,7 @@ impl Bounds {
 
     fn may_reach(self, screen: &impl Screen, pointer: Pointer, tolerance: f64) -> bool {
         let [a, b, c, d] = self.corners();
+
         let (Some(a), Some(b), Some(c), Some(d)) = (
             screen.to_screen(a),
             screen.to_screen(b),
@@ -145,8 +146,10 @@ impl Bounds {
         ) else {
             return true;
         };
+
         let low = a.min(b).min(c).min(d);
         let high = a.max(b).max(c).max(d);
+
         let outside = Vector2::new(
             (low.x - pointer.screen.x)
                 .max(pointer.screen.x - high.x)
@@ -160,7 +163,7 @@ impl Bounds {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct SnapPoint {
     position: Point2,
     depth: f64,
@@ -169,7 +172,7 @@ struct SnapPoint {
     body: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Path {
     Segment(Point2, Point2),
     Arc {
@@ -234,9 +237,11 @@ impl Path {
                 sweep,
             } => {
                 let offset = point - *center;
+
                 if offset.length_squared() == 0.0 {
                     return None;
                 }
+
                 let angle = offset.y.atan2(offset.x);
                 let turned = (angle - start).rem_euclid(TAU);
                 let at = |angle: f64| *center + Vector2::from_angle(angle) * *radius;
@@ -265,13 +270,14 @@ impl Path {
 fn closest_on_segment(start: Point2, end: Point2, point: Point2) -> Point2 {
     let along = end - start;
     let length_squared = along.length_squared();
+
     if length_squared == 0.0 {
         return start;
     }
     start + along * ((point - start).dot(along) / length_squared).clamp(0.0, 1.0)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct SnapEdge {
     path: Path,
     bounds: Option<Bounds>,
@@ -289,7 +295,7 @@ impl SnapEdge {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Basis {
     sketch: FeatureId,
     plane: Plane,
@@ -305,6 +311,7 @@ impl Basis {
             None => edited.kind.sketch()?.plane(),
         };
         let evaluation = model.evaluation();
+
         let bodies = evaluation
             .bodies()
             .map(|(body, _)| body)
@@ -330,7 +337,7 @@ impl Basis {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BodySnaps {
     generation: u64,
     basis: Option<Basis>,
@@ -348,9 +355,11 @@ impl BodySnaps {
             (None, None) => true,
             (Some(_), None) | (None, Some(_)) => false,
         };
+
         if unchanged {
             return None;
         }
+
         let generation = current.generation.wrapping_add(1);
         Some(Arc::new(match basis {
             Some(basis) => Self::built(model, basis, generation),
@@ -367,6 +376,7 @@ impl BodySnaps {
             ..Self::default()
         };
         let document = model.document();
+
         for (index, (body, state)) in basis.bodies.iter().enumerate() {
             let Some(result) = state.solid() else {
                 continue;
@@ -374,6 +384,7 @@ impl BodySnaps {
             let name = document
                 .body_label(*body)
                 .unwrap_or_else(|| "a body".to_owned());
+
             snaps.add_corners(result, (*body, index), &name, &basis.plane);
             snaps.add_edges(result, (*body, index), &name, &basis.plane);
         }
@@ -408,10 +419,12 @@ impl BodySnaps {
             .iter()
             .map(|point| (point.body, Bounds::of([point.position])));
         let edges = self.edges.iter().map(|edge| (edge.body, edge.bounds));
+
         for (body, bounds) in points.chain(edges) {
             let (Some(slot), Some(bounds)) = (volumes.get_mut(body), bounds) else {
                 continue;
             };
+
             *slot = Bounds::of(
                 slot.iter()
                     .flat_map(|kept| kept.corners())
@@ -445,9 +458,11 @@ impl BodySnaps {
             let Some(vertex_name) = names.vertex_name(id) else {
                 continue;
             };
+
             if names.vertices_named(vertex_name).len() != 1 {
                 continue;
             }
+
             let Some(outline) = vertex_outline(&result.solid, id, plane) else {
                 continue;
             };
@@ -464,6 +479,7 @@ impl BodySnaps {
                 (body, name),
                 Key::Vertex(vertex_name),
             );
+
             self.points.push(SnapPoint {
                 position,
                 depth,
@@ -486,6 +502,7 @@ impl BodySnaps {
             if names.edge_named(edge.name()) != Some(id) || bodies::is_seam(&result.solid, id) {
                 continue;
             }
+
             let Some((projection, outline)) = projecting::edge_projection(result, body, id, plane)
             else {
                 continue;
@@ -500,12 +517,14 @@ impl BodySnaps {
                 .iter()
                 .map(|sample| plane.to_local(*sample))
                 .collect();
+
             let Some(path) = path_of(&outline, local) else {
                 continue;
             };
             let middle = middle_of(&outline);
             let centre = centre_of(&outline);
             let source = self.add_source(projection, outline, (body, name), Key::Edge(edge.name()));
+
             for (position, part) in [(middle, BodyPart::Middle), (centre, BodyPart::Centre)] {
                 if let Some(position) = position {
                     self.points.push(SnapPoint {
@@ -580,6 +599,7 @@ impl BodySnaps {
         if !BodyPart::Edge.takes(accept, inferred) {
             return None;
         }
+
         let reachable = self.reachable_bodies(screen, pointer, tolerance);
         nearest(
             self.edges
@@ -614,6 +634,7 @@ impl BodySnaps {
 
     pub fn steppable(&self) -> Vec<(FeatureId, BodyItem)> {
         let mut places: Vec<Point2> = Vec::new();
+
         let points = self
             .points
             .iter()
@@ -622,6 +643,7 @@ impl BodySnaps {
                 let fresh = places
                     .iter()
                     .all(|place| place.distance(point.position) > SAME_PLACE);
+
                 if fresh {
                     places.push(point.position);
                 }
@@ -630,12 +652,14 @@ impl BodySnaps {
             .map(|point| (point.source, point.part))
             .collect::<Vec<_>>();
         let mut paths: Vec<Vec<Point2>> = Vec::new();
+
         let edges = self
             .edges
             .iter()
             .filter(|edge| {
                 let path = edge.path.polyline();
                 let fresh = paths.iter().all(|seen| !same_path(seen, &path));
+
                 if fresh {
                     paths.push(path);
                 }
@@ -742,6 +766,7 @@ fn nearest(
     tolerance: f64,
 ) -> Option<(Point2, usize, BodyPart)> {
     let mut best: Option<(f64, (Point2, usize, BodyPart))> = None;
+
     for candidate in candidates {
         let Some(on_screen) = screen.to_screen(candidate.0) else {
             continue;
@@ -801,6 +826,7 @@ fn middle_of(outline: &Outline) -> Option<Point2> {
         Outline::Arc { center, start, end } => {
             let from = (*start - *center).to_angle();
             let to = (*end - *center).to_angle();
+
             let sweep = (to - from).rem_euclid(TAU);
             Some(*center + Vector2::from_angle(from + sweep / 2.0) * center.distance(*start))
         }
@@ -852,6 +878,7 @@ mod tests {
     impl Screen for Receding {
         fn to_screen(&self, point: Point2) -> Option<Vector2> {
             self.calls.set(self.calls.get() + 1);
+
             let depth = 20.0 + 0.5 * point.y;
             (depth > self.near).then(|| Vector2::new(point.x, -3.0) * 100.0 / depth)
         }
@@ -876,6 +903,7 @@ mod tests {
     fn crowd(bodies: usize, per_body: usize, seed: u64, home_low: f64) -> BodySnaps {
         let mut random = Lcg(seed);
         let mut snaps = BodySnaps::default();
+
         for body in 0..bodies {
             let home = random.point(home_low, 30.0);
             for _ in 0..per_body {
@@ -892,6 +920,7 @@ mod tests {
                 };
                 let source = snaps.edges.len();
                 let corner = place(&mut random);
+
                 snaps.points.push(SnapPoint {
                     position: corner,
                     depth: 0.0,
@@ -1074,7 +1103,9 @@ mod tests {
                     Inferences::default(),
                     tolerance,
                 );
+
                 hits += usize::from(bounded.is_some());
+
                 assert_eq!(
                     bounded,
                     whole_scan_point(&snaps, &screen, pointer, tolerance)
@@ -1088,7 +1119,9 @@ mod tests {
                     Inferences::default(),
                     tolerance,
                 );
+
                 hits += usize::from(bounded.is_some());
+
                 assert_eq!(
                     bounded,
                     whole_scan_edge(&snaps, &screen, pointer, tolerance)
@@ -1104,6 +1137,7 @@ mod tests {
         let screen = Receding::new();
         let snaps = crowd(50, 40, 3, -20.0);
         let far = Point2::new(5000.0, 5.0);
+
         let pointer = Pointer {
             screen: screen.to_screen(far).unwrap(),
             sketch: far,
@@ -1135,6 +1169,7 @@ mod tests {
     fn bodies_whose_bounds_cross_the_horizon_are_scanned_whole() {
         let screen = Receding::new();
         let mut snaps = crowd(1, 12, 5, -20.0);
+
         snaps.points.push(SnapPoint {
             position: Point2::new(0.0, -50.0),
             depth: 0.0,
@@ -1143,6 +1178,7 @@ mod tests {
             body: 0,
         });
         snaps.volumes = snaps.body_volumes(1);
+
         let at = Point2::new(0.0, 0.0);
         let pointer = Pointer {
             screen: screen.to_screen(at).unwrap(),

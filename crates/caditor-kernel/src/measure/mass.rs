@@ -26,7 +26,7 @@ const MAX_CROSSINGS: usize = 4096;
 const MAX_BISECTIONS: usize = 80;
 const BISECTION_EPSILON: f64 = 1e-15;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SolidMass {
     pub properties: MassProperties,
     pub face_areas: BTreeMap<FaceId, f64>,
@@ -58,10 +58,12 @@ fn mass_properties_meshing<'a>(
 ) -> Result<SolidMass, MeasureError> {
     let frame = Frame::of(solid);
     let mut integrated = Vec::new();
+
     for (face, _) in solid.faces() {
         interrupt::check()?;
         integrated.push((face, face_moments(solid, face, &frame)?));
     }
+
     let mesh = if integrated.iter().any(|(_, moments)| moments.is_none()) {
         Some(mesh()?)
     } else {
@@ -70,6 +72,7 @@ fn mass_properties_meshing<'a>(
     let mut moments = Moments::default();
     let mut face_areas = BTreeMap::new();
     let mut meshed_faces = Vec::new();
+
     for (face, found) in integrated {
         match (found, &mesh) {
             (Some(found), _) => {
@@ -79,6 +82,7 @@ fn mass_properties_meshing<'a>(
             (None, Some(mesh)) => {
                 let triangles: Vec<[Point3; 3]> =
                     mesh.face_triangles(|candidate| candidate == face).collect();
+
                 moments.add(&Moments::of_triangles(&triangles, frame.reference));
                 meshed_faces.push(face);
             }
@@ -104,11 +108,14 @@ pub(crate) fn faces_volume(
 ) -> Result<Option<f64>, MeasureError> {
     let frame = Frame::around(Some(bounds));
     let mut volume = 0.0;
+
     for face in faces {
         interrupt::check()?;
+
         let Some(moments) = face_moments(solid, *face, &frame)? else {
             return Ok(None);
         };
+
         volume += moments.volume;
     }
     Ok(Some(volume))
@@ -132,6 +139,7 @@ impl Frame {
             .map_or(1.0, |bounds| 0.5 * bounds.diagonal())
             .max(LINEAR_RESOLUTION);
         let (length, square, cube) = (reach, reach * reach, reach * reach * reach);
+
         let scales = [
             1.0, length, square, square, square, cube, cube, cube, cube, cube, cube,
         ];
@@ -167,6 +175,7 @@ fn face_moments(
     let definition = solid.face(face).ok_or(MeasureError::MissingFace(face))?;
     let surface = definition.surface();
     let mut coedges: Vec<&Coedge> = Vec::new();
+
     for loop_id in definition.loops() {
         let face_loop = solid
             .face_loop(*loop_id)
@@ -179,9 +188,11 @@ fn face_moments(
             );
         }
     }
+
     let Some((u_range, v_range)) = uv_ranges(&coedges) else {
         return Ok(None);
     };
+
     let domain = Domain {
         surface,
         middle: u_range.middle(),
@@ -191,9 +202,12 @@ fn face_moments(
     };
     let budget = Budget::new(FACE_EVALUATIONS);
     let mut total = [0.0; COMPONENTS];
+
     for coedge in coedges {
         interrupt::check()?;
+
         let found = boundary_integral(solid, &domain, coedge, frame, &budget)?;
+
         if !found.converged {
             return Ok(None);
         }
@@ -249,26 +263,32 @@ fn boundary_integral(
     let range = edge.interval();
     let pcurve = coedge.pcurve();
     let surface = domain.surface;
+
     let on_surface = |parameter: f64| {
         let point = curve.evaluate(parameter);
         let uv = surface.project(point.point, Some(pcurve.uv_at(parameter)));
         (point, uv)
     };
     let mut breaks = curve_breaks(curve, range);
+
     breaks.extend(kink_crossings(domain, coedge, &|parameter| {
         on_surface(parameter).1
     }));
+
     let mut strips_converged = true;
+
     let found = quadrature::integrate(
         quadrature::pieces(range, breaks),
         &frame.boundary,
         budget,
         |parameter| {
             let (point, uv) = on_surface(parameter);
+
             let Some(rate) = v_rate(&surface.evaluate(uv.x, uv.y), point.first) else {
                 return [0.0; COMPONENTS];
             };
             let strip = strip(domain, uv, frame.reference, budget);
+
             strips_converged &= strip.converged;
             scaled(&strip.values, rate)
         },
@@ -283,6 +303,7 @@ fn kink_crossings(domain: &Domain<'_>, coedge: &Coedge, uv_at: &dyn Fn(f64) -> P
     if domain.u_kinks.is_empty() && domain.v_kinks.is_empty() {
         return Vec::new();
     }
+
     let samples: Vec<(f64, Point2)> = coedge
         .pcurve()
         .samples()
@@ -294,6 +315,7 @@ fn kink_crossings(domain: &Domain<'_>, coedge: &Coedge, uv_at: &dyn Fn(f64) -> P
         (Parameter::U, &domain.u_kinks),
         (Parameter::V, &domain.v_kinks),
     ];
+
     for pair in samples.windows(2) {
         let [(start, start_uv), (end, end_uv)] = pair else {
             continue;
@@ -306,6 +328,7 @@ fn kink_crossings(domain: &Domain<'_>, coedge: &Coedge, uv_at: &dyn Fn(f64) -> P
                 }
                 if (from - kink) * (to - kink) < 0.0 {
                     let offset = |along: f64| parameter.of(uv_at(along)) - kink;
+
                     crossings.push(bisect(*start, *end, from - kink, offset));
                 }
             }
@@ -314,7 +337,7 @@ fn kink_crossings(domain: &Domain<'_>, coedge: &Coedge, uv_at: &dyn Fn(f64) -> P
     crossings
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Parameter {
     U,
     V,
@@ -331,8 +354,10 @@ impl Parameter {
 
 fn bisect(start: f64, end: f64, start_offset: f64, offset: impl Fn(f64) -> f64) -> f64 {
     let (mut low, mut high) = (start, end);
+
     for _ in 0..MAX_BISECTIONS {
         let middle = 0.5 * (low + high);
+
         if (high - low).abs() <= BISECTION_EPSILON * (1.0 + middle.abs()) {
             return middle;
         }
@@ -347,10 +372,13 @@ fn bisect(start: f64, end: f64, start_offset: f64, offset: impl Fn(f64) -> f64) 
 
 fn v_rate(at: &SurfaceDerivatives, tangent: Vector3) -> Option<f64> {
     let (uu, uv, vv) = (at.du.dot(at.du), at.du.dot(at.dv), at.dv.dot(at.dv));
+
     let determinant = uu * vv - uv * uv;
+
     if determinant.is_nan() || determinant <= 0.0 {
         return None;
     }
+
     let rate = (uu * at.dv.dot(tangent) - uv * at.du.dot(tangent)) / determinant;
     let level = (rate * vv.sqrt()).abs() <= LEVEL_RATE * tangent.length();
     (rate.is_finite() && !level).then_some(rate)
@@ -369,6 +397,7 @@ fn strip(domain: &Domain<'_>, uv: Point2, reference: Point3, budget: &Budget) ->
             converged: false,
         };
     };
+
     let found = quadrature::integrate(
         quadrature::pieces(range, surface_u_breaks(surface, range)),
         &domain.strip,
@@ -384,6 +413,7 @@ fn strip(domain: &Domain<'_>, uv: Point2, reference: Point3, budget: &Budget) ->
 fn density(at: &SurfaceDerivatives, reference: Point3) -> Values {
     let normal = at.du.cross(at.dv);
     let x = at.point - reference;
+
     let flux = x.dot(normal);
     let (third, quarter, fifth) = (flux / 3.0, flux / 4.0, flux / 5.0);
     [
@@ -482,6 +512,7 @@ fn knot_breaks(knots: &[f64], domain: Interval, period: Option<f64>, range: Inte
         .copied()
         .filter(|knot| domain.contains(*knot))
         .collect();
+
     inside.dedup();
     match period.filter(|period| *period > 0.0) {
         Some(period) => {

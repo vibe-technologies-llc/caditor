@@ -25,27 +25,39 @@ fn wait_for_views(harness: &mut Harness) {
 fn a_drawing_is_made_from_the_palette_changed_undoably_and_exported_as_a_pdf_sheet() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     extruded_plate(&mut harness);
     run_from_palette(&mut harness, "Drawings");
     harness.frame();
+
     assert!(harness.workspace.drawings.open);
     assert!(harness.shows(NONE_YET));
 
     run_from_palette(&mut harness, "New drawing");
     harness.frame();
+
     let drawings = harness.document().drawings().drawings.clone();
+
     assert_eq!(drawings.len(), 1);
+
     let drawing = drawings[0].id;
+
     assert!(harness.shows("Drawing 1"));
+
     wait_for_views(&mut harness);
+
     assert!(harness.shows(ZOOM_IN));
 
     harness.click(Projection::ThirdAngle.name());
     harness.frame();
+
     let projection = |harness: &Harness| harness.document().drawing(drawing).unwrap().projection;
+
     assert_eq!(projection(&harness), Projection::ThirdAngle);
+
     harness.click(StandardView::Left.name());
     harness.frame();
+
     assert!(
         harness
             .document()
@@ -54,11 +66,14 @@ fn a_drawing_is_made_from_the_palette_changed_undoably_and_exported_as_a_pdf_she
             .views
             .contains(&StandardView::Left)
     );
+
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(projection(&harness), Projection::FirstAngle);
+
     wait_for_views(&mut harness);
 
     harness.answer_dialog(Some(dir.path().join("plate")));
@@ -70,12 +85,15 @@ fn a_drawing_is_made_from_the_palette_changed_undoably_and_exported_as_a_pdf_she
                 .starts_with("Exported the drawing “Drawing 1” with 4 views to “plate.pdf”")
         })
     });
+
     let pdf = std::fs::read(dir.path().join("plate.pdf")).unwrap();
+
     assert!(pdf.starts_with(b"%PDF-1.4"));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     harness.frame();
+
     assert!(harness.document().drawings().is_empty());
     assert!(harness.shows(NONE_YET));
 }
@@ -84,6 +102,7 @@ fn a_drawing_is_made_from_the_palette_changed_undoably_and_exported_as_a_pdf_she
 fn the_sheet_export_proposes_the_format_the_last_sheet_was_written_in() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     extruded_plate(&mut harness);
     run_from_palette(&mut harness, "New drawing");
     harness.frame();
@@ -94,7 +113,9 @@ fn the_sheet_export_proposes_the_format_the_last_sheet_was_written_in() {
     harness.wait_until("the SVG sheet is written", |harness| {
         dir.path().join("first.svg").exists() && !harness.files.is_blocking()
     });
+
     let first_proposed = harness.last_proposed_name();
+
     harness.answer_dialog(Some(dir.path().join("second")));
     harness.click(EXPORT);
     harness.wait_until("the second sheet is written", |harness| {
@@ -113,15 +134,20 @@ fn the_sheet_export_proposes_the_format_the_last_sheet_was_written_in() {
 fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_sheet() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     extruded_plate(&mut harness);
     run_from_palette(&mut harness, "New drawing");
     harness.frame();
+
     let drawing = harness.document().drawings().drawings[0].id;
+
     wait_for_views(&mut harness);
+
     assert!(harness.shows(NO_SECTIONS));
 
     harness.click(ADD_SECTION);
     harness.frame();
+
     let sections = |harness: &Harness| {
         harness
             .document()
@@ -135,11 +161,16 @@ fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_she
             .place
             .resolve(harness.model.parameters())
     };
+
     assert_eq!(sections(&harness).len(), 1);
     assert_eq!(sections(&harness)[0].letter, 'A');
+
     wait_for_views(&mut harness);
+
     assert!(harness.shows("Section A\u{2013}A"));
+
     let job = harness.workspace.drawings.job(&harness.model).unwrap();
+
     assert_eq!(job.views.len(), 5);
     assert_eq!(job.plan.cutting.len(), 1);
     assert!(
@@ -148,6 +179,7 @@ fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_she
             .iter()
             .any(|text| text.content == "A\u{2013}A")
     );
+
     let section = job
         .views
         .iter()
@@ -161,28 +193,41 @@ fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_she
         .section
         .clone()
         .unwrap();
+
     assert!((cutting.cutting.origin().x - 20.0).abs() < 1e-6);
     assert!(!cutting.hatching.is_empty());
 
     harness.click(AT_OFFSET);
     harness.frame();
+
     assert_eq!(place(&harness), Ok(ResolvedPlace::Offset(20.0)));
     assert!(harness.shows(DISTANCE));
+
     harness.type_into_field(offset_field_id(drawing, 'A'), "10 mm");
+
     assert_eq!(place(&harness), Ok(ResolvedPlace::Offset(10.0)));
+
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(place(&harness), Ok(ResolvedPlace::Offset(20.0)));
+
     harness.click(SectionPlane::Xy.name());
     harness.frame();
+
     assert_eq!(sections(&harness)[0].plane, SectionPlane::Xy);
+
     wait_for_views(&mut harness);
+
     assert!(harness.shows_containing(
         "The section view A\u{2013}A could not be drawn: its cutting plane passes through none"
     ));
+
     harness.click(CENTRE);
     harness.frame();
+
     assert_eq!(sections(&harness)[0].place, SectionPlace::Centre);
+
     wait_for_views(&mut harness);
 
     harness.answer_dialog(Some(dir.path().join("cut")));
@@ -197,19 +242,25 @@ fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_she
 
     harness.click_button("Delete section A\u{2013}A");
     harness.frame();
+
     assert!(sections(&harness).is_empty());
+
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(sections(&harness).len(), 1);
 }
 
 #[test]
 fn a_section_offset_typed_as_a_parameter_follows_it_when_it_changes() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     run_from_palette(&mut harness, "New drawing");
     harness.frame();
+
     let drawing = harness.document().drawings().drawings[0].id;
+
     wait_for_views(&mut harness);
     harness.click(ADD_SECTION);
     harness.frame();
@@ -218,10 +269,13 @@ fn a_section_offset_typed_as_a_parameter_follows_it_when_it_changes() {
 
     let document = harness.document();
     let mut transaction = document.transaction("Add cut");
+
     let cut = transaction.add_parameter("cut", Expression::number(12.0));
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
     harness.type_into_field(offset_field_id(drawing, 'A'), "cut");
+
     let cut_at = |harness: &Harness| {
         let job = harness.workspace.drawings.job(&harness.model).ok()?;
         job.plan
@@ -237,12 +291,14 @@ fn a_section_offset_typed_as_a_parameter_follows_it_when_it_changes() {
         harness.document().drawing(drawing).unwrap().sections[0].place,
         SectionPlace::Offset(Expression::Parameter(id)) if id == cut
     ));
+
     harness.wait_until("the section is cut at the parameter", |harness| {
         cut_at(harness).is_some_and(|x| (x - 12.0).abs() < 1e-6)
     });
 
     let document = harness.document();
     let expression = document.parse("15 mm").unwrap();
+
     harness.perform(Action::Apply(caditor_document::Transaction::single(
         "Move cut",
         caditor_document::Edit::SetParameterExpression {
@@ -261,29 +317,43 @@ fn a_section_offset_typed_as_a_parameter_follows_it_when_it_changes() {
 fn a_detail_view_is_added_in_the_panel_edited_undoably_clipped_to_its_circle_and_exported() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     extruded_plate(&mut harness);
     run_from_palette(&mut harness, "New drawing");
     harness.frame();
+
     let drawing = harness.document().drawings().drawings[0].id;
+
     wait_for_views(&mut harness);
+
     assert!(harness.shows(NO_DETAILS));
 
     harness.click(ADD_DETAIL);
     harness.frame();
+
     let details = |harness: &Harness| harness.document().drawing(drawing).unwrap().details.clone();
+
     assert_eq!(details(&harness).len(), 1);
+
     let detail = details(&harness)[0];
+
     assert_eq!(detail.letter, 'A');
     assert_eq!(detail.parent, DetailParent::Standard(StandardView::Front));
     assert_eq!(detail.scale, DetailScale::Enlarged);
+
     wait_for_views(&mut harness);
+
     assert!(harness.shows("Detail A"));
 
     let job = harness.workspace.drawings.job(&harness.model).unwrap();
+
     assert_eq!(job.views.len(), 5);
+
     let label = detail.label_at(job.plan.scale.factor());
+
     assert!(job.plan.texts.iter().any(|text| text.content == label));
     assert!(job.plan.texts.iter().any(|text| text.content == "A"));
+
     let (placed, outcome) = job
         .views
         .iter()
@@ -291,8 +361,10 @@ fn a_detail_view_is_added_in_the_panel_edited_undoably_clipped_to_its_circle_and
         .unwrap();
     let lines = outcome.as_ref().as_ref().unwrap();
     let disc = lines.clip.unwrap();
+
     assert!(!lines.pieces.is_empty());
     assert!((placed.scale - detail.scale.ratio_at(job.plan.scale.factor()).factor()).abs() < 1e-9);
+
     for piece in &lines.pieces {
         for at in [piece.range.start(), piece.range.end()] {
             assert!((piece.curve.point(at) - disc.centre).length() <= disc.radius + 1e-6);
@@ -300,24 +372,32 @@ fn a_detail_view_is_added_in_the_panel_edited_undoably_clipped_to_its_circle_and
     }
 
     harness.type_into_field(detail_field_id(drawing, 'A', "radius"), "2 mm");
+
     assert_eq!(details(&harness)[0].radius, 2.0);
+
     wait_for_views(&mut harness);
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(details(&harness)[0].radius, detail.radius);
+
     harness.key(Key::Y, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(details(&harness)[0].radius, 2.0);
+
     wait_for_views(&mut harness);
 
     harness.click(&DetailScale::Enlarged.label());
     harness.frame();
     harness.click(&ScaleRatio::new(10, 1).label());
     harness.frame();
+
     assert_eq!(
         details(&harness)[0].scale,
         DetailScale::Ratio(ScaleRatio::new(10, 1))
     );
+
     wait_for_views(&mut harness);
 
     harness.answer_dialog(Some(dir.path().join("detail")));
@@ -332,8 +412,11 @@ fn a_detail_view_is_added_in_the_panel_edited_undoably_clipped_to_its_circle_and
 
     harness.click_button("Delete detail A");
     harness.frame();
+
     assert!(details(&harness).is_empty());
+
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(details(&harness).len(), 1);
 }

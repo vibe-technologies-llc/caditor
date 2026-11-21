@@ -12,7 +12,7 @@ const VECTOR_LENGTH: usize = 12;
 const FLOAT_LENGTH: usize = 4;
 const UNNAMED_SOLID: &str = "body";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum StlEncoding {
     #[default]
     Binary,
@@ -48,9 +48,12 @@ pub(super) fn write_binary(
 ) -> Result<(), ExportError> {
     let total: usize = bodies.iter().map(|body| body.corners().count()).sum();
     let count = u32::try_from(total).map_err(|_| ExportError::TooLarge)?;
+
     out.write_all(&header(offset)).map_err(writing)?;
     out.write_all(&count.to_le_bytes()).map_err(writing)?;
+
     let shift = offset.unwrap_or(Vector3::ZERO);
+
     for body in bodies {
         if cancel.is_cancelled() {
             return Err(ExportError::Cancelled);
@@ -58,6 +61,7 @@ pub(super) fn write_binary(
         for [a, b, c] in body.corners() {
             let vectors = [normal(a, b, c), a + shift, b + shift, c + shift];
             let mut facet = [0; FACET_LENGTH];
+
             for (slot, vector) in facet
                 .as_chunks_mut::<VECTOR_LENGTH>()
                 .0
@@ -95,9 +99,11 @@ pub(super) fn write_text(
 
 fn write_solid(out: &mut impl Write, body: &MeshBody<'_>) -> io::Result<()> {
     let name = solid_name(body.name);
+
     writeln!(out, "solid {name}")?;
     for [a, b, c] in body.corners() {
         let facing = normal(a, b, c);
+
         writeln!(
             out,
             "  facet normal {} {} {}\n    outer loop",
@@ -158,6 +164,7 @@ fn header(offset: Option<Vector3>) -> [u8; HEADER_LENGTH] {
         None => plain,
     };
     let mut header = [b' '; HEADER_LENGTH];
+
     for (slot, byte) in header.iter_mut().zip(label.bytes()) {
         *slot = byte;
     }

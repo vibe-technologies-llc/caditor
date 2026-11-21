@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use caditor_kernel::{Interrupt, Mesh, MeshQuality, Solid, interruptible};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Watertightness {
     NoTriangles,
     DegenerateTriangle,
@@ -23,6 +23,7 @@ impl fmt::Display for Watertightness {
 
 pub fn watertightness(mesh: &Mesh) -> Result<(), Watertightness> {
     let mut directed: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+
     for [a, b, c] in mesh.position_triangles() {
         if a == b || b == c || a == c {
             return Err(Watertightness::DegenerateTriangle);
@@ -47,17 +48,22 @@ pub fn watertightness(mesh: &Mesh) -> Result<(), Watertightness> {
 
 pub fn assert_sound(solid: &Solid, quality: &MeshQuality) {
     let never: Interrupt = Arc::new(|| false);
+
     if let Err(error) = interruptible(never, || solid.validate()) {
         panic!("a solid is invalid: {error}");
     }
+
     let mesh = match solid.display_mesh(quality) {
         Ok(mesh) => mesh,
         Err(error) => panic!("a valid solid could not be meshed: {error}"),
     };
+
     if let Err(error) = watertightness(&mesh) {
         panic!("a valid solid meshes badly: {error}");
     }
+
     let mass = mesh.mass_properties();
+
     assert!(
         mass.volume.is_finite() && mass.area.is_finite() && mass.centroid.is_finite(),
         "a solid has non-finite mass properties: {mass:?}"

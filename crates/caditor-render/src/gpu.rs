@@ -12,13 +12,14 @@ use crate::{
 
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct DeviceLoss(Arc<AtomicBool>);
 
 impl DeviceLoss {
     pub fn watch(device: &wgpu::Device, wake: Wake) -> Self {
         let loss = Self::default();
         let lost = Arc::clone(&loss.0);
+
         device.set_device_lost_callback(move |reason, message| {
             log::error!("the graphics device was lost ({reason:?}): {message}");
             lost.store(true, Ordering::Release);
@@ -90,9 +91,11 @@ pub async fn open_device(
             ..Default::default()
         })
         .await;
+
     let tried = match preferred {
         Ok(adapter) => {
             let info = adapter.get_info();
+
             match request_device(adapter).await {
                 Ok(opened) => return Ok(opened),
                 Err(error) => failure = error,
@@ -111,6 +114,7 @@ pub async fn open_device(
         .filter(|adapter| surface.is_none_or(|surface| adapter.is_surface_supported(surface)))
         .filter(|adapter| tried.as_ref() != Some(&adapter.get_info()))
         .collect();
+
     others.sort_by_key(|adapter| adapter_rank(&adapter.get_info()));
     for adapter in others {
         match request_device(adapter).await {
@@ -124,6 +128,7 @@ pub async fn open_device(
 async fn request_device(adapter: wgpu::Adapter) -> Result<OpenedDevice, RenderError> {
     let info = adapter.get_info();
     let mut failure = RenderError::NoAdapter;
+
     for request in device_requests(&adapter) {
         let descriptor = wgpu::DeviceDescriptor {
             label: Some("caditor"),
@@ -320,11 +325,14 @@ fn octahedral(normal: Vec3) -> [u8; OCTAHEDRAL_BYTES] {
 
 fn folded(normal: Vec3) -> [f32; 2] {
     let length = normal.abs().element_sum();
+
     if !(length > 0.0 && length.is_finite()) {
         return ABSENT_NORMAL;
     }
+
     let on = normal / length;
     let side = |value: f32| if value >= 0.0 { 1.0 } else { -1.0 };
+
     let [x, y] = if on.z >= 0.0 {
         [on.x, on.y]
     } else {
@@ -384,6 +392,7 @@ pub struct Record<const N: usize> {
 impl<const N: usize> Pack for Record<N> {
     fn put(&mut self, bytes: &[u8]) -> &mut Self {
         let end = self.at.saturating_add(bytes.len());
+
         if let Some(slot) = self.bytes.get_mut(self.at..end) {
             slot.copy_from_slice(bytes);
         }
@@ -397,6 +406,7 @@ pub fn record<const N: usize>(fill: impl FnOnce(&mut Record<N>)) -> [u8; N] {
         bytes: [0; N],
         at: 0,
     };
+
     fill(&mut record);
     record.bytes
 }
@@ -483,13 +493,17 @@ impl GrowableBuffer {
         let primitive = (N as u64).saturating_mul(per_primitive.max(1));
         let fitting = self.limit / primitive.max(1) * per_primitive.max(1);
         let kept = count.min(fitting);
+
         self.note_truncation(kept < count);
 
         let length = kept * N as u64;
+
         if let Some(size) = resized(self.buffer.size(), length, self.limit) {
             self.buffer = Self::allocate(device, self.label, self.usage, size);
         }
+
         let kept_records = usize::try_from(kept).unwrap_or(usize::MAX);
+
         write_records(
             queue,
             &self.buffer,
@@ -555,6 +569,7 @@ mod tests {
     #[test]
     fn writes_little_endian_values_in_order() {
         let mut bytes = Bytes::default();
+
         bytes.u32(7).vec4(Vec3::new(1.0, 2.0, 3.0), 4.0);
 
         assert_eq!(bytes.len(), 20);
@@ -574,14 +589,18 @@ mod tests {
 
     fn unfolded(packed: [u8; OCTAHEDRAL_BYTES]) -> Vec3 {
         let [x0, x1, y0, y1] = packed;
+
         let normal = [[x0, x1], [y0, y1]]
             .map(|bytes| (f32::from(i16::from_le_bytes(bytes)) / SNORM16_SCALE).max(-1.0));
         let [x, y] = normal;
+
         if x + y < -1.9998 {
             return Vec3::ZERO;
         }
+
         let z = 1.0 - x.abs() - y.abs();
         let side = |value: f32| if value >= 0.0 { 1.0 } else { -1.0 };
+
         let (x, y) = if z < 0.0 {
             ((1.0 - y.abs()) * side(x), (1.0 - x.abs()) * side(y))
         } else {
@@ -600,15 +619,18 @@ mod tests {
     fn octahedral_normals_come_back_within_a_hundredth_of_a_degree() {
         let steps = 64;
         let mut worst = 0.0f64;
+
         for latitude in 0..=steps {
             for longitude in 0..steps * 2 {
                 let polar = std::f32::consts::PI * latitude as f32 / steps as f32;
                 let azimuth = std::f32::consts::PI * longitude as f32 / steps as f32;
+
                 let normal = Vec3::new(
                     polar.sin() * azimuth.cos(),
                     polar.sin() * azimuth.sin(),
                     polar.cos(),
                 );
+
                 worst = worst.max(error(normal));
             }
         }
@@ -645,8 +667,11 @@ mod tests {
     #[test]
     fn staging_keeps_only_a_small_capacity_once_cleared() {
         let mut small = Bytes::default();
+
         small.floats(&[1.0; 100]);
+
         let mut large = Bytes::default();
+
         large.floats(&[1.0; 100_000]);
 
         small.clear();

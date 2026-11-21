@@ -23,7 +23,7 @@ const NOTE_COLUMN: &str = "note";
 const NOTE_ALIASES: [&str; 2] = [NOTE_COLUMN, "description"];
 const UNEVALUATED: &str = "error";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ParameterFileError {
     #[error("{0}")]
     Reading(ReadFailure),
@@ -54,6 +54,7 @@ pub enum ParameterFileError {
 
 pub fn parameters_csv(document: &Document, values: &ParameterValues) -> String {
     let mut text = csv_row(&[VERSION_MARKER, &PARAMETERS_VERSION.to_string()]);
+
     text.push_str(&csv_row(&[
         NAME_COLUMN,
         EXPRESSION_COLUMN,
@@ -67,6 +68,7 @@ pub fn parameters_csv(document: &Document, values: &ParameterValues) -> String {
         let value = values
             .value(parameter.id())
             .map_or_else(|_| UNEVALUATED.to_owned(), |value| value.to_string());
+
         text.push_str(&csv_row(&[
             &parameter.name,
             &expression,
@@ -85,9 +87,11 @@ pub fn write_parameters(path: &Path, text: &str) -> Result<(), ParameterFileErro
 pub fn read_parameters(path: &Path) -> Result<Vec<ImportedParameter>, ParameterFileError> {
     let bytes =
         read_file(path).map_err(|error| ParameterFileError::Reading(ReadFailure::of(&error)))?;
+
     if bytes.len() > MAX_PARAMETERS_FILE {
         return Err(ParameterFileError::TooLarge);
     }
+
     let text = String::from_utf8(bytes).map_err(|_| ParameterFileError::NotText)?;
     parse_parameters(&text)
 }
@@ -95,8 +99,10 @@ pub fn read_parameters(path: &Path) -> Result<Vec<ImportedParameter>, ParameterF
 pub fn parse_parameters(text: &str) -> Result<Vec<ImportedParameter>, ParameterFileError> {
     let text = text.trim_start_matches('\u{feff}');
     let delimiter = delimiter_of(text);
+
     let records = records(text, delimiter, MAX_PARAMETER_ROWS).map_err(parameter_csv_error)?;
     let mut records = records.into_iter().peekable();
+
     if records
         .peek()
         .is_some_and(|record| starts_with_marker(record, EARLIER_BUILD_MARKER))
@@ -106,6 +112,7 @@ pub fn parse_parameters(text: &str) -> Result<Vec<ImportedParameter>, ParameterF
     if let Some(record) = records.next_if(|record| starts_with_marker(record, VERSION_MARKER)) {
         check_version(&record)?;
     }
+
     let header = records.next().ok_or(ParameterFileError::NoHeader)?;
     let column = |names: &[&str]| {
         header.iter().position(|cell| {
@@ -119,6 +126,7 @@ pub fn parse_parameters(text: &str) -> Result<Vec<ImportedParameter>, ParameterF
     };
     let note = column(&NOTE_ALIASES);
     let cell = |record: &[String], index: usize| record.get(index).cloned().unwrap_or_default();
+
     let rows: Vec<ImportedParameter> = records
         .filter(|record| record.iter().any(|cell| !cell.trim().is_empty()))
         .map(|record| ImportedParameter {
@@ -127,6 +135,7 @@ pub fn parse_parameters(text: &str) -> Result<Vec<ImportedParameter>, ParameterF
             note: note.map(|note| cell(&record, note)).unwrap_or_default(),
         })
         .collect();
+
     if rows.len() > MAX_PARAMETER_ROWS {
         return Err(ParameterFileError::TooManyRows);
     }
@@ -151,6 +160,7 @@ fn check_version(record: &[String]) -> Result<(), ParameterFileError> {
         .get(1)
         .and_then(|cell| cell.trim().parse::<u32>().ok())
         .ok_or(ParameterFileError::UnreadableVersion)?;
+
     if version > PARAMETERS_VERSION {
         return Err(ParameterFileError::NewerVersion { version });
     }
@@ -159,6 +169,7 @@ fn check_version(record: &[String]) -> Result<(), ParameterFileError> {
 
 fn delimiter_of(text: &str) -> char {
     let mut lines = text.lines();
+
     let first = lines.next().unwrap_or_default();
     let header = if [VERSION_MARKER, EARLIER_BUILD_MARKER]
         .iter()
@@ -185,16 +196,22 @@ mod tests {
 
     fn document() -> Document {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Parameters");
+
         transaction.add_parameter("width", transaction.parse("40 mm").unwrap());
+
         let height = transaction.add_parameter("height", transaction.parse("width / 2").unwrap());
+
         transaction.add_parameter("turn", transaction.parse("-15 deg").unwrap());
+
         let mut document_transaction = transaction.finish();
         let note = caditor_document::Edit::SetParameterNote {
             id: height,
             note: "half the width, \"roughly\"\nsecond line".to_owned(),
         };
         let (label, mut edits) = document_transaction.into_parts();
+
         edits.push(note);
         document_transaction = caditor_document::Transaction::new(label, edits);
         document.apply(document_transaction).unwrap();
@@ -218,11 +235,16 @@ mod tests {
         assert_eq!(rows[1].expression, "width / 2");
         assert_eq!(rows[1].note, "half the width, \"roughly\"\nsecond line");
         assert_eq!(rows[2].expression, "-15 deg");
+
         let mut target = Document::default();
+
         let plan = target.plan_parameter_import("Import", &rows, true).unwrap();
+
         target.apply(plan.transaction.unwrap()).unwrap();
+
         let values = ParameterValues::evaluate(&target);
         let height = target.parameter_named("height").unwrap().id();
+
         assert_eq!(values.value(height), Ok(Quantity::length(20.0)));
     }
 
@@ -231,6 +253,7 @@ mod tests {
         let semicolons =
             "\u{feff}Name;Description;Expression\r\nwidth;outer;\"12,5 mm\"\r\n;;\r\nhole;;3 mm";
         let rows = parse_parameters(semicolons).unwrap();
+
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].note, "outer");
         assert_eq!(rows[0].expression, "12,5 mm");
@@ -245,10 +268,12 @@ mod tests {
             parse_parameters("name,expression\nx,\"3 mm\nmore"),
             Err(ParameterFileError::UnclosedQuote { line: 2 })
         );
+
         let many = format!(
             "name,expression\n{}",
             "x,1\n".repeat(MAX_PARAMETER_ROWS + 1)
         );
+
         assert_eq!(
             parse_parameters(&many),
             Err(ParameterFileError::TooManyRows)
@@ -257,8 +282,11 @@ mod tests {
 
     fn imported_value(rows: &[ImportedParameter], name: &str) -> String {
         let mut target = Document::default();
+
         let plan = target.plan_parameter_import("Import", rows, true).unwrap();
+
         target.apply(plan.transaction.unwrap()).unwrap();
+
         let values = ParameterValues::evaluate(&target);
         let id = target.parameter_named(name).unwrap().id();
         values.value(id).unwrap().to_string()

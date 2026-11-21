@@ -27,7 +27,7 @@ pub const DESCRIPTION: &str = "Mirror a body across a plane or flat face, as a n
                                the original or in its place";
 pub const NEW_MIRROR_OUTCOME: MirrorOutcome = MirrorOutcome::NewBody;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum MirrorToolError {
     #[error("Select the faces of a body to mirror, such as a pocket's walls and floor")]
     NoFaces,
@@ -88,7 +88,7 @@ impl Reason for MirrorToolError {
 const NO_BODY: &str = "Select a face or edge of the body to mirror";
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Yz);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MirrorSource {
     pub body: FeatureId,
     pub also: Vec<FeatureId>,
@@ -96,7 +96,7 @@ pub struct MirrorSource {
     pub mirrored: Vec<FeatureId>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MirrorStart {
     Source(MirrorSource),
     ChooseBodies,
@@ -108,7 +108,7 @@ impl MirrorSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceMirrorSource {
     pub body: FeatureId,
     pub faces: Vec<FaceKey>,
@@ -122,6 +122,7 @@ pub fn faces_source(
     let mut body = None;
     let mut faces = Vec::new();
     let mut others = Vec::new();
+
     for pickable in selection.iter() {
         if let Pickable::Face { body: owner, face } = pickable {
             match body {
@@ -133,10 +134,13 @@ pub fn faces_source(
             others.push(pickable);
         }
     }
+
     let body = body.ok_or(MirrorToolError::NoFaces)?;
     let mut rest = Selection::default();
+
     rest.extend(others);
     bodies::shown(model.evaluation(), body).ok_or(MirrorToolError::NoShape)?;
+
     let plane = datum_tools::chosen_plane(model, &rest, model.document().bar_index())
         .map_err(MirrorToolError::ChosenPlane)?
         .map(|chosen| chosen.plane);
@@ -154,11 +158,14 @@ pub fn create_faces(
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
+
     if faces.len() < source.faces.len() {
         return Err(MirrorToolError::FacesGone);
     }
+
     let name = editing::next_feature_name(document, FACES_TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Mirror(
@@ -192,9 +199,11 @@ pub fn selected_faces(
             _ => None,
         })
         .collect();
+
     if keys.is_empty() {
         return Err(MirrorToolError::NoSelectedFaces);
     }
+
     let seen = model
         .evaluation()
         .body_result_seen_by(feature, mirror.body)
@@ -203,6 +212,7 @@ pub fn selected_faces(
         .iter()
         .filter_map(|key| FaceReference::capture(&seen.solid, bodies::find_face(seen, *key)?))
         .collect();
+
     if faces.len() < keys.len() {
         return Err(MirrorToolError::LaterFaces);
     }
@@ -276,10 +286,12 @@ pub fn source(
         .map_err(MirrorToolError::ChosenPlane)?;
     let face = chosen.as_ref().and_then(|chosen| chosen.face);
     let repeated = pattern_tools::repeatable(document, rows);
+
     let nothing_named = repeated.is_none()
         && tree.is_empty()
         && face.is_none()
         && selection.iter().all(|pickable| pickable.body().is_none());
+
     if nothing_named {
         return match document.bodies_standing_in(model.evaluation()).is_empty() {
             true => Err(MirrorToolError::from(
@@ -290,6 +302,7 @@ pub fn source(
             false => Ok(MirrorStart::ChooseBodies),
         };
     }
+
     let (bodies, mirrored) = match repeated {
         Some((body, features)) => (vec![body], features),
         None => (
@@ -298,6 +311,7 @@ pub fn source(
         ),
     };
     let mut bodies = bodies.into_iter();
+
     let body = bodies.next().ok_or(move_tools::BodyChoiceError::Nothing {
         instruction: NO_BODY,
     })?;
@@ -315,6 +329,7 @@ pub fn chosen_body_source(
     body: FeatureId,
 ) -> Result<MirrorSource, MirrorToolError> {
     bodies::shown(model.evaluation(), body).ok_or(MirrorToolError::NoShape)?;
+
     let plane = datum_tools::chosen_plane(model, selection, model.document().bar_index())
         .ok()
         .flatten()
@@ -336,6 +351,7 @@ pub fn create(document: &Document, source: &MirrorSource) -> (Transaction, Featu
     };
     let name = editing::next_feature_name(document, title);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Mirror(
@@ -382,6 +398,7 @@ pub fn chosen_body_actions(model: &Model, selection: &Selection, body: FeatureId
 
 pub fn with_bodies(mirror: &Mirror, bodies: Vec<FeatureId>) -> Option<Mirror> {
     let mut bodies = bodies.into_iter();
+
     let body = bodies.next()?;
     Some(Mirror {
         body,
@@ -396,6 +413,7 @@ fn checked_body(
     body: FeatureId,
 ) -> Result<FeatureId, MirrorToolError> {
     let document = model.document();
+
     if body.maker() == feature {
         return Err(MirrorToolError::OwnImage);
     }
@@ -420,11 +438,15 @@ pub fn added_bodies(
     if !mirror.mirrors_whole_body() {
         return Err(MirrorToolError::NotWholeBodies);
     }
+
     let selected = body_selection::bodies_in(selection);
+
     if selected.is_empty() {
         return Err(MirrorToolError::NoBodySelected);
     }
+
     let mut bodies: Vec<FeatureId> = mirror.bodies().collect();
+
     for body in selected {
         if !bodies.contains(&body) {
             bodies.push(checked_body(model, feature, body)?);
@@ -433,6 +455,7 @@ pub fn added_bodies(
     if bodies.len() == mirror.bodies().count() {
         return Err(MirrorToolError::AlreadyBodies);
     }
+
     let changed = with_bodies(mirror, bodies).ok_or(MirrorToolError::LastBody)?;
     change(model, feature, changed)
 }
@@ -441,7 +464,9 @@ pub fn names_a_plane(model: &Model, pickable: Pickable) -> bool {
     if pickable.body().is_some() {
         return false;
     }
+
     let mut clicked = Selection::default();
+
     clicked.toggle(pickable);
     datum_tools::chosen_plane(model, &clicked, model.document().bar_index())
         .ok()
@@ -453,10 +478,13 @@ pub fn plane_click(model: &Model, feature: FeatureId, pickable: Pickable) -> Opt
     let FeatureKind::Mirror(mirror) = &model.document().feature(feature)?.kind else {
         return None;
     };
+
     if !mirror.mirrors_whole_body() || !names_a_plane(model, pickable) {
         return None;
     }
+
     let mut clicked = Selection::default();
+
     clicked.toggle(pickable);
     Some(match plane_change(model, &clicked, feature, mirror) {
         Ok(transaction) => vec![Action::Apply(transaction)],
@@ -487,15 +515,20 @@ pub fn toggled_body(
     if !mirror.mirrors_whole_body() {
         return Err(MirrorToolError::NotWholeBodies);
     }
+
     let clicked = match body_selection::bodies_in(selection).as_slice() {
         [body] => *body,
         _ => return Err(MirrorToolError::NoBodySelected),
     };
+
     if mirror.bodies().any(|body| body == clicked) {
         return without_body(model, feature, mirror, clicked);
     }
+
     let mut bodies: Vec<FeatureId> = mirror.bodies().collect();
+
     bodies.push(checked_body(model, feature, clicked)?);
+
     let changed = with_bodies(mirror, bodies).ok_or(MirrorToolError::LastBody)?;
     change(model, feature, changed)
 }
@@ -546,6 +579,7 @@ pub fn plane_change(
         .map_err(MirrorToolError::ChosenPlane)?
         .ok_or(MirrorToolError::NoPlane)?
         .plane;
+
     if plane == mirror.plane {
         return Err(MirrorToolError::Already);
     }

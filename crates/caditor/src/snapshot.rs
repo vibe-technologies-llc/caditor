@@ -29,7 +29,7 @@ const MESHING_TIMEOUT: Duration = Duration::from_secs(120);
 const MESHING_POLL: Duration = Duration::from_millis(2);
 const REFERENCE_HEIGHT_POINTS: f32 = 720.0;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct Looks {
     canvas: Canvas,
     bodies_only: bool,
@@ -42,7 +42,7 @@ pub struct Snapshot {
     pub pixels_per_point: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Unmeshed {
     #[error("the bodies were not meshed within {} seconds", MESHING_TIMEOUT.as_secs())]
     TimedOut,
@@ -184,6 +184,7 @@ fn framed_from(
 
     let first = build(&sources, FacetLevel::WITHOUT_A_VIEW, looks);
     let initial = View::new(starting, width, height);
+
     let framed = View::new(initial.fitted(first.fit_all()), width, height);
     let level = FacetLevel::fitting(FacetLevel::wanted_chord(&framed));
     let built = build(&sources, level, looks);
@@ -201,6 +202,7 @@ fn build(sources: &Sources<'_>, level: FacetLevel, looks: Looks) -> scene::Built
         ..Context::default().with_principal(looks.principal)
     };
     let unselected = Selection::default();
+
     let mut built = scene::build(
         sources,
         &Highlight {
@@ -212,18 +214,22 @@ fn build(sources: &Sources<'_>, level: FacetLevel, looks: Looks) -> scene::Built
         context,
         &mut SketchShapes::new(scene::drawn_faceting(sources, context, level.faceting())),
     );
+
     built.scene.grid = None;
     built
 }
 
 pub fn meshed(evaluation: &Evaluation, cancel: &CancelToken) -> Result<BodyMeshes, Unmeshed> {
     let mut meshing = BodyMeshing::default();
+
     for (body, _) in evaluation.bodies() {
         if let Some(result) = evaluation.body_result(body) {
             meshing.request(result, no_wake);
         }
     }
+
     let deadline = Instant::now() + MESHING_TIMEOUT;
+
     while meshing.is_pending() {
         if cancel.is_cancelled() {
             return Err(Unmeshed::Cancelled);
@@ -234,7 +240,9 @@ pub fn meshed(evaluation: &Evaluation, cancel: &CancelToken) -> Result<BodyMeshe
         meshing.poll();
         thread::sleep(MESHING_POLL);
     }
+
     let mut meshes = BodyMeshes::default();
+
     meshes.update(evaluation, &meshing);
     Ok(meshes)
 }
@@ -309,7 +317,9 @@ mod tests {
 
         assert!(alone.scene.lines().count() < everything.scene.lines().count());
         assert!(alone.scene.lines().count() > 0);
+
         let origin = Contrast::Standard.palette(Canvas::Dark).origin;
+
         assert!(
             everything
                 .scene

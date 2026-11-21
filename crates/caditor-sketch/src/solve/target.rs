@@ -72,9 +72,11 @@ impl System {
         constraint: &Constraint,
     ) -> Option<Point2> {
         let (point, target) = tracked(constraint)?;
+
         if !is_hidden(sketch, target) {
             return None;
         }
+
         let held = self.point(point).ok()?.at(&self.values);
         Some(
             sketch
@@ -139,6 +141,7 @@ impl System {
             Constraint::HorizontalPoints(point, target)
             | Constraint::VerticalPoints(point, target) => {
                 let (target, mut forms) = self.target_handle(sketch, id, target)?;
+
                 forms.push(Form::Level {
                     point: self.point(*point)?,
                     target,
@@ -153,6 +156,7 @@ impl System {
                 square,
             } => {
                 let (target, mut forms) = self.target_handle(sketch, id, through)?;
+
                 forms.push(Form::OnDirection {
                     point: self.point(*point)?,
                     target,
@@ -166,6 +170,7 @@ impl System {
                 let CentroidTerms { terms, mut forms } =
                     self.centroid_terms(sketch, id, corners)?;
                 let terms: Arc<[(PointHandle, f64)]> = terms.into();
+
                 forms.extend([Vector2::X, Vector2::Y].map(|along| Form::Through {
                     point,
                     terms: Arc::clone(&terms),
@@ -187,11 +192,13 @@ impl System {
         let mut hidden = self.targets.get(&id).into_iter().flatten().copied();
         let mut terms = Vec::new();
         let mut forms = Vec::new();
+
         for member in members {
             match sketch.entity(*member) {
                 Some(Entity::Line { .. }) => {
                     let line = self.line(sketch, *member)?;
                     let half = weight / 2.0;
+
                     terms.extend([(line.start, half), (line.end, half)]);
                 }
                 Some(Entity::Arc { .. }) => {
@@ -199,6 +206,7 @@ impl System {
                         .next()
                         .map(PointHandle::Variable)
                         .ok_or(SketchError::MissingConstraint(id))?;
+
                     forms.extend(self.middle_forms(sketch, middle, *member)?);
                     terms.push((middle, weight));
                 }
@@ -238,12 +246,14 @@ impl System {
                 let point = hidden()?;
                 let mut parameters = self.parameters.get(&id).into_iter().flatten().copied();
                 let mut forms = Vec::new();
+
                 for curve in [*first, *second] {
                     let parameter = if sketch.role(curve) == Some(Role::Spline) {
                         parameters.next()
                     } else {
                         None
                     };
+
                     forms.extend(self.through_curve(sketch, point, curve, parameter)?);
                 }
                 Ok((weighed(vec![point]), forms))
@@ -335,6 +345,7 @@ impl System {
             Some(&Entity::Arc { start, end, .. }) => {
                 let arc = self.circle(sketch, curve)?;
                 let (start, end) = (self.point(start)?, self.point(end)?);
+
                 let chord = LineHandle {
                     start,
                     end,

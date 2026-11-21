@@ -3,14 +3,14 @@ use crate::scene::ViewportRect;
 const KEPT_BINDING: u32 = 0;
 const COPY_TRIANGLE_CORNERS: u32 = 3;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Shown {
     pub background: wgpu::Color,
     pub rect: Option<ViewportRect>,
     pub grid: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Holding {
     Nothing,
     Unsubmitted(Shown),
@@ -122,6 +122,7 @@ impl ViewCopy {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
+
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("kept viewport copy"),
             layout: Some(&pipeline_layout),
@@ -169,6 +170,7 @@ impl ViewCopy {
             })],
             ..Default::default()
         });
+
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &kept.bind_group, &[]);
         pass.draw(0..COPY_TRIANGLE_CORNERS, 0..1);
@@ -182,6 +184,7 @@ mod tests {
     #[test]
     fn the_copy_shader_parses_and_validates() {
         let module = naga::front::wgsl::parse_str(include_str!("kept.wgsl")).unwrap();
+
         naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
             naga::valid::Capabilities::default(),
@@ -204,6 +207,7 @@ mod tests {
             rect: Some(rect),
             grid: true,
         };
+
         let moved = Shown {
             rect: Some(ViewportRect { x: 10.0, ..rect }),
             ..shown
@@ -211,8 +215,11 @@ mod tests {
         let mut holding = Holding::Nothing;
 
         holding.drawn(shown);
+
         let unsubmitted = holding.holds(shown);
+
         holding.after_submit();
+
         let submitted = holding.holds(shown);
         let elsewhere = holding.holds(moved);
         let without_grid = holding.holds(Shown {
@@ -223,9 +230,11 @@ mod tests {
             background: wgpu::Color::WHITE,
             ..shown
         });
+
         holding.drawn(moved);
         holding.abandon_unsubmitted();
         holding.after_submit();
+
         let abandoned = holding.holds(moved) || holding.holds(shown);
 
         assert!(!unsubmitted);

@@ -20,7 +20,9 @@ pub fn machine_guid() -> Option<String> {
     let key = wide(CRYPTOGRAPHY);
     let value = wide(MACHINE_GUID);
     let mut buffer = [0u16; GUID_UNITS];
+
     let mut size = u32::try_from(size_of_val(&buffer)).ok()?;
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let status = unsafe {
         RegGetValueW(
@@ -33,9 +35,11 @@ pub fn machine_guid() -> Option<String> {
             &raw mut size,
         )
     };
+
     if status != ERROR_SUCCESS {
         return None;
     }
+
     let units = usize::try_from(size).ok()? / size_of::<u16>();
     let text = buffer.get(..units)?;
     let end = text
@@ -50,6 +54,7 @@ pub fn boot_id() -> Option<u32> {
     let value = wide(BOOT_ID);
     let mut boot = 0u32;
     let mut size = u32::try_from(size_of::<u32>()).ok()?;
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let status = unsafe {
         RegGetValueW(

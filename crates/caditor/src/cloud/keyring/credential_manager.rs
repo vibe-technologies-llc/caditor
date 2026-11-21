@@ -50,6 +50,7 @@ impl AiKeyring for CredentialManager {
 
 fn read_pieces(make_target: impl Fn(usize) -> String) -> Result<Option<Vec<u8>>, KeyringError> {
     let mut secret = Vec::new();
+
     for piece in 0..MOST_PIECES {
         match read_credential(&make_target(piece)).map_err(KeyringError::Credential)? {
             Some(bytes) => secret.extend(bytes),
@@ -66,6 +67,7 @@ fn write_pieces(make_target: impl Fn(usize) -> String, secret: &[u8]) -> Result<
     } else {
         secret.chunks(CREDENTIAL_BLOB_LIMIT).collect()
     };
+
     if pieces.len() > MOST_PIECES {
         return Err(KeyringError::TooManyPieces);
     }

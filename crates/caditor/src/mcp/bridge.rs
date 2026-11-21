@@ -67,10 +67,13 @@ impl LoopbackBridge {
         let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
         let listener = TcpListener::bind(address)?;
         let port = listener.local_addr()?.port();
+
         listener.set_nonblocking(true)?;
+
         let stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&stop);
         let expected = token.clone();
+
         let worker = thread::Builder::new()
             .name("mcp bridge".to_owned())
             .spawn(move || accept_loop(listener, expected, stop_flag, handler))?;
@@ -92,6 +95,7 @@ impl LoopbackBridge {
 
     pub fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Release);
+
         let _ = TcpStream::connect(SocketAddrV4::new(Ipv4Addr::LOCALHOST, self.port));
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
@@ -107,10 +111,14 @@ impl Drop for LoopbackBridge {
 
 fn random_token() -> io::Result<String> {
     let mut bytes = [0_u8; 32];
+
     graviola::random::fill(&mut bytes).map_err(|_| io::Error::other("random generator failed"))?;
+
     let mut hex = String::with_capacity(bytes.len() * 2);
+
     for byte in bytes {
         use std::fmt::Write as _;
+
         let _ = write!(hex, "{byte:02x}");
     }
     Ok(hex)
@@ -128,9 +136,11 @@ fn accept_loop(
                 if stop.load(Ordering::Acquire) {
                     break;
                 }
+
                 let expected = token.clone();
                 let stop_client = Arc::clone(&stop);
                 let handler = Arc::clone(&handler);
+
                 let _ = thread::Builder::new()
                     .name("mcp bridge client".to_owned())
                     .spawn(move || serve_connection(stream, &expected, &stop_client, &*handler));
@@ -159,6 +169,7 @@ fn serve_connection(
     };
     let mut reader = BufReader::new(stream);
     let mut auth_line = String::new();
+
     match reader.read_line(&mut auth_line) {
         Ok(bytes) if bytes > 0 => {
             if !constant_time_eq(auth_line.trim().as_bytes(), expected_token.as_bytes()) {
@@ -167,6 +178,7 @@ fn serve_connection(
         }
         _ => return,
     }
+
     let _ = reader.get_ref().set_read_timeout(None);
     let mut protocol = PROTOCOL_VERSIONS
         .first()
@@ -176,6 +188,7 @@ fn serve_connection(
         if stop.load(Ordering::Acquire) {
             break;
         }
+
         let line = match json_rpc::read_line(&mut reader, MAX_LINE_BYTES) {
             Ok(line) => line,
             Err(_) => break,
@@ -184,6 +197,7 @@ fn serve_connection(
             Line::End => break,
             Line::TooLong => {
                 let error = json_rpc::error(None, Code::ParseError, "the request line is too long");
+
                 if json_rpc::write_message(&mut writer, &error).is_err() {
                     break;
                 }
@@ -198,6 +212,7 @@ fn serve_connection(
                         rejected.reason.code(),
                         &rejected.reason.to_string(),
                     );
+
                     if json_rpc::write_message(&mut writer, &error).is_err() {
                         break;
                     }
@@ -248,6 +263,7 @@ fn respond(
 
 fn initialize(params: &Value, protocol: &mut &'static str) -> Value {
     let asked = params.get("protocolVersion").and_then(Value::as_str);
+
     *protocol = asked
         .and_then(|version| {
             PROTOCOL_VERSIONS
@@ -283,12 +299,14 @@ fn call_tool(
             "tools/call needs a tool name".to_owned(),
         )
     })?;
+
     if Tool::named(name).is_none() {
         return Err((
             Code::InvalidParams,
             format!("there is no tool named {name}"),
         ));
     }
+
     let arguments = params
         .get("arguments")
         .cloned()
@@ -298,6 +316,7 @@ fn call_tool(
         Ok(answer) => {
             let text = Value::Object(answer.data.clone()).to_string();
             let mut content = vec![json!({ "type": "text", "text": text })];
+
             if let Some(png) = answer.image {
                 content.push(json!({
                     "type": "image",
@@ -305,7 +324,9 @@ fn call_tool(
                     "mimeType": "image/png"
                 }));
             }
+
             let mut result = Map::new();
+
             result.insert("content".to_owned(), Value::Array(content));
             if protocol >= STRUCTURED_FROM {
                 result.insert("structuredContent".to_owned(), Value::Object(answer.data));
@@ -337,7 +358,9 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
     }
+
     let mut diff = 0_u8;
+
     for (a, b) in left.iter().zip(right.iter()) {
         diff |= a ^ b;
     }
@@ -350,15 +373,18 @@ pub fn connect_stdio(port: u16) -> Result<ExitCode> {
         _ => bail!("{TOKEN_ENV} is required to connect to a running caditor window"),
     };
     let mut stream = TcpStream::connect(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))?;
+
     writeln!(stream, "{}", token.trim())?;
     stream.flush()?;
 
     let mut to_server = stream.try_clone()?;
+
     let reader_handle = thread::Builder::new()
         .name("mcp bridge stdin".to_owned())
         .spawn(move || {
             let mut stdin = BufReader::new(io::stdin());
             let mut line = String::new();
+
             loop {
                 line.clear();
                 match stdin.read_line(&mut line) {
@@ -372,12 +398,14 @@ pub fn connect_stdio(port: u16) -> Result<ExitCode> {
                     }
                 }
             }
+
             let _ = to_server.shutdown(std::net::Shutdown::Write);
         })?;
 
     let mut from_server = BufReader::new(stream);
     let mut stdout = io::stdout();
     let mut line = String::new();
+
     loop {
         line.clear();
         match from_server.read_line(&mut line) {
@@ -389,6 +417,7 @@ pub fn connect_stdio(port: u16) -> Result<ExitCode> {
             }
         }
     }
+
     let _ = reader_handle.join();
     Ok(ExitCode::SUCCESS)
 }
@@ -407,6 +436,7 @@ mod tests {
             _cancelled: &AtomicBool,
         ) -> ToolCallOutcome {
             let mut map = Map::new();
+
             map.insert("called".to_owned(), json!(name));
             ToolCallOutcome {
                 answer: Ok(Answer::of(map)),
@@ -424,15 +454,19 @@ mod tests {
 
         let mut bad =
             TcpStream::connect(SocketAddrV4::new(Ipv4Addr::LOCALHOST, bridge.port())).unwrap();
+
         writeln!(bad, "wrong-token").unwrap();
         writeln!(bad, "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}}").unwrap();
         bad.flush().unwrap();
+
         let mut bad_reader = BufReader::new(bad);
         let mut bad_reply = String::new();
+
         assert_eq!(bad_reader.read_line(&mut bad_reply).unwrap(), 0);
 
         let mut good =
             TcpStream::connect(SocketAddrV4::new(Ipv4Addr::LOCALHOST, bridge.port())).unwrap();
+
         writeln!(good, "{}", bridge.token()).unwrap();
         writeln!(
             good,
@@ -450,15 +484,18 @@ mod tests {
         )
         .unwrap();
         good.flush().unwrap();
+
         let _ = good.shutdown(std::net::Shutdown::Write);
 
         let mut reader = BufReader::new(good);
         let mut replies = Vec::new();
         let mut line = String::new();
+
         while reader.read_line(&mut line).unwrap() > 0 {
             replies.push(serde_json::from_str::<Value>(&line).unwrap());
             line.clear();
         }
+
         assert_eq!(replies.len(), 3);
         assert_eq!(replies[0]["result"]["serverInfo"]["name"], about::NAME);
         assert_eq!(
@@ -469,6 +506,7 @@ mod tests {
             replies[2]["result"]["contents"][0]["uri"],
             "caditor://model/summary"
         );
+
         bridge.shutdown();
     }
 }

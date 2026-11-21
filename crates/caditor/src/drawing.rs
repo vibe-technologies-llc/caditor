@@ -108,7 +108,7 @@ const LENGTH_LOCK_KEYS: Keys = &[
     ("Backspace or Esc", "let go of it", Rank::Main),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ChainArcError {
     #[error("Only a chain of lines goes on as a tangent arc; choose the Line tool first")]
     NotDrawingLines,
@@ -122,7 +122,7 @@ impl Reason for ChainArcError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LengthLockError {
     #[error(
         "A length is held from the last point once the shape has only its first point: place \
@@ -131,7 +131,7 @@ pub enum LengthLockError {
     NotHoldable,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TypeOnCurveError {
     #[error(
         "This point can only go at a point: highlight one of the sketch's points or the origin"
@@ -139,7 +139,7 @@ pub enum TypeOnCurveError {
     OnlyAtPoints,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ReverseError {
     #[error("Place an arc's centre and start first; then its end can go either way round")]
     NoSweep,
@@ -151,7 +151,7 @@ impl Reason for ReverseError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SidesError {
     #[error("Choose the Polygon tool first")]
     NotAPolygon,
@@ -167,7 +167,7 @@ impl Reason for SidesError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum DrawnDegreeError {
     #[error("Choose the Spline tool's control-point way first: only it has a degree to choose")]
     NotAControlSpline,
@@ -183,7 +183,7 @@ impl Reason for DrawnDegreeError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RhoError {
     #[error("Only a conic takes a rho; choose the Conic tool first")]
     NotAConic,
@@ -194,7 +194,7 @@ pub enum RhoError {
     OutOfRange,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ShapeProgressError {
     #[error("Start a shape first: click where it begins")]
     NoShapeStarted,
@@ -211,7 +211,7 @@ impl Reason for ShapeProgressError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     Line,
     Rectangle,
@@ -302,14 +302,14 @@ impl Refusal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Ended {
     Drawn(Transaction),
     Stopped,
     Refused(Refusal),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shape {
     Point,
     Line,
@@ -476,7 +476,7 @@ impl Shape {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FirstPoint {
     Centre,
     Corner,
@@ -521,13 +521,13 @@ fn carries_points(from: Shape, to: Shape, placed: usize) -> bool {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Arcing {
     Toggled,
     Dragged,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Tangent {
     pub(crate) curve: EntityId,
     pub(crate) direction: Vector2,
@@ -535,13 +535,13 @@ pub(crate) struct Tangent {
 
 const SCRUB_POINTS_PER_SIDE: f64 = 24.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Scrub {
     from: f64,
     sides: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Rho {
     value: f64,
     driven_by: Option<Expression>,
@@ -558,7 +558,7 @@ impl Default for Rho {
 
 const DEFAULT_RHO: f64 = 0.5;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sides(usize);
 
 impl Default for Sides {
@@ -567,7 +567,7 @@ impl Default for Sides {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DrawnDegree(usize);
 
 impl Default for DrawnDegree {
@@ -576,7 +576,7 @@ impl Default for DrawnDegree {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Horizontal,
     Vertical,
@@ -643,7 +643,7 @@ fn with_reference(words: String, reference: Option<EntityId>, sketch: &Sketch) -
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Guide {
     direction: Direction,
     along: Vector2,
@@ -660,13 +660,13 @@ const LEVEL_AND_UPRIGHT: [Guide; 2] = [
     },
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Aligned {
     guide: Guide,
     position: Point2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct NearbyLine {
     distance: f64,
     line: EntityId,
@@ -674,7 +674,7 @@ struct NearbyLine {
     continued: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Snap {
     Free,
     Grid(Option<Direction>),
@@ -708,7 +708,7 @@ impl Snap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Placement {
     pub position: Point2,
     pub snap: Snap,
@@ -741,7 +741,7 @@ impl Placement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sweep {
     center: Point2,
     start_angle: f64,
@@ -764,20 +764,26 @@ impl Sweep {
 
     pub fn follow(&mut self, point: Point2) {
         let offset = point - self.center;
+
         if offset.length_squared() == 0.0 {
             return;
         }
+
         let angle = angle_of(offset);
+
         self.turned += shortest_turn(self.last_angle, angle);
         self.last_angle = angle;
     }
 
     pub fn aim(&mut self, point: Point2) {
         let offset = point - self.center;
+
         if offset.length_squared() == 0.0 {
             return;
         }
+
         let angle = angle_of(offset);
+
         self.turned = shortest_turn(self.start_angle, angle);
         self.last_angle = angle;
     }
@@ -830,7 +836,7 @@ pub fn arc_ends<T>(counter_clockwise: bool, start: T, end: T) -> (T, T) {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Preview {
     pub curves: Vec<Vec<Point2>>,
     pub removed: Vec<Vec<Point2>>,
@@ -840,7 +846,7 @@ pub struct Preview {
     pub construction: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Prompt {
     pub text: String,
     keys: Keys,
@@ -862,7 +868,7 @@ impl Prompt {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Drawing {
     context: Option<(FeatureId, Shape)>,
     construction: bool,
@@ -893,7 +899,7 @@ pub struct Drawing {
     about: Option<EntityId>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Lock {
     Direction(Vector2),
     Length(f64),
@@ -905,7 +911,7 @@ impl Lock {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Heading {
     from: Point2,
     held: Lock,
@@ -936,20 +942,20 @@ impl Heading {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Pointed {
     hover: Option<Placement>,
     sweep: Option<Sweep>,
     heading: Option<Heading>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct TypedMark {
     position: Point2,
     dimensions: Vec<TypedDimension>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Carried {
     placed: Vec<Placement>,
     tangent: Option<Tangent>,
@@ -958,7 +964,7 @@ struct Carried {
     typed: Vec<TypedMark>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Resting {
     feature: FeatureId,
     end: Placement,
@@ -967,7 +973,7 @@ struct Resting {
     mark: UndoMark,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct ChainStep {
     start: Placement,
     tangent: Option<Tangent>,
@@ -1040,6 +1046,7 @@ impl Drawing {
                     .and_then(|start| point_target(start.snap)),
             )
             .and_then(|(sketch, point)| continuing(sketch, point));
+
         if tangent.is_some() {
             self.tangent = tangent;
             self.arcing = Some(arcing);
@@ -1059,6 +1066,7 @@ impl Drawing {
             return Vec::new();
         };
         let mut shown = Vec::new();
+
         if let Some(target) = hover.snap.target() {
             self.outlines.show(target, &mut shown);
         }
@@ -1078,6 +1086,7 @@ impl Drawing {
     ) {
         let context =
             active.and_then(|active| Some((active.feature, Shape::of(active.tool, modes)?)));
+
         if context != self.context {
             let carried = self.continued_in(context, sketch);
             let resting = if self.in_progress() {
@@ -1092,6 +1101,7 @@ impl Drawing {
             } else {
                 Acquired::default()
             };
+
             *self = Self {
                 context,
                 sides: self.sides,
@@ -1110,12 +1120,15 @@ impl Drawing {
             }
             self.resting = resting.filter(|_| self.placed.is_empty());
         }
+
         let feature = active.map(|active| active.feature);
         let mark = model.undo_mark();
+
         let stale = self
             .resting
             .as_ref()
             .is_some_and(|resting| Some(resting.feature) != feature || resting.mark != mark);
+
         if stale || self.in_progress() {
             self.resting = None;
         }
@@ -1123,6 +1136,7 @@ impl Drawing {
         if let Some(sketch) = sketch {
             self.acquired.retain(sketch);
         }
+
         let lost_anchor = sketch.is_some_and(|sketch| {
             let lost_point = self.placed.iter().any(|placement| {
                 placement
@@ -1171,11 +1185,13 @@ impl Drawing {
     pub fn resume_chain(&mut self, model: &Model) -> bool {
         let feature = self.context.map(|(feature, _)| feature);
         let resumable = self.drawing_lines() && !self.in_progress();
+
         let Some(resting) = self.resting.take_if(|resting| {
             resumable && Some(resting.feature) == feature && resting.mark == model.undo_mark()
         }) else {
             return false;
         };
+
         self.placed = vec![resting.end];
         self.chain = resting.chain;
         self.chain_start = resting.chain_start;
@@ -1189,6 +1205,7 @@ impl Drawing {
     ) -> Option<Carried> {
         let (feature, from) = self.context?;
         let (next_feature, to) = context?;
+
         if feature != next_feature {
             return None;
         }
@@ -1222,6 +1239,7 @@ impl Drawing {
     pub fn refuses_mode(&self, mode: ShapeMode) -> Option<String> {
         let (_, from) = self.context?;
         let to = Shape::drawn(mode)?;
+
         let changes_way = from != to && discriminant(&from) == discriminant(&to);
         (changes_way && self.in_progress() && !carries_points(from, to, self.placed.len())).then(
             || {
@@ -1239,6 +1257,7 @@ impl Drawing {
         let arcing = self
             .context
             .is_some_and(|(_, shape)| shape == Shape::TangentArc);
+
         while let Some(step) = self.chain.pop() {
             let tangent = match step.tangent {
                 None if arcing => sketch
@@ -1339,6 +1358,7 @@ impl Drawing {
             .position;
         let offset = crossing - from;
         let tolerance = HELD_TOLERANCE * (1.0 + from.abs().max_element());
+
         let direction = if offset.length() < DEGENERATE_LENGTH {
             None
         } else if offset.y.abs() <= tolerance {
@@ -1353,14 +1373,17 @@ impl Drawing {
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
         self.end_typed_preview();
+
         let Some((_, shape)) = self.current() else {
             self.hover = None;
             return;
         };
+
         if self.scrub.is_some() {
             return;
         }
         self.hover = pointer.map(|pointer| self.place(shape, sketch, screen, pointer));
+
         let headed = self
             .active_heading()
             .zip(self.hover)
@@ -1369,6 +1392,7 @@ impl Drawing {
                 position: hover.position,
                 dimensions: heading.dimensions.clone(),
             });
+
         if headed.is_some() {
             self.typed_hover = headed;
         }
@@ -1425,6 +1449,7 @@ impl Drawing {
         let (_, shape) = self.current()?;
         let hover = self.hover?.position;
         let length = |millimetres: f64| unit.readout_text(millimetres);
+
         let leg = |from: Point2| {
             let delta = hover - from;
             format!(
@@ -1434,14 +1459,17 @@ impl Drawing {
             )
         };
         let sides = self.sides.0;
+
         if let (Shape::Spline(_), [.., last]) = (shape, self.placed.as_slice()) {
             return Some(leg(last.position));
         }
+
         let [first] = self.placed.as_slice() else {
             return match (shape, self.placed.as_slice()) {
                 (Shape::Conic, [_, _]) => Some(format!("rho {:.2}", self.rho.value)),
                 (Shape::Slot(SlotMode::Arc), [center, start, end]) => {
                     let (first, last) = arc_ends(self.counter_clockwise(), *start, *end);
+
                     let arc =
                         ArcGeometry::from_points(center.position, first.position, last.position);
                     Some(format!(
@@ -1580,6 +1608,7 @@ impl Drawing {
 
     pub fn preview_heading(&mut self, sketch: &Sketch, degrees: f64) {
         let held = Lock::heading(degrees);
+
         self.preview_held(sketch, held);
     }
 
@@ -1593,6 +1622,7 @@ impl Drawing {
         let Some(toward) = self.pointer_position() else {
             return;
         };
+
         self.keep_pointed();
         self.heading = self.heading_from(held, Vec::new());
         if let Some(reached) = self.heading.as_ref().map(|heading| heading.reach(toward)) {
@@ -1602,7 +1632,9 @@ impl Drawing {
 
     pub fn lock_heading(&mut self, degrees: f64, dimensions: Vec<TypedDimension>) {
         self.end_typed_preview();
+
         let held = Lock::heading(degrees);
+
         self.heading = self.heading_from(held, dimensions);
     }
 
@@ -1686,6 +1718,7 @@ impl Drawing {
             return;
         };
         let same = |candidate: Point2| candidate.distance(position) <= TYPED_TOLERANCE;
+
         let pending = self
             .pending(shape)
             .into_iter()
@@ -1695,10 +1728,12 @@ impl Drawing {
             .into_iter()
             .find(|candidate| same(candidate.position))
             .map(|candidate| (candidate.position, candidate.target));
+
         let placement = match pending.or(existing) {
             Some((position, target)) => Placement::at(position, Snap::Target(target)),
             None => Placement::free(position),
         };
+
         self.hover = Some(placement);
         self.extension_guide = None;
         if self.choosing_arc_end()
@@ -1718,6 +1753,7 @@ impl Drawing {
             .map(|heading| heading.dimensions.clone())
             .unwrap_or_default();
         let mut dimensions = placed.dimensions;
+
         if !dimensions.is_empty() {
             dimensions.extend(along_heading);
         }
@@ -1739,9 +1775,11 @@ impl Drawing {
         let Some((_, shape)) = self.current() else {
             return Err(TypeOnCurveError::OnlyAtPoints);
         };
+
         if self.accept(shape) != Accept::Anything {
             return Err(TypeOnCurveError::OnlyAtPoints);
         }
+
         let (position, target) = match sketch.entity(curve) {
             Some(Entity::Line { .. }) => {
                 let (start, end) = sketch
@@ -1776,7 +1814,9 @@ impl Drawing {
             }
             Some(Entity::Point(_)) | None => return Err(TypeOnCurveError::OnlyAtPoints),
         };
+
         let placement = Placement::at(position, Snap::Target(target));
+
         self.hover = Some(placement);
         self.extension_guide = None;
         if self.choosing_arc_end()
@@ -1941,9 +1981,11 @@ impl Drawing {
             sides: self.sides.0,
         });
         let reach = MAX_SIDES as f64;
+
         let steps = ((x - scrub.from) / SCRUB_POINTS_PER_SIDE)
             .round()
             .clamp(-reach, reach);
+
         self.sides = Sides(
             scrub
                 .sides
@@ -1998,13 +2040,16 @@ impl Drawing {
                 .chain
                 .last()
                 .is_some_and(|step| undo_label == Some(step.label.as_str()));
+
         if undoes_segment {
             return true;
         }
         self.pointed = None;
         self.heading = None;
         self.placed.pop();
+
         let sweeps_from = self.context.and_then(|(_, shape)| shape.sweeps_from());
+
         if sweeps_from.is_none_or(|from| self.placed.len() < from) {
             self.sweep = None;
         }
@@ -2030,20 +2075,26 @@ impl Drawing {
 
     pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
         self.pointed = None;
+
         let feature = self.context.map(|(feature, _)| feature);
         let chain_before = self.chain.len();
         let clicked = self.placed_by_click(model);
+
         if clicked.is_ok() {
             self.heading = None;
         }
+
         let arc_ended = matches!(clicked, Ok(Some(_))) || self.arcing == Some(Arcing::Dragged);
+
         if self.arcing.is_some() && arc_ended {
             self.line_next();
         }
+
         let pushed = self.chain.len() > chain_before;
         clicked.map(|drawn| {
             drawn.zip(feature).map(|(drawn, feature)| {
                 let transaction = self.symmetric(model, feature, drawn);
+
                 if pushed && let Some(step) = self.chain.last_mut() {
                     step.label = transaction.label().to_owned();
                 }
@@ -2056,6 +2107,7 @@ impl Drawing {
         let (Some((feature, shape)), Some(placement)) = (self.current(), self.hover) else {
             return Ok(None);
         };
+
         if let Snap::Target(Target::Pending(_)) = placement.snap
             && self.arcing == Some(Arcing::Dragged)
         {
@@ -2099,11 +2151,14 @@ impl Drawing {
         {
             self.typed.push(mark);
         }
+
         let placed = &self.placed;
+
         self.typed.retain(|mark| {
             mark.position == placement.position
                 || placed.iter().any(|placed| placed.position == mark.position)
         });
+
         let bodies = &self.bodies;
         let draft =
             |name: &str| Draft::new(model, feature, name, self.construction, Arc::clone(bodies));
@@ -2123,9 +2178,11 @@ impl Drawing {
             (Shape::Conic, &[start, end]) => {
                 let chord = end.position - start.position;
                 let off = chord.perp_dot(placement.position - start.position);
+
                 if off.abs() <= DEGENERATE_LENGTH * chord.length().max(1.0) {
                     return Err(Refusal::ConicApex);
                 }
+
                 let rho = self.rho.clone();
                 draft(shape.name()).map(|mut draft| {
                     draft.conic([start, placement, end], rho);
@@ -2138,16 +2195,20 @@ impl Drawing {
             }),
             (Shape::Line, &[start]) => {
                 apart(start, Refusal::Line)?;
+
                 let Some(mut draft) = draft(shape.name()) else {
                     return Ok(None);
                 };
                 let (first, end) = draft.line(start, placement);
+
                 if self.chain_start.is_empty() {
                     self.chain_start.push(first);
                     self.chain_start.extend(point_target(start.snap));
                 }
+
                 let closed = point_target(placement.snap)
                     .is_some_and(|target| self.chain_start.contains(&target));
+
                 if closed {
                     self.cancel();
                 } else {
@@ -2264,6 +2325,7 @@ impl Drawing {
             }
             (Shape::TangentArc, &[start]) => {
                 apart(start, Refusal::ArcSweep)?;
+
                 let tangent = self.tangent.ok_or(Refusal::TangentStart)?;
                 let circular =
                     shapes::tangent_from(start.position, tangent.direction, placement.position)
@@ -2271,13 +2333,17 @@ impl Drawing {
                 let Some(mut draft) = draft(shape.name()) else {
                     return Ok(None);
                 };
+
                 let drawn = draft.tangent_arc(start, placement, tangent.curve, circular);
+
                 if self.chain_start.is_empty() {
                     self.chain_start.push(drawn.start);
                     self.chain_start.extend(point_target(start.snap));
                 }
+
                 let closed = point_target(placement.snap)
                     .is_some_and(|target| self.chain_start.contains(&target));
+
                 match shapes::leaving(circular, placement.position) {
                     Some(direction) if !closed => {
                         self.chain.push(ChainStep {
@@ -2333,11 +2399,13 @@ impl Drawing {
             }
             (Shape::Slot(SlotMode::Arc), &[center, start]) => {
                 let end = landing_on_arc(center, start, placement).ok_or(Refusal::ArcSlotSweep)?;
+
                 self.placed.push(end);
                 return Ok(None);
             }
             (Shape::Slot(SlotMode::Arc), &[center, start, end]) => {
                 let (first, last) = arc_ends(self.counter_clockwise(), start, end);
+
                 let slot = ArcSlot::new(
                     center.position,
                     [first.position, last.position],
@@ -2369,6 +2437,7 @@ impl Drawing {
                         .ok_or(Refusal::EllipseWidth)?;
                 let start = shapes::toward_on_ellipse(&ellipse, placement.position)
                     .ok_or(Refusal::EllipseWidth)?;
+
                 self.sweep = Some(Sweep::new(center.position, start));
                 self.placed.push(placement);
                 return Ok(None);
@@ -2379,18 +2448,21 @@ impl Drawing {
                         .ok_or(Refusal::EllipseWidth)?;
                 let start = shapes::toward_on_ellipse(&ellipse, width.position)
                     .ok_or(Refusal::EllipseWidth)?;
+
                 let end = shapes::toward_on_ellipse(&ellipse, placement.position)
                     .filter(|end| end.distance(start) >= DEGENERATE_LENGTH)
                     .ok_or(Refusal::EllipticalArcSweep)?;
                 let counter_clockwise = self.counter_clockwise();
                 draft(shape.name()).map(|mut draft| {
                     let (first, last) = arc_ends(counter_clockwise, start, end);
+
                     draft.elliptical_arc(center, axis, ellipse.minor_radius, [first, last]);
                     draft
                 })
             }
             (Shape::Polygon(PolygonMode::Corner), &[center]) => {
                 apart(center, Refusal::PolygonSize)?;
+
                 let corners =
                     shapes::polygon_corners(center.position, placement.position, self.sides.0);
                 self.polygon_draft(model, feature).map(|mut draft| {
@@ -2400,6 +2472,7 @@ impl Drawing {
             }
             (Shape::Polygon(PolygonMode::SideMiddle), &[center]) => {
                 apart(center, Refusal::PolygonSideMiddle)?;
+
                 let corners = shapes::polygon_around_side_middle(
                     center.position,
                     placement.position,
@@ -2438,9 +2511,11 @@ impl Drawing {
                 return Ok(None);
             }
         };
+
         if shape != Shape::Point {
             self.cancel();
         }
+
         let typed = std::mem::take(&mut self.typed);
         Ok(finished.map(|draft| draft.finish(&typed)))
     }
@@ -2477,6 +2552,7 @@ impl Drawing {
 
     pub fn finish(&mut self, model: &Model) -> Option<Ended> {
         let (feature, shape) = self.context?;
+
         if !self.in_progress() {
             return None;
         }
@@ -2487,6 +2563,7 @@ impl Drawing {
             }
             Shape::Spline(mode) => {
                 let kind = self.spline_kind(mode, false, self.placed.len());
+
                 if self.placed.len() < kind.fewest_points() {
                     return Some(Ended::Refused(if kind.is_closed() {
                         Refusal::ClosedSplinePoints
@@ -2520,12 +2597,14 @@ impl Drawing {
             return None;
         };
         let kind = self.spline_kind(mode, closing, self.placed.len());
+
         if self.placed.len() < kind.fewest_points() {
             if !kind.is_closed() {
                 self.placed.clear();
             }
             return None;
         }
+
         let placed = std::mem::take(&mut self.placed);
         let mut draft = Draft::new(
             model,
@@ -2534,6 +2613,7 @@ impl Drawing {
             self.construction,
             Arc::clone(&self.bodies),
         )?;
+
         draft.spline(&placed, kind);
         Some(draft.finish(&std::mem::take(&mut self.typed)))
     }
@@ -2575,6 +2655,7 @@ impl Drawing {
             corners.extend(corners.first().copied());
             corners
         };
+
         match (shape, placed.as_slice()) {
             (Shape::Line, &[start]) => preview.curves.push(vec![start, cursor]),
             (Shape::Rectangle(RectangleMode::Corners), &[corner]) => {
@@ -2584,6 +2665,7 @@ impl Drawing {
             }
             (Shape::Rectangle(RectangleMode::Center), &[center]) => {
                 let opposite = shapes::mirrored(cursor, center);
+
                 preview
                     .curves
                     .push(closed(rectangle_corners(cursor, opposite).to_vec()));
@@ -2628,6 +2710,7 @@ impl Drawing {
             }
             (Shape::Slot(SlotMode::Arc), &[center, start, end]) => {
                 let (first, last) = arc_ends(self.counter_clockwise(), start, end);
+
                 preview
                     .curves
                     .push(match ArcSlot::new(center, [first, last], cursor) {
@@ -2662,6 +2745,7 @@ impl Drawing {
                 let circular = self
                     .tangent
                     .and_then(|tangent| shapes::tangent_from(start, tangent.direction, cursor));
+
                 preview.curves.push(match circular {
                     Some(circular) => circular.arc(start, cursor).faceted(faceting),
                     None => vec![start, cursor],
@@ -2676,6 +2760,7 @@ impl Drawing {
             }
             (Shape::Slot(SlotMode::Center), &[center, end]) => {
                 let mirrored = shapes::mirrored(end, center);
+
                 preview.curves.push(match Slot::new(mirrored, end, cursor) {
                     Some(slot) => slot.outline(faceting),
                     None => vec![mirrored, end],
@@ -2739,6 +2824,7 @@ impl Drawing {
                 });
                 if let Some((ellipse, start, end)) = ends {
                     let (first, last) = arc_ends(self.counter_clockwise(), start, end);
+
                     let arc = EllipseGeometry::from_points(
                         ellipse.center,
                         ellipse.center + ellipse.major,
@@ -2746,6 +2832,7 @@ impl Drawing {
                         first,
                         last,
                     );
+
                     preview.curves.push(arc.faceted(faceting));
                     preview.points = vec![center, axis, start, end];
                 }
@@ -2790,6 +2877,7 @@ impl Drawing {
         let (_, shape) = self.current()?;
         let hover = self.hover?;
         let snap = hover.snap;
+
         let label = match (snap.target(), snap.direction()) {
             (None, direction) if matches!(snap, Snap::Grid(_)) => Some(match direction {
                 Some(direction) => format!("{ON_THE_GRID}, {}", direction.joined_label(sketch)),
@@ -2839,6 +2927,7 @@ impl Drawing {
 
     pub fn prompt(&self) -> Option<Prompt> {
         let (_, shape) = self.current()?;
+
         if let Some(heading) = self.active_heading() {
             return Some(if heading.holds_length() {
                 Prompt {
@@ -2856,6 +2945,7 @@ impl Drawing {
                 }
             });
         }
+
         let prompt = |text: &str, keys| {
             Some(Prompt {
                 text: text.to_owned(),
@@ -3031,8 +3121,10 @@ impl Drawing {
         if let Some(hold) = self.hold {
             return self.place_held(shape, sketch, screen, pointer, hold);
         }
+
         let pending = self.pending(shape);
         let accept = self.accept(shape);
+
         let lookup = Lookup {
             pending: &pending,
             accept,
@@ -3091,8 +3183,10 @@ impl Drawing {
                 .map(|tracked| Placement::tracked(tracked, Snap::Free))
                 .unwrap_or_else(|| self.unsnapped(screen, pointer))
         };
+
         if let Some(from) = self.levelled_from(shape) {
             let level = level_and_upright(self.inferred);
+
             return match snapped {
                 Some(snapped) => {
                     aligned_on(sketch, screen, pointer, from.position, snapped, &level)
@@ -3102,6 +3196,7 @@ impl Drawing {
                 None => align(from.position, screen, pointer, &level).unwrap_or_else(tracked_alone),
             };
         }
+
         let Some(start) = self.aligned_from(shape) else {
             return match snapped {
                 Some(snapped) => tracked_on(snapped).unwrap_or(Placement::snapped(snapped)),
@@ -3117,6 +3212,7 @@ impl Drawing {
         } else {
             None
         };
+
         let guides = guides(
             sketch,
             screen,
@@ -3256,6 +3352,7 @@ fn nearest_lines(
     continued: Option<EntityId>,
 ) -> Vec<NearbyLine> {
     let mut nearest: Vec<NearbyLine> = Vec::with_capacity(NEARBY_LINES + 1);
+
     for (line, entity) in sketch.entities() {
         let Entity::Line {
             start: first,
@@ -3264,17 +3361,21 @@ fn nearest_lines(
         else {
             continue;
         };
+
         let (Some(begin), Some(finish)) = (sketch.point(*first), sketch.point(*last)) else {
             continue;
         };
+
         let (Some(from), Some(to)) = (screen.to_screen(begin), screen.to_screen(finish)) else {
             continue;
         };
         let probes = std::iter::once(pointer).chain(start);
+
         if nearest.len() == NEARBY_LINES
             && let Some(farthest) = nearest.last().map(|kept| kept.distance)
         {
             let (low, high) = (from.min(to), from.max(to));
+
             let closest_possible = probes
                 .clone()
                 .map(|at| at.distance(at.clamp(low, high)))
@@ -3283,16 +3384,20 @@ fn nearest_lines(
                 continue;
             }
         }
+
         let distance = probes
             .map(|at| at.distance(snap::closest_on_segment(from, to, at)))
             .fold(f64::INFINITY, f64::min);
         let place = nearest.partition_point(|kept| kept.distance.total_cmp(&distance).is_le());
+
         if place >= NEARBY_LINES {
             continue;
         }
+
         let Some(along) = (finish - begin).try_normalize() else {
             continue;
         };
+
         nearest.insert(
             place,
             NearbyLine {
@@ -3363,9 +3468,11 @@ fn alignments(
         return Vec::new();
     };
     let drawn = pointer.screen - from;
+
     if drawn.length() < MIN_ALIGN_LENGTH {
         return Vec::new();
     }
+
     let max_angle = ALIGN_ANGLE_DEGREES.to_radians();
     let mut found: Vec<(bool, f64, Aligned)> = guides
         .iter()
@@ -3383,6 +3490,7 @@ fn alignments(
                 .then_some((referenced, offset, aligned))
         })
         .collect();
+
     found.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
     found.into_iter().map(|(_, _, aligned)| aligned).collect()
 }
@@ -3444,6 +3552,7 @@ fn aligned_on(
 fn held(start: Point2, end: Point2, guides: &[Guide]) -> Option<Direction> {
     let drawn = end - start;
     let length = drawn.length();
+
     if length < DEGENERATE_LENGTH {
         return None;
     }
@@ -3547,7 +3656,7 @@ struct Draft<'a> {
     projected: Vec<(usize, EntityId)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DrawnCurve {
     curve: EntityId,
     start: EntityId,
@@ -3603,9 +3712,11 @@ impl<'a> Draft<'a> {
                     None => continue,
                 },
             };
+
             if from == point {
                 continue;
             }
+
             let value = dimension.value.clone();
             let constraint = match dimension.measured {
                 Measured::Across => Constraint::HorizontalDistance {
@@ -3635,6 +3746,7 @@ impl<'a> Draft<'a> {
                     }
                 }
             };
+
             self.constrain(constraint);
         }
     }
@@ -3669,6 +3781,7 @@ impl<'a> Draft<'a> {
         let id = self
             .transaction
             .add_sketch_entity_as(self.feature, entity.clone(), construction);
+
         if let Err(error) = self.shadow.insert_entity(id, entity) {
             log::debug!("the drawing check does not see entity {id}: {error}");
         }
@@ -3680,6 +3793,7 @@ impl<'a> Draft<'a> {
             log::debug!("not inferring {constraint:?}: {error}");
             return;
         }
+
         let id = self
             .transaction
             .add_sketch_constraint(self.feature, constraint.clone());
@@ -3696,11 +3810,13 @@ impl<'a> Draft<'a> {
         {
             return Some(*id);
         }
+
         let source = self.bodies.source(target)?;
         let FeatureKind::Sketch(definition) = &self.model.document().feature(self.feature)?.kind
         else {
             return None;
         };
+
         let id = match projecting::existing_projection(definition, &source.projection) {
             Some(id) => id,
             None => {
@@ -3709,6 +3825,7 @@ impl<'a> Draft<'a> {
                     source.projection.clone(),
                     &source.outline,
                 );
+
                 for (id, entity) in projected.entities {
                     let shown = self
                         .shadow
@@ -3723,6 +3840,7 @@ impl<'a> Draft<'a> {
                 projected.id
             }
         };
+
         self.projected.push((target.source, id));
         Some(id)
     }
@@ -3779,6 +3897,7 @@ impl<'a> Draft<'a> {
             None => Vec::new(),
         };
         let tracked: Vec<Constraint> = placement.tracks.constraints(&self.shadow, point).collect();
+
         for constraint in joins.into_iter().chain(tracked) {
             self.constrain(constraint);
         }
@@ -3798,10 +3917,12 @@ impl<'a> Draft<'a> {
     fn line(&mut self, start: Placement, end: Placement) -> (EntityId, EntityId) {
         let start = self.point(start);
         let end_point = self.point(end);
+
         let line = self.entity(Entity::Line {
             start,
             end: end_point,
         });
+
         if let Some(direction) = end.snap.direction() {
             self.constrain(direction.constraint(line));
         }
@@ -3813,13 +3934,16 @@ impl<'a> Draft<'a> {
 
     fn joined_outline(&mut self, corners: &[Placement]) -> Vec<DrawnCurve> {
         let mut sides = Vec::with_capacity(corners.len());
+
         for (index, corner) in corners.iter().enumerate() {
             let next = corners
                 .get((index + 1) % corners.len())
                 .map_or(corner.position, |next| next.position);
             let start = self.point(*corner);
             let end = self.point(Placement::free(next));
+
             let curve = self.entity(Entity::Line { start, end });
+
             sides.push(DrawnCurve { curve, start, end });
         }
         for (index, side) in sides.iter().enumerate() {
@@ -3832,6 +3956,7 @@ impl<'a> Draft<'a> {
 
     fn level_rectangle(&mut self, corners: [Placement; 4]) -> Vec<DrawnCurve> {
         let sides = self.joined_outline(&corners);
+
         for (index, side) in sides.iter().enumerate() {
             self.constrain(if index % 2 == 0 {
                 Constraint::Horizontal(side.curve)
@@ -3844,6 +3969,7 @@ impl<'a> Draft<'a> {
 
     fn rectangle(&mut self, corner: Placement, opposite: Placement) {
         let [_, second, _, fourth] = rectangle_corners(corner.position, opposite.position);
+
         self.level_rectangle([
             corner,
             Placement::free(second),
@@ -3855,6 +3981,7 @@ impl<'a> Draft<'a> {
     fn centered_rectangle(&mut self, center: Placement, corner: Placement) {
         let opposite = shapes::mirrored(corner.position, center.position);
         let [_, second, third, fourth] = rectangle_corners(corner.position, opposite);
+
         let sides = self.level_rectangle([
             corner,
             Placement::free(second),
@@ -3873,6 +4000,7 @@ impl<'a> Draft<'a> {
 
     fn rectangle_on_side(&mut self, first: Placement, second: Placement, corners: [Point2; 4]) {
         let [_, _, third, fourth] = corners;
+
         let sides = self.joined_outline(&[
             first,
             second,
@@ -3882,7 +4010,9 @@ impl<'a> Draft<'a> {
         let [base, next, opposite, last] = sides.as_slice() else {
             return;
         };
+
         let (base, next, opposite, last) = (*base, *next, *opposite, *last);
+
         self.constrain(Constraint::Perpendicular(base.curve, next.curve));
         self.constrain(Constraint::Parallel(opposite.curve, base.curve));
         self.constrain(Constraint::Parallel(last.curve, next.curve));
@@ -3894,6 +4024,7 @@ impl<'a> Draft<'a> {
     fn circle(&mut self, center: Placement, rim: Placement) {
         let radius = center.position.distance(rim.position);
         let center = self.point(center);
+
         let circle = self.entity(Entity::Circle { center, radius });
         if let Some(point) = self.point_of(rim.snap) {
             self.constrain(Constraint::Coincident(point, circle));
@@ -3910,6 +4041,7 @@ impl<'a> Draft<'a> {
             .iter()
             .filter_map(|placement| self.point_of(placement.snap))
             .collect();
+
         for point in points {
             self.constrain(Constraint::Coincident(point, id));
         }
@@ -3920,6 +4052,7 @@ impl<'a> Draft<'a> {
         match (self.point_of(first.snap), self.point_of(second.snap)) {
             (Some(one_end), Some(other_end)) => {
                 let center = self.circle_through(circle, &[first]);
+
                 self.constrain(Constraint::Symmetric {
                     first: one_end,
                     second: other_end,
@@ -3941,9 +4074,12 @@ impl<'a> Draft<'a> {
     ) {
         let center_point = self.point(center);
         let start_point = self.point(start);
+
         self.level(center_point, start_point, start);
+
         let end = self.point(end);
         let (first, last) = arc_ends(counter_clockwise, start_point, end);
+
         self.entity(Entity::Arc {
             center: center_point,
             start: first,
@@ -3965,6 +4101,7 @@ impl<'a> Draft<'a> {
     fn ellipse(&mut self, center: Placement, axis: Placement, minor_radius: f64) {
         let center_point = self.point(center);
         let major = self.point(axis);
+
         self.level(center_point, major, axis);
         self.entity(Entity::Ellipse {
             center: center_point,
@@ -3982,9 +4119,12 @@ impl<'a> Draft<'a> {
     ) {
         let center_point = self.point(center);
         let major = self.point(axis);
+
         self.level(center_point, major, axis);
+
         let start = self.entity(Entity::Point(start));
         let end = self.entity(Entity::Point(end));
+
         self.entity(Entity::EllipticalArc {
             center: center_point,
             major,
@@ -3997,6 +4137,7 @@ impl<'a> Draft<'a> {
     fn arc_through(&mut self, center: EntityId, start: Point2, end: Point2) -> DrawnCurve {
         let start = self.entity(Entity::Point(start));
         let end = self.entity(Entity::Point(end));
+
         let curve = self.entity(Entity::Arc { center, start, end });
         DrawnCurve { curve, start, end }
     }
@@ -4004,6 +4145,7 @@ impl<'a> Draft<'a> {
     fn free_line(&mut self, start: Point2, end: Point2) -> DrawnCurve {
         let start = self.entity(Entity::Point(start));
         let end = self.entity(Entity::Point(end));
+
         let curve = self.entity(Entity::Line { start, end });
         DrawnCurve { curve, start, end }
     }
@@ -4018,7 +4160,9 @@ impl<'a> Draft<'a> {
         let center = self.entity(Entity::Point(circular.center));
         let start = self.point(start);
         let end = self.point(end);
+
         let (start, end) = arc_ends(circular.counter_clockwise, start, end);
+
         let arc = self.entity(Entity::Arc { center, start, end });
         if let Some(point) = self.point_of(through.snap) {
             self.constrain(Constraint::Coincident(point, arc));
@@ -4035,12 +4179,15 @@ impl<'a> Draft<'a> {
         let center = self.entity(Entity::Point(circular.center));
         let start = self.point(start);
         let end = self.point(end);
+
         let (first, last) = arc_ends(circular.counter_clockwise, start, end);
+
         let arc = self.entity(Entity::Arc {
             center,
             start: first,
             end: last,
         });
+
         self.constrain(Constraint::Tangent(from, arc));
         DrawnCurve {
             curve: arc,
@@ -4062,10 +4209,12 @@ impl<'a> Draft<'a> {
         let first_center = self.point(first);
         let second_center = self.point(second);
         let [a, b, c, d] = slot.corners();
+
         let second_end = self.arc_through(second_center, a, b);
         let first_end = self.arc_through(first_center, c, d);
         let top = self.free_line(b, c);
         let bottom = self.free_line(d, a);
+
         self.join(
             [
                 (top.start, second_end.end),
@@ -4091,6 +4240,7 @@ impl<'a> Draft<'a> {
         let [mirrored, _] = slot.centers;
         let [first, second] = self.slot(Placement::free(mirrored), end, slot);
         let about = self.point(center);
+
         self.constrain(Constraint::Symmetric {
             first,
             second,
@@ -4102,6 +4252,7 @@ impl<'a> Draft<'a> {
         let center = self.point(center);
         let [first, last] = ends;
         let [first_position, last_position] = slot.ends;
+
         let first_center = self.point(Placement {
             position: first_position,
             ..first
@@ -4110,13 +4261,17 @@ impl<'a> Draft<'a> {
             position: last_position,
             ..last
         });
+
         self.level(center, first_center, first);
         self.level(center, last_center, last);
+
         let [outer_first, outer_last, inner_first, inner_last] = slot.corners();
+
         let outer = self.arc_through(center, outer_first, outer_last);
         let inner = self.arc_through(center, inner_first, inner_last);
         let first_end = self.arc_through(first_center, inner_first, outer_first);
         let last_end = self.arc_through(last_center, outer_last, inner_last);
+
         self.join(
             [
                 (first_end.start, inner.start),
@@ -4136,9 +4291,11 @@ impl<'a> Draft<'a> {
     fn regular_polygon(&mut self, center: Placement, corners: &[Placement]) -> Option<Polygon> {
         let radius = center.position.distance(corners.first()?.position);
         let center = self.point(center);
+
         let circle = self.entity_as(Entity::Circle { center, radius }, true);
         let sides = self.joined_outline(corners);
         let first = *sides.first()?;
+
         for side in &sides {
             self.constrain(Constraint::Coincident(side.start, circle));
             if side.curve != first.curve {
@@ -4173,6 +4330,7 @@ impl<'a> Draft<'a> {
             },
             true,
         );
+
         self.constrain(Constraint::Tangent(polygon.first.curve, inscribed));
         if let Some(point) = self.point_of(middle.snap) {
             self.constrain(Constraint::Midpoint {
@@ -4203,6 +4361,7 @@ impl<'a> Draft<'a> {
             .iter()
             .map(|placement| self.point(*placement))
             .collect();
+
         for ((from, to), placement) in control_points
             .iter()
             .zip(control_points.iter().skip(1))
@@ -4247,8 +4406,10 @@ mod tests {
                     return None;
                 };
                 let (from, to) = sketch.line_endpoints(line)?;
+
                 let along = (to - from).try_normalize()?;
                 let (from, to) = (screen.to_screen(from)?, screen.to_screen(to)?);
+
                 let distance = std::iter::once(pointer)
                     .chain(start)
                     .map(|at| at.distance(snap::closest_on_segment(from, to, at)))
@@ -4261,6 +4422,7 @@ mod tests {
                 })
             })
             .collect();
+
         nearby.sort_by(|a, b| a.distance.total_cmp(&b.distance));
         nearby.truncate(NEARBY_LINES);
         nearby
@@ -4270,12 +4432,14 @@ mod tests {
     fn the_nearest_lines_in_one_pass_are_those_a_full_sort_of_every_line_keeps() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
         let mut seed = 5u64;
+
         let mut next = |span: f64| {
             seed = seed
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
             (seed >> 11) as f64 / (1u64 << 53) as f64 * span
         };
+
         let lines: Vec<EntityId> = (0..400)
             .map(|_| {
                 let from = Point2::new(next(100.0), next(100.0));
@@ -4286,7 +4450,9 @@ mod tests {
             })
             .collect();
         let dot = Point2::new(50.0, 50.0);
+
         sketch.add_line(dot, dot);
+
         let screen = Scaled(10.0);
 
         for _ in 0..50 {
@@ -4312,11 +4478,13 @@ mod tests {
     #[ignore = "a timing benchmark: cargo test --release -p caditor snap_costs -- --ignored --nocapture"]
     fn snap_costs_of_the_nearest_lines_on_a_large_sketch() {
         const REPEATS: u32 = 50;
+
         let sketch = crate::viewport::timing::large_sketch();
         let screen = Scaled(1.0);
         let pointer = screen.to_screen(Point2::new(500.0, 250.0)).unwrap();
 
         let started = std::time::Instant::now();
+
         for _ in 0..REPEATS {
             nearest_lines(&sketch, &screen, pointer, None, None);
         }
@@ -4326,6 +4494,7 @@ mod tests {
     #[test]
     fn of_lines_equally_near_the_earlier_ones_are_kept() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let lines: Vec<EntityId> = (0..10)
             .map(|_| sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0)))
             .collect();
@@ -4344,16 +4513,20 @@ mod tests {
     fn the_arc_runs_the_way_the_pointer_swept() {
         let center = Point2::ZERO;
         let mut sweep = Sweep::new(center, Point2::X);
+
         for point in [Point2::new(1.0, 0.5), Point2::Y, Point2::new(-1.0, 0.1)] {
             sweep.follow(point);
         }
+
         assert!(sweep.counter_clockwise());
         assert_eq!(arc_ends(sweep.counter_clockwise(), 1, 2), (1, 2));
 
         let mut sweep = Sweep::new(center, Point2::X);
+
         for point in [Point2::new(1.0, -0.5), -Point2::Y, Point2::new(-1.0, -0.1)] {
             sweep.follow(point);
         }
+
         assert!(!sweep.counter_clockwise());
         assert_eq!(arc_ends(sweep.counter_clockwise(), 1, 2), (2, 1));
     }
@@ -4361,34 +4534,49 @@ mod tests {
     #[test]
     fn a_sweep_past_half_a_turn_keeps_its_direction() {
         let mut sweep = Sweep::new(Point2::ZERO, Point2::X);
+
         for point in [Point2::Y, -Point2::X, -Point2::Y, Point2::new(0.9, -0.4)] {
             sweep.follow(point);
         }
+
         assert!(sweep.counter_clockwise());
+
         let arc = ArcGeometry::from_points(Point2::ZERO, Point2::X, Point2::new(0.9, -0.4));
+
         assert!(arc.sweep > 1.5 * PI);
     }
 
     #[test]
     fn a_typed_end_goes_the_shorter_way_round_unless_the_arc_is_reversed() {
         let mut sweep = Sweep::new(Point2::ZERO, Point2::X);
+
         for point in [Point2::new(0.5, 1.0), Point2::new(-1.0, 0.2)] {
             sweep.follow(point);
         }
         sweep.aim(Point2::new(0.0, -1.0));
+
         assert!(!sweep.counter_clockwise());
 
         sweep.reverse();
+
         assert!(sweep.counter_clockwise());
+
         sweep.aim(Point2::Y);
+
         assert!(!sweep.counter_clockwise());
+
         sweep.follow(Point2::new(-1.0, 0.5));
+
         assert!(!sweep.counter_clockwise());
 
         let mut half_turn = Sweep::new(Point2::ZERO, Point2::X);
+
         half_turn.aim(Point2::new(-1.0, 0.0));
+
         assert!(half_turn.counter_clockwise());
+
         half_turn.aim(Point2::new(-1.0, -0.0));
+
         assert!(half_turn.counter_clockwise());
     }
 
@@ -4404,6 +4592,7 @@ mod tests {
             &LEVEL_AND_UPRIGHT,
         )
         .unwrap();
+
         assert_eq!(level.snap, Snap::Aligned(Direction::Horizontal));
         assert_eq!(level.position, Point2::new(40.0, 10.0));
 
@@ -4414,6 +4603,7 @@ mod tests {
             &LEVEL_AND_UPRIGHT,
         )
         .unwrap();
+
         assert_eq!(upright.snap, Snap::Aligned(Direction::Vertical));
         assert_eq!(upright.position, Point2::new(10.0, -20.0));
 
@@ -4424,6 +4614,7 @@ mod tests {
             &LEVEL_AND_UPRIGHT,
         )
         .unwrap();
+
         assert_eq!(short.position, Point2::new(12.0, 10.0));
 
         assert_eq!(
@@ -4449,6 +4640,7 @@ mod tests {
     #[test]
     fn placing_prefers_existing_geometry_to_alignment() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let lone = sketch.add_point(Point2::new(40.0, 10.5));
         let document = caditor_document::Document::default();
         let feature = document.transaction("Sketch").add_feature(
@@ -4463,9 +4655,11 @@ mod tests {
         let screen = Scaled(10.0);
 
         drawing.hover(&sketch, &screen, Some(pointer(Point2::new(40.0, 10.8))));
+
         assert_eq!(drawing.snap_entities(), vec![lone]);
 
         drawing.hover(&sketch, &screen, Some(pointer(Point2::new(30.0, 10.4))));
+
         assert_eq!(
             drawing.hover.map(|hover| hover.snap),
             Some(Snap::Aligned(Direction::Horizontal))
@@ -4473,8 +4667,11 @@ mod tests {
         assert_eq!(drawing.snap_label(&sketch).as_deref(), Some("Horizontal"));
 
         drawing.hover(&sketch, &screen, Some(pointer(Point2::new(10.3, 10.2))));
+
         assert_eq!(drawing.snap_label(&sketch).as_deref(), Some("Stop here"));
+
         let preview = drawing.preview(Faceting::within(0.01));
+
         assert_eq!(preview.curves.len(), 1);
         assert_eq!(preview.snap, Some(Point2::new(10.0, 10.0)));
     }
@@ -4501,9 +4698,11 @@ mod tests {
     fn a_held_snap_puts_a_line_end_on_a_grid_crossing_and_keeps_it_level_with_its_start() {
         let sketch = Sketch::new(caditor_geometry::Plane::XY);
         let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(10.0, 10.0)));
+
         drawing.hold_snap(Some(Hold { grid: Some(5.0) }));
 
         let level = hovered_at(&mut drawing, &sketch, Point2::new(31.0, 10.8)).unwrap();
+
         assert_eq!(level.position, Point2::new(30.0, 10.0));
         assert_eq!(level.snap, Snap::Grid(Some(Direction::Horizontal)));
         assert_eq!(
@@ -4512,14 +4711,19 @@ mod tests {
         );
 
         let slanted = hovered_at(&mut drawing, &sketch, Point2::new(31.0, 14.0)).unwrap();
+
         assert_eq!(slanted.position, Point2::new(30.0, 15.0));
         assert_eq!(slanted.snap, Snap::Grid(None));
         assert_eq!(drawing.snap_label(&sketch).as_deref(), Some("On the grid"));
+
         let preview = drawing.preview(Faceting::within(0.01));
+
         assert_eq!(preview.snap, Some(Point2::new(30.0, 15.0)));
 
         drawing.place_freely(true);
+
         let free = hovered_at(&mut drawing, &sketch, Point2::new(31.0, 14.0)).unwrap();
+
         assert_eq!(free.position, Point2::new(31.0, 14.0));
         assert_eq!(free.snap, Snap::Free);
         assert_eq!(drawing.snap_label(&sketch), None);
@@ -4528,29 +4732,36 @@ mod tests {
     #[test]
     fn a_direction_turned_off_is_not_offered_but_the_others_still_are() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let slanted = sketch.add_line(Point2::new(20.0, 20.0), Point2::new(50.0, 40.0));
         let start = Point2::new(60.0, 10.0);
         let mut drawing = drawing_a_line(&sketch, Placement::free(start));
         let mut without_horizontal = Inferences::default();
+
         without_horizontal.set(Inference::Horizontal, false);
         drawing.infer(without_horizontal);
 
         let nearly_level = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 10.4)).unwrap();
+
         assert_eq!(nearly_level.snap, Snap::Free);
         assert_eq!(nearly_level.position, Point2::new(90.0, 10.4));
         assert_eq!(drawing.snap_label(&sketch), None);
 
         let upright = hovered_at(&mut drawing, &sketch, Point2::new(60.3, 40.0)).unwrap();
+
         assert_eq!(upright.snap, Snap::Aligned(Direction::Vertical));
 
         let parallel = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 30.3)).unwrap();
+
         assert_eq!(parallel.snap, Snap::Aligned(Direction::Parallel(slanted)));
 
         let mut without_parallel = Inferences::default();
+
         without_parallel.set(Inference::Parallel, false);
         drawing.infer(without_parallel);
 
         let unparallel = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 30.3)).unwrap();
+
         assert_eq!(unparallel.snap, Snap::Free);
     }
 
@@ -4561,11 +4772,13 @@ mod tests {
     #[test]
     fn a_line_end_turns_parallel_or_perpendicular_to_a_nearby_line() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let slanted = sketch.add_line(Point2::new(20.0, 20.0), Point2::new(50.0, 40.0));
         let start = Point2::new(60.0, 10.0);
         let mut drawing = drawing_a_line(&sketch, Placement::free(start));
 
         let parallel = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 30.3)).unwrap();
+
         assert_eq!(parallel.snap, Snap::Aligned(Direction::Parallel(slanted)));
         assert!(crosses(parallel.position - start, Vector2::new(30.0, 20.0)).abs() < 1e-12);
         assert_eq!(
@@ -4575,6 +4788,7 @@ mod tests {
         assert_eq!(drawing.snap_entities(), vec![slanted]);
 
         let square = hovered_at(&mut drawing, &sketch, Point2::new(40.0, 40.4)).unwrap();
+
         assert_eq!(
             square.snap,
             Snap::Aligned(Direction::Perpendicular(slanted))
@@ -4591,6 +4805,7 @@ mod tests {
         );
 
         let free = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 33.0)).unwrap();
+
         assert_eq!(free.snap, Snap::Free);
         assert_eq!(drawing.snap_entities(), Vec::new());
     }
@@ -4598,10 +4813,13 @@ mod tests {
     #[test]
     fn level_and_upright_win_over_a_nearly_level_line() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         sketch.add_line(Point2::new(10.0, 30.0), Point2::new(40.0, 31.0));
+
         let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(10.0, 10.0)));
 
         let level = hovered_at(&mut drawing, &sketch, Point2::new(40.0, 11.0)).unwrap();
+
         assert_eq!(level.snap, Snap::Aligned(Direction::Horizontal));
         assert_eq!(level.position, Point2::new(40.0, 10.0));
     }
@@ -4609,26 +4827,31 @@ mod tests {
     #[test]
     fn a_chained_line_turns_square_to_the_last_but_never_continues_it() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let last = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(40.0, 30.0));
         let end = sketch.entity(last).unwrap().points()[1];
         let joined = Placement::at(Point2::new(40.0, 30.0), Snap::Target(Target::Point(end)));
         let mut drawing = drawing_a_line(&sketch, joined);
 
         let straight_on = hovered_at(&mut drawing, &sketch, Point2::new(70.0, 50.3)).unwrap();
+
         assert_eq!(straight_on.snap, Snap::Free);
 
         let square = hovered_at(&mut drawing, &sketch, Point2::new(20.0, 60.4)).unwrap();
+
         assert_eq!(square.snap, Snap::Aligned(Direction::Perpendicular(last)));
     }
 
     #[test]
     fn a_line_ending_on_a_curve_keeps_its_direction_where_it_crosses() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let slanted = sketch.add_line(Point2::new(0.0, 40.0), Point2::new(70.0, 70.0));
         let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(30.0, 10.0)));
         let crossing = 40.0 + 30.0 * 30.0 / 70.0;
 
         let upright = hovered_at(&mut drawing, &sketch, Point2::new(30.3, crossing + 0.2)).unwrap();
+
         assert_eq!(
             upright.snap,
             Snap::AlignedOn(Target::Curve(slanted), Direction::Vertical)
@@ -4648,11 +4871,13 @@ mod tests {
     #[test]
     fn a_point_snap_keeps_a_direction_only_where_it_already_holds() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let level = sketch.add_point(Point2::new(40.0, 10.0));
         let off = sketch.add_point(Point2::new(10.5, 40.0));
         let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(10.0, 10.0)));
 
         let held = hovered_at(&mut drawing, &sketch, Point2::new(40.3, 10.2)).unwrap();
+
         assert_eq!(
             held.snap,
             Snap::AlignedOn(Target::Point(level), Direction::Horizontal)
@@ -4663,6 +4888,7 @@ mod tests {
         );
 
         let not_held = hovered_at(&mut drawing, &sketch, Point2::new(10.4, 40.2)).unwrap();
+
         assert_eq!(not_held.snap, Snap::Target(Target::Point(off)));
         assert_eq!(not_held.position, Point2::new(10.5, 40.0));
     }
@@ -4670,8 +4896,10 @@ mod tests {
     #[test]
     fn a_rectangle_corner_tracks_a_point_hovered_before() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let guide = sketch.add_point(Point2::new(40.0, 30.0));
         let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(10.0, 5.0)));
+
         drawing.context = drawing
             .context
             .map(|(feature, _)| (feature, Shape::Rectangle(RectangleMode::Corners)));
@@ -4679,6 +4907,7 @@ mod tests {
 
         hovered_at(&mut drawing, &sketch, Point2::new(40.0, 30.0));
         drawing.placed = vec![Placement::free(Point2::new(10.0, 5.0))];
+
         let corner = hovered_at(&mut drawing, &sketch, Point2::new(40.2, 60.0)).unwrap();
 
         assert_eq!(corner.position, Point2::new(40.0, 60.0));
@@ -4699,6 +4928,7 @@ mod tests {
     #[test]
     fn a_line_end_tracks_the_middle_of_a_line_hovered_before_and_highlights_that_line() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let base = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(50.0, 30.0));
         let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::ZERO));
 
@@ -4728,6 +4958,7 @@ mod tests {
 
     fn placing_points(sketch: &Sketch) -> Drawing {
         let mut drawing = drawing_a_line(sketch, Placement::free(Point2::ZERO));
+
         drawing.context = drawing.context.map(|(feature, _)| (feature, Shape::Point));
         drawing.placed.clear();
         drawing
@@ -4749,6 +4980,7 @@ mod tests {
     #[test]
     fn the_centre_of_an_outline_highlights_every_piece_and_the_corners_holding_it() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let sides = outline_of_lines(
             &mut sketch,
             &[
@@ -4769,7 +5001,9 @@ mod tests {
             panic!("the centre of the rectangle should be the snap");
         };
         let mut whole = sides.clone();
+
         whole.extend([first, second]);
+
         let on_centre = drawing.snap_entities();
         let below = hovered_at(&mut drawing, &sketch, Point2::new(30.3, -20.0)).unwrap();
         let tracking_centre = drawing.snap_entities();
@@ -4782,6 +5016,7 @@ mod tests {
     #[test]
     fn the_centre_of_an_odd_outline_highlights_every_piece() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let stray = sketch.add_line(Point2::new(0.0, 60.0), Point2::new(40.0, 60.0));
         let sides = outline_of_lines(
             &mut sketch,
@@ -4798,13 +5033,16 @@ mod tests {
         assert!(matches!(centre.snap, Snap::Target(Target::Centroid(_))));
         assert_eq!(sorted(drawing.snap_entities()), sorted(sides));
         assert!(!drawing.snap_entities().contains(&stray));
+
         drawing.leave();
+
         assert_eq!(drawing.snap_entities(), Vec::new());
     }
 
     #[test]
     fn a_line_end_near_where_it_would_touch_a_circle_lands_there_tangent() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let circle = sketch.add_circle(Point2::ZERO, 10.0);
         let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(20.0, 0.0)));
         let touch = Point2::new(5.0, 75.0_f64.sqrt());
@@ -4819,14 +5057,17 @@ mod tests {
         );
 
         let on_rim = hovered_at(&mut drawing, &sketch, Point2::new(-8.0, -6.3)).unwrap();
+
         assert_eq!(on_rim.snap, Snap::Target(Target::Curve(circle)));
     }
 
     #[test]
     fn a_line_starting_on_a_circle_turns_tangent_to_it() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let circle = sketch.add_circle(Point2::ZERO, 10.0);
         let start = Point2::new(6.0, 8.0);
+
         let mut drawing = drawing_a_line(
             &sketch,
             Placement::at(start, Snap::Target(Target::Curve(circle))),
@@ -4848,8 +5089,10 @@ mod tests {
     #[test]
     fn the_side_of_a_circle_is_a_target_any_point_can_take() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
         let circle = sketch.add_circle(Point2::new(30.0, 30.0), 10.0);
         let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::ZERO));
+
         drawing.placed.clear();
 
         let right = hovered_at(&mut drawing, &sketch, Point2::new(40.3, 30.2)).unwrap();

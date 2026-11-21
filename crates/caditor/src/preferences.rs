@@ -122,7 +122,7 @@ pub fn unreadable_notice(error: &SettingsError) -> Notice {
     ))
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TitleBar {
     #[default]
     BuiltIn,
@@ -168,7 +168,7 @@ impl TitleBar {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PreferencesTab {
     #[default]
     General,
@@ -283,7 +283,7 @@ fn projection_from_key(key: &str) -> Option<ProjectionMode> {
         .find(|projection| projection_key(*projection) == key)
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum InputMode {
     #[default]
     Caditor,
@@ -402,7 +402,7 @@ impl InputMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Navigation {
     pub orbit_speed: f64,
     pub zoom_speed: f64,
@@ -435,7 +435,7 @@ impl Default for Navigation {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ViewDetails {
     pub edges: EdgeLook,
     pub view_cube: bool,
@@ -454,7 +454,7 @@ impl Default for ViewDetails {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sketching {
     pub look_at_on_entering: bool,
     pub escape_finishes: bool,
@@ -473,7 +473,7 @@ impl Default for Sketching {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StartingToggles {
     pub glyphs: bool,
     pub snapping: bool,
@@ -494,7 +494,7 @@ impl Default for StartingToggles {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Preferences {
     pub unit: LengthUnit,
     pub angle: AngleUnit,
@@ -532,7 +532,7 @@ pub struct Preferences {
     raw: Settings,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PreferenceChange {
     Unit(LengthUnit),
     Angle(AngleUnit),
@@ -615,7 +615,7 @@ pub enum PreferenceChange {
     SectionDefaults(Section),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PreferencesCommand {
     Show,
     Hide,
@@ -660,7 +660,7 @@ pub enum PreferencesCommand {
     Undo,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Restoring {
     Tab(PreferencesTab),
     Section(Section),
@@ -682,7 +682,7 @@ impl Restoring {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Restored {
     Defaults {
         restoring: Restoring,
@@ -707,6 +707,7 @@ impl Restored {
 fn palette_recent(raw: &Settings) -> Vec<Command> {
     let mut recent = Vec::new();
     let stored = raw.texts(PALETTE_RECENT_KEY).unwrap_or_default();
+
     for command in stored.iter().filter_map(|id| Command::from_id(id)) {
         if recent.len() < palette::RECENT_LIMIT && !recent.contains(&command) {
             recent.push(command);
@@ -718,6 +719,7 @@ fn palette_recent(raw: &Settings) -> Vec<Command> {
 fn recent_colours(raw: &Settings) -> Vec<Rgb> {
     let mut recent = Vec::new();
     let stored = raw.texts(RECENT_COLOURS_KEY).unwrap_or_default();
+
     for colour in stored.iter().filter_map(|hex| Rgb::from_hex(hex)) {
         if recent.len() < RECENT_COLOURS_LIMIT && !recent.contains(&colour) {
             recent.push(colour);
@@ -844,6 +846,7 @@ impl Preferences {
 
     pub fn settings(&self) -> Settings {
         let mut settings = self.raw.clone();
+
         settings.set_text(UNIT_KEY, self.unit.symbol());
         settings.set_text(ANGLE_UNIT_KEY, self.angle.symbol());
         settings.set_text(LENGTH_DECIMALS_KEY, self.numbers.lengths.key());
@@ -897,6 +900,7 @@ impl Preferences {
                 .iter()
                 .map(|command| command.id().to_owned())
                 .collect();
+
             settings.set_texts(PALETTE_RECENT_KEY, &ids);
         }
         if !self.recent_colours.is_empty() {
@@ -905,6 +909,7 @@ impl Preferences {
                 .iter()
                 .map(|colour| colour.hex())
                 .collect();
+
             settings.set_texts(RECENT_COLOURS_KEY, &hexes);
         }
         self.last_values.write(&mut settings);
@@ -1011,6 +1016,7 @@ impl Preferences {
             }
             PreferenceChange::AssistantBaseUrl(url) => {
                 let trimmed = url.trim();
+
                 self.assistant.custom_base_url = if trimmed.is_empty() {
                     ApiProvider::Custom.default_base_url().to_owned()
                 } else {
@@ -1023,6 +1029,7 @@ impl Preferences {
             PreferenceChange::AssistantFolders(folders) => self.assistant.folders = folders,
             PreferenceChange::SlicerProgram(program) => {
                 let program = program.trim();
+
                 self.slicer_program = (!program.is_empty()).then(|| PathBuf::from(program));
             }
             PreferenceChange::DefenderReminded => self.onboarding.defender_reminded = true,
@@ -1053,6 +1060,7 @@ impl Preferences {
             PreferenceChange::SectionDefaults(section) => Some(Restoring::Section(*section)),
             _ => None,
         };
+
         if let Some(restoring) = restoring {
             return Some(Restored::Defaults {
                 restoring,
@@ -1114,6 +1122,7 @@ impl ViewDetails {
 impl Sketching {
     fn inferences_from(raw: &Settings) -> Inferences {
         let mut inferred = Inferences::default();
+
         for kind in Inference::ALL {
             inferred.set(kind, raw.flag(kind.key()).unwrap_or(true));
         }
@@ -1161,6 +1170,7 @@ mod tests {
     #[test]
     fn a_damaged_preferences_file_is_reported_with_what_to_expect() {
         let dir = TempDir::new().unwrap();
+
         std::fs::write(dir.path().join("preferences.json"), "{ not json").unwrap();
 
         let (settings, problem) = Settings::load_reporting(dir.path());
@@ -1178,6 +1188,7 @@ mod tests {
     #[test]
     fn the_palette_remembers_its_recent_commands_skipping_unknown_ones() {
         let mut raw = Settings::default();
+
         raw.set_texts(
             PALETTE_RECENT_KEY,
             &[
@@ -1194,7 +1205,9 @@ mod tests {
             preferences.palette_recent,
             [Command::FitView, Command::Save]
         );
+
         let again = Preferences::from_settings(preferences.settings());
+
         assert_eq!(again.palette_recent, preferences.palette_recent);
 
         let many: Vec<String> = Command::all()
@@ -1202,7 +1215,9 @@ mod tests {
             .map(|command| command.id().to_owned())
             .collect();
         let mut raw = Settings::default();
+
         raw.set_texts(PALETTE_RECENT_KEY, &many);
+
         assert_eq!(
             Preferences::from_settings(raw).palette_recent.len(),
             palette::RECENT_LIMIT
@@ -1235,6 +1250,7 @@ mod tests {
     #[test]
     fn stored_recent_colours_skip_what_cannot_be_read_and_older_files_have_none() {
         let mut raw = Settings::default();
+
         raw.set_texts(
             RECENT_COLOURS_KEY,
             &[
@@ -1265,7 +1281,9 @@ mod tests {
     #[test]
     fn themes_accents_and_the_view_are_stored_and_older_files_read_as_before() {
         let mut older = Settings::default();
+
         older.set_text(THEME_KEY, "light");
+
         let read = Preferences::from_settings(older);
 
         assert_eq!(read.appearance.theme, Theme::Light);
@@ -1273,12 +1291,14 @@ mod tests {
         assert_eq!(read.appearance.view, ViewChoice::Theme);
 
         let mut preferences = Preferences::default();
+
         preferences.apply(PreferenceChange::Theme(Theme::User("ocean".to_owned())));
         preferences.apply(PreferenceChange::Accent(Accent::Rose));
         preferences.apply(PreferenceChange::View(ViewChoice::Canvas(Canvas::Studio)));
         preferences.apply(PreferenceChange::Grid(GridColour::Custom(Rgb::new(
             0x8a, 0x90, 0x9c,
         ))));
+
         let settings = preferences.settings();
         let again = Preferences::from_settings(settings.clone());
 
@@ -1289,42 +1309,58 @@ mod tests {
         assert_eq!(again.appearance, preferences.appearance);
 
         let mut unknown = Settings::default();
+
         unknown.set_text(THEME_KEY, "from a newer caditor");
         unknown.set_text(ACCENT_KEY, "chartreuse");
         unknown.set_text(VIEW_KEY, "sepia");
         unknown.set_text(GRID_KEY, "8a909c");
+
         let read = Preferences::from_settings(unknown);
+
         assert_eq!(read.appearance, Appearance::default());
 
         let mut older_views = Settings::default();
+
         older_views.set_text(VIEW_KEY, "light");
         older_views.set_text(GRID_KEY, "automatic");
+
         let read = Preferences::from_settings(older_views);
+
         assert_eq!(read.appearance.view, ViewChoice::Canvas(Canvas::Light));
         assert_eq!(read.appearance.grid, GridColour::Automatic);
 
         preferences.apply(PreferenceChange::Defaults(PreferencesTab::Appearance));
+
         assert_eq!(preferences.appearance, Appearance::default());
     }
 
     #[test]
     fn contrast_follows_the_system_unless_a_file_chose_otherwise() {
         let fresh = Preferences::from_settings(Settings::default());
+
         assert_eq!(fresh.appearance.contrast_setting(), ContrastSetting::System);
 
         let mut stored_on = Settings::default();
+
         stored_on.set_flag(HIGH_CONTRAST_KEY, true);
+
         let older = Preferences::from_settings(stored_on);
+
         assert_eq!(older.appearance.contrast_setting(), ContrastSetting::On);
 
         let mut stored_off = Settings::default();
+
         stored_off.set_flag(HIGH_CONTRAST_KEY, false);
+
         let older = Preferences::from_settings(stored_off);
+
         assert_eq!(older.appearance.contrast_setting(), ContrastSetting::System);
 
         for setting in ContrastSetting::ALL {
             let mut preferences = Preferences::default();
+
             preferences.apply(PreferenceChange::Contrast(*setting));
+
             let settings = preferences.settings();
             let again = Preferences::from_settings(settings.clone());
 
@@ -1341,33 +1377,41 @@ mod tests {
         assert!(!appearance.in_effect(false).high_contrast);
 
         appearance.set_contrast_setting(ContrastSetting::Off);
+
         assert!(!appearance.in_effect(true).high_contrast);
 
         appearance.set_contrast_setting(ContrastSetting::On);
+
         assert!(appearance.in_effect(false).high_contrast);
     }
 
     #[test]
     fn preferences_read_their_settings_and_keep_the_rest() {
         let mut raw = Settings::default();
+
         raw.set_text(UNIT_KEY, "cm");
         raw.set_text(THEME_KEY, "light");
         raw.set_number(ORBIT_KEY, 100.0);
         raw.set_text("future.option", "kept");
         raw.set_number(SCALE_KEY, 1.3);
         raw.set_flag(HIGH_CONTRAST_KEY, true);
+
         let mut preferences = Preferences::from_settings(raw);
+
         assert_eq!(preferences.unit, LengthUnit::Centimetre);
         assert_eq!(preferences.appearance.theme, Theme::Light);
         assert_eq!(preferences.appearance.scale, 1.25);
         assert!(preferences.appearance.high_contrast);
         assert_eq!(preferences.navigation.orbit_speed, MAX_SPEED);
         assert_eq!(preferences.navigation.zoom_speed, 1.0);
+
         preferences.apply(PreferenceChange::ZoomSpeed(0.5));
         preferences.apply(PreferenceChange::InvertZoom(true));
         preferences.apply(PreferenceChange::Projection(ProjectionMode::Orthographic));
         preferences.apply(PreferenceChange::TitleBar(TitleBar::System));
+
         let settings = preferences.settings();
+
         assert_eq!(settings.text("future.option"), Some("kept"));
         assert_eq!(settings.number(ZOOM_KEY), Some(0.5));
         assert_eq!(settings.text(PROJECTION_KEY), Some("orthographic"));
@@ -1386,13 +1430,17 @@ mod tests {
             Preferences::from_settings(settings.clone()).settings(),
             settings
         );
+
         preferences.apply(PreferenceChange::Defaults(PreferencesTab::Navigation));
+
         assert_eq!(preferences.navigation, Navigation::default());
         assert_eq!(preferences.unit, LengthUnit::Centimetre);
         assert_eq!(preferences.title_bar, TitleBar::System);
+
         for tab in PreferencesTab::ALL {
             preferences.apply(PreferenceChange::Defaults(tab));
         }
+
         assert_eq!(preferences.unit, LengthUnit::Millimetre);
         assert_eq!(preferences.appearance, Appearance::default());
         assert_eq!(preferences.title_bar, TitleBar::BuiltIn);
@@ -1402,12 +1450,15 @@ mod tests {
     #[test]
     fn principal_planes_show_only_when_needed_by_default_and_the_choice_is_stored() {
         let mut preferences = Preferences::from_settings(Settings::default());
+
         let on_at_first = preferences.view_details.principal_when_needed;
 
         preferences.apply(PreferenceChange::PrincipalWhenNeeded(false));
+
         let settings = preferences.settings();
         let read = Preferences::from_settings(settings.clone());
         let section_changed = !Section::InTheView.is_default(&read);
+
         preferences.apply(PreferenceChange::SectionDefaults(Section::InTheView));
 
         assert!(on_at_first);
@@ -1420,6 +1471,7 @@ mod tests {
     #[test]
     fn graphics_preferences_are_stored_beside_the_others_and_restored_by_their_tab() {
         let mut preferences = Preferences::from_settings(Settings::default());
+
         preferences.apply(PreferenceChange::Vsync(false));
         preferences.apply(PreferenceChange::FrameLimit(FrameLimit::Fps(120)));
         preferences.apply(PreferenceChange::Msaa(Msaa::X8));
@@ -1443,10 +1495,13 @@ mod tests {
         assert_eq!(read.angle, AngleUnit::Radian);
 
         preferences.apply(PreferenceChange::Defaults(PreferencesTab::Graphics));
+
         assert_eq!(preferences.graphics, Graphics::default());
         assert_eq!(preferences.unit, LengthUnit::Metre);
         assert_eq!(preferences.angle, AngleUnit::Radian);
+
         preferences.apply(PreferenceChange::Defaults(PreferencesTab::General));
+
         assert_eq!(preferences.angle, AngleUnit::Degree);
     }
 
@@ -1454,6 +1509,7 @@ mod tests {
     fn the_newer_settings_round_trip_and_an_older_or_odd_file_reads_as_today_s_behaviour() {
         let older = Preferences::from_settings(Settings::default());
         let mut odd = Settings::default();
+
         for key in [
             TOOLTIP_DELAY_KEY,
             NOTICE_TIME_KEY,
@@ -1472,6 +1528,7 @@ mod tests {
         odd.set_text("import.drawing.recentre", "from a newer caditor");
         odd.set_text(OUTLINES_KEY, "yes");
         odd.set_number(GLYPHS_KEY, 3.0);
+
         let odd = Preferences::from_settings(odd);
         let defaults = Preferences::default();
 
@@ -1488,6 +1545,7 @@ mod tests {
         }
 
         let mut preferences = Preferences::default();
+
         for change in [
             PreferenceChange::ZoomToward(ZoomToward::Centre),
             PreferenceChange::OrbitAround(OrbitAround::Centre),
@@ -1514,6 +1572,7 @@ mod tests {
         ] {
             preferences.apply(change);
         }
+
         let settings = preferences.settings();
         let read = Preferences::from_settings(settings.clone());
 
@@ -1532,6 +1591,7 @@ mod tests {
         for tab in PreferencesTab::ALL {
             preferences.apply(PreferenceChange::Defaults(tab));
         }
+
         assert_eq!(preferences.navigation, defaults.navigation);
         assert_eq!(preferences.view_details, defaults.view_details);
         assert_eq!(preferences.sketching, defaults.sketching);
@@ -1552,14 +1612,17 @@ mod tests {
         assert_eq!(missing.sketching, defaults.sketching);
 
         let mut preferences = Preferences::default();
+
         preferences.apply(PreferenceChange::Infer(Inference::Horizontal, false));
         preferences.apply(PreferenceChange::Infer(Inference::Midpoint, false));
+
         let settings = preferences.settings();
         let read = Preferences::from_settings(settings.clone());
 
         assert_eq!(settings.flag(Inference::Horizontal.key()), Some(false));
         assert_eq!(settings.flag(Inference::Vertical.key()), Some(true));
         assert_eq!(read.sketching, preferences.sketching);
+
         for kind in Inference::ALL {
             assert_eq!(
                 read.sketching.inferred.allows(kind),
@@ -1582,6 +1645,7 @@ mod tests {
 
         for hint in &hints {
             let parts = crate::canvas::hint_parts(hint);
+
             assert_eq!(parts.len(), 3, "{hint}");
             assert!(
                 parts
@@ -1593,6 +1657,7 @@ mod tests {
         for (index, hint) in hints.iter().enumerate() {
             assert!(!hints[index + 1..].contains(hint), "{hint}");
         }
+
         assert!(
             InputMode::Blender
                 .navigation_hint()

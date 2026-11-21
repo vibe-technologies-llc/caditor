@@ -15,7 +15,7 @@ use crate::{
 const MIN_CONE_ANGLE: f64 = 1e-6;
 const MIN_FLAT_ANGLE: f64 = 0.25 * LINEAR_RESOLUTION / MAX_SIZE;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlaneSurface {
     frame: Plane,
 }
@@ -47,7 +47,7 @@ impl PlaneSurface {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Axial {
     radial: Vector3,
     tangential: Vector3,
@@ -63,7 +63,7 @@ fn axial(frame: &Plane, u: f64) -> Axial {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Cylindrical {
     angle: Option<f64>,
     distance: f64,
@@ -73,6 +73,7 @@ struct Cylindrical {
 fn cylindrical(frame: &Plane, point: Point3) -> Cylindrical {
     let offset = point - frame.origin();
     let (x, y) = (offset.dot(frame.x_axis()), offset.dot(frame.y_axis()));
+
     let distance = x.hypot_libm(y);
     Cylindrical {
         angle: (distance > AXIS_EPSILON * (1.0 + offset.length())).then(|| y.atan2_libm(x)),
@@ -88,7 +89,7 @@ fn angle_near(angle: Option<f64>, hint: Option<f64>) -> f64 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cylinder {
     frame: Plane,
     radius: f64,
@@ -139,7 +140,7 @@ impl Cylinder {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cone {
     frame: Plane,
     radius: f64,
@@ -219,6 +220,7 @@ impl Cone {
     pub(crate) fn project(&self, point: Point3, hint: Option<Point2>) -> Point2 {
         let local = cylindrical(&self.frame, point);
         let (sin, cos) = self.half_angle.sin_cos_libm();
+
         let along = (local.distance - self.radius) * sin + local.height * cos;
         let v = if sin > 0.0 {
             along.max(self.apex_parameter())
@@ -234,7 +236,7 @@ impl Cone {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sphere {
     frame: Plane,
     radius: f64,
@@ -268,6 +270,7 @@ impl Sphere {
         } = axial(&self.frame, u);
         let (sin, cos) = v.sin_cos_libm();
         let r = self.radius;
+
         let outward = radial * cos + axis * sin;
         SurfaceDerivatives {
             point: self.frame.origin() + outward * r,
@@ -293,7 +296,7 @@ impl Sphere {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Torus {
     frame: Plane,
     major_radius: f64,
@@ -329,6 +332,7 @@ impl Torus {
         } = axial(&self.frame, u);
         let (sin, cos) = v.sin_cos_libm();
         let r = self.minor_radius;
+
         let ring = self.major_radius + r * cos;
         let tube = radial * cos + axis * sin;
         SurfaceDerivatives {
@@ -351,6 +355,7 @@ impl Torus {
         let local = cylindrical(&self.frame, point);
         let u = angle_near(local.angle, hint.map(|hint| hint.x));
         let across = local.distance - self.major_radius;
+
         let tube_angle = (across.hypot_libm(local.height)
             > AXIS_EPSILON * (1.0 + self.major_radius))
             .then(|| local.height.atan2_libm(across));

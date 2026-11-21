@@ -23,13 +23,18 @@ pub(crate) struct Trial {
 impl Trial {
     pub(crate) fn of(shown: &Document, feature: &Feature, kind: &FeatureKind) -> Option<Self> {
         let mut stripped = kind.clone();
+
         if let FeatureKind::Sketch(definition) = &mut stripped {
             definition.projections.clear();
         }
+
         let mut document = shown.clone();
+
         let mut builder = document.transaction(TRIAL_LABEL);
+
         let sketch =
             builder.add_copied_feature(Feature::new(feature.id(), unused_name(shown), stripped));
+
         document.apply(builder.finish()).ok()?;
         Some(Self { document, sketch })
     }
@@ -69,6 +74,7 @@ impl Sections<'_> {
         let FeatureKind::Sketch(definition) = kind else {
             return Ok(());
         };
+
         for source in definition.projections.values_mut() {
             let ProjectionSource::Section { body, edge } = source else {
                 continue;
@@ -125,6 +131,7 @@ impl Sections<'_> {
             .map_err(|unmatched| refusal(unmatched, SECTION_EDGE, &name))?;
         let captured =
             section_reference(&copy_section, copy_edge, self.trial_sketch).ok_or_else(missing)?;
+
         if captured.resolve(&copy_section) != Ok(copy_edge) {
             return Err(refusal(Unmatched::Ambiguous, SECTION_EDGE, &name));
         }

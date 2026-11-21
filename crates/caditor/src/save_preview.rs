@@ -45,7 +45,9 @@ impl SavePreviews {
         if !self.enabled || !has_bodies {
             return None;
         }
+
         let (slot, drawing) = PreviewSlot::new();
+
         self.waiting = Some(Waiting { revision, drawing });
         Some(slot)
     }
@@ -145,6 +147,7 @@ mod tests {
 
     fn enabled() -> SavePreviews {
         let mut previews = SavePreviews::default();
+
         previews.enable();
         previews
     }
@@ -172,9 +175,11 @@ mod tests {
 
         let slot = previews.request(4, true).unwrap();
         let drawing = previews.take(4).unwrap();
+
         finish(drawing, flat());
 
         let preview = slot.wait_at_most(PATIENCE).unwrap();
+
         assert!(preview.png().starts_with(&[0x89, b'P', b'N', b'G']));
         assert!(previews.take(4).is_none());
     }
@@ -182,14 +187,19 @@ mod tests {
     #[test]
     fn a_picture_the_renderer_was_too_busy_to_draw_is_asked_for_again() {
         let mut previews = enabled();
+
         let slot = previews.request(3, true).unwrap();
 
         let drawing = previews.take(3).unwrap();
+
         previews.drawn(3, drawing, Err(ImageError::Busy));
+
         let again = previews.take(3).unwrap();
+
         previews.drawn(3, again, Ok(flat()));
 
         let preview = slot.wait_at_most(PATIENCE).unwrap();
+
         assert!(preview.png().starts_with(&[0x89, b'P', b'N', b'G']));
         assert!(!previews.is_waiting());
     }
@@ -197,9 +207,11 @@ mod tests {
     #[test]
     fn a_picture_that_failed_to_draw_declines_and_is_not_asked_for_again() {
         let mut previews = enabled();
+
         let slot = previews.request(3, true).unwrap();
 
         let drawing = previews.take(3).unwrap();
+
         previews.drawn(3, drawing, Err(ImageError::DeviceLost));
 
         assert_eq!(slot.wait_at_most(PATIENCE), None);
@@ -209,18 +221,21 @@ mod tests {
     #[test]
     fn a_newer_save_replaces_the_picture_still_waited_for() {
         let mut previews = enabled();
+
         let first = previews.request(1, true).unwrap();
 
         let second = previews.request(2, true).unwrap();
 
         assert_eq!(first.wait_at_most(PATIENCE), None);
         assert!(previews.take(2).is_some());
+
         drop(second);
     }
 
     #[test]
     fn a_picture_that_cannot_be_encoded_declines_instead_of_hanging_the_save() {
         let mut previews = enabled();
+
         let slot = previews.request(1, true).unwrap();
         let drawing = previews.take(1).unwrap();
 

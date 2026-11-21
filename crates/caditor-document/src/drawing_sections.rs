@@ -27,7 +27,7 @@ pub const HATCH_ANGLES: [f64; 2] = [FRAC_PI_4, 3.0 * FRAC_PI_4];
 const MOST_HATCH_LINES: f64 = 2000.0;
 const SECTION_CUT: FeatureId = FeatureId::from_raw(u64::MAX - 64);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ResolvedPlace {
     Centre,
     Offset(f64),
@@ -121,6 +121,7 @@ fn cut_face_edges(
         .flat_map(|face_loop| face_loop.coedges())
         .filter_map(|coedge| solid.coedge(*coedge))
         .filter_map(|coedge| solid.edge(coedge.edge()));
+
     for edge in boundary {
         let points: Vec<Point2> = edge
             .curve()
@@ -128,6 +129,7 @@ fn cut_face_edges(
             .into_iter()
             .map(|sample| frame.to_local(sample.point))
             .collect();
+
         edges.extend(points.iter().copied().zip(points.iter().skip(1).copied()));
     }
     edges
@@ -139,10 +141,12 @@ fn sectioned(
     solids: &[&Solid],
 ) -> Result<ViewLines, DrawingViewError> {
     let (look, up) = section.look_and_up();
+
     let looking = HiddenLineView::new(look, up)?;
     let cutting = cutting_plane(section, place, solids)?;
     let mut whole = Vec::new();
     let mut cut_solids = Vec::new();
+
     for solid in solids {
         check_interrupt().map_err(|_| DrawingViewError::Cancelled)?;
         match side_of(solid, &cutting) {
@@ -154,6 +158,7 @@ fn sectioned(
     if cut_solids.is_empty() {
         return Err(DrawingViewError::PlaneMisses);
     }
+
     let shown: Vec<&Solid> = whole.into_iter().chain(cut_solids.iter()).collect();
     let mut lines = lines_seen(DrawnView::Section(section.letter), &looking, &shown)?;
     let tolerance = MeshQuality::SMOOTH.tolerance(scene_extent(&shown));
@@ -166,6 +171,7 @@ fn sectioned(
         })
         .filter(|region| !region.edges.is_empty())
         .collect();
+
     lines.section = Some(SectionLines { cutting, hatching });
     Ok(lines)
 }
@@ -192,13 +198,16 @@ fn crossings_at(
         .iter()
         .filter_map(|(start, end)| {
             let (from, to) = (start.dot(across), end.dot(across));
+
             if (from > height) == (to > height) {
                 return None;
             }
+
             let share = (height - from) / (to - from);
             Some((*start + (*end - *start) * share).dot(along))
         })
         .collect();
+
     crossings.sort_by(f64::total_cmp);
     crossings
 }
@@ -211,19 +220,23 @@ pub fn hatch_lines(region: &HatchRegion, placed: &PlacedView) -> Vec<(Point2, Po
         .iter()
         .map(|(start, end)| (placed.on_sheet(*start), placed.on_sheet(*end)))
         .collect();
+
     let (low, high) = edges
         .iter()
         .flat_map(|(start, end)| [start.dot(across), end.dot(across)])
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), height| {
             (low.min(height), high.max(height))
         });
+
     if !(low.is_finite() && high.is_finite()) || high <= low {
         return Vec::new();
     }
+
     let spacing = HATCH_SPACING.max((high - low) / MOST_HATCH_LINES);
     let first = (low / spacing).ceil() as i64;
     let last = (high / spacing).floor() as i64;
     let mut lines = Vec::new();
+
     for step in first..=last {
         let height = step as f64 * spacing;
         let crossings = crossings_at(&edges, across, along, height);

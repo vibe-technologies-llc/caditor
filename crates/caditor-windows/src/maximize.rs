@@ -22,7 +22,7 @@ use windows_sys::Win32::{
     },
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ButtonRect {
     left: i32,
     top: i32,
@@ -45,7 +45,7 @@ impl ButtonRect {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ButtonState {
     #[default]
     Idle,
@@ -91,6 +91,7 @@ pub fn on_maximize_button(
             "a maximize button handler is already installed",
         )
     })?;
+
     let procedure: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT =
         maximize_procedure;
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
@@ -101,6 +102,7 @@ pub fn on_maximize_button(
             procedure as usize as isize,
         )
     };
+
     if previous == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -111,7 +113,9 @@ pub fn on_maximize_button(
 pub fn set_maximize_button(rect: Option<ButtonRect>) {
     let changed = {
         let mut button = BUTTON.lock();
+
         let changed = *button != rect;
+
         *button = rect;
         changed
     };
@@ -146,6 +150,7 @@ fn over_button(window: HWND, lparam: LPARAM) -> bool {
         return false;
     };
     let mut point = client_point(lparam);
+
     let converted = unsafe { ScreenToClient(window, &mut point) };
     converted != 0 && rect.contains(point.x, point.y)
 }
@@ -158,6 +163,7 @@ fn track_leaving(window: HWND) {
         hwndTrack: window,
         dwHoverTime: 0,
     };
+
     unsafe { TrackMouseEvent(&mut request) };
 }
 
@@ -165,6 +171,7 @@ fn track_leaving(window: HWND) {
 fn toggle_maximized(window: HWND) {
     let zoomed = unsafe { IsZoomed(window) } != 0;
     let command = if zoomed { SW_RESTORE } else { SW_MAXIMIZE };
+
     unsafe { ShowWindow(window, command) };
 }
 
@@ -176,6 +183,7 @@ unsafe extern "system" fn maximize_procedure(
     lparam: LPARAM,
 ) -> LRESULT {
     let on_button = wparam == HIT_MAXIMIZE_BUTTON;
+
     match message {
         WM_NCHITTEST if over_button(window, lparam) => return HTMAXBUTTON as LRESULT,
         WM_NCMOUSEMOVE if on_button => {
@@ -192,6 +200,7 @@ unsafe extern "system" fn maximize_procedure(
         }
         WM_NCLBUTTONUP if on_button => {
             let pressed = current_state() == ButtonState::Pressed;
+
             announce(ButtonState::Hovered);
             if pressed {
                 toggle_maximized(window);
@@ -200,10 +209,13 @@ unsafe extern "system" fn maximize_procedure(
         }
         _ => {}
     }
+
     let previous = PREVIOUS_PROCEDURE.load(Ordering::Acquire);
+
     if previous == 0 {
         return unsafe { DefWindowProcW(window, message, wparam, lparam) };
     }
+
     let previous: WNDPROC = unsafe { std::mem::transmute::<isize, WNDPROC>(previous) };
     unsafe { CallWindowProcW(previous, window, message, wparam, lparam) }
 }

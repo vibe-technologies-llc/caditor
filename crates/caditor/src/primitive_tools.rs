@@ -30,7 +30,7 @@ pub const DEFAULT_PRISM_SIDES: u32 = 6;
 pub const DEFAULT_PRISM: [f64; 2] = [20.0, 10.0];
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Xy);
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PrimitiveError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -69,7 +69,7 @@ impl Reason for PrimitiveError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PrimitiveSource {
     pub chosen: Option<ChosenPlane>,
 }
@@ -235,6 +235,7 @@ fn spot(model: &Model, place: &Place, ray: Option<Ray>) -> Result<Point2, Primit
         let distance = ray
             .intersect_plane(&place.frame)
             .ok_or(PrimitiveError::Missed)?;
+
         return Ok(place.frame.to_local(ray.at(distance)));
     }
     Ok(place
@@ -292,6 +293,7 @@ pub fn create(
     };
     let name = editing::next_feature_name(document, kind.name());
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Primitive(Primitive {
@@ -313,6 +315,7 @@ pub fn create_actions(model: &Model, kind: PrimitiveKind, source: &PrimitiveSour
                 Action::Apply(transaction),
                 Action::Editing(EditingCommand::OpenSolid(feature)),
             ];
+
             if unplaced {
                 actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
                     feature,

@@ -18,8 +18,11 @@ const ALONG: f64 = 1e-3;
 fn shaft_of_length(length: &str) -> (Document, FeatureId) {
     let mut document = Document::default();
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_circle(Point2::new(0.0, 0.0), 4.0);
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature("Shaft outline", FeatureKind::from(sketch));
     let shaft = transaction.add_feature(
         "Shaft",
@@ -35,6 +38,7 @@ fn shaft_of_length(length: &str) -> (Document, FeatureId) {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, shaft)
 }
@@ -51,8 +55,10 @@ fn faces_made_by(solid: &Solid, feature: FeatureId) -> Vec<FaceOrigin> {
 fn a_modelled_thread_cuts_its_shaft_and_is_placed_on_the_cut_body() {
     let (mut document, shaft) = shaft();
     let mut engine = Recompute::default();
+
     let face = round_face(evaluate(&document, &mut engine).body(shaft).unwrap());
     let depth = document.parse("3 mm").unwrap();
+
     let thread = threaded(&mut document, shaft, |_| Thread {
         length: ThreadLength::Depth(depth),
         form: ThreadForm::Modelled,
@@ -93,6 +99,7 @@ fn a_modelled_thread_cuts_its_shaft_and_is_placed_on_the_cut_body() {
 fn showing_threads_as_cosmetic_evaluates_them_drawn_and_leaves_the_body_whole() {
     let (mut document, shaft) = shaft();
     let mut engine = Recompute::default();
+
     let face = round_face(evaluate(&document, &mut engine).body(shaft).unwrap());
     let thread = threaded(&mut document, shaft, |_| Thread {
         form: ThreadForm::Modelled,
@@ -118,10 +125,13 @@ fn showing_threads_as_cosmetic_evaluates_them_drawn_and_leaves_the_body_whole() 
 #[test]
 fn a_modelled_tapped_hole_cuts_its_thread_into_the_wall_and_places_it() {
     let mut pair = pair();
+
     let hole = tapped(&mut pair);
+
     set_hole(&mut pair, hole, |hole| {
         hole.thread.form = ThreadForm::Modelled
     });
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -170,6 +180,7 @@ fn hole_thread_entities_keep_wall_and_part_apart_from_the_hole_s_own() {
         assert_eq!(Hole::thread_part(entity), Some((wall, part)));
         assert!(!Hole::is_wall(entity));
     }
+
     assert_eq!(Hole::thread_part(wall), None);
     assert_eq!(part_name(1), "thread root");
     assert_eq!(part_name(8 * 3 + 2), "thread flank");
@@ -180,8 +191,10 @@ fn hole_thread_entities_keep_wall_and_part_apart_from_the_hole_s_own() {
 fn a_modelled_thread_of_too_many_turns_fails_alone_in_words() {
     let (mut document, shaft) = shaft_of_length("2000 mm");
     let mut engine = Recompute::default();
+
     let face = round_face(evaluate(&document, &mut engine).body(shaft).unwrap());
     let fine = ThreadSize::from_id(ThreadFamily::MetricFine, "M8x0.75").unwrap();
+
     let thread = threaded(&mut document, shaft, |_| Thread {
         size: fine,
         form: ThreadForm::Modelled,
@@ -217,6 +230,7 @@ fn a_modelled_thread_of_too_many_turns_fails_alone_in_words() {
 fn kernel_thread_errors_are_put_in_words_naming_the_face() {
     let size = metric("M8");
     let face = "shaft side from circle 1";
+
     let cause = |error| ThreadCause::Modelled {
         size,
         side: ThreadSide::External,

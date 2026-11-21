@@ -114,6 +114,7 @@ mod fake {
 
         pub fn unreachable() -> Arc<Self> {
             let keyring = Self::default();
+
             keyring.unreachable.store(true, Ordering::Relaxed);
             Arc::new(keyring)
         }
@@ -151,7 +152,9 @@ mod fake {
 
         fn set(&self, service: Service, secret: &[u8]) -> Result<(), KeyringError> {
             self.check()?;
+
             let held = self.holding_sets.lock().clone();
+
             if let Some(hold) = held {
                 hold.stop_here();
             }
@@ -179,6 +182,7 @@ mod fake {
 
         pub fn unreachable() -> Arc<Self> {
             let keyring = Self::default();
+
             keyring.unreachable.store(true, Ordering::Relaxed);
             Arc::new(keyring)
         }

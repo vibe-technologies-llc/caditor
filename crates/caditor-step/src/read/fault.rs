@@ -5,7 +5,7 @@ use caditor_kernel::{
 
 use crate::read::{graph::friendly, offset::OffsetRefusal, topology::short};
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum Fault {
     #[error("is missing from the file")]
     MissingFromFile,

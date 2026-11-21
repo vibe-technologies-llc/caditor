@@ -49,6 +49,7 @@ pub(super) fn wait_until_stored(
 
 pub(super) fn reopened(dir: &Path) -> Harness {
     let mut preferences = stored(dir);
+
     preferences.onboarding = Onboarding::finished();
     Harness::starting(
         Some(dir),
@@ -74,6 +75,7 @@ fn right_drag(harness: &mut Harness, from: Pos2, to: Pos2) {
     harness.frame();
     for step in 1..=4 {
         let position = from + (to - from) * (step as f32 / 4.0);
+
         harness.events.push(Event::PointerMoved(position));
         harness.frame();
     }
@@ -90,7 +92,9 @@ fn right_drag(harness: &mut Harness, from: Pos2, to: Pos2) {
 fn turn_of_a_right_drag(harness: &mut Harness) -> f64 {
     let centre = viewport_centre(harness);
     let before = harness.workspace.viewport.viewpoint().forward();
+
     right_drag(harness, centre, centre + vec2(60.0, 0.0));
+
     let after = harness.workspace.viewport.viewpoint().forward();
     before.cross(after).z
 }
@@ -106,7 +110,9 @@ fn fitted_distance(harness: &mut Harness) -> f64 {
 fn navigation_preferences_zoom_at_the_centre_invert_the_orbit_widen_the_view_and_are_remembered() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     settle_camera(&mut harness);
+
     let standard_fit = fitted_distance(&mut harness);
     let plain_turn = turn_of_a_right_drag(&mut harness);
 
@@ -119,6 +125,7 @@ fn navigation_preferences_zoom_at_the_centre_invert_the_orbit_widen_the_view_and
     close_preferences(&mut harness);
 
     let navigation = harness.workspace.preferences.navigation;
+
     assert_eq!(navigation.zoom_toward, ZoomToward::Centre);
     assert_eq!(navigation.orbit_around, OrbitAround::Centre);
     assert!(navigation.invert_orbit_x && !navigation.invert_orbit_y);
@@ -126,30 +133,39 @@ fn navigation_preferences_zoom_at_the_centre_invert_the_orbit_widen_the_view_and
     assert_eq!(navigation.transitions, Transitions::Off);
 
     let inverted_turn = turn_of_a_right_drag(&mut harness);
+
     assert!(
         plain_turn * inverted_turn < 0.0,
         "{plain_turn} {inverted_turn}"
     );
 
     let target = harness.workspace.viewport.viewpoint().target;
+
     harness.events.push(Event::PointerMoved(
         viewport_centre(&harness) + vec2(150.0, 90.0),
     ));
     harness.frame();
     scroll_in_view(&mut harness, vec2(0.0, 60.0));
+
     let zoomed = harness.workspace.viewport.viewpoint();
+
     assert!(zoomed.target.distance(target) < 1e-9 * zoomed.distance);
 
     harness.key(Key::F, Modifiers::NONE);
     harness.frame();
+
     assert!(!harness.workspace.viewport.is_animating());
+
     let wide_fit = harness.workspace.viewport.viewpoint().distance;
+
     assert!(wide_fit < standard_fit, "{wide_fit} {standard_fit}");
 
     wait_until_stored(&mut harness, dir.path(), |stored| {
         stored.navigation == navigation
     });
+
     let again = reopened(dir.path());
+
     assert_eq!(again.workspace.preferences.navigation, navigation);
 }
 
@@ -157,16 +173,21 @@ fn navigation_preferences_zoom_at_the_centre_invert_the_orbit_widen_the_view_and
 fn view_details_thicken_the_edges_hide_outlines_and_the_view_cube_and_are_remembered() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     extruded_plate(&mut harness);
     harness.frame();
+
     let standard_width = harness.built().scene.silhouettes[0].width;
+
     assert!(harness.shows("Fit all"));
 
     open_tab(&mut harness, PreferencesTab::Appearance);
     harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "outlines");
     harness.click(EdgeWeight::Thick.label());
     harness.frame();
+
     let thick_width = harness.built().scene.silhouettes[0].width;
+
     harness.click("Outline curved faces");
     harness.click("Show the view cube");
     close_preferences(&mut harness);
@@ -176,12 +197,16 @@ fn view_details_thicken_the_edges_hide_outlines_and_the_view_cube_and_are_rememb
     assert!(!harness.shows("Fit all"));
 
     let details = harness.workspace.preferences.view_details;
+
     wait_until_stored(&mut harness, dir.path(), |stored| {
         stored.view_details == details
     });
+
     let mut again = reopened(dir.path());
+
     extruded_plate(&mut again);
     again.frame();
+
     assert_eq!(
         again.workspace.preferences.view_details.edges.weight,
         EdgeWeight::Thick
@@ -194,6 +219,7 @@ fn view_details_thicken_the_edges_hide_outlines_and_the_view_cube_and_are_rememb
 fn hover_help_waits_as_long_as_preferences_say_and_is_remembered() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let standard = harness.context.global_style().interaction.tooltip_delay;
 
     open_tab(&mut harness, PreferencesTab::Appearance);
@@ -206,11 +232,15 @@ fn hover_help_waits_as_long_as_preferences_say_and_is_remembered() {
         harness.context.global_style().interaction.tooltip_delay,
         0.0
     );
+
     wait_until_stored(&mut harness, dir.path(), |stored| {
         stored.tooltip_delay == TooltipDelay::AtOnce
     });
+
     let mut again = reopened(dir.path());
+
     again.frame();
+
     assert_eq!(again.context.global_style().interaction.tooltip_delay, 0.0);
 }
 
@@ -219,6 +249,7 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
  {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     settle_camera(&mut harness);
 
     open_tab(&mut harness, PreferencesTab::Sketching);
@@ -226,12 +257,15 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
     harness.click("Finishes the sketch when nothing is left to cancel");
     harness.click("Show constraint glyphs");
     harness.click("Snap to the grid");
+
     let over = harness.position_of("Show constraint glyphs");
+
     harness.wheel_until_shown(over, "Show dimensions on the model", Wheel::Down);
     harness.click("Show dimensions on the model");
     close_preferences(&mut harness);
 
     let viewport = &harness.workspace.viewport;
+
     assert!(!viewport.glyphs_shown());
     assert!(viewport.grid_snapping());
     assert!(viewport.dimensions_shown());
@@ -240,20 +274,26 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
     let before = harness.workspace.viewport.destination();
     let base = edit_base_sketch(&mut harness);
     let after = harness.workspace.viewport.destination();
+
     assert_eq!(harness.editing(), Some(base));
     assert!(before.orientation.angle_between(after.orientation) < 1e-9);
+
     for _ in 0..4 {
         harness.key(Key::Escape, Modifiers::NONE);
         harness.frame();
     }
+
     assert_eq!(harness.editing(), Some(base));
 
     let sketching = harness.workspace.preferences.sketching;
+
     wait_until_stored(&mut harness, dir.path(), |stored| {
         stored.sketching == sketching
     });
+
     let again = reopened(dir.path());
     let viewport = &again.workspace.viewport;
+
     assert!(!viewport.glyphs_shown());
     assert!(viewport.grid_snapping());
     assert!(viewport.dimensions_shown());
@@ -263,11 +303,15 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
 #[test]
 fn by_default_entering_a_sketch_faces_it_and_escape_finishes_it() {
     let mut harness = Harness::new();
+
     settle_camera(&mut harness);
 
     let before = harness.workspace.viewport.destination();
+
     edit_base_sketch(&mut harness);
+
     let after = harness.workspace.viewport.destination();
+
     for _ in 0..4 {
         harness.key(Key::Escape, Modifiers::NONE);
         harness.frame();
@@ -279,16 +323,21 @@ fn by_default_entering_a_sketch_faces_it_and_escape_finishes_it() {
 
 fn model_files(dir: &TempDir, count: usize) -> Vec<std::path::PathBuf> {
     let folder = canonical(dir).join("models");
+
     std::fs::create_dir_all(&folder).unwrap();
+
     let mut recent = RecentFiles::default();
     let paths: Vec<_> = (0..count)
         .map(|index| folder.join(format!("Model {index}.caditor")))
         .collect();
+
     for path in paths.iter().rev() {
         caditor_file::save(&sample_document().unwrap(), path, false).unwrap();
         recent.add(path.clone());
     }
+
     let state = dir.path().join("state");
+
     std::fs::create_dir_all(&state).unwrap();
     recent.save(&state).unwrap();
     paths
@@ -301,13 +350,16 @@ fn started_with(
 ) -> Harness {
     let settings = preferences.settings();
     let mut preferences = preferences.clone();
+
     preferences.onboarding = Onboarding::finished();
+
     let mut harness = Harness::starting_with(
         Some(dir.path()),
         document,
         Workspace::with_preferences(preferences),
         |files| files.settings_loaded(settings),
     );
+
     harness.wait_until("the recent files are read", |harness| {
         !harness.files.recent().is_empty()
     });
@@ -317,7 +369,9 @@ fn started_with(
 #[test]
 fn the_welcome_lists_every_recent_file_the_preference_shows() {
     let dir = TempDir::new().unwrap();
+
     model_files(&dir, 7);
+
     let mut harness = started_with(&dir, sample_document().unwrap(), &Preferences::default());
 
     harness.perform(Action::Preferences(PreferencesCommand::ShowWelcome));
@@ -333,6 +387,7 @@ fn startup_recent_files_and_double_click_preferences_do_what_they_say_and_are_re
     let dir = TempDir::new().unwrap();
     let paths = model_files(&dir, 5);
     let mut harness = started_with(&dir, sample_document().unwrap(), &Preferences::default());
+
     assert_eq!(harness.files.recent().len(), 5);
     assert_eq!(harness.model.path(), None);
 
@@ -342,14 +397,17 @@ fn startup_recent_files_and_double_click_preferences_do_what_they_say_and_are_re
     harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "double-click");
     harness.click(DoubleClick::Rename.label());
     close_preferences(&mut harness);
+
     assert_eq!(harness.files.recent().len(), 3);
 
     harness.settle();
     harness.double_click("Side sketch");
+
     assert!(harness.workspace.panels.renaming.is_some());
     assert_eq!(harness.editing(), None);
 
     let preferences = harness.workspace.preferences.clone();
+
     wait_until_stored(&mut harness, dir.path(), |stored| {
         stored.startup == Startup::LastModel
             && stored.recent_listed == RecentListed::Three
@@ -362,9 +420,11 @@ fn startup_recent_files_and_double_click_preferences_do_what_they_say_and_are_re
         caditor_document::Document::default(),
         &stored(dir.path()),
     );
+
     again.wait_until("the last model opens", |harness| {
         harness.model.path() == paths.first().map(std::path::PathBuf::as_path)
     });
+
     assert_eq!(again.files.recent().len(), 3);
     assert_eq!(
         again.workspace.preferences.double_click,
@@ -375,7 +435,9 @@ fn startup_recent_files_and_double_click_preferences_do_what_they_say_and_are_re
 #[test]
 fn the_search_field_filters_the_settings_by_name_across_every_tab() {
     let mut harness = Harness::new();
+
     open_tab(&mut harness, PreferencesTab::General);
+
     assert!(harness.shows("Centimetres"));
 
     harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "field of view");
@@ -386,24 +448,31 @@ fn the_search_field_filters_the_settings_by_name_across_every_tab() {
     assert!(!harness.shows("Orbit speed"));
 
     harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "grid");
+
     assert!(harness.shows(Section::Colours.title()));
     assert!(harness.shows("Snap to the grid"));
     assert!(!harness.shows("Field of view"));
 
     harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "no such setting");
+
     assert!(harness.shows_containing("No setting matches"));
+
     harness.click(preferences::CLEAR_SEARCH);
+
     assert!(harness.workspace.preferences_search.is_empty());
     assert!(harness.shows("Centimetres"));
 
     harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "zoom");
     harness.key(Key::Tab, Modifiers::NONE);
     harness.frame();
+
     assert_ne!(
         harness.focused(),
         Some(Id::unique(preferences::SEARCH_FIELD))
     );
+
     harness.click(PreferencesTab::Graphics.label());
+
     assert!(harness.workspace.preferences_search.is_empty());
     assert!(harness.shows("Anti-aliasing"));
 }
@@ -411,6 +480,7 @@ fn the_search_field_filters_the_settings_by_name_across_every_tab() {
 #[test]
 fn a_section_resets_alone_and_its_reset_can_be_undone() {
     let mut harness = Harness::new();
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::FieldOfView(FieldOfView::Narrow),
     )));
@@ -419,18 +489,22 @@ fn a_section_resets_alone_and_its_reset_can_be_undone() {
     )));
     open_tab(&mut harness, PreferencesTab::Navigation);
     harness.read_screen();
+
     let reset_view = preferences::reset_name(Section::NavigationView);
+
     assert!(harness.accessible_named(Role::Button, &reset_view));
     assert!(!harness.accessible_named(Role::Button, &preferences::reset_name(Section::Input)));
 
     harness.click_button(&reset_view);
 
     let navigation = harness.workspace.preferences.navigation;
+
     assert_eq!(navigation.field_of_view, FieldOfView::Standard);
     assert_eq!(navigation.zoom_toward, ZoomToward::Centre);
     assert!(harness.shows("View is back to its defaults."));
 
     harness.click_lowest("Undo");
+
     assert_eq!(
         harness.workspace.preferences.navigation.field_of_view,
         FieldOfView::Narrow
@@ -441,19 +515,25 @@ fn a_section_resets_alone_and_its_reset_can_be_undone() {
 fn the_new_bodies_preference_makes_a_new_extrusion_a_body_each_and_is_remembered() {
     let dir = TempDir::new().unwrap();
     let mut preferences = Preferences::default();
+
     preferences.onboarding = Onboarding::finished();
+
     let mut harness = Harness::starting(
         Some(dir.path()),
         caditor_document::Document::default(),
         Workspace::with_preferences(preferences),
     );
+
     open_tab(&mut harness, PreferencesTab::General);
     harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "separate pieces");
+
     let offered = harness.shows(preferences::NEW_BODIES_CAPTION);
+
     harness.click(NewBodies::BodyEach.label());
     close_preferences(&mut harness);
 
     let mut sketch = Sketch::new(Plane::XY);
+
     for x in [0.0, 20.0, 40.0] {
         rectangle(
             &mut sketch,
@@ -465,6 +545,7 @@ fn the_new_bodies_preference_makes_a_new_extrusion_a_body_each_and_is_remembered
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = harness
         .workspace
         .editing
@@ -472,6 +553,7 @@ fn the_new_bodies_preference_makes_a_new_extrusion_a_body_each_and_is_remembered
         .expect("the extrusion is open");
     let pieces = harness.document().feature(extrude).unwrap().pieces;
     let made = harness.model.evaluation().pieces_made_by(extrude).len();
+
     wait_until_stored(&mut harness, dir.path(), |stored| {
         stored.new_bodies == NewBodies::BodyEach
     });
@@ -484,11 +566,13 @@ fn the_new_bodies_preference_makes_a_new_extrusion_a_body_each_and_is_remembered
 #[test]
 fn following_the_system_glides_between_views_unless_the_system_turns_animations_off() {
     let mut harness = Harness::new();
+
     settle_camera(&mut harness);
 
     open_tab(&mut harness, PreferencesTab::Navigation);
     harness.click(Transitions::System.label());
     close_preferences(&mut harness);
+
     assert_eq!(
         harness.workspace.preferences.navigation.transitions,
         Transitions::System
@@ -498,15 +582,19 @@ fn following_the_system_glides_between_views_unless_the_system_turns_animations_
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.key(Key::Num1, Modifiers::ALT);
     harness.frame();
+
     let glides = harness.workspace.viewport.is_animating();
+
     settle_camera(&mut harness);
 
     system_settings::pretend(true);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.key(Key::Num2, Modifiers::ALT);
     harness.frame();
+
     let jumps = !harness.workspace.viewport.is_animating();
     let turned = harness.workspace.viewport.viewpoint().forward();
+
     system_settings::pretend(false);
 
     assert!(glides);

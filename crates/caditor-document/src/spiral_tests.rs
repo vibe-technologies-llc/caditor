@@ -41,8 +41,11 @@ fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
 
 fn alone(spiral: Helix) -> (Document, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let feature = transaction.add_feature("Spiral 1", FeatureKind::Helix(spiral));
+
     document.apply(transaction.finish()).unwrap();
     (document, feature)
 }
@@ -69,11 +72,13 @@ fn volume(solid: &Solid) -> f64 {
 fn assert_watertight(solid: &Solid) {
     let mesh = solid.tessellate(&solid.default_tolerance()).unwrap();
     let mut directed: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+
     for [a, b, c] in mesh.position_triangles() {
         for edge in [(a, b), (b, c), (c, a)] {
             *directed.entry(edge).or_default() += 1;
         }
     }
+
     assert!(!directed.is_empty());
     for ((from, to), count) in &directed {
         assert_eq!(*count, 1, "edge {from}->{to} used {count} times");
@@ -102,6 +107,7 @@ fn a_flat_spiral_winds_out_from_its_inner_diameter_in_the_plane_square_to_its_ax
         let reach = radius.hypot(growth);
         radius * reach + growth * growth * (radius + reach).ln()
     };
+
     let closed_form = (primitive(17.5) - primitive(10.0)) / (2.0 * growth);
 
     assert_eq!(evaluation.failed_count(), 0);
@@ -114,6 +120,7 @@ fn a_flat_spiral_winds_out_from_its_inner_diameter_in_the_plane_square_to_its_ax
             < 1e-9
     );
     assert!(result.end().unwrap().distance(Point3::new(-17.5, 0.0, 0.0)) < 1e-9);
+
     for turn in &result.turns {
         for step in 0..=64 {
             let point = turn.curve().point(turn.range().at(f64::from(step) / 64.0));
@@ -121,6 +128,7 @@ fn a_flat_spiral_winds_out_from_its_inner_diameter_in_the_plane_square_to_its_ax
             assert!(point.z.abs() < 1e-12, "{point}");
         }
     }
+
     assert!(
         (length - closed_form).abs() < 1e-6 * closed_form,
         "{length} against {closed_form}"
@@ -141,8 +149,10 @@ fn an_outer_diameter_sizes_the_spiral_with_its_turns_or_its_pitch() {
     });
 
     let (document, feature) = alone(by_turns);
+
     let turned = curve(&evaluate(&document), feature).spiral.unwrap();
     let (document, feature) = alone(by_pitch);
+
     let pitched = curve(&evaluate(&document), feature).spiral.unwrap();
 
     assert!((turned.pitch - 3.0).abs() < 1e-12);
@@ -202,12 +212,15 @@ struct Model {
 
 fn piped(spiral: Helix, size: f64) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let helix = transaction.add_feature("Spiral 1", FeatureKind::Helix(spiral));
     let follower = transaction.add_feature(
         "Pipe 1",
         FeatureKind::Pipe(Pipe::new(SweepPath::Helix { helix }, mm(size), mm(0.0))),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model { document, follower }
 }
@@ -220,6 +233,7 @@ fn triangle() -> Sketch {
         Point2::new(11.0, 1.0),
         Point2::new(9.0, 0.0),
     ];
+
     for (from, to) in corners.iter().zip(corners.iter().cycle().skip(1)) {
         sketch.add_line(*from, *to);
     }
@@ -228,9 +242,12 @@ fn triangle() -> Sketch {
 
 fn swept(spiral: Helix) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let helix = transaction.add_feature("Spiral 1", FeatureKind::Helix(spiral));
     let profile = transaction.add_feature("Profile", FeatureKind::from(triangle()));
+
     let follower = transaction.add_feature(
         "Sweep 1",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(
@@ -238,6 +255,7 @@ fn swept(spiral: Helix) -> Model {
             SweepPath::Helix { helix },
         ))),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model { document, follower }
 }
@@ -251,18 +269,23 @@ fn a_pipe_along_a_flat_spiral_is_a_valid_watertight_clock_spring() {
     let growth = 3.0 / TAU;
     let sweep = 1.5 * TAU;
     let area = PI * 0.25 * 1.5 * 1.5;
+
     let expected = area / 10.0_f64.hypot(growth)
         * ((100.0 + growth * growth) * sweep + growth * 10.0 * sweep * sweep / 2.0);
     let found = volume(solid);
 
     assert_eq!(evaluation.failed_count(), 0);
     assert_eq!(solid.validate(), Ok(()));
+
     assert_watertight(solid);
+
     assert!(
         (found - expected).abs() < 1e-3 * expected,
         "{found} against {expected}"
     );
+
     let bounds = solid.bounding_box().unwrap();
+
     assert!(bounds.max().z < 0.75 + 1e-6 && bounds.min().z > -0.75 - 1e-6);
 }
 
@@ -278,7 +301,9 @@ fn a_triangle_swept_along_a_flat_spiral_keeps_its_place_against_the_axis() {
 
     assert_eq!(evaluation.failed_count(), 0);
     assert_eq!(solid.validate(), Ok(()));
+
     assert_watertight(solid);
+
     assert!(
         (found - expected).abs() < 1e-3 * expected,
         "{found} against {expected}"
@@ -309,6 +334,7 @@ fn a_pipe_too_thick_for_the_spiral_s_pitch_fails_naming_both() {
 fn a_pipe_at_the_least_pitch_named_is_built() {
     let spiral = turns_and_pitch(3.0, 2.0);
     let (document, feature) = alone(spiral.clone());
+
     let spec = curve(&evaluate(&document), feature).spiral.unwrap();
     let least = spec.least_pitch_for(2.5);
 
@@ -350,6 +376,7 @@ fn tabled_spiral(turns: f64, pitch: f64, rows: &[(f64, f64)]) -> Helix {
 fn outer_radius(spiral: Helix) -> f64 {
     let (document, feature) = alone(spiral);
     let evaluation = evaluate(&document);
+
     assert_eq!(evaluation.failed_count(), 0);
     curve(&evaluation, feature).spiral.unwrap().outer_radius()
 }
@@ -388,6 +415,7 @@ fn a_flat_spiral_is_sized_by_its_outer_diameter_with_a_changing_pitch() {
         for sized in [by_turns, by_pitch] {
             let (document, feature) = alone(sized);
             let evaluation = evaluate(&document);
+
             let spec = curve(&evaluation, feature).spiral.unwrap();
 
             assert_eq!(evaluation.failed_count(), 0);

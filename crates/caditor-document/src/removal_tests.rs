@@ -9,7 +9,9 @@ fn evaluate(document: &Document) -> Evaluation {
 
 fn add(document: &mut Document, name: &str, kind: FeatureKind) -> FeatureId {
     let mut transaction = document.transaction("Add");
+
     let feature = transaction.add_feature(name, kind);
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -25,10 +27,12 @@ fn remove_peg(pair: &mut Pair) -> FeatureId {
 #[test]
 fn a_removed_body_no_longer_stands_and_comes_back_when_the_removal_is_suppressed() {
     let mut pair = pair();
+
     let removal = remove_peg(&mut pair);
 
     let evaluation = evaluate(&pair.document);
     let standing = pair.document.bodies_standing();
+
     pair.document
         .apply(Transaction::single(
             "Suppress",
@@ -38,6 +42,7 @@ fn a_removed_body_no_longer_stands_and_comes_back_when_the_removal_is_suppressed
             },
         ))
         .unwrap();
+
     let restored = evaluate(&pair.document);
 
     assert_eq!(standing, vec![pair.plate]);
@@ -58,7 +63,9 @@ fn a_removed_body_no_longer_stands_and_comes_back_when_the_removal_is_suppressed
 #[test]
 fn a_feature_using_a_removed_body_fails_naming_the_removal() {
     let mut pair = pair();
+
     remove_peg(&mut pair);
+
     let moved = add(
         &mut pair.document,
         "Move 1",
@@ -81,6 +88,7 @@ fn a_feature_using_a_removed_body_fails_naming_the_removal() {
     let FeatureState::Failed(error) = &evaluation.feature(moved).unwrap().state else {
         panic!("moving a removed body fails");
     };
+
     assert_eq!(
         error.reason(),
         "Remove 1 removed the body made by Peg, so it no longer stands."
@@ -90,6 +98,7 @@ fn a_feature_using_a_removed_body_fails_naming_the_removal() {
 #[test]
 fn a_removal_keeps_its_body_used_so_it_cannot_move_above_it() {
     let mut pair = pair();
+
     let removal = remove_peg(&mut pair);
 
     let above = pair.document.apply(Transaction::single(
@@ -117,6 +126,7 @@ fn a_body_keeps_a_name_of_its_own_beside_its_feature() {
     pair.document
         .apply(set(pair.peg, name("  Locating\npeg ")))
         .unwrap();
+
     let refused = pair
         .document
         .apply(set(pair.peg, name(&"x".repeat(MAX_BODY_NAME_CHARS + 1))));

@@ -46,6 +46,7 @@ impl Cancellations {
             Entry::Occupied(_) => None,
             Entry::Vacant(vacant) => {
                 let flag = Arc::new(AtomicBool::new(false));
+
                 vacant.insert(Arc::clone(&flag));
                 Some(flag)
             }
@@ -133,13 +134,16 @@ where
 {
     let (sender, inbound) = mpsc::channel();
     let reading = cancellations.clone();
+
     let spawned = thread::Builder::new()
         .name("mcp input".to_owned())
         .spawn(move || read_messages(input, &sender, &reading));
+
     if let Err(error) = spawned {
         log::error!("could not start reading requests: {error}");
         return session;
     }
+
     let mut server = Server {
         session,
         output: Output {
@@ -152,6 +156,7 @@ where
             .unwrap_or(STRUCTURED_FROM),
         cancellations,
     };
+
     for message in inbound {
         server.handle(message);
         if server.output.broken.get() {
@@ -218,6 +223,7 @@ impl<W: Write> Server<W> {
                 cancelled,
             } => {
                 let response = self.respond(&id, &method, params, &cancelled);
+
                 self.cancellations.forget(&id);
                 if !cancelled.load(Ordering::Acquire) {
                     self.output.send(&response);
@@ -232,6 +238,7 @@ impl<W: Write> Server<W> {
                     rejected.reason.code(),
                     &rejected.reason.to_string(),
                 );
+
                 self.output.send(&error);
             }
         }
@@ -267,6 +274,7 @@ impl<W: Write> Server<W> {
 
     fn initialize(&mut self, params: &Value) -> Value {
         let asked = params.get("protocolVersion").and_then(Value::as_str);
+
         self.protocol = PROTOCOL_VERSIONS
             .into_iter()
             .find(|version| Some(*version) == asked)
@@ -311,12 +319,16 @@ impl<W: Write> Server<W> {
             session, output, ..
         } = &mut *self;
         let step = Cell::new(0_u64);
+
         let report = |message: &str| {
             let Some(token) = &token else {
                 return;
             };
+
             step.set(step.get().saturating_add(1));
+
             let mut progress = Map::new();
+
             progress.insert("progressToken".to_owned(), token.clone());
             progress.insert("progress".to_owned(), json!(step.get()));
             progress.insert("message".to_owned(), json!(message));
@@ -348,10 +360,13 @@ impl<W: Write> Server<W> {
         let Answer { data, image } = answer;
         let text = Value::Object(data.clone()).to_string();
         let mut content = vec![json!({ "type": "text", "text": text })];
+
         if let Some(png) = image {
             content.push(json!({ "type": "image", "data": base64(&png), "mimeType": "image/png" }));
         }
+
         let mut result = Map::new();
+
         result.insert("content".to_owned(), Value::Array(content));
         result.insert("isError".to_owned(), json!(false));
         if self.protocol >= STRUCTURED_FROM {
@@ -372,6 +387,7 @@ impl<W: Write> Server<W> {
         let quiet = |_: &str| {};
         let work = Work::new(Arc::clone(cancelled), &quiet);
         let session = &mut self.session;
+
         let read = panic::catch_unwind(AssertUnwindSafe(|| resources::read(session, &work, uri)));
         match read {
             Ok(Ok(contents)) => Ok(contents),
@@ -407,6 +423,7 @@ fn failed(error: &ToolError) -> Value {
 
 fn sentence(text: &str) -> String {
     let mut characters = text.chars();
+
     let first: String = characters
         .next()
         .map(char::to_uppercase)
@@ -414,6 +431,7 @@ fn sentence(text: &str) -> String {
         .flatten()
         .collect();
     let mut sentence = format!("{first}{}", characters.as_str());
+
     if !sentence.ends_with(['.', '?', '!']) {
         sentence.push('.');
     }
@@ -430,6 +448,7 @@ pub fn base64(bytes: &[u8]) -> String {
             .map_or('=', char::from)
     };
     let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
+
     for chunk in bytes.chunks(3) {
         let [first, second, third] = match *chunk {
             [first] => [first, 0, 0],
@@ -437,7 +456,9 @@ pub fn base64(bytes: &[u8]) -> String {
             [first, second, third, ..] => [first, second, third],
             [] => continue,
         };
+
         let joined = u32::from(first) << 16 | u32::from(second) << 8 | u32::from(third);
+
         text.push(symbol(joined >> 18));
         text.push(symbol(joined >> 12));
         text.push(if chunk.len() > 1 {

@@ -9,8 +9,10 @@ fn a_model_never_saved_is_proposed_under_its_title_with_file_name_characters_cle
     use crate::{files::FileCommand, model_properties::SAVE_LABEL};
 
     let mut harness = Harness::new();
+
     harness.command(FileCommand::SaveAs);
     harness.frame();
+
     let untitled = harness.last_proposed_name();
 
     run_from_palette(&mut harness, "model properties");
@@ -35,17 +37,21 @@ fn model_properties_are_edited_in_a_dialog_as_one_undoable_change() {
     use crate::model_properties::{SAVE_LABEL, field_id};
 
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
 
     run_from_palette(&mut harness, "model properties");
     harness.frame();
+
     let title_focused = harness.focused() == Some(field_id(ModelProperty::Title));
     let captioned = harness.captioned(Role::TextInput, "Part number");
+
     harness.type_text("Wall bracket");
     harness.type_into_field(field_id(ModelProperty::PartNumber), "BR-100");
     harness.type_into_field(field_id(ModelProperty::Notes), "Print it flat");
     harness.click(SAVE_LABEL);
     harness.frame();
+
     let closed = harness.workspace.model_properties.is_none();
 
     assert!(title_focused);
@@ -60,6 +66,7 @@ fn model_properties_are_edited_in_a_dialog_as_one_undoable_change() {
     );
 
     harness.perform(Action::Undo);
+
     assert!(harness.document().properties().is_empty());
 }
 
@@ -73,20 +80,26 @@ fn turn_the_view(harness: &mut Harness) {
 #[test]
 fn the_current_view_is_saved_from_the_palette_and_shown_again_from_a_search() {
     let mut harness = Harness::new();
+
     harness.settle();
     turn_the_view(&mut harness);
+
     let saved = harness.workspace.viewport.viewpoint();
 
     run_from_palette(&mut harness, "save the current view");
     harness.frame();
+
     let named = harness.document().saved_views().named.clone();
     let label = harness.model.undo_label().map(str::to_owned);
 
     turn_the_view(&mut harness);
+
     let moved = harness.workspace.viewport.viewpoint();
+
     run_from_palette(&mut harness, "view 1");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let returned = harness.workspace.viewport.viewpoint();
 
     assert_eq!(named.len(), 1);
@@ -98,6 +111,7 @@ fn the_current_view_is_saved_from_the_palette_and_shown_again_from_a_search() {
     assert!(returned.target.distance(saved.target) < 1e-6);
 
     harness.perform(Action::Undo);
+
     assert!(harness.document().saved_views().is_empty());
 }
 
@@ -106,28 +120,37 @@ fn the_saved_views_dialog_saves_renames_updates_and_deletes_views() {
     use crate::saved_views::{SAVE_LABEL, name_field_id, rename_field_id};
 
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.settle();
 
     run_from_palette(&mut harness, "saved views");
     harness.frame();
+
     let focused = harness.focused() == Some(name_field_id());
+
     harness.type_into_field(name_field_id(), "Hidden bore");
     harness.frame();
+
     let first = harness.document().saved_views().named.clone();
+
     harness.type_into_field(name_field_id(), "hidden bore");
     harness.frame();
+
     let refused = harness.shows_containing("There is already a view named");
+
     harness.focus_field(name_field_id());
     harness.replace_text("As drawn");
     harness.click(SAVE_LABEL);
     harness.frame();
+
     let two = harness.document().saved_views().named.len();
 
     harness.click_button("Rename it");
     harness.frame();
     harness.type_into_field(rename_field_id(), "Bore");
     harness.frame();
+
     let renamed: Vec<String> = harness
         .document()
         .saved_views()
@@ -138,6 +161,7 @@ fn the_saved_views_dialog_saves_renames_updates_and_deletes_views() {
 
     harness.click_button("Delete it");
     harness.frame();
+
     let left = harness.document().saved_views().named.len();
 
     assert!(focused);
@@ -155,6 +179,7 @@ fn escape_in_a_saved_view_s_rename_row_keeps_the_name_and_the_dialog() {
     use crate::saved_views::{SAVE_LABEL, name_field_id};
 
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.settle();
     run_from_palette(&mut harness, "saved views");
@@ -166,6 +191,7 @@ fn escape_in_a_saved_view_s_rename_row_keeps_the_name_and_the_dialog() {
     harness.click_button("Rename it");
     harness.frame();
     harness.type_text("Changed");
+
     assert!(harness.has_button("Keep the name (Esc)"));
 
     harness.key(Key::Escape, Modifiers::NONE);
@@ -187,25 +213,32 @@ fn escape_in_a_saved_view_s_rename_row_keeps_the_name_and_the_dialog() {
 #[test]
 fn the_isometric_view_is_redefined_by_the_current_view_and_reset() {
     let mut harness = Harness::new();
+
     harness.settle();
     turn_the_view(&mut harness);
+
     let wanted = harness.workspace.viewport.viewpoint();
 
     run_from_palette(&mut harness, "make the current view the isometric");
     harness.frame();
+
     let home = harness.document().saved_views().home;
 
     turn_the_view(&mut harness);
     turn_the_view(&mut harness);
+
     let away = harness.workspace.viewport.viewpoint();
+
     harness.key(Key::Num0, Modifiers::ALT);
     harness.frame();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let back = harness.workspace.viewport.viewpoint();
 
     run_from_palette(&mut harness, "reset the isometric");
     harness.frame();
+
     let reset = harness.document().saved_views().home;
 
     assert!(home.is_some());
@@ -226,6 +259,7 @@ fn a_model_with_a_redefined_isometric_view_opens_looking_from_it() {
         orientation: Rotation3::from_axis_angle(Vector3::X, 1.2),
         distance: 90.0,
     };
+
     document
         .apply(Transaction::single(
             "Isometric",
@@ -239,9 +273,11 @@ fn a_model_with_a_redefined_isometric_view_opens_looking_from_it() {
         .unwrap();
 
     let mut harness = Harness::starting(None, document, Workspace::new());
+
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let opened = harness.workspace.viewport.viewpoint();
 
     assert!(opened.orientation.angle_between(home.orientation) < 1e-6);
@@ -254,6 +290,7 @@ fn cancelling_the_model_properties_changes_nothing() {
     use crate::model_properties::{CANCEL_LABEL, field_id};
 
     let mut harness = Harness::new();
+
     let revision = harness.model.revision();
 
     harness.perform(Action::Preferences(

@@ -46,7 +46,7 @@ impl Surroundings for Model {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ProjectionError {
     #[error("The sketch being edited no longer exists")]
     SketchGone,
@@ -142,7 +142,7 @@ pub enum ProjectionError {
 
 pub const ALREADY_PROJECTED: &str = "That is already projected into this sketch";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error(
     "Highlight a curve of another sketch with the Project tool, or choose one other sketch in \
      the feature tree"
@@ -155,14 +155,14 @@ impl Reason for NoSketchToProject {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error(
     "Highlight a face, edge or corner of a body with the Project tool, or choose one body in the \
      feature tree"
 )]
 pub struct NoBodyToProject;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum OutlineRefusal {
     #[error(transparent)]
     NoBody(#[from] NoBodyToProject),
@@ -213,6 +213,7 @@ pub fn projectable(model: &Model, active: ActiveSketch, pickable: Pickable) -> b
 pub fn describe(model: &Model, active: ActiveSketch, pickable: Pickable) -> Option<String> {
     let sketch = active.feature;
     let document = model.document();
+
     if active.tool.intersects() {
         return match pickable {
             Pickable::Face { body, face } => {
@@ -228,6 +229,7 @@ pub fn describe(model: &Model, active: ActiveSketch, pickable: Pickable) -> Opti
             _ => None,
         };
     }
+
     let what = projected_words(model, sketch, pickable)?;
     let whole = match pickable {
         Pickable::SketchEntity { feature, .. } => document
@@ -309,9 +311,11 @@ pub fn sketch_to_project(
             Pickable::SketchEntity { feature, .. } if feature != active.feature => Some(feature),
             _ => None,
         });
+
     if let Some(sketch) = from_view {
         return Ok(sketch);
     }
+
     let document = model.document();
     match chosen_rows {
         [row]
@@ -335,21 +339,26 @@ pub fn project_sketch(
     let (definition, _) = sketch_plane(model, sketch)?;
     let (owner, candidates) = sketch_candidates(model, sketch, source)?;
     let total = Counted::of(candidates.iter().map(|(_, outline)| outline));
+
     let fresh: Vec<(ProjectionSource, Outline)> = candidates
         .into_iter()
         .filter(|(source, _)| !already_projected(definition, source))
         .collect();
     let projected = Counted::of(fresh.iter().map(|(_, outline)| outline));
+
     if projected.is_empty() {
         return Err(ProjectionError::EverythingProjected {
             sketch: owner.name.clone(),
         });
     }
+
     let mut transaction =
         document.transaction(format!("Project {} of {}", projected.words(), owner.name));
+
     for (source, outline) in &fresh {
         transaction.add_projection(sketch, source.clone(), outline);
     }
+
     let skipped = total.less(projected);
     let left_out = (!skipped.is_empty()).then(|| {
         format!(
@@ -377,6 +386,7 @@ pub fn body_to_project(
         | Pickable::Vertex { body, .. } => Some(body),
         _ => None,
     });
+
     if let Some(body) = from_view {
         return Ok(body);
     }
@@ -437,21 +447,27 @@ pub fn outline_projection(
 ) -> Result<Projection, ProjectionError> {
     let name = request.name.clone();
     let definition = sketch_definition(document, request.sketch)?;
+
     if pieces.is_empty() {
         return Err(ProjectionError::NoOutline { name });
     }
+
     let total = pieces.len();
     let fresh: Vec<&Projected> = pieces
         .iter()
         .filter(|(source, _)| !already_projected(definition, source))
         .collect();
+
     if fresh.is_empty() {
         return Err(ProjectionError::OutlineProjected { name });
     }
+
     let mut transaction = document.transaction(format!("Project the outline of {name}"));
+
     for (source, outline) in &fresh {
         transaction.add_projection(request.sketch, source.clone(), outline);
     }
+
     let left_out = (fresh.len() < total).then(|| {
         format!(
             "{} of the {total} curves of that outline were already projected, so they were left out",
@@ -483,7 +499,9 @@ pub fn sketch_candidates(
     source: FeatureId,
 ) -> Result<(&Feature, Vec<Projected>), ProjectionError> {
     let document = model.document();
+
     refuse_later(document, source, sketch)?;
+
     let (_, plane) = sketch_plane(model, sketch)?;
     let owner = document
         .feature(source)
@@ -494,6 +512,7 @@ pub fn sketch_candidates(
             name: owner.name.clone(),
         })?;
     let lone_points: BTreeSet<EntityId> = shown.free_points().into_iter().collect();
+
     let candidates: Vec<(ProjectionSource, Outline)> = shown
         .entities()
         .filter(|(id, entity)| !id.is_reference() && is_projected_whole(*id, entity, &lone_points))
@@ -508,6 +527,7 @@ pub fn sketch_candidates(
             ))
         })
         .collect();
+
     if candidates.is_empty() {
         return Err(ProjectionError::NothingIn {
             sketch: owner.name.clone(),
@@ -520,7 +540,7 @@ fn is_projected_whole(id: EntityId, entity: &Entity, lone_points: &BTreeSet<Enti
     !matches!(entity, Entity::Point(_)) || lone_points.contains(&id)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Counted {
     curves: usize,
     points: usize,
@@ -584,22 +604,26 @@ fn project_one(
     let sketch = active.feature;
     let document = model.document();
     let (definition, plane) = sketch_plane(model, sketch)?;
+
     let projections = projections_of(model, sketch, &plane, pickable)?;
     let fresh: Vec<(ProjectionSource, Outline)> = projections
         .into_iter()
         .filter(|(source, _)| !already_projected(definition, source))
         .collect();
+
     if fresh.is_empty() {
         return Err(match pickable {
             Pickable::Face { .. } => ProjectionError::NothingOfFace,
             _ => ProjectionError::AlreadyProjected,
         });
     }
+
     let label = projected_words(model, sketch, pickable).map_or_else(
         || "Project geometry".to_owned(),
         |what| format!("Project {what}"),
     );
     let mut transaction = document.transaction(label);
+
     for (source, outline) in &fresh {
         transaction.add_projection(sketch, source.clone(), outline);
     }
@@ -627,9 +651,11 @@ pub fn projections_of(
             let result = seen_or_refuse(model, sketch, body)?;
             let id = bodies::find_vertex(result, vertex)
                 .ok_or_else(|| later_geometry(document, sketch))?;
+
             if result.names().vertices_named(vertex.name).len() > 1 {
                 return Err(ProjectionError::CornerAmbiguous);
             }
+
             let outline = vertex_outline(&result.solid, id, plane)
                 .ok_or(ProjectionError::CornerNotProjectable)?;
             vec![(
@@ -651,6 +677,7 @@ pub fn projections_of(
             if entity.is_reference() {
                 return Err(ProjectionError::ReferenceNotProjected);
             }
+
             let owner = document
                 .feature(feature)
                 .ok_or(ProjectionError::SourceGone)?;
@@ -671,6 +698,7 @@ pub fn projections_of(
         }
         Pickable::Datum(datum) => {
             refuse_later(document, datum, sketch)?;
+
             let result = datum_tools::result(model.evaluation(), datum).ok_or_else(|| {
                 ProjectionError::NotComputed {
                     name: feature_name(document, datum),
@@ -720,6 +748,7 @@ fn refuse_later(
     sketch: FeatureId,
 ) -> Result<(), ProjectionError> {
     let position = |id: FeatureId| document.features().position(|other| other.id() == id);
+
     if position(feature) >= position(sketch) {
         return Err(ProjectionError::FeatureAfter {
             feature: feature_name(document, feature),
@@ -740,6 +769,7 @@ pub fn face_projections(
         .flat_map(|face| face_boundary(&result.solid, *face))
         .collect();
     let mut seen_edges = BTreeSet::new();
+
     edges.retain(|edge| seen_edges.insert(*edge));
     edges
         .into_iter()
@@ -803,6 +833,7 @@ fn sketch_plane(
         .document()
         .feature(sketch)
         .ok_or(ProjectionError::SketchGone)?;
+
     let plane = model
         .shown_sketch(edited)
         .map_or_else(|| definition.sketch.plane(), |displayed| displayed.plane());
@@ -817,11 +848,13 @@ pub fn intersect(
 ) -> Result<Transaction, ProjectionError> {
     let document = model.document();
     let (definition, plane) = sketch_plane(model, sketch)?;
+
     let (cuts, construction, label) = match pickable {
         Pickable::Face { body, face } => {
             let result = seen_or_refuse(model, sketch, body)?;
             let id =
                 bodies::find_face(result, face).ok_or_else(|| later_geometry(document, sketch))?;
+
             let name = result
                 .solid
                 .face(id)
@@ -829,14 +862,17 @@ pub fn intersect(
                 .ok_or_else(|| later_geometry(document, sketch))?;
             let curves = section_curves(body, &result.solid, &plane, sketch)
                 .map_err(|error| section_refusal(document, body, &error))?;
+
             let cuts: Vec<(ProjectionSource, Outline)> = curves
                 .into_iter()
                 .filter(|curve| whole || curve.face == name)
                 .map(|curve| (curve.source, curve.outline))
                 .collect();
+
             if cuts.is_empty() {
                 return Err(ProjectionError::FaceNotCut);
             }
+
             let label = if whole {
                 format!("Intersect {}", feature_name(document, body))
             } else {
@@ -849,18 +885,21 @@ pub fn intersect(
         }
         Pickable::Datum(datum) => {
             let position = |id: FeatureId| document.features().position(|other| other.id() == id);
+
             if position(datum) >= position(sketch) {
                 return Err(ProjectionError::DatumAfter {
                     feature: feature_name(document, datum),
                     sketch: feature_name(document, sketch),
                 });
             }
+
             let datum_plane = datum_tools::result(model.evaluation(), datum)
                 .and_then(|result| result.plane())
                 .ok_or_else(|| ProjectionError::NotAPlane {
                     name: feature_name(document, datum),
                 })?;
             let reach = datum_reach(model, &datum_plane, &plane);
+
             let outline = datum_outline(&datum_plane, &plane, reach).ok_or_else(|| {
                 ProjectionError::ParallelToSketch {
                     name: feature_name(document, datum),
@@ -898,10 +937,13 @@ pub fn intersect(
         .into_iter()
         .filter(|(source, _)| !already_projected(definition, source))
         .collect();
+
     if fresh.is_empty() {
         return Err(ProjectionError::AlreadyIntersected);
     }
+
     let mut transaction = document.transaction(label);
+
     for (source, outline) in &fresh {
         let id = transaction.add_projection(sketch, source.clone(), outline);
         if construction {
@@ -946,6 +988,7 @@ fn middle(outline: &Outline, plane: &Plane) -> Option<Point3> {
 fn reach_about(model: &dyn Surroundings, foot: Option<Point3>) -> f64 {
     let document = model.document();
     let evaluation = model.evaluation();
+
     let bounds = evaluation
         .bodies()
         .map(|(body, _)| body)

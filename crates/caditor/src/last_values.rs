@@ -16,7 +16,7 @@ use crate::{
 
 const KEY_PREFIX: &str = "modelling.last.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Remembered {
     FilletSize,
     ChamferSize,
@@ -42,7 +42,7 @@ pub enum Remembered {
     CircularAngle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Sign {
     AboveZero,
     ZeroOrMore,
@@ -150,7 +150,7 @@ impl Remembered {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LastValues {
     texts: BTreeMap<Remembered, String>,
 }
@@ -181,7 +181,7 @@ impl LastValues {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Starts {
     unit: LengthUnit,
     pieces: Pieces,
@@ -222,12 +222,14 @@ impl Starts {
         units: Units,
     ) -> Self {
         let mut starts = Self::defaults(units.length);
+
         for (slot, text) in &last.texts {
             let Some(dimension) = slot.dimension() else {
                 starts.forms.insert(*slot, text.clone());
                 continue;
             };
             let sign = slot.sign();
+
             let expected = Expected {
                 dimension: Some(dimension),
                 non_negative: sign != Sign::NotZero,
@@ -276,7 +278,7 @@ impl Starts {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Held {
     Value(Expression),
     Form(&'static str),
@@ -289,9 +291,11 @@ pub const FULL_TURN: &str = "full";
 
 fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
     let mut held = Vec::new();
+
     let mut value = |slot, expression: &Expression| {
         held.push((slot, Held::Value(expression.clone())));
     };
+
     if let Some(blend) = kind.blend() {
         match blend.kind {
             BlendKind::Fillet if blend.sizing == FilletSizing::ChordLength => {}
@@ -309,6 +313,7 @@ fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
                     (FORM_DISTANCE_ANGLE, Some((Remembered::ChamferAngle, angle)))
                 }
             };
+
             held.push((Remembered::ChamferForm, Held::Form(form)));
             if let Some((slot, expression)) = extra {
                 held.push((slot, Held::Value(expression.clone())));
@@ -382,7 +387,7 @@ fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
     held
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Change {
     slot: Remembered,
     held: Held,
@@ -390,6 +395,7 @@ pub struct Change {
 
 pub fn changes(document: &Document, transaction: &Transaction) -> Vec<Change> {
     let mut changes = Vec::new();
+
     for edit in transaction.edits() {
         let Edit::SetFeatureKind { id, kind } = edit else {
             continue;
@@ -456,6 +462,7 @@ mod tests {
             .map(|(slot, held)| Change { slot, held })
             .collect();
         let mut last = LastValues::default();
+
         for (slot, text) in texts(&document, changes) {
             last.keep(slot, text);
         }
@@ -633,6 +640,7 @@ mod tests {
         assert!(last.keep(Remembered::ChamferForm, FORM_TWO_DISTANCES.to_owned()));
 
         let mut settings = Settings::default();
+
         last.write(&mut settings);
 
         assert_eq!(LastValues::from_settings(&settings), last);

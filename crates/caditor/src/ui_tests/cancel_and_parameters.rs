@@ -50,6 +50,7 @@ fn notice_kind(harness: &Harness) -> Option<NoticeKind> {
 
 fn add_parameters(harness: &mut Harness, rows: &[(&str, &str)]) -> Vec<ParameterId> {
     let mut ids = Vec::new();
+
     for (name, text) in rows {
         let document = harness.document();
         let expression = Expression::parse(text, &|name| {
@@ -59,6 +60,7 @@ fn add_parameters(harness: &mut Harness, rows: &[(&str, &str)]) -> Vec<Parameter
         })
         .unwrap();
         let mut transaction = document.transaction(format!("Add {name}"));
+
         ids.push(transaction.add_parameter(*name, expression));
         harness.perform(Action::Apply(transaction.finish()));
     }
@@ -69,24 +71,31 @@ fn add_parameters(harness: &mut Harness, rows: &[(&str, &str)]) -> Vec<Parameter
 #[test]
 fn cancelling_a_new_fillet_takes_it_away_and_redo_brings_it_back() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
+
     let before = harness.model.undo_label().map(str::to_owned);
 
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
         .solid()
         .expect("the fillet is open");
+
     harness.type_into_field(Id::unique(("blend-size", fillet)), "3 mm");
     harness.settle();
+
     let edited = harness.model.undo_label().map(str::to_owned);
+
     harness.click_button("Cancel the new Fillet 1");
     harness.settle();
 
@@ -107,18 +116,23 @@ fn cancelling_a_new_fillet_takes_it_away_and_redo_brings_it_back() {
 #[test]
 fn cancelling_an_opened_feature_undoes_its_changes_and_its_named_value_but_keeps_it() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let original = distance_text(&harness, extrude);
     let before = harness.model.undo_label().map(str::to_owned);
 
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     harness.frame();
+
     let unchanged = offer(&harness, Command::CancelFeature).availability;
+
     harness.type_into_field(distance_field(extrude), "depth = 12 mm");
     harness.settle();
     harness.type_into_field(distance_field(extrude), "depth = 14 mm");
     harness.settle();
+
     let named = harness.document().parameter_named("depth").is_some();
+
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     run_from_palette(&mut harness, "Cancel the changes");
     harness.settle();
@@ -136,13 +150,16 @@ fn cancelling_an_opened_feature_undoes_its_changes_and_its_named_value_but_keeps
 #[test]
 fn typing_a_plain_value_over_a_named_one_unnames_it_and_drops_the_unused_parameter() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
 
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     harness.frame();
     harness.type_into_field(distance_field(extrude), "depth = 12 mm");
     harness.settle();
+
     let named = distance_text(&harness, extrude);
+
     harness.type_into_field(distance_field(extrude), "14 mm");
     harness.settle();
 
@@ -160,6 +177,7 @@ fn typing_a_plain_value_over_a_named_one_unnames_it_and_drops_the_unused_paramet
 #[test]
 fn cancelling_an_opened_feature_works_after_its_named_value_was_replaced_by_a_number() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let original = distance_text(&harness, extrude);
     let before = harness.model.undo_label().map(str::to_owned);
@@ -170,7 +188,9 @@ fn cancelling_an_opened_feature_works_after_its_named_value_was_replaced_by_a_nu
     harness.settle();
     harness.type_into_field(distance_field(extrude), "14 mm");
     harness.settle();
+
     let offered = offer(&harness, Command::CancelFeature).availability;
+
     run_from_palette(&mut harness, "Cancel the changes");
     harness.settle();
 
@@ -184,6 +204,7 @@ fn cancelling_an_opened_feature_works_after_its_named_value_was_replaced_by_a_nu
 #[test]
 fn cancelling_with_nothing_changed_only_closes_the_feature() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let revision = harness.model.revision();
 
@@ -200,6 +221,7 @@ fn cancelling_with_nothing_changed_only_closes_the_feature() {
 #[test]
 fn cancel_refuses_in_words_when_another_change_was_made_meanwhile() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
 
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
@@ -208,7 +230,9 @@ fn cancel_refuses_in_words_when_another_change_was_made_meanwhile() {
     add_parameters(&mut harness, &[("gap", "2 mm")]);
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     harness.frame();
+
     let offered = offer(&harness, Command::CancelFeature).availability;
+
     harness.click_button("Cancel the changes to Extrude 1");
     harness.frame();
 
@@ -226,7 +250,9 @@ fn cancel_refuses_in_words_when_another_change_was_made_meanwhile() {
 #[test]
 fn cancel_refuses_once_undo_went_back_past_where_the_feature_was_opened() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
+
     add_parameters(&mut harness, &[("gap", "2 mm")]);
 
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
@@ -256,6 +282,7 @@ fn cancel_refuses_once_undo_went_back_past_where_the_feature_was_opened() {
 #[test]
 fn the_parameter_filter_keeps_rows_matching_a_name_or_expression() {
     let mut harness = Harness::new();
+
     let ids = add_parameters(
         &mut harness,
         &[
@@ -268,7 +295,9 @@ fn the_parameter_filter_keeps_rows_matching_a_name_or_expression() {
         ],
     );
     let span = ids.first().copied().unwrap();
+
     harness.focus(Focus::ParameterName(span));
+
     let filter_shown = harness.shows(parameter_table::FILTER_HINT);
 
     harness.type_into_field(Id::unique("parameter-filter"), "SPAN");
@@ -285,10 +314,13 @@ fn the_parameter_filter_keeps_rows_matching_a_name_or_expression() {
 
     harness.type_into_field(Id::unique("parameter-filter"), "nothing like it");
     harness.frame();
+
     assert!(harness.shows(parameter_table::CLEAR_FILTER_LABEL));
+
     harness.click(parameter_table::CLEAR_FILTER_LABEL);
     harness.frame();
     harness.frame();
+
     assert!(harness.shows("rise"));
     assert!(harness.workspace.panels.parameter_filter.is_empty());
 }
@@ -296,12 +328,15 @@ fn the_parameter_filter_keeps_rows_matching_a_name_or_expression() {
 #[test]
 fn unused_parameters_are_deleted_in_one_undoable_change() {
     let mut harness = Harness::new();
+
     let ids = add_parameters(
         &mut harness,
         &[("lonely", "1 mm"), ("base", "4 mm"), ("double", "base * 2")],
     );
     let lonely = ids.first().copied().unwrap();
+
     harness.focus(Focus::ParameterName(lonely));
+
     let label = parameter_table::delete_unused_label(2);
 
     harness.click(&label);
@@ -319,6 +354,7 @@ fn unused_parameters_are_deleted_in_one_undoable_change() {
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(harness.document().parameter_named("lonely").is_some());
     assert!(harness.document().parameter_named("double").is_some());
 
@@ -333,7 +369,9 @@ fn unused_parameters_are_deleted_in_one_undoable_change() {
     )));
     harness.settle();
     harness.frame();
+
     let base_only = offer(&harness, Command::DeleteUnusedParameters).availability;
+
     assert!(base_only.is_ok(), "base is unused once double is gone");
 }
 
@@ -341,6 +379,7 @@ fn density_parameter_on_plate(harness: &mut Harness) -> (ParameterId, ParameterI
     let (plate, _) = extruded_plate(harness);
     let ids = add_parameters(harness, &[("rho", "2.7"), ("spare", "1 mm")]);
     let density = harness.document().parse("rho").unwrap();
+
     harness.perform(Action::Apply(Transaction::single(
         "Density",
         Edit::SetBodyAppearance {
@@ -358,7 +397,9 @@ fn density_parameter_on_plate(harness: &mut Harness) -> (ParameterId, ParameterI
 #[test]
 fn deleting_unused_parameters_keeps_one_used_only_as_a_density() {
     let mut harness = Harness::new();
+
     let (rho, spare) = density_parameter_on_plate(&mut harness);
+
     harness.focus(Focus::ParameterName(rho));
 
     harness.click(&parameter_table::delete_unused_label(1));
@@ -374,6 +415,7 @@ fn deleting_unused_parameters_keeps_one_used_only_as_a_density() {
 #[test]
 fn a_refused_deletion_of_unused_parameters_leaves_the_refusal_showing() {
     let mut harness = Harness::new();
+
     let (rho, spare) = density_parameter_on_plate(&mut harness);
     let document = harness.document().clone();
     let deletion = UnusedDeletion::of(&document, &Default::default()).unwrap();
@@ -398,7 +440,9 @@ fn a_refused_deletion_of_unused_parameters_leaves_the_refusal_showing() {
 #[test]
 fn deleting_unused_parameters_is_unavailable_when_every_one_is_in_use() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
+
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     harness.type_into_field(distance_field(extrude), "depth = 12 mm");
     harness.settle();
@@ -412,17 +456,22 @@ fn deleting_unused_parameters_is_unavailable_when_every_one_is_in_use() {
 #[test]
 fn a_model_parameter_s_owner_line_goes_to_its_feature() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
+
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     harness.type_into_field(distance_field(extrude), "depth = 12 mm");
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let depth = harness.parameter("depth");
+
     harness.focus(Focus::ParameterName(depth));
     harness.workspace.panels.choose_nothing();
     harness.context.enable_accesskit();
     harness.frame();
+
     let linked = harness.accessible_named(egui::accesskit::Role::Link, "Extrude 1 · Distance");
 
     harness.click("Extrude 1 · Distance");
@@ -436,15 +485,20 @@ fn a_model_parameter_s_owner_line_goes_to_its_feature() {
 #[test]
 fn a_measured_distance_is_copied_or_made_a_parameter_from_its_row_menu() {
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let far_point = Point3::new(40.0, 40.0, 10.0);
     let corner = vertex_at(&harness, body, Point3::ZERO);
+
     let far = vertex_at(&harness, body, far_point);
+
     harness.key(Key::I, Modifiers::NONE);
     harness.frame();
     harness.select([corner, far]);
+
     let distance = Point3::ZERO.distance(far_point);
     let expected = Units::default().measured_length(distance);
+
     harness.wait_until("the distance is measured", |harness| {
         harness.shows(&expected)
     });
@@ -453,6 +507,7 @@ fn a_measured_distance_is_copied_or_made_a_parameter_from_its_row_menu() {
     harness.show_new_windows();
     harness.click(measure_panel::COPY_VALUE);
     harness.frame();
+
     assert_eq!(harness.clipboard.as_deref(), Some(expected.as_str()));
 
     harness.click_button("More for Distance");
@@ -466,6 +521,7 @@ fn a_measured_distance_is_copied_or_made_a_parameter_from_its_row_menu() {
     let shown = harness
         .document()
         .expression_text(&LengthUnit::Millimetre.measured(distance));
+
     assert_eq!(harness.expression_text("distance1"), shown);
     assert_eq!(harness.model.undo_label(), Some("Add distance1"));
     assert_eq!(
@@ -478,21 +534,27 @@ fn a_measured_distance_is_copied_or_made_a_parameter_from_its_row_menu() {
 #[test]
 fn a_model_parameter_s_owner_line_never_widens_the_panel() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Move body");
     harness.settle();
+
     let movement = harness.workspace.editing.solid().expect("the move is open");
+
     harness.type_into_field(
         Id::unique(("move-field", "offset", 0, movement)),
         "dx = 5 mm",
     );
     harness.settle();
     harness.frame();
+
     let before = harness.workspace.viewport.rect();
 
     for step in 0..5 {
         let across = 1000.0 + 40.0 * step as f32;
+
         harness
             .events
             .push(egui::Event::PointerMoved(egui::pos2(across, 500.0)));
@@ -505,15 +567,20 @@ fn a_model_parameter_s_owner_line_never_widens_the_panel() {
 #[test]
 fn a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits() {
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let far_point = Point3::new(40.0, 40.0, 10.0);
     let corner = vertex_at(&harness, body, Point3::ZERO);
+
     let far = vertex_at(&harness, body, far_point);
+
     harness.key(Key::I, Modifiers::NONE);
     harness.frame();
     harness.select([corner, far]);
+
     let distance = Point3::ZERO.distance(far_point);
     let expected = Units::default().measured_length(distance);
+
     harness.wait_until("the distance is measured", |harness| {
         harness.shows(&expected)
     });
@@ -530,6 +597,7 @@ fn a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits() {
         .measurement_of(parameter)
         .map(caditor_document::Feature::id)
         .expect("the measurement feeds distance1");
+
     assert_eq!(
         harness.model.parameters().get(parameter),
         Some(&Ok(caditor_expression::Quantity::length(distance)))
@@ -546,6 +614,7 @@ fn a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits() {
     let Some(Ok(value)) = harness.model.parameters().get(parameter) else {
         panic!("distance1 has a value");
     };
+
     assert!(
         (value.value - deeper).abs() < 1e-9,
         "{value:?} {:?} {}",
@@ -567,14 +636,19 @@ fn undoing_back_to_the_saved_state_of_a_model_with_a_kept_measurement_leaves_it_
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("plate.caditor");
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let (body, _) = extruded_plate(&mut harness);
     let far_point = Point3::new(40.0, 40.0, 10.0);
     let corner = vertex_at(&harness, body, Point3::ZERO);
+
     let far = vertex_at(&harness, body, far_point);
+
     harness.key(Key::I, Modifiers::NONE);
     harness.frame();
     harness.select([corner, far]);
+
     let expected = Units::default().measured_length(Point3::ZERO.distance(far_point));
+
     harness.wait_until("the distance is measured", |harness| {
         harness.shows(&expected)
     });
@@ -595,6 +669,7 @@ fn undoing_back_to_the_saved_state_of_a_model_with_a_kept_measurement_leaves_it_
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let edited = harness.model.is_dirty();
 
     harness.perform(Action::Undo);
@@ -616,16 +691,21 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
     };
 
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let far_point = Point3::new(40.0, 40.0, 10.0);
     let corner = vertex_at(&harness, body, Point3::ZERO);
+
     let far = vertex_at(&harness, body, far_point);
     let beside = vertex_at(&harness, body, Point3::new(0.0, 40.0, 0.0));
+
     harness.key(Key::I, Modifiers::NONE);
     harness.frame();
     harness.select([corner, far]);
+
     let distance = Point3::ZERO.distance(far_point);
     let expected = Units::default().measured_length(distance);
+
     harness.wait_until("the distance is measured", |harness| {
         harness.shows(&expected)
     });
@@ -637,6 +717,7 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
     harness.key(Key::I, Modifiers::NONE);
     harness.select([]);
     harness.frame();
+
     let parameter = harness.parameter("distance1");
     let measurement = harness
         .document()
@@ -655,11 +736,14 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
         reading_literal(Quantity::length(distance)),
         "the stored value follows the reading"
     );
+
     let undo_steps = harness.model.undo_steps().count();
 
     harness.perform(Action::Editing(EditingCommand::OpenSolid(measurement)));
     harness.frame();
+
     assert!(harness.shows(measurement_panel::QUANTITY));
+
     let kept = harness
         .document()
         .feature(measurement)
@@ -669,9 +753,11 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
     let along =
         measurement_tools::quantity_change(&harness.model, measurement, &kept, Reads::Along)
             .expect("two points have an offset along an axis");
+
     harness.perform(Action::Apply(along));
     harness.settle();
     harness.frame();
+
     assert!(harness.shows(ALONG_AN_AXIS));
     assert_eq!(
         harness.model.parameters().get(parameter),
@@ -679,16 +765,19 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
     );
 
     let picking = Picking::new(measurement, Slot::MeasuredItem(MeasuredPart::Second));
+
     for action in reference_picking::click(&harness.model, picking, beside) {
         harness.perform(action);
     }
     harness.settle();
     harness.frame();
+
     assert_eq!(
         harness.model.parameters().get(parameter),
         Some(&Ok(Quantity::length(0.0))),
         "the corner beside it lies straight along Y"
     );
+
     let with_y = harness
         .document()
         .feature(measurement)
@@ -705,16 +794,20 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
         )),
     )
     .expect("the Y axis can be measured along");
+
     harness.perform(Action::Apply(along_y));
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     assert_eq!(
         harness.model.parameters().get(parameter),
         Some(&Ok(Quantity::length(40.0)))
     );
     assert_eq!(harness.model.undo_steps().count(), undo_steps + 3);
+
     let half = add_parameters(&mut harness, &[("half", "distance1 / 2")]);
+
     assert_eq!(
         harness.model.parameters().get(half[0]),
         Some(&Ok(Quantity::length(20.0))),
@@ -722,6 +815,7 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
     );
 
     let mut transaction = harness.document().transaction("Read it");
+
     let reader = transaction.add_feature(
         "Reader",
         FeatureKind::Datum(caditor_document::Datum::Point(DatumPoint {
@@ -733,11 +827,14 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
             ],
         })),
     );
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
+
     let deletion = harness
         .document()
         .deletion(&[measurement], "Delete Measurement 1");
+
     harness.perform(Action::Apply(deletion));
     harness.settle();
 
@@ -767,12 +864,16 @@ fn a_position_and_a_body_volume_are_kept_from_measure_rows() {
     use caditor_expression::{Dimension, Quantity};
 
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let far = vertex_at(&harness, body, Point3::new(40.0, 40.0, 10.0));
+
     harness.key(Key::I, Modifiers::NONE);
     harness.frame();
     harness.select([far]);
+
     let volume = Units::default().measured_volume(16000.0);
+
     harness.wait_until("the position and the volume are read", |harness| {
         harness.shows(&volume) && !harness.workspace.measure.measurements.is_measuring()
     });
@@ -790,20 +891,25 @@ fn a_position_and_a_body_volume_are_kept_from_measure_rows() {
 
     let height = harness.parameter("position_z1");
     let kept_volume = harness.parameter("volume1");
+
     assert_eq!(
         harness.model.parameters().get(height),
         Some(&Ok(Quantity::length(10.0)))
     );
+
     let Some(Ok(read)) = harness.model.parameters().get(kept_volume) else {
         panic!("volume1 has a value");
     };
+
     assert_eq!(read.dimension, Dimension::VOLUME);
     assert!((read.value - 16000.0).abs() < 1e-6, "{read:?}");
+
     let reading = harness
         .document()
         .measurement_of(kept_volume)
         .and_then(|feature| feature.kind.measurement())
         .map(|measurement| measurement.reading.clone());
+
     assert_eq!(
         reading,
         Some(Reading::Of {
@@ -819,6 +925,7 @@ fn each_piece_of_an_edge_a_sketch_split_is_still_chosen_for_a_measurement() {
     use caditor_kernel::EdgeName;
 
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let outline = harness
         .document()
@@ -833,6 +940,7 @@ fn each_piece_of_an_edge_a_sketch_split_is_still_chosen_for_a_measurement() {
         .cloned()
         .expect("a sketch");
     let mut after = before.clone();
+
     let front = after
         .entities()
         .map(|(id, _)| id)
@@ -843,10 +951,13 @@ fn each_piece_of_an_edge_a_sketch_split_is_still_chosen_for_a_measurement() {
         })
         .expect("the plate has a front line");
     let middle = after.add_point(Point2::new(15.0, 0.0));
+
     after
         .split_at(front, middle)
         .expect("the front line splits");
+
     let mut transaction = harness.document().transaction("Split the front");
+
     transaction.reshape_sketch(outline, &before, &after);
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
@@ -867,6 +978,7 @@ fn each_piece_of_an_edge_a_sketch_split_is_still_chosen_for_a_measurement() {
             .map(|(_, edge)| edge.name())
             .expect("the front top edge has a piece there")
     };
+
     let chosen = |x: f64| {
         measurement_tools::item_at(
             &harness.model,

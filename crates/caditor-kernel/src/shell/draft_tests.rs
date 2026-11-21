@@ -71,6 +71,7 @@ fn a_block_drafted_from_its_floor_narrows_toward_the_pull() {
 
     check("narrowed", &narrowed, frustum(10.0, 10.0 - shrink, 10.0));
     check("widened", &widened, frustum(10.0, 10.0 + shrink, 10.0));
+
     assert_eq!(names(&narrowed), names(&block));
     assert_eq!(narrowed.faces().count(), 6);
 }
@@ -108,6 +109,7 @@ fn a_pocket_drafted_from_its_floor_opens_toward_the_pull() {
         &polygon(&[(10.0, 10.0), (20.0, 10.0), (20.0, 20.0), (10.0, 20.0)]),
         8.0,
     );
+
     let holed = boolean(&plate, &hole, BooleanOperation::Difference).unwrap();
     let sides = walls(&holed, Point3::new(15.0, 15.0, 4.0), 5.0, true);
     let opening = 2.0 * 8.0 * 6f64.to_radians().tan_libm();
@@ -126,6 +128,7 @@ fn faces_take_angles_of_their_own() {
     let block = cuboid(Vector3::splat(10.0));
     let east = face_facing(&block, Vector3::X, Point3::new(10.0, 5.0, 5.0));
     let west = face_facing(&block, Vector3::NEG_X, Point3::new(0.0, 5.0, 5.0));
+
     let faces = [
         DraftedFace {
             face: east,
@@ -147,6 +150,7 @@ fn faces_take_angles_of_their_own() {
 fn a_drafted_wall_drafted_again_at_nought_stands_square() {
     let block = cuboid(Vector3::splat(10.0));
     let sides = block_walls(&block);
+
     let leaning = drafted(&block, &at(&sides, 7.0), &floor_at(0.0));
     let leaning_sides: Vec<FaceId> = leaning
         .faces()
@@ -160,6 +164,7 @@ fn a_drafted_wall_drafted_again_at_nought_stands_square() {
     let square = drafted(&leaning, &at(&leaning_sides, 0.0), &floor_at(0.0));
 
     assert_eq!(leaning_sides.len(), 4);
+
     check("square", &square, 1000.0);
 }
 
@@ -270,6 +275,7 @@ fn a_post_drafted_from_its_floor_becomes_a_cone_narrowing_toward_the_pull() {
     let cones = round_faces(&narrowed);
 
     check("narrowed", &narrowed, round_frustum(5.0, top, 10.0));
+
     assert_eq!(names(&narrowed), names(&post));
     assert_eq!(cones.len(), 1);
     assert!(
@@ -303,6 +309,7 @@ fn a_hole_drafted_from_its_floor_widens_toward_the_pull() {
     let result = drafted(&holed, &at(&wall, 6.0), &floor_at(0.0));
 
     assert_eq!(wall.len(), 1);
+
     check(
         "result",
         &result,
@@ -352,7 +359,9 @@ fn a_slot_wall_is_drafted_as_one_smooth_chain() {
     let result = drafted(&slotted, &at(&wall, 5.0), &floor_at(0.0));
 
     assert_eq!(wall.len(), 4);
+
     check("result", &result, 900.0 * 8.0 - integrated(area, 8.0));
+
     assert_eq!(names(&result), names(&slotted));
 }
 
@@ -399,6 +408,7 @@ fn a_rounded_block_is_drafted_round_its_whole_side() {
     let result = drafted(&block, &at(&side, 5.0), &floor_at(0.0));
 
     assert_eq!(side.len(), 8);
+
     check("result", &result, integrated(area, 10.0));
 }
 
@@ -418,6 +428,7 @@ fn a_cone_is_redrafted_to_the_new_angle_and_back_to_a_cylinder() {
 
     check("gentler", &gentler, round_frustum(6.0, top, 10.0));
     check("square", &square, PI * 36.0 * 10.0);
+
     assert!(
         matches!(
             &surfaces_of(&square, &round_faces(&square))[..],

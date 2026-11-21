@@ -22,7 +22,7 @@ const CLOSED_STRIP_EXTRA_POINTS: u64 = 3;
 const OPEN_STRIP_EXTRA_POINTS: u64 = 1;
 const MIN_CLOSED_SEGMENTS: usize = 3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 struct LineStyle {
     color: u32,
     width: u32,
@@ -45,7 +45,7 @@ impl LineStyle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Strip {
     lines: Range<usize>,
     closed: bool,
@@ -91,9 +91,11 @@ impl<'a> LineStrips<'a> {
         let mut styles = Vec::new();
         let mut style_of = Vec::with_capacity(lines.len());
         let mut indices: AHashMap<LineStyle, u32> = AHashMap::new();
+
         for line in ordered {
             let style = LineStyle::of(line);
             let next = styles.len();
+
             let index = match indices.entry(style) {
                 Entry::Occupied(entry) => *entry.get(),
                 Entry::Vacant(_) if next >= capacity => break,
@@ -102,11 +104,14 @@ impl<'a> LineStrips<'a> {
                     *entry.insert(u32::try_from(next).unwrap_or(u32::MAX))
                 }
             };
+
             kept.push(line);
             style_of.push(index);
         }
+
         let shown_lines = kept.iter().filter(|line| shown(line)).count();
         let strips = strips(&kept, &style_of, shown_lines);
+
         let shown_strips = strips
             .iter()
             .take_while(|strip| strip.lines.start < shown_lines)
@@ -142,19 +147,25 @@ impl<'a> LineStrips<'a> {
         let mut runs: Vec<Range<u32>> = Vec::new();
         let mut extendable = false;
         let mut first_point = 1_u64;
+
         for strip in self.strips.iter().take(self.shown_strips) {
             let first_instance = first_point - 1 + strip.drawn_from();
             let drawn = first_instance..first_instance + strip.lines.len() as u64;
+
             first_point += strip.points();
+
             let flagged = self
                 .lines
                 .get(strip.lines.start)
                 .is_some_and(|line| line.stroke.dashes_where_hidden());
+
             if !flagged {
                 extendable = false;
                 continue;
             }
+
             let drawn = instance(drawn.start)..instance(drawn.end);
+
             match runs.last_mut() {
                 Some(run) if extendable => run.end = drawn.end,
                 _ => runs.push(drawn),
@@ -197,6 +208,7 @@ impl<'a> LineStrips<'a> {
         let leading = last
             .filter(|_| strip.closed)
             .map(|last| point(last, last.0.start, LINKED));
+
         let starts = strip
             .lines
             .clone()
@@ -227,21 +239,26 @@ impl<'a> LineStrips<'a> {
 
     pub(crate) fn simplified(&self, tolerance: f64) -> Vec<Line> {
         let mut simplified = Vec::new();
+
         for strip in self.strips.iter().take(self.shown_strips) {
             let Some(lines) = self.lines.get(strip.lines.clone()) else {
                 continue;
             };
+
             if is_within(lines, tolerance) {
                 continue;
             }
+
             let kept = kept_corners(lines, tolerance);
             for pair in kept.windows(2) {
                 let &[from, to] = pair else {
                     continue;
                 };
+
                 let (Some(first), Some(end)) = (lines.get(from), corner(lines, to)) else {
                     continue;
                 };
+
                 simplified.push(Line {
                     end,
                     ..Line::clone(first)
@@ -303,6 +320,7 @@ fn is_within(lines: &[&Line], tolerance: f64) -> bool {
 fn kept_corners(lines: &[&Line], tolerance: f64) -> Vec<usize> {
     let count = lines.len();
     let mut kept = vec![false; count + 1];
+
     for (index, pair) in lines.windows(2).enumerate() {
         if let ([before, after], Some(keep)) = (pair, kept.get_mut(index + 1)) {
             *keep = before.pick != after.pick;
@@ -313,6 +331,7 @@ fn kept_corners(lines: &[&Line], tolerance: f64) -> Vec<usize> {
             *keep = true;
         }
     }
+
     let anchors: Vec<usize> = (0..=count)
         .filter(|index| kept.get(*index).copied().unwrap_or(false))
         .collect();
@@ -323,10 +342,12 @@ fn kept_corners(lines: &[&Line], tolerance: f64) -> Vec<usize> {
             _ => None,
         })
         .collect();
+
     while let Some((from, to)) = pending.pop() {
         let (Some(start), Some(end)) = (corner(lines, from), corner(lines, to)) else {
             continue;
         };
+
         let farthest = (from + 1..to)
             .filter_map(|index| {
                 let point = corner(lines, index)?;
@@ -350,6 +371,7 @@ fn kept_corners(lines: &[&Line], tolerance: f64) -> Vec<usize> {
 fn distance_to_segment(point: Point3, start: Point3, end: Point3) -> f64 {
     let along = end - start;
     let length_squared = along.length_squared();
+
     let share = if length_squared > 0.0 {
         ((point - start).dot(along) / length_squared).clamp(0.0, 1.0)
     } else {
@@ -368,6 +390,7 @@ fn joins(before: (&Line, u32), after: (&Line, u32)) -> bool {
 fn strips(lines: &[&Line], style_of: &[u32], shown_lines: usize) -> Vec<Strip> {
     let at = |index: usize| lines.get(index).copied().zip(style_of.get(index).copied());
     let mut strips: Vec<Strip> = Vec::new();
+
     for index in 0..lines.len() {
         let continues = index != shown_lines
             && strips.last().is_some_and(|strip| strip.lines.end == index)
@@ -391,6 +414,7 @@ fn strips(lines: &[&Line], style_of: &[u32], shown_lines: usize) -> Vec<Strip> {
             .checked_sub(1)
             .and_then(at)
             .zip(at(strip.lines.start));
+
         strip.closed = strip.lines.len() >= MIN_CLOSED_SEGMENTS
             && ends.is_some_and(|(last, first)| joins(last, first));
     }
@@ -501,6 +525,7 @@ mod tests {
             width: 3.0,
             ..solid([2.0, 0.0], [3.0, 0.0])
         };
+
         let lines = [
             solid([0.0, 0.0], [1.0, 0.0]),
             solid([1.0, 0.0], [2.0, 0.0]),
@@ -575,6 +600,7 @@ mod tests {
             let angle = std::f64::consts::TAU * (index % segments) as f64 / segments as f64;
             [10.0 * angle.cos(), 10.0 * angle.sin()]
         };
+
         let lines: Vec<Line> = (0..segments)
             .map(|index| Line {
                 pick: PickId::from_index(index / 128),
@@ -585,6 +611,7 @@ mod tests {
             solid([20.0, 20.0], [20.03, 20.0]),
             solid([20.03, 20.0], [20.03, 20.03]),
         ];
+
         let with_speck: Vec<Line> = lines.iter().chain(&speck).cloned().collect();
         let strips = LineStrips::of(&with_speck, 64);
         let tolerance = 0.05;

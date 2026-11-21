@@ -33,14 +33,14 @@ const CHANGES_SHOWN: usize = 3;
 const COLUMN_GRID: &str = "configuration-import-columns";
 const ROW_GRID: &str = "configuration-import-rows";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConfigurationFileCommand {
     Replace(bool),
     Apply,
     Cancel,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ConfigurationImportDraft {
     path: PathBuf,
     session: u64,
@@ -73,6 +73,7 @@ impl Files {
         let text = configurations_csv(model.document());
         let exported = model.document().configurations().rows.len();
         let failed = path.clone();
+
         self.spawn_write(
             WriteKind::Configurations,
             path.clone(),
@@ -97,6 +98,7 @@ impl Files {
         model: &mut Model,
     ) {
         let name = display_name(Some(path));
+
         model.set_notice(match result {
             Ok(()) => Notice::success(format!(
                 "Exported {} to “{name}”.",
@@ -111,6 +113,7 @@ impl Files {
     pub(super) fn read_configuration_file(&mut self, path: PathBuf, model: &Model) {
         let session = model.session();
         let failed = path.clone();
+
         self.spawn_own(
             "import",
             move || Event::ConfigurationsRead {
@@ -136,6 +139,7 @@ impl Files {
         if session != model.session() {
             return;
         }
+
         let name = display_name(Some(&path));
         let file = match result {
             Ok(file) if file.rows.is_empty() => {
@@ -190,12 +194,14 @@ impl Files {
                 let Some(draft) = self.configuration_import.take() else {
                     return;
                 };
+
                 if draft.session != model.session() {
                     return;
                 }
                 match plan(model, &draft.path, &draft.file, draft.replace) {
                     Ok(plan) => {
                         let notice = summary(&plan);
+
                         if let Some(transaction) = plan.transaction {
                             model.perform(Action::Apply(transaction));
                         }
@@ -246,6 +252,7 @@ fn summary(plan: &ConfigurationImport) -> Notice {
     let configured = plan.count_columns(|outcome| matches!(outcome, ColumnOutcome::Added));
     let skipped = plan.count_columns(|outcome| matches!(outcome, ColumnOutcome::Refused(_)));
     let mut parts = Vec::new();
+
     if added > 0 {
         parts.push(format!(
             "added {}",
@@ -281,7 +288,9 @@ fn summary(plan: &ConfigurationImport) -> Notice {
             "The configurations in the file match the model's, so nothing changed.",
         );
     }
+
     let mut sentence = format!("Imported configurations: {}.", parts.join(", "));
+
     if plan.transaction.is_some() {
         sentence.push_str(" Undo takes the import back in one step.");
     }
@@ -300,6 +309,7 @@ fn row_pill(ui: &mut Ui, outcome: &RowOutcome) {
         RowOutcome::Unchanged => (Tone::Info, "Same"),
         RowOutcome::Refused(_) => (Tone::Error, "Left out"),
     };
+
     widgets::status_pill(ui, tone, text);
 }
 
@@ -309,6 +319,7 @@ fn column_pill(ui: &mut Ui, outcome: &ColumnOutcome) {
         ColumnOutcome::Known => (Tone::Info, "Configured"),
         ColumnOutcome::Refused(_) => (Tone::Error, "Left out"),
     };
+
     widgets::status_pill(ui, tone, text);
 }
 
@@ -323,6 +334,7 @@ fn changes_text(changes: &[CellChange]) -> String {
             )
         })
         .collect();
+
     if changes.len() > CHANGES_SHOWN {
         shown.push(format!("and {} more", changes.len() - CHANGES_SHOWN));
     }
@@ -367,6 +379,7 @@ pub fn dialog(ctx: &egui::Context, draft: &ConfigurationImportDraft) -> Option<F
             let skipped =
                 plan.count_columns(|outcome| matches!(outcome, ColumnOutcome::Refused(_)));
             let conflicts = plan.conflicts();
+
             ui.label(format!(
                 "{} and {} in the file. Nothing changes until you import.",
                 count(plan.rows.len(), "row", "rows"),
@@ -397,9 +410,12 @@ pub fn dialog(ctx: &egui::Context, draft: &ConfigurationImportDraft) -> Option<F
                     ));
                 });
             }
+
             let mut replace = draft.replace;
+
             let toggle =
                 widgets::checkbox(ui, &mut replace, REPLACE_LABEL).on_hover_text(REPLACE_HINT);
+
             if toggle.changed() {
                 command = Some(ConfigurationFileCommand::Replace(replace));
             }
@@ -433,10 +449,12 @@ pub fn dialog(ctx: &egui::Context, draft: &ConfigurationImportDraft) -> Option<F
                             });
                     });
             });
+
             let blocker = plan
                 .transaction
                 .is_none()
                 .then_some("Nothing in the file would change the model.");
+
             widgets::footer(ui, |ui| {
                 let import = widgets::primary_button(ui, "Import");
                 let response = ui.add_enabled(blocker.is_none(), import);
@@ -444,6 +462,7 @@ pub fn dialog(ctx: &egui::Context, draft: &ConfigurationImportDraft) -> Option<F
                     Some(blocker) => response.on_disabled_hover_text(blocker),
                     None => response,
                 };
+
                 if response.clicked() {
                     command = Some(ConfigurationFileCommand::Apply);
                 }

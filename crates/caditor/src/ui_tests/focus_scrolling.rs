@@ -33,10 +33,12 @@ fn shown_whole(harness: &Harness, wanted: &dyn Fn(&str) -> bool) -> bool {
 
 fn tab_until(harness: &mut Harness, wanted: &dyn Fn(&str) -> bool) -> usize {
     harness.frame();
+
     assert!(
         !shown_whole(harness, wanted),
         "the row is on screen before any Tab"
     );
+
     for tabs in 1..=MOST_TABS {
         harness.key(Key::Tab, Modifiers::NONE);
         harness.frame();
@@ -65,6 +67,7 @@ fn tab_scrolls_a_saved_view_below_the_list_into_view() {
         })
         .collect();
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.perform(Action::Apply(Transaction::single(
         "Saved views",
@@ -83,7 +86,9 @@ fn tab_scrolls_a_saved_view_below_the_list_into_view() {
 #[test]
 fn tab_scrolls_a_selection_set_below_the_list_into_view() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
+
     let (plate, _) = extruded_plate(&mut harness);
     let sets = (1..=14)
         .map(|number| SelectionSet {
@@ -91,6 +96,7 @@ fn tab_scrolls_a_selection_set_below_the_list_into_view() {
             members: vec![SetMember::Body(plate)],
         })
         .collect();
+
     harness.perform(Action::Apply(Transaction::single(
         "Selection sets",
         Edit::SetSelectionSets {
@@ -109,13 +115,16 @@ fn tab_scrolls_a_selection_set_below_the_list_into_view() {
 fn tab_scrolls_a_layer_below_the_import_options_list_into_view() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     harness.context.enable_accesskit();
+
     let plan = dir.path().join("plan.dxf");
     let entities: String = (1..=14)
         .map(|number| {
             format!("0\nLINE\n8\nLayer {number:02}\n10\n0\n20\n{number}\n11\n40\n21\n{number}\n")
         })
         .collect();
+
     write_drawing(&plan, Some(4), &entities);
 
     harness.answer_dialog(Some(plan));
@@ -128,10 +137,14 @@ fn tab_scrolls_a_layer_below_the_import_options_list_into_view() {
 #[test]
 fn tab_scrolls_a_configured_value_beyond_the_table_into_view() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
+
     let mut transaction = harness.document().transaction("Add sizes");
+
     for number in 1..=24 {
         let expression = transaction.parse("10 mm").unwrap();
+
         transaction.add_parameter(format!("size_{number:02}"), expression);
     }
     harness.perform(Action::Apply(transaction.finish()));
@@ -147,6 +160,7 @@ fn tab_scrolls_a_configured_value_beyond_the_table_into_view() {
             .document()
             .configuring(ConfiguredValue::Parameter(parameter))
             .unwrap();
+
         harness.perform(Action::Apply(configure));
         harness.frame();
     }
@@ -158,7 +172,9 @@ fn tab_scrolls_a_configured_value_beyond_the_table_into_view() {
 fn tab_scrolls_a_version_below_the_history_list_into_view() {
     let dir = TempDir::new().unwrap();
     let plate = sample_document().unwrap();
+
     let mut harness = Harness::starting(Some(dir.path()), plate, Workspace::new());
+
     harness.context.enable_accesskit();
     harness.answer_dialog(Some(dir.path().join("plate.caditor")));
     harness.command(FileCommand::SaveAs);
@@ -167,7 +183,9 @@ fn tab_scrolls_a_version_below_the_history_list_into_view() {
     });
     for number in 1..=12 {
         let mut transaction = harness.document().transaction(format!("Step {number:02}"));
+
         let expression = transaction.parse("1 mm").unwrap();
+
         transaction.add_parameter(format!("extra_{number:02}"), expression);
         harness.perform(Action::Apply(transaction.finish()));
         harness.settle();
@@ -196,6 +214,7 @@ fn crowded_provider() -> Arc<FakeProvider> {
             has_parts: false,
         })
         .collect();
+
     let provider = (1..=14).fold(
         FakeProvider::new().workspace(CloudWorkspace {
             id: hub.clone(),
@@ -226,6 +245,7 @@ fn crowded_provider() -> Arc<FakeProvider> {
 
 fn signed_in_to_the_cloud_dialog(dir: &TempDir, provider: &Arc<FakeProvider>) -> Harness {
     let mut harness = with_cloud(dir.path(), provider);
+
     run_from_palette(&mut harness, "Cloud projects");
     harness.frame();
     harness.frame();
@@ -240,6 +260,7 @@ fn signed_in_to_the_cloud_dialog(dir: &TempDir, provider: &Arc<FakeProvider>) ->
 fn tab_scrolls_a_project_below_the_cloud_dialog_s_list_into_view() {
     let dir = TempDir::new().unwrap();
     let provider = crowded_provider();
+
     let mut harness = signed_in_to_the_cloud_dialog(&dir, &provider);
 
     tab_until_shown(&mut harness, "Project 14");
@@ -248,6 +269,7 @@ fn tab_scrolls_a_project_below_the_cloud_dialog_s_list_into_view() {
 #[test]
 fn tab_scrolls_a_sample_below_the_fold_of_home_into_view() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.context.set_zoom_factor(2.0);
     open_home(&mut harness);
@@ -259,7 +281,9 @@ fn tab_scrolls_a_sample_below_the_fold_of_home_into_view() {
 fn tab_scrolls_a_design_below_the_cloud_dialog_s_list_into_view() {
     let dir = TempDir::new().unwrap();
     let provider = crowded_provider();
+
     let mut harness = signed_in_to_the_cloud_dialog(&dir, &provider);
+
     harness.click("Project 01");
     harness.wait_until("the designs are listed", |harness| {
         harness.shows("Design 01")

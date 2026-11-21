@@ -95,9 +95,11 @@ impl Coordinates for Point3 {
 
 pub(crate) fn angle_between<P: Coordinates>(a: P, b: P) -> f64 {
     let (aa, bb, ab) = (a.dot(a), b.dot(b), a.dot(b));
+
     if aa <= 0.0 || bb <= 0.0 {
         return 0.0;
     }
+
     let cross = (aa * bb - ab * ab).max(0.0).sqrt();
     cross.atan2_libm(ab)
 }
@@ -105,6 +107,7 @@ pub(crate) fn angle_between<P: Coordinates>(a: P, b: P) -> f64 {
 pub(crate) fn distance_to_segment<P: Coordinates>(point: P, start: P, end: P) -> f64 {
     let along = end - start;
     let length_squared = along.dot(along);
+
     let fraction = if length_squared > 0.0 {
         ((point - start).dot(along) / length_squared).clamp(0.0, 1.0)
     } else {

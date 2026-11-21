@@ -31,6 +31,7 @@ struct Plate {
 impl Plate {
     fn with_two_holes(harness: &mut Harness) -> Self {
         let (_, top) = extruded_plate(harness);
+
         add_hole(harness, top);
         add_hole(harness, top);
         harness.select([]);
@@ -55,20 +56,24 @@ impl Plate {
 #[test]
 fn choosing_one_hole_after_another_in_the_tree_moves_the_highlight_to_the_hole_chosen() {
     let mut harness = Harness::new();
+
     let plate = Plate::with_two_holes(&mut harness);
 
     assert_eq!(plate.lit(&mut harness), [false, false, false]);
 
     harness.click("Hole 1");
     harness.frame();
+
     let first_chosen = plate.lit(&mut harness);
 
     harness.click("Hole 2");
     harness.frame();
+
     let second_chosen = plate.lit(&mut harness);
 
     harness.click("Extrude 1");
     harness.frame();
+
     let body_chosen = plate.lit(&mut harness);
 
     assert_eq!(

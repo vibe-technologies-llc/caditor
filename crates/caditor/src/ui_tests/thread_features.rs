@@ -6,18 +6,23 @@ use crate::model::Action;
 #[test]
 fn a_thread_on_a_shaft_names_its_designation_draws_its_lines_and_takes_the_hand() {
     let mut harness = Harness::new();
+
     harness.perform(Action::ShowThreadsAsCosmetic(true));
+
     let side = extruded_shaft(&mut harness);
+
     assert!(thread_lines(&mut harness).is_empty());
 
     harness.select([side]);
     harness.use_tool_with(Key::O, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     let thread = harness
         .workspace
         .editing
         .solid()
         .expect("the thread is open");
+
     assert!(
         harness
             .model
@@ -31,6 +36,7 @@ fn a_thread_on_a_shaft_names_its_designation_draws_its_lines_and_takes_the_hand(
 
     harness.click("Left");
     harness.settle();
+
     assert_eq!(
         thread_of(&harness, thread).hand,
         caditor_document::ThreadHand::Left
@@ -42,8 +48,11 @@ fn a_thread_on_a_shaft_names_its_designation_draws_its_lines_and_takes_the_hand(
         harness.frame();
         harness.frame();
     }
+
     assert_eq!(harness.workspace.editing.solid(), None);
+
     let lines = thread_lines(&mut harness);
+
     assert!(!lines.is_empty());
     assert!(lines.iter().all(|line| line.stroke.dashes_where_hidden()));
     assert!(lines.iter().any(|line| line.stroke.is_dashed_where_seen()));
@@ -53,6 +62,7 @@ fn a_thread_on_a_shaft_names_its_designation_draws_its_lines_and_takes_the_hand(
 #[test]
 fn the_thread_command_refuses_a_flat_face_and_several_faces() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
     let no_thread = |harness: &Harness| {
         harness
@@ -64,11 +74,13 @@ fn the_thread_command_refuses_a_flat_face_and_several_faces() {
     harness.select([top]);
     harness.use_tool_with(Key::O, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     assert!(no_thread(&harness));
     assert_eq!(harness.workspace.editing.solid(), None);
 
     harness.select([]);
     harness.use_tool_with(Key::O, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     assert!(no_thread(&harness));
 }

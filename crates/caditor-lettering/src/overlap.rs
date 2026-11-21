@@ -3,7 +3,7 @@ use caditor_kernel::{Piece, Profile, ProfileCurve, Selection};
 
 const SAMPLES_PER_CURVE: usize = 32;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Segment {
     Line(Point2, Point2),
     Bezier(Vec<Point2>),
@@ -58,6 +58,7 @@ pub fn merged(segments: &[Segment]) -> Option<Vec<Segment>> {
         .collect();
     let profile = Profile::new(&curves).ok()?;
     let mut filled = Vec::new();
+
     for region in profile.regions() {
         if winding(segments, region.anchor()?) != 0 {
             filled.push(region.key());
@@ -66,8 +67,10 @@ pub fn merged(segments: &[Segment]) -> Option<Vec<Segment>> {
     if filled.is_empty() {
         return None;
     }
+
     let lumps = profile.select(&Selection::Regions(filled)).ok()?;
     let mut outline = Vec::new();
+
     for lump in &lumps {
         for profile_loop in lump.loops() {
             trace_loop(profile_loop.pieces(), segments, &mut outline)?;
@@ -79,6 +82,7 @@ pub fn merged(segments: &[Segment]) -> Option<Vec<Segment>> {
 fn trace_loop(pieces: &[Piece], segments: &[Segment], outline: &mut Vec<Segment>) -> Option<()> {
     let junctions: Vec<Point2> = pieces.iter().map(Piece::start).collect();
     let ends = junctions.iter().cycle().skip(1);
+
     for ((piece, start), end) in pieces.iter().zip(&junctions).zip(ends) {
         let segment = segments.get(usize::try_from(piece.entity()).ok()?)?;
         let traced = match segment {
@@ -86,6 +90,7 @@ fn trace_loop(pieces: &[Piece], segments: &[Segment], outline: &mut Vec<Segment>
             Segment::Bezier(points) => {
                 let range = piece.range();
                 let mut part = restricted(points, range.start(), range.end());
+
                 if piece.is_reversed() {
                     part.reverse();
                 }
@@ -107,6 +112,7 @@ fn trace_loop(pieces: &[Piece], segments: &[Segment], outline: &mut Vec<Segment>
 
 fn winding(segments: &[Segment], point: Point2) -> i32 {
     let mut winding = 0;
+
     for segment in segments {
         let polyline = segment.sampled(SAMPLES_PER_CURVE);
         for (from, to) in polyline.iter().zip(polyline.iter().skip(1)) {
@@ -130,6 +136,7 @@ fn split(points: &[Point2], parameter: f64) -> (Vec<Point2>, Vec<Point2>) {
     let mut row = points.to_vec();
     let mut left = Vec::with_capacity(points.len());
     let mut right = Vec::with_capacity(points.len());
+
     while let (Some(first), Some(last)) = (row.first().copied(), row.last().copied()) {
         left.push(first);
         right.push(last);
@@ -145,9 +152,11 @@ fn split(points: &[Point2], parameter: f64) -> (Vec<Point2>, Vec<Point2>) {
 
 fn restricted(points: &[Point2], from: f64, to: f64) -> Vec<Point2> {
     let (_, after) = split(points, from);
+
     if from >= 1.0 {
         return after;
     }
+
     let (within, _) = split(&after, (to - from) / (1.0 - from));
     within
 }

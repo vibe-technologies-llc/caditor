@@ -19,6 +19,7 @@ const PLACED_WITHIN: f64 = 1.0;
 
 fn only_gear(sketch: &Sketch) -> EntityId {
     let gears: Vec<EntityId> = sketch.gears().map(|(id, _)| id).collect();
+
     assert_eq!(gears.len(), 1, "{gears:?}");
     gears[0]
 }
@@ -26,11 +27,14 @@ fn only_gear(sketch: &Sketch) -> EntityId {
 #[test]
 fn a_gear_s_values_step_with_the_arrows_and_show_what_an_expression_comes_to() {
     let mut harness = Harness::new();
+
     edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
     run_from_palette(&mut harness, SPUR_GEAR);
 
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "6 * 4");
+
     let previewed = harness.shows("= 24");
+
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "20");
     harness.focus_field(gear_panel::field_id(GearField::Teeth));
     harness.key(Key::ArrowUp, Modifiers::NONE);
@@ -45,32 +49,44 @@ fn a_gear_s_values_step_with_the_arrows_and_show_what_an_expression_comes_to() {
 #[test]
 fn a_gear_is_drawn_where_clicked_after_too_few_teeth_are_refused_in_words() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
     let before = harness.sketch(feature).clone();
 
     run_from_palette(&mut harness, SPUR_GEAR);
+
     assert_eq!(harness.tool(), Some(Tool::Gear));
     assert!(harness.shows(gear_panel::TITLE));
     assert!(harness.shows(gearing::PROMPT));
+
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "12");
+
     assert!(harness.shows_containing("use at least 17 teeth"));
+
     harness.click_at(CENTRE);
     harness.settle();
+
     assert!(harness.sketch(feature).same_content(&before));
 
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "6 * 4");
     harness.type_into_field(gear_panel::field_id(GearField::Bore), "8 mm");
+
     assert!(harness.shows("48 mm"));
+
     harness.point_at(CENTRE);
+
     assert!(harness.shows_containing("Spur gear of 24 teeth"));
+
     harness.click_at(CENTRE);
     harness.settle();
 
     let sketch = harness.sketch(feature);
     let gear = only_gear(sketch);
+
     let held = sketch.gear(gear).unwrap();
     let shown = harness.shown(feature);
     let outline = shown.gear_outline(gear).unwrap();
+
     assert_eq!(harness.document().expression_text(&held.teeth), "6 * 4");
     assert_eq!(harness.document().expression_text(&held.bore), "8 mm");
     assert_eq!(sketch.entities().len(), 1);
@@ -80,12 +96,14 @@ fn a_gear_is_drawn_where_clicked_after_too_few_teeth_are_refused_in_words() {
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
 #[test]
 fn the_panel_draws_the_gear_at_the_origin_from_its_button() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
 
     run_from_palette(&mut harness, SPUR_GEAR);
@@ -97,7 +115,9 @@ fn the_panel_draws_the_gear_at_the_origin_from_its_button() {
     let gear = only_gear(sketch);
     let coincident = constraints_of_kind(sketch, "Coincident");
     let shown = harness.shown(feature);
+
     let outline = shown.gear_outline(gear).unwrap();
+
     assert_eq!(coincident.len(), 1);
     assert_eq!(outline.centre, Point2::ZERO);
     assert!((outline.circles.pitch - 15.0).abs() < 1e-9);
@@ -107,14 +127,17 @@ fn the_panel_draws_the_gear_at_the_origin_from_its_button() {
 #[test]
 fn a_drawn_gear_extrudes_into_a_solid_of_its_outline() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
 
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "18");
     harness.click(&gear_panel::draw_label(None, None));
     harness.settle();
+
     let gear = only_gear(harness.sketch(feature));
     let shown = harness.shown(feature);
+
     let outline: Vec<Point2> = shown
         .gear_outline(gear)
         .unwrap()
@@ -128,8 +151,10 @@ fn a_drawn_gear_extrudes_into_a_solid_of_its_outline() {
         .map(|(a, b)| a.perp_dot(*b))
         .sum::<f64>()
         / 2.0;
+
     harness.click("Extrude");
     harness.settle();
+
     let extrude = harness
         .workspace
         .editing
@@ -137,6 +162,7 @@ fn a_drawn_gear_extrudes_into_a_solid_of_its_outline() {
         .expect("the extrusion is open");
 
     let volume = harness.body_volume(extrude);
+
     assert!(
         (volume - area * solid_tools::DEFAULT_DISTANCE).abs() < 1e-3 * volume,
         "{volume} for {area}"
@@ -147,12 +173,16 @@ fn a_drawn_gear_extrudes_into_a_solid_of_its_outline() {
 #[test]
 fn a_selected_gear_is_edited_in_place_keeping_its_centre_and_follows_the_new_teeth() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.click_at(CENTRE);
     harness.settle();
+
     let gear = only_gear(harness.sketch(feature));
     let centre = harness.sketch(feature).gear(gear).unwrap().centre;
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
@@ -161,9 +191,12 @@ fn a_selected_gear_is_edited_in_place_keeping_its_centre_and_follows_the_new_tee
         entity: gear,
     }]);
     run_from_palette(&mut harness, SPUR_GEAR);
+
     let update = gear_panel::update_label(Some(harness.sketch(feature)), gear);
+
     assert!(harness.shows(&update));
     assert!(harness.shows(gearing::EDIT_PROMPT));
+
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "30");
     harness.type_into_field(gear_panel::field_id(GearField::Turn), "45 deg");
     harness.click(&update);
@@ -173,6 +206,7 @@ fn a_selected_gear_is_edited_in_place_keeping_its_centre_and_follows_the_new_tee
     let held = sketch.gear(only_gear(sketch)).unwrap();
     let shown = harness.shown(feature);
     let outline = shown.gear_outline(gear).unwrap();
+
     assert_eq!(held.centre, centre);
     assert_eq!(harness.document().expression_text(&held.teeth), "30");
     assert_eq!(harness.document().expression_text(&held.turn), "45 deg");
@@ -181,19 +215,25 @@ fn a_selected_gear_is_edited_in_place_keeping_its_centre_and_follows_the_new_tee
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     let sketch = harness.sketch(feature);
     let held = sketch.gear(only_gear(sketch)).unwrap();
+
     assert_eq!(harness.document().expression_text(&held.teeth), "20");
 }
 
 #[test]
 fn deleting_a_selected_gear_takes_its_centre() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.click_at(CENTRE);
     harness.settle();
+
     let gear = only_gear(harness.sketch(feature));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
@@ -205,6 +245,7 @@ fn deleting_a_selected_gear_takes_its_centre() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(sketch.gears().len(), 0);
     assert_eq!(sketch.entities().len(), 0);
 }
@@ -214,7 +255,9 @@ fn pair_ids(sketch: &Sketch) -> (EntityId, EntityId) {
         .gears()
         .map(|(id, gear)| (id, gear.meshing.is_some()))
         .collect();
+
     assert_eq!(gears.len(), 2, "{gears:?}");
+
     let driver = gears.iter().find(|(_, meshing)| !meshing).unwrap().0;
     let partner = gears.iter().find(|(_, meshing)| *meshing).unwrap().0;
     (driver, partner)
@@ -231,34 +274,44 @@ fn centres_apart(harness: &Harness, feature: caditor_document::FeatureId) -> Poi
 fn a_gear_pair_is_stored_as_two_gears_at_the_centre_distance_and_a_meshing_gear_that_cannot_be_cut_is_refused()
  {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
     let before = harness.sketch(feature).clone();
 
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.click("Gear pair");
+
     assert!(harness.shows(GearField::PairTeeth.label()));
     assert!(harness.shows(GearField::Direction.label()));
+
     harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "8");
+
     assert!(harness.shows_containing("The meshing gear: 8 teeth are undercut"));
+
     harness.click_at(CENTRE);
     harness.settle();
+
     assert!(harness.sketch(feature).same_content(&before));
 
     harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "15 * 2");
     harness.type_into_field(gear_panel::field_id(GearField::PairBore), "6 mm");
     harness.type_into_field(gear_panel::field_id(GearField::Direction), "90 deg");
     harness.point_at(CENTRE);
+
     assert!(harness.shows_containing("Gear pair of 20 and 30 teeth"));
     assert!(harness.shows_containing("centres 50 mm apart"));
+
     harness.click_at(CENTRE);
     harness.settle();
 
     let sketch = harness.sketch(feature);
     let (driver, partner) = pair_ids(sketch);
+
     let held = sketch.gear(partner).unwrap();
     let shown = harness.shown(feature);
     let first = shown.gear_outline(driver).unwrap();
     let second = shown.gear_outline(partner).unwrap();
+
     assert_eq!(held.driver(), Some(driver));
     assert_eq!(harness.document().expression_text(&held.teeth), "15 * 2");
     assert_eq!(harness.document().expression_text(&held.bore), "6 mm");
@@ -273,19 +326,25 @@ fn a_gear_pair_is_stored_as_two_gears_at_the_centre_distance_and_a_meshing_gear_
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
 #[test]
 fn editing_the_first_gear_of_a_pair_moves_and_reshapes_the_one_that_follows() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.click("Gear pair");
     harness.click_at(CENTRE);
     harness.settle();
+
     let (driver, partner) = pair_ids(harness.sketch(feature));
+
     assert!((centres_apart(&harness, feature).x - 50.0).abs() < 1e-6);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
@@ -294,7 +353,9 @@ fn editing_the_first_gear_of_a_pair_moves_and_reshapes_the_one_that_follows() {
         entity: driver,
     }]);
     run_from_palette(&mut harness, SPUR_GEAR);
+
     assert!(harness.shows_containing("meshes with it and follows its values"));
+
     harness.type_into_field(gear_panel::field_id(GearField::Module), "3 mm");
     harness.type_into_field(gear_panel::field_id(GearField::ProfileShift), "0.25");
     harness.click(&gear_panel::update_label(
@@ -305,6 +366,7 @@ fn editing_the_first_gear_of_a_pair_moves_and_reshapes_the_one_that_follows() {
 
     let shown = harness.shown(feature);
     let values = shown.gear_values(partner).unwrap();
+
     assert!((centres_apart(&harness, feature).x - 75.0).abs() < 1e-6);
     assert_eq!(values.shape.spur().unwrap().module, 3.0);
     assert_eq!(values.shape.spur().unwrap().profile_shift, -0.25);
@@ -312,18 +374,23 @@ fn editing_the_first_gear_of_a_pair_moves_and_reshapes_the_one_that_follows() {
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert!((centres_apart(&harness, feature).x - 50.0).abs() < 1e-6);
 }
 
 #[test]
 fn a_meshing_gear_is_edited_for_its_teeth_and_direction_and_refuses_what_it_follows() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.click("Gear pair");
     harness.click_at(CENTRE);
     harness.settle();
+
     let (_, partner) = pair_ids(harness.sketch(feature));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
@@ -332,10 +399,14 @@ fn a_meshing_gear_is_edited_for_its_teeth_and_direction_and_refuses_what_it_foll
         entity: partner,
     }]);
     run_from_palette(&mut harness, SPUR_GEAR);
+
     assert!(harness.shows(gear_panel::EDITING_MESHING));
     assert!(!harness.shows(GearField::Module.label()));
+
     harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "8");
+
     assert!(harness.shows_containing("The meshing gear: 8 teeth are undercut"));
+
     harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "40");
     harness.type_into_field(gear_panel::field_id(GearField::Direction), "180 deg");
     harness.click(&gear_panel::update_label(
@@ -345,6 +416,7 @@ fn a_meshing_gear_is_edited_for_its_teeth_and_direction_and_refuses_what_it_foll
     harness.settle();
 
     let apart = centres_apart(&harness, feature);
+
     assert!((apart.x + 60.0).abs() < 1e-6, "{apart:?}");
     assert!(apart.y.abs() < 1e-6);
 }
@@ -352,12 +424,16 @@ fn a_meshing_gear_is_edited_for_its_teeth_and_direction_and_refuses_what_it_foll
 #[test]
 fn deleting_the_first_gear_of_a_pair_takes_the_other_and_both_centres() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.click("Gear pair");
     harness.click_at(CENTRE);
     harness.settle();
+
     let (driver, _) = pair_ids(harness.sketch(feature));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
@@ -367,43 +443,56 @@ fn deleting_the_first_gear_of_a_pair_takes_the_other_and_both_centres() {
     }]);
     harness.key(Key::Delete, Modifiers::NONE);
     harness.settle();
+
     let sketch = harness.sketch(feature);
+
     assert_eq!(sketch.gears().len(), 0);
     assert_eq!(sketch.entities().len(), 0);
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(harness.sketch(feature).gears().len(), 2);
 }
 
 #[test]
 fn a_sprocket_for_the_chosen_chain_is_stored_and_drawn_with_its_pitch_circle() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
     let before = harness.sketch(feature).clone();
 
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.click("Sprocket");
+
     assert!(!harness.shows(GearField::Module.label()));
     assert!(harness.shows(gear_panel::CHAIN));
     assert!(harness.shows(GearField::Turn.label()));
+
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "5");
+
     assert!(harness.shows_containing("Use a whole number from 9 to 150"));
 
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "18");
     choose(&mut harness, "08B · 12.7 mm pitch", "10B · 15.875 mm pitch");
+
     assert!(harness.shows_containing("91.4"));
+
     harness.point_at(CENTRE);
+
     assert!(harness.shows_containing("Sprocket of 18 teeth for 10B chain"));
+
     harness.click_at(CENTRE);
     harness.settle();
 
     let sketch = harness.sketch(feature);
     let sprocket = only_gear(sketch);
+
     let held = sketch.gear(sprocket).unwrap();
     let shown = harness.shown(feature);
     let outline = shown.toothed_outline(sprocket).unwrap();
     let pitch_radius = 15.875 / (2.0 * (std::f64::consts::PI / 18.0).sin());
+
     assert!(held.is_sprocket());
     assert_eq!(held.chain.map(|chain| chain.designation), Some("10B"));
     assert!(entities_of_kind(sketch, "Arc").is_empty());
@@ -417,19 +506,24 @@ fn a_sprocket_for_the_chosen_chain_is_stored_and_drawn_with_its_pitch_circle() {
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
 #[test]
 fn a_selected_sprocket_is_edited_for_its_chain_teeth_and_rotation_and_keeps_its_centre() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.click("Sprocket");
     harness.click_at(CENTRE);
     harness.settle();
+
     let sprocket = only_gear(harness.sketch(feature));
     let centre = harness.sketch(feature).gear(sprocket).unwrap().centre;
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
@@ -438,9 +532,11 @@ fn a_selected_sprocket_is_edited_for_its_chain_teeth_and_rotation_and_keeps_its_
         entity: sprocket,
     }]);
     run_from_palette(&mut harness, SPUR_GEAR);
+
     assert!(harness.shows(gear_panel::EDITING_SPROCKET));
     assert!(harness.shows(gear_panel::CHAIN));
     assert!(!harness.shows(GearField::Module.label()));
+
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "25");
     harness.type_into_field(gear_panel::field_id(GearField::Turn), "10 deg");
     choose(&mut harness, "08B · 12.7 mm pitch", "12B · 19.05 mm pitch");
@@ -451,6 +547,7 @@ fn a_selected_sprocket_is_edited_for_its_chain_teeth_and_rotation_and_keeps_its_
     harness.settle();
 
     let held = harness.sketch(feature).gear(sprocket).unwrap().clone();
+
     assert_eq!(held.centre, centre);
     assert_eq!(held.chain.map(|chain| chain.designation), Some("12B"));
     assert_eq!(harness.document().expression_text(&held.teeth), "25");
@@ -462,25 +559,31 @@ fn a_selected_sprocket_is_edited_for_its_chain_teeth_and_rotation_and_keeps_its_
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     let restored = harness.sketch(feature).gear(sprocket).unwrap().clone();
+
     assert_eq!(restored.chain.map(|chain| chain.designation), Some("08B"));
 }
 
 #[test]
 fn the_kind_and_the_values_chosen_stay_when_the_panel_switches_between_them() {
     let mut harness = Harness::new();
+
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
 
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "24");
     harness.click("Sprocket");
+
     assert!(harness.shows_containing("24"));
+
     harness.click("Single gear");
     harness.click(&gear_panel::draw_label(None, None));
     harness.settle();
 
     let sketch = harness.sketch(feature);
     let gear = only_gear(sketch);
+
     assert_eq!(
         harness
             .document()

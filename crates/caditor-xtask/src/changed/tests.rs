@@ -142,6 +142,7 @@ fn literals_after<'a>(source: &'a str, opening: &'a str) -> impl Iterator<Item =
 
 fn resolved(base: &str, literal: &str) -> String {
     let mut segments: Vec<&str> = base.split('/').filter(|part| !part.is_empty()).collect();
+
     for part in literal.split('/') {
         match part {
             "" | "." => {}
@@ -182,6 +183,7 @@ fn every_file_a_crate_reads_outside_its_folder_selects_it_when_changed() {
     for reader in &members {
         let manifest = fs::read_to_string(root.join(&reader.folder).join(MANIFEST)).unwrap();
         let mut sources = Vec::new();
+
         rust_files(&root.join(&reader.folder), &mut sources);
 
         for source in sources {

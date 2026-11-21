@@ -23,7 +23,7 @@ const ROUNDING_SLACK: f64 = 1e-9;
 const LINE_KNOTS: [f64; 4] = [0.0, 0.0, 1.0, 1.0];
 const ARC_KNOTS: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) struct Piece {
     start: f64,
     spans: usize,
@@ -83,11 +83,15 @@ impl Motion {
         let count = 2 * piece.spans + 1;
         let mut points = Vec::with_capacity(count);
         let mut weights = Vec::with_capacity(count);
+
         for span in 0..piece.spans {
             let start = piece.angle(span as f64);
+
             points.push(self.point(start, at));
             weights.push(weight);
+
             let middle = (start + half, self.winding.law.middle_rise(start, half));
+
             points.push(self.control(middle, at, 1.0 / middle_weight));
             weights.push(weight * middle_weight);
         }
@@ -129,17 +133,22 @@ impl Motion {
             let frame = &self.winding.frame;
             let axis = Plane::from_frame(frame.origin(), frame.normal(), frame.x_axis())
                 .ok_or(GeometryError::DegenerateSurface)?;
+
             return Ok(Surface::Cylinder(Cylinder::new(axis, section.start().x)?));
         }
+
         let mut points = Vec::new();
         let mut weights = Vec::new();
         let mut columns = 0;
+
         for (at, weight) in section.points.iter().zip(&section.weights) {
             let (row, row_weights) = self.net(*at, *weight, piece);
+
             columns = row.len();
             points.extend(row);
             weights.extend(row_weights);
         }
+
         let (v_degree, v_knots) = if section.is_arc() {
             (2, ARC_KNOTS.to_vec())
         } else {
@@ -183,6 +192,7 @@ pub(super) fn pieces_through(breaks: &[f64]) -> Vec<Piece> {
 fn pieces_between(from: f64, to: f64) -> Vec<Piece> {
     let turns = to - from;
     let count = (turns - ROUNDING_SLACK).ceil().max(1.0);
+
     let length = turns / count;
     let spans = ((length * SPANS_PER_TURN as f64 - ROUNDING_SLACK).ceil() as usize).max(1);
     (0..count as usize)
@@ -221,22 +231,28 @@ pub(super) fn build(layout: &Layout, feature: u64) -> Result<Solid, CoilError> {
     let pieces = pieces(layout.turns);
     let parts = COIL_PARTS;
     let name = |part: u64| FaceName::coil(feature, part);
+
     let start_name = name(parts.start);
     let end_name = name(parts.end);
     let side_name = |turn: usize, index: usize| name(parts.side(turn, index));
 
     let mut boundaries: Vec<f64> = pieces.iter().map(|piece| piece.start).collect();
+
     boundaries.push(layout.sweep());
+
     let mut plan = Plan::default();
     let corners: [Point2; SECTION_PIECES] = layout.section.each_ref().map(SectionPiece::start);
+
     let vertices: Vec<[usize; SECTION_PIECES]> = boundaries
         .iter()
         .map(|angle| corners.map(|corner| plan.vertex(motion.point(*angle, corner))))
         .collect();
 
     let mut joints: Vec<[usize; SECTION_PIECES]> = Vec::with_capacity(boundaries.len());
+
     for (index, (ring, angle)) in vertices.iter().zip(&boundaries).enumerate() {
         let mut ring_joints = [0; SECTION_PIECES];
+
         for (side, slot) in ring_joints.iter_mut().enumerate() {
             let edge_name = if index == 0 {
                 EdgeName::between(side_name(0, side), start_name)
@@ -247,6 +263,7 @@ pub(super) fn build(layout: &Layout, feature: u64) -> Result<Solid, CoilError> {
             };
             let ends = (pick(ring, side)?, pick(ring, next(side))?);
             let section = section_of(layout, side)?;
+
             *slot = if section.is_arc() {
                 let interval = Interval::new(0.0, 1.0).ok_or(CoilError::Unassembled)?;
                 plan.edge(motion.joint(*angle, section)?, interval, ends, edge_name)
@@ -259,14 +276,18 @@ pub(super) fn build(layout: &Layout, feature: u64) -> Result<Solid, CoilError> {
     }
 
     let mut helices: Vec<[usize; SECTION_PIECES]> = Vec::with_capacity(pieces.len());
+
     for (turn, piece) in pieces.iter().enumerate() {
         interrupt::check()?;
+
         let (from, to) = (ring_of(&vertices, turn)?, ring_of(&vertices, turn + 1)?);
         let interval = Interval::new(0.0, piece.spans as f64).ok_or(CoilError::Unassembled)?;
         let mut ring_helices = [0; SECTION_PIECES];
+
         for (corner, slot) in ring_helices.iter_mut().enumerate() {
             let before = side_name(turn, (corner + SECTION_PIECES - 1) % SECTION_PIECES);
             let after = side_name(turn, corner);
+
             *slot = plan.edge(
                 motion.helix(pick(&corners, corner)?, *piece)?,
                 interval,
@@ -279,6 +300,7 @@ pub(super) fn build(layout: &Layout, feature: u64) -> Result<Solid, CoilError> {
 
     for (turn, piece) in pieces.iter().enumerate() {
         interrupt::check()?;
+
         let ring = ring_of(&helices, turn)?;
         let (starts, ends) = (ring_of(&joints, turn)?, ring_of(&joints, turn + 1)?);
         for index in 0..SECTION_PIECES {
@@ -290,11 +312,13 @@ pub(super) fn build(layout: &Layout, feature: u64) -> Result<Solid, CoilError> {
                 end: pick(&ends, index)?,
             };
             let part = parts.side(turn, index);
+
             plan.face(side_face(&motion, *piece, &side, part, feature)?);
         }
     }
 
     let last = pieces.len();
+
     for (ring, angle, part, outward_along) in [
         (ring_of(&joints, 0)?, 0.0, parts.start, -1.0),
         (ring_of(&joints, last)?, layout.sweep(), parts.end, 1.0),
@@ -336,14 +360,17 @@ fn side_face(
     let probe_angle = piece.angle(local);
     let on_face = motion.point(probe_angle, side.section.middle());
     let inside = motion.point(probe_angle, motion.centre);
+
     let hint = (!round).then(|| Point2::new(local, 0.5));
     let sense = outward_sense(&surface, on_face, on_face - inside, hint);
     let uv = surface.project(on_face, hint);
+
     let normal = surface.normal(uv.x, uv.y).unwrap_or(Vector3::ZERO) * sense.sign();
     let from = side.section.start();
     let along = motion.point(probe_angle + TANGENT_STEP * piece.step, from)
         - motion.point(probe_angle, from);
     let across = motion.point(probe_angle, side.section.end()) - motion.point(probe_angle, from);
+
     let forward = normal.cross(along).dot(across) > 0.0;
 
     let top = piece.spans as f64;
@@ -354,6 +381,7 @@ fn side_face(
             PlanCoedge::mapped(edge, Sense::Same, at_start, at_end)
         }
     };
+
     let low = coedge(side.low, Point2::new(0.0, 0.0), Point2::new(top, 0.0));
     let high = coedge(side.high, Point2::new(0.0, 1.0), Point2::new(top, 1.0));
     let start = coedge(side.start, Point2::new(0.0, 0.0), Point2::new(0.0, 1.0));
@@ -362,6 +390,7 @@ fn side_face(
         sense: coedge.sense.reversed(),
         ..coedge
     };
+
     let face_loop = if forward {
         vec![low, end, reversed(high), reversed(start)]
     } else {
@@ -391,6 +420,7 @@ fn cap_face(
     let surface = motion.meridian(angle)?;
     let points = corners.map(|corner| motion.point(angle, corner));
     let centre = motion.point(angle, motion.centre);
+
     let sense = outward_sense(
         &surface,
         centre,
@@ -398,12 +428,14 @@ fn cap_face(
         None,
     );
     let uv = surface.project(centre, None);
+
     let normal = surface.normal(uv.x, uv.y).unwrap_or(Vector3::ZERO) * sense.sign();
     let turning = (0..SECTION_PIECES)
         .map(|index| -> Result<Vector3, CoilError> {
             Ok((pick(&points, index)? - centre).cross(pick(&points, next(index))? - centre))
         })
         .sum::<Result<Vector3, CoilError>>()?;
+
     let coedges = if turning.dot(normal) > 0.0 {
         joints
             .iter()

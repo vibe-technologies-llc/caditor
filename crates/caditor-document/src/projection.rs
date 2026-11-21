@@ -32,7 +32,7 @@ use crate::{
 pub const PROJECTED_SPLINE_POINTS: usize = 33;
 const FULL_TURN_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum OutlineOrigin {
     Edge(EdgeReference),
     Silhouette(FaceReference),
@@ -48,7 +48,7 @@ impl OutlineOrigin {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OutlinePart {
     pub origin: OutlineOrigin,
     pub occurrence: u32,
@@ -65,7 +65,7 @@ impl OutlinePart {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ProjectionSource {
     Edge {
         body: FeatureId,
@@ -258,7 +258,7 @@ impl ProjectionSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outline {
     Point(Point2),
     Line {
@@ -292,7 +292,7 @@ pub enum Outline {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SplineForm {
     Open,
     Closed,
@@ -325,7 +325,7 @@ impl SplineForm {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shape {
     Point,
     Line,
@@ -371,6 +371,7 @@ impl Outline {
         let center = local(ellipse.center);
         let major = local(ellipse.center + ellipse.major);
         let minor_radius = ellipse.minor_radius;
+
         if ellipse.is_full() {
             return Self::Ellipse {
                 center,
@@ -378,10 +379,12 @@ impl Outline {
                 minor_radius,
             };
         }
+
         let (start, end) = (
             local(ellipse.point_at(ellipse.start)),
             local(ellipse.point_at(ellipse.end())),
         );
+
         let (start, end) = if same_turn {
             (start, end)
         } else {
@@ -402,9 +405,11 @@ impl Outline {
             .iter()
             .map(|sample| sample.distance(first))
             .fold(0.0, larger);
+
         if extent <= POSITION_TOLERANCE {
             return Some(Self::Point(first));
         }
+
         let farthest = samples
             .iter()
             .copied()
@@ -413,6 +418,7 @@ impl Outline {
         let straight = samples
             .iter()
             .all(|sample| direction.perp_dot(*sample - first).abs() <= POSITION_TOLERANCE);
+
         if straight {
             let along = |point: &Point2| direction.dot(*point - first);
             let low = samples
@@ -423,11 +429,13 @@ impl Outline {
                 .iter()
                 .copied()
                 .max_by(|a, b| along(a).total_cmp(&along(b)))?;
+
             let (start, end) = if first.distance(low) <= last.distance(low) {
                 (low, high)
             } else {
                 (high, low)
             };
+
             return Some(Self::Line { start, end });
         }
         Self::spline_through(samples)
@@ -455,7 +463,7 @@ impl Outline {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectionError {
     SourceUnavailable,
     Missing,
@@ -605,6 +613,7 @@ fn resolved_piece<'p>(
                 .collect()
         }
     };
+
     if of_source.len() != part.of as usize {
         return Err(ProjectionError::OutlineChanged);
     }
@@ -635,13 +644,16 @@ pub fn axis_outline(axis: &Ray, plane: &Plane, reach: f64) -> Option<Outline> {
     if !reach.is_finite() || reach <= 0.0 {
         return None;
     }
+
     let direction = axis.direction();
     let flat = Vector2::new(plane.x_axis().dot(direction), plane.y_axis().dot(direction));
     let through = plane.to_local(axis.origin());
     let length = flat.length();
+
     if length <= DIRECTION_TOLERANCE {
         return Some(Outline::Point(through));
     }
+
     let along = flat / length;
     let foot = through - along * through.dot(along);
     Some(Outline::Line {
@@ -662,6 +674,7 @@ fn curve_outline(run: &EdgeRun<'_>, plane: &Plane, wanted: Option<Shape>) -> Opt
     let edges = run.edges();
     let (first, first_forward) = *edges.first()?;
     let local = |point: Point3| plane.to_local(point);
+
     let ends: Vec<Point2> = edges
         .iter()
         .flat_map(|(edge, forward)| {
@@ -676,12 +689,15 @@ fn curve_outline(run: &EdgeRun<'_>, plane: &Plane, wanted: Option<Shape>) -> Opt
     let (run_start, run_end) = (*ends.first()?, *ends.last()?);
     let sampled = |count: usize| -> Vec<Point2> {
         let last = count.saturating_sub(1).max(1) as f64;
+
         if edges.len() > 1 {
             let length = run.length();
+
             return (0..count)
                 .map(|index| local(run.at(length * index as f64 / last).0))
                 .collect();
         }
+
         let interval = first.interval();
         (0..count)
             .map(|index| {
@@ -699,6 +715,7 @@ fn curve_outline(run: &EdgeRun<'_>, plane: &Plane, wanted: Option<Shape>) -> Opt
             && edge.is_closed()
             && edge.interval().length() >= TAU - tolerance::DIRECTION_TOLERANCE
     };
+
     let natural = match first.curve() {
         Curve::Line(_) => Outline::through(&ends)?,
         Curve::Circle(circle) => {
@@ -772,6 +789,7 @@ fn sketch_entity_outline(
             .map(|index| local(arc.point_at(arc.start_angle + arc.sweep * index as f64 / last)))
             .collect()
     };
+
     let natural = match source.entity(entity)? {
         Entity::Point(position) => Outline::Point(local(*position)),
         Entity::Line { .. } => {
@@ -780,6 +798,7 @@ fn sketch_entity_outline(
         }
         Entity::Circle { .. } => {
             let (center, radius) = source.circle(entity)?;
+
             let full = ArcGeometry::full_circle(center, radius);
             if aligned {
                 Outline::Circle {
@@ -797,6 +816,7 @@ fn sketch_entity_outline(
                     local(arc.point_at(arc.start_angle)),
                     local(arc.point_at(arc.end_angle())),
                 );
+
                 let (start, end) = if same_turn {
                     (start, end)
                 } else {
@@ -833,6 +853,7 @@ fn sketch_entity_outline(
     let ellipse = source.ellipse(entity);
     natural.fitted(wanted, |count| {
         let last = count.saturating_sub(1).max(1) as f64;
+
         if let Some(ellipse) = &ellipse {
             return ellipse_samples(ellipse, count, &local);
         }
@@ -860,7 +881,7 @@ fn ellipse_samples(
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Projected {
     pub id: EntityId,
     pub entities: Vec<(EntityId, Entity)>,
@@ -883,11 +904,14 @@ impl TransactionBuilder<'_> {
         outline: &Outline,
     ) -> Projected {
         let mut entities = Vec::new();
+
         let mut add = |builder: &mut Self, entity: Entity| {
             let id = builder.add_sketch_entity(feature, entity.clone());
+
             entities.push((id, entity));
             id
         };
+
         let projected = match outline {
             Outline::Point(position) => add(self, Entity::Point(*position)),
             Outline::Line { start, end } => {
@@ -963,6 +987,7 @@ impl TransactionBuilder<'_> {
                 )
             }
         };
+
         self.edits.push(Edit::SetSketchProjection {
             feature,
             id: projected,
@@ -984,8 +1009,10 @@ pub(crate) fn refreshed<'a>(
     if definition.projections.is_empty() {
         return Ok(Cow::Borrowed(&definition.sketch));
     }
+
     let mut sketch = definition.sketch.clone();
     let mut sources = Sources::default();
+
     for (entity, source) in &definition.projections {
         let Some(existing) = sketch.entity(*entity) else {
             continue;
@@ -996,6 +1023,7 @@ pub(crate) fn refreshed<'a>(
                 ProjectionError::Cancelled => Failure::Cancelled,
                 error => projection_failure(feature, &sketch, *entity, source, error, inputs),
             })?;
+
         place(&mut sketch, *entity, &outline).map_err(|()| {
             projection_failure(
                 feature,
@@ -1080,6 +1108,7 @@ fn outline_of<'a>(
                 })
             });
             let pieces = pieces.as_ref().map_err(|error| *error)?;
+
             let piece = resolved_piece(solid, pieces, part)?;
             piece_outline(piece, Some(wanted)).ok_or(ProjectionError::ChangedShape)
         }
@@ -1162,6 +1191,7 @@ fn outline_of<'a>(
                 .get(sketch)
                 .and_then(|result| result.sketch())
                 .ok_or(ProjectionError::SourceUnavailable)?;
+
             if result.geometry.entity(*entity).is_none() {
                 return Err(ProjectionError::Missing);
             }
@@ -1359,6 +1389,7 @@ fn projection_failure(
         | ProjectionError::OutlineChanged
         | ProjectionError::Cancelled => Some(FixTarget::Feature(feature.id())),
     };
+
     let error = FeatureError::new(ProjectionCause {
         label,
         what,
@@ -1371,7 +1402,7 @@ fn projection_failure(
     })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ProjectionCause {
     label: String,
     what: String,

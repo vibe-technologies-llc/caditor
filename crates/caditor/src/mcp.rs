@@ -81,7 +81,9 @@ const CLOSING_PATIENCE: Duration = Duration::from_secs(30);
 pub fn run(serving: &Serving) -> Result<ExitCode> {
     let state_dir = caditor_file::state_dir();
     let logging = Logging::start(state_dir.as_deref());
+
     let served = serve_stdio(serving, state_dir, logging.ending());
+
     if let Err(error) = &served {
         log::error!("{error:#}");
     }
@@ -95,10 +97,12 @@ fn serve_stdio(
     ending: Option<Arc<SessionLog>>,
 ) -> Result<()> {
     let panic_flush = PanicFlush::default();
+
     crash::protect(&panic_flush, ending);
     if let Some(dir) = &state_dir {
         caditor_file::remember_checked_imports(dir);
     }
+
     let retention = caditor_file::config_dir()
         .map(|dir| caditor_file::Settings::load(&dir))
         .map(|settings| Preferences::from_settings(settings).retention)
@@ -113,11 +117,14 @@ fn serve_stdio(
         panic_flush,
         retention,
     })?;
+
     log::info!(
         "serving “{}” over the Model Context Protocol on standard input and output",
         display_name(Some(session.model()))
     );
+
     let session = server::serve(BufReader::new(io::stdin()), io::stdout(), session);
+
     if let Some(closing) = session.close()
         && !closing.wait(CLOSING_PATIENCE)
     {

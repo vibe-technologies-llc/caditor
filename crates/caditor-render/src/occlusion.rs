@@ -14,7 +14,7 @@ const NEAREST_DEPTH: f32 = 0.0;
 const SURFACES_BINDING: u32 = 8;
 const RAW_BINDING: u32 = 9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct OcclusionUniform {
     occlusion: [f32; 4],
     frame: [f32; 4],
@@ -37,10 +37,12 @@ impl OcclusionUniform {
     ) -> Self {
         let mut low = Vector3::splat(f64::INFINITY);
         let mut high = Vector3::splat(f64::NEG_INFINITY);
+
         for corner in casters.into_iter().flatten() {
             low = low.min(corner);
             high = high.max(corner);
         }
+
         let reach = (high - low).length() * REACH_OF_SCENE;
         let occludes = strength.is_finite() && strength > 0.0 && reach.is_finite() && reach > 0.0;
         let pixel_size = match view.projection() {
@@ -116,7 +118,7 @@ struct Made {
     shading_group: wgpu::BindGroup,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PassArea {
     pub(crate) viewport: [f32; 4],
     pub(crate) scissor: [u32; 4],
@@ -192,6 +194,7 @@ impl Occlusion {
             return OcclusionReady::Refused;
         }
         self.made = None;
+
         let (made, error) = gpu::scoped(device, || Made::new(device, &self.layouts, size));
         match error {
             None => {
@@ -201,6 +204,7 @@ impl Occlusion {
             }
             Some(error) => {
                 let (width, height) = size;
+
                 log::warn!(
                     "the graphics device refused {width}x{height} ambient occlusion targets, so the rendered view has none: {error}"
                 );
@@ -250,6 +254,7 @@ impl Occlusion {
             }),
             ..Default::default()
         });
+
         place(&mut surfaces);
         draw_surfaces(&mut surfaces);
         drop(surfaces);
@@ -259,6 +264,7 @@ impl Occlusion {
             color_attachments: &[Some(cleared(&made.raw, wgpu::Color::WHITE))],
             ..Default::default()
         });
+
         place(&mut occlusion);
         occlusion.set_pipeline(passes.occlusion);
         occlusion.set_bind_group(1, &made.surfaces_group, &[]);
@@ -270,6 +276,7 @@ impl Occlusion {
             color_attachments: &[Some(cleared(&made.occlusion, wgpu::Color::WHITE))],
             ..Default::default()
         });
+
         place(&mut blur);
         blur.set_pipeline(passes.blur);
         blur.set_bind_group(1, &made.raw_group, &[]);
@@ -513,6 +520,7 @@ mod tests {
         assert!(uniform.occludes());
         assert!((reach - 100.0 * 3f64.sqrt() * REACH_OF_SCENE).abs() < 1e-3);
         assert!((f64::from(uniform.occlusion[2]) - view.units_per_pixel_at(1.0)).abs() < 1e-9);
+
         let off = OcclusionUniform::of(0.0, &view, corners());
 
         assert!(!off.occludes());

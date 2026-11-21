@@ -30,21 +30,25 @@ pub fn show(
         ui.make_persistent_id("principal-geometry"),
         false,
     );
+
     let shown = visibility::any_principal_shown(document, view);
     let drawn = visibility::any_principal_drawn(document, view);
     let muted = appearance::tokens(ui).text_muted;
     let open = collapsing.is_open();
+
     let row = tree_row::show(
         ui,
         Look::default(),
         |ui| {
             let toggle = tree_row::chevron(ui, open, GROUP_TITLE);
+
             widgets::icon_label(ui, icons::PRINCIPAL_GROUP, muted);
             ui.add(
                 Label::new(title(ui, GROUP_TITLE, drawn))
                     .selectable(false)
                     .truncate(),
             );
+
             let name = tree_row::sense(
                 ui,
                 Id::unique("principal-group-row"),
@@ -66,6 +70,7 @@ pub fn show(
         },
     );
     let (toggled, name) = row.leading;
+
     if name.has_focus() {
         tree_row::focus_outline(ui, row.rect);
     }
@@ -91,6 +96,7 @@ fn item(
 ) {
     let document = model.document();
     let view = model.principal_view();
+
     let shown = view.reads_shown(document, geometry);
     let drawn = view.reads_drawn(document, geometry);
     let choosable = !document.is_principal_hidden(geometry);
@@ -101,6 +107,7 @@ fn item(
         selected: selection.contains(pickable),
         open: false,
     };
+
     let row = tree_row::show(
         ui,
         look,
@@ -128,6 +135,7 @@ fn item(
         },
     );
     let name = row.leading;
+
     if name.has_focus() {
         tree_row::focus_outline(ui, row.rect);
     }

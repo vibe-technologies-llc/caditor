@@ -53,10 +53,12 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
     if !looks_like_dxf(bytes) {
         return Err(ImportError::NotDxf);
     }
+
     let records = Records::new(read_pairs(bytes), MAX_DRAWING_VALUES);
     let file = DxfFile::read(records, MAX_DRAWING_VALUES)?;
     let mut interpreter = Interpreter::new(&file);
     let entities = prepare(&file, &items(&file.entities));
+
     interpreter.add(
         &entities,
         &Affine::IDENTITY,
@@ -65,7 +67,9 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
         DEFAULT_LAYER,
         &mut Vec::new(),
     )?;
+
     let mut notes = Vec::new();
+
     let scale = unit_note(file.units, &mut notes);
     let shapes: Vec<Shape> = interpreter
         .shapes
@@ -78,6 +82,7 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
         &interpreter.construction,
         notes,
     )?;
+
     drawing.layers = interpreter.layer_names.clone();
     drawing.unit_scale = scale;
     match (interpreter.report(drawing), file.damage) {
@@ -105,6 +110,7 @@ fn looks_like_dxf(bytes: &[u8]) -> bool {
     if bytes.starts_with(b"AutoCAD Binary DXF") {
         return true;
     }
+
     let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
     let first_line = bytes
         .split(line_break(bytes))
@@ -113,7 +119,7 @@ fn looks_like_dxf(bytes: &[u8]) -> bool {
     matches!(first_line.as_deref(), Some("0" | "999"))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Record<'a> {
     kind: String,
     pairs: Vec<Pair<'a>>,
@@ -164,6 +170,7 @@ trait Fields {
 
     fn points(&self, code: i32) -> Vec<Point3> {
         let mut points: Vec<Point3> = Vec::new();
+
         for pair in self.pairs() {
             let Some(value) = pair.real() else {
                 continue;
@@ -223,6 +230,7 @@ impl<'a, I: Iterator<Item = Result<Pair<'a>, ImportError>>> Records<I> {
             }
         };
         let mut pairs = Vec::new();
+
         while let Some(pair) = self
             .pairs
             .next_if(|pair| pair.as_ref().is_ok_and(|pair| pair.code != 0))
@@ -261,7 +269,7 @@ struct Block<'a> {
     records: Vec<Record<'a>>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct HeaderUnits {
     insertion: Option<i64>,
     imperial: bool,
@@ -286,6 +294,7 @@ struct LineStyles {
 impl LineStyles {
     fn add(&mut self, style: &Record<'_>) {
         let flags = style.flags(70);
+
         if let Some(handle) = style.text(5) {
             self.by_handle.insert(handle.to_ascii_uppercase(), flags);
         }
@@ -306,7 +315,7 @@ impl LineStyles {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Linetype {
     Continuous,
     Dashed,
@@ -375,6 +384,7 @@ impl<'a> DxfFile<'a> {
         let mut sections = 0;
         let mut block: Option<(String, Block<'a>)> = None;
         let mut kept: usize = 0;
+
         for record in records {
             let record = match record {
                 Ok(record) => record,
@@ -384,10 +394,13 @@ impl<'a> DxfFile<'a> {
                 }
                 Err(error) => return Err(error),
             };
+
             match record.kind.as_str() {
                 "SECTION" => {
                     sections += 1;
+
                     let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
+
                     if name == "HEADER" {
                         file.units = header_units(&record);
                     }
@@ -404,9 +417,11 @@ impl<'a> DxfFile<'a> {
             match section.as_deref() {
                 Some("TABLES") if record.kind == "LAYER" => {
                     charge(&mut kept, RECORD_VALUES, limit)?;
+
                     let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
                     let off = record.field(62).and_then(Pair::integer).unwrap_or(7) < 0;
                     let frozen = record.flags(70) & FROZEN_LAYER != 0;
+
                     file.layers.insert(
                         name,
                         Layer {
@@ -418,7 +433,9 @@ impl<'a> DxfFile<'a> {
                 Some("TABLES") if record.kind == "LTYPE" => {
                     if record.flags(73) > 0 {
                         charge(&mut kept, RECORD_VALUES, limit)?;
+
                         let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
+
                         file.dashed_linetypes.insert(name);
                     }
                 }
@@ -482,6 +499,7 @@ fn charge(kept: &mut usize, values: usize, limit: usize) -> Result<(), ImportErr
 fn header_units(header: &Record) -> HeaderUnits {
     let mut units = HeaderUnits::default();
     let mut variable = "";
+
     for pair in &header.pairs {
         if pair.code == 9 {
             variable = pair.text().trim();
@@ -504,6 +522,7 @@ struct Item<'a> {
 fn items<'a>(records: &'a [Record<'a>]) -> Vec<Item<'a>> {
     let mut items = Vec::new();
     let mut records = records.iter().peekable();
+
     while let Some(record) = records.next() {
         let mut vertices = Vec::new();
         let owns_followers = match record.kind.as_str() {
@@ -512,6 +531,7 @@ fn items<'a>(records: &'a [Record<'a>]) -> Vec<Item<'a>> {
             "VERTEX" | "SEQEND" | "ATTRIB" => continue,
             _ => false,
         };
+
         if owns_followers {
             while let Some(follower) =
                 records.next_if(|next| matches!(next.kind.as_str(), "VERTEX" | "ATTRIB"))
@@ -534,7 +554,7 @@ struct Prepared {
     decoded: Decoded,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Placement {
     Skipped,
     OnHiddenLayer,
@@ -611,7 +631,7 @@ struct HatchBoundary {
     traced_by: Vec<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Visibility {
     Skipped,
     Hidden,
@@ -651,7 +671,7 @@ impl Insertion {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Tally {
     left_out: BTreeMap<(&'static str, &'static str), usize>,
     hidden: usize,
@@ -669,9 +689,11 @@ impl Tally {
                 *slot = slot.saturating_add(extra);
             }
         }
+
         let repeat = |now: usize, before: usize| {
             now.saturating_add(now.saturating_sub(before).saturating_mul(repeats))
         };
+
         self.hidden = repeat(self.hidden, since.hidden);
         self.unreadable = repeat(self.unreadable, since.unreadable);
         self.too_deep = repeat(self.too_deep, since.too_deep);
@@ -720,9 +742,12 @@ impl<'a> Interpreter<'a> {
         if let Some(known) = self.contents.get(name) {
             return Some(Rc::clone(known));
         }
+
         let file = self.file;
         let block = file.blocks.get(name)?;
+
         let prepared = Rc::new(prepare(file, &items(&block.records)));
+
         self.contents.insert(name.to_owned(), Rc::clone(&prepared));
         Some(prepared)
     }
@@ -731,21 +756,26 @@ impl<'a> Interpreter<'a> {
         if let Some(known) = self.drawing.get(name) {
             return known.unwrap_or(true);
         }
+
         let external = self
             .file
             .blocks
             .get(name)
             .is_none_or(|block| block.external);
+
         if external {
             return false;
         }
         if depth > MAX_BLOCK_DEPTH {
             return true;
         }
+
         let Some(contents) = self.contents(name) else {
             return false;
         };
+
         self.drawing.insert(name.to_owned(), None);
+
         let draws = contents.iter().any(|item| match &item.decoded {
             Decoded::Shapes(shapes) => !shapes.is_empty(),
             Decoded::Hatch(boundaries) => boundaries
@@ -754,6 +784,7 @@ impl<'a> Interpreter<'a> {
             Decoded::Insert(insertion) => self.draws(&insertion.block, depth + 1),
             Decoded::Unreadable | Decoded::LeftOut(_) | Decoded::Ignored => false,
         });
+
         self.drawing.insert(name.to_owned(), Some(draws));
         draws
     }
@@ -777,6 +808,7 @@ impl<'a> Interpreter<'a> {
                 }
                 Visibility::Shown => {}
             }
+
             let dashed = item.linetype.is_dashed(inserted_dashed);
             let layer = match item.layer.as_str() {
                 DEFAULT_LAYER => inherited_layer,
@@ -789,6 +821,7 @@ impl<'a> Interpreter<'a> {
                 Decoded::Shapes(shapes) => self.push(shapes, transform, dashed, layer)?,
                 Decoded::Hatch(boundaries) => {
                     let mut drawn = false;
+
                     for boundary in boundaries {
                         if !Self::traced(items, &boundary.traced_by, inherited_hidden) {
                             drawn |= !boundary.shapes.is_empty();
@@ -834,9 +867,11 @@ impl<'a> Interpreter<'a> {
         if self.visited > MAX_EXPANDED_OBJECTS {
             return Err(ImportError::TooManyObjects);
         }
+
         let layer = self.layer_index(layer);
         let room = MAX_READ_CURVES.saturating_sub(self.shapes.len());
         let (kept, beyond) = shapes.split_at(room.min(shapes.len()));
+
         self.beyond_the_limit = self.beyond_the_limit.saturating_add(beyond.len());
         for shape in kept {
             self.points = self.points.saturating_add(shape.size());
@@ -854,10 +889,13 @@ impl<'a> Interpreter<'a> {
 
     fn layer_index(&mut self, name: &str) -> usize {
         let key = name.to_ascii_uppercase();
+
         if let Some(known) = self.layer_indices.get(&key) {
             return *known;
         }
+
         let index = self.layer_names.len();
+
         self.layer_names.push(name.to_owned());
         self.layer_indices.insert(key, index);
         index
@@ -882,10 +920,12 @@ impl<'a> Interpreter<'a> {
     ) -> Result<(), ImportError> {
         let file = self.file;
         let name = &insertion.block;
+
         let (Some(block), Some(contents)) = (file.blocks.get(name), self.contents(name)) else {
             self.missing.insert(insertion.written_name.clone());
             return Ok(());
         };
+
         if block.external {
             self.external.insert(insertion.written_name.clone());
             return Ok(());
@@ -894,6 +934,7 @@ impl<'a> Interpreter<'a> {
             self.tally.too_deep += 1;
             return Ok(());
         }
+
         let Some(system) = Affine::object_system(insertion.normal) else {
             self.tally.unreadable += 1;
             return Ok(());
@@ -904,9 +945,11 @@ impl<'a> Interpreter<'a> {
             .then(&system)
             .then(transform);
         let local = Affine::translation(-block.base).then(&Affine::scale(insertion.scale));
+
         blocks.push(name.clone());
         if !draws {
             let before = self.tally.clone();
+
             self.visit()?;
             self.add(
                 &contents,
@@ -916,8 +959,10 @@ impl<'a> Interpreter<'a> {
                 layer,
                 blocks,
             )?;
+
             let cells = usize::try_from(insertion.columns.saturating_mul(insertion.rows))
                 .unwrap_or(usize::MAX);
+
             self.tally.add_repeated(&before, cells.saturating_sub(1));
             blocks.pop();
             return Ok(());
@@ -925,8 +970,11 @@ impl<'a> Interpreter<'a> {
         for row in 0..insertion.rows {
             for column in 0..insertion.columns {
                 let offset = Vector3::new(column as f64, row as f64, 0.0) * insertion.spacing;
+
                 self.visit()?;
+
                 let cell = local.then(&Affine::translation(offset)).then(&placement);
+
                 if !cell.is_finite() {
                     self.tally.unreadable += 1;
                     continue;
@@ -941,12 +989,14 @@ impl<'a> Interpreter<'a> {
     fn report(self, mut drawing: Drawing) -> Result<Drawing, ImportError> {
         let earlier = drawing.notes.len();
         let tally = self.tally;
+
         if !tally.left_out.is_empty() {
             let kinds: Vec<String> = tally
                 .left_out
                 .iter()
                 .map(|((singular, plural), count)| counted(*count, singular, plural))
                 .collect();
+
             drawing.notes.push(format!(
                 "{} {} left out, because sketches hold only points, lines, arcs, circles and \
                  splines.",
@@ -986,6 +1036,7 @@ impl<'a> Interpreter<'a> {
         }
         if !self.external.is_empty() {
             let names: Vec<String> = self.external.into_iter().collect();
+
             drawing.notes.push(format!(
                 "Blocks that refer to other drawings were left out: {}.",
                 list(&names)
@@ -993,6 +1044,7 @@ impl<'a> Interpreter<'a> {
         }
         if !self.missing.is_empty() {
             let names: Vec<String> = self.missing.into_iter().collect();
+
             drawing.notes.push(format!(
                 "Blocks that the drawing uses but does not contain were left out: {}.",
                 list(&names)
@@ -1114,6 +1166,7 @@ fn ellipse(record: &Record) -> Option<Vec<Shape>> {
     let major = record.point(11)?;
     let ratio = record.real(40).filter(|ratio| *ratio > 0.0)?;
     let normal = record.normal().try_normalize()?;
+
     let minor = normal.cross(major) * ratio;
     let start = record.real_or(41, 0.0);
     let end = record.real_or(42, TAU);
@@ -1124,6 +1177,7 @@ fn light_polyline(record: &Record) -> Option<Vec<Shape>> {
     let system = Affine::object_system(record.normal())?;
     let elevation = record.real_or(38, 0.0);
     let mut vertices: Vec<(Point2, f64)> = Vec::new();
+
     for pair in &record.pairs {
         match pair.code {
             10 => vertices.push((Point2::new(pair.real()?, 0.0), 0.0)),
@@ -1132,6 +1186,7 @@ fn light_polyline(record: &Record) -> Option<Vec<Shape>> {
             _ => {}
         }
     }
+
     let closed = record.flags(70) & CLOSED != 0;
     Some(
         polyline_segments(&vertices, closed, elevation)
@@ -1147,6 +1202,7 @@ fn polyline(record: &Record, vertices: &[&Record]) -> Option<Vec<Shape>> {
     let used = vertices
         .iter()
         .filter(|vertex| vertex.flags(70) & SPLINE_FRAME_VERTEX == 0);
+
     if flags & POLYLINE_3D != 0 {
         let points: Vec<Point3> = used.map(|vertex| vertex.point(10)).collect::<Option<_>>()?;
         let mut shapes: Vec<Shape> = points
@@ -1156,6 +1212,7 @@ fn polyline(record: &Record, vertices: &[&Record]) -> Option<Vec<Shape>> {
                 _ => None,
             })
             .collect();
+
         if closed
             && points.len() > 2
             && let (Some(first), Some(last)) = (points.first(), points.last())
@@ -1164,6 +1221,7 @@ fn polyline(record: &Record, vertices: &[&Record]) -> Option<Vec<Shape>> {
         }
         return Some(shapes);
     }
+
     let system = Affine::object_system(record.normal())?;
     let elevation = record.point(10).map_or(0.0, |point| point.z);
     let flat: Vec<(Point2, f64)> = used
@@ -1185,6 +1243,7 @@ fn polyline_segments(vertices: &[(Point2, f64)], closed: bool, elevation: f64) -
     let bulged = vertices
         .iter()
         .any(|(_, bulge)| bulge.abs() >= BULGE_EPSILON);
+
     let segments = if closed && (count > 2 || (count == 2 && bulged)) {
         count
     } else {
@@ -1203,17 +1262,20 @@ fn bulge_segment(start: Point2, end: Point2, bulge: f64, elevation: f64) -> Opti
     let lift = |point: Point2| Point3::new(point.x, point.y, elevation);
     let chord = end - start;
     let length = chord.length();
+
     if length == 0.0 {
         return None;
     }
     if bulge.abs() < BULGE_EPSILON || !bulge.is_finite() {
         return Some(Shape::Line(lift(start), lift(end)));
     }
+
     let sweep = 4.0 * bulge.atan();
     let left = chord.perp() / length;
     let center =
         start + chord / 2.0 + left * (length / 2.0 * (1.0 - bulge * bulge) / (2.0 * bulge));
     let radius = start - center;
+
     let turning = if sweep > 0.0 {
         radius.perp()
     } else {
@@ -1234,13 +1296,16 @@ fn spline(record: &Record) -> Option<Vec<Shape>> {
     let control_points = record.points(10);
     let weights = record.reals(41);
     let weights = (!weights.is_empty()).then_some(weights);
+
     let controlled = usize::try_from(record.flags(71))
         .ok()
         .filter(|_| !control_points.is_empty())
         .and_then(|degree| Nurbs::new(degree, record.reals(40), control_points, weights));
+
     if let Some(nurbs) = controlled {
         return Some(vec![Shape::Spline(nurbs)]);
     }
+
     let fit_points = record.points(11);
     (fit_points.len() >= 2).then(|| {
         vec![Shape::Interpolated(
@@ -1252,6 +1317,7 @@ fn spline(record: &Record) -> Option<Vec<Shape>> {
 
 fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> f64 {
     let named = units.insertion.filter(|code| *code != UNITLESS);
+
     if named.is_none() && units.imperial {
         notes.push(
             "The drawing does not name its unit but uses imperial measurement, so its numbers \
@@ -1363,6 +1429,7 @@ mod tests {
 
     fn drawing(entities: usize, objects: usize) -> String {
         let mut text = String::from("0\nSECTION\n2\nENTITIES\n");
+
         for _ in 0..entities {
             text.push_str("0\nPOINT\n8\n0\n10\n1.0\n20\n2.0\n1001\nAPP\n1000\nnote\n");
         }
@@ -1400,6 +1467,7 @@ mod tests {
 
     fn bare_records(section: &str, kind: &str, count: usize) -> String {
         let mut text = format!("0\nSECTION\n2\n{section}\n");
+
         for _ in 0..count {
             text.push_str(&format!("0\n{kind}\n"));
         }

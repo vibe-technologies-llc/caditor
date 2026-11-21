@@ -4,7 +4,7 @@ const ALIGNED_ANGLE: f64 = 1e-12;
 const DISTINCT_SINE: f64 = 1e-9;
 const SLIDING_COSINE: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Round {
     Cylinder { axis: Ray, radius: f64 },
     Sphere { centre: Point3, radius: f64 },
@@ -45,13 +45,13 @@ impl Round {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Convexity {
     Convex,
     Concave,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Unplaced {
     TooFar,
     AxisAlongPlane,
@@ -70,12 +70,15 @@ fn turned_to_angle(
 ) -> Option<RigidTransform> {
     let from = from.try_normalize()?;
     let to = to.try_normalize()?;
+
     let cross = from.cross(to);
     let current = cross.length().atan2(from.dot(to));
     let turn = current - angle;
+
     if turn.abs() <= ALIGNED_ANGLE {
         return Some(RigidTransform::IDENTITY);
     }
+
     let axis = if cross.length() > DISTINCT_SINE {
         cross
     } else {
@@ -115,6 +118,7 @@ fn face_placement(
     let turned = turning(moving.normal(), facing, centre, moving.x_axis())?;
     let origin = turned.apply_point(moving.origin());
     let goal = target.origin() + normal * distance;
+
     let shift = RigidTransform::translation(normal * (goal - origin).dot(normal))?;
     Some(turned.then(&shift))
 }
@@ -138,9 +142,11 @@ fn axis_placement(
     let direction = target.direction().try_normalize()?;
     let direction = if flipped { -direction } else { direction };
     let pivot = nearest_on_line(moving, centre)?;
+
     let turned = turning(along, direction, pivot, along.any_orthonormal_vector())?;
     let point = turned.apply_point(pivot);
     let foot = target.origin() + direction * (point - target.origin()).dot(direction);
+
     let shift = RigidTransform::translation(foot - point)?;
     Some(turned.then(&shift))
 }
@@ -160,6 +166,7 @@ pub(crate) fn flush_and_concentric(
 ) -> Result<RigidTransform, Unplaced> {
     let normal = pair.onto.normal().try_normalize().ok_or(Unplaced::TooFar)?;
     let concentric = placed(axis_placement(pair.axis, pair.along, false, centre))?;
+
     let facing = concentric.apply_vector(pair.face.normal()).dot(normal);
     let opposed = facing <= 0.0;
     let concentric = if opposed == !flipped {
@@ -173,11 +180,14 @@ pub(crate) fn flush_and_concentric(
         .try_normalize()
         .ok_or(Unplaced::TooFar)?;
     let slide = direction.dot(normal);
+
     if slide.abs() <= SLIDING_COSINE {
         return Err(Unplaced::AxisAlongPlane);
     }
+
     let origin = concentric.apply_point(pair.face.origin());
     let goal = pair.onto.origin() + normal * pair.distance;
+
     let along = (goal - origin).dot(normal) / slide;
     let shift = placed(RigidTransform::translation(direction * along))?;
     Ok(concentric.then(&shift))
@@ -186,13 +196,17 @@ pub(crate) fn flush_and_concentric(
 fn crossing_nearest(first: &Plane, second: &Plane, centre: Point3) -> Option<Point3> {
     let first_normal = first.normal().try_normalize()?;
     let second_normal = second.normal().try_normalize()?;
+
     let cosine = first_normal.dot(second_normal);
     let determinant = 1.0 - cosine * cosine;
+
     if determinant <= DISTINCT_SINE {
         return None;
     }
+
     let first_gap = (first.origin() - centre).dot(first_normal);
     let second_gap = (second.origin() - centre).dot(second_normal);
+
     let first_share = (first_gap - cosine * second_gap) / determinant;
     let second_share = (second_gap - cosine * first_gap) / determinant;
     Some(centre + first_normal * first_share + second_normal * second_share)
@@ -201,11 +215,14 @@ fn crossing_nearest(first: &Plane, second: &Plane, centre: Point3) -> Option<Poi
 fn closest_on_first(first: Ray, second: Ray, centre: Point3) -> Option<Point3> {
     let along = first.direction().try_normalize()?;
     let other = second.direction().try_normalize()?;
+
     let cosine = along.dot(other);
     let determinant = 1.0 - cosine * cosine;
+
     if determinant <= DISTINCT_SINE {
         return nearest_on_line(first, centre);
     }
+
     let gap = first.origin() - second.origin();
     let share = (cosine * other.dot(gap) - along.dot(gap)) / determinant;
     Some(first.origin() + along * share)
@@ -267,12 +284,14 @@ fn tangent_placement(
             let lying = (along - normal * along.dot(normal))
                 .try_normalize()
                 .unwrap_or_else(|| normal.any_orthonormal_vector());
+
             let turned = turning(along, lying, pivot, along.any_orthonormal_vector())?;
             (turned, pivot, radius)
         }
         Round::Sphere { centre, radius } => (RigidTransform::IDENTITY, centre, radius),
     };
     let side = if flipped { -radius } else { radius };
+
     let height = (turned.apply_point(middle) - target.origin()).dot(normal);
     let shift = RigidTransform::translation(normal * (side - height))?;
     Some(turned.then(&shift))
@@ -309,10 +328,12 @@ fn face_on_round_placement(
         }
         Round::Sphere { centre, radius } => (RigidTransform::IDENTITY, centre, radius),
     };
+
     let facing = turned.apply_vector(normal);
     let origin = turned.apply_point(moving.origin());
     let outside = (convexity == Convexity::Convex) != flipped;
     let side = if outside { radius } else { -radius };
+
     let height = (middle - origin).dot(facing);
     let shift = RigidTransform::translation(facing * (height - side))?;
     Some(turned.then(&shift))

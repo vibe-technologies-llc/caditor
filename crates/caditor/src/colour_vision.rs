@@ -1,6 +1,6 @@
 use egui::Color32;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Deficiency {
     Protanopia,
     Deuteranopia,
@@ -69,6 +69,7 @@ fn xyz(rgb: [f32; 3]) -> [f32; 3] {
 
 fn lab(xyz: [f32; 3]) -> [f32; 3] {
     const WHITE: [f32; 3] = [0.950_47, 1.0, 1.088_83];
+
     let curve = |ratio: f32| {
         if ratio > 0.008_856 {
             ratio.cbrt()
@@ -165,6 +166,7 @@ mod tests {
     #[test]
     fn status_tones_that_look_alike_to_a_colour_blind_eye_have_icons_that_differ() {
         let mut alike = 0;
+
         for (theme, tokens) in shipped() {
             for (index, first) in TONES.iter().enumerate() {
                 for second in TONES.iter().skip(index + 1) {
@@ -172,6 +174,7 @@ mod tests {
                     for deficiency in Deficiency::ALL {
                         if separation(deficiency, a, b) < HARD_TO_TELL_APART {
                             alike += 1;
+
                             assert_ne!(
                                 first.icon(),
                                 second.icon(),
@@ -182,6 +185,7 @@ mod tests {
                 }
             }
         }
+
         assert!(
             alike > 0,
             "the guard found no look-alike pair, so it guards nothing"

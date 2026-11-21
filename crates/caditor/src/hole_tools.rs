@@ -46,7 +46,7 @@ const SEARCH_STEPS: u32 = 16;
 const REFINEMENTS: usize = 4;
 const TIE: f64 = 1e-3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum HoleStartError {
     #[error(
         "Select a flat face of a body, or draw a sketch on one and place points where the holes go; a sketch already drilled or swept is not guessed"
@@ -68,7 +68,7 @@ impl Reason for HoleStartError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum HoleToolError {
     #[error(transparent)]
     Attachment(crate::sketch_placement::AttachmentError),
@@ -102,20 +102,20 @@ impl Reason for HoleToolError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HoleSource {
     pub sketch: FeatureId,
     pub body: FeatureId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HoleStart {
     Sketch(HoleSource),
     Face(FaceChoice),
     CurvedFace(FaceChoice),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Plain,
     Counterbore,
@@ -271,6 +271,7 @@ pub fn source(
 ) -> Result<HoleSource, HoleStartError> {
     let document = model.document();
     let may_guess = selection.is_empty();
+
     let swept = solid_tools::sweep_source(
         document,
         model.evaluation(),
@@ -289,9 +290,11 @@ pub fn source(
     })?;
     let sketch = swept.sketch;
     let definition = editing::edited_sketch(document, sketch).ok_or(HoleStartError::NoSketch)?;
+
     if hole_centres(definition).is_empty() {
         return Err(HoleStartError::NoPoints);
     }
+
     let attached = document
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
@@ -338,16 +341,21 @@ pub fn create_on_face(
     let sketch_name = editing::next_sketch_name(document);
     let name = editing::next_feature_name(document, TITLE);
     let mut sketch = Sketch::new(plane);
+
     sketch.add_point(middle);
+
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let placed = transaction.add_feature(
         sketch_name.clone(),
         FeatureKind::Sketch(SketchFeature::on_face(sketch, attachment)),
     );
+
     transaction.edit(Edit::SetFeatureHidden {
         id: placed,
         hidden: true,
     });
+
     let feature = transaction.add_feature(
         name.clone(),
         new_hole(placed, face.body, &Starts::of(model)),
@@ -372,6 +380,7 @@ pub fn middle_of(solid: &Solid, id: FaceId, plane: &Plane) -> Option<Point2> {
 
 pub fn clear_spot(solid: &Solid, id: FaceId, plane: &Plane, taken: &[Point2]) -> Option<Point2> {
     let mut segments = boundary_segments(solid, id, plane);
+
     segments.extend(taken.iter().map(|point| [*point, *point]));
     deepest_point(&segments)
 }
@@ -408,10 +417,12 @@ fn deepest_point(boundary: &[[Point2; 2]]) -> Option<Point2> {
         .fold((first, first), |(low, high), point| {
             (low.min(*point), high.max(*point))
         });
+
     let middle = (low + high) / 2.0;
     let mut best = inside(boundary, middle).then(|| (clearance(boundary, middle), middle));
     let mut centre = middle;
     let mut half = (high - low) / 2.0;
+
     for _ in 0..REFINEMENTS {
         for row in 0..=SEARCH_STEPS {
             for column in 0..=SEARCH_STEPS {
@@ -419,9 +430,11 @@ fn deepest_point(boundary: &[[Point2; 2]]) -> Option<Point2> {
                     Point2::new(f64::from(column), f64::from(row)) / f64::from(SEARCH_STEPS) * 2.0
                         - Point2::new(1.0, 1.0);
                 let candidate = centre + fraction * half;
+
                 if !inside(boundary, candidate) {
                     continue;
                 }
+
                 let distance = clearance(boundary, candidate);
                 let better = best.is_none_or(|(deepest, chosen): (f64, Point2)| {
                     distance > deepest * (1.0 + TIE)
@@ -433,7 +446,9 @@ fn deepest_point(boundary: &[[Point2; 2]]) -> Option<Point2> {
                 }
             }
         }
+
         let (_, chosen) = best?;
+
         centre = chosen;
         half *= 2.0 / f64::from(SEARCH_STEPS);
     }
@@ -458,6 +473,7 @@ fn clearance(boundary: &[[Point2; 2]], point: Point2) -> f64 {
         .map(|[start, end]| {
             let along = *end - *start;
             let length = along.length_squared();
+
             let t = if length > 0.0 {
                 ((point - *start).dot(along) / length).clamp(0.0, 1.0)
             } else {
@@ -475,7 +491,9 @@ pub fn create(
 ) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(name, new_hole(source.sketch, source.body, starts));
+
     if visibility::is_shown(document, source.sketch) {
         transaction.edit(Edit::SetFeatureHidden {
             id: source.sketch,
@@ -514,7 +532,7 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LonePoint {
     pub entity: EntityId,
     pub at: Point2,
@@ -522,9 +540,11 @@ pub struct LonePoint {
 
 pub fn lone_point(document: &Document, hole: &Hole) -> Option<LonePoint> {
     let sketch = document.feature(hole.sketch)?.kind.sketch()?;
+
     if sketch.constraints().len() > 0 {
         return None;
     }
+
     let mut entities = sketch.entities();
     match (entities.next(), entities.next()) {
         (Some((entity, Entity::Point(at))), None) => Some(LonePoint { entity, at: *at }),
@@ -558,9 +578,11 @@ fn placed(
     ray: Option<Ray>,
 ) -> Result<Transaction, HoleToolError> {
     let document = model.document();
+
     if hole_on_curve::mount(document, hole).is_some() || !sketch_placement::is_flat(model, face) {
         return Ok(hole_on_curve::moved(model, feature, hole, face, ray)?);
     }
+
     let name = &document.feature(feature).ok_or(HoleToolError::Gone)?.name;
     let point = lone_point(document, hole).ok_or(HoleToolError::NotOnePoint)?;
     let index = document
@@ -572,6 +594,7 @@ fn placed(
         .feature(hole.sketch)
         .and_then(|sketch| sketch.kind.attachment())
         .and_then(|attachment| attachment.face());
+
     let stays = current == Some(&attachment);
     let frame = if stays {
         scene::sketch_plane(document, model.evaluation(), hole.sketch).unwrap_or(plane)
@@ -585,6 +608,7 @@ fn placed(
         None => face_middle(model, face, &frame).ok_or(HoleToolError::NotFlat)?,
     };
     let mut transaction = document.transaction(format!("Move {name}"));
+
     if !stays {
         transaction.edit(Edit::SetSketchPlacement {
             feature: hole.sketch,
@@ -606,7 +630,9 @@ fn placed(
             }),
         });
     }
+
     let transaction = transaction.finish();
+
     document
         .check(&transaction)
         .map_err(|source| HoleToolError::CannotStand { source })?;
@@ -699,6 +725,7 @@ mod tests {
 
         let in_the_foot = point.y < 20.0 && point.x < 100.0;
         let in_the_leg = point.x < 20.0 && point.y < 100.0;
+
         assert!(in_the_foot || in_the_leg, "{point:?}");
         assert!(point.x > 9.0 && point.y > 9.0, "{point:?}");
     }
@@ -706,6 +733,7 @@ mod tests {
     #[test]
     fn a_face_with_a_hole_in_its_middle_is_drilled_beside_the_hole() {
         let mut face = outline(&[(0.0, 0.0), (60.0, 0.0), (60.0, 60.0), (0.0, 60.0)]);
+
         face.extend(outline(&[
             (20.0, 20.0),
             (40.0, 20.0),
@@ -717,6 +745,7 @@ mod tests {
 
         let clear_of_the_hole =
             !(20.0..=40.0).contains(&point.x) || !(20.0..=40.0).contains(&point.y);
+
         assert!(clear_of_the_hole, "{point:?}");
     }
 
@@ -736,6 +765,7 @@ mod tests {
         let point = deepest_point(&u_shape).unwrap();
 
         let in_the_gap = (20.0..=40.0).contains(&point.x) && point.y > 20.0;
+
         assert!(!in_the_gap, "{point:?}");
     }
 }

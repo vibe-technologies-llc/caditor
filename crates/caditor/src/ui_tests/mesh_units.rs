@@ -6,6 +6,7 @@ use crate::{files::FileCommand, import_unit::ImportUnitCommand};
 
 fn start_import(harness: &mut Harness, dir: &TempDir, name: &str, side: f64) {
     let path = dir.path().join(name);
+
     std::fs::write(&path, cube_stl(side)).unwrap();
     harness.answer_dialog(Some(path));
     harness.command(FileCommand::Import { into: None });
@@ -13,6 +14,7 @@ fn start_import(harness: &mut Harness, dir: &TempDir, name: &str, side: f64) {
 
 fn wait_for_unit_offer(harness: &mut Harness, file: &str) {
     let title = format!("Import “{file}”");
+
     harness.wait_until("the unit offer is shown", |harness| harness.shows(&title));
 }
 
@@ -20,6 +22,7 @@ fn wait_for_unit_offer(harness: &mut Harness, file: &str) {
 fn a_mesh_far_too_small_for_millimetres_is_offered_metres_before_anything_is_added() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let before = harness.document().features().len();
 
     start_import(&mut harness, &dir, "tiny.stl", 0.01);
@@ -36,6 +39,7 @@ fn a_mesh_far_too_small_for_millimetres_is_offered_metres_before_anything_is_add
         harness.document().features().len() == before + 1
     });
     harness.settle();
+
     let body = harness.document().features().last().unwrap().id();
 
     assert!(volume_about(&harness, body, 1000.0));
@@ -46,6 +50,7 @@ fn a_mesh_far_too_small_for_millimetres_is_offered_metres_before_anything_is_add
 fn choosing_another_unit_reads_the_mesh_again_in_it_and_the_report_says_it_was_chosen() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let before = harness.document().features().len();
 
     start_import(&mut harness, &dir, "tiny.stl", 0.5);
@@ -63,6 +68,7 @@ fn choosing_another_unit_reads_the_mesh_again_in_it_and_the_report_says_it_was_c
         harness.document().features().len() == before + 1
     });
     harness.settle();
+
     let body = harness.document().features().last().unwrap().id();
 
     assert!(volume_about(&harness, body, 125.0));
@@ -73,6 +79,7 @@ fn choosing_another_unit_reads_the_mesh_again_in_it_and_the_report_says_it_was_c
 fn cancelling_the_unit_offer_adds_nothing() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let before = harness.document().features().len();
 
     start_import(&mut harness, &dir, "tiny.stl", 0.01);
@@ -90,6 +97,7 @@ fn cancelling_the_unit_offer_adds_nothing() {
 fn a_mesh_of_plausible_millimetre_size_imports_without_the_offer() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let before = harness.document().features().len();
 
     start_import(&mut harness, &dir, "cube.stl", 10.0);

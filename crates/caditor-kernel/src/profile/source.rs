@@ -15,7 +15,7 @@ const DERIVATIVE_REFINEMENT: usize = 4;
 const BISECTION_STEPS: usize = 60;
 const MAX_QUARTER_BREAKS: usize = 8;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Source {
     pub entity: u64,
     pub curve: Curve2,
@@ -27,6 +27,7 @@ impl Source {
     pub fn from_curve(curve: &ProfileCurve) -> Result<Self, ProfileError> {
         let entity = curve.entity;
         let degenerate = || ProfileError::Degenerate { entity };
+
         let invalid = |error: GeometryError| match error {
             GeometryError::ZeroDirection
             | GeometryError::NonPositive(_)
@@ -42,6 +43,7 @@ impl Source {
                 if !start.is_finite() || !end.is_finite() {
                     return Err(non_finite);
                 }
+
                 let line = Line2::through(*start, *end).map_err(invalid)?;
                 let range = Interval::new(0.0, start.distance(*end)).ok_or(non_finite)?;
                 Ok(Self::open(entity, line.into(), range))
@@ -59,16 +61,20 @@ impl Source {
                 if !center.is_finite() || !start.is_finite() || !end.is_finite() {
                     return Err(non_finite);
                 }
+
                 let circle = Circle2::new(*center, center.distance(*start)).map_err(invalid)?;
                 let angle = |point: Point2| {
                     let offset = point - *center;
                     offset.y.atan2_libm(offset.x)
                 };
                 let first = angle(*start);
+
                 let sweep = (angle(*end) - first).rem_euclid(TAU);
+
                 if sweep <= 0.0 {
                     return Err(degenerate());
                 }
+
                 let range = Interval::new(first, first + sweep).ok_or(non_finite)?;
                 Ok(Self::open(entity, circle.into(), range))
             }
@@ -99,6 +105,7 @@ impl Source {
                 if !center.is_finite() || !major.is_finite() {
                     return Err(non_finite);
                 }
+
                 let ellipse = Ellipse2::new(*center, *major, *minor_radius).map_err(invalid)?;
                 Ok(Self {
                     entity,
@@ -115,15 +122,20 @@ impl Source {
                 end,
             } => {
                 let points = [*center, *start, *end];
+
                 if !points.iter().all(|point| point.is_finite()) || !major.is_finite() {
                     return Err(non_finite);
                 }
+
                 let ellipse = Ellipse2::new(*center, *major, *minor_radius).map_err(invalid)?;
                 let first = ellipse.parameter_of(*start);
+
                 let sweep = (ellipse.parameter_of(*end) - first).rem_euclid(TAU);
+
                 if sweep <= 0.0 {
                     return Err(degenerate());
                 }
+
                 let range = Interval::new(first, first + sweep).ok_or(non_finite)?;
                 Ok(Self::open(entity, ellipse.into(), range))
             }
@@ -179,11 +191,14 @@ impl Source {
             Curve2::Circle(circle) => circle_breaks(circle, self.range),
             Curve2::BSpline(_) | Curve2::Ellipse(_) => spline_breaks(&self.curve, self.range),
         };
+
         breaks.retain(|parameter| *parameter > self.range.start() && *parameter < self.range.end());
         breaks.sort_by(f64::total_cmp);
         breaks.dedup();
+
         let mut segments = Vec::with_capacity(breaks.len() + 1);
         let mut start = self.range.start();
+
         for end in breaks.into_iter().chain(std::iter::once(self.range.end())) {
             if let Some(segment) = Interval::new(start, end)
                 && segment.length() > 0.0
@@ -201,12 +216,15 @@ impl Source {
 
 fn circle_breaks(circle: &Circle2, range: Interval) -> Vec<f64> {
     let (x, y) = (circle.x_axis(), circle.y_axis());
+
     let bases = [y.x.atan2_libm(x.x), y.y.atan2_libm(x.y)];
     let mut breaks = Vec::new();
+
     for base in bases {
         let first = ((range.start() - base) / PI).ceil();
         for step in 0..MAX_QUARTER_BREAKS {
             let parameter = base + (first + step as f64) * PI;
+
             if parameter >= range.end() {
                 break;
             }
@@ -223,16 +241,19 @@ fn spline_breaks(curve: &Curve2, range: Interval) -> Vec<f64> {
         if axis == 0 { first.x } else { first.y }
     };
     let mut breaks = Vec::new();
+
     for axis in 0..2 {
         for pair in samples.windows(2) {
             let [low, high] = pair else {
                 continue;
             };
+
             let (at_low, at_high) = (component(*low, axis), component(*high, axis));
             if at_low == 0.0 {
                 breaks.push(*low);
             } else if at_low * at_high < 0.0 {
                 let (mut below, mut above) = (*low, *high);
+
                 for _ in 0..BISECTION_STEPS {
                     let middle = 0.5 * (below + above);
                     if component(middle, axis) * at_low > 0.0 {

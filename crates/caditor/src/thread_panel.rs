@@ -67,6 +67,7 @@ impl Panel<'_> {
 
     fn apply(&mut self, thread: Thread) {
         let change = self.change(thread);
+
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
@@ -77,6 +78,7 @@ impl Panel<'_> {
 
     fn face_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, "Face");
+
         let evaluation = self.model.evaluation();
         let seen = evaluation
             .body_result_seen_by(self.id(), self.thread.body)
@@ -99,6 +101,7 @@ impl Panel<'_> {
             },
         };
         let (model, selection, id, thread) = (self.model, self.selection, self.id(), self.thread);
+
         let picker = Picker {
             feature: id,
             slot: Slot::ThreadFace,
@@ -112,6 +115,7 @@ impl Panel<'_> {
             hover: FACE_HOVER,
         };
         let mut picked = Vec::new();
+
         ui.vertical(|ui| {
             if text == GONE {
                 feature_fields::missing(ui, GONE);
@@ -136,6 +140,7 @@ impl Panel<'_> {
             ui.end_row();
             return;
         }
+
         let segments = ThreadForm::ALL
             .into_iter()
             .map(|form| Segment {
@@ -150,6 +155,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, FORM, &self.feature.name, segments);
+
         self.actions.extend(chosen);
         if self.thread.form == ThreadForm::Modelled && self.model.threads_shown_cosmetic() {
             feature_fields::description_row(ui, SHOWN_COSMETIC);
@@ -164,6 +170,7 @@ impl Panel<'_> {
 
     fn standard_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, "Standard");
+
         let current = self.thread.size.family();
         let side = self.side().unwrap_or(ThreadSide::Internal);
         let diameter = self
@@ -171,6 +178,7 @@ impl Panel<'_> {
             .map_or(self.thread.size.fitting_diameter(side), |bore| {
                 bore.diameter
             });
+
         let chosen = feature_fields::combo(
             ui,
             Id::unique(("thread-standard", self.id())),
@@ -192,12 +200,14 @@ impl Panel<'_> {
                     .collect()
             },
         );
+
         self.actions.extend(chosen);
         ui.end_row();
     }
 
     fn size_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, "Size");
+
         let current = self.thread.size;
         let chosen = feature_fields::combo(
             ui,
@@ -221,6 +231,7 @@ impl Panel<'_> {
                     .collect()
             },
         );
+
         self.actions.extend(chosen);
         ui.end_row();
     }
@@ -234,10 +245,12 @@ impl Panel<'_> {
                 .flat_map(|side| family.classes(side).iter().copied())
                 .collect(),
         };
+
         if offered.len() < 2 && offered.contains(&self.thread.class) {
             return;
         }
         widgets::caption(ui, "Class");
+
         let current = self.thread.class;
         let chosen = feature_fields::combo(
             ui,
@@ -259,6 +272,7 @@ impl Panel<'_> {
                     .collect()
             },
         );
+
         self.actions.extend(chosen);
         ui.end_row();
     }
@@ -281,6 +295,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Hand", &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -290,6 +305,7 @@ impl Panel<'_> {
             ThreadLength::Depth(depth) => Some(depth.clone()),
         };
         let unit = self.model.length_unit();
+
         let options = [
             (
                 "Full face",
@@ -318,7 +334,9 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Length", &self.feature.name, segments);
+
         self.actions.extend(chosen);
+
         let Some(depth) = depth else {
             return;
         };
@@ -330,6 +348,7 @@ impl Panel<'_> {
             rule: Rule::AboveZero,
         };
         let thread = self.thread;
+
         let drafting =
             feature_fields::expression_row_drafting(ui, self.model, "Depth", quantity, |value| {
                 self.change(Thread {
@@ -337,6 +356,7 @@ impl Panel<'_> {
                     ..thread.clone()
                 })
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
         if let Some(reversed) =
             feature_fields::reverse_row(ui, START_FROM_OTHER_END, self.thread.reversed)
@@ -367,6 +387,7 @@ pub fn show(
         bore,
         actions,
     };
+
     widgets::properties(ui, ("thread-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         panel.face_row(ui);

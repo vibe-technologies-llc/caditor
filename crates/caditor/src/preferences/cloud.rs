@@ -6,7 +6,7 @@ const ON_HOME_KEY: &str = "cloud.on_home";
 const FUSION_CLIENT_KEY: &str = "cloud.fusion.client_id";
 const ONSHAPE_CLIENT_KEY: &str = "cloud.onshape.client_id";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CloudPreferences {
     pub enabled: bool,
     pub on_home: bool,
@@ -106,7 +106,9 @@ mod tests {
         assert_eq!(settings.text(FUSION_CLIENT_KEY), Some("abc123"));
         assert_eq!(settings.text(ONSHAPE_CLIENT_KEY), Some("def456"));
         assert_eq!(settings.flag(ENABLED_KEY), Some(false));
+
         let read = CloudPreferences::from_settings(&settings);
+
         assert_eq!(read.fusion_client_id, "abc123");
         assert_eq!(read.client_id(Service::Onshape), "def456");
         assert!(!read.enabled && !read.on_home);

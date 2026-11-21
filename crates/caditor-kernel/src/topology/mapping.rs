@@ -20,7 +20,7 @@ const GAP_SAMPLES: usize = 32;
 const MIN_RETRACE_SAMPLES: usize = 16;
 const MAX_RETRACE_SAMPLES: usize = 1024;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum TransformError {
     #[error(transparent)]
     Geometry(#[from] GeometryError),
@@ -56,6 +56,7 @@ impl TransformError {
 impl Solid {
     pub fn mapped(&self, similarity: &Similarity) -> Result<Self, TransformError> {
         let mut mapped = self.mapped_exactly(similarity)?;
+
         if similarity.scale() > 1.0 {
             mapped.settle_enlarged_edges()?;
         }
@@ -68,20 +69,27 @@ impl Solid {
     fn mapped_exactly(&self, similarity: &Similarity) -> Result<Self, TransformError> {
         let mirrored = similarity.is_mirrored();
         let mut mapped = self.clone();
+
         for vertex in &mut mapped.vertices {
             let point = similarity.apply_point(vertex.point);
+
             if !point.is_finite() {
                 return Err(GeometryError::NonFinite.into());
             }
+
             let reach = point.abs().max_element();
+
             if reach > MAX_SIZE {
                 return Err(GeometryError::BeyondMaximum(reach).into());
             }
             *vertex = Vertex { point };
         }
+
         let mut edge_maps: Vec<Affine> = Vec::with_capacity(self.edges.len());
+
         for edge in &mut mapped.edges {
             let (curve, along) = edge.curve.mapped(similarity)?;
+
             edge.interval = along
                 .interval(edge.interval)
                 .ok_or(GeometryError::NonFinite)?;
@@ -94,9 +102,12 @@ impl Solid {
             }
             edge_maps.push(along);
         }
+
         let mut face_maps: Vec<UvMap> = Vec::with_capacity(self.faces.len());
+
         for face in &mut mapped.faces {
             let (surface, map) = face.surface.mapped(similarity)?;
+
             face.surface = surface;
             if mirrored == map.keeps_orientation() {
                 face.sense = face.sense.reversed();
@@ -107,6 +118,7 @@ impl Solid {
             let Some(face_map) = face_maps.get(face_loop.face.index()) else {
                 continue;
             };
+
             for id in &face_loop.coedges {
                 let Some(coedge) = mapped.coedges.get_mut(id.index()) else {
                     continue;
@@ -115,9 +127,11 @@ impl Solid {
                     continue;
                 };
                 let unmoved = *edge_map == Affine::IDENTITY && *face_map == UvMap::IDENTITY;
+
                 if unmoved && !mirrored {
                     continue;
                 }
+
                 let Some(face) = mapped.faces.get(face_loop.face.index()) else {
                     continue;
                 };
@@ -130,6 +144,7 @@ impl Solid {
                         uv: face_map.apply(sample.uv),
                     })
                     .collect();
+
                 if mirrored {
                     samples.reverse();
                     coedge.sense = coedge.sense.reversed();
@@ -148,6 +163,7 @@ impl Solid {
     fn settle_enlarged_edges(&mut self) -> Result<(), TransformError> {
         for index in 0..self.edges.len() {
             interrupt::check()?;
+
             let Some(id) = EdgeId::from_index(index) else {
                 continue;
             };
@@ -164,6 +180,7 @@ impl Solid {
         let Some(edge) = self.edge(id) else {
             return false;
         };
+
         if self.distinct_faces(id).is_none() {
             return false;
         }
@@ -204,6 +221,7 @@ impl Solid {
                 .map(|face| face.surface.clone())
                 .ok_or(off_faces.clone())
         };
+
         let surfaces = [surface_of(first)?, surface_of(second)?];
         let edge = self.edge(id).ok_or(off_faces.clone())?;
         let (from, to) = (self.vertex_point(edge.start)?, self.vertex_point(edge.end)?);
@@ -212,27 +230,34 @@ impl Solid {
             _ => GAP_SAMPLES,
         }
         .clamp(MIN_RETRACE_SAMPLES, MAX_RETRACE_SAMPLES);
+
         let mut points: Vec<Point3> = edge
             .interval
             .split(count)
             .map(|parameter| edge.curve.point(parameter))
             .collect();
+
         if let Some(point) = points.first_mut() {
             *point = from;
         }
         if let Some(point) = points.last_mut() {
             *point = to;
         }
+
         let closed = edge.is_closed();
         let traced =
             IntersectionCurve::through(surfaces, &points, closed).ok_or(off_faces.clone())?;
         let interval = traced.domain();
+
         let fits = traced.point(interval.start()).distance(from) <= LINEAR_RESOLUTION
             && traced.point(interval.end()).distance(to) <= LINEAR_RESOLUTION;
+
         if !fits {
             return Err(off_faces);
         }
+
         let curve = Curve::Intersection(traced);
+
         for coedge_id in [first, second] {
             self.refit_pcurve(coedge_id, &curve, interval)?;
         }
@@ -261,6 +286,7 @@ impl Solid {
         let Some(face) = self.coedge_face(id).and_then(|face| self.face(face)) else {
             return Ok(());
         };
+
         let refitted = fit(
             &face.surface,
             curve,
@@ -269,6 +295,7 @@ impl Solid {
             Some(coedge.pcurve.start()),
         )
         .map_err(|error| TransformError::pcurve(coedge.edge, error))?;
+
         if let Some(coedge) = self.coedges.get_mut(id.index()) {
             coedge.pcurve = refitted;
         }
@@ -280,6 +307,7 @@ impl Solid {
             return Ok(());
         };
         let mut refined = Vec::with_capacity(edge.coedges.len());
+
         for coedge_id in &edge.coedges {
             let (Some(coedge), Some(face)) = (
                 self.coedge(*coedge_id),
@@ -288,10 +316,12 @@ impl Solid {
             ) else {
                 continue;
             };
+
             let pcurve = coedge
                 .pcurve
                 .refined(&face.surface, &edge.curve)
                 .map_err(|error| TransformError::pcurve(id, error))?;
+
             refined.push((*coedge_id, pcurve));
         }
         for (coedge_id, pcurve) in refined {

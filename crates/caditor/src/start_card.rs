@@ -23,7 +23,7 @@ const MIN_WIDTH: f32 = 300.0;
 const TOP_MARGIN: f32 = 16.0;
 const BUTTON_HEIGHT: f32 = 30.0;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Spacing {
     margin: i8,
     button_gap: f32,
@@ -57,7 +57,7 @@ pub struct Start {
     pub hover: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StartCard {
     enabled: bool,
     closed_in: Option<u64>,
@@ -117,12 +117,15 @@ impl StartCard {
                 .layout(Layout::top_down(Align::Min))
                 .sense(Sense::click_and_drag()),
         );
+
         child.set_clip_rect(view);
+
         let spacing = Spacing::for_placement(&placed);
         let frame = widgets::dialog_frame(ui.ctx()).inner_margin(Margin::same(spacing.margin));
         let inner_width = placed.area.width() - frame.total_margin().sum().x;
         let mut chosen = None;
         let mut closed = false;
+
         let area = frame
             .show(&mut child, |ui| {
                 ui.set_width(inner_width);
@@ -140,6 +143,7 @@ impl StartCard {
             .response
             .rect;
         let drawn_height = area.height().ceil() as u32;
+
         if !placed.under_cube && drawn_height != self.drawn_height {
             self.drawn_height = drawn_height;
             ui.ctx().request_repaint();
@@ -178,6 +182,7 @@ fn start_buttons(ui: &mut Ui, starts: &[Start], button_gap: f32) -> Option<Comma
     let width = ui.available_width();
     let mut chosen = None;
     let mut starts = starts.iter();
+
     if let Some(first) = starts.next() {
         let primary = widgets::primary_icon_button(ui, icons::command(first.command), first.label)
             .min_size(vec2(width, BUTTON_HEIGHT));
@@ -188,14 +193,18 @@ fn start_buttons(ui: &mut Ui, starts: &[Start], button_gap: f32) -> Option<Comma
             chosen = Some(first.command);
         }
     }
+
     let rest: Vec<&Start> = starts.collect();
     let count = rest.len().max(1) as f32;
     let share = (width - button_gap * (count - 1.0)) / count;
+
     let side_by_side = rest
         .iter()
         .all(|start| widgets::icon_text_button_width(ui, start.label) <= share);
     let button_width = if side_by_side { share } else { width };
+
     ui.add_space((button_gap - ui.spacing().item_spacing.y).max(0.0));
+
     let mut secondary = |ui: &mut Ui, start: &Start| {
         let button = widgets::sized_icon_button(
             ui,
@@ -209,6 +218,7 @@ fn start_buttons(ui: &mut Ui, starts: &[Start], button_gap: f32) -> Option<Comma
             chosen = Some(start.command);
         }
     };
+
     if side_by_side {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = button_gap;
@@ -243,9 +253,11 @@ fn placement(view: Rect, cube: Rect, height: f32) -> Placed {
     let width = WIDTH.min(room);
     let top = view.top() + TOP_MARGIN;
     let cube_at_top = cube.center().y <= view.center().y;
+
     let reaches_cube = cube_at_top || top + height > cube.top() - canvas::MARGIN;
     let mut band_left = view.left() + canvas::MARGIN;
     let mut band_right = view.right() - canvas::MARGIN;
+
     if reaches_cube {
         if cube.center().x < view.center().x {
             band_left = cube.right() + canvas::MARGIN;
@@ -253,6 +265,7 @@ fn placement(view: Rect, cube: Rect, height: f32) -> Placed {
             band_right = cube.left() - canvas::MARGIN;
         }
     }
+
     let bottom = if reaches_cube {
         view.bottom()
     } else {
@@ -263,15 +276,19 @@ fn placement(view: Rect, cube: Rect, height: f32) -> Placed {
         area: Rect::from_min_max(pos2(left, top), pos2(left + width, bottom.max(top))),
         under_cube,
     };
+
     if centred_left >= band_left && centred_left + width <= band_right {
         return at(centred_left, top, width, false);
     }
+
     let band = band_right - band_left;
+
     if band >= MIN_WIDTH {
         let width = width.min(band);
         let left = (view.center().x - width / 2.0)
             .min(band_right - width)
             .max(band_left);
+
         return at(left, top, width, false);
     }
     if cube_at_top {
@@ -382,6 +399,7 @@ mod tests {
     #[test]
     fn bringing_the_card_back_shows_it_on_that_model_while_turned_off() {
         let mut card = StartCard::default();
+
         card.set_enabled(false);
 
         card.bring_back(3);

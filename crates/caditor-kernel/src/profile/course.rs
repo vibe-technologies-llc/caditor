@@ -28,7 +28,7 @@ const DIFFERENCE_STEP: f64 = 1e-6;
 const CROSSING_CONVERGENCE: f64 = 1e-9;
 const RAY_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Bend {
     curve: Curve2,
     range: Interval,
@@ -63,6 +63,7 @@ impl Bend {
     pub fn offset_point(&self, fraction: f64, by: f64) -> Point2 {
         let inside = fraction.clamp(0.0, 1.0);
         let at = self.curve.point(self.parameter(inside));
+
         let moved = at + self.tangent(inside).perp() * by;
         moved + self.tangent(inside) * ((fraction - inside) * self.reach)
     }
@@ -83,13 +84,13 @@ impl Bend {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Cut {
     fraction: f64,
     point: Point2,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Trim {
     bend: Bend,
     by: f64,
@@ -125,7 +126,7 @@ impl Trim {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Course {
     Plain(Strand),
     Bent { bend: Bend, by: f64 },
@@ -142,6 +143,7 @@ fn signed_gap(carrier: &Strand, point: Point2) -> f64 {
 fn thinned(points: Vec<Point2>, gap: f64) -> Vec<Point2> {
     let last_index = points.len().saturating_sub(1);
     let mut kept: Vec<Point2> = Vec::with_capacity(points.len());
+
     for (index, point) in points.into_iter().enumerate() {
         match kept.last() {
             Some(previous) if previous.distance(point) < gap => {
@@ -181,6 +183,7 @@ fn fit(bend: &Bend, by: f64, from: &Cut, to: &Cut, closed: bool) -> Vec<Point2> 
             .iter()
             .map(|fraction| bend.offset_point(*fraction, by))
             .collect();
+
         if let (true, Some(first)) = (closed, points.first().copied())
             && let Some(last) = points.last_mut()
         {
@@ -205,6 +208,7 @@ fn fit(bend: &Bend, by: f64, from: &Cut, to: &Cut, closed: bool) -> Vec<Point2> 
                 .collect(),
         )
     };
+
     let nodes = graded(
         (from.fraction, to.fraction),
         &[0.0, 1.0],
@@ -231,6 +235,7 @@ fn whole(bend: &Bend, by: f64) -> (Cut, Cut) {
 fn bisected(bend: &Bend, by: f64, carrier: &Strand, low: f64, high: f64) -> Cut {
     let (mut low, mut high) = (low, high);
     let low_gap = signed_gap(carrier, bend.offset_point(low, by));
+
     for _ in 0..BISECTION_STEPS {
         let middle = 0.5 * (low + high);
         let gap = signed_gap(carrier, bend.offset_point(middle, by));
@@ -240,6 +245,7 @@ fn bisected(bend: &Bend, by: f64, carrier: &Strand, low: f64, high: f64) -> Cut 
             high = middle;
         }
     }
+
     let fraction = 0.5 * (low + high);
     Cut {
         fraction,
@@ -272,6 +278,7 @@ fn bent_meeting(bend: &Bend, by: f64, at_end: bool, carrier: &Strand, aim: Point
         (0.0, -bend.tangent(0.0))
     };
     let origin = bend.offset_point(end_fraction, by);
+
     candidates.extend(
         carrier
             .ray_crossings(origin, direction)
@@ -298,10 +305,13 @@ fn bent_meeting(bend: &Bend, by: f64, at_end: bool, carrier: &Strand, aim: Point
 fn segments_cross(first: (Point2, Point2), second: (Point2, Point2)) -> Option<(f64, f64)> {
     let along = first.1 - first.0;
     let across = second.1 - second.0;
+
     let denominator = along.perp_dot(across);
+
     if denominator == 0.0 {
         return None;
     }
+
     let gap = second.0 - first.0;
     let on_first = gap.perp_dot(across) / denominator;
     let on_second = gap.perp_dot(along) / denominator;
@@ -322,19 +332,26 @@ fn crossing_refined(
 ) -> Option<(f64, f64)> {
     let (mut on_first, mut on_second) = guess;
     let scale = first.0.reach().max(second.0.reach());
+
     for _ in 0..NEWTON_STEPS {
         let gap =
             first.0.offset_point(on_first, first.1) - second.0.offset_point(on_second, second.1);
+
         if gap.length() <= CROSSING_CONVERGENCE * scale {
             return Some((on_first, on_second));
         }
+
         let along = slope(first.0, on_first, first.1);
         let across = -slope(second.0, on_second, second.1);
+
         let determinant = along.perp_dot(across);
+
         if determinant == 0.0 {
             return None;
         }
+
         let rhs = -gap;
+
         on_first = (on_first + rhs.perp_dot(across) / determinant).clamp(0.0, 1.0);
         on_second = (on_second + along.perp_dot(rhs) / determinant).clamp(0.0, 1.0);
     }
@@ -350,21 +367,26 @@ fn bent_crossing(before: (&Bend, f64), after: (&Bend, f64), aim: Point2) -> Opti
     let (first, second) = (points(before.0, before.1), points(after.0, after.1));
     let fraction = |step: usize, share: f64| (step as f64 + share) / SCAN_STEPS as f64;
     let mut found: Vec<(Cut, Cut)> = Vec::new();
+
     for (index, pair) in first.windows(2).enumerate() {
         let &[a, b] = pair else { continue };
         for (other, pair) in second.windows(2).enumerate() {
             let &[c, d] = pair else { continue };
+
             let Some((on_first, on_second)) = segments_cross((a, b), (c, d)) else {
                 continue;
             };
+
             let guess = (fraction(index, on_first), fraction(other, on_second));
             let Some((on_first, on_second)) = crossing_refined(before, after, guess) else {
                 continue;
             };
+
             let point = before
                 .0
                 .offset_point(on_first, before.1)
                 .midpoint(after.0.offset_point(on_second, after.1));
+
             found.push((
                 Cut {
                     fraction: on_first,
@@ -377,11 +399,14 @@ fn bent_crossing(before: (&Bend, f64), after: (&Bend, f64), aim: Point2) -> Opti
             ));
         }
     }
+
     let origin_before = before.0.offset_point(1.0, before.1);
     let origin_after = after.0.offset_point(0.0, after.1);
     let ahead = before.0.tangent(1.0);
     let behind = -after.0.tangent(0.0);
+
     let denominator = ahead.perp_dot(behind);
+
     if denominator != 0.0 {
         let gap = origin_after - origin_before;
         let reach_before = gap.perp_dot(behind) / denominator;
@@ -389,6 +414,7 @@ fn bent_crossing(before: (&Bend, f64), after: (&Bend, f64), aim: Point2) -> Opti
         let scale = before.0.reach().max(after.0.reach());
         if reach_before >= -RAY_SLACK * scale && reach_after >= -RAY_SLACK * scale {
             let point = origin_before + ahead * reach_before;
+
             found.push((
                 Cut {
                     fraction: 1.0 + reach_before.max(0.0) / before.0.reach(),
@@ -626,8 +652,10 @@ fn spline_curve(points: &[Point2]) -> Result<(Curve2, Interval, bool), GeometryE
 
 pub(crate) fn outline_of(courses: &[Course]) -> Vec<Point2> {
     let mut points: Vec<Point2> = Vec::new();
+
     for course in courses {
         let mut sampled = course.points_in_outline();
+
         if !points.is_empty() && !sampled.is_empty() {
             sampled.remove(0);
         }
@@ -646,12 +674,16 @@ fn finished(
     tolerance: f64,
 ) -> Result<Vec<Course>, OffsetFailure> {
     let mut finished = Vec::with_capacity(trimmed.len());
+
     for (index, course) in trimmed.into_iter().enumerate() {
         let [start, end] = cuts.get(index).copied().unwrap_or([None, None]);
+
         let course = match course {
             Course::Bent { bend, by } if start.is_some() || end.is_some() => {
                 let (natural_start, natural_end) = whole(&bend, by);
+
                 let (from, to) = (start.unwrap_or(natural_start), end.unwrap_or(natural_end));
+
                 if to.fraction <= from.fraction {
                     return Err(OffsetFailure::Shrinks(index));
                 }
@@ -662,6 +694,7 @@ fn finished(
                     Some(Course::Plain(original)) => strand.keeps_course_of(original, tolerance),
                     _ => true,
                 };
+
                 if !kept {
                     return Err(OffsetFailure::Shrinks(index));
                 }
@@ -669,6 +702,7 @@ fn finished(
             }
             other => other,
         };
+
         finished.push(course);
     }
     Ok(finished)
@@ -711,6 +745,7 @@ fn join_sharp(
         }
         _ => return Err(apart),
     };
+
     set_joint(before, joint, point, trimmed);
     if let Some(slot) = cuts.get_mut(before) {
         slot[1] = before_cut.or(slot[1]);
@@ -744,6 +779,7 @@ pub(crate) fn offset_courses(
             Course::Bent { .. } | Course::Trimmed(_) => None,
         })
         .collect();
+
     if strands.len() == courses.len() {
         let aim_strands: Option<Vec<Strand>> = aims.and_then(|aims| {
             aims.iter()
@@ -753,6 +789,7 @@ pub(crate) fn offset_courses(
                 })
                 .collect()
         });
+
         return Ok(
             offset_strands(&strands, closed, by, aim_strands.as_deref(), tolerance)?
                 .into_iter()
@@ -760,12 +797,14 @@ pub(crate) fn offset_courses(
                 .collect(),
         );
     }
+
     let untrimmed: Vec<Course> = courses
         .iter()
         .enumerate()
         .map(|(index, course)| course.offset(by).ok_or(OffsetFailure::Shrinks(index)))
         .collect::<Result<_, _>>()?;
     let count = untrimmed.len();
+
     if by == 0.0 || count == 0 || (closed && count == 1) {
         if let Some(index) = untrimmed.iter().position(
             |course| matches!(course, Course::Plain(Strand::Arc { radius, .. }) if *radius <= tolerance),
@@ -780,8 +819,10 @@ pub(crate) fn offset_courses(
             })
             .collect());
     }
+
     let mut trimmed = untrimmed.clone();
     let mut cuts: Vec<[Option<Cut>; 2]> = vec![[None, None]; count];
+
     for joint in usize::from(!closed)..count {
         let before = (joint + count - 1) % count;
         let (Some(original_before), Some(original_after)) =
@@ -793,6 +834,7 @@ pub(crate) fn offset_courses(
         else {
             continue;
         };
+
         let neutral = moved_before.end().midpoint(moved_after.start());
         let aim = aims
             .and_then(|aims| aims.get(joint))

@@ -17,6 +17,7 @@ const DEPTH: f64 = 10.0;
 
 fn crossing_squares(harness: &mut Harness) -> FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
     rectangle(&mut sketch, Point2::new(6.0, 6.0), Point2::new(16.0, 16.0));
     edit_free_sketch(harness, sketch)
@@ -67,18 +68,23 @@ fn chosen_keys(harness: &Harness, extrude: FeatureId) -> Vec<RegionKey> {
 #[test]
 fn the_area_one_square_leaves_outside_another_is_picked_in_the_sketch_and_extruded_alone() {
     let mut harness = Harness::new();
+
     let sketch = crossing_squares(&mut harness);
     let outside = sketch_region(&harness, sketch, OUTSIDE_THE_FIRST);
 
     let offered = sketch_regions_offered(&mut harness);
+
     harness.hover_pickable(Plane::XY, OUTSIDE_THE_FIRST, outside);
+
     let hovered = harness.built();
     let hovered_fill = hovered
         .scene
         .fills()
         .find(|fill| fill.pick == hovered.picks.id_of(outside))
         .expect("the region is drawn");
+
     harness.click_pickable(Plane::XY, OUTSIDE_THE_FIRST, outside);
+
     let selected: Vec<Pickable> = harness.workspace.viewport.selection().iter().collect();
 
     assert_eq!(offered, 3);
@@ -106,6 +112,7 @@ fn the_area_one_square_leaves_outside_another_is_picked_in_the_sketch_and_extrud
 #[test]
 fn shift_adds_the_overlap_to_a_picked_area_and_both_extrude_as_one() {
     let mut harness = Harness::new();
+
     let sketch = crossing_squares(&mut harness);
     let outside = sketch_region(&harness, sketch, OUTSIDE_THE_FIRST);
     let overlap = sketch_region(&harness, sketch, OVERLAP);
@@ -114,6 +121,7 @@ fn shift_adds_the_overlap_to_a_picked_area_and_both_extrude_as_one() {
     harness.hold(Modifiers::SHIFT);
     harness.click_pickable(Plane::XY, OVERLAP, overlap);
     harness.hold(Modifiers::NONE);
+
     let selected = harness.workspace.viewport.selection().len();
     let extrude = extrude_selection(&mut harness);
 
@@ -129,10 +137,13 @@ fn shift_adds_the_overlap_to_a_picked_area_and_both_extrude_as_one() {
 #[test]
 fn regions_are_picked_only_with_the_select_tool() {
     let mut harness = Harness::new();
+
     crossing_squares(&mut harness);
 
     let selecting = sketch_regions_offered(&mut harness);
+
     harness.use_tool(Key::L);
+
     let drawing = sketch_regions_offered(&mut harness);
 
     assert_eq!(selecting, 3);
@@ -142,9 +153,12 @@ fn regions_are_picked_only_with_the_select_tool() {
 #[test]
 fn a_chosen_region_of_an_open_extrusion_is_picked_in_front_of_its_preview() {
     let mut harness = Harness::new();
+
     let sketch = crossing_squares(&mut harness);
     let outside = sketch_region(&harness, sketch, OUTSIDE_THE_FIRST);
+
     harness.click_pickable(Plane::XY, OUTSIDE_THE_FIRST, outside);
+
     let extrude = extrude_selection(&mut harness);
     let other = region_holding(&harness, sketch, OUTSIDE_THE_SECOND);
     let chosen = Pickable::Region {
@@ -158,6 +172,7 @@ fn a_chosen_region_of_an_open_extrusion_is_picked_in_front_of_its_preview() {
         .fills()
         .find(|fill| fill.pick == built.picks.id_of(chosen))
         .expect("the chosen region is drawn");
+
     assert_eq!(chosen_fill.layer, Layer::Front);
 
     harness.click_pickable(
@@ -169,6 +184,7 @@ fn a_chosen_region_of_an_open_extrusion_is_picked_in_front_of_its_preview() {
         },
     );
     harness.settle();
+
     assert_eq!(chosen_keys(&harness, extrude).len(), 2);
     assert!(
         (harness.body_volume(extrude) - 2.0 * L_SHAPED_AREA * DEPTH).abs() < 1.0,
@@ -178,19 +194,25 @@ fn a_chosen_region_of_an_open_extrusion_is_picked_in_front_of_its_preview() {
 
     harness.click_pickable(Plane::XY, OUTSIDE_THE_FIRST, chosen);
     harness.settle();
+
     assert_eq!(chosen_keys(&harness, extrude), [other]);
 }
 
 #[test]
 fn a_shown_sketch_offers_its_regions_like_faces_once_editing_ends() {
     let mut harness = Harness::new();
+
     let sketch = crossing_squares(&mut harness);
+
     harness.click("Finish sketch");
     harness.settle();
+
     let outside = sketch_region(&harness, sketch, OUTSIDE_THE_FIRST);
 
     let offered = sketch_regions_offered(&mut harness);
+
     harness.click_pickable(Plane::XY, OUTSIDE_THE_FIRST, outside);
+
     let built = harness.built();
     let fill = built
         .scene
@@ -217,9 +239,12 @@ fn a_shown_sketch_offers_its_regions_like_faces_once_editing_ends() {
 #[test]
 fn clearing_the_chosen_regions_leaves_none_until_one_is_clicked() {
     let mut harness = Harness::new();
+
     let sketch = crossing_squares(&mut harness);
     let outside = sketch_region(&harness, sketch, OUTSIDE_THE_FIRST);
+
     harness.click_pickable(Plane::XY, OUTSIDE_THE_FIRST, outside);
+
     let extrude = extrude_selection(&mut harness);
 
     harness.key(Key::R, Modifiers::ALT | Modifiers::SHIFT);
@@ -241,6 +266,7 @@ fn clearing_the_chosen_regions_leaves_none_until_one_is_clicked() {
     assert!(!harness.shows(crate::solid_panel::CLEAR_REGIONS));
 
     let other = region_holding(&harness, sketch, OUTSIDE_THE_SECOND);
+
     harness.click_pickable(
         Plane::XY,
         OUTSIDE_THE_SECOND,
@@ -267,17 +293,21 @@ fn clearing_the_chosen_regions_leaves_none_until_one_is_clicked() {
 #[test]
 fn selected_sketch_regions_read_their_area_and_section_in_measure_and_the_status_bar() {
     let mut harness = Harness::new();
+
     let sketch = crossing_squares(&mut harness);
     let outside = sketch_region(&harness, sketch, OUTSIDE_THE_FIRST);
     let overlap = sketch_region(&harness, sketch, OVERLAP);
 
     harness.select([outside]);
     harness.settle();
+
     let status_area = harness.shows_containing("Area 84.00 mm²");
+
     harness.workspace.measure.toggle();
     harness.wait_until("the region is measured", |harness| {
         harness.shows("84.00 mm²")
     });
+
     let perimeter_shown = harness.shows("40.000 mm");
     let principal_shown = harness.shows("Principal angle from x");
 
@@ -300,16 +330,22 @@ fn selected_sketch_regions_read_their_area_and_section_in_measure_and_the_status
 fn extruding_again_after_one_part_of_a_sketch_sweeps_only_the_parts_left_so_each_tapers_alone() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
     rectangle(&mut sketch, Point2::new(20.0, 0.0), Point2::new(30.0, 10.0));
+
     let sketch = edit_free_sketch(&mut harness, sketch);
     let first_part = Point2::new(5.0, 5.0);
     let second_part = Point2::new(25.0, 5.0);
+
     let first = sketch_region(&harness, sketch, first_part);
 
     harness.click_pickable(Plane::XY, first_part, first);
+
     let first_extrusion = extrude_selection(&mut harness);
+
     harness.select([]);
+
     let second_extrusion = extrude_selection(&mut harness);
 
     assert_ne!(second_extrusion, first_extrusion);

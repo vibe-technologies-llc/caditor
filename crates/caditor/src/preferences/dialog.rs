@@ -91,6 +91,7 @@ pub fn dialog(
                 label: tab.label(),
             });
             let mut tab = view.tab;
+
             if let Some(chosen) =
                 widgets::tabs(ui, "preferences", &tabs, tab.index(), view.switch_keys)
                     .and_then(|index| PreferencesTab::ALL.get(index).copied())
@@ -102,7 +103,9 @@ pub fn dialog(
             if let Some(search) = search_field(ui, view.search) {
                 command = Some(search);
             }
+
             let searching = !view.search.trim().is_empty();
+
             body(ui, preferences, view, tab, &mut command);
             if let Some(section) = take_reset(ui) {
                 command = Some(PreferencesCommand::Change(
@@ -115,7 +118,9 @@ pub fn dialog(
             {
                 command = Some(PreferencesCommand::Undo);
             }
+
             let confirming = ui.data(|data| data.get_temp::<PreferencesTab>(confirm)) == Some(tab);
+
             if confirming {
                 ui.add_space(SPACE_M);
                 dialog_parts::confirmation(
@@ -158,7 +163,9 @@ pub fn dialog(
         },
     );
     let closed = response.should_close().then_some(PreferencesCommand::Hide);
+
     let command = response.inner.or(closed);
+
     if command == Some(PreferencesCommand::Hide) {
         ctx.data_mut(|data| data.remove::<PreferencesTab>(confirm));
     }
@@ -182,9 +189,11 @@ fn undo_restoring(ui: &mut Ui, restoring: Restoring) -> bool {
 
 fn search_field(ui: &mut Ui, search: &str) -> Option<PreferencesCommand> {
     let mut text = search.to_owned();
+
     let edited = ui
         .horizontal(|ui| {
             let muted = appearance::tokens(ui).text_muted;
+
             widgets::icon_label(ui, icons::SEARCH, muted);
             widgets::text_field(ui, |ui| {
                 widgets::spoken_as(
@@ -200,6 +209,7 @@ fn search_field(ui: &mut Ui, search: &str) -> Option<PreferencesCommand> {
             .changed()
         })
         .inner;
+
     ui.add_space(SPACE_S);
     edited.then_some(PreferencesCommand::Search(text))
 }
@@ -216,6 +226,7 @@ fn body(
         .data(|data| data.get_temp::<f32>(tallest_id))
         .unwrap_or_default();
     let query = view.search.trim();
+
     let height = DialogBody::default()
         .id_salt(("preferences", tab.label()))
         .min_height(tallest)
@@ -267,11 +278,13 @@ fn search_results(
     command: &mut Option<PreferencesCommand>,
 ) {
     let mut any = false;
+
     for tab in PreferencesTab::ALL {
         let matching = Section::of_tab(tab)
             .into_iter()
             .filter(|section| section.matches(shown.query))
             .any(|section| section != Section::SavingOnWindows || defender::ON_WINDOWS);
+
         if !matching {
             continue;
         }
@@ -282,6 +295,7 @@ fn search_results(
     }
     if !any {
         ui.add_space(SPACE_M);
+
         let text = format!("No setting matches \u{201c}{}\u{201d}.", shown.query);
         let cleared = widgets::empty_state(ui, icons::SEARCH, &text, |ui| {
             ui.add(widgets::button(CLEAR_SEARCH)).clicked()
@@ -313,6 +327,7 @@ fn section_card(ui: &mut Ui, shown: &Shown<'_>, section: Section, content: impl 
         return;
     }
     ui.add_space(SPACE_M);
+
     let reset = reset_name(section);
     let action = (section.is_resettable() && !section.is_default(shown.preferences)).then_some(
         SectionAction {
@@ -321,6 +336,7 @@ fn section_card(ui: &mut Ui, shown: &Shown<'_>, section: Section, content: impl 
         },
     );
     let id = format!("preferences-{}", section.id());
+
     let acted = widgets::section(ui, &id, section.title(), None, action, |ui| {
         widgets::card(ui, content);
     });
@@ -332,6 +348,7 @@ fn section_card(ui: &mut Ui, shown: &Shown<'_>, section: Section, content: impl 
 fn take_reset(ui: &Ui) -> Option<Section> {
     let id = Id::unique(RESET_KEY);
     let section = ui.data(|data| data.get_temp::<Section>(id));
+
     if section.is_some() {
         ui.data_mut(|data| data.remove::<Section>(id));
     }
@@ -348,6 +365,7 @@ pub fn pick<T: Choice>(ui: &mut Ui, current: T) -> Option<T> {
 
 pub fn pick_listed<T: Choice>(ui: &mut Ui, id: &str, current: T) -> Option<T> {
     let mut picked = None;
+
     widgets::combo(id, current.label())
         .hover(current.description())
         .show(ui, |ui| {
@@ -372,6 +390,7 @@ pub fn toggle(
     command: &mut Option<PreferencesCommand>,
 ) {
     let mut checked = on;
+
     let toggled = ui
         .scope(|ui| {
             if fits_on_one_line(ui, label) {
@@ -448,6 +467,7 @@ fn starting(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComm
     let preferences = shown.preferences;
     let note = "A model whose unsaved work caditor kept is offered for recovery first, and a file \
                 named on the command line opens instead of the last model.";
+
     section(ui, shown, Section::Files, Some(note.to_owned()), |ui| {
         widgets::property(ui, "At startup, open", |ui| {
             if let Some(startup) = pick::<Startup>(ui, preferences.startup) {
@@ -489,6 +509,7 @@ fn cloud(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand
     let note = "Signing in lets Home and File › Cloud list your Fusion 360 and Onshape designs \
                 and import one with a click. caditor contacts a service only after you sign in \
                 to it; turning this off stops every request and signs you out.";
+
     section(ui, shown, Section::Cloud, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Cloud services", |ui| {
             toggle(
@@ -537,6 +558,7 @@ fn client_id_field(
     let mut text = ui
         .data(|data| data.get_temp::<String>(draft_id))
         .unwrap_or_else(|| stored.to_owned());
+
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
@@ -551,6 +573,7 @@ fn client_id_field(
         service.company()
     ));
     let differs = text.trim() != stored;
+
     if response.lost_focus() && differs {
         change(command, PreferenceChange::ClientId(service, text.clone()));
     }
@@ -570,6 +593,7 @@ fn keep_draft(ui: &Ui, draft_id: Id, text: String, differs: bool) {
 pub fn pending_changes(ctx: &egui::Context, preferences: &Preferences) -> Vec<PreferenceChange> {
     let draft = |key: &str| ctx.data(|data| data.get_temp::<String>(Id::unique(key)));
     let mut pending = Vec::new();
+
     for service in Service::ALL {
         let key = match service {
             Service::Fusion => CLIENT_ID_FIELD,
@@ -581,11 +605,13 @@ pub fn pending_changes(ctx: &egui::Context, preferences: &Preferences) -> Vec<Pr
             pending.push(PreferenceChange::ClientId(service, text));
         }
     }
+
     let stored_program = preferences
         .slicer_program
         .as_deref()
         .map(|path| path.display().to_string())
         .unwrap_or_default();
+
     if let Some(text) = draft(SLICER_PROGRAM_FIELD)
         && text.trim() != stored_program
     {
@@ -612,7 +638,9 @@ pub fn pending_changes(ctx: &egui::Context, preferences: &Preferences) -> Vec<Pr
             pending.push(PreferenceChange::AssistantCliProgram(tool, text));
         }
     }
+
     let stored_folders = format_folders(&preferences.assistant.folders);
+
     if let Some(text) = draft(ASSISTANT_FOLDERS_FIELD)
         && text.trim() != stored_folders
     {
@@ -662,9 +690,11 @@ fn assistant_section(
     let note = "API keys are kept in the operating system's keyring (never in preferences.json) \
                 or read from ANTHROPIC_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY. Local CLIs \
                 connect to the open model over a token-authenticated loopback MCP bridge.";
+
     section(ui, shown, Section::Assistant, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Default provider", |ui| {
             let mut picked = None;
+
             widgets::combo("preferences-assistant-backend", prefs.backend.label())
                 .width(240.0)
                 .hover("Choose which AI API or local CLI wrapper opens in the AI assistant panel")
@@ -683,6 +713,7 @@ fn assistant_section(
 
         for provider in ApiProvider::ALL {
             let caption = format!("{} model", provider.short_label());
+
             widgets::property(ui, &caption, |ui| {
                 assistant_model_field(ui, provider, prefs.model_for(provider), command);
             });
@@ -691,7 +722,9 @@ fn assistant_section(
                     assistant_base_url_field(ui, &prefs.custom_base_url, command);
                 });
             }
+
             let key_caption = format!("{} key", provider.short_label());
+
             widgets::property(ui, &key_caption, |ui| {
                 assistant_key_row(ui, provider, assistant_state, command);
             });
@@ -732,6 +765,7 @@ fn assistant_model_field(
     let mut text = ui
         .data(|data| data.get_temp::<String>(draft_id))
         .unwrap_or_else(|| stored.to_owned());
+
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
@@ -741,6 +775,7 @@ fn assistant_model_field(
         )
     });
     let differs = text.trim() != stored;
+
     if response.lost_focus() && differs {
         change(
             command,
@@ -755,6 +790,7 @@ fn assistant_base_url_field(ui: &mut Ui, stored: &str, command: &mut Option<Pref
     let mut text = ui
         .data(|data| data.get_temp::<String>(draft_id))
         .unwrap_or_else(|| stored.to_owned());
+
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
@@ -768,6 +804,7 @@ fn assistant_base_url_field(ui: &mut Ui, stored: &str, command: &mut Option<Pref
          Ollama or LM Studio",
     );
     let differs = text.trim() != stored;
+
     if response.lost_focus() && differs {
         change(command, PreferenceChange::AssistantBaseUrl(text.clone()));
     }
@@ -785,12 +822,14 @@ fn assistant_key_row(
         .data(|data| data.get_temp::<String>(draft_id))
         .unwrap_or_default();
     let source = assistant_state.key_source(provider);
+
     ui.vertical(|ui| {
         let hint = if source.is_available() {
             "Enter a new key to replace the saved one"
         } else {
             "Paste API key"
         };
+
         widgets::text_field(ui, |ui| {
             widgets::spoken_as(
                 ui.add(
@@ -813,8 +852,10 @@ fn assistant_key_row(
                 })
                 .inner
                 .clicked();
+
             if save_clicked {
                 let to_save = std::mem::take(&mut draft);
+
                 *command = Some(PreferencesCommand::Assistant(AssistantCommand::SaveApiKey(
                     provider, to_save,
                 )));
@@ -850,6 +891,7 @@ fn assistant_cli_field(
         CliState::Found(path) => path.display().to_string(),
         CliState::Missing { expected } => format!("{expected} not found on PATH"),
     };
+
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
@@ -863,6 +905,7 @@ fn assistant_cli_field(
         tool.default_binary()
     ));
     let differs = text.trim() != stored;
+
     if response.lost_focus() && differs {
         change(
             command,
@@ -879,9 +922,11 @@ fn assistant_folders_field(
 ) {
     let stored_text = format_folders(stored);
     let draft_id = Id::unique(ASSISTANT_FOLDERS_FIELD);
+
     let mut text = ui
         .data(|data| data.get_temp::<String>(draft_id))
         .unwrap_or_else(|| stored_text.clone());
+
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
@@ -895,6 +940,7 @@ fn assistant_folders_field(
          commas for unsaved models or external exports.",
     );
     let differs = text.trim() != stored_text;
+
     if response.lost_focus() && differs {
         change(
             command,
@@ -906,6 +952,7 @@ fn assistant_folders_field(
 
 fn feature_tree(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
     let preferences = shown.preferences;
+
     section(ui, shown, Section::FeatureTree, None, |ui| {
         widgets::property(ui, "Double-clicking a feature", |ui| {
             if let Some(double_click) = pick::<DoubleClick>(ui, preferences.double_click) {
@@ -925,6 +972,7 @@ fn version_history(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preferen
     let note = "Each save keeps the model it replaces as an earlier version inside the file, and \
                 older versions thin out with age. Versions you keep in File › Version history \
                 stay whatever you choose here. Unsaved work is always kept for recovery.";
+
     section(
         ui,
         shown,
@@ -949,6 +997,7 @@ fn exports(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComma
                 and sheet, and the image size, scale and background. Open in OrcaSlicer looks \
                 for OrcaSlicer where it is usually installed; name its program here when it is \
                 elsewhere.";
+
     section(ui, shown, Section::Exports, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Export choices", |ui| {
             if let Some(memory) = pick::<ExportMemory>(ui, preferences.export_memory) {
@@ -956,6 +1005,7 @@ fn exports(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComma
             }
         });
         ui.label("");
+
         let forget = ui
             .add_enabled(
                 !preferences.exports.is_empty(),
@@ -967,6 +1017,7 @@ fn exports(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComma
             )
             .on_disabled_hover_text("No export choice is remembered")
             .clicked();
+
         if forget {
             change(command, PreferenceChange::ForgetExports);
         }
@@ -991,10 +1042,12 @@ fn slicer_program_field(
     let slicer = Slicer::SUPPORTED;
     let stored = stored.map(Path::display).map(|path| path.to_string());
     let draft_id = Id::unique(SLICER_PROGRAM_FIELD);
+
     let mut text = ui
         .data(|data| data.get_temp::<String>(draft_id))
         .or_else(|| stored.clone())
         .unwrap_or_default();
+
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
@@ -1008,6 +1061,7 @@ fn slicer_program_field(
          empty to look for {slicer} where it is usually installed"
     ));
     let differs = text.trim() != stored.as_deref().unwrap_or_default();
+
     if response.lost_focus() && differs {
         change(command, PreferenceChange::SlicerProgram(text.clone()));
     }
@@ -1032,6 +1086,7 @@ fn slicer_hint(slicer: Slicer, found: Option<&Result<Installation, FindError>>) 
 fn saving_on_windows(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
     let note = "Excluding your models' folder from Microsoft Defender's scanning makes saving \
                 faster; the reminder explains what that trades away.";
+
     section(
         ui,
         shown,
@@ -1075,6 +1130,7 @@ fn units(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand
             unit.symbol()
         )
     });
+
     section(ui, shown, Section::Units, Some(note), |ui| {
         widgets::property(ui, "Length", |ui| {
             let options: Vec<(LengthUnit, &str, &str)> = LengthUnit::ALL
@@ -1105,6 +1161,7 @@ const ANGLE_DECIMALS: &str = "preferences-angle-decimals";
 fn numbers(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
     let preferences = shown.preferences;
     let numbers = preferences.numbers;
+
     let units = Units {
         length: preferences.unit,
         angle: preferences.angle,
@@ -1116,6 +1173,7 @@ fn numbers(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComma
         units.measured_length(SAMPLE_LENGTH),
         units.angle_text(SAMPLE_ANGLE)
     );
+
     section(ui, shown, Section::Numbers, Some(note), |ui| {
         widgets::property(ui, "Length places", |ui| {
             if let Some(decimals) = pick_listed::<Decimals>(ui, LENGTH_DECIMALS, numbers.lengths) {
@@ -1155,6 +1213,7 @@ fn new_models(
                  models start empty."
             .to_owned(),
     };
+
     section(ui, shown, Section::NewModels, Some(note), |ui| {
         widgets::property(ui, "Start from", |ui| {
             let selected: egui::WidgetText = match current {
@@ -1170,6 +1229,7 @@ fn new_models(
             let combo = widgets::combo("default-template", selected).show(ui, |ui| {
                 let empty = widgets::menu_option(ui, current.is_none(), EMPTY_MODEL)
                     .on_hover_text("New model starts with nothing in it");
+
                 if empty.clicked() && current.is_some() {
                     change(command, PreferenceChange::DefaultTemplate(None));
                 }
@@ -1199,6 +1259,7 @@ fn new_models(
 
 fn keyboard(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
     let note = "Search commands finds every command by name, whether or not it has a shortcut.";
+
     section(ui, shown, Section::Keyboard, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Shortcuts", |ui| {
             let button = widgets::small_button(
@@ -1219,6 +1280,7 @@ fn keyboard(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComm
 
 fn tips(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
     let onboarding = &shown.preferences.onboarding;
+
     section(ui, shown, Section::Tips, None, |ui| {
         widgets::property(ui, "Getting started", |ui| {
             let mut on = onboarding.hints;
@@ -1227,6 +1289,7 @@ fn tips(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>
             }
         });
         ui.label("");
+
         let restore = ui
             .add_enabled(
                 !onboarding.dismissed.is_empty(),
@@ -1235,6 +1298,7 @@ fn tips(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>
             .on_hover_text("Bring back the tips dismissed with Got it")
             .on_disabled_hover_text("No tip has been dismissed")
             .clicked();
+
         if restore {
             change(command, PreferenceChange::RestoreHints);
         }
@@ -1269,6 +1333,7 @@ fn sample(look: &Look, appearance: &Appearance) -> ThemeSample {
     let skin = appearance.skin_of(look);
     let tokens = skin.tokens;
     let contrast = Contrast::of(skin.high_contrast);
+
     let palette = contrast.palette(skin.canvas);
     ThemeSample {
         panel: tokens.panel,
@@ -1305,6 +1370,7 @@ fn theme_cards(
     command: &mut Option<PreferencesCommand>,
 ) {
     let mut offered: Vec<Theme> = Theme::SHIPPED.to_vec();
+
     offered.extend(
         themes
             .themes()
@@ -1317,6 +1383,7 @@ fn theme_cards(
             let samples = theme_samples(&theme, themes, current);
             let name = themes.name_of(&theme);
             let chosen = current.theme == theme;
+
             let response = widgets::theme_card(
                 ui,
                 theme_card_id(&theme),
@@ -1344,6 +1411,7 @@ fn themes_folder(ui: &mut Ui, themes: &UserThemes, command: &mut Option<Preferen
                  configuration folder, and caditor could not find one."
             .to_owned(),
     };
+
     ui.add_space(SPACE_S);
     ui.add(Label::new(widgets::muted(note, ui)).wrap());
     for refusal in themes.refused() {
@@ -1354,6 +1422,7 @@ fn themes_folder(ui: &mut Ui, themes: &UserThemes, command: &mut Option<Preferen
     }
     if themes.folder().is_some() {
         ui.add_space(SPACE_S);
+
         let button = widgets::small_button(ui, icons::RELOAD, RELOAD_THEMES);
         if ui
             .add(button)
@@ -1372,12 +1441,14 @@ fn accent_swatches(
     command: &mut Option<PreferencesCommand>,
 ) {
     let look = chosen_look(current, themes);
+
     ui.horizontal_wrapped(|ui| {
         for accent in Accent::ALL {
             let offered = accent.applied(&look);
             let fill = offered.map_or(look.tokens.accent, |tokens| tokens.accent);
             let chosen = current.accent == accent;
             let name = accent_name(accent);
+
             let response = ui
                 .add_enabled_ui(offered.is_some() && !current.high_contrast, |ui| {
                     widgets::swatch(ui, fill, &name, chosen)
@@ -1422,6 +1493,7 @@ fn view_swatches(
         for view in ViewChoice::ALL {
             let chosen = current.view == view;
             let name = view_name(view);
+
             let response = match view {
                 ViewChoice::Theme => widgets::icon_swatch(ui, icons::APPEARANCE, &name, chosen),
                 ViewChoice::Canvas(canvas) => widgets::swatch(ui, canvas.colour(), &name, chosen),
@@ -1431,6 +1503,7 @@ fn view_swatches(
             }
         }
     });
+
     let canvas = current.view.canvas(chosen_look(current, themes).canvas);
     let words = match current.view {
         ViewChoice::Theme => format!(
@@ -1440,6 +1513,7 @@ fn view_swatches(
         ),
         ViewChoice::Canvas(_) => format!("{}: {}.", canvas.label(), canvas.description()),
     };
+
     ui.add(Label::new(widgets::muted(words, ui)).wrap());
 }
 
@@ -1458,14 +1532,17 @@ fn grid_swatches(
     }
     .skin_of(&look)
     .grid;
+
     let automatic = scene_palette::shown_grid(automatic, contrast, canvas);
     let custom = current.grid.custom();
     let selector = Id::unique(GRID_SELECTOR);
     let refusal = selector.with("refused");
     let selecting = colour_selector::is_open(ui, selector);
+
     let toggled = ui
         .horizontal_wrapped(|ui| {
             let automatic = widgets::swatch(ui, automatic, AUTOMATIC_GRID, custom.is_none());
+
             if automatic.clicked() && custom.is_some() {
                 change(command, PreferenceChange::Grid(GridColour::Automatic));
             }
@@ -1476,6 +1553,7 @@ fn grid_swatches(
         })
         .inner;
     let shown = custom.unwrap_or_else(|| Rgb::new(automatic.r(), automatic.g(), automatic.b()));
+
     if toggled {
         colour_selector::toggle(ui, selector, shown);
     }
@@ -1524,6 +1602,7 @@ fn body_swatches(
     let selector = Id::unique(BODY_SELECTOR);
     let refusal = selector.with("refused");
     let selecting = colour_selector::is_open(ui, selector);
+
     let toggled = ui
         .horizontal_wrapped(|ui| {
             let default = widgets::swatch(
@@ -1532,6 +1611,7 @@ fn body_swatches(
                 DEFAULT_BODY,
                 custom.is_none(),
             );
+
             if default.clicked() && custom.is_some() {
                 change(command, PreferenceChange::Body(BodyColour::Default));
             }
@@ -1540,6 +1620,7 @@ fn body_swatches(
                 let seen = scene_palette::seen_body(fill, canvas, contrast);
                 let chosen = custom == Some(swatch.colour);
                 let name = body_swatch_name(swatch.name);
+
                 let response = ui
                     .add_enabled_ui(seen.is_ok(), |ui| widgets::swatch(ui, fill, &name, chosen))
                     .inner;
@@ -1558,12 +1639,14 @@ fn body_swatches(
                 custom.filter(|colour| SWATCHES.iter().all(|swatch| swatch.colour != *colour))
             {
                 let name = body_swatch_name(&colour_selector::describe(colour));
+
                 widgets::swatch(ui, color32(colour), &name, true);
             }
             widgets::icon_swatch(ui, icons::ADD, CUSTOM_BODY, selecting).clicked()
         })
         .inner;
     let shown = custom.unwrap_or(body_appearance::DEFAULT_COLOUR);
+
     if toggled {
         colour_selector::toggle(ui, selector, shown);
     }
@@ -1602,14 +1685,17 @@ fn appearance(
     let current = &preferences
         .appearance
         .in_effect(system_settings::more_contrast());
+
     section_card(ui, shown, Section::Theme, |ui| {
         theme_cards(ui, current, themes, command);
         themes_folder(ui, themes, command);
     });
+
     let note = "The accent colours buttons, selections and links. Bodies without a colour of \
                 their own are drawn in the body colour; a model's files and exports keep only \
                 colours given to a body. High contrast replaces the theme's colours with stronger \
                 ones of the same lightness.";
+
     section(ui, shown, Section::Colours, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Accent", |ui| {
             accent_swatches(ui, current, themes, command);
@@ -1635,6 +1721,7 @@ fn appearance(
         widgets::property(ui, "Size", |ui| {
             let smaller = Command::SmallerInterface.title();
             let larger = Command::LargerInterface.title();
+
             let step = widgets::stepper(
                 ui,
                 &format!("{:.0}%", current.scale * 100.0),
@@ -1643,6 +1730,7 @@ fn appearance(
             );
             if let Some(step) = step {
                 let scale = current.scale + f32::from(step) * SCALE_STEP;
+
                 change(command, PreferenceChange::Scale(scale));
             }
         });
@@ -1677,6 +1765,7 @@ fn rendered_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
         .body
         .custom()
         .unwrap_or(body_appearance::DEFAULT_COLOUR);
+
     section_card(ui, shown, Section::RenderedView, |ui| {
         widgets::properties(ui, Section::RenderedView.id(), |ui| {
             lighting_panel::rows(
@@ -1703,6 +1792,7 @@ fn in_the_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesC
     let details = shown.preferences.view_details;
     let note = "Hiding the view cube keeps its commands: the standard views, Fit view and the \
                 Isometric view stay in the View menu, the palette and on their keys.";
+
     section(ui, shown, Section::InTheView, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Edges", |ui| {
             if let Some(weight) = pick::<EdgeWeight>(ui, details.edges.weight) {
@@ -1766,6 +1856,7 @@ mod tests {
     fn the_slicer_field_says_what_the_search_found_and_never_claims_more() {
         let slicer = Slicer::OrcaSlicer;
         let program = PathBuf::from("orca-slicer");
+
         let found = Ok(Installation {
             slicer,
             launch: Launch::Program(program.clone()),

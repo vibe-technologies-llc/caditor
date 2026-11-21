@@ -23,7 +23,7 @@ pub const FIELD_HINT: &str =
     "Search commands, features, parameters, views, selection sets and configurations";
 const SKETCH_ONLY: &str = "works only while a sketch is edited";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Fit {
     Start,
     WordStart,
@@ -34,7 +34,7 @@ enum Fit {
 
 type Rank = (Fit, u8, usize, usize, usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Group {
     Recent,
     Commands,
@@ -59,7 +59,7 @@ impl Group {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Command(Command),
     Focus(Focus),
@@ -68,7 +68,7 @@ pub enum Choice {
     Configuration(ConfigurationId),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
     Ready,
     Unavailable(Cow<'static, str>),
@@ -76,7 +76,7 @@ pub enum State {
     OutOfContext(&'static str),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     group: Group,
     pub choice: Choice,
@@ -134,7 +134,7 @@ impl Entry {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Palette {
     open: bool,
     query: String,
@@ -236,19 +236,23 @@ impl Palette {
     ) -> Vec<Entry> {
         let query = self.query.trim().to_lowercase();
         let searching = !query.is_empty();
+
         let matches = |title: &str, text: &str, keywords: &[&str]| -> Option<(Fit, usize)> {
             if !searching {
                 return Some((Fit::Start, 0));
             }
+
             let title = title.to_lowercase();
             fit_with_keywords(&query, &title, &text.to_lowercase(), keywords)
                 .map(|fit| (fit, title.len()))
         };
         let mut ranked: Vec<(Rank, Entry)> = Vec::new();
+
         for (order, offer) in offers.iter().enumerate() {
             if offer.command == Command::Palette {
                 continue;
             }
+
             let title = offer.title();
             let Some((fit, length)) = matches(&title, &entry_text(offer), offer.command.keywords())
             else {
@@ -260,28 +264,34 @@ impl Palette {
                 (Err(reason), None) => State::Unavailable(reason.clone()),
             };
             let recent = self.recent_position(offer.command);
+
             let group = if !searching && recent < RECENT_LIMIT && state == State::Ready {
                 Group::Recent
             } else {
                 Group::Commands
             };
             let entry = command_entry(offer.command, title, state, group, keymap, toggles);
+
             ranked.push(((fit, entry.rank(), recent, length, order), entry));
         }
+
         let absent = Command::all().filter(|command| {
             *command != Command::Palette && offers.iter().all(|offer| offer.command != *command)
         });
+
         for (order, command) in absent.enumerate() {
             let Some(reason) = absence(command) else {
                 continue;
             };
             let title = command.title();
             let text = format!("{}: {title}", command.category().label());
+
             let Some((fit, length)) = matches(&title, &text, command.keywords()) else {
                 continue;
             };
             let state = State::OutOfContext(reason);
             let entry = command_entry(command, title, state, Group::Commands, keymap, toggles);
+
             ranked.push(((fit, entry.rank(), RECENT_LIMIT, length, order), entry));
         }
         if searching {
@@ -300,6 +310,7 @@ impl Palette {
                     shown: None,
                     state: State::Ready,
                 };
+
                 ranked.push(((fit, 0, RECENT_LIMIT, length, order), entry));
             }
             for (order, parameter) in document.parameters().iter().enumerate() {
@@ -316,6 +327,7 @@ impl Palette {
                     shown: None,
                     state: State::Ready,
                 };
+
                 ranked.push(((fit, 0, RECENT_LIMIT, length, order), entry));
             }
         }
@@ -334,6 +346,7 @@ impl Palette {
                     shown: None,
                     state: State::Ready,
                 };
+
                 ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
             }
             for (index, set) in document.selection_sets().sets.iter().enumerate() {
@@ -350,8 +363,10 @@ impl Palette {
                     shown: None,
                     state: State::Ready,
                 };
+
                 ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
             }
+
             let configurations = document.configurations();
             for (index, row) in configurations.rows.iter().enumerate() {
                 let title = format!("Switch to {}", row.name);
@@ -359,6 +374,7 @@ impl Palette {
                     continue;
                 };
                 let active = configurations.is_active(row.id);
+
                 let entry = Entry {
                     group: Group::Configurations,
                     choice: Choice::Configuration(row.id),
@@ -373,9 +389,11 @@ impl Palette {
                         State::Ready
                     },
                 };
+
                 ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
             }
         }
+
         let best = |group: Group| {
             ranked
                 .iter()
@@ -402,6 +420,7 @@ impl Palette {
         .into_iter()
         .map(|group| (group_order(group), group))
         .collect();
+
         groups.sort();
         ranked.sort_by(|(left, left_entry), (right, right_entry)| {
             let place = |group: Group| groups.iter().position(|(_, listed)| *listed == group);
@@ -435,6 +454,7 @@ impl Palette {
         if !self.open {
             return;
         }
+
         let (up, down, page_up, page_down, enter) = ctx.input_mut(|input| {
             (
                 input.consume_key(Modifiers::NONE, Key::ArrowUp),
@@ -445,10 +465,12 @@ impl Palette {
             )
         });
         let page = rows_in_a_page(ctx);
+
         let response = widgets::search_dialog(ctx, "command-palette", DialogWidth::Wide, |ui| {
             let field = ui
                 .horizontal(|ui| {
                     let muted = appearance::tokens(ui).text_muted;
+
                     widgets::icon_label(ui, icons::SEARCH, muted);
                     widgets::text_field(ui, |ui| {
                         widgets::spoken_as(
@@ -462,12 +484,15 @@ impl Palette {
                     })
                 })
                 .inner;
+
             if field.changed() {
                 self.highlighted = 0;
             }
             field.request_focus();
+
             let entries = self.entries(offers, keymap, document, toggles);
             let last = entries.len().saturating_sub(1);
+
             if down {
                 self.highlighted = (self.highlighted + 1).min(last);
             }
@@ -483,12 +508,15 @@ impl Palette {
             self.highlighted = self.highlighted.min(last);
             ui.add_space(SPACE_S);
             ui.separator();
+
             let mut clicked = None;
+
             if entries.is_empty() {
                 let text = format!(
                     "Nothing is called “{}”. Try another word, or fewer letters.",
                     self.query.trim()
                 );
+
                 widgets::empty_state(ui, icons::SEARCH, &text, |_| {});
             } else {
                 ScrollArea::vertical()
@@ -503,8 +531,10 @@ impl Palette {
                                 group = Some(entry.group);
                                 widgets::column_caption(ui, entry.group.heading());
                             }
+
                             let highlighted = index == self.highlighted;
                             let row = row(ui, entry, highlighted);
+
                             if highlighted && (up || down || page_up || page_down) {
                                 row.scroll_to_me(None);
                             }
@@ -568,6 +598,7 @@ fn row(ui: &mut Ui, entry: &Entry, highlighted: bool) -> Response {
     let tokens = appearance::tokens(ui);
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, ROW_HEIGHT), Sense::click());
+
     let fill = if highlighted {
         Some(tokens.accent_subtle)
     } else if response.hovered() {
@@ -575,10 +606,12 @@ fn row(ui: &mut Ui, entry: &Entry, highlighted: bool) -> Response {
     } else {
         None
     };
+
     if let Some(fill) = fill {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(WIDGET_RADIUS), fill);
     }
+
     let ready = entry.state == State::Ready;
     let (text, glyph) = match (highlighted, ready) {
         (true, true) => (tokens.accent_text, tokens.accent_text),
@@ -591,6 +624,7 @@ fn row(ui: &mut Ui, entry: &Entry, highlighted: bool) -> Response {
             .max_rect(inner)
             .layout(Layout::left_to_right(Align::Center)),
     );
+
     child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
     widgets::icon_label(&mut child, entry.glyph, glyph);
     child.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -603,6 +637,7 @@ fn row(ui: &mut Ui, entry: &Entry, highlighted: bool) -> Response {
             } else {
                 Tone::Neutral
             };
+
             widgets::pill(ui, tone, pill);
         }
         if let Some(note) = &entry.note {
@@ -638,6 +673,7 @@ fn detail(ui: &mut Ui, entry: Option<&Entry>) {
             .max_rect(rect)
             .layout(Layout::left_to_right(Align::Center)),
     );
+
     let color = if entry.state == State::Ready {
         tokens.text_muted
     } else {
@@ -648,6 +684,7 @@ fn detail(ui: &mut Ui, entry: Option<&Entry>) {
         );
         tokens.text
     };
+
     child.add(
         Label::new(RichText::new(entry.detail()).color(color))
             .selectable(false)
@@ -665,9 +702,11 @@ pub fn starts_words(query: &str, text: &str) -> bool {
 
 fn fit_with_keywords(query: &str, title: &str, text: &str, keywords: &[&str]) -> Option<Fit> {
     let fitted = fit(query, title, text);
+
     if fitted.is_some_and(|fitted| fitted < Fit::Keyword) {
         return fitted;
     }
+
     let named = keywords.iter().any(|keyword| {
         keyword.starts_with(query)
             || query
@@ -681,16 +720,19 @@ fn fit(query: &str, title: &str, text: &str) -> Option<Fit> {
     if title.starts_with(query) || text.starts_with(query) {
         return Some(Fit::Start);
     }
+
     let words_fit = query.split_whitespace().all(|term| {
         text.split(|character: char| !character.is_alphanumeric())
             .any(|word| word.starts_with(term))
     });
+
     if words_fit {
         return Some(Fit::WordStart);
     }
     if text.contains(query) {
         return Some(Fit::Inside);
     }
+
     let mut remaining = text.chars();
     query
         .chars()
@@ -740,6 +782,7 @@ mod tests {
             offer(Command::Palette, true),
         ];
         let mut palette = Palette::default();
+
         assert_eq!(
             found(&palette, &offers),
             [
@@ -750,23 +793,32 @@ mod tests {
             ]
             .map(Choice::Command)
         );
+
         palette.query = "save".to_owned();
+
         assert_eq!(
             found(&palette, &offers),
             [Command::Save, Command::SaveAs].map(Choice::Command)
         );
+
         palette.query = "draw li".to_owned();
+
         assert_eq!(
             found(&palette, &offers),
             [Choice::Command(Command::SketchTool(Tool::Line))]
         );
+
         palette.query = "flt".to_owned();
+
         assert_eq!(found(&palette, &offers), [Choice::Command(Command::Fillet)]);
+
         palette.query = "zzz".to_owned();
+
         assert!(found(&palette, &offers).is_empty());
 
         palette.query.clear();
         palette.choose(Choice::Command(Command::Save));
+
         assert_eq!(
             found(&palette, &offers).first(),
             Some(&Choice::Command(Command::Save))
@@ -784,7 +836,9 @@ mod tests {
             offer(Command::Measure, true),
         ];
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add a sketch");
+
         transaction.add_feature(
             "Plate outline",
             caditor_document::FeatureKind::from(caditor_sketch::Sketch::new(
@@ -792,7 +846,9 @@ mod tests {
             )),
         );
         document.apply(transaction.finish()).unwrap();
+
         let mut palette = Palette::default();
+
         let mut found = |query: &str| {
             palette.query = query.to_owned();
             palette

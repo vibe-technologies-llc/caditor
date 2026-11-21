@@ -4,7 +4,7 @@ use crate::{
     snap::Target,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Inference {
     Horizontal,
     Vertical,
@@ -116,7 +116,7 @@ impl Inference {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Inferences {
     disabled: u16,
 }
@@ -208,6 +208,7 @@ mod tests {
     #[test]
     fn the_keys_are_distinct_and_the_groups_cover_every_kind() {
         let keys: Vec<&str> = Inference::ALL.iter().map(|kind| kind.key()).collect();
+
         for (index, key) in keys.iter().enumerate() {
             assert!(!keys[index + 1..].contains(key), "{key} is used twice");
         }

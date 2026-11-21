@@ -22,7 +22,7 @@ use crate::{
     view_aids::ViewAids,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Revisions {
     pub document: u64,
     pub evaluation: u64,
@@ -46,7 +46,7 @@ pub struct SceneInputs<'a> {
     pub view: Option<&'a View>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Overlay {
     pub contrast: Contrast,
     pub canvas: Canvas,
@@ -66,6 +66,7 @@ impl Overlay {
     fn batch(&self) -> Option<Arc<Batch>> {
         let mut batch = Batch::default();
         let palette = self.contrast.palette(self.canvas);
+
         if let Some(plane) = self.plane {
             for preview in &self.previews {
                 scene::add_preview(&mut batch, palette, plane, preview);
@@ -99,14 +100,14 @@ impl Overlay {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Content {
     revisions: Revisions,
     context: Context,
     level: FacetLevel,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Highlighted {
     selection: u64,
     hovered: Vec<Pickable>,
@@ -171,24 +172,30 @@ impl SceneCache {
             Some(view) => FacetLevel::following(self.level, FacetLevel::wanted_chord(view)),
             None => self.level.unwrap_or(FacetLevel::WITHOUT_A_VIEW),
         };
+
         self.level = Some(level);
+
         let content = Content {
             revisions: inputs.revisions,
             context: inputs.context,
             level,
         };
         let new_content = self.content.as_ref() != Some(&content);
+
         if new_content {
             let faceting =
                 self.shapes
                     .drawn_faceting(inputs.sources, inputs.context, level.faceting());
+
             self.shapes.facet_at(faceting);
             self.content = Some(content);
         }
+
         let highlighted = self
             .highlighted
             .as_ref()
             .is_some_and(|highlighted| highlighted.is(&inputs.highlight));
+
         if !new_content && highlighted && self.built.is_some() {
             return;
         }
@@ -199,6 +206,7 @@ impl SceneCache {
             inputs.context,
             (&mut self.shapes, &mut self.parts),
         );
+
         self.generation = self.generation.wrapping_add(1);
         built.generation = self.generation;
         self.base_batches = built.scene.batches.len();
@@ -367,6 +375,7 @@ struct Highlightable {
 impl Highlightable {
     fn of(pickables: impl Iterator<Item = Pickable>) -> Self {
         let mut members = BTreeSet::new();
+
         let ordered = pickables
             .filter(|pickable| members.insert(*pickable))
             .collect();

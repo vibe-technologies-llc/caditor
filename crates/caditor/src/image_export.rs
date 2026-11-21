@@ -38,7 +38,7 @@ const DEFAULT_CUSTOM: SurfaceSize = SurfaceSize {
 const LEFT_OUT: &str = "The image shows the model as the view does now, without highlights, the \
                         grid, labels or the view cube, and only the bodies ticked above.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ImageChoices {
     pub size: SizeChoice,
     pub custom: SurfaceSize,
@@ -57,14 +57,14 @@ impl Default for ImageChoices {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SizeChoice {
     #[default]
     View,
     Custom,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImageScale {
     #[default]
     One,
@@ -92,7 +92,7 @@ impl ImageScale {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageCommand {
     Show,
     Hide,
@@ -107,7 +107,7 @@ pub enum ImageCommand {
     Cancel,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderJob {
     pub size: SurfaceSize,
     pub background: Background,
@@ -253,6 +253,7 @@ impl ImageExporter {
         let Some(size) = self.chosen.take() else {
             return;
         };
+
         self.open = false;
         self.folder = path.parent().map(Path::to_path_buf);
         self.stage = Stage::Queued(Queued {
@@ -270,6 +271,7 @@ impl ImageExporter {
         match std::mem::replace(&mut self.stage, Stage::Idle) {
             Stage::Queued(queued) => {
                 let job = queued.job.clone();
+
                 self.stage = Stage::Rendering(queued);
                 Some(job)
             }
@@ -289,9 +291,11 @@ impl ImageExporter {
             return None;
         };
         let name = display_name(Some(&queued.path));
+
         if queued.cancelled {
             return Some(outcome(&name, Err(ImageFailure::Cancelled)));
         }
+
         let read = match pixels {
             Ok(read) => read,
             Err(error) => return Some(outcome(&name, Err(ImageFailure::Render(error)))),
@@ -302,6 +306,7 @@ impl ImageExporter {
         let target = queued.path.clone();
         let slot = Arc::new(Mutex::new(Some(finished)));
         let worker_slot = Arc::clone(&slot);
+
         let spawned = thread::Builder::new()
             .name("image-export".to_owned())
             .spawn(move || {
@@ -386,6 +391,7 @@ fn write_image(
         width: rows.width(),
         height: rows.height(),
     };
+
     export_png(path, &mut *rows, cancel).map_err(|error| match error {
         PngExportError::Pixels(error) => ImageFailure::Render(error),
         PngExportError::Export(error) => ImageFailure::Write(error),
@@ -397,16 +403,19 @@ pub fn with_png_extension(path: PathBuf) -> PathBuf {
     let is_png = path
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case(PNG_EXTENSION));
+
     if is_png {
         return path;
     }
+
     let mut named = OsString::from(path.as_os_str());
+
     named.push(".");
     named.push(PNG_EXTENSION);
     PathBuf::from(named)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SizeBlocked {
     #[error("Show the 3D view to export it at its size.")]
     NoView,
@@ -424,7 +433,7 @@ pub enum SizeBlocked {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("Enter a whole number of pixels from 1 to {MAX_IMAGE_SIDE}")]
 pub struct SideOutOfRange;
 
@@ -521,11 +530,13 @@ pub fn activity(
 ) {
     let running = exporter.running_description().ok_or(NOT_EXPORTING);
     let mut cancel = commands.invoke(Command::CancelImageExport, &running);
+
     if let Ok(description) = running {
         let hover = commands.with_keys(
             Command::CancelImageExport,
             "Stop the image export without writing the file",
         );
+
         cancel |= widgets::progress(description).cancel(hover).show(ui);
     }
     if cancel {
@@ -557,6 +568,7 @@ pub fn dialog(
                 size
             };
             let blocked = blocker.as_ref().err().map(ToString::to_string);
+
             widgets::dialog_body(ui, |ui| {
                 size_choice(ui, exporter, view, &mut command);
                 scale_choice(ui, exporter, &mut command);
@@ -580,6 +592,7 @@ pub fn dialog(
                     Err(blocker) => response.on_disabled_hover_text(blocker.to_string()),
                     Ok(_) => response,
                 };
+
                 if response.clicked()
                     && let Ok(size) = blocker
                 {
@@ -603,9 +616,11 @@ fn body_choice(
     command: &mut Option<ImageCommand>,
 ) {
     let shown = export::shown_bodies(model);
+
     if shown.len() < 2 {
         return;
     }
+
     let named: Vec<(FeatureId, &str)> = shown
         .iter()
         .map(|(id, name)| (*id, name.as_str()))
@@ -628,6 +643,7 @@ fn size_choice(
     command: &mut Option<ImageCommand>,
 ) {
     export::heading(ui, "Size");
+
     let view_label = match view {
         Some(view) => format!("View size ({} × {})", view.width, view.height),
         None => "View size".to_owned(),
@@ -644,12 +660,15 @@ fn size_choice(
             "A width and height of your own, in pixels",
         ),
     ];
+
     if let Some(choice) = preferences::choice(ui, &options, exporter.size) {
         *command = Some(ImageCommand::Size(choice));
     }
     if exporter.size == SizeChoice::Custom {
         ui.add_space(SPACE_S);
+
         let mut errors = Vec::new();
+
         widgets::properties(ui, "image-size", |ui| {
             let sides = [
                 (
@@ -659,6 +678,7 @@ fn size_choice(
                 ),
                 ("Height", exporter.custom.height, ImageCommand::Height),
             ];
+
             for (caption, stored, change) in sides {
                 widgets::property(ui, caption, |ui| {
                     ui.horizontal(|ui| {
@@ -670,6 +690,7 @@ fn size_choice(
                             false,
                             parse_side,
                         );
+
                         ui.label(widgets::muted("px", ui));
                         if let Some(side) = field.committed {
                             *command = Some(change(side));
@@ -696,6 +717,7 @@ pub fn parse_side(text: &str) -> Result<u32, SideOutOfRange> {
 
 fn scale_choice(ui: &mut Ui, exporter: &ImageExporter, command: &mut Option<ImageCommand>) {
     export::heading(ui, "Scale");
+
     let hovers = ImageScale::ALL.map(|scale| {
         format!(
             "{} times as many pixels each way, with lines and points as much thicker",
@@ -714,6 +736,7 @@ fn scale_choice(ui: &mut Ui, exporter: &ImageExporter, command: &mut Option<Imag
 
 fn background_choice(ui: &mut Ui, exporter: &ImageExporter, command: &mut Option<ImageCommand>) {
     export::heading(ui, "Background");
+
     let options = [Background::Viewport, Background::Transparent].map(|background| {
         (
             background,
@@ -721,6 +744,7 @@ fn background_choice(ui: &mut Ui, exporter: &ImageExporter, command: &mut Option
             background_hint(background),
         )
     });
+
     if let Some(background) = preferences::choice(ui, &options, exporter.background) {
         *command = Some(ImageCommand::Background(background));
     }
@@ -759,6 +783,7 @@ mod tests {
                 height: 3200,
             })
         );
+
         let refused = scaled(
             SurfaceSize {
                 width: 2500,
@@ -767,6 +792,7 @@ mod tests {
             ImageScale::Four,
         )
         .unwrap_err();
+
         assert!(
             refused.to_string().contains("10000 × 40 pixels"),
             "{refused}"

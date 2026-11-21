@@ -64,6 +64,7 @@ fn thickness_row(
                 },
             )
         });
+
     actions.extend(drafting.into_actions(feature));
 }
 
@@ -121,12 +122,15 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         opened,
     } = *row;
     let id = feature.id();
+
     widgets::caption(ui, "Open faces");
+
     let evaluation = model.evaluation();
     let mut previewed = Vec::new();
     let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
         face_rows(model.document(), bodies::input(evaluation, id), shell)
     });
+
     ui.vertical(|ui| {
         if shell.open.is_empty() {
             ui.label(widgets::muted("None: the body is hollow and closed", ui));
@@ -136,6 +140,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         for (index, text) in listed.rows.iter().take(shell.open.len()).enumerate() {
             let text = widgets::muted(text, ui);
             let row = widgets::removable_row_hovered(ui, text, "Close this face");
+
             if row.hovered && opened {
                 previewed = bodies::input(evaluation, id)
                     .map(|input| {
@@ -149,6 +154,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             }
             if row.removed {
                 let mut changed = shell.clone();
+
                 changed.open.remove(index);
                 actions.push(feature_fields::applied(
                     &feature.name,
@@ -156,6 +162,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
+
         let chosen = feature_fields::list_in_view(
             ui,
             opened,
@@ -194,19 +201,23 @@ fn side_row(
         .iter()
         .position(|side| *side == shell.side)
         .unwrap_or(0);
+
     let picked = widgets::property(ui, WALLS, |ui| widgets::segmented(ui, &choices, chosen));
     let Some(side) = picked.and_then(|index| ShellSide::ALL.get(index).copied()) else {
         return;
     };
+
     if side == shell.side {
         return;
     }
+
     let document = model.document();
     let change = shell_tools::side_change(document, feature.id(), side)
         .ok_or(ShellError::Gone {
             feature: feature.id(),
         })
         .and_then(|transaction| field::checked(document, transaction));
+
     actions.push(feature_fields::applied(&feature.name, change));
 }
 
@@ -218,11 +229,13 @@ fn own_thickness_list(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>
         ..
     } = *row;
     let id = feature.id();
+
     widgets::caption(ui, OWN_THICKNESS);
     ui.vertical(|ui| {
         if shell.faces.is_empty() {
             ui.label(widgets::muted(NO_OWN_THICKNESS, ui));
         }
+
         let slot = (id, Slot::ShellOwnThickness);
         let stop = feature_fields::STOP_CHOOSING;
         if !feature_fields::choosing_prompt(ui, model, slot, stop, actions) {
@@ -264,6 +277,7 @@ fn own_thickness_rows(
             dimension: Dimension::LENGTH,
             rule: Rule::AboveZero,
         };
+
         let value = feature_fields::expression_row_removable(
             ui,
             model,
@@ -271,6 +285,7 @@ fn own_thickness_rows(
             quantity,
             |thickness| {
                 let mut changed = shell.clone();
+
                 if let Some(entry) = changed.faces.get_mut(index) {
                     entry.thickness = thickness;
                 }
@@ -278,6 +293,7 @@ fn own_thickness_rows(
             },
             SHELLS_THICKNESS,
         );
+
         actions.extend(value.drafting.into_actions(id));
         if value.hovered && opened {
             let previewed = bodies::input(evaluation, id)
@@ -289,10 +305,12 @@ fn own_thickness_rows(
                     )
                 })
                 .unwrap_or_default();
+
             cache.preview(previewed);
         }
         if value.removed {
             let mut changed = shell.clone();
+
             if index < changed.faces.len() {
                 changed.faces.remove(index);
             }
@@ -313,6 +331,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
     } = *row;
     let id = feature.id();
     let evaluation = model.evaluation();
+
     let described: Vec<String> = cache
         .rows(id, evaluation.body_before(id), model.revision(), || {
             face_rows(model.document(), bodies::input(evaluation, id), shell)
@@ -322,6 +341,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         .skip(shell.open.len())
         .cloned()
         .collect();
+
     widgets::properties(ui, ("shell-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         faces_row(ui, row, cache, actions);

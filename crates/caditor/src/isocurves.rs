@@ -34,7 +34,7 @@ pub const MOST_FACES: usize = 16;
 const STEPS_PER_LINE: usize = 64;
 const FLAT_CURVATURE: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Directions {
     #[default]
     Both,
@@ -69,14 +69,14 @@ pub fn along_title(along: Along) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Isocurve {
     pub along: Along,
     pub points: Vec<Point3>,
     pub teeth: Vec<Tooth>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceLines {
     pub pickable: Pickable,
     pub name: String,
@@ -91,6 +91,7 @@ impl FaceLines {
             .filter(|curve| curve.along == along)
             .flat_map(|curve| curve.teeth.iter())
             .peekable();
+
         teeth.peek()?;
         Some(
             teeth
@@ -105,7 +106,7 @@ impl FaceLines {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Isocurves {
     pub faces: Vec<FaceLines>,
     pub gone: usize,
@@ -149,7 +150,7 @@ impl Isocurves {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct IsocurveDrawing {
     pub lines: Vec<[Point3; 2]>,
     pub comb: CombDrawing,
@@ -167,6 +168,7 @@ impl IsocurveDrawing {
             pick: None,
             stroke: Stroke::Solid,
         };
+
         let halos = self
             .lines
             .iter()
@@ -175,12 +177,13 @@ impl IsocurveDrawing {
             .lines
             .iter()
             .map(|segment| line(*segment, look.isocurve, look.isocurve_width));
+
         batch.lines.extend(halos.chain(lines));
         self.comb.add_to(batch, palette);
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Settings {
     pub lines: usize,
     pub directions: Directions,
@@ -197,7 +200,7 @@ impl Settings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Basis {
     faces: Vec<Pickable>,
     settings: Settings,
@@ -217,6 +220,7 @@ fn resolve(model: &Model, pickable: Pickable) -> Option<Chosen> {
         return None;
     };
     let evaluation = model.evaluation();
+
     let result = evaluation.body_result(body)?;
     let face = bodies::find_face(result.solid()?, face)?;
     Some(Chosen {
@@ -261,12 +265,14 @@ fn lines_of(chosen: &Chosen, settings: Settings) -> Result<Option<FaceLines>, Is
         return Ok(None);
     };
     let mut curves = Vec::new();
+
     for along in settings.directions.along() {
         let runs = match solid.isoparametric_runs(chosen.face, *along, settings.lines) {
             Ok(runs) => runs,
             Err(IsoparametricError::MissingFace) => return Ok(None),
             Err(IsoparametricError::Cancelled) => return Err(IsoparametricError::Cancelled),
         };
+
         curves.extend(
             runs.iter()
                 .map(|run| isocurve(face.surface(), run, settings.teeth)),
@@ -284,6 +290,7 @@ fn work_out(chosen: &[Chosen], gone: usize, settings: Settings) -> Option<Isocur
         gone,
         ..Isocurves::default()
     };
+
     for face in chosen {
         match lines_of(face, settings) {
             Ok(Some(lines)) => isocurves.faces.push(lines),
@@ -411,11 +418,13 @@ impl IsocurveTool {
             return;
         }
         self.followed = Some(selection.generation());
+
         let chosen: Vec<Pickable> = selection
             .in_pick_order()
             .into_iter()
             .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
             .collect();
+
         if chosen.is_empty() {
             return;
         }
@@ -439,10 +448,12 @@ impl IsocurveTool {
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
         };
+
         if self.shows(&basis) {
             self.cancel();
         } else {
             self.take_finished();
+
             let started = self.job.as_ref().is_some_and(|job| job.basis == basis);
             let held = self.stopped.as_ref() == Some(&basis);
             if !self.shows(&basis) && !started && !held {
@@ -475,18 +486,22 @@ impl IsocurveTool {
 
     fn start(&mut self, model: &Model, basis: Basis) {
         self.cancel();
+
         let mut gone = 0;
+
         let chosen: Vec<Chosen> = basis
             .faces
             .iter()
             .filter_map(|pickable| {
                 let resolved = resolve(model, *pickable);
+
                 if resolved.is_none() {
                     gone += 1;
                 }
                 resolved
             })
             .collect();
+
         if chosen.is_empty() {
             self.shown = Some((
                 basis,
@@ -498,9 +513,11 @@ impl IsocurveTool {
             return;
         }
         self.generation += 1;
+
         let generation = self.generation;
         let cancelled = Arc::new(AtomicBool::new(false));
         let settings = basis.settings;
+
         let spawned = spawn(Work {
             chosen,
             gone,
@@ -535,13 +552,16 @@ impl IsocurveTool {
 
     pub fn drawing(&mut self, isocurves: &Arc<Isocurves>) -> Arc<IsocurveDrawing> {
         let scale = self.scale.clamp(comb::MIN_SCALE, comb::MAX_SCALE);
+
         if let Some((drawn_scale, drawn, drawing)) = &self.drawn
             && *drawn_scale == scale
             && Arc::ptr_eq(drawn, isocurves)
         {
             return Arc::clone(drawing);
         }
+
         let drawing = Arc::new(isocurves.drawing(scale));
+
         self.drawn = Some((scale, Arc::clone(isocurves), Arc::clone(&drawing)));
         drawing
     }
@@ -575,6 +595,7 @@ fn spawn(work: Work) -> std::io::Result<()> {
                 hold,
             } = work;
             let stop = Arc::clone(&cancelled);
+
             let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
                 caditor_kernel::interruptible(
                     Arc::new(move || stop.load(Ordering::Acquire)),
@@ -596,6 +617,7 @@ fn spawn(work: Work) -> std::io::Result<()> {
                     }
                 }
             };
+
             if cancelled.load(Ordering::Acquire) {
                 return;
             }

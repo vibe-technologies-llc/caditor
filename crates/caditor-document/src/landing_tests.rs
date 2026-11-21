@@ -47,7 +47,9 @@ struct Stepped {
 
 fn stepped() -> Stepped {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Base outline",
         FeatureKind::from(rectangle((-20.0, 0.0), (20.0, 10.0))),
@@ -64,6 +66,7 @@ fn stepped() -> Stepped {
         "Step outline",
         FeatureKind::from(on_plane(rectangle((0.0, 0.0), (20.0, 10.0)), 10.0)),
     );
+
     transaction.add_feature(
         "Step",
         extrude(
@@ -72,6 +75,7 @@ fn stepped() -> Stepped {
             BodyOperation::Add(base),
         ),
     );
+
     let peg_outline = transaction.add_feature(
         "Peg outline",
         FeatureKind::from(on_plane(rectangle((4.0, 3.0), (8.0, 7.0)), 30.0)),
@@ -87,6 +91,7 @@ fn stepped() -> Stepped {
             BodyOperation::Add(base),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
     Stepped {
         document,
@@ -97,7 +102,9 @@ fn stepped() -> Stepped {
 
 fn add(document: &mut Document, name: &str, kind: FeatureKind) -> FeatureId {
     let mut transaction = document.transaction(name);
+
     let feature = transaction.add_feature(name, kind);
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -125,6 +132,7 @@ fn assert_volume(found: f64, expected: f64) {
 #[test]
 fn a_patterned_extrusion_up_to_next_stops_on_the_face_each_copy_meets() {
     let mut stepped = stepped();
+
     let pattern = Pattern::new(stepped.base, backwards("2", "12 mm")).repeating(vec![stepped.peg]);
     let pattern = add(
         &mut stepped.document,
@@ -136,10 +144,12 @@ fn a_patterned_extrusion_up_to_next_stops_on_the_face_each_copy_meets() {
     let solid = evaluation.body(stepped.base).unwrap();
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(
         volume(&evaluation, stepped.base),
         BASE + STEP + PEG_SECTION * 10.0 + PEG_SECTION * 20.0,
     );
+
     assert_eq!(solid.lumps().unwrap().len(), 1);
     assert!(
         solid
@@ -152,8 +162,10 @@ fn a_patterned_extrusion_up_to_next_stops_on_the_face_each_copy_meets() {
 #[test]
 fn a_mirrored_extrusion_up_to_next_stops_on_the_face_its_image_meets() {
     let mut stepped = stepped();
+
     let mirror = Mirror::new(stepped.base, PlaneReference::Principal(PrincipalPlane::Yz))
         .mirroring(vec![stepped.peg]);
+
     add(
         &mut stepped.document,
         "Mirror 1",
@@ -163,10 +175,12 @@ fn a_mirrored_extrusion_up_to_next_stops_on_the_face_its_image_meets() {
     let evaluation = evaluate(&stepped.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(
         volume(&evaluation, stepped.base),
         BASE + STEP + PEG_SECTION * 10.0 + PEG_SECTION * 20.0,
     );
+
     assert_eq!(
         evaluation
             .body(stepped.base)
@@ -181,6 +195,7 @@ fn a_mirrored_extrusion_up_to_next_stops_on_the_face_its_image_meets() {
 #[test]
 fn a_copy_whose_end_finds_no_face_fails_the_pattern_naming_the_copy() {
     let mut stepped = stepped();
+
     let pattern = Pattern::new(stepped.base, backwards("4", "12 mm")).repeating(vec![stepped.peg]);
     let pattern = add(
         &mut stepped.document,
@@ -214,7 +229,9 @@ struct Drilled {
 
 fn drilled(diameter: impl FnOnce(&mut TransactionBuilder<'_>) -> Expression) -> Drilled {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Plate outline",
         FeatureKind::from(rectangle((-20.0, 0.0), (20.0, 10.0))),
@@ -229,7 +246,9 @@ fn drilled(diameter: impl FnOnce(&mut TransactionBuilder<'_>) -> Expression) -> 
     );
     let diameter = diameter(&mut transaction);
     let mut points = on_plane(Sketch::new(Plane::XY), 10.0);
+
     points.add_point(Point2::new(-10.0, 5.0));
+
     let points = transaction.add_feature("Hole sketch", FeatureKind::from(points));
     let hole = transaction.add_feature(
         "Hole 1",
@@ -251,6 +270,7 @@ fn drilled(diameter: impl FnOnce(&mut TransactionBuilder<'_>) -> Expression) -> 
         "Block outline",
         FeatureKind::from(rectangle((0.0, 0.0), (20.0, 10.0))),
     );
+
     transaction.add_feature(
         "Block",
         extrude(
@@ -282,7 +302,9 @@ fn across() -> PatternKind {
 
 fn measured_diameter(transaction: &mut TransactionBuilder<'_>) -> Expression {
     let gauge = transaction.add_parameter("gauge", length("0 mm"));
+
     transaction.add_parameter("bore", transaction.parse("gauge / 2").unwrap());
+
     let mark = transaction.add_feature(
         "Mark",
         FeatureKind::Datum(Datum::Point(DatumPoint {
@@ -290,6 +312,7 @@ fn measured_diameter(transaction: &mut TransactionBuilder<'_>) -> Expression {
             offset: [length("40 mm"), length("0 mm"), length("0 mm")],
         })),
     );
+
     transaction.add_feature(
         "Measurement 1",
         FeatureKind::from(Measurement {
@@ -307,7 +330,9 @@ fn measured_diameter(transaction: &mut TransactionBuilder<'_>) -> Expression {
 #[test]
 fn a_patterned_hole_through_all_goes_through_what_was_added_below_it_since() {
     let mut drilled = drilled(|_| length("2 mm"));
+
     let pattern = Pattern::new(drilled.plate, across()).repeating(vec![drilled.hole]);
+
     add(
         &mut drilled.document,
         "Pattern 1",
@@ -317,6 +342,7 @@ fn a_patterned_hole_through_all_goes_through_what_was_added_below_it_since() {
     let evaluation = evaluate(&drilled.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(
         volume(&evaluation, drilled.plate),
         BASE + STEP - PI * 10.0 - PI * 20.0,
@@ -326,7 +352,9 @@ fn a_patterned_hole_through_all_goes_through_what_was_added_below_it_since() {
 #[test]
 fn a_patterned_hole_sized_by_a_measurement_lands_with_the_measured_diameter() {
     let mut drilled = drilled(measured_diameter);
+
     let pattern = Pattern::new(drilled.plate, across()).repeating(vec![drilled.hole]);
+
     add(
         &mut drilled.document,
         "Pattern 1",
@@ -336,6 +364,7 @@ fn a_patterned_hole_sized_by_a_measurement_lands_with_the_measured_diameter() {
     let evaluation = evaluate(&drilled.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(
         volume(&evaluation, drilled.plate),
         BASE + STEP - PI * 10.0 - PI * 20.0,
@@ -345,8 +374,10 @@ fn a_patterned_hole_sized_by_a_measurement_lands_with_the_measured_diameter() {
 #[test]
 fn a_mirrored_hole_sized_by_a_measurement_lands_with_the_measured_diameter() {
     let mut drilled = drilled(measured_diameter);
+
     let mirror = Mirror::new(drilled.plate, PlaneReference::Principal(PrincipalPlane::Yz))
         .mirroring(vec![drilled.hole]);
+
     add(
         &mut drilled.document,
         "Mirror 1",
@@ -356,6 +387,7 @@ fn a_mirrored_hole_sized_by_a_measurement_lands_with_the_measured_diameter() {
     let evaluation = evaluate(&drilled.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(
         volume(&evaluation, drilled.plate),
         BASE + STEP - PI * 10.0 - PI * 20.0,

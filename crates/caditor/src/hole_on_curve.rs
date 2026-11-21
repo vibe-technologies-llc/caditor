@@ -22,7 +22,7 @@ use crate::{
 
 const FACE_SAMPLES: u32 = 16;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum CurveHoleError {
     #[error(
         "This hole stands on a flat face or a plane; edit its sketch to place it on a curved face"
@@ -53,7 +53,7 @@ impl Reason for CurveHoleError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Mount {
     pub plane: FeatureId,
     pub point: FeatureId,
@@ -99,11 +99,13 @@ fn middle_of(solid: &Solid, face: FaceId) -> Option<Point3> {
         })
         .collect();
     let count = samples.len() as f64;
+
     let mean = samples
         .into_iter()
         .fold(Point3::ZERO, |sum, point| sum + point)
         / count.max(1.0);
     let surface = solid.face(face)?.surface();
+
     let uv = surface.project(mean, None);
     Some(surface.point_at(uv))
 }
@@ -121,12 +123,14 @@ fn spot(model: &Model, face: FaceChoice, ray: Option<Ray>) -> Option<(Point3, Ve
             RayCrossing::Nothing | RayCrossing::Undecided => None,
         }
     });
+
     let near = match hit {
         Some(hit) => hit,
         None => middle_of(solid, id)?,
     };
     let definition = solid.face(id)?;
     let surface = definition.surface();
+
     let uv = surface.project(near, None);
     let at = surface.point_at(uv);
     let normal = surface.normal(uv.x, uv.y)? * definition.sense().sign();
@@ -146,10 +150,12 @@ pub fn create(
     let attachment = sketch_placement::surface_at(model, face, document.bar_index())
         .map_err(CurveHoleError::Surface)?;
     let (at, normal) = spot(model, face, None).ok_or(CurveHoleError::NoSpot)?;
+
     let plane = Plane::new(at, normal).ok_or(CurveHoleError::NoSpot)?;
     let name = editing::next_feature_name(document, TITLE);
     let sketch_name = editing::next_sketch_name(document);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let point = transaction.add_feature(
         editing::next_feature_name(document, "Point"),
         FeatureKind::Datum(Datum::Point(DatumPoint {
@@ -168,7 +174,9 @@ pub fn create(
         )))),
     );
     let mut sketch = Sketch::new(plane);
+
     sketch.add_point(Point2::ZERO);
+
     let placed = transaction.add_feature(
         sketch_name.clone(),
         FeatureKind::Sketch(SketchFeature {
@@ -176,9 +184,11 @@ pub fn create(
             ..SketchFeature::from(sketch)
         }),
     );
+
     for id in [point, tangent, placed] {
         transaction.edit(Edit::SetFeatureHidden { id, hidden: true });
     }
+
     let feature = transaction.add_feature(
         name.clone(),
         hole_tools::new_hole(placed, face.body, &Starts::of(model)),
@@ -200,6 +210,7 @@ pub fn moved(
     let document = model.document();
     let name = &document.feature(feature).ok_or(CurveHoleError::Gone)?.name;
     let mount = mount(document, hole).ok_or(CurveHoleError::NotOnACurve)?;
+
     let index = document
         .feature_index(mount.plane)
         .ok_or(CurveHoleError::Gone)?;
@@ -207,6 +218,7 @@ pub fn moved(
         sketch_placement::surface_at(model, face, index).map_err(CurveHoleError::Surface)?;
     let (at, _) = spot(model, face, ray).ok_or(CurveHoleError::NoSpot)?;
     let mut transaction = document.transaction(format!("Move {name}"));
+
     transaction.edit(Edit::SetFeatureKind {
         id: mount.point,
         kind: FeatureKind::Datum(Datum::Point(DatumPoint {
@@ -233,7 +245,9 @@ pub fn moved(
             }),
         });
     }
+
     let transaction = transaction.finish();
+
     document
         .check(&transaction)
         .map_err(|source| CurveHoleError::CannotStandOnFace { source })?;
@@ -258,6 +272,7 @@ pub fn moved_to(
     let document = model.document();
     let name = &document.feature(feature).ok_or(CurveHoleError::Gone)?.name;
     let mount = mount(document, hole).ok_or(CurveHoleError::NotOnACurve)?;
+
     let Some(Datum::PlaneThrough(PlaneThrough::TangentAt(tangent))) = document
         .feature(mount.plane)
         .and_then(|plane| plane.kind.datum())
@@ -265,6 +280,7 @@ pub fn moved_to(
         return Err(CurveHoleError::NotOnACurve);
     };
     let body = bodies::shown(model.evaluation(), tangent.body).ok_or(CurveHoleError::NoSpot)?;
+
     let face = tangent
         .face
         .resolve(&body.solid)
@@ -285,6 +301,7 @@ pub fn moved_to(
             })),
         },
     );
+
     document
         .check(&transaction)
         .map_err(|source| CurveHoleError::CannotStandThere { source })?;

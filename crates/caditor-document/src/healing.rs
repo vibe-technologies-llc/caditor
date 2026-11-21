@@ -30,7 +30,7 @@ use crate::{
     sweep::SweepPath,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Healing {
     pub matched: Vec<String>,
     pub dropped: Vec<String>,
@@ -63,6 +63,7 @@ impl Healing {
                 were(self.dropped_count)
             )
         });
+
         let parts: Vec<String> = matched.into_iter().chain(dropped).collect();
         format!("After an upstream change, {}.", parts.join(", and "))
     }
@@ -73,9 +74,11 @@ impl Healing {
 
     pub fn update(&self, document: &Document) -> Option<Transaction> {
         let current = document.feature(self.feature)?;
+
         if current.kind != self.checked {
             return None;
         }
+
         let label = format!("Update references of {}", current.name);
         let edit = match (&current.kind, &self.refreshed) {
             (FeatureKind::Sketch(sketch), FeatureKind::Sketch(refreshed)) => {
@@ -103,6 +106,7 @@ pub(crate) fn check(feature: &Arc<Feature>, inputs: &Inputs<'_>) -> Option<Heali
         dropped_count: 0,
     };
     let mut refreshed = feature.kind.clone();
+
     visit(&mut refreshed, &mut healer);
     (!healer.matched.is_empty() || !healer.dropped.is_empty()).then(|| Healing {
         matched: healer.matched,
@@ -143,7 +147,7 @@ pub(crate) trait ReferenceVisitor {
     fn frame_plane(&mut self, _frame: FeatureId, _plane: PrincipalPlane) {}
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ReferredGeometry {
     pub faces: Vec<(FeatureId, FaceReference)>,
     pub edges: Vec<(FeatureId, EdgeReference)>,
@@ -188,6 +192,7 @@ impl ReferenceVisitor for ReferredGeometry {
 pub fn referred_geometry(kind: &FeatureKind) -> ReferredGeometry {
     let mut referred = ReferredGeometry::default();
     let mut visited = kind.clone();
+
     visit(&mut visited, &mut referred);
     visit_projections(&mut visited, &mut referred);
     if let FeatureKind::Sketch(sketch) = kind
@@ -211,6 +216,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Solid(solid) => visit_solid(solid, visitor),
         FeatureKind::Blend(blend) => {
             let count = blend.edges.len();
+
             visitor.followed_edges(blend.body, &mut blend.edges, &|index| {
                 if count == 1 {
                     "its edge".to_owned()
@@ -218,6 +224,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                     format!("edge {} of {count}", index + 1)
                 }
             });
+
             let faces = blend
                 .groups
                 .iter()
@@ -227,11 +234,13 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             for group in &mut blend.groups {
                 if let EdgeGroup::Face(face) = group {
                     index += 1;
+
                     let what = if faces == 1 {
                         "the face whose edges it rounds".to_owned()
                     } else {
                         format!("face {index} of {faces} whose edges it rounds")
                     };
+
                     visitor.face(blend.body, face, &what);
                 }
             }
@@ -250,6 +259,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Combine(_) | FeatureKind::Scale(_) | FeatureKind::Remove(_) => {}
         FeatureKind::Mirror(mirror) => {
             visit_plane(&mut mirror.plane, "the face it mirrors across", visitor);
+
             let count = mirror.faces.len();
             for (index, face) in mirror.faces.iter_mut().enumerate() {
                 let what = if count == 1 {
@@ -257,6 +267,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 } else {
                     format!("mirrored face {} of {count}", index + 1)
                 };
+
                 visitor.face(mirror.body, face, &what);
             }
         }
@@ -285,14 +296,17 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Rib(_) => {}
         FeatureKind::Shell(shell) => {
             let count = shell.open.len();
+
             for (index, face) in shell.open.iter_mut().enumerate() {
                 let what = if count == 1 {
                     "its open face".to_owned()
                 } else {
                     format!("open face {} of {count}", index + 1)
                 };
+
                 visitor.face(shell.body, face, &what);
             }
+
             let count = shell.faces.len();
             for (index, entry) in shell.faces.iter_mut().enumerate() {
                 let what = if count == 1 {
@@ -300,6 +314,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 } else {
                     format!("face of its own thickness {} of {count}", index + 1)
                 };
+
                 visitor.face(shell.body, &mut entry.face, &what);
             }
         }
@@ -311,38 +326,46 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 } else {
                     format!("moved face {} of {count}", index + 1)
                 };
+
                 visitor.face(offset.body, face, &what);
             }
         }
         FeatureKind::Draft(draft) => {
             let count = draft.faces.len();
+
             for (index, face) in draft.faces.iter_mut().enumerate() {
                 let what = if count == 1 {
                     "its drafted face".to_owned()
                 } else {
                     format!("drafted face {} of {count}", index + 1)
                 };
+
                 visitor.face(draft.body, face, &what);
             }
+
             let count = draft.own.len();
+
             for (index, own) in draft.own.iter_mut().enumerate() {
                 let what = if count == 1 {
                     "its face at an angle of its own".to_owned()
                 } else {
                     format!("face {} of {count} at an angle of its own", index + 1)
                 };
+
                 visitor.face(draft.body, &mut own.face, &what);
             }
             visit_plane(&mut draft.neutral, "its neutral plane", visitor);
         }
         FeatureKind::ReplaceFace(replace) => {
             let count = replace.faces.len();
+
             for (index, face) in replace.faces.iter_mut().enumerate() {
                 let what = if count == 1 {
                     "its replaced face".to_owned()
                 } else {
                     format!("replaced face {} of {count}", index + 1)
                 };
+
                 visitor.face(replace.body, face, &what);
             }
             if let Some(target) = &mut replace.target {
@@ -351,12 +374,14 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         }
         FeatureKind::Emboss(emboss) => {
             let count = emboss.faces.len();
+
             for (index, face) in emboss.faces.iter_mut().enumerate() {
                 let what = if count == 1 {
                     "its embossed face".to_owned()
                 } else {
                     format!("embossed face {} of {count}", index + 1)
                 };
+
                 visitor.face(emboss.body, face, &what);
             }
             if let Some(sketch) = emboss.sketch {
@@ -365,12 +390,14 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         }
         FeatureKind::MoveFace(moving) => {
             let count = moving.faces.len();
+
             for (index, face) in moving.faces.iter_mut().enumerate() {
                 let what = if count == 1 {
                     "its moved face".to_owned()
                 } else {
                     format!("moved face {} of {count}", index + 1)
                 };
+
                 visitor.face(moving.body, face, &what);
             }
             if let Some(direction) = &mut moving.direction {
@@ -388,17 +415,20 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 } else {
                     format!("deleted face {} of {count}", index + 1)
                 };
+
                 visitor.face(delete.body, face, &what);
             }
         }
         FeatureKind::SplitFace(split) => {
             let count = split.faces.len();
+
             for (index, face) in split.faces.iter_mut().enumerate() {
                 let what = if count == 1 {
                     "its split face".to_owned()
                 } else {
                     format!("split face {} of {count}", index + 1)
                 };
+
                 visitor.face(split.body, face, &what);
             }
             visit_split_along(&mut split.along, visitor);
@@ -532,6 +562,7 @@ fn visit_axis(axis: &mut AxisReference, role: &str, visitor: &mut impl Reference
     match axis {
         AxisReference::Edge { body, edge } => {
             let what = format!("the edge giving its {role}");
+
             visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
                 what.clone()
             });
@@ -550,6 +581,7 @@ fn visit_point(point: &mut PointReference, role: &str, visitor: &mut impl Refere
     match point {
         PointReference::Centre { body, edge } => {
             let what = format!("the round edge giving its {role}");
+
             visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
                 what.clone()
             });
@@ -621,6 +653,7 @@ fn visit_measurement(measurement: &mut Measurement, visitor: &mut impl Reference
             }
             MeasuredItem::Edge { body, edge } => {
                 let what = format!("the edge giving its {role}");
+
                 visitor.followed_edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
                     what.clone()
                 });
@@ -705,6 +738,7 @@ fn visit_mate(mate: &mut Mate, visitor: &mut impl ReferenceVisitor) {
 
 fn visit_split_along(along: &mut SplitAlong, visitor: &mut impl ReferenceVisitor) {
     const WHAT: &str = "the face it splits along";
+
     if let Some(plane) = along.plane_mut() {
         visit_plane(plane, WHAT, visitor);
     }
@@ -728,12 +762,14 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
     match solid {
         SolidFeature::Extrude(extrude) => {
             visitor.regions(extrude.sketch, &mut extrude.regions);
+
             let ends: Vec<&mut ExtrudeEnd> = match &mut extrude.extent {
                 ExtrudeExtent::OneSide { end, .. } => vec![end],
                 ExtrudeExtent::Symmetric { .. } => Vec::new(),
                 ExtrudeExtent::TwoSides { forward, backward } => vec![forward, backward],
             };
             let count = ends.len();
+
             for (index, end) in ends.into_iter().enumerate() {
                 let what = match (count, index) {
                     (1, _) => "the face its end runs up to",
@@ -798,6 +834,7 @@ fn visit_path_edges(
     visitor: &mut impl ReferenceVisitor,
 ) {
     let count = edges.len();
+
     visitor.edges(body, edges, &|index| {
         if count == 1 {
             "the edge of its path".to_owned()
@@ -815,7 +852,7 @@ struct Healer<'a> {
     dropped_count: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SplitPieces {
     Ignored,
     Followed,
@@ -844,6 +881,7 @@ impl Healer<'_> {
             let Ok(found) = edge.resolve_in(&naming) else {
                 continue;
             };
+
             if solid
                 .edge(found)
                 .is_none_or(|definition| definition.name() == edge.name())
@@ -872,6 +910,7 @@ impl ReferenceVisitor for Healer<'_> {
         let Ok(found) = face.resolve(solid) else {
             return;
         };
+
         if solid
             .face(found)
             .is_none_or(|definition| definition.name() == face.name())
@@ -915,9 +954,11 @@ impl ReferenceVisitor for Healer<'_> {
         else {
             return;
         };
+
         let Ok(resolved) = resolve_regions(references, profile.regions()) else {
             return;
         };
+
         if resolved.healed.is_empty() && resolved.gone.is_empty() {
             return;
         }
@@ -934,6 +975,7 @@ impl ReferenceVisitor for Healer<'_> {
                 format!("{count} chosen regions of {sketch_name}")
             }
         };
+
         if !resolved.healed.is_empty() {
             self.matched(described(resolved.healed.len()), resolved.healed.len());
         }
@@ -956,6 +998,7 @@ impl ReferenceVisitor for Healer<'_> {
                 }
             })
             .collect();
+
         *references = kept;
     }
 }

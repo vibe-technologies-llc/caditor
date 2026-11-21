@@ -2,7 +2,7 @@ use caditor_expression::format_decimals;
 
 const PITCH_DECIMALS: usize = 2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MetricSize {
     M1_6,
     M2,
@@ -18,14 +18,14 @@ pub enum MetricSize {
     M20,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HeatSetInsert {
     pub hole: f64,
     pub length: f64,
     pub wall: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct SizeTable {
     name: &'static str,
     major: f64,
@@ -247,7 +247,7 @@ impl MetricSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FinePitch {
     First,
     Second,
@@ -266,7 +266,7 @@ impl FinePitch {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HoleFit {
     Close,
     Normal,
@@ -351,7 +351,7 @@ impl HoleFit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HoleStandard {
     pub size: MetricSize,
     pub fit: HoleFit,

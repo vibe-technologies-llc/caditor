@@ -32,6 +32,7 @@ pub(super) fn pair(code: i32, value: impl ToString) -> (i32, String) {
 
 pub(super) fn entity(kind: &str, layer: &str, rest: &[(i32, f64)]) -> Pairs {
     let mut pairs = vec![pair(0, kind), pair(8, layer)];
+
     pairs.extend(rest.iter().map(|(code, value)| pair(*code, value)));
     pairs
 }
@@ -53,6 +54,7 @@ pub(super) fn line(start: (f64, f64), end: (f64, f64)) -> Pairs {
 
 pub(super) fn section(name: &str, content: Vec<Pairs>) -> Pairs {
     let mut pairs = vec![pair(0, "SECTION"), pair(2, name)];
+
     pairs.extend(content.into_iter().flatten());
     pairs.push(pair(0, "ENDSEC"));
     pairs
@@ -60,6 +62,7 @@ pub(super) fn section(name: &str, content: Vec<Pairs>) -> Pairs {
 
 pub(super) fn header(units: Option<i64>) -> Pairs {
     let mut content = vec![pair(9, "$ACADVER"), pair(1, "AC1027")];
+
     if let Some(units) = units {
         content.extend([pair(9, "$INSUNITS"), pair(70, units)]);
     }
@@ -68,6 +71,7 @@ pub(super) fn header(units: Option<i64>) -> Pairs {
 
 pub(super) fn text(sections: Vec<Pairs>) -> Vec<u8> {
     let mut out = String::new();
+
     for (code, value) in sections.into_iter().flatten().chain([pair(0, "EOF")]) {
         out.push_str(&format!("{code:>3}\r\n{value}\r\n"));
     }
@@ -134,21 +138,28 @@ fn slot() -> Pairs {
 #[test]
 fn a_closed_polyline_with_bulges_becomes_lines_and_arcs() {
     let drawing = millimetre_drawing(vec![slot()]);
+
     assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
     assert_eq!(lines(&drawing).len(), 2);
+
     let arcs = arcs(&drawing);
+
     assert_eq!(arcs.len(), 2);
+
     let right = arcs
         .iter()
         .find(|arc| near(arc.center, Point2::new(20.0, 5.0)))
         .unwrap();
+
     assert!((right.radius - 5.0).abs() < 1e-12);
     assert!((right.sweep - PI).abs() < 1e-12);
     assert!((right.start_angle + FRAC_PI_2).abs() < 1e-12);
+
     let left = arcs
         .iter()
         .find(|arc| near(arc.center, Point2::new(0.0, 5.0)))
         .unwrap();
+
     assert!((left.start_angle - FRAC_PI_2).abs() < 1e-12);
 }
 
@@ -225,6 +236,7 @@ fn an_imported_outline_is_joined_and_extrudes_into_a_solid() {
         ),
     ]);
     let mut document = Document::default();
+
     let import = drawing_transaction(
         &document,
         &drawing,
@@ -234,17 +246,22 @@ fn an_imported_outline_is_joined_and_extrudes_into_a_solid() {
         },
         "Import slot.dxf",
     );
+
     assert_eq!(import.curves, 5);
     assert_eq!(import.joints, 4);
+
     document.apply(import.transaction).unwrap();
+
     let imported = sketch(&document, import.sketch);
     let coincidences = imported
         .constraints()
         .filter(|(_, constraint)| matches!(constraint, Constraint::Coincident(..)))
         .count();
+
     assert_eq!(coincidences, 4);
 
     let mut transaction = document.transaction("Extrude");
+
     let body = transaction.add_feature(
         "Plate",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -259,9 +276,13 @@ fn an_imported_outline_is_joined_and_extrudes_into_a_solid() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
+
     assert_eq!(evaluation.failed_count(), 0);
+
     let volume = evaluation
         .body(body)
         .unwrap()
@@ -270,6 +291,7 @@ fn an_imported_outline_is_joined_and_extrudes_into_a_solid() {
         .mass_properties()
         .volume;
     let expected = 2.0 * (20.0 * 10.0 + PI * 25.0 - PI * 4.0);
+
     assert!((volume - expected).abs() < 0.05, "{volume} vs {expected}");
 }
 
@@ -277,10 +299,15 @@ fn an_imported_outline_is_joined_and_extrudes_into_a_solid() {
 fn importing_into_an_existing_sketch_keeps_its_contents() {
     let mut document = Document::default();
     let mut existing = Sketch::new(Plane::XY);
+
     existing.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
+
     let mut transaction = document.transaction("Sketch");
+
     let feature = transaction.add_feature("Sketch 1", FeatureKind::from(existing));
+
     document.apply(transaction.finish()).unwrap();
+
     let before = sketch(&document, feature).entities().len();
 
     let drawing = millimetre_drawing(vec![line((5.0, 0.0), (5.0, 5.0))]);
@@ -290,26 +317,33 @@ fn importing_into_an_existing_sketch_keeps_its_contents() {
         SketchTarget::Existing(feature),
         "Import",
     );
+
     assert_eq!(import.sketch, feature);
+
     document.apply(import.transaction).unwrap();
+
     assert_eq!(sketch(&document, feature).entities().len(), before + 3);
 }
 
 #[test]
 fn units_are_converted_to_millimetres_and_named() {
     let inches = drawing(Some(1), vec![line((0.0, 0.0), (1.0, 0.0))]);
+
     assert_eq!(lines(&inches), vec![(Point2::ZERO, Point2::new(25.4, 0.0))]);
     assert!(inches.notes[0].contains("inches"), "{:?}", inches.notes);
 
     let unknown = drawing(None, vec![line((0.0, 0.0), (1.0, 0.0))]);
+
     assert_eq!(lines(&unknown), vec![(Point2::ZERO, Point2::X)]);
     assert!(unknown.notes[0].contains("read as millimetres"));
 
     let unitless = drawing(Some(0), vec![line((0.0, 0.0), (1.0, 0.0))]);
+
     assert!(unitless.notes[0].contains("read as millimetres"));
 
     let survey = drawing(Some(21), vec![line((0.0, 0.0), (3_937.0, 0.0))]);
     let (_, end) = lines(&survey)[0];
+
     assert!((end.x - 1_200_000.0).abs() < 1e-6, "{end}");
     assert!(
         survey.notes[0].contains("US survey feet"),
@@ -318,6 +352,7 @@ fn units_are_converted_to_millimetres_and_named() {
     );
 
     let future = drawing(Some(99), vec![line((0.0, 0.0), (1.0, 0.0))]);
+
     assert_eq!(lines(&future), vec![(Point2::ZERO, Point2::X)]);
     assert_eq!(
         future.notes[0],
@@ -327,20 +362,24 @@ fn units_are_converted_to_millimetres_and_named() {
 
     for units in [None, Some(0)] {
         let mut content = vec![pair(9, "$MEASUREMENT"), pair(70, 0)];
+
         if let Some(units) = units {
             content.extend([pair(9, "$INSUNITS"), pair(70, units)]);
         }
+
         let imperial = parse_dxf(&text(vec![
             section("HEADER", vec![content]),
             section("ENTITIES", vec![line((0.0, 0.0), (1.0, 0.0))]),
         ]))
         .unwrap();
+
         assert_eq!(
             lines(&imperial),
             vec![(Point2::ZERO, Point2::new(25.4, 0.0))]
         );
         assert!(imperial.notes[0].contains("inches"), "{:?}", imperial.notes);
     }
+
     let metric_named = parse_dxf(&text(vec![
         section(
             "HEADER",
@@ -354,6 +393,7 @@ fn units_are_converted_to_millimetres_and_named() {
         section("ENTITIES", vec![line((0.0, 0.0), (1.0, 0.0))]),
     ]))
     .unwrap();
+
     assert_eq!(lines(&metric_named), vec![(Point2::ZERO, Point2::X)]);
 }
 
@@ -367,6 +407,7 @@ pub(super) fn block(name: &str, base: (f64, f64), content: Vec<Pairs>) -> Pairs 
         pair(20, base.1),
         pair(30, 0.0),
     ];
+
     pairs.extend(content.into_iter().flatten());
     pairs.extend([pair(0, "ENDBLK"), pair(8, "0")]);
     pairs
@@ -374,6 +415,7 @@ pub(super) fn block(name: &str, base: (f64, f64), content: Vec<Pairs>) -> Pairs 
 
 pub(super) fn insert(name: &str, layer: &str, rest: &[(i32, f64)]) -> Pairs {
     let mut pairs = vec![pair(0, "INSERT"), pair(8, layer), pair(2, name)];
+
     pairs.extend(rest.iter().map(|(code, value)| pair(*code, value)));
     pairs
 }
@@ -389,6 +431,7 @@ pub(super) fn layer(name: &str, color: i64, flags: i64) -> Pairs {
 
 pub(super) fn tables(layers: Vec<Pairs>) -> Pairs {
     let mut content = vec![vec![pair(0, "TABLE"), pair(2, "LAYER")]];
+
     content.extend(layers);
     content.push(vec![pair(0, "ENDTAB")]);
     section("TABLES", content)
@@ -427,11 +470,13 @@ fn inserted_blocks_are_placed_rotated_scaled_and_repeated() {
     ]);
     let drawing = parse_dxf(&bytes).unwrap();
     let found = lines(&drawing);
+
     assert_eq!(found.len(), 4);
     assert!(near(found[0].0, Point2::new(10.0, 0.0)));
     assert!(near(found[0].1, Point2::new(10.0, 2.0)));
     for (index, (start, end)) in found[1..].iter().enumerate() {
         let x = 5.0 * index as f64;
+
         assert!(near(*start, Point2::new(x, 20.0)));
         assert!(near(*end, Point2::new(x + 1.0, 20.0)));
     }
@@ -440,7 +485,9 @@ fn inserted_blocks_are_placed_rotated_scaled_and_repeated() {
 #[test]
 fn hidden_layers_paper_space_and_annotations_are_left_out_with_a_note() {
     let mut paper = line((0.0, 0.0), (9.0, 9.0));
+
     paper.push(pair(67, 1));
+
     let bytes = text(vec![
         header(Some(4)),
         tables(vec![
@@ -481,8 +528,11 @@ fn hidden_layers_paper_space_and_annotations_are_left_out_with_a_note() {
         ),
     ]);
     let drawing = parse_dxf(&bytes).unwrap();
+
     assert_eq!(lines(&drawing), vec![(Point2::ZERO, Point2::new(3.0, 0.0))]);
+
     let notes = drawing.notes.join("\n");
+
     assert!(
         notes.contains("1 dimension and 2 texts were left out"),
         "{notes}"
@@ -519,8 +569,11 @@ fn a_downward_arc_keeps_its_place_and_turns_the_right_way() {
         ],
     )]);
     let arcs = arcs(&drawing);
+
     assert_eq!(arcs.len(), 1);
+
     let arc = arcs[0];
+
     assert!(near(arc.center, Point2::new(-5.0, 0.0)));
     assert!((arc.sweep - FRAC_PI_2).abs() < 1e-12);
     assert!(near(arc.point_at(arc.start_angle), Point2::new(-5.0, 2.0)));
@@ -531,14 +584,17 @@ fn a_downward_arc_keeps_its_place_and_turns_the_right_way() {
 fn uniform_cubic_splines_are_kept_exactly_and_others_are_fitted() {
     let control = [(0.0, 0.0), (1.0, 2.0), (3.0, 2.0), (4.0, 0.0), (6.0, 1.0)];
     let mut exact = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 8), pair(71, 3)];
+
     for knot in [0.0, 0.0, 0.0, 0.0, 5.0, 10.0, 10.0, 10.0, 10.0] {
         exact.push(pair(40, knot));
     }
     for (x, y) in control {
         exact.extend([pair(10, x), pair(20, y), pair(30, 0.0)]);
     }
+
     let half = std::f64::consts::FRAC_1_SQRT_2;
     let mut rational = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 12), pair(71, 2)];
+
     for knot in [0.0, 0.0, 0.0, 1.0, 1.0, 1.0] {
         rational.push(pair(40, knot));
     }
@@ -548,10 +604,13 @@ fn uniform_cubic_splines_are_kept_exactly_and_others_are_fitted() {
     for (x, y) in [(10.0, 0.0), (10.0, 10.0), (0.0, 10.0)] {
         rational.extend([pair(10, x), pair(20, y)]);
     }
+
     let mut fit = vec![pair(0, "SPLINE"), pair(8, "0"), pair(71, 3)];
+
     for (x, y) in [(0.0, 20.0), (5.0, 25.0), (10.0, 20.0), (15.0, 25.0)] {
         fit.extend([pair(11, x), pair(21, y)]);
     }
+
     let bytes = text(vec![
         header(Some(4)),
         section("ENTITIES", vec![exact, rational, fit]),
@@ -573,21 +632,29 @@ fn uniform_cubic_splines_are_kept_exactly_and_others_are_fitted() {
             _ => None,
         })
         .collect();
+
     assert_eq!(splines.len(), 2);
+
     let expected: Vec<Point2> = control.iter().map(|(x, y)| Point2::new(*x, *y)).collect();
+
     assert_eq!(*splines[0], expected);
 
     let arc = BSpline::clamped(splines[1].clone()).unwrap();
+
     for step in 0..=100 {
         let point = arc.point_at(step as f64 / 100.0);
+
         assert!((point.length() - 10.0).abs() < 1e-4, "{point}");
     }
+
     let through: Vec<Point2> = [(0.0, 20.0), (5.0, 25.0), (10.0, 20.0), (15.0, 25.0)]
         .map(|(x, y)| Point2::new(x, y))
         .to_vec();
+
     assert_eq!(fitted, vec![(&through, false)]);
 
     let notes = drawing.notes.join("\n");
+
     assert!(
         notes.contains("1 spline was converted to sketch splines"),
         "{notes}"
@@ -604,6 +671,7 @@ fn uniform_cubic_splines_are_kept_exactly_and_others_are_fitted() {
 #[test]
 fn a_closed_spline_given_by_fit_points_imports_as_a_closed_fit_point_spline() {
     let mut closed = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 11), pair(71, 3)];
+
     for (x, y) in [
         (0.0, 0.0),
         (20.0, 0.0),
@@ -613,10 +681,12 @@ fn a_closed_spline_given_by_fit_points_imports_as_a_closed_fit_point_spline() {
     ] {
         closed.extend([pair(11, x), pair(21, y)]);
     }
+
     let bytes = text(vec![header(Some(4)), section("ENTITIES", vec![closed])]);
 
     let drawing = parse_dxf(&bytes).unwrap();
     let document = Document::default();
+
     let import = drawing_transaction(
         &document,
         &drawing,
@@ -627,7 +697,9 @@ fn a_closed_spline_given_by_fit_points_imports_as_a_closed_fit_point_spline() {
         "Import",
     );
     let mut imported = document.clone();
+
     imported.apply(import.transaction).unwrap();
+
     let kinds: Vec<SplineKind> = sketch(&imported, import.sketch)
         .entities()
         .filter_map(|(_, entity)| entity.spline_kind())
@@ -676,6 +748,7 @@ fn ellipses_stay_ellipses_unless_they_are_circles() {
         .iter()
         .find(|curve| matches!(curve, DrawingCurve::Ellipse { .. }))
         .unwrap();
+
     assert_eq!(
         ellipse,
         &DrawingCurve::Ellipse {
@@ -685,7 +758,9 @@ fn ellipses_stay_ellipses_unless_they_are_circles() {
             ends: None,
         }
     );
+
     let arcs = arcs(&drawing);
+
     assert_eq!(arcs.len(), 1);
     assert!(near(arcs[0].center, Point2::new(50.0, 0.0)));
     assert!((arcs[0].sweep - PI).abs() < 1e-9);
@@ -707,6 +782,7 @@ fn old_style_polylines_and_three_dimensional_ones_are_read() {
         pair(20, 0.0),
         pair(30, 0.0),
     ];
+
     for (x, y, bulge) in [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (10.0, 10.0, 0.0)] {
         pairs.extend([
             pair(0, "VERTEX"),
@@ -718,7 +794,9 @@ fn old_style_polylines_and_three_dimensional_ones_are_read() {
         ]);
     }
     pairs.extend([pair(0, "SEQEND"), pair(8, "0")]);
+
     let mut three = vec![pair(0, "POLYLINE"), pair(8, "0"), pair(70, 8)];
+
     for (x, y, z) in [(0.0, 20.0, 0.0), (5.0, 20.0, 3.0)] {
         three.extend([
             pair(0, "VERTEX"),
@@ -730,7 +808,9 @@ fn old_style_polylines_and_three_dimensional_ones_are_read() {
         ]);
     }
     three.extend([pair(0, "SEQEND")]);
+
     let drawing = millimetre_drawing(vec![pairs, three]);
+
     assert_eq!(lines(&drawing).len(), 4);
     assert!(drawing.notes.join(" ").contains("not flat"));
 }
@@ -743,6 +823,7 @@ fn a_binary_drawing_reads_like_a_text_one() {
         bytes.extend(text.as_bytes());
         bytes.push(0);
     };
+
     code(&mut bytes, 0);
     string(&mut bytes, "SECTION");
     code(&mut bytes, 2);
@@ -766,7 +847,9 @@ fn a_binary_drawing_reads_like_a_text_one() {
     string(&mut bytes, "ENDSEC");
     code(&mut bytes, 0);
     string(&mut bytes, "EOF");
+
     let drawing = parse_dxf(&bytes).unwrap();
+
     assert_eq!(
         lines(&drawing),
         vec![(Point2::new(1.0, 2.0), Point2::new(4.0, 6.0))]
@@ -819,10 +902,12 @@ fn files_that_are_not_usable_drawings_are_refused_in_words() {
         parse_dxf(b"  0\nSECTION\n  2\nENTITIES\nnot a code\nLINE\n"),
         Err(ImportError::DamagedAt(5))
     );
+
     let only_text = text(vec![section(
         "ENTITIES",
         vec![vec![pair(0, "TEXT"), pair(8, "0"), pair(1, "Hello")]],
     )]);
+
     assert_eq!(
         parse_dxf(&only_text),
         Err(ImportError::Empty {
@@ -833,12 +918,14 @@ fn files_that_are_not_usable_drawings_are_refused_in_words() {
             ]
         })
     );
+
     let many: Vec<Pairs> = (0..=MAX_DRAWING_CURVES)
         .map(|index| line((index as f64, 0.0), (index as f64, 1.0)))
         .collect();
     let huge = text(vec![section("ENTITIES", many)]);
     let read = parse_dxf(&huge).unwrap();
     let kept = read.arranged(&DrawingOptions::default());
+
     assert_eq!(read.curves.len(), MAX_DRAWING_CURVES + 1);
     assert_eq!(kept.curves.len(), MAX_DRAWING_CURVES);
     assert!(
@@ -850,7 +937,9 @@ fn files_that_are_not_usable_drawings_are_refused_in_words() {
         "{:?}",
         kept.notes
     );
+
     let truncated = b"AutoCAD Binary DXF\r\n\x1a\0\0\0SECTION\0\x02\0ENT";
+
     assert_eq!(parse_dxf(truncated), Err(ImportError::Damaged));
 }
 
@@ -870,6 +959,7 @@ fn damage_part_way_through_keeps_what_comes_before_it_and_says_so() {
     ]))
     .unwrap();
     let last = intact.rfind("  0\r\nLINE").unwrap();
+
     let damaged = format!("{}zz{}", &intact[..last], &intact[last + 2..]);
     let line_of_damage = damaged[..last].matches("\r\n").count() + 1;
 
@@ -899,6 +989,7 @@ fn a_binary_drawing_cut_short_keeps_its_complete_entities() {
         bytes.push(code);
         bytes.extend_from_slice(value);
     };
+
     record(&mut bytes, 0, b"SECTION\0");
     record(&mut bytes, 2, b"ENTITIES\0");
     record(&mut bytes, 0, b"LINE\0");
@@ -945,6 +1036,7 @@ fn a_self_inserting_block_stops_with_a_note() {
         ),
     ]);
     let drawing = parse_dxf(&bytes).unwrap();
+
     assert_eq!(lines(&drawing).len(), 1);
     assert!(drawing.notes.join(" ").contains("inside themselves"));
 }
@@ -970,6 +1062,7 @@ fn short_curves_and_closed_arcs_are_tidied_before_they_reach_the_sketch() {
         ..Drawing::default()
     };
     let document = Document::default();
+
     let import = drawing_transaction(
         &document,
         &drawing,
@@ -979,14 +1072,19 @@ fn short_curves_and_closed_arcs_are_tidied_before_they_reach_the_sketch() {
         },
         "Import",
     );
+
     assert_eq!(import.curves, 2);
+
     let mut document = document;
+
     document.apply(import.transaction).unwrap();
+
     let imported = sketch(&document, import.sketch);
     let circles = imported
         .entities()
         .filter(|(_, entity)| matches!(entity, Entity::Circle { .. }))
         .count();
+
     assert_eq!(circles, 1);
 }
 
@@ -1001,11 +1099,13 @@ fn linetype(name: &str, elements: i64) -> Pairs {
 
 fn styled_tables(linetypes: Vec<Pairs>, layers: Vec<(&str, &str)>) -> Pairs {
     let mut content = vec![vec![pair(0, "TABLE"), pair(2, "LTYPE")]];
+
     content.extend(linetypes);
     content.push(vec![pair(0, "ENDTAB")]);
     content.push(vec![pair(0, "TABLE"), pair(2, "LAYER")]);
     for (name, linetype) in layers {
         let mut record = layer(name, 7, 0);
+
         record.push(pair(6, linetype));
         content.push(record);
     }
@@ -1100,6 +1200,7 @@ fn a_block_drawn_by_block_takes_the_dashing_of_the_insert_that_places_it() {
             linetype,
         )
     };
+
     let drawing = styled_drawing(
         vec![
             at("Inherits", 0.0, "Hidden"),
@@ -1139,7 +1240,9 @@ fn construction_curves_stay_construction_in_the_sketch_and_their_points_do_not()
         "Import",
     );
     let mut document = document;
+
     document.apply(import.transaction).unwrap();
+
     let imported = sketch(&document, import.sketch);
 
     let construction: Vec<&Entity> = imported
@@ -1147,6 +1250,7 @@ fn construction_curves_stay_construction_in_the_sketch_and_their_points_do_not()
         .filter(|(id, _)| imported.is_construction(*id))
         .map(|(_, entity)| entity)
         .collect();
+
     assert!(matches!(construction.as_slice(), [Entity::Line { .. }]));
     assert_eq!(imported.entities().count(), 6);
 }
@@ -1260,6 +1364,7 @@ mod step {
         document
             .apply(bodies_transaction(&document, &import.bodies, "Import"))
             .unwrap();
+
         let colour = |name: &str| {
             document
                 .features()
@@ -1302,6 +1407,7 @@ mod step {
         document
             .apply(bodies_transaction(&document, &import.bodies, "Import"))
             .unwrap();
+
         let appearance = |name: &str| {
             document
                 .features()
@@ -1321,6 +1427,7 @@ mod step {
     #[test]
     fn faces_of_two_colours_and_a_see_through_one_import_onto_their_faces_and_are_saved() {
         let mut text = step_text();
+
         let faces: Vec<String> = text
             .lines()
             .filter_map(|line| line.split_once("=ADVANCED_FACE("))
@@ -1341,24 +1448,33 @@ mod step {
              #900016=SURFACE_STYLE_USAGE(.BOTH.,#900015);\n\
              #900017=PRESENTATION_STYLE_ASSIGNMENT((#900016));\n",
         );
+
         for (index, face) in faces.iter().enumerate() {
             let style = if index % 3 == 0 { "#900017" } else { "#900007" };
+
             styles.push_str(&format!(
                 "#{}=STYLED_ITEM('',({style}),{face});\n",
                 910_000 + index
             ));
         }
+
         let end = text.rfind("ENDSEC;").unwrap();
+
         text.insert_str(end, &styles);
+
         let import = parse_step(&text, "block.step").unwrap();
         let mut document = Document::default();
+
         document
             .apply(bodies_transaction(&document, &import.bodies, "Import"))
             .unwrap();
+
         let id = document.features().next().unwrap().id();
         let evaluation = evaluated(&document);
+
         let solid = evaluation.body(id).unwrap();
         let appearance = &document.feature(id).unwrap().appearance;
+
         let colours = appearance.face_colours(solid, &document.face_splits(id));
         let opacities = appearance.face_opacities(solid, &document.face_splits(id));
         let loaded = decode(&encode(&document).unwrap()).unwrap();
@@ -1369,18 +1485,21 @@ mod step {
             (Some(Rgb::new(0, 0, 255)), None)
         );
         assert_eq!(appearance.faces.len(), 2);
+
         for (index, (face, _)) in solid.faces().enumerate() {
             let expected = if index % 3 == 0 {
                 (Some(Rgb::new(255, 0, 0)), Some(50))
             } else {
                 (None, None)
             };
+
             assert_eq!(
                 (colours.get(&face).copied(), opacities.get(&face).copied()),
                 expected,
                 "face {index}"
             );
         }
+
         assert_eq!(loaded.issues, Vec::<String>::new());
         assert_eq!(loaded.document.feature(id).unwrap().appearance, *appearance);
     }
@@ -1413,6 +1532,7 @@ mod step {
         document
             .apply(bodies_transaction(&document, &import.bodies, "Import"))
             .unwrap();
+
         let tree: Vec<(&str, Option<&str>)> = document
             .features()
             .map(|feature| (feature.name.as_str(), feature.group.as_deref()))
@@ -1431,24 +1551,35 @@ mod step {
     #[test]
     fn an_imported_body_can_be_filleted_saved_and_loaded() {
         let import = parse_step(&step_text(), "block.step").unwrap();
+
         assert!(import.notes.is_empty(), "{:?}", import.notes);
         assert_eq!(import.bodies.len(), 1);
+
         let mut document = Document::default();
+
         let transaction = bodies_transaction(&document, &import.bodies, "Import block.step");
+
         document.apply(transaction).unwrap();
+
         let body = document.features().next().unwrap().id();
+
         assert_eq!(document.feature(body).unwrap().name, "Block");
 
         let mut engine = Recompute::default();
+
         let evaluation = engine.run(
             &document,
             &ModelEvaluator,
             &CancelToken::never(),
             &|_, _| {},
         );
+
         assert_eq!(evaluation.failed_count(), 0);
+
         let solid = evaluation.body(body).unwrap();
+
         assert!((volume(solid) - 320.0).abs() < 1e-6);
+
         let top_edge = solid
             .edges()
             .find(|(_, edge)| {
@@ -1458,6 +1589,7 @@ mod step {
             .map(|(id, _)| id)
             .unwrap();
         let mut transaction = document.transaction("Fillet");
+
         let fillet = transaction.add_feature(
             "Fillet 1",
             FeatureKind::Blend(Blend {
@@ -1471,28 +1603,37 @@ mod step {
                 sizing: FilletSizing::Radius,
             }),
         );
+
         document.apply(transaction.finish()).unwrap();
+
         let evaluation = engine.run(
             &document,
             &ModelEvaluator,
             &CancelToken::never(),
             &|_, _| {},
         );
+
         assert_eq!(evaluation.failed_count(), 0);
+
         let rounded = volume(evaluation.body(body).unwrap());
         let spandrel = (1.0 - std::f64::consts::PI / 4.0) * 10.0;
+
         assert!((rounded - (320.0 - spandrel)).abs() < 1e-2, "{rounded}");
 
         let loaded = decode(&encode(&document).unwrap()).unwrap();
+
         assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
         assert_eq!(loaded.document, document);
+
         let mut fresh = Recompute::default();
+
         let evaluation = fresh.run(
             &loaded.document,
             &ModelEvaluator,
             &CancelToken::never(),
             &|_, _| {},
         );
+
         assert_eq!(evaluation.failed_count(), 0);
         assert!((volume(evaluation.body(body).unwrap()) - rounded).abs() < 1e-9);
         assert!(evaluation.feature(fillet).is_some());
@@ -1510,7 +1651,9 @@ mod step {
                 )
             })
             .collect();
+
         curves.push(ProfileCurve::circle(5, Point2::new(5.0, 4.0), 2.0));
+
         let regions = Profile::new(&curves)
             .unwrap()
             .select(&Selection::EvenDepth)
@@ -1552,11 +1695,14 @@ mod step {
         .unwrap();
         let import = parse_step(&text, "plate.step").unwrap();
         let mut document = Document::default();
+
         document
             .apply(bodies_transaction(&document, &import.bodies, "Import"))
             .unwrap();
+
         let body = document.features().next().unwrap().id();
         let mut engine = Recompute::default();
+
         let evaluation = engine.run(
             &document,
             &ModelEvaluator,
@@ -1569,31 +1715,38 @@ mod step {
             .filter(|(_, face)| !matches!(face.surface(), Surface::Plane(_)))
             .map(|(id, _)| FaceReference::capture(read, id).unwrap())
             .collect();
+
         assert_eq!(faces.len(), 2);
 
         let mut transaction = document.transaction("Delete face");
+
         transaction.add_feature(
             "Delete face 1",
             FeatureKind::DeleteFace(DeleteFace { body, faces }),
         );
         document.apply(transaction.finish()).unwrap();
+
         let evaluation = engine.run(
             &document,
             &ModelEvaluator,
             &CancelToken::never(),
             &|_, _| {},
         );
+
         assert_eq!(evaluation.failed_count(), 0);
         assert!((volume(evaluation.body(body).unwrap()) - 320.0).abs() < 1e-2);
 
         let loaded = decode(&encode(&document).unwrap()).unwrap();
+
         assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
+
         let evaluation = Recompute::default().run(
             &loaded.document,
             &ModelEvaluator,
             &CancelToken::never(),
             &|_, _| {},
         );
+
         assert_eq!(evaluation.failed_count(), 0);
         assert_eq!(evaluation.body(body).unwrap().faces().count(), 6);
     }
@@ -1638,9 +1791,11 @@ mod step {
             panic!("{names:?}");
         };
         let mut document = Document::default();
+
         document
             .apply(bodies_transaction(&document, &import.bodies, "Import"))
             .unwrap();
+
         let ids: Vec<_> = document.features().map(|feature| feature.id()).collect();
         let evaluation = evaluated(&document);
         let encoded = encode(&document).unwrap();
@@ -1684,11 +1839,13 @@ mod step {
             [28.0, 20.0, -2.0],
             [32.0, 50.0, 2.0]
         ));
+
         let held: Vec<_> = loaded
             .document
             .features()
             .filter_map(|feature| feature.kind.import())
             .collect();
+
         assert_eq!(held[1].step.address(), held[2].step.address());
         assert!(std::sync::Arc::ptr_eq(&held[1].solid, &held[2].solid));
     }
@@ -1706,9 +1863,11 @@ mod step {
             );
         let import = parse_step(&text, "assembly.step").unwrap();
         let mut document = Document::default();
+
         document
             .apply(bodies_transaction(&document, &import.bodies, "Import"))
             .unwrap();
+
         let block = document.features().next().unwrap().id();
         let evaluation = evaluated(&document);
 
@@ -1822,6 +1981,7 @@ mod step {
             pair.shells().last().is_some_and(|(last, _)| last == shell)
         };
         let mut looks = Vec::new();
+
         for face in 0..pair.faces().count() {
             if is_cap(&pair, face, 1.0) {
                 looks.push(caditor_step::FaceLook {
@@ -1839,6 +1999,7 @@ mod step {
                 });
             }
         }
+
         let written = write_step(
             &[StepBody {
                 name: "Pair",
@@ -1859,18 +2020,23 @@ mod step {
 
         assert_eq!(looks.len(), 3);
         assert_eq!(import.bodies.len(), 2);
+
         let mut see_through = 0;
+
         for body in &import.bodies {
             let solid = &body.import.solid;
             let on_right = solid
                 .bounding_box()
                 .is_some_and(|bounds| bounds.min().x > 4.0);
+
             assert_eq!((body.colour, body.opacity), (None, None));
+
             let tops: Vec<_> = body
                 .faces
                 .iter()
                 .filter(|face| is_cap(solid, face.face as usize, 1.0))
                 .collect();
+
             assert_eq!(tops.len(), 1, "{:?}", body.faces);
             assert_eq!(
                 (tops[0].colour, tops[0].opacity),
@@ -1880,9 +2046,11 @@ mod step {
                 assert!(on_right);
                 assert!(is_cap(solid, face.face as usize, 0.0));
                 assert_eq!((face.colour, face.opacity), (None, Some(50)));
+
                 see_through += 1;
             }
         }
+
         assert_eq!(see_through, 1);
     }
 
@@ -1977,10 +2145,13 @@ mod step {
             .unwrap();
 
         let appearance = &document.features().next().unwrap().appearance;
+
         assert_eq!((appearance.colour, appearance.opacity), (None, None));
+
         let [face] = appearance.faces.as_slice() else {
             panic!("expected one face look: {:?}", appearance.faces);
         };
+
         assert_eq!(
             (face.colour, face.opacity),
             (caditor_document::DEFAULT_BODY_COLOUR, Some(25))
@@ -2026,17 +2197,22 @@ mod step {
             .unwrap();
 
         assert_ne!(text, written);
+
         let appearance = &document.features().next().unwrap().appearance;
+
         assert_eq!(appearance.finish, Some(caditor_document::Finish::Anodized));
+
         let [face] = appearance.faces.as_slice() else {
             panic!("expected one face look: {:?}", appearance.faces);
         };
+
         assert_eq!(face.finish, Some(caditor_document::Finish::Rubber));
         assert_eq!(face.colour, Rgb::new(0, 255, 0));
     }
 
     fn block_file(dir: &tempfile::TempDir) -> std::path::PathBuf {
         let path = dir.path().join("block.step");
+
         std::fs::write(&path, written_block()).unwrap();
         path
     }
@@ -2101,6 +2277,7 @@ mod step {
             .collect();
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("piece.step");
+
         std::fs::write(&path, &latin_1).unwrap();
 
         let import = read_step_file(&path, &CancelToken::never()).unwrap();
@@ -2113,6 +2290,7 @@ mod step {
 
     fn gzipped(text: &str, flags: u8, after_header: &[u8]) -> Vec<u8> {
         let mut bytes = vec![0x1f, 0x8b, 8, flags, 0, 0, 0, 0, 0, 255];
+
         bytes.extend_from_slice(after_header);
         bytes.extend(miniz_oxide::deflate::compress_to_vec(text.as_bytes(), 6));
         bytes.extend(crc32fast::hash(text.as_bytes()).to_le_bytes());
@@ -2145,20 +2323,25 @@ mod step {
         let named = [b'p', b'a', b'r', b't', b'.', b's', b't', b'p', 0];
         let commented = [b'n', b'o', b't', b'e', 0];
         let mut every_field = vec![3, 0, 7, 7, 7];
+
         every_field.extend(named);
         every_field.extend(commented);
         every_field.extend([0, 0]);
+
         let variants = [
             ("plain.stpz", gzipped(&text, 0, &[])),
             ("named.stpz", gzipped(&text, 8, &named)),
             ("every.stpz", gzipped(&text, 2 | 4 | 8 | 16, &every_field)),
         ];
         let plain = dir.path().join("plain.step");
+
         std::fs::write(&plain, &text).unwrap();
+
         let expected = read_step_file(&plain, &CancelToken::never()).unwrap();
 
         for (name, bytes) in variants {
             let path = dir.path().join(name);
+
             std::fs::write(&path, bytes).unwrap();
 
             let import = read_step_file(&path, &CancelToken::never()).unwrap();
@@ -2178,11 +2361,17 @@ mod step {
         let dir = tempfile::TempDir::new().unwrap();
         let intact = gzipped(&text, 0, &[]);
         let mut flipped = intact.clone();
+
         let middle = flipped.len() / 2;
+
         flipped[middle] ^= 0x55;
+
         let mut wrong_size = intact.clone();
+
         let last = wrong_size.len() - 1;
+
         wrong_size[last] ^= 1;
+
         let cases = [
             ("flipped.stpz", flipped),
             ("cut.stpz", intact[..intact.len() / 2].to_vec()),
@@ -2196,6 +2385,7 @@ mod step {
 
         for (name, bytes) in cases {
             let path = dir.path().join(name);
+
             std::fs::write(&path, bytes).unwrap();
 
             assert_eq!(
@@ -2236,13 +2426,16 @@ mod step {
         .unwrap();
         let import = parse_step(&text, "parts.stp").unwrap();
         let mut document = Document::default();
+
         document
             .apply(bodies_transaction(&document, &import.bodies, "Import"))
             .unwrap();
+
         let names: Vec<&str> = document
             .features()
             .map(|feature| feature.name.as_str())
             .collect();
+
         assert_eq!(names, ["Part", "Part 2"]);
         assert_eq!(
             parse_step("0\nSECTION\n", "x.step"),
@@ -2262,13 +2455,16 @@ mod step {
 fn blocks_that_fan_out_into_millions_of_objects_are_refused_quickly() {
     let text_entity = vec![pair(0, "TEXT"), pair(8, "0"), pair(1, "note")];
     let mut blocks = vec![block("B0", (0.0, 0.0), vec![text_entity])];
+
     for level in 1..16 {
         let inner = format!("B{}", level - 1);
         let copies = (0..4)
             .map(|copy| insert(&inner, "0", &[(10, f64::from(copy)), (20, 0.0)]))
             .collect();
+
         blocks.push(block(&format!("B{level}"), (0.0, 0.0), copies));
     }
+
     let bytes = text(vec![
         header(Some(4)),
         section("BLOCKS", blocks),
@@ -2291,6 +2487,7 @@ fn zigzag(vertices: usize) -> Pairs {
         pair(90, vertices),
         pair(70, 0),
     ];
+
     for index in 0..vertices {
         polyline.extend([pair(10, index as f64), pair(20, (index % 2) as f64)]);
     }
@@ -2373,13 +2570,17 @@ fn curves_past_the_limit_are_counted_whole_items_at_a_time() {
 #[test]
 fn a_heavy_spline_repeated_in_a_large_array_is_refused_by_its_points() {
     const POINTS: usize = 1000;
+
     let mut spline = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 8), pair(71, 3)];
     let knots = (0..POINTS + 4).map(|index| index.saturating_sub(3).min(POINTS - 3));
+
     spline.extend(knots.map(|knot| pair(40, knot)));
     for index in 0..POINTS {
         let x = index as f64;
+
         spline.extend([pair(10, x), pair(20, (x * 0.1).sin()), pair(30, 0.0)]);
     }
+
     let bytes = text(vec![
         header(Some(4)),
         section("BLOCKS", vec![block("Wave", (0.0, 0.0), vec![spline])]),
@@ -2437,6 +2638,7 @@ fn a_large_array_of_a_block_that_draws_nothing_is_counted_without_repeating_it()
 #[test]
 fn a_spline_with_bad_control_data_uses_its_fit_points_or_is_left_out() {
     let mut mismatched = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 12), pair(71, 2)];
+
     for knot in [0.0, 0.0, 0.0, 1.0, 1.0, 1.0] {
         mismatched.push(pair(40, knot));
     }
@@ -2446,7 +2648,9 @@ fn a_spline_with_bad_control_data_uses_its_fit_points_or_is_left_out() {
     for (x, y) in [(10.0, 0.0), (10.0, 10.0), (0.0, 10.0)] {
         mismatched.extend([pair(10, x), pair(20, y)]);
     }
+
     let mut with_fit = mismatched.clone();
+
     for (x, y) in [(0.0, 20.0), (5.0, 25.0), (10.0, 20.0)] {
         with_fit.extend([pair(11, x), pair(21, y)]);
     }
@@ -2491,17 +2695,20 @@ fn splines_of_a_degree_above_the_kernel_limit_are_left_out() {
         pair(70, 8),
         pair(71, degree),
     ];
+
     for index in 0..count + degree + 1 {
         spline.push(pair(40, if index <= degree { 0.0 } else { 1.0 }));
     }
     for index in 0..count {
         spline.extend([pair(10, index as f64), pair(20, 0.0), pair(30, 0.0)]);
     }
+
     let bytes = text(vec![
         header(Some(4)),
         section("ENTITIES", vec![spline, line((0.0, 0.0), (1.0, 0.0))]),
     ]);
     let drawing = parse_dxf(&bytes).unwrap();
+
     assert_eq!(drawing.curves.len(), 1);
     assert!(
         drawing.notes.join(" ").contains("could not be read"),
@@ -2616,6 +2823,7 @@ fn recentring_moves_the_middle_of_the_outline_to_the_origin() {
     let arranged = drawing.arranged(&options);
 
     let (low, high) = arranged.bounds().unwrap();
+
     assert!(near(low, Point2::new(-5.0, -5.0)));
     assert!(near(high, Point2::new(5.0, 5.0)));
     assert!(
@@ -2643,6 +2851,7 @@ fn only_a_finite_scale_within_the_limits_is_valid() {
 
 fn line_on(layer: &str, start: (f64, f64), end: (f64, f64)) -> Pairs {
     let mut pairs = line(start, end);
+
     pairs[1] = pair(8, layer);
     pairs
 }
@@ -2684,7 +2893,9 @@ fn curves_remember_their_layer_and_a_block_takes_the_layer_it_is_inserted_on() {
 #[test]
 fn leaving_layers_out_drops_their_curves_and_keeps_the_rest_in_order() {
     let mut drawing = layered_drawing();
+
     drawing.construction.insert(3);
+
     let options = DrawingOptions {
         left_out_layers: [1].into(),
         ..DrawingOptions::default()
@@ -2709,8 +2920,10 @@ fn the_sketch_limit_applies_to_the_layers_chosen_so_leaving_layers_out_brings_la
     let mut entities: Vec<Pairs> = (0..MAX_DRAWING_CURVES)
         .map(|index| line_on("Hatching", (index as f64, 0.0), (index as f64, 1.0)))
         .collect();
+
     entities
         .extend((0..3).map(|index| line_on("Outline", (index as f64, 5.0), (index as f64, 6.0))));
+
     let drawing = parse_dxf(&text(vec![section("ENTITIES", entities)])).unwrap();
     let hatching = drawing
         .layers
@@ -2761,10 +2974,12 @@ fn wiggly_spline(frequency: f64, amplitude: f64) -> Pairs {
         pair(71, degree),
     ];
     let spans = WIGGLY_CONTROL_POINTS - degree;
+
     let knots = (0..degree)
         .map(|_| 0.0)
         .chain((0..=spans).map(|knot| knot as f64))
         .chain((0..degree).map(|_| spans as f64));
+
     for knot in knots {
         spline.push(pair(40, knot));
     }
@@ -2773,6 +2988,7 @@ fn wiggly_spline(frequency: f64, amplitude: f64) -> Pairs {
     }
     for index in 0..WIGGLY_CONTROL_POINTS {
         let x = index as f64;
+
         spline.extend([
             pair(10, x),
             pair(20, (x * frequency).sin() * amplitude),
@@ -2827,7 +3043,9 @@ fn a_spline_repeated_in_a_rotated_mirrored_array_is_fitted_once() {
             _ => None,
         })
         .collect();
+
     assert_eq!(waves.len(), 900);
+
     let step = waves[1][0] - waves[0][0];
     for pair in waves.windows(2).take(29) {
         for (previous, next) in pair[0].iter().zip(pair[1].iter()) {

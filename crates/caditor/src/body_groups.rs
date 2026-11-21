@@ -21,7 +21,7 @@ pub const MOVE_TO_GROUP_LABEL: &str = "Move to group";
 pub const TOP_LEVEL_LABEL: &str = "Out of every group";
 const GROUP_MORE_HINT: &str = "Rename, ungroup or move";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum BodyGroupError {
     #[error("Select bodies in the Bodies list or in the view to group them")]
     NothingToGroup,
@@ -73,14 +73,17 @@ fn arranged(parent: &[String], bodies: Vec<(FeatureId, Vec<String>)>) -> Vec<Ent
         Body(FeatureId),
         Group(String),
     }
+
     let mut slots = Vec::new();
     let mut inside: BTreeMap<String, Vec<(FeatureId, Vec<String>)>> = BTreeMap::new();
+
     for (body, folder) in bodies {
         let Some(name) = folder.get(parent.len()).cloned() else {
             slots.push(Slot::Body(body));
             continue;
         };
         let members = inside.entry(name.clone()).or_default();
+
         if members.is_empty() {
             slots.push(Slot::Group(name));
         }
@@ -252,16 +255,20 @@ fn moving_out(
                 group: folder_label(folder),
             });
         };
+
         return moving_group(document, folder, parent);
     }
+
     let grouped: Vec<FeatureId> = chosen
         .iter()
         .copied()
         .filter(|body| !document.body_folder(*body).is_empty())
         .collect();
+
     if grouped.is_empty() {
         return Err(BodyGroupError::NotInAGroup);
     }
+
     let label = format!(
         "Move {} out of {}",
         bodies_named(document, &grouped),
@@ -325,12 +332,16 @@ pub fn commands(
     } else {
         Ok(())
     };
+
     if commands.invoke(Command::GroupBodies, &groupable) {
         let listed = bodies_tree::listed(context.model);
+
         group_chosen(document, state, actions, (&chosen, &listed));
     }
+
     let group = current_group(document, state, &chosen);
     let detail = group.as_ref().ok().map(|folder| folder_label(folder));
+
     if commands.invoke_detailed(Command::UngroupBodies, detail.clone(), &group)
         && let Ok(folder) = &group
     {
@@ -345,6 +356,7 @@ pub fn commands(
     {
         start_renaming(state, folder);
     }
+
     let in_a_group = chosen_row(document, state, &chosen).is_some()
         || chosen
             .iter()
@@ -396,9 +408,11 @@ pub fn header(
         ui.make_persistent_id(("body-group", &group.folder)),
         true,
     );
+
     if wants_open(state, group) {
         collapsing.set_open(true);
     }
+
     let renaming = state
         .renaming_body_group
         .as_ref()
@@ -415,6 +429,7 @@ pub fn header(
         .any(|body| !document.body_hidden(*body));
     let toggle = visibility::toggle_bodies(document, &group.members, name);
     let muted = appearance::tokens(ui).text_muted;
+
     let row = tree_row::show(
         ui,
         Look {
@@ -423,8 +438,11 @@ pub fn header(
         },
         |ui| {
             ui.add_space(CHILD_CHEVRON_INDENT + depth as f32 * GROUP_INDENT);
+
             let chevron = tree_row::chevron(ui, open, name);
+
             widgets::icon_label(ui, icons::FEATURE_GROUP, muted);
+
             let named = match renaming {
                 Some(focus_pending) => {
                     Name::Renaming(rename_field(ui, document, &group.folder, focus_pending))
@@ -449,6 +467,7 @@ pub fn header(
                     widgets::icon_button(ui, icons::MORE, GROUP_MORE_HINT),
                     &format!("More actions for {name}"),
                 );
+
                 Popup::menu(&response).show(|ui| {
                     widgets::fitted_menu(ui, |ui| {
                         group_menu(ui, document, state, actions, (group, listing));
@@ -462,6 +481,7 @@ pub fn header(
         },
     );
     let (toggled, named) = row.leading;
+
     if toggled {
         collapsing.toggle(ui);
     }
@@ -504,7 +524,9 @@ pub fn header(
             };
         }
     }
+
     let open = collapsing.is_open();
+
     collapsing.store(ui.ctx());
     open
 }
@@ -541,6 +563,7 @@ fn group_menu(
         apply_or_tell(actions, "Ungroup", ungrouping(document, &group.folder));
         ui.close();
     }
+
     let parent = group
         .folder
         .split_last()
@@ -572,6 +595,7 @@ pub fn body_menu(
     } else {
         vec![body]
     };
+
     ui.separator();
     if widgets::menu_item(
         ui,
@@ -584,12 +608,14 @@ pub fn body_menu(
         group_chosen(document, state, actions, (&bodies, listing.order));
         ui.close();
     }
+
     let own = document.body_folder(body);
     let targets: Vec<&Vec<String>> = listing
         .folders
         .iter()
         .filter(|folder| **folder != own)
         .collect();
+
     if let Some(into) = move_menu(ui, &targets, !own.is_empty()) {
         apply_or_tell(
             actions,
@@ -620,8 +646,10 @@ fn move_menu(ui: &mut Ui, targets: &[&Vec<String>], top_level: bool) -> Option<V
     if targets.is_empty() && !top_level {
         return None;
     }
+
     let muted = appearance::tokens(ui).text_muted;
     let mut chosen = None;
+
     let submenu = ui.menu_button(
         (
             widgets::icon(icons::MOVE_TO_GROUP).color(muted),
@@ -645,6 +673,7 @@ fn move_menu(ui: &mut Ui, targets: &[&Vec<String>], top_level: bool) -> Option<V
             });
         },
     );
+
     widgets::named(submenu.response, MOVE_TO_GROUP_LABEL);
     chosen
 }

@@ -20,7 +20,7 @@ const PLACED_CHECKS: usize = 8;
 const COLLAPSED_EDGE: f64 = 1e-9;
 const ROUNDING_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Spacing {
     lines: Vec<f64>,
     speed: f64,
@@ -63,9 +63,11 @@ impl Spacing {
 
     pub(crate) fn index(&self, value: f64) -> f64 {
         let last = self.segments();
+
         if last == 0 {
             return 0.0;
         }
+
         let span = self
             .lines
             .partition_point(|line| *line <= value)
@@ -74,6 +76,7 @@ impl Spacing {
         let Some((low, high)) = self.cell(span) else {
             return 0.0;
         };
+
         let width = high - low;
         if width > 0.0 {
             span as f64 + (value - low) / width
@@ -92,7 +95,7 @@ impl Spacing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Density {
     pub u: Spacing,
     pub v: Spacing,
@@ -119,7 +122,7 @@ impl Density {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Grading {
     lattice: Vec<f64>,
     needs: Vec<f64>,
@@ -140,12 +143,14 @@ impl Grading {
             needs,
             speed,
         };
+
         grading.bound_needs();
         grading
     }
 
     fn bound_needs(&mut self) {
         let (low, high) = self.bounds();
+
         let most = MAX_SEGMENTS as f64 / (high - low);
         for need in &mut self.needs {
             *need = if need.is_nan() { most } else { need.min(most) };
@@ -180,19 +185,26 @@ impl Grading {
     fn spacing(&self, segments: usize) -> Spacing {
         let (low, high) = self.bounds();
         let total = self.needed();
+
         if !total.is_finite() || total <= 0.0 || segments < 2 {
             return Spacing::uniform(low, high, segments, self.speed);
         }
+
         let mut lines = Vec::with_capacity(segments + 1);
+
         lines.push(low);
+
         let mut spans = self.spans().peekable();
         let mut reached = 0.0;
+
         for line in 1..segments {
             let target = total * line as f64 / segments as f64;
             while let Some(((start, end), need)) = spans.peek().copied() {
                 let measure = need * (end - start);
+
                 if reached + measure >= target && need > 0.0 {
                     let at = start + (target - reached) / need;
+
                     lines.push(at.clamp(start, end));
                     break;
                 }
@@ -213,10 +225,12 @@ impl Grading {
 
     fn refine(&mut self, current: &Spacing, factor: f64) {
         let spans: Vec<(f64, f64)> = self.spans().map(|(span, _)| span).collect();
+
         for ((low, high), need) in spans.into_iter().zip(self.needs.iter_mut()) {
             let width = high - low;
             if width > 0.0 {
                 let present = (current.index(high) - current.index(low)) / width;
+
                 *need = need.max(present) * factor;
             }
         }
@@ -234,16 +248,21 @@ fn lattice(low: f64, high: f64, knots: &[f64]) -> Vec<f64> {
         )
         .chain(std::iter::once(high))
         .collect();
+
     breaks.dedup();
+
     let stride = breaks.len().saturating_sub(1).div_ceil(MAX_LATTICE).max(1);
     let mut kept: Vec<f64> = breaks.iter().copied().step_by(stride).collect();
+
     kept.push(high);
     kept.dedup();
+
     let spans = kept.len().saturating_sub(1).max(1);
     let per_span = (MAX_LATTICE / spans).clamp(1, SPAN_SAMPLES);
     let mut values: Vec<f64> = (0..=LATTICE)
         .map(|index| low + (high - low) * index as f64 / LATTICE as f64)
         .collect();
+
     for pair in kept.windows(2) {
         if let [start, end] = pair {
             values.extend(
@@ -269,19 +288,23 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
     } else {
         0.0
     };
+
     let mut u_needs = vec![least_u_need; us.len()];
     let mut v_needs = vec![0.0_f64; vs.len()];
     let (mut u_speeds, mut v_speeds, mut count) = (0.0, 0.0, 0.0);
+
     for (v, v_need) in vs.iter().zip(v_needs.iter_mut()) {
         for (u, u_need) in us.iter().zip(u_needs.iter_mut()) {
             let derivatives = surface.evaluate(*u, *v);
             let (u_speed, v_speed) = (derivatives.du.length(), derivatives.dv.length());
+
             if !u_speed.is_finite() || !v_speed.is_finite() {
                 continue;
             }
             u_speeds += u_speed;
             v_speeds += v_speed;
             count += 1.0;
+
             let Some(normal) = derivatives.normal().or_else(|| surface.normal(*u, *v)) else {
                 continue;
             };
@@ -290,26 +313,32 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
             } else {
                 0.0
             };
+
             if u_speed > 0.0 {
                 let curvature = derivatives.duu.dot(normal).abs() / (u_speed * u_speed);
+
                 *u_need = u_need.max(u_speed / step_for(curvature.max(twist), tolerance));
             }
             if v_speed > 0.0 {
                 let curvature = derivatives.dvv.dot(normal).abs() / (v_speed * v_speed);
+
                 *v_need = v_need.max(v_speed / step_for(curvature.max(twist), tolerance));
             }
         }
     }
+
     let mut u = Grading::new(us, &u_needs, scale(u_speeds, count));
     let mut v = Grading::new(vs, &v_needs, scale(v_speeds, count));
     let mut u_segments = segments(u.needed());
     let mut v_segments = segments(v.needed());
+
     if u.is_flat() && v_segments > 1 {
         u_segments = FLAT_SEGMENTS;
     }
     if v.is_flat() && u_segments > 1 {
         v_segments = FLAT_SEGMENTS;
     }
+
     let mut found = Density {
         u: u.spacing(u_segments),
         v: v.spacing(v_segments),
@@ -324,8 +353,10 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
             | Surface::Torus(_)
     );
     let allowed = tolerance.chord() * GRID_SHARE;
+
     for _ in 0..if measured { REFINEMENTS } else { 0 } {
         let growth = growth(surface, &found, allowed);
+
         if growth.u <= 1.0 && growth.v <= 1.0 {
             break;
         }
@@ -336,9 +367,12 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
             v: v.spacing(segments(v.needed())),
         };
     }
+
     let total = found.u.segments() as f64 * found.v.segments() as f64;
+
     if total > MAX_GRID_POINTS {
         let shrink = (MAX_GRID_POINTS / total).sqrt();
+
         found = Density {
             u: u.spacing(segments(found.u.segments() as f64 * shrink)),
             v: v.spacing(segments(found.v.segments() as f64 * shrink)),
@@ -347,13 +381,13 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
     found
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Growth {
     u: f64,
     v: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct CellDeviation {
     along_u: f64,
     along_v: f64,
@@ -369,7 +403,9 @@ impl CellDeviation {
 fn checked_cells(spacing: &Spacing) -> BTreeSet<usize> {
     let count = spacing.segments();
     let stride = (count / CHECKED_CELLS).max(1);
+
     let mut cells: BTreeSet<usize> = (0..count).step_by(stride).collect();
+
     if let (Some(low), Some(high)) = (spacing.line(0), spacing.line(count)) {
         for place in 0..PLACED_CHECKS {
             let at = low + (high - low) * (place as f64 + 0.5) / PLACED_CHECKS as f64;
@@ -400,19 +436,23 @@ fn growth(surface: &Surface, density: &Density, allowed: f64) -> Growth {
     let mut found = Growth { u: 1.0, v: 1.0 };
     let factor =
         |deviation: f64| ((deviation / allowed).sqrt() * REFINEMENT_MARGIN).max(MIN_GROWTH);
+
     for ((u_low, u_high), (v_low, v_high)) in cells_of(density) {
         let deviation = cell_deviation(
             surface,
             Point2::new(u_low, v_low),
             Point2::new(u_high, v_high),
         );
+
         if !deviation.worst().is_finite() || deviation.worst() <= allowed {
             continue;
         }
+
         let twisted = deviation.across > allowed
             && deviation.across > REFINEMENT_MARGIN * deviation.along_u.max(deviation.along_v);
         let across = if twisted { deviation.across } else { 0.0 };
         let (along_u, along_v) = (deviation.along_u.max(across), deviation.along_v.max(across));
+
         if along_u > allowed {
             found.u = found.u.max(factor(along_u));
         }
@@ -427,6 +467,7 @@ fn cell_deviation(surface: &Surface, low: Point2, high: Point2) -> CellDeviation
     let uv = |u: f64, v: f64| low + (high - low) * Point2::new(u, v);
     let at = |u: f64, v: f64| surface.point_at(uv(u, v));
     let [a, b, c, d] = [at(0.0, 0.0), at(1.0, 0.0), at(0.0, 1.0), at(1.0, 1.0)];
+
     let span = a.distance(d).max(b.distance(c));
     let collapsed = |p: Point3, q: Point3| p.distance(q) <= COLLAPSED_EDGE * span;
     let bow = |u: f64, v: f64, chords: &[(Point3, Point3)]| {
@@ -442,6 +483,7 @@ fn cell_deviation(surface: &Surface, low: Point2, high: Point2) -> CellDeviation
             .fold(0.0, larger)
     };
     let (low_collapsed, high_collapsed) = (collapsed(a, b), collapsed(c, d));
+
     let along_u = [
         (!low_collapsed).then(|| bow(0.5, 0.0, &[(a, b)])),
         (!high_collapsed).then(|| bow(0.5, 1.0, &[(c, d)])),
@@ -515,15 +557,18 @@ mod tests {
 
     fn worst_cell(surface: &Surface, density: &Density) -> f64 {
         let mut worst: f64 = 0.0;
+
         for row in 0..density.v.segments() {
             for column in 0..density.u.segments() {
                 let (u_low, u_high) = density.u.cell(column).unwrap();
                 let (v_low, v_high) = density.v.cell(row).unwrap();
+
                 let deviation = cell_deviation(
                     surface,
                     Point2::new(u_low, v_low),
                     Point2::new(u_high, v_high),
                 );
+
                 worst = worst.max(deviation.worst());
             }
         }
@@ -569,6 +614,7 @@ mod tests {
             let (low, high) = spacing.cell(index).unwrap();
             high - low
         };
+
         let narrowest = (0..found.u.segments())
             .map(|index| width(&found.u, index))
             .fold(f64::INFINITY, f64::min);

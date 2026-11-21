@@ -92,9 +92,11 @@ fn respaced(sketch: &Sketch, system: &System, values: &[f64]) -> Option<Sketch> 
         })
         .map(|(id, _)| id)
         .collect();
+
     if spaced.is_empty() {
         return None;
     }
+
     let moved = sketch.with_values(system, values);
     spaced
         .iter()
@@ -144,7 +146,9 @@ fn miss_of_its_measure(
             if moved.spline(*from).is_some() || moved.spline(*to).is_some() =>
         {
             let (wanted, measured) = (dimensions.dimension(id)?, moved.measured(constraint)?);
+
             let miss = (measured - wanted).abs();
+
             return (miss > DISTANCE_SETTLING * wanted.abs().max(1.0)).then_some(miss);
         }
         Constraint::Tangent(first, second) => {
@@ -153,9 +157,11 @@ fn miss_of_its_measure(
             } else {
                 (*second, *first)
             };
+
             if moved.spline(other).is_some() {
                 return None;
             }
+
             let (on_spline, on_other) = moved.spline_gap(spline, other)?;
             on_spline.distance(on_other)
         }
@@ -165,7 +171,9 @@ fn miss_of_its_measure(
             } else {
                 (*first, *second)
             };
+
             moved.spline(spline)?;
+
             let at = moved.point(point)?;
             moved.closest_on_curve(spline, at)?.distance(at)
         }
@@ -191,6 +199,7 @@ fn solve_from_drawn(
     values: &mut [f64],
 ) -> Result<Vec<Failure>, Cancelled> {
     let mut unsolved = Vec::new();
+
     for failure in failed {
         let held = failure
             .component
@@ -211,6 +220,7 @@ fn solve_again_from(
     values: &mut [f64],
 ) -> Result<Vec<Failure>, Cancelled> {
     let mut unsolved = Vec::new();
+
     for failure in failed {
         if !solves_from(solver, &failure.component, from, values)? {
             unsolved.push(failure);
@@ -246,8 +256,10 @@ fn settle_pressed<'a>(
     work: &mut ReachWork,
 ) -> Result<Vec<&'a Component>, Cancelled> {
     let mut settled = Vec::new();
+
     for failure in frozen_failed {
         let component = &failure.component;
+
         if !pressed_toward_its_targets(solver, component, dragged) {
             continue;
         }
@@ -293,13 +305,13 @@ fn meets_its_targets(
         .all(|(variable, to)| (value(values, *variable) - to).abs() <= tolerance)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EntityState {
     FullyConstrained,
     UnderConstrained,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SketchSolution {
     dimensions: DimensionValues,
     degrees_of_freedom: usize,
@@ -343,11 +355,13 @@ impl SketchSolution {
 
     fn new(dimensions: DimensionValues, system: &System, analysis: Analysis) -> Self {
         let mut fixed = vec![false; system.values.len()];
+
         for variable in analysis.fixed {
             if let Some(slot) = fixed.get_mut(variable) {
                 *slot = true;
             }
         }
+
         let entity_states = system
             .entity_variables
             .iter()
@@ -362,6 +376,7 @@ impl SketchSolution {
             })
             .collect();
         let mut redundancies = analysis.redundancies;
+
         redundancies.sort_by_key(|redundancy| redundancy.constraint);
         Self {
             dimensions,
@@ -372,7 +387,7 @@ impl SketchSolution {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Drag {
     Point { point: EntityId, to: Point2 },
     Radius { circle: EntityId, to: f64 },
@@ -395,7 +410,7 @@ impl Drag {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Solved {
     pub geometry: Sketch,
     pub solution: SketchSolution,
@@ -460,6 +475,7 @@ impl Sketch {
                 values,
                 mut recall,
             } = finished;
+
             let analyses = parts
                 .iter()
                 .map(|component| {
@@ -495,6 +511,7 @@ impl Sketch {
                 mut recall,
                 ..
             } = finished;
+
             for component in parts.iter() {
                 recall.remember_geometry(component, &values);
             }
@@ -520,6 +537,7 @@ impl Sketch {
         let mut misses = Vec::new();
         loop {
             let mut system = System::build(&current, &dimensions)?;
+
             let drawn = system.values.clone();
             let mut stiff = BTreeSet::new();
             let targets: Vec<(usize, f64)> = drags
@@ -527,13 +545,16 @@ impl Sketch {
                 .flat_map(|drag| drag.targets(&system))
                 .filter(|(_, target)| target.is_finite())
                 .collect();
+
             for &(variable, target) in &targets {
                 if let Some(slot) = system.values.get_mut(variable) {
                     *slot = target;
                     stiff.insert(variable);
                 }
             }
+
             let dragged = stiff.clone();
+
             if round > 0 {
                 stiff.extend(spaced_fit_variables(&current, &system));
             }
@@ -543,8 +564,10 @@ impl Sketch {
                 stiff: &stiff,
                 targets: &targets,
             };
+
             let mut recall = Recall::new(&system, &dimensions, parts.drawn(), fixed, previous);
             let mut start = system.values.clone();
+
             recall.start_from(&mut start);
 
             let frozen = Solver {
@@ -555,6 +578,7 @@ impl Sketch {
                 retrying: targets.is_empty(),
             };
             let starting = parts.at(&system, &start);
+
             let beyond: Vec<&Component> = starting
                 .iter()
                 .filter(|component| {
@@ -563,6 +587,7 @@ impl Sketch {
                 })
                 .collect();
             let mut values = start.clone();
+
             let frozen_failed = if stiff.is_empty() {
                 None
             } else {
@@ -577,9 +602,12 @@ impl Sketch {
                 retrying: true,
                 ..frozen
             };
+
             if !held {
                 values = start.clone();
+
                 let mut work = ReachWork::new(REACH_WORK);
+
                 let pressed = settle_pressed(
                     &solver,
                     frozen_failed.as_deref().unwrap_or_default(),
@@ -602,6 +630,7 @@ impl Sketch {
                 } else {
                     failed
                 };
+
                 if !failed.is_empty() {
                     for found in diagnose_failure(
                         &current,
@@ -611,6 +640,7 @@ impl Sketch {
                     )? {
                         found.apply(&mut values);
                     }
+
                     let collapsed = parts.at(&system, &values).iter().any(|component| {
                         solver
                             .collapsed(&solver.part(component), &values)
@@ -622,6 +652,7 @@ impl Sketch {
                             .iter()
                             .flat_map(|failure| failure.component.equations.iter().copied())
                             .collect();
+
                         return Err(SketchError::Conflict {
                             constraints: owners_newest_first(&system, &equations),
                         });
@@ -648,6 +679,7 @@ impl Sketch {
                     || (reparameterised >= PARAMETER_ROUNDS
                         && reparameterised % PARAMETER_ROUNDS == 0
                         && !keeps_converging(&misses));
+
                 misses.push(worst);
                 if out_of_rounds {
                     return Err(SketchError::Conflict {
@@ -678,6 +710,7 @@ impl Sketch {
 
     pub(crate) fn with_values(&self, system: &System, values: &[f64]) -> Self {
         let mut geometry = self.clone();
+
         for (point, x) in &system.points {
             geometry.set_point(*point, Point2::new(value(values, *x), value(values, x + 1)));
         }

@@ -19,6 +19,7 @@ fn journals_in(recovery: &Path) -> Vec<PathBuf> {
 
 fn journal_in(recovery: &Path) -> PathBuf {
     let mut journals = journals_in(recovery);
+
     assert_eq!(journals.len(), 1);
     journals.remove(0)
 }
@@ -44,8 +45,10 @@ fn journalled_changes(recovery: &Path) -> usize {
 fn started(dir: &TempDir) -> (Harness, PathBuf) {
     let root = canonical(dir);
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     harness.edit_width("45 mm");
     harness.edit_width("46 mm");
+
     assert!(harness.model.flush_journal(FILE_TIMEOUT));
     (harness, root.join("recovery"))
 }
@@ -62,10 +65,13 @@ fn a_change_the_stopped_worker_cannot_take_keeps_every_entry_and_starts_a_new_wo
     let (mut harness, recovery) = started(&dir);
     let replaced = journal_in(&recovery);
     let before = harness.model.unsaved_journal_entries();
+
     assert!(before >= 2);
 
     harness.model.stop_storage_worker();
+
     assert!(!journal_is_held(&recovery));
+
     harness.edit_width("47 mm");
 
     assert!(harness.model.has_storage_worker());
@@ -73,11 +79,15 @@ fn a_change_the_stopped_worker_cannot_take_keeps_every_entry_and_starts_a_new_wo
     assert!(harness.model.unprotected().is_none());
 
     wait_for_new_worker(&mut harness, &recovery, &replaced);
+
     assert!(harness.model.flush_journal(FILE_TIMEOUT));
+
     harness.model.stop_storage_worker();
 
     assert_eq!(journalled_changes(&recovery), before + 1);
+
     let recovered = caditor_file::scan(Some(&recovery), &[]);
+
     assert_eq!(recovered.len(), 1);
     assert_eq!(
         recovered[0].editor.document().expression_text(
@@ -100,7 +110,9 @@ fn a_worker_found_stopped_while_polling_is_replaced_with_every_entry_kept() {
     let before = harness.model.unsaved_journal_entries();
 
     harness.model.stop_storage_worker();
+
     assert!(!journal_is_held(&recovery));
+
     wait_for_new_worker(&mut harness, &recovery, &replaced);
 
     assert!(harness.model.has_storage_worker());
@@ -136,8 +148,11 @@ fn a_save_the_stopped_worker_cannot_take_is_reported_as_failed_and_the_next_try_
     assert_eq!(journalled_changes(&recovery), before + 1);
 
     let replaced = journal_in(&recovery);
+
     harness.model.save_to(path.clone());
+
     assert_eq!(harness.model.notice().unwrap().text, WRITER_STOPPED);
+
     wait_for_new_worker(&mut harness, &recovery, &replaced);
     harness.model.save_to(path.clone());
     harness.wait_until("the model is saved", |harness| {
@@ -175,6 +190,7 @@ fn saving_from_the_close_prompt_with_the_worker_gone_writes_the_file_through_a_n
     harness.command(FileCommand::Quit);
     harness.click("Save as…");
     harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+
     assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
 
     assert_eq!(

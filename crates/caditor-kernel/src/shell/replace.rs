@@ -23,7 +23,7 @@ pub const STEEPEST_REPLACING_TURN: f64 = 89.0 * std::f64::consts::PI / 180.0;
 
 const REACH_SAMPLES: usize = 8;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum ReplaceError {
     #[error("no face is to be replaced")]
     NothingToReplace,
@@ -72,6 +72,7 @@ impl Landing {
 
 fn outward_target(normal: Vector3, target: &Plane, face: FaceId) -> Result<Vector3, ReplaceError> {
     let along = normal.dot(target.normal());
+
     if along.abs() < STEEPEST_REPLACING_TURN.cos_libm() {
         return Err(ReplaceError::SquareToTarget(face));
     }
@@ -85,12 +86,15 @@ fn turn_onto(
     target: &Plane,
 ) -> Option<RigidTransform> {
     let hinge = normal.cross(outward);
+
     if hinge.length() <= ANGULAR_RESOLUTION {
         return Some(RigidTransform::IDENTITY);
     }
+
     let hinge = hinge.normalize();
     let across = hinge.cross(normal);
     let toward_target = outward.dot(target.origin() - through) / outward.dot(across);
+
     let on_hinge = through + across * toward_target;
     let turn = hinge
         .dot(normal.cross(outward))
@@ -103,6 +107,7 @@ fn landing(solid: &Solid, face: FaceId, target: &Plane) -> Result<Option<Landing
     let Surface::Plane(plane) = definition.surface() else {
         return Err(ReplaceError::NotFlat(face));
     };
+
     let normal = plane.frame().normal() * definition.sense().sign();
     let through = plane.frame().origin();
     let outward = outward_target(normal, target, face)?;
@@ -112,10 +117,12 @@ fn landing(solid: &Solid, face: FaceId, target: &Plane) -> Result<Option<Landing
     let gap = outward.dot(target.origin() - landed);
     let settled =
         RigidTransform::translation(outward * gap).ok_or(ReplaceError::SquareToTarget(face))?;
+
     let motion = turned.then(&settled);
 
     let still = normal.dot(outward) >= 1.0 - ANGULAR_RESOLUTION
         && (target.origin() - through).dot(outward).abs() <= LINEAR_RESOLUTION;
+
     if still {
         return Ok(None);
     }
@@ -152,6 +159,7 @@ struct Group {
 
 fn grouped(landings: Vec<Landing>) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
+
     for landing in landings {
         match groups
             .iter_mut()
@@ -206,7 +214,7 @@ struct LandedFace {
     group: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MergedName {
     OfReplaced,
     OfStill,
@@ -234,14 +242,17 @@ fn joined_on_target(
         }
         face
     };
+
     for (edge, _) in result.edges() {
         let [first, second] = edge_faces(result, edge)[..] else {
             continue;
         };
         let lying = |face: FaceId| on_target(result, face, target);
+
         let same_side = outward_along(result, first, target)
             .zip(outward_along(result, second, target))
             .is_some_and(|(a, b)| a * b > 0.0);
+
         if first == second
             || group_of(first) == group_of(second)
             || !lying(first)
@@ -250,10 +261,14 @@ fn joined_on_target(
         {
             continue;
         }
+
         let (a, b) = (root(&roots, first), root(&roots, second));
+
         roots.insert(a.max(b), a.min(b));
     }
+
     let mut merged: BTreeMap<FaceId, BTreeSet<FaceId>> = BTreeMap::new();
+
     for face in roots.keys().copied().collect::<Vec<_>>() {
         merged.entry(root(&roots, face)).or_default().insert(face);
     }
@@ -261,9 +276,11 @@ fn joined_on_target(
         .into_iter()
         .filter_map(|(lowest, mut faces)| {
             faces.insert(lowest);
+
             let name = |face: &FaceId| result.face(*face).map(|definition| definition.name());
             let replaced = |face: &&FaceId| group_of(**face).is_some();
             let still = |face: &&FaceId| group_of(**face).is_none();
+
             let keeper = match naming {
                 MergedName::OfReplaced => {
                     faces.iter().filter(replaced).min_by_key(|face| name(face))
@@ -299,6 +316,7 @@ fn landed(
         .iter()
         .flat_map(|group| group.faces.iter().copied())
         .collect();
+
     if let Some(face) = inner
         .dropped
         .iter()
@@ -306,6 +324,7 @@ fn landed(
     {
         return Err(MoveError::Vanishes(*face).into());
     }
+
     let landed_faces: Vec<LandedFace> = groups
         .iter()
         .enumerate()
@@ -381,7 +400,9 @@ fn replaced(
     if faces.is_empty() {
         return Err(ReplaceError::NothingToReplace);
     }
+
     let mut landings: Vec<Landing> = Vec::with_capacity(faces.len());
+
     for face in faces {
         if landings.iter().any(|landing| landing.face == *face) {
             continue;
@@ -397,7 +418,7 @@ fn replaced(
     landed(solid, &grouped(landings), target, naming)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum RoundLanding {
     Still,
     Outward(f64),
@@ -429,7 +450,9 @@ fn round_landing(
         (Surface::Plane(_), _) => Err(ReplaceError::FlatOntoRound(face)),
         (Surface::Cylinder(own), Surface::Cylinder(wanted)) => {
             let (own_frame, wanted_frame) = (own.frame(), wanted.frame());
+
             same_axis_direction(own_frame, wanted_frame).ok_or(off_axis.clone())?;
+
             let aside =
                 (wanted_frame.origin() - own_frame.origin()).reject_from(own_frame.normal());
             let growth = wanted.radius() - own.radius();
@@ -443,15 +466,18 @@ fn round_landing(
         }
         (Surface::Cone(own), Surface::Cone(wanted)) => {
             let (own_frame, wanted_frame) = (own.frame(), wanted.frame());
+
             let turned = same_axis_direction(own_frame, wanted_frame).ok_or(off_axis.clone())?;
             let between = wanted_frame.origin() - own_frame.origin();
             let slope = own.half_angle().tan_libm();
             let wanted_slope = wanted.half_angle().tan_libm() * turned;
             let height = between.dot(own_frame.normal());
             let aside = between.reject_from(own_frame.normal()).length();
+
             if aside > LINEAR_RESOLUTION || (slope - wanted_slope).abs() > ANGULAR_RESOLUTION {
                 return Err(off_axis);
             }
+
             let wanted_here = wanted.radius() - wanted_slope * height;
             Ok(outward_by(
                 (wanted_here - own.radius()) * own.half_angle().cos_libm(),
@@ -460,6 +486,7 @@ fn round_landing(
         }
         (Surface::Sphere(own), Surface::Sphere(wanted)) => {
             let apart = own.frame().origin().distance(wanted.frame().origin());
+
             if apart > LINEAR_RESOLUTION {
                 return Err(off_axis);
             }
@@ -467,9 +494,12 @@ fn round_landing(
         }
         (Surface::Torus(own), Surface::Torus(wanted)) => {
             let (own_frame, wanted_frame) = (own.frame(), wanted.frame());
+
             same_axis_direction(own_frame, wanted_frame).ok_or(off_axis.clone())?;
+
             let apart = own_frame.origin().distance(wanted_frame.origin());
             let same_ring = (own.major_radius() - wanted.major_radius()).abs() <= LINEAR_RESOLUTION;
+
             if apart > LINEAR_RESOLUTION || !same_ring {
                 return Err(off_axis);
             }
@@ -494,8 +524,10 @@ fn onto_round(solid: &Solid, faces: &[FaceId], target: &Surface) -> Result<Solid
     if faces.is_empty() {
         return Err(ReplaceError::NothingToReplace);
     }
+
     let mut inward: BTreeMap<FaceId, f64> = BTreeMap::new();
     let mut shifted: BTreeMap<FaceId, Vector3> = BTreeMap::new();
+
     for face in faces {
         match round_landing(solid, *face, target)? {
             RoundLanding::Still => {}
@@ -530,6 +562,7 @@ fn onto_round(solid: &Solid, faces: &[FaceId], target: &Surface) -> Result<Solid
         (false, None) => {
             let offsets = Offsets::moving_each(solid, inward);
             let inner = inner_solid(&offsets, Naming::Kept).map_err(MoveError::from)?;
+
             if let Some(face) = inner.dropped.iter().next() {
                 return Err(MoveError::Vanishes(*face).into());
             }

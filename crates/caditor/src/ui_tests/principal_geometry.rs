@@ -21,6 +21,7 @@ use crate::{
 #[test]
 fn p_hides_the_principal_geometry_outside_a_sketch_and_places_points_inside_one() {
     let mut harness = Harness::new();
+
     let base = harness.document().features().next().unwrap().id();
 
     harness.key(Key::P, Modifiers::NONE);
@@ -32,7 +33,9 @@ fn p_hides_the_principal_geometry_outside_a_sketch_and_places_points_inside_one(
     harness.key(Key::P, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let shown_again = harness.document().hidden_principal().next().is_none();
+
     harness.edit(base);
     harness.key(Key::P, Modifiers::NONE);
     harness.frame();
@@ -66,28 +69,37 @@ fn axes() -> Vec<Pickable> {
 #[test]
 fn principal_planes_axes_and_origin_hide_and_planes_return_while_choosing_one() {
     let mut harness = Harness::new();
+
     harness.settle();
+
     let shown_at_first = principal_pickables(&mut harness).len();
 
     harness.click_beside(crate::icons::SHOW, crate::principal_tree::GROUP_TITLE);
     harness.settle();
+
     let hidden_label = harness.model.undo_label().map(str::to_owned);
     let left_after_hiding = principal_pickables(&mut harness);
 
     harness.perform(Action::Editing(EditingCommand::NewSketch(None)));
     harness.settle();
+
     let offered_while_choosing = principal_pickables(&mut harness);
+
     harness.perform(Action::Editing(EditingCommand::CancelNewSketch));
     harness.settle();
+
     let left_after_choosing = principal_pickables(&mut harness).len();
 
     harness.key(Key::H, Modifiers::ALT);
     harness.settle();
+
     let shown_again = principal_pickables(&mut harness).len();
     let xy = Pickable::Plane(PrincipalPlane::Xy);
+
     harness.select([xy]);
     harness.key(Key::H, Modifiers::NONE);
     harness.settle();
+
     let after_hiding_xy = principal_pickables(&mut harness);
 
     assert_eq!(shown_at_first, 7);
@@ -108,6 +120,7 @@ fn principal_planes_axes_and_origin_hide_and_planes_return_while_choosing_one() 
 #[test]
 fn a_principal_plane_chosen_in_the_tree_is_selected_in_the_view() {
     let mut harness = Harness::new();
+
     harness.click("Side sketch");
 
     harness.click_button("Show details of Principal planes, axes and origin");
@@ -141,18 +154,25 @@ fn showing(harness: &Harness) -> Vec<PrincipalShowing> {
 #[test]
 fn principal_geometry_steps_aside_once_a_body_shows_and_returns_when_none_does() {
     let mut harness = Harness::new();
+
     harness.settle();
+
     let before_a_body = principal_pickables(&mut harness).len();
 
     extruded_plate(&mut harness);
     harness.select([]);
     harness.settle();
+
     let after_the_body = principal_pickables(&mut harness);
+
     run_from_palette(&mut harness, "hide or show every body");
     harness.settle();
+
     let bodies_hidden = principal_pickables(&mut harness).len();
+
     harness.perform(Action::Undo);
     harness.settle();
+
     let body_shown_again = principal_pickables(&mut harness);
 
     assert_eq!(before_a_body, 7);
@@ -169,28 +189,36 @@ fn principal_geometry_steps_aside_once_a_body_shows_and_returns_when_none_does()
 #[test]
 fn a_tool_choosing_in_the_view_brings_back_only_the_kind_it_takes() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.settle();
+
     let revision = harness.model.revision();
 
     harness.perform(Action::Editing(EditingCommand::NewSketch(None)));
     harness.settle();
+
     let choosing_a_sketch_plane = principal_pickables(&mut harness);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let after_escape = principal_pickables(&mut harness);
 
     run_from_palette(&mut harness, "circular pattern");
     harness.settle();
+
     let choosing = harness
         .workspace
         .editing
         .picking()
         .map(|picking| picking.slot);
     let choosing_an_axis = principal_pickables(&mut harness);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let open_without_choosing = principal_pickables(&mut harness);
 
     assert_eq!(choosing_a_sketch_plane, planes());
@@ -204,6 +232,7 @@ fn a_tool_choosing_in_the_view_brings_back_only_the_kind_it_takes() {
 #[test]
 fn an_open_axis_list_shows_the_axes_and_measuring_shows_everything() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     run_from_palette(&mut harness, "circular pattern");
     harness.settle();
@@ -213,7 +242,9 @@ fn an_open_axis_list_shows_the_axes_and_measuring_shows_everything() {
     harness.click("None chosen");
     harness.frame();
     harness.settle();
+
     let listing_axes = principal_pickables(&mut harness);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
@@ -221,6 +252,7 @@ fn an_open_axis_list_shows_the_axes_and_measuring_shows_everything() {
     harness.select([]);
     harness.click_tool("Measure");
     harness.settle();
+
     let measuring = principal_pickables(&mut harness).len();
 
     assert_eq!(listing_axes, axes());
@@ -231,8 +263,10 @@ fn an_open_axis_list_shows_the_axes_and_measuring_shows_everything() {
 #[test]
 fn hidden_principal_geometry_is_offered_only_while_a_tool_asks_for_its_kind() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let xz = Pickable::Plane(PrincipalPlane::Xz);
+
     harness.perform(Action::Editing(EditingCommand::NewSketch(None)));
     harness.settle();
     harness.select([xz]);
@@ -242,6 +276,7 @@ fn hidden_principal_geometry_is_offered_only_while_a_tool_asks_for_its_kind() {
     harness.settle();
     harness.key(Key::H, Modifiers::NONE);
     harness.settle();
+
     let hidden = harness
         .document()
         .principal_showing(PrincipalGeometry::Plane(PrincipalPlane::Xz));
@@ -249,7 +284,9 @@ fn hidden_principal_geometry_is_offered_only_while_a_tool_asks_for_its_kind() {
     harness.select([]);
     harness.click_tool("Measure");
     harness.settle();
+
     let measuring = principal_pickables(&mut harness);
+
     harness.click_tool("Measure");
     harness.settle();
     harness.select([Pickable::Edge {
@@ -260,6 +297,7 @@ fn hidden_principal_geometry_is_offered_only_while_a_tool_asks_for_its_kind() {
     harness.settle();
     harness.click_beside(icons::CHOOSE_IN_VIEW, "Mirror across");
     harness.settle();
+
     let choosing_a_mirror_plane = principal_pickables(&mut harness);
 
     assert_eq!(hidden, PrincipalShowing::Hidden);
@@ -271,7 +309,9 @@ fn hidden_principal_geometry_is_offered_only_while_a_tool_asks_for_its_kind() {
 #[test]
 fn an_open_mirror_shows_the_principal_planes_and_takes_a_plane_clicked_until_it_closes() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: top_edge_along_x(&harness, plate, 0.0),
@@ -279,28 +319,36 @@ fn an_open_mirror_shows_the_principal_planes_and_takes_a_plane_clicked_until_it_
     harness.click("Mirror body");
     harness.settle();
     harness.select([]);
+
     let mirror_open = principal_pickables(&mut harness);
+
     harness.click_pickable(
         caditor_geometry::Plane::XY,
         caditor_geometry::Point2::new(5.0, 5.0),
         Pickable::Plane(PrincipalPlane::Xz),
     );
     harness.settle();
+
     let across_clicked = open_mirror_plane(&harness);
 
     harness.click_beside(icons::CHOOSE_IN_VIEW, "Mirror across");
     harness.settle();
+
     let choosing = harness
         .workspace
         .editing
         .picking()
         .map(|picking| picking.slot);
     let while_choosing = principal_pickables(&mut harness);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let after_choosing = principal_pickables(&mut harness);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let after_closing = principal_pickables(&mut harness);
 
     assert_eq!(mirror_open, planes());
@@ -321,23 +369,31 @@ fn showing_principal_geometry_yourself_is_an_undoable_change_kept_with_the_model
     let root = canonical(&dir);
     let path = root.join("shown.caditor");
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.settle();
+
     let tucked_away = principal_pickables(&mut harness).is_empty();
 
     harness.click_beside(icons::HIDE, GROUP_TITLE);
     harness.settle();
+
     let kept = principal_pickables(&mut harness).len();
     let show_label = harness.model.undo_label().map(str::to_owned);
+
     harness.perform(Action::Editing(EditingCommand::NewSketch(None)));
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let after_choosing = principal_pickables(&mut harness).len();
+
     harness.perform(Action::Undo);
     harness.settle();
+
     let after_undo = principal_pickables(&mut harness);
+
     harness.perform(Action::Redo);
     harness.settle();
     harness.answer_dialog(Some(path.clone()));
@@ -371,14 +427,19 @@ fn showing_principal_geometry_yourself_is_an_undoable_change_kept_with_the_model
 fn hiding_by_hand_holds_until_show_only_when_needed_returns_to_stepping_aside() {
     let mut harness = Harness::new();
     let x = PrincipalGeometry::Axis(PrincipalAxis::X);
+
     harness.key(Key::P, Modifiers::NONE);
     harness.settle();
+
     let hidden_without_a_body = principal_pickables(&mut harness).is_empty();
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.click_tool("Measure");
     harness.settle();
+
     let measuring_hidden = principal_pickables(&mut harness).is_empty();
+
     harness.click_tool("Measure");
     harness.settle();
 
@@ -387,12 +448,16 @@ fn hiding_by_hand_holds_until_show_only_when_needed_returns_to_stepping_aside() 
         "let principal planes, axes and origin show only when needed",
     );
     harness.settle();
+
     let label = harness.model.undo_label().map(str::to_owned);
     let after = showing(&harness);
     let tucked = principal_pickables(&mut harness).is_empty();
+
     harness.click_tool("Measure");
     harness.settle();
+
     let measuring = principal_pickables(&mut harness).len();
+
     run_from_palette(
         &mut harness,
         "let principal planes, axes and origin show only when needed",
@@ -418,18 +483,23 @@ fn hiding_by_hand_holds_until_show_only_when_needed_returns_to_stepping_aside() 
 #[test]
 fn a_principal_row_hovered_or_chosen_in_the_tree_shows_while_it_is() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.settle();
+
     let xy = Pickable::Plane(PrincipalPlane::Xy);
 
     harness.click_button("Show details of Principal planes, axes and origin");
     harness.let_animations_finish();
     harness.hover("YZ plane");
     harness.settle();
+
     let hovered = principal_pickables(&mut harness);
+
     harness.click("XY plane");
     harness.settle();
+
     let shown = principal_pickables(&mut harness);
 
     assert_eq!(hovered, [Pickable::Plane(PrincipalPlane::Yz)]);
@@ -441,14 +511,17 @@ fn a_principal_row_hovered_or_chosen_in_the_tree_shows_while_it_is() {
 #[test]
 fn with_the_preference_off_principal_geometry_never_hides_by_itself() {
     let mut harness = Harness::new();
+
     set_when_needed(&mut harness, false);
 
     extruded_plate(&mut harness);
     harness.settle();
+
     let after_the_body = principal_pickables(&mut harness).len();
 
     run_from_palette(&mut harness, "show principal planes only when needed");
     harness.settle();
+
     let toggled_on = harness
         .workspace
         .preferences
@@ -464,27 +537,35 @@ fn with_the_preference_off_principal_geometry_never_hides_by_itself() {
 #[test]
 fn the_principal_rows_read_as_set_aside_while_a_sketch_is_edited_and_their_eyes_still_toggle() {
     let mut harness = Harness::new();
+
     let base = harness.document().features().next().unwrap().id();
     let muted = appearance::tokens_of(&harness.context).text_muted;
+
     set_when_needed(&mut harness, false);
     harness.click_button("Show details of Principal planes, axes and origin");
     harness.let_animations_finish();
     harness.frame();
 
     let idle = harness.color_of("XY plane");
+
     harness.edit(base);
     harness.frame();
     harness.frame();
+
     let editing = harness.color_of("XY plane");
     let editing_group = harness.color_of(GROUP_TITLE);
+
     harness.click_button("Hide XY plane");
     harness.settle();
+
     let hidden = harness
         .document()
         .principal_showing(PrincipalGeometry::Plane(PrincipalPlane::Xy));
+
     harness.perform(Action::Editing(EditingCommand::Finish));
     harness.settle();
     harness.frame();
+
     let closed = harness.color_of("YZ plane");
 
     assert_ne!(idle, muted);
@@ -497,6 +578,7 @@ fn the_principal_rows_read_as_set_aside_while_a_sketch_is_edited_and_their_eyes_
 #[test]
 fn principal_geometry_stepping_aside_fades_out_unpicked_and_then_is_gone() {
     let mut harness = Harness::new();
+
     let origin = Contrast::Standard
         .palette(harness.workspace.viewport.canvas())
         .origin;
@@ -512,17 +594,22 @@ fn principal_geometry_stepping_aside_fades_out_unpicked_and_then_is_gone() {
             })
             .map(|marker| marker.color.alpha)
     };
+
     harness.settle();
+
     let settled = drawn_origin(&mut harness);
 
     extruded_plate(&mut harness);
     harness.select([]);
     harness.settle();
+
     let fading = drawn_origin(&mut harness);
     let animating = harness.workspace.viewport.is_animating();
     let picked = principal_pickables(&mut harness);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let faded = drawn_origin(&mut harness);
 
     assert_eq!(settled, Some(origin.alpha));
@@ -541,11 +628,13 @@ fn a_principal_plane_seen_edge_on_is_neither_drawn_nor_picked_unless_it_is_selec
         crate::app::Workspace::new(),
     );
     let xz = Pickable::Plane(PrincipalPlane::Xz);
+
     harness
         .workspace
         .viewport
         .look_toward(caditor_geometry::Vector3::Z);
     harness.settle();
+
     let from_above = principal_pickables(&mut harness);
     let edges_drawn = |harness: &mut Harness| {
         let edge = Contrast::Standard
@@ -559,12 +648,16 @@ fn a_principal_plane_seen_edge_on_is_neither_drawn_nor_picked_unless_it_is_selec
             .count()
     };
     let drawn_from_above = edges_drawn(&mut harness);
+
     harness.select([xz]);
     harness.settle();
+
     let selected = harness.workspace.viewport.selection().contains(xz);
     let lit_lines = harness.built().scene.lines().count();
+
     harness.select([]);
     harness.settle();
+
     let unlit_lines = harness.built().scene.lines().count();
 
     assert_eq!(from_above.len(), 5);
@@ -578,21 +671,28 @@ fn a_principal_plane_seen_edge_on_is_neither_drawn_nor_picked_unless_it_is_selec
 #[test]
 fn mirror_body_shows_the_principal_planes_while_choosing_and_takes_a_plane_clicked_there() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     harness.select([]);
     harness.settle();
+
     let before = principal_pickables(&mut harness);
 
     harness.click("Mirror body");
     harness.settle();
+
     let choosing_bodies = principal_pickables(&mut harness);
+
     harness.click_pickable(
         caditor_geometry::Plane::XY,
         caditor_geometry::Point2::new(5.0, 5.0),
         Pickable::Plane(PrincipalPlane::Xz),
     );
     harness.settle();
+
     let still_choosing = harness.workspace.editing.is_choosing_mirrored();
+
     harness.click_pickable(
         caditor_geometry::Plane::XY,
         caditor_geometry::Point2::new(5.0, 5.0),
@@ -602,25 +702,30 @@ fn mirror_body_shows_the_principal_planes_while_choosing_and_takes_a_plane_click
         },
     );
     harness.settle();
+
     let across_clicked = open_mirror_plane(&harness);
     let choosing_more = principal_pickables(&mut harness);
+
     harness.click_pickable(
         caditor_geometry::Plane::XY,
         caditor_geometry::Point2::new(5.0, 5.0),
         Pickable::Plane(PrincipalPlane::Xy),
     );
     harness.settle();
+
     let across_changed = open_mirror_plane(&harness);
     let still_picking = harness
         .workspace
         .editing
         .picking()
         .map(|picking| picking.slot);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
     harness.select([]);
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let after = principal_pickables(&mut harness);
 
     assert!(before.is_empty());

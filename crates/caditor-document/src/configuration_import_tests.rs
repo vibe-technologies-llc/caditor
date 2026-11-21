@@ -29,7 +29,9 @@ fn model() -> (Document, ParameterId, FeatureId) {
         ..
     } = pair();
     let mut transaction = document.transaction("Size");
+
     let size = transaction.add_parameter("size", transaction.parse("4 mm").unwrap());
+
     document.apply(transaction.finish()).unwrap();
     (document, size, plate)
 }
@@ -89,9 +91,11 @@ fn rows_naming_new_configurations_add_them_and_configure_the_columns_they_name()
         .document()
         .plan_configuration_import("Import", &rows, true)
         .unwrap();
+
     editor.apply(plan.transaction.unwrap()).unwrap();
 
     let document = editor.document();
+
     assert_eq!(document.configurations().rows.len(), 2);
     assert_eq!(document.configurations().values.len(), 3);
     assert_eq!(document.configurations().active, None);
@@ -102,6 +106,7 @@ fn rows_naming_new_configurations_add_them_and_configure_the_columns_they_name()
     assert_eq!(text(document, "size"), "4 mm");
 
     editor.undo().unwrap();
+
     assert!(editor.document().configurations().is_empty());
     assert_eq!(editor.undo_label(), None);
 }
@@ -110,13 +115,18 @@ fn rows_naming_new_configurations_add_them_and_configure_the_columns_they_name()
 fn the_plan_says_which_columns_are_known_new_or_refused_and_what_each_row_does() {
     let (document, size, _) = model();
     let mut editor = Editor::new(document);
+
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(size))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let (add, _) = editor.document().adding_configuration(Some("M4"));
+
     editor.apply(add).unwrap();
+
     let rows = file(
         &["Parameter: size", "Suppressed: Plate"],
         &[("m4", &["4 mm", ""]), ("M8", &["8 mm", "yes"])],
@@ -137,15 +147,20 @@ fn the_plan_says_which_columns_are_known_new_or_refused_and_what_each_row_does()
 fn importing_into_the_active_configuration_changes_the_model_and_undo_takes_it_back() {
     let (document, size, plate) = model();
     let mut editor = Editor::new(document);
+
     for value in [
         ConfiguredValue::Parameter(size),
         ConfiguredValue::Suppressed(plate),
     ] {
         let configure = editor.document().configuring(value).unwrap();
+
         editor.apply(configure).unwrap();
     }
+
     let (add, active) = editor.document().adding_configuration(Some("M4"));
+
     editor.apply(add).unwrap();
+
     let rows = file(
         &["Parameter: size", "Suppressed: Plate"],
         &[("M4", &["6 mm", "yes"])],
@@ -155,6 +170,7 @@ fn importing_into_the_active_configuration_changes_the_model_and_undo_takes_it_b
         .document()
         .plan_configuration_import("Import", &rows, true)
         .unwrap();
+
     editor.apply(plan.transaction.unwrap()).unwrap();
 
     assert_eq!(text(editor.document(), "size"), "6 mm");
@@ -163,6 +179,7 @@ fn importing_into_the_active_configuration_changes_the_model_and_undo_takes_it_b
     assert_eq!(cell(editor.document(), "M4", "Parameter: size"), "6 mm");
 
     editor.undo().unwrap();
+
     assert_eq!(text(editor.document(), "size"), "4 mm");
     assert!(!editor.document().feature(plate).unwrap().suppressed);
     assert_eq!(cell(editor.document(), "M4", "Parameter: size"), "4 mm");
@@ -172,15 +189,22 @@ fn importing_into_the_active_configuration_changes_the_model_and_undo_takes_it_b
 fn a_changed_row_lists_each_cell_before_and_after_and_keeping_the_model_s_own_leaves_it_alone() {
     let (document, size, _) = model();
     let mut editor = Editor::new(document);
+
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(size))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let (first, _) = editor.document().adding_configuration(Some("M4"));
+
     editor.apply(first).unwrap();
+
     let (second, other) = editor.document().adding_configuration(Some("M8"));
+
     editor.apply(second).unwrap();
+
     let eight = editor
         .document()
         .transaction("Parse")
@@ -194,7 +218,9 @@ fn a_changed_row_lists_each_cell_before_and_after_and_keeping_the_model_s_own_le
             Setting::Expression(eight),
         )
         .unwrap();
+
     editor.apply(set).unwrap();
+
     let rows = file(&["Parameter: size"], &[("M8", &["10 mm"])]);
 
     let replacing = editor
@@ -211,6 +237,7 @@ fn a_changed_row_lists_each_cell_before_and_after_and_keeping_the_model_s_own_le
         before: "8 mm".to_owned(),
         after: "10 mm".to_owned(),
     }];
+
     assert_eq!(
         outcome(&replacing, "M8"),
         &RowOutcome::Changed {
@@ -228,10 +255,12 @@ fn blank_cells_leave_a_value_as_it_is_and_the_same_file_changes_nothing() {
     let (document, _, _) = model();
     let rows = file(&HEADERS, &[("Small", &["", "yes", ""])]);
     let mut editor = Editor::new(document);
+
     let plan = editor
         .document()
         .plan_configuration_import("Import", &rows, true)
         .unwrap();
+
     editor.apply(plan.transaction.unwrap()).unwrap();
 
     let again = editor
@@ -273,6 +302,7 @@ fn columns_naming_nothing_the_model_has_are_listed_and_refused_in_words() {
             other => format!("{other:?}"),
         })
         .collect();
+
     assert_eq!(
         refusals,
         [
@@ -296,9 +326,11 @@ fn columns_naming_nothing_the_model_has_are_listed_and_refused_in_words() {
 fn a_row_with_a_bad_cell_name_or_circle_is_left_out_alone_with_its_reason() {
     let (mut document, _, _) = model();
     let mut transaction = document.transaction("Circle");
+
     transaction.add_parameter("a", transaction.parse("1 mm").unwrap());
     transaction.add_parameter("b", transaction.parse("2 mm").unwrap());
     document.apply(transaction.finish()).unwrap();
+
     let rows = file(
         &[
             "Parameter: size",
@@ -324,6 +356,7 @@ fn a_row_with_a_bad_cell_name_or_circle_is_left_out_alone_with_its_reason() {
         .unwrap();
 
     assert_eq!(outcome(&plan, "Fine"), &RowOutcome::Added { values: 3 });
+
     let reasons: Vec<String> = plan
         .rows
         .iter()
@@ -332,6 +365,7 @@ fn a_row_with_a_bad_cell_name_or_circle_is_left_out_alone_with_its_reason() {
             _ => None,
         })
         .collect();
+
     assert_eq!(reasons.len(), 7);
     assert!(reasons[0].starts_with("Parameter: size: “7 mm +” cannot be read as an expression"));
     assert_eq!(reasons[1], "Suppressed: Plate: “perhaps” is not yes or no");
@@ -343,8 +377,11 @@ fn a_row_with_a_bad_cell_name_or_circle_is_left_out_alone_with_its_reason() {
     assert!(reasons[4].starts_with("Parameter: size cannot be worked out"));
     assert_eq!(reasons[5], "it has no configuration name");
     assert_eq!(reasons[6], "the name appears on an earlier row");
+
     let mut document = document;
+
     document.apply(plan.transaction.unwrap()).unwrap();
+
     assert_eq!(document.configurations().rows.len(), 1);
 }
 
@@ -368,8 +405,11 @@ fn a_model_past_the_configuration_limit_leaves_the_extra_rows_out() {
         plan.count_rows(|outcome| matches!(outcome, RowOutcome::Refused(RowRefusal::TooMany))),
         1
     );
+
     let mut document = document;
+
     document.apply(plan.transaction.unwrap()).unwrap();
+
     assert_eq!(document.configurations().rows.len(), MAX_CONFIGURATIONS);
 }
 
@@ -390,6 +430,7 @@ fn headers_read_in_either_spelling_of_colour_and_any_case() {
 #[test]
 fn a_colour_column_names_a_separate_piece_by_the_body_name_the_app_shows() {
     let mut model = three_rectangles();
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let second = piece_of(model.extrusion, &model.rectangles[1]);
     let name = model.document.body_name(second).unwrap().into_owned();
@@ -405,7 +446,9 @@ fn a_colour_column_names_a_separate_piece_by_the_body_name_the_app_shows() {
         .plan_configuration_import_in("Import", &rows, true, &evaluation)
         .unwrap();
     let mut editor = Editor::new(model.document);
+
     editor.apply(plan.transaction.unwrap()).unwrap();
+
     let document = editor.document();
 
     assert_eq!(

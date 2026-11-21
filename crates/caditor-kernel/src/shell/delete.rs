@@ -24,7 +24,7 @@ use crate::{
 const MAX_TRIALS: usize = 16;
 const PARALLEL: f64 = 1e-9;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum DeleteError {
     #[error("no face is to be deleted")]
     NothingToDelete,
@@ -52,8 +52,11 @@ pub fn delete_faces(solid: &Solid, faces: &[FaceId]) -> Result<Solid, DeleteErro
             Err(error)
         });
     };
+
     interrupt::check()?;
+
     let chain = blend_chain(solid, faces);
+
     if chain.len() == faces.iter().collect::<BTreeSet<_>>().len() {
         return Err(DeleteError::CannotClose(refused));
     }
@@ -67,7 +70,7 @@ pub fn delete_faces(solid: &Solid, faces: &[FaceId]) -> Result<Solid, DeleteErro
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum BlendKind {
     Rolled(f64),
     Made(FaceOrigin),
@@ -99,10 +102,12 @@ fn same_blend(first: BlendKind, second: BlendKind) -> bool {
 fn blend_chain(solid: &Solid, faces: &[FaceId]) -> Vec<FaceId> {
     let mut reached: BTreeSet<FaceId> = BTreeSet::new();
     let mut frontier: Vec<FaceId> = faces.to_vec();
+
     while let Some(face) = frontier.pop() {
         if !reached.insert(face) {
             continue;
         }
+
         let Some(kind) = blend_kind(solid, face) else {
             continue;
         };
@@ -126,15 +131,19 @@ fn deleted(solid: &Solid, faces: &[FaceId]) -> Result<Solid, DeleteError> {
     for face in faces {
         solid.face(*face).ok_or(DeleteError::MissingFace(*face))?;
     }
+
     let chosen: BTreeSet<FaceId> = faces.iter().copied().collect();
+
     if chosen.len() == solid.faces().count() {
         return Err(DeleteError::Everything);
     }
     if let Some(levelled) = levelled_riser(solid, &chosen) {
         return levelled;
     }
+
     let mut capped = Capped::default();
     let mut banded = Vec::new();
+
     for component in components(solid, &chosen) {
         interrupt::check()?;
         match cap_loops(solid, &component) {
@@ -145,6 +154,7 @@ fn deleted(solid: &Solid, faces: &[FaceId]) -> Result<Solid, DeleteError> {
             None => banded.extend(component),
         }
     }
+
     let (opened, renumbered) = if capped.faces.is_empty() {
         let same = solid.faces().map(|(id, _)| (id, id)).collect();
         (solid.clone(), same)
@@ -158,6 +168,7 @@ fn deleted(solid: &Solid, faces: &[FaceId]) -> Result<Solid, DeleteError> {
         .iter()
         .filter_map(|face| renumbered.get(face).copied())
         .collect();
+
     let healed = if bands.is_empty() {
         opened
     } else {
@@ -210,9 +221,11 @@ fn other_faces(solid: &Solid, edge: EdgeId, face: FaceId) -> Vec<FaceId> {
 fn components(solid: &Solid, chosen: &BTreeSet<FaceId>) -> Vec<BTreeSet<FaceId>> {
     let mut left = chosen.clone();
     let mut found = Vec::new();
+
     while let Some(seed) = left.pop_first() {
         let mut component = BTreeSet::from([seed]);
         let mut frontier = vec![seed];
+
         while let Some(face) = frontier.pop() {
             for edge in loop_edges(solid, face) {
                 for other in other_faces(solid, edge, face) {
@@ -230,6 +243,7 @@ fn components(solid: &Solid, chosen: &BTreeSet<FaceId>) -> Vec<BTreeSet<FaceId>>
 
 fn cap_loops(solid: &Solid, component: &BTreeSet<FaceId>) -> Option<BTreeSet<LoopId>> {
     let mut loops = BTreeSet::new();
+
     for face in component {
         for edge in loop_edges(solid, *face) {
             for coedge in solid.edge(edge)?.coedges() {
@@ -244,9 +258,11 @@ fn cap_loops(solid: &Solid, component: &BTreeSet<FaceId>) -> Option<BTreeSet<Loo
     for owner in &loops {
         let face_loop = solid.face_loop(*owner)?;
         let face = solid.face(face_loop.face())?;
+
         if face.loops().first() == Some(owner) {
             return None;
         }
+
         let borders_component = face_loop.coedges().iter().all(|coedge| {
             solid.coedge(*coedge).is_some_and(|coedge| {
                 let others = other_faces(solid, coedge.edge(), face_loop.face());
@@ -276,15 +292,18 @@ impl Capped {
         let mut vertices: BTreeMap<VertexId, VertexId> = BTreeMap::new();
         let mut edges: BTreeMap<EdgeId, EdgeId> = BTreeMap::new();
         let mut renumbered = BTreeMap::new();
+
         for (id, face) in solid.faces() {
             interrupt::check()?;
             if self.faces.contains(&id) {
                 continue;
             }
+
             let shell = match shells.get(&face.shell()) {
                 Some(shell) => *shell,
                 None => {
                     let made = builder.shell().map_err(invalid)?;
+
                     shells.insert(face.shell(), made);
                     made
                 }
@@ -292,6 +311,7 @@ impl Capped {
             let made = builder
                 .face(shell, face.surface().clone(), face.sense())
                 .map_err(invalid)?;
+
             builder.set_face_name(made, face.name()).map_err(invalid)?;
             if let Some(origin) = face.origin() {
                 builder.set_face_origin(made, origin).map_err(invalid)?;
@@ -301,10 +321,12 @@ impl Capped {
                 if self.loops.contains(loop_id) {
                     continue;
                 }
+
                 let Some(face_loop) = solid.face_loop(*loop_id) else {
                     continue;
                 };
                 let mut coedges = Vec::with_capacity(face_loop.coedges().len());
+
                 for coedge_id in face_loop.coedges() {
                     let coedge = solid
                         .coedge(*coedge_id)
@@ -318,12 +340,15 @@ impl Capped {
                         &mut edges,
                     )
                     .map_err(invalid)?;
+
                     coedges.push((edge, coedge.sense(), coedge.pcurve().clone()));
                 }
+
                 let count = coedges.len();
                 let made_loop = builder
                     .add_loop_with_pcurves(made, coedges)
                     .map_err(invalid)?;
+
                 builder.settle(made_loop, &vec![true; count]);
             }
         }
@@ -341,6 +366,7 @@ fn copied_edge(
     if let Some(known) = edges.get(&edge_id) {
         return Ok(*known);
     }
+
     let edge = solid
         .edge(edge_id)
         .ok_or(BuildError::UnknownEdge(edge_id))?;
@@ -348,17 +374,22 @@ fn copied_edge(
         if let Some(known) = vertices.get(&vertex) {
             return Ok(*known);
         }
+
         let point = solid
             .vertex(vertex)
             .map(|vertex| vertex.point())
             .ok_or(BuildError::UnknownVertex(vertex))?;
         let made = builder.vertex(point)?;
+
         vertices.insert(vertex, made);
         Ok(made)
     };
+
     let start = copied(edge.start())?;
     let end = copied(edge.end())?;
+
     let made = builder.edge(edge.curve().clone(), edge.interval(), start, end)?;
+
     builder.set_edge_name(made, edge.name())?;
     edges.insert(edge_id, made);
     Ok(made)
@@ -372,10 +403,12 @@ struct Candidate {
 
 fn beyond(solid: &Solid, face: FaceId, coedges: &[(CoedgeId, EdgeId)]) -> Option<Vec<FaceId>> {
     let mut faces = Vec::with_capacity(coedges.len());
+
     for (_, edge) in coedges {
         let [other] = other_faces(solid, *edge, face)[..] else {
             return None;
         };
+
         faces.push(other);
     }
     Some(faces)
@@ -418,15 +451,18 @@ fn loop_coedges(solid: &Solid, face: FaceId) -> Option<Vec<(CoedgeId, EdgeId)>> 
 fn sides_apart(solid: &Solid, face: FaceId, coedges: &[(CoedgeId, EdgeId)]) -> Vec<Sides> {
     let count = coedges.len();
     let mut found = Vec::new();
+
     for first in 0..count {
         for second in first + 2..count {
             if first + count - second < 2 {
                 continue;
             }
+
             let (Some(at_first), Some(at_second)) = (coedges.get(first), coedges.get(second))
             else {
                 continue;
             };
+
             let across = BTreeSet::from([at_first.1, at_second.1]);
             let inside = coedges.get(first + 1..second).unwrap_or_default();
             let outside: Vec<(CoedgeId, EdgeId)> = coedges
@@ -436,6 +472,7 @@ fn sides_apart(solid: &Solid, face: FaceId, coedges: &[(CoedgeId, EdgeId)]) -> V
                 .chain(coedges.get(..first).unwrap_or_default())
                 .copied()
                 .collect();
+
             if inside
                 .iter()
                 .chain(&outside)
@@ -443,11 +480,13 @@ fn sides_apart(solid: &Solid, face: FaceId, coedges: &[(CoedgeId, EdgeId)]) -> V
             {
                 continue;
             }
+
             let (Some(near), Some(far)) =
                 (beyond(solid, face, inside), beyond(solid, face, &outside))
             else {
                 continue;
             };
+
             found.push(Sides { across, near, far });
         }
     }
@@ -467,6 +506,7 @@ fn candidates(solid: &Solid, face: FaceId, deleted: &BTreeSet<FaceId>) -> Vec<Ca
             .sum::<f64>()
     };
     let count = coedges.len();
+
     let mut found: Vec<Candidate> = sides_apart(solid, face, &coedges)
         .into_iter()
         .filter(|sides| {
@@ -477,12 +517,14 @@ fn candidates(solid: &Solid, face: FaceId, deleted: &BTreeSet<FaceId>) -> Vec<Ca
             across: sides.across,
         })
         .collect();
+
     found.sort_by(|a, b| a.length.total_cmp(&b.length));
     if count >= 3
         && let Some(around) = beyond(solid, face, &coedges)
         && !around.contains(&face)
     {
         let across: BTreeSet<EdgeId> = coedges.iter().map(|(_, edge)| *edge).collect();
+
         found.push(Candidate {
             length: length(&across),
             across,
@@ -510,6 +552,7 @@ fn riser_sides(solid: &Solid, face: FaceId) -> Option<[FaceId; 2]> {
             };
             let (near_plane, near_out) = outward_plane(solid, *near)?;
             let (far_plane, far_out) = outward_plane(solid, *far)?;
+
             let same_facing = near_out.dot(far_out) > 0.0 && never_meet(solid, &[*near], &[*far]);
             let apart = (far_plane.origin() - near_plane.origin())
                 .dot(near_out)
@@ -539,6 +582,7 @@ fn smaller_onto_larger(solid: &Solid, first: FaceId, second: FaceId) -> Option<L
     let (second_plane, _) = outward_plane(solid, second)?;
     let area = |face: FaceId| face_area(solid, face).ok().flatten().unwrap_or(0.0);
     let (first_area, second_area) = (area(first), area(second));
+
     let first_moves = if (first_area - second_area).abs() <= LINEAR_RESOLUTION {
         (first_plane.origin() - second_plane.origin()).dot(outward) < 0.0
     } else {
@@ -558,6 +602,7 @@ fn smaller_onto_larger(solid: &Solid, first: FaceId, second: FaceId) -> Option<L
 
 fn shared_onto_others(solid: &Solid, risers: &[[FaceId; 2]]) -> Option<Levelling> {
     let (first, rest) = risers.split_first()?;
+
     let shared = first
         .iter()
         .copied()
@@ -569,16 +614,20 @@ fn shared_onto_others(solid: &Solid, risers: &[[FaceId; 2]]) -> Option<Levelling
         .filter(|face| *face != shared)
         .collect();
     let (target, outward) = outward_plane(solid, *others.first()?)?;
+
     let coplanar = others.iter().all(|face| {
         outward_plane(solid, *face).is_some_and(|(plane, facing)| {
             facing.dot(outward) > 0.0
                 && (plane.origin() - target.origin()).dot(outward).abs() <= LINEAR_RESOLUTION
         })
     });
+
     if !coplanar {
         return None;
     }
+
     let mut joined = others;
+
     joined.insert(shared);
     Some(Levelling {
         moved: shared,
@@ -593,11 +642,13 @@ fn levelled_riser(solid: &Solid, chosen: &BTreeSet<FaceId>) -> Option<Result<Sol
         .map(|face| riser_sides(solid, *face))
         .collect::<Option<_>>()?;
     let [first, second] = *risers.first()?;
+
     let levelling = if risers.iter().all(|sides| *sides == [first, second]) {
         smaller_onto_larger(solid, first, second)?
     } else {
         shared_onto_others(solid, &risers)?
     };
+
     if levelling
         .joined
         .iter()
@@ -605,6 +656,7 @@ fn levelled_riser(solid: &Solid, chosen: &BTreeSet<FaceId>) -> Option<Result<Sol
     {
         return None;
     }
+
     let refused = chosen.first().copied()?;
     let replaced = replace_naming(
         solid,
@@ -632,6 +684,7 @@ fn only_the_riser_went(
     refused: FaceId,
 ) -> Result<Solid, DeleteError> {
     let left: BTreeSet<FaceName> = levelled.faces().map(|(_, face)| face.name()).collect();
+
     if let Some((face, _)) = solid
         .faces()
         .filter(|(id, _)| !chosen.contains(id) && !joined.contains(id))
@@ -639,10 +692,12 @@ fn only_the_riser_went(
     {
         return Err(DeleteError::Vanishes(face));
     }
+
     let riser_stays = chosen
         .iter()
         .filter_map(|face| solid.face(*face))
         .any(|face| left.contains(&face.name()));
+
     if riser_stays {
         return Err(DeleteError::CannotClose(refused));
     }
@@ -666,14 +721,18 @@ fn heal(solid: &Solid, bands: &[FaceId]) -> Result<Solid, DeleteError> {
     let deleted: BTreeSet<FaceId> = bands.iter().copied().collect();
     let offsets = Offsets::still(solid, reach(solid, bands));
     let mut choices = Vec::with_capacity(bands.len());
+
     for face in bands {
         let found = candidates(solid, *face, &deleted);
+
         if found.is_empty() {
             return Err(DeleteError::CannotClose(*face));
         }
         choices.push((*face, found));
     }
+
     let mut first_failure = None;
+
     for trial in trials(&choices) {
         interrupt::check()?;
         match attempt(&offsets, &deleted, trial) {
@@ -684,16 +743,20 @@ fn heal(solid: &Solid, bands: &[FaceId]) -> Result<Solid, DeleteError> {
             }
         }
     }
+
     let failure = first_failure.unwrap_or(DeleteError::Invalid { faces: Vec::new() });
+
     if bands.len() < 2 {
         return Err(failure);
     }
     for (face, found) in &choices {
         let alone = BTreeSet::from([*face]);
         let single = [(*face, found.clone())];
+
         let heals_alone = trials(&single)
             .into_iter()
             .any(|trial| attempt(&Offsets::still(solid, offsets.reach), &alone, trial).is_ok());
+
         interrupt::check()?;
         if !heals_alone {
             return Err(DeleteError::CannotClose(*face));
@@ -705,18 +768,22 @@ fn heal(solid: &Solid, bands: &[FaceId]) -> Result<Solid, DeleteError> {
 fn trials(choices: &[(FaceId, Vec<Candidate>)]) -> Vec<BTreeMap<FaceId, BTreeSet<EdgeId>>> {
     let mut found = Vec::new();
     let mut index = vec![0_usize; choices.len()];
+
     while found.len() < MAX_TRIALS {
         let trial: BTreeMap<FaceId, BTreeSet<EdgeId>> = choices
             .iter()
             .zip(&index)
             .filter_map(|((face, list), at)| Some((*face, list.get(*at)?.across.clone())))
             .collect();
+
         found.push(trial);
+
         let mut place = 0;
         loop {
             let (Some(at), Some((_, list))) = (index.get_mut(place), choices.get(place)) else {
                 return found;
             };
+
             *at += 1;
             if *at < list.len() {
                 break;
@@ -742,6 +809,7 @@ fn attempt(
             DeleteError::CannotClose,
         ),
     })?;
+
     if let Some(face) = inner.dropped.difference(deleted).next() {
         return Err(DeleteError::Vanishes(*face));
     }

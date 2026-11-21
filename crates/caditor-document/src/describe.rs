@@ -37,6 +37,7 @@ pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> Strin
     };
     let copier = document.feature(FeatureId::from_raw(copy.pattern));
     let pattern = copier.map_or("a deleted pattern", |feature| feature.name.as_str());
+
     if copier.is_some_and(|feature| feature.kind.mirror().is_some()) {
         return format!("{pattern} image of {}", lowercase_first(&original));
     }
@@ -46,8 +47,10 @@ pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> Strin
     {
         let copy = at_points.instance_words(copy.index);
         let copy = copy.strip_prefix("the ").unwrap_or(&copy);
+
         return format!("{pattern} {copy} of {}", lowercase_first(&original));
     }
+
     let steps = match copy.index {
         [step, 0] => step.to_string(),
         [first, second] => format!("({first}, {second})"),
@@ -141,6 +144,7 @@ pub fn edge_faces(solid: &Solid, edge: EdgeId) -> Vec<FaceId> {
         .iter()
         .filter_map(|coedge| solid.coedge_face(*coedge))
         .collect();
+
     faces.dedup();
     faces
 }
@@ -151,6 +155,7 @@ pub(crate) fn describe_face(document: &Document, solid: &Solid, face: FaceId) ->
 
 pub(crate) fn describe_faces(document: &Document, solid: &Solid, faces: &[FaceId]) -> Vec<String> {
     let mut names: Vec<String> = Vec::with_capacity(faces.len());
+
     for face in faces {
         let name = describe_face(document, solid, *face);
         if !names.contains(&name) {

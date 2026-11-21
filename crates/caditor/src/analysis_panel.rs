@@ -99,7 +99,7 @@ impl AnalysisContext<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 enum LimitError {
     #[error(transparent)]
     Expression(#[from] ExpressionError),
@@ -115,9 +115,11 @@ fn limit_row(
     check: fn(f64) -> Result<(), Problem>,
 ) {
     widgets::caption(ui, caption);
+
     let document = model.document();
     let parameters = model.parameters();
     let units = model.units();
+
     let field = field::value_field(
         ui,
         Id::unique(("analysis-limit", id)),
@@ -139,10 +141,12 @@ fn limit_row(
                 .evaluate_expression(&parsed)
                 .map_err(ExpressionError::Unevaluable)?
                 .value;
+
             check(value)?;
             Ok(parsed)
         },
     );
+
     if let Some(parsed) = field.committed {
         *expression = parsed;
     }
@@ -165,7 +169,9 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
             "Reverse the pull direction",
         ),
     };
+
     widgets::caption(ui, caption);
+
     let chosen = match tool.pull {
         Pull::Axis(axis) => AXES.iter().position(|candidate| *candidate == axis),
         Pull::Picked(_) => None,
@@ -174,6 +180,7 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
         .iter()
         .map(|axis| (axis.letter(), axis.name()))
         .collect();
+
     if let Some(index) = widgets::segmented(ui, &choices, chosen.unwrap_or(usize::MAX))
         && let Some(axis) = AXES.get(index)
     {
@@ -185,7 +192,9 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
     ui.vertical(|ui| {
         let name = tool.pull_name(context.model);
         let reversed = if tool.reversed { ", reversed" } else { "" };
+
         ui.add(Label::new(format!("{name}{reversed}")).wrap_mode(TextWrapMode::Wrap));
+
         let selected = AnalysisTool::pull_from(context.model, context.selection);
         let button = widgets::small_button(ui, icons::USE_SELECTED, feature_fields::USE_SELECTED);
         let hover = match &selected {
@@ -217,21 +226,26 @@ fn legend(
     let palette = context.contrast.palette(context.canvas);
     let units: Units = context.model.units();
     let meshes = context.shown();
+
     if meshes.is_empty() {
         ui.label(widgets::muted(NO_BODIES, ui));
         return;
     }
+
     let Some(analysis) = context.analyses.prepare(Some(analysis), meshes) else {
         return;
     };
     let tally = Tally::of(context.analyses, meshes, analysis);
+
     widgets::card(ui, |ui| {
         for band in analysis.bands() {
             let area = tally.areas.get(band).copied().unwrap_or(0.0);
             let area = format!("{APPROXIMATELY}{}", units.measured_area(area));
+
             ui.horizontal(|ui| {
                 let (rect, _) =
                     ui.allocate_exact_size(vec2(SWATCH_SIDE, SWATCH_SIDE), Sense::hover());
+
                 ui.painter().rect_filled(
                     rect,
                     SWATCH_RADIUS,
@@ -246,8 +260,10 @@ fn legend(
             });
         }
     });
+
     let working = tally.working.then_some(()).ok_or(NOT_ANALYSING);
     let mut stop = commands.invoke(Command::CancelAnalysis, &working);
+
     if tally.working {
         stop |= widgets::progress(WORKING)
             .wrapping()
@@ -257,8 +273,10 @@ fn legend(
     if stop {
         context.analyses.stop();
     }
+
     let stopped = tally.stopped.then_some(()).ok_or(NOT_STOPPED);
     let mut again = commands.invoke(Command::AnalyseAgain, &stopped);
+
     if tally.stopped {
         widgets::callout(ui, Tone::Info, |ui| {
             ui.add(Label::new(STOPPED).wrap_mode(TextWrapMode::Wrap));
@@ -294,6 +312,7 @@ fn kind_row(ui: &mut Ui, tool: &mut AnalysisTool) {
 
 fn measure_row(ui: &mut Ui, tool: &mut AnalysisTool) {
     widgets::caption(ui, "Curvature");
+
     let choices: Vec<(&str, &str)> = Measure::ALL
         .iter()
         .map(|measure| (measure.title(), measure.meaning()))
@@ -302,6 +321,7 @@ fn measure_row(ui: &mut Ui, tool: &mut AnalysisTool) {
         .iter()
         .position(|measure| *measure == tool.measure)
         .unwrap_or(0);
+
     if let Some(index) = widgets::segmented(ui, &choices, chosen)
         && let Some(measure) = Measure::ALL.get(index)
     {
@@ -312,6 +332,7 @@ fn measure_row(ui: &mut Ui, tool: &mut AnalysisTool) {
 
 fn stripe_rows(ui: &mut Ui, tool: &mut AnalysisTool) {
     widgets::caption(ui, STRIPES_ALONG);
+
     let choices: Vec<(&str, &str)> = AXES
         .iter()
         .map(|axis| (axis.letter(), axis.name()))
@@ -320,6 +341,7 @@ fn stripe_rows(ui: &mut Ui, tool: &mut AnalysisTool) {
         .iter()
         .position(|axis| *axis == tool.stripes_along)
         .unwrap_or(0);
+
     if let Some(index) = widgets::segmented(ui, &choices, chosen)
         && let Some(axis) = AXES.get(index)
     {
@@ -328,10 +350,12 @@ fn stripe_rows(ui: &mut Ui, tool: &mut AnalysisTool) {
     ui.end_row();
 
     widgets::caption(ui, STRIPES);
+
     let stripes = widgets::slider(
         ui,
         Slider::new(&mut tool.stripes, MIN_STRIPES..=MAX_STRIPES),
     );
+
     widgets::tie_to_caption(ui, &stripes);
     ui.end_row();
 }

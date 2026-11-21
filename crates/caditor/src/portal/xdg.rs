@@ -47,7 +47,7 @@ const MISSING: [&str; 4] = [
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(0);
 static OWNER: OnceLock<ParentWindow> = OnceLock::new();
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParentWindow {
     X11(u64),
     Wayland(String),
@@ -103,7 +103,7 @@ fn either_case(extension: &str) -> String {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SettingKey {
     ReducedMotion,
     GnomeAnimations,
@@ -192,9 +192,12 @@ async fn next_message(signals: &mut SignalStream<'_>) -> Option<Message> {
 async fn read_desktop_settings(settings: &Proxy<'_>) -> DesktopSettings {
     let mut motion = Vec::new();
     let mut contrast = Vec::new();
+
     for key in SettingKey::ALL {
         let (namespace, name) = key.setting();
+
         let value: Option<OwnedVariant> = settings.call(READ_ONE, &(namespace, name)).await.ok();
+
         motion.push(
             value
                 .as_ref()
@@ -286,6 +289,7 @@ async fn through_portal_async(request: &FileRequest) -> Result<Option<PathBuf>, 
         .map(|name| name.as_str().trim_start_matches(':').replace('.', "_"))
         .unwrap_or_default();
     let expected = format!("{REQUEST_PATH}/{sender}/{token}");
+
     let responses = request_signals(&connection, &expected).await?;
     let chooser = Proxy::new(&connection, DESKTOP, DESKTOP_PATH, FILE_CHOOSER)
         .await
@@ -297,6 +301,7 @@ async fn through_portal_async(request: &FileRequest) -> Result<Option<PathBuf>, 
     };
     let options = portal_options(request, &token);
     let parent = parent_identifier();
+
     let handle: OwnedObjectPath = chooser
         .call(method, &(parent.as_str(), request.title.as_str(), options))
         .await
@@ -306,6 +311,7 @@ async fn through_portal_async(request: &FileRequest) -> Result<Option<PathBuf>, 
     } else {
         request_signals(&connection, handle.as_str()).await?
     };
+
     let response = next_message(&mut responses)
         .await
         .map(|message| message.body().deserialize())
@@ -318,9 +324,11 @@ fn portal_choice(
     response: Option<(u32, BTreeMap<String, OwnedVariant>)>,
 ) -> Result<Option<PathBuf>, DialogError> {
     let (code, results) = response.ok_or(DialogError::PortalClosed)?;
+
     if code != SUCCESS {
         return Ok(None);
     }
+
     let uris = results
         .get("uris")
         .map(|uris| Vec::<String>::try_from(uris.clone()))
@@ -351,6 +359,7 @@ fn portal_options<'a>(
         })
         .collect();
     let mut options: BTreeMap<&'static str, Variant<'a>> = BTreeMap::new();
+
     options.insert("handle_token", Variant::from(token));
     options.insert("modal", Variant::from(true));
     if let Some(first) = filters.first().cloned() {
@@ -362,6 +371,7 @@ fn portal_options<'a>(
     }
     if let Some(directory) = &request.directory {
         let mut bytes = directory.as_os_str().as_bytes().to_vec();
+
         bytes.push(0);
         options.insert("current_folder", Variant::from(bytes));
     }
@@ -390,15 +400,19 @@ fn classify(error: zbus::Error) -> DialogError {
 fn local_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix(FILE_SCHEME)?;
     let path = rest.strip_prefix(LOCAL_HOST).unwrap_or(rest);
+
     if !path.starts_with('/') {
         return None;
     }
+
     let mut bytes = Vec::with_capacity(path.len());
     let mut rest = path.as_bytes();
+
     while let Some((&byte, after)) = rest.split_first() {
         if byte == b'%' {
             let hex = after.get(..2)?;
             let text = std::str::from_utf8(hex).ok()?;
+
             bytes.push(u8::from_str_radix(text, 16).ok()?);
             rest = after.get(2..)?;
         } else {
@@ -411,15 +425,19 @@ fn local_path(uri: &str) -> Option<PathBuf> {
 
 fn through_zenity(request: &FileRequest) -> Option<Result<Option<PathBuf>, DialogError>> {
     let mut command = Command::new(ZENITY);
+
     command
         .arg("--file-selection")
         .arg(format!("--title={}", request.title));
     if request.mode == Mode::Save {
         command.arg("--save").arg("--confirm-overwrite");
     }
+
     let start = zenity_start(request.directory.as_deref(), request.file_name.as_deref());
+
     if let Some(start) = start {
         let mut argument = OsString::from("--filename=");
+
         argument.push(start);
         command.arg(argument);
     }
@@ -430,6 +448,7 @@ fn through_zenity(request: &FileRequest) -> Option<Result<Option<PathBuf>, Dialo
             patterns(filter).join(" ")
         ));
     }
+
     let output = match command.stdin(Stdio::null()).stderr(Stdio::null()).output() {
         Ok(output) => output,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
@@ -457,6 +476,7 @@ fn zenity_start(directory: Option<&Path>, file_name: Option<&str>) -> Option<Pat
         (Some(directory), Some(name)) => Some(directory.join(name)),
         (Some(directory), None) => {
             let mut start = directory.as_os_str().to_os_string();
+
             start.push("/");
             Some(PathBuf::from(start))
         }

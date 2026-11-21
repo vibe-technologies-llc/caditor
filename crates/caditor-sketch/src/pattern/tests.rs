@@ -104,6 +104,7 @@ struct Outline {
 
 fn rectangle(sketch: &mut Sketch, corner: Point2, width: f64, height: f64) -> Outline {
     let (x, y) = (corner.x, corner.y);
+
     let bottom = sketch.add_line(Point2::new(x, y), Point2::new(x + width, y));
     let right = sketch.add_line(
         Point2::new(x + width, y),
@@ -114,10 +115,13 @@ fn rectangle(sketch: &mut Sketch, corner: Point2, width: f64, height: f64) -> Ou
         Point2::new(x, y + height),
     );
     let left = sketch.add_line(Point2::new(x, y + height), Point2::new(x, y));
+
     let corners = [(bottom, right), (right, top), (top, left), (left, bottom)];
+
     for (first, second) in corners {
         let (_, end) = ends(sketch, first);
         let (start, _) = ends(sketch, second);
+
         sketch
             .add_constraint(Constraint::Coincident(end, start))
             .unwrap();
@@ -128,7 +132,9 @@ fn rectangle(sketch: &mut Sketch, corner: Point2, width: f64, height: f64) -> Ou
     sketch.add_constraint(Constraint::Horizontal(top)).unwrap();
     sketch.add_constraint(Constraint::Vertical(right)).unwrap();
     sketch.add_constraint(Constraint::Vertical(left)).unwrap();
+
     let (first, second) = ends(sketch, bottom);
+
     let width = sketch
         .add_constraint(Constraint::Distance {
             from: first,
@@ -137,6 +143,7 @@ fn rectangle(sketch: &mut Sketch, corner: Point2, width: f64, height: f64) -> Ou
         })
         .unwrap();
     let (first, second) = ends(sketch, right);
+
     sketch
         .add_constraint(Constraint::Distance {
             from: first,
@@ -153,6 +160,7 @@ fn rectangle(sketch: &mut Sketch, corner: Point2, width: f64, height: f64) -> Ou
 #[test]
 fn a_row_of_a_constrained_rectangle_follows_every_edit_of_the_original() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let original = rectangle(&mut sketch, Point2::ZERO, 10.0, 6.0);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
 
@@ -161,23 +169,33 @@ fn a_row_of_a_constrained_rectangle_follows_every_edit_of_the_original() {
         .unwrap();
 
     assert_eq!(copies.len(), 8);
+
     let (start, end) = ends(&sketch, copies[0]);
+
     assert_near(sketch.point(start).unwrap(), Point2::new(25.0, 0.0));
     assert_near(sketch.point(end).unwrap(), Point2::new(35.0, 0.0));
+
     let (_, far) = ends(&sketch, copies[4]);
+
     assert_near(sketch.point(far).unwrap(), Point2::new(60.0, 0.0));
+
     assert_eq!(count_of(&sketch, "Horizontal distance"), 16);
     assert_eq!(count_of(&sketch, "Horizontal"), 2 + 16);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(original.width, mm(14.0)).unwrap();
+
     let wider = solve(&sketch).geometry;
     let (home, _) = ends(&wider, original.lines[0]);
     let x = |point: EntityId| wider.point(point).unwrap().x;
     let (first_start, first_end) = ends(&wider, copies[0]);
     let (second_start, second_end) = ends(&wider, copies[4]);
+
     assert!((x(first_end) - x(first_start) - 14.0).abs() < EXACT);
     assert!((x(first_start) - x(home) - 25.0).abs() < EXACT);
     assert!((x(second_start) - x(first_start) - 25.0).abs() < EXACT);
@@ -187,8 +205,11 @@ fn a_row_of_a_constrained_rectangle_follows_every_edit_of_the_original() {
 #[test]
 fn a_grid_repeats_along_a_second_direction_square_to_the_first() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(5.0, 5.0), 2.0);
+
     sketch.set_construction(circle, true).unwrap();
+
     let pattern = RectangularPattern {
         directions: vec![row(3, 10.0, 0.0), row(2, 12.0, 90.0)],
         distribution: Distribution::Spacing,
@@ -197,10 +218,12 @@ fn a_grid_repeats_along_a_second_direction_square_to_the_first() {
     let copies = sketch.rectangular_pattern(&[circle], &pattern).unwrap();
 
     assert_eq!(copies.len(), 5);
+
     let centres: Vec<Point2> = copies
         .iter()
         .map(|copy| sketch.circle(*copy).unwrap().0)
         .collect();
+
     for (centre, expected) in centres.iter().zip([
         Point2::new(15.0, 5.0),
         Point2::new(25.0, 5.0),
@@ -210,16 +233,19 @@ fn a_grid_repeats_along_a_second_direction_square_to_the_first() {
     ]) {
         assert_near(*centre, expected);
     }
+
     assert!(copies.iter().all(|copy| sketch.is_construction(*copy)));
     assert_eq!(count_of(&sketch, "Equal"), 5);
     assert_eq!(count_of(&sketch, "Vertical"), 1);
     assert_eq!(count_of(&sketch, "Horizontal"), 4);
+
     assert_clean(&solve(&sketch));
 }
 
 #[test]
 fn a_slanted_row_and_a_negative_spacing_run_the_way_they_were_asked() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
     let pattern = RectangularPattern {
         directions: vec![row(3, 10.0, 30.0)],
@@ -230,22 +256,31 @@ fn a_slanted_row_and_a_negative_spacing_run_the_way_they_were_asked() {
 
     let (start, _) = ends(&sketch, copies[1]);
     let expected = Point2::new(20.0 * 30.0_f64.to_radians().cos(), 10.0);
+
     assert_near(sketch.point(start).unwrap(), expected);
+
     assert_eq!(count_of(&sketch, "Horizontal distance"), 4);
     assert_eq!(count_of(&sketch, "Vertical distance"), 4);
+
     assert_clean(&solve(&sketch));
 
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
     let backwards = across(2, -15.0);
 
     let copies = sketch.rectangular_pattern(&[line], &backwards).unwrap();
 
     let (start, _) = ends(&sketch, copies[0]);
+
     assert_near(sketch.point(start).unwrap(), Point2::new(-15.0, 0.0));
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     let (start, _) = ends(&solved.geometry, copies[0]);
+
     assert_near(
         solved.geometry.point(start).unwrap(),
         Point2::new(-15.0, 0.0),
@@ -255,6 +290,7 @@ fn a_slanted_row_and_a_negative_spacing_run_the_way_they_were_asked() {
 #[test]
 fn a_spacing_naming_a_parameter_moves_every_copy_when_the_parameter_changes() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::ZERO);
     let pattern = RectangularPattern {
         directions: vec![PatternRow::along(
@@ -271,6 +307,7 @@ fn a_spacing_naming_a_parameter_moves_every_copy_when_the_parameter_changes() {
     let copies = sketch.rectangular_pattern(&[point], &pattern).unwrap();
 
     assert_eq!(copies.len(), 3);
+
     let wider = solve_with(&sketch, 12.5).geometry;
     let home = wider.point(point).unwrap();
     for (copy, steps) in copies.iter().zip([1.0, 2.0, 3.0]) {
@@ -284,6 +321,7 @@ fn a_spacing_naming_a_parameter_moves_every_copy_when_the_parameter_changes() {
 #[test]
 fn a_circular_pattern_turns_copies_about_the_origin_and_keeps_them_tied_to_the_original() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(14.0, 0.0));
     let circle = sketch.add_circle(Point2::new(12.0, 3.0), 1.0);
     let radius = sketch
@@ -300,42 +338,58 @@ fn a_circular_pattern_turns_copies_about_the_origin_and_keeps_them_tied_to_the_o
         .unwrap();
 
     assert_eq!(copies.len(), 6);
+
     let (turned, _) = ends(&sketch, copies[0]);
+
     assert_near(sketch.point(turned).unwrap(), Point2::new(0.0, 10.0));
+
     let (opposite, _) = ends(&sketch, copies[2]);
+
     assert_near(sketch.point(opposite).unwrap(), Point2::new(-10.0, 0.0));
     assert_near(
         sketch.circle(copies[3]).unwrap().0,
         Point2::new(-12.0, -3.0),
     );
+
     assert_eq!(count_of(&sketch, "Angle"), 9);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(radius, mm(2.0)).unwrap();
+
     let thicker = solve(&sketch).geometry;
+
     assert!((thicker.circle(copies[5]).unwrap().1 - 2.0).abs() < EXACT);
 
     let mut moved = sketch.clone();
+
     moved
         .add_constraint(Constraint::Fix {
             point: start,
             at: Point2::new(0.0, 10.0),
         })
         .unwrap();
+
     let held = solve(&moved).geometry;
     let (turned, _) = ends(&held, copies[0]);
+
     assert_near(held.point(turned).unwrap(), Point2::new(-10.0, 0.0));
 }
 
 #[test]
 fn a_circular_pattern_about_a_sketch_point_over_a_total_angle_spaces_its_ends_evenly() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(5.0, 5.0));
     let line = sketch.add_line(Point2::new(5.0, 5.0), Point2::new(15.0, 5.0));
     let (hub, tip) = ends(&sketch, line);
+
     sketch.set_construction(line, true).unwrap();
+
     let pattern = CircularPattern {
         count: 3,
         spread: Spread::Total(degrees(90.0)),
@@ -344,8 +398,11 @@ fn a_circular_pattern_about_a_sketch_point_over_a_total_angle_spaces_its_ends_ev
     let copies = sketch.circular_pattern(&[line], centre, &pattern).unwrap();
 
     assert_eq!(copies.len(), 2);
+
     let (copy_hub, middle) = ends(&sketch, copies[0]);
+
     assert_eq!(copy_hub, hub);
+
     assert_near(
         sketch.point(middle).unwrap(),
         Point2::new(
@@ -353,8 +410,11 @@ fn a_circular_pattern_about_a_sketch_point_over_a_total_angle_spaces_its_ends_ev
             5.0 + 10.0 * 45.0_f64.to_radians().sin(),
         ),
     );
+
     let (_, last) = ends(&sketch, copies[1]);
+
     assert_near(sketch.point(last).unwrap(), Point2::new(5.0, 15.0));
+
     assert!(copies.iter().all(|copy| sketch.is_construction(*copy)));
     assert!(
         sketch
@@ -364,9 +424,13 @@ fn a_circular_pattern_about_a_sketch_point_over_a_total_angle_spaces_its_ends_ev
     assert!(!sketch.constraints().any(|(_, constraint)| {
         matches!(constraint, Constraint::Coincident(a, b) if *a == tip || *b == tip)
     }));
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     let (_, solved_last) = ends(&solved.geometry, copies[1]);
+
     assert_near(
         solved.geometry.point(solved_last).unwrap(),
         Point2::new(5.0, 15.0),
@@ -376,6 +440,7 @@ fn a_circular_pattern_about_a_sketch_point_over_a_total_angle_spaces_its_ends_ev
 #[test]
 fn a_negative_total_angle_turns_clockwise() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::new(10.0, 0.0));
     let pattern = CircularPattern {
         count: 2,
@@ -390,7 +455,9 @@ fn a_negative_total_angle_turns_clockwise() {
         .unwrap();
 
     assert_near(sketch.point(copies[0]).unwrap(), Point2::new(0.0, -10.0));
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
     assert_near(
         solved.geometry.point(copies[0]).unwrap(),
@@ -401,6 +468,7 @@ fn a_negative_total_angle_turns_clockwise() {
 #[test]
 fn geometry_on_the_centre_stays_there_and_a_circle_about_it_is_left_out() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(8.0, 0.0));
     let rim = sketch.add_circle(Point2::ZERO, 3.0);
     let (root, _) = ends(&sketch, line);
@@ -416,10 +484,13 @@ fn geometry_on_the_centre_stays_there_and_a_circle_about_it_is_left_out() {
             .any(|(_, constraint)| *constraint == Constraint::Coincident(root, EntityId::ORIGIN))
     );
     assert_eq!(count_of(&sketch, "Equal"), 2);
+
     assert_clean(&solve(&sketch));
 
     let mut only_the_rim = Sketch::new(Plane::XY);
+
     let rim = only_the_rim.add_circle(Point2::ZERO, 3.0);
+
     assert_eq!(
         only_the_rim.circular_pattern(&[rim], EntityId::ORIGIN, &turns(3)),
         Err(PatternError::NothingToTurn)
@@ -429,6 +500,7 @@ fn geometry_on_the_centre_stays_there_and_a_circle_about_it_is_left_out() {
 #[test]
 fn a_pattern_is_previewed_without_changing_the_sketch() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(4.0, 2.0));
     let lone = sketch.add_point(Point2::new(3.0, 7.0));
     let before = sketch.clone();
@@ -439,22 +511,28 @@ fn a_pattern_is_previewed_without_changing_the_sketch() {
 
     assert_eq!(sketch, before);
     assert_eq!(image.curves.len(), 2);
+
     assert_near(image.curves[0][0], Point2::new(11.0, 1.0));
     assert_near(image.curves[1][0], Point2::new(21.0, 1.0));
+
     assert_eq!(image.points.len(), 2);
+
     assert_near(image.points[1], Point2::new(23.0, 7.0));
 
     let turned = sketch
         .circular_image(&[line], EntityId::ORIGIN, &turns(4), Faceting::within(0.01))
         .unwrap();
+
     assert_eq!(sketch, before);
     assert_eq!(turned.curves.len(), 3);
+
     assert_near(turned.curves[0][0], Point2::new(-1.0, 1.0));
 }
 
 #[test]
 fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
     let centre = sketch.add_point(Point2::new(9.0, 9.0));
     let before = sketch.clone();
@@ -478,18 +556,22 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
         sketch.rectangular_pattern(&[line], &across(3, 0.0)),
         Err(PatternError::ZeroSpacing)
     );
+
     let beside = RectangularPattern {
         directions: vec![row(3, 5.0, 0.0), row(2, 5.0, 180.0)],
         distribution: Distribution::Spacing,
     };
+
     assert_eq!(
         sketch.rectangular_pattern(&[line], &beside),
         Err(PatternError::ParallelDirections)
     );
+
     let many = RectangularPattern {
         directions: vec![row(20, 5.0, 0.0), row(20, 5.0, 90.0)],
         distribution: Distribution::Spacing,
     };
+
     assert_eq!(
         sketch.rectangular_pattern(&[line], &many),
         Err(PatternError::TooManyInstances {
@@ -519,16 +601,19 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
             label: "Horizontal axis".to_owned(),
         })
     );
+
     for total in [0.0, 360.0, -400.0] {
         let pattern = CircularPattern {
             count: 3,
             spread: Spread::Total(degrees(total)),
         };
+
         assert_eq!(
             sketch.circular_pattern(&[line], centre, &pattern),
             Err(PatternError::SpreadOutsideTurn)
         );
     }
+
     assert_eq!(sketch, before);
     assert_eq!(
         PatternError::CountTooSmall { count: 1 }.to_string(),
@@ -539,6 +624,7 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
 #[test]
 fn ellipses_repeat_with_their_minor_radius_held_by_equal() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(20.0, 5.0), Point2::new(28.0, 9.0), 3.0);
     let free = solve(&sketch).solution.degrees_of_freedom();
 
@@ -550,6 +636,7 @@ fn ellipses_repeat_with_their_minor_radius_held_by_equal() {
         .constraints()
         .filter(|(_, constraint)| matches!(constraint, Constraint::Equal(..)))
         .count();
+
     let last = solved.geometry.ellipse(copies[1]).unwrap();
 
     assert!(solved.solution.redundancies().is_empty());
@@ -562,6 +649,7 @@ fn ellipses_repeat_with_their_minor_radius_held_by_equal() {
 #[test]
 fn an_elliptical_arc_repeats_on_its_points_alone() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_elliptical_arc(
         Point2::new(20.0, 30.0),
         Point2::new(28.0, 30.0),
@@ -575,6 +663,7 @@ fn an_elliptical_arc_repeats_on_its_points_alone() {
         .unwrap();
     let solved = solve(&sketch);
     let original = solved.geometry.ellipse(arc).unwrap();
+
     let copy = solved.geometry.ellipse(copies[0]).unwrap();
 
     assert!(
@@ -590,6 +679,7 @@ fn an_elliptical_arc_repeats_on_its_points_alone() {
 #[test]
 fn an_ellipse_turns_about_a_centre_with_its_minor_radius_held() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(20.0, 0.0), Point2::new(28.0, 0.0), 3.0);
     let free = solve(&sketch).solution.degrees_of_freedom();
 
@@ -597,6 +687,7 @@ fn an_ellipse_turns_about_a_centre_with_its_minor_radius_held() {
         .circular_pattern(&[ellipse], EntityId::ORIGIN, &turns(4))
         .unwrap();
     let solved = solve(&sketch);
+
     let quarter = solved.geometry.ellipse(copies[0]).unwrap();
 
     assert!(solved.solution.redundancies().is_empty());
@@ -636,6 +727,7 @@ fn assert_repeats_without_redundancy(
     pattern: impl Fn(&mut Sketch, EntityId) -> Vec<EntityId>,
 ) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let curve = build(&mut sketch);
     let free = solve(&sketch).solution.degrees_of_freedom();
 
@@ -643,7 +735,9 @@ fn assert_repeats_without_redundancy(
     let solved = solve(&sketch);
 
     assert!(!copies.is_empty());
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), free);
 }
 
@@ -691,12 +785,14 @@ fn a_circular_pattern_of_an_arc_or_an_elliptical_arc_adds_no_redundant_tie() {
         });
         assert_repeats_without_redundancy(build, |sketch, arc| {
             let centre = sketch.add_point(Point2::new(3.0, -4.0));
+
             sketch
                 .add_constraint(Constraint::Fix {
                     point: centre,
                     at: Point2::new(3.0, -4.0),
                 })
                 .unwrap();
+
             let pattern = CircularPattern {
                 count: 3,
                 spread: Spread::Total(degrees(100.0)),
@@ -735,6 +831,7 @@ fn arc_about_the_origin(sketch: &mut Sketch) -> EntityId {
     let Some(Entity::Arc { center: centre, .. }) = sketch.entity(arc).cloned() else {
         panic!("expected an arc");
     };
+
     sketch
         .add_constraint(Constraint::Coincident(centre, EntityId::ORIGIN))
         .unwrap();
@@ -769,11 +866,13 @@ fn an_elliptical_arc_with_ends_on_its_major_axis_repeats_without_redundancy() {
 #[test]
 fn an_inactive_coincident_does_not_hold_a_point_on_the_pattern_centre() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(8.0, 0.0));
     let (root, _) = ends(&sketch, line);
     let coincident = sketch
         .add_constraint(Constraint::Coincident(root, EntityId::ORIGIN))
         .unwrap();
+
     sketch.set_active(coincident, false).unwrap();
 
     sketch
@@ -790,10 +889,13 @@ fn an_inactive_coincident_does_not_hold_a_point_on_the_pattern_centre() {
 #[test]
 fn a_circular_pattern_of_points_lays_out_every_copy_but_not_its_centre() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(5.0, 5.0));
     let bolt = sketch.add_point(Point2::new(15.0, 5.0));
     let guide = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(20.0, -10.0));
+
     sketch.set_construction(guide, true).unwrap();
+
     let lone = sketch.add_point(Point2::new(30.0, 30.0));
 
     let free = sketch.free_points();
@@ -821,6 +923,7 @@ fn a_circular_pattern_of_points_lays_out_every_copy_but_not_its_centre() {
 #[test]
 fn a_circular_pattern_about_the_origin_lays_out_its_points_and_not_the_hub_it_adds() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let bolt = sketch.add_point(Point2::new(10.0, 0.0));
 
     let copies = sketch
@@ -851,6 +954,7 @@ fn along_line(count: usize, spacing: f64, line: EntityId, square: bool) -> Patte
 #[test]
 fn a_row_along_a_line_runs_its_way_and_turns_with_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let guide = sketch.add_line(Point2::new(-30.0, -30.0), Point2::new(-20.0, -20.0));
     let point = sketch.add_point(Point2::new(20.0, 0.0));
     let step = 5.0 / 2.0_f64.sqrt();
@@ -860,6 +964,7 @@ fn a_row_along_a_line_runs_its_way_and_turns_with_it() {
         .unwrap();
 
     assert_eq!(copies.len(), 2);
+
     assert_near(
         sketch.point(copies[0]).unwrap(),
         Point2::new(20.0 + step, step),
@@ -868,18 +973,23 @@ fn a_row_along_a_line_runs_its_way_and_turns_with_it() {
         sketch.point(copies[1]).unwrap(),
         Point2::new(20.0 + 2.0 * step, 2.0 * step),
     );
+
     assert_eq!(count_of(&sketch, "Distance"), 2);
     assert_eq!(count_of(&sketch, "Parallel through"), 2);
+
     assert_clean(&solve(&sketch));
 
     sketch
         .add_constraint(Constraint::Horizontal(guide))
         .unwrap();
+
     let solved = solve(&sketch);
     let home = solved.geometry.point(point).unwrap();
+
     assert_clean(&solved);
     for (copy, steps) in copies.iter().zip([1.0, 2.0]) {
         let offset = solved.geometry.point(*copy).unwrap() - home;
+
         assert!(offset.y.abs() < EXACT, "{offset}");
         assert!((offset.x.abs() - 5.0 * steps).abs() < EXACT, "{offset}");
     }
@@ -888,9 +998,11 @@ fn a_row_along_a_line_runs_its_way_and_turns_with_it() {
 #[test]
 fn a_reversed_row_square_to_a_line_runs_the_other_way_across_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let guide = sketch.add_line(Point2::new(0.0, -40.0), Point2::new(10.0, -40.0));
     let circle = sketch.add_circle(Point2::new(5.0, 5.0), 1.0);
     let mut across = along_line(2, 8.0, guide, true);
+
     across.reversed = true;
 
     let copies = sketch
@@ -898,7 +1010,9 @@ fn a_reversed_row_square_to_a_line_runs_the_other_way_across_it() {
         .unwrap();
 
     assert_near(sketch.circle(copies[0]).unwrap().0, Point2::new(5.0, -3.0));
+
     assert_eq!(count_of(&sketch, "Perpendicular through"), 1);
+
     assert_clean(&solve(&sketch));
 }
 
@@ -911,16 +1025,20 @@ fn a_grid_along_two_lines_of_a_hexagon_keeps_every_copy_tied_without_redundancy(
             Point2::new(5.0 * angle.cos(), 5.0 * angle.sin())
         })
         .collect();
+
     let sides: Vec<EntityId> = (0..6)
         .map(|side| sketch.add_line(corners[side], corners[(side + 1) % 6]))
         .collect();
+
     for side in 0..6 {
         let (_, end) = ends(&sketch, sides[side]);
         let (start, _) = ends(&sketch, sides[(side + 1) % 6]);
+
         sketch
             .add_constraint(Constraint::Coincident(end, start))
             .unwrap();
     }
+
     let free = solve(&sketch).solution.degrees_of_freedom();
     let pattern = grid(
         along_line(3, 10.0, sides[0], true),
@@ -931,16 +1049,21 @@ fn a_grid_along_two_lines_of_a_hexagon_keeps_every_copy_tied_without_redundancy(
     let solved = solve(&sketch);
 
     assert_eq!(copies.len(), 6 * 5);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), free);
 }
 
 #[test]
 fn a_symmetric_row_repeats_on_both_sides_of_the_original() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::new(3.0, 4.0));
     let mut both = row(3, 10.0, 0.0);
+
     both.sides = Sides::Both;
+
     let free = solve(&sketch).solution.degrees_of_freedom();
 
     let copies = sketch
@@ -949,8 +1072,10 @@ fn a_symmetric_row_repeats_on_both_sides_of_the_original() {
     let solved = solve(&sketch);
 
     assert_eq!(copies.len(), 4);
+
     for x in [-17.0, -7.0, 13.0, 23.0] {
         let expected = Point2::new(x, 4.0);
+
         assert!(
             copies
                 .iter()
@@ -959,12 +1084,14 @@ fn a_symmetric_row_repeats_on_both_sides_of_the_original() {
         );
     }
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), free);
 }
 
 #[test]
 fn an_extent_spreads_the_count_from_the_original_to_the_last_copy() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::ZERO);
     let pattern = RectangularPattern {
         directions: vec![PatternRow::along(
@@ -982,8 +1109,10 @@ fn an_extent_spreads_the_count_from_the_original_to_the_last_copy() {
 
     assert_near(sketch.point(copies[3]).unwrap(), Point2::new(0.0, 40.0));
     assert_near(sketch.point(copies[0]).unwrap(), Point2::new(0.0, 10.0));
+
     let longer = solve_with(&sketch, 60.0).geometry;
     let home = longer.point(point).unwrap();
+
     assert_near(
         longer.point(copies[3]).unwrap() - home,
         Point2::new(0.0, 60.0),
@@ -997,6 +1126,7 @@ fn an_extent_spreads_the_count_from_the_original_to_the_last_copy() {
 #[test]
 fn a_symmetric_circular_pattern_turns_both_ways_from_the_original() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::new(10.0, 0.0));
     let pattern = CircularPattern {
         count: 3,
@@ -1010,11 +1140,13 @@ fn a_symmetric_circular_pattern_turns_both_ways_from_the_original() {
     let solved = solve(&sketch);
 
     assert_eq!(copies.len(), 4);
+
     for degrees in [30.0_f64, 60.0, -30.0, -60.0] {
         let expected = Point2::new(
             10.0 * degrees.to_radians().cos(),
             10.0 * degrees.to_radians().sin(),
         );
+
         assert!(
             copies
                 .iter()
@@ -1023,12 +1155,14 @@ fn a_symmetric_circular_pattern_turns_both_ways_from_the_original() {
         );
     }
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), free);
 }
 
 #[test]
 fn a_direction_that_is_no_line_an_empty_extent_and_a_half_turn_each_way_are_refused() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::new(10.0, 0.0));
     let circle = sketch.add_circle(Point2::new(30.0, 0.0), 2.0);
     let before = sketch.clone();
@@ -1040,26 +1174,33 @@ fn a_direction_that_is_no_line_an_empty_extent_and_a_half_turn_each_way_are_refu
             label: sketch.entity_label(circle),
         })
     );
+
     let empty = RectangularPattern {
         distribution: Distribution::Extent,
         ..across(3, 0.0)
     };
+
     assert_eq!(
         sketch.rectangular_pattern(&[point], &empty),
         Err(PatternError::ZeroExtent)
     );
+
     for each in [0.0, 180.0, -200.0] {
         let pattern = CircularPattern {
             count: 3,
             spread: Spread::Symmetric(degrees(each)),
         };
+
         assert_eq!(
             sketch.circular_pattern(&[point], EntityId::ORIGIN, &pattern),
             Err(PatternError::SymmetricSpreadOutsideHalfTurn)
         );
     }
+
     let mut wide = row(101, 1.0, 0.0);
+
     wide.sides = Sides::Both;
+
     assert_eq!(
         sketch.rectangular_pattern(&[point], &grid(wide, None)),
         Err(PatternError::TooManyInstances {
@@ -1073,6 +1214,7 @@ fn a_direction_that_is_no_line_an_empty_extent_and_a_half_turn_each_way_are_refu
 #[test]
 fn three_directions_repeat_every_combination_of_steps_tied_as_a_tree_from_the_original() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::new(1.0, 2.0));
     let free = solve(&sketch).solution.degrees_of_freedom();
     let leaning = PatternRow::along(
@@ -1099,7 +1241,9 @@ fn three_directions_repeat_every_combination_of_steps_tied_as_a_tree_from_the_or
     assert_eq!(count_of(&sketch, "Vertical"), 2);
     assert_eq!(count_of(&sketch, "Horizontal distance"), 5);
     assert_eq!(count_of(&sketch, "Vertical distance"), 3);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), free);
     for (copy, (x, y)) in copies.iter().zip([
         (10.0, 0.0),
@@ -1117,6 +1261,7 @@ fn three_directions_repeat_every_combination_of_steps_tied_as_a_tree_from_the_or
 #[test]
 fn directions_along_one_line_reaching_one_place_two_ways_or_none_at_all_are_refused() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::ZERO);
     let before = sketch.clone();
     let three = |angles: [f64; 3], spacings: [f64; 3]| RectangularPattern {
@@ -1153,6 +1298,8 @@ fn directions_along_one_line_reaching_one_place_two_ways_or_none_at_all_are_refu
     let copies = sketch
         .rectangular_pattern(&[point], &three([0.0, 60.0, 120.0], [10.0, 10.0, 7.0]))
         .unwrap();
+
     assert_eq!(copies.len(), 7);
+
     assert_clean(&solve(&sketch));
 }

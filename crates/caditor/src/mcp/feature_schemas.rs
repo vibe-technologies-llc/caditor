@@ -44,6 +44,7 @@ fn datum(kind: &str) -> Value {
 
 fn frame_part(part: &str, names: &[&str]) -> Value {
     let mut properties = Map::new();
+
     properties.insert(
         "frame".to_owned(),
         reference("A coordinate system, by feature id or name"),
@@ -217,6 +218,7 @@ pub fn revolve() -> Value {
 
 fn edge_choice(size: &str, size_description: &str) -> serde_json::Map<String, Value> {
     let mut properties = serde_json::Map::new();
+
     properties.insert("body".to_owned(), reference("The body, by id or name"));
     properties.insert("edges".to_owned(), keys("Edge keys from list_edges"));
     properties.insert(
@@ -254,6 +256,7 @@ fn edge_choice(size: &str, size_description: &str) -> serde_json::Map<String, Va
 
 pub fn fillet() -> Value {
     let mut properties = edge_choice("radius", "Such as \"2 mm\"");
+
     properties.insert(
         "chord_length".to_owned(),
         amount(
@@ -265,6 +268,7 @@ pub fn fillet() -> Value {
 
 pub fn chamfer() -> Value {
     let mut properties = edge_choice("distance", "Such as \"1 mm\"");
+
     properties.insert(
         "second_distance".to_owned(),
         amount("A second distance, along the other face"),
@@ -368,6 +372,7 @@ pub fn mirror() -> Value {
 
 fn direction_properties() -> serde_json::Map<String, Value> {
     let mut properties = serde_json::Map::new();
+
     properties.insert("axis".to_owned(), axis());
     properties.insert(
         "count".to_owned(),
@@ -390,6 +395,7 @@ fn direction_properties() -> serde_json::Map<String, Value> {
 
 pub fn linear_pattern() -> Value {
     let mut properties = direction_properties();
+
     properties.insert("body".to_owned(), reference("The body repeated"));
     properties.insert(
         "features".to_owned(),

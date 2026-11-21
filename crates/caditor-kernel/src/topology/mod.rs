@@ -70,7 +70,7 @@ typed_index!(LoopId);
 typed_index!(FaceId);
 typed_index!(ShellId);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Vertex {
     point: Point3,
 }
@@ -81,7 +81,7 @@ impl Vertex {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Edge {
     curve: Curve,
     interval: Interval,
@@ -121,7 +121,7 @@ impl Edge {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Coedge {
     edge: EdgeId,
     sense: Sense,
@@ -147,7 +147,7 @@ impl Coedge {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Loop {
     face: FaceId,
     coedges: Vec<CoedgeId>,
@@ -163,7 +163,7 @@ impl Loop {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Face {
     surface: Surface,
     sense: Sense,
@@ -207,7 +207,7 @@ impl Face {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Shell {
     faces: Vec<FaceId>,
 }
@@ -218,7 +218,7 @@ impl Shell {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Solid {
     vertices: Vec<Vertex>,
     edges: Vec<Edge>,
@@ -241,6 +241,7 @@ fn enumerate<'a, Id, Item>(
 impl Solid {
     pub fn approximate_size(&self) -> usize {
         let mut shared = 0;
+
         self.shared_buffers(&mut |buffer| shared += buffer.bytes());
         self.owned_size() + shared
     }
@@ -380,17 +381,21 @@ impl Solid {
             .filter(|(_, face)| doubly_curved(face.surface()))
             .map(|(id, _)| id)
             .collect();
+
         if curved.is_empty() {
             return Some(outline);
         }
+
         let classifier = self.classifier();
         let mut inside = Vec::new();
         let mut hulls = Vec::new();
+
         for id in curved {
             let (Some(face), Some(uv_box)) = (self.face(id), classifier.face_uv_box(id)) else {
                 continue;
             };
             let surface = face.surface();
+
             let extremes: Vec<Point2> = match surface {
                 Surface::Sphere(_) | Surface::Torus(_) => axis_extremes(surface)
                     .into_iter()
@@ -414,6 +419,7 @@ impl Solid {
                 }
             }
         }
+
         let reached = match Aabb::from_points(inside) {
             Some(faces) => outline.union(faces),
             None => outline,
@@ -480,6 +486,7 @@ impl Solid {
             shift(self.shells.len())?,
         );
         let mut joined = self.clone();
+
         joined.vertices.extend(other.vertices.iter().cloned());
         joined.edges.extend(other.edges.iter().map(|edge| {
             Edge {
@@ -528,6 +535,7 @@ impl Solid {
                 .filter_map(|(index, id)| Some((*id, u32::try_from(index).ok()?)))
                 .collect()
         }
+
         let faces: BTreeSet<FaceId> = keep
             .iter()
             .filter_map(|shell| self.shell(*shell))
@@ -553,6 +561,7 @@ impl Solid {
             .filter_map(|edge| self.edge(*edge))
             .flat_map(|edge| [edge.start, edge.end])
             .collect();
+
         let (shell_ids, face_ids, loop_ids) =
             (renumbered(keep), renumbered(&faces), renumbered(&loops));
         let (coedge_ids, edge_ids, vertex_ids) = (
@@ -652,6 +661,7 @@ impl Solid {
 
     pub fn joined(lumps: impl IntoIterator<Item = Self>) -> Result<Self, ValidationError> {
         let mut joined = Self::default();
+
         for lump in lumps {
             joined
                 .append(lump)
@@ -665,6 +675,7 @@ impl Solid {
         fn shifted(index: u32, by: usize) -> Option<u32> {
             u32::try_from(usize::try_from(index).ok()?.checked_add(by)?).ok()
         }
+
         let (vertices, edges, coedges) =
             (self.vertices.len(), self.edges.len(), self.coedges.len());
         let (loops, faces, shells) = (self.loops.len(), self.faces.len(), self.shells.len());
@@ -674,6 +685,7 @@ impl Solid {
         let face_loop = |id: LoopId| shifted(id.0, loops).map(LoopId);
         let face = |id: FaceId| shifted(id.0, faces).map(FaceId);
         let shell = |id: ShellId| shifted(id.0, shells).map(ShellId);
+
         for found in lump.edges {
             self.edges.push(Edge {
                 start: vertex(found.start)?,
@@ -734,6 +746,7 @@ impl Solid {
         for face in &mut self.faces {
             (face.name, face.origin) = rename(face.name, face.origin);
         }
+
         let names: Vec<EdgeName> = self
             .edges
             .iter()
@@ -752,6 +765,7 @@ impl Solid {
                 }
             })
             .collect();
+
         for (edge, name) in self.edges.iter_mut().zip(names) {
             edge.name = name;
         }
@@ -762,13 +776,16 @@ impl Solid {
     pub fn imported(mut self, feature: u64) -> Self {
         for (index, face) in self.faces.iter_mut().enumerate() {
             let index = u32::try_from(index).unwrap_or(u32::MAX);
+
             face.name = FaceName::imported(feature, index);
             face.origin = Some(FaceOrigin::Imported {
                 feature,
                 face: index,
             });
         }
+
         let names = self.derived_edge_names();
+
         for (edge, name) in self.edges.iter_mut().zip(names) {
             edge.name = name;
         }
@@ -796,11 +813,14 @@ impl Solid {
         for face in &mut self.faces {
             if let Some(FaceOrigin::Side { feature, entity }) = face.origin {
                 let entity = renumber(entity);
+
                 face.origin = Some(FaceOrigin::Side { feature, entity });
                 face.name = FaceName::thread(feature, entity);
             }
         }
+
         let names = self.derived_edge_names();
+
         for (edge, name) in self.edges.iter_mut().zip(names) {
             edge.name = name;
         }
@@ -811,7 +831,9 @@ impl Solid {
         for face in &mut self.faces {
             face.name = rename(face.name);
         }
+
         let names = self.derived_edge_names();
+
         for (edge, name) in self.edges.iter_mut().zip(names) {
             edge.name = name;
         }
@@ -845,6 +867,7 @@ impl Solid {
             })
             .collect();
         let mut around: Vec<BTreeSet<FaceName>> = vec![BTreeSet::new(); self.vertices.len()];
+
         for (edge, faces) in self.edges.iter().zip(&sides) {
             for vertex in [edge.start, edge.end] {
                 if let Some(set) = around.get_mut(vertex.index()) {
@@ -852,8 +875,10 @@ impl Solid {
                 }
             }
         }
+
         let vertex_names: Vec<VertexName> = around.into_iter().map(VertexName::of_faces).collect();
         let mut groups: BTreeMap<EdgeName, Vec<usize>> = BTreeMap::new();
+
         for (index, name) in names.iter().enumerate() {
             groups.entry(*name).or_default().push(index);
         }
@@ -879,15 +904,18 @@ impl Solid {
                 })
                 .collect();
             let mut counts: BTreeMap<EdgeName, usize> = BTreeMap::new();
+
             for (_, name, _) in &named {
                 *counts.entry(*name).or_default() += 1;
             }
             named.sort_by_key(|(_, _, midpoint)| occurrence_order(*midpoint));
+
             let mut occurrences: BTreeMap<EdgeName, u32> = BTreeMap::new();
             for (index, name, _) in named {
                 let unique = if counts.get(&name).copied().unwrap_or(0) > 1 {
                     let occurrence = occurrences.entry(name).or_insert(0);
                     let unique = EdgeName::occurrence(name, *occurrence);
+
                     *occurrence += 1;
                     unique
                 } else {
@@ -971,6 +999,7 @@ fn torus_extremes(torus: &Torus) -> Vec<Point3> {
     let (center, normal) = (frame.origin(), frame.normal());
     let (major, minor) = (torus.major_radius(), torus.minor_radius());
     let mut extremes = Vec::new();
+
     for direction in [Vector3::X, Vector3::Y, Vector3::Z] {
         let across = direction - normal * direction.dot(normal);
         let rings: Vec<Vector3> = match across.try_normalize() {

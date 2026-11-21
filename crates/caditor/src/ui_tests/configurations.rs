@@ -21,9 +21,13 @@ use crate::{
 
 fn add_size(harness: &mut Harness) {
     let mut transaction = harness.document().transaction("Add size");
+
     let expression = transaction.parse("10 mm").unwrap();
+
     transaction.add_parameter("size", expression);
+
     let transaction: Transaction = transaction.finish();
+
     harness.perform(Action::Apply(transaction));
     harness.settle();
 }
@@ -31,19 +35,24 @@ fn add_size(harness: &mut Harness) {
 #[test]
 fn the_configurations_dialog_adds_rows_sets_values_and_the_palette_switches_between_them() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     add_size(&mut harness);
+
     let size = ConfiguredValue::Parameter(harness.parameter("size"));
 
     run_from_palette(&mut harness, "configurations");
     harness.frame();
     harness.click_button(ADD_LABEL);
     harness.frame();
+
     let configure = harness.document().configuring(size).unwrap();
+
     harness.perform(Action::Apply(configure));
     harness.frame();
     harness.click_button(ADD_LABEL);
     harness.frame();
+
     let rows: Vec<_> = harness
         .document()
         .configurations()
@@ -51,9 +60,12 @@ fn the_configurations_dialog_adds_rows_sets_values_and_the_palette_switches_betw
         .iter()
         .map(|row| (row.id, row.name.clone()))
         .collect();
+
     harness.type_into_field(cell_id(rows[1].0, size), "20 mm");
     harness.frame();
+
     let unchanged = harness.expression_text("size");
+
     harness.perform(Action::Preferences(
         crate::preferences::PreferencesCommand::CloseConfigurations,
     ));
@@ -61,8 +73,10 @@ fn the_configurations_dialog_adds_rows_sets_values_and_the_palette_switches_betw
 
     run_from_palette(&mut harness, "switch to configuration 2");
     harness.settle();
+
     let switched = harness.expression_text("size");
     let active = harness.document().configurations().active;
+
     harness.perform(Action::Undo);
     harness.settle();
 
@@ -82,19 +96,25 @@ fn the_configurations_dialog_adds_rows_sets_values_and_the_palette_switches_betw
 #[test]
 fn escape_in_a_configuration_s_rename_cell_keeps_the_name_and_the_dialog() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     add_size(&mut harness);
+
     let size = ConfiguredValue::Parameter(harness.parameter("size"));
+
     run_from_palette(&mut harness, "configurations");
     harness.frame();
     harness.click_button(ADD_LABEL);
     harness.frame();
+
     let configure = harness.document().configuring(size).unwrap();
+
     harness.perform(Action::Apply(configure));
     harness.frame();
     harness.click_button("Rename it");
     harness.frame();
     harness.type_text("Changed");
+
     assert!(harness.has_button("Keep the name (Esc)"));
 
     harness.key(Key::Escape, Modifiers::NONE);
@@ -119,21 +139,31 @@ fn escape_in_a_configuration_s_rename_cell_keeps_the_name_and_the_dialog() {
 #[test]
 fn exporting_every_configuration_writes_a_file_for_each_with_its_own_values() {
     let mut harness = Harness::new();
+
     add_size(&mut harness);
+
     let size = harness.parameter("size");
+
     add_block(
         &mut harness,
         "Block",
         [Point2::new(0.0, 0.0), Point2::new(10.0, 10.0)],
         &format!("${}", size.raw()),
     );
+
     let value = ConfiguredValue::Parameter(size);
     let (first, _) = harness.document().adding_configuration(Some("Short"));
+
     harness.perform(Action::Apply(first));
+
     let configure = harness.document().configuring(value).unwrap();
+
     harness.perform(Action::Apply(configure));
+
     let (second, tall) = harness.document().adding_configuration(Some("Tall"));
+
     harness.perform(Action::Apply(second));
+
     let thirty = harness
         .document()
         .transaction("Parse")
@@ -143,8 +173,10 @@ fn exporting_every_configuration_writes_a_file_for_each_with_its_own_values() {
         .document()
         .setting_configuration(tall, value, Setting::Expression(thirty))
         .unwrap();
+
     harness.perform(Action::Apply(change));
     harness.settle();
+
     let folder = tempfile::tempdir().unwrap();
     let job = ConfigurationJob {
         document: harness.document().clone(),
@@ -173,6 +205,7 @@ fn exporting_every_configuration_writes_a_file_for_each_with_its_own_values() {
 
     let short = std::fs::read_to_string(folder.path().join("bracket Short.stl")).unwrap();
     let long = std::fs::read_to_string(folder.path().join("bracket Tall.stl")).unwrap();
+
     assert_eq!(outcomes.len(), 2);
     assert_ne!(short, long);
     assert!(outcomes.iter().all(|outcome| outcome.result.is_ok()));
@@ -199,16 +232,22 @@ fn configurations_whose_names_make_the_same_file_are_written_apart_once_replacin
     let dir = TempDir::new().unwrap();
     let root = canonical(&dir);
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     extruded_plate(&mut harness);
+
     let (first, _) = harness.document().adding_configuration(Some("M4/20"));
+
     harness.perform(Action::Apply(first));
+
     let (second, _) = harness.document().adding_configuration(Some("M4-20"));
+
     harness.perform(Action::Apply(second));
     harness.settle();
     harness.frame();
 
     let slashed = root.join("bracket M4-20.stl");
     let dashed = root.join("bracket M4-20 (2).stl");
+
     fs::write(&slashed, b"kept").unwrap();
     fs::write(&dashed, b"kept").unwrap();
 
@@ -222,7 +261,9 @@ fn configurations_whose_names_make_the_same_file_are_written_apart_once_replacin
     harness.wait_until("the replacement is asked about", |harness| {
         harness.shows("Replace 2 files?")
     });
+
     let listed = harness.shows("bracket M4-20.stl") && harness.shows("bracket M4-20 (2).stl");
+
     harness.click("Cancel");
 
     assert!(listed);

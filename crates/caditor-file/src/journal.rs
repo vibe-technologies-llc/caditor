@@ -29,14 +29,14 @@ use crate::{
 
 pub(crate) const JOURNAL_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum JournalEntry {
     Apply(Transaction),
     Undo(Transaction),
     Redo(Transaction),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct JournalHeader {
     file: Option<Vec<u8>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -45,20 +45,20 @@ struct JournalHeader {
     folded: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Logged {
     Entry(JournalEntry),
     UndoLast,
     RedoNext,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct RebasedSnapshotRecord {
     snapshot: SnapshotRecord,
     folded: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct SnapshotRecord {
     parameters: Vec<Lenient<ParameterRecord>>,
     features: Vec<Lenient<FeatureRecord>>,
@@ -105,6 +105,7 @@ pub(crate) fn encode_journal_noting(
     pictures: &mut WrittenPictures,
 ) -> Result<Vec<u8>, EncodeError> {
     *pictures = WrittenPictures::of(base);
+
     let header = JournalHeader {
         file: head.file.map(|file| os::path_bytes(file.as_os_str())),
         on_disk: head.on_disk.cloned(),
@@ -112,12 +113,15 @@ pub(crate) fn encode_journal_noting(
         folded: u64::try_from(head.folded).unwrap_or(u64::MAX),
     };
     let mut bytes = start_file(&JOURNAL_MAGIC, JOURNAL_VERSION);
+
     push_packed_for_recovery(
         &mut bytes,
         ChunkKind::JournalHeader,
         &value::to_bytes(&header)?,
     )?;
+
     let snapshot = snapshot_record(base);
+
     if head.folded == 0 {
         push_packed_for_recovery(
             &mut bytes,
@@ -129,6 +133,7 @@ pub(crate) fn encode_journal_noting(
             snapshot,
             folded: u64::try_from(head.folded).unwrap_or(u64::MAX),
         };
+
         push_packed_for_recovery(
             &mut bytes,
             ChunkKind::RebasedSnapshot,
@@ -141,7 +146,7 @@ pub(crate) fn encode_journal_noting(
     Ok(bytes)
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct WrittenPictures(BTreeSet<String>);
 
 impl WrittenPictures {
@@ -173,6 +178,7 @@ pub(crate) fn encode_entry_sharing(
     pictures: &mut WrittenPictures,
 ) -> Result<Vec<u8>, EncodeError> {
     let mut bytes = Vec::new();
+
     let (kind, transaction) = match entry {
         Logged::Entry(JournalEntry::Apply(transaction)) => (ChunkKind::Apply, transaction),
         Logged::Entry(JournalEntry::Undo(transaction)) => (ChunkKind::Undo, transaction),
@@ -186,6 +192,7 @@ pub(crate) fn encode_entry_sharing(
             return Ok(bytes);
         }
     };
+
     push_packed_for_recovery(
         &mut bytes,
         kind,
@@ -258,7 +265,7 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct JournalContents {
     pub file: Option<PathBuf>,
     pub on_disk: Option<FileDigest>,
@@ -271,7 +278,7 @@ pub(crate) struct JournalContents {
     pub entries_over_budget: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum UnreadableJournal {
     #[error("the recovery journal is damaged")]
     Damaged,
@@ -283,7 +290,7 @@ pub(crate) enum UnreadableJournal {
     OverBudget,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UnreadEntry {
     Damaged,
     OverBudget,
@@ -301,18 +308,23 @@ pub(crate) fn decode_journal_with(
     if bytes.starts_with(&EARLIER_BUILD_JOURNAL_MAGIC) {
         return Err(UnreadableJournal::FromEarlierBuild);
     }
+
     let container = parse(bytes, &JOURNAL_MAGIC).ok_or(UnreadableJournal::Damaged)?;
+
     if container.version > JOURNAL_VERSION {
         return Err(UnreadableJournal::FromNewerVersion);
     }
+
     let mut pieces = container.pieces.iter();
     let mut budget = Budget::default();
+
     let header: JournalHeader = content_of(pieces.next(), ChunkKind::JournalHeader, &mut budget)?;
     let file = header
         .file
         .map(|bytes| PathBuf::from(os::path_from_bytes(bytes)));
     let mut issues = Vec::new();
     let mut folded = 0;
+
     let base = match pieces.next() {
         Some(Piece::Chunk(chunk)) if chunk.kind == Some(ChunkKind::RebasedSnapshot) => {
             let rebased: RebasedSnapshotRecord = content_of(
@@ -320,6 +332,7 @@ pub(crate) fn decode_journal_with(
                 ChunkKind::RebasedSnapshot,
                 &mut budget,
             )?;
+
             folded = usize::try_from(rebased.folded).unwrap_or(usize::MAX);
             assemble(snapshot_parts(rebased.snapshot, &mut issues), &mut issues)
         }
@@ -329,6 +342,7 @@ pub(crate) fn decode_journal_with(
                 .zip(header.on_disk.as_ref())
                 .and_then(|(file, on_disk)| saved_state(file, on_disk))
                 .ok_or(UnreadableJournal::Damaged)?;
+
             issues.extend(saved.issues);
             issues.push(
                 "The recovered copy of the model was damaged, so the changes were replayed onto \
@@ -346,6 +360,7 @@ pub(crate) fn decode_journal_with(
     let mut unreadable_entries = 0;
     let mut stopped_at = None;
     let mut texts = ImportTexts::with_pictures(Pictures::of(pictures_of(&base)));
+
     for piece in pieces {
         if stopped_at.is_some() {
             unreadable_entries += 1;
@@ -380,9 +395,11 @@ fn content_of<T: for<'de> Deserialize<'de>>(
     let Some(Piece::Chunk(chunk)) = piece else {
         return Err(UnreadableJournal::Damaged);
     };
+
     if chunk.kind != Some(kind) {
         return Err(UnreadableJournal::Damaged);
     }
+
     let content = budget.unpack(chunk, None).map_err(|error| match error {
         UnpackError::OverBudget => UnreadableJournal::OverBudget,
         _ => UnreadableJournal::Damaged,
@@ -441,6 +458,7 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
         drawings: snapshot.drawings,
         ..Parts::default()
     };
+
     for parameter in snapshot.parameters {
         match parameter {
             Lenient::Read(parameter) => parts.add(Record::Parameter(parameter)),
@@ -460,7 +478,7 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
     parts
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct Replayed {
     pub editor: Editor,
     pub entries: Vec<JournalEntry>,
@@ -471,11 +489,13 @@ pub(crate) fn replay(base: Document, entries: Vec<Logged>) -> Replayed {
     let mut editor = Editor::new(base);
     let mut replayed = Vec::with_capacity(entries.len());
     let mut stopped_early = false;
+
     for logged in entries {
         let Some(entry) = replay_one(&mut editor, logged) else {
             stopped_early = true;
             break;
         };
+
         replayed.push(entry);
     }
     Replayed {
@@ -490,6 +510,7 @@ fn replay_one(editor: &mut Editor, logged: Logged) -> Option<JournalEntry> {
         Logged::UndoLast => {
             let undone = editor.next_undo().cloned()?;
             let entry = JournalEntry::Undo(undone);
+
             return editor
                 .undo()
                 .is_ok_and(|undone| undone.is_some())
@@ -498,6 +519,7 @@ fn replay_one(editor: &mut Editor, logged: Logged) -> Option<JournalEntry> {
         Logged::RedoNext => {
             let redone = editor.next_redo().cloned()?;
             let entry = JournalEntry::Redo(redone);
+
             return editor
                 .redo()
                 .is_ok_and(|redone| redone.is_some())

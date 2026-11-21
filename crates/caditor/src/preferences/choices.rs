@@ -27,7 +27,7 @@ pub trait Choice: Copy + PartialEq + Default + 'static {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ZoomToward {
     #[default]
     Pointer,
@@ -61,7 +61,7 @@ impl Choice for ZoomToward {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OrbitAround {
     #[default]
     Pointer,
@@ -96,7 +96,7 @@ impl Choice for OrbitAround {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Transitions {
     System,
     Off,
@@ -165,7 +165,7 @@ impl Choice for Transitions {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ContrastSetting {
     #[default]
     System,
@@ -218,7 +218,7 @@ impl Choice for ContrastSetting {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FieldOfView {
     Narrow,
     #[default]
@@ -292,7 +292,7 @@ impl Choice for EdgeWeight {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NoticeTime {
     #[default]
     Timed,
@@ -335,7 +335,7 @@ impl Choice for NoticeTime {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TooltipDelay {
     AtOnce,
     #[default]
@@ -381,7 +381,7 @@ impl Choice for TooltipDelay {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Startup {
     #[default]
     EmptyModel,
@@ -416,7 +416,7 @@ impl Choice for Startup {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RecentListed {
     Three,
     Five,
@@ -462,7 +462,7 @@ impl Choice for RecentListed {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DoubleClick {
     #[default]
     Edit,
@@ -499,7 +499,7 @@ impl Choice for DoubleClick {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ExportMemory {
     #[default]
     Remembered,
@@ -721,7 +721,7 @@ impl Choice for TrailingZeros {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NewBodies {
     #[default]
     OneBody,
@@ -781,8 +781,11 @@ mod tests {
             );
             assert!(!choice.label().is_empty() && !choice.description().is_empty());
         }
+
         let mut raw = Settings::default();
+
         raw.set_text("test.choice", "from a newer caditor");
+
         assert_eq!(T::read(&raw, "test.choice"), T::default());
         assert_eq!(T::read(&Settings::default(), "test.choice"), T::default());
     }

@@ -72,9 +72,11 @@ pub fn show(
     let mut actions = Vec::new();
     let kind = patterning.kind();
     let lines = patterning.directions().to_vec();
+
     let evaluation = settings.evaluate(context.model, kind, &lines);
     let fields = settings.shown_fields(kind, &lines);
     let centre = patterning.chosen_centre();
+
     let ready = evaluation.spec.is_ok()
         && patterning.repeated() > 0
         && (kind == PatternKind::Rectangular || centre.is_some())
@@ -87,6 +89,7 @@ pub fn show(
         help: Some(Page::SketchPatterns),
     };
     let mut chosen = Chosen::default();
+
     let panel = widgets::side_panel_parts(
         ui,
         room,
@@ -100,11 +103,13 @@ pub fn show(
                         .clicked()
                 })
             });
+
             widgets::panel_scroll(ui, PANEL.id, |ui| {
                 let about = match kind {
                     PatternKind::Rectangular => RECTANGULAR_ABOUT,
                     PatternKind::Circular => CIRCULAR_ABOUT,
                 };
+
                 wrapped(ui, widgets::muted(about, ui));
                 ui.add_space(SPACE_S);
                 widgets::properties(ui, "sketch-pattern-values", |ui| {
@@ -112,6 +117,7 @@ pub fn show(
                     match kind {
                         PatternKind::Rectangular => {
                             distribution_row(ui, settings);
+
                             let shown = Shown {
                                 model: context.model,
                                 sketch: context.sketch,
@@ -119,6 +125,7 @@ pub fn show(
                                 evaluation: &evaluation,
                             };
                             let mut removed = None;
+
                             for direction in settings.directions() {
                                 if direction_rows(ui, &shown, (settings, patterning), direction) {
                                     removed = Some(direction);
@@ -128,6 +135,7 @@ pub fn show(
                                 settings.remove_direction(direction);
                                 patterning.remove_direction(direction);
                             }
+
                             let add = widgets::property(ui, "", |ui| {
                                 ui.add(widgets::button(ADD_DIRECTION))
                                     .on_hover_text(ADD_DIRECTION_ABOUT)
@@ -140,12 +148,14 @@ pub fn show(
                         PatternKind::Circular => {
                             chosen.origin = centre_row(ui, context.sketch, centre);
                             turn_row(ui, settings);
+
                             let shown = Shown {
                                 model: context.model,
                                 sketch: context.sketch,
                                 fields: &fields,
                                 evaluation: &evaluation,
                             };
+
                             field_rows(ui, &shown, settings, &PatternField::CIRCULAR);
                         }
                     }
@@ -160,6 +170,7 @@ pub fn show(
             pressed
         },
     );
+
     if panel.closed {
         actions.push(Action::Editing(EditingCommand::SetTool(Tool::Select)));
     }
@@ -243,6 +254,7 @@ fn direction_rows(
     let removed = widgets::property(ui, &direction.title(), |ui| {
         direction != Direction::FIRST && ui.add(widgets::button(direction.remove_label())).clicked()
     });
+
     field_rows(
         ui,
         shown,
@@ -252,6 +264,7 @@ fn direction_rows(
             PatternField::Spacing(direction),
         ],
     );
+
     let line = patterning.line_of(direction);
     let picking = patterning.picking() == Some(direction);
     let asked = widgets::property(ui, RUNS_ALONG, |ui| {
@@ -259,6 +272,7 @@ fn direction_rows(
             let named = line
                 .zip(shown.sketch)
                 .map(|(line, sketch)| sketch.entity_label(line));
+
             match (picking, named) {
                 (true, _) => wrapped(ui, widgets::muted(CHOOSING, ui)),
                 (false, Some(name)) => wrapped(ui, name),
@@ -270,10 +284,13 @@ fn direction_rows(
                     .clicked()
                     .then_some(DirectionAsk::Stop);
             }
+
             let choose = ui.add(widgets::button(direction.choose_label()));
+
             if choose.clicked() {
                 choose.surrender_focus();
             }
+
             let choose = choose.clicked().then_some(DirectionAsk::Choose);
             let angle =
                 line.is_some() && ui.add(widgets::button(direction.angle_label())).clicked();
@@ -281,6 +298,7 @@ fn direction_rows(
         })
         .inner
     });
+
     match asked {
         Some(DirectionAsk::Choose) => patterning.pick_direction(direction),
         Some(DirectionAsk::Stop) => patterning.stop_picking(),
@@ -288,6 +306,7 @@ fn direction_rows(
         None => {}
     }
     field_rows(ui, shown, settings, &[PatternField::Angle(direction)]);
+
     let current = settings.sides(direction);
     let sides = widgets::property(ui, SIDES_CAPTION, |ui| {
         ui.push_id(("pattern-sides", direction), |ui| {
@@ -301,10 +320,13 @@ fn direction_rows(
         })
         .inner
     });
+
     if let Some(sides) = sides {
         settings.set_sides(direction, sides);
     }
+
     let reversed = settings.reversed(direction);
+
     if current == Sides::One
         && let Some(flipped) =
             crate::feature_fields::reverse_row(ui, &direction.flip_label(), reversed)
@@ -326,6 +348,7 @@ fn centre_row(ui: &mut Ui, sketch: Option<&Sketch>, centre: Option<EntityId>) ->
             let named = centre
                 .zip(sketch)
                 .map(|(point, sketch)| sketch.entity_label(point));
+
             match named {
                 Some(name) => wrapped(ui, name),
                 None => wrapped(ui, widgets::muted(NO_CENTRE, ui)),
@@ -358,6 +381,7 @@ fn field_row(ui: &mut Ui, shown: &Shown<'_>, settings: &mut PatternSettings, fie
         about: wording.about(field),
         expected: field.expected(),
     };
+
     let refusal = widgets::property(ui, wording.caption(field), |ui| {
         let text = settings.text_mut(field)?;
         field::live_value(ui, shown.model, text, &value)

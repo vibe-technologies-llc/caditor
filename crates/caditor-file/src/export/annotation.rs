@@ -58,6 +58,7 @@ pub(super) fn dimensions(
         .map(|constraint| lane_taking(sketch, constraint))
         .collect();
     let extent = bounds.min().abs().max(bounds.max().abs()).max_element();
+
     let lanes = annotation::lanes(&measured, Some(style.centre), extent);
     let mut labels = Obstacles::new(LABEL_CELL * height);
     shown
@@ -65,6 +66,7 @@ pub(super) fn dimensions(
         .zip(lanes)
         .filter_map(|(constraint, lane)| {
             let dimension = style.placed(sketch, constraint, lane, &labels)?;
+
             labels.add(style.footprint(&dimension.text));
             Some(dimension)
         })
@@ -100,7 +102,7 @@ fn shown(sketch: &Sketch, constraint: &Constraint, construction: Construction) -
             .any(|entity| sketch.is_construction(entity))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Shift {
     lane: usize,
     slide: f64,
@@ -153,10 +155,13 @@ impl Style {
     ) -> Option<Dimension> {
         let first = self.dimension(sketch, constraint, Shift::out(lane))?;
         let free = |dimension: &Dimension| labels.overlap(&self.footprint(&dimension.text)) <= 0.0;
+
         if free(&first) {
             return Some(first);
         }
+
         let escape = self.lanes_to_clear(&first.text, labels);
+
         for extra in 0..escape {
             let found = if extra < NEARBY_LANES {
                 Shift::around(lane + extra)
@@ -178,6 +183,7 @@ impl Style {
             return 0;
         };
         let label = self.footprint(text);
+
         let apart = (label.center - taken.center).length();
         let reach = apart + taken.half.length() + label.half.length();
         let lanes = (reach / (LANE_SPACING * self.height)).ceil() + 1.0;
@@ -191,6 +197,7 @@ impl Style {
     fn footprint(&self, text: &Text) -> Footprint {
         let corners = text.corners();
         let first = corners.first().copied().unwrap_or(text.at);
+
         let (low, high) = corners.iter().fold((first, first), |(low, high), corner| {
             (low.min(*corner), high.max(*corner))
         });
@@ -210,6 +217,7 @@ impl Style {
         match *constraint {
             Constraint::Distance { from, to, .. } => {
                 let (first, second) = witnesses(sketch, from, to, self.centre)?;
+
                 let along = (second - first).try_normalize()?;
                 self.linear((first, second), along, length(value), shift)
             }
@@ -289,14 +297,18 @@ impl Style {
         let height = self.height;
         let middle = (first + second) / 2.0;
         let normal = away_from(along.perp(), middle, Some(self.centre));
+
         let level =
             first.dot(normal).max(second.dot(normal)) + (DIMENSION_OFFSET + shift.reach()) * height;
         let foot = |point: Point2| point + normal * (level - point.dot(normal));
         let (start, end) = (foot(first), foot(second));
+
         let span = (end - start).try_normalize()?;
+
         if start.distance(end) < DEGENERATE {
             return None;
         }
+
         let mut marks: Vec<Shape> = [(first, start), (second, end)]
             .into_iter()
             .map(|(point, on_line)| {
@@ -306,16 +318,20 @@ impl Style {
                 )
             })
             .collect();
+
         marks.push(Shape::Line(start, end));
         marks.extend(self.arrow(start, -span));
         marks.extend(self.arrow(end, span));
+
         let angle = span.y.atan2(span.x);
         let mut text = self.text(
             (start + end) / 2.0 + normal * TEXT_LIFT * height,
             angle,
             content,
         );
+
         let room = ((start.distance(end) - text.width()) / 2.0 - LABEL_CLEARANCE * height).max(0.0);
+
         text.at += span * room * shift.slide;
         Some(Dimension {
             measure: Measure::Linear {
@@ -338,9 +354,12 @@ impl Style {
     ) -> Dimension {
         let height = self.height;
         let on_curve = center + toward * radius;
+
         let reach = on_curve + toward * (LEADER_OVERSHOOT + shift.reach()) * height;
         let mut text = self.text(reach, 0.0, content);
+
         text.at = reach + toward * (LEADER_TEXT_GAP * height + text.width() / 2.0);
+
         let far = center - toward * radius;
         let (measure, mut marks) = match leader {
             Leader::Radius => (
@@ -349,6 +368,7 @@ impl Style {
             ),
             Leader::Diameter => {
                 let mut marks = vec![Shape::Line(far, reach)];
+
                 marks.extend(self.arrow(far, -toward));
                 (
                     Measure::Diameter {
@@ -359,6 +379,7 @@ impl Style {
                 )
             }
         };
+
         marks.extend(self.arrow(on_curve, toward));
         Dimension {
             measure,
@@ -382,6 +403,7 @@ impl Style {
             .or_else(|| crossing(line_of(sketch, from)?, line_of(sketch, to)?))?;
         let sweep = value.to_radians();
         let start = first.y.atan2(first.x);
+
         let (start, sweep) = if sweep < 0.0 {
             (start + sweep, -sweep)
         } else {
@@ -400,9 +422,11 @@ impl Style {
 
     fn along_arc(&self, arc: ArcGeometry, content: String, shift: Shift) -> Option<Dimension> {
         let height = self.height;
+
         if arc.sweep <= DEGENERATE {
             return None;
         }
+
         let radius = arc.radius + (DIMENSION_OFFSET + shift.reach()) * height;
         let extensions = [arc.start_angle, arc.start_angle + arc.sweep]
             .into_iter()
@@ -432,14 +456,17 @@ impl Style {
     ) -> Dimension {
         let end = start + sweep;
         let middle = start + sweep / 2.0;
+
         marks.push(Shape::Arc {
             center,
             radius,
             start,
             end,
         });
+
         let first = Shape::arc_point(center, radius, start);
         let second = Shape::arc_point(center, radius, end);
+
         marks.extend(self.arrow(first, -Vector2::from_angle(start).perp()));
         marks.extend(self.arrow(second, Vector2::from_angle(end).perp()));
         Dimension {
@@ -459,7 +486,7 @@ impl Style {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Leader {
     Radius,
     Diameter,
@@ -495,6 +522,7 @@ fn crossing(
     (second_origin, second): (Point2, Vector2),
 ) -> Option<Point2> {
     let cross = first.perp_dot(second);
+
     if cross.abs() < DEGENERATE {
         return None;
     }
@@ -515,6 +543,7 @@ fn nearest_on(sketch: &Sketch, curve: EntityId, point: Point2) -> Option<Point2>
     if sketch.spline(curve).is_some() {
         return sketch.closest_on_curve(curve, point);
     }
+
     let (center, radius) = sketch.circle(curve)?;
     let outward = (point - center).try_normalize().unwrap_or(Vector2::X);
     Some(center + outward * radius)
@@ -561,6 +590,7 @@ fn curve_witnesses(
             let (start, end) = sketch.line_endpoints(other)?;
             let anchor = line_of(sketch, anchor)?;
             let reach = |point: Point2| (point - centre).dot(anchor.1).abs();
+
             let outer = if reach(end) > reach(start) {
                 end
             } else {
@@ -589,6 +619,7 @@ fn between_circles(first: (Point2, f64), second: (Point2, f64)) -> (Point2, Poin
     } else {
         (second, first)
     };
+
     let outward = (inner - center).try_normalize().unwrap_or(Vector2::X);
     let near_side = if inner.distance(center) > radius + inner_radius {
         -inner_radius

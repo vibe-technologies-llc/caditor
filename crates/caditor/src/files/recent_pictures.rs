@@ -112,9 +112,11 @@ pub fn read(path: &Path, known: Option<Stamp>) -> Outcome {
     let stamp = fs::metadata(path)
         .and_then(|metadata| metadata.modified())
         .ok();
+
     if stamp.is_some() && known == Some(stamp) {
         return Outcome::Unchanged;
     }
+
     let picture = match read_preview(path) {
         Ok(Some(preview)) => Thumbnail::from_bytes(preview.png()).map(Arc::new),
         Ok(None) => None,
@@ -145,6 +147,7 @@ impl Files {
             return;
         };
         let failed = path.clone();
+
         self.spawn_own(
             "recent picture",
             move || Event::RecentPicture {
@@ -176,11 +179,14 @@ mod tests {
 
     fn model_with_picture(path: &Path, side: u32) {
         let (slot, drawing) = PreviewSlot::new();
+
         drawing.fill(caditor_file::Preview::from_png(sample_png(side)).unwrap());
+
         let options = SaveOptions {
             preview: Some(&slot),
             ..SaveOptions::default()
         };
+
         save_with(&Document::default(), path, &options).unwrap();
     }
 
@@ -198,6 +204,7 @@ mod tests {
     fn a_picture_is_read_once_per_modification_time() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.caditor");
+
         model_with_picture(&path, 8);
 
         let first = read(&path, None);
@@ -205,6 +212,7 @@ mod tests {
             panic!("{first:?}");
         };
         let stamp = *stamp;
+
         assert_eq!(picture_size(&first), Some([8, 8]));
 
         assert!(matches!(read(&path, Some(stamp)), Outcome::Unchanged));
@@ -224,6 +232,7 @@ mod tests {
     fn a_model_without_a_picture_or_a_file_that_is_gone_reads_as_none() {
         let dir = TempDir::new().unwrap();
         let plain = dir.path().join("plain.caditor");
+
         caditor_file::save(&Document::default(), &plain, false).unwrap();
 
         assert!(matches!(
@@ -270,7 +279,9 @@ mod tests {
         let listed = [path.clone()];
         let stamp = Some(SystemTime::UNIX_EPOCH + Duration::from_secs(5));
         let mut pictures = RecentPictures::default();
+
         assert_eq!(pictures.begin(&path, &listed, now), Some(None));
+
         pictures.arrived(
             path.clone(),
             Outcome::Read {
@@ -294,6 +305,7 @@ mod tests {
         let path = PathBuf::from("a.caditor");
         let other = PathBuf::from("b.caditor");
         let mut pictures = RecentPictures::default();
+
         pictures.begin(&other, &[other.clone(), path.clone()], now);
         pictures.arrived(other.clone(), Outcome::Failed, now);
         pictures.begin(&path, &[other.clone(), path.clone()], now);
@@ -312,6 +324,7 @@ mod tests {
         assert!(pictures.picture(&path).is_none());
 
         pictures.begin(&path, std::slice::from_ref(&path), now);
+
         assert!(!pictures.entries.contains_key(&other));
     }
 }

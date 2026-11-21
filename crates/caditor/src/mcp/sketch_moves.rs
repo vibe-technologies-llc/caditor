@@ -21,7 +21,7 @@ use crate::{
 
 const REACHED_TOLERANCE: f64 = 1e-6;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Moving {
     pub sketch: Named,
@@ -30,7 +30,7 @@ pub struct Moving {
     pub to: Option<[f64; 2]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Turning {
     pub sketch: Named,
@@ -39,7 +39,7 @@ pub struct Turning {
     pub about: Option<EntityName>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Scaling {
     pub sketch: Named,
@@ -67,6 +67,7 @@ pub(super) fn move_geometry(
 ) -> Result<Planned, ToolError> {
     let items = target.entities(&asked.items)?;
     let shown = solved_shape(target)?;
+
     let moving =
         sketch_drag::Moving::of(shown, target.feature, &items).map_err(SketchEditError::Unmoved)?;
     let destination = match (asked.by, asked.to) {
@@ -98,6 +99,7 @@ fn transformed(
             None => Vec::new(),
         })
         .collect();
+
     if moved_points.contains(&pivot) {
         return Err(SketchEditError::AboutMoves {
             sketch: target.name.to_owned(),
@@ -105,6 +107,7 @@ fn transformed(
         }
         .into());
     }
+
     let pivot_at = shown
         .point(pivot)
         .ok_or_else(|| SketchEditError::NotAPoint {
@@ -114,6 +117,7 @@ fn transformed(
     let selected: Vec<EntityId> = items.into_iter().chain([pivot]).collect();
     let mut transforming = Transforming::of(shown, target.feature, &selected, transform)
         .map_err(SketchEditError::Untransformed)?;
+
     transforming.pivot = pivot_at;
     Ok(transforming)
 }
@@ -133,6 +137,7 @@ pub(super) fn rotate(
         asked.about.as_ref(),
         Transform::Rotate,
     )?;
+
     let commands = transforming
         .rotated(angle.value)
         .map_err(SketchEditError::Untransformed)?;
@@ -148,6 +153,7 @@ pub(super) fn scale(
     if !(asked.factor.is_finite() && asked.factor > 0.0) {
         return Err(SketchEditError::Factor(asked.factor).into());
     }
+
     let shown = solved_shape(target)?;
     let transforming = transformed(
         target,
@@ -171,6 +177,7 @@ fn dragged(
 ) -> Result<Planned, ToolError> {
     let mut label = String::new();
     let mut drags = Vec::new();
+
     for command in commands {
         if let DragCommand::Move {
             label: named,
@@ -182,13 +189,16 @@ fn dragged(
             drags = moves;
         }
     }
+
     let beyond = drags.iter().any(|drag| match drag {
         Drag::Point { to, .. } => !to.is_finite() || to.abs().max_element() > MAX_LENGTH,
         Drag::Radius { to, .. } => !to.is_finite() || *to > MAX_LENGTH,
     });
+
     if beyond {
         return Err(SketchEditError::OutOfReach.into());
     }
+
     let parameters = session.parameters();
     let solved = shown.solve_geometry_from(
         &|id| parameters.value(id),
@@ -202,14 +212,18 @@ fn dragged(
         Err(error) => return Err(SketchEditError::Unsolved(error).into()),
     };
     let mut transaction = target.document.transaction(label);
+
     transaction.settle_sketch(target.feature, &geometry);
+
     let transaction = transaction.finish();
+
     if transaction.is_empty() {
         return Err(SketchEditError::Held {
             sketch: target.name.to_owned(),
         }
         .into());
     }
+
     let reached = drags.iter().all(|drag| match drag {
         Drag::Point { point, to } => geometry.point(*point).is_some_and(|at| {
             at.distance(*to) <= REACHED_TOLERANCE * to.abs().max_element().max(1.0)
@@ -230,6 +244,7 @@ fn dragged(
         },
     });
     let mut planned = Planned::of(transaction);
+
     planned.details.insert("reached".to_owned(), json!(reached));
     if !reached {
         planned.details.insert(

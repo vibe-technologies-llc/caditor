@@ -8,7 +8,7 @@ use crate::{
     topology::{FaceId, Solid},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShellSide {
     #[default]
     Inside,
@@ -32,7 +32,7 @@ impl ShellSide {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Walls {
     pub thickness: f64,
     pub side: ShellSide,
@@ -58,6 +58,7 @@ impl Walls {
 
     pub(super) fn check(&self, solid: &Solid, open: &[FaceId]) -> Result<(), ShellError> {
         let usable = |thickness: f64| thickness.is_finite() && thickness > LINEAR_RESOLUTION;
+
         if !usable(self.thickness) {
             return Err(ShellError::InvalidThickness);
         }

@@ -23,6 +23,7 @@ pub(crate) struct Fixture {
 impl Fixture {
     pub fn new() -> Self {
         let mut builder = SolidBuilder::new();
+
         let shell = builder.shell().unwrap();
         Self {
             builder,
@@ -43,7 +44,9 @@ impl Fixture {
         if let Some(edge) = self.lines.get(&(to, from)) {
             return (*edge, Sense::Reversed);
         }
+
         let edge = self.builder.line_edge(from, to).unwrap();
+
         self.lines.insert((from, to), edge);
         (edge, Sense::Same)
     }
@@ -63,6 +66,7 @@ impl Fixture {
             .builder
             .face(self.shell, surface.into(), sense)
             .unwrap();
+
         for coedges in loops {
             self.builder.add_loop(face, coedges).unwrap();
         }
@@ -91,6 +95,7 @@ impl Fixture {
     pub fn polygon(&mut self, corners: &[VertexId], holes: &[Coedges]) -> FaceId {
         let plane = self.polygon_plane(corners);
         let mut loops = vec![self.polygon_loop(corners)];
+
         loops.extend(holes.iter().cloned());
         self.face(PlaneSurface::new(plane).unwrap(), Sense::Same, &loops)
     }
@@ -116,7 +121,7 @@ pub(crate) const CUBOID_FACES: [[usize; 4]; 6] = [
     [1, 3, 7, 5],
 ];
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Tweak {
     pub flipped: Option<usize>,
     pub missing: Option<usize>,
@@ -144,11 +149,15 @@ pub(crate) fn add_cuboid(fixture: &mut Fixture, min: Point3, max: Point3, tweak:
         if tweak.missing == Some(index) {
             continue;
         }
+
         let mut corners: Vec<VertexId> = face.iter().map(|corner| vertices[*corner]).collect();
+
         if tweak.inverted {
             corners.reverse();
         }
+
         let mut plane = fixture.polygon_plane(&corners);
+
         if let Some((_, offset)) = tweak.shifted.filter(|(shifted, _)| *shifted == index) {
             plane = Plane::from_frame(
                 plane.origin() + plane.normal() * offset,
@@ -157,10 +166,13 @@ pub(crate) fn add_cuboid(fixture: &mut Fixture, min: Point3, max: Point3, tweak:
             )
             .unwrap();
         }
+
         let mut coedges = fixture.polygon_loop(&corners);
+
         if tweak.scrambled == Some(index) {
             coedges.swap(1, 2);
         }
+
         let sense = if tweak.flipped == Some(index) {
             Sense::Reversed
         } else {
@@ -174,18 +186,21 @@ pub(crate) fn add_cuboid(fixture: &mut Fixture, min: Point3, max: Point3, tweak:
                 sense,
             )
             .unwrap();
+
         fixture.builder.add_loop(face, &coedges).unwrap();
     }
 }
 
 pub(crate) fn cuboid(size: Vector3) -> Solid {
     let mut fixture = Fixture::new();
+
     add_cuboid(&mut fixture, Point3::ZERO, size, Tweak::default());
     fixture.build()
 }
 
 pub(crate) fn tweaked_cuboid(tweak: Tweak) -> Solid {
     let mut fixture = Fixture::new();
+
     add_cuboid(
         &mut fixture,
         Point3::ZERO,
@@ -197,9 +212,11 @@ pub(crate) fn tweaked_cuboid(tweak: Tweak) -> Solid {
 
 pub(crate) fn spline_topped_block(side: f64, height: f64, bulge: f64) -> Solid {
     let mut control_points = Vec::with_capacity(16);
+
     for row in 0..4 {
         for column in 0..4 {
             let raised = (1..=2).contains(&row) && (1..=2).contains(&column);
+
             control_points.push(Point3::new(
                 side * column as f64 / 3.0,
                 side * row as f64 / 3.0,
@@ -207,6 +224,7 @@ pub(crate) fn spline_topped_block(side: f64, height: f64, bulge: f64) -> Solid {
             ));
         }
     }
+
     let knots = vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
     let surface = BSplineSurface::new(3, 3, knots.clone(), knots, 4, control_points, None).unwrap();
     block_topped_by(side, height, surface)
@@ -240,11 +258,14 @@ pub(crate) fn bumped_block(side: f64, height: f64, nodes: usize, bump: f64) -> S
 
 fn block_topped_by(side: f64, height: f64, top: BSplineSurface) -> Solid {
     let mut fixture = Fixture::new();
+
     let vertices = cuboid_vertices(&mut fixture, Point3::ZERO, Point3::new(side, side, height));
+
     for (index, face) in CUBOID_FACES.iter().enumerate() {
         let corners: Vec<VertexId> = face.iter().map(|corner| vertices[*corner]).collect();
         if index == 1 {
             let coedges = fixture.polygon_loop(&corners);
+
             fixture.face(top.clone(), Sense::Same, &[coedges]);
         } else {
             fixture.polygon(&corners, &[]);
@@ -255,6 +276,7 @@ fn block_topped_by(side: f64, height: f64, top: BSplineSurface) -> Solid {
 
 pub(crate) fn hollow_cuboid(outer: f64, inner: f64) -> Solid {
     let mut fixture = Fixture::new();
+
     add_cuboid(
         &mut fixture,
         Point3::ZERO,
@@ -262,7 +284,9 @@ pub(crate) fn hollow_cuboid(outer: f64, inner: f64) -> Solid {
         Tweak::default(),
     );
     fixture.next_shell();
+
     let gap = 0.5 * (outer - inner);
+
     add_cuboid(
         &mut fixture,
         Point3::splat(gap),
@@ -285,6 +309,7 @@ fn centered(center: Point3) -> Plane {
 
 pub(crate) fn cylinder(radius: f64, height: f64) -> Solid {
     let mut fixture = Fixture::new();
+
     let bottom_vertex = fixture.vertex(Point3::new(radius, 0.0, 0.0));
     let top_vertex = fixture.vertex(Point3::new(radius, 0.0, height));
     let bottom = fixture.edge(
@@ -299,7 +324,9 @@ pub(crate) fn cylinder(radius: f64, height: f64) -> Solid {
         top_vertex,
         top_vertex,
     );
+
     let (seam, _) = fixture.line(bottom_vertex, top_vertex);
+
     fixture.face(
         Cylinder::new(horizontal(0.0), radius).unwrap(),
         Sense::Same,
@@ -325,10 +352,12 @@ pub(crate) fn cylinder(radius: f64, height: f64) -> Solid {
 
 pub(crate) fn holed_block(side: f64, height: f64, radius: f64) -> Solid {
     let mut fixture = Fixture::new();
+
     let corners = cuboid_vertices(&mut fixture, Point3::ZERO, Point3::new(side, side, height));
     let center = Point3::new(0.5 * side, 0.5 * side, 0.0);
     let low = fixture.vertex(center + Vector3::new(radius, 0.0, 0.0));
     let high = fixture.vertex(center + Vector3::new(radius, 0.0, height));
+
     let bottom = fixture.edge(
         Circle::new(centered(center), radius).unwrap(),
         Interval::FULL_TURN,
@@ -343,6 +372,7 @@ pub(crate) fn holed_block(side: f64, height: f64, radius: f64) -> Solid {
         high,
     );
     let (seam, _) = fixture.line(low, high);
+
     for (index, face) in CUBOID_FACES.iter().enumerate() {
         let cycle: Vec<VertexId> = face.iter().map(|corner| corners[*corner]).collect();
         let holes = match index {
@@ -350,6 +380,7 @@ pub(crate) fn holed_block(side: f64, height: f64, radius: f64) -> Solid {
             1 => vec![vec![(top, Sense::Reversed)]],
             _ => Vec::new(),
         };
+
         fixture.polygon(&cycle, &holes);
     }
     fixture.face(
@@ -367,15 +398,18 @@ pub(crate) fn holed_block(side: f64, height: f64, radius: f64) -> Solid {
 
 pub(crate) fn sphere(radius: f64) -> Solid {
     let mut fixture = Fixture::new();
+
     let south = fixture.vertex(Point3::new(0.0, 0.0, -radius));
     let north = fixture.vertex(Point3::new(0.0, 0.0, radius));
     let meridian = Plane::from_frame(Point3::ZERO, Vector3::NEG_Y, Vector3::X).unwrap();
+
     let seam = fixture.edge(
         Circle::new(meridian, radius).unwrap(),
         Interval::new(-FRAC_PI_2, FRAC_PI_2).unwrap(),
         south,
         north,
     );
+
     fixture.face(
         Sphere::new(Plane::XY, radius).unwrap(),
         Sense::Same,
@@ -386,6 +420,7 @@ pub(crate) fn sphere(radius: f64) -> Solid {
 
 pub(crate) fn torus(major: f64, minor: f64) -> Solid {
     let mut fixture = Fixture::new();
+
     let corner = fixture.vertex(Point3::new(major + minor, 0.0, 0.0));
     let around = fixture.edge(
         Circle::new(Plane::XY, major + minor).unwrap(),
@@ -394,12 +429,14 @@ pub(crate) fn torus(major: f64, minor: f64) -> Solid {
         corner,
     );
     let tube = Plane::from_frame(Point3::new(major, 0.0, 0.0), Vector3::NEG_Y, Vector3::X).unwrap();
+
     let across = fixture.edge(
         Circle::new(tube, minor).unwrap(),
         Interval::FULL_TURN,
         corner,
         corner,
     );
+
     fixture.face(
         Torus::new(Plane::XY, major, minor).unwrap(),
         Sense::Same,
@@ -415,6 +452,7 @@ pub(crate) fn torus(major: f64, minor: f64) -> Solid {
 
 pub(crate) fn frustum(bottom_radius: f64, top_radius: f64, height: f64) -> Solid {
     let mut fixture = Fixture::new();
+
     let bottom_vertex = fixture.vertex(Point3::new(bottom_radius, 0.0, 0.0));
     let top_vertex = fixture.vertex(Point3::new(top_radius, 0.0, height));
     let bottom = fixture.edge(
@@ -429,8 +467,10 @@ pub(crate) fn frustum(bottom_radius: f64, top_radius: f64, height: f64) -> Solid
         top_vertex,
         top_vertex,
     );
+
     let (seam, _) = fixture.line(bottom_vertex, top_vertex);
     let half_angle = (top_radius - bottom_radius).atan2_libm(height);
+
     fixture.face(
         Cone::new(horizontal(0.0), bottom_radius, half_angle).unwrap(),
         Sense::Same,
@@ -456,6 +496,7 @@ pub(crate) fn frustum(bottom_radius: f64, top_radius: f64, height: f64) -> Solid
 
 pub(crate) fn cone(radius: f64, height: f64) -> Solid {
     let mut fixture = Fixture::new();
+
     let rim = fixture.vertex(Point3::new(radius, 0.0, 0.0));
     let apex = fixture.vertex(Point3::new(0.0, 0.0, height));
     let base = fixture.edge(
@@ -464,7 +505,9 @@ pub(crate) fn cone(radius: f64, height: f64) -> Solid {
         rim,
         rim,
     );
+
     let (seam, _) = fixture.line(rim, apex);
+
     fixture.face(
         Cone::new(horizontal(0.0), radius, (-radius).atan2_libm(height)).unwrap(),
         Sense::Same,
@@ -507,11 +550,15 @@ pub(crate) fn extruded_spline(height: f64) -> Solid {
     let b_bottom = fixture.vertex(Point3::ZERO);
     let a_top = fixture.vertex(Point3::new(20.0, 0.0, height));
     let b_top = fixture.vertex(Point3::new(0.0, 0.0, height));
+
     let bottom = fixture.edge(profile.clone(), Interval::UNIT, a_bottom, b_bottom);
     let top = fixture.edge(lifted, Interval::UNIT, a_top, b_top);
+
     fixture.polygon(&[b_bottom, a_bottom, a_top, b_top], &[]);
+
     let rise = fixture.line(b_bottom, b_top);
     let fall = fixture.line(a_top, a_bottom);
+
     fixture.face(
         Extrusion::new(profile, Vector3::Z).unwrap(),
         Sense::Same,
@@ -522,13 +569,17 @@ pub(crate) fn extruded_spline(height: f64) -> Solid {
             fall,
         ]],
     );
+
     let floor = fixture.line(a_bottom, b_bottom);
+
     fixture.face(
         PlaneSurface::new(horizontal(0.0).flipped()).unwrap(),
         Sense::Same,
         &[vec![(bottom, Sense::Reversed), floor]],
     );
+
     let ceiling = fixture.line(b_top, a_top);
+
     fixture.face(
         PlaneSurface::new(horizontal(height)).unwrap(),
         Sense::Same,
@@ -560,6 +611,7 @@ pub(crate) fn perforated_plate(holes: usize, dimples: usize) -> Solid {
             .unwrap()
     };
     let mut plate = cuboid(Vector3::new(side, side, 10.0));
+
     for row in 0..holes {
         for column in 0..holes {
             let at = Vector3::new(
@@ -568,6 +620,7 @@ pub(crate) fn perforated_plate(holes: usize, dimples: usize) -> Solid {
                 -1.0,
             );
             let drill = placed(cylinder(3.0, 12.0), at);
+
             plate = boolean(&plate, &drill, BooleanOperation::Difference).unwrap();
         }
     }
@@ -579,6 +632,7 @@ pub(crate) fn perforated_plate(holes: usize, dimples: usize) -> Solid {
                 10.0,
             );
             let ball = placed(sphere(4.0), at);
+
             plate = boolean(&plate, &ball, BooleanOperation::Difference).unwrap();
         }
     }

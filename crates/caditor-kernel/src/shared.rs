@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SharedBuffer {
     address: usize,
     bytes: usize,

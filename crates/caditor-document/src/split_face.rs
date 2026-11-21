@@ -31,7 +31,7 @@ use crate::{
 
 const SAME_HALF_ANGLE: f64 = 1e-9;
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum SplitCarry {
     #[default]
     Square,
@@ -60,7 +60,7 @@ impl SplitCarry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SplitFace {
     pub body: FeatureId,
     pub faces: Vec<FaceReference>,
@@ -118,6 +118,7 @@ impl SplitFace {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         used.extend(self.along.datum());
         used.extend(self.along.body());
         used.extend(self.along.sketch());
@@ -130,6 +131,7 @@ impl SplitFace {
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         let mut origins: BTreeSet<FeatureId> =
             self.faces.iter().flat_map(origins::of_face).collect();
+
         origins.extend(self.along.origin_features());
         origins.extend(
             self.direction()
@@ -225,7 +227,9 @@ impl Context<'_> {
                 let document = self.resolver.inputs.document;
                 let trouble =
                     trouble::boolean_trouble(document, [solid, tool], &error, Adjust::MoveIt);
+
                 log::warn!("{} could not be built: {error}", self.resolver.feature.name);
+
                 let place = trouble.place;
                 self.error(SplitFaceCause::Uncombined {
                     body: self.body_name.clone(),
@@ -306,8 +310,10 @@ fn carried_direction(
     let axis = context.resolver.axis(reference)?;
     let normal = plane.normal();
     let direction = axis.direction().normalize();
+
     if tolerance::perpendicular(direction, normal) {
         let document = context.resolver.inputs.document;
+
         return Err(context.error(SplitFaceCause::AxisAlong {
             axis: capitalized(&describe_axis(document, reference)),
             sketch: feature_name(document, sketch),
@@ -335,6 +341,7 @@ fn sketch_tool<'a>(
         feature: context.resolver.feature.id().raw(),
     };
     let failed = |error| context.swept_failure(sketch, error);
+
     if is_open_chain(geometry) {
         return sweep
             .half_space(solid, profile_curves(geometry), false)
@@ -403,6 +410,7 @@ pub fn on_one_unrolled_surface(solid: &Solid, faces: &[FaceId]) -> bool {
         .iter()
         .filter_map(|face| solid.face(*face))
         .map(|face| Unrolled::of(face.surface()));
+
     let Some(Some(first)) = found.next() else {
         return false;
     };
@@ -417,6 +425,7 @@ pub(crate) fn wrapping_surface(
 ) -> Result<Unrolled, Failure> {
     let document = context.resolver.inputs.document;
     let mut unrolled: Option<Unrolled> = None;
+
     for face in faces.iter().filter_map(|face| solid.face(*face)) {
         let named = || capitalized(&describe_origin(document, face.origin()));
         let Some(found) = Unrolled::of(face.surface()) else {
@@ -466,6 +475,7 @@ pub(crate) fn wrap_failure(
 ) -> Failure {
     let name = feature_name(context.resolver.inputs.document, sketch);
     let round = unrolled.round();
+
     let cause = match error {
         WrapError::Cancelled(_) => return Failure::Cancelled,
         WrapError::Misses => return context.misses(),
@@ -512,24 +522,30 @@ fn wrapped_tool<'a>(
     let plane = geometry.plane();
     let name = feature_name(inputs.document, sketch);
     let unrolled = wrapping_surface(context, solid, faces, &name)?;
+
     if !tolerance::perpendicular(plane.normal(), unrolled.axis()) {
         return Err(context.error(SplitFaceCause::NotAlongAxis {
             name,
             round: unrolled.round(),
         }));
     }
+
     let curves = profile_curves(geometry);
+
     if curves.is_empty() {
         return Err(context.swept_failure(sketch, SweptError::NoCurves));
     }
+
     let surface = unrolled.surface();
     let feature = context.resolver.feature.id().raw();
     let failed = |error| wrap_failure(context, sketch, unrolled, error);
+
     if is_open_chain(geometry) {
         return wrap_chain(&plane, &curves, &surface, solid, faces, feature)
             .map(Tool::Made)
             .map_err(failed);
     }
+
     let outlines = |curves: &[ProfileCurve]| {
         let regions = Profile::new(curves)
             .and_then(|profile| profile.select(&Selection::EvenDepth))
@@ -619,9 +635,11 @@ fn split_twice(
         .map(|(_, face)| face.name())
         .collect();
     let first = divided(context, solid, faces, outlines)?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let (base, chosen) = match &first {
         Some(split) => (
             split,
@@ -658,16 +676,21 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     let faces = definition
         .resolve(solid)
         .map_err(|unresolved| context.unresolved(unresolved))?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let tool = tool(&context, definition, solid, &faces)?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let split = match &tool {
         Tool::Made(made) => divided(&context, solid, &faces, made)?,
         Tool::Body(body) => divided(&context, solid, &faces, body)?,
@@ -686,7 +709,7 @@ pub(crate) fn evaluate(
     )))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Round {
     Cylinder,
     Cone,
@@ -701,7 +724,7 @@ impl Round {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SplitFaceCause {
     Misses {
         tool: String,

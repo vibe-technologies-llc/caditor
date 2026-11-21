@@ -38,7 +38,7 @@ pub const NOT_A_FACE: &str = "Select one or more flat faces of bodies to export 
 pub const DEFAULT_SHEET_WIDTH: f64 = 600.0;
 pub const DEFAULT_SPACING: f64 = 5.0;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DrawingSource {
     Sketches(Vec<FeatureId>),
     Faces(Vec<FaceChoice>),
@@ -89,14 +89,14 @@ impl DrawingSource {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Layout {
     #[default]
     SideBySide,
     Nested,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DrawingCommand {
     Hide,
     Layout(Layout),
@@ -108,7 +108,7 @@ pub enum DrawingCommand {
     Choose,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DrawingExporter {
     open: bool,
     source: Option<DrawingSource>,
@@ -116,7 +116,7 @@ pub struct DrawingExporter {
     faces: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DrawingChoices {
     pub format: SketchFormat,
     pub layout: Layout,
@@ -197,6 +197,7 @@ impl DrawingExporter {
 
     pub fn start(&mut self) -> Option<DrawingSource> {
         self.open = false;
+
         let source = self.source.take()?;
         Some(if self.faces {
             source
@@ -231,7 +232,7 @@ impl DrawingExporter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ExportSourceError {
     #[error("{}", NOT_A_SKETCH)]
     NotASketch,
@@ -258,6 +259,7 @@ pub fn exportable_sketches(
         .copied()
         .filter(|feature| feature.kind.sketch().is_some())
         .collect();
+
     if sketches.is_empty() {
         return Err(ExportSourceError::NotASketch);
     }
@@ -289,6 +291,7 @@ pub fn quoted_sketches(model: &Model, sketches: &[FeatureId]) -> String {
 
 pub fn face_name(model: &Model, choice: FaceChoice) -> Option<String> {
     let body = bodies::shown(model.evaluation(), choice.body)?;
+
     bodies::find_face(body, choice.face)?;
     Some(bodies::describe_face(model.document(), body, choice.face))
 }
@@ -305,6 +308,7 @@ pub fn exportable_faces(
     selection: &Selection,
 ) -> Result<Vec<FaceChoice>, ExportSourceError> {
     let choices: Vec<FaceChoice> = selection.iter().filter_map(FaceChoice::of).collect();
+
     if choices.is_empty() {
         return Err(ExportSourceError::NotAFace);
     }
@@ -334,6 +338,7 @@ fn chosen_sketches(
         .features()
         .filter(|feature| chosen.contains(&feature.id()) && feature.kind.sketch().is_some())
         .collect();
+
     if sketches.is_empty() {
         return Ok(Vec::new());
     }
@@ -408,7 +413,9 @@ pub fn with_format_extension(path: PathBuf) -> PathBuf {
     if SketchFormat::of(&path).is_some() {
         return path;
     }
+
     let mut named = OsString::from(path.as_os_str());
+
     named.push(".");
     named.push(SketchFormat::default().extension());
     PathBuf::from(named)
@@ -530,6 +537,7 @@ pub fn both_finished(
     } else {
         ", side by side"
     };
+
     let mut text = format!(
         "Exported {name} to “{file}”{arranged}: {} from the sketches{dimensions} and {} in {} \
          from the faces.{}",
@@ -542,6 +550,7 @@ pub fn both_finished(
         count(faces.loops, "loop", "loops"),
         too_wide(exported.too_wide)
     );
+
     if sketches.construction_left_out > 0 {
         text.push_str(&format!(
             " {} left out; File › Keep construction geometry in drawings keeps them.",
@@ -586,6 +595,7 @@ pub fn dialog(
         .source
         .as_ref()
         .is_some_and(|source| !source.sketches().is_empty());
+
     let response = widgets::helped_dialog(
         ctx,
         "export-drawing",
@@ -594,8 +604,10 @@ pub fn dialog(
         Page::Exporting,
         |ui| {
             let mut command = None;
+
             widgets::dialog_body(ui, |ui| {
                 export::heading(ui, "Layout");
+
                 let layouts = [
                     (
                         Layout::SideBySide,
@@ -608,6 +620,7 @@ pub fn dialog(
                         "Parts packed close together on a sheet of the width you set, to save material",
                     ),
                 ];
+
                 if let Some(layout) = preferences::choice(ui, &layouts, exporter.choices.layout) {
                     command = Some(FileCommand::DrawingExport(DrawingCommand::Layout(layout)));
                 }
@@ -635,6 +648,7 @@ pub fn dialog(
                     command = Some(FileCommand::DrawingExport(DrawingCommand::Faces(included)));
                 }
                 }
+
                 let mut annotations = exporter.choices.annotations;
                 let hint = if sketches_shown {
                     "Write each sketch's dimensions, in millimetres and degrees, on a Dimensions layer, and \
@@ -647,6 +661,7 @@ pub fn dialog(
                 } else {
                     "Names"
                 };
+
                 if widgets::checkbox(ui, &mut annotations, caption)
                     .on_hover_text(hint)
                     .changed()
@@ -718,6 +733,7 @@ fn sheet_fields(
     command: &mut Option<FileCommand>,
 ) {
     let mut errors = Vec::new();
+
     widgets::properties(ui, "drawing-sheet", |ui| {
         let lengths = [
             (
@@ -733,6 +749,7 @@ fn sheet_fields(
                 parse_spacing,
             ),
         ];
+
         for (caption, stored, change, parse) in lengths {
             widgets::property(ui, caption, |ui| {
                 let field = field::commit_field(
@@ -743,6 +760,7 @@ fn sheet_fields(
                     false,
                     |text| parse(model, text),
                 );
+
                 if let Some(length) = field.committed {
                     *command = Some(FileCommand::DrawingExport(change(length)));
                 }
@@ -755,6 +773,7 @@ fn sheet_fields(
             widgets::error_row(ui, error);
         }
     });
+
     let mut turns = exporter.choices.turns;
     if widgets::checkbox(ui, &mut turns, "Turn parts where that packs them closer")
         .on_hover_text(
@@ -767,7 +786,7 @@ fn sheet_fields(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SheetLengthError {
     #[error("Enter a sheet width greater than zero")]
     NotAWidth,

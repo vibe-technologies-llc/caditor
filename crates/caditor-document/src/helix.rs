@@ -24,7 +24,7 @@ pub const DEFAULT_END_TURNS: f64 = 1.0;
 pub const DEFAULT_END_PITCH: f64 = 2.5;
 pub const MAX_PITCH_ROWS: usize = 24;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ClosedEnds {
     pub turns: Expression,
     pub pitch: Expression,
@@ -47,7 +47,7 @@ impl Default for ClosedEnds {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PitchRow {
     pub turns: Expression,
     pub pitch: Expression,
@@ -59,7 +59,7 @@ impl PitchRow {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum HelixKind {
     #[default]
     Helix,
@@ -84,7 +84,7 @@ impl HelixKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Helix {
     pub kind: HelixKind,
     pub axis: AxisReference,
@@ -100,7 +100,7 @@ pub struct Helix {
     pub pitch_table: Vec<PitchRow>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HelixResult {
     pub frame: Plane,
     pub turns: Vec<HelixTurn>,
@@ -153,6 +153,7 @@ impl Helix {
 
     pub fn expressions(&self) -> Vec<&Expression> {
         let mut expressions = vec![&self.diameter, &self.taper, &self.start];
+
         expressions.extend(self.length.expressions());
         if let Some(ends) = &self.ends {
             expressions.extend([&ends.turns, &ends.pitch, &ends.change]);
@@ -166,6 +167,7 @@ impl Helix {
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         let mut expressions = vec![&mut self.diameter, &mut self.taper, &mut self.start];
+
         expressions.extend(self.length.expressions_mut());
         if let Some(ends) = &mut self.ends {
             expressions.extend([&mut ends.turns, &mut ends.pitch, &mut ends.change]);
@@ -179,6 +181,7 @@ impl Helix {
 
     pub fn lengths_mut(&mut self) -> Vec<&mut Expression> {
         let mut lengths = vec![&mut self.diameter];
+
         lengths.extend(self.length.lengths_mut());
         if let Some(ends) = &mut self.ends {
             lengths.push(&mut ends.pitch);
@@ -386,12 +389,14 @@ fn pitch_plan(
         .as_ref()
         .map(|pitch| context.size(pitch, "final pitch"))
         .transpose()?;
+
     if definition.pitch_table.len() > MAX_PITCH_ROWS {
         return Err(context.error(CoilCause::PitchTableLong {
             name: feature.name.clone(),
             rows: definition.pitch_table.len(),
         }));
     }
+
     let table = definition
         .pitch_table
         .iter()
@@ -423,6 +428,7 @@ fn helix_span(
     if plan == HelixPitch::default() {
         return coil::span(context, length);
     }
+
     let name = || feature.name.clone();
     let fills = |height: f64| {
         if !plan.table.is_empty() {
@@ -455,6 +461,7 @@ fn helix_span(
             let height = context.size(height, "height")?;
             let turns = coil::number(context, turns, "turns")?;
             let taken = plan.turns_taken();
+
             if turns < taken {
                 return Err(context.error(CoilCause::EndsTooLong {
                     name: name(),
@@ -462,7 +469,9 @@ fn helix_span(
                     turns,
                 }));
             }
+
             let pitch = plan.pitch_for(height, turns);
+
             if !pitch.is_finite() || pitch <= LINEAR_RESOLUTION {
                 return Err(context.error(fills(height)));
             }
@@ -475,7 +484,9 @@ fn helix_span(
         CoilLength::HeightAndPitch { height, pitch } => {
             let height = context.size(height, "height")?;
             let pitch = context.size(pitch, "pitch")?;
+
             let turns = plan.turns_for(height, pitch);
+
             if plan.ends.is_some() && turns < plan.turns_taken() {
                 return Err(context.error(CoilCause::EndsFillHeight {
                     name: name(),
@@ -506,6 +517,7 @@ fn outward(
     outer: &Expression,
 ) -> Result<f64, Failure> {
     let outer = context.size(outer, "outer diameter")?;
+
     if outer <= inner + 2.0 * LINEAR_RESOLUTION {
         return Err(context.error(CoilCause::OuterWithinInner {
             name: feature.name.clone(),
@@ -526,7 +538,9 @@ pub(crate) fn spiral_span(
         CoilLength::HeightAndTurns { height, turns } => {
             let width = outward(context, feature, inner, height)?;
             let turns = coil::number(context, turns, "turns")?;
+
             let pitch = plan.pitch_for(width, turns);
+
             if (!pitch.is_finite() || pitch <= LINEAR_RESOLUTION)
                 && (plan.final_pitch.is_some() || !plan.table.is_empty())
             {
@@ -552,7 +566,9 @@ pub(crate) fn spiral_span(
         CoilLength::HeightAndPitch { height, pitch } => {
             let width = outward(context, feature, inner, height)?;
             let pitch = context.size(pitch, "pitch")?;
+
             let turns = plan.turns_for(width, pitch);
+
             if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&turns) {
                 return Err(context.error(CoilCause::OuterPitchTurns {
                     name: feature.name.clone(),
@@ -579,16 +595,20 @@ pub(crate) fn evaluate(
     if definition.is_flat() {
         return evaluate_spiral(feature, definition, inputs, cancel);
     }
+
     let context = Context::new(feature, inputs, HELIX_SHAPE);
     let diameter = context.size(&definition.diameter, "diameter")?;
     let plan = pitch_plan(&context, feature, definition)?;
+
     let span = helix_span(&context, feature, &definition.length, plan.clone())?;
     let taper = coil::taper(&context, &definition.taper)?;
     let frame = frame_of(&context, feature, definition)?;
     let start = start_angle(&context, feature, definition, &frame)?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let spec = HelixSpec {
         frame,
         radius: 0.5 * diameter,
@@ -618,12 +638,15 @@ fn evaluate_spiral(
     let context = Context::new(feature, inputs, SPIRAL_SHAPE);
     let diameter = context.size(&definition.diameter, "inner diameter")?;
     let plan = pitch_plan(&context, feature, definition)?;
+
     let span = spiral_span(&context, feature, diameter, &definition.length, &plan)?;
     let frame = frame_of(&context, feature, definition)?;
     let start = start_angle(&context, feature, definition, &frame)?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let spec = SpiralSpec {
         frame,
         radius: 0.5 * diameter,
@@ -663,10 +686,12 @@ fn start_angle(
 ) -> Result<f64, Failure> {
     let Some(reference) = &definition.start_point else {
         let typed = context.value_as(&definition.start, "start angle", Dimension::ANGLE)?;
+
         return Ok(typed.to_radians());
     };
     let point = context.resolver().point(reference)?;
     let around = frame.to_local(point);
+
     if around.length() <= LINEAR_RESOLUTION {
         return Err(context.error(CoilCause::StartOnAxis {
             name: feature.name.clone(),

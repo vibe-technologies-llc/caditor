@@ -7,13 +7,13 @@ use caditor_document::{FeatureId, FeatureResult};
 
 use crate::selection::Pickable;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ReferenceRows {
     pub summary: String,
     pub rows: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Entry {
     source: Option<Weak<FeatureResult>>,
     revision: u64,
@@ -32,7 +32,7 @@ impl Entry {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RowCache {
     entries: BTreeMap<FeatureId, Entry>,
     previewed: Vec<Pickable>,
@@ -68,6 +68,7 @@ impl RowCache {
         let entry = match self.entries.entry(feature) {
             btree_map::Entry::Occupied(occupied) => {
                 let entry = occupied.into_mut();
+
                 if !entry.made_from(source, revision) {
                     *entry = fresh();
                 }
@@ -75,6 +76,7 @@ impl RowCache {
             }
             btree_map::Entry::Vacant(vacant) => vacant.insert(fresh()),
         };
+
         entry.used = true;
         &entry.rows
     }
@@ -103,6 +105,7 @@ mod tests {
         let first = Arc::new(FeatureResult::Datum(DatumResult::Plane(Plane::XY)));
         let second = Arc::new(FeatureResult::Datum(DatumResult::Plane(Plane::XY)));
         let builds = Cell::new(0);
+
         let list = |cache: &mut RowCache, source: Option<&Arc<FeatureResult>>, revision| {
             cache
                 .rows(feature, source, revision, || {

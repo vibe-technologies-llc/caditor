@@ -39,7 +39,9 @@ fn label_on(
     max: Point2,
 ) -> (FeatureId, Pickable) {
     let mut sketch = Sketch::new(plane);
+
     rectangle(&mut sketch, min, max);
+
     let edge = sketch
         .entities()
         .find(|(_, entity)| matches!(entity, Entity::Line { .. }))
@@ -58,18 +60,22 @@ fn label_on(
 #[test]
 fn emboss_raises_a_sketch_from_a_face_and_recesses_it_when_asked() {
     let mut harness = Harness::new();
+
     let (plate, _, top) = holed_plate(&mut harness);
     let (label, edge) = label(&mut harness);
+
     assert!(volume_about(&harness, plate, PLATE - BORE));
 
     harness.select([top, edge]);
     harness.use_tool_with(Key::Y, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     let emboss = harness
         .workspace
         .editing
         .solid()
         .expect("the emboss is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Emboss 1"));
     assert_eq!(emboss_of(&harness, emboss).sketch, Some(label));
     assert_eq!(emboss_of(&harness, emboss).form, EmbossForm::Raised);
@@ -80,6 +86,7 @@ fn emboss_raises_a_sketch_from_a_face_and_recesses_it_when_asked() {
 
     harness.click_button("Recess");
     harness.settle();
+
     assert_eq!(emboss_of(&harness, emboss).form, EmbossForm::Recessed);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(volume_about(&harness, plate, PLATE - BORE - LABEL * 0.5));
@@ -89,29 +96,36 @@ fn emboss_raises_a_sketch_from_a_face_and_recesses_it_when_asked() {
         harness.frame();
         harness.frame();
     }
+
     assert_eq!(harness.workspace.editing.solid(), None);
 }
 
 #[test]
 fn a_draft_typed_into_the_panel_leans_the_walls_and_a_steep_one_is_refused() {
     let mut harness = Harness::new();
+
     let (plate, _, top) = holed_plate(&mut harness);
     let (_, edge) = label(&mut harness);
+
     harness.select([top, edge]);
     harness.use_tool_with(Key::Y, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     let emboss = harness
         .workspace
         .editing
         .solid()
         .expect("the emboss is open");
     let field = Id::unique(("emboss-draft", emboss));
+
     assert!(harness.shows("Draft"));
     assert!(!emboss_of(&harness, emboss).is_drafted());
+
     let straight = harness.body_volume(plate);
 
     harness.type_into_field(field, "8 deg");
     harness.settle();
+
     let lean = 8.0_f64.to_radians().tan();
     let drafted = LABEL * 0.5 - 16.0 * lean * 0.25 + 4.0 / 3.0 * lean * lean * 0.125;
     let lost = straight - harness.body_volume(plate);
@@ -131,19 +145,23 @@ fn a_draft_typed_into_the_panel_leans_the_walls_and_a_steep_one_is_refused() {
 #[test]
 fn the_emboss_command_needs_a_face_and_undoes_in_one_step() {
     let mut harness = Harness::new();
+
     let (plate, _, top) = holed_plate(&mut harness);
     let (_, edge) = label(&mut harness);
 
     harness.select([edge]);
     harness.use_tool_with(Key::Y, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     assert_eq!(harness.workspace.editing.solid(), None);
     assert_ne!(harness.model.undo_label(), Some("Create Emboss 1"));
 
     harness.select([top, edge]);
     harness.use_tool_with(Key::Y, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     assert!(volume_about(&harness, plate, PLATE - BORE + LABEL * 0.5));
+
     for _ in 0..2 {
         harness.key(Key::Escape, Modifiers::NONE);
         harness.frame();
@@ -153,13 +171,16 @@ fn the_emboss_command_needs_a_face_and_undoes_in_one_step() {
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     harness.settle();
+
     assert!(volume_about(&harness, plate, PLATE - BORE));
 }
 
 fn two_labels(harness: &mut Harness) -> (FeatureId, Pickable) {
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(5.0, 5.0), Point2::new(15.0, 11.0));
     rectangle(&mut sketch, Point2::new(22.0, 5.0), Point2::new(32.0, 11.0));
+
     let edge = sketch
         .entities()
         .find(|(_, entity)| matches!(entity, Entity::Line { .. }))
@@ -201,10 +222,14 @@ fn opened_emboss(harness: &mut Harness, selected: impl IntoIterator<Item = Picka
 #[test]
 fn dragging_the_emboss_arrow_changes_its_depth_in_one_undoable_change() {
     let mut harness = Harness::new();
+
     let (plate, _, top) = holed_plate(&mut harness);
     let (_, edge) = label(&mut harness);
+
     let emboss = opened_emboss(&mut harness, [top, edge]);
+
     harness.select([]);
+
     let depth = |harness: &Harness| length_value(harness, &emboss_of(harness, emboss).depth);
     let before = depth(&harness);
 
@@ -218,15 +243,19 @@ fn dragging_the_emboss_arrow_changes_its_depth_in_one_undoable_change() {
         "{before} to {after} with steps of {step}"
     );
     assert!(volume_about(&harness, plate, PLATE - BORE + LABEL * after));
+
     undone_and_redone(&mut harness, "the depth drag", depth);
 }
 
 #[test]
 fn a_recess_has_its_arrow_on_the_floor_and_dragging_it_deeper_cuts_deeper() {
     let mut harness = Harness::new();
+
     let (plate, _, top) = holed_plate(&mut harness);
     let (_, edge) = label(&mut harness);
+
     let emboss = opened_emboss(&mut harness, [top, edge]);
+
     harness.click_button("Recess");
     harness.settle();
     harness.select([]);
@@ -244,6 +273,7 @@ fn a_recess_has_its_arrow_on_the_floor_and_dragging_it_deeper_cuts_deeper() {
 #[test]
 fn the_arrow_of_an_emboss_wrapped_into_a_bore_stands_on_its_wall_and_points_at_the_axis() {
     let mut harness = Harness::new();
+
     let (_, bore, _) = holed_plate(&mut harness);
     let (_, edge) = label_on(
         &mut harness,
@@ -251,13 +281,17 @@ fn the_arrow_of_an_emboss_wrapped_into_a_bore_stands_on_its_wall_and_points_at_t
         Point2::new(15.0, 2.0),
         Point2::new(25.0, 8.0),
     );
+
     let emboss = opened_emboss(&mut harness, [bore, edge]);
+
     harness.select([]);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let depth = |harness: &Harness| length_value(harness, &emboss_of(harness, emboss).depth);
     let handle = Handle::Value(Measured::EmbossDepth);
     let from_axis = |point: Point3| (point.x - 20.0).hypot(point.y - 20.0);
+
     let grip = |harness: &Harness, along: f64| {
         from_axis(
             harness
@@ -286,15 +320,19 @@ fn the_arrow_of_an_emboss_wrapped_into_a_bore_stands_on_its_wall_and_points_at_t
         (after - before - 1.0).abs() <= 2.0 * step,
         "{before} to {after} with steps of {step}"
     );
+
     undone_and_redone(&mut harness, "the depth drag", depth);
 }
 
 #[test]
 fn choosing_regions_embosses_only_those_and_a_click_in_the_view_toggles_one() {
     let mut harness = Harness::new();
+
     let (plate, _, top) = holed_plate(&mut harness);
     let (sketch, edge) = two_labels(&mut harness);
+
     let emboss = opened_emboss(&mut harness, [top, edge]);
+
     assert_eq!(emboss_of(&harness, emboss).regions, RegionChoice::All);
     assert!(volume_about(
         &harness,
@@ -304,9 +342,11 @@ fn choosing_regions_embosses_only_those_and_a_click_in_the_view_toggles_one() {
 
     harness.click_button("Chosen");
     harness.settle();
+
     let RegionChoice::Chosen(chosen) = &emboss_of(&harness, emboss).regions else {
         panic!("the regions were chosen");
     };
+
     assert_eq!(chosen.len(), 2);
     assert!(harness.shows("2 regions chosen"));
     assert!(volume_about(
@@ -317,10 +357,12 @@ fn choosing_regions_embosses_only_those_and_a_click_in_the_view_toggles_one() {
 
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let Pickable::SketchRegion { region, .. } = region_at(&harness, sketch, Point2::new(27.0, 8.0))
     else {
         panic!("a region was found");
     };
+
     harness.click_pickable(
         Plane::XY,
         Point2::new(27.0, 8.0),
@@ -334,6 +376,7 @@ fn choosing_regions_embosses_only_those_and_a_click_in_the_view_toggles_one() {
     let RegionChoice::Chosen(chosen) = &emboss_of(&harness, emboss).regions else {
         panic!("the regions stay chosen");
     };
+
     assert_eq!(chosen.len(), 1);
     assert_eq!(
         harness.model.undo_label(),
@@ -344,6 +387,7 @@ fn choosing_regions_embosses_only_those_and_a_click_in_the_view_toggles_one() {
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert!(volume_about(
         &harness,
         plate,
@@ -352,12 +396,14 @@ fn choosing_regions_embosses_only_those_and_a_click_in_the_view_toggles_one() {
 
     harness.click_button("All closed");
     harness.settle();
+
     assert_eq!(emboss_of(&harness, emboss).regions, RegionChoice::All);
 }
 
 #[test]
 fn regions_selected_before_embossing_are_the_only_ones_embossed() {
     let mut harness = Harness::new();
+
     let (plate, _, top) = holed_plate(&mut harness);
     let (sketch, _) = two_labels(&mut harness);
     let right = region_at(&harness, sketch, Point2::new(27.0, 8.0));
@@ -367,6 +413,7 @@ fn regions_selected_before_embossing_are_the_only_ones_embossed() {
     let RegionChoice::Chosen(chosen) = &emboss_of(&harness, emboss).regions else {
         panic!("the selected region was chosen");
     };
+
     assert_eq!(chosen.len(), 1);
     assert_eq!(emboss_of(&harness, emboss).sketch, Some(sketch));
     assert!(volume_about(&harness, plate, PLATE - BORE + LABEL * 0.5));
@@ -375,9 +422,11 @@ fn regions_selected_before_embossing_are_the_only_ones_embossed() {
 #[test]
 fn clearing_the_chosen_regions_waits_for_regions_and_the_palette_selects_all_again() {
     let mut harness = Harness::new();
+
     let (plate, _, top) = holed_plate(&mut harness);
     let (sketch, _) = two_labels(&mut harness);
     let right = region_at(&harness, sketch, Point2::new(27.0, 8.0));
+
     let emboss = opened_emboss(&mut harness, [top, right]);
 
     harness.click_button("Clear");
@@ -387,7 +436,9 @@ fn clearing_the_chosen_regions_waits_for_regions_and_the_palette_selects_all_aga
         emboss_of(&harness, emboss).regions,
         RegionChoice::Chosen(Vec::new())
     );
+
     let name = harness.document().feature(sketch).unwrap().name.clone();
+
     assert!(harness.shows(&format!("Choose at least one region of {name} to emboss.")));
     assert!(volume_about(&harness, plate, PLATE - BORE));
 

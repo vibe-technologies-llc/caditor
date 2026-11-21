@@ -52,8 +52,11 @@ fn primitive(shape: PrimitiveShape) -> Primitive {
 
 fn single(primitive: Primitive) -> (Document, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let feature = transaction.add_feature("Box 1", FeatureKind::Primitive(primitive));
+
     document.apply(transaction.finish()).unwrap();
     (document, feature)
 }
@@ -86,6 +89,7 @@ fn a_box_makes_a_body_named_by_its_six_sides() {
         height: mm(4.0),
     }));
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
 
     let solid = evaluation.body(feature).unwrap();
@@ -93,6 +97,7 @@ fn a_box_makes_a_body_named_by_its_six_sides() {
         .faces()
         .map(|(_, face)| describe_origin(&document, face.origin()))
         .collect();
+
     names.sort();
 
     assert!(document.feature(feature).unwrap().makes_body());
@@ -140,6 +145,7 @@ fn round_primitives_have_their_volumes_and_named_faces() {
     for (shape, expected, faces) in cases {
         let (document, feature) = single(primitive(shape));
         let mut engine = Recompute::default();
+
         let evaluation = evaluate(&document, &mut engine);
 
         let solid = evaluation.body(feature).unwrap();
@@ -157,18 +163,22 @@ fn round_primitives_have_their_volumes_and_named_faces() {
 #[test]
 fn the_anchor_and_the_direction_place_the_shape_from_the_chosen_point() {
     let mut placed = primitive(cube(2.0));
+
     placed.at = [mm(5.0), mm(7.0)];
     placed.anchor = PrimitiveAnchor::Corner;
+
     let (mut document, feature) = single(placed.clone());
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&document, &mut engine);
     let (low, high) = bounds(evaluation.body(feature).unwrap());
+
     assert!(close(low, Point3::new(5.0, 7.0, 0.0)));
     assert!(close(high, Point3::new(7.0, 9.0, 2.0)));
 
     placed.anchor = PrimitiveAnchor::Centre;
     placed.reversed = true;
+
     let transaction = Transaction::single(
         "Edit",
         Edit::SetFeatureKind {
@@ -176,9 +186,12 @@ fn the_anchor_and_the_direction_place_the_shape_from_the_chosen_point() {
             kind: FeatureKind::Primitive(placed.clone()),
         },
     );
+
     document.apply(transaction).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
     let (low, high) = bounds(evaluation.body(feature).unwrap());
+
     assert!(close(low, Point3::new(4.0, 6.0, -1.0)));
     assert!(close(high, Point3::new(6.0, 8.0, 1.0)));
 
@@ -186,6 +199,7 @@ fn the_anchor_and_the_direction_place_the_shape_from_the_chosen_point() {
     placed.plane = PlaneReference::Principal(PrincipalPlane::Xz);
     placed.shape = PrimitiveShape::Sphere { diameter: mm(2.0) };
     placed.reversed = false;
+
     let transaction = Transaction::single(
         "Edit",
         Edit::SetFeatureKind {
@@ -193,12 +207,15 @@ fn the_anchor_and_the_direction_place_the_shape_from_the_chosen_point() {
             kind: FeatureKind::Primitive(placed),
         },
     );
+
     document.apply(transaction).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(feature).unwrap();
     let (low, high) = bounds(solid);
     let plane = PrincipalPlane::Xz.plane();
     let expected = plane.to_world(Point2::new(5.0, 7.0)) + plane.normal();
+
     assert!(close((low + high) / 2.0, expected));
 }
 
@@ -207,17 +224,24 @@ fn on_a_base(
     reversed: bool,
 ) -> (Evaluation, Document, FeatureId, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let base = transaction.add_feature("Base", FeatureKind::Primitive(primitive(cube(10.0))));
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(base).unwrap();
     let top = face_facing(solid, Vector3::Z);
+
     let plane = face_plane(solid, top.resolve(solid).unwrap()).unwrap();
     let middle = plane.to_local(Point3::new(0.0, 0.0, 10.0));
 
     let mut transaction = document.transaction("Boss");
+
     let boss = transaction.add_feature(
         "Boss",
         FeatureKind::Primitive(Primitive {
@@ -234,7 +258,9 @@ fn on_a_base(
             })
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
     (evaluation, document, base, boss)
 }
@@ -242,16 +268,22 @@ fn on_a_base(
 #[test]
 fn a_primitive_on_a_face_joins_or_cuts_its_body() {
     let (evaluation, document, base, boss) = on_a_base(BodyOperation::Add, false);
+
     let boss_feature = document.feature(boss).unwrap();
+
     assert!(!boss_feature.makes_body());
     assert_eq!(boss_feature.body(), Some(base));
     assert!(boss_feature.kind.bodies_used().contains(&base));
+
     let added = volume(&evaluation, base);
+
     assert!((added - (1000.0 + PI * 3.0)).abs() < 0.1, "{added}");
     assert!(evaluation.cuts(boss).is_empty());
 
     let (evaluation, _, base, boss) = on_a_base(BodyOperation::Remove, true);
+
     let removed = volume(&evaluation, base);
+
     assert!((removed - (1000.0 - PI * 3.0)).abs() < 0.1, "{removed}");
     assert_eq!(evaluation.cuts(boss).len(), 1);
 }
@@ -259,7 +291,9 @@ fn a_primitive_on_a_face_joins_or_cuts_its_body() {
 #[test]
 fn a_cut_that_takes_the_whole_body_fails_alone_in_words() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let base = transaction.add_feature("Base", FeatureKind::Primitive(primitive(cube(2.0))));
     let cut = transaction.add_feature(
         "Cut",
@@ -269,11 +303,15 @@ fn a_cut_that_takes_the_whole_body_fails_alone_in_words() {
             ..primitive(cube(10.0))
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
 
     let error = failure(&evaluation, cut);
+
     assert_eq!(error.reason(), "The box removes all of the body of Base.");
     assert!(evaluation.body_result(base).is_some());
 }
@@ -281,7 +319,9 @@ fn a_cut_that_takes_the_whole_body_fails_alone_in_words() {
 #[test]
 fn sizes_take_parameters_and_bad_sizes_fail_in_words() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let side = transaction.add_parameter("side", transaction.parse("3 mm").unwrap());
     let feature = transaction.add_feature(
         "Box 1",
@@ -291,22 +331,30 @@ fn sizes_take_parameters_and_bad_sizes_fail_in_words() {
             height: mm(1.0),
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     assert!(document.feature(feature).unwrap().uses_parameter(side));
+
     let evaluation = evaluate(&document, &mut engine);
+
     assert!((volume(&evaluation, feature) - 3.0).abs() < 1e-6);
 
     let mut transaction = document.transaction("Zero");
+
     let zero = transaction.parse("0 mm").unwrap();
+
     transaction.edit(Edit::SetParameterExpression {
         id: side,
         expression: zero,
     });
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
     let error = failure(&evaluation, feature);
+
     assert_eq!(
         error.reason(),
         "The length of the box must be more than zero."
@@ -318,6 +366,7 @@ fn sizes_take_parameters_and_bad_sizes_fail_in_words() {
         tube: mm(4.0),
     }));
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     assert!(
         failure(&evaluation, torus)
             .reason()
@@ -329,6 +378,7 @@ fn sizes_take_parameters_and_bad_sizes_fail_in_words() {
 fn a_reference_to_a_side_survives_resizing() {
     let (mut document, feature) = single(primitive(cube(4.0)));
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let front = face_facing(evaluation.body(feature).unwrap(), Vector3::NEG_Y);
 
@@ -343,10 +393,13 @@ fn a_reference_to_a_side_survives_resizing() {
             })),
         },
     );
+
     document.apply(transaction).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(feature).unwrap();
     let found = front.resolve(solid).unwrap();
+
     let face = solid.face(found).unwrap();
 
     assert_eq!(
@@ -437,6 +490,7 @@ fn cones_wedges_and_prisms_have_their_volumes_bounds_and_named_faces() {
     for (shape, expected, high, faces) in cases {
         let (document, feature) = single(primitive(shape.clone()));
         let mut engine = Recompute::default();
+
         let evaluation = evaluate(&document, &mut engine);
 
         let solid = evaluation.body(feature).unwrap();
@@ -445,6 +499,7 @@ fn cones_wedges_and_prisms_have_their_volumes_bounds_and_named_faces() {
             .faces()
             .map(|(_, face)| describe_origin(&document, face.origin()))
             .collect();
+
         names.sort();
 
         assert!(
@@ -509,6 +564,7 @@ fn a_cone_a_wedge_or_a_prism_out_of_shape_fails_alone_in_words() {
     for (shape, reason) in cases {
         let (document, feature) = single(primitive(shape.clone()));
         let mut engine = Recompute::default();
+
         let evaluation = evaluate(&document, &mut engine);
 
         assert!(
@@ -535,9 +591,12 @@ fn a_reversed_cone_or_wedge_grows_below_the_plane_with_its_base_on_it() {
         },
     ] {
         let mut placed = primitive(shape.clone());
+
         placed.reversed = true;
+
         let (document, feature) = single(placed);
         let mut engine = Recompute::default();
+
         let evaluation = evaluate(&document, &mut engine);
 
         let solid = evaluation.body(feature).unwrap();

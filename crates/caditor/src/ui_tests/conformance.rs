@@ -10,7 +10,7 @@ use crate::{
 const LEAST_TARGET: f32 = 24.0;
 const SKETCH: &str = "Base sketch";
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Target {
     name: String,
     role: Role,
@@ -68,6 +68,7 @@ fn fails_target_size(target: &Target, all: &[Target]) -> bool {
     if !is_undersized(target.rect) {
         return false;
     }
+
     let centre = target.rect.center();
     all.iter()
         .filter(|other| other.rect != target.rect)
@@ -81,6 +82,7 @@ fn fails_target_size(target: &Target, all: &[Target]) -> bool {
 
 fn prepared() -> Harness {
     let mut harness = Harness::new();
+
     harness.settle();
     harness.context.enable_accesskit();
     harness.frame();
@@ -94,7 +96,9 @@ fn screens() -> Vec<(String, Harness)> {
     screens.push(("the model".to_owned(), prepared()));
 
     let mut sketching = Harness::new();
+
     let sketch = feature_named(&sketching, SKETCH);
+
     sketching.edit(sketch);
     sketching.settle();
     sketching.context.enable_accesskit();
@@ -103,6 +107,7 @@ fn screens() -> Vec<(String, Harness)> {
     screens.push(("a sketch being edited".to_owned(), sketching));
 
     let mut palette = prepared();
+
     palette.workspace.queue_command(Command::Palette);
     palette.frame();
     palette.frame();
@@ -110,6 +115,7 @@ fn screens() -> Vec<(String, Harness)> {
 
     for tab in PreferencesTab::ALL {
         let mut preferences = prepared();
+
         preferences.key(Key::Comma, Modifiers::COMMAND);
         preferences.show_new_windows();
         preferences.click(tab.label());
@@ -145,7 +151,9 @@ fn at_interface_size(scale: f32) {
         )));
         harness.frame();
         harness.frame();
+
         let failures = undersized_with_others_near(&harness);
+
         assert!(
             failures.is_empty(),
             "{name} at {:.0}% has targets under {LEAST_TARGET} points with another target within reach: {failures:#?}",
@@ -211,13 +219,16 @@ fn walk_tab_order(harness: &mut Harness) -> (usize, Vec<String>) {
     let screen = harness.context.content_rect();
     let mut seen = Vec::new();
     let mut problems = Vec::new();
+
     for _ in 0..MOST_TAB_STOPS {
         harness.key(Key::Tab, Modifiers::NONE);
         harness.frame();
         harness.let_animations_finish();
+
         let Some((id, rect)) = focused(harness) else {
             continue;
         };
+
         if seen.contains(&id) {
             return (seen.len(), problems);
         }
@@ -242,6 +253,7 @@ fn walk_tab_order(harness: &mut Harness) -> (usize, Vec<String>) {
 fn tab_comes_round_on_every_screen_without_a_trap_or_focus_off_screen() {
     for (name, mut harness) in screens() {
         let (stops, problems) = walk_tab_order(&mut harness);
+
         assert!(problems.is_empty(), "{name}: {problems:#?}");
         assert!(stops >= 1, "{name} offers no tab stop");
     }
@@ -249,6 +261,7 @@ fn tab_comes_round_on_every_screen_without_a_trap_or_focus_off_screen() {
 
 fn spoken_name(harness: &Harness, node: &egui::accesskit::Node) -> String {
     let own = node.label().or_else(|| node.value()).unwrap_or_default();
+
     if !own.trim().is_empty() {
         return own.to_owned();
     }
@@ -291,6 +304,7 @@ fn unnamed_controls(harness: &Harness) -> Vec<String> {
 
 fn opened_by(command: Command) -> Harness {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.workspace.queue_command(command);
     for _ in 0..SETTLE_FRAMES {
@@ -305,6 +319,7 @@ const FEWEST_CONTROLS_PER_SHARE: usize = 500;
 fn every_window_is_named_and_sized(share: usize) {
     let mut problems = Vec::new();
     let mut checked = 0;
+
     for command in Command::all().skip(share).step_by(SHARES) {
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let harness = opened_by(command);
@@ -316,7 +331,9 @@ fn every_window_is_named_and_sized(share: usize) {
         }));
         if let Ok((count, unnamed, small)) = outcome {
             checked += count;
+
             let id = command.id();
+
             problems.extend(
                 unnamed
                     .into_iter()
@@ -325,6 +342,7 @@ fn every_window_is_named_and_sized(share: usize) {
             problems.extend(small.into_iter().map(|node| format!("{id}: small {node}")));
         }
     }
+
     assert!(problems.is_empty(), "{problems:#?}");
     assert!(
         checked >= FEWEST_CONTROLS_PER_SHARE,

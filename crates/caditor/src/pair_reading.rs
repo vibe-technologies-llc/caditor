@@ -21,6 +21,7 @@ impl PairReading {
             return None;
         }
         self.measurements.refresh(model, selection, Relative::WORLD);
+
         let (readout, _) = self.measurements.shown()?;
         between_text(readout, model.units())
     }

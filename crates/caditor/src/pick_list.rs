@@ -17,13 +17,13 @@ const LIST_ID: &str = "pick-list";
 const LIST_WIDTH: f32 = 340.0;
 const ANCHOR_OFFSET: Vec2 = vec2(6.0, 6.0);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     pub pickable: Pickable,
     pub words: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PickList {
     anchor: Pos2,
     rows: Vec<Row>,
@@ -33,7 +33,7 @@ pub struct PickList {
     focus_first: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Outcome {
     Open,
     Chosen { pickable: Pickable, toggle: bool },
@@ -47,15 +47,19 @@ pub fn rows(
     whole_bodies: bool,
 ) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
+
     for pickable in pickables {
         let body = pickable.body().filter(|_| whole_bodies);
+
         if body.is_some() && rows.iter().any(|row| row.pickable.body() == body) {
             continue;
         }
+
         let words = match body {
             Some(body) => selection::body_name(document, body).to_owned(),
             None => pickable.describe(document, evaluation),
         };
+
         rows.push(Row { pickable, words });
     }
     rows
@@ -93,12 +97,14 @@ impl PickList {
         if ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape)) {
             return Outcome::Closed;
         }
+
         let toggle = ctx.input(|input| input.modifiers.shift || input.modifiers.command);
         let width = widgets::fitting_width(ctx, LIST_WIDTH);
         let highlighted = self.pointed.or(self.focused);
         let mut pointed = None;
         let mut focused = None;
         let mut chosen = None;
+
         let shown = Area::new(Id::unique(LIST_ID))
             .order(Order::Foreground)
             .fixed_pos(self.anchor)
@@ -119,6 +125,7 @@ impl PickList {
                                 None,
                                 highlighted == Some(index),
                             );
+
                             if self.focus_first && index == 0 {
                                 response.request_focus();
                             }
@@ -135,12 +142,14 @@ impl PickList {
                     });
                 });
             });
+
         self.focus_first = false;
         self.pointed = pointed;
         self.focused = focused.or(self.focused);
         if let Some(pickable) = chosen {
             return Outcome::Chosen { pickable, toggle };
         }
+
         let pressed_outside = ctx.input(|input| {
             input.pointer.any_pressed()
                 && input

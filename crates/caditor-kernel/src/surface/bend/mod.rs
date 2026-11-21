@@ -21,7 +21,7 @@ const SMOOTHING: f64 = 1e-10;
 const RIDGE: f64 = 1e-14;
 const KNOT_SNAP: f64 = 1e-3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SurfaceSide {
     UStart,
     UEnd,
@@ -53,13 +53,13 @@ pub struct SideBend<'a> {
     pub held: [bool; 2],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BentSide {
     pub surface: BSplineSurface,
     pub residual: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum BendError {
     #[error("the side of the surface is a seam or a pole, so it cannot be bent")]
     Unbendable,
@@ -98,9 +98,11 @@ impl BSplineSurface {
         } else {
             (SurfaceSide::VEnd, oriented.rows().saturating_sub(1))
         };
+
         if oriented.v_period().is_some() || oriented.degenerate_row(row) {
             return Err(BendError::Unbendable);
         }
+
         let closed = oriented.u_period().is_some();
         let oriented = oriented
             .cubic_along_u()
@@ -108,16 +110,20 @@ impl BSplineSurface {
         let original = oriented
             .side(row_side)
             .ok_or(BendError::Geometry(GeometryError::Knots))?;
+
         let (curve, residual) = Fit::new(&original, bend, closed)?.run(bend, tolerance)?;
         let inserted = added_knots(oriented.u_knots(), curve.knots());
+
         let bent = oriented
             .with_knots(&inserted, &[])
             .and_then(|refined| refined.with_side(row_side, &curve))
             .ok_or(BendError::Geometry(GeometryError::Knots))?;
         let count = bent.control_points().len();
+
         if count > MAX_BENT_CONTROL_POINTS {
             return Err(BendError::TooLarge(count));
         }
+
         let surface = if along_u { bent } else { bent.transposed() };
         Ok(BentSide { surface, residual })
     }
@@ -140,11 +146,14 @@ impl Fit {
         let domain = original.domain();
         let degree = original.degree();
         let mut wanted: BTreeMap<u64, usize> = BTreeMap::new();
+
         for knot in &bend.knots {
             if !(domain.start() < *knot && *knot < domain.end()) {
                 continue;
             }
+
             let snapped = snapped(original.knots(), *knot);
+
             *wanted.entry(snapped.to_bits()).or_default() += 1;
         }
         for (parameter, point) in &bend.pins {
@@ -155,7 +164,9 @@ impl Fit {
                 wanted.insert(parameter.to_bits(), degree);
             }
         }
+
         let mut inserted = Vec::new();
+
         for (bits, multiplicity) in wanted {
             let value = f64::from_bits(bits);
             let present = original
@@ -164,13 +175,16 @@ impl Fit {
                 .filter(|knot| **knot == value)
                 .count();
             let missing = multiplicity.min(degree).saturating_sub(present);
+
             inserted.extend(std::iter::repeat_n(value, missing));
         }
+
         let reference = original
             .with_knots(&inserted)
             .ok_or(BendError::Geometry(GeometryError::Knots))?;
         let first = original.control_points().first().copied();
         let last = original.control_points().last().copied();
+
         let held = [
             (closed || bend.held[0]).then_some(first).flatten(),
             (closed || bend.held[1]).then_some(last).flatten(),
@@ -196,17 +210,23 @@ impl Fit {
     ) -> Result<(BSpline<Point3>, f64), BendError> {
         for round in 0..=MAX_REFINEMENTS {
             interrupt::check().map_err(|_| BendError::Cancelled)?;
+
             let fixed = self.fixed();
             let samples = self.samples(bend)?;
+
             self.current = solved(&self.reference, &fixed, &samples)?;
+
             let (failing, worst) = self.failing(bend, tolerance)?;
+
             if failing.is_empty() {
                 return Ok((self.current, worst));
             }
             if round == MAX_REFINEMENTS {
                 return Err(BendError::FallsShort(worst));
             }
+
             let middles: Vec<f64> = failing.iter().map(Interval::middle).collect();
+
             self.reference = self
                 .reference
                 .with_knots(&middles)
@@ -215,6 +235,7 @@ impl Fit {
                 .current
                 .with_knots(&middles)
                 .ok_or(BendError::Geometry(GeometryError::Knots))?;
+
             let count = self.reference.control_points().len();
             if count > MAX_SIDE_CONTROL_POINTS {
                 return Err(BendError::TooDetailed(count));
@@ -229,6 +250,7 @@ impl Fit {
         let count = self.reference.control_points().len();
         let mut fixed = vec![None; count];
         let last = count.saturating_sub(1);
+
         if let Some(slot) = fixed.first_mut() {
             *slot = self.held[0];
         }
@@ -260,12 +282,15 @@ impl Fit {
         parameter: f64,
     ) -> Result<Point3, BendError> {
         let key = (index, parameter.to_bits());
+
         if let Some(point) = self.cache.get(&key) {
             return Ok(*point);
         }
+
         let point = (target.point)(parameter)
             .filter(|point| point.is_finite())
             .ok_or(BendError::NoTarget(parameter))?;
+
         self.cache.insert(key, point);
         Ok(point)
     }
@@ -273,7 +298,9 @@ impl Fit {
     fn samples(&mut self, bend: &SideBend<'_>) -> Result<Vec<(f64, Point3)>, BendError> {
         let spans = spans(&self.reference);
         let per_span = self.reference.degree() + EXTRA_SAMPLES;
+
         let mut samples = Vec::with_capacity(spans.len() * per_span);
+
         for (index, target) in bend.targets.iter().enumerate() {
             for span in &spans {
                 let Some(overlap) = overlap(*span, target.range) else {
@@ -281,6 +308,7 @@ impl Fit {
                 };
                 for step in 0..per_span {
                     let parameter = overlap.at((step as f64 + 0.5) / per_span as f64);
+
                     samples.push((parameter, self.target(index, target, parameter)?));
                 }
             }
@@ -296,6 +324,7 @@ impl Fit {
         let spans = spans(&self.reference);
         let mut failing: Vec<Interval> = Vec::new();
         let mut worst = 0.0f64;
+
         for (index, target) in bend.targets.iter().enumerate() {
             if !target.strict {
                 continue;
@@ -306,9 +335,11 @@ impl Fit {
                     continue;
                 };
                 let mut span_worst = 0.0f64;
+
                 for step in 0..=CHECKS_PER_SPAN {
                     let parameter = overlap.at(step as f64 / CHECKS_PER_SPAN as f64);
                     let wanted = self.target(index, target, parameter)?;
+
                     span_worst = span_worst.max(self.current.point(parameter).distance(wanted));
                 }
                 worst = worst.max(span_worst);
@@ -343,9 +374,11 @@ fn snapped(knots: &[f64], knot: f64) -> f64 {
     let after = knots.partition_point(|existing| *existing <= knot);
     let below = after.checked_sub(1).and_then(|index| knots.get(index));
     let above = knots.get(after);
+
     let (Some(below), Some(above)) = (below, above) else {
         return knot;
     };
+
     let reach = KNOT_SNAP * (above - below);
     if knot - below <= reach {
         *below
@@ -376,6 +409,7 @@ fn overlap(span: Interval, range: Interval) -> Option<Interval> {
 fn added_knots(old: &[f64], new: &[f64]) -> Vec<f64> {
     let mut added = Vec::new();
     let mut remaining = old.iter().peekable();
+
     for knot in new {
         if remaining.peek().is_some_and(|existing| **existing == *knot) {
             remaining.next();
@@ -394,12 +428,14 @@ fn solved(
     let base = reference.control_points();
     let mut compact = vec![None; base.len()];
     let mut free = 0;
+
     for (slot, pinned) in compact.iter_mut().zip(fixed) {
         if pinned.is_none() {
             *slot = Some(free);
             free += 1;
         }
     }
+
     let shift = |index: usize| -> Vector3 {
         match (fixed.get(index).copied().flatten(), base.get(index)) {
             (Some(pinned), Some(start)) => pinned - *start,
@@ -409,9 +445,11 @@ fn solved(
     let degree = reference.degree();
     let mut band = Band::new(free, degree.max(2));
     let mut right = vec![Vector3::ZERO; free];
+
     for (parameter, target) in samples {
         let (first, values) = reference.rational_basis(*parameter);
         let mut residual = *target - reference.point(*parameter);
+
         for (offset, value) in values.iter().enumerate().take(degree + 1) {
             residual -= shift(first + offset) * *value;
         }
@@ -419,6 +457,7 @@ fn solved(
             let Some(row) = compact.get(first + a_offset).copied().flatten() else {
                 continue;
             };
+
             for (b_offset, b) in values.iter().enumerate().take(degree + 1) {
                 if let Some(column) = compact.get(first + b_offset).copied().flatten() {
                     band.add(row, column, a * b);
@@ -429,7 +468,9 @@ fn solved(
             }
         }
     }
+
     let scale = band.largest_diagonal().max(f64::MIN_POSITIVE);
+
     for middle in 1..base.len().saturating_sub(1) {
         let stencil = [(middle - 1, 1.0), (middle, -2.0), (middle + 1, 1.0)];
         let known: Vector3 = stencil
@@ -441,6 +482,7 @@ fn solved(
             let Some(row) = compact.get(*a_index).copied().flatten() else {
                 continue;
             };
+
             for (b_index, b) in &stencil {
                 if let Some(column) = compact.get(*b_index).copied().flatten() {
                     band.add(row, column, SMOOTHING * scale * a * b);
@@ -454,6 +496,7 @@ fn solved(
     for row in 0..free {
         band.add(row, row, RIDGE * scale);
     }
+
     let moves = band
         .factored()
         .map_err(|_| BendError::Singular)?
@@ -475,6 +518,7 @@ fn solved(
             }
         })
         .collect();
+
     if !points.iter().all(|point| point.is_finite()) {
         return Err(BendError::Singular);
     }

@@ -58,10 +58,12 @@ fn dense(rows: &[Vec<f64>], height: usize, width: usize) -> DMatrix<f64> {
 
 fn multipliers(jacobian: &DMatrix<f64>, pull: &DVector<f64>) -> Option<DVector<f64>> {
     let (height, width) = jacobian.shape();
+
     if height == 0 {
         return Some(DVector::zeros(0));
     }
     tally::add(height * width * height.min(width));
+
     let transposed = SVD::try_new(
         jacobian.transpose(),
         true,
@@ -75,11 +77,15 @@ fn multipliers(jacobian: &DMatrix<f64>, pull: &DVector<f64>) -> Option<DVector<f
 
 fn free_directions(rows: &[Vec<f64>], width: usize) -> Option<DMatrix<f64>> {
     let rows: Vec<Vec<f64>> = rows.iter().cloned().map(normalized).collect();
+
     if rows.is_empty() {
         return Some(DMatrix::identity(width, width));
     }
+
     let height = rows.len().max(width);
+
     tally::add(height * width * width);
+
     let svd = SVD::try_new(
         dense(&rows, height, width),
         false,
@@ -89,6 +95,7 @@ fn free_directions(rows: &[Vec<f64>], width: usize) -> Option<DMatrix<f64>> {
     )?;
     let basis = svd.v_t?;
     let cutoff = svd.singular_values.max() * RANK_TOLERANCE;
+
     let free: Vec<DVector<f64>> = svd
         .singular_values
         .iter()
@@ -96,6 +103,7 @@ fn free_directions(rows: &[Vec<f64>], width: usize) -> Option<DMatrix<f64>> {
         .filter(|(singular, _)| **singular <= cutoff)
         .map(|(_, row)| row.transpose())
         .collect();
+
     if free.is_empty() {
         return Some(DMatrix::zeros(width, 0));
     }
@@ -127,41 +135,53 @@ impl Solver<'_> {
                     })
             })
             .collect();
+
         if aims.is_empty() {
             return Ok(());
         }
+
         let solved = self.converged(&part, values);
+
         if self.converged(&part, drawn) && (!solved || miss(&aims, drawn) < miss(&aims, values)) {
             let from = self.start(&part, drawn);
+
             self.restore(component, &from, values);
         } else if !solved {
             return Ok(());
         }
+
         let loose = Solver {
             stiffness: LOOSE,
             ..*self
         };
+
         if component.variables.len() > DENSE_LIMIT {
             return loose.reach_far(&part, &aims, values, work);
         }
+
         let tolerance = REACH_TOLERANCE * part.context.scale;
         let longest = MAX_STEP * part.context.scale;
         let mut gap = miss(&aims, values);
+
         for _ in 0..MAX_ITERATIONS {
             if (self.cancelled)() {
                 return Err(Cancelled);
             }
+
             let Some(mut step) = self.reaching_step(&part, &aims, values) else {
                 break;
             };
             let length = step.iter().map(|delta| delta * delta).sum::<f64>().sqrt();
+
             if length > longest {
                 step.iter_mut().for_each(|delta| *delta *= longest / length);
             }
+
             let Some(closer) = loose.reach_along(&part, &aims, &step, gap, values)? else {
                 break;
             };
             let gained = gap.sqrt() - closer.sqrt();
+
             gap = closer;
             if gained <= tolerance {
                 break;
@@ -183,8 +203,10 @@ impl Solver<'_> {
         let width = part.component.variables.len();
         let (rows, _) = self.linearize(part, values);
         let height = rows.len();
+
         let jacobian = dense(&rows, height, width);
         let mut pull = DVector::zeros(width);
+
         for aim in aims {
             if let Some(slot) = pull.get_mut(aim.column) {
                 *slot = value(values, aim.variable) - aim.to;
@@ -193,6 +215,7 @@ impl Solver<'_> {
 
         let multipliers = multipliers(&jacobian, &pull)?;
         let free = free_directions(&rows, width)?;
+
         if free.ncols() == 0 {
             return None;
         }
@@ -201,12 +224,16 @@ impl Solver<'_> {
         let mut bent = DMatrix::zeros(width, free.ncols());
         let start = self.start(part, values);
         let mut probed = values.to_vec();
+
         for (index, direction) in free.column_iter().enumerate() {
             let moving: Vec<f64> = direction.iter().copied().collect();
+
             self.place(part.component, &start, &moving, probe, &mut probed);
+
             let (moved, _) = self.linearize(part, &probed);
             let mut curvature =
                 (dense(&moved, height, width) - &jacobian).transpose() * &multipliers / probe;
+
             for aim in aims {
                 if let (Some(slot), Some(along)) =
                     (curvature.get_mut(aim.column), direction.get(aim.column))
@@ -216,11 +243,13 @@ impl Solver<'_> {
             }
             bent.set_column(index, &curvature);
         }
+
         let reduced = free.transpose() * &bent;
         let reduced = (&reduced + reduced.transpose()) * 0.5;
         let slope = free.transpose() * &pull;
         let eigen = SymmetricEigen::try_new(reduced, f64::EPSILON, SVD_ITERATIONS)?;
         let mut along = DVector::zeros(free.ncols());
+
         for (curvature, axis) in eigen
             .eigenvalues
             .iter()
@@ -228,6 +257,7 @@ impl Solver<'_> {
         {
             along -= axis * (axis.dot(&slope) / curvature.abs().max(FLATTEST));
         }
+
         let step: Vec<f64> = (free * along).iter().copied().collect();
         step.iter().all(|delta| delta.is_finite()).then_some(step)
     }
@@ -250,6 +280,7 @@ impl Solver<'_> {
     ) -> Result<Option<f64>, Cancelled> {
         let start = self.start(part, values);
         let mut fraction = 1.0;
+
         for _ in 0..LINE_SEARCH_STEPS {
             self.place(part.component, &start, step, fraction, values);
             if self.gauss_newton(part, values)? == Ending::Converged {

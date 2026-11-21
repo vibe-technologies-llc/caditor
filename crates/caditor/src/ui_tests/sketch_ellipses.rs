@@ -13,38 +13,52 @@ use crate::{editing::Tool, filleting, sketch_toolbar, sketch_tools};
 #[test]
 fn an_ellipse_is_drawn_from_its_centre_the_end_of_its_major_axis_and_its_minor_radius() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
 
     harness.click_button(sketch_toolbar::CURVE_WAYS_LABEL);
     harness.click(Tool::Ellipse.label());
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::Ellipse));
     assert!(harness.shows("Click the ellipse's centre"));
+
     harness.click_at(Point2::new(20.0, 20.0));
+
     assert!(harness.shows("Click the end of its major axis"));
+
     harness.click_at(Point2::new(40.0, 20.0));
+
     assert!(harness.shows("Click to set its minor radius"));
+
     harness.point_at(Point2::new(24.0, 26.0));
+
     assert!(harness.shows("R 20.00 mm   r 6.00 mm"));
+
     harness.click_at(Point2::new(26.0, 28.0));
 
     let sketch = harness.sketch(feature);
     let [ellipse] = entities_of_kind(sketch, "Ellipse")[..] else {
         panic!("expected one ellipse");
     };
+
     let shape = sketch.ellipse(ellipse).unwrap();
+
     assert!(shape.center.distance(Point2::new(20.0, 20.0)) < DRAWN);
     assert!((shape.major_radius() - 20.0).abs() < DRAWN);
     assert!((shape.minor_radius - 8.0).abs() < DRAWN);
     assert_eq!(constraints_of_kind(sketch, "Horizontal").len(), 1);
     assert_eq!(harness.model.undo_label(), Some("Draw ellipse"));
+
     harness.settle();
+
     assert!(harness.shows("4 degrees of freedom left"));
 }
 
 #[test]
 fn an_elliptical_arc_is_chosen_from_the_curve_button_and_follows_the_sweep() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
 
     harness.click_button(sketch_toolbar::CURVE_WAYS_LABEL);
@@ -53,12 +67,17 @@ fn an_elliptical_arc_is_chosen_from_the_curve_button_and_follows_the_sweep() {
     }
     harness.click("Elliptical arc");
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::EllipticalArc));
+
     let center = Point2::new(-20.0, 20.0);
+
     harness.click_at(center);
     harness.click_at(Point2::new(-10.0, 20.0));
     harness.click_at(Point2::new(-20.0, 26.0));
+
     assert!(harness.shows("Click where the arc ends"));
+
     for step in [Point2::new(-24.0, 25.5), Point2::new(-29.0, 22.0)] {
         harness.point_at(step);
     }
@@ -68,12 +87,16 @@ fn an_elliptical_arc_is_chosen_from_the_curve_button_and_follows_the_sweep() {
     let [arc] = entities_of_kind(sketch, "Elliptical arc")[..] else {
         panic!("expected one elliptical arc");
     };
+
     let shape = sketch.ellipse(arc).unwrap();
+
     assert!((shape.minor_radius - 6.0).abs() < DRAWN);
     assert!((shape.sweep - FRAC_PI_2).abs() < DRAWN, "{}", shape.sweep);
+
     let Some(Entity::EllipticalArc { start, .. }) = sketch.entity(arc) else {
         panic!("expected an elliptical arc");
     };
+
     assert!(
         sketch
             .point(*start)
@@ -88,6 +111,7 @@ fn an_elliptical_arc_is_chosen_from_the_curve_button_and_follows_the_sweep() {
 fn the_radius_button_holds_both_radii_of_a_selected_ellipse() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(10.0, 10.0), Point2::new(25.0, 10.0), 5.0);
     let feature = edit_free_sketch(&mut harness, sketch);
 
@@ -96,6 +120,7 @@ fn the_radius_button_holds_both_radii_of_a_selected_ellipse() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(constraints_of_kind(sketch, "Major radius").len(), 1);
     assert_eq!(constraints_of_kind(sketch, "Minor radius").len(), 1);
 }
@@ -104,17 +129,23 @@ fn the_radius_button_holds_both_radii_of_a_selected_ellipse() {
 fn trim_opens_an_ellipse_where_a_line_crosses_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(30.0, 30.0), Point2::new(45.0, 30.0), 6.0);
+
     sketch.add_line(Point2::new(40.0, 20.0), Point2::new(40.0, 40.0));
+
     let label = sketch.entity_label(ellipse);
     let feature = edit_free_sketch(&mut harness, sketch);
 
     run_from_palette(&mut harness, "trim sketch curves");
+
     assert_eq!(harness.tool(), Some(Tool::Trim));
+
     harness.click_at(Point2::new(45.0, 30.0));
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert!(entities_of_kind(sketch, "Ellipse").is_empty());
     assert_eq!(entities_of_kind(sketch, "Elliptical arc"), vec![ellipse]);
     assert_eq!(
@@ -127,6 +158,7 @@ fn trim_opens_an_ellipse_where_a_line_crosses_it() {
 fn an_elliptical_arc_is_split_at_the_selected_point_on_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_elliptical_arc(
         Point2::new(30.0, 30.0),
         Point2::new(45.0, 30.0),
@@ -135,9 +167,11 @@ fn an_elliptical_arc_is_split_at_the_selected_point_on_it() {
         Point2::new(30.0 + 15.0 * 2.8_f64.cos(), 30.0 + 6.0 * 2.8_f64.sin()),
     );
     let point = sketch.add_point(Point2::new(30.0, 36.0));
+
     sketch
         .add_constraint(Constraint::Coincident(point, arc))
         .unwrap();
+
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.select(entity_pickables(feature, &[point]));
@@ -145,6 +179,7 @@ fn an_elliptical_arc_is_split_at_the_selected_point_on_it() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(entities_of_kind(sketch, "Elliptical arc").len(), 2);
     assert_eq!(harness.model.undo_label(), Some(sketch_tools::SPLIT_TITLE));
 }
@@ -153,6 +188,7 @@ fn an_elliptical_arc_is_split_at_the_selected_point_on_it() {
 fn a_circle_apart_from_an_ellipse_is_made_tangent_to_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(10.0, 10.0), Point2::new(25.0, 10.0), 5.0);
     let circle = sketch.add_circle(Point2::new(35.0, 14.0), 3.0);
     let feature = edit_free_sketch(&mut harness, sketch);
@@ -165,9 +201,12 @@ fn a_circle_apart_from_an_ellipse_is_made_tangent_to_it() {
         constraints_of_kind(harness.sketch(feature), "Tangent").len(),
         1
     );
+
     let shown = harness.shown(feature);
     let (center, radius) = shown.circle(circle).unwrap();
+
     let touching = shown.closest_on_ellipse(ellipse, center).unwrap();
+
     assert!((touching.distance(center) - radius).abs() < DRAWN);
 }
 
@@ -175,6 +214,7 @@ fn a_circle_apart_from_an_ellipse_is_made_tangent_to_it() {
 fn the_distance_button_dimensions_a_point_from_an_ellipse() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(10.0, 10.0), Point2::new(25.0, 10.0), 5.0);
     let point = sketch.add_point(Point2::new(10.0, 19.0));
     let feature = edit_free_sketch(&mut harness, sketch);
@@ -187,7 +227,9 @@ fn the_distance_button_dimensions_a_point_from_an_ellipse() {
     let [distance] = &constraints_of_kind(sketch, "Distance")[..] else {
         panic!("expected one distance");
     };
+
     let measured = sketch.measured(distance).unwrap();
+
     assert!((measured - 4.0).abs() < DRAWN, "{measured}");
 }
 
@@ -196,6 +238,7 @@ fn extend_carries_an_elliptical_arc_round_its_ellipse_to_a_line() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
     let at = |angle: f64| Point2::new(30.0 + 15.0 * angle.cos(), 30.0 + 6.0 * angle.sin());
+
     let arc = sketch.add_elliptical_arc(
         Point2::new(30.0, 30.0),
         Point2::new(45.0, 30.0),
@@ -204,19 +247,25 @@ fn extend_carries_an_elliptical_arc_round_its_ellipse_to_a_line() {
         at(2.0),
     );
     let wall = sketch.add_line(Point2::new(20.0, 20.0), Point2::new(20.0, 45.0));
+
     let [arc_label, wall_label] = [arc, wall].map(|id| sketch.entity_label(id));
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.use_tool(Key::J);
+
     assert_eq!(harness.tool(), Some(Tool::Extend));
+
     harness.point_at(at(1.9));
+
     assert!(harness.shows(&format!("Extend {arc_label} to {wall_label}")));
+
     harness.click_at(at(1.9));
 
     let sketch = harness.sketch(feature);
     let Some(&Entity::EllipticalArc { end, .. }) = sketch.entity(arc) else {
         panic!("expected an elliptical arc");
     };
+
     assert!((sketch.point(end).unwrap().x - 20.0).abs() < DRAWN);
     assert_eq!(
         constraints_of_kind(sketch, "Coincident"),
@@ -228,6 +277,7 @@ fn extend_carries_an_elliptical_arc_round_its_ellipse_to_a_line() {
 fn a_corner_of_a_line_and_an_elliptical_arc_is_rounded_by_a_sketch_fillet() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_elliptical_arc(
         Point2::new(30.0, 30.0),
         Point2::new(45.0, 30.0),
@@ -245,18 +295,23 @@ fn a_corner_of_a_line_and_an_elliptical_arc_is_rounded_by_a_sketch_fillet() {
     else {
         panic!("expected a line");
     };
+
     sketch
         .add_constraint(Constraint::Coincident(line_start, start))
         .unwrap();
+
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.select(entity_pickables(feature, &[arc, line]));
     run_from_palette(&mut harness, "fillet a sketch corner");
+
     assert_eq!(harness.tool(), Some(Tool::Fillet));
+
     type_point(&mut harness, "2");
 
     let sketch = harness.sketch(feature);
     let rounded = fillet_arc(sketch).unwrap();
+
     assert!((rounded.radius - 2.0).abs() < DRAWN);
     assert!((rounded.center.y - 32.0).abs() < DRAWN);
     assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 2);
@@ -268,6 +323,7 @@ fn a_sketch_fillet_carries_an_elliptical_arc_round_its_ellipse_to_a_clicked_line
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
     let at = |angle: f64| Point2::new(30.0 + 15.0 * angle.cos(), 30.0 + 6.0 * angle.sin());
+
     let arc = sketch.add_elliptical_arc(
         Point2::new(30.0, 30.0),
         Point2::new(45.0, 30.0),
@@ -276,25 +332,35 @@ fn a_sketch_fillet_carries_an_elliptical_arc_round_its_ellipse_to_a_clicked_line
         at(FRAC_PI_2),
     );
     let wall = sketch.add_line(Point2::new(20.0, 50.0), Point2::new(20.0, 40.0));
+
     let [arc_label, wall_label] = [arc, wall].map(|id| sketch.entity_label(id));
     let feature = edit_free_sketch(&mut harness, sketch);
     let before = harness.sketch(feature).clone();
 
     harness.use_tool(Key::B);
     harness.point_at(at(0.8));
+
     assert!(harness.shows_containing(&format!("Click {arc_label} and then a second line")));
+
     harness.click_at(at(0.8));
+
     assert!(harness.shows(filleting::SECOND_CURVE_PROMPT));
+
     harness.point_at(Point2::new(20.0, 46.0));
+
     assert!(harness.shows(&format!("Round where {arc_label} and {wall_label} meet")));
+
     harness.click_at(Point2::new(20.0, 46.0));
+
     assert!(harness.shows(filleting::RADIUS_PROMPT));
+
     type_point(&mut harness, "2");
 
     let sketch = harness.sketch(feature);
     let rounded = fillet_arc(sketch).unwrap();
     let carried = sketch.ellipse(arc).unwrap();
     let (_, wall_end) = sketch.line_endpoints(wall).unwrap();
+
     assert!((rounded.radius - 2.0).abs() < DRAWN);
     assert!(carried.sweep > FRAC_PI_2, "{}", carried.sweep);
     assert!(wall_end.y < 40.0, "{wall_end}");
@@ -303,6 +369,7 @@ fn a_sketch_fillet_carries_an_elliptical_arc_round_its_ellipse_to_a_clicked_line
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
@@ -310,6 +377,7 @@ fn a_sketch_fillet_carries_an_elliptical_arc_round_its_ellipse_to_a_clicked_line
 fn two_ellipses_are_made_tangent_and_a_spline_dimensioned_from_one() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let lower = sketch.add_ellipse(Point2::new(10.0, 10.0), Point2::new(25.0, 10.0), 5.0);
     let upper = sketch.add_ellipse(Point2::new(10.0, 22.0), Point2::new(18.0, 22.0), 4.0);
     let spline = sketch.add_spline(&[
@@ -327,8 +395,10 @@ fn two_ellipses_are_made_tangent_and_a_spline_dimensioned_from_one() {
         constraints_of_kind(harness.sketch(feature), "Tangent").len(),
         1
     );
+
     let shown = harness.shown(feature);
     let (on_lower, on_upper) = shown.ellipse_gap(lower, upper).unwrap();
+
     assert!(on_lower.distance(on_upper) < DRAWN);
 
     harness.select(entity_pickables(feature, &[spline, lower]));
@@ -340,7 +410,9 @@ fn two_ellipses_are_made_tangent_and_a_spline_dimensioned_from_one() {
         panic!("expected one distance");
     };
     let (on_spline, on_ellipse) = harness.shown(feature).spline_gap(spline, lower).unwrap();
+
     let measured = sketch.measured(distance).unwrap();
+
     assert!(
         (measured - on_spline.distance(on_ellipse)).abs() < DRAWN,
         "{measured}"
@@ -352,33 +424,42 @@ fn two_ellipses_are_made_tangent_and_a_spline_dimensioned_from_one() {
 fn an_ellipse_is_offset_as_a_spline_that_says_it_will_not_follow() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(10.0, 10.0), Point2::new(25.0, 10.0), 5.0);
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.use_tool(Key::W);
+
     assert_eq!(harness.tool(), Some(Tool::Offset));
+
     harness.click_at(Point2::new(10.0, 15.0));
     harness.point_at(Point2::new(10.0, 17.0));
+
     assert!(harness.shows(&format!(
         "Offset Ellipse {} by 2 mm {}",
         ellipse.raw(),
         crate::offsetting::FREE_SPLINE
     )));
+
     type_point(&mut harness, "2");
 
     let sketch = harness.sketch(feature);
     let [spline] = &entities_of_kind(sketch, "Closed fit-point spline")[..] else {
         panic!("expected one spline");
     };
+
     let curve = sketch.spline(*spline).unwrap();
+
     for index in 0..=40 {
         let point = curve.point_at(f64::from(index) / 40.0);
         let gap = sketch
             .closest_on_ellipse(ellipse, point)
             .unwrap()
             .distance(point);
+
         assert!((gap - 2.0).abs() < DRAWN, "{gap}");
     }
+
     assert_eq!(
         harness.model.undo_label(),
         Some(crate::offsetting::TRANSACTION)

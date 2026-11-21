@@ -55,8 +55,10 @@ pub struct SystemCliBackend;
 impl CliBackend for SystemCliBackend {
     fn discover(&self, tool: CliTool, override_path: &str) -> CliState {
         let trimmed = override_path.trim();
+
         if !trimmed.is_empty() {
             let path = PathBuf::from(trimmed);
+
             return if path.is_file() {
                 CliState::Found(path)
             } else {
@@ -65,6 +67,7 @@ impl CliBackend for SystemCliBackend {
                 }
             };
         }
+
         let binary = tool.default_binary();
         match find_on_path(binary) {
             Some(found) => CliState::Found(found),
@@ -92,12 +95,14 @@ impl CliBackend for SystemCliBackend {
                 }
             })?;
         let _cleanup = CleanupDir(runtime_dir.clone());
+
         let mut command = build_command(request, &exe, &runtime_dir).map_err(|error| {
             AssistantFailure::CliLaunch {
                 tool: request.tool,
                 error_kind: error.kind(),
             }
         })?;
+
         command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -109,6 +114,7 @@ impl CliBackend for SystemCliBackend {
                 tool: request.tool,
                 error_kind: error.kind(),
             })?;
+
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
@@ -116,8 +122,10 @@ impl CliBackend for SystemCliBackend {
             .name("cli stderr".to_owned())
             .spawn(move || {
                 let mut collected = String::new();
+
                 if let Some(stream) = stderr {
                     let mut reader = BufReader::new(stream);
+
                     let _ = io::Read::read_to_string(&mut reader, &mut collected);
                 }
                 collected
@@ -127,6 +135,7 @@ impl CliBackend for SystemCliBackend {
         let mut result = CliTurnResult::default();
         let (line_tx, line_rx) = std::sync::mpsc::channel::<String>();
         let cancel_watcher = Arc::clone(cancel);
+
         let stdout_handle = thread::Builder::new()
             .name("cli stdout".to_owned())
             .spawn(move || {
@@ -158,6 +167,7 @@ impl CliBackend for SystemCliBackend {
             if cancel.load(Ordering::Acquire) {
                 let _ = child.kill();
                 let _ = child.wait();
+
                 return Err(AssistantFailure::Api(caditor_ai::AiError::Cancelled));
             }
             match child.try_wait() {
@@ -165,6 +175,7 @@ impl CliBackend for SystemCliBackend {
                 Ok(None) => thread::sleep(CANCEL_POLL),
                 Err(error) => {
                     let _ = child.kill();
+
                     return Err(AssistantFailure::CliLaunch {
                         tool: request.tool,
                         error_kind: error.kind(),
@@ -179,6 +190,7 @@ impl CliBackend for SystemCliBackend {
         while let Ok(line) = line_rx.try_recv() {
             parse_cli_line(request.tool, &line, &mut result, on_text);
         }
+
         let stderr_text = stderr_handle
             .and_then(|handle| handle.join().ok())
             .unwrap_or_default();
@@ -192,6 +204,7 @@ impl CliBackend for SystemCliBackend {
             } else {
                 "no output was printed".to_owned()
             };
+
             return Err(AssistantFailure::CliExited {
                 tool: request.tool,
                 code,
@@ -216,6 +229,7 @@ fn make_runtime_dir(state_dir: Option<&Path>, port: u16) -> io::Result<PathBuf> 
         None => env::temp_dir().join("caditor-assistant"),
     };
     let dir = base.join(format!("bridge-{port}"));
+
     private::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -228,6 +242,7 @@ fn build_command(
     let port_text = request.bridge_port.to_string();
     let exe_str = caditor_exe.display().to_string();
     let mut command = Command::new(&request.binary);
+
     command.env(TOKEN_ENV, request.bridge_token);
     match request.tool {
         CliTool::ClaudeCode => {
@@ -244,6 +259,7 @@ fn build_command(
             });
             let config_path = runtime_dir.join("claude-mcp.json");
             let bytes = serde_json::to_vec(&config).map_err(io::Error::other)?;
+
             caditor_file::write_privately(&config_path, &bytes)?;
             command
                 .arg("-p")
@@ -264,7 +280,9 @@ fn build_command(
         }
         CliTool::GeminiCli => {
             let gemini_dir = runtime_dir.join(".gemini");
+
             private::create_dir_all(&gemini_dir)?;
+
             let settings = json!({
                 "mcpServers": {
                     "caditor": {
@@ -278,11 +296,14 @@ fn build_command(
             });
             let settings_path = gemini_dir.join("settings.json");
             let bytes = serde_json::to_vec(&settings).map_err(io::Error::other)?;
+
             caditor_file::write_privately(&settings_path, &bytes)?;
+
             let combined_prompt = format!(
                 "{}\n\nUser request:\n{}",
                 request.system_prompt, request.prompt
             );
+
             command
                 .current_dir(runtime_dir)
                 .arg("-p")
@@ -300,6 +321,7 @@ fn build_command(
                 "{}\n\nUser request:\n{}",
                 request.system_prompt, request.prompt
             );
+
             command
                 .arg("exec")
                 .arg("--json")
@@ -323,16 +345,20 @@ pub fn parse_cli_line(
     on_text: &mut dyn FnMut(String),
 ) {
     let trimmed = raw.trim();
+
     if trimmed.is_empty() {
         return;
     }
+
     let Ok(parsed) = serde_json::from_str::<Value>(trimmed) else {
         let mut chunk = trimmed.to_owned();
+
         chunk.push('\n');
         result.text.push_str(&chunk);
         on_text(chunk);
         return;
     };
+
     if let Some(session_id) = parsed.get("session_id").and_then(Value::as_str)
         && !session_id.is_empty()
     {
@@ -407,8 +433,10 @@ fn append_delta(text: &str, result: &mut CliTurnResult, on_text: &mut dyn FnMut(
 
 pub fn find_on_path(binary: &str) -> Option<PathBuf> {
     let path_var = env::var_os("PATH")?;
+
     for dir in env::split_paths(&path_var) {
         let candidate = dir.join(binary);
+
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -439,36 +467,44 @@ mod tests {
     fn parses_claude_gemini_codex_stream_json_and_plain_text() {
         let mut claude = CliTurnResult::default();
         let mut chunks = Vec::new();
+
         parse_cli_line(
             CliTool::ClaudeCode,
             "{\"type\":\"assistant\",\"session_id\":\"s-1\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Created plate.\"}]}}",
             &mut claude,
             &mut |chunk| chunks.push(chunk),
         );
+
         assert_eq!(claude.session_id.as_deref(), Some("s-1"));
         assert_eq!(claude.text, "Created plate.");
         assert_eq!(chunks, vec!["Created plate."]);
 
         let mut gemini = CliTurnResult::default();
+
         parse_cli_line(
             CliTool::GeminiCli,
             "{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"Added hole.\"}",
             &mut gemini,
             &mut |_| {},
         );
+
         assert_eq!(gemini.text, "Added hole.");
 
         let mut codex = CliTurnResult::default();
+
         parse_cli_line(
             CliTool::CodexCli,
             "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Filleted edges.\"}}",
             &mut codex,
             &mut |_| {},
         );
+
         assert_eq!(codex.text, "Filleted edges.");
 
         let mut plain = CliTurnResult::default();
+
         parse_cli_line(CliTool::CodexCli, "plain output", &mut plain, &mut |_| {});
+
         assert_eq!(plain.text, "plain output\n");
     }
 }

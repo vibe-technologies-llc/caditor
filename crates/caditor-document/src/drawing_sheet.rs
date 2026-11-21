@@ -42,13 +42,13 @@ const ARROW_HEAD_LENGTH: f64 = 3.0;
 const ARROW_HEAD_HALF_WIDTH: f64 = 1.0;
 const LETTER_GAP: f64 = 2.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextAnchor {
     Start,
     Middle,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SheetText {
     pub at: Point2,
     pub height: f64,
@@ -56,13 +56,13 @@ pub struct SheetText {
     pub anchor: TextAnchor,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SheetMark {
     Line(Point2, Point2),
     Circle { center: Point2, radius: f64 },
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TitleFields {
     pub title: String,
     pub part_number: String,
@@ -90,14 +90,14 @@ impl TitleFields {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CuttingLine {
     pub letter: char,
     pub chain: (Point2, Point2),
     pub ends: [(Point2, Point2); 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlacedView {
     pub view: DrawnView,
     pub origin: Point2,
@@ -110,7 +110,7 @@ impl PlacedView {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SheetPlan {
     pub width: f64,
     pub height: f64,
@@ -144,6 +144,7 @@ fn frame_of(size: SheetSize, width: f64, height: f64) -> Aabb2 {
 
 fn rectangle(marks: &mut Vec<SheetMark>, bounds: Aabb2) {
     let (low, high) = (bounds.min(), bounds.max());
+
     let corners = [
         low,
         Point2::new(high.x, low.y),
@@ -155,6 +156,7 @@ fn rectangle(marks: &mut Vec<SheetMark>, bounds: Aabb2) {
             .get((index + 1) % corners.len())
             .copied()
             .unwrap_or(low);
+
         marks.push(SheetMark::Line(*corner, next));
     }
 }
@@ -162,6 +164,7 @@ fn rectangle(marks: &mut Vec<SheetMark>, bounds: Aabb2) {
 fn centring_marks(marks: &mut Vec<SheetMark>, width: f64, height: f64, frame: Aabb2) {
     let (low, high) = (frame.min(), frame.max());
     let middle = Point2::new(width / 2.0, height / 2.0);
+
     marks.push(SheetMark::Line(
         Point2::new(middle.x, 0.0),
         Point2::new(middle.x, low.y + CENTRING_MARK),
@@ -192,10 +195,13 @@ fn fitted_text(content: &str, height: f64, room: f64) -> (String, f64) {
     if text_width(content, height) <= room {
         return (content.to_owned(), height);
     }
+
     let shrunk = (room / text_width(content, 1.0)).max(SMALLEST_TEXT);
+
     if text_width(content, shrunk) <= room {
         return (content.to_owned(), shrunk);
     }
+
     let characters: Vec<char> = content.chars().collect();
     let cut = (0..characters.len())
         .rev()
@@ -221,6 +227,7 @@ struct Cell {
 fn cell_texts(texts: &mut Vec<SheetText>, origin: Point2, cell: &Cell, room_taken: f64) {
     let left = origin.x + cell.x + CELL_INSET;
     let top = origin.y + cell.y + cell.height;
+
     texts.push(SheetText {
         at: Point2::new(left, top - CAPTION_INSET - CAPTION_HEIGHT),
         height: CAPTION_HEIGHT,
@@ -230,10 +237,13 @@ fn cell_texts(texts: &mut Vec<SheetText>, origin: Point2, cell: &Cell, room_take
     if cell.value.is_empty() {
         return;
     }
+
     let room = cell.width - 2.0 * CELL_INSET - room_taken;
     let (content, height) = fitted_text(&cell.value, cell.value_height, room);
     let below_caption = cell.height - CELL_INSET - CAPTION_INSET - CAPTION_HEIGHT - CAPTION_GAP;
+
     let baseline = origin.y + cell.y + CELL_INSET + ((below_caption - height) / 2.0).max(0.0);
+
     texts.push(SheetText {
         at: Point2::new(left, baseline),
         height,
@@ -252,25 +262,31 @@ fn projection_symbol(
     let small = big / 2.0;
     let width = SYMBOL_LENGTH + SYMBOL_GAP + SYMBOL_DIAMETER;
     let left = right - width;
+
     let (cone_left, circles_center_x) = match projection {
         Projection::FirstAngle => (left, right - big),
         Projection::ThirdAngle => (left + SYMBOL_DIAMETER + SYMBOL_GAP, left + big),
     };
     let cone_right = cone_left + SYMBOL_LENGTH;
+
     let corners = [
         Point2::new(cone_left, middle_y - small),
         Point2::new(cone_right, middle_y - big),
         Point2::new(cone_right, middle_y + big),
         Point2::new(cone_left, middle_y + small),
     ];
+
     for (index, corner) in corners.iter().enumerate() {
         let next = corners
             .get((index + 1) % corners.len())
             .copied()
             .unwrap_or(*corner);
+
         marks.push(SheetMark::Line(*corner, next));
     }
+
     let center = Point2::new(circles_center_x, middle_y);
+
     marks.push(SheetMark::Circle {
         center,
         radius: big,
@@ -292,7 +308,9 @@ fn title_block(
     let origin = Point2::new(frame.max().x - TITLE_BLOCK_WIDTH, frame.min().y);
     let block = Aabb2::from_point(origin)
         .including(origin + Vector2::new(TITLE_BLOCK_WIDTH, TITLE_BLOCK_HEIGHT));
+
     rectangle(marks, block);
+
     let at = |x: f64, y: f64| origin + Vector2::new(x, y);
     let rules = [
         (at(0.0, TITLE_ROW), at(TITLE_BLOCK_WIDTH, TITLE_ROW)),
@@ -312,7 +330,9 @@ fn title_block(
         (at(130.0, TITLE_ROW), at(130.0, 2.0 * TITLE_ROW)),
         (at(110.0, 2.0 * TITLE_ROW), at(110.0, TITLE_BLOCK_HEIGHT)),
     ];
+
     marks.extend(rules.map(|(from, to)| SheetMark::Line(from, to)));
+
     let cell = |x, y, width, height, caption, value: &str, value_height| Cell {
         x,
         y,
@@ -383,9 +403,11 @@ fn title_block(
         cell(110.0, 0.0, 30.0, 9.0, "Units", "mm", VALUE_HEIGHT),
         cell(140.0, 0.0, 40.0, 9.0, "Sheet", "1 / 1", VALUE_HEIGHT),
     ];
+
     for cell in &cells {
         cell_texts(texts, origin, cell, 0.0);
     }
+
     let projection = cell(
         55.0,
         0.0,
@@ -395,6 +417,7 @@ fn title_block(
         drawing.projection.name(),
         VALUE_HEIGHT * 0.8,
     );
+
     cell_texts(texts, origin, &projection, symbol_room);
     projection_symbol(
         marks,
@@ -404,14 +427,14 @@ fn title_block(
     );
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Column {
     Left,
     Middle,
     Right,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Row {
     Upper,
     Middle,
@@ -431,7 +454,7 @@ fn cell_of(view: StandardView, projection: Projection) -> (Column, Row) {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct Span {
     aligned: Option<(f64, f64)>,
     free: f64,
@@ -451,7 +474,7 @@ impl Span {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum SideKind {
     Section(char),
     Detail(DetailView),
@@ -547,6 +570,7 @@ impl Grid {
             rows: BTreeMap::new(),
             side: SideColumn::of(drawing, extents),
         };
+
         for view in &drawing.views {
             let Some(bounds) = extents.get(&DrawnView::Standard(*view)) else {
                 continue;
@@ -589,6 +613,7 @@ impl Grid {
         let (down, down_gaps) = Self::lengths(&self.rows);
         let size = area.size();
         let slack = 1e-9 * (1.0 + size.x.max(size.y));
+
         let wide = across * scale + self.side.width(scale) + across_gaps + self.joining_gap();
         wide <= size.x + slack
             && down * scale + down_gaps <= size.y + slack
@@ -603,6 +628,7 @@ fn chosen_scale(drawing: &Drawing, grid: &Grid, area: Aabb2) -> (ScaleRatio, boo
             if grid.is_empty() {
                 return (ScaleRatio::new(1, 1), true);
             }
+
             let fitting = ScaleRatio::PREFERRED
                 .into_iter()
                 .find(|ratio| grid.fits(area, ratio.factor()));
@@ -627,6 +653,7 @@ fn starts<Key: Copy + Ord>(
 ) -> BTreeMap<Key, f64> {
     let mut at = from;
     let mut placed = BTreeMap::new();
+
     for (key, span) in spans {
         placed.insert(*key, at);
         at += span.length() * scale + VIEW_GAP;
@@ -644,16 +671,19 @@ fn placed_side(
     let width = column.width(sheet_scale);
     let mut top = center_y + column.total_height(sheet_scale) / 2.0;
     let mut views = Vec::new();
+
     for side in &column.views {
         let scale = side.scale(sheet_scale);
         let size = side.bounds.size() * scale;
         let middle = left + width / 2.0;
+
         marking.texts.push(SheetText {
             at: Point2::new(middle, top - SECTION_LETTER_HEIGHT / 2.0),
             height: SECTION_LETTER_HEIGHT,
             content: side.label(sheet_scale),
             anchor: TextAnchor::Middle,
         });
+
         let view_top = top - SECTION_LABEL_ROOM;
         let placed = PlacedView {
             view: side.view(),
@@ -663,6 +693,7 @@ fn placed_side(
             ),
             scale,
         };
+
         if let SideKind::Detail(detail) = side.kind {
             marking.marks.push(SheetMark::Circle {
                 center: placed.on_sheet(detail.centre),
@@ -685,20 +716,24 @@ fn placed_views(
 ) -> Vec<PlacedView> {
     let (across, across_gaps) = Grid::lengths(&grid.columns);
     let (down, down_gaps) = Grid::lengths(&grid.rows);
+
     let width = across * scale + across_gaps;
     let height = down * scale + down_gaps;
     let total = width + grid.joining_gap() + grid.side.width(scale);
     let center = area.center();
+
     let grid_left = center.x - total / 2.0;
     let lefts = starts(&grid.columns, scale, grid_left);
     let tops = starts(&grid.rows, scale, 0.0);
     let top = center.y + height / 2.0;
     let mut views = Vec::new();
+
     for view in &drawing.views {
         let Some(bounds) = extents.get(&DrawnView::Standard(*view)) else {
             continue;
         };
         let (column, row) = cell_of(*view, drawing.projection);
+
         let (Some(column_span), Some(row_span), Some(left), Some(down_from_top)) = (
             grid.columns.get(&column),
             grid.rows.get(&row),
@@ -709,6 +744,7 @@ fn placed_views(
         };
         let cell_width = column_span.length() * scale;
         let cell_height = row_span.length() * scale;
+
         let bottom = top - down_from_top - cell_height;
         let origin = if *view == StandardView::Isometric {
             let cell_center = Point2::new(left + cell_width / 2.0, bottom + cell_height / 2.0);
@@ -721,6 +757,7 @@ fn placed_views(
                 bottom + (cell_height - (high_y - low_y) * scale) / 2.0 - low_y * scale,
             )
         };
+
         views.push(PlacedView {
             view: DrawnView::Standard(*view),
             origin,
@@ -747,6 +784,7 @@ impl Marking<'_> {
         let tail = tip - pointing * ARROW_LENGTH;
         let head = tip - pointing * ARROW_HEAD_LENGTH;
         let side = pointing.perp() * ARROW_HEAD_HALF_WIDTH;
+
         self.marks.push(SheetMark::Line(tail, tip));
         self.marks.push(SheetMark::Line(head + side, tip));
         self.marks.push(SheetMark::Line(head - side, tip));
@@ -772,11 +810,13 @@ fn cutting_line(
     let looking = view.hidden_line_view().ok()?;
     let frame = looking.frame();
     let normal = cutting.normal();
+
     let pointing =
         Vector2::new(frame.x_axis().dot(normal), frame.y_axis().dot(normal)).try_normalize()?;
     let along = pointing.perp();
     let through = frame.to_local(cutting.origin());
     let (least, most) = (bounds.min(), bounds.max());
+
     let (low, high) = [
         least,
         most,
@@ -788,11 +828,14 @@ fn cutting_line(
     .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), at| {
         (low.min(at), high.max(at))
     });
+
     if !(low.is_finite() && high.is_finite()) {
         return None;
     }
+
     let start = parent.on_sheet(through + along * low) - along * CUTTING_OVERSHOOT;
     let end = parent.on_sheet(through + along * high) + along * CUTTING_OVERSHOOT;
+
     marking.arrow(start, pointing, section.letter);
     marking.arrow(end, pointing, section.letter);
     Some(CuttingLine {
@@ -818,11 +861,13 @@ fn cutting_lines(
 ) -> (Vec<CuttingLine>, Vec<char>) {
     let mut lines = Vec::new();
     let mut unmarked = Vec::new();
+
     for section in &drawing.sections {
         let Some(cutting) = cuts.planes.get(&section.letter) else {
             continue;
         };
         let parent = DrawnView::Standard(section.parent);
+
         let line = views
             .iter()
             .find(|placed| placed.view == parent)
@@ -846,11 +891,14 @@ fn detail_circles(drawing: &Drawing, views: &[PlacedView], marking: &mut Marking
         else {
             continue;
         };
+
         if !views.iter().any(|placed| placed.view == drawn) {
             continue;
         }
+
         let center = parent.on_sheet(detail.centre);
         let radius = detail.radius * parent.scale;
+
         marking.marks.push(SheetMark::Circle { center, radius });
         marking.texts.push(SheetText {
             at: center + outward * (radius + LETTER_GAP + SECTION_LETTER_HEIGHT / 2.0),
@@ -868,22 +916,27 @@ pub fn lay_out_sheet(
     cuts: &BTreeMap<char, Plane>,
 ) -> SheetPlan {
     let (width, height) = sheet_size(drawing.size, drawing.orientation);
+
     let frame = frame_of(drawing.size, width, height);
     let view_area = Aabb2::from_point(
         frame.min() + Vector2::new(VIEW_AREA_PADDING, TITLE_BLOCK_HEIGHT + VIEW_AREA_PADDING),
     )
     .including(frame.max() - Vector2::splat(VIEW_AREA_PADDING));
     let grid = Grid::of(drawing, extents);
+
     let (scale, fits) = chosen_scale(drawing, &grid, view_area);
     let mut marks = Vec::new();
     let mut texts = Vec::new();
+
     rectangle(&mut marks, frame);
     centring_marks(&mut marks, width, height, frame);
     title_block(&mut marks, &mut texts, frame, fields, drawing, scale);
+
     let mut marking = Marking {
         marks: &mut marks,
         texts: &mut texts,
     };
+
     let views = placed_views(
         drawing,
         extents,
@@ -901,6 +954,7 @@ pub fn lay_out_sheet(
         &views,
         &mut marking,
     );
+
     detail_circles(drawing, &views, &mut marking);
     SheetPlan {
         width,

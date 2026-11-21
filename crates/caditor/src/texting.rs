@@ -37,7 +37,7 @@ const ANGLE: Expected = Expected {
     non_negative: false,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextField {
     Content,
     Height,
@@ -87,7 +87,7 @@ impl TextField {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Lettering {
     pub content: String,
     pub height: Dimensioned,
@@ -127,7 +127,7 @@ impl Lettering {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum FieldProblem {
     #[error(transparent)]
     Value(PatternTextError),
@@ -135,7 +135,7 @@ pub enum FieldProblem {
     Content(TextError),
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum LetteringProblem {
     #[error("Mend the {} first", .field.label().to_lowercase())]
     MendFirst { field: TextField },
@@ -143,7 +143,7 @@ pub enum LetteringProblem {
     Unusable(TextError),
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum TextingError {
     #[error(transparent)]
     SketchGone(#[from] SketchGone),
@@ -157,13 +157,13 @@ pub enum TextingError {
     TextGone,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Evaluation {
     pub problems: Vec<(TextField, FieldProblem)>,
     pub lettering: Result<Lettering, LetteringProblem>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TextSettings {
     texts: [String; 3],
     bold: bool,
@@ -234,14 +234,17 @@ impl TextSettings {
         let Some(editing) = self.editing else {
             return;
         };
+
         if self.loaded == Some(editing) {
             return;
         }
+
         let Some(text) = sketch.and_then(|sketch| sketch.text(editing)) else {
             self.stop_editing();
             return;
         };
         let document = model.document();
+
         self.texts = [
             text.content.clone(),
             document.expression_text(&text.height),
@@ -264,15 +267,18 @@ impl TextSettings {
             .text(TextField::Content)
             .replace("\r\n", "\n")
             .replace('\r', "\n");
+
         if let Err(problem) = Text::check_content(&content) {
             problems.push((TextField::Content, FieldProblem::Content(problem)));
         }
+
         let mut value = |field: TextField, expected: Expected| {
             let label = field.label().to_lowercase();
             patterning::quantity(model, self.text(field), expected, &label)
                 .map_err(|problem| problems.push((field, FieldProblem::Value(problem))))
                 .ok()
         };
+
         let height = value(TextField::Height, LENGTH);
         let angle = value(TextField::Angle, ANGLE);
         let lettering = match (problems.first(), height, angle) {
@@ -301,6 +307,7 @@ impl TextSettings {
                 field: TextField::Angle,
             }),
         };
+
         self.evaluated = Some(lettering.clone());
         Evaluation {
             problems,
@@ -309,7 +316,7 @@ impl TextSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TextAnchor {
     Point(EntityId),
     Free(Point2),
@@ -341,6 +348,7 @@ pub fn write_into(
     let anchor = match anchor {
         TextAnchor::Point(EntityId::ORIGIN) => {
             let point = sketch.add_point(Point2::ZERO);
+
             sketch
                 .add_constraint(Constraint::Coincident(point, EntityId::ORIGIN))
                 .map_err(|source| TextingError::Refused { source })?;
@@ -368,6 +376,7 @@ pub fn update(
         .text(text)
         .ok_or(TextingError::TextGone)?;
     let mut transaction = model.document().transaction(EDIT_TRANSACTION);
+
     transaction.set_sketch_text(feature, text, lettering.text(held.anchor));
     Ok(transaction.finish())
 }
@@ -375,13 +384,14 @@ pub fn update(
 pub fn shortened(content: &str) -> String {
     let content = content.replace(LINE_BREAK, LINE_SEPARATOR);
     let mut shown: String = content.chars().take(MAX_LABEL_CHARS).collect();
+
     if content.chars().count() > MAX_LABEL_CHARS {
         shown.push('…');
     }
     shown
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Aim {
     Point(EntityId, Point2),
     Free(Point2),
@@ -402,7 +412,7 @@ impl Aim {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Texting {
     selected: Option<EntityId>,
     editing: Option<EntityId>,
@@ -422,6 +432,7 @@ impl Texting {
 
     pub fn sync(&mut self, sketch: &Sketch, editing: Option<EntityId>) {
         let exists = |point: &EntityId| is_anchor(sketch, *point);
+
         self.selected = self.selected.filter(exists);
         self.highlight = self.highlight.filter(exists);
         self.editing = editing.filter(|text| sketch.text(*text).is_some());
@@ -467,16 +478,19 @@ impl Texting {
             self.shown = None;
             return;
         };
+
         let fresh =
             matches!(&self.shown, Some((shown, drawn, _)) if *shown == aim && drawn == lettering);
         if !fresh {
             let placed = lettering.placed(aim.at());
+
             self.shown = Some((aim, lettering.clone(), placed));
         }
     }
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
         let mut preview = Preview::default();
+
         if let Some((aim, _, placed)) = &self.shown {
             preview.curves = placed
                 .as_ref()
@@ -491,6 +505,7 @@ impl Texting {
         if let Some(text) = self.editing {
             return vec![text];
         }
+
         let aimed = match self.shown {
             Some((Aim::Point(point, _), ..)) => Some(point),
             _ => self.highlight,
@@ -514,6 +529,7 @@ impl Texting {
         if let Some(Err(problem)) = lettering {
             return Some(problem.to_string());
         }
+
         let (aim, lettering, _) = self.shown.as_ref()?;
         let place = match aim {
             Aim::Point(point, _) => format!(" at {}", sketch.entity_label(*point)),
@@ -565,7 +581,9 @@ impl Texting {
                 None => Outcome::Refused(TextingError::NotRead.into()),
             };
         }
+
         let point = self.highlight.or(self.selected).unwrap_or(EntityId::ORIGIN);
+
         self.highlight = None;
         self.write_at(model, feature, lettering, TextAnchor::Point(point))
     }
@@ -598,6 +616,7 @@ impl Texting {
             }),
             None => Err(TextingError::NotRead),
         };
+
         if written.is_ok() {
             self.shown = None;
         }
@@ -621,11 +640,13 @@ impl Texting {
         let current = self
             .highlight
             .and_then(|aim| points.iter().position(|point| *point == aim));
+
         let next = match current {
             Some(index) => (index as isize + step).rem_euclid(total),
             None if step < 0 => total - 1,
             None => 0,
         };
+
         self.highlight = usize::try_from(next)
             .ok()
             .and_then(|next| points.get(next).copied());

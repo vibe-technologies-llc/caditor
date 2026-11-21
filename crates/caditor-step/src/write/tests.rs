@@ -49,7 +49,9 @@ fn strings_escape_quotes_backslashes_and_other_scripts() {
     assert_eq!(text("a\\b"), "'a\\\\b'");
     assert_eq!(text("Kühler"), "'K\\X2\\00FC\\X0\\hler'");
     assert_eq!(text("🙂"), "'\\X4\\0001F642\\X0\\'");
+
     let written = text("Kühler 🙂");
+
     assert_eq!(
         crate::part21::decode_text(written.trim_matches('\'')),
         "Kühler 🙂"
@@ -59,6 +61,7 @@ fn strings_escape_quotes_backslashes_and_other_scripts() {
 #[test]
 fn timestamps_are_iso_dates_in_utc() {
     let moment = SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_000_000);
+
     assert_eq!(timestamp(moment), "2026-09-21T14:13:20");
     assert_eq!(timestamp(SystemTime::UNIX_EPOCH), "1970-01-01T00:00:00");
 }
@@ -67,6 +70,7 @@ fn timestamps_are_iso_dates_in_utc() {
 fn a_plate_with_a_hole_is_one_closed_shell_of_advanced_faces() {
     let solid = fixtures::plate_with_hole();
     let step = written("Plate", &solid);
+
     assert!(step.starts_with("ISO-10303-21;\nHEADER;\n"));
     assert!(step.ends_with("ENDSEC;\nEND-ISO-10303-21;\n"));
     assert!(step.contains("FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));"));
@@ -86,6 +90,7 @@ fn a_plate_with_a_hole_is_one_closed_shell_of_advanced_faces() {
 #[test]
 fn a_hollow_ring_keeps_its_void_as_an_inverted_shell() {
     let step = written("Ring", &fixtures::hollow_ring());
+
     assert_eq!(count(&step, "BREP_WITH_VOIDS"), 1);
     assert_eq!(count(&step, "ORIENTED_CLOSED_SHELL"), 1);
     assert_eq!(count(&step, "CLOSED_SHELL"), 2);
@@ -95,13 +100,20 @@ fn a_hollow_ring_keeps_its_void_as_an_inverted_shell() {
 #[test]
 fn every_kind_of_edge_and_face_is_written() {
     let cylinders = written("Cross", &fixtures::crossed_cylinders());
+
     assert!(count(&cylinders, "B_SPLINE_CURVE_WITH_KNOTS") >= 2);
+
     let prism = written("Prism", &fixtures::spline_prism());
+
     assert_eq!(count(&prism, "SURFACE_OF_LINEAR_EXTRUSION"), 1);
+
     let turned = written("Turned", &fixtures::turned());
+
     assert!(count(&turned, "CONICAL_SURFACE") == 1);
     assert!(count(&turned, "TOROIDAL_SURFACE") == 1);
+
     let filleted = written("Block", &fixtures::filleted_block());
+
     assert!(count(&filleted, "CYLINDRICAL_SURFACE") >= 4);
     assert!(write_step(&[], "none", SystemTime::UNIX_EPOCH) == Err(WriteError::Empty));
 }
@@ -177,6 +189,7 @@ fn parts_sharing_a_name_get_products_of_their_own_id() {
 fn several_bodies_are_written_as_parts_of_an_assembly_and_read_back_in_place() {
     let plate = fixtures::plate_with_hole();
     let turned = fixtures::turned();
+
     let step = write_step(
         &[
             StepBody {
@@ -235,6 +248,7 @@ fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
     let plate = fixtures::plate_with_hole();
     let turned = fixtures::turned();
     let other = fixtures::plate_with_hole();
+
     let step = write_step(
         &[
             StepBody {
@@ -294,6 +308,7 @@ fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
         .filter_map(|(id, rest)| Some((id, rest.split_once('\'')?.0)))
         .collect();
     let named = |name: &str| breps.iter().find(|brep| brep.1 == name).unwrap().0;
+
     assert_eq!(styled, [named("Plate"), named("Other")]);
 }
 
@@ -337,11 +352,13 @@ fn face_looks_style_their_faces_and_a_see_through_body_needs_no_colour() {
     assert!(faced.contains("PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)))"));
     assert_eq!(count(&tinted, "STYLED_ITEM"), 2);
     assert!(!tinted.contains("NULL_STYLE"));
+
     let first_face = tinted
         .lines()
         .find_map(|line| line.split_once("=ADVANCED_FACE("))
         .map(|(id, _)| id)
         .unwrap();
+
     assert!(
         tinted
             .lines()
@@ -374,9 +391,12 @@ fn points_directions_and_placements_are_written_once() {
                 .filter_map(|line| line.split_once(&format!("={entity}(")))
                 .map(|(_, body)| body)
                 .collect();
+
             let total = bodies.len();
+
             bodies.sort_unstable();
             bodies.dedup();
+
             assert_eq!(bodies.len(), total, "{name}: repeated {entity}");
         }
     }
@@ -391,6 +411,7 @@ fn a_many_sided_prism_writes_each_corner_once() {
             Point2::new(50.0 * angle.cos(), 50.0 * angle.sin())
         })
         .collect();
+
     let curves: Vec<ProfileCurve> = (0..sides)
         .map(|index| {
             let start = corners[index];
@@ -400,16 +421,19 @@ fn a_many_sided_prism_writes_each_corner_once() {
         .collect();
     let solid = fixtures::swept(Plane::XY, &curves, 10.0);
     let step = written("Prism", &solid);
+
     assert!(count(&step, "CARTESIAN_POINT") <= 2 * sides + 8);
 }
 
 #[test]
 fn rolling_back_forgets_what_a_failed_body_wrote_and_what_it_shared() {
     let mut data = Data::default();
+
     let kept = data.point(Point3::new(1.0, 2.0, 3.0));
     let checkpoint = data.checkpoint();
 
     let dropped = data.point(Point3::new(4.0, 5.0, 6.0));
+
     data.direction(Vector3::Z);
     data.placement(Point3::ZERO, Vector3::Z, Vector3::X);
     data.real(f64::NAN);
@@ -458,7 +482,9 @@ fn a_thread_is_a_property_of_its_part_holding_its_designation_start_and_length()
         assert!(step.contains("=MEASURE_REPRESENTATION_ITEM('length',LENGTH_MEASURE(3.0),"));
         assert_eq!(count(step, "PROPERTY_DEFINITION_REPRESENTATION"), 1);
     }
+
     let read = read_step(&single).unwrap();
+
     assert_eq!(read.solids.len(), 1);
     assert_eq!(read_step(&assembly).unwrap().solids.len(), 2);
 }
@@ -472,6 +498,7 @@ fn samples_for_an_outside_checker() {
         let step = written(name, &solid);
         let path =
             std::path::Path::new(&directory).join(format!("{}.step", name.replace(' ', "_")));
+
         std::fs::write(&path, step).unwrap();
         println!("{} {}", path.display(), fixtures::volume(&solid));
     }

@@ -4,7 +4,7 @@ use caditor_ai::{AiError, ApiProvider};
 
 use crate::cloud::thumbnails::Thumbnail;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CliTool {
     ClaudeCode,
     GeminiCli,
@@ -57,7 +57,7 @@ impl fmt::Display for CliTool {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Backend {
     Api(ApiProvider),
     Cli(CliTool),
@@ -102,7 +102,7 @@ impl Backend {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeySource {
     Missing,
     Keyring,
@@ -125,7 +125,7 @@ impl KeySource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CliState {
     Checking,
     Found(PathBuf),
@@ -138,14 +138,14 @@ impl CliState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToolStatus {
     Running,
     Succeeded,
     Failed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ToolActivity {
     pub id: u64,
     pub tool_name: String,
@@ -157,14 +157,14 @@ pub struct ToolActivity {
     pub preview: Option<Arc<Thumbnail>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EntryKind {
     User,
     Assistant,
     Notice,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ChatEntry {
     pub id: u64,
     pub kind: EntryKind,
@@ -173,7 +173,7 @@ pub struct ChatEntry {
     pub failure: Option<AssistantFailure>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AssistantFailure {
     #[error(transparent)]
     Api(#[from] AiError),
@@ -204,7 +204,7 @@ pub enum AssistantFailure {
     ThreadUnavailable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssistantStatus {
     Idle,
     Thinking,
@@ -231,7 +231,7 @@ impl AssistantStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssistantCommand {
     OpenSettings,
     SelectBackend(Backend),

@@ -5,7 +5,7 @@ const REPLACEMENT: char = '\u{fffd}';
 const ESCAPE: &str = "\\U+";
 const ESCAPE_DIGITS: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum CodePage {
     Windows(&'static [char; 128]),
     Latin1,
@@ -16,9 +16,11 @@ impl CodePage {
 
     pub fn named(name: &str) -> Option<Self> {
         let name = name.trim().to_ascii_uppercase();
+
         if matches!(name.as_str(), "ISO8859-1" | "ISO_8859-1" | "ISO88591") {
             return Some(Self::Latin1);
         }
+
         let number: u16 = name.strip_prefix("ANSI_")?.parse().ok()?;
         Some(Self::Windows(match number {
             874 => &WINDOWS_874,
@@ -58,11 +60,15 @@ fn unescaped(text: Cow<'_, str>) -> Cow<'_, str> {
     if !text.contains(ESCAPE) {
         return text;
     }
+
     let mut out = String::with_capacity(text.len());
     let mut rest: &str = &text;
+
     while let Some(index) = rest.find(ESCAPE) {
         let (before, escape) = rest.split_at(index);
+
         out.push_str(before);
+
         let digits_end = ESCAPE.len() + ESCAPE_DIGITS;
         let character = escape
             .get(ESCAPE.len()..digits_end)
@@ -79,6 +85,7 @@ fn unescaped(text: Cow<'_, str>) -> Cow<'_, str> {
                 ESCAPE.len()
             }
         };
+
         rest = escape.get(consumed..).unwrap_or_default();
     }
     out.push_str(rest);
@@ -297,8 +304,10 @@ mod tests {
 
         for (name, byte, letter) in letters {
             let page = CodePage::named(name).unwrap();
+
             assert_eq!(page.decode(&[b'a', byte]), format!("a{letter}"), "{name}");
         }
+
         assert_eq!(CodePage::named("DOS437"), None);
         assert_eq!(CodePage::named("ANSI_932"), None);
     }

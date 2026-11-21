@@ -8,7 +8,7 @@ const SHARES: usize = 4;
 const FEWEST_BUTTONS: usize = 30;
 const SKETCH: &str = "Base sketch";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum State {
     Idle,
     Sketching,
@@ -16,8 +16,10 @@ enum State {
 
 fn prepared(state: State) -> Harness {
     let mut harness = Harness::new();
+
     if matches!(state, State::Sketching) {
         let sketch = feature_named(&harness, SKETCH);
+
         harness.edit(sketch);
     }
     harness.settle();
@@ -45,6 +47,7 @@ fn enabled_buttons(harness: &Harness) -> Vec<String> {
         })
         .filter(|label| !label.trim().is_empty())
         .collect();
+
     labels.sort();
     labels.dedup();
     labels
@@ -58,10 +61,12 @@ fn click_share(state: State, share: usize) -> usize {
     for label in labels.iter().skip(share).step_by(SHARES) {
         let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
             let mut harness = prepared(state);
+
             harness.click_button(label);
             harness.frame();
             harness.settle();
         }));
+
         clicked += 1;
         if outcome.is_err() {
             failed.push(label.clone());

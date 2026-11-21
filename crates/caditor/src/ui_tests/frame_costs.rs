@@ -19,15 +19,18 @@ const WARM_UP: u32 = 3;
 fn started_with(document: Document) -> Harness {
     let started = Instant::now();
     let harness = Harness::starting(None, document, Workspace::new());
+
     eprintln!("started and settled in {:?}", started.elapsed());
     harness
 }
 
 fn with_many_sketches(mut document: Document) -> Document {
     let mut transaction = document.transaction("Add sketches");
+
     for index in 0..MANY_FEATURES {
         let mut sketch = Sketch::new(Plane::XY);
         let at = Point2::new(500.0 + index as f64 * 20.0, 0.0);
+
         rectangle(
             &mut sketch,
             at,
@@ -44,7 +47,9 @@ fn time(harness: &mut Harness, name: &str, frames: u32, mut change: impl FnMut(&
         change(harness, frame);
         harness.pass();
     }
+
     let started = Instant::now();
+
     for frame in 0..frames {
         change(harness, frame);
         harness.pass();
@@ -58,6 +63,7 @@ fn moving_between(positions: [Pos2; 2]) -> impl FnMut(&mut Harness, u32) {
             .get(frame as usize % positions.len())
             .copied()
             .unwrap_or_default();
+
         harness.events.push(Event::PointerMoved(position));
     }
 }
@@ -67,13 +73,16 @@ fn moving_between(positions: [Pos2; 2]) -> impl FnMut(&mut Harness, u32) {
 fn app_frame_costs_while_editing_a_large_sketch_and_with_a_row_chosen() {
     let (document, sketch) = sketch_document(large_sketch());
     let mut harness = started_with(document);
+
     harness.edit(sketch);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.select([]);
+
     let positions = [
         harness.on_screen(Point2::new(101.0, 101.5)),
         harness.on_screen(Point2::new(103.5, 102.0)),
     ];
+
     time(
         &mut harness,
         "large sketch, nothing chosen, idle",
@@ -95,7 +104,9 @@ fn app_frame_costs_while_editing_a_large_sketch_and_with_a_row_chosen() {
     );
 
     let mut harness = started_with(plate_document());
+
     let plate = feature_named(&harness, "Plate");
+
     harness.workspace.panels.choose_only(plate);
     harness.frame();
     time(
@@ -104,7 +115,9 @@ fn app_frame_costs_while_editing_a_large_sketch_and_with_a_row_chosen() {
         SMALL_MODEL_FRAMES,
         |_, _| {},
     );
+
     let centre = super::SCREEN.center();
+
     time(
         &mut harness,
         "plate, a tree row chosen, pointer moving",
@@ -113,7 +126,9 @@ fn app_frame_costs_while_editing_a_large_sketch_and_with_a_row_chosen() {
     );
 
     let mut harness = started_with(with_many_sketches(plate_document()));
+
     let plate = feature_named(&harness, "Plate");
+
     harness.workspace.panels.choose_only(plate);
     harness.frame();
     time(

@@ -62,10 +62,12 @@ impl JobGate {
 
     pub(crate) fn pass(&self) {
         let mut held = self.0.held.lock();
+
         self.0
             .changed
             .wait_while_for(&mut held, |held| *held, GATE_PATIENCE);
         drop(held);
+
         let mut panics = self.0.panics.lock();
         if *panics > 0 {
             *panics -= 1;
@@ -91,10 +93,12 @@ impl Eq for JobGate {}
 
 fn dimensioned_line(plane: Plane, length: f64, value: Expression) -> Sketch {
     let mut sketch = Sketch::new(plane);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(length, 0.0));
     let Some(Entity::Line { start, end }) = sketch.entity(line).cloned() else {
         panic!("expected a line");
     };
+
     sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
     sketch
         .add_constraint(Constraint::Distance {
@@ -108,16 +112,21 @@ fn dimensioned_line(plane: Plane, length: f64, value: Expression) -> Sketch {
 
 fn sample() -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Sample");
+
     let width = transaction.add_parameter("width", transaction.parse("40 mm").unwrap());
+
     transaction.add_parameter("height", transaction.parse("width / 2 + 0.1 mm").unwrap());
     transaction.add_parameter("scrap", Expression::Number(1.0));
+
     let tilted = Plane::with_x_axis(
         Point3::new(1.5, -2.25, 1e-9),
         Vector3::new(1.0, 2.0, 3.0),
         Vector3::X,
     )
     .unwrap();
+
     transaction.add_feature(
         "Base sketch",
         FeatureKind::from(dimensioned_line(
@@ -126,12 +135,17 @@ fn sample() -> Document {
             Expression::Parameter(width),
         )),
     );
+
     let side = dimensioned_line(tilted, 1.0 / 3.0, transaction.parse("height * 2").unwrap());
+
     transaction.add_feature("Side sketch", FeatureKind::from(side));
+
     let scrap_feature = transaction.add_feature("Scrap", FeatureKind::from(Sketch::new(Plane::YZ)));
+
     document.apply(transaction.finish()).unwrap();
 
     let scrap = document.parameter_named("scrap").unwrap().id();
+
     document
         .apply(Transaction::new(
             "Remove scraps",
@@ -186,10 +200,12 @@ fn wait_for_report(storage: &Storage) -> Report {
         if let Some(report) = storage.poll().unwrap().into_iter().next() {
             return report;
         }
+
         assert!(
             Instant::now() < deadline,
             "the storage worker never reported"
         );
+
         std::thread::sleep(Duration::from_millis(5));
     }
 }
@@ -199,6 +215,7 @@ fn files_in(dir: &Path) -> Vec<String> {
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
+
     names.sort();
     names
 }
@@ -229,14 +246,20 @@ fn crash(storage: Storage) {
 
 fn record_session(storage: &Storage, editor: &mut Editor) {
     let first = edit_width(editor.document(), "50 mm");
+
     editor.apply(first.clone()).unwrap();
     storage.record(JournalEntry::Apply(first)).unwrap();
+
     let second = edit_width(editor.document(), "60 mm");
+
     editor.apply(second.clone()).unwrap();
     storage.record(JournalEntry::Apply(second)).unwrap();
+
     let undo = editor.next_undo().cloned().unwrap();
+
     editor.undo().unwrap();
     storage.record(JournalEntry::Undo(undo)).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
 }
 
@@ -245,6 +268,7 @@ fn a_cancelled_load_stops_with_nothing_and_an_uncancelled_one_loads_the_model() 
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let document = sample();
+
     save(&document, &path, false).unwrap();
 
     let cancelled = load_cancellable(&path, &CancelToken::new(|| true));
@@ -261,16 +285,22 @@ fn a_saved_model_loads_back_exactly() {
     let document = sample();
 
     let saved = save(&document, &path, false).unwrap();
+
     assert_eq!((saved.backup, saved.dropped_for_size), (None, 0));
+
     let loaded = load(&path).unwrap();
 
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
     assert_eq!(loaded.document.next_parameter_id(), 3);
     assert_eq!(loaded.document.next_feature_id(), 3);
+
     let bytes = fs::read(&path).unwrap();
+
     assert!(bytes.starts_with(&binary::MODEL_MAGIC));
+
     let records = records_as_json(&bytes);
+
     assert!(records[1].contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
     assert_eq!(records.len(), 2 + 2 + 1);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
@@ -282,25 +312,32 @@ fn saves_sharing_earlier_versions_with_the_file_they_replace_keep_every_version(
     let path = dir.path().join("model.caditor");
     let copy = dir.path().join("copy.caditor");
     let mut editor = Editor::new(sample());
+
     let mut bulk = editor.document().transaction("Bulk");
+
     for index in 0..400_u64 {
         let text = format!("{} mm", index.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40);
+
         bulk.add_parameter(format!("extra{index}"), bulk.parse(&text).unwrap());
     }
     editor.apply(bulk.finish()).unwrap();
+
     let mut saved = Vec::new();
 
     sharing_from(1, || {
         for step in 0..10 {
             let edit = edit_width(editor.document(), &format!("{} mm", 40 + step));
+
             editor.apply(edit).unwrap();
             save(editor.document(), &path, false).unwrap();
             saved.push(editor.document().clone());
         }
+
         let options = SaveOptions {
             history_from: Some(&path),
             ..SaveOptions::default()
         };
+
         editor
             .apply(edit_width(editor.document(), "99 mm"))
             .unwrap();
@@ -310,21 +347,29 @@ fn saves_sharing_earlier_versions_with_the_file_they_replace_keep_every_version(
 
     for (file, versions) in [(&path, 9), (&copy, 10)] {
         let listed = crate::history(file).unwrap();
+
         assert_eq!(listed.versions.len(), versions);
+
         for version in &listed.versions {
             assert!(version.available);
+
             let loaded = load_version(file, version.index).unwrap();
+
             assert_eq!(loaded.document, saved[versions - 1 - version.index]);
         }
+
         assert_eq!(load(file).unwrap().document, saved[versions]);
+
         let bytes = fs::read(file).unwrap();
         let container = binary::parse(&bytes, &binary::MODEL_MAGIC).unwrap();
+
         assert!(
             container
                 .chunks()
                 .any(|chunk| chunk.kind == Some(binary::ChunkKind::Padding))
         );
     }
+
     assert_eq!(files_in(dir.path()), ["copy.caditor", "model.caditor"]);
 }
 
@@ -333,6 +378,7 @@ fn a_failed_save_reports_a_plain_reason_and_leaves_the_folder_clean() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("missing").join("model.caditor");
     let error = save(&sample(), &path, false).unwrap_err();
+
     assert_eq!(error.to_string(), "its folder no longer exists");
     assert_eq!(files_in(dir.path()), Vec::<String>::new());
 }
@@ -341,6 +387,7 @@ fn a_failed_save_reports_a_plain_reason_and_leaves_the_folder_clean() {
 fn overwriting_a_damaged_file_keeps_the_original_as_a_backup() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     fs::write(&path, "damaged original").unwrap();
     fs::write(dir.path().join("model.damaged.caditor"), "earlier backup").unwrap();
 
@@ -373,7 +420,9 @@ fn a_record_stored_in_an_unknown_way_reads_like_something_from_a_newer_version()
 fn saved_twice_then_damaged(path: &Path) -> Vec<u8> {
     save(&Document::default(), path, false).unwrap();
     save(&sample(), path, false).unwrap();
+
     let damaged = corrupt_chunk(&fs::read(path).unwrap(), &binary::MODEL_MAGIC, 2);
+
     fs::write(path, &damaged).unwrap();
     damaged
 }
@@ -396,6 +445,7 @@ fn saving_over_a_file_that_went_bad_since_it_was_loaded_keeps_a_backup() {
 fn a_file_that_is_no_longer_a_model_is_kept_when_saved_over() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     save(&sample(), &path, false).unwrap();
     fs::write(&path, "the sync client wrote this").unwrap();
 
@@ -412,9 +462,13 @@ fn intact_and_empty_files_get_no_backup_and_a_save_as_leaves_the_damaged_source_
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let copy = dir.path().join("copy.caditor");
+
     save(&sample(), &path, false).unwrap();
+
     assert_eq!(save(&sample(), &path, false).unwrap().backup, None);
+
     fs::write(&copy, "").unwrap();
+
     assert_eq!(save(&sample(), &copy, false).unwrap().backup, None);
 
     let damaged = saved_twice_then_damaged(&path);
@@ -423,6 +477,7 @@ fn intact_and_empty_files_get_no_backup_and_a_save_as_leaves_the_damaged_source_
         ..SaveOptions::default()
     };
     let other = dir.path().join("other.caditor");
+
     assert_eq!(save_with(&sample(), &other, &options).unwrap().backup, None);
 
     assert_eq!(fs::read(&path).unwrap(), damaged);
@@ -436,20 +491,24 @@ fn intact_and_empty_files_get_no_backup_and_a_save_as_leaves_the_damaged_source_
 fn a_damaged_line_loses_only_that_record() {
     let document = sample();
     let mut lines = lines_of(&document);
+
     let side = lines
         .iter_mut()
         .find(|line| line.contains("Side sketch"))
         .unwrap();
+
     side.truncate(side.len() / 2);
 
     let loaded = decode_lines(&lines);
 
     assert_eq!(loaded.issues, ["Record 4 is damaged and was left out."]);
+
     let names: Vec<&str> = loaded
         .document
         .features()
         .map(|f| f.name.as_str())
         .collect();
+
     assert_eq!(names, ["Base sketch"]);
     assert_eq!(loaded.document.parameters(), document.parameters());
 }
@@ -458,7 +517,9 @@ fn a_damaged_line_loses_only_that_record() {
 fn a_lost_parameter_is_replaced_by_a_stand_in_that_keeps_its_name_when_known() {
     let document = sample();
     let mut lines = lines_of(&document);
+
     lines[0] = lines[0].replace("\"expression\":\"40 mm\"", "\"expression\":40");
+
     let loaded = decode_lines(&lines);
 
     assert!(issues_mention(
@@ -466,14 +527,20 @@ fn a_lost_parameter_is_replaced_by_a_stand_in_that_keeps_its_name_when_known() {
         "The parameter “width” is damaged and was left out."
     ));
     assert!(issues_mention(&loaded, "It was replaced by “width” = 0"));
+
     let width = loaded.document.parameter_named("width").unwrap();
+
     assert_eq!(width.expression, Expression::Number(0.0));
     assert_eq!(loaded.document.features().len(), 2);
 
     lines.remove(0);
+
     let loaded = decode_lines(&lines);
+
     assert!(issues_mention(&loaded, "It was replaced by “lost_0” = 0"));
+
     let height = loaded.document.parameter_named("height").unwrap();
+
     assert_eq!(
         loaded.document.expression_text(&height.expression),
         "lost_0 / 2 + 0.1 mm"
@@ -484,10 +551,12 @@ fn a_lost_parameter_is_replaced_by_a_stand_in_that_keeps_its_name_when_known() {
 fn stored_id_counters_and_ids_beyond_the_storable_range_are_clamped_or_left_out() {
     let document = sample();
     let mut lines = lines_of(&document);
+
     let next_ids = lines
         .iter_mut()
         .find(|line| line.contains("\"next_ids\""))
         .unwrap();
+
     *next_ids = format!(
         r#"{{"next_ids":{{"parameter":{max},"feature":{max}}}}}"#,
         max = u64::MAX
@@ -508,7 +577,9 @@ fn stored_id_counters_and_ids_beyond_the_storable_range_are_clamped_or_left_out(
     ));
     assert!(loaded.document.parameter_named("far").is_none());
     assert_eq!(loaded.document.parameters().len(), 2);
+
     let limit = caditor_document::FIRST_UNSTORABLE_ID;
+
     assert_eq!(loaded.document.next_parameter_id(), limit);
     assert_eq!(loaded.document.next_feature_id(), limit);
 }
@@ -517,19 +588,23 @@ fn stored_id_counters_and_ids_beyond_the_storable_range_are_clamped_or_left_out(
 fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
     let document = sample();
     let mut lines = lines_of(&document);
+
     let base = lines
         .iter()
         .position(|line| line.contains("Base sketch"))
         .unwrap();
+
     lines[base] = lines[base].replacen(
         "\"entities\":[",
         "\"entities\":[{\"id\":90,\"clothoid\":{\"start\":0}},",
         1,
     );
+
     let side = lines
         .iter()
         .position(|line| line.contains("Side sketch"))
         .unwrap();
+
     lines[side] =
         "{\"feature\":{\"id\":1,\"name\":\"Pad\",\"loft\":{\"distance\":\"5\"}}}".to_owned();
     lines.push("{\"assembly\":{\"parts\":[]}}".to_owned());
@@ -552,7 +627,9 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
              (clothoid) was left out. It may come from a newer version.",
         ]
     );
+
     let base_sketch = loaded.document.features().next().unwrap();
+
     assert_eq!(**document.features().next().as_ref().unwrap(), *base_sketch);
 }
 
@@ -632,9 +709,13 @@ fn cycles_invalid_names_and_broken_dimensions_are_repaired_and_reported() {
             "“b” depended on itself (b → a → b), so it was set to 0. Its value was a * 2.",
         ]
     );
+
     let document = &loaded.document;
+
     assert_eq!(document.parameters().len(), 5);
+
     let sketch = document.features().next().unwrap().kind.sketch().unwrap();
+
     assert_eq!(sketch.entities().len(), 2);
     assert_eq!(sketch.constraints().len(), 1);
     assert_eq!(sketch.plane(), Plane::XY);
@@ -644,12 +725,15 @@ fn cycles_invalid_names_and_broken_dimensions_are_repaired_and_reported() {
 fn a_damaged_head_keeps_every_record() {
     let bytes = corrupt_chunk(&crate::encode(&sample()).unwrap(), &binary::MODEL_MAGIC, 0);
     let loaded = decode(&bytes).unwrap();
+
     assert_eq!(
         loaded.issues,
         ["A damaged part of the file was skipped; anything it held was left out."]
     );
     assert_eq!(loaded.document, sample());
+
     let missing = load(Path::new("/nonexistent/model.caditor")).unwrap_err();
+
     assert_eq!(missing.to_string(), "it no longer exists");
 }
 
@@ -663,7 +747,9 @@ fn a_model_whose_magic_is_damaged_loads_from_its_checked_parts() {
 
     for index in 0..binary::MODEL_MAGIC.len() {
         let mut flipped = bytes.clone();
+
         flipped[index] ^= 0x20;
+
         let loaded = decode(&flipped).unwrap();
 
         assert_eq!(loaded.issues, [DAMAGED_START], "byte {index}");
@@ -671,8 +757,11 @@ fn a_model_whose_magic_is_damaged_loads_from_its_checked_parts() {
     }
 
     let mut shortened = bytes.clone();
+
     shortened.remove(3);
+
     let mut lengthened = bytes.clone();
+
     lengthened.insert(5, b'?');
 
     assert_eq!(decode(&shortened).unwrap().document, sample());
@@ -683,9 +772,12 @@ fn a_model_whose_magic_is_damaged_loads_from_its_checked_parts() {
 fn a_damaged_magic_is_not_salvaged_without_an_intact_head_after_it() {
     let model = crate::encode(&sample()).unwrap();
     let mut journal = binary::start_file(&binary::JOURNAL_MAGIC, 1);
+
     binary::push_packed(&mut journal, binary::ChunkKind::JournalHeader, b"header").unwrap();
     journal[2] = b'X';
+
     let mut garbled = corrupt_chunk(&model, &binary::MODEL_MAGIC, 0);
+
     garbled[0] = b'#';
 
     assert_eq!(decode(&journal), Err(LoadError::NotAModel));
@@ -700,9 +792,12 @@ fn a_damaged_magic_is_not_salvaged_without_an_intact_head_after_it() {
 fn saving_over_a_model_with_a_damaged_magic_keeps_it_and_its_versions() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     save(&Document::default(), &path, false).unwrap();
     save(&sample(), &path, false).unwrap();
+
     let mut damaged = fs::read(&path).unwrap();
+
     damaged[1] = b'X';
     fs::write(&path, &damaged).unwrap();
 
@@ -721,8 +816,10 @@ fn saving_over_a_model_with_a_damaged_magic_keeps_it_and_its_versions() {
 fn a_crashed_session_is_recovered_with_its_undo_history() {
     let dir = TempDir::new().unwrap();
     let base = sample();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base.clone());
+
     record_session(&storage, &mut editor);
     crash(storage);
 
@@ -730,7 +827,9 @@ fn a_crashed_session_is_recovered_with_its_undo_history() {
     let recovered = scan(Some(&recovery), &[]);
 
     assert_eq!(recovered.len(), 1);
+
     let recovered = &recovered[0];
+
     assert_eq!(recovered.changes(), 3);
     assert_eq!(recovered.file, None);
     assert_eq!(recovered.base, base);
@@ -744,10 +843,13 @@ fn a_crashed_session_is_recovered_with_its_undo_history() {
 fn a_torn_or_corrupted_tail_loses_only_the_changes_after_it() {
     let dir = TempDir::new().unwrap();
     let base = sample();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base.clone());
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let recovery = dir.path().join("recovery");
     let journal = fs::read_dir(&recovery)
         .unwrap()
@@ -758,11 +860,14 @@ fn a_torn_or_corrupted_tail_loses_only_the_changes_after_it() {
     let original = fs::read(&journal).unwrap();
 
     let mut torn = original.clone();
+
     torn.extend_from_slice(b"CDCH\x07\x01\0\0\x40");
     fs::write(&journal, torn).unwrap();
+
     let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
         panic!("the journal should still be recoverable");
     };
+
     assert_eq!(recovered.changes(), 3);
     assert_eq!(recovered.issues.len(), 1);
 
@@ -771,15 +876,19 @@ fn a_torn_or_corrupted_tail_loses_only_the_changes_after_it() {
         corrupt_chunk(&original, &binary::JOURNAL_MAGIC, 3),
     )
     .unwrap();
+
     let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
         panic!("the journal should still be recoverable");
     };
+
     assert_eq!(recovered.changes(), 1);
+
     let width = recovered
         .editor
         .document()
         .parameter_named("width")
         .unwrap();
+
     assert_eq!(
         recovered
             .editor
@@ -796,7 +905,9 @@ fn a_crashed_models_journal_is_offered_even_when_no_recent_file_names_it() {
     let recovery = dir.path().join("recovery");
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: None,
@@ -804,15 +915,18 @@ fn a_crashed_models_journal_is_offered_even_when_no_recent_file_names_it() {
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
     crash(storage);
 
     let recovered = scan(Some(&recovery), &[]);
+
     assert_eq!(recovered.len(), 1);
     assert_eq!(recovered[0].file.as_deref(), Some(path.as_path()));
     assert_eq!(recovered[0].editor.document(), editor.document());
 
     discard(&recovered[0].journal).unwrap();
+
     assert!(scan(Some(&recovery), &[]).is_empty());
     assert_eq!(files_in(&recovery), Vec::<String>::new());
 }
@@ -822,9 +936,12 @@ fn a_journal_already_gone_counts_as_discarded_and_one_held_elsewhere_is_refused(
     let dir = TempDir::new().unwrap();
     let recovery = dir.path().join("recovery");
     let base = sample();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
+
     assert!(storage.flusher().flush(WAIT));
 
     let journal = recovery.join(&files_in(&recovery)[0]);
@@ -832,7 +949,9 @@ fn a_journal_already_gone_counts_as_discarded_and_one_held_elsewhere_is_refused(
     assert_eq!(discard(&journal), Err(DiscardError::InUse));
 
     crash(storage);
+
     let recovered = scan(Some(&recovery), &[]);
+
     std::fs::remove_file(&recovered[0].journal).unwrap();
 
     assert_eq!(discard(&recovered[0].journal), Ok(()));
@@ -847,14 +966,19 @@ fn a_discard_refused_by_the_folder_is_worded_rather_than_given_as_system_text() 
     let dir = TempDir::new().unwrap();
     let recovery = dir.path().join("recovery");
     let base = sample();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let recovered = scan(Some(&recovery), &[]);
 
     std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o500)).unwrap();
+
     let refused = discard(&recovered[0].journal);
+
     std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o700)).unwrap();
 
     assert_eq!(
@@ -872,12 +996,14 @@ fn a_discard_refused_by_the_folder_is_worded_rather_than_given_as_system_text() 
 fn preferences_and_recent_files_that_cannot_be_saved_say_why_in_words() {
     let dir = TempDir::new().unwrap();
     let blocked = dir.path().join("blocked");
+
     std::fs::write(&blocked, b"not a folder").unwrap();
 
     let preferences = Settings::default().save(&blocked);
     let recent = RecentFiles::save_changes(&blocked, &[RecentChange::Cleared]);
 
     let failure = UpdateFailure::Writing(WriteFailure::FolderIsAFile);
+
     assert_eq!(preferences, Err(failure));
     assert_eq!(recent, Err(failure));
     assert_eq!(
@@ -903,9 +1029,13 @@ fn save_request(ticket: u64, document: &Document, path: &Path, replace: bool) ->
 fn a_save_over_a_file_changed_since_it_was_opened_is_refused_unless_replacing() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     save(&Document::default(), &path, false).unwrap();
+
     let opened = load(&path).unwrap().digest.unwrap();
+
     save(&sample(), &path, false).unwrap();
+
     let outside = fs::read(&path).unwrap();
 
     let options = SaveOptions {
@@ -923,7 +1053,9 @@ fn a_save_over_a_file_changed_since_it_was_opened_is_refused_unless_replacing() 
         unless_changed_from: Some(&current),
         ..options
     };
+
     save_with(&Document::default(), &path, &options).unwrap();
+
     let listed = crate::history(&path).unwrap();
     let kept = load_version(&path, listed.versions[0].index).unwrap();
 
@@ -933,6 +1065,7 @@ fn a_save_over_a_file_changed_since_it_was_opened_is_refused_unless_replacing() 
 
 fn a_png_picture(fill: u8) -> Preview {
     let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+
     png.extend(std::iter::repeat_n(fill, 200));
     Preview::from_png(png).unwrap()
 }
@@ -943,7 +1076,9 @@ fn a_saved_picture_is_read_back_from_the_file_without_loading_the_model() {
     let path = dir.path().join("model.caditor");
     let picture = a_png_picture(4);
     let (slot, drawing) = PreviewSlot::new();
+
     drawing.fill(picture.clone());
+
     let options = SaveOptions {
         preview: Some(&slot),
         ..SaveOptions::default()
@@ -960,8 +1095,11 @@ fn a_saved_picture_is_read_back_from_the_file_without_loading_the_model() {
 fn a_file_saved_without_a_picture_or_that_is_not_a_model_has_none() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     save(&sample(), &path, false).unwrap();
+
     let other = dir.path().join("notes.txt");
+
     fs::write(&other, b"not a model").unwrap();
 
     assert_eq!(read_preview(&path), Ok(None));
@@ -977,14 +1115,18 @@ fn a_file_saved_without_a_picture_or_that_is_not_a_model_has_none() {
 fn a_later_save_replaces_the_picture_and_one_without_removes_it() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     for fill in [1, 2] {
         let (slot, drawing) = PreviewSlot::new();
+
         drawing.fill(a_png_picture(fill));
+
         let options = SaveOptions {
             history_from: Some(&path),
             preview: Some(&slot),
             ..SaveOptions::default()
         };
+
         save_with(&sample(), &path, &options).unwrap();
 
         assert_eq!(read_preview(&path), Ok(Some(a_png_picture(fill))));
@@ -999,14 +1141,17 @@ fn a_later_save_replaces_the_picture_and_one_without_removes_it() {
 fn the_storage_worker_saves_with_the_picture_drawn_meanwhile() {
     let dir = TempDir::new().unwrap();
     let base = sample();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let path = dir.path().join("model.caditor");
     let (slot, drawing) = PreviewSlot::new();
     let mut request = save_request(1, &base, &path, false);
+
     request.preview = Some(slot);
 
     storage.save(request).unwrap();
     drawing.fill(a_png_picture(8));
+
     let report = wait_for_report(&storage);
 
     assert!(
@@ -1018,6 +1163,7 @@ fn the_storage_worker_saves_with_the_picture_drawn_meanwhile() {
 
 fn replace_from_outside(path: &Path, contents: &[u8]) {
     let synced = path.with_extension("synced");
+
     fs::write(&synced, contents).unwrap();
     fs::rename(&synced, path).unwrap();
 }
@@ -1026,7 +1172,9 @@ fn replace_from_outside(path: &Path, contents: &[u8]) {
 fn a_save_whose_replaced_state_does_not_rebuild_from_its_delta_leaves_the_file_as_it_was() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     save(&Document::default(), &path, false).unwrap();
+
     let original = fs::read(&path).unwrap();
 
     let refused = with_damaged_deltas(|| save(&sample(), &path, false));
@@ -1053,6 +1201,7 @@ fn a_save_refuses_a_file_another_program_replaced_or_rewrote_while_it_encoded() 
     let path = dir.path().join("model.caditor");
     let opened = save(&Document::default(), &path, false).unwrap().digest;
     let renamed_over = save::encode(&sample()).unwrap();
+
     let options = SaveOptions {
         history_from: Some(&path),
         unless_changed_from: Some(&opened),
@@ -1114,28 +1263,39 @@ fn the_storage_worker_reports_an_outside_change_and_replaces_it_when_asked() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = Document::default();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: load(&path).unwrap().digest,
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
     save(&sample(), &path, false).unwrap();
+
     let mut edited = base.clone();
+
     let mut transaction = edited.transaction("Width");
+
     transaction.add_parameter("width", transaction.parse("5 mm").unwrap());
     edited.apply(transaction.finish()).unwrap();
 
     storage
         .save(save_request(1, &edited, &path, false))
         .unwrap();
+
     let refused = wait_for_report(&storage);
+
     storage.save(save_request(2, &edited, &path, true)).unwrap();
+
     let replaced = wait_for_report(&storage);
+
     storage
         .save(save_request(3, &edited, &path, false))
         .unwrap();
+
     let again = wait_for_report(&storage);
 
     assert_eq!(
@@ -1157,7 +1317,9 @@ fn a_recovered_session_remembers_what_its_file_held() {
     let recovery = dir.path().join("recovery");
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let on_disk = load(&path).unwrap().digest;
     let start = Start {
         file: Some(path.clone()),
@@ -1166,6 +1328,7 @@ fn a_recovered_session_remembers_what_its_file_held() {
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
     crash(storage);
 
@@ -1179,13 +1342,18 @@ fn a_recovered_session_remembers_what_its_file_held() {
 fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
     let dir = TempDir::new().unwrap();
     let base = sample();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
+
     let recovery = dir.path().join("recovery");
+
     assert_eq!(files_in(&recovery).len(), 1);
 
     let path = dir.path().join("model.caditor");
+
     storage
         .save(SaveRequest {
             ticket: 7,
@@ -1198,6 +1366,7 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
             preview: None,
         })
         .unwrap();
+
     let report = wait_for_report(&storage);
     let digest = load(&path).unwrap().digest.unwrap();
 
@@ -1211,7 +1380,9 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
             digest,
         }
     );
+
     let markers = files_in(&recovery);
+
     assert_eq!(markers.len(), 1);
     assert!(markers[0].ends_with(".location"), "{markers:?}");
     assert_eq!(
@@ -1238,12 +1409,15 @@ fn a_storage_hands_over_once_the_one_it_replaces_let_go_of_its_journal() {
     let path = dir.path().join("model.caditor");
     let recovery = dir.path().join("recovery");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         ..untitled(&base)
     };
     let previous = Storage::spawn(config(&dir), start, || {}).unwrap();
+
     assert!(previous.flusher().flush(WAIT));
 
     assert!(matches!(
@@ -1269,7 +1443,9 @@ fn a_storage_hands_over_once_the_one_it_replaces_let_go_of_its_journal() {
 fn set_aside_journals_are_pruned_once_they_are_old() {
     let dir = TempDir::new().unwrap();
     let recovery = dir.path().join("recovery");
+
     fs::create_dir(&recovery).unwrap();
+
     let model = dir.path().join("model.caditor");
     let now = paths::now_seconds();
     let old = now - paths::SET_ASIDE_KEPT_SECONDS - 60;
@@ -1288,6 +1464,7 @@ fn set_aside_journals_are_pruned_once_they_are_old() {
         dir.path()
             .join(format!(".model.caditor.journal.{old}.unreadable")),
     ];
+
     for file in kept.iter().chain(&pruned) {
         fs::write(file, "set aside").unwrap();
     }
@@ -1300,6 +1477,7 @@ fn set_aside_journals_are_pruned_once_they_are_old() {
 
 fn crashed_then_set_aside(dir: &TempDir, path: &Path, base: &Document) -> PathBuf {
     save(base, path, false).unwrap();
+
     let start = Start {
         file: Some(path.to_path_buf()),
         on_disk: None,
@@ -1307,10 +1485,13 @@ fn crashed_then_set_aside(dir: &TempDir, path: &Path, base: &Document) -> PathBu
     };
     let storage = Storage::spawn(config(dir), start, || {}).unwrap();
     let mut editor = Editor::new(base.clone());
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let journal = dir.path().join(".model.caditor.journal");
     let set_aside = paths::unreadable_journal(&journal);
+
     fs::rename(&journal, &set_aside).unwrap();
     set_aside
 }
@@ -1320,6 +1501,7 @@ fn a_set_aside_journal_this_version_reads_is_offered_for_restoring() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let recovery = dir.path().join("recovery");
+
     let set_aside = crashed_then_set_aside(&dir, &path, &sample());
 
     let scanned = scan(Some(&recovery), std::slice::from_ref(&path));
@@ -1340,6 +1522,7 @@ fn restoring_a_set_aside_journal_moves_it_back_beside_its_model() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let recovery = dir.path().join("recovery");
+
     let set_aside = crashed_then_set_aside(&dir, &path, &sample());
     let recovered = scan(Some(&recovery), std::slice::from_ref(&path)).remove(0);
 
@@ -1354,11 +1537,15 @@ fn restoring_a_set_aside_journal_moves_it_back_beside_its_model() {
         after: None,
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     crash(storage);
 
     assert!(!set_aside.exists());
+
     let again = scan(Some(&recovery), std::slice::from_ref(&path));
+
     assert_eq!(again.len(), 1);
     assert_eq!(again[0].journal, dir.path().join(".model.caditor.journal"));
     assert_eq!(again[0].editor.document(), recovered.editor.document());
@@ -1369,7 +1556,9 @@ fn an_unreadable_journal_is_set_aside_before_a_new_one_replaces_it() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: None,
@@ -1377,21 +1566,28 @@ fn an_unreadable_journal_is_set_aside_before_a_new_one_replaces_it() {
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(base.clone());
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let journal = dir.path().join(".model.caditor.journal");
     let mut newer = fs::read(&journal).unwrap();
+
     newer[8] = 99;
     fs::write(&journal, &newer).unwrap();
+
     let recovery = dir.path().join("recovery");
 
     let FileJournal::SetAside(kept) = journal_for(&path, Some(&recovery)) else {
         panic!("the unreadable journal should be set aside");
     };
+
     assert_eq!(kept.len(), 1);
     assert_eq!(fs::read(&kept[0]).unwrap(), newer);
     assert!(!journal.exists());
+
     let name = kept[0].file_name().unwrap().to_string_lossy().into_owned();
+
     assert!(name.starts_with(".model.caditor.journal."));
     assert!(name.ends_with(".unreadable"));
     assert!(describe_set_aside(&kept[0]).contains(&name));
@@ -1402,10 +1598,13 @@ fn an_unreadable_journal_is_set_aside_before_a_new_one_replaces_it() {
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
     assert!(journal.exists());
     assert_eq!(fs::read(&kept[0]).unwrap(), newer);
+
     crash(storage);
+
     assert!(matches!(
         journal_for(&path, Some(&recovery)),
         FileJournal::None
@@ -1419,7 +1618,9 @@ fn a_journal_from_an_early_development_build_is_set_aside_and_never_offered() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: None,
@@ -1427,8 +1628,10 @@ fn a_journal_from_an_early_development_build_is_set_aside_and_never_offered() {
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(base.clone());
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let journal = dir.path().join(".model.caditor.journal");
     let earlier = as_written_by_an_earlier_build(
         &fs::read(&journal).unwrap(),
@@ -1436,7 +1639,9 @@ fn a_journal_from_an_early_development_build_is_set_aside_and_never_offered() {
         &EARLIER_BUILD_JOURNAL_MAGIC,
         1,
     );
+
     fs::write(&journal, &earlier).unwrap();
+
     let recovery = dir.path().join("recovery");
 
     let decoded = journal::decode_journal(&earlier).err();
@@ -1445,9 +1650,11 @@ fn a_journal_from_an_early_development_build_is_set_aside_and_never_offered() {
 
     assert_eq!(decoded, Some(journal::UnreadableJournal::FromEarlierBuild));
     assert!(matches!(inspected, Inspection::Damaged), "{inspected:?}");
+
     let FileJournal::SetAside(kept) = opened else {
         panic!("the journal from an earlier build should be set aside");
     };
+
     assert_eq!(fs::read(&kept[0]).unwrap(), earlier);
     assert!(!journal.exists());
     assert!(scan(Some(&recovery), &[path]).is_empty());
@@ -1457,18 +1664,23 @@ fn a_journal_from_an_early_development_build_is_set_aside_and_never_offered() {
 fn a_journal_locked_by_another_window_is_never_replaced() {
     let dir = TempDir::new().unwrap();
     let journal = dir.path().join(".model.caditor.journal");
+
     fs::write(&journal, b"theirs").unwrap();
+
     let theirs = crate::lock::lock_existing(&journal).unwrap().unwrap();
     let temporary = dir.path().join("ours.tmp");
+
     fs::write(&temporary, b"ours").unwrap();
 
     let refused = crate::lock::install(&temporary, &journal, None).unwrap_err();
+
     assert_eq!(refused.kind(), std::io::ErrorKind::ResourceBusy);
     assert_eq!(read::read_open(&theirs).unwrap(), b"theirs");
     assert!(crate::lock::lock_existing(&journal).unwrap().is_none());
 
     drop(theirs);
     crate::lock::install(&temporary, &journal, None).unwrap();
+
     assert_eq!(fs::read(&journal).unwrap(), b"ours");
     assert!(!temporary.exists());
 }
@@ -1478,25 +1690,35 @@ fn a_window_whose_journal_is_replaced_stops_claiming_protection_and_retakes_it()
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: None,
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     let journal = dir.path().join(".model.caditor.journal");
     let intruder = dir.path().join("intruder");
+
     fs::write(&intruder, b"not ours").unwrap();
     fs::rename(&intruder, &journal).unwrap();
 
     let mut editor = Editor::new(base);
+
     let change = edit_width(editor.document(), "70 mm");
+
     editor.apply(change.clone()).unwrap();
     storage.record(JournalEntry::Apply(change)).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     let reports = storage.poll().unwrap();
+
     assert!(
         matches!(
             reports.as_slice(),
@@ -1504,12 +1726,15 @@ fn a_window_whose_journal_is_replaced_stops_claiming_protection_and_retakes_it()
         ),
         "{reports:?}"
     );
+
     crash(storage);
+
     let FileJournal::Recoverable(recovered) =
         journal_for(&path, Some(&dir.path().join("recovery")))
     else {
         panic!("the change should be recoverable from the retaken journal");
     };
+
     assert_eq!(recovered.changes(), 1);
 }
 
@@ -1518,7 +1743,9 @@ fn a_journal_whose_changes_reached_the_file_is_tidied_away() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: None,
@@ -1526,17 +1753,21 @@ fn a_journal_whose_changes_reached_the_file_is_tidied_away() {
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let recovery = dir.path().join("recovery");
 
     let FileJournal::Recoverable(recovered) = journal_for(&path, Some(&recovery)) else {
         panic!("unsaved changes should be offered");
     };
+
     assert_eq!(recovered.file.as_deref(), Some(path.as_path()));
     assert_eq!(scan(Some(&recovery), std::slice::from_ref(&path)).len(), 1);
 
     save(editor.document(), &path, false).unwrap();
+
     assert!(scan(Some(&recovery), &[path]).is_empty());
     assert_eq!(files_in(dir.path()), ["model.caditor", "recovery"]);
     assert_eq!(files_in(&recovery), Vec::<String>::new());
@@ -1546,20 +1777,30 @@ fn a_journal_whose_changes_reached_the_file_is_tidied_away() {
 fn a_journal_with_no_net_change_is_removed_and_one_can_be_discarded() {
     let dir = TempDir::new().unwrap();
     let base = sample();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     crash(storage);
+
     let recovery = dir.path().join("recovery");
+
     assert!(scan(Some(&recovery), &[]).is_empty());
     assert_eq!(files_in(&recovery), Vec::<String>::new());
 
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let recovered = scan(Some(&recovery), &[]);
+
     assert_eq!(recovered.len(), 1);
+
     discard(&recovered[0].journal).unwrap();
+
     assert_eq!(files_in(&recovery), Vec::<String>::new());
 }
 
@@ -1567,10 +1808,13 @@ fn a_journal_with_no_net_change_is_removed_and_one_can_be_discarded() {
 fn restoring_rewrites_the_journal_in_place() {
     let dir = TempDir::new().unwrap();
     let base = sample();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let recovery = dir.path().join("recovery");
     let recovered = scan(Some(&recovery), &[]).remove(0);
 
@@ -1585,12 +1829,15 @@ fn restoring_rewrites_the_journal_in_place() {
         after: None,
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
     assert_eq!(files_in(&recovery).len(), 1);
     assert!(!recovered.journal.exists());
+
     crash(storage);
 
     let again = scan(Some(&recovery), &[]);
+
     assert_eq!(again.len(), 1);
     assert_eq!(again[0].editor.document(), editor.document());
 }
@@ -1599,17 +1846,22 @@ fn restoring_rewrites_the_journal_in_place() {
 fn recent_files_are_deduplicated_limited_and_persisted() {
     let dir = TempDir::new().unwrap();
     let mut recent = RecentFiles::default();
+
     for index in 0..12 {
         recent.add(PathBuf::from(format!("/models/{index}.caditor")));
     }
     recent.add(PathBuf::from("/models/5.caditor"));
+
     assert_eq!(recent.paths().len(), RECENT_LIMIT);
     assert_eq!(recent.paths()[0], Path::new("/models/5.caditor"));
     assert_eq!(recent.paths()[1], Path::new("/models/11.caditor"));
 
     recent.save(dir.path()).unwrap();
+
     assert_eq!(RecentFiles::load(dir.path()), recent);
+
     recent.remove(Path::new("/models/5.caditor"));
+
     assert_eq!(recent.paths().len(), RECENT_LIMIT - 1);
     assert_eq!(
         RecentFiles::load(&dir.path().join("missing")),
@@ -1625,9 +1877,12 @@ struct EveryKind {
 
 fn every_kind() -> EveryKind {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Every kind");
+
     let width = transaction.add_parameter("width", transaction.parse("4 mm").unwrap());
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
     let Some(Entity::Line { start, end }) = sketch.entity(line).cloned() else {
         panic!("expected a line");
@@ -1639,16 +1894,19 @@ fn every_kind() -> EveryKind {
         Point2::new(90.0, 0.0),
         Point2::new(80.0, 10.0),
     );
+
     sketch.add_spline(&[
         Point2::new(0.0, -10.0),
         Point2::new(10.0, -20.0),
         Point2::new(20.0, -5.0),
         Point2::new(35.5, -12.25),
     ]);
+
     let Some(Entity::Circle { center, .. }) = sketch.entity(circle).cloned() else {
         panic!("expected a circle");
     };
     let mut add = |constraint| sketch.add_constraint(constraint).unwrap();
+
     add(Constraint::Coincident(start, EntityId::ORIGIN));
     add(Constraint::Coincident(end, other));
     add(Constraint::Horizontal(line));
@@ -1662,22 +1920,26 @@ fn every_kind() -> EveryKind {
         to: center,
         value: Expression::Measure(40.0, Unit::Millimetre),
     });
+
     let angle = add(Constraint::Angle {
         from: EntityId::HORIZONTAL_AXIS,
         to: other,
         reversed: false,
         value: Expression::Measure(30.0, Unit::Degree),
     });
+
     add(Constraint::Angle {
         from: line,
         to: other,
         reversed: true,
         value: Expression::Measure(45.0, Unit::Degree),
     });
+
     let radius = add(Constraint::Radius {
         entity: arc,
         value: Expression::Parameter(width),
     });
+
     transaction.add_feature("Everything", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
     EveryKind {
@@ -1691,6 +1953,7 @@ fn every_kind() -> EveryKind {
 fn every_entity_and_constraint_kind_round_trips() {
     let EveryKind { document, .. } = every_kind();
     let text = encode(&document).unwrap();
+
     for record in [
         "\"circle\":{\"center\":",
         "\"arc\":{\"center\":",
@@ -1709,6 +1972,7 @@ fn every_entity_and_constraint_kind_round_trips() {
     }
 
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -1736,6 +2000,7 @@ fn unreadable_angles_and_radii_take_their_drawn_values() {
          radius, 10 mm.",
         ]
     );
+
     let sketch = loaded
         .document
         .features()
@@ -1744,6 +2009,7 @@ fn unreadable_angles_and_radii_take_their_drawn_values() {
         .kind
         .sketch()
         .unwrap();
+
     assert!(matches!(
         sketch.constraint(angle).and_then(Constraint::dimension),
         Some(Expression::Measure(degrees, Unit::Degree)) if (degrees - 26.565_051_177_078).abs() < 1e-9
@@ -1764,8 +2030,10 @@ struct AddedKinds {
 
 fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
     let mut transaction = document.transaction("Added kinds");
+
     let width = transaction.add_parameter("gap", transaction.parse("6 mm").unwrap());
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
     let Some(Entity::Line { start, end }) = sketch.entity(line).cloned() else {
         panic!("expected a line");
@@ -1787,6 +2055,7 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
     ]);
     let rider = sketch.add_point(Point2::new(10.0, 35.0));
     let mut add = |constraint| sketch.add_constraint(constraint).unwrap();
+
     add(Constraint::HorizontalPoints(start, end.into()));
     add(Constraint::VerticalPoints(start, EntityId::ORIGIN.into()));
     add(Constraint::Midpoint {
@@ -1804,6 +2073,7 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
         point: lone,
         at: Point2::new(5.0, 20.0),
     });
+
     let horizontal = add(Constraint::HorizontalDistance {
         from: start,
         to: end,
@@ -1828,9 +2098,12 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
         to: other,
         value: Expression::Parameter(width),
     });
+
     add(Constraint::Coincident(rider, spline));
     add(Constraint::Tangent(other, spline));
+
     let centreline = sketch.add_line(Point2::new(-10.0, 0.0), Point2::new(-10.0, 30.0));
+
     sketch.set_construction(centreline, true).unwrap();
     transaction.add_feature("Added kinds", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
@@ -1849,8 +2122,10 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
 #[test]
 fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Ellipses");
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(1.0, 2.0), Point2::new(11.0, 2.0), 4.0);
     let arc = sketch.add_elliptical_arc(
         Point2::new(30.0, 0.0),
@@ -1860,6 +2135,7 @@ fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
         Point2::new(30.0, 8.0),
     );
     let line = sketch.add_line(Point2::new(-5.0, 6.0), Point2::new(15.0, 6.0));
+
     sketch
         .add_constraint(Constraint::Tangent(line, ellipse))
         .unwrap();
@@ -1875,7 +2151,9 @@ fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
             value: Expression::Measure(3.0, Unit::Millimetre),
         })
         .unwrap();
+
     let top = sketch.add_point(Point2::new(1.0, 6.0));
+
     sketch
         .add_constraint(Constraint::Coincident(top, ellipse))
         .unwrap();
@@ -1903,7 +2181,9 @@ fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
     assert!(text.contains("\"elliptical_arc\""), "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+
     let reported = older.issues.join(" ");
+
     assert!(
         reported.contains("an entity of a kind this version of caditor does not know (eclipse)"),
         "{reported}"
@@ -1917,6 +2197,7 @@ fn tracked_sketch() -> Sketch {
     use caditor_sketch::{EllipseEnd, PointTarget, Quadrant};
 
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(20.0, 10.0));
     let other = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 0.0));
     let circle = sketch.add_circle(Point2::new(40.0, 0.0), 5.0);
@@ -1933,8 +2214,10 @@ fn tracked_sketch() -> Sketch {
     ];
     let held = |sketch: &mut Sketch, made: &dyn Fn(EntityId) -> Constraint| {
         let point = sketch.add_point(Point2::new(100.0, 50.0));
+
         sketch.add_constraint(made(point)).unwrap();
     };
+
     let targets = [
         PointTarget::Point(corners[0]),
         PointTarget::Middle(line),
@@ -1961,6 +2244,7 @@ fn tracked_sketch() -> Sketch {
     ]
     .into_iter()
     .chain(EllipseEnd::ALL.map(|end| PointTarget::EllipseEnd { ellipse, end }));
+
     for (index, target) in targets.enumerate() {
         held(&mut sketch, &|point| match index % 4 {
             0 => Constraint::HorizontalPoints(point, target.clone()),
@@ -1995,7 +2279,9 @@ fn tracked_sketch() -> Sketch {
 #[test]
 fn constraints_holding_points_at_targets_round_trip_and_older_readers_report_them() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Tracks");
+
     transaction.add_feature("Tracked", FeatureKind::from(tracked_sketch()));
     document.apply(transaction.finish()).unwrap();
 
@@ -2013,6 +2299,7 @@ fn constraints_holding_points_at_targets_round_trip_and_older_readers_report_the
     assert!(text.contains("\"quadrant\""), "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+
     let reported = older.issues.join(" ");
     for kind in [
         "horizontal_beyond",
@@ -2032,6 +2319,7 @@ fn constraints_holding_points_at_targets_round_trip_and_older_readers_report_the
 #[test]
 fn closed_fit_point_and_conic_splines_round_trip_and_older_readers_report_them() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Splines");
     let mut sketch = Sketch::new(Plane::XY);
     let through = [
@@ -2039,6 +2327,7 @@ fn closed_fit_point_and_conic_splines_round_trip_and_older_readers_report_them()
         Point2::new(10.0, 4.0),
         Point2::new(20.0, -2.0),
     ];
+
     sketch.add_spline_of(&through, SplineKind::Control { closed: true });
     sketch.add_spline_of(
         &through,
@@ -2054,7 +2343,9 @@ fn closed_fit_point_and_conic_splines_round_trip_and_older_readers_report_them()
             spacing: FitSpacing::Even,
         },
     );
+
     let conic = sketch.add_spline_of(&through, SplineKind::Conic { rho: 0.3 });
+
     sketch.add_spline(&through);
     sketch
         .add_constraint(Constraint::Rho {
@@ -2078,7 +2369,9 @@ fn closed_fit_point_and_conic_splines_round_trip_and_older_readers_report_them()
     assert!(text.contains("\"rho\":0.3"), "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+
     let reported = older.issues.join(" ");
+
     assert!(reported.contains("(shut_spline)"), "{reported}");
     assert!(reported.contains("(cone)"), "{reported}");
 }
@@ -2086,8 +2379,10 @@ fn closed_fit_point_and_conic_splines_round_trip_and_older_readers_report_them()
 #[test]
 fn a_spline_with_knots_of_its_own_round_trips_and_older_readers_report_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Splines");
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&[
         Point2::new(0.0, 0.0),
         Point2::new(10.0, 4.0),
@@ -2097,6 +2392,7 @@ fn a_spline_with_knots_of_its_own_round_trips_and_older_readers_report_it() {
         Point2::new(50.0, 6.0),
         Point2::new(60.0, 0.0),
     ]);
+
     for at in [12.0, 33.0] {
         sketch
             .insert_control_point(spline, Some(Point2::new(at, 2.0)))
@@ -2118,8 +2414,10 @@ fn a_spline_with_knots_of_its_own_round_trips_and_older_readers_report_it() {
 #[test]
 fn a_spline_of_a_chosen_degree_round_trips_and_older_readers_report_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Splines");
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&[
         Point2::new(0.0, 0.0),
         Point2::new(10.0, 4.0),
@@ -2128,6 +2426,7 @@ fn a_spline_of_a_chosen_degree_round_trips_and_older_readers_report_it() {
         Point2::new(40.0, 0.0),
         Point2::new(50.0, 6.0),
     ]);
+
     sketch.set_spline_degree(spline, 5).unwrap();
     transaction.add_feature("Curves", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
@@ -2145,8 +2444,10 @@ fn a_spline_of_a_chosen_degree_round_trips_and_older_readers_report_it() {
 #[test]
 fn a_closed_spline_of_a_chosen_degree_round_trips_and_older_readers_report_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Splines");
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(
         &[
             Point2::new(0.0, 0.0),
@@ -2158,6 +2459,7 @@ fn a_closed_spline_of_a_chosen_degree_round_trips_and_older_readers_report_it() 
         ],
         SplineKind::Control { closed: true },
     );
+
     sketch.set_spline_degree(spline, 5).unwrap();
     sketch
         .insert_control_point(spline, Some(Point2::new(60.0, 25.0)))
@@ -2178,10 +2480,13 @@ fn a_closed_spline_of_a_chosen_degree_round_trips_and_older_readers_report_it() 
 #[test]
 fn sketch_texts_round_trip_and_older_readers_report_them() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Texts");
+
     let size = transaction.add_parameter("size", transaction.parse("6 mm").unwrap());
     let sketch = transaction.add_feature("Label", FeatureKind::from(Sketch::new(Plane::XY)));
     let anchor = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(1.0, 2.0)));
+
     let text = transaction.add_sketch_text(
         sketch,
         Text {
@@ -2206,6 +2511,7 @@ fn sketch_texts_round_trip_and_older_readers_report_them() {
             align: TextAlign::Centre,
         },
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let written = encode(&document).unwrap();
@@ -2256,10 +2562,13 @@ fn sketch_texts_round_trip_and_older_readers_report_them() {
 #[test]
 fn stored_gears_round_trip_and_damaged_values_fall_back_with_a_report() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Gears");
+
     let count = transaction.add_parameter("teeth", transaction.parse("24").unwrap());
     let sketch = transaction.add_feature("Wheel", FeatureKind::from(Sketch::new(Plane::XY)));
     let centre = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(1.0, 2.0)));
+
     let gear = transaction.add_sketch_gear(
         sketch,
         Gear {
@@ -2275,6 +2584,7 @@ fn stored_gears_round_trip_and_damaged_values_fall_back_with_a_report() {
             chain: None,
         },
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let written = encode(&document).unwrap();
@@ -2308,11 +2618,14 @@ fn stored_gears_round_trip_and_damaged_values_fall_back_with_a_report() {
 #[test]
 fn a_meshing_gear_round_trips_as_a_kind_of_its_own_and_damaged_values_fall_back_with_a_report() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Pair");
+
     let count = transaction.add_parameter("teeth", transaction.parse("30").unwrap());
     let sketch = transaction.add_feature("Pair", FeatureKind::from(Sketch::new(Plane::XY)));
     let first = transaction.add_sketch_entity(sketch, Entity::Point(Point2::ZERO));
     let second = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(50.0, 0.0)));
+
     let driver = transaction.add_sketch_gear(
         sketch,
         Gear {
@@ -2338,6 +2651,7 @@ fn a_meshing_gear_round_trips_as_a_kind_of_its_own_and_damaged_values_fall_back_
             Expression::Measure(15.0, Unit::Degree),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let written = encode(&document).unwrap();
@@ -2377,10 +2691,13 @@ fn a_meshing_gear_round_trips_as_a_kind_of_its_own_and_damaged_values_fall_back_
 fn a_sprocket_round_trips_as_a_kind_of_its_own_and_damaged_values_or_chains_fall_back_with_a_report()
  {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Sprocket");
+
     let count = transaction.add_parameter("teeth", transaction.parse("19").unwrap());
     let sketch = transaction.add_feature("Sprocket", FeatureKind::from(Sketch::new(Plane::XY)));
     let centre = transaction.add_sketch_entity(sketch, Entity::Point(Point2::ZERO));
+
     let sprocket = transaction.add_sketch_gear(
         sketch,
         Gear::sprocket(
@@ -2391,6 +2708,7 @@ fn a_sprocket_round_trips_as_a_kind_of_its_own_and_damaged_values_or_chains_fall
             Expression::Measure(15.0, Unit::Degree),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let written = encode(&document).unwrap();
@@ -2406,6 +2724,7 @@ fn a_sprocket_round_trips_as_a_kind_of_its_own_and_damaged_values_or_chains_fall
             .and_then(|drawn| drawn.gear(sprocket))
             .cloned()
     };
+
     let held = drawn(&damaged).unwrap();
 
     assert_eq!(loaded.issues, Vec::<String>::new());
@@ -2451,6 +2770,7 @@ fn a_text_record_without_an_alignment_reads_as_left_aligned() {
 #[test]
 fn centripetal_fit_splines_round_trip_and_older_readers_report_them() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Splines");
     let mut sketch = Sketch::new(Plane::XY);
     let through = [
@@ -2458,6 +2778,7 @@ fn centripetal_fit_splines_round_trip_and_older_readers_report_them() {
         Point2::new(1.0, 4.0),
         Point2::new(30.0, -2.0),
     ];
+
     sketch.add_spline_of(&through, SplineKind::fit(false));
     sketch.add_spline_of(&through, SplineKind::fit(true));
     transaction.add_feature("Curves", FeatureKind::from(sketch));
@@ -2479,7 +2800,9 @@ fn centripetal_fit_splines_round_trip_and_older_readers_report_them() {
     assert!(!text.contains("\"fit_spline\""), "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+
     let reported = older.issues.join(" ");
+
     assert!(reported.contains("(smooth_spline)"), "{reported}");
     assert!(reported.contains("(shut_smooth_spline)"), "{reported}");
 }
@@ -2487,8 +2810,10 @@ fn centripetal_fit_splines_round_trip_and_older_readers_report_them() {
 #[test]
 fn a_curvature_between_joined_splines_round_trips_and_older_readers_report_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Splines");
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_spline(&[
         Point2::new(0.0, 0.0),
         Point2::new(10.0, 10.0),
@@ -2499,10 +2824,12 @@ fn a_curvature_between_joined_splines_round_trips_and_older_readers_report_it() 
         Point2::new(25.0, -5.0),
         Point2::new(30.0, -15.0),
     ]);
+
     let ends = [first, second].map(|spline| match sketch.entity(spline) {
         Some(caditor_sketch::Entity::Spline { points, .. }) => points.clone(),
         _ => panic!("expected a spline"),
     });
+
     sketch
         .add_constraint(Constraint::Coincident(ends[1][0], ends[0][2]))
         .unwrap();
@@ -2532,6 +2859,7 @@ fn a_curvature_between_joined_splines_round_trips_and_older_readers_report_it() 
 fn added_constraint_kinds_round_trip() {
     let (document, _) = with_added_kinds(Document::default());
     let text = encode(&document).unwrap();
+
     for record in [
         "\"horizontal_points\":[0,1]",
         "\"vertical_points\":[0,18446744073709551615]",
@@ -2552,6 +2880,7 @@ fn added_constraint_kinds_round_trip() {
     }
 
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -2559,15 +2888,19 @@ fn added_constraint_kinds_round_trip() {
 #[test]
 fn an_import_keeps_the_path_it_was_read_from_only_when_known() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
     let kept = caditor_document::Import::new("cube.step", caditor_kernel::Solid::default(), "")
         .from_file(std::path::PathBuf::from("/models/cube.step"));
     let unknown = caditor_document::Import::new("old.step", caditor_kernel::Solid::default(), "");
+
     let first = transaction.add_feature("Cube", FeatureKind::Import(kept));
     let second = transaction.add_feature("Old", FeatureKind::Import(unknown));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"path\":\"/models/cube.step\""), "{text}");
     assert_eq!(text.matches("\"path\"").count(), 1);
 
@@ -2579,6 +2912,7 @@ fn an_import_keeps_the_path_it_was_read_from_only_when_known() {
             .and_then(|feature| feature.kind.import())
             .and_then(|import| import.path.clone())
     };
+
     assert_eq!(
         path_of(first),
         Some(std::path::PathBuf::from("/models/cube.step"))
@@ -2589,16 +2923,19 @@ fn an_import_keeps_the_path_it_was_read_from_only_when_known() {
 #[test]
 fn placed_copies_of_one_part_keep_its_step_text_once_and_share_it_when_loaded() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
     let text = caditor_document::StepText::from("ISO-10303-21; part");
     let copy = |x: f64| {
         let mut placement = caditor_document::BodyPlacement::default();
+
         placement.offset[0] = Expression::Measure(x, Unit::Millimetre);
         caditor_document::Import::new("pin.step", caditor_kernel::Solid::default(), text.clone())
             .placed(placement)
     };
     let at_origin =
         caditor_document::Import::new("pin.step", caditor_kernel::Solid::default(), text.clone());
+
     transaction.add_feature("Pin", FeatureKind::Import(copy(10.0)));
     transaction.add_feature("Pin 2", FeatureKind::Import(copy(20.0)));
     transaction.add_feature("Pin 3", FeatureKind::Import(at_origin));
@@ -2637,9 +2974,11 @@ fn placed_copies_of_one_part_keep_its_step_text_once_and_share_it_when_loaded() 
 #[test]
 fn placed_imports_share_a_text_equal_to_an_earlier_one_but_not_one_merely_as_long() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
     let copy = |text: &str| {
         let mut placement = caditor_document::BodyPlacement::default();
+
         placement.offset[0] = Expression::Measure(5.0, Unit::Millimetre);
         caditor_document::Import::new(
             "pin.step",
@@ -2648,6 +2987,7 @@ fn placed_imports_share_a_text_equal_to_an_earlier_one_but_not_one_merely_as_lon
         )
         .placed(placement)
     };
+
     transaction.add_feature("Pin", FeatureKind::Import(copy("ISO-10303-21; pin A")));
     transaction.add_feature("Peg", FeatureKind::Import(copy("ISO-10303-21; peg B")));
     transaction.add_feature("Pin 2", FeatureKind::Import(copy("ISO-10303-21; pin A")));
@@ -2673,15 +3013,20 @@ fn placed_imports_share_a_text_equal_to_an_earlier_one_but_not_one_merely_as_lon
 #[test]
 fn a_placed_import_is_a_record_of_its_own_and_an_unplaced_one_stays_readable_by_older_versions() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
+
     let shift = transaction.add_parameter("shift", transaction.parse("4 mm").unwrap());
     let mut placement = caditor_document::BodyPlacement::default();
+
     placement.offset[2] = Expression::Parameter(shift);
     placement.turn[0] = Expression::Measure(30.0, Unit::Degree);
+
     let placed = caditor_document::Import::new("cube.step", caditor_kernel::Solid::default(), "")
         .placed(placement);
     let unplaced = caditor_document::Import::new("old.step", caditor_kernel::Solid::default(), "");
     let first = transaction.add_feature("Cube", FeatureKind::Import(placed.clone()));
+
     transaction.add_feature("Old", FeatureKind::Import(unplaced));
     document.apply(transaction.finish()).unwrap();
 
@@ -2742,11 +3087,13 @@ fn a_placed_import_is_a_record_of_its_own_and_an_unplaced_one_stays_readable_by_
 #[test]
 fn a_scaled_import_is_a_kind_older_readers_report_and_an_unreadable_scale_loads_as_one() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
     let placement = caditor_document::BodyPlacement {
         scale: Expression::Number(25.4),
         ..Default::default()
     };
+
     let scaled = transaction.add_feature(
         "Cube",
         FeatureKind::Import(
@@ -2754,6 +3101,7 @@ fn a_scaled_import_is_a_kind_older_readers_report_and_an_unreadable_scale_loads_
                 .placed(placement),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -2797,13 +3145,16 @@ fn a_scaled_import_is_a_kind_older_readers_report_and_an_unreadable_scale_loads_
 #[test]
 fn arc_dimensions_round_trip_and_fall_back_to_their_drawn_values() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Arc dimensions");
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_arc(
         Point2::new(50.0, 5.0),
         Point2::new(58.0, 5.0),
         Point2::new(50.0, 13.0),
     );
+
     sketch
         .add_constraint(Constraint::ArcLength {
             arc,
@@ -2820,13 +3171,16 @@ fn arc_dimensions_round_trip_and_fall_back_to_their_drawn_values() {
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
+
     for record in [
         "\"arc_length\":{\"arc\":3,\"value\":\"12 mm\"}",
         "\"sweep\":{\"arc\":3,\"value\":\"80 deg\"}",
     ] {
         assert!(text.contains(record), "{record} is missing from {text}");
     }
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -2834,6 +3188,7 @@ fn arc_dimensions_round_trip_and_fall_back_to_their_drawn_values() {
         .replace("\"value\":\"12 mm\"", "\"value\":\"12 ((\"")
         .replace("\"value\":\"80 deg\"", "\"value\":\"80 ((\"");
     let loaded = decode_text(&damaged);
+
     assert_eq!(
         loaded.issues,
         [
@@ -2873,6 +3228,7 @@ fn unreadable_added_dimensions_take_their_drawn_values() {
              drawn length, 6 mm.",
         ]
     );
+
     let sketch = loaded
         .document
         .features()
@@ -2887,6 +3243,7 @@ fn unreadable_added_dimensions_take_their_drawn_values() {
             .and_then(Constraint::dimension)
     };
     let millimetres = |value| Expression::Measure(value, Unit::Millimetre);
+
     assert_eq!(value(kinds.horizontal), Some(&millimetres(30.0)));
     assert_eq!(value(kinds.vertical), Some(&millimetres(20.0)));
     assert_eq!(value(kinds.diameter), Some(&millimetres(10.0)));
@@ -2904,8 +3261,11 @@ struct SketchSession {
 
 fn sketch_session() -> SketchSession {
     let mut base = sample();
+
     let mut transaction = base.transaction("New sketch");
+
     let plate = transaction.add_feature("Plate", FeatureKind::from(Sketch::new(Plane::XY)));
+
     base.apply(transaction.finish()).unwrap();
     SketchSession { base, plate }
 }
@@ -2913,6 +3273,7 @@ fn sketch_session() -> SketchSession {
 fn every_sketch_edit(document: &Document, plate: FeatureId) -> Transaction {
     let width = document.parameter_named("width").unwrap().id();
     let mut transaction = document.transaction("Every sketch edit");
+
     let center = transaction.add_sketch_entity(plate, Entity::Point(Point2::new(1.0 / 3.0, -2.5)));
     let circle = transaction.add_sketch_entity(
         plate,
@@ -2928,6 +3289,7 @@ fn every_sketch_edit(document: &Document, plate: FeatureId) -> Transaction {
             value: transaction.parse("width / 3").unwrap(),
         },
     );
+
     transaction.edit(Edit::SetSketchEntity {
         feature: plate,
         id: center,
@@ -2946,9 +3308,12 @@ fn every_sketch_edit(document: &Document, plate: FeatureId) -> Transaction {
         feature: plate,
         id: circle,
     });
+
     let start = transaction.add_sketch_entity(plate, Entity::Point(Point2::ZERO));
     let end = transaction.add_sketch_entity(plate, Entity::Point(Point2::X));
+
     let centreline = transaction.add_sketch_entity_as(plate, Entity::Line { start, end }, true);
+
     transaction.edit(Edit::SetSketchConstruction {
         feature: plate,
         id: centreline,
@@ -2960,10 +3325,13 @@ fn every_sketch_edit(document: &Document, plate: FeatureId) -> Transaction {
 #[test]
 fn every_sketch_edit_record_round_trips() {
     let SketchSession { base, plate } = sketch_session();
+
     let transaction = every_sketch_edit(&base, plate);
+
     assert!(base.check(&transaction).is_ok());
 
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
     for record in [
         "{\"add_sketch_entity\":{\"feature\":3,\"entity\":{\"id\":0,\"point\":[0.3333333333333333,-2.5]}}}",
         "{\"add_sketch_entity\":{\"feature\":3,\"entity\":{\"id\":1,\"circle\":{\"center\":0,\"radius\":0.1}}}}",
@@ -2978,10 +3346,12 @@ fn every_sketch_edit_record_round_trips() {
     }
 
     let record: format::TransactionRecord = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 
     let damaged: format::TransactionRecord =
         through_binary(&text.replace("\"$0 / 3\"", "\"$0 //\""));
+
     assert_eq!(format::restore_transaction(damaged), None);
 }
 
@@ -2996,19 +3366,23 @@ fn apply_and_record(storage: &Storage, editor: &mut Editor, transaction: Transac
 
 fn undo_and_record(storage: &Storage, editor: &mut Editor) {
     let undone = editor.next_undo().cloned().unwrap();
+
     editor.undo().unwrap();
     record(storage, JournalEntry::Undo(undone));
 }
 
 fn redo_and_record(storage: &Storage, editor: &mut Editor) {
     let redone = editor.next_redo().cloned().unwrap();
+
     editor.redo().unwrap();
     record(storage, JournalEntry::Redo(redone));
 }
 
 fn history(editor: &Editor) -> Vec<(Document, Option<Transaction>, Option<Transaction>)> {
     let mut walker = editor.clone();
+
     while walker.undo().unwrap().is_some() {}
+
     let mut states = Vec::new();
     loop {
         states.push((
@@ -3030,18 +3404,24 @@ fn plate_sketch(document: &Document, plate: FeatureId) -> &Sketch {
 fn a_crashed_sketching_session_is_recovered_with_its_undo_history() {
     let dir = TempDir::new().unwrap();
     let SketchSession { base, plate } = sketch_session();
+
     let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
     let mut editor = Editor::new(base.clone());
 
     let mut transaction = editor.document().transaction("Draw line");
+
     let start = transaction.add_sketch_entity(plate, Entity::Point(Point2::new(0.5, 0.25)));
     let end = transaction.add_sketch_entity(plate, Entity::Point(Point2::new(38.0, 1.0)));
+
     let line = transaction.add_sketch_entity(plate, Entity::Line { start, end });
     let transaction = transaction.finish();
+
     apply_and_record(&storage, &mut editor, transaction);
 
     let mut transaction = editor.document().transaction("Add constraints");
+
     transaction.add_sketch_constraint(plate, Constraint::Horizontal(line));
+
     let distance = transaction.add_sketch_constraint(
         plate,
         Constraint::Distance {
@@ -3051,9 +3431,11 @@ fn a_crashed_sketching_session_is_recovered_with_its_undo_history() {
         },
     );
     let transaction = transaction.finish();
+
     apply_and_record(&storage, &mut editor, transaction);
 
     let width = editor.document().parse("width * 2").unwrap();
+
     apply_and_record(
         &storage,
         &mut editor,
@@ -3078,23 +3460,32 @@ fn a_crashed_sketching_session_is_recovered_with_its_undo_history() {
             },
         ),
     );
+
     let mut transaction = editor.document().transaction("Delete point");
+
     transaction.remove_sketch_items(plate, [start], []);
+
     let transaction = transaction.finish();
+
     apply_and_record(&storage, &mut editor, transaction);
+
     assert_eq!(plate_sketch(editor.document(), plate).entities().len(), 1);
 
     undo_and_record(&storage, &mut editor);
     undo_and_record(&storage, &mut editor);
     redo_and_record(&storage, &mut editor);
+
     assert!(storage.flusher().flush(WAIT));
+
     crash(storage);
 
     let recovery = dir.path().join("recovery");
     let recovered = scan(Some(&recovery), &[]);
 
     assert_eq!(recovered.len(), 1);
+
     let recovered = &recovered[0];
+
     assert_eq!(recovered.changes(), 8);
     assert!(recovered.issues.is_empty(), "{:?}", recovered.issues);
     assert_eq!(recovered.base, base);
@@ -3113,8 +3504,10 @@ fn an_edit_kind_this_version_does_not_know_stops_replay_at_its_line() {
     let dir = TempDir::new().unwrap();
     let storage = Storage::spawn(config(&dir), untitled(&sample()), || {}).unwrap();
     let mut editor = Editor::new(sample());
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let journal = fs::read_dir(dir.path().join("recovery"))
         .unwrap()
         .next()
@@ -3126,11 +3519,13 @@ fn an_edit_kind_this_version_does_not_know_stops_replay_at_its_line() {
         3 => json.replace("set_parameter_expression", "bend_sheet"),
         _ => json,
     });
+
     fs::write(&journal, rewritten).unwrap();
 
     let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
         panic!("the journal should still be recoverable");
     };
+
     assert_eq!(recovered.changes(), 1);
     assert_eq!(recovered.issues.len(), 1);
 }
@@ -3140,15 +3535,21 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
         BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
         SolidFeature,
     };
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Solids");
+
     let depth = transaction.add_parameter("depth", transaction.parse("3 mm").unwrap());
     let mut outline = Sketch::new(Plane::XY);
     let corners = [(0.0, 0.0), (6.0, 0.0), (6.0, 4.0), (0.0, 4.0)];
+
     for index in 0..4 {
         let (a, b) = (corners[index], corners[(index + 1) % 4]);
+
         outline.add_line(Point2::new(a.0, a.1), Point2::new(b.0, b.1));
     }
+
     let sketch = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = transaction.add_feature(
         "Base",
@@ -3175,6 +3576,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             direction: None,
         })),
     );
+
     let turned = transaction.add_feature(
         "Turned",
         FeatureKind::Solid(SolidFeature::Revolve(Revolve {
@@ -3192,6 +3594,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             wall: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, base, turned)
 }
@@ -3202,29 +3605,36 @@ fn a_hand_made_file_storing_users_above_what_they_use_loads_in_use_order_and_und
 
     let (document, base, turned) = solid_model();
     let mut lines = lines_of(&document);
+
     let outline = lines
         .iter()
         .position(|line| line.contains("\"name\":\"Outline\""))
         .unwrap();
     let moved = lines.remove(outline);
+
     lines.push(moved);
 
     let loaded = decode_lines(&lines);
     let mut editor = Editor::new(loaded.document.clone());
 
     let deletion = editor.document().deletion(&[base], "Delete");
+
     editor.apply(deletion).unwrap();
+
     let undo_deletion = editor.undo();
     let FeatureKind::Solid(SolidFeature::Revolve(mut revolve)) =
         editor.document().feature(turned).unwrap().kind.clone()
     else {
         panic!("Turned is a revolve");
     };
+
     revolve.extent = RevolveExtent::OneSide {
         angle: editor.document().parse("45 deg").unwrap(),
         reversed: false,
     };
+
     let changed = FeatureKind::Solid(SolidFeature::Revolve(revolve));
+
     editor
         .apply(Transaction::single(
             "Edit",
@@ -3234,6 +3644,7 @@ fn a_hand_made_file_storing_users_above_what_they_use_loads_in_use_order_and_und
             },
         ))
         .unwrap();
+
     let undo_change = editor.undo();
 
     assert_eq!(loaded.document, document);
@@ -3278,9 +3689,12 @@ fn end_offsets_of_curved_face_ends_and_revolve_stops_round_trip_and_older_reader
 fn solid_features_are_saved_and_loaded() {
     let (document, _, _) = solid_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"extrude\""));
     assert!(text.contains("\"remove\":1"));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -3288,6 +3702,7 @@ fn solid_features_are_saved_and_loaded() {
 #[test]
 fn a_cut_through_several_bodies_is_saved_as_its_own_record_kind_and_loaded() {
     use caditor_document::{BodyOperation, Extrude, ExtrudeExtent, RegionChoice, SolidFeature};
+
     let (mut document, base, _) = solid_model();
     let sketch = document
         .features()
@@ -3308,8 +3723,10 @@ fn a_cut_through_several_bodies_is_saved_as_its_own_record_kind_and_loaded() {
             direction: None,
         }))
     };
+
     let second = transaction.add_feature("Second", extrusion(BodyOperation::NewBody, Vec::new()));
     let cut = transaction.add_feature("Cut", extrusion(BodyOperation::Remove(base), vec![second]));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -3326,6 +3743,7 @@ fn a_cut_through_several_bodies_is_saved_as_its_own_record_kind_and_loaded() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: cut, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -3348,6 +3766,7 @@ fn chosen_regions_saved_without_references_load_by_their_keys() {
         .iter()
         .map(|line| {
             let mut record: serde_json::Value = serde_json::from_str(line).unwrap();
+
             without_region_references(&mut record);
             record.to_string()
         })
@@ -3358,9 +3777,11 @@ fn chosen_regions_saved_without_references_load_by_their_keys() {
     assert!(text.contains("\"region_references\""));
     assert!(text.contains("\"anchor\":[2.5,1.25]"));
     assert_eq!(loaded.issues, Vec::<String>::new());
+
     let FeatureKind::Solid(solid) = &loaded.document.feature(base).unwrap().kind else {
         panic!("Base should load as a solid feature");
     };
+
     assert_eq!(
         solid.regions(),
         &caditor_document::RegionChoice::Chosen(vec![caditor_kernel::RegionReference::of_key(
@@ -3376,6 +3797,7 @@ fn a_damaged_solid_value_falls_back_and_is_reported() {
         .unwrap()
         .replace("\"angle\":\"90 deg\"", "\"angle\":\"90 ((\"");
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         ["The angle of “Turned” could not be read, so it was set to 360 deg."]
@@ -3386,22 +3808,30 @@ fn a_damaged_solid_value_falls_back_and_is_reported() {
 #[test]
 fn a_changed_solid_feature_round_trips_through_the_journal() {
     let (document, base, _) = solid_model();
+
     let kind = document.feature(base).unwrap().kind.clone();
     let transaction = Transaction::single("Edit Base", Edit::SetFeatureKind { id: base, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]
 fn construction_geometry_stays_construction_through_saving() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centreline = sketch.add_line(Point2::ZERO, Point2::Y);
     let circle = sketch.add_circle(Point2::X, 0.5);
+
     sketch.set_construction(centreline, true).unwrap();
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch");
+
     let feature = transaction.add_feature("Profile", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -3428,22 +3858,33 @@ fn construction_geometry_stays_construction_through_saving() {
 #[test]
 fn a_trimmed_piece_keeps_the_curve_it_came_from_through_saving_and_the_journal() {
     let mut drawn = Sketch::new(Plane::XY);
+
     let line = drawn.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+
     drawn.add_line(Point2::new(10.0, -5.0), Point2::new(10.0, 5.0));
     drawn.add_line(Point2::new(30.0, -5.0), Point2::new(30.0, 5.0));
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch");
+
     let feature = transaction.add_feature("Profile", FeatureKind::from(drawn.clone()));
+
     document.apply(transaction.finish()).unwrap();
+
     let mut trimmed = drawn.clone();
+
     let caditor_sketch::Trimmed::Split { piece } =
         trimmed.trim(line, Point2::new(20.0, 0.0)).unwrap()
     else {
         panic!("the line is split");
     };
     let mut transaction = document.transaction("Trim");
+
     transaction.reshape_sketch(feature, &drawn, &trimmed);
+
     let trim = transaction.finish();
+
     document.apply(trim.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -3469,11 +3910,15 @@ fn a_trimmed_piece_keeps_the_curve_it_came_from_through_saving_and_the_journal()
 #[test]
 fn a_piece_stored_as_split_from_itself_loads_as_a_curve_of_its_own() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch");
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::X);
     let feature = transaction.add_feature("Lines", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
+
     let stored = format!("{{\"id\":{},\"line\"", line.raw());
     let text = encode(&document).unwrap().replace(
         &stored,
@@ -3501,11 +3946,15 @@ fn a_piece_stored_as_split_from_itself_loads_as_a_curve_of_its_own() {
 #[test]
 fn a_point_stored_as_construction_geometry_loads_as_an_ordinary_point() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch");
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::X);
     let feature = transaction.add_feature("Points", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
+
     let stored = format!("{{\"id\":{},\"point\"", point.raw());
     let text = encode(&document).unwrap().replace(
         &stored,
@@ -3537,6 +3986,7 @@ fn a_hidden_feature_stays_hidden_through_saving_and_the_journal() {
             hidden: true,
         },
     );
+
     let shown = document.apply(hide.clone()).unwrap();
     let text = encode(&document).unwrap();
     let loaded = decode_text(&text);
@@ -3561,6 +4011,7 @@ fn a_hidden_feature_stays_hidden_through_saving_and_the_journal() {
 #[test]
 fn a_parameter_note_and_order_survive_saving_and_the_journal() {
     let mut document = sample();
+
     let plain = encode(&document).unwrap();
     let height = document.parameter_named("height").unwrap().id();
     let change = Transaction::new(
@@ -3649,6 +4100,7 @@ fn named_dimension(document: &Document) -> Transaction {
         .find(|(_, constraint)| constraint.dimension().is_some())
         .unwrap();
     let mut transaction = document.transaction("Name length");
+
     let length = transaction.add_owned_parameter(
         "length",
         document.parse("width - 1 mm").unwrap(),
@@ -3657,6 +4109,7 @@ fn named_dimension(document: &Document) -> Transaction {
             constraint,
         },
     );
+
     transaction.edit(Edit::SetDimension {
         feature: base.id(),
         constraint,
@@ -3668,6 +4121,7 @@ fn named_dimension(document: &Document) -> Transaction {
 #[test]
 fn named_values_survive_saving_the_journal_and_its_snapshot_in_a_record_of_their_own() {
     let mut document = sample();
+
     let plain = encode(&document).unwrap();
     let naming = named_dimension(&document);
     let undo = document.apply(naming.clone()).unwrap();
@@ -3758,6 +4212,7 @@ fn an_unreadable_named_value_leaves_its_parameter_listed_with_the_others() {
 #[test]
 fn model_properties_survive_saving_the_journal_and_its_snapshot() {
     let mut document = sample();
+
     let plain = encode(&document).unwrap();
     let change = Transaction::single(
         "Model properties",
@@ -3827,11 +4282,14 @@ fn an_overlong_model_property_is_cut_and_reported() {
 fn a_removal_is_saved_loaded_and_journaled() {
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Remove");
+
     transaction.add_feature(
         "Remove 1",
         FeatureKind::Remove(caditor_document::Remove { body: base }),
     );
+
     let add = transaction.finish();
+
     document.apply(add.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -3875,6 +4333,7 @@ fn bore_views() -> caditor_document::SavedViews {
 #[test]
 fn saved_views_survive_saving_the_journal_and_its_snapshot() {
     let mut document = sample();
+
     let plain = encode(&document).unwrap();
     let change = Transaction::single(
         "Saved views",
@@ -3944,6 +4403,7 @@ fn saved_views_that_cannot_be_used_are_repaired_and_reported() {
         .iter()
         .map(|named| named.name.as_str())
         .collect();
+
     assert_eq!(names, ["Bore", "bore 2", "View 3"]);
     assert_eq!(loaded.document.saved_views().home, None);
     assert!(issues_mention(
@@ -3979,6 +4439,7 @@ fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
 fn a_body_appearance_survives_saving_and_the_journal() {
     let (mut document, base, _) = solid_model();
     let plain = encode(&document).unwrap();
+
     let paint = Transaction::single(
         "Paint Base",
         Edit::SetBodyAppearance {
@@ -4015,6 +4476,7 @@ fn a_body_appearance_survives_saving_and_the_journal() {
 #[test]
 fn a_body_group_past_the_limits_keeps_the_groups_above_the_unusable_one_in_words() {
     let (mut document, base, _) = solid_model();
+
     document
         .apply(Transaction::single(
             "Group Base",
@@ -4027,6 +4489,7 @@ fn a_body_group_past_the_limits_keeps_the_groups_above_the_unusable_one_in_words
             },
         ))
         .unwrap();
+
     let long = "x".repeat(caditor_document::MAX_GROUP_NAME_CHARS + 1);
     let deep = ["\"Deep\""; caditor_document::MAX_BODY_FOLDER_DEPTH + 1].join(",");
 
@@ -4056,6 +4519,7 @@ fn a_body_group_past_the_limits_keeps_the_groups_above_the_unusable_one_in_words
 fn face_colours_are_saved_and_a_damaged_one_is_left_out_in_words() {
     use caditor_document::{FaceColour, Rgb};
     use caditor_kernel::{FaceName, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let face = |digest: u128| FaceReference::new(FaceName::from_digest(digest), None, []);
     let appearance = caditor_document::BodyAppearance {
@@ -4075,6 +4539,7 @@ fn face_colours_are_saved_and_a_damaged_one_is_left_out_in_words() {
         ],
         ..Default::default()
     };
+
     document
         .apply(Transaction::single(
             "Paint faces",
@@ -4122,6 +4587,7 @@ fn face_colours_are_saved_and_a_damaged_one_is_left_out_in_words() {
 fn a_body_saved_before_finishes_loads_without_one_and_an_unknown_finish_is_left_out_in_words() {
     use caditor_document::{FaceColour, Finish, Rgb};
     use caditor_kernel::{FaceName, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let appearance = caditor_document::BodyAppearance {
         faces: vec![FaceColour {
@@ -4132,6 +4598,7 @@ fn a_body_saved_before_finishes_loads_without_one_and_an_unknown_finish_is_left_
         }],
         ..steel_appearance(&document)
     };
+
     document
         .apply(Transaction::single(
             "Paint Base",
@@ -4141,6 +4608,7 @@ fn a_body_saved_before_finishes_loads_without_one_and_an_unknown_finish_is_left_
             },
         ))
         .unwrap();
+
     let text = encode(&document).unwrap();
 
     let older = decode_text(
@@ -4177,6 +4645,7 @@ fn a_body_saved_before_finishes_loads_without_one_and_an_unknown_finish_is_left_
 #[test]
 fn an_unreadable_colour_or_density_loads_without_it_and_says_so() {
     let (mut document, base, _) = solid_model();
+
     document
         .apply(Transaction::single(
             "Paint Base",
@@ -4186,6 +4655,7 @@ fn an_unreadable_colour_or_density_loads_without_it_and_says_so() {
             },
         ))
         .unwrap();
+
     let text = encode(&document)
         .unwrap()
         .replace("#4682b4", "steel blue")
@@ -4221,10 +4691,12 @@ fn an_unreadable_colour_or_density_loads_without_it_and_says_so() {
 fn a_damaged_hidden_feature_is_called_damaged_rather_than_of_an_unknown_kind() {
     let (document, _, _) = solid_model();
     let mut lines = lines_of(&document);
+
     let base = lines
         .iter()
         .position(|line| line.contains("\"name\":\"Base\""))
         .unwrap();
+
     lines[base] =
         "{\"feature\":{\"appearance\":{},\"hidden\":true,\"id\":1,\"name\":\"Base\",\"extrude\":7}}"
             .to_owned();
@@ -4262,6 +4734,7 @@ fn principal_geometry_stays_hidden_or_shown_through_saving_the_journal_and_its_s
         }])
         .collect(),
     );
+
     document.apply(hide.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -4297,6 +4770,7 @@ fn principal_geometry_stays_hidden_or_shown_through_saving_the_journal_and_its_s
 fn attached_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{FaceAttachment, SketchFeature};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let top = Plane::from_frame(Point3::new(0.0, 0.0, 3.0), Vector3::Z, Vector3::X).unwrap();
     let attachment = FaceAttachment {
@@ -4310,6 +4784,7 @@ fn attached_model() -> (Document, FeatureId, FeatureId) {
         ),
     };
     let mut transaction = document.transaction("Sketch on top");
+
     let sketch = transaction.add_feature(
         "Top",
         FeatureKind::Sketch(SketchFeature::on_face(
@@ -4317,6 +4792,7 @@ fn attached_model() -> (Document, FeatureId, FeatureId) {
             attachment,
         )),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, base, sketch)
 }
@@ -4325,12 +4801,15 @@ fn attached_model() -> (Document, FeatureId, FeatureId) {
 fn a_sketch_on_a_face_is_saved_and_loaded() {
     let (document, _, _) = attached_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains(
         "\"attachment\":{\"body\":1,\"face\":\"feed0000000000000000000000000001\",\"neighbours\":\
          [\"00000000000000000000000000000003\",\"ffffffffffffffffffffffffffffffff\"],\"origin\":\
          {\"end_cap\":{\"feature\":1}}}"
     ));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -4342,11 +4821,14 @@ fn a_sketch_whose_face_cannot_be_read_stays_where_it_was() {
         .unwrap()
         .replace("feed0000000000000000000000000001", "not a digest");
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         ["The face that “Top” lies on could not be read, so the sketch stays where it was."]
     );
+
     let restored = loaded.document.feature(sketch).unwrap();
+
     assert!(restored.kind.attachment().is_none());
     assert_eq!(
         restored.kind.sketch().unwrap().plane(),
@@ -4370,8 +4852,11 @@ fn a_sketch_on_a_body_that_is_gone_stays_on_it_as_saved() {
         .map(str::to_owned)
         .collect();
     let loaded = decode_lines(&lines);
+
     assert!(loaded.document.feature(base).is_none());
+
     let restored = loaded.document.feature(sketch).unwrap();
+
     assert_eq!(
         restored.kind.attachment().and_then(SketchAttachment::body),
         Some(base)
@@ -4382,6 +4867,7 @@ fn a_sketch_on_a_body_that_is_gone_stays_on_it_as_saved() {
 #[test]
 fn a_placement_change_round_trips_through_the_journal() {
     let (document, _, sketch) = attached_model();
+
     let attachment = document.feature(sketch).unwrap().kind.attachment().cloned();
     for attachment in [attachment, None] {
         let transaction = Transaction::single(
@@ -4392,9 +4878,12 @@ fn a_placement_change_round_trips_through_the_journal() {
                 attachment,
             },
         );
+
         assert!(document.check(&transaction).is_ok());
+
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -4404,6 +4893,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
     use caditor_kernel::{
         EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference, VertexName,
     };
+
     let (mut document, base, _) = solid_model();
     let edge = EdgeReference::new(
         EdgeName::from_digest(0xabcd),
@@ -4411,6 +4901,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
         [VertexName::from_digest(3), VertexName::from_digest(4)],
     );
     let mut transaction = document.transaction("Blends");
+
     let fillet = transaction.add_feature(
         "Fillet 1",
         FeatureKind::Blend(Blend {
@@ -4424,6 +4915,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
             sizing: FilletSizing::Radius,
         }),
     );
+
     transaction.add_feature(
         "Chamfer 1",
         FeatureKind::Blend(Blend {
@@ -4452,6 +4944,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
             sizing: FilletSizing::Radius,
         }),
     );
+
     let top = Plane::from_frame(Point3::new(0.0, 0.0, 3.0), Vector3::Z, Vector3::X).unwrap();
     let sketch = transaction.add_feature(
         "On chamfer",
@@ -4470,6 +4963,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
             },
         )),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, fillet, sketch)
 }
@@ -4478,6 +4972,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
 fn fillets_and_chamfers_are_saved_and_loaded() {
     let (document, _, _) = blended_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains(
         "\"fillet\":{\"body\":1,\"edges\":[{\"ends\":[\"00000000000000000000000000000003\",\
          \"00000000000000000000000000000004\"],\"faces\":[\"00000000000000000000000000000001\",\
@@ -4491,7 +4986,9 @@ fn fillets_and_chamfers_are_saved_and_loaded() {
     ));
     assert!(text.contains("\"copies\":[null,{\"index\":[2,1],\"pattern\":9}]"));
     assert!(text.contains("\"copy\":{\"index\":[1,0],\"pattern\":9}"));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -4504,28 +5001,36 @@ fn an_unreadable_blend_edge_is_left_out_and_reported() {
             .unwrap()
             .replacen("0000000000000000000000000000abcd", "not a digest", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         ["Some edges chosen for “Fillet 1” could not be read and were left out."]
     );
+
     let restored = loaded.document.feature(fillet).unwrap();
+
     assert!(restored.kind.blend().unwrap().edges.is_empty());
 }
 
 #[test]
 fn a_changed_blend_round_trips_through_the_journal() {
     let (document, fillet, _) = blended_model();
+
     let kind = document.feature(fillet).unwrap().kind.clone();
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: fillet, kind });
+
     assert!(document.check(&transaction).is_ok());
+
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 fn shelled_model() -> (Document, FeatureId) {
     use caditor_document::Shell;
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let top = FaceReference::new(
         FaceName::from_digest(0xbeef),
@@ -4533,6 +5038,7 @@ fn shelled_model() -> (Document, FeatureId) {
         [FaceName::from_digest(2)],
     );
     let mut transaction = document.transaction("Shell");
+
     let shell = transaction.add_feature(
         "Shell 1",
         FeatureKind::Shell(Shell {
@@ -4543,6 +5049,7 @@ fn shelled_model() -> (Document, FeatureId) {
             faces: Vec::new(),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, shell)
 }
@@ -4551,12 +5058,15 @@ fn shelled_model() -> (Document, FeatureId) {
 fn shells_are_saved_and_loaded() {
     let (document, shell) = shelled_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains(
         "\"shell\":{\"body\":1,\"open\":[{\"face\":\"0000000000000000000000000000beef\",\
          \"neighbours\":[\"00000000000000000000000000000002\"],\"origin\":{\"end_cap\":\
          {\"feature\":1}}}],\"thickness\":\"$0 / 4\"}"
     ));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -4564,6 +5074,7 @@ fn shells_are_saved_and_loaded() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: shell, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -4575,11 +5086,14 @@ fn an_unreadable_opened_face_is_left_closed_and_reported() {
             .unwrap()
             .replacen("0000000000000000000000000000beef", "not a digest", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         ["Some faces opened by “Shell 1” could not be read and were left closed."]
     );
+
     let restored = loaded.document.feature(shell).unwrap();
+
     assert!(restored.kind.shell().unwrap().open.is_empty());
 }
 
@@ -4587,7 +5101,9 @@ fn an_unreadable_opened_face_is_left_closed_and_reported() {
 fn a_shell_s_side_and_faces_of_their_own_thickness_are_saved_and_loaded() {
     use caditor_document::{FaceThickness, ShellSide};
     use caditor_kernel::{FaceName, FaceReference};
+
     let (mut document, shell) = shelled_model();
+
     let mut changed = document
         .feature(shell)
         .unwrap()
@@ -4595,6 +5111,7 @@ fn a_shell_s_side_and_faces_of_their_own_thickness_are_saved_and_loaded() {
         .shell()
         .unwrap()
         .clone();
+
     changed.side = ShellSide::BothSides;
     changed.faces = vec![FaceThickness {
         face: FaceReference::new(FaceName::from_digest(0xcafe), None, []),
@@ -4620,6 +5137,7 @@ fn a_shell_s_side_and_faces_of_their_own_thickness_are_saved_and_loaded() {
 
     let unreadable = text.replacen("0000000000000000000000000000cafe", "not a digest", 1);
     let damaged = decode_text(&unreadable);
+
     assert_eq!(
         damaged.issues,
         [
@@ -4627,7 +5145,9 @@ fn a_shell_s_side_and_faces_of_their_own_thickness_are_saved_and_loaded() {
           shell's thickness."
         ]
     );
+
     let restored = damaged.document.feature(shell).unwrap();
+
     assert!(restored.kind.shell().unwrap().faces.is_empty());
 }
 
@@ -4636,7 +5156,9 @@ fn split_face_model(
 ) -> (Document, FeatureId) {
     use caditor_document::SplitFace;
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
+
     let along = along(&document, base);
     let top = FaceReference::new(
         FaceName::from_digest(0xbeef),
@@ -4644,6 +5166,7 @@ fn split_face_model(
         [FaceName::from_digest(2)],
     );
     let mut transaction = document.transaction("Split face");
+
     let split = transaction.add_feature(
         "Split face 1",
         FeatureKind::SplitFace(SplitFace {
@@ -4653,6 +5176,7 @@ fn split_face_model(
             carry: caditor_document::SplitCarry::Square,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, split)
 }
@@ -4660,16 +5184,21 @@ fn split_face_model(
 #[test]
 fn split_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     use caditor_document::{PlaneReference, PrincipalPlane, SplitAlong};
+
     let (document, split) =
         split_face_model(|_, _| SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz)));
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"split_face\":{\"along\":{\"plane\":"));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
     let (document, _) = split_face_model(|_, base| SplitAlong::Body(base));
     let loaded = decode_text(&encode(&document).unwrap());
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -4677,6 +5206,7 @@ fn split_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -4741,6 +5271,7 @@ fn curves_standing_in_for_deleted_ones_round_trip_and_older_readers_ignore_them(
 #[test]
 fn choosing_separate_pieces_round_trips_through_the_journal() {
     use caditor_document::Pieces;
+
     let transaction = Transaction::single(
         "A body each",
         Edit::SetFeaturePieces {
@@ -4758,6 +5289,7 @@ fn choosing_separate_pieces_round_trips_through_the_journal() {
 #[test]
 fn a_split_face_wrapping_its_sketch_is_a_kind_older_readers_report() {
     use caditor_document::{SplitAlong, SplitCarry};
+
     let (mut document, split) = split_face_model(|document, _| {
         let outline = document
             .features()
@@ -4765,7 +5297,9 @@ fn a_split_face_wrapping_its_sketch_is_a_kind_older_readers_report() {
             .unwrap();
         SplitAlong::Sketch(outline.id())
     });
+
     let mut kind = document.feature(split).unwrap().kind.clone();
+
     if let FeatureKind::SplitFace(definition) = &mut kind {
         definition.carry = SplitCarry::Wrapped;
     }
@@ -4793,6 +5327,7 @@ fn a_split_face_wrapping_its_sketch_is_a_kind_older_readers_report() {
 #[test]
 fn a_split_face_carried_along_an_axis_is_a_kind_older_readers_report() {
     use caditor_document::{AxisReference, PrincipalAxis, SplitAlong};
+
     let (mut document, split) = split_face_model(|document, _| {
         let outline = document
             .features()
@@ -4800,7 +5335,9 @@ fn a_split_face_carried_along_an_axis_is_a_kind_older_readers_report() {
             .unwrap();
         SplitAlong::Sketch(outline.id())
     });
+
     let mut kind = document.feature(split).unwrap().kind.clone();
+
     if let FeatureKind::SplitFace(definition) = &mut kind {
         definition.carry = caditor_document::SplitCarry::Along(Box::new(AxisReference::Principal(
             PrincipalAxis::X,
@@ -4826,7 +5363,9 @@ fn a_split_face_carried_along_an_axis_is_a_kind_older_readers_report() {
     assert_eq!(loaded.document, document);
     assert!(older.document.feature(split).is_none());
     assert!(!older.issues.is_empty());
+
     let restored = damaged.document.feature(split).unwrap();
+
     assert!(restored.kind.split_face().unwrap().direction().is_none());
     assert_eq!(
         damaged.issues,
@@ -4835,15 +5374,18 @@ fn a_split_face_carried_along_an_axis_is_a_kind_older_readers_report() {
              carries them square to their sketch."
         ]
     );
+
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]
 fn an_unreadable_split_face_is_left_whole_and_reported() {
     use caditor_document::SplitAlong;
+
     let (document, split) = split_face_model(|document, _| {
         let outline = document
             .features()
@@ -4856,17 +5398,21 @@ fn an_unreadable_split_face_is_left_whole_and_reported() {
             .unwrap()
             .replacen("0000000000000000000000000000beef", "not a digest", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         ["Some faces split by “Split face 1” could not be read and were left whole."]
     );
+
     let restored = loaded.document.feature(split).unwrap();
+
     assert!(restored.kind.split_face().unwrap().faces.is_empty());
 }
 
 fn offset_model() -> (Document, FeatureId) {
     use caditor_document::OffsetFace;
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let top = FaceReference::new(
         FaceName::from_digest(0xbeef),
@@ -4874,6 +5420,7 @@ fn offset_model() -> (Document, FeatureId) {
         [FaceName::from_digest(2)],
     );
     let mut transaction = document.transaction("Offset face");
+
     let offset = transaction.add_feature(
         "Offset face 1",
         FeatureKind::OffsetFace(OffsetFace {
@@ -4883,6 +5430,7 @@ fn offset_model() -> (Document, FeatureId) {
             tangent: true,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, offset)
 }
@@ -4891,12 +5439,15 @@ fn offset_model() -> (Document, FeatureId) {
 fn moved_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let (document, offset) = offset_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains(
         "\"offset_face\":{\"body\":1,\"distance\":\"$0 / 4\",\"faces\":[{\"face\":\
          \"0000000000000000000000000000beef\",\"neighbours\":[\"00000000000000000000000000000002\"],\
          \"origin\":{\"end_cap\":{\"feature\":1}}}],\"tangent\":true}"
     ));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -4904,6 +5455,7 @@ fn moved_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: offset, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -4915,17 +5467,21 @@ fn an_unreadable_moved_face_is_left_where_it_is_and_reported() {
             .unwrap()
             .replacen("0000000000000000000000000000beef", "not a digest", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         ["Some faces moved by “Offset face 1” could not be read and were left where they are."]
     );
+
     let restored = loaded.document.feature(offset).unwrap();
+
     assert!(restored.kind.offset_face().unwrap().faces.is_empty());
 }
 
 fn deletion_model() -> (Document, FeatureId) {
     use caditor_document::DeleteFace;
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let top = FaceReference::new(
         FaceName::from_digest(0xbeef),
@@ -4933,6 +5489,7 @@ fn deletion_model() -> (Document, FeatureId) {
         [FaceName::from_digest(2)],
     );
     let mut transaction = document.transaction("Delete face");
+
     let deletion = transaction.add_feature(
         "Delete face 1",
         FeatureKind::DeleteFace(DeleteFace {
@@ -4940,6 +5497,7 @@ fn deletion_model() -> (Document, FeatureId) {
             faces: vec![top],
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, deletion)
 }
@@ -4948,12 +5506,15 @@ fn deletion_model() -> (Document, FeatureId) {
 fn deleted_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let (document, deletion) = deletion_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains(
         "\"delete_face\":{\"body\":1,\"faces\":[{\"face\":\
          \"0000000000000000000000000000beef\",\"neighbours\":[\"00000000000000000000000000000002\"],\
          \"origin\":{\"end_cap\":{\"feature\":1}}}]}"
     ));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -4961,6 +5522,7 @@ fn deleted_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: deletion, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -4972,17 +5534,21 @@ fn an_unreadable_deleted_face_is_left_on_the_body_and_reported() {
             .unwrap()
             .replacen("0000000000000000000000000000beef", "not a digest", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         ["Some faces deleted by “Delete face 1” could not be read and were left on the body."]
     );
+
     let restored = loaded.document.feature(deletion).unwrap();
+
     assert!(restored.kind.delete_face().unwrap().faces.is_empty());
 }
 
 fn emboss_model() -> (Document, FeatureId) {
     use caditor_document::{Emboss, EmbossForm, RegionChoice};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let sketch = document
         .features()
@@ -4995,6 +5561,7 @@ fn emboss_model() -> (Document, FeatureId) {
         [FaceName::from_digest(2)],
     );
     let mut transaction = document.transaction("Emboss");
+
     let emboss = transaction.add_feature(
         "Emboss 1",
         FeatureKind::Emboss(Emboss {
@@ -5007,6 +5574,7 @@ fn emboss_model() -> (Document, FeatureId) {
             form: EmbossForm::Recessed,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, emboss)
 }
@@ -5015,10 +5583,13 @@ fn emboss_model() -> (Document, FeatureId) {
 fn embossed_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let (document, emboss) = emboss_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"emboss\":{\"body\":1,\"depth\":"));
     assert!(text.contains("\"depth\":\"0.5 mm\""));
     assert!(text.contains("\"recessed\":true"));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -5026,16 +5597,20 @@ fn embossed_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: emboss, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]
 fn a_drafted_emboss_is_saved_as_a_record_kind_of_its_own() {
     let (mut document, emboss) = emboss_model();
+
     let mut kind = document.feature(emboss).unwrap().kind.clone();
+
     let FeatureKind::Emboss(definition) = &mut kind else {
         panic!("Emboss 1 is an emboss");
     };
+
     definition.draft = Expression::parse_stored("5 deg").unwrap();
     document
         .apply(Transaction::single(
@@ -5067,12 +5642,17 @@ fn chosen_emboss_regions() -> RegionChoice {
 
 fn with_emboss_regions(regions: RegionChoice) -> (Document, FeatureId) {
     let (document, emboss) = emboss_model();
+
     let mut kind = document.feature(emboss).unwrap().kind.clone();
+
     let FeatureKind::Emboss(definition) = &mut kind else {
         panic!("Emboss 1 is an emboss");
     };
+
     definition.regions = regions;
+
     let mut document = document;
+
     document
         .apply(Transaction::single(
             "Choose regions",
@@ -5098,6 +5678,7 @@ fn the_chosen_regions_of_an_emboss_are_saved_loaded_and_journaled() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: emboss, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -5112,6 +5693,7 @@ fn an_emboss_of_every_outline_stores_no_regions_and_an_old_record_reads_as_every
         .lines()
         .find(|line| line.contains("\"emboss\":"))
         .unwrap();
+
     assert!(!record.contains("regions"));
     assert_eq!(
         loaded
@@ -5154,17 +5736,21 @@ fn an_unreadable_embossed_face_is_left_plain_and_reported() {
             .unwrap()
             .replacen("0000000000000000000000000000beef", "not a digest", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         ["Some faces embossed by “Emboss 1” could not be read and were left plain."]
     );
+
     let restored = loaded.document.feature(emboss).unwrap();
+
     assert!(restored.kind.emboss().unwrap().faces.is_empty());
 }
 
 fn draft_model() -> (Document, FeatureId) {
     use caditor_document::{Draft, FaceAngle, PlaneReference, PrincipalPlane};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let side = FaceReference::new(
         FaceName::from_digest(0xbeef),
@@ -5172,6 +5758,7 @@ fn draft_model() -> (Document, FeatureId) {
         [FaceName::from_digest(2)],
     );
     let mut transaction = document.transaction("Draft");
+
     let draft = transaction.add_feature(
         "Draft 1",
         FeatureKind::Draft(Draft {
@@ -5192,6 +5779,7 @@ fn draft_model() -> (Document, FeatureId) {
             }],
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, draft)
 }
@@ -5200,6 +5788,7 @@ fn draft_model() -> (Document, FeatureId) {
 fn a_draft_is_saved_and_loaded_as_a_record_of_its_own() {
     let (document, draft) = draft_model();
     let text = encode(&document).unwrap();
+
     assert!(
         text.contains(
             "\"draft\":{\"angle\":\"3 deg\",\"beyond\":\"5 deg\",\"body\":1,\"faces\":[{\"face\":\
@@ -5212,7 +5801,9 @@ fn a_draft_is_saved_and_loaded_as_a_record_of_its_own() {
         ),
         "{text}"
     );
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -5220,12 +5811,14 @@ fn a_draft_is_saved_and_loaded_as_a_record_of_its_own() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: draft, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]
 fn an_unreadable_neutral_plane_or_drafted_face_is_replaced_and_reported() {
     use caditor_document::{PlaneReference, PrincipalPlane};
+
     let (document, draft) = draft_model();
     let text = encode(&document)
         .unwrap()
@@ -5233,6 +5826,7 @@ fn an_unreadable_neutral_plane_or_drafted_face_is_replaced_and_reported() {
         .replacen("0000000000000000000000000000feed", "not a digest", 1)
         .replacen("{\"principal\":\"xz\"}", "{\"principal\":\"xw\"}", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         [
@@ -5242,8 +5836,10 @@ fn an_unreadable_neutral_plane_or_drafted_face_is_replaced_and_reported() {
              they stand."
         ]
     );
+
     let restored = loaded.document.feature(draft).unwrap();
     let restored = restored.kind.draft().unwrap();
+
     assert!(restored.faces.is_empty());
     assert!(restored.own.is_empty());
     assert_eq!(
@@ -5255,6 +5851,7 @@ fn an_unreadable_neutral_plane_or_drafted_face_is_replaced_and_reported() {
 fn replacing_model() -> (Document, FeatureId) {
     use caditor_document::{PlaneReference, PrincipalPlane, ReplaceFace};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let top = FaceReference::new(
         FaceName::from_digest(0xbeef),
@@ -5262,6 +5859,7 @@ fn replacing_model() -> (Document, FeatureId) {
         [FaceName::from_digest(2)],
     );
     let mut transaction = document.transaction("Replace face");
+
     let replace = transaction.add_feature(
         "Replace face 1",
         FeatureKind::ReplaceFace(ReplaceFace {
@@ -5270,6 +5868,7 @@ fn replacing_model() -> (Document, FeatureId) {
             target: Some(PlaneReference::Principal(PrincipalPlane::Xz)),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, replace)
 }
@@ -5278,6 +5877,7 @@ fn replacing_model() -> (Document, FeatureId) {
 fn a_replaced_face_is_saved_and_loaded_as_a_record_of_its_own() {
     let (document, replace) = replacing_model();
     let text = encode(&document).unwrap();
+
     assert!(
         text.contains(
             "\"replace_face\":{\"body\":1,\"faces\":[{\"face\":\
@@ -5286,7 +5886,9 @@ fn a_replaced_face_is_saved_and_loaded_as_a_record_of_its_own() {
         ),
         "{text}"
     );
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -5294,6 +5896,7 @@ fn a_replaced_face_is_saved_and_loaded_as_a_record_of_its_own() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: replace, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -5305,6 +5908,7 @@ fn an_unreadable_target_plane_or_replaced_face_is_reported() {
         .replacen("0000000000000000000000000000beef", "not a digest", 1)
         .replacen("{\"principal\":\"xz\"}", "{\"principal\":\"xw\"}", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         [
@@ -5314,8 +5918,10 @@ fn an_unreadable_target_plane_or_replaced_face_is_reported() {
              to be chosen again."
         ]
     );
+
     let restored = loaded.document.feature(replace).unwrap();
     let restored = restored.kind.replace_face().unwrap();
+
     assert!(restored.faces.is_empty());
     assert_eq!(restored.target, None);
 }
@@ -5323,6 +5929,7 @@ fn an_unreadable_target_plane_or_replaced_face_is_reported() {
 fn moving_model() -> (Document, FeatureId) {
     use caditor_document::{AxisReference, MoveFace, PrincipalAxis};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let top = FaceReference::new(
         FaceName::from_digest(0xbeef),
@@ -5330,6 +5937,7 @@ fn moving_model() -> (Document, FeatureId) {
         [FaceName::from_digest(2)],
     );
     let mut transaction = document.transaction("Move face");
+
     let moving = transaction.add_feature(
         "Move face 1",
         FeatureKind::MoveFace(MoveFace {
@@ -5341,6 +5949,7 @@ fn moving_model() -> (Document, FeatureId) {
             axis: Some(AxisReference::Principal(PrincipalAxis::Y)),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, moving)
 }
@@ -5349,13 +5958,16 @@ fn moving_model() -> (Document, FeatureId) {
 fn shifted_and_tilted_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let (document, moving) = moving_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains(
         "\"move_face\":{\"angle\":\"5 deg\",\"axis\":{\"principal\":\"y\"},\"body\":1,\
          \"distance\":\"2 mm\",\"faces\":[{\"face\":\"0000000000000000000000000000beef\",\
          \"neighbours\":[\"00000000000000000000000000000002\"],\"origin\":{\"end_cap\":\
          {\"feature\":1}}}]}"
     ));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -5363,6 +5975,7 @@ fn shifted_and_tilted_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: moving, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -5374,6 +5987,7 @@ fn an_unreadable_tilt_axis_or_moved_face_is_left_out_and_reported() {
         .replacen("0000000000000000000000000000beef", "not a digest", 1)
         .replacen("{\"principal\":\"y\"}", "{\"principal\":\"w\"}", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         [
@@ -5381,8 +5995,10 @@ fn an_unreadable_tilt_axis_or_moved_face_is_left_out_and_reported() {
             "The tilt axis of “Move face 1” could not be read, so it was left unchosen."
         ]
     );
+
     let restored = loaded.document.feature(moving).unwrap();
     let restored = restored.kind.move_face().unwrap();
+
     assert!(restored.faces.is_empty());
     assert_eq!(restored.axis, None);
 }
@@ -5390,6 +6006,7 @@ fn an_unreadable_tilt_axis_or_moved_face_is_left_out_and_reported() {
 fn sweep_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{BodyOperation, SolidFeature, Sweep, SweepPath};
     use caditor_kernel::{EdgeName, EdgeReference, FaceName, SweepOrientation, VertexName};
+
     let (mut document, base, _) = solid_model();
     let outline = document
         .features()
@@ -5398,9 +6015,11 @@ fn sweep_model() -> (Document, FeatureId, FeatureId) {
         .id();
     let mut transaction = document.transaction("Sweeps");
     let mut path = Sketch::new(Plane::YZ);
+
     let first = path.add_line(Point2::ZERO, Point2::new(0.0, 5.0));
     let second = path.add_line(Point2::new(0.0, 5.0), Point2::new(3.0, 8.0));
     let path = transaction.add_feature("Path", FeatureKind::from(path));
+
     let along_curves = transaction.add_feature(
         "Sweep 1",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep {
@@ -5430,6 +6049,7 @@ fn sweep_model() -> (Document, FeatureId, FeatureId) {
             },
         ))),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, along_curves, along_edges)
 }
@@ -5438,9 +6058,12 @@ fn sweep_model() -> (Document, FeatureId, FeatureId) {
 fn sweeps_are_saved_and_loaded_as_a_record_of_their_own() {
     let (document, along_curves, _) = sweep_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"sweep\":{"), "{text}");
     assert!(text.contains("\"orientation\":\"parallel\""), "{text}");
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -5454,15 +6077,19 @@ fn sweeps_are_saved_and_loaded_as_a_record_of_their_own() {
     );
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]
 fn a_twist_and_scale_law_wraps_the_sweep_record_and_round_trips() {
     use caditor_document::ShapeRow;
+
     let (mut document, along_curves, _) = sweep_model();
     let mut transaction = document.transaction("Law");
+
     let mut kind = document.feature(along_curves).unwrap().kind.clone();
+
     if let FeatureKind::Solid(caditor_document::SolidFeature::Sweep(shaped)) = &mut kind {
         shaped.shape_law = vec![ShapeRow::new(
             Expression::parse_stored("0.5").unwrap(),
@@ -5491,12 +6118,15 @@ fn a_twist_and_scale_law_wraps_the_sweep_record_and_round_trips() {
 fn a_twisted_or_scaled_sweep_wraps_its_record_so_an_older_reader_leaves_it_out() {
     let (mut document, along_curves, along_edges) = sweep_model();
     let mut transaction = document.transaction("Spin");
+
     let spin = transaction.add_parameter("spin", Expression::parse_stored("90 deg").unwrap());
+
     for (sweep, twist, scale) in [
         (along_curves, Expression::Parameter(spin), "0.5"),
         (along_edges, Expression::parse_stored("0 deg").unwrap(), "2"),
     ] {
         let mut kind = document.feature(sweep).unwrap().kind.clone();
+
         if let FeatureKind::Solid(caditor_document::SolidFeature::Sweep(shaped)) = &mut kind {
             shaped.twist = twist;
             shaped.scale = Expression::parse_stored(scale).unwrap();
@@ -5553,25 +6183,31 @@ fn an_unreadable_edge_of_a_sweep_path_is_left_out_and_reported() {
             .unwrap()
             .replacen("0000000000000000000000000000beef", "not a digest", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         ["Some edges of the path of “Sweep 2” could not be read and were left out."]
     );
+
     let restored = loaded.document.feature(along_edges).unwrap();
     let path = restored.kind.solid().unwrap().path().unwrap();
+
     assert!(path.is_empty());
 }
 
 fn pipe_model() -> (Document, FeatureId) {
     use caditor_document::{BodyOperation, Pipe, SweepPath};
     use caditor_kernel::PipeShape;
+
     let (mut document, base, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Pipes");
     let mut path = Sketch::new(Plane::XY);
+
     let first = path.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
     let second = path.add_line(Point2::new(20.0, 0.0), Point2::new(20.0, 30.0));
     let path = transaction.add_feature("Pipe path", FeatureKind::from(path));
+
     let pipe = transaction.add_feature(
         "Pipe 1",
         FeatureKind::Pipe(Pipe {
@@ -5588,6 +6224,7 @@ fn pipe_model() -> (Document, FeatureId) {
             )
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, pipe)
 }
@@ -5628,10 +6265,13 @@ fn an_unreadable_bend_radius_of_a_pipe_loads_as_sharp_corners_and_is_reported() 
 #[test]
 fn ribs_are_saved_and_loaded_as_a_record_of_their_own() {
     use caditor_document::{Rib, RibDirection, RibSide};
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Ribs");
     let mut line = Sketch::new(Plane::XY);
+
     line.add_line(Point2::new(1.0, 1.0), Point2::new(6.0, 4.0));
+
     let line = transaction.add_feature("Rib line", FeatureKind::from(line));
     let rib = transaction.add_feature(
         "Web 1",
@@ -5642,6 +6282,7 @@ fn ribs_are_saved_and_loaded_as_a_record_of_their_own() {
             ..Rib::new(line, base, Expression::parse_stored("1.5 mm").unwrap())
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -5677,12 +6318,16 @@ fn ribs_are_saved_and_loaded_as_a_record_of_their_own() {
 #[test]
 fn a_drafted_web_carried_round_its_arcs_wraps_its_record_so_an_older_reader_leaves_it_out() {
     use caditor_document::{Rib, RibDirection, RibEnds};
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Ribs");
     let mut line = Sketch::new(Plane::XY);
+
     line.add_line(Point2::new(1.0, 1.0), Point2::new(6.0, 4.0));
+
     let line = transaction.add_feature("Rib line", FeatureKind::from(line));
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
+
     let drafted = transaction.add_feature(
         "Web 1",
         FeatureKind::Rib(Rib {
@@ -5699,6 +6344,7 @@ fn a_drafted_web_carried_round_its_arcs_wraps_its_record_so_an_older_reader_leav
             ..Rib::new(line, base, parse("2 mm"))
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -5735,9 +6381,11 @@ fn coil_model() -> (Document, FeatureId) {
         AxisReference, BodyOperation, Coil, CoilLength, CoilTurning, PrincipalAxis,
     };
     use caditor_kernel::{CoilPlacement, CoilShape};
+
     let (mut document, base, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Coils");
+
     let coil = transaction.add_feature(
         "Coil 1",
         FeatureKind::Coil(Coil {
@@ -5758,6 +6406,7 @@ fn coil_model() -> (Document, FeatureId) {
             )
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, coil)
 }
@@ -5797,14 +6446,19 @@ fn an_unreadable_pitch_of_a_coil_loads_as_five_millimetres_and_is_reported() {
 fn loft_model() -> (Document, FeatureId) {
     use caditor_document::{BodyOperation, Loft, LoftSection, PointReference};
     use caditor_kernel::{BoundaryPiece, LoftSkin, RegionKey, RegionReference, Side};
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Lofts");
     let mut low = Sketch::new(Plane::XY);
+
     low.add_circle(Point2::new(3.0, 2.0), 1.5);
+
     let low = transaction.add_feature("Low", FeatureKind::from(low));
     let mut high = Sketch::new(Plane::new(Point3::new(0.0, 0.0, 6.0), Vector3::Z).unwrap());
+
     high.add_circle(Point2::new(3.0, 2.0), 1.0);
     high.add_circle(Point2::new(9.0, 2.0), 1.0);
+
     let high = transaction.add_feature("High", FeatureKind::from(high));
     let chosen = RegionReference::new(
         RegionKey::from_digest(0x0abc_def0_1234_5678_9abc_def0_1234_5678),
@@ -5815,6 +6469,7 @@ fn loft_model() -> (Document, FeatureId) {
         }]),
         Some(Point2::new(3.0, 2.0)),
     );
+
     let loft = transaction.add_feature(
         "Loft 1",
         FeatureKind::Loft(Loft {
@@ -5831,6 +6486,7 @@ fn loft_model() -> (Document, FeatureId) {
             ..Loft::new(Vec::new())
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, loft)
 }
@@ -5852,22 +6508,30 @@ fn lofts_are_saved_and_loaded_as_a_record_of_their_own() {
 #[test]
 fn a_closed_or_square_ended_loft_wraps_its_record_so_an_older_reader_leaves_it_out() {
     let (mut document, loft) = loft_model();
+
     let mut kind = document.feature(loft).unwrap().kind.clone();
+
     if let FeatureKind::Loft(shaped) = &mut kind {
         shaped.end = None;
         shaped.skin = caditor_kernel::LoftSkin::Smooth;
         shaped.square_start = Some(Expression::parse_stored("1.5").unwrap());
         shaped.square_end = Some(Expression::parse_stored("2").unwrap());
     }
+
     let mut closed = kind.clone();
+
     if let FeatureKind::Loft(shaped) = &mut closed {
         shaped.closed = true;
         shaped.square_start = None;
         shaped.square_end = None;
     }
+
     let mut transaction = document.transaction("Ends");
+
     transaction.edit(Edit::SetFeatureKind { id: loft, kind });
+
     let ring = transaction.add_feature("Ring", closed);
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -5925,8 +6589,11 @@ fn an_unreadable_end_point_of_a_loft_loads_ending_at_its_last_profile_and_is_rep
 fn primitive_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{BodyOperation, Primitive, PrimitiveAnchor, PrimitiveShape};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Primitives");
+
     let side = transaction.add_parameter("side", transaction.parse("8 mm").unwrap());
     let block = transaction.add_feature(
         "Box 1",
@@ -5953,6 +6620,7 @@ fn primitive_model() -> (Document, FeatureId, FeatureId) {
         }),
         [FaceName::from_digest(3)],
     );
+
     let bore = transaction.add_feature(
         "Cylinder 1",
         FeatureKind::Primitive(Primitive {
@@ -5973,6 +6641,7 @@ fn primitive_model() -> (Document, FeatureId, FeatureId) {
             operation: BodyOperation::Remove(block),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, block, bore)
 }
@@ -5981,13 +6650,16 @@ fn primitive_model() -> (Document, FeatureId, FeatureId) {
 fn primitives_are_saved_and_loaded_as_a_record_of_their_own() {
     let (document, block, bore) = primitive_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains(
         "\"primitive\":{\"anchor\":\"corner\",\"at\":[\"1 mm\",\"-2 mm\"],\"operation\":\
          \"new_body\",\"plane\":{\"principal\":\"xz\"},\"shape\":{\"box\":{\"height\":\"3 mm\",\
          \"length\":\"$0\",\"width\":\"$0 / 2\"}}}"
     ));
     assert!(text.contains("\"reversed\":true"));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -5996,6 +6668,7 @@ fn primitives_are_saved_and_loaded_as_a_record_of_their_own() {
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -6003,8 +6676,11 @@ fn primitives_are_saved_and_loaded_as_a_record_of_their_own() {
 #[test]
 fn cones_wedges_and_prisms_are_saved_and_loaded_with_their_sizes() {
     use caditor_document::{BodyOperation, Primitive, PrimitiveAnchor, PrimitiveShape};
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Primitives");
+
     let shapes = [
         PrimitiveShape::Cone {
             bottom: transaction.parse("6 mm").unwrap(),
@@ -6023,6 +6699,7 @@ fn cones_wedges_and_prisms_are_saved_and_loaded_with_their_sizes() {
             height: transaction.parse("2 mm").unwrap(),
         },
     ];
+
     for (index, shape) in shapes.into_iter().enumerate() {
         transaction.add_feature(
             format!("Shape {index}"),
@@ -6059,6 +6736,7 @@ fn an_unreadable_primitive_plane_and_size_are_reported_and_replaced() {
         .replacen("{\"principal\":\"xz\"}", "{\"principal\":\"sideways\"}", 1)
         .replacen("\"height\":\"3 mm\"", "\"height\":\"3 (\"", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         [
@@ -6066,7 +6744,9 @@ fn an_unreadable_primitive_plane_and_size_are_reported_and_replaced() {
             "The plane or face “Box 1” stands on could not be read, so it stands on the XY plane.",
         ]
     );
+
     let restored = loaded.document.feature(block).unwrap();
+
     assert_eq!(
         restored.kind.primitive().unwrap().plane,
         PlaneReference::Principal(PrincipalPlane::Xy)
@@ -6081,8 +6761,10 @@ fn patterned_model() -> (Document, FeatureId, FeatureId) {
     use caditor_kernel::{
         EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, VertexName,
     };
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Patterns");
+
     let linear = transaction.add_feature(
         "Linear pattern 1",
         FeatureKind::from(Pattern::new(
@@ -6134,12 +6816,14 @@ fn patterned_model() -> (Document, FeatureId, FeatureId) {
             }),
         )),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, linear, circular)
 }
 
 fn spread_and_skipping(document: &mut Document, linear: FeatureId, circular: FeatureId) {
     use caditor_document::{LinearSpacing, PatternKind};
+
     let mut spread = document
         .feature(linear)
         .unwrap()
@@ -6147,10 +6831,12 @@ fn spread_and_skipping(document: &mut Document, linear: FeatureId, circular: Fea
         .pattern()
         .unwrap()
         .clone();
+
     if let PatternKind::Linear { first, .. } = &mut spread.kind {
         first.measured = LinearSpacing::Total;
     }
     spread.skipped.insert([1, 1]);
+
     let skipping = document
         .feature(circular)
         .unwrap()
@@ -6172,12 +6858,14 @@ fn spread_and_skipping(document: &mut Document, linear: FeatureId, circular: Fea
             },
         ],
     );
+
     document.apply(transaction).unwrap();
 }
 
 #[test]
 fn a_pattern_with_a_total_length_or_instances_left_out_is_a_record_kind_of_its_own() {
     let (mut document, linear, circular) = patterned_model();
+
     spread_and_skipping(&mut document, linear, circular);
 
     let text = encode(&document).unwrap();
@@ -6205,8 +6893,10 @@ fn a_pattern_with_a_total_length_or_instances_left_out_is_a_record_kind_of_its_o
 #[test]
 fn a_pattern_repeating_features_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::HoleStyle;
+
     let (mut document, hole) = holed_model(HoleStyle::Plain, true);
     let (patterned, linear, _) = patterned_model();
+
     let mut repeating = patterned
         .feature(linear)
         .unwrap()
@@ -6215,9 +6905,13 @@ fn a_pattern_repeating_features_is_a_kind_older_readers_report_and_reads_back() 
         .unwrap()
         .clone()
         .repeating(vec![hole]);
+
     repeating.body = document.feature(hole).unwrap().kind.hole().unwrap().body;
+
     let mut transaction = document.transaction("Pattern the hole");
+
     let pattern = transaction.add_feature("Linear pattern 1", FeatureKind::from(repeating));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -6242,15 +6936,19 @@ fn a_pattern_repeating_features_is_a_kind_older_readers_report_and_reads_back() 
 #[test]
 fn a_mirror_of_features_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::{HoleStyle, Mirror};
+
     let (mut document, hole) = holed_model(HoleStyle::Plain, true);
+
     let body = document.feature(hole).unwrap().kind.hole().unwrap().body;
     let mut transaction = document.transaction("Mirror the hole");
+
     let mirror = transaction.add_feature(
         "Mirror 1",
         FeatureKind::Mirror(
             Mirror::new(body, PlaneReference::Principal(PrincipalPlane::Xz)).mirroring(vec![hole]),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -6286,6 +6984,7 @@ fn a_mirror_of_features_is_a_kind_older_readers_report_and_reads_back() {
 fn a_mirror_of_faces_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::Mirror;
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let wall = |digest| {
         FaceReference::new(
@@ -6295,6 +6994,7 @@ fn a_mirror_of_faces_is_a_kind_older_readers_report_and_reads_back() {
         )
     };
     let mut transaction = document.transaction("Mirror faces");
+
     let mirror = transaction.add_feature(
         "Mirror 1",
         FeatureKind::Mirror(
@@ -6302,6 +7002,7 @@ fn a_mirror_of_faces_is_a_kind_older_readers_report_and_reads_back() {
                 .mirroring_faces(vec![wall(0xbeef), wall(0xcafe)]),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -6327,7 +7028,9 @@ fn a_mirror_of_faces_is_a_kind_older_readers_report_and_reads_back() {
         damaged.issues,
         ["Some faces mirrored by “Mirror 1” could not be read and were left out."]
     );
+
     let restored = damaged.document.feature(mirror).unwrap();
+
     assert_eq!(restored.kind.mirror().unwrap().faces.len(), 1);
     assert!(
         not_a_mirror
@@ -6347,10 +7050,12 @@ fn a_mirror_of_faces_is_a_kind_older_readers_report_and_reads_back() {
 fn a_mirror_holding_both_features_and_faces_keeps_both() {
     use caditor_document::Mirror;
     use caditor_kernel::{FaceName, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let face = FaceReference::new(FaceName::from_digest(5), None, []);
 
     let mut transaction = document.transaction("Mirror");
+
     let mirror = transaction.add_feature(
         "Mirror 1",
         FeatureKind::Mirror(
@@ -6359,7 +7064,9 @@ fn a_mirror_holding_both_features_and_faces_keeps_both() {
                 .mirroring_faces(vec![face]),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let kind = document.feature(mirror).unwrap().kind.clone();
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: mirror, kind });
     let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
@@ -6378,6 +7085,7 @@ fn a_mirror_holding_both_features_and_faces_keeps_both() {
 fn a_journaled_appearance_is_written_as_the_document_settles_it() {
     use caditor_document::{BodyAppearance, FaceColour, Rgb};
     use caditor_kernel::{FaceName, FaceReference};
+
     let (_, base, _) = solid_model();
     let appearance = BodyAppearance {
         material: Some("  ".to_owned()),
@@ -6413,8 +7121,10 @@ fn a_journaled_appearance_is_written_as_the_document_settles_it() {
 #[test]
 fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::{Move, TurnCentre};
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Move");
+
     let movement = transaction.add_feature(
         "Move body 1",
         FeatureKind::Move(Move {
@@ -6426,6 +7136,7 @@ fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads
             frame: None,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -6442,8 +7153,10 @@ fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads
 #[test]
 fn a_move_turning_about_an_axis_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::{AxisReference, AxisTurn, Move, PrincipalAxis, TurnCentre};
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Move");
+
     let movement = transaction.add_feature(
         "Move body 1",
         FeatureKind::Move(Move {
@@ -6458,6 +7171,7 @@ fn a_move_turning_about_an_axis_is_a_kind_older_readers_report_and_reads_back() 
             frame: None,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -6477,7 +7191,9 @@ fn a_move_turning_about_an_axis_is_a_kind_older_readers_report_and_reads_back() 
 #[test]
 fn instances_left_out_that_no_pattern_can_make_are_dropped_on_loading() {
     let (mut document, linear, circular) = patterned_model();
+
     spread_and_skipping(&mut document, linear, circular);
+
     let text = encode(&document).unwrap().replacen(
         "\"skipped\":[[2,0]]",
         "\"skipped\":[[0,0],[2,0],[4000,0]]",
@@ -6501,6 +7217,7 @@ fn instances_left_out_that_no_pattern_can_make_are_dropped_on_loading() {
 fn patterns_are_saved_and_loaded() {
     let (document, linear, circular) = patterned_model();
     let text = encode(&document).unwrap();
+
     assert!(
         text.contains("\"linear_pattern\":{\"body\":1,\"first\":{\"axis\":{\"edge\":{\"body\":1,")
     );
@@ -6514,7 +7231,9 @@ fn patterns_are_saved_and_loaded() {
             "\"circular_pattern\":{\"angle\":\"180 deg\",\"axis\":{\"face\":{\"body\":1,"
         )
     );
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -6523,6 +7242,7 @@ fn patterns_are_saved_and_loaded() {
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: pattern, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -6533,6 +7253,7 @@ fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
         CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing, Pattern, PatternKind,
         PointReference, PointsPattern, point_instance,
     };
+
     let (mut document, base, _) = solid_model();
     let outline = document
         .features()
@@ -6540,6 +7261,7 @@ fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
         .unwrap()
         .id();
     let mut transaction = document.transaction("Patterns");
+
     let mut along = Pattern::new(
         base,
         PatternKind::Curve(CurvePattern {
@@ -6551,7 +7273,9 @@ fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
             reversed: true,
         }),
     );
+
     along.skipped.insert([2, 0]);
+
     let along = transaction.add_feature("Curve pattern 1", FeatureKind::from(along));
     let mut at_points = Pattern::new(
         base,
@@ -6563,10 +7287,13 @@ fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
             },
         }),
     );
+
     at_points
         .skipped
         .insert(point_instance(EntityId::from_raw(1 << 40)).unwrap());
+
     let at_points = transaction.add_feature("Point pattern 1", FeatureKind::from(at_points));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -6587,6 +7314,7 @@ fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: pattern, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -6597,6 +7325,7 @@ fn a_curve_pattern_along_edges_is_a_kind_older_readers_report_and_reads_back() {
         CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing, Pattern, PatternKind,
     };
     use caditor_kernel::{EdgeName, EdgeReference, FaceName, VertexName};
+
     let (mut document, base, _) = solid_model();
     let edge = |digest| {
         EdgeReference::new(
@@ -6606,6 +7335,7 @@ fn a_curve_pattern_along_edges_is_a_kind_older_readers_report_and_reads_back() {
         )
     };
     let mut transaction = document.transaction("Pattern");
+
     let mut pattern = Pattern::new(
         base,
         PatternKind::Curve(CurvePattern {
@@ -6620,8 +7350,11 @@ fn a_curve_pattern_along_edges_is_a_kind_older_readers_report_and_reads_back() {
             reversed: true,
         }),
     );
+
     pattern.skipped.insert([2, 0]);
+
     let along = transaction.add_feature("Curve pattern 1", FeatureKind::from(pattern));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -6649,12 +7382,14 @@ fn a_curve_pattern_along_edges_is_a_kind_older_readers_report_and_reads_back() {
 #[test]
 fn a_pattern_whose_axis_cannot_be_read_is_reported_and_a_circular_one_waits_for_an_axis() {
     use caditor_document::{AxisReference, PatternKind, PrincipalAxis};
+
     let (document, linear, circular) = patterned_model();
     let text = encode(&document)
         .unwrap()
         .replacen("000000000000000000000000000000ed", "not a digest", 1)
         .replacen("000000000000000000000000000000fa", "not a digest", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         [
@@ -6662,6 +7397,7 @@ fn a_pattern_whose_axis_cannot_be_read_is_reported_and_a_circular_one_waits_for_
             "The axis of “Circular pattern 1” could not be read; choose the axis it turns about.",
         ]
     );
+
     let restored = loaded
         .document
         .feature(linear)
@@ -6672,8 +7408,10 @@ fn a_pattern_whose_axis_cannot_be_read_is_reported_and_a_circular_one_waits_for_
     let PatternKind::Linear { first, second } = &restored.kind else {
         panic!("the pattern stays linear");
     };
+
     assert_eq!(first.axis, AxisReference::Principal(PrincipalAxis::X));
     assert!(second.is_some());
+
     let restored = loaded
         .document
         .feature(circular)
@@ -6684,6 +7422,7 @@ fn a_pattern_whose_axis_cannot_be_read_is_reported_and_a_circular_one_waits_for_
     let PatternKind::Circular(turned) = &restored.kind else {
         panic!("the pattern stays circular");
     };
+
     assert_eq!(turned.axis, None);
 }
 
@@ -6694,8 +7433,10 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
         SketchFeature, SolidFeature,
     };
     use caditor_kernel::{EdgeName, EdgeReference, FaceName, FaceReference, VertexName};
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Datums");
+
     let plane = transaction.add_feature(
         "Plane 1",
         FeatureKind::Datum(Datum::Plane(DatumPlane {
@@ -6721,6 +7462,7 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
             PlaneReference::Principal(PrincipalPlane::Xy),
         ))),
     );
+
     transaction.add_feature(
         "Axis 2",
         FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Face {
@@ -6734,6 +7476,7 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
             PrincipalAxis::Y,
         )))),
     );
+
     let sketch = transaction.add_feature(
         "On plane",
         FeatureKind::Sketch(SketchFeature::on_datum(
@@ -6741,6 +7484,7 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
             plane,
         )),
     );
+
     transaction.add_feature(
         "Spun",
         FeatureKind::Solid(SolidFeature::Revolve(Revolve {
@@ -6763,6 +7507,7 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
 fn datum_planes_and_axes_are_saved_and_loaded() {
     let (document, plane, sketch) = datum_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"plane\":{\"base\":{\"principal\":\"xz\"},\"offset\":"));
     assert!(text.contains(
         "\"rotation\":{\"angle\":\"$0 * 10 deg / 1 mm\",\"axis\":{\"edge\":{\"body\":1,"
@@ -6771,7 +7516,9 @@ fn datum_planes_and_axes_are_saved_and_loaded() {
     assert!(text.contains("\"axis\":{\"along\":{\"principal\":\"y\"}}"));
     assert!(text.contains(&format!("\"datum\":{}", plane.raw())));
     assert!(text.contains("\"axis\":{\"datum\":"));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -6787,9 +7534,12 @@ fn datum_planes_and_axes_are_saved_and_loaded() {
             attachment: placed.attachment,
         },
     );
+
     assert!(document.check(&transaction).is_ok());
+
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -6801,6 +7551,7 @@ fn datum_points_and_planes_and_axes_through_points_are_saved_loaded_and_journale
     };
     use caditor_kernel::{EdgeName, EdgeReference, FaceName, VertexName};
     use caditor_sketch::EntityId;
+
     let (mut document, base, _) = solid_model();
     let corner = PointReference::Vertex {
         body: base,
@@ -6815,6 +7566,7 @@ fn datum_points_and_planes_and_axes_through_points_are_saved_loaded_and_journale
         )),
     };
     let mut transaction = document.transaction("Datums");
+
     let point = transaction.add_feature(
         "Point 1",
         FeatureKind::Datum(Datum::Point(DatumPoint {
@@ -6831,6 +7583,7 @@ fn datum_points_and_planes_and_axes_through_points_are_saved_loaded_and_journale
         PointReference::Datum(point),
         centre.clone(),
     ]));
+
     transaction.add_feature("Plane 1", FeatureKind::Datum(through));
     transaction.add_feature(
         "Plane 2",
@@ -6877,7 +7630,9 @@ fn datum_points_and_planes_and_axes_through_points_are_saved_loaded_and_journale
             entity: EntityId::from_raw(2),
         }))),
     );
+
     let add = transaction.finish();
+
     document.apply(add.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -6905,8 +7660,10 @@ fn datum_points_and_planes_and_axes_through_points_are_saved_loaded_and_journale
 #[test]
 fn an_unreadable_point_reference_falls_back_and_is_reported() {
     use caditor_document::{Datum, PlaneThrough, PointReference};
+
     let (mut document, _, _) = solid_model();
     let mut transaction = document.transaction("Datums");
+
     transaction.add_feature(
         "Plane 1",
         FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::Points([
@@ -6916,6 +7673,7 @@ fn an_unreadable_point_reference_falls_back_and_is_reported() {
         ]))),
     );
     document.apply(transaction.finish()).unwrap();
+
     let text = encode(&document).unwrap().replacen(
         "[\"origin\",\"origin\",\"origin\"]",
         "[\"origin\",\"origin\",{\"vertex\":{\"body\":1,\"vertex\":\"zz\"}}]",
@@ -6928,11 +7686,13 @@ fn an_unreadable_point_reference_falls_back_and_is_reported() {
         &loaded,
         "What “Plane 1” passes through could not be read, so it is the XY plane."
     ));
+
     let plane = loaded
         .document
         .features()
         .find(|feature| feature.name == "Plane 1")
         .unwrap();
+
     assert!(matches!(plane.kind, FeatureKind::Datum(Datum::Plane(_))));
 }
 
@@ -6942,6 +7702,7 @@ fn constructed_datums_model() -> (Document, Transaction) {
         PointBy, PointReference, PrincipalAxis, PrincipalPlane,
     };
     use caditor_kernel::{EdgeName, EdgeReference, FaceName, FaceReference, VertexName};
+
     let (mut document, base, _) = solid_model();
     let edge = || {
         Box::new(EdgeReference::new(
@@ -6951,12 +7712,14 @@ fn constructed_datums_model() -> (Document, Transaction) {
         ))
     };
     let face = || FaceReference::new(FaceName::from_digest(0xfa), None, Vec::new());
+
     let station = |distance: &str| CurveStation {
         body: base,
         edge: edge(),
         distance: Expression::parse_stored(distance).unwrap(),
     };
     let mut transaction = document.transaction("Constructed datums");
+
     transaction.add_feature(
         "Plane 1",
         FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::Tangent(Box::new(
@@ -7019,7 +7782,9 @@ fn constructed_datums_model() -> (Document, Transaction) {
             offset: [0, 1, 2].map(|_| Expression::parse_stored("0 mm").unwrap()),
         })),
     );
+
     let add = transaction.finish();
+
     document.apply(add.clone()).unwrap();
     (document, add)
 }
@@ -7061,8 +7826,10 @@ fn constructed_planes_and_points_are_kinds_older_readers_report_and_read_back() 
 fn datums_on_curved_faces_edge_middles_and_face_centres_are_a_kind_older_readers_report() {
     use caditor_document::{Datum, DatumAxis, FaceTangent, PlaneThrough, PointBy, PointReference};
     use caditor_kernel::{EdgeName, EdgeReference, FaceName, FaceReference, VertexName};
+
     let (mut document, base, _) = solid_model();
     let face = || FaceReference::new(FaceName::from_digest(0xfa), None, Vec::new());
+
     let tangent = || {
         Box::new(FaceTangent {
             body: base,
@@ -7071,6 +7838,7 @@ fn datums_on_curved_faces_edge_middles_and_face_centres_are_a_kind_older_readers
         })
     };
     let mut transaction = document.transaction("Datums");
+
     transaction.add_feature(
         "Plane 1",
         FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::TangentAt(tangent()))),
@@ -7097,7 +7865,9 @@ fn datums_on_curved_faces_edge_middles_and_face_centres_are_a_kind_older_readers
             face: face(),
         })),
     );
+
     let add = transaction.finish();
+
     document.apply(add.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -7126,6 +7896,7 @@ fn datums_on_curved_faces_edge_middles_and_face_centres_are_a_kind_older_readers
 #[test]
 fn an_unreadable_constructed_datum_falls_back_and_is_reported() {
     use caditor_document::Datum;
+
     let (document, _) = constructed_datums_model();
     let text = encode(&document).unwrap();
 
@@ -7165,8 +7936,11 @@ fn a_sketch_on_a_plane_that_is_gone_stays_on_it_as_saved() {
         .map(|line| format!("{line}\n"))
         .collect();
     let loaded = decode_text(&without_plane);
+
     assert!(loaded.document.feature(plane).is_none());
+
     let restored = loaded.document.feature(sketch).unwrap();
+
     assert_eq!(
         restored.kind.attachment().and_then(SketchAttachment::datum),
         Some(plane)
@@ -7175,7 +7949,9 @@ fn a_sketch_on_a_plane_that_is_gone_stays_on_it_as_saved() {
 
 fn only_file_in(dir: &Path) -> PathBuf {
     let mut entries = fs::read_dir(dir).unwrap();
+
     let path = entries.next().unwrap().unwrap().path();
+
     assert!(entries.next().is_none());
     path
 }
@@ -7185,19 +7961,23 @@ fn a_journal_whose_first_change_cannot_be_read_is_kept() {
     let dir = TempDir::new().unwrap();
     let storage = Storage::spawn(config(&dir), untitled(&sample()), || {}).unwrap();
     let mut editor = Editor::new(sample());
+
     record_session(&storage, &mut editor);
     crash(storage);
+
     let journal = only_file_in(&dir.path().join("recovery"));
     let original = fs::read(&journal).unwrap();
     let rewritten = rewrite_journal(&original, |index, json| match index {
         2 => json.replace("set_parameter_expression", "bend_sheet"),
         _ => json,
     });
+
     fs::write(&journal, rewritten).unwrap();
 
     let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
         panic!("a journal with unread changes should be offered, not removed");
     };
+
     assert_eq!(recovered.changes(), 0);
     assert!(recovered.issues[0].contains("newer version of caditor"));
     assert!(journal.exists());
@@ -7214,6 +7994,7 @@ fn a_journal_unpacking_past_the_memory_budget_is_recovered_up_to_it() {
         .map(|chunk| chunk.content_length())
         .collect();
     let through_snapshot: usize = lengths[..2].iter().sum();
+
     let through_first_change = through_snapshot + lengths[2];
 
     let whole = inspect(&journal).unwrap();
@@ -7228,6 +8009,7 @@ fn a_journal_unpacking_past_the_memory_budget_is_recovered_up_to_it() {
     let (Inspection::Recoverable(whole), Inspection::Recoverable(cut)) = (whole, cut) else {
         panic!("the journal should be offered whole and cut at the budget");
     };
+
     assert_eq!(lengths.len(), 5);
     assert_eq!(whole.changes(), 3);
     assert_eq!(whole.issues, Vec::<String>::new());
@@ -7249,7 +8031,9 @@ fn a_journal_unpacking_past_the_memory_budget_is_recovered_up_to_it() {
 fn crashed_beside_its_saved_model(dir: &TempDir, config: StorageConfig) -> (PathBuf, Editor) {
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: load(&path).unwrap().digest,
@@ -7257,6 +8041,7 @@ fn crashed_beside_its_saved_model(dir: &TempDir, config: StorageConfig) -> (Path
     };
     let storage = Storage::spawn(config, start, || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
     crash(storage);
     (dir.path().join(".model.caditor.journal"), editor)
@@ -7265,6 +8050,7 @@ fn crashed_beside_its_saved_model(dir: &TempDir, config: StorageConfig) -> (Path
 fn with_damaged_snapshot(journal: &Path) {
     let original = fs::read(journal).unwrap();
     let damaged = corrupt_chunk(&original, &binary::JOURNAL_MAGIC, 1);
+
     fs::write(journal, damaged).unwrap();
 }
 
@@ -7272,6 +8058,7 @@ fn with_damaged_snapshot(journal: &Path) {
 fn a_journal_whose_plain_snapshot_is_damaged_replays_onto_the_saved_model() {
     let dir = TempDir::new().unwrap();
     let (journal, editor) = crashed_beside_its_saved_model(&dir, config(&dir));
+
     with_damaged_snapshot(&journal);
 
     let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
@@ -7294,6 +8081,7 @@ fn a_journal_whose_plain_snapshot_is_damaged_replays_onto_the_saved_model() {
 fn a_journal_with_a_damaged_snapshot_is_set_aside_when_the_model_changed_since() {
     let dir = TempDir::new().unwrap();
     let (journal, _) = crashed_beside_its_saved_model(&dir, config(&dir));
+
     with_damaged_snapshot(&journal);
     save(
         &Document::default(),
@@ -7310,7 +8098,9 @@ fn a_journal_whose_rebased_snapshot_is_damaged_stays_damaged() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: load(&path).unwrap().digest,
@@ -7318,9 +8108,12 @@ fn a_journal_whose_rebased_snapshot_is_damaged_stays_damaged() {
     };
     let storage = Storage::spawn(rebasing(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(base);
+
     edit_until_rebased(&storage, &mut editor);
     crash(storage);
+
     let journal = dir.path().join(".model.caditor.journal");
+
     with_damaged_snapshot(&journal);
 
     assert!(matches!(inspect(&journal).unwrap(), Inspection::Damaged));
@@ -7331,9 +8124,13 @@ fn a_model_holding_an_undefined_number_is_refused_rather_than_saved_damaged() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::ZERO, Point2::new(f64::NAN, 1.0));
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Undefined");
+
     transaction.add_feature("Broken sketch", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
 
@@ -7351,9 +8148,12 @@ fn a_model_holding_an_undefined_number_is_refused_rather_than_saved_damaged() {
 fn a_read_only_model_is_not_replaced_and_says_why() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     save(&Document::default(), &path, false).unwrap();
+
     let before = fs::read(&path).unwrap();
     let mut read_only = fs::metadata(&path).unwrap().permissions();
+
     read_only.set_readonly(true);
     fs::set_permissions(&path, read_only).unwrap();
 
@@ -7380,6 +8180,7 @@ fn orphaned_temporary_files_are_removed_by_the_next_save() {
         .path()
         .join(".model.caditor.0123456789abcdef-4294967295-3.tmp");
     let unrelated = dir.path().join(".model.caditor.notes.tmp");
+
     for file in [&orphan, &ours, &other_host, &unrelated] {
         fs::write(file, "partial").unwrap();
     }
@@ -7396,7 +8197,9 @@ fn orphaned_temporary_files_are_removed_by_the_next_save() {
 fn the_scan_sweeps_temporaries_left_by_earlier_boots_of_this_machine() {
     let dir = TempDir::new().unwrap();
     let recovery = dir.path().join("recovery");
+
     fs::create_dir(&recovery).unwrap();
+
     let (machine, boot) = (save::machine_tag(), save::boot_tag());
     let earlier_boot = recovery.join(format!(
         ".untitled-1-2.journal.{machine}-0123456789abcdef-4294967295-3.tmp"
@@ -7413,6 +8216,7 @@ fn the_scan_sweeps_temporaries_left_by_earlier_boots_of_this_machine() {
     ));
     let older_format = recovery.join(".untitled-1-2.journal.0123456789abcdef-4294967295-7.tmp");
     let unrelated = recovery.join(".notes.tmp");
+
     let all = [
         &earlier_boot,
         &ended_run,
@@ -7421,6 +8225,7 @@ fn the_scan_sweeps_temporaries_left_by_earlier_boots_of_this_machine() {
         &older_format,
         &unrelated,
     ];
+
     for file in all {
         fs::write(file, "partial").unwrap();
     }
@@ -7428,6 +8233,7 @@ fn the_scan_sweeps_temporaries_left_by_earlier_boots_of_this_machine() {
     assert!(scan(Some(&recovery), &[]).is_empty());
 
     let identified = machine != "unknown" && boot != "unknown";
+
     assert_eq!(!earlier_boot.exists(), identified);
     assert_eq!(!ended_run.exists(), boot != "unknown");
     assert!(running.exists());
@@ -7440,15 +8246,21 @@ fn the_scan_sweeps_temporaries_left_by_earlier_boots_of_this_machine() {
 fn a_model_whose_name_fills_the_limit_is_saved_backed_up_and_journaled() {
     let dir = TempDir::new().unwrap();
     let name = format!("{}.caditor", "é".repeat(123));
+
     assert_eq!(name.len(), 254);
+
     let path = dir.path().join(&name);
+
     fs::write(&path, "damaged original").unwrap();
 
     let backup = save(&sample(), &path, true).unwrap().backup.unwrap();
+
     assert_eq!(fs::read_to_string(&backup).unwrap(), "damaged original");
     assert!(backup.file_name().unwrap().len() <= 255);
     assert!(backup.to_str().unwrap().ends_with(".damaged.caditor"));
+
     save(&sample(), &path, false).unwrap();
+
     assert_eq!(load(&path).unwrap().document, sample());
 
     let start = Start {
@@ -7458,14 +8270,19 @@ fn a_model_whose_name_fills_the_limit_is_saved_backed_up_and_journaled() {
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(sample());
+
     record_session(&storage, &mut editor);
+
     assert!(storage.poll().unwrap().is_empty());
+
     crash(storage);
+
     let FileJournal::Recoverable(recovered) =
         journal_for(&path, Some(&dir.path().join("recovery")))
     else {
         panic!("the journal should be kept in the recovery folder");
     };
+
     assert_eq!(recovered.editor.document(), editor.document());
 }
 
@@ -7474,7 +8291,9 @@ fn a_recovered_file_remembers_that_it_loaded_with_problems() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: None,
@@ -7483,6 +8302,7 @@ fn a_recovered_file_remembers_that_it_loaded_with_problems() {
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
     crash(storage);
 
@@ -7491,6 +8311,7 @@ fn a_recovered_file_remembers_that_it_loaded_with_problems() {
     else {
         panic!("unsaved changes should be offered");
     };
+
     assert!(recovered.loaded_with_problems);
 }
 
@@ -7499,7 +8320,9 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let other = Storage::spawn(
         config(&dir),
         Start {
@@ -7510,15 +8333,19 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
         || {},
     )
     .unwrap();
+
     assert!(other.flusher().flush(WAIT));
+
     let journal = dir.path().join(".model.caditor.journal");
     let stamp = |journal: &Path| {
         let metadata = fs::metadata(journal).unwrap();
         (metadata.len(), metadata.modified().unwrap())
     };
+
     let before = stamp(&journal);
 
     let storage = Storage::spawn(config(&dir), untitled(&Document::default()), || {}).unwrap();
+
     storage
         .save(SaveRequest {
             ticket: 1,
@@ -7531,12 +8358,15 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
             preview: None,
         })
         .unwrap();
+
     let Report::SaveFailed { error, .. } = wait_for_report(&storage) else {
         panic!("the save should be refused");
     };
+
     assert_eq!(error, SaveError::OpenInAnotherWindow);
     assert_eq!(load(&path).unwrap().document, base);
     assert_eq!(stamp(&journal), before);
+
     crash(storage);
     crash(other);
 }
@@ -7544,17 +8374,21 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
 #[test]
 fn features_that_share_a_name_are_loaded_under_distinct_names() {
     let mut lines = lines_of(&sample());
+
     let side = lines
         .iter_mut()
         .find(|line| line.contains("\"Side sketch\""))
         .unwrap();
+
     *side = side.replace("\"Side sketch\"", "\"Base sketch\"");
+
     let loaded = decode_lines(&lines);
     let names: Vec<&str> = loaded
         .document
         .features()
         .map(|feature| feature.name.as_str())
         .collect();
+
     assert_eq!(names, ["Base sketch", "Base sketch 2"]);
     assert_eq!(
         loaded.issues,
@@ -7570,7 +8404,9 @@ fn feature_names_padded_with_spaces_are_loaded_trimmed() {
         .iter_mut()
         .find(|line| line.contains("\"Side sketch\""))
         .unwrap();
+
     *side = side.replace("\"Side sketch\"", "\" Base sketch \"");
+
     let loaded = decode_lines(&lines);
     let names: Vec<&str> = loaded
         .document
@@ -7586,9 +8422,13 @@ fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
     let mut document = Document::default();
 
     let mut section = Sketch::new(Plane::XZ);
+
     let pivot = section.add_line(Point2::new(0.0, 0.0), Point2::new(0.0, 3.0));
+
     section.add_line(Point2::new(2.0, 0.0), Point2::new(4.0, 3.0));
+
     let mut transaction = document.transaction("Build");
+
     let section = transaction.add_feature("Section", FeatureKind::from(section));
     let ring = transaction.add_feature(
         "Ring",
@@ -7606,11 +8446,16 @@ fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
             },
         )),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut lines = lines_of(&document);
     let axis = format!("\"axis\":{},", pivot.raw());
+
     let revolve = lines.iter_mut().find(|line| line.contains(&axis)).unwrap();
+
     *revolve = revolve.replace(&axis, "\"axis\":999,");
+
     let loaded = decode_lines(&lines);
     let axis = loaded
         .document
@@ -7657,6 +8502,7 @@ fn many_repeated_names_cycles_and_duplicate_ids_load_quickly() {
     let mut lines: Vec<String> = (0..half)
         .map(|id| parameter_line(id, &format!("${id} + 1 mm")))
         .collect();
+
     lines.extend((0..half).map(|index| empty_sketch_line(index % 2, "F")));
 
     let (loaded, steps) = tally::measure(|| decode_lines(&lines));
@@ -7665,10 +8511,14 @@ fn many_repeated_names_cycles_and_duplicate_ids_load_quickly() {
         steps <= LOAD_STEPS_PER_RECORD * MAX_RECORDS,
         "{steps} steps for {MAX_RECORDS} records"
     );
+
     let document = &loaded.document;
+
     assert_eq!(document.parameters().len(), half);
     assert!(document.parameter_named("parameter_9").is_some());
+
     let names: Vec<&str> = document.features().map(|f| f.name.as_str()).collect();
+
     assert_eq!(names, ["F", "F 2"]);
     assert!(issues_mention(
         &loaded,
@@ -7683,6 +8533,7 @@ fn records_beyond_the_limit_are_left_out_and_reported() {
         .map(|id| parameter_line(id, "1 mm"))
         .collect();
     let loaded = decode_lines(&lines);
+
     assert_eq!(loaded.document.parameters().len(), MAX_RECORDS);
     assert!(issues_mention(
         &loaded,
@@ -7694,19 +8545,26 @@ fn records_beyond_the_limit_are_left_out_and_reported() {
 #[test]
 fn a_model_holding_as_many_records_as_a_file_opens_reopens_with_every_feature() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Fill");
+
     for index in 0..MAX_RECORDS - 2 {
         transaction.add_parameter(format!("filler_{index}"), Expression::Number(1.0));
     }
+
     let first = transaction.add_feature("First", FeatureKind::from(Sketch::new(Plane::XY)));
     let last = transaction.add_feature("Last", FeatureKind::from(Sketch::new(Plane::XY)));
+
     document.apply(transaction.finish()).unwrap();
 
     let mut beyond = document.transaction("Beyond");
+
     beyond.add_feature("Beyond", FeatureKind::from(Sketch::new(Plane::XY)));
 
     assert!(document.apply(beyond.finish()).is_err());
+
     let loaded = decode(&crate::encode(&document).unwrap()).unwrap();
+
     assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
     assert_eq!(loaded.document.parameters().len(), MAX_RECORDS - 2);
     assert!(loaded.document.feature(first).is_some());
@@ -7724,11 +8582,13 @@ fn a_journal_larger_than_a_chunk_replays_whole() {
         loaded_with_problems: false,
         folded: 0,
     };
+
     let bytes = binary::testing::with_slices_of(64, || {
         journal::encode_journal(&head, &base, &entries).unwrap()
     });
 
     let contents = journal::decode_journal(&bytes).unwrap();
+
     assert_eq!(contents.issues, Vec::<String>::new());
     assert_eq!(contents.base, base);
     assert_eq!(contents.entries, entries);
@@ -7746,25 +8606,33 @@ fn journal_kinds(journal: &Path) -> Vec<binary::ChunkKind> {
 
 fn undo_and_redo(storage: &Storage, editor: &mut Editor) {
     let undone = editor.next_undo().cloned().unwrap();
+
     editor.undo().unwrap();
     storage.record(JournalEntry::Undo(undone)).unwrap();
+
     let redone = editor.next_redo().cloned().unwrap();
+
     editor.redo().unwrap();
     storage.record(JournalEntry::Redo(redone)).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
 }
 
 #[test]
 fn undo_and_redo_are_journaled_by_reference_and_replay_with_their_history() {
     use binary::ChunkKind::{Apply, JournalHeader, RedoNext, Snapshot, UndoLast};
+
     let dir = TempDir::new().unwrap();
     let storage = Storage::spawn(config(&dir), untitled(&sample()), || {}).unwrap();
     let mut editor = Editor::new(sample());
+
     let change = edit_width(editor.document(), "50 mm");
+
     editor.apply(change.clone()).unwrap();
     storage.record(JournalEntry::Apply(change)).unwrap();
     undo_and_redo(&storage, &mut editor);
     crash(storage);
+
     let journal = only_file_in(&dir.path().join("recovery"));
 
     let kinds = journal_kinds(&journal);
@@ -7782,15 +8650,19 @@ fn undo_and_redo_are_journaled_by_reference_and_replay_with_their_history() {
 #[test]
 fn an_undo_reaching_past_the_journal_snapshot_is_journaled_whole() {
     use binary::ChunkKind::{JournalHeader, Redo, Snapshot, Undo, UndoLast};
+
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let start = Start {
         file: Some(path.clone()),
         ..untitled(&sample())
     };
+
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(sample());
+
     let change = edit_width(editor.document(), "50 mm");
+
     editor.apply(change.clone()).unwrap();
     storage.record(JournalEntry::Apply(change)).unwrap();
     storage
@@ -7806,11 +8678,16 @@ fn an_undo_reaching_past_the_journal_snapshot_is_journaled_whole() {
         })
         .unwrap();
     undo_and_redo(&storage, &mut editor);
+
     let undone = editor.next_undo().cloned().unwrap();
+
     editor.undo().unwrap();
     storage.record(JournalEntry::Undo(undone)).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     crash(storage);
+
     let journal = dir.path().join(".model.caditor.journal");
 
     let kinds = journal_kinds(&journal);
@@ -7837,12 +8714,16 @@ struct Rebased {
 
 fn edit_until_rebased(storage: &Storage, editor: &mut Editor) -> Rebased {
     let mut states = vec![editor.document().clone()];
+
     for step in 0..400 {
         let change = edit_width(editor.document(), &format!("{} mm", 40 + step % 7));
+
         editor.apply(change.clone()).unwrap();
         states.push(editor.document().clone());
         storage.record(JournalEntry::Apply(change)).unwrap();
+
         assert!(storage.flusher().flush(WAIT));
+
         let rebased = storage
             .poll()
             .unwrap()
@@ -7853,6 +8734,7 @@ fn edit_until_rebased(storage: &Storage, editor: &mut Editor) -> Rebased {
             });
         if let Some((folded, base)) = rebased {
             assert_eq!(base, states[folded]);
+
             return Rebased {
                 folded,
                 recorded: states.len() - 1,
@@ -7876,10 +8758,14 @@ fn a_journal_past_its_size_rebases_onto_the_model_as_edited() {
 
     let rebased = edit_until_rebased(&storage, &mut editor);
     let change = edit_width(editor.document(), "99 mm");
+
     editor.apply(change.clone()).unwrap();
     storage.record(JournalEntry::Apply(change)).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     crash(storage);
+
     let journal = only_file_in(&dir.path().join("recovery"));
 
     let recovered = scan(Some(&dir.path().join("recovery")), &[]).remove(0);
@@ -7897,8 +8783,11 @@ fn a_rebased_journal_is_offered_and_restored_with_its_folded_changes() {
     let recovery = dir.path().join("recovery");
     let storage = Storage::spawn(rebasing(&dir), untitled(&sample()), || {}).unwrap();
     let mut editor = Editor::new(sample());
+
     let rebased = edit_until_rebased(&storage, &mut editor);
+
     crash(storage);
+
     let recovered = scan(Some(&recovery), &[]).remove(0);
 
     let start = Start {
@@ -7912,8 +8801,11 @@ fn a_rebased_journal_is_offered_and_restored_with_its_folded_changes() {
         after: None,
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     crash(storage);
+
     let journal = only_file_in(&recovery);
     let again = scan(Some(&recovery), &[]).remove(0);
 
@@ -7927,6 +8819,7 @@ fn a_rebased_journal_is_offered_and_restored_with_its_folded_changes() {
 
 fn suppressed_and_rolled_back() -> (Document, FeatureId, FeatureId, Transaction) {
     let (mut document, base, turned) = solid_model();
+
     let change = Transaction::new(
         "Suppress and roll back",
         vec![
@@ -7939,6 +8832,7 @@ fn suppressed_and_rolled_back() -> (Document, FeatureId, FeatureId, Transaction)
             },
         ],
     );
+
     document.apply(change.clone()).unwrap();
     (document, base, turned, change)
 }
@@ -7994,6 +8888,7 @@ fn a_deleted_suppressed_feature_comes_back_suppressed_from_its_journaled_undo() 
     let journaled: format::TransactionRecord =
         through_binary(&serde_json::to_string(&record).unwrap());
     let restored = format::restore_transaction(journaled).unwrap();
+
     deleted.apply(restored.clone()).unwrap();
 
     assert_eq!(restored, undo);
@@ -8005,23 +8900,31 @@ fn a_deleted_suppressed_feature_comes_back_suppressed_from_its_journaled_undo() 
 fn suppressing_and_rolling_back_are_recovered_from_the_journal_after_a_crash() {
     let dir = TempDir::new().unwrap();
     let (base_document, base, turned, _) = suppressed_and_rolled_back();
+
     let storage = Storage::spawn(config(&dir), untitled(&base_document), || {}).unwrap();
     let mut editor = Editor::new(base_document.clone());
     let changes = [
         base_document.suppression(&[base], false, "Unsuppress Base"),
         base_document.roll_to(RollbackBar::AtEnd, "Roll to end"),
     ];
+
     for change in changes {
         editor.apply(change.clone()).unwrap();
         storage.record(JournalEntry::Apply(change)).unwrap();
     }
+
     let delete = editor.document().deletion(&[turned], "Delete Turned");
+
     editor.apply(delete.clone()).unwrap();
     storage.record(JournalEntry::Apply(delete)).unwrap();
+
     let undo = editor.next_undo().cloned().unwrap();
+
     editor.undo().unwrap();
     storage.record(JournalEntry::Undo(undo)).unwrap();
+
     assert!(storage.flusher().flush(WAIT));
+
     crash(storage);
 
     let recovered = scan(Some(&dir.path().join("recovery")), &[]).remove(0);
@@ -8046,6 +8949,7 @@ fn suppressing_and_rolling_back_are_recovered_from_the_journal_after_a_crash() {
 fn a_rollback_bar_above_a_feature_that_is_gone_is_reported_and_left_at_the_end() {
     let (document, _, _) = solid_model();
     let mut lines = lines_of(&document);
+
     lines.push(r#"{"rollback":{"before":77}}"#.to_owned());
     lines.push(r#"{"suppressed":{"features":[78]}}"#.to_owned());
 
@@ -8069,9 +8973,11 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
         SolidFeature,
     };
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let sketch = document.features().next().unwrap().id();
     let mut transaction = document.transaction("Extents");
+
     let level = transaction.add_feature(
         "Level",
         FeatureKind::Datum(Datum::Plane(DatumPlane {
@@ -8100,6 +9006,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             reversed: true,
         }),
     );
+
     let between = transaction.add_feature(
         "Between",
         extrude(ExtrudeExtent::TwoSides {
@@ -8140,6 +9047,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             wall: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, [through, between, next, turned])
 }
@@ -8166,6 +9074,7 @@ fn extents_to_faces_planes_and_the_next_face_and_two_angles_are_saved_and_loaded
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -8176,8 +9085,11 @@ fn an_extrusion_along_an_axis_is_a_kind_older_readers_report() {
         AxisReference, BodyOperation, Extrude, ExtrudeExtent, PrincipalAxis, RegionChoice,
         SolidFeature,
     };
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
     let leaning = transaction.add_feature(
         "Leaning",
@@ -8193,6 +9105,7 @@ fn an_extrusion_along_an_axis_is_a_kind_older_readers_report() {
             direction: Some(Box::new(AxisReference::Principal(PrincipalAxis::Z))),
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -8205,6 +9118,7 @@ fn an_extrusion_along_an_axis_is_a_kind_older_readers_report() {
     assert_eq!(loaded.document, document);
     assert!(older.document.feature(leaning).is_none());
     assert!(!older.issues.is_empty());
+
     let Some(FeatureKind::Solid(SolidFeature::Extrude(restored))) = damaged
         .document
         .feature(leaning)
@@ -8212,11 +9126,14 @@ fn an_extrusion_along_an_axis_is_a_kind_older_readers_report() {
     else {
         panic!("the extrusion was not loaded");
     };
+
     assert!(restored.direction.is_none());
     assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+
     let kind = document.feature(leaning).unwrap().kind.clone();
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: leaning, kind });
     let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
     assert_eq!(
         format::restore_transaction(through_binary(&journaled)),
         Some(transaction)
@@ -8229,8 +9146,11 @@ fn a_revolve_up_to_a_plane_is_a_kind_older_readers_report() {
         BodyOperation, PlaneReference, PrincipalPlane, RegionChoice, Revolve, RevolveAxis,
         RevolveExtent, SolidFeature,
     };
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XZ)));
     let turned = transaction.add_feature(
         "Turned",
@@ -8246,6 +9166,7 @@ fn a_revolve_up_to_a_plane_is_a_kind_older_readers_report() {
             wall: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -8260,9 +9181,11 @@ fn a_revolve_up_to_a_plane_is_a_kind_older_readers_report() {
     assert!(older.document.feature(turned).is_none());
     assert!(!older.issues.is_empty());
     assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+
     let kind = document.feature(turned).unwrap().kind.clone();
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: turned, kind });
     let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
     assert_eq!(
         format::restore_transaction(through_binary(&journaled)),
         Some(transaction)
@@ -8276,6 +9199,7 @@ fn ends_up_to_curved_faces_are_a_kind_older_readers_report() {
         SolidFeature,
     };
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let sketch = document.features().next().unwrap().id();
     let mut transaction = document.transaction("Surfaces");
@@ -8289,6 +9213,7 @@ fn ends_up_to_curved_faces_are_a_kind_older_readers_report() {
             [FaceName::from_digest(7)],
         ),
     };
+
     let one = transaction.add_feature(
         "Up to it",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -8307,6 +9232,7 @@ fn ends_up_to_curved_faces_are_a_kind_older_readers_report() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -8320,9 +9246,11 @@ fn ends_up_to_curved_faces_are_a_kind_older_readers_report() {
     assert!(older.document.feature(one).is_none());
     assert!(!older.issues.is_empty());
     assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+
     let kind = document.feature(one).unwrap().kind.clone();
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: one, kind });
     let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
     assert_eq!(
         format::restore_transaction(through_binary(&journaled)),
         Some(transaction)
@@ -8335,9 +9263,11 @@ fn ends_offset_from_the_faces_they_reach_are_a_kind_older_readers_report() {
         BodyOperation, Datum, DatumPlane, Extrude, ExtrudeEnd, ExtrudeExtent, PlaneReference,
         PrincipalPlane, RegionChoice, SolidFeature,
     };
+
     let (mut document, base, _) = solid_model();
     let sketch = document.features().next().unwrap().id();
     let mut transaction = document.transaction("Offsets");
+
     let level = transaction.add_feature(
         "Level",
         FeatureKind::Datum(Datum::Plane(DatumPlane {
@@ -8362,6 +9292,7 @@ fn ends_offset_from_the_faces_they_reach_are_a_kind_older_readers_report() {
     let short = ExtrudeEnd::up_to_face(PlaneReference::Datum(level))
         .with_offset(Some(transaction.parse("-2 mm").unwrap()));
     let past = ExtrudeEnd::up_to_next().with_offset(Some(transaction.parse("depth").unwrap()));
+
     let one = transaction.add_feature(
         "Short",
         extrude(ExtrudeExtent::OneSide {
@@ -8376,6 +9307,7 @@ fn ends_offset_from_the_faces_they_reach_are_a_kind_older_readers_report() {
             backward: past,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -8390,11 +9322,13 @@ fn ends_offset_from_the_faces_they_reach_are_a_kind_older_readers_report() {
     assert!(older.document.feature(one).is_none());
     assert!(older.document.feature(two).is_none());
     assert!(!older.issues.is_empty());
+
     for feature in [one, two] {
         let kind = document.feature(feature).unwrap().kind.clone();
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 
@@ -8404,6 +9338,7 @@ fn ends_offset_from_the_faces_they_reach_are_a_kind_older_readers_report() {
     else {
         panic!("the extrusion was not loaded");
     };
+
     assert_eq!(
         restored.extent.ends()[0].offset(),
         Some(&Expression::Measure(0.0, Unit::Millimetre))
@@ -8416,8 +9351,11 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
         BodyOperation, Datum, DatumPlane, Extrude, ExtrudeExtent, PlaneReference, PrincipalPlane,
         RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, SolidStart,
     };
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
     let level = transaction.add_feature(
         "Level",
@@ -8427,6 +9365,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             offset: transaction.parse("5 mm").unwrap(),
         })),
     );
+
     let raised = transaction.add_feature(
         "Raised",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -8474,6 +9413,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             wall: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, [raised, lifted, placed])
 }
@@ -8496,6 +9436,7 @@ fn starts_at_a_plane_or_off_a_revolution_are_saved_in_kinds_older_readers_report
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -8506,8 +9447,11 @@ fn a_revolution_keeping_one_side_of_its_axis_is_a_kind_older_readers_report() {
         AxisSide, BodyOperation, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
         SolidStart,
     };
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
     let left = transaction.add_feature(
         "Left",
@@ -8523,6 +9467,7 @@ fn a_revolution_keeping_one_side_of_its_axis_is_a_kind_older_readers_report() {
             wall: None,
         })),
     );
+
     let right = transaction.add_feature(
         "Right",
         FeatureKind::Solid(SolidFeature::Revolve(Revolve {
@@ -8540,6 +9485,7 @@ fn a_revolution_keeping_one_side_of_its_axis_is_a_kind_older_readers_report() {
             wall: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -8560,6 +9506,7 @@ fn a_revolution_keeping_one_side_of_its_axis_is_a_kind_older_readers_report() {
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -8571,8 +9518,11 @@ fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
         SolidFeature, Wall,
     };
     use caditor_kernel::WallSide;
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
     let tapered = transaction.add_feature(
         "Tapered",
@@ -8591,6 +9541,7 @@ fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
             direction: None,
         })),
     );
+
     let cup = transaction.add_feature(
         "Cup",
         FeatureKind::Solid(SolidFeature::Revolve(Revolve {
@@ -8622,6 +9573,7 @@ fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -8638,11 +9590,13 @@ fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
     assert!(older.document.feature(cup).is_none());
     assert!(older.document.feature(plain).is_some());
     assert!(!older.issues.is_empty());
+
     for feature in [tapered, cup] {
         let kind = document.feature(feature).unwrap().kind.clone();
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 
@@ -8654,6 +9608,7 @@ fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
     else {
         panic!("the tapered extrusion loads");
     };
+
     assert_eq!(
         extrude.wall.as_ref().map(|wall| wall.side),
         Some(WallSide::Centred)
@@ -8738,7 +9693,9 @@ fn unreadable_ends_and_angles_fall_back_and_are_reported() {
             "The forward angle of “Two angles” could not be read, so it was set to 180 deg.",
         ]
     );
+
     let ten = caditor_document::ExtrudeEnd::Distance(Expression::Measure(10.0, Unit::Millimetre));
+
     for feature in [between, next] {
         let caditor_document::SolidFeature::Extrude(extrude) = loaded
             .document
@@ -8753,15 +9710,20 @@ fn unreadable_ends_and_angles_fall_back_and_are_reported() {
         let caditor_document::ExtrudeExtent::TwoSides { forward, .. } = &extrude.extent else {
             panic!("two sides stay two sides");
         };
+
         assert_eq!(forward, &ten);
     }
+
     assert!(loaded.document.feature(turned).is_some());
 }
 
 fn fake_log(state: &Path, seconds: u64, process: u32, last: &str) -> PathBuf {
     let dir = state.join("logs");
+
     fs::create_dir_all(&dir).unwrap();
+
     let path = dir.join(format!("caditor-{seconds:020}-{process}.log"));
+
     fs::write(&path, format!("[INFO] started\n{last}\n")).unwrap();
     path
 }
@@ -8772,7 +9734,9 @@ const NO_SUCH_PROCESS: u32 = 99_999_999;
 fn a_session_log_ends_with_a_marker_and_one_that_does_not_is_reported_once() {
     let dir = TempDir::new().unwrap();
     let log = SessionLog::create(dir.path()).unwrap();
+
     log.write(b"[INFO] working\n").unwrap();
+
     let crashed = fake_log(dir.path(), 5, NO_SUCH_PROCESS, "[ERROR] caditor panicked");
     let ended = fake_log(
         dir.path(),
@@ -8783,6 +9747,7 @@ fn a_session_log_ends_with_a_marker_and_one_that_does_not_is_reported_once() {
     let running = fake_log(dir.path(), 7, std::process::id(), "[INFO] still going");
 
     let stopped = ended_unexpectedly(dir.path(), log.path());
+
     mark_reported(&crashed).unwrap();
     log.end();
 
@@ -8794,7 +9759,9 @@ fn a_session_log_ends_with_a_marker_and_one_that_does_not_is_reported_once() {
             .unwrap()
             .ends_with("[INFO] working\ncaditor ended this session.\n")
     );
+
     let other = SessionLog::create(&dir.path().join("elsewhere")).unwrap();
+
     assert!(ended_unexpectedly(dir.path(), other.path()).is_empty());
 }
 
@@ -8803,10 +9770,12 @@ fn a_session_log_stops_at_its_size_limit_and_old_logs_are_pruned() {
     let dir = TempDir::new().unwrap();
     let log = SessionLog::create(dir.path()).unwrap();
     let line = vec![b'x'; 1 << 20];
+
     for _ in 0..MAX_LOG_SIZE / (1 << 20) + 3 {
         log.write(&line).unwrap();
     }
     log.end();
+
     let old: Vec<PathBuf> = (0..LOGS_KEPT as u64 + 3)
         .map(|seconds| {
             fake_log(
@@ -8821,6 +9790,7 @@ fn a_session_log_stops_at_its_size_limit_and_old_logs_are_pruned() {
     prune_logs(dir.path(), log.path());
 
     let size = fs::metadata(log.path()).unwrap().len();
+
     assert!(size <= MAX_LOG_SIZE + 200, "{size}");
     assert!(log.path().exists());
     assert_eq!(
@@ -8837,14 +9807,19 @@ fn filleted_model() -> (Document, FeatureId) {
         ModelEvaluator, Recompute, RegionChoice, SolidFeature,
     };
     use caditor_kernel::{EdgeReference, FaceOrigin};
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut outline = Sketch::new(Plane::XY);
     let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
+
     for index in 0..4 {
         let (a, b) = (corners[index], corners[(index + 1) % 4]);
+
         outline.add_line(Point2::new(a.0, a.1), Point2::new(b.0, b.1));
     }
+
     let sketch = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = transaction.add_feature(
         "Base",
@@ -8860,7 +9835,9 @@ fn filleted_model() -> (Document, FeatureId) {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = Recompute::default().run(
         &document,
         &ModelEvaluator,
@@ -8880,6 +9857,7 @@ fn filleted_model() -> (Document, FeatureId) {
         .unwrap();
 
     let mut transaction = document.transaction("Fillet");
+
     let fillet = transaction.add_feature(
         "Fillet 1",
         FeatureKind::Blend(Blend {
@@ -8893,6 +9871,7 @@ fn filleted_model() -> (Document, FeatureId) {
             sizing: FilletSizing::Radius,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, fillet)
 }
@@ -8900,12 +9879,14 @@ fn filleted_model() -> (Document, FeatureId) {
 #[test]
 fn inactive_constraints_stay_inactive_through_saving_and_the_journal() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
     let (start, end) = match sketch.entity(line) {
         Some(Entity::Line { start, end }) => (*start, *end),
         other => panic!("expected a line, found {other:?}"),
     };
     let level = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+
     let measured = sketch
         .add_constraint(Constraint::Distance {
             from: start,
@@ -8913,10 +9894,15 @@ fn inactive_constraints_stay_inactive_through_saving_and_the_journal() {
             value: Expression::Measure(40.0, Unit::Millimetre),
         })
         .unwrap();
+
     sketch.set_active(measured, false).unwrap();
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch");
+
     let feature = transaction.add_feature("Profile", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -8937,6 +9923,7 @@ fn inactive_constraints_stay_inactive_through_saving_and_the_journal() {
     assert_eq!(loaded.document, document);
 
     let mut transaction = document.transaction("Edit constraints");
+
     transaction.set_sketch_constraint_active(feature, measured, true);
     transaction.edit(Edit::AddSketchConstraint {
         feature,
@@ -8945,25 +9932,31 @@ fn inactive_constraints_stay_inactive_through_saving_and_the_journal() {
         inactive: true,
         label: None,
     });
+
     let transaction = transaction.finish();
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
     assert!(text.contains(&format!(
         "{{\"set_sketch_constraint_active\":{{\"feature\":{},\"id\":{},\"active\":true}}}}",
         feature.raw(),
         measured.raw()
     )));
+
     let record: format::TransactionRecord = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]
 fn a_dragged_dimension_label_is_saved_with_its_dimension_and_older_files_have_none() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
     let (start, end) = match sketch.entity(line) {
         Some(Entity::Line { start, end }) => (*start, *end),
         other => panic!("expected a line, found {other:?}"),
     };
+
     let measured = sketch
         .add_constraint(Constraint::Distance {
             from: start,
@@ -8972,12 +9965,17 @@ fn a_dragged_dimension_label_is_saved_with_its_dimension_and_older_files_have_no
         })
         .unwrap();
     let plain = sketch.clone();
+
     sketch
         .set_label_offset(measured, Some(Vector2::new(5.0, -12.5)))
         .unwrap();
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch");
+
     let feature = transaction.add_feature("Profile", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -8998,6 +9996,7 @@ fn a_dragged_dimension_label_is_saved_with_its_dimension_and_older_files_have_no
     assert!(older_sketch.same_content(&plain));
 
     let mut transaction = document.transaction("Move dimension label");
+
     transaction.set_sketch_label(feature, measured, Some(Vector2::new(1.0, 2.0)));
     transaction.edit(Edit::AddSketchConstraint {
         feature,
@@ -9010,21 +10009,30 @@ fn a_dragged_dimension_label_is_saved_with_its_dimension_and_older_files_have_no
         inactive: true,
         label: Some(Vector2::new(0.0, 9.0)),
     });
+
     let transaction = transaction.finish();
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
     assert!(text.contains("\"set_sketch_label\""));
+
     let record: format::TransactionRecord = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]
 fn diameters_across_an_axis_are_saved_as_flagged_radii_that_older_readers_hold_as_distances() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch");
+
     let bore = transaction.add_parameter("bore", transaction.parse("30 mm").unwrap());
     let mut sketch = Sketch::new(Plane::XY);
+
     let axis = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(0.0, 10.0));
+
     sketch.set_construction(axis, true).unwrap();
+
     let rim = sketch.add_point(Point2::new(12.0, 0.0));
     let hole = sketch.add_point(Point2::new(15.0, 5.0));
     let literal = sketch
@@ -9042,6 +10050,7 @@ fn diameters_across_an_axis_are_saved_as_flagged_radii_that_older_readers_hold_a
         })
         .unwrap();
     let feature = transaction.add_feature("Profile", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9084,6 +10093,7 @@ fn diameters_across_an_axis_are_saved_as_flagged_radii_that_older_readers_hold_a
     ));
 
     let mut transaction = document.transaction("Add diameter");
+
     transaction.edit(Edit::AddSketchConstraint {
         feature,
         id: ConstraintId::from_raw(90),
@@ -9095,19 +10105,26 @@ fn diameters_across_an_axis_are_saved_as_flagged_radii_that_older_readers_hold_a
         inactive: false,
         label: None,
     });
+
     let transaction = transaction.finish();
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
     assert!(text.contains("\"value\":\"12.5 mm\",\"diameter\":true"));
+
     let record: format::TransactionRecord = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]
 fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_have_none() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let lift = transaction.add_parameter("lift", transaction.parse("2 mm").unwrap());
     let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
+
     let distance = transaction.add_feature(
         "Distance",
         FeatureKind::Solid(caditor_document::SolidFeature::Extrude(
@@ -9169,6 +10186,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
             },
         )),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9177,12 +10195,14 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
     assert_eq!(text.matches("\"start\"").count(), 2);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+
     let start_of = |id| match &loaded.document.feature(id).unwrap().kind {
         FeatureKind::Solid(caditor_document::SolidFeature::Extrude(extrude)) => {
             extrude.start.clone()
         }
         other => panic!("expected an extrusion, found {other:?}"),
     };
+
     assert_eq!(
         start_of(distance),
         Some(caditor_document::SolidStart::Distance(
@@ -9199,12 +10219,15 @@ fn combines_are_saved_and_loaded() {
         BodyOperation, Combine, CombineOperation, Extrude, ExtrudeExtent, RegionChoice,
         SolidFeature,
     };
+
     let (mut document, base, _) = solid_model();
+
     let sketch = match &document.feature(base).unwrap().kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
         other => panic!("{other:?}"),
     };
     let mut transaction = document.transaction("Combine");
+
     let second = transaction.add_feature(
         "Second",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -9223,6 +10246,7 @@ fn combines_are_saved_and_loaded() {
         "Combine 1",
         FeatureKind::Combine(Combine::new(base, second, CombineOperation::Cut)),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9237,6 +10261,7 @@ fn combines_are_saved_and_loaded() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: combine, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -9247,12 +10272,15 @@ fn a_combine_with_several_tools_even_repeated_or_a_kept_tool_is_a_kind_older_rea
         BodyOperation, Combine, CombineOperation, Extrude, ExtrudeExtent, RegionChoice,
         SolidFeature,
     };
+
     let (mut document, base, _) = solid_model();
+
     let sketch = match &document.feature(base).unwrap().kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
         other => panic!("{other:?}"),
     };
     let mut transaction = document.transaction("Combine");
+
     let mut tool = |name: &str, depth: &str| {
         transaction.add_feature(
             name,
@@ -9269,8 +10297,10 @@ fn a_combine_with_several_tools_even_repeated_or_a_kept_tool_is_a_kind_older_rea
             })),
         )
     };
+
     let second = tool("Second", "2 mm");
     let third = tool("Third", "3 mm");
+
     let combine = transaction.add_feature(
         "Combine 1",
         FeatureKind::Combine(Combine {
@@ -9293,6 +10323,7 @@ fn a_combine_with_several_tools_even_repeated_or_a_kept_tool_is_a_kind_older_rea
             ..Combine::new(base, second, CombineOperation::Cut)
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9323,8 +10354,10 @@ fn a_combine_with_several_tools_even_repeated_or_a_kept_tool_is_a_kind_older_rea
 #[test]
 fn moves_are_saved_and_loaded() {
     use caditor_document::Move;
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Move");
+
     let movement = transaction.add_feature(
         "Move 1",
         FeatureKind::Move(Move {
@@ -9363,6 +10396,7 @@ fn moves_are_saved_and_loaded() {
             copy: true,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9378,14 +10412,17 @@ fn moves_are_saved_and_loaded() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: movement, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]
 fn a_move_with_a_damaged_distance_loads_with_zero_and_says_so() {
     use caditor_document::Move;
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Move");
+
     transaction.add_feature(
         "Move 1",
         FeatureKind::Move(Move {
@@ -9406,7 +10443,9 @@ fn a_move_with_a_damaged_distance_loads_with_zero_and_says_so() {
         }),
     );
     document.apply(transaction.finish()).unwrap();
+
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"offset\":[\"5 mm\""));
 
     let loaded = decode_text(&text.replace("\"offset\":[\"5 mm\"", "\"offset\":[\"5 +* mm\""));
@@ -9419,12 +10458,15 @@ fn a_move_with_a_damaged_distance_loads_with_zero_and_says_so() {
 
 fn holed_model(style: caditor_document::HoleStyle, through: bool) -> (Document, FeatureId) {
     use caditor_document::{Hole, HoleDepth, SolidFeature};
+
     let (mut document, base, _) = solid_model();
+
     let sketch = match &document.feature(base).unwrap().kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
         other => panic!("{other:?}"),
     };
     let mut transaction = document.transaction("Hole");
+
     let depth = if through {
         HoleDepth::ThroughAll
     } else {
@@ -9446,6 +10488,7 @@ fn holed_model(style: caditor_document::HoleStyle, through: bool) -> (Document, 
             thread: caditor_document::TappedThread::default(),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, hole)
 }
@@ -9453,6 +10496,7 @@ fn holed_model(style: caditor_document::HoleStyle, through: bool) -> (Document, 
 #[test]
 fn holes_of_every_style_are_saved_and_loaded() {
     use caditor_document::HoleStyle;
+
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     for (style, through) in [
         (HoleStyle::Plain, false),
@@ -9484,6 +10528,7 @@ fn holes_of_every_style_are_saved_and_loaded() {
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: hole, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -9491,6 +10536,7 @@ fn holes_of_every_style_are_saved_and_loaded() {
 #[test]
 fn a_stepped_hole_is_a_kind_older_readers_report_and_reads_its_steps_back() {
     use caditor_document::{HoleSizing, HoleStep, HoleStyle};
+
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let style = HoleStyle::Stepped(vec![
         HoleStep {
@@ -9503,10 +10549,13 @@ fn a_stepped_hole_is_a_kind_older_readers_report_and_reads_its_steps_back() {
         },
     ]);
     let (mut document, hole) = holed_model(style, false);
+
     let mut sized = document.feature(hole).unwrap().kind.clone();
+
     if let FeatureKind::Hole(definition) = &mut sized {
         definition.sizing = HoleSizing::Circles;
     }
+
     let transaction = Transaction::single(
         "Size by circles",
         Edit::SetFeatureKind {
@@ -9514,6 +10563,7 @@ fn a_stepped_hole_is_a_kind_older_readers_report_and_reads_its_steps_back() {
             kind: sized,
         },
     );
+
     document.apply(transaction.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9546,16 +10596,20 @@ fn a_stepped_hole_is_a_kind_older_readers_report_and_reads_its_steps_back() {
 #[test]
 fn a_hole_ending_in_a_drill_point_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::{HoleBottom, HoleStep, HoleStyle};
+
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let style = HoleStyle::Stepped(vec![HoleStep {
         diameter: parse("10 mm"),
         depth: parse("1 mm"),
     }]);
     let (mut document, hole) = holed_model(style, false);
+
     let mut pointed = document.feature(hole).unwrap().kind.clone();
+
     if let FeatureKind::Hole(definition) = &mut pointed {
         definition.bottom = HoleBottom::DrillPoint(parse("118 deg"));
     }
+
     let transaction = Transaction::single(
         "Drill point",
         Edit::SetFeatureKind {
@@ -9563,6 +10617,7 @@ fn a_hole_ending_in_a_drill_point_is_a_kind_older_readers_report_and_reads_back(
             kind: pointed,
         },
     );
+
     document.apply(transaction.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9596,13 +10651,16 @@ fn a_hole_drilled_up_to_a_face_or_the_next_face_is_a_kind_older_readers_report()
         Datum, DatumPlane, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStyle,
         PlaneReference, PrincipalPlane, SolidFeature, TappedThread,
     };
+
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let (mut document, base, _) = solid_model();
+
     let sketch = match &document.feature(base).unwrap().kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
         other => panic!("{other:?}"),
     };
     let mut transaction = document.transaction("Hole");
+
     let level = transaction.add_feature(
         "Level",
         FeatureKind::Datum(Datum::Plane(DatumPlane {
@@ -9626,6 +10684,7 @@ fn a_hole_drilled_up_to_a_face_or_the_next_face_is_a_kind_older_readers_report()
             thread: TappedThread::default(),
         })
     };
+
     let to_face = transaction.add_feature(
         "To face",
         drilled(
@@ -9633,6 +10692,7 @@ fn a_hole_drilled_up_to_a_face_or_the_next_face_is_a_kind_older_readers_report()
         ),
     );
     let to_next = transaction.add_feature("To next", drilled(HoleDepth::up_to_next()));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9652,6 +10712,7 @@ fn a_hole_drilled_up_to_a_face_or_the_next_face_is_a_kind_older_readers_report()
     assert!(older.document.feature(to_face).is_none());
     assert!(older.document.feature(to_next).is_none());
     assert!(!older.issues.is_empty());
+
     let Some(FeatureKind::Hole(restored)) = damaged
         .document
         .feature(to_face)
@@ -9659,12 +10720,14 @@ fn a_hole_drilled_up_to_a_face_or_the_next_face_is_a_kind_older_readers_report()
     else {
         panic!("the hole was not loaded");
     };
+
     assert_eq!(restored.depth, HoleDepth::ThroughAll);
     assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
     for feature in [to_face, to_next] {
         let kind = document.feature(feature).unwrap().kind.clone();
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
         let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
         assert_eq!(
             format::restore_transaction(through_binary(&journaled)),
             Some(transaction)
@@ -9675,10 +10738,13 @@ fn a_hole_drilled_up_to_a_face_or_the_next_face_is_a_kind_older_readers_report()
 #[test]
 fn a_hole_sized_by_its_circles_is_a_record_kind_of_its_own() {
     let (mut document, hole) = holed_model(caditor_document::HoleStyle::Plain, false);
+
     let mut sized = document.feature(hole).unwrap().kind.clone();
+
     if let FeatureKind::Hole(definition) = &mut sized {
         definition.sizing = caditor_document::HoleSizing::Circles;
     }
+
     let transaction = Transaction::single(
         "Size by circles",
         Edit::SetFeatureKind {
@@ -9686,6 +10752,7 @@ fn a_hole_sized_by_its_circles_is_a_record_kind_of_its_own() {
             kind: sized,
         },
     );
+
     document.apply(transaction.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9705,8 +10772,11 @@ fn a_hole_sized_by_its_circles_is_a_record_kind_of_its_own() {
 #[test]
 fn a_hole_scaling_its_head_by_circles_and_new_standard_fits_round_trip() {
     use caditor_document::{FinePitch, HoleFit, HoleSizing, HoleStandard, MetricSize};
+
     let (mut document, hole) = holed_model(caditor_document::HoleStyle::Plain, false);
+
     let mut sized = document.feature(hole).unwrap().kind.clone();
+
     if let FeatureKind::Hole(definition) = &mut sized {
         definition.sizing = HoleSizing::CirclesAndHeads;
         definition.standard = Some(HoleStandard {
@@ -9766,6 +10836,7 @@ fn a_hole_scaling_its_head_by_circles_and_new_standard_fits_round_trip() {
 fn a_hole_with_a_damaged_depth_loads_with_a_default_and_says_so() {
     let (document, _) = holed_model(caditor_document::HoleStyle::Plain, false);
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"blind\":\"$0 * 2\""));
 
     let loaded = decode_text(&text.replace("\"blind\":\"$0 * 2\"", "\"blind\":\"$0 +* 2\""));
@@ -9778,8 +10849,10 @@ fn a_hole_with_a_damaged_depth_loads_with_a_default_and_says_so() {
 
 fn mirrored_model(plane: PlaneReference, outcome: MirrorOutcome) -> (Document, FeatureId) {
     use caditor_document::Mirror;
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Mirror");
+
     let mirror = transaction.add_feature(
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
@@ -9791,6 +10864,7 @@ fn mirrored_model(plane: PlaneReference, outcome: MirrorOutcome) -> (Document, F
             faces: Vec::new(),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, mirror)
 }
@@ -9798,6 +10872,7 @@ fn mirrored_model(plane: PlaneReference, outcome: MirrorOutcome) -> (Document, F
 #[test]
 fn mirrors_across_principal_planes_and_faces_are_saved_and_loaded() {
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (_, base, _) = solid_model();
     let face = PlaneReference::Face(FaceAttachment {
         body: base,
@@ -9844,6 +10919,7 @@ fn mirrors_across_principal_planes_and_faces_are_saved_and_loaded() {
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: mirror, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -9855,6 +10931,7 @@ fn a_mirror_with_a_damaged_plane_loads_across_the_yz_plane_and_says_so() {
         MirrorOutcome::AddToBody,
     );
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"plane\":{\"principal\":\"xy\"}"));
 
     let loaded = decode_text(&text.replace(
@@ -9868,6 +10945,7 @@ fn a_mirror_with_a_damaged_plane_loads_across_the_yz_plane_and_says_so() {
             "The plane “Mirror 1” mirrors across could not be read, so it mirrors across the YZ plane."
         ]
     );
+
     let restored = loaded
         .document
         .feature(mirror)
@@ -9875,6 +10953,7 @@ fn a_mirror_with_a_damaged_plane_loads_across_the_yz_plane_and_says_so() {
         .kind
         .mirror()
         .unwrap();
+
     assert_eq!(
         restored.plane,
         PlaneReference::Principal(PrincipalPlane::Yz)
@@ -9884,8 +10963,10 @@ fn a_mirror_with_a_damaged_plane_loads_across_the_yz_plane_and_says_so() {
 
 fn split_model(plane: PlaneReference, flipped: bool) -> (Document, FeatureId) {
     use caditor_document::Split;
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Split");
+
     let split = transaction.add_feature(
         "Split 1",
         FeatureKind::Split(Split {
@@ -9894,6 +10975,7 @@ fn split_model(plane: PlaneReference, flipped: bool) -> (Document, FeatureId) {
             flipped,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, split)
 }
@@ -9915,6 +10997,7 @@ fn splits_are_saved_and_loaded_with_their_side() {
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -9933,6 +11016,7 @@ fn a_split_with_a_damaged_plane_loads_along_the_yz_plane_and_says_so() {
         loaded.issues,
         ["The plane “Split 1” splits along could not be read, so it splits along the YZ plane."]
     );
+
     let restored = loaded
         .document
         .feature(split)
@@ -9940,6 +11024,7 @@ fn a_split_with_a_damaged_plane_loads_along_the_yz_plane_and_says_so() {
         .kind
         .split()
         .unwrap();
+
     assert_eq!(
         restored.along,
         caditor_document::SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz))
@@ -9962,8 +11047,10 @@ fn surface_face() -> caditor_document::FaceAttachment {
 #[test]
 fn splits_along_the_surface_of_a_face_are_a_kind_older_readers_report() {
     use caditor_document::{Split, SplitAlong};
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Split");
+
     let split = transaction.add_feature(
         "Split 1",
         FeatureKind::Split(Split {
@@ -9972,6 +11059,7 @@ fn splits_along_the_surface_of_a_face_are_a_kind_older_readers_report() {
             flipped: true,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -9984,12 +11072,14 @@ fn splits_along_the_surface_of_a_face_are_a_kind_older_readers_report() {
     let kind = document.feature(split).unwrap().kind.clone();
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
     let journal = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
     assert_eq!(
         format::restore_transaction(through_binary(&journal)),
         Some(transaction)
     );
 
     let older = decode_text(&text.replace("\"split_surface\":", "\"unknown_split\":"));
+
     assert_eq!(
         older.issues,
         [
@@ -10002,6 +11092,7 @@ fn splits_along_the_surface_of_a_face_are_a_kind_older_readers_report() {
 #[test]
 fn a_split_face_along_the_surface_of_a_face_wraps_its_split_face_record() {
     use caditor_document::SplitAlong;
+
     let (document, split) = split_face_model(|_, _| SplitAlong::Surface(surface_face()));
 
     let text = encode(&document).unwrap();
@@ -10014,6 +11105,7 @@ fn a_split_face_along_the_surface_of_a_face_wraps_its_split_face_record() {
     let kind = document.feature(split).unwrap().kind.clone();
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
     let journal = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
     assert_eq!(
         format::restore_transaction(through_binary(&journal)),
         Some(transaction)
@@ -10023,8 +11115,10 @@ fn a_split_face_along_the_surface_of_a_face_wraps_its_split_face_record() {
 #[test]
 fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
     use caditor_document::{Move, Split, SplitAlong, TurnCentre};
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Copy");
+
     let turned = transaction.add_feature(
         "Copy 1",
         FeatureKind::Move(Move {
@@ -10036,7 +11130,9 @@ fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
             frame: None,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let outline = document
         .features()
         .find(|feature| feature.name == "Outline")
@@ -10055,7 +11151,9 @@ fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
         ),
     ] {
         let mut document = document.clone();
+
         let mut transaction = document.transaction("Split");
+
         let split = transaction.add_feature(
             "Split 1",
             FeatureKind::Split(Split {
@@ -10064,6 +11162,7 @@ fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
                 flipped,
             }),
         );
+
         document.apply(transaction.finish()).unwrap();
 
         let text = encode(&document).unwrap();
@@ -10079,14 +11178,17 @@ fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
 
 fn mated_model(pair: caditor_document::MatePair, flipped: bool) -> (Document, FeatureId) {
     use caditor_document::Mate;
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Mate");
+
     let mate = transaction.add_feature(
         "Mate 1",
         FeatureKind::Mate(Mate {
@@ -10095,6 +11197,7 @@ fn mated_model(pair: caditor_document::MatePair, flipped: bool) -> (Document, Fe
             flipped,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, mate)
 }
@@ -10118,6 +11221,7 @@ fn face_mate(distance: &str) -> caditor_document::FaceMate {
 #[test]
 fn mates_are_saved_and_loaded_as_a_record_kind_of_their_own() {
     use caditor_document::{AxisMate, AxisReference, MatePair, PrincipalAxis};
+
     let axes = MatePair::Axes(Box::new(AxisMate {
         axis: AxisReference::Principal(PrincipalAxis::X),
         target: AxisReference::Principal(PrincipalAxis::Z),
@@ -10137,6 +11241,7 @@ fn mates_are_saved_and_loaded_as_a_record_kind_of_their_own() {
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: mate, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -10162,8 +11267,10 @@ fn a_mate_with_an_unreadable_target_and_distance_loads_with_fallbacks_and_says_s
             "The distance of “Mate 1” could not be read, so it was set to 0 mm."
         ]
     );
+
     let restored = loaded.document.feature(mate).unwrap().kind.mate().unwrap();
     let faces = restored.faces().unwrap();
+
     assert_eq!(faces.target, PlaneReference::Principal(PrincipalPlane::Xy));
     assert_eq!(faces.distance.to_stored_text(), "0 mm");
 }
@@ -10173,6 +11280,7 @@ fn every_new_mate() -> Vec<(caditor_document::MatePair, &'static str, bool)> {
         AngleMate, AngleSides, AxisMate, AxisReference, FaceAxisMate, FacePair, MatePair,
         PointMate, PointReference, PointTarget, PrincipalAxis,
     };
+
     let faces = face_mate("1.5 mm");
     let axes = AxisMate {
         axis: AxisReference::Principal(PrincipalAxis::X),
@@ -10260,9 +11368,11 @@ fn every_kind_of_mate_is_saved_and_loaded_and_older_versions_report_the_new_ones
         );
         let journal = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&journal);
+
         assert_eq!(format::restore_transaction(record), Some(transaction));
 
         let older = decode_text(&text.replace(&format!("\"{kind}\":"), "\"unknown_mate\":"));
+
         assert_eq!(
             older.issues,
             [
@@ -10279,6 +11389,7 @@ fn a_point_mate_with_unreadable_points_and_an_angle_mate_with_no_angle_load_and_
         AngleMate, AngleSides, AxisMate, AxisReference, MatePair, PointMate, PointReference,
         PointTarget, PrincipalAxis,
     };
+
     let points = MatePair::Point(Box::new(PointMate {
         point: PointReference::Origin,
         target: PointTarget::Point(PointReference::Origin),
@@ -10327,14 +11438,18 @@ fn a_point_mate_with_unreadable_points_and_an_angle_mate_with_no_angle_load_and_
         loaded.issues,
         ["The angle of “Mate 1” could not be read, so it was set to 90 deg."]
     );
+
     let restored = loaded.document.feature(mate).unwrap().kind.mate().unwrap();
+
     assert_eq!(restored.angle().unwrap().to_stored_text(), "90 deg");
 }
 
 fn scaled_model(factor: &str) -> (Document, FeatureId) {
     use caditor_document::Scale;
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Scale");
+
     let scale = transaction.add_feature(
         "Scale 1",
         FeatureKind::Scale(Scale {
@@ -10348,6 +11463,7 @@ fn scaled_model(factor: &str) -> (Document, FeatureId) {
             frame: None,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, scale)
 }
@@ -10367,6 +11483,7 @@ fn scales_are_saved_and_loaded() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: scale, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -10374,6 +11491,7 @@ fn scales_are_saved_and_loaded() {
 fn a_scale_with_a_damaged_factor_loads_as_one_and_says_so() {
     let (document, _) = scaled_model("2.5");
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"factor\":\"2.5\""));
 
     let loaded = decode_text(&text.replace("\"factor\":\"2.5\"", "\"factor\":\"2.5 +*\""));
@@ -10387,6 +11505,7 @@ fn a_scale_with_a_damaged_factor_loads_as_one_and_says_so() {
 #[test]
 fn projected_geometry_and_its_sources_survive_saving_and_the_journal() {
     let mut document = sample();
+
     let plain = encode(&document).unwrap();
     let base = named(&document, "Base sketch");
     let side = named(&document, "Side sketch");
@@ -10402,6 +11521,7 @@ fn projected_geometry_and_its_sources_survive_saving_and_the_journal() {
         ],
     );
     let mut transaction = document.transaction("Project");
+
     let line = transaction.add_projection(
         side,
         caditor_document::ProjectionSource::SketchEntity {
@@ -10464,6 +11584,7 @@ fn projected_geometry_and_its_sources_survive_saving_and_the_journal() {
 #[test]
 fn intersected_geometry_and_its_sources_survive_saving_and_the_journal() {
     let mut document = sample();
+
     let side = named(&document, "Side sketch");
     let edge = caditor_kernel::EdgeReference::new(
         caditor_kernel::EdgeName::from_digest(15),
@@ -10477,6 +11598,7 @@ fn intersected_geometry_and_its_sources_survive_saving_and_the_journal() {
         ],
     );
     let mut transaction = document.transaction("Intersect");
+
     let cut = transaction.add_projection(
         side,
         caditor_document::ProjectionSource::Section {
@@ -10538,8 +11660,10 @@ fn intersected_geometry_and_its_sources_survive_saving_and_the_journal() {
 #[test]
 fn projected_datum_axes_points_principal_axes_and_the_origin_survive_saving_and_the_journal() {
     let mut document = sample();
+
     let side = named(&document, "Side sketch");
     let mut transaction = document.transaction("Project");
+
     let post = transaction.add_projection(
         side,
         caditor_document::ProjectionSource::DatumAxis {
@@ -10574,6 +11698,7 @@ fn projected_datum_axes_points_principal_axes_and_the_origin_survive_saving_and_
         caditor_document::ProjectionSource::Origin,
         &caditor_document::Outline::Point(Point2::ZERO),
     );
+
     transaction.add_projection(
         side,
         caditor_document::ProjectionSource::BodyOutline {
@@ -10595,6 +11720,7 @@ fn projected_datum_axes_points_principal_axes_and_the_origin_survive_saving_and_
             end: Point2::new(3.0, 5.0),
         },
     );
+
     let change = transaction.finish();
     let undo = document.apply(change.clone()).unwrap();
 
@@ -10636,8 +11762,10 @@ fn projected_datum_axes_points_principal_axes_and_the_origin_survive_saving_and_
 #[test]
 fn an_unreadable_projection_leaves_ordinary_geometry_and_is_reported() {
     let mut document = sample();
+
     let side = named(&document, "Side sketch");
     let mut transaction = document.transaction("Project");
+
     let line = transaction.add_projection(
         side,
         caditor_document::ProjectionSource::SketchEntity {
@@ -10649,7 +11777,9 @@ fn an_unreadable_projection_leaves_ordinary_geometry_and_is_reported() {
             end: Point2::new(4.0, 1.0),
         },
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let text = encode(&document)
         .unwrap()
         .replacen("\"sketch_entity\"", "\"hologram\"", 1);
@@ -10680,8 +11810,10 @@ fn named(document: &Document, name: &str) -> FeatureId {
 #[test]
 fn a_slotted_hole_of_a_standard_size_is_saved_journaled_and_loaded() {
     use caditor_document::{HoleFit, HoleShape, HoleStandard, HoleStyle, MetricSize};
+
     let (mut document, hole) = holed_model(HoleStyle::Plain, false);
     let plain = encode(&document).unwrap();
+
     let FeatureKind::Hole(definition) = document.feature(hole).unwrap().kind.clone() else {
         panic!("a hole");
     };
@@ -10702,6 +11834,7 @@ fn a_slotted_hole_of_a_standard_size_is_saved_journaled_and_loaded() {
             }),
         },
     );
+
     document.apply(change.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -10724,9 +11857,11 @@ fn a_slotted_hole_of_a_standard_size_is_saved_journaled_and_loaded() {
         &unknown,
         "(M2.6 tapped) is not one this version"
     ));
+
     let FeatureKind::Hole(read) = &unknown.document.feature(hole).unwrap().kind else {
         panic!("a hole");
     };
+
     assert_eq!(read.standard, None);
     assert!(matches!(read.shape, HoleShape::Slot { .. }));
 }
@@ -10736,7 +11871,9 @@ fn a_tapped_holes_thread_class_hand_and_depth_are_saved_journaled_and_loaded() {
     use caditor_document::{
         HoleFit, HoleStandard, HoleStyle, MetricSize, TappedThread, ThreadFamily, ThreadHand,
     };
+
     let (mut document, hole) = holed_model(HoleStyle::Plain, false);
+
     let FeatureKind::Hole(definition) = document.feature(hole).unwrap().kind.clone() else {
         panic!("a hole");
     };
@@ -10747,6 +11884,7 @@ fn a_tapped_holes_thread_class_hand_and_depth_are_saved_journaled_and_loaded() {
         }),
         ..definition
     };
+
     document
         .apply(Transaction::single(
             "Tap",
@@ -10756,6 +11894,7 @@ fn a_tapped_holes_thread_class_hand_and_depth_are_saved_journaled_and_loaded() {
             },
         ))
         .unwrap();
+
     let plain = encode(&document).unwrap();
     let change = Transaction::single(
         "Thread",
@@ -10772,6 +11911,7 @@ fn a_tapped_holes_thread_class_hand_and_depth_are_saved_journaled_and_loaded() {
             }),
         },
     );
+
     document.apply(change.clone()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -10791,9 +11931,11 @@ fn a_tapped_holes_thread_class_hand_and_depth_are_saved_journaled_and_loaded() {
     let unknown = decode_text(&text.replace("\"5H\"", "\"9Q\""));
 
     assert!(issues_mention(&unknown, "(9Q) could not be read"));
+
     let FeatureKind::Hole(read) = &unknown.document.feature(hole).unwrap().kind else {
         panic!("a hole");
     };
+
     assert_eq!(read.thread.class, None);
     assert_eq!(read.thread.hand, ThreadHand::Left);
 }
@@ -10801,18 +11943,24 @@ fn a_tapped_holes_thread_class_hand_and_depth_are_saved_journaled_and_loaded() {
 #[test]
 fn a_feature_group_is_saved_journaled_and_cut_to_its_limit_when_too_long() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let first = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
     let second = transaction.add_feature("Holes", FeatureKind::from(Sketch::new(Plane::XY)));
+
     document.apply(transaction.finish()).unwrap();
+
     let grouping = document
         .grouping(&[first, second], "Base sketches", "Group features")
         .unwrap();
+
     document.apply(grouping.clone()).unwrap();
 
     let text = encode(&document).unwrap();
     let loaded = decode_text(&text);
     let long = "x".repeat(caditor_document::MAX_GROUP_NAME_CHARS + 5);
+
     let cut = decode_text(&text.replacen("Base sketches", &long, 1));
     let journaled = serde_json::to_string(&format::transaction_record(&grouping)).unwrap();
 
@@ -10850,12 +11998,14 @@ fn a_kept_version_is_stored_in_the_file_and_stays_through_later_saves() {
     let path = dir.path().join("model.caditor");
     let head = saved_twice(&path);
     let listed = crate::history(&path).unwrap();
+
     assert_eq!(listed.versions.len(), 1);
     assert!(!listed.versions[0].kept);
 
     set_version_kept(&path, 0, &digest_at(&path, 0), true, Some(&head)).unwrap();
 
     let kept = crate::history(&path).unwrap();
+
     assert!(kept.versions[0].kept);
     assert_eq!(kept.versions[0].state, listed.versions[0].state);
     assert_eq!(load(&path).unwrap().digest, Some(head));
@@ -10864,13 +12014,16 @@ fn a_kept_version_is_stored_in_the_file_and_stays_through_later_saves() {
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
 
     save(&sample(), &path, false).unwrap();
+
     let after_save = crate::history(&path).unwrap();
+
     assert_eq!(after_save.versions.len(), 2);
     assert!(after_save.versions[1].kept);
     assert!(!after_save.versions[0].kept);
     assert_eq!(load_version(&path, 1).unwrap().document, sample());
 
     set_version_kept(&path, 1, &digest_at(&path, 1), false, None).unwrap();
+
     assert!(
         crate::history(&path)
             .unwrap()
@@ -10903,7 +12056,9 @@ fn keeping_a_version_refuses_a_file_changed_outside_and_a_version_that_is_gone()
     let path = dir.path().join("model.caditor");
     let head = saved_twice(&path);
     let before = fs::read(&path).unwrap();
+
     save(&sample(), &path, false).unwrap();
+
     let outside = fs::read(&path).unwrap();
 
     assert_eq!(
@@ -10940,6 +12095,7 @@ fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_f
     let path = dir.path().join("model.caditor");
     let head = saved_twice(&path);
     let digest = crate::history(&path).unwrap().versions[0].digest.clone();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: Some(head),
@@ -10955,11 +12111,15 @@ fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_f
             kept: true,
         })
         .unwrap();
+
     let kept = wait_for_report(&storage);
+
     storage
         .save(save_request(1, &sample(), &path, false))
         .unwrap();
+
     let saved = wait_for_report(&storage);
+
     storage
         .keep_version(KeepRequest {
             path: dir.path().join("other.caditor"),
@@ -10968,6 +12128,7 @@ fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_f
             kept: true,
         })
         .unwrap();
+
     let refused = wait_for_report(&storage);
 
     assert_eq!(
@@ -10986,7 +12147,9 @@ fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_f
             error: KeepVersionError::NotTheOpenModel,
         }
     );
+
     let listed = crate::history(&path).unwrap();
+
     assert_eq!(listed.versions.len(), 2);
     assert!(listed.versions[1].kept);
     assert!(storage.close(true).wait(WAIT));
@@ -10998,6 +12161,7 @@ fn a_save_landing_between_listing_and_keep_or_restore_is_caught_by_the_version_d
     let path = dir.path().join("model.caditor");
     let head = saved_twice(&path);
     let clicked = crate::history(&path).unwrap().versions[0].clone();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: Some(head),
@@ -11008,7 +12172,9 @@ fn a_save_landing_between_listing_and_keep_or_restore_is_caught_by_the_version_d
     storage
         .save(save_request(1, &widened("12 mm"), &path, false))
         .unwrap();
+
     let saved = wait_for_report(&storage);
+
     storage
         .keep_version(KeepRequest {
             path: path.clone(),
@@ -11017,6 +12183,7 @@ fn a_save_landing_between_listing_and_keep_or_restore_is_caught_by_the_version_d
             kept: true,
         })
         .unwrap();
+
     let refused = wait_for_report(&storage);
     let after_refusal = fs::read(&path).unwrap();
     let restored = load_listed_version(&path, clicked.index, &clicked.digest);
@@ -11058,6 +12225,7 @@ fn a_save_landing_between_listing_and_keep_or_restore_is_caught_by_the_version_d
             kept: true,
         })
         .unwrap();
+
     let kept = wait_for_report(&storage);
 
     assert_eq!(
@@ -11075,6 +12243,7 @@ fn a_save_landing_between_listing_and_keep_or_restore_is_caught_by_the_version_d
 
 fn widened(text: &str) -> Document {
     let mut document = sample();
+
     document.apply(edit_width(&document, text)).unwrap();
     document
 }
@@ -11091,6 +12260,7 @@ fn threaded_model() -> (Document, FeatureId) {
         Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSize,
     };
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let side = FaceReference::new(
         FaceName::from_digest(0xfeed),
@@ -11102,6 +12272,7 @@ fn threaded_model() -> (Document, FeatureId) {
     );
     let family = ThreadFamily::Trapezoidal;
     let mut transaction = document.transaction("Thread");
+
     let thread = transaction.add_feature(
         "Thread 1",
         FeatureKind::Thread(Thread {
@@ -11115,6 +12286,7 @@ fn threaded_model() -> (Document, FeatureId) {
             form: ThreadForm::Modelled,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, thread)
 }
@@ -11123,13 +12295,16 @@ fn threaded_model() -> (Document, FeatureId) {
 fn a_thread_is_saved_and_loaded_as_a_record_of_its_own() {
     let (document, thread) = threaded_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains(
         "\"thread\":{\"body\":1,\"class\":\"7e\",\"depth\":\"$0 * 2\",\"face\":{\"face\":\
          \"0000000000000000000000000000feed\",\"neighbours\":[\"00000000000000000000000000000002\"],\
          \"origin\":{\"side\":{\"entity\":3,\"feature\":1}}},\"left_handed\":true,\
          \"modelled\":true,\"reversed\":true,\"size\":\"Tr 20x4\",\"standard\":\"trapezoidal\"}"
     ));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -11137,6 +12312,7 @@ fn a_thread_is_saved_and_loaded_as_a_record_of_its_own() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: thread, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -11145,9 +12321,11 @@ fn a_thread_or_tapped_hole_without_the_modelled_key_reads_as_cosmetic() {
     use caditor_document::{
         HoleFit, HoleStandard, HoleStyle, MetricSize, TappedThread, ThreadForm,
     };
+
     let (document, thread) = threaded_model();
     let text = encode(&document).unwrap();
     let older = decode_text(&text.replace("\"modelled\":true,", ""));
+
     let restored = older
         .document
         .feature(thread)
@@ -11163,6 +12341,7 @@ fn a_thread_or_tapped_hole_without_the_modelled_key_reads_as_cosmetic() {
     assert!(!older.document.has_modelled_threads());
 
     let (mut holed, hole) = holed_model(HoleStyle::Plain, false);
+
     let FeatureKind::Hole(definition) = holed.feature(hole).unwrap().kind.clone() else {
         panic!("a hole");
     };
@@ -11177,6 +12356,7 @@ fn a_thread_or_tapped_hole_without_the_modelled_key_reads_as_cosmetic() {
         },
         ..definition
     };
+
     holed
         .apply(Transaction::single(
             "Tap",
@@ -11186,6 +12366,7 @@ fn a_thread_or_tapped_hole_without_the_modelled_key_reads_as_cosmetic() {
             },
         ))
         .unwrap();
+
     let text = encode(&holed).unwrap();
     let modelled = decode_text(&text);
     let older = decode_text(&text.replace("\"thread\":{\"modelled\":true}", "\"thread\":{}"));
@@ -11203,12 +12384,14 @@ fn a_thread_or_tapped_hole_without_the_modelled_key_reads_as_cosmetic() {
 #[test]
 fn an_unreadable_thread_size_or_class_takes_a_default_and_is_reported() {
     use caditor_document::ThreadSize;
+
     let (document, thread) = threaded_model();
     let text = encode(&document)
         .unwrap()
         .replacen("Tr 20x4", "Tr 999x1", 1)
         .replacen("\"7e\"", "\"9z\"", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         [
@@ -11216,8 +12399,10 @@ fn an_unreadable_thread_size_or_class_takes_a_default_and_is_reported() {
             "The thread class of “Thread 1” could not be read, so it was set to 7H."
         ]
     );
+
     let restored = loaded.document.feature(thread).unwrap();
     let restored = restored.kind.thread().unwrap();
+
     assert_eq!(restored.size.id(), "Tr 8x1.5");
     assert_eq!(restored.class.id(), "7H");
     assert_ne!(restored.size, ThreadSize::M8);
@@ -11230,8 +12415,10 @@ fn coordinate_systems_and_what_uses_them_are_kinds_older_readers_report_and_read
         PrincipalAxis, TurnCentre,
     };
     use caditor_kernel::VertexName;
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Coordinate systems");
+
     let frame = transaction.add_feature(
         "Coordinate system 1",
         FeatureKind::Datum(Datum::Frame(Box::new(DatumFrame {
@@ -11245,6 +12432,7 @@ fn coordinate_systems_and_what_uses_them_are_kinds_older_readers_report_and_read
             reverse_z: false,
         }))),
     );
+
     transaction.add_feature(
         "Axis 1",
         FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Frame {
@@ -11263,6 +12451,7 @@ fn coordinate_systems_and_what_uses_them_are_kinds_older_readers_report_and_read
             offset: transaction.parse("3 mm").unwrap(),
         })),
     );
+
     let sketch = transaction.add_feature(
         "On the system",
         FeatureKind::Sketch(caditor_document::SketchFeature {
@@ -11286,7 +12475,9 @@ fn coordinate_systems_and_what_uses_them_are_kinds_older_readers_report_and_read
         }),
     );
     let add = transaction.finish();
+
     document.apply(add.clone()).unwrap();
+
     let placed = Transaction::single(
         "Place",
         Edit::SetSketchPlacement {
@@ -11336,8 +12527,10 @@ fn a_coordinate_system_origin_a_scale_centre_and_an_import_in_one_are_kinds_olde
     use caditor_document::{
         AxisReference, Datum, DatumFrame, DatumPoint, PointReference, PrincipalAxis, Scale,
     };
+
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("In a coordinate system");
+
     let frame = transaction.add_feature(
         "Coordinate system 1",
         FeatureKind::Datum(Datum::Frame(Box::new(DatumFrame {
@@ -11375,7 +12568,9 @@ fn a_coordinate_system_origin_a_scale_centre_and_an_import_in_one_are_kinds_olde
                 .placed(placement),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let edited = Transaction::new(
         "Edit",
         [point, scale]
@@ -11432,7 +12627,9 @@ fn a_coordinate_system_origin_a_scale_centre_and_an_import_in_one_are_kinds_olde
 fn a_fillet_sized_by_chord_length_round_trips_and_a_radius_one_stays_plain() {
     let (mut document, blend) = filleted_model();
     let plain = encode(&document).unwrap();
+
     let mut kind = document.feature(blend).unwrap().kind.clone();
+
     if let FeatureKind::Blend(definition) = &mut kind {
         definition.sizing = FilletSizing::ChordLength;
     }
@@ -11461,10 +12658,13 @@ fn a_fillet_sized_by_chord_length_round_trips_and_a_radius_one_stays_plain() {
 #[test]
 fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
     use caditor_document::{BlendKind, ChamferForm};
+
     let (mut document, blend) = filleted_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
+
     let reshaped = |form: ChamferForm, flipped: bool| {
         let mut kind = document.feature(blend).unwrap().kind.clone();
+
         if let FeatureKind::Blend(definition) = &mut kind {
             definition.kind = BlendKind::Chamfer;
             definition.form = form;
@@ -11487,6 +12687,7 @@ fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
     let equal = reshaped(ChamferForm::Equal, false);
 
     document.apply(two.clone()).unwrap();
+
     let text = encode(&document).unwrap();
     let kind_of = |document: &Document| document.feature(blend).map(|feature| feature.kind.clone());
     let two_saved = kind_of(&document);
@@ -11494,11 +12695,15 @@ fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
     let older = decode_text(&text.replace("shaped_chamfer", "bevel_of_a_later_version"));
     let damaged = decode_text(&text.replacen("\"second\":\"2 mm\"", "\"second\":\"((\"", 1));
     let journaled = serde_json::to_string(&format::transaction_record(&two)).unwrap();
+
     document.apply(angled).unwrap();
+
     let angled_text = encode(&document).unwrap();
     let angled_saved = kind_of(&document);
     let angled_loaded = decode_text(&angled_text);
+
     document.apply(equal).unwrap();
+
     let equal_text = encode(&document).unwrap();
 
     assert!(text.contains("\"shaped_chamfer\":{\"feature\":{\"chamfer\":"));
@@ -11529,8 +12734,11 @@ fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
 #[test]
 fn a_fillet_keeps_the_chamfer_form_it_would_switch_back_to() {
     use caditor_document::{BlendKind, ChamferForm};
+
     let (mut document, blend) = filleted_model();
+
     let mut kind = document.feature(blend).unwrap().kind.clone();
+
     if let FeatureKind::Blend(definition) = &mut kind {
         definition.kind = BlendKind::Fillet;
         definition.form = ChamferForm::TwoDistances {
@@ -11557,13 +12765,16 @@ fn a_fillet_keeps_the_chamfer_form_it_would_switch_back_to() {
 fn a_blend_of_every_edge_of_faces_or_a_body_is_a_kind_older_readers_report() {
     use caditor_document::{BlendKind, ChamferForm, EdgeGroup};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, blend) = filleted_model();
     let top = FaceReference::new(
         FaceName::from_digest(0xbeef),
         Some(FaceOrigin::EndCap { feature: 1 }),
         [FaceName::from_digest(3)],
     );
+
     let mut kind = document.feature(blend).unwrap().kind.clone();
+
     if let FeatureKind::Blend(definition) = &mut kind {
         definition.kind = BlendKind::Chamfer;
         definition.form = ChamferForm::TwoDistances {
@@ -11571,9 +12782,11 @@ fn a_blend_of_every_edge_of_faces_or_a_body_is_a_kind_older_readers_report() {
         };
         definition.groups = vec![EdgeGroup::Face(top), EdgeGroup::Body];
     }
+
     let grouped = Transaction::single("Group", Edit::SetFeatureKind { id: blend, kind });
 
     document.apply(grouped.clone()).unwrap();
+
     let text = encode(&document).unwrap();
     let saved = document.feature(blend).map(|feature| feature.kind.clone());
     let loaded = decode_text(&text);
@@ -11608,13 +12821,16 @@ fn a_blend_of_every_edge_of_faces_or_a_body_is_a_kind_older_readers_report() {
 #[test]
 fn a_blend_by_a_rule_over_a_kind_of_edge_round_trips_and_older_readers_report_it() {
     use caditor_document::{EdgeGroup, EdgeRule};
+
     let (mut document, blend) = filleted_model();
     let maker = document
         .features()
         .find(|feature| feature.name == "Base")
         .map(caditor_document::Feature::id)
         .unwrap();
+
     let mut kind = document.feature(blend).unwrap().kind.clone();
+
     if let FeatureKind::Blend(definition) = &mut kind {
         definition.groups = vec![
             EdgeGroup::Rule(EdgeRule::Convex),
@@ -11622,9 +12838,11 @@ fn a_blend_by_a_rule_over_a_kind_of_edge_round_trips_and_older_readers_report_it
             EdgeGroup::Rule(EdgeRule::MadeBy(maker)),
         ];
     }
+
     let ruled = Transaction::single("Rules", Edit::SetFeatureKind { id: blend, kind });
 
     document.apply(ruled.clone()).unwrap();
+
     let text = encode(&document).unwrap();
     let saved = document.feature(blend).map(|feature| feature.kind.clone());
     let loaded = decode_text(&text);
@@ -11653,6 +12871,7 @@ fn measured_model() -> (Document, FeatureId, ParameterId) {
         Between, MeasuredItem, Measurement, ParameterOwner, PointReference, Reading,
     };
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+
     let (mut document, base, _) = solid_model();
     let top = FaceReference::new(
         FaceName::from_digest(0xbeef),
@@ -11660,6 +12879,7 @@ fn measured_model() -> (Document, FeatureId, ParameterId) {
         [FaceName::from_digest(3)],
     );
     let mut transaction = document.transaction("Keep");
+
     let clearance = transaction.add_parameter("clearance", transaction.parse("3 mm").unwrap());
     let measurement = transaction.add_feature(
         "Clearance",
@@ -11675,6 +12895,7 @@ fn measured_model() -> (Document, FeatureId, ParameterId) {
             parameter: Some(clearance),
         }),
     );
+
     transaction.edit(Edit::SetParameterOwner {
         id: clearance,
         owner: Some(ParameterOwner::Feature {
@@ -11690,9 +12911,12 @@ fn measured_model() -> (Document, FeatureId, ParameterId) {
 fn a_measurement_is_saved_and_loaded_as_a_record_of_its_own_that_older_readers_report() {
     let (document, measurement, _) = measured_model();
     let text = encode(&document).unwrap();
+
     assert!(text.contains("\"measurement\":{\"items\":[{\"face\":{\"body\":1,"));
     assert!(text.contains("{\"point\":\"origin\"}],\"parameter\":1,\"quantity\":\"distance\"}"));
+
     let loaded = decode_text(&text);
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -11706,6 +12930,7 @@ fn a_measurement_is_saved_and_loaded_as_a_record_of_its_own_that_older_readers_r
     );
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
+
     assert_eq!(format::restore_transaction(record), Some(transaction));
 
     let unknown =
@@ -11713,6 +12938,7 @@ fn a_measurement_is_saved_and_loaded_as_a_record_of_its_own_that_older_readers_r
             .unwrap()
             .replacen("\"measurement\":{", "\"measurement_v2\":{", 1);
     let older = decode_text(&unknown);
+
     assert!(older.document.feature(measurement).is_none());
     assert!(
         older
@@ -11727,12 +12953,14 @@ fn a_measurement_is_saved_and_loaded_as_a_record_of_its_own_that_older_readers_r
 #[test]
 fn an_unreadable_measured_item_measures_from_the_origin_and_is_reported() {
     use caditor_document::{MeasuredItem, PointReference, Reading};
+
     let (document, measurement, clearance) = measured_model();
     let text =
         encode(&document)
             .unwrap()
             .replacen("0000000000000000000000000000beef", "not a digest", 1);
     let loaded = decode_text(&text);
+
     assert_eq!(
         loaded.issues,
         [
@@ -11740,12 +12968,16 @@ fn an_unreadable_measured_item_measures_from_the_origin_and_is_reported() {
           instead; measure again and keep the measurement."
         ]
     );
+
     let restored = loaded.document.feature(measurement).unwrap();
     let restored = restored.kind.measurement().unwrap();
+
     assert_eq!(restored.parameter, Some(clearance));
+
     let Reading::Between { first, second, .. } = &restored.reading else {
         panic!("a distance stays a distance");
     };
+
     assert_eq!(*first, MeasuredItem::Point(PointReference::Origin));
     assert_eq!(*second, MeasuredItem::Point(PointReference::Origin));
 }
@@ -11755,9 +12987,11 @@ fn offsets_along_an_axis_sweeps_and_perimeters_are_saved_and_loaded() {
     use caditor_document::{
         AxisReference, MeasuredItem, Measurement, Of, PointReference, PrincipalAxis, Reading,
     };
+
     let (mut document, measurement, _) = measured_model();
     let corner = MeasuredItem::Point(PointReference::Origin);
     let mut transaction = document.transaction("Keep");
+
     let along = transaction.add_feature(
         "Along",
         FeatureKind::from(Measurement {
@@ -11769,6 +13003,7 @@ fn offsets_along_an_axis_sweeps_and_perimeters_are_saved_and_loaded() {
             parameter: None,
         }),
     );
+
     for (name, quantity) in [("Sweep", Of::Sweep), ("Perimeter", Of::Perimeter)] {
         transaction.add_feature(
             name,
@@ -11801,6 +13036,7 @@ fn offsets_along_an_axis_sweeps_and_perimeters_are_saved_and_loaded() {
              along the X axis instead; measure again and keep the measurement."
         ]
     );
+
     let Some(Reading::Along { axis, .. }) = unreadable_axis
         .document
         .feature(along)
@@ -11809,6 +13045,7 @@ fn offsets_along_an_axis_sweeps_and_perimeters_are_saved_and_loaded() {
     else {
         panic!("an offset along an axis stays one");
     };
+
     assert_eq!(
         *axis,
         MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::X))
@@ -11820,9 +13057,11 @@ fn positions_and_body_volumes_and_masses_are_saved_and_loaded() {
     use caditor_document::{
         AxisReference, MeasuredItem, Measurement, Of, PointReference, PrincipalAxis, Reading,
     };
+
     let (mut document, _, _) = measured_model();
     let body = MeasuredItem::Body(FeatureId::from_raw(1));
     let mut transaction = document.transaction("Keep");
+
     let position = transaction.add_feature(
         "Position",
         FeatureKind::from(Measurement {
@@ -11833,6 +13072,7 @@ fn positions_and_body_volumes_and_masses_are_saved_and_loaded() {
             parameter: None,
         }),
     );
+
     for (name, quantity) in [("Volume", Of::Volume), ("Mass", Of::Mass)] {
         transaction.add_feature(
             name,
@@ -11858,6 +13098,7 @@ fn positions_and_body_volumes_and_masses_are_saved_and_loaded() {
     assert!(text.contains("{\"body\":{\"body\":1}}"));
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+
     let Some(Reading::Position { axis, .. }) = unreadable_axis
         .document
         .feature(position)
@@ -11866,6 +13107,7 @@ fn positions_and_body_volumes_and_masses_are_saved_and_loaded() {
     else {
         panic!("a position stays one");
     };
+
     assert_eq!(
         *axis,
         MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::X))
@@ -11878,6 +13120,7 @@ fn helix_model() -> (Document, FeatureId, FeatureId) {
         AxisReference, CoilLength, CoilTurning, Helix, Pipe, PrincipalAxis, SolidFeature, Sweep,
         SweepPath,
     };
+
     let (mut document, base, _) = solid_model();
     let outline = document
         .features()
@@ -11886,6 +13129,7 @@ fn helix_model() -> (Document, FeatureId, FeatureId) {
         .id();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Helices");
+
     let helix = transaction.add_feature(
         "Helix 1",
         FeatureKind::Helix(Helix {
@@ -11906,6 +13150,7 @@ fn helix_model() -> (Document, FeatureId, FeatureId) {
             ..Sweep::new(outline, SweepPath::Helix { helix })
         })),
     );
+
     transaction.add_feature(
         "Wire",
         FeatureKind::Pipe(Pipe::new(
@@ -11940,7 +13185,9 @@ fn helices_and_sweeps_along_them_are_saved_and_loaded_as_records_of_their_own() 
 #[test]
 fn a_helix_started_at_an_angle_wraps_its_record_so_an_older_reader_leaves_it_out() {
     let (mut document, helix, _) = helix_model();
+
     let mut kind = document.feature(helix).unwrap().kind.clone();
+
     if let FeatureKind::Helix(started) = &mut kind {
         started.start = Expression::parse_stored("30 deg").unwrap();
     }
@@ -11982,11 +13229,14 @@ fn a_helix_started_at_an_angle_wraps_its_record_so_an_older_reader_leaves_it_out
 #[test]
 fn a_helix_started_at_a_point_wraps_its_record_so_an_older_reader_leaves_it_out() {
     use caditor_document::{AxisReference, Helix, PointReference, PrincipalAxis};
+
     let (mut document, _, _) = solid_model();
     let mut transaction = document.transaction("Helix at a point");
     let mut marks = Sketch::new(Plane::XY);
+
     let mark = marks.add_point(Point2::new(3.0, 4.0));
     let marks = transaction.add_feature("Marks", FeatureKind::from(marks));
+
     let helix = transaction.add_feature(
         "Helix 1",
         FeatureKind::Helix(Helix {
@@ -12001,6 +13251,7 @@ fn a_helix_started_at_a_point_wraps_its_record_so_an_older_reader_leaves_it_out(
             )
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -12036,9 +13287,11 @@ fn a_flat_spiral_wraps_its_helix_record_so_an_older_reader_leaves_it_out() {
     use caditor_document::{
         AxisReference, CoilLength, Helix, HelixKind, Pipe, PrincipalAxis, SweepPath,
     };
+
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Spiral");
+
     let spiral = transaction.add_feature(
         "Spiral 1",
         FeatureKind::Helix(Helix {
@@ -12050,6 +13303,7 @@ fn a_flat_spiral_wraps_its_helix_record_so_an_older_reader_leaves_it_out() {
             ..Helix::flat_spiral(AxisReference::Principal(PrincipalAxis::Z), parse("10 mm"))
         }),
     );
+
     transaction.add_feature(
         "Spring",
         FeatureKind::Pipe(Pipe::new(
@@ -12084,6 +13338,7 @@ fn a_flat_spiral_wraps_its_helix_record_so_an_older_reader_leaves_it_out() {
 #[test]
 fn a_progressive_helix_and_the_change_of_its_closed_ends_wrap_its_record_and_round_trip() {
     use caditor_document::{AxisReference, ClosedEnds, CoilLength, Helix, PrincipalAxis};
+
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Laws");
@@ -12102,10 +13357,12 @@ fn a_progressive_helix_and_the_change_of_its_closed_ends_wrap_its_record_and_rou
         change: parse("1.5"),
         ..ClosedEnds::default()
     };
+
     let plain = transaction.add_feature("Plain", law(Some(ClosedEnds::default()), None));
     let changed = transaction.add_feature("Changed", law(Some(slow.clone()), None));
     let progressive = transaction.add_feature("Progressive", law(None, Some("8 mm")));
     let both = transaction.add_feature("Both", law(Some(slow), Some("8 mm")));
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -12116,9 +13373,11 @@ fn a_progressive_helix_and_the_change_of_its_closed_ends_wrap_its_record_and_rou
     assert_eq!(text.matches("\"helix_progressive\"").count(), 2, "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+
     for feature in [plain, changed, progressive, both] {
         assert!(loaded.document.feature(feature).is_some());
     }
+
     assert!(older.document.feature(changed).is_none());
     assert!(!older.issues.is_empty());
 }
@@ -12126,9 +13385,11 @@ fn a_progressive_helix_and_the_change_of_its_closed_ends_wrap_its_record_and_rou
 #[test]
 fn a_table_of_pitches_wraps_the_helix_record_and_round_trips() {
     use caditor_document::{AxisReference, CoilLength, Helix, PitchRow, PrincipalAxis};
+
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Table");
+
     let tabled = transaction.add_feature(
         "Tabled",
         FeatureKind::Helix(Helix {
@@ -12143,6 +13404,7 @@ fn a_table_of_pitches_wraps_the_helix_record_and_round_trips() {
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let text = encode(&document).unwrap();
@@ -12180,13 +13442,16 @@ fn an_unreadable_taper_of_a_helix_loads_as_none_and_is_reported() {
 #[test]
 fn a_split_with_nothing_chosen_to_split_along_is_saved_and_loaded_as_it_was() {
     use caditor_document::{Split, SplitAlong};
+
     let (document, _) = split_face_model(|_, _| SplitAlong::Unchosen);
     let loaded = decode_text(&encode(&document).unwrap());
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Split");
+
     transaction.add_feature(
         "Split 1",
         FeatureKind::Split(Split {
@@ -12196,7 +13461,9 @@ fn a_split_with_nothing_chosen_to_split_along_is_saved_and_loaded_as_it_was() {
         }),
     );
     document.apply(transaction.finish()).unwrap();
+
     let loaded = decode_text(&encode(&document).unwrap());
+
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -12207,6 +13474,7 @@ fn pitched_spiral_model() -> (
     caditor_document::FeatureId,
 ) {
     use caditor_document::{AxisReference, CoilLength, Helix, PitchRow, PrincipalAxis};
+
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Pitched spirals");
@@ -12220,6 +13488,7 @@ fn pitched_spiral_model() -> (
         })
     };
     let flat = || Helix::flat_spiral(AxisReference::Principal(PrincipalAxis::Z), parse("10 mm"));
+
     let progressive = transaction.add_feature(
         "Progressive",
         spiral(Helix {
@@ -12237,6 +13506,7 @@ fn pitched_spiral_model() -> (
             ..flat()
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, progressive, tabled)
 }
@@ -12272,6 +13542,7 @@ fn a_flat_spiral_stored_before_it_followed_a_pitch_law_keeps_its_even_shape() {
             .feature(feature)
             .and_then(|feature| feature.kind.helix())
             .unwrap();
+
         assert!(restored.is_flat());
         assert_eq!(restored.final_pitch, None);
         assert!(restored.pitch_table.is_empty());

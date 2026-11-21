@@ -26,7 +26,7 @@ const MAPPING_DEADLINE: Duration = Duration::from_secs(60);
 const TEXEL_BYTES: u32 = 4;
 const OPAQUE: u8 = u8::MAX;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum Background {
     #[default]
     Viewport,
@@ -42,14 +42,14 @@ pub struct ImageRequest<'a> {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Image {
     pub width: u32,
     pub height: u32,
     pub pixels: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ImageError {
     #[error("another image is still being drawn")]
     Busy,
@@ -73,7 +73,7 @@ pub enum ImageError {
     Abandoned,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tile {
     pub x: u32,
     pub y: u32,
@@ -129,6 +129,7 @@ pub fn margined_tile_transform(tile: Tile, size: SurfaceSize, margin: u32) -> [f
         f64::from(tile.x) + f64::from(tile.width) / 2.0,
         f64::from(tile.y) + f64::from(tile.height) / 2.0,
     ];
+
     let ndc = [
         center[0] / full[0] * 2.0 - 1.0,
         1.0 - center[1] / full[1] * 2.0,
@@ -146,7 +147,7 @@ pub fn margined_tile_transform(tile: Tile, size: SurfaceSize, margin: u32) -> [f
     ]
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChannelOrder {
     Rgba,
     Bgra,
@@ -164,10 +165,12 @@ impl ChannelOrder {
 
 fn straighten(texel: &mut [u8; 4], order: ChannelOrder) {
     let [first, green, third, alpha] = *texel;
+
     let (red, blue) = match order {
         ChannelOrder::Rgba => (first, third),
         ChannelOrder::Bgra => (third, first),
     };
+
     *texel = unpremultiply([red, green, blue], alpha);
 }
 
@@ -225,6 +228,7 @@ pub fn start(
     if gpu.loss.is_lost() {
         return Err(ImageError::DeviceLost);
     }
+
     let tile_side = tile_side.max(1);
     let (prepared, error) = gpu::scoped(&gpu.device, || {
         let mut renderer = renderer();
@@ -232,15 +236,18 @@ pub fn start(
             .prepare_image(&gpu.device, &gpu.queue, request, tile_side)
             .map(|plan| (renderer, plan))
     });
+
     if let Some(error) = error {
         return Err(refusal(&error));
     }
+
     let (renderer, plan) = prepared.ok_or(ImageError::Refused)?;
 
     let tiles = tiles(request.size, plan.tile_side());
     let buffer_bytes = tiles.first().map_or(0, |tile| tile.readback_bytes());
     let (drawn_sender, drawn) = mpsc::channel();
     let (returned_sender, returned) = mpsc::channel();
+
     let bands = ImageBands {
         device: gpu.device.clone(),
         loss: gpu.loss.clone(),
@@ -277,6 +284,7 @@ pub fn drawn_inline(
     tile_side: u32,
 ) -> Result<ImageBands, ImageError> {
     let (tiles, mut bands) = start(gpu, renderer, request, tile_side, Arc::new(|| {}))?;
+
     bands.inline = Some(Box::new(tiles));
     Ok(bands)
 }
@@ -310,9 +318,11 @@ impl ImageTiles {
                 self.drawn = None;
                 return;
             }
+
             let Some(buffer) = self.free_buffer() else {
                 return;
             };
+
             self.draw_next(buffer);
         }
     }
@@ -338,15 +348,18 @@ impl ImageTiles {
         let Some(tile) = self.remaining.next() else {
             return;
         };
+
         if self.gpu.loss.is_lost() {
             self.fail(ImageError::DeviceLost);
             return;
         }
+
         let created = reused.is_none();
         let gpu = &self.gpu;
         let renderer = &mut self.renderer;
         let plan = &self.plan;
         let buffer_bytes = self.buffer_bytes;
+
         let (buffer, error) = gpu::scoped(&gpu.device, || {
             let buffer = reused.unwrap_or_else(|| {
                 gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -356,9 +369,11 @@ impl ImageTiles {
                     mapped_at_creation: false,
                 })
             });
+
             renderer.draw_tile(&gpu.device, &gpu.queue, plan, tile, &buffer);
             buffer
         });
+
         if created {
             self.made += 1;
         }
@@ -369,9 +384,11 @@ impl ImageTiles {
 
         let mapped = MapOutcome::default();
         let sink = Arc::clone(&mapped);
+
         buffer.map_async(wgpu::MapMode::Read, .., move |result| {
             *sink.lock() = Some(result);
         });
+
         let sent = self.drawn.as_ref().map(|drawn| {
             drawn.send(Ok(DrawnTile {
                 tile,
@@ -436,9 +453,11 @@ impl ImageBands {
         let row_bytes = self.size.width as usize * TEXEL_BYTES as usize;
         let mut covered = 0;
         let mut rows = 0;
+
         while covered < self.size.width {
             let drawn = self.next_tile()?;
             let tile = drawn.tile;
+
             if tile.y != self.next_row || tile.x != covered {
                 return Err(ImageError::Readback);
             }
@@ -450,11 +469,15 @@ impl ImageBands {
             )?;
 
             rows = tile.height as usize;
+
             let needed = rows * row_bytes;
+
             if self.band.len() < needed {
                 self.band.resize(needed, 0);
             }
+
             let copied = copy_tile(&drawn, &mut self.band, row_bytes);
+
             drawn.buffer.unmap();
             if let Some(link) = &self.link {
                 let _ = link.returned.send(drawn.buffer);
@@ -466,6 +489,7 @@ impl ImageBands {
 
         let bytes = rows * row_bytes;
         let band = self.band.get_mut(..bytes).ok_or(ImageError::Readback)?;
+
         for texel in band.as_chunks_mut::<{ TEXEL_BYTES as usize }>().0 {
             straighten(texel, self.order);
         }
@@ -477,6 +501,7 @@ impl ImageBands {
         if let Some(tiles) = self.inline.as_mut() {
             tiles.advance();
         }
+
         let link = self.link.as_ref().ok_or(ImageError::Abandoned)?;
         match link.drawn.recv() {
             Ok(message) => message,
@@ -499,6 +524,7 @@ impl ImageBands {
     #[cfg(test)]
     pub fn into_image(mut self) -> Result<Image, ImageError> {
         let mut pixels = Vec::new();
+
         while let Some(band) = self.next_band() {
             pixels.extend_from_slice(band?);
         }
@@ -562,11 +588,13 @@ fn copy_tile(drawn: &DrawnTile, band: &mut [u8], row_bytes: usize) -> Result<(),
     let pitch = tile.row_pitch() as usize;
     let tile_bytes = tile.width as usize * TEXEL_BYTES as usize;
     let left = tile.x as usize * TEXEL_BYTES as usize;
+
     for row in 0..tile.height as usize {
         let source = mapped
             .get(row * pitch..row * pitch + tile_bytes)
             .ok_or(ImageError::Readback)?;
         let start = row * row_bytes + left;
+
         band.get_mut(start..start + tile_bytes)
             .ok_or(ImageError::Readback)?
             .copy_from_slice(source);
@@ -600,7 +628,9 @@ mod tests {
                 height: 100,
             })
         );
+
         let covered: u32 = tiles.iter().map(|tile| tile.width * tile.height).sum();
+
         assert_eq!(covered, 500 * 300);
         assert!(
             tiles
@@ -635,7 +665,9 @@ mod tests {
             width: 100,
             height: 100,
         };
+
         let [scale_x, scale_y, offset_x, offset_y] = tile_transform(tile, image);
+
         let to_tile = |ndc: [f32; 2]| [ndc[0] * scale_x + offset_x, ndc[1] * scale_y + offset_y];
 
         let left_top = to_tile([300.0 / 400.0 * 2.0 - 1.0, 1.0]);

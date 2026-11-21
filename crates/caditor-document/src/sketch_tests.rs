@@ -17,9 +17,12 @@ struct Rectangle {
 
 fn rectangle() -> Rectangle {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch");
+
     let width = transaction.add_parameter("width", transaction.parse("30 mm").unwrap());
     let feature = transaction.add_feature("Plate", FeatureKind::from(Sketch::new(Plane::XY)));
+
     document.apply(transaction.finish()).unwrap();
 
     let mut transaction = document.transaction("Draw rectangle");
@@ -29,6 +32,7 @@ fn rectangle() -> Rectangle {
         Point2::new(29.0, 21.0),
         Point2::new(-1.0, 19.5),
     ];
+
     let corners =
         drawn.map(|position| transaction.add_sketch_entity(feature, Entity::Point(position)));
     let sides = [0, 1, 2, 3].map(|index| {
@@ -40,6 +44,7 @@ fn rectangle() -> Rectangle {
             },
         )
     });
+
     let constraints = vec![
         transaction.add_sketch_constraint(feature, Constraint::Horizontal(sides[0])),
         transaction.add_sketch_constraint(feature, Constraint::Vertical(sides[1])),
@@ -66,6 +71,7 @@ fn rectangle() -> Rectangle {
             },
         ),
     ];
+
     document.apply(transaction.finish()).unwrap();
     Rectangle {
         document,
@@ -107,13 +113,16 @@ fn a_line_and_its_new_endpoints_are_added_in_one_transaction() {
             end: shape.corners[0],
         })
     );
+
     let mut ids: Vec<u64> = shape
         .corners
         .iter()
         .chain(&shape.sides)
         .map(|id| id.raw())
         .collect();
+
     ids.extend(shape.constraints.iter().map(|id| id.raw()));
+
     assert_eq!(ids, (0..15).collect::<Vec<_>>());
     assert_eq!(sketch.next_id(), 15);
 }
@@ -123,14 +132,17 @@ fn undo_and_redo_of_every_sketch_edit_restore_the_exact_sketch() {
     let shape = rectangle();
     let feature = shape.feature;
     let mut editor = Editor::new(shape.document.clone());
+
     let before = sketch_of(editor.document(), feature).clone();
     let add_point = |document: &Document| {
         let mut transaction = document.transaction("Add point");
+
         transaction.add_sketch_entity(feature, Entity::Point(Point2::new(5.0, 5.0)));
         transaction.finish()
     };
     let add_constraint = |document: &Document| {
         let mut transaction = document.transaction("Add constraint");
+
         transaction.add_sketch_constraint(
             feature,
             Constraint::Parallel(shape.sides[0], shape.sides[2]),
@@ -158,11 +170,15 @@ fn undo_and_redo_of_every_sketch_edit_restore_the_exact_sketch() {
     };
     let remove_side = |document: &Document| {
         let mut transaction = document.transaction("Remove side");
+
         transaction.remove_sketch_items(feature, [shape.sides[2]], []);
+
         let transaction = transaction.finish();
+
         assert_eq!(transaction.edits().len(), 3);
         transaction
     };
+
     let steps: [&dyn Fn(&Document) -> Transaction; 5] = [
         &add_point,
         &add_constraint,
@@ -173,19 +189,25 @@ fn undo_and_redo_of_every_sketch_edit_restore_the_exact_sketch() {
 
     for step in steps {
         let start = editor.document().clone();
+
         editor.apply(step(editor.document())).unwrap();
+
         let applied = editor.document().clone();
 
         editor.undo().unwrap();
+
         let undone = sketch_of(editor.document(), feature);
+
         assert!(same_content(undone, sketch_of(&start, feature)));
         assert_eq!(undone.next_id(), sketch_of(&applied, feature).next_id());
 
         editor.redo().unwrap();
+
         assert_eq!(*editor.document(), applied);
     }
 
     while editor.undo().unwrap().is_some() {}
+
     assert!(same_content(sketch_of(editor.document(), feature), &before));
     assert_eq!(sketch_of(editor.document(), feature).next_id(), 17);
 }
@@ -193,6 +215,7 @@ fn undo_and_redo_of_every_sketch_edit_restore_the_exact_sketch() {
 #[test]
 fn removing_a_used_point_is_refused_and_names_its_users() {
     let mut shape = rectangle();
+
     let before = shape.document.clone();
 
     let error = shape
@@ -223,6 +246,7 @@ fn removing_a_used_point_is_refused_and_names_its_users() {
             },
         ))
         .unwrap_err();
+
     assert_eq!(
         error.to_string(),
         "Plate: Origin is reference geometry, which cannot be removed or changed"
@@ -233,6 +257,7 @@ fn removing_a_used_point_is_refused_and_names_its_users() {
 fn setting_an_entity_only_changes_its_value() {
     let shape = rectangle();
     let feature = shape.feature;
+
     let refused = |id: EntityId, entity: Entity| {
         shape
             .document
@@ -288,7 +313,9 @@ fn setting_an_entity_only_changes_its_value() {
     ));
 
     let mut document = shape.document.clone();
+
     let mut transaction = document.transaction("Add circle");
+
     let center = transaction.add_sketch_entity(feature, Entity::Point(Point2::new(50.0, 0.0)));
     let circle = transaction.add_sketch_entity(
         feature,
@@ -297,7 +324,9 @@ fn setting_an_entity_only_changes_its_value() {
             radius: 3.0,
         },
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let resize = |radius| {
         Transaction::single(
             "Resize",
@@ -308,6 +337,7 @@ fn setting_an_entity_only_changes_its_value() {
             },
         )
     };
+
     assert!(matches!(
         document.check(&resize(0.0)),
         Err(EditError::Sketch {
@@ -315,7 +345,9 @@ fn setting_an_entity_only_changes_its_value() {
             ..
         })
     ));
+
     document.apply(resize(7.5)).unwrap();
+
     assert_eq!(
         sketch_of(&document, feature).circle(circle),
         Some((Point2::new(50.0, 0.0), 7.5))
@@ -327,8 +359,10 @@ fn sketch_ids_are_never_reused_after_undoing_an_add() {
     let shape = rectangle();
     let feature = shape.feature;
     let mut editor = Editor::new(shape.document);
+
     let add = |editor: &Editor| {
         let mut transaction = editor.document().transaction("Add point");
+
         let point = transaction.add_sketch_entity(feature, Entity::Point(Point2::ZERO));
         let constraint = transaction
             .add_sketch_constraint(feature, Constraint::Coincident(point, shape.sides[0]));
@@ -336,14 +370,19 @@ fn sketch_ids_are_never_reused_after_undoing_an_add() {
     };
 
     let (first_point, first_constraint, transaction) = add(&editor);
+
     editor.apply(transaction).unwrap();
     editor.undo().unwrap();
+
     let (second_point, second_constraint, transaction) = add(&editor);
+
     editor.apply(transaction).unwrap();
 
     assert_eq!((first_point.raw(), first_constraint.raw()), (15, 16));
     assert_eq!((second_point.raw(), second_constraint.raw()), (17, 18));
+
     let sketch = sketch_of(editor.document(), feature);
+
     assert!(sketch.entity(first_point).is_none());
     assert!(sketch.constraint(first_constraint).is_none());
 }
@@ -353,8 +392,11 @@ fn removing_a_rectangle_corner_takes_its_sides_and_their_constraints() {
     let shape = rectangle();
     let feature = shape.feature;
     let mut document = shape.document.clone();
+
     let mut transaction = document.transaction("Delete corner");
+
     transaction.remove_sketch_items(feature, [shape.corners[1], EntityId::ORIGIN], []);
+
     let transaction = transaction.finish();
 
     let removed_constraints = [0, 1, 5, 6].map(|index| shape.constraints[index]);
@@ -366,15 +408,18 @@ fn removing_a_rectangle_corner_takes_its_sides_and_their_constraints() {
                 .map(|id| Edit::RemoveSketchEntity { feature, id }),
         )
         .collect();
+
     assert_eq!(transaction.edits(), expected);
 
     let inverse = document.apply(transaction).unwrap();
     let sketch = sketch_of(&document, feature);
+
     assert_eq!(sketch.entities().len(), 5);
     assert_eq!(sketch.constraints().len(), 3);
     assert!(sketch.entity(shape.corners[0]).is_some());
 
     document.apply(inverse).unwrap();
+
     assert_eq!(document, shape.document);
 }
 
@@ -383,11 +428,13 @@ fn removing_a_line_keeps_its_endpoints_and_each_item_is_removed_once() {
     let shape = rectangle();
     let feature = shape.feature;
     let mut transaction = shape.document.transaction("Delete");
+
     transaction.remove_sketch_items(
         feature,
         [shape.sides[0], shape.sides[0]],
         [shape.constraints[0], shape.constraints[4]],
     );
+
     let transaction = transaction.finish();
 
     assert_eq!(
@@ -407,8 +454,11 @@ fn removing_a_line_keeps_its_endpoints_and_each_item_is_removed_once() {
             },
         ]
     );
+
     let mut document = shape.document.clone();
+
     document.apply(transaction).unwrap();
+
     assert!(
         sketch_of(&document, feature)
             .entity(shape.corners[0])
@@ -421,13 +471,19 @@ fn settling_brings_the_definition_to_the_solved_shape() {
     let shape = rectangle();
     let feature = shape.feature;
     let mut document = shape.document.clone();
+
     let solved = solve(&document, feature);
+
     assert_ne!(*sketch_of(&document, feature), solved);
 
     let mut transaction = document.transaction("Settle");
+
     transaction.settle_sketch(feature, &solved);
+
     let transaction = transaction.finish();
+
     assert_eq!(transaction.edits().len(), 4);
+
     document.apply(transaction).unwrap();
 
     assert_eq!(*sketch_of(&document, feature), solved);
@@ -438,7 +494,9 @@ fn settling_brings_the_definition_to_the_solved_shape() {
     );
 
     let mut transaction = document.transaction("Settle again");
+
     transaction.settle_sketch(feature, &solved);
+
     assert!(transaction.finish().is_empty());
 }
 
@@ -448,6 +506,7 @@ fn settling_from_a_stale_result_touches_only_matching_usable_entities() {
     let feature = shape.feature;
     let mut document = shape.document.clone();
     let mut stale = Sketch::new(Plane::XY);
+
     stale.add_point(Point2::new(f64::NAN, 1.0));
     stale.add_point(Point2::new(3.0, 4.0));
     stale.add_point(Point2::new(29.0, 21.0));
@@ -457,7 +516,9 @@ fn settling_from_a_stale_result_touches_only_matching_usable_entities() {
     stale.add_point(Point2::ZERO);
 
     let mut transaction = document.transaction("Settle");
+
     transaction.settle_sketch(feature, &stale);
+
     let transaction = transaction.finish();
 
     assert_eq!(
@@ -468,6 +529,7 @@ fn settling_from_a_stale_result_touches_only_matching_usable_entities() {
             entity: Entity::Point(Point2::new(3.0, 4.0)),
         }]
     );
+
     document.apply(transaction).unwrap();
 }
 
@@ -475,8 +537,10 @@ fn settling_from_a_stale_result_touches_only_matching_usable_entities() {
 fn constraints_are_checked_by_the_sketch_and_the_document() {
     let shape = rectangle();
     let feature = shape.feature;
+
     let add = |constraint| {
         let mut transaction = shape.document.transaction("Add constraint");
+
         transaction.add_sketch_constraint(feature, constraint);
         shape.document.check(&transaction.finish())
     };
@@ -551,8 +615,10 @@ fn constraints_are_checked_by_the_sketch_and_the_document() {
 fn check_reports_sketch_errors_without_changing_the_document() {
     let shape = rectangle();
     let mut transaction = shape.document.transaction("Delete then misuse");
+
     transaction.remove_sketch_items(shape.feature, [shape.corners[1]], []);
     transaction.add_sketch_constraint(shape.feature, Constraint::Horizontal(shape.sides[0]));
+
     let transaction = transaction.finish();
 
     assert!(matches!(
@@ -568,6 +634,7 @@ fn check_reports_sketch_errors_without_changing_the_document() {
     );
 
     let mut document = shape.document.clone();
+
     assert!(document.apply(transaction).is_err());
     assert_eq!(document, shape.document);
     assert_eq!(shape.width, document.parameter_named("width").unwrap().id());
@@ -576,11 +643,15 @@ fn check_reports_sketch_errors_without_changing_the_document() {
 #[test]
 fn sketch_items_can_be_added_to_a_feature_created_in_the_same_transaction() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch with a line");
+
     let feature = transaction.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
     let start = transaction.add_sketch_entity(feature, Entity::Point(Point2::ZERO));
     let end = transaction.add_sketch_entity(feature, Entity::Point(Point2::X));
+
     let line = transaction.add_sketch_entity(feature, Entity::Line { start, end });
+
     document.apply(transaction.finish()).unwrap();
 
     assert_eq!(
@@ -606,9 +677,13 @@ fn adding_then_undoing_leaves_the_same_content_with_higher_counters() {
     } = rectangle();
     let before = document.clone();
     let mut transaction = document.transaction("Draw point");
+
     transaction.add_sketch_entity(feature, Entity::Point(Point2::new(3.0, 3.0)));
+
     let undo = document.apply(transaction.finish()).unwrap();
+
     document.apply(undo).unwrap();
+
     assert!(document.same_content(&before));
     assert_ne!(document, before);
     assert!(next_sketch_id(&document, feature) > next_sketch_id(&before, feature));
@@ -623,12 +698,16 @@ fn restoring_an_earlier_version_never_lowers_a_sketch_counter() {
     } = rectangle();
     let version = document.clone();
     let mut transaction = document.transaction("Draw point");
+
     transaction.add_sketch_entity(feature, Entity::Point(Point2::new(3.0, 3.0)));
     document.apply(transaction.finish()).unwrap();
+
     let reached = next_sketch_id(&document, feature);
 
     let restore = document.transaction_to(&version, "Restore earlier version");
+
     document.apply(restore).unwrap();
+
     assert!(document.same_content(&version));
     assert_eq!(next_sketch_id(&document, feature), reached);
 }
@@ -638,7 +717,9 @@ fn recompute_reanalyses_only_the_parts_of_a_sketch_an_edit_touches() {
     let shape = rectangle();
     let feature = shape.feature;
     let mut document = shape.document.clone();
+
     let mut transaction = document.transaction("Add circle");
+
     let center = transaction.add_sketch_entity(feature, Entity::Point(Point2::new(60.0, 10.0)));
     let circle = transaction.add_sketch_entity(
         feature,
@@ -654,6 +735,7 @@ fn recompute_reanalyses_only_the_parts_of_a_sketch_an_edit_touches() {
             value: transaction.parse("4 mm").unwrap(),
         },
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let mut engine = crate::Recompute::default();
@@ -665,6 +747,7 @@ fn recompute_reanalyses_only_the_parts_of_a_sketch_an_edit_touches() {
             &|_, _| {},
         )
     };
+
     let first = run(&mut engine, &document);
     let solved = first
         .feature(feature)
@@ -674,6 +757,7 @@ fn recompute_reanalyses_only_the_parts_of_a_sketch_an_edit_touches() {
         .geometry
         .clone();
     let mut transaction = document.transaction("Settle");
+
     transaction.settle_sketch(feature, &solved);
     document.apply(transaction.finish()).unwrap();
     document
@@ -693,6 +777,7 @@ fn recompute_reanalyses_only_the_parts_of_a_sketch_an_edit_touches() {
         .and_then(|status| status.result.as_deref())
         .and_then(crate::FeatureResult::sketch)
         .unwrap();
+
     assert_eq!(result.memo().recalled(), 1);
     assert_eq!(result.geometry.circle(circle).unwrap().1, 6.0);
     assert_eq!(result.solution.degrees_of_freedom(), 2);
@@ -703,26 +788,34 @@ fn a_reshaped_sketch_is_one_undoable_change_that_keeps_every_identifier() {
     let shape = rectangle();
     let feature = shape.feature;
     let mut editor = Editor::new(shape.document.clone());
+
     let before = solve(editor.document(), feature);
     let [bottom, right, top, _] = shape.sides;
     let mut after = before.clone();
+
     let cutter = after.add_line(Point2::new(10.0, -5.0), Point2::new(10.0, 15.0));
+
     after.set_construction(cutter, true).unwrap();
     after.trim(bottom, Point2::new(20.0, 0.0)).unwrap();
     after.extend(cutter, Point2::new(10.0, 14.0)).unwrap();
     after.trim(top, Point2::new(20.0, 20.0)).unwrap();
 
     let mut transaction = editor.document().transaction("Trim");
+
     transaction.settle_sketch(feature, &before);
     transaction.reshape_sketch(feature, &before, &after);
+
     let fresh = transaction.add_sketch_entity(feature, Entity::Point(Point2::ZERO));
+
     editor.apply(transaction.finish()).unwrap();
 
     let reshaped = sketch_of(editor.document(), feature);
     let mut expected = after.clone();
+
     expected
         .insert_entity(fresh, Entity::Point(Point2::ZERO))
         .unwrap();
+
     assert!(same_content(reshaped, &expected));
     assert!(reshaped.is_construction(cutter));
     assert!(reshaped.entity(right).is_some());
@@ -730,7 +823,9 @@ fn a_reshaped_sketch_is_one_undoable_change_that_keeps_every_identifier() {
     assert_eq!(editor.undo_label(), Some("Trim"));
 
     editor.undo().unwrap();
+
     let restored = sketch_of(editor.document(), feature);
+
     assert!(restored.same_content(sketch_of(&shape.document, feature)));
     assert!(restored.next_id() > fresh.raw());
 }
@@ -741,19 +836,26 @@ fn making_a_constraint_inactive_is_one_undoable_change_that_stops_it_driving() {
     let feature = shape.feature;
     let width = *shape.constraints.last().unwrap();
     let mut editor = Editor::new(shape.document.clone());
+
     let held = solve(editor.document(), feature);
 
     let mut transaction = editor.document().transaction("Disable constraint");
+
     transaction.set_sketch_constraint_active(feature, width, false);
     editor.apply(transaction.finish()).unwrap();
 
     assert!(!sketch_of(editor.document(), feature).is_active(width));
+
     let loose = solve(editor.document(), feature);
+
     assert!(!same_content(&loose, &held));
 
     editor.undo().unwrap();
+
     assert!(sketch_of(editor.document(), feature).is_active(width));
+
     editor.redo().unwrap();
+
     assert!(!sketch_of(editor.document(), feature).is_active(width));
 }
 
@@ -763,13 +865,17 @@ fn removing_an_inactive_constraint_and_undoing_brings_it_back_inactive() {
     let feature = shape.feature;
     let width = shape.constraints[5];
     let mut editor = Editor::new(shape.document.clone());
+
     let mut transaction = editor.document().transaction("Disable constraint");
+
     transaction.set_sketch_constraint_active(feature, width, false);
     editor.apply(transaction.finish()).unwrap();
 
     let mut transaction = editor.document().transaction("Delete constraint");
+
     transaction.remove_sketch_items(feature, [], [width]);
     editor.apply(transaction.finish()).unwrap();
+
     assert!(
         sketch_of(editor.document(), feature)
             .constraint(width)
@@ -778,7 +884,9 @@ fn removing_an_inactive_constraint_and_undoing_brings_it_back_inactive() {
     assert_eq!(sketch_of(editor.document(), feature).inactive().count(), 0);
 
     editor.undo().unwrap();
+
     let sketch = sketch_of(editor.document(), feature);
+
     assert!(sketch.constraint(width).is_some());
     assert!(!sketch.is_active(width));
 }
@@ -789,18 +897,24 @@ fn a_reshape_keeps_which_constraints_are_inactive_and_changes_them_when_asked() 
     let feature = shape.feature;
     let (first, width) = (shape.constraints[0], shape.constraints[5]);
     let mut editor = Editor::new(shape.document.clone());
+
     let before = sketch_of(editor.document(), feature).clone();
     let mut after = before.clone();
+
     after.set_active(width, false).unwrap();
     after.set_active(first, false).unwrap();
 
     let mut transaction = editor.document().transaction("Disable");
+
     transaction.reshape_sketch(feature, &before, &after);
     editor.apply(transaction.finish()).unwrap();
 
     let sketch = sketch_of(editor.document(), feature);
+
     assert_eq!(sketch.inactive().collect::<Vec<_>>(), vec![first, width]);
+
     editor.undo().unwrap();
+
     assert_eq!(sketch_of(editor.document(), feature).inactive().count(), 0);
 }
 
@@ -813,23 +927,28 @@ fn moving_a_dimension_label_is_undoable_and_survives_deleting_and_restoring_the_
     let placed = Vector2::new(3.0, 12.0);
 
     let mut transaction = editor.document().transaction("Move dimension label");
+
     transaction.set_sketch_label(feature, width, Some(placed));
     editor.apply(transaction.finish()).unwrap();
+
     assert_eq!(
         sketch_of(editor.document(), feature).label_offset(width),
         Some(placed)
     );
 
     let mut transaction = editor.document().transaction("Delete constraint");
+
     transaction.remove_sketch_items(feature, [], [width]);
     editor.apply(transaction.finish()).unwrap();
     editor.undo().unwrap();
+
     assert_eq!(
         sketch_of(editor.document(), feature).label_offset(width),
         Some(placed)
     );
 
     editor.undo().unwrap();
+
     assert_eq!(
         sketch_of(editor.document(), feature).label_offset(width),
         None
@@ -837,10 +956,14 @@ fn moving_a_dimension_label_is_undoable_and_survives_deleting_and_restoring_the_
 
     let before = sketch_of(editor.document(), feature).clone();
     let mut after = before.clone();
+
     after.set_label_offset(width, Some(placed)).unwrap();
+
     let mut transaction = editor.document().transaction("Reshape");
+
     transaction.reshape_sketch(feature, &before, &after);
     editor.apply(transaction.finish()).unwrap();
+
     assert_eq!(
         sketch_of(editor.document(), feature).label_offset(width),
         Some(placed)
@@ -850,17 +973,22 @@ fn moving_a_dimension_label_is_undoable_and_survives_deleting_and_restoring_the_
 #[test]
 fn a_chain_whose_line_must_fold_back_recomputes_to_the_shape_diagnosis_found() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("New sketch");
+
     let feature = transaction.add_feature("Chain", FeatureKind::from(Sketch::new(Plane::XY)));
+
     document.apply(transaction.finish()).unwrap();
 
     let mut transaction = document.transaction("Draw chain");
+
     let points: Vec<EntityId> = (0..=4)
         .map(|index| {
             let at = Point2::new(f64::from(index) * 10.0, 0.0);
             transaction.add_sketch_entity(feature, Entity::Point(at))
         })
         .collect();
+
     transaction.add_sketch_constraint(feature, Constraint::Coincident(points[0], EntityId::ORIGIN));
     for pair in points.windows(2) {
         let line = transaction.add_sketch_entity(
@@ -871,6 +999,7 @@ fn a_chain_whose_line_must_fold_back_recomputes_to_the_shape_diagnosis_found() {
             },
         );
         let value = transaction.parse("10 mm").unwrap();
+
         transaction.add_sketch_constraint(feature, Constraint::Horizontal(line));
         transaction.add_sketch_constraint(
             feature,
@@ -881,15 +1010,18 @@ fn a_chain_whose_line_must_fold_back_recomputes_to_the_shape_diagnosis_found() {
             },
         );
     }
+
     let closing = Constraint::Distance {
         from: points[0],
         to: points[4],
         value: transaction.parse("20 mm").unwrap(),
     };
+
     transaction.add_sketch_constraint(feature, closing.clone());
     document.apply(transaction.finish()).unwrap();
 
     let mut engine = crate::Recompute::default();
+
     let outcome = engine.run(
         &document,
         &crate::ModelEvaluator,
@@ -913,13 +1045,20 @@ fn a_chain_whose_line_must_fold_back_recomputes_to_the_shape_diagnosis_found() {
 fn a_trimmed_piece_keeps_the_curve_it_came_from_through_reshaping_removal_and_undo() {
     let mut document = Document::default();
     let mut drawn = Sketch::new(Plane::XY);
+
     let line = drawn.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+
     drawn.add_line(Point2::new(10.0, -5.0), Point2::new(10.0, 5.0));
     drawn.add_line(Point2::new(30.0, -5.0), Point2::new(30.0, 5.0));
+
     let mut transaction = document.transaction("New sketch");
+
     let feature = transaction.add_feature("Outline", FeatureKind::from(drawn.clone()));
+
     document.apply(transaction.finish()).unwrap();
+
     let mut trimmed = drawn.clone();
+
     let caditor_sketch::Trimmed::Split { piece } =
         trimmed.trim(line, Point2::new(20.0, 0.0)).unwrap()
     else {
@@ -936,14 +1075,20 @@ fn a_trimmed_piece_keeps_the_curve_it_came_from_through_reshaping_removal_and_un
     };
 
     let mut transaction = document.transaction("Trim");
+
     transaction.reshape_sketch(feature, &drawn, &trimmed);
     document.apply(transaction.finish()).unwrap();
+
     let reshaped = sketch(&document);
     let mut transaction = document.transaction("Delete");
+
     transaction.remove_sketch_items(feature, [piece], []);
+
     let restore = document.apply(transaction.finish()).unwrap();
     let removed = sketch(&document);
+
     document.apply(restore).unwrap();
+
     let restored = sketch(&document);
 
     assert_eq!(reshaped.split_from(piece), Some(line));

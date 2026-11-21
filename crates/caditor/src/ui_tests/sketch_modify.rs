@@ -13,18 +13,25 @@ use crate::{editing::Tool, filleting, mirroring, offsetting, selection::Pickable
 fn offset_takes_the_clicked_chain_and_runs_where_the_pointer_is_in_one_undoable_step() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::ZERO, Point2::new(40.0, 20.0));
+
     let bottom = entities_of_kind(&sketch, "Line")[0];
     let bottom_label = sketch.entity_label(bottom);
     let feature = edit_free_sketch(&mut harness, sketch);
     let before = harness.sketch(feature).clone();
 
     harness.use_tool(Key::W);
+
     assert_eq!(harness.tool(), Some(Tool::Offset));
     assert!(harness.shows(offsetting::CHOOSE_PROMPT));
+
     harness.point_at(Point2::new(20.0, 0.0));
+
     assert!(harness.shows(&format!("Take the chain of {bottom_label} to offset")));
+
     harness.click_at(Point2::new(20.0, 0.0));
+
     assert_eq!(
         sketch_tools::selected_entities(harness.workspace.viewport.selection(), feature).len(),
         4
@@ -32,17 +39,22 @@ fn offset_takes_the_clicked_chain_and_runs_where_the_pointer_is_in_one_undoable_
     assert!(harness.shows(offsetting::PROMPT));
 
     harness.point_at(Point2::new(20.0, -5.0));
+
     assert!(harness.shows("Offset 4 curves by 5 mm"));
+
     harness.click_at(Point2::new(20.0, -5.0));
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(entities_of_kind(sketch, "Line").len(), 8);
     assert_eq!(constraints_of_kind(sketch, "Distance").len(), 4);
+
     let corners: Vec<Point2> = entities_of_kind(sketch, "Line")
         .into_iter()
         .filter_map(|line| sketch.line_endpoints(line))
         .map(|(start, _)| start)
         .collect();
+
     for expected in [
         Point2::new(-5.0, -5.0),
         Point2::new(45.0, -5.0),
@@ -54,11 +66,13 @@ fn offset_takes_the_clicked_chain_and_runs_where_the_pointer_is_in_one_undoable_
             "{expected} in {corners:?}"
         );
     }
+
     assert_eq!(harness.model.undo_label(), Some(offsetting::TRANSACTION));
     assert_eq!(harness.tool(), Some(Tool::Offset));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
@@ -66,26 +80,34 @@ fn offset_takes_the_clicked_chain_and_runs_where_the_pointer_is_in_one_undoable_
 fn offset_by_a_typed_distance_needs_no_pointer_and_a_negative_one_goes_the_other_way() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::ZERO, 10.0);
     let circle_label = sketch.entity_label(circle);
     let spline = sketch.add_spline(&[Point2::new(30.0, 0.0), Point2::new(40.0, 10.0)]);
     let spline_label = sketch.entity_label(spline);
     let tail = sketch.add_line(Point2::new(40.0, 10.0), Point2::new(50.0, 10.0));
+
     let (Some(Entity::Spline { points, .. }), Some(Entity::Line { start, .. })) =
         (sketch.entity(spline), sketch.entity(tail))
     else {
         panic!("a spline and a line");
     };
+
     let (spline_end, tail_start) = (points[1], *start);
+
     sketch
         .add_constraint(Constraint::Coincident(spline_end, tail_start))
         .unwrap();
+
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.select(entity_pickables(feature, &[circle]));
     run_from_palette(&mut harness, "offset sketch curves");
+
     assert_eq!(harness.tool(), Some(Tool::Offset));
+
     type_point(&mut harness, "3");
+
     assert!(close(
         &radii_of_circles(harness.sketch(feature)),
         &[10.0, 13.0]
@@ -93,27 +115,34 @@ fn offset_by_a_typed_distance_needs_no_pointer_and_a_negative_one_goes_the_other
     assert_eq!(harness.model.undo_label(), Some(offsetting::TRANSACTION));
 
     type_point(&mut harness, "-2");
+
     assert!(close(
         &radii_of_circles(harness.sketch(feature)),
         &[8.0, 10.0, 13.0]
     ));
 
     type_point(&mut harness, "-12");
+
     assert!(harness.shows(&format!(
         "Offset: offsetting {circle_label} this far would shrink it to nothing."
     )));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert_eq!(radii_of_circles(harness.sketch(feature)).len(), 3);
 
     harness.select(entity_pickables(feature, &[spline, tail]));
     harness.frame();
+
     assert!(harness.shows(&format!(
         "{spline_label} can only be offset on its own or beside curves it does not touch: its \
          offset is a spline, which does not join a chain"
     )));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::Select));
 }
 
@@ -121,6 +150,7 @@ fn offset_by_a_typed_distance_needs_no_pointer_and_a_negative_one_goes_the_other
 fn offset_takes_several_chains_at_once_each_to_the_pointers_side_in_one_undoable_step() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0));
     let second = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(20.0, 30.0));
     let circle = sketch.add_circle(Point2::new(60.0, 10.0), 5.0);
@@ -130,10 +160,13 @@ fn offset_takes_several_chains_at_once_each_to_the_pointers_side_in_one_undoable
     harness.select(entity_pickables(feature, &[first, second, circle]));
     harness.use_tool(Key::W);
     harness.point_at(Point2::new(10.0, 15.0));
+
     assert!(harness.shows("Offset 3 curves by 15 mm"));
+
     harness.click_at(Point2::new(10.0, 15.0));
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(entities_of_kind(sketch, "Line").len(), 4);
     assert_eq!(entities_of_kind(sketch, "Circle").len(), 2);
     assert_eq!(constraints_of_kind(sketch, "Distance").len(), 3);
@@ -141,6 +174,7 @@ fn offset_takes_several_chains_at_once_each_to_the_pointers_side_in_one_undoable
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
@@ -148,43 +182,57 @@ fn offset_takes_several_chains_at_once_each_to_the_pointers_side_in_one_undoable
 fn mirror_copies_the_selection_about_the_clicked_line_and_keeps_it_symmetric() {
     let mut harness = Harness::new();
     let (sketch, mirror, line, circle) = mirror_fixture();
+
     let mirror_label = sketch.entity_label(mirror);
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.use_tool(Key::Y);
+
     assert_eq!(harness.tool(), Some(Tool::Mirror));
     assert!(harness.shows(mirroring::SELECT_FIRST));
+
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
+
     assert_eq!(
         harness.model.notice().unwrap().text,
         "Mirror: select what to mirror first: click it or drag a box around it."
     );
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::Select));
 
     harness.select(entity_pickables(feature, &[line, circle]));
     harness.use_tool(Key::Y);
+
     assert!(harness.shows(mirroring::PROMPT));
+
     harness.point_at(Point2::new(0.0, 20.0));
+
     assert!(harness.shows(&format!("Mirror 2 items about {mirror_label}")));
+
     harness.click_at(Point2::new(0.0, 20.0));
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(entities_of_kind(sketch, "Line").len(), 3);
     assert_eq!(entities_of_kind(sketch, "Circle").len(), 2);
+
     let copy = entities_of_kind(sketch, "Line")
         .into_iter()
         .find(|id| ![mirror, line].contains(id))
         .unwrap();
     let (start, end) = sketch.line_endpoints(copy).unwrap();
+
     assert!(near(start, Point2::new(-5.0, 0.0)) && near(end, Point2::new(-15.0, 10.0)));
     assert_eq!(constraints_of_kind(sketch, "Symmetric").len(), 3);
     assert_eq!(constraints_of_kind(sketch, "Equal").len(), 1);
     assert_eq!(harness.model.undo_label(), Some(mirroring::TRANSACTION));
 
     harness.settle();
+
     assert!(
         harness
             .model
@@ -198,17 +246,24 @@ fn mirror_copies_the_selection_about_the_clicked_line_and_keeps_it_symmetric() {
 fn mirror_steps_through_lines_and_axes_from_the_keyboard() {
     let mut harness = Harness::new();
     let (sketch, _, line, circle) = mirror_fixture();
+
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.select(entity_pickables(feature, &[line, circle]));
     run_from_palette(&mut harness, "mirror sketch geometry");
+
     assert_eq!(harness.tool(), Some(Tool::Mirror));
+
     harness.key(Key::N, Modifiers::NONE);
     harness.frame();
+
     assert!(harness.shows("Mirror 2 items about Horizontal axis"));
+
     harness.key(Key::N, Modifiers::NONE);
     harness.frame();
+
     assert!(harness.shows("Mirror 2 items about Vertical axis"));
+
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
 
@@ -218,6 +273,7 @@ fn mirror_steps_through_lines_and_axes_from_the_keyboard() {
         .filter_map(|circle| sketch.circle(circle))
         .map(|(centre, _)| centre)
         .collect();
+
     assert!(
         centres
             .iter()
@@ -236,9 +292,12 @@ fn mirror_steps_through_lines_and_axes_from_the_keyboard() {
     harness.frame();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::Mirror));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::Select));
 }
 
@@ -246,31 +305,43 @@ fn mirror_steps_through_lines_and_axes_from_the_keyboard() {
 fn a_sketch_fillet_rounds_the_clicked_corner_with_a_typed_radius_in_one_undoable_step() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::ZERO, Point2::new(40.0, 20.0));
+
     let lines = entities_of_kind(&sketch, "Line");
     let [first, second] = [lines[0], lines[1]].map(|line| sketch.entity_label(line));
     let feature = edit_free_sketch(&mut harness, sketch);
     let before = harness.sketch(feature).clone();
 
     harness.use_tool(Key::B);
+
     assert_eq!(harness.tool(), Some(Tool::Fillet));
     assert!(harness.shows(filleting::CORNER_PROMPT));
+
     harness.point_at(Point2::new(40.0, 0.0));
+
     assert!(harness.shows(&format!("Round the corner of {first} and {second}")));
+
     harness.click_at(Point2::new(40.0, 0.0));
+
     assert!(harness.shows(filleting::RADIUS_PROMPT));
 
     type_point(&mut harness, "30");
+
     assert!(harness.shows(&format!(
         "Sketch fillet: the radius is too large for {second}."
     )));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert!(fillet_arc(harness.sketch(feature)).is_none());
 
     type_point(&mut harness, "5");
+
     let sketch = harness.sketch(feature);
     let arc = fillet_arc(sketch).unwrap();
+
     assert!(near(arc.center, Point2::new(35.0, 5.0)));
     assert!((arc.radius - 5.0).abs() < DRAWN);
     assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 2);
@@ -280,6 +351,7 @@ fn a_sketch_fillet_rounds_the_clicked_corner_with_a_typed_radius_in_one_undoable
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
@@ -287,30 +359,41 @@ fn a_sketch_fillet_rounds_the_clicked_corner_with_a_typed_radius_in_one_undoable
 fn a_sketch_chamfer_cuts_the_clicked_corner_with_a_typed_distance_kept_as_dimensions() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::ZERO, Point2::new(40.0, 20.0));
+
     let lines = entities_of_kind(&sketch, "Line");
     let [first, second] = [lines[0], lines[1]].map(|line| sketch.entity_label(line));
     let feature = edit_free_sketch(&mut harness, sketch);
     let before = harness.sketch(feature).clone();
 
     harness.use_tool(Key::V);
+
     assert_eq!(harness.tool(), Some(Tool::Chamfer));
     assert!(harness.shows(filleting::CHAMFER_CORNER_PROMPT));
+
     harness.point_at(Point2::new(40.0, 0.0));
+
     assert!(harness.shows(&format!("Cut the corner of {first} and {second}")));
+
     harness.click_at(Point2::new(40.0, 0.0));
+
     assert!(harness.shows(filleting::DISTANCE_PROMPT));
 
     type_point(&mut harness, "25");
+
     assert!(harness.shows(&format!(
         "Sketch chamfer: the chamfer distance is too large for {second}."
     )));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
     type_point(&mut harness, "5");
+
     let sketch = harness.sketch(feature);
     let lines = entities_of_kind(sketch, "Line");
+
     assert_eq!(lines.len(), 5);
     assert!(
         lines
@@ -327,6 +410,7 @@ fn a_sketch_chamfer_cuts_the_clicked_corner_with_a_typed_distance_kept_as_dimens
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
@@ -334,11 +418,14 @@ fn a_sketch_chamfer_cuts_the_clicked_corner_with_a_typed_distance_kept_as_dimens
 fn a_line_is_split_at_the_selected_point_on_it_from_the_palette() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
     let point = sketch.add_point(Point2::new(15.0, 0.0));
+
     sketch
         .add_constraint(Constraint::Coincident(point, line))
         .unwrap();
+
     let off = sketch.add_point(Point2::new(15.0, 5.0));
     let feature = edit_free_sketch(&mut harness, sketch);
 
@@ -348,8 +435,10 @@ fn a_line_is_split_at_the_selected_point_on_it_from_the_palette() {
     }]);
     run_from_palette(&mut harness, "split the selected curve");
     harness.settle();
+
     let refused = entities_of_kind(harness.sketch(feature), "Line").len() == 1
         && harness.shows_containing(crate::sketch_tools::NOTHING_TO_SPLIT);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.select([Pickable::SketchEntity {
@@ -360,6 +449,7 @@ fn a_line_is_split_at_the_selected_point_on_it_from_the_palette() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert!(refused);
     assert_eq!(entities_of_kind(sketch, "Line").len(), 2);
     assert_eq!(constraints_of_kind(sketch, "Collinear").len(), 1);
@@ -373,6 +463,7 @@ fn a_line_is_split_at_the_selected_point_on_it_from_the_palette() {
 fn a_control_spline_is_split_at_the_selected_point_without_changing_its_shape() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&[
         Point2::new(0.0, 50.0),
         Point2::new(10.0, 65.0),
@@ -385,9 +476,11 @@ fn a_control_spline_is_split_at_the_selected_point_without_changing_its_shape() 
     let whole = sketch.spline(spline).unwrap();
     let cut = whole.point_at(0.4);
     let point = sketch.add_point(cut);
+
     sketch
         .add_constraint(Constraint::Coincident(point, spline))
         .unwrap();
+
     let feature = edit_free_sketch(&mut harness, sketch);
     let off_curve = |sketch: &Sketch| {
         entities_of_kind(sketch, "Spline")
@@ -417,6 +510,7 @@ fn a_control_spline_is_split_at_the_selected_point_without_changing_its_shape() 
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(entities_of_kind(sketch, "Spline").len(), 2);
     assert!(off_curve(sketch) < 1e-3);
     assert_eq!(
@@ -426,6 +520,7 @@ fn a_control_spline_is_split_at_the_selected_point_without_changing_its_shape() 
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(entities_of_kind(harness.sketch(feature), "Spline").len(), 1);
 }
 
@@ -433,6 +528,7 @@ fn a_control_spline_is_split_at_the_selected_point_without_changing_its_shape() 
 fn a_control_point_is_added_to_a_spline_from_the_palette_keeping_its_shape_and_undoes() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&[
         Point2::new(0.0, 50.0),
         Point2::new(10.0, 65.0),
@@ -447,6 +543,7 @@ fn a_control_point_is_added_to_a_spline_from_the_palette_keeping_its_shape_and_u
     let hint = sketch.add_point(whole.point_at(0.8));
     let feature = edit_free_sketch(&mut harness, sketch);
     let before = harness.sketch(feature).clone();
+
     let moved_by = |sketch: &Sketch| {
         let after = sketch.spline(spline).unwrap();
         (0..=200)
@@ -465,7 +562,9 @@ fn a_control_point_is_added_to_a_spline_from_the_palette_keeping_its_shape_and_u
     }]);
     run_from_palette(&mut harness, "add a control point to the selected spline");
     harness.settle();
+
     let refused = harness.shows_containing(crate::sketch_tools::NOTHING_TO_INSERT);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.select([
@@ -482,6 +581,7 @@ fn a_control_point_is_added_to_a_spline_from_the_palette_keeping_its_shape_and_u
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert!(refused);
     assert!(matches!(
         sketch.entity(spline),
@@ -495,6 +595,7 @@ fn a_control_point_is_added_to_a_spline_from_the_palette_keeping_its_shape_and_u
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
@@ -502,6 +603,7 @@ fn a_control_point_is_added_to_a_spline_from_the_palette_keeping_its_shape_and_u
 fn a_closed_spline_and_a_short_one_take_control_points_from_the_palette_keeping_their_shapes() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let closed = sketch.add_spline_of(
         &[
             Point2::new(0.0, 0.0),
@@ -516,6 +618,7 @@ fn a_closed_spline_and_a_short_one_take_control_points_from_the_palette_keeping_
         Point2::new(20.0, 80.0),
         Point2::new(40.0, 60.0),
     ]);
+
     let shapes = [closed, short].map(|spline| sketch.spline(spline).unwrap());
     let feature = edit_free_sketch(&mut harness, sketch);
     let before = harness.sketch(feature).clone();
@@ -525,11 +628,13 @@ fn a_closed_spline_and_a_short_one_take_control_points_from_the_palette_keeping_
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     for (spline, (shape, count)) in [closed, short].into_iter().zip(shapes.iter().zip([5, 4])) {
         assert!(matches!(
             sketch.entity(spline),
             Some(Entity::Spline { points, .. }) if points.len() == count
         ));
+
         let after = sketch.spline(spline).unwrap();
         let moved = (0..=200)
             .map(|step| f64::from(step) / 200.0)
@@ -539,8 +644,10 @@ fn a_closed_spline_and_a_short_one_take_control_points_from_the_palette_keeping_
                     .distance(after.point_at(parameter))
             })
             .fold(0.0, f64::max);
+
         assert!(moved < 1e-9, "the spline moved by {moved}");
     }
+
     assert!(matches!(
         sketch.entity(closed).and_then(Entity::spline_kind),
         Some(SplineKind::Knotted { closed: true, .. })
@@ -552,6 +659,7 @@ fn a_closed_spline_and_a_short_one_take_control_points_from_the_palette_keeping_
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
@@ -559,28 +667,40 @@ fn a_closed_spline_and_a_short_one_take_control_points_from_the_palette_keeping_
 fn a_sketch_fillet_takes_its_radius_from_the_pointer_and_escape_backs_out_a_step() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::ZERO, Point2::new(40.0, 20.0));
+
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.click_button("Sketch fillet");
+
     assert_eq!(harness.tool(), Some(Tool::Fillet));
+
     harness.click_at(Point2::new(0.0, 20.0));
+
     assert!(harness.shows(filleting::RADIUS_PROMPT));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert!(harness.shows(filleting::CORNER_PROMPT));
     assert_eq!(harness.tool(), Some(Tool::Fillet));
 
     harness.click_at(Point2::new(40.0, 0.0));
     harness.point_at(Point2::new(38.0, 2.0));
+
     assert!(harness.shows(filleting::RADIUS_PROMPT));
+
     harness.click_at(Point2::new(38.0, 2.0));
+
     let arc = fillet_arc(harness.sketch(feature)).unwrap();
     let middle = arc.point_at(arc.start_angle + arc.sweep / 2.0);
+
     assert!(middle.distance(Point2::new(38.0, 2.0)) < 0.05, "{middle}");
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::Select));
 }
 
@@ -588,22 +708,31 @@ fn a_sketch_fillet_takes_its_radius_from_the_pointer_and_escape_backs_out_a_step
 fn a_sketch_fillet_is_chosen_typed_and_placed_from_the_keyboard() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::ZERO, Point2::new(40.0, 20.0));
+
     let lines = entities_of_kind(&sketch, "Line");
     let [first, second] = [lines[0], lines[1]].map(|line| sketch.entity_label(line));
     let feature = edit_free_sketch(&mut harness, sketch);
 
     run_from_palette(&mut harness, "fillet a sketch corner");
+
     assert_eq!(harness.tool(), Some(Tool::Fillet));
+
     harness.key(Key::N, Modifiers::NONE);
     harness.frame();
+
     assert!(harness.shows(&format!("Round the corner of {first} and {second}")));
+
     harness.key(Key::Space, Modifiers::NONE);
     harness.frame();
+
     assert!(harness.shows(filleting::RADIUS_PROMPT));
+
     type_point(&mut harness, "4");
 
     let arc = fillet_arc(harness.sketch(feature)).unwrap();
+
     assert!((arc.radius - 4.0).abs() < DRAWN);
     assert_eq!(harness.model.undo_label(), Some(filleting::TRANSACTION));
 }
@@ -611,9 +740,11 @@ fn a_sketch_fillet_is_chosen_typed_and_placed_from_the_keyboard() {
 #[test]
 fn the_modify_tools_name_their_keys_and_what_they_do() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     for (name, keys) in [("Offset", "W"), ("Mirror", "Y"), ("Sketch fillet", "B")] {
         harness.hover_button(name);
+
         assert!(
             harness
                 .texts

@@ -27,7 +27,7 @@ pub enum StoreError {
     Keyring(KeyringError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ticket(u64);
 
 #[derive(Debug, Default)]
@@ -50,13 +50,13 @@ impl Keeping {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kept {
     Saved,
     Late,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Keeper {
     store: SessionStore,
     ticket: Ticket,
@@ -80,12 +80,12 @@ pub struct SessionStore {
     keeping: Arc<Keeping>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct RememberedHub {
     workspace: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct RememberedDestination {
     workspace: String,
     project: String,
@@ -93,7 +93,7 @@ struct RememberedDestination {
     folder_name: String,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Default, Deserialize, Serialize)]
 struct RememberedDestinations {
     #[serde(default)]
     destinations: Vec<RememberedDestination>,
@@ -155,6 +155,7 @@ impl SessionStore {
 
     pub fn load(&self) -> io::Result<Option<Session>> {
         let _kept = self.keeping.last_kept.lock();
+
         if let Err(error) = private::restrict(&self.folder) {
             log::warn!(
                 "the cloud folder {} could not be made private: {error}",
@@ -176,10 +177,13 @@ impl SessionStore {
 
     pub fn save(&self, session: &Session, ticket: Ticket) -> io::Result<Kept> {
         let mut last_kept = self.keeping.last_kept.lock();
+
         if ticket != self.ticket() {
             return Ok(Kept::Late);
         }
+
         let bytes = serde_json::to_vec(session).map_err(io::Error::other)?;
+
         *last_kept = Some(ticket);
         match self.keyring.set(self.service, &bytes) {
             Ok(()) => self.remove_file(),
@@ -193,9 +197,11 @@ impl SessionStore {
 
     pub fn forget(&self, through: Ticket) -> Result<(), StoreError> {
         let last_kept = self.keeping.last_kept.lock();
+
         if last_kept.is_some_and(|kept| kept >= through) {
             return Ok(());
         }
+
         let file = self.remove_file().map_err(StoreError::File);
         let kept = match self.keyring.delete(self.service) {
             Err(error) if !error.is_absent() => Err(StoreError::Keyring(error)),
@@ -279,6 +285,7 @@ impl SessionStore {
         if let Some(folder) = self.hub_path.parent() {
             private::create_dir_all(folder)?;
         }
+
         let bytes = serde_json::to_vec(&RememberedHub {
             workspace: workspace.as_str().to_owned(),
         })
@@ -316,6 +323,7 @@ impl SessionStore {
         if let Some(folder) = self.destination_path.parent() {
             private::create_dir_all(folder)?;
         }
+
         let kept = RememberedDestinations {
             destinations: destinations
                 .iter()
@@ -392,6 +400,7 @@ mod tests {
     fn a_saved_session_goes_to_the_keyring_and_no_file_is_written() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
+
         let store = store(&dir, &keyring);
 
         store.save(&session(), store.ticket()).unwrap();
@@ -405,7 +414,9 @@ mod tests {
     fn forgetting_removes_the_session_from_the_keyring_and_the_file() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
+
         let store = store(&dir, &keyring);
+
         store.save(&session(), store.ticket()).unwrap();
         store.write_file(&bytes()).unwrap();
 
@@ -421,6 +432,7 @@ mod tests {
     fn a_save_whose_ticket_a_forget_has_retired_is_dropped() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
+
         let store = store(&dir, &keyring);
         let keeper = store.clone().keeper();
 
@@ -447,6 +459,7 @@ mod tests {
     fn a_forget_after_a_save_of_the_retired_ticket_removes_it() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
+
         let store = store(&dir, &keyring);
         let keeper = store.clone().keeper();
 
@@ -461,6 +474,7 @@ mod tests {
     fn a_forget_running_after_a_newer_sign_in_was_saved_leaves_that_sign_in_alone() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
+
         let store = store(&dir, &keyring);
         let through = store.keeping.retire();
         let newer = store.clone().keeper();
@@ -477,7 +491,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
         let hold = Hold::new();
+
         keyring.hold_sets(Arc::clone(&hold));
+
         let store = store(&dir, &keyring);
         let keeper = store.clone().keeper();
         let saving = std::thread::spawn(move || keeper.save(&session()).unwrap());
@@ -489,10 +505,13 @@ mod tests {
             let store = store.clone();
             std::thread::spawn(move || store.forget(through).unwrap())
         };
+
         hold.release();
 
         assert_eq!(saving.join().unwrap(), Kept::Saved);
+
         forgetting.join().unwrap();
+
         assert_eq!(keyring.holds(Service::Fusion), None);
         assert!(!store.path.exists());
     }
@@ -501,6 +520,7 @@ mod tests {
     fn stores_sharing_a_keeping_share_its_tickets() {
         let dir = TempDir::new().unwrap();
         let keeping = Arc::new(Keeping::default());
+
         let one = store(&dir, &FakeKeyring::reachable()).keeping_with(Arc::clone(&keeping));
         let other = store(&dir, &FakeKeyring::reachable()).keeping_with(keeping);
         let keeper = one.clone().keeper();
@@ -531,7 +551,9 @@ mod tests {
     fn a_file_from_before_the_keyring_moves_into_it_and_is_deleted() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
+
         let store = store(&dir, &keyring);
+
         store.write_file(&bytes()).unwrap();
 
         assert_eq!(store.load().unwrap(), Some(session()));
@@ -545,7 +567,9 @@ mod tests {
     fn a_file_stays_while_the_keyring_cannot_take_it() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::unreachable();
+
         let store = store(&dir, &keyring);
+
         store.write_file(&bytes()).unwrap();
 
         assert_eq!(store.load().unwrap(), Some(session()));
@@ -562,8 +586,11 @@ mod tests {
     fn a_newer_file_wins_over_an_older_entry_in_the_keyring() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
+
         let store = store(&dir, &keyring);
+
         store.save(&session(), store.ticket()).unwrap();
+
         let renewed = Session {
             access_token: "b".to_owned(),
             ..session()
@@ -584,7 +611,9 @@ mod tests {
     fn saving_into_the_keyring_removes_a_file_left_behind() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
+
         let store = store(&dir, &keyring);
+
         store.write_file(b"left behind").unwrap();
 
         store.save(&session(), store.ticket()).unwrap();
@@ -596,6 +625,7 @@ mod tests {
     fn a_damaged_file_is_dropped_rather_than_failing_every_start() {
         let dir = TempDir::new().unwrap();
         let store = store(&dir, &FakeKeyring::reachable());
+
         store.write_file(b"not json").unwrap();
 
         assert_eq!(store.load().unwrap(), None);
@@ -606,7 +636,9 @@ mod tests {
     fn a_damaged_keyring_entry_is_dropped_rather_than_failing_every_start() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeKeyring::reachable();
+
         keyring.put(Service::Fusion, b"not json");
+
         let store = store(&dir, &keyring);
 
         assert_eq!(store.load().unwrap(), None);
@@ -624,6 +656,7 @@ mod tests {
         store.save(&session(), store.ticket()).unwrap();
 
         let mode = fs::metadata(&store.path).unwrap().permissions().mode();
+
         assert_eq!(mode & 0o077, 0);
     }
 
@@ -681,12 +714,15 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store =
             SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
+
         store.remember_hub(&WorkspaceId::new("hub-2")).unwrap();
 
         fs::write(&store.hub_path, b"not json").unwrap();
+
         assert_eq!(store.remembered_hub(), None);
 
         fs::write(&store.hub_path, br#"{"workspace":""}"#).unwrap();
+
         assert_eq!(store.remembered_hub(), None);
     }
 
@@ -719,12 +755,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store =
             SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
+
         assert!(store.remembered_destinations().is_empty());
 
         let both = [
             remembered("hub-1", "f1", "Parts"),
             remembered("hub-2", "f2", "Frames"),
         ];
+
         store.remember_destinations(&both).unwrap();
 
         assert_eq!(store.remembered_destinations(), both);
@@ -740,6 +778,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store =
             SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
+
         store
             .remember_destinations(&[remembered("hub-1", "f1", "Parts")])
             .unwrap();
@@ -749,9 +788,11 @@ mod tests {
             .flatten()
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect();
+
         assert_eq!(names, vec!["fusion-destination.json".to_owned()]);
 
         fs::write(&store.destination_path, b"not json").unwrap();
+
         assert!(store.remembered_destinations().is_empty());
 
         fs::write(
@@ -759,6 +800,7 @@ mod tests {
             br#"{"destinations":[{"workspace":"","project":"p","folder":"f","folder_name":"x"}]}"#,
         )
         .unwrap();
+
         assert!(store.remembered_destinations().is_empty());
     }
 
@@ -769,6 +811,7 @@ mod tests {
             SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
         let onshape =
             SessionStore::in_state_dir(dir.path(), Service::Onshape, FakeKeyring::unreachable());
+
         fusion
             .remember_destinations(&[remembered("hub-1", "f1", "Parts")])
             .unwrap();

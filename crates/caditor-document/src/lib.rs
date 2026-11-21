@@ -458,11 +458,14 @@ mod tests {
 
     fn line_with_distance(plane: Plane, length: f64, value: Expression) -> (Sketch, ConstraintId) {
         let mut sketch = Sketch::new(plane);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(length, 0.0));
         let Some(Entity::Line { start, end }) = sketch.entity(line).cloned() else {
             panic!("expected a line");
         };
+
         sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+
         let distance = sketch
             .add_constraint(Constraint::Distance {
                 from: start,
@@ -475,7 +478,9 @@ mod tests {
 
     pub fn sample() -> (Document, Ids) {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Sample");
+
         let width = transaction.add_parameter("width", transaction.parse("40 mm").unwrap());
         let height = transaction.add_parameter("height", transaction.parse("20 mm").unwrap());
         let gap = transaction.add_parameter("gap", transaction.parse("5 mm").unwrap());
@@ -485,6 +490,7 @@ mod tests {
             line_with_distance(Plane::XZ, 20.0, Expression::Parameter(height));
         let base = transaction.add_feature("Base sketch", FeatureKind::from(base_sketch));
         let side = transaction.add_feature("Side sketch", FeatureKind::from(side_sketch));
+
         document.apply(transaction.finish()).unwrap();
         (
             document,
@@ -525,8 +531,11 @@ mod tests {
     fn a_whole_document_can_be_turned_into_an_earlier_one_and_back_by_undo() {
         let (earlier, ids) = sample();
         let mut later = earlier.clone();
+
         let mut transaction = later.transaction("Grow");
+
         let depth = transaction.add_parameter("depth", transaction.parse("width / 2").unwrap());
+
         transaction.add_feature("Top sketch", FeatureKind::from(Sketch::new(Plane::YZ)));
         later.apply(transaction.finish()).unwrap();
         later
@@ -540,9 +549,11 @@ mod tests {
             .unwrap();
 
         let mut editor = Editor::new(later.clone());
+
         editor
             .apply(later.transaction_to(&earlier, "Restore"))
             .unwrap();
+
         assert!(editor.document().same_content(&earlier));
         assert!(editor.document().parameter(depth).is_none());
         assert_eq!(
@@ -551,6 +562,7 @@ mod tests {
         );
 
         editor.undo().unwrap();
+
         assert!(editor.document().same_content(&later));
     }
 
@@ -571,12 +583,18 @@ mod tests {
 
         editor.apply(hide(xy)).unwrap();
         editor.apply(hide(PrincipalGeometry::Origin)).unwrap();
+
         let hidden = editor.document().clone();
+
         editor.undo().unwrap();
+
         let hidden_once = editor.document().clone();
+
         editor.undo().unwrap();
+
         let restore = shown.transaction_to(&hidden, "Restore");
         let mut restored = shown.clone();
+
         restored.apply(restore).unwrap();
 
         assert!(!hidden.same_content(&shown));
@@ -606,8 +624,10 @@ mod tests {
         };
 
         document.apply(set(PrincipalShowing::Shown)).unwrap();
+
         let kept = document.clone();
         let mut restored = start.clone();
+
         restored
             .apply(start.transaction_to(&kept, "Restore"))
             .unwrap();
@@ -666,13 +686,17 @@ mod tests {
     #[test]
     fn id_counters_stop_below_the_storable_range_instead_of_wrapping() {
         let mut document = Document::default();
+
         document.reserve_ids_below(u64::MAX, u64::MAX);
+
         assert_eq!(document.next_parameter_id(), FIRST_UNSTORABLE_ID);
         assert_eq!(document.next_feature_id(), FIRST_UNSTORABLE_ID);
 
         let mut transaction = document.transaction("Add");
+
         let first = transaction.add_parameter("a", Expression::Number(1.0));
         let second = transaction.add_parameter("b", Expression::Number(2.0));
+
         assert_eq!(first, ParameterId::from_raw(FIRST_UNSTORABLE_ID));
         assert_eq!(second, ParameterId::from_raw(FIRST_UNSTORABLE_ID + 1));
         assert_eq!(
@@ -681,7 +705,9 @@ mod tests {
         );
 
         let mut transaction = document.transaction("Add");
+
         transaction.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
+
         assert_eq!(
             document.apply(transaction.finish()).unwrap_err(),
             EditError::ReservedId(FIRST_UNSTORABLE_ID)
@@ -698,6 +724,7 @@ mod tests {
                 Expression::Number(0.0),
             ),
         };
+
         assert_eq!(
             fresh
                 .apply(Transaction::single("Insert", edit))
@@ -733,6 +760,7 @@ mod tests {
 
     fn adding_parameters(document: &Document, count: usize) -> Transaction {
         let mut transaction = document.transaction("Add parameters");
+
         for index in 0..count {
             transaction.add_parameter(format!("filler_{index}"), Expression::Number(1.0));
         }
@@ -741,6 +769,7 @@ mod tests {
 
     fn adding_sketch(document: &Document, name: &str) -> Transaction {
         let mut transaction = document.transaction("Add sketch");
+
         transaction.add_feature(name, FeatureKind::from(Sketch::new(Plane::XY)));
         transaction.finish()
     }
@@ -749,14 +778,18 @@ mod tests {
     fn a_change_taking_the_model_past_the_records_a_file_opens_is_refused_without_changing_anything()
      {
         let mut document = Document::default();
+
         document
             .apply(adding_parameters(&document, MAX_RECORDS - 1))
             .unwrap();
+
         let before = document.clone();
 
         let mut past = document.transaction("Add");
+
         past.add_parameter("one_more", Expression::Number(2.0));
         past.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
+
         let past = past.finish();
 
         assert_eq!(
@@ -777,6 +810,7 @@ mod tests {
         );
 
         document.apply(adding_sketch(&document, "Last")).unwrap();
+
         assert_eq!(
             document.parameters().len() + document.features().len(),
             MAX_RECORDS
@@ -790,9 +824,13 @@ mod tests {
 
         let first = document.parameters().first().unwrap().id();
         let mut swap = document.transaction("Swap");
+
         swap.edit(Edit::RemoveParameter { id: first });
+
         let instead = swap.add_feature("Instead", FeatureKind::from(Sketch::new(Plane::XY)));
+
         document.apply(swap.finish()).unwrap();
+
         assert!(document.feature(instead).is_some());
     }
 
@@ -800,6 +838,7 @@ mod tests {
     fn undo_and_redo_restore_the_exact_document() {
         let (document, ids) = sample();
         let mut editor = Editor::new(document.clone());
+
         let start = editor.document().clone();
 
         editor
@@ -820,15 +859,19 @@ mod tests {
                 },
             ))
             .unwrap();
+
         let end = editor.document().clone();
+
         assert_eq!(editor.revision(), 3);
         assert_eq!(editor.undo_label(), Some("Hide Base sketch"));
 
         while editor.undo().unwrap().is_some() {}
+
         assert_eq!(*editor.document(), start);
         assert_eq!(editor.redo_label(), Some("Edit parameter"));
 
         while editor.redo().unwrap().is_some() {}
+
         assert_eq!(*editor.document(), end);
         assert_eq!(editor.revision(), 9);
     }
@@ -839,14 +882,18 @@ mod tests {
         let mut editor = Editor::new(document);
         let add = |editor: &Editor, name: &str| {
             let mut transaction = editor.document().transaction("Add parameter");
+
             let id = transaction.add_parameter(name, Expression::Number(1.0));
             (id, transaction.finish())
         };
 
         let (first, transaction) = add(&editor, "first");
+
         editor.apply(transaction).unwrap();
         editor.undo().unwrap();
+
         let (second, transaction) = add(&editor, "second");
+
         editor.apply(transaction).unwrap();
 
         assert_ne!(first, second);
@@ -857,6 +904,7 @@ mod tests {
     #[test]
     fn removing_a_parameter_in_use_names_its_users() {
         let (mut document, ids) = sample();
+
         document
             .apply(set_expression(&document, ids.gap, "width / 8"))
             .unwrap();
@@ -877,6 +925,7 @@ mod tests {
     #[test]
     fn an_expression_that_would_form_a_cycle_is_refused() {
         let (mut document, ids) = sample();
+
         document
             .apply(set_expression(&document, ids.height, "width / 2"))
             .unwrap();
@@ -887,13 +936,16 @@ mod tests {
         let error = document
             .apply(set_expression(&document, ids.width, "gap * 8"))
             .unwrap_err();
+
         assert_eq!(
             error.to_string(),
             "This would make width depend on itself (width → gap → height → width)"
         );
+
         let error = document
             .apply(set_expression(&document, ids.width, "width + 1"))
             .unwrap_err();
+
         assert_eq!(
             error.to_string(),
             "This would make width depend on itself (width → width)"
@@ -912,6 +964,7 @@ mod tests {
                 },
             )
         };
+
         document
             .apply(set_expression(&document, ids.gap, "width / 8"))
             .unwrap();
@@ -924,9 +977,11 @@ mod tests {
             document.apply(rename(ids.width, "height")),
             Err(EditError::DuplicateName(_))
         ));
+
         document.apply(rename(ids.width, "span")).unwrap();
 
         let gap = document.parameter(ids.gap).unwrap();
+
         assert_eq!(document.expression_text(&gap.expression), "span / 8");
         assert!(document.parse("width").is_err());
     }
@@ -943,23 +998,29 @@ mod tests {
                 },
             )
         };
+
         assert_eq!(
             document.apply(rename("   ")),
             Err(EditError::EmptyFeatureName)
         );
+
         document.apply(rename("  Outline ")).unwrap();
+
         assert_eq!(document.feature(ids.base).unwrap().name, "Outline");
+
         document.apply(rename("Outline")).unwrap();
     }
 
     #[test]
     fn feature_names_are_unique() {
         let (mut document, ids) = sample();
+
         let taken = document
             .features()
             .find(|feature| feature.id() != ids.base)
             .map(|feature| feature.name.clone())
             .unwrap();
+
         assert_eq!(
             document.apply(Transaction::single(
                 "Rename",
@@ -970,25 +1031,34 @@ mod tests {
             )),
             Err(EditError::DuplicateFeatureName(taken.clone()))
         );
+
         let mut transaction = document.transaction("Add");
+
         transaction.add_feature(taken.clone(), FeatureKind::from(Sketch::new(Plane::XY)));
+
         assert_eq!(
             document.apply(transaction.finish()),
             Err(EditError::DuplicateFeatureName(taken.clone()))
         );
 
         let mut transaction = document.transaction("Add");
+
         transaction.add_feature(
             format!(" {taken}\t"),
             FeatureKind::from(Sketch::new(Plane::XY)),
         );
+
         assert_eq!(
             document.apply(transaction.finish()),
             Err(EditError::DuplicateFeatureName(taken))
         );
+
         let mut transaction = document.transaction("Add");
+
         let padded = transaction.add_feature("  Top  ", FeatureKind::from(Sketch::new(Plane::XY)));
+
         document.apply(transaction.finish()).unwrap();
+
         assert_eq!(document.feature(padded).unwrap().name, "Top");
     }
 
@@ -999,6 +1069,7 @@ mod tests {
         let mut engine = Recompute::default();
 
         recompute(&mut engine, editor.document());
+
         let point = caditor_sketch::EntityId::from_raw(
             editor
                 .document()
@@ -1007,6 +1078,7 @@ mod tests {
                 .unwrap()
                 .next_id(),
         );
+
         editor
             .apply(Transaction::single(
                 "Add point",
@@ -1020,6 +1092,7 @@ mod tests {
             ))
             .unwrap();
         editor.undo().unwrap();
+
         let undone = recompute(&mut engine, editor.document());
 
         assert!(undone.recomputed().is_empty());
@@ -1030,6 +1103,7 @@ mod tests {
         let (document, ids) = sample();
         let transaction =
             Transaction::single("Delete width", Edit::RemoveParameter { id: ids.width });
+
         assert!(document.check(&transaction).is_err());
         assert!(document.parameter(ids.width).is_some());
     }
@@ -1039,9 +1113,12 @@ mod tests {
         let (mut document, ids) = sample();
         let before = document.clone();
         let mut transaction = document.transaction("Chain");
+
         let wide = transaction.add_parameter("wide", transaction.parse("width + 1 mm").unwrap());
         let wider = transaction.add_parameter("wider", Expression::Parameter(wide));
+
         document.apply(transaction.finish()).unwrap();
+
         let drop_wide = |document: &Document| {
             Transaction::new(
                 "Drop",
@@ -1106,26 +1183,33 @@ mod tests {
     fn a_sketch_that_solves_to_the_same_geometry_keeps_its_found_regions() {
         let (mut document, ids) = sample();
         let mut engine = Recompute::default();
+
         let first = recompute(&mut engine, &document);
+
         first
             .feature(ids.base)
             .and_then(|status| status.result.as_deref())
             .and_then(FeatureResult::sketch)
             .unwrap()
             .find_regions();
+
         assert!(found_regions(&first, ids.base));
 
         document
             .apply(dimension_as(&document, &ids, "40 mm"))
             .unwrap();
+
         let same = recompute(&mut engine, &document);
+
         assert!(same.recomputed().contains(&ids.base));
         assert!(found_regions(&same, ids.base));
 
         document
             .apply(dimension_as(&document, &ids, "30 mm"))
             .unwrap();
+
         let moved = recompute(&mut engine, &document);
+
         assert!(moved.recomputed().contains(&ids.base));
         assert!(found_regions(&moved, ids.base));
     }
@@ -1136,29 +1220,36 @@ mod tests {
         let mut engine = Recompute::default();
 
         let first = recompute(&mut engine, &document);
+
         assert_eq!(first.recomputed(), &[ids.base, ids.side]);
 
         document
             .apply(set_expression(&document, ids.gap, "7 mm"))
             .unwrap();
+
         assert!(recompute(&mut engine, &document).recomputed().is_empty());
 
         document
             .apply(set_expression(&document, ids.width, "20 mm + 2 cm"))
             .unwrap();
+
         assert!(recompute(&mut engine, &document).recomputed().is_empty());
 
         document
             .apply(set_expression(&document, ids.height, "25 mm"))
             .unwrap();
+
         let evaluation = recompute(&mut engine, &document);
+
         assert_eq!(evaluation.recomputed(), &[ids.side]);
+
         let Some(FeatureResult::Sketch(result)) = evaluation
             .feature(ids.side)
             .and_then(|status| status.result.as_deref())
         else {
             panic!("the side sketch should have a result");
         };
+
         assert_eq!(result.solution.dimension(ids.side_distance), Some(25.0));
     }
 
@@ -1166,15 +1257,18 @@ mod tests {
     fn a_failing_feature_keeps_its_last_good_result_and_others_are_unaffected() {
         let (mut document, ids) = sample();
         let mut engine = Recompute::default();
+
         let good = recompute(&mut engine, &document);
         let good_result = good.feature(ids.base).unwrap().result.clone();
 
         document
             .apply(set_expression(&document, ids.width, "10 deg"))
             .unwrap();
+
         let evaluation = recompute(&mut engine, &document);
 
         let error = failure(&evaluation, ids.base);
+
         assert_eq!(
             error.reason(),
             "Distance between Point 0 and Point 1 cannot be evaluated: it gives an angle, but a \
@@ -1197,13 +1291,16 @@ mod tests {
         document
             .apply(set_expression(&document, ids.width, "30 mm"))
             .unwrap();
+
         let evaluation = recompute(&mut engine, &document);
+
         assert_eq!(evaluation.failed_count(), 0);
     }
 
     #[test]
     fn a_broken_parameter_points_the_fix_at_the_parameter() {
         let (mut document, ids) = sample();
+
         document
             .apply(set_expression(
                 &document,
@@ -1211,13 +1308,16 @@ mod tests {
                 "1 mm / (gap - 5 mm) * 1 mm",
             ))
             .unwrap();
+
         let evaluation = recompute(&mut Recompute::default(), &document);
 
         assert_eq!(
             evaluation.parameters.get(ids.width),
             Some(&Err(ParameterError::Evaluation(EvalError::DivisionByZero)))
         );
+
         let error = failure(&evaluation, ids.base);
+
         assert_eq!(
             error.reason(),
             "Distance between Point 0 and Point 1 cannot be evaluated: it uses width, which has \
@@ -1243,6 +1343,7 @@ mod tests {
                 ),
             )
         };
+
         for (id, expression) in [cyclic(ids.width, ids.height), cyclic(ids.height, ids.width)] {
             document.parameters.replace_expression(id, expression);
         }
@@ -1251,6 +1352,7 @@ mod tests {
             .unwrap();
 
         let values = ParameterValues::evaluate(&document);
+
         assert_eq!(
             values.get(ids.width),
             Some(&Err(ParameterError::Cycle {
@@ -1275,6 +1377,7 @@ mod tests {
     #[test]
     fn parameter_values_evaluate_in_dependency_order() {
         let (mut document, ids) = sample();
+
         document
             .apply(set_expression(&document, ids.width, "gap * 8"))
             .unwrap();
@@ -1283,6 +1386,7 @@ mod tests {
             .unwrap();
 
         let values = ParameterValues::evaluate(&document);
+
         assert_eq!(values.value(ids.width), Ok(Quantity::length(40.0)));
         assert_eq!(
             values.evaluate_expression(&document.parse("width + gap").unwrap()),
@@ -1293,9 +1397,11 @@ mod tests {
     #[test]
     fn a_solved_sketch_follows_its_dimension() {
         let (mut document, ids) = sample();
+
         document
             .apply(set_expression(&document, ids.width, "55 mm"))
             .unwrap();
+
         let evaluation = recompute(&mut Recompute::default(), &document);
         let Some(FeatureResult::Sketch(result)) = evaluation
             .feature(ids.base)
@@ -1308,7 +1414,9 @@ mod tests {
             .entities()
             .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))
             .unwrap();
+
         let (start, end) = result.geometry.line_endpoints(line).unwrap();
+
         assert!((start.distance(end) - 55.0).abs() < 1e-9);
         assert_eq!(result.solution.degrees_of_freedom(), 2);
     }
@@ -1317,21 +1425,28 @@ mod tests {
     fn every_conflicting_part_of_a_sketch_is_reported_together() {
         let mut sketch = Sketch::new(Plane::XY);
         let mut conflicts = Vec::new();
+
         for row in 0..2 {
             let y = f64::from(row) * 20.0;
             let line = sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y));
             let horizontal = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
             let vertical = sketch.add_constraint(Constraint::Vertical(line)).unwrap();
+
             conflicts.push((horizontal, vertical));
         }
+
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Base sketch", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
 
         let evaluation = recompute(&mut Recompute::default(), &document);
 
         let error = failure(&evaluation, feature);
+
         assert!(
             error
                 .reason()
@@ -1364,6 +1479,7 @@ mod tests {
             .entities()
             .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))
             .unwrap();
+
         let vertical = sketch.add_constraint(Constraint::Vertical(line)).unwrap();
         let horizontal = sketch
             .constraints()
@@ -1372,15 +1488,19 @@ mod tests {
             })
             .unwrap();
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add sketches");
+
         let replaced = transaction.add_feature("Base sketch", FeatureKind::from(sketch));
         let (fine, _) = line_with_distance(Plane::XZ, 20.0, Expression::Number(20.0));
         let side = transaction.add_feature("Side sketch", FeatureKind::from(fine));
+
         document.apply(transaction.finish()).unwrap();
 
         let evaluation = recompute(&mut Recompute::default(), &document);
 
         let error = failure(&evaluation, replaced);
+
         assert_eq!(
             error.reason(),
             "Vertical Line 2 conflicts with Horizontal Line 2."
@@ -1406,6 +1526,7 @@ mod tests {
     #[test]
     fn added_constraint_kinds_are_named_in_conflicts_and_dimension_errors() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let point = sketch.add_point(Point2::new(4.0, 1.0));
         let circle = sketch.add_circle(Point2::new(20.0, 0.0), 3.0);
         let fixed = sketch
@@ -1424,13 +1545,17 @@ mod tests {
             })
             .unwrap();
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Holes", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
 
         let evaluation = recompute(&mut Recompute::default(), &document);
 
         let error = failure(&evaluation, feature);
+
         assert_eq!(
             error.reason(),
             "Horizontal Point 0 and Origin conflicts with Fix Point 0."
@@ -1453,8 +1578,10 @@ mod tests {
                 },
             ))
             .unwrap();
+
         let evaluation = recompute(&mut Recompute::default(), &document);
         let error = failure(&evaluation, feature);
+
         assert_eq!(
             error.reason(),
             "Diameter of Circle 2 cannot be evaluated: a diameter must be greater than zero."
@@ -1468,6 +1595,7 @@ mod tests {
     #[test]
     fn an_unsolved_sketch_names_its_geometry_and_points_at_the_newest_constraint() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let lines: Vec<_> = (0..5)
             .map(|index| {
                 let x = f64::from(index);
@@ -1518,9 +1646,11 @@ mod tests {
     #[test]
     fn a_cancelled_solve_leaves_the_feature_outdated() {
         let (mut document, ids) = sample();
+
         document
             .apply(set_expression(&document, ids.width, "50 mm"))
             .unwrap();
+
         let checks = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&checks);
         let cancel = CancelToken::new(move || counter.fetch_add(1, Ordering::SeqCst) >= 1);
@@ -1551,9 +1681,12 @@ mod scale_tests {
 
     fn chain(length: usize, step: f64) -> Document {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Chain");
+
         let mut previous =
             transaction.add_parameter("p0", Expression::Measure(1.0, Unit::Millimetre));
+
         for index in 1..length {
             previous = transaction.add_parameter(
                 format!("p{index}"),
@@ -1574,11 +1707,14 @@ mod scale_tests {
 
         let values = ParameterValues::evaluate(&document);
         let last = document.parameters().last().unwrap().id();
+
         assert_eq!(values.value(last).unwrap().value, length as f64);
 
         let other = chain(length, 2.0);
         let restore = document.transaction_to(&other, "Restore");
+
         document.apply(restore).unwrap();
+
         assert!(document.same_content(&other));
 
         started.elapsed()
@@ -1597,6 +1733,7 @@ mod scale_tests {
         let long = fastest_of_runs(CHAIN);
 
         let ratio = long.as_secs_f64() / short.as_secs_f64().max(f64::MIN_POSITIVE);
+
         assert!(
             ratio < GROWTH as f64 * LINEAR_SLACK,
             "{GROWTH} times the chain took {ratio:.1} times as long ({short:?} and {long:?})"

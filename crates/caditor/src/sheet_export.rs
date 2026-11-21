@@ -15,7 +15,7 @@ use crate::{
 pub const KIND: &str = "PDF, SVG or DXF drawing sheet";
 const UNNAMED: &str = "Drawing";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SheetJob {
     pub name: String,
     pub plan: SheetPlan,
@@ -53,7 +53,9 @@ pub fn with_format_extension(path: PathBuf, format: SheetFormat) -> PathBuf {
     if SheetFormat::of(&path).is_some() {
         return path;
     }
+
     let mut named = OsString::from(path.as_os_str());
+
     named.push(".");
     named.push(format.extension());
     PathBuf::from(named)

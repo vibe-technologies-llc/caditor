@@ -21,7 +21,7 @@ pub enum SectionError {
     Boolean(BooleanError),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SectionCurve {
     pub face: FaceName,
     pub source: ProjectionSource,
@@ -108,6 +108,7 @@ pub fn section_curves(
             })
         })
         .collect();
+
     if curves.is_empty() {
         return Err(SectionError::Misses);
     }
@@ -118,9 +119,11 @@ pub fn datum_outline(datum: &Plane, plane: &Plane, reach: f64) -> Option<Outline
     let normal = datum.normal();
     let gradient = Vector2::new(plane.x_axis().dot(normal), plane.y_axis().dot(normal));
     let steepness = gradient.length();
+
     if steepness <= DIRECTION_TOLERANCE || !reach.is_finite() || reach <= 0.0 {
         return None;
     }
+
     let foot =
         Point2::ZERO - gradient * (datum.signed_distance(plane.origin()) / steepness.powi(2));
     let along = gradient.perp() / steepness;

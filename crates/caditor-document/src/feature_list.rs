@@ -10,7 +10,7 @@ use crate::{
     document::{Feature, FeatureId},
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct FeatureList {
     items: Vec<Arc<Feature>>,
     index: Box<Index>,
@@ -26,7 +26,7 @@ pub struct Unindexed<'a> {
     pub piece_stand_ins: &'a mut PieceStandIns,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct Index {
     positions: BTreeMap<FeatureId, usize>,
     by_body: OnceLock<Arc<BTreeMap<FeatureId, Vec<FeatureId>>>>,
@@ -83,6 +83,7 @@ impl FeatureList {
 
     pub fn get_mut_by_id(&mut self, id: FeatureId) -> Option<&mut Arc<Feature>> {
         let index = self.position(id)?;
+
         self.index.by_body = OnceLock::new();
         self.index.by_name = OnceLock::new();
         self.index.by_use = OnceLock::new();
@@ -114,6 +115,7 @@ impl FeatureList {
 
     pub fn insert(&mut self, index: usize, feature: Arc<Feature>) {
         let index = index.min(self.items.len());
+
         if let Some(names) = self.index.by_name.get_mut() {
             Arc::make_mut(names)
                 .entry(feature.name.clone())
@@ -134,7 +136,9 @@ impl FeatureList {
         if index >= self.items.len() {
             return None;
         }
+
         let feature = self.items.remove(index);
+
         self.index.positions.remove(&feature.id());
         if let Some(names) = self.index.by_name.get_mut() {
             let names = Arc::make_mut(names);
@@ -164,7 +168,9 @@ impl FeatureList {
         if from >= self.items.len() || to >= self.items.len() || from == to {
             return;
         }
+
         let feature = self.items.remove(from);
+
         self.items.insert(to, feature);
         self.reindex(from.min(to), from.max(to) + 1);
     }
@@ -179,6 +185,7 @@ impl FeatureList {
 
 fn grouped_by_body(items: &[Arc<Feature>]) -> BTreeMap<FeatureId, Vec<FeatureId>> {
     let mut grouped: BTreeMap<FeatureId, Vec<FeatureId>> = BTreeMap::new();
+
     for feature in items {
         if let Some(body) = feature.body() {
             grouped.entry(body).or_default().push(feature.id());
@@ -198,6 +205,7 @@ fn features_used(feature: &Feature) -> impl Iterator<Item = FeatureId> {
 
 fn grouped_by_use(items: &[Arc<Feature>]) -> BTreeMap<FeatureId, Vec<FeatureId>> {
     let mut grouped: BTreeMap<FeatureId, Vec<FeatureId>> = BTreeMap::new();
+
     for feature in items {
         for used in features_used(feature) {
             grouped.entry(used).or_default().push(feature.id());
@@ -208,6 +216,7 @@ fn grouped_by_use(items: &[Arc<Feature>]) -> BTreeMap<FeatureId, Vec<FeatureId>>
 
 fn grouped_by_name(items: &[Arc<Feature>]) -> BTreeMap<String, Vec<FeatureId>> {
     let mut grouped: BTreeMap<String, Vec<FeatureId>> = BTreeMap::new();
+
     for feature in items {
         grouped
             .entry(feature.name.clone())
@@ -266,14 +275,17 @@ mod tests {
         list.insert(1, feature(2));
         list.insert(1, feature(3));
         list.insert(0, feature(4));
+
         let inserted = order(&list);
         let inserted_agree = positions_agree(&list);
 
         list.move_to(0, 3);
+
         let moved_down = order(&list);
         let moved_down_agree = positions_agree(&list);
 
         list.move_to(2, 0);
+
         let moved_up = order(&list);
         let moved_up_agree = positions_agree(&list);
 
@@ -305,9 +317,11 @@ mod tests {
         list.insert(0, removal(1, 7));
         list.insert(1, removal(2, 8));
         list.insert(2, removal(3, 7));
+
         let inserted = on_body(&list, 7);
 
         list.move_to(2, 0);
+
         let moved = on_body(&list, 7);
 
         if let Some(feature) = list.get_mut_by_id(FeatureId::from_raw(1)) {
@@ -315,9 +329,11 @@ mod tests {
                 body: FeatureId::from_raw(8),
             });
         }
+
         let changed = (on_body(&list, 7), on_body(&list, 8));
 
         list.remove(0);
+
         let removed = on_body(&list, 7);
 
         assert_eq!(inserted, [1, 3]);
@@ -339,12 +355,16 @@ mod tests {
         let mut list = FeatureList::default();
 
         list.insert(0, removal(1, 7));
+
         let asked_first = users_of(&list, 7);
+
         list.insert(1, removal(2, 7));
         list.insert(2, removal(3, 8));
+
         let inserted = (users_of(&list, 7), users_of(&list, 8));
 
         list.remove(0);
+
         let removed = users_of(&list, 7);
 
         if let Some(feature) = list.get_mut_by_id(FeatureId::from_raw(3)) {
@@ -352,6 +372,7 @@ mod tests {
                 body: FeatureId::from_raw(7),
             });
         }
+
         let changed = (users_of(&list, 7), users_of(&list, 8));
 
         assert_eq!(asked_first, [1]);
@@ -367,8 +388,11 @@ mod tests {
         let two = FeatureId::from_raw(2);
 
         list.insert(0, feature(1));
+
         let asked_before = list.name_taken_besides("Feature 2", two);
+
         list.insert(1, feature(2));
+
         let after_insert = (
             list.name_taken_besides("Feature 2", one),
             list.name_taken_besides("Feature 2", two),
@@ -377,6 +401,7 @@ mod tests {
         if let Some(renamed) = list.get_mut_by_id(two) {
             Arc::make_mut(renamed).name = "Boss".to_owned();
         }
+
         let after_rename = (
             list.name_taken_besides("Feature 2", one),
             list.name_taken_besides("Boss", one),
@@ -384,6 +409,7 @@ mod tests {
         );
 
         list.remove(1);
+
         let after_removal = list.name_taken_besides("Boss", one);
 
         assert!(!asked_before);
@@ -399,6 +425,7 @@ mod tests {
 
         list.insert(0, removal(1, 7));
         list.insert(1, removal(2, 7));
+
         let taken = list.name_taken_besides("Remove 2", one);
         let users = users_of(&list, 7);
         let on = on_body(&list, 7);

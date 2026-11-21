@@ -17,7 +17,7 @@ use crate::{
 
 const TOLERANCE: f64 = 1e-7;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TrimError {
     #[error("the curve to trim no longer exists")]
     NoSuchCurve(EntityId),
@@ -35,7 +35,7 @@ pub enum TrimError {
     Edit(#[from] SketchError),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ExtendError {
     #[error("the curve to extend no longer exists")]
     NoSuchCurve(EntityId),
@@ -69,7 +69,7 @@ pub enum ExtendError {
     Edit(SketchError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cut {
     pub position: Point2,
     pub cutter: EntityId,
@@ -77,7 +77,7 @@ pub struct Cut {
     pub(crate) parameter: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Piece {
     pub curve: EntityId,
     pub start: Option<Cut>,
@@ -98,6 +98,7 @@ impl Piece {
             .flatten()
             .map(|cut| cut.cutter)
             .collect();
+
         cutters.dedup();
         cutters
     }
@@ -118,7 +119,7 @@ impl Piece {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Trimmed {
     Deleted,
     Shortened,
@@ -126,7 +127,7 @@ pub enum Trimmed {
     Split { piece: EntityId },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Extension {
     pub curve: EntityId,
     pub end: EntityId,
@@ -137,7 +138,7 @@ pub struct Extension {
     reach: Reach,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Reach {
     Straight,
     Around(ArcGeometry),
@@ -159,14 +160,14 @@ impl Extension {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Around {
     Circle(ArcGeometry, bool),
     Ellipse(EllipseGeometry, bool),
     Spline(bool),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Course {
     Line { start: Point2, end: Point2 },
     Circle { center: Point2, radius: f64 },
@@ -358,6 +359,7 @@ impl Cutter {
             }
             Course::Line { .. } | Course::Circle { .. } | Course::Arc(_) => {}
         }
+
         let Some(carrier) = course.carrier() else {
             return Vec::new();
         };
@@ -524,12 +526,14 @@ impl Sketch {
     ) -> Vec<Point2> {
         let own = Shape::Ellipse(*ellipse);
         let tolerance = TOLERANCE * own.extent().max(1.0);
+
         let along = |through: Point2, direction: Vector2| {
             intersect::crossings(Carrier::Line { through, direction }, &own, tolerance)
         };
         let around = |center: Point2, radius: f64| {
             intersect::crossings(Carrier::Circle { center, radius }, &own, tolerance)
         };
+
         match other.reference() {
             Some(Reference::HorizontalAxis) => return along(Point2::ZERO, Vector2::X),
             Some(Reference::VerticalAxis) => return along(Point2::ZERO, Vector2::Y),
@@ -601,11 +605,14 @@ impl Sketch {
             from,
             to,
         };
+
         if course.is_closed() {
             if cuts.len() < 2 {
                 return Ok(vec![piece(None, None, 0.0, period)]);
             }
+
             let following = cuts.iter().skip(1).chain(cuts.first());
+
             return Ok(cuts
                 .iter()
                 .zip(following)
@@ -619,6 +626,7 @@ impl Sketch {
                 })
                 .collect());
         }
+
         let starts = std::iter::once(None).chain(cuts.iter().copied().map(Some));
         let ends = cuts.iter().copied().map(Some).chain(std::iter::once(None));
         let span = course.span();
@@ -641,6 +649,7 @@ impl Sketch {
                 course.parameter(near)
             }
         };
+
         let inside = |piece: &Piece| {
             (parameter >= piece.from && parameter <= piece.to)
                 || (course.is_closed() && parameter + course.period() <= piece.to)
@@ -661,33 +670,39 @@ impl Sketch {
     pub fn trim(&mut self, curve: EntityId, near: Point2) -> Result<Trimmed, TrimError> {
         let piece = self.trim_piece(curve, near)?;
         let mut working = self.clone();
+
         let trimmed = match self.entity(curve) {
             Some(Entity::Spline { .. }) => working.trim_spline(&piece)?,
             _ => working.remove_piece(&piece)?,
         };
+
         *self = working;
         Ok(trimmed)
     }
 
     pub fn extension(&self, curve: EntityId, near: Point2) -> Result<Extension, ExtendError> {
         let label = || self.entity_label(curve);
+
         if curve.is_reference() {
             return Err(ExtendError::Reference {
                 entity: curve,
                 label: label(),
             });
         }
+
         let entity = self.entity(curve).ok_or(ExtendError::NoSuchCurve(curve))?;
         let no_length = || ExtendError::NoLength {
             entity: curve,
             label: label(),
         };
+
         if self.is_projected(curve) {
             return Err(ExtendError::Projected {
                 entity: curve,
                 label: label(),
             });
         }
+
         let (end, from, direction, reach) = match *entity {
             Entity::Point(_) => {
                 return Err(ExtendError::NotACurve {
@@ -710,9 +725,11 @@ impl Sketch {
             ref spline @ Entity::Spline { .. } => {
                 let (start, end) = spline.spline_ends().ok_or_else(no_length)?;
                 let own = self.spline(curve).ok_or_else(no_length)?;
+
                 if own.length().partial_cmp(&0.0) != Some(Ordering::Greater) {
                     return Err(no_length());
                 }
+
                 let at_end = self.spline_end_is_last(curve, near).ok_or_else(no_length)?;
                 let (moving, from) = if at_end {
                     (end, own.point_at(1.0))
@@ -723,6 +740,7 @@ impl Sketch {
             }
             Entity::Line { start, end } => {
                 let (start_at, end_at) = self.line_endpoints(curve).ok_or_else(no_length)?;
+
                 let course = Course::Line {
                     start: start_at,
                     end: end_at,
@@ -738,9 +756,11 @@ impl Sketch {
             }
             Entity::Arc { start, end, .. } => {
                 let arc = self.arc(curve).ok_or_else(no_length)?;
+
                 if arc.radius <= 0.0 {
                     return Err(no_length());
                 }
+
                 let at_end = Course::Arc(arc).parameter(near) > arc.sweep / 2.0;
                 let (moving, from) = if at_end {
                     (end, arc.point_at(arc.end_angle()))
@@ -756,9 +776,11 @@ impl Sketch {
             }
             Entity::EllipticalArc { start, end, .. } => {
                 let ellipse = self.ellipse(curve).ok_or_else(no_length)?;
+
                 if !Course::Ellipse(ellipse).has_length() {
                     return Err(no_length());
                 }
+
                 let at_end = Course::Ellipse(ellipse).parameter(near) > ellipse.sweep / 2.0;
                 let (moving, from) = if at_end {
                     (end, ellipse.point_at(ellipse.end()))
@@ -773,7 +795,9 @@ impl Sketch {
                 )
             }
         };
+
         self.check_free_end(curve, end)?;
+
         let reached = match reach {
             None => self.reach_straight(curve, from, direction),
             Some(Around::Circle(arc, at_end)) => self.reach_around(curve, arc, at_end),
@@ -786,6 +810,7 @@ impl Sketch {
             entity: curve,
             label: label(),
         })?;
+
         let target_point = self.end_point_at(target, to);
         Ok(Extension {
             curve,
@@ -801,6 +826,7 @@ impl Sketch {
     pub fn extend(&mut self, curve: EntityId, near: Point2) -> Result<Extension, ExtendError> {
         let extension = self.extension(curve, near)?;
         let mut working = self.clone();
+
         working
             .apply_extension(&extension)
             .map_err(ExtendError::Edit)?;
@@ -841,23 +867,27 @@ impl Sketch {
 
     fn trim_course(&self, curve: EntityId) -> Result<Course, TrimError> {
         let label = || self.entity_label(curve);
+
         if curve.is_reference() {
             return Err(TrimError::Reference {
                 entity: curve,
                 label: label(),
             });
         }
+
         let no_length = || TrimError::NoLength {
             entity: curve,
             label: label(),
         };
         let entity = self.entity(curve).ok_or(TrimError::NoSuchCurve(curve))?;
+
         if self.is_projected(curve) {
             return Err(TrimError::Projected {
                 entity: curve,
                 label: label(),
             });
         }
+
         let course = match entity {
             Entity::Point(_) => {
                 return Err(TrimError::NotACurve {
@@ -882,6 +912,7 @@ impl Sketch {
                 Course::Ellipse(self.ellipse(curve).ok_or_else(no_length)?)
             }
         };
+
         if !course.has_length() {
             return Err(no_length());
         }
@@ -891,6 +922,7 @@ impl Sketch {
     fn cuts(&self, curve: EntityId, course: &Course) -> Vec<Cut> {
         let span = course.span();
         let mut cuts: Vec<Cut> = Vec::new();
+
         for (cutter, shape) in self.cutters(curve) {
             let tolerance = TOLERANCE * course.extent().max(shape.extent());
             let slack = course.slack(tolerance);
@@ -909,8 +941,10 @@ impl Sketch {
             }
         }
         cuts.sort_by(|a, b| a.parameter.total_cmp(&b.parameter));
+
         let slack = course.slack(TOLERANCE * course.extent());
         let mut merged: Vec<Cut> = Vec::new();
+
         for cut in cuts {
             match merged.last_mut() {
                 Some(last) if cut.parameter - last.parameter <= slack => {
@@ -921,6 +955,7 @@ impl Sketch {
                 _ => merged.push(cut),
             }
         }
+
         let wraps = course.is_closed()
             && merged.len() > 1
             && matches!(
@@ -928,6 +963,7 @@ impl Sketch {
                 (Some(first), Some(last))
                     if first.parameter + course.period() - last.parameter <= slack
             );
+
         if wraps {
             merged.pop();
         }
@@ -943,6 +979,7 @@ impl Sketch {
         Ok(match (entity, piece.start, piece.end) {
             (Entity::Line { start, end }, None, Some(cut)) => {
                 let kept = self.add_point(cut.position);
+
                 self.drop_length_dimensions(start, end)?;
                 self.restructure(curve, Entity::Line { start: kept, end }, &[], keeps_length)?;
                 self.join(kept, &cut, curve)?;
@@ -951,6 +988,7 @@ impl Sketch {
             }
             (Entity::Line { start, end }, Some(cut), None) => {
                 let kept = self.add_point(cut.position);
+
                 self.drop_length_dimensions(start, end)?;
                 self.restructure(curve, Entity::Line { start, end: kept }, &[], keeps_length)?;
                 self.join(kept, &cut, curve)?;
@@ -971,6 +1009,7 @@ impl Sketch {
                         _ => None,
                     })
                     .collect();
+
                 let far_midpoints = self.restructure_leaving(
                     curve,
                     Entity::Line {
@@ -987,6 +1026,7 @@ impl Sketch {
                         end,
                     },
                 )?;
+
                 self.move_constraints(moved, curve, split)?;
                 self.settle_midpoints(&[split], far_midpoints)?;
                 if directions.is_empty() {
@@ -1004,6 +1044,7 @@ impl Sketch {
             (Entity::Circle { center, .. }, Some(first), Some(second)) => {
                 let start = self.add_point(second.position);
                 let end = self.add_point(first.position);
+
                 self.restructure(curve, Entity::Arc { center, start, end }, &[], |_| true)?;
                 self.join(start, &second, curve)?;
                 self.join(end, &first, curve)?;
@@ -1016,6 +1057,7 @@ impl Sketch {
                     start: kept,
                     end,
                 };
+
                 self.restructure(curve, arc, &[], keeps_sweep)?;
                 self.join(kept, &cut, curve)?;
                 self.drop_if_unused(start)?;
@@ -1028,6 +1070,7 @@ impl Sketch {
                     start,
                     end: kept,
                 };
+
                 self.restructure(curve, arc, &[], keeps_sweep)?;
                 self.join(kept, &cut, curve)?;
                 self.drop_if_unused(end)?;
@@ -1044,6 +1087,7 @@ impl Sketch {
                     start,
                     end: near_end,
                 };
+
                 let far_midpoints =
                     self.restructure_leaving(curve, arc, &moved_ids, keeps_sweep)?;
                 let split_center = self.add_point(center_at);
@@ -1055,6 +1099,7 @@ impl Sketch {
                         end,
                     },
                 )?;
+
                 self.move_constraints(moved, curve, split)?;
                 self.settle_midpoints(&[split], far_midpoints)?;
                 self.add_constraint(Constraint::Concentric(curve, split))?;
@@ -1074,6 +1119,7 @@ impl Sketch {
             ) => {
                 let start = self.add_point(second.position);
                 let end = self.add_point(first.position);
+
                 let arc = Entity::EllipticalArc {
                     center,
                     major,
@@ -1081,6 +1127,7 @@ impl Sketch {
                     start,
                     end,
                 };
+
                 self.restructure(curve, arc, &[], |_| true)?;
                 self.join(start, &second, curve)?;
                 self.join(end, &first, curve)?;
@@ -1105,6 +1152,7 @@ impl Sketch {
                     start: kept,
                     end,
                 };
+
                 self.restructure(curve, arc, &[], keeps_sweep)?;
                 self.join(kept, &cut, curve)?;
                 self.drop_if_unused(start)?;
@@ -1129,6 +1177,7 @@ impl Sketch {
                     start,
                     end: kept,
                 };
+
                 self.restructure(curve, arc, &[], keeps_sweep)?;
                 self.join(kept, &cut, curve)?;
                 self.drop_if_unused(end)?;
@@ -1156,7 +1205,9 @@ impl Sketch {
                     start,
                     end: near_end,
                 };
+
                 self.restructure(curve, arc, &moved_ids, keeps_sweep)?;
+
                 let split = self.add_piece(
                     curve,
                     Entity::EllipticalArc {
@@ -1167,6 +1218,7 @@ impl Sketch {
                         end,
                     },
                 )?;
+
                 self.move_constraints(moved, curve, split)?;
                 self.add_constraint(Constraint::Equal(curve, split))?;
                 self.join(near_end, &first, curve)?;
@@ -1218,8 +1270,10 @@ impl Sketch {
         let split_from = self.split_from(curve);
         let mut kept = Vec::new();
         let mut midpoints = Vec::new();
+
         for id in self.constraints_using(curve) {
             let detached = self.detach_constraint(id)?;
+
             if moved.contains(&id) {
                 continue;
             }
@@ -1248,6 +1302,7 @@ impl Sketch {
     ) -> Result<(), SketchError> {
         let at_a = self.joined_points(a);
         let at_b = self.joined_points(b);
+
         let between: BTreeSet<ConstraintId> = at_a
             .iter()
             .flat_map(|point| self.constraints_using(*point))
@@ -1263,6 +1318,7 @@ impl Sketch {
                 _ => false,
             })
             .collect();
+
         for id in between {
             self.remove_constraint(id)?;
         }
@@ -1272,6 +1328,7 @@ impl Sketch {
     fn joined_points(&self, point: EntityId) -> BTreeSet<EntityId> {
         let mut joined = BTreeSet::from([point]);
         let mut pending = vec![point];
+
         while let Some(current) = pending.pop() {
             for id in self.constraints_using(current) {
                 let Some(Constraint::Coincident(first, second)) = self.constraint(id) else {
@@ -1294,11 +1351,14 @@ impl Sketch {
         entity: Entity,
     ) -> Result<EntityId, SketchError> {
         let piece = EntityId::from_raw(self.next_id());
+
         self.insert_entity(piece, entity)?;
         if self.is_construction(curve) {
             self.set_construction(piece, true)?;
         }
+
         let original = self.split_from(curve).unwrap_or(curve);
+
         self.set_split_from(piece, Some(original))?;
         Ok(piece)
     }
@@ -1346,9 +1406,11 @@ impl Sketch {
 
     fn joined(&self, point: EntityId, other: EntityId) -> bool {
         let points = self.entity(other).map(Entity::points).unwrap_or_default();
+
         if points.contains(&point) {
             return true;
         }
+
         let touches = |candidate: EntityId| candidate == other || points.contains(&candidate);
         self.constraints_using(point)
             .into_iter()
@@ -1382,6 +1444,7 @@ impl Sketch {
                         )
                     })
                     .collect();
+
                 for id in implied {
                     self.remove_constraint(id)?;
                 }
@@ -1409,8 +1472,10 @@ impl Sketch {
         for id in self.constraints_using(curve) {
             self.remove_constraint(id)?;
         }
+
         let removed = self.remove_unused_entity(curve)?;
         let mut points = removed.points();
+
         points.dedup();
         for point in points {
             self.drop_if_unused(point)?;
@@ -1420,6 +1485,7 @@ impl Sketch {
 
     pub(crate) fn check_free_end(&self, curve: EntityId, end: EntityId) -> Result<(), ExtendError> {
         let label = || self.entity_label(curve);
+
         if let Some(other) = self
             .entities_using(end)
             .into_iter()
@@ -1448,6 +1514,7 @@ impl Sketch {
                             .entities()
                             .find(|(_, entity)| entity.points().contains(&other))
                             .map_or(other, |(owner, _)| owner);
+
                         return Err(ExtendError::Joined {
                             entity: curve,
                             label: label(),
@@ -1596,9 +1663,11 @@ impl Sketch {
 
     fn apply_extension(&mut self, extension: &Extension) -> Result<(), SketchError> {
         let curve = extension.curve;
+
         for id in self.constraints_using(extension.end) {
             self.remove_constraint(id)?;
         }
+
         let keeps: fn(&Constraint) -> bool = match self.entity(curve) {
             Some(Entity::Line { .. }) => keeps_length,
             Some(Entity::Spline { .. }) => keeps_spline_shape,
@@ -1610,6 +1679,7 @@ impl Sketch {
             .filter(|id| self.constraint(*id).is_some_and(|c| !keeps(c)))
             .collect();
         let mut midpoints = Vec::new();
+
         for id in changed {
             let detached = self.detach_constraint(id)?;
             if let Some(midpoint) = MidpointOn::of(id, &detached, curve) {
@@ -1620,10 +1690,12 @@ impl Sketch {
         if let Reach::Spline { shape, .. } = &extension.reach {
             self.extend_spline(curve, shape)?;
         }
+
         let joint = match extension.target_point {
             Some(point) => Joint::Point(point),
             None => Joint::Curve(extension.target),
         };
+
         self.attach(extension.end, joint, curve)?;
         self.settle_midpoints(&[curve], midpoints)?;
         Ok(())

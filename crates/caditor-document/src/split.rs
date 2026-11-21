@@ -35,7 +35,7 @@ const CLOSURE_ENTITIES: [u64; 7] = [
     u64::MAX - 14,
 ];
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SplitAlong {
     Unchosen,
     Plane(PlaneReference),
@@ -110,7 +110,7 @@ impl SplitAlong {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Split {
     pub body: FeatureId,
     pub along: SplitAlong,
@@ -124,6 +124,7 @@ impl Split {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         used.extend(self.along.datum());
         used.extend(self.along.body());
         used.extend(self.along.sketch());
@@ -131,7 +132,7 @@ impl Split {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SplitTool {
     Plane,
     Body { tool: String },
@@ -216,7 +217,9 @@ impl Context<'_> {
                 let document = self.resolver.inputs.document;
                 let trouble =
                     trouble::boolean_trouble(document, [solid, tool], &other, self.tool.adjust());
+
                 log::warn!("{} could not be built: {other}", self.resolver.feature.name);
+
                 let place = trouble.place;
                 self.error(SplitCause::Uncombined {
                     tool: self.tool.clone(),
@@ -251,7 +254,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SplitCause {
     Misses {
         tool: SplitTool,
@@ -403,6 +406,7 @@ pub(crate) fn evaluate(
             body: definition.body,
         }));
     };
+
     let context = Context {
         resolver: Resolver { feature, inputs },
         body_name,
@@ -421,9 +425,11 @@ pub(crate) fn evaluate(
             .fixing(FixTarget::Feature(definition.body)),
         ));
     };
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let tool = match (&definition.along, plane) {
         (_, Some(plane)) => Tool::Inside(half_space(
             &context,
@@ -467,9 +473,11 @@ pub(crate) fn evaluate(
     };
     let inside = boolean(solid, tool, BooleanOperation::Intersection)
         .map_err(|error| context.boolean_failure(solid, tool, error))?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let outside = boolean(solid, tool, BooleanOperation::Difference)
         .map_err(|error| context.boolean_failure(solid, tool, error))?;
     let (kept, apart) = if keep_inside {
@@ -510,6 +518,7 @@ fn swept(
         .and_then(|result| result.sketch())
     else {
         let name = feature_name(inputs.document, sketch);
+
         return Err(Failure::from(
             FeatureError::new(Upstream::Failed { name }).fixing(FixTarget::Feature(sketch)),
         ));
@@ -518,7 +527,7 @@ fn swept(
         .map_err(|error| context.swept_failure(sketch, error))
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum HalfSpaceError {
     #[error("the body has no extent")]
     NoExtent,
@@ -573,6 +582,7 @@ pub(crate) fn heights(solid: &Solid, plane: &Plane, slant: Vector3) -> Option<He
         .map(|corner| {
             let offset = *corner - plane.origin();
             let height = offset.dot(plane.normal());
+
             let foot = offset - slant * height;
             (
                 Point2::new(foot.dot(plane.x_axis()), foot.dot(plane.y_axis())),
@@ -580,6 +590,7 @@ pub(crate) fn heights(solid: &Solid, plane: &Plane, slant: Vector3) -> Option<He
             )
         })
         .collect();
+
     let across = Aabb2::from_points(local.iter().map(|(point, _)| *point))?.expanded(margin);
     let low = local
         .iter()
@@ -609,9 +620,11 @@ pub(crate) fn half_space_solid(
         margin,
         across,
     } = heights(solid, plane, plane.normal()).ok_or(HalfSpaceError::NoExtent)?;
+
     if high <= LINEAR_RESOLUTION || low >= -LINEAR_RESOLUTION {
         return Err(HalfSpaceError::Misses);
     }
+
     let corners = rectangle(&across);
     let curves: Vec<ProfileCurve> = HALF_SPACE_SIDES
         .iter()
@@ -638,7 +651,7 @@ fn rectangle(bounds: &Aabb2) -> [Point2; 4] {
     ]
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct End {
     pub(crate) point: Point2,
     pub(crate) outward: Vector2,
@@ -654,17 +667,23 @@ pub(crate) struct Chain {
 pub(crate) fn chain(curves: &[ProfileCurve]) -> Result<Chain, SweptError> {
     let mut ends = Vec::with_capacity(curves.len() * 2);
     let mut bounds: Option<Aabb2> = None;
+
     for curve in curves {
         if matches!(curve.shape, ProfileShape::Circle { .. }) {
             return Err(SweptError::Closed);
         }
+
         let (path, range) = curve.curve().map_err(SweptError::Profile)?;
+
         let first = path.evaluate(range.start());
         let last = path.evaluate(range.end());
+
         if first.point.distance(last.point) <= LINEAR_RESOLUTION {
             return Err(SweptError::Closed);
         }
+
         let box_of = path.bounding_box(range);
+
         bounds = Some(bounds.map_or(box_of, |bounds| bounds.union(box_of)));
         ends.push(End {
             point: first.point,
@@ -677,6 +696,7 @@ pub(crate) fn chain(curves: &[ProfileCurve]) -> Result<Chain, SweptError> {
             order: (curve.entity, true),
         });
     }
+
     let bounds = bounds.ok_or(SweptError::NoCurves)?;
     let partners: Vec<Vec<usize>> = ends
         .iter()
@@ -691,9 +711,11 @@ pub(crate) fn chain(curves: &[ProfileCurve]) -> Result<Chain, SweptError> {
                 .collect()
         })
         .collect();
+
     if partners.iter().any(|joined| joined.len() > 1) {
         return Err(SweptError::NotOneChain);
     }
+
     let free: Vec<usize> = partners
         .iter()
         .enumerate()
@@ -707,11 +729,14 @@ pub(crate) fn chain(curves: &[ProfileCurve]) -> Result<Chain, SweptError> {
             SweptError::NotOneChain
         });
     };
+
     if walked(&partners, *first) != Some((curves.len(), *second)) {
         return Err(SweptError::NotOneChain);
     }
+
     let end = |index: usize| ends.get(index).copied().ok_or(SweptError::NotOneChain);
     let (one, other) = (end(*first)?, end(*second)?);
+
     let (start, finish) = if one.order <= other.order {
         (one, other)
     } else {
@@ -727,8 +752,10 @@ pub(crate) fn chain(curves: &[ProfileCurve]) -> Result<Chain, SweptError> {
 fn walked(partners: &[Vec<usize>], from: usize) -> Option<(usize, usize)> {
     let mut at = from;
     let mut curves = 0;
+
     while curves < partners.len() / 2 {
         curves += 1;
+
         let across = at ^ 1;
         match partners.get(across)?.first() {
             Some(next) => at = *next,
@@ -769,14 +796,19 @@ impl Perimeter {
                 f64::INFINITY
             }
         };
+
         let across_x = reach(end.point.x, end.outward.x, min.x, max.x);
         let across_y = reach(end.point.y, end.outward.y, min.y, max.y);
+
         let distance = across_x.min(across_y);
+
         if !distance.is_finite() || distance < 0.0 {
             return None;
         }
+
         let point = end.point + end.outward * distance;
         let size = bounds.size();
+
         let place = if across_x <= across_y {
             if end.outward.x > 0.0 {
                 (size.x + (point.y - min.y), Point2::new(max.x, point.y))
@@ -811,12 +843,14 @@ impl Perimeter {
             }
         };
         let span = ahead(to.0, from.0);
+
         let mut passed: Vec<(f64, Point2)> = self
             .corners
             .iter()
             .map(|(at, corner)| (ahead(*at, from.0), *corner))
             .filter(|(along, _)| *along > LINEAR_RESOLUTION && *along < span - LINEAR_RESOLUTION)
             .collect();
+
         passed.sort_by(|one, other| one.0.total_cmp(&other.0));
         std::iter::once(from.1)
             .chain(passed.into_iter().map(|(_, corner)| corner))
@@ -833,7 +867,9 @@ fn ends_of(curve: &ProfileCurve) -> Option<[Point2; 2]> {
     if matches!(curve.shape, ProfileShape::Circle { .. }) {
         return None;
     }
+
     let (path, range) = curve.curve().ok()?;
+
     let first = path.evaluate(range.start()).point;
     let last = path.evaluate(range.end()).point;
     (first.distance(last) > LINEAR_RESOLUTION).then_some([first, last])
@@ -841,10 +877,13 @@ fn ends_of(curve: &ProfileCurve) -> Option<[Point2; 2]> {
 
 pub(crate) fn component_of(parents: &mut [usize], index: usize) -> usize {
     let mut root = index;
+
     while let Some(parent) = parents.get(root).copied().filter(|parent| *parent != root) {
         root = parent;
     }
+
     let mut at = index;
+
     while let Some(slot) = parents.get_mut(at).filter(|parent| **parent != root) {
         at = std::mem::replace(slot, root);
     }
@@ -860,6 +899,7 @@ pub(crate) fn mixed_curves(sketch: &Sketch) -> Option<MixedCurves> {
     let curves = profile_curves(sketch);
     let links = curve_links(&curves);
     let mut slots_at = vec![0_usize; 2 * curves.len()];
+
     for [first, second] in links.iter().flatten() {
         for node in [first, second] {
             if let Some(count) = slots_at.get_mut(*node) {
@@ -867,7 +907,9 @@ pub(crate) fn mixed_curves(sketch: &Sketch) -> Option<MixedCurves> {
             }
         }
     }
+
     let mut parents: Vec<usize> = (0..slots_at.len()).collect();
+
     for [first, second] in links.iter().flatten() {
         let root = component_of(&mut parents, *first);
         let other = component_of(&mut parents, *second);
@@ -875,6 +917,7 @@ pub(crate) fn mixed_curves(sketch: &Sketch) -> Option<MixedCurves> {
             *parent = root;
         }
     }
+
     let open: BTreeSet<usize> = links
         .iter()
         .flatten()
@@ -892,6 +935,7 @@ pub(crate) fn mixed_curves(sketch: &Sketch) -> Option<MixedCurves> {
     let bridges = bridges(&links, &in_open);
     let mut chain = Vec::new();
     let mut outlines = Vec::new();
+
     for ((curve, open), bridge) in curves.into_iter().zip(in_open).zip(bridges) {
         if open && bridge {
             chain.push(curve);
@@ -909,8 +953,11 @@ pub(crate) fn curve_links(curves: &[ProfileCurve]) -> Vec<Option<[usize; 2]>> {
         .filter_map(|(index, curve)| Some((index, ends_of(curve)?)))
         .flat_map(|(index, [first, last])| [(2 * index, first), (2 * index + 1, last)])
         .collect();
+
     points.sort_by(|one, other| one.1.x.total_cmp(&other.1.x));
+
     let mut nodes: Vec<usize> = (0..2 * curves.len()).collect();
+
     for (at, (slot, point)) in points.iter().enumerate() {
         let partners = points
             .iter()
@@ -925,6 +972,7 @@ pub(crate) fn curve_links(curves: &[ProfileCurve]) -> Vec<Option<[usize; 2]>> {
             }
         }
     }
+
     let joined: BTreeSet<usize> = points.iter().map(|(slot, _)| *slot / 2).collect();
     (0..curves.len())
         .map(|index| {
@@ -948,6 +996,7 @@ fn bridges(links: &[Option<[usize; 2]>], considered: &[bool]) -> Vec<bool> {
     let reaches_without = |skipped: usize, from: usize, to: usize| {
         let mut seen = BTreeSet::from([from]);
         let mut pending = vec![from];
+
         while let Some(node) = pending.pop() {
             if node == to {
                 return true;
@@ -956,6 +1005,7 @@ fn bridges(links: &[Option<[usize; 2]>], considered: &[bool]) -> Vec<bool> {
                 if *index == skipped {
                     continue;
                 }
+
                 let next = if *first == node {
                     *second
                 } else if *second == node {
@@ -971,6 +1021,7 @@ fn bridges(links: &[Option<[usize; 2]>], considered: &[bool]) -> Vec<bool> {
         false
     };
     let mut found = vec![false; links.len()];
+
     for (index, [first, second]) in &edges {
         if first != second
             && !reaches_without(*index, *first, *second)
@@ -1025,29 +1076,36 @@ impl Sweep {
         } = heights(solid, &self.plane, slant(&self.plane, self.direction))
             .ok_or(SweptError::NoExtent)?;
         let path = chain(&curves)?;
+
         let bounds = across.union(path.bounds.expanded(margin));
         let perimeter = Perimeter::new(&bounds);
+
         let start = perimeter
             .exit(&bounds, &path.start)
             .ok_or(SweptError::Degenerate)?;
         let finish = perimeter
             .exit(&bounds, &path.finish)
             .ok_or(SweptError::Degenerate)?;
+
         let corners = perimeter.walk(finish, start, !flipped);
         let closure = [(path.start.point, start.1), (path.finish.point, finish.1)]
             .into_iter()
             .chain(corners.iter().copied().zip(corners.iter().copied().skip(1)))
             .filter(|(from, to)| from.distance(*to) > LINEAR_RESOLUTION);
+
         for (entity, (from, to)) in CLOSURE_ENTITIES.iter().zip(closure) {
             curves.push(ProfileCurve::line(*entity, from, to));
         }
+
         let profile = Profile::new(&curves).map_err(|error| match error {
             ProfileError::NoClosedProfile { .. } => SweptError::CrossesItself,
             other => SweptError::Profile(other),
         })?;
+
         if profile.regions().len() != 1 {
             return Err(SweptError::CrossesItself);
         }
+
         let extent = LinearExtent::new(low - margin, high + margin).map_err(SweptError::Sweep)?;
         self.extruded(profile.regions(), extent)
     }
@@ -1061,9 +1119,11 @@ impl Sweep {
             low, high, margin, ..
         } = heights(solid, &self.plane, slant(&self.plane, self.direction))
             .ok_or(SweptError::NoExtent)?;
+
         if curves.is_empty() {
             return Err(SweptError::NoCurves);
         }
+
         let regions = Profile::new(curves)
             .and_then(|profile| profile.select(&Selection::EvenDepth))
             .map_err(SweptError::Profile)?;

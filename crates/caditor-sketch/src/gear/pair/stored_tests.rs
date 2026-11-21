@@ -63,6 +63,7 @@ fn placing(teeth: u32, partner_teeth: u32, direction: f64) -> GearPair {
 
 fn pair_sketch(direction: f64) -> (Sketch, EntityId, EntityId) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let (first, second) = sketch
         .add_stored_pair(
             GearCentre::Free(Point2::new(4.0, -3.0)),
@@ -80,6 +81,7 @@ fn polygon(outline: &GearOutline) -> Vec<Point2> {
         .iter()
         .flat_map(|piece| {
             let mut points = piece.faceted(Faceting::within(2e-3));
+
             points.pop();
             points
         })
@@ -88,6 +90,7 @@ fn polygon(outline: &GearOutline) -> Vec<Point2> {
 
 fn inside(polygon: &[Point2], point: Point2) -> bool {
     let mut inside = false;
+
     for (a, b) in polygon.iter().zip(polygon.iter().cycle().skip(1)) {
         if (a.y > point.y) != (b.y > point.y)
             && point.x < a.x + (point.y - a.y) / (b.y - a.y) * (b.x - a.x)
@@ -125,6 +128,7 @@ fn a_stored_pair_places_the_partner_at_the_standard_distance_along_its_direction
 
     let driver = solved.gear_outline(first).unwrap();
     let partner = solved.gear_outline(second).unwrap();
+
     let apart = partner.centre - driver.centre;
 
     assert_eq!(driver.centre, Point2::new(4.0, -3.0));
@@ -176,7 +180,9 @@ fn editing_the_module_moves_the_partner_to_the_new_distance() {
 #[test]
 fn the_partner_goes_with_a_driver_the_user_constrains() {
     let (mut sketch, first, second) = pair_sketch(90.0);
+
     let centre = sketch.gear(first).unwrap().centre;
+
     sketch
         .add_constraint(Constraint::Fix {
             point: centre,
@@ -206,14 +212,17 @@ fn a_pair_with_a_free_driver_leaves_only_the_drivers_two_freedoms() {
 #[test]
 fn a_constraint_fighting_the_mesh_is_named_as_the_conflict() {
     let (mut sketch, first, second) = pair_sketch(0.0);
+
     let driver = sketch.gear(first).unwrap().centre;
     let partner = sketch.gear(second).unwrap().centre;
+
     sketch
         .add_constraint(Constraint::Fix {
             point: driver,
             at: Point2::ZERO,
         })
         .unwrap();
+
     let fix = sketch
         .add_constraint(Constraint::Fix {
             point: partner,
@@ -254,9 +263,11 @@ fn the_meshed_teeth_touch_without_overlapping_in_a_direction_off_the_axes() {
 #[test]
 fn a_partner_that_cannot_be_cut_fails_the_sketch_naming_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let first = sketch.add_parametric_gear(driver(centre)).unwrap();
     let other = sketch.add_point(Point2::new(60.0, 0.0));
+
     let second = sketch
         .add_parametric_gear(Gear {
             centre: other,
@@ -269,6 +280,7 @@ fn a_partner_that_cannot_be_cut_fails_the_sketch_naming_it() {
     let Err(SketchError::Gear { gear, reason, .. }) = refused else {
         panic!("{refused:?}");
     };
+
     assert_eq!(gear, second);
     assert!(matches!(
         reason,
@@ -279,6 +291,7 @@ fn a_partner_that_cannot_be_cut_fails_the_sketch_naming_it() {
 #[test]
 fn a_driver_cannot_go_while_its_partner_stands_and_the_link_cannot_be_rewired() {
     let (mut sketch, first, second) = pair_sketch(0.0);
+
     let held = sketch.gear(second).unwrap().clone();
 
     let removed = sketch.remove_gear(first);
@@ -306,6 +319,7 @@ fn a_driver_cannot_go_while_its_partner_stands_and_the_link_cannot_be_rewired() 
 #[test]
 fn a_partner_needs_a_driver_that_exists_and_a_centre_of_its_own() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let first = sketch.add_parametric_gear(driver(centre)).unwrap();
 
@@ -340,10 +354,12 @@ fn a_copied_partner_is_left_out_of_the_clipboard() {
 #[test]
 fn a_partner_counts_its_own_expressions_as_the_parameters_it_uses() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let first = sketch.add_parametric_gear(driver(centre)).unwrap();
     let other = sketch.add_point(Point2::new(60.0, 0.0));
     let teeth = ParameterId::from_raw(9);
+
     sketch
         .add_parametric_gear(Gear {
             centre: other,

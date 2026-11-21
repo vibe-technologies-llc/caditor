@@ -35,6 +35,7 @@ fn spline(input: &mut Unstructured, entity: u64) -> Result<ProfileCurve> {
     let control_points = (0..count)
         .map(|_| point(input))
         .collect::<Result<Vec<_>>>()?;
+
     let knots = if input.ratio(1u8, 8)? {
         (0..count + degree + 1)
             .map(|_| Ok(f64::from(input.int_in_range(0..=KNOT_STEPS)?) / f64::from(KNOT_STEPS)))
@@ -69,6 +70,7 @@ fn shape(
         2 => {
             let (center, radius) = (point(input)?, length(input)?);
             let (start, end) = (angle(input)?, angle(input)?);
+
             curves.push(ProfileCurve::arc(
                 entities.next(),
                 center,
@@ -79,6 +81,7 @@ fn shape(
         3 => {
             let corner = point(input)?;
             let far = corner + Vector2::new(length(input)?, length(input)?);
+
             let corners = [
                 corner,
                 Point2::new(far.x, corner.y),
@@ -93,6 +96,7 @@ fn shape(
             let (center, radius) = (point(input)?, length(input)?);
             let sides = input.int_in_range(3..=MOST_SIDES)?;
             let turn = angle(input)?;
+
             let corner = |side: u8| {
                 let along = std::f64::consts::TAU * f64::from(side) / f64::from(sides);
                 on_circle(center, radius, turn + along)
@@ -107,6 +111,7 @@ fn shape(
         }
         _ => {
             let entity = entities.next();
+
             curves.push(spline(input, entity)?);
         }
     }
@@ -116,6 +121,7 @@ fn shape(
 pub fn profile_curves(input: &mut Unstructured, most_shapes: usize) -> Result<Vec<ProfileCurve>> {
     let mut entities = Entities::default();
     let mut curves = Vec::new();
+
     for _ in 0..input.int_in_range(1..=most_shapes)? {
         shape(input, &mut entities, &mut curves)?;
     }
@@ -126,7 +132,9 @@ pub fn selection(input: &mut Unstructured, profile: &Profile) -> Result<Selectio
     if input.arbitrary::<bool>()? {
         return Ok(Selection::EvenDepth);
     }
+
     let mut keys = Vec::new();
+
     for region in profile.regions() {
         if input.arbitrary::<bool>()? {
             keys.push(region.key());
@@ -187,6 +195,7 @@ pub fn swept_solid(input: &mut Unstructured, most_shapes: usize, feature: u64) -
     let curves = profile_curves(input, most_shapes).ok()?;
     let profile = Profile::new(&curves).ok()?;
     let chosen = selection(input, &profile).ok()?;
+
     let regions = profile.select(&chosen).ok()?;
     sweep(input, &regions, feature)
 }

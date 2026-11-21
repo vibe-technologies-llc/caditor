@@ -49,8 +49,11 @@ fn assert_close(name: &str, found: f64, expected: f64, relative: f64) {
 
 fn assert_sound(name: &str, solid: &Solid) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
+
     assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
+
     let names: BTreeSet<FaceName> = solid.faces().map(|(_, face)| face.name()).collect();
+
     assert_eq!(names.len(), solid.faces().count(), "{name}");
 }
 
@@ -103,12 +106,16 @@ fn a_loft_closing_back_to_its_first_profile_makes_a_ring_without_caps() {
     assert_sound("smooth ring", &smooth);
     assert_sound("ruled ring", &ruled);
     assert_sound("round ring", &round);
+
     assert_eq!(smooth.faces().count(), 4);
     assert_eq!(ruled.faces().count(), 4 * 12);
     assert_eq!(round.faces().count(), 1);
+
     assert_close("smooth ring", volume(&smooth), 4.0 * TAU * RING, 5e-3);
     assert_close("round ring", volume(&round), PI * TAU * RING, 5e-3);
+
     let ruled_volume = volume(&ruled);
+
     assert!(ruled_volume < 4.0 * TAU * RING && ruled_volume > 0.95 * 4.0 * TAU * RING);
 }
 
@@ -157,6 +164,7 @@ fn square_ends_leave_and_reach_the_profiles_along_their_normals() {
     assert_sound("square start", &starting);
     assert_close("square ends", volume(&solid), 40.0, 1e-4);
     assert_close("square start", volume(&starting), 40.0, 1e-4);
+
     let rising: Vec<Vector3> = solid
         .edges()
         .filter_map(|(_, edge)| {
@@ -174,6 +182,7 @@ fn square_ends_leave_and_reach_the_profiles_along_their_normals() {
             )
         })
         .collect();
+
     assert_eq!(rising.len(), 4);
     assert!(
         rising

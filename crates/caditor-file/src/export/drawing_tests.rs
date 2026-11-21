@@ -20,6 +20,7 @@ fn rectangle(low: Point2, high: Point2) -> (Sketch, Vec<EntityId>) {
         high,
         Point2::new(low.x, high.y),
     ];
+
     let lines = (0..4)
         .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]))
         .collect();
@@ -35,10 +36,12 @@ fn ends(sketch: &Sketch, line: EntityId) -> (EntityId, EntityId) {
 
 fn dimensioned() -> Sketch {
     let (mut sketch, lines) = rectangle(Point2::ZERO, Point2::new(60.0, 30.0));
+
     let (start, end) = ends(&sketch, lines[0]);
     let hole = sketch.add_circle(Point2::new(20.0, 15.0), 5.0);
     let slot = sketch.add_circle(Point2::new(45.0, 15.0), 4.0);
     let slant = sketch.add_line(Point2::new(70.0, 0.0), Point2::new(80.0, 10.0));
+
     sketch
         .add_constraint(Constraint::HorizontalDistance {
             from: start,
@@ -101,8 +104,10 @@ fn line_bounds(drawing: &crate::Drawing, range: std::ops::Range<usize>) -> (Poin
 
 fn outline(corners: &[(f64, f64)]) -> Figure {
     let mut figure = Figure::default();
+
     for (index, (x, y)) in corners.iter().enumerate() {
         let (next_x, next_y) = corners[(index + 1) % corners.len()];
+
         figure.push(
             Layer::Outline,
             Shape::Line(Point2::new(*x, *y), Point2::new(next_x, next_y)),
@@ -125,6 +130,7 @@ fn item(figure: &Figure) -> Item<'_> {
 
 fn placed(figure: &Figure, motion: Motion) -> Figure {
     let mut moved = Figure::default();
+
     moved.append_moved(figure.clone(), motion);
     moved
 }
@@ -158,6 +164,7 @@ fn segment_distance(first: (Point2, Point2), second: (Point2, Point2)) -> f64 {
         side(first, second.0) * side(first, second.1) < 0.0
             && side(second, first.0) * side(second, first.1) < 0.0
     };
+
     if crosses {
         return 0.0;
     }
@@ -187,6 +194,7 @@ fn inside(point: Point2, figure: &Figure) -> bool {
 fn assert_apart(figures: &[Figure], spacing: f64, width: f64) {
     for (index, figure) in figures.iter().enumerate() {
         let bounds = figure.bounds().unwrap();
+
         assert!(
             bounds.min().x >= -1e-9 && bounds.min().y >= -1e-9,
             "{bounds:?}"
@@ -201,8 +209,11 @@ fn assert_apart(figures: &[Figure], spacing: f64, width: f64) {
                         .map(move |second| segment_distance(first, second))
                 })
                 .fold(f64::INFINITY, f64::min);
+
             assert!(gap >= spacing - 1e-9, "parts {gap} apart");
+
             let (own, theirs) = (segments(figure)[0].0, segments(other)[0].0);
+
             assert!(!inside(own, other) && !inside(theirs, figure));
         }
     }
@@ -226,12 +237,15 @@ fn nesting_keeps_every_part_apart_and_on_the_sheet() {
 
     assert_eq!(nested, again);
     assert_eq!(nested.too_wide, 0);
+
     let moved: Vec<Figure> = figures
         .iter()
         .zip(&nested.motions)
         .map(|(figure, motion)| placed(figure, *motion))
         .collect();
+
     assert_apart(&moved, 3.0, 200.0);
+
     let used = moved
         .iter()
         .map(|figure| figure.bounds().unwrap().max().y)
@@ -241,12 +255,14 @@ fn nesting_keeps_every_part_apart_and_on_the_sheet() {
         .map(|figure| figure.bounds().unwrap().size())
         .map(|size| size.x * size.y)
         .sum();
+
     assert!(used * 200.0 < area * 2.0, "the sheet is {used} high");
 }
 
 #[test]
 fn a_small_part_nests_inside_a_ring_and_the_crook_of_an_l() {
     let mut ring = Figure::default();
+
     for radius in [50.0, 40.0] {
         ring.push(
             Layer::Outline,
@@ -256,6 +272,7 @@ fn a_small_part_nests_inside_a_ring_and_the_crook_of_an_l() {
             },
         );
     }
+
     let square = box_of(20.0, 20.0);
     let nesting = Nesting::new(110.0, 2.0, false).unwrap();
 
@@ -267,9 +284,11 @@ fn a_small_part_nests_inside_a_ring_and_the_crook_of_an_l() {
     .unwrap();
 
     assert_eq!(nested.too_wide, 0);
+
     let ring_placed = placed(&ring, nested.motions[0]);
     let square_placed = placed(&square, nested.motions[1]);
     let centre = ring_placed.bounds().unwrap().center();
+
     for (corner, _) in segments(&square_placed) {
         assert!(
             corner.distance(centre) < 40.0,
@@ -293,7 +312,9 @@ fn a_small_part_nests_inside_a_ring_and_the_crook_of_an_l() {
 
     let l_placed = placed(&l, nested.motions[0]);
     let block_placed = placed(&block, nested.motions[1]);
+
     assert!(block_placed.bounds().unwrap().min().y < 100.0);
+
     assert_apart(&[l_placed, block_placed], 5.0, 105.0);
 }
 
@@ -307,6 +328,7 @@ fn parts_turn_in_small_steps_to_fit_a_narrow_sheet() {
     let too_wide = nest(&[item(&long)], &kept, &CancelToken::never()).unwrap();
 
     let quarters = turned.motions[0].turn / FRAC_PI_2;
+
     assert_eq!(quarters, quarters.round());
     assert_eq!(quarters.rem_euclid(2.0), 1.0);
     assert_eq!(turned.too_wide, 0);
@@ -321,9 +343,12 @@ fn parts_turn_in_small_steps_to_fit_a_narrow_sheet() {
     let nested = nest(&[item(&diagonal)], &turning, &CancelToken::never()).unwrap();
 
     assert_eq!(nested.too_wide, 0);
+
     let fitted = placed(&diagonal, nested.motions[0]);
     let bounds = fitted.bounds().unwrap();
+
     assert!(bounds.size().x < 15.0, "{bounds:?}");
+
     assert_apart(&[fitted], 5.0, 100.0);
 }
 
@@ -335,6 +360,7 @@ fn a_turned_arc_keeps_its_points() {
         start: 0.2,
         end: 1.4,
     };
+
     for turn in [FRAC_PI_2, 0.7] {
         let motion = Motion {
             turn,
@@ -345,12 +371,15 @@ fn a_turned_arc_keeps_its_points() {
 
         let points = arc.outline_points();
         let moved_points = moved.outline_points();
+
         assert_eq!(points.len(), moved_points.len());
         for (point, moved) in points.iter().zip(&moved_points) {
             assert!(motion.point(*point).distance(*moved) < 1e-9);
         }
     }
+
     let quarter = Motion::turn(FRAC_PI_2);
+
     assert_eq!(quarter.vector(Vector2::X), Vector2::Y);
 }
 
@@ -388,9 +417,11 @@ fn several_sketches_nest_into_one_dxf_that_reads_back_without_overlaps() {
     assert_eq!(exported.too_wide, 0);
     assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
     assert_eq!(drawing.curves.len(), 12);
+
     let parts: Vec<(Point2, Point2)> = (0..3)
         .map(|part| line_bounds(&drawing, part * 4..part * 4 + 4))
         .collect();
+
     for (index, (low, high)) in parts.iter().enumerate() {
         assert!(low.x >= -1e-9 && low.y >= -1e-9, "{low:?}");
         assert!(high.x <= 120.0 + 1e-9, "{high:?}");
@@ -399,10 +430,13 @@ fn several_sketches_nest_into_one_dxf_that_reads_back_without_overlaps() {
                 || other_high.x + 5.0 <= low.x + 1e-9
                 || high.y + 5.0 <= other_low.y + 1e-9
                 || other_high.y + 5.0 <= low.y + 1e-9;
+
             assert!(apart, "{low:?}-{high:?} meets {other_low:?}-{other_high:?}");
         }
     }
+
     let tallest = parts.iter().map(|(_, high)| high.y).fold(0.0, f64::max);
+
     assert!(tallest < 90.0 + 30.0 + 5.0 + 1e-9, "{tallest}");
 }
 
@@ -430,13 +464,16 @@ fn several_sketches_side_by_side_leave_the_first_where_it_is() {
         &CancelToken::never(),
     )
     .unwrap();
+
     let drawing = crate::parse_dxf(&std::fs::read(&path).unwrap()).unwrap();
 
     assert_eq!(
         line_bounds(&drawing, 0..4),
         (Point2::new(5.0, 5.0), Point2::new(25.0, 15.0))
     );
+
     let (low, high) = line_bounds(&drawing, 4..8);
+
     assert!(
         (low.x - 35.0).abs() < 1e-9 && (low.y - 5.0).abs() < 1e-9,
         "{low:?}"
@@ -520,6 +557,7 @@ fn dimensions_and_labels_are_drawn_as_svg_text_in_groups_of_their_own() {
         &CancelToken::never(),
     )
     .unwrap();
+
     let text = std::fs::read_to_string(&path).unwrap();
 
     assert!(text.contains(r#"<g id="Dimensions">"#));
@@ -568,7 +606,9 @@ fn a_part_wider_than_the_sheet_is_placed_alone_with_its_name_below() {
 #[test]
 fn an_ellipse_writes_its_radii_as_leaders_along_its_axes() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(10.0, 5.0), Point2::new(18.0, 5.0), 3.0);
+
     for constraint in [
         Constraint::MajorRadius {
             ellipse,
@@ -581,6 +621,7 @@ fn an_ellipse_writes_its_radii_as_leaders_along_its_axes() {
     ] {
         sketch.add_constraint(constraint).unwrap();
     }
+
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("ellipse.dxf");
 
@@ -610,6 +651,7 @@ fn crowded() -> (Sketch, usize) {
     let row: Vec<EntityId> = (0..10)
         .map(|index| sketch.add_point(Point2::new(index as f64 * 1.5, 0.0)))
         .collect();
+
     for pair in row.windows(2) {
         constraints.push(Constraint::HorizontalDistance {
             from: pair[0],
@@ -627,6 +669,7 @@ fn crowded() -> (Sketch, usize) {
     for step in 0..6 {
         let radius = 3.0 + step as f64 * 0.5;
         let circle = sketch.add_circle(Point2::new(6.0, 12.0), radius);
+
         constraints.push(Constraint::Radius {
             entity: circle,
             value: millimetres(radius),
@@ -636,6 +679,7 @@ fn crowded() -> (Sketch, usize) {
             value: millimetres(radius * 2.0),
         });
     }
+
     let vertex = Point2::new(20.0, 5.0);
     let fan: Vec<EntityId> = (0..5)
         .map(|index| {
@@ -643,6 +687,7 @@ fn crowded() -> (Sketch, usize) {
             sketch.add_line(vertex, vertex + direction * 8.0)
         })
         .collect();
+
     for pair in fan.windows(2) {
         constraints.push(Constraint::Angle {
             from: pair[0],
@@ -651,7 +696,9 @@ fn crowded() -> (Sketch, usize) {
             value: Expression::Measure(10.0, Unit::Degree),
         });
     }
+
     let count = constraints.len();
+
     for constraint in constraints {
         sketch.add_constraint(constraint).unwrap();
     }
@@ -684,6 +731,7 @@ fn a_crowded_sketch_places_every_dimension_label_clear_of_the_others() {
     for (index, first) in boxes.iter().enumerate() {
         for second in boxes.iter().skip(index + 1) {
             let shared = first.1.min(second.1) - first.0.max(second.0);
+
             assert!(
                 shared.x <= 0.0 || shared.y <= 0.0,
                 "labels {first:?} and {second:?} overlap"

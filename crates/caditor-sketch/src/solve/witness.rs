@@ -46,6 +46,7 @@ impl Factored {
         let mut lengths = Vec::with_capacity(rows.len());
         let mut scaled = Vec::with_capacity(rows.len());
         let mut normalised = Vec::with_capacity(rows.len());
+
         for (row, residual) in rows.into_iter().zip(residuals) {
             let length = norm(&row);
             let length = if length > 0.0 && length.is_finite() {
@@ -53,25 +54,31 @@ impl Factored {
             } else {
                 1.0
             };
+
             lengths.push(length);
             scaled.push(normalized(row));
             normalised.push(residual / length);
         }
+
         let mut triangular = Triangular::ordered_for(component.variables.len(), &scaled);
+
         for row in &scaled {
             triangular.insert(row, RANK_TOLERANCE);
         }
+
         let reach: Vec<Vec<usize>> = component
             .equations
             .iter()
             .map(|index| moving_variables(solver.system, component, *index, values))
             .collect();
         let mut touching: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+
         for (row, variables) in reach.iter().enumerate() {
             for variable in variables {
                 touching.entry(*variable).or_default().insert(row);
             }
         }
+
         let mut factored = Self {
             component: component.clone(),
             equations: component.equations.iter().copied().collect(),
@@ -87,11 +94,13 @@ impl Factored {
             reach,
             touching,
         };
+
         let target: Vec<f64> = factored
             .residuals
             .iter()
             .map(|residual| -residual)
             .collect();
+
         factored.base = factored.solve(&target);
         factored.left = factored
             .residuals
@@ -141,6 +150,7 @@ impl Factored {
         if from.constraint == constraint || !self.reaches(constraint) {
             return Ok(None);
         }
+
         let removed = self.rows_of(constraint);
         let mut allowance = solve_cost * removed.len();
         let mut moving: BTreeSet<usize> = self
@@ -151,18 +161,24 @@ impl Factored {
             .flatten()
             .copied()
             .collect();
+
         let mut frontier = moving.clone();
         let mut hops = 0;
+
         for reach in TRANSFER_REACHES {
             let before = moving.len();
+
             while hops < reach && !frontier.is_empty() {
                 frontier = self.next_hop(&frontier, &removed, &mut moving);
                 hops += 1;
             }
+
             let widened = reach == 0 || moving.len() > before;
+
             if !widened || moving.len() * TRANSFER_SHARE > self.component.variables.len() {
                 break;
             }
+
             let rows = self.rows_touching(&moving, &removed);
             if let Some(values) =
                 self.settled_locally(solver, &from.values, &moving, &rows, &mut allowance, charge)?
@@ -190,6 +206,7 @@ impl Factored {
         moving: &mut BTreeSet<usize>,
     ) -> BTreeSet<usize> {
         let mut reached = BTreeSet::new();
+
         for row in self.rows_touching(frontier, removed) {
             for variable in self.reach.get(row).into_iter().flatten() {
                 if moving.insert(*variable) {
@@ -229,8 +246,10 @@ impl Factored {
             .flatten()
             .copied()
             .collect();
+
         spans.sort_unstable();
         spans.dedup();
+
         let local = Component {
             variables: moving.iter().copied().collect(),
             equations: rows
@@ -241,28 +260,37 @@ impl Factored {
             spans,
         };
         let mut values = from.to_vec();
+
         let mut left = norm_of(&solver.residuals_of(&local, &values));
+
         for _ in 0..TRANSFER_STEPS {
             if self.holds_locally(solver, &local, &values) {
                 return Ok(Some(values));
             }
+
             let Some(left_over) = allowance.checked_sub(local.equations.len()) else {
                 return Ok(None);
             };
+
             *allowance = left_over;
             charge(local.equations.len())?;
+
             let (rows, residuals) = solver.linearized(&local, &values);
+
             let Some(step) = sparse::minimal_norm_step(&rows, &residuals, local.variables.len())
             else {
                 return Ok(None);
             };
+
             for (variable, delta) in local.variables.iter().zip(&step) {
                 if let Some(slot) = values.get_mut(*variable) {
                     *slot += delta;
                 }
             }
+
             let now = norm_of(&solver.residuals_of(&local, &values));
             let shrank = now < CHORD_SHRINK * left;
+
             if !shrank {
                 return Ok(None);
             }
@@ -313,35 +341,45 @@ impl Factored {
             .filter(|(_, owner)| **owner == Some(constraint))
             .map(|(row, _)| row)
             .collect();
+
         if removed.is_empty() {
             return Ok(None);
         }
+
         let mut columns = Vec::with_capacity(removed.len());
+
         for row in &removed {
             charge()?;
             columns.push(self.solve_unit(*row));
         }
+
         let images: Vec<Vec<f64>> = columns
             .iter()
             .map(|column| kept_rows(self.image(column), &removed))
             .collect();
         let mut base = self.base.clone();
         let mut misfit = kept_rows(self.left.clone(), &removed);
+
         for ((row, column), image) in removed.iter().zip(&columns).zip(&images) {
             let load = self.residuals.get(*row).copied().unwrap_or(0.0);
+
             add_scaled(&mut base, column, load);
             add_scaled(&mut misfit, image, load);
         }
+
         let mut values = self.values.clone();
         let mut previous = kept_norm(&self.residuals, &removed);
+
         for step in 0..CHORD_STEPS {
             if step > 0 {
                 charge()?;
+
                 let residuals = self.normalised(solver, &values);
                 let target: Vec<f64> = kept_rows(residuals.clone(), &removed)
                     .into_iter()
                     .map(|residual| -residual)
                     .collect();
+
                 base = self.solve(&target);
                 misfit = residuals
                     .iter()
@@ -350,10 +388,12 @@ impl Factored {
                     .collect();
                 misfit = kept_rows(misfit, &removed);
             }
+
             let Some(absorbed) = absorbed(&images, &misfit, &columns, &base) else {
                 return Ok(None);
             };
             let mut moved = base.clone();
+
             for (weight, column) in absorbed.iter().zip(&columns) {
                 add_scaled(&mut moved, column, *weight);
             }
@@ -362,11 +402,13 @@ impl Factored {
                     *slot += delta;
                 }
             }
+
             let raw = solver.residuals_of(&self.component, &values);
             let kept = raw
                 .iter()
                 .enumerate()
                 .filter(|(row, _)| !removed.contains(row));
+
             if kept.clone().any(|(_, residual)| !residual.is_finite()) {
                 return Ok(None);
             }
@@ -376,7 +418,9 @@ impl Factored {
             {
                 return Ok(Some(values));
             }
+
             let current = kept_norm(&self.scaled(raw), &removed);
+
             if current >= CHORD_SHRINK * previous {
                 return Ok(None);
             }
@@ -399,6 +443,7 @@ impl Factored {
 
     fn solve(&self, target: &[f64]) -> Vec<f64> {
         let mut gradient = vec![0.0; self.component.variables.len()];
+
         for (row, load) in self.rows.iter().zip(target) {
             for (column, entry) in row {
                 if let Some(slot) = gradient.get_mut(*column) {
@@ -411,6 +456,7 @@ impl Factored {
 
     fn solve_unit(&self, row: usize) -> Vec<f64> {
         let mut gradient = vec![0.0; self.component.variables.len()];
+
         for (column, entry) in self.rows.get(row).into_iter().flatten() {
             if let Some(slot) = gradient.get_mut(*column) {
                 *slot += entry;
@@ -545,24 +591,30 @@ fn absorbed(
     base: &[f64],
 ) -> Option<Vec<f64>> {
     let (mut weights, free) = least_norm(gram(images), projections(images, misfit), NO_WEIGHT)?;
+
     if !free.is_empty() {
         let combined = |direction: &DVector<f64>| -> Vec<f64> {
             let mut sum = vec![0.0; base.len()];
+
             for (weight, column) in direction.iter().zip(columns) {
                 add_scaled(&mut sum, column, *weight);
             }
             sum
         };
         let mut start = base.to_vec();
+
         add_scaled(&mut start, &combined(&weights), 1.0);
+
         let along: Vec<Vec<f64>> = free.iter().map(combined).collect();
         let sizes = gram(&along);
         let largest = sizes.diagonal().max();
+
         let (shift, _) = least_norm(sizes, projections(&along, &start), NO_WEIGHT * largest)?;
         for (amount, direction) in shift.iter().zip(&free) {
             weights += direction * *amount;
         }
     }
+
     let weights: Vec<f64> = weights.iter().copied().collect();
     weights
         .iter()
@@ -578,6 +630,7 @@ fn least_norm(
     let eigen = SymmetricEigen::try_new(gram, f64::EPSILON, EIGEN_ITERATIONS)?;
     let mut solution = DVector::zeros(rhs.len());
     let mut free = Vec::new();
+
     for (value, vector) in eigen
         .eigenvalues
         .iter()

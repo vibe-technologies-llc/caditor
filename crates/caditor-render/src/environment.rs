@@ -18,7 +18,7 @@ const RGBA_HALF_BYTES: usize = 8;
 
 static NEXT_IDENTITY: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum EnvironmentError {
     #[error(
         "the picture is {width} by {height} pixels, but an environment is an equirectangular picture, twice as wide as it is high"
@@ -67,6 +67,7 @@ impl Eq for Environment {}
 impl Environment {
     pub fn new(width: u32, height: u32, rgb: Vec<f32>) -> Result<Self, EnvironmentError> {
         let expected = value_count(width, height);
+
         if expected != rgb.len() {
             return Err(EnvironmentError::WrongSize {
                 width,
@@ -85,6 +86,7 @@ impl Environment {
         if width.abs_diff(height.saturating_mul(2)) * 100 > width * SHAPE_TOLERANCE_PERCENT {
             return Err(EnvironmentError::NotEquirectangular { width, height });
         }
+
         let source = Raster {
             width: width as usize,
             height: height as usize,
@@ -92,6 +94,7 @@ impl Environment {
         };
         let kept_width = kept_width(width) as usize;
         let kept_height = kept_width / 2;
+
         let base = if (source.width, source.height) == (kept_width, kept_height) {
             source
         } else {
@@ -99,10 +102,13 @@ impl Environment {
         };
         let irradiance = irradiance_of(&base);
         let mut chain = vec![base];
+
         while let Some(last) = chain.last().filter(|last| last.height > 1) {
             let next = last.halved();
+
             chain.push(next);
         }
+
         let (kept_width, kept_height) = (kept_width as u32, kept_height as u32);
         Ok(Self {
             identity: NEXT_IDENTITY.fetch_add(1, Ordering::Relaxed),
@@ -168,6 +174,7 @@ fn texel_of(bytes: &[u8], width: u32, height: u32, x: u32, y: u32) -> Option<[f3
     if x >= width || y >= height {
         return None;
     }
+
     let at = (y as usize * width as usize + x as usize) * RGBA_HALF_BYTES;
     let texel = bytes.get(at..at + RGBA_HALF_BYTES)?;
     let channel = |index: usize| {
@@ -207,9 +214,11 @@ impl Raster {
         let across = self.across(width);
         let mut rgb = Vec::with_capacity(width * height * CHANNELS);
         let row_length = width * CHANNELS;
+
         for y in 0..height {
             let (first, last) = covered(y, height, self.height);
             let mut sum = vec![0.0_f32; row_length];
+
             for row in across
                 .chunks_exact(row_length)
                 .skip(first)
@@ -219,7 +228,9 @@ impl Raster {
                     *total += value;
                 }
             }
+
             let count = (last - first) as f32;
+
             rgb.extend(sum.into_iter().map(|total| total / count));
         }
         Self { width, height, rgb }
@@ -228,19 +239,24 @@ impl Raster {
     fn across(&self, width: usize) -> Vec<f32> {
         let row_length = self.width * CHANNELS;
         let mut rgb = Vec::with_capacity(width * self.height * CHANNELS);
+
         for row in self.rgb.chunks_exact(row_length) {
             for x in 0..width {
                 let (first, last) = covered(x, width, self.width);
                 let mut sum = [0.0_f32; CHANNELS];
+
                 let covering = row
                     .get(first * CHANNELS..last * CHANNELS)
                     .unwrap_or_default();
+
                 for texel in covering.as_chunks::<CHANNELS>().0 {
                     for (total, value) in sum.iter_mut().zip(texel) {
                         *total += value;
                     }
                 }
+
                 let count = (last - first) as f32;
+
                 rgb.extend(sum.into_iter().map(|total| total / count));
             }
         }
@@ -262,6 +278,7 @@ fn covered(index: usize, count: usize, source: usize) -> (usize, usize) {
 
 fn half_floats(rgb: &[f32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(rgb.len() / CHANNELS * RGBA_HALF_BYTES);
+
     for texel in rgb.as_chunks::<CHANNELS>().0 {
         for channel in texel.iter().copied().chain([1.0]) {
             bytes.extend_from_slice(&f16::from_f32(channel).to_le_bytes());
@@ -280,6 +297,7 @@ fn irradiance_of(base: &Raster) -> Vec<u8> {
     let height = IRRADIANCE_SOURCE_WIDTH / 2;
     let small = base.resampled(IRRADIANCE_SOURCE_WIDTH, height);
     let step = TAU / IRRADIANCE_SOURCE_WIDTH as f32 * (PI / height as f32);
+
     let patches: Vec<Patch> = small
         .rgb
         .as_chunks::<CHANNELS>()
@@ -288,6 +306,7 @@ fn irradiance_of(base: &Raster) -> Vec<u8> {
         .enumerate()
         .map(|(at, texel)| {
             let (x, y) = (at % IRRADIANCE_SOURCE_WIDTH, at / IRRADIANCE_SOURCE_WIDTH);
+
             let direction = direction_of(
                 (x as f32 + 0.5) / IRRADIANCE_SOURCE_WIDTH as f32,
                 (y as f32 + 0.5) / height as f32,
@@ -300,6 +319,7 @@ fn irradiance_of(base: &Raster) -> Vec<u8> {
         })
         .collect();
     let mut rgb = Vec::with_capacity((IRRADIANCE_WIDTH * IRRADIANCE_HEIGHT) as usize * CHANNELS);
+
     for y in 0..IRRADIANCE_HEIGHT {
         for x in 0..IRRADIANCE_WIDTH {
             let normal = direction_of(
@@ -307,8 +327,10 @@ fn irradiance_of(base: &Raster) -> Vec<u8> {
                 (y as f32 + 0.5) / IRRADIANCE_HEIGHT as f32,
             );
             let (mut gathered, mut cosine_total) = (Vec3::ZERO, 0.0_f32);
+
             for patch in &patches {
                 let weight = normal.dot(patch.direction).max(0.0) * patch.solid_angle;
+
                 gathered += patch.radiance * weight;
                 cosine_total += weight;
             }
@@ -358,6 +380,7 @@ mod tests {
 
         assert_eq!((environment.width(), environment.height()), (64, 32));
         assert_eq!(environment.level_count(), 6);
+
         near(
             environment.radiance_at(0, 10, 10).unwrap(),
             [4.0, 0.5, 0.25],
@@ -368,6 +391,7 @@ mod tests {
             [4.0, 0.5, 0.25],
             1e-3,
         );
+
         assert_eq!(environment.level(5).map(|(_, w, h)| (w, h)), Some((2, 1)));
         assert_eq!(environment.radiance_at(0, 64, 0), None);
     }
@@ -394,6 +418,7 @@ mod tests {
     fn shrinking_by_a_fraction_averages_what_each_new_texel_covers() {
         let width = 96;
         let height = 48;
+
         let rgb = (0..width * height)
             .flat_map(|at| [(at % width) as f32, 1.0, 2.0])
             .collect();
@@ -452,12 +477,15 @@ mod tests {
     #[test]
     fn values_a_half_float_cannot_hold_are_made_finite() {
         let mut rgb = vec![1.0; 32 * 16 * CHANNELS];
+
         rgb[0] = f32::NAN;
         rgb[1] = f32::INFINITY;
         rgb[2] = -5.0;
+
         let environment = Environment::new(32, 16, rgb).unwrap();
 
         let first = environment.radiance_at(0, 0, 0).unwrap();
+
         assert_eq!(first[0], 0.0);
         assert!(first[1].is_finite() && first[1] > 1000.0);
         assert_eq!(first[2], 0.0);

@@ -91,12 +91,15 @@ pub fn show(
     room: f32,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
+
     settings.load(context.model, context.sketch);
+
     let evaluation = settings.evaluate(context.model);
     let editing = settings.editing();
     let point = context
         .sketch
         .and_then(|sketch| texting::lone_point(sketch, context.selected));
+
     let label = match editing {
         Some(text) => update_label(context.sketch, text),
         None => write_label(context.sketch, point),
@@ -107,6 +110,7 @@ pub fn show(
         close: CLOSE,
         help: Some(Page::Text),
     };
+
     let panel = widgets::side_panel_parts(
         ui,
         room,
@@ -130,12 +134,14 @@ pub fn show(
                     }
                 })
             });
+
             widgets::panel_scroll(ui, PANEL.id, |ui| {
                 let about = if editing.is_some() {
                     EDITING
                 } else {
                     DESCRIPTION
                 };
+
                 wrapped(ui, widgets::muted(about, ui));
                 ui.add_space(SPACE_S);
                 fields(ui, context.model, settings, &evaluation.problems);
@@ -147,6 +153,7 @@ pub fn show(
             pressed
         },
     );
+
     if panel.closed {
         actions.push(Action::Editing(EditingCommand::SetTool(Tool::Select)));
     }
@@ -162,6 +169,7 @@ pub fn show(
         }
         (Some(Pressed::Primary), Ok(lettering), None) => {
             let anchor = TextAnchor::Point(point.unwrap_or(EntityId::ORIGIN));
+
             actions.push(applied(texting::write(
                 context.model,
                 context.feature,
@@ -210,6 +218,7 @@ fn fields(
                                     .desired_width(f32::INFINITY),
                             )
                         });
+
                         widgets::tie_to_caption(ui, &response);
                         response.on_hover_text(field.about());
                         None
@@ -252,6 +261,7 @@ fn outcome(ui: &mut Ui, lettering: &Result<Lettering, LetteringProblem>) {
                 .unwrap_or_default();
             if !missing.is_empty() {
                 let letters: String = missing.iter().collect();
+
                 widgets::callout(ui, Tone::Warning, |ui| {
                     wrapped(
                         ui,

@@ -22,6 +22,7 @@ fn degrees(value: f64) -> Expression {
 
 pub(crate) fn picture(width: u32, height: u32) -> Arc<Picture> {
     let mut bytes = PNG_START.to_vec();
+
     bytes.extend_from_slice(&width.to_le_bytes());
     bytes.extend_from_slice(&height.to_le_bytes());
     Arc::new(Picture::new(bytes, PixelSize { width, height }).unwrap())
@@ -43,7 +44,9 @@ pub(crate) fn image(plane: ImagePlane) -> ReferenceImage {
 
 fn add(document: &mut Document, name: &str, kind: FeatureKind) -> FeatureId {
     let mut transaction = document.transaction("Add");
+
     let feature = transaction.add_feature(name, kind);
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -85,6 +88,7 @@ fn an_image_lies_on_its_plane_at_its_place_with_the_picture_shape() {
     let shown = image(ImagePlane::Reference(PlaneReference::Principal(
         PrincipalPlane::Xz,
     )));
+
     let feature = add(
         &mut document,
         "Photo",
@@ -103,6 +107,7 @@ fn an_image_lies_on_its_plane_at_its_place_with_the_picture_shape() {
 #[test]
 fn turning_and_flipping_keep_each_spot_of_the_picture_where_it_was_drawn() {
     let mut document = Document::default();
+
     let feature = add(
         &mut document,
         "Photo",
@@ -113,6 +118,7 @@ fn turning_and_flipping_keep_each_spot_of_the_picture_where_it_was_drawn() {
     let mut turned = image(ImagePlane::Reference(PlaneReference::Principal(
         PrincipalPlane::Xy,
     )));
+
     turned.turn = degrees(90.0);
     turned.flipped = true;
     set_kind(&mut document, feature, turned);
@@ -122,7 +128,9 @@ fn turning_and_flipping_keep_each_spot_of_the_picture_where_it_was_drawn() {
 
     assert!(placed.across.distance(Vector3::Y) < 1e-9);
     assert!(placed.point_at(ImageSpot::new(0.0, 0.5)).y > placed.centre.y);
+
     let back = placed.spot_at(placed.point_at(spot));
+
     assert!((back.across - spot.across).abs() < 1e-9);
     assert!((back.up - spot.up).abs() < 1e-9);
 }
@@ -131,6 +139,7 @@ fn turning_and_flipping_keep_each_spot_of_the_picture_where_it_was_drawn() {
 fn calibrating_by_two_points_sizes_the_picture_so_they_lie_the_typed_distance_apart() {
     let mut document = Document::default();
     let plane = ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy));
+
     let feature = add(
         &mut document,
         "Photo",
@@ -139,6 +148,7 @@ fn calibrating_by_two_points_sizes_the_picture_so_they_lie_the_typed_distance_ap
     let from = ImageSpot::new(0.1, 0.2);
     let to = ImageSpot::new(0.7, 0.8);
     let mut calibrated = image(plane);
+
     calibrated.size = ImageSize::Calibrated(Calibration {
         from,
         to,
@@ -149,6 +159,7 @@ fn calibrating_by_two_points_sizes_the_picture_so_they_lie_the_typed_distance_ap
     let placed = placed(&document, feature);
 
     let apart = placed.point_at(from).distance(placed.point_at(to));
+
     assert!((apart - 42.0).abs() < 1e-9);
     assert!((placed.height * 2.0 - placed.width).abs() < 1e-9);
 }
@@ -156,6 +167,7 @@ fn calibrating_by_two_points_sizes_the_picture_so_they_lie_the_typed_distance_ap
 #[test]
 fn an_image_on_a_sketch_follows_the_sketch_plane_and_needs_the_sketch_above_it() {
     let mut document = Document::default();
+
     let sketch = add(
         &mut document,
         "Sketch 1",
@@ -181,26 +193,31 @@ fn an_image_on_a_sketch_follows_the_sketch_plane_and_needs_the_sketch_above_it()
 fn a_size_or_calibration_that_cannot_place_the_picture_fails_it_alone_in_words() {
     let mut document = Document::default();
     let plane = ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy));
+
     let feature = add(
         &mut document,
         "Photo",
         FeatureKind::ReferenceImage(Box::new(image(plane.clone()))),
     );
     let mut flat = image(plane.clone());
+
     flat.size = ImageSize::Width(millimetres(0.0));
     set_kind(&mut document, feature, flat);
+
     assert_eq!(
         failure(&document, feature),
         "The width of the image must be more than zero."
     );
 
     let mut same = image(plane);
+
     same.size = ImageSize::Calibrated(Calibration {
         from: ImageSpot::new(0.5, 0.5),
         to: ImageSpot::new(0.5, 0.5),
         distance: millimetres(10.0),
     });
     set_kind(&mut document, feature, same);
+
     assert_eq!(
         failure(&document, feature),
         "The two calibration points are at the same place on the image."
@@ -212,12 +229,16 @@ fn opacity_is_held_within_its_range_and_every_change_undoes() {
     let mut editor = Editor::new(Document::default());
     let plane = ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy));
     let mut transaction = editor.document().transaction("Insert");
+
     let feature = transaction.add_feature(
         "Photo",
         FeatureKind::ReferenceImage(Box::new(image(plane.clone()))),
     );
+
     editor.apply(transaction.finish()).unwrap();
+
     let mut faint = image(plane);
+
     faint.opacity = 0;
     faint.locked = true;
     editor
@@ -234,18 +255,26 @@ fn opacity_is_held_within_its_range_and_every_change_undoes() {
     else {
         panic!("not an image");
     };
+
     assert_eq!(kept.opacity, MIN_IMAGE_OPACITY_PERCENT);
     assert!(kept.locked);
+
     editor.undo().unwrap();
+
     let FeatureKind::ReferenceImage(undone) = &editor.document().feature(feature).unwrap().kind
     else {
         panic!("not an image");
     };
+
     assert_eq!(undone.opacity, DEFAULT_IMAGE_OPACITY_PERCENT);
     assert!(!undone.locked);
+
     editor.undo().unwrap();
+
     assert!(editor.document().feature(feature).is_none());
+
     editor.redo().unwrap();
+
     assert!(editor.document().feature(feature).is_some());
 }
 
@@ -254,6 +283,7 @@ fn an_inserted_image_is_settled_as_a_kind_change_settles_it_so_undoing_a_change_
     let mut document = Document::default();
     let plane = ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy));
     let mut faint = image(plane.clone());
+
     faint.opacity = 0;
     faint.size = ImageSize::Calibrated(Calibration {
         from: ImageSpot {
@@ -266,6 +296,7 @@ fn an_inserted_image_is_settled_as_a_kind_change_settles_it_so_undoing_a_change_
         },
         distance: millimetres(30.0),
     });
+
     let feature = add(
         &mut document,
         "Photo",
@@ -282,11 +313,13 @@ fn an_inserted_image_is_settled_as_a_kind_change_settles_it_so_undoing_a_change_
             },
         ))
         .unwrap();
+
     document.apply(inverse).unwrap();
 
     let FeatureKind::ReferenceImage(kept) = &inserted.feature(feature).unwrap().kind else {
         panic!("not an image");
     };
+
     assert_eq!(kept.opacity, MIN_IMAGE_OPACITY_PERCENT);
     assert_eq!(
         kept.size,

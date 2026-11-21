@@ -48,6 +48,7 @@ fn saving_views_is_undoable_content() {
 
     let changed = editor.apply(set(bore())).unwrap();
     let with_views = editor.document().clone();
+
     editor.undo().unwrap();
 
     assert!(changed);
@@ -61,7 +62,9 @@ fn saving_views_is_undoable_content() {
 fn saving_the_same_views_again_is_no_change() {
     let (document, _) = sample();
     let mut editor = Editor::new(document);
+
     editor.apply(set(bore())).unwrap();
+
     let revision = editor.revision();
 
     let changed = editor.apply(set(bore())).unwrap();
@@ -77,11 +80,13 @@ fn view_names_are_trimmed_to_one_line_and_orientations_normalised() {
         named: vec![named("  Hidden\r\n bore \n", 120.0)],
         home: None,
     };
+
     views.named[0].view.orientation *= 3.0;
 
     document.apply(set(views)).unwrap();
 
     let kept = &document.saved_views().named[0];
+
     assert_eq!(kept.name, "Hidden bore");
     assert!((kept.view.orientation.length() - 1.0).abs() < 1e-12);
 }
@@ -143,8 +148,11 @@ fn a_name_too_long_and_too_many_views_are_refused() {
 fn a_view_the_camera_cannot_show_is_refused_naming_it() {
     let (mut document, _) = sample();
     let mut broken = named("Far", 100.0);
+
     broken.view.distance = f64::INFINITY;
+
     let mut flat = view(100.0);
+
     flat.distance = 0.0;
 
     let named_refused = document.apply(set(SavedViews {
@@ -170,13 +178,17 @@ fn a_view_the_camera_cannot_show_is_refused_naming_it() {
 fn restoring_a_version_brings_its_saved_views_back() {
     let (earlier, _) = sample();
     let mut later = earlier.clone();
+
     later.apply(set(bore())).unwrap();
 
     let restore = later.transaction_to(&earlier, "Restore");
     let mut restored = later.clone();
+
     restored.apply(restore).unwrap();
+
     let forward = earlier.transaction_to(&later, "Restore");
     let mut forwarded = earlier.clone();
+
     forwarded.apply(forward).unwrap();
 
     assert!(restored.same_content(&earlier));

@@ -37,9 +37,11 @@ fn zigzag_arm(count: usize) -> Arm {
     let corner = |index: usize| Point2::new(index as f64 * run, (index % 2) as f64 * SAG);
 
     let mut hand = EntityId::ORIGIN;
+
     for index in 0..count {
         let line = sketch.add_line(corner(index), corner(index + 1));
         let (start, end) = ends(&sketch, line);
+
         sketch
             .add_constraint(Constraint::Coincident(hand, start))
             .unwrap();
@@ -110,6 +112,7 @@ fn a_chain_of_500_lines_dragged_past_its_reach_follows_the_pointer() {
 #[test]
 fn a_chain_held_past_its_reach_follows_the_pointer_frame_by_frame() {
     const NEXT_FRAME_WORK: usize = 1_500_000;
+
     let arm = zigzag_arm(500);
     let first = Point2::new(600.0, 250.0);
     let next = Point2::new(600.0, 260.0);
@@ -148,10 +151,13 @@ fn a_stretched_chain_pulled_back_within_its_reach_lands_on_the_pointer() {
 #[test]
 fn a_reach_out_of_work_stops_closer_at_a_pose_that_holds() {
     const ALLOWED: usize = 2_000_000;
+
     let arm = zigzag_arm(500);
     let dimensions = arm.sketch.evaluate(&no_parameters).unwrap();
+
     let system = System::build(&arm.sketch, &dimensions).unwrap();
     let stiff = BTreeSet::new();
+
     let solver = Solver {
         system: &system,
         cancelled: &|| false,
@@ -167,9 +173,11 @@ fn a_reach_out_of_work_stops_closer_at_a_pose_that_holds() {
     };
     let x = system.points[&arm.hand];
     let pointer = Point2::new(600.0, 250.0);
+
     let targets = [(x, pointer.x), (x + 1, pointer.y)];
     let mut values = system.values.clone();
     let mut work = ReachWork::new(ALLOWED);
+
     let ((), spent) = tally::measure(|| {
         solver
             .reach(part, &targets, &system.values, &mut values, &mut work)
@@ -201,6 +209,7 @@ fn a_chain_of_2000_lines_dragged_past_its_reach_follows_the_pointer() {
 #[ignore = "drags a chain of thousands of points through two frames, best run in release"]
 fn a_chain_of_2000_lines_held_past_its_reach_follows_the_pointer_frame_by_frame() {
     const NEXT_FRAME_WORK: usize = 7_000_000;
+
     let arm = zigzag_arm(2_000);
     let first = Point2::new(2_400.0, 1_000.0);
     let next = Point2::new(2_400.0, 1_010.0);

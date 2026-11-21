@@ -27,13 +27,13 @@ const ROW_MARGIN: Margin = Margin {
 const OPEN_BAR_WIDTH: f32 = 3.0;
 const CHEVRON_SIDE: f32 = CONTROL_HEIGHT;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Look {
     pub selected: bool,
     pub open: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Item {
     pub level: usize,
     pub selected: bool,
@@ -101,9 +101,11 @@ pub fn show<L, T>(
         .corner_radius(CornerRadius::same(WIDGET_RADIUS))
         .inner_margin(ROW_MARGIN)
         .begin(ui);
+
     let (leading, trailing) = {
         let ui = &mut prepared.content_ui;
         let spacing = ui.spacing_mut();
+
         spacing.item_spacing.x = SPACE_S;
         spacing.button_padding = Vec2::splat(SPACE_S);
         Sides::new()
@@ -117,6 +119,7 @@ pub fn show<L, T>(
             })
     };
     let rect = prepared.content_ui.min_rect() + ROW_MARGIN;
+
     prepared.frame.fill = if look.selected {
         tokens.accent_subtle
     } else if look.open {
@@ -126,9 +129,12 @@ pub fn show<L, T>(
     } else {
         Color32::TRANSPARENT
     };
+
     let rect = prepared.end(ui).rect;
+
     if look.open {
         let bar = Rect::from_min_size(rect.min, vec2(OPEN_BAR_WIDTH, rect.height()));
+
         ui.painter()
             .rect_filled(bar, CornerRadius::same(WIDGET_RADIUS), tokens.accent);
     }
@@ -146,6 +152,7 @@ pub fn slot<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
             .max_rect(rect)
             .layout(Layout::centered_and_justified(Direction::LeftToRight)),
     );
+
     slot.spacing_mut().button_padding = Vec2::splat(SPACE_S);
     add(&mut slot)
 }
@@ -162,14 +169,17 @@ pub fn chevron(ui: &mut Ui, open: bool, subject: &str) -> Response {
     };
     let gap = ui.spacing().item_spacing.x;
     let spacing = ui.spacing_mut();
+
     spacing.item_spacing.x = SPACE_XS;
     spacing.interact_size.y = CHEVRON_SIDE;
     spacing.button_padding = Vec2::splat(SPACE_XS);
+
     let response = widgets::named(
         widgets::icon_button(ui, glyph, hint),
         &format!("{hint} of {subject}"),
     );
     let spacing = ui.spacing_mut();
+
     spacing.item_spacing.x = gap;
     spacing.interact_size.y = CONTROL_HEIGHT;
     spacing.button_padding = Vec2::splat(SPACE_S);
@@ -180,6 +190,7 @@ pub fn sense(ui: &mut Ui, id: Id, from: f32, name: &str, item: Item) -> Response
     let area = ui.max_rect().with_min_x(from);
     let response = ui.interact(area, id, Sense::click_and_drag());
     let enabled = ui.is_enabled();
+
     response.widget_info(|| WidgetInfo::labeled(Role::TreeItem, enabled, name));
     ui.ctx().accesskit_node_builder(response.id, |node| {
         node.set_level(item.level);
@@ -203,6 +214,7 @@ pub fn tree<R>(ui: &mut Ui, name: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 pub fn focus_outline(ui: &Ui, rect: Rect) {
     let focus = appearance::tokens(ui).focus;
+
     ui.painter().rect_stroke(
         rect,
         CornerRadius::same(WIDGET_RADIUS),

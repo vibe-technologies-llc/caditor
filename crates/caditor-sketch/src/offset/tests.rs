@@ -37,6 +37,7 @@ fn assert_corners(found: &[Point2], expected: &[(f64, f64)]) {
     assert_eq!(found.len(), expected.len());
     for (x, y) in expected {
         let expected = Point2::new(*x, *y);
+
         assert!(
             found.iter().any(|point| point.distance(expected) < EXACT),
             "{expected} is not among {found:?}"
@@ -84,12 +85,15 @@ fn rectangle(width: f64, height: f64) -> Rectangle {
         Point2::new(width, height),
         Point2::new(0.0, height),
     ];
+
     let sides: Vec<EntityId> = (0..4)
         .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]))
         .collect();
+
     for index in 0..4 {
         let (_, end) = ends(&sketch, sides[index]);
         let (start, _) = ends(&sketch, sides[(index + 1) % 4]);
+
         sketch
             .add_constraint(Constraint::Coincident(end, start))
             .unwrap();
@@ -101,10 +105,13 @@ fn rectangle(width: f64, height: f64) -> Rectangle {
             })
             .unwrap();
     }
+
     let (origin_corner, right_corner) = ends(&sketch, sides[0]);
+
     sketch
         .add_constraint(Constraint::Coincident(origin_corner, EntityId::ORIGIN))
         .unwrap();
+
     let width = sketch
         .add_constraint(Constraint::Distance {
             from: origin_corner,
@@ -113,6 +120,7 @@ fn rectangle(width: f64, height: f64) -> Rectangle {
         })
         .unwrap();
     let (bottom, top) = ends(&sketch, sides[1]);
+
     sketch
         .add_constraint(Constraint::Distance {
             from: bottom,
@@ -139,28 +147,40 @@ fn a_rectangle_offset_outwards_stays_a_rectangle_its_distance_away_when_it_widen
         width,
     } = rectangle(40.0, 20.0);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let chain = sketch.offset_chain(&sides).unwrap();
+
     assert!(chain.is_closed());
+
     let outside = chain.default_side();
+
     assert_eq!(chain.side_of(Point2::new(50.0, 10.0)), outside);
     assert_eq!(chain.side_of(Point2::new(20.0, 10.0)), outside.other());
 
     let copies = sketch.offset(&sides, outside, 5.0, mm(5.0)).unwrap();
 
     assert_eq!(copies.len(), 4);
+
     assert_corners(
         &corner_positions(&sketch, &copies),
         &[(-5.0, -5.0), (45.0, -5.0), (45.0, 25.0), (-5.0, 25.0)],
     );
+
     assert_eq!(count_of(&sketch, "Distance"), 2 + 4);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(width, mm(60.0)).unwrap();
+
     let wider = solve(&sketch).geometry;
+
     for (copy, side) in copies.iter().zip(sides) {
         let (start, end) = line_at(&wider, *copy);
+
         assert!((distance_to_line(&wider, start, side) - 5.0).abs() < EXACT);
         assert!((distance_to_line(&wider, end, side) - 5.0).abs() < EXACT);
     }
@@ -176,6 +196,7 @@ fn an_offset_by_an_expression_keeps_it_in_every_dimension_it_adds() {
         mut sketch, sides, ..
     } = rectangle(40.0, 20.0);
     let wall = Expression::Parameter(ParameterId::from_raw(3));
+
     let inside = sketch.offset_chain(&sides).unwrap().default_side().other();
 
     sketch.offset(&sides, inside, 2.0, wall.clone()).unwrap();
@@ -187,6 +208,7 @@ fn an_offset_by_an_expression_keeps_it_in_every_dimension_it_adds() {
             _ => None,
         })
         .collect();
+
     assert_eq!(distances, vec![&wall; 4]);
 }
 
@@ -203,12 +225,14 @@ fn slot(sketch: &mut Sketch) -> (Vec<EntityId>, ConstraintId) {
         Point2::new(0.0, 10.0),
         Point2::new(0.0, -10.0),
     );
+
     let joins = [
         (ends(sketch, top).1, ends(sketch, right).1),
         (ends(sketch, right).0, ends(sketch, bottom).0),
         (ends(sketch, bottom).1, ends(sketch, left).1),
         (ends(sketch, left).0, ends(sketch, top).0),
     ];
+
     for (a, b) in joins {
         sketch.add_constraint(Constraint::Coincident(a, b)).unwrap();
     }
@@ -221,12 +245,15 @@ fn slot(sketch: &mut Sketch) -> (Vec<EntityId>, ConstraintId) {
         .add_constraint(Constraint::Equal(left, right))
         .unwrap();
     sketch.add_constraint(Constraint::Horizontal(top)).unwrap();
+
     let Some(Entity::Arc { center, .. }) = sketch.entity(left).cloned() else {
         panic!("an arc");
     };
+
     sketch
         .add_constraint(Constraint::Coincident(center, EntityId::ORIGIN))
         .unwrap();
+
     let radius = sketch
         .add_constraint(Constraint::Radius {
             entity: left,
@@ -240,6 +267,7 @@ fn slot(sketch: &mut Sketch) -> (Vec<EntityId>, ConstraintId) {
     else {
         panic!("an arc");
     };
+
     sketch
         .add_constraint(Constraint::Distance {
             from: center,
@@ -253,31 +281,42 @@ fn slot(sketch: &mut Sketch) -> (Vec<EntityId>, ConstraintId) {
 #[test]
 fn a_slot_offset_inside_keeps_round_ends_tangent_to_its_sides_as_its_radius_changes() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let (curves, radius) = slot(&mut sketch);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
     let chain = sketch.offset_chain(&curves).unwrap();
     let inside = chain.side_of(Point2::new(20.0, 0.0));
+
     assert_eq!(inside, chain.default_side().other());
 
     let copies = sketch.offset(&curves, inside, 3.0, mm(3.0)).unwrap();
 
     assert_eq!(copies.len(), 4);
+
     let arcs: Vec<EntityId> = copies
         .iter()
         .copied()
         .filter(|copy| matches!(sketch.entity(*copy), Some(Entity::Arc { .. })))
         .collect();
+
     assert_eq!(arcs.len(), 2);
+
     for arc in &arcs {
         assert!((sketch.circle(*arc).unwrap().1 - 7.0).abs() < EXACT);
     }
+
     assert_eq!(count_of(&sketch, "Tangent"), 4 + 4);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(radius, mm(15.0)).unwrap();
+
     let wider = solve(&sketch).geometry;
+
     for arc in &arcs {
         assert!((wider.circle(*arc).unwrap().1 - 12.0).abs() < EXACT);
     }
@@ -286,6 +325,7 @@ fn a_slot_offset_inside_keeps_round_ends_tangent_to_its_sides_as_its_radius_chan
         .filter(|copy| matches!(wider.entity(**copy), Some(Entity::Line { .. })))
     {
         let (start, end) = line_at(&wider, *copy);
+
         assert!((start.y.abs() - 12.0).abs() < EXACT && (end.y.abs() - 12.0).abs() < EXACT);
     }
 }
@@ -299,15 +339,18 @@ fn half_disc(sketch: &mut Sketch) -> (EntityId, EntityId, ConstraintId) {
     );
     let (left, right) = ends(sketch, diameter);
     let (arc_start, arc_end) = ends(sketch, arc);
+
     sketch
         .add_constraint(Constraint::Coincident(right, arc_start))
         .unwrap();
     sketch
         .add_constraint(Constraint::Coincident(arc_end, left))
         .unwrap();
+
     let Some(Entity::Arc { center, .. }) = sketch.entity(arc).cloned() else {
         panic!("an arc");
     };
+
     sketch
         .add_constraint(Constraint::Midpoint {
             point: center,
@@ -320,6 +363,7 @@ fn half_disc(sketch: &mut Sketch) -> (EntityId, EntityId, ConstraintId) {
     sketch
         .add_constraint(Constraint::Horizontal(diameter))
         .unwrap();
+
     let radius = sketch
         .add_constraint(Constraint::Radius {
             entity: arc,
@@ -332,8 +376,10 @@ fn half_disc(sketch: &mut Sketch) -> (EntityId, EntityId, ConstraintId) {
 #[test]
 fn convex_corners_at_an_arc_are_rounded_about_the_corner_and_follow_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let (diameter, arc, radius) = half_disc(&mut sketch);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let outside = sketch
         .offset_chain(&[diameter, arc])
         .unwrap()
@@ -344,6 +390,7 @@ fn convex_corners_at_an_arc_are_rounded_about_the_corner_and_follow_it() {
         .unwrap();
 
     assert_eq!(copies.len(), 4);
+
     let corners: Vec<EntityId> = copies
         .iter()
         .copied()
@@ -353,27 +400,36 @@ fn convex_corners_at_an_arc_are_rounded_about_the_corner_and_follow_it() {
                 .is_some_and(|(_, radius)| (radius - 2.0).abs() < EXACT)
         })
         .collect();
+
     assert_eq!(corners.len(), 2);
+
     let (left, right) = ends(&sketch, diameter);
     let centres: Vec<EntityId> = corners
         .iter()
         .filter_map(|corner| sketch.center_of(*corner))
         .collect();
+
     assert!(centres.contains(&left) || centres.contains(&right));
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(radius, mm(20.0)).unwrap();
+
     let wider = solve(&sketch).geometry;
     let grown = copies
         .iter()
         .filter_map(|copy| wider.circle(*copy))
         .map(|(_, radius)| radius)
         .fold(0.0, f64::max);
+
     assert!((grown - 22.0).abs() < EXACT, "{grown}");
     for corner in &corners {
         let (centre, radius) = wider.circle(*corner).unwrap();
+
         assert!((radius - 2.0).abs() < EXACT);
         assert!((centre.x.abs() - 20.0).abs() < EXACT && centre.y.abs() < EXACT);
     }
@@ -382,7 +438,9 @@ fn convex_corners_at_an_arc_are_rounded_about_the_corner_and_follow_it() {
 #[test]
 fn concave_corners_at_an_arc_are_trimmed_to_where_the_offsets_cross() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let (diameter, arc, _) = half_disc(&mut sketch);
+
     let inside = sketch
         .offset_chain(&[diameter, arc])
         .unwrap()
@@ -393,6 +451,7 @@ fn concave_corners_at_an_arc_are_trimmed_to_where_the_offsets_cross() {
         .unwrap();
 
     assert_eq!(copies.len(), 2);
+
     let reach = 60.0_f64.sqrt();
     let line = copies
         .iter()
@@ -400,17 +459,23 @@ fn concave_corners_at_an_arc_are_trimmed_to_where_the_offsets_cross() {
         .find(|copy| matches!(sketch.entity(*copy), Some(Entity::Line { .. })))
         .unwrap();
     let (start, end) = line_at(&sketch, line);
+
     let mut xs = [start.x, end.x];
+
     xs.sort_by(f64::total_cmp);
+
     assert!((xs[0] + reach).abs() < EXACT && (xs[1] - reach).abs() < EXACT);
     assert!((start.y - 2.0).abs() < EXACT && (end.y - 2.0).abs() < EXACT);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
 }
 
 #[test]
 fn a_circle_offset_is_a_circle_on_its_centre_that_keeps_its_distance() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(5.0, 5.0), 10.0);
     let radius = sketch
         .add_constraint(Constraint::Radius {
@@ -429,29 +494,40 @@ fn a_circle_offset_is_a_circle_on_its_centre_that_keeps_its_distance() {
     let [copy] = copies.as_slice() else {
         panic!("one circle");
     };
+
     assert_eq!(sketch.center_of(*copy), sketch.center_of(circle));
     assert!((sketch.circle(*copy).unwrap().1 - 13.0).abs() < EXACT);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(radius, mm(20.0)).unwrap();
+
     assert!((solve(&sketch).geometry.circle(*copy).unwrap().1 - 23.0).abs() < EXACT);
 }
 
 #[test]
 fn an_open_chain_is_offset_to_the_side_asked_for_with_its_ends_left_free() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
     let second = sketch.add_line(Point2::new(20.0, 0.0), Point2::new(20.0, 20.0));
     let (_, corner) = ends(&sketch, first);
     let (start, _) = ends(&sketch, second);
+
     sketch
         .add_constraint(Constraint::Coincident(corner, start))
         .unwrap();
+
     let chain = sketch.offset_chain(&[second, first]).unwrap();
+
     assert!(!chain.is_closed());
+
     let below = chain.side_of(Point2::new(10.0, -3.0));
+
     assert_eq!(chain.side_of(Point2::new(10.0, 3.0)), below.other());
     assert!((chain.distance_to(Point2::new(10.0, -3.0)) - 3.0).abs() < EXACT);
 
@@ -466,6 +542,7 @@ fn an_open_chain_is_offset_to_the_side_asked_for_with_its_ends_left_free() {
             [a, b]
         })
         .collect();
+
     assert!(
         points
             .iter()
@@ -479,18 +556,21 @@ fn an_open_chain_is_offset_to_the_side_asked_for_with_its_ends_left_free() {
             value: mm(4.0)
         }
     ));
+
     assert_clean(&solve(&sketch));
 }
 
 #[test]
 fn an_offset_that_shrinks_an_arc_to_nothing_or_crosses_itself_is_refused() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::ZERO, 5.0);
     let label = sketch.entity_label(circle);
     let inside = sketch
         .offset_chain(&[circle])
         .unwrap()
         .side_of(Point2::ZERO);
+
     assert_eq!(
         sketch.offset(&[circle], inside, 5.0, mm(5.0)),
         Err(OffsetError::Collapses {
@@ -511,8 +591,10 @@ fn an_offset_that_shrinks_an_arc_to_nothing_or_crosses_itself_is_refused() {
     );
 
     let Rectangle { sketch, sides, .. } = rectangle(40.0, 4.0);
+
     let inside = sketch.offset_chain(&sides).unwrap().default_side().other();
     let refused = sketch.clone().offset(&sides, inside, 3.0, mm(3.0));
+
     assert!(
         matches!(
             refused,
@@ -525,6 +607,7 @@ fn an_offset_that_shrinks_an_arc_to_nothing_or_crosses_itself_is_refused() {
 #[test]
 fn offset_chain_takes_exactly_one_chain_and_offset_chains_any_number() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let other = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0));
     let circle = sketch.add_circle(Point2::new(30.0, 0.0), 3.0);
@@ -565,17 +648,23 @@ fn offset_chain_takes_exactly_one_chain_and_offset_chains_any_number() {
 #[test]
 fn clicking_one_curve_takes_the_chain_it_belongs_to_up_to_a_branch() {
     let Rectangle { sketch, sides, .. } = rectangle(40.0, 20.0);
+
     let mut chain = sketch.offset_chain_through(sides[2]);
+
     chain.sort();
+
     assert_eq!(chain, sides.to_vec());
 
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let second = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(10.0, 10.0));
     let third = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(20.0, 10.0));
     let spur = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(10.0, 20.0));
     let mut chain = sketch.offset_chain_through(first);
+
     chain.sort();
+
     assert_eq!(chain, vec![first, second]);
     assert_eq!(sketch.offset_chain_through(third), vec![third]);
     assert_eq!(sketch.offset_chain_through(spur), vec![spur]);
@@ -584,6 +673,7 @@ fn clicking_one_curve_takes_the_chain_it_belongs_to_up_to_a_branch() {
 #[test]
 fn a_failed_offset_leaves_the_sketch_as_it_was() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::ZERO, 5.0);
     let before = sketch.clone();
 
@@ -598,16 +688,19 @@ fn a_lens_of_two_arcs_offset_outwards_closes_without_a_redundant_constraint() {
     let mut sketch = Sketch::new(Plane::XY);
     let left = Point2::new(-10.0, 0.0);
     let right = Point2::new(10.0, 0.0);
+
     let upper = sketch.add_arc(Point2::new(0.0, -5.0), right, left);
     let lower = sketch.add_arc(Point2::new(0.0, 5.0), left, right);
     let (upper_start, upper_end) = ends(&sketch, upper);
     let (lower_start, lower_end) = ends(&sketch, lower);
+
     sketch
         .add_constraint(Constraint::Coincident(upper_end, lower_start))
         .unwrap();
     sketch
         .add_constraint(Constraint::Coincident(lower_end, upper_start))
         .unwrap();
+
     let radius = sketch
         .add_constraint(Constraint::Radius {
             entity: upper,
@@ -622,25 +715,33 @@ fn a_lens_of_two_arcs_offset_outwards_closes_without_a_redundant_constraint() {
         .unwrap();
 
     assert_eq!(copies.len(), 4);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(radius, mm(12.0)).unwrap();
+
     let changed = solve(&sketch);
+
     assert_clean(&changed);
+
     let original = changed.geometry.circle(upper).unwrap().1;
     let grown = copies
         .iter()
         .filter_map(|copy| changed.geometry.circle(*copy))
         .map(|(_, radius)| radius)
         .fold(0.0, f64::max);
+
     assert!((original - 12.0).abs() < EXACT);
     assert!(grown > 12.0, "{grown}");
 }
 
 fn rounded_rectangle() -> (Sketch, Vec<EntityId>) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let sides = [
         sketch.add_line(Point2::new(5.0, 0.0), Point2::new(35.0, 0.0)),
         sketch.add_line(Point2::new(40.0, 5.0), Point2::new(40.0, 15.0)),
@@ -669,10 +770,12 @@ fn rounded_rectangle() -> (Sketch, Vec<EntityId>) {
             Point2::new(5.0, 0.0),
         ),
     ];
+
     for index in 0..4 {
         let (_, side_end) = ends(&sketch, sides[index]);
         let (arc_start, arc_end) = ends(&sketch, corners[index]);
         let (next_start, _) = ends(&sketch, sides[(index + 1) % 4]);
+
         sketch
             .add_constraint(Constraint::Coincident(side_end, arc_start))
             .unwrap();
@@ -686,6 +789,7 @@ fn rounded_rectangle() -> (Sketch, Vec<EntityId>) {
             .add_constraint(Constraint::Tangent(corners[index], sides[(index + 1) % 4]))
             .unwrap();
     }
+
     let curves = sides.iter().chain(&corners).copied().collect();
     (sketch, curves)
 }
@@ -694,6 +798,7 @@ fn rounded_rectangle() -> (Sketch, Vec<EntityId>) {
 fn a_rounded_rectangle_offset_inwards_keeps_every_corner_concentric() {
     let (mut sketch, curves) = rounded_rectangle();
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let inside = sketch
         .offset_chain(&curves)
         .unwrap()
@@ -702,13 +807,17 @@ fn a_rounded_rectangle_offset_inwards_keeps_every_corner_concentric() {
     let copies = sketch.offset(&curves, inside, 2.0, mm(2.0)).unwrap();
 
     assert_eq!(copies.len(), 8);
+
     for copy in &copies {
         if let Some((_, radius)) = sketch.circle(*copy) {
             assert!((radius - 3.0).abs() < EXACT);
         }
     }
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
     assert_eq!(count_of(&sketch, "Distance"), 1);
 }
@@ -717,6 +826,7 @@ fn a_rounded_rectangle_offset_inwards_keeps_every_corner_concentric() {
 fn corners_an_inward_offset_shrinks_to_nothing_are_left_sharp() {
     let (mut sketch, curves) = rounded_rectangle();
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let inside = sketch
         .offset_chain(&curves)
         .unwrap()
@@ -726,10 +836,14 @@ fn corners_an_inward_offset_shrinks_to_nothing_are_left_sharp() {
 
     assert_eq!(copies.len(), 4);
     assert!(copies.iter().all(|copy| sketch.circle(*copy).is_none()));
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
     assert_eq!(count_of(&sketch, "Distance"), 4);
+
     let corners: Vec<Point2> = copies
         .iter()
         .filter_map(|copy| solved.geometry.line_endpoints(*copy))
@@ -737,6 +851,7 @@ fn corners_an_inward_offset_shrinks_to_nothing_are_left_sharp() {
         .collect();
     for expected in [(6.0, 6.0), (34.0, 6.0), (34.0, 14.0), (6.0, 14.0)] {
         let expected = Point2::new(expected.0, expected.1);
+
         assert!(
             corners
                 .iter()
@@ -749,6 +864,7 @@ fn corners_an_inward_offset_shrinks_to_nothing_are_left_sharp() {
 #[test]
 fn a_slot_whose_round_ends_vanish_still_refuses() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let bottom = sketch.add_line(Point2::new(0.0, -2.0), Point2::new(10.0, -2.0));
     let right = sketch.add_arc(
         Point2::new(10.0, 0.0),
@@ -761,14 +877,18 @@ fn a_slot_whose_round_ends_vanish_still_refuses() {
         Point2::new(0.0, 2.0),
         Point2::new(0.0, -2.0),
     );
+
     let curves = [bottom, right, top, left];
+
     for (index, curve) in curves.iter().enumerate() {
         let (_, end) = ends(&sketch, *curve);
         let (start, _) = ends(&sketch, curves[(index + 1) % 4]);
+
         sketch
             .add_constraint(Constraint::Coincident(end, start))
             .unwrap();
     }
+
     let inside = sketch
         .offset_chain(&curves)
         .unwrap()
@@ -794,6 +914,7 @@ fn assert_spline_at_distance(sketch: &Sketch, spline: EntityId, ellipse: EntityI
     for index in 0..=200 {
         let point = curve.point_at(f64::from(index) / 200.0);
         let gap = gap_to(sketch, ellipse, point);
+
         assert!((gap - distance).abs() < 1e-3, "{gap} at {point}");
     }
 }
@@ -801,6 +922,7 @@ fn assert_spline_at_distance(sketch: &Sketch, spline: EntityId, ellipse: EntityI
 #[test]
 fn an_ellipse_is_offset_either_way_as_a_closed_fit_point_spline_within_tolerance() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::ZERO, Point2::new(10.0, 0.0), 4.0);
     let chain = sketch.offset_chain(&[ellipse]).unwrap();
 
@@ -817,18 +939,23 @@ fn an_ellipse_is_offset_either_way_as_a_closed_fit_point_spline_within_tolerance
 
     for (side, distance) in [(Side::Right, 2.0), (Side::Left, 1.0)] {
         let mut copy = sketch.clone();
+
         let made = copy
             .offset(&[ellipse], side, distance, mm(distance))
             .unwrap();
         let [spline] = made.as_slice() else {
             panic!("expected one spline, found {made:?}");
         };
+
         assert!(matches!(
             copy.entity(*spline),
             Some(Entity::Spline { kind, .. }) if kind.is_closed()
         ));
+
         assert_spline_at_distance(&copy, *spline, ellipse, distance);
+
         let solved = solve(&copy);
+
         assert!(solved.solution.redundancies().is_empty());
     }
 }
@@ -836,6 +963,7 @@ fn an_ellipse_is_offset_either_way_as_a_closed_fit_point_spline_within_tolerance
 #[test]
 fn an_elliptical_arc_is_offset_as_an_open_spline_and_refused_in_a_chain() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_elliptical_arc(
         Point2::ZERO,
         Point2::new(10.0, 0.0),
@@ -846,7 +974,9 @@ fn an_elliptical_arc_is_offset_as_an_open_spline_and_refused_in_a_chain() {
     let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 0.0));
 
     assert_eq!(sketch.offset_chain_through(arc), vec![arc]);
+
     let refused = sketch.offset_chain(&[arc, line]).unwrap_err();
+
     assert!(matches!(refused, OffsetError::NotInChain { .. }));
     assert!(
         refused.to_string().contains("on its own or beside"),
@@ -860,20 +990,26 @@ fn an_elliptical_arc_is_offset_as_an_open_spline_and_refused_in_a_chain() {
     let Some(Entity::Spline { points, kind }) = sketch.entity(*spline) else {
         panic!("expected a spline");
     };
+
     assert!(!kind.is_closed());
+
     let first = sketch.point(points[0]).unwrap();
+
     assert!(first.distance(Point2::new(11.5, 0.0)) < EXACT, "{first}");
+
     assert_spline_at_distance(&sketch, *spline, arc, 1.5);
 }
 
 fn centreline(sketch: &mut Sketch) -> (EntityId, ConstraintId) {
     let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
     let (start, end) = ends(sketch, line);
+
     sketch
         .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
         .unwrap();
     sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
     sketch.set_construction(line, true).unwrap();
+
     let length = sketch
         .add_constraint(Constraint::Distance {
             from: start,
@@ -899,6 +1035,7 @@ fn kinds(sketch: &Sketch, curves: &[EntityId]) -> (usize, usize) {
 #[test]
 fn a_line_offset_both_ways_with_round_ends_becomes_a_slot_that_follows_its_length() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let (line, length) = centreline(&mut sketch);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
 
@@ -907,6 +1044,7 @@ fn a_line_offset_both_ways_with_round_ends_becomes_a_slot_that_follows_its_lengt
         .unwrap();
 
     assert_eq!(kinds(&sketch, &made), (2, 2));
+
     for curve in &made {
         if let Some((center, radius)) = sketch.circle(*curve) {
             assert!((radius - 5.0).abs() < EXACT);
@@ -916,13 +1054,17 @@ fn a_line_offset_both_ways_with_round_ends_becomes_a_slot_that_follows_its_lengt
             );
         }
     }
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
     assert!(sketch.open_ends().is_empty(), "{:?}", sketch.open_ends());
     assert!(made.iter().all(|curve| !sketch.is_construction(*curve)));
 
     sketch.set_dimension(length, mm(50.0)).unwrap();
+
     let longer = solve(&sketch).geometry;
     let mut corners: Vec<Point2> = made
         .iter()
@@ -932,6 +1074,7 @@ fn a_line_offset_both_ways_with_round_ends_becomes_a_slot_that_follows_its_lengt
             [a, b]
         })
         .collect();
+
     corners.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
     assert_corners(
         &corners,
@@ -942,6 +1085,7 @@ fn a_line_offset_both_ways_with_round_ends_becomes_a_slot_that_follows_its_lengt
 #[test]
 fn a_line_offset_both_ways_with_flat_ends_becomes_a_rectangle_square_to_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let (line, length) = centreline(&mut sketch);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
 
@@ -951,16 +1095,22 @@ fn a_line_offset_both_ways_with_flat_ends_becomes_a_rectangle_square_to_it() {
 
     assert_eq!(kinds(&sketch, &made), (4, 0));
     assert_eq!(count_of(&sketch, "Perpendicular"), 2);
+
     assert_corners(
         &corner_positions(&sketch, &made),
         &[(0.0, 4.0), (30.0, 4.0), (30.0, -4.0), (0.0, -4.0)],
     );
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(length, mm(40.0)).unwrap();
+
     let longer = solve(&sketch).geometry;
+
     assert_corners(
         &corner_positions(&longer, &made),
         &[(0.0, 4.0), (40.0, 4.0), (40.0, -4.0), (0.0, -4.0)],
@@ -976,11 +1126,13 @@ fn bent_path(sketch: &mut Sketch) -> Vec<EntityId> {
     );
     let second = sketch.add_line(Point2::new(30.0, 10.0), Point2::new(30.0, 30.0));
     let third = sketch.add_line(Point2::new(30.0, 30.0), Point2::new(10.0, 40.0));
+
     let joins = [
         (ends(sketch, first).1, ends(sketch, bend).0),
         (ends(sketch, bend).1, ends(sketch, second).0),
         (ends(sketch, second).1, ends(sketch, third).0),
     ];
+
     for (a, b) in joins {
         sketch.add_constraint(Constraint::Coincident(a, b)).unwrap();
     }
@@ -996,14 +1148,18 @@ fn bent_path(sketch: &mut Sketch) -> Vec<EntityId> {
 fn a_bent_open_path_offset_both_ways_closes_without_freedom_or_redundancy_either_way() {
     for caps in [Caps::Round, Caps::Flat] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let path = bent_path(&mut sketch);
         let freedom = solve(&sketch).solution.degrees_of_freedom();
 
         let made = sketch.offset_both_sides(&path, 2.0, mm(2.0), caps).unwrap();
 
         let solved = solve(&sketch);
+
         assert_clean(&solved);
+
         assert_eq!(solved.solution.degrees_of_freedom(), freedom, "{caps:?}");
+
         let open: Vec<EntityId> = sketch
             .open_ends()
             .into_iter()
@@ -1014,11 +1170,14 @@ fn a_bent_open_path_offset_both_ways_closes_without_freedom_or_redundancy_either
                 })
             })
             .collect();
+
         assert!(open.is_empty(), "{caps:?}: {open:?}");
+
         let expected = match caps {
             Caps::Round => (6, 4),
             Caps::Flat => (8, 2),
         };
+
         assert_eq!(kinds(&sketch, &made), expected, "{caps:?}");
     }
 }
@@ -1035,7 +1194,9 @@ fn a_closed_outline_offset_both_ways_gets_one_copy_inside_and_one_outside() {
         .unwrap();
 
     assert_eq!(kinds(&sketch, &made), (8, 0));
+
     let corners = corner_positions(&sketch, &made);
+
     assert!(
         corners
             .iter()
@@ -1046,26 +1207,33 @@ fn a_closed_outline_offset_both_ways_gets_one_copy_inside_and_one_outside() {
             .iter()
             .any(|corner| corner.distance(Point2::new(2.0, 2.0)) < EXACT)
     );
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 }
 
 #[test]
 fn both_ways_refuses_ends_too_close_together_and_capping_an_elliptical_arc() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let path = [
         sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0)),
         sketch.add_line(Point2::new(30.0, 0.0), Point2::new(15.0, 20.0)),
         sketch.add_line(Point2::new(15.0, 20.0), Point2::new(0.0, 3.0)),
     ];
+
     for pair in path.windows(2) {
         let (_, end) = ends(&sketch, pair[0]);
         let (start, _) = ends(&sketch, pair[1]);
+
         sketch
             .add_constraint(Constraint::Coincident(end, start))
             .unwrap();
     }
+
     let arc = sketch.add_elliptical_arc(
         Point2::new(0.0, 20.0),
         Point2::new(10.0, 20.0),
@@ -1080,9 +1248,11 @@ fn both_ways_refuses_ends_too_close_together_and_capping_an_elliptical_arc() {
         sketch.offset_both_sides(&path, 2.0, mm(2.0), Caps::Round),
         Err(OffsetError::CrossesItself)
     );
+
     let refused = sketch
         .offset_both_sides(&[arc], 1.0, mm(1.0), Caps::Flat)
         .unwrap_err();
+
     assert!(matches!(refused, OffsetError::CapsOnSpline { .. }));
     assert!(
         refused.to_string().contains("one side at a time"),
@@ -1093,6 +1263,7 @@ fn both_ways_refuses_ends_too_close_together_and_capping_an_elliptical_arc() {
     let made = sketch
         .offset_both_sides(&[ellipse], 1.0, mm(1.0), Caps::Round)
         .unwrap();
+
     assert_eq!(made.len(), 2);
 }
 
@@ -1114,9 +1285,11 @@ fn outline_through(corners: &[(f64, f64)]) -> Polygon {
     for index in 0..count {
         let (_, end) = ends(&sketch, sides[index]);
         let (start, _) = ends(&sketch, sides[(index + 1) % count]);
+
         sketch
             .add_constraint(Constraint::Coincident(end, start))
             .unwrap();
+
         let (from, to) = (corners[index], corners[(index + 1) % count]);
         if (from.y - to.y).abs() < EXACT {
             sketch
@@ -1128,10 +1301,13 @@ fn outline_through(corners: &[(f64, f64)]) -> Polygon {
                 .unwrap();
         }
     }
+
     let (origin_corner, right_corner) = ends(&sketch, sides[0]);
+
     sketch
         .add_constraint(Constraint::Coincident(origin_corner, EntityId::ORIGIN))
         .unwrap();
+
     let width = sketch
         .add_constraint(Constraint::Distance {
             from: origin_corner,
@@ -1140,6 +1316,7 @@ fn outline_through(corners: &[(f64, f64)]) -> Polygon {
         })
         .unwrap();
     let (bottom, top) = ends(&sketch, sides[1]);
+
     sketch
         .add_constraint(Constraint::Distance {
             from: bottom,
@@ -1179,6 +1356,7 @@ fn a_notch_narrower_than_twice_the_distance_closes_and_its_neighbours_become_one
     ]);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
     let closed = &sides[3..=6];
+
     let held_before = constraints_on(&sketch, closed);
     let outside = sketch
         .offset_chain(&sides)
@@ -1188,18 +1366,25 @@ fn a_notch_narrower_than_twice_the_distance_closes_and_its_neighbours_become_one
     let copies = sketch.offset(&sides, outside, 1.5, mm(1.5)).unwrap();
 
     assert_eq!(copies.len(), 4);
+
     assert_corners(
         &corner_positions(&sketch, &copies),
         &[(-1.5, -1.5), (31.5, -1.5), (31.5, 21.5), (-1.5, 21.5)],
     );
+
     assert_eq!(constraints_on(&sketch, closed), held_before);
     assert_eq!(count_of(&sketch, "Distance"), 2 + 4);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(width, mm(40.0)).unwrap();
+
     let wider = solve(&sketch).geometry;
+
     assert_corners(
         &corner_positions(&wider, &copies),
         &[(-1.5, -1.5), (41.5, -1.5), (41.5, 21.5), (-1.5, 21.5)],
@@ -1221,6 +1406,7 @@ fn an_inward_offset_closes_a_tab_narrower_than_twice_the_distance() {
         (0.0, 20.0),
     ]);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let inside = sketch
         .offset_chain(&sides)
         .unwrap()
@@ -1229,12 +1415,16 @@ fn an_inward_offset_closes_a_tab_narrower_than_twice_the_distance() {
     let copies = sketch.offset(&sides, inside, 1.5, mm(1.5)).unwrap();
 
     assert_eq!(copies.len(), 4);
+
     assert_corners(
         &corner_positions(&sketch, &copies),
         &[(1.5, 1.5), (28.5, 1.5), (28.5, 18.5), (1.5, 18.5)],
     );
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 }
 
@@ -1256,6 +1446,7 @@ fn a_notch_exactly_twice_the_distance_wide_closes_and_a_wider_one_stays_open() {
         mut sketch, sides, ..
     } = notch(13.5, 16.5);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let outside = sketch
         .offset_chain(&sides)
         .unwrap()
@@ -1264,12 +1455,16 @@ fn a_notch_exactly_twice_the_distance_wide_closes_and_a_wider_one_stays_open() {
     let copies = sketch.offset(&sides, outside, 1.5, mm(1.5)).unwrap();
 
     assert_eq!(copies.len(), 4);
+
     assert_corners(
         &corner_positions(&sketch, &copies),
         &[(-1.5, -1.5), (31.5, -1.5), (31.5, 21.5), (-1.5, 21.5)],
     );
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     let Polygon {
@@ -1279,6 +1474,7 @@ fn a_notch_exactly_twice_the_distance_wide_closes_and_a_wider_one_stays_open() {
     let copies = sketch.offset(&sides, outside, 1.5, mm(1.5)).unwrap();
 
     assert_eq!(copies.len(), 8);
+
     assert_corners(
         &corner_positions(&sketch, &copies),
         &[
@@ -1309,6 +1505,7 @@ fn a_closing_notch_bottom_drops_alone_and_its_slanted_walls_meet_where_their_off
         (0.0, 20.0),
     ]);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let held_before = constraints_on(&sketch, &sides[4..=4]);
     let outside = sketch
         .offset_chain(&sides)
@@ -1319,11 +1516,16 @@ fn a_closing_notch_bottom_drops_alone_and_its_slanted_walls_meet_where_their_off
 
     assert_eq!(copies.len(), 7);
     assert_eq!(constraints_on(&sketch, &sides[4..=4]), held_before);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+
     let (_, meeting) = line_at(&solved.geometry, copies[3]);
     let (from_left, _) = line_at(&solved.geometry, copies[4]);
+
     assert!(meeting.distance(from_left) < EXACT);
     assert!((meeting.x - 15.0).abs() < EXACT, "{meeting}");
     assert!(meeting.y > 20.0, "{meeting}");
@@ -1350,6 +1552,7 @@ fn only_the_narrow_slot_inside_a_wide_notch_closes_and_the_notch_floor_becomes_o
         (0.0, 20.0),
     ]);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let outside = sketch
         .offset_chain(&sides)
         .unwrap()
@@ -1358,6 +1561,7 @@ fn only_the_narrow_slot_inside_a_wide_notch_closes_and_the_notch_floor_becomes_o
     let copies = sketch.offset(&sides, outside, 1.5, mm(1.5)).unwrap();
 
     assert_eq!(copies.len(), 8);
+
     assert_corners(
         &corner_positions(&sketch, &copies),
         &[
@@ -1371,8 +1575,11 @@ fn only_the_narrow_slot_inside_a_wide_notch_closes_and_the_notch_floor_becomes_o
             (-1.5, 21.5),
         ],
     );
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 }
 
@@ -1394,6 +1601,7 @@ fn a_round_bottomed_notch_closes_once_its_bottom_vanishes_and_its_walls_pass_eac
         .windows(2)
         .map(|pair| sketch.add_line(pair[0], pair[1]))
         .collect();
+
     curves.push(sketch.add_arc(Point2::new(15.0, 18.0), after[0], corners[4]));
     curves.extend(
         after
@@ -1409,6 +1617,7 @@ fn a_round_bottomed_notch_closes_once_its_bottom_vanishes_and_its_walls_pass_eac
         })
         .map(|point| (point, sketch.point(point).unwrap()))
         .collect();
+
     for (index, (first, at)) in points.iter().enumerate() {
         if let Some((second, _)) = points
             .iter()
@@ -1420,6 +1629,7 @@ fn a_round_bottomed_notch_closes_once_its_bottom_vanishes_and_its_walls_pass_eac
                 .unwrap();
         }
     }
+
     let freedom = solve(&sketch).solution.degrees_of_freedom();
     let outside = sketch
         .offset_chain(&curves)
@@ -1434,12 +1644,16 @@ fn a_round_bottomed_notch_closes_once_its_bottom_vanishes_and_its_walls_pass_eac
             .iter()
             .all(|copy| sketch.line_endpoints(*copy).is_some())
     );
+
     assert_corners(
         &corner_positions(&sketch, &copies),
         &[(-1.5, -1.5), (31.5, -1.5), (31.5, 21.5), (-1.5, 21.5)],
     );
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 }
 
@@ -1455,6 +1669,7 @@ fn offset_stepped(corners: &[(f64, f64)], toward: (f64, f64)) -> Stepped {
         mut sketch, sides, ..
     } = outline_through(corners);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let side = sketch
         .offset_chain(&sides)
         .unwrap()
@@ -1479,6 +1694,7 @@ fn assert_step_held(stepped: &Stepped, step: EntityId, corner: Point2, square_to
     let (from, to) = line_at(&solved.geometry, square_to);
 
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), *freedom);
     assert!((end - start).dot(to - from).abs() < EXACT);
     assert!((distance_to_line(&solved.geometry, corner, step) - 1.5).abs() < EXACT);
@@ -1510,6 +1726,7 @@ fn a_closing_notch_between_edges_at_different_heights_steps_down_square_beside_t
     let closed = &sides[3..=5];
 
     assert_eq!(copies.len(), 6);
+
     assert_corners(
         &corner_positions(sketch, copies),
         &[
@@ -1521,14 +1738,18 @@ fn a_closing_notch_between_edges_at_different_heights_steps_down_square_beside_t
             (-1.5, 20.5),
         ],
     );
+
     assert_eq!(
         constraints_on(sketch, closed),
         constraints_on(&drawn.sketch, closed)
     );
+
     assert_step_held(&stepped, copies[3], Point2::new(16.0, 20.0), sides[2]);
 
     let mut moved = stepped.sketch.clone();
+
     let (_, corner) = ends(&moved, sides[2]);
+
     moved
         .add_constraint(Constraint::HorizontalDistance {
             from: EntityId::ORIGIN,
@@ -1536,6 +1757,7 @@ fn a_closing_notch_between_edges_at_different_heights_steps_down_square_beside_t
             value: mm(20.0),
         })
         .unwrap();
+
     let followed = solve(&moved).geometry;
     let (top, bottom) = line_at(&followed, copies[3]);
 
@@ -1567,6 +1789,7 @@ fn a_mirrored_notch_steps_up_square_beside_the_higher_corner_either_way_round() 
     let stepped = offset_stepped(&mirrored, (15.0, 30.0));
 
     assert_eq!(stepped.copies.len(), 6);
+
     assert_corners(
         &corner_positions(&stepped.sketch, &stepped.copies),
         &expected,
@@ -1610,6 +1833,7 @@ fn a_mirrored_notch_steps_up_square_beside_the_higher_corner_either_way_round() 
         ends.iter()
             .any(|end| end.distance(Point2::new(*x, *y)) < EXACT)
     }));
+
     assert_step_held(&stepped, step, Point2::new(14.0, 20.0), stepped.sides[1]);
 }
 
@@ -1630,6 +1854,7 @@ fn an_inward_offset_closing_a_tab_between_edges_at_different_heights_steps_besid
     );
 
     assert_eq!(stepped.copies.len(), 6);
+
     assert_corners(
         &corner_positions(&stepped.sketch, &stepped.copies),
         &[
@@ -1663,6 +1888,7 @@ fn an_inward_offset_closing_a_tab_between_edges_at_different_heights_steps_besid
     );
 
     assert_eq!(stepped.copies.len(), 6);
+
     assert_corners(
         &corner_positions(&stepped.sketch, &stepped.copies),
         &[
@@ -1694,6 +1920,7 @@ fn assert_spline_beside_spline(sketch: &Sketch, copy: EntityId, original: Entity
     for index in 0..=100 {
         let point = curve.point_at(f64::from(index) / 100.0);
         let gap = distance_to_spline(sketch, original, point);
+
         assert!((gap - distance).abs() < 2e-3, "{gap} at {point}");
     }
 }
@@ -1714,6 +1941,7 @@ fn arch(sketch: &mut Sketch) -> EntityId {
 #[test]
 fn an_open_spline_is_offset_to_either_side_as_a_fit_point_spline_within_tolerance() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let chain = sketch.offset_chain(&[spline]).unwrap();
 
@@ -1725,6 +1953,7 @@ fn an_open_spline_is_offset_to_either_side_as_a_fit_point_spline_within_toleranc
 
     for (side, distance) in [(Side::Left, 2.0), (Side::Right, 1.5)] {
         let mut copy = sketch.clone();
+
         let freedom = solve(&copy).solution.degrees_of_freedom();
 
         let made = copy
@@ -1734,12 +1963,15 @@ fn an_open_spline_is_offset_to_either_side_as_a_fit_point_spline_within_toleranc
         let [offset] = made.as_slice() else {
             panic!("expected one spline, found {made:?}");
         };
+
         assert!(matches!(
             copy.entity(*offset),
             Some(Entity::Spline { kind, .. }) if !kind.is_closed()
         ));
+
         assert_spline_beside_spline(&copy, *offset, spline, distance);
         assert_clean(&solve(&copy));
+
         assert!(solve(&copy).solution.degrees_of_freedom() > freedom);
     }
 }
@@ -1747,6 +1979,7 @@ fn an_open_spline_is_offset_to_either_side_as_a_fit_point_spline_within_toleranc
 #[test]
 fn a_closed_spline_is_offset_as_a_closed_spline_and_a_tight_bend_refuses() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(
         &[
             Point2::new(0.0, 0.0),
@@ -1758,7 +1991,9 @@ fn a_closed_spline_is_offset_as_a_closed_spline_and_a_tight_bend_refuses() {
         SplineKind::fit(true),
     );
     let chain = sketch.offset_chain(&[spline]).unwrap();
+
     assert!(chain.is_closed());
+
     let outside = chain.side_of(Point2::new(60.0, 60.0));
     let inside = outside.other();
 
@@ -1767,14 +2002,17 @@ fn a_closed_spline_is_offset_as_a_closed_spline_and_a_tight_bend_refuses() {
     let [offset] = made.as_slice() else {
         panic!("expected one spline, found {made:?}");
     };
+
     assert!(matches!(
         sketch.entity(*offset),
         Some(Entity::Spline { kind, .. }) if kind.is_closed()
     ));
+
     assert_spline_beside_spline(&sketch, *offset, spline, 3.0);
 
     let before = sketch.clone();
     let refused = sketch.offset(&[spline], inside, 12.0, mm(12.0));
+
     assert!(
         matches!(
             refused,
@@ -1788,6 +2026,7 @@ fn a_closed_spline_is_offset_as_a_closed_spline_and_a_tight_bend_refuses() {
 #[test]
 fn a_spline_beside_other_chains_is_offset_with_them_but_not_when_it_touches_one() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let line = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(50.0, -10.0));
     let touching = sketch.add_line(Point2::new(50.0, 0.0), Point2::new(60.0, 0.0));
@@ -1798,12 +2037,15 @@ fn a_spline_beside_other_chains_is_offset_with_them_but_not_when_it_touches_one(
     let (touch_start, _) = ends(&sketch, touching);
 
     let chains = sketch.offset_chains(&[spline, line]).unwrap();
+
     assert_eq!(chains.len(), 2);
 
     sketch
         .add_constraint(Constraint::Coincident(spline_end, touch_start))
         .unwrap();
+
     let refused = sketch.offset_chains(&[spline, touching]).unwrap_err();
+
     assert!(matches!(refused, OffsetError::NotInChain { entity, .. } if entity == spline));
     assert!(
         refused
@@ -1815,6 +2057,7 @@ fn a_spline_beside_other_chains_is_offset_with_them_but_not_when_it_touches_one(
 #[test]
 fn a_spline_that_would_cross_itself_when_offset_is_refused() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(
         &[
             Point2::new(0.0, 0.0),
@@ -1838,6 +2081,7 @@ fn a_spline_that_would_cross_itself_when_offset_is_refused() {
 #[test]
 fn several_chains_are_offset_in_one_step_each_to_its_own_side_keeping_every_freedom() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let path = bent_path(&mut sketch);
     let circle = sketch.add_circle(Point2::new(-30.0, 0.0), 5.0);
     let lone = sketch.add_line(Point2::new(60.0, 0.0), Point2::new(60.0, 20.0));
@@ -1850,9 +2094,11 @@ fn several_chains_are_offset_in_one_step_each_to_its_own_side_keeping_every_free
         SplineKind::fit(false),
     );
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let curves: Vec<EntityId> = path.iter().copied().chain([circle, lone, spline]).collect();
 
     let chains = sketch.offset_chains(&curves).unwrap();
+
     assert_eq!(chains.len(), 4);
 
     let made = sketch
@@ -1860,8 +2106,11 @@ fn several_chains_are_offset_in_one_step_each_to_its_own_side_keeping_every_free
         .unwrap();
 
     assert_eq!(made.len(), 4 + 1 + 1 + 1);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     let fitted = made
         .iter()
         .find_map(|copy| match sketch.entity(*copy) {
@@ -1869,7 +2118,9 @@ fn several_chains_are_offset_in_one_step_each_to_its_own_side_keeping_every_free
             _ => None,
         })
         .unwrap();
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom + 2 * fitted);
+
     let copy = made
         .iter()
         .find(|copy| {
@@ -1877,12 +2128,14 @@ fn several_chains_are_offset_in_one_step_each_to_its_own_side_keeping_every_free
                 && distance_to_line(&sketch, line_at(&sketch, **copy).0, lone) > 1.0
         })
         .copied();
+
     assert!(copy.is_some());
 }
 
 #[test]
 fn offsetting_several_chains_that_fail_leaves_the_sketch_as_it_was() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let circle = sketch.add_circle(Point2::new(30.0, 0.0), 3.0);
     let inside = sketch
@@ -1906,6 +2159,7 @@ fn offsetting_several_chains_that_fail_leaves_the_sketch_as_it_was() {
 #[test]
 fn the_free_ends_of_an_open_chain_stay_on_the_normals_of_its_ends() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let path = bent_path(&mut sketch);
     let freedom = solve(&sketch).solution.degrees_of_freedom();
     let chain = sketch.offset_chain(&path).unwrap();
@@ -1914,17 +2168,23 @@ fn the_free_ends_of_an_open_chain_stay_on_the_normals_of_its_ends() {
     let copies = sketch.offset(&path, side, 3.0, mm(3.0)).unwrap();
 
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     let first = &copies[0];
     let last = &copies[copies.len() - 1];
     let (first_start, _) = line_at(&sketch, *first);
     let (_, last_end) = line_at(&sketch, *last);
+
     assert!(first_start.x.abs() < EXACT, "{first_start}");
     assert!((first_start.y.abs() - 3.0).abs() < EXACT, "{first_start}");
+
     let (original_start, original_end) = line_at(&sketch, path[3]);
+
     let direction = (original_end - original_start).normalize();
+
     assert!(
         (last_end - original_end).normalize().dot(direction).abs() < EXACT,
         "{last_end}"
@@ -1935,6 +2195,7 @@ fn the_free_ends_of_an_open_chain_stay_on_the_normals_of_its_ends() {
 #[test]
 fn an_open_chain_ending_in_an_arc_holds_that_end_on_the_arcs_radius() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(-20.0, 0.0), Point2::new(0.0, 0.0));
     let arc = sketch.add_arc(
         Point2::new(0.0, 10.0),
@@ -1943,12 +2204,14 @@ fn an_open_chain_ending_in_an_arc_holds_that_end_on_the_arcs_radius() {
     );
     let (_, line_end) = ends(&sketch, line);
     let (arc_start, arc_end) = ends(&sketch, arc);
+
     sketch
         .add_constraint(Constraint::Coincident(line_end, arc_start))
         .unwrap();
     sketch
         .add_constraint(Constraint::Tangent(line, arc))
         .unwrap();
+
     let freedom = solve(&sketch).solution.degrees_of_freedom();
     let outside = sketch
         .offset_chain(&[line, arc])
@@ -1958,19 +2221,25 @@ fn an_open_chain_ending_in_an_arc_holds_that_end_on_the_arcs_radius() {
     let copies = sketch.offset(&[line, arc], outside, 2.0, mm(2.0)).unwrap();
 
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+
     let copy_end = match sketch.entity(copies[1]) {
         Some(Entity::Arc { end, .. }) => *end,
         other => panic!("expected an arc, found {other:?}"),
     };
     let found = solved.geometry.point(copy_end).unwrap();
     let source = solved.geometry.point(arc_end).unwrap();
+
     assert!(
         (found.distance(Point2::new(10.0, 10.0)) - 2.0).abs() < EXACT,
         "{found}"
     );
     assert!(found.distance(source) > 1.9);
+
     let center = Point2::new(0.0, 10.0);
+
     assert!((source - center).normalize().perp_dot(found - center).abs() < EXACT);
 }

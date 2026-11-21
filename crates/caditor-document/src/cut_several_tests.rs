@@ -12,6 +12,7 @@ const FROM_PEG: f64 = 3.0 * 2.0 * 6.0;
 
 fn cut_through_both(pair: &mut Pair, end: ExtrudeEnd, operation: BodyOperation) -> FeatureId {
     let mut transaction = pair.document.transaction("Cut");
+
     let slot = transaction.add_feature(
         "Slot sketch",
         FeatureKind::from(rectangle((12.0, 4.0), (18.0, 6.0))),
@@ -33,6 +34,7 @@ fn cut_through_both(pair: &mut Pair, end: ExtrudeEnd, operation: BodyOperation) 
             direction: None,
         })),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
     cut
 }
@@ -46,6 +48,7 @@ fn one_cut_removes_its_shape_from_every_body_it_lists() {
     let mut pair = pair();
     let distance = ExtrudeEnd::Distance(Expression::Measure(10.0, Unit::Millimetre));
     let plate = pair.plate;
+
     let cut = cut_through_both(&mut pair, distance, BodyOperation::Remove(plate));
 
     let evaluation = evaluate(&pair.document, &mut Recompute::default());
@@ -67,6 +70,7 @@ fn one_cut_removes_its_shape_from_every_body_it_lists() {
 #[test]
 fn through_all_reaches_past_every_body_it_cuts() {
     let mut pair = pair();
+
     let plate = pair.plate;
     let cut = cut_through_both(
         &mut pair,
@@ -92,11 +96,13 @@ fn only_a_removal_takes_other_bodies() {
     let mut pair = pair();
     let distance = ExtrudeEnd::Distance(Expression::Measure(10.0, Unit::Millimetre));
     let plate = pair.plate;
+
     let cut = cut_through_both(&mut pair, distance, BodyOperation::Add(plate));
 
     let evaluation = evaluate(&pair.document, &mut Recompute::default());
 
     let (failed, error) = evaluation.failures().next().unwrap();
+
     assert_eq!(failed, cut);
     assert!(
         error
@@ -109,11 +115,14 @@ fn only_a_removal_takes_other_bodies() {
 #[test]
 fn a_cut_listing_its_target_twice_cuts_it_once() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Cut");
+
     let slot = transaction.add_feature(
         "Slot sketch",
         FeatureKind::from(rectangle((12.0, 4.0), (18.0, 6.0))),
     );
+
     transaction.add_feature(
         "Slot",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -142,6 +151,8 @@ fn a_cut_depends_on_every_body_it_cuts() {
     let mut pair = pair();
     let distance = ExtrudeEnd::Distance(Expression::Measure(10.0, Unit::Millimetre));
     let plate = pair.plate;
+
     let cut = cut_through_both(&mut pair, distance, BodyOperation::Remove(plate));
+
     assert_eq!(pair.document.dependents_of(&[pair.peg]), vec![cut]);
 }

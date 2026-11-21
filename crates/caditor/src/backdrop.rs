@@ -29,7 +29,7 @@ pub enum BackdropFailure {
 
 type Prepared = (PathBuf, Result<Arc<Environment>, BackdropFailure>);
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub enum Status {
     #[default]
     Plain,
@@ -104,14 +104,18 @@ impl Backdrop {
         if self.status.path() == wanted {
             return;
         }
+
         let Some(path) = wanted else {
             self.status = Status::Plain;
             return;
         };
+
         self.status = Status::Loading(path.to_path_buf());
+
         let sender = self.sender.clone();
         let wake = make_waker();
         let reading = path.to_path_buf();
+
         let work = move || {
             let result = panic::catch_unwind(AssertUnwindSafe(|| prepare(&reading)))
                 .unwrap_or_else(|_| {
@@ -136,8 +140,10 @@ impl Backdrop {
 
     pub fn poll(&mut self) -> Option<(PathBuf, Arc<BackdropFailure>)> {
         let mut failed = None;
+
         while let Ok((path, result)) = self.receiver.try_recv() {
             let current = matches!(&self.status, Status::Loading(loading) if *loading == path);
+
             if !current {
                 continue;
             }
@@ -145,6 +151,7 @@ impl Backdrop {
                 Ok(environment) => Status::Ready(path, environment),
                 Err(failure) => {
                     let failure = Arc::new(failure);
+
                     log::warn!(
                         "the environment picture {} cannot be used: {failure}",
                         path.display()
@@ -171,10 +178,13 @@ mod tests {
     fn sky_file(folder: &Path, name: &str, mantissa: [u8; 3]) -> PathBuf {
         let [red, green, blue] = mantissa;
         let mut bytes = b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 16 +X 32\n".to_vec();
+
         for _ in 0..32 * 16 {
             bytes.extend([red, green, blue, 131]);
         }
+
         let path = folder.join(name);
+
         std::fs::write(&path, bytes).unwrap();
         path
     }
@@ -182,6 +192,7 @@ mod tests {
     fn settled(backdrop: &mut Backdrop) -> Option<(PathBuf, Arc<BackdropFailure>)> {
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut failed = None;
+
         while matches!(backdrop.status(), Status::Loading(_)) && Instant::now() < deadline {
             failed = failed.or(backdrop.poll());
             std::thread::sleep(Duration::from_millis(1));
@@ -196,14 +207,19 @@ mod tests {
         let mut backdrop = Backdrop::default();
 
         backdrop.follow(Some(&path), &no_wake);
+
         let loading = matches!(backdrop.status(), Status::Loading(_));
         let failed = settled(&mut backdrop);
 
         assert!(loading);
         assert!(failed.is_none());
+
         let environment = backdrop.environment().expect("the picture is ready");
+
         assert_eq!((environment.width(), environment.height()), (32, 16));
+
         let radiance = environment.radiance_at(0, 3, 3).unwrap();
+
         assert!((radiance[0] - 4.0).abs() < 0.1, "{radiance:?}");
     }
 
@@ -212,13 +228,18 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let missing = folder.path().join("gone.hdr");
         let not_a_picture = folder.path().join("notes.hdr");
+
         std::fs::write(&not_a_picture, b"just text").unwrap();
+
         let mut backdrop = Backdrop::default();
 
         backdrop.follow(Some(&missing), &no_wake);
+
         let first = settled(&mut backdrop).expect("a missing file fails");
         let first_state = backdrop.environment().is_none();
+
         backdrop.follow(Some(&not_a_picture), &no_wake);
+
         let second = settled(&mut backdrop).expect("a text file fails");
 
         assert_eq!(first.0, missing);
@@ -243,11 +264,13 @@ mod tests {
         backdrop.follow(Some(&first), &no_wake);
         backdrop.follow(Some(&second), &no_wake);
         settled(&mut backdrop);
+
         let shown = backdrop
             .environment()
             .unwrap()
             .radiance_at(0, 1, 1)
             .unwrap();
+
         backdrop.follow(None, &no_wake);
 
         assert!((shown[0] - 3.0).abs() < 0.1, "{shown:?}");
@@ -261,7 +284,9 @@ mod tests {
         let path = Path::new("/skies/studio.hdr");
 
         write(Some(path), &mut settings);
+
         let remembered = read(&settings);
+
         write(None, &mut settings);
 
         assert_eq!(remembered.as_deref(), Some(path));

@@ -22,6 +22,7 @@ fn parents(harness: &Harness) -> BTreeMap<NodeId, NodeId> {
 fn descends_from(harness: &Harness, node: NodeId, ancestor: NodeId) -> bool {
     let parents = parents(harness);
     let mut current = node;
+
     while let Some(parent) = parents.get(&current) {
         if *parent == ancestor {
             return true;
@@ -34,11 +35,13 @@ fn descends_from(harness: &Harness, node: NodeId, ancestor: NodeId) -> bool {
 fn row_of(harness: &Harness, node: NodeId) -> Option<NodeId> {
     let parents = parents(harness);
     let mut current = node;
+
     while let Some(parent) = parents.get(&current) {
         let is_row = harness
             .accessible
             .iter()
             .any(|(id, node)| id == parent && node.role() == Role::Row);
+
         if is_row {
             return Some(*parent);
         }
@@ -58,6 +61,7 @@ fn nodes_of<'a>(harness: &'a Harness, role: Role, name: &str) -> Vec<(NodeId, &'
 
 fn only<'a>(harness: &'a Harness, role: Role, name: &str) -> (NodeId, &'a Node) {
     let mut found = nodes_of(harness, role, name);
+
     assert_eq!(found.len(), 1, "{role:?} named {name}");
     found.remove(0)
 }
@@ -71,6 +75,7 @@ fn levels(harness: &Harness, name: &str) -> Vec<usize> {
         .into_iter()
         .filter_map(|(_, node)| node.level())
         .collect();
+
     levels.sort_unstable();
     levels
 }
@@ -82,6 +87,7 @@ fn read(harness: &mut Harness) {
 #[test]
 fn the_feature_tree_is_a_tree_of_items_with_their_level_expansion_and_selection() {
     let mut harness = Harness::new();
+
     read(&mut harness);
 
     let (tree, node) = only(&harness, Role::Tree, TREE_NAME);
@@ -92,6 +98,7 @@ fn the_feature_tree_is_a_tree_of_items_with_their_level_expansion_and_selection(
         .filter(|(_, node)| node.role() == Role::TreeItem)
         .map(|(id, _)| *id)
         .collect();
+
     let in_one_tree = items.iter().all(|id| descends_from(&harness, *id, tree));
     let plain = item(&harness, "Base sketch");
     let first = (plain.level(), plain.is_selected(), plain.is_expanded());
@@ -100,18 +107,23 @@ fn the_feature_tree_is_a_tree_of_items_with_their_level_expansion_and_selection(
 
     harness.click("Base sketch");
     read(&mut harness);
+
     let selected = item(&harness, "Base sketch").is_selected();
     let other_selected = item(&harness, "Side sketch").is_selected();
 
     harness.click_button("Show details of Base sketch");
     read(&mut harness);
+
     let opened = item(&harness, "Base sketch").is_expanded();
+
     harness.click_button("Hide details of Base sketch");
     read(&mut harness);
+
     let closed = item(&harness, "Base sketch").is_expanded();
 
     harness.click_button(&format!("Show details of {PRINCIPAL}"));
     read(&mut harness);
+
     let principal_opened = item(&harness, PRINCIPAL).is_expanded();
     let geometry_levels: Vec<Option<usize>> = PrincipalGeometry::ALL
         .iter()
@@ -134,19 +146,24 @@ fn the_feature_tree_is_a_tree_of_items_with_their_level_expansion_and_selection(
 #[test]
 fn bodies_are_items_one_level_below_their_group_beside_the_feature_that_made_them() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.settle();
     read(&mut harness);
+
     let bodies = crate::bodies_tree::GROUP_TITLE;
     let header = format!("{bodies} (1)");
 
     let closed = item(&harness, &header).is_expanded();
     let hidden_while_closed = levels(&harness, "Extrude 1");
+
     harness.click_button(&format!("Show details of {header}"));
     read(&mut harness);
+
     let opened = item(&harness, &header).is_expanded();
     let (tree, _) = only(&harness, Role::Tree, TREE_NAME);
     let body_rows = nodes_of(&harness, Role::TreeItem, "Extrude 1");
+
     let in_the_tree = body_rows
         .iter()
         .all(|(id, _)| descends_from(&harness, *id, tree));
@@ -167,11 +184,13 @@ fn bodies_are_items_one_level_below_their_group_beside_the_feature_that_made_the
 #[test]
 fn grouped_features_sit_one_level_below_their_folder_which_reads_expanded_or_folded() {
     let mut harness = Harness::new();
+
     let ids: Vec<_> = harness
         .document()
         .features()
         .map(|feature| feature.id())
         .collect();
+
     harness.workspace.panels.choose_all(&ids);
     harness.frame();
     harness.key(Key::G, Modifiers::COMMAND);
@@ -193,6 +212,7 @@ fn grouped_features_sit_one_level_below_their_folder_which_reads_expanded_or_fol
     harness.frame();
     harness.frame();
     read(&mut harness);
+
     let folded = item(&harness, "Profiles").is_expanded();
     let gone = nodes_of(&harness, Role::TreeItem, "Base sketch").len();
 
@@ -205,8 +225,10 @@ fn grouped_features_sit_one_level_below_their_folder_which_reads_expanded_or_fol
 #[test]
 fn body_groups_nest_their_items_a_level_per_group() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
+
     harness.settle();
     harness.workspace.panels.choose_all(&[plate, peg]);
     harness.frame();
@@ -240,6 +262,7 @@ fn body_groups_nest_their_items_a_level_per_group() {
 #[test]
 fn the_parameter_tables_are_tables_of_rows_and_cells_with_column_headers() {
     let mut harness = Harness::new();
+
     read(&mut harness);
 
     let (table, node) = only(&harness, Role::Table, "Parameters");

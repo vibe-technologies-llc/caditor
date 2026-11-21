@@ -7,7 +7,7 @@ use crate::box_tree::BoxTree;
 const RELATIVE_SLACK: f64 = 1e-9;
 const SCANNED_SEGMENTS: usize = 32;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Ring {
     segments: Vec<[Point2; 2]>,
     bounds: Aabb,
@@ -33,7 +33,7 @@ impl Ring {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct PolygonIndex {
     rings: Vec<Ring>,
     tree: BoxTree,
@@ -118,23 +118,27 @@ mod tests {
                 })
                 .collect()
         };
+
         let outer = star(&mut random, Point2::ZERO, 300);
         let small = star(&mut random, Point2::ZERO, 12);
         let hole = star(&mut random, Point2::new(0.5, -0.25), 40)
             .into_iter()
             .map(|point| Point2::new(0.5, -0.25) + 0.15 * (point - Point2::new(0.5, -0.25)))
             .collect::<Vec<_>>();
+
         let polygons = [outer.clone(), hole.clone()];
         let index = PolygonIndex::new(polygons.iter().map(Vec::as_slice));
 
         let mut probes: Vec<Point2> = (0..2000)
             .map(|_| Point2::new(random.between(-6.0, 6.0), random.between(-6.0, 6.0)))
             .collect();
+
         probes.extend(outer.iter().chain(&hole).copied());
 
         let scanned = PolygonIndex::new([small.as_slice()]);
         for probe in probes {
             let expected = inside_polygon(&outer, probe) != inside_polygon(&hole, probe);
+
             assert_eq!(index.contains(probe), expected, "{probe:?}");
             assert_eq!(
                 scanned.contains(probe),
@@ -147,6 +151,7 @@ mod tests {
     #[test]
     fn nothing_is_inside_no_polygon() {
         let index = PolygonIndex::new(std::iter::empty());
+
         assert!(!index.contains(Point2::ZERO));
     }
 }

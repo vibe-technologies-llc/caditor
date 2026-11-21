@@ -27,13 +27,13 @@ const BOUNDARY_SAMPLES: usize = 8;
 const SQUARE_TO_WALL: f64 = 1e-6;
 const ACROSS_WALL: f64 = 0.5;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceAngle {
     pub face: FaceReference,
     pub angle: Expression,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Draft {
     pub body: FeatureId,
     pub faces: Vec<FaceReference>,
@@ -96,6 +96,7 @@ impl Draft {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         used.extend(self.neutral.datum());
         used.extend(self.neutral.frame());
         used.extend(self.neutral.body());
@@ -104,6 +105,7 @@ impl Draft {
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         let mut origins = self.neutral.origin_features();
+
         origins.extend(self.faces.iter().flat_map(origins::of_face));
         origins.extend(self.own.iter().flat_map(|own| origins::of_face(&own.face)));
         origins
@@ -138,13 +140,13 @@ fn resolution(solid: &Solid, reference: &FaceReference) -> Resolution<FaceId> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Tilted {
     face: FaceId,
     own: Option<f64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Side {
     Along,
     Beyond,
@@ -232,7 +234,7 @@ fn faces_after_split(split: &Solid, raw: u64, chosen: &[Original]) -> Vec<Tilted
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Angled {
     Along,
     Beyond,
@@ -268,6 +270,7 @@ impl Context<'_> {
                 ))
             })?;
         let radians = degrees.to_radians();
+
         if !radians.is_finite() || radians.abs() > STEEPEST_DRAFT {
             return Err(self.error(DraftCause::Steep { angled }));
         }
@@ -329,6 +332,7 @@ impl Context<'_> {
             )
         })?;
         let mut chosen = Vec::with_capacity(faces.len());
+
         for (resolution, own) in self
             .definition
             .own_resolutions(solid)
@@ -336,6 +340,7 @@ impl Context<'_> {
             .zip(&self.definition.own)
         {
             let angle = self.angle(&own.angle, Angled::Own)?;
+
             chosen.extend(resolution.found().iter().map(|face| Tilted {
                 face: *face,
                 own: Some(angle),
@@ -447,9 +452,11 @@ impl Context<'_> {
             .map(|chosen| chosen.face)
             .filter(|face| straddles(solid, *face, neutral))
             .collect();
+
         if crossing.is_empty() {
             return Ok((Cow::Borrowed(solid), faces));
         }
+
         let raw = self.feature.id().raw();
         let chosen: Vec<Original> = faces
             .iter()
@@ -465,6 +472,7 @@ impl Context<'_> {
             .collect();
         let tool = half_space_solid(solid, neutral, false, raw)
             .map_err(|error| self.half_space_failure(&error))?;
+
         let split = split_faces(solid, &crossing, &tool, raw)
             .map_err(|error| self.split_failure(&error))?;
         let faces = faces_after_split(&split, raw, &chosen);
@@ -472,7 +480,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DraftCause {
     Steep { angled: Angled },
     FaceGone { body: String },
@@ -641,6 +649,7 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     let faces = definition.resolve(solid).map_err(|unresolved| {
         Failure::from(
             FeatureError::new(Unmatched {
@@ -652,11 +661,13 @@ pub(crate) fn evaluate(
         )
     })?;
     let owned = context.own_angles(solid)?;
+
     if faces.is_empty() && owned.is_empty() {
         return Err(Failure::Waiting(MissingInput::FacesToDraft {
             body: definition.body,
         }));
     }
+
     let angle = context.angle(&definition.angle, Angled::Along)?;
     let beyond = definition
         .beyond
@@ -665,6 +676,7 @@ pub(crate) fn evaluate(
         .transpose()?;
     let neutral = context.neutral()?;
     let mut picked = faces;
+
     let common = if definition.tangent {
         tangent_faces(solid, &picked)
     } else {
@@ -676,16 +688,19 @@ pub(crate) fn evaluate(
         .map(|face| Tilted { face, own: None })
         .chain(owned.iter().copied())
         .collect();
+
     picked.extend(owned.iter().map(|own| own.face));
     context.check_draftable(solid, &faces, &picked, &neutral)?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let (solid, faces) = if beyond.is_some() {
         context.split_at_neutral(solid, faces, &neutral)?
     } else {
         (Cow::Borrowed(solid), faces)
     };
+
     let drafted = drafted(&solid, &faces, &neutral, angle, beyond);
     let result =
         draft_faces(&solid, &drafted, &neutral).map_err(|error| context.failure(&solid, &error))?;
@@ -769,6 +784,7 @@ pub fn default_neutral(body: FeatureId, solid: &Solid, faces: &[FaceId]) -> (Pla
         None => faces.iter().find_map(|face| floor_of_round(solid, *face)),
     };
     let on_floor = floor.and_then(|floor| FaceAttachment::capture(body, solid, floor));
+
     let (reference, plane) = match on_floor {
         Some((attachment, plane)) => (PlaneReference::Face(attachment), plane),
         None => {

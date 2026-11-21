@@ -49,9 +49,12 @@ fn prism_sides(harness: &Harness, prism: FeatureId) -> f64 {
 #[test]
 fn a_wedge_shows_an_arrow_at_the_end_of_its_top_and_dragging_it_changes_the_top_length() {
     let mut harness = Harness::new();
+
     let wedge = open_primitive(&mut harness, "Wedge");
+
     harness.workspace.viewport.advance(super::CAMERA_SETTLE);
     harness.frame();
+
     let before = wedge_sizes(&harness, wedge);
     let foot = foot_of(&harness, Measured::PrimitiveSize(3));
 
@@ -74,14 +77,20 @@ fn a_wedge_shows_an_arrow_at_the_end_of_its_top_and_dragging_it_changes_the_top_
 #[test]
 fn a_wedge_s_top_length_stops_at_nothing_and_leaves_the_slope_to_its_edge() {
     let mut harness = Harness::new();
+
     let wedge = open_primitive(&mut harness, "Wedge");
+
     harness.workspace.viewport.advance(super::CAMERA_SETTLE);
     harness.frame();
+
     let before = wedge_sizes(&harness, wedge);
 
     drag_value_arrow(&mut harness, Measured::PrimitiveSize(3), 3.0);
+
     let longer = wedge_sizes(&harness, wedge);
+
     drag_value_arrow(&mut harness, Measured::PrimitiveSize(3), -30.0);
+
     let none = wedge_sizes(&harness, wedge);
 
     assert!(longer[3] > before[3]);
@@ -91,9 +100,12 @@ fn a_wedge_s_top_length_stops_at_nothing_and_leaves_the_slope_to_its_edge() {
 #[test]
 fn a_prism_shows_an_arrow_on_a_corner_and_dragging_it_changes_the_number_of_sides() {
     let mut harness = Harness::new();
+
     let prism = open_primitive(&mut harness, "Prism");
+
     harness.workspace.viewport.advance(super::CAMERA_SETTLE);
     harness.frame();
+
     let before = prism_sides(&harness, prism);
     let foot = foot_of(&harness, Measured::PrismSides);
     let PrimitiveShape::Prism {
@@ -105,6 +117,7 @@ fn a_prism_shows_an_arrow_on_a_corner_and_dragging_it_changes_the_number_of_side
     let radius = length_value(&harness, diameter) / 2.0;
     let rise = length_value(&harness, height);
     let angle = std::f64::consts::PI / before;
+
     let corner = Point3::new(radius * angle.sin(), -radius * angle.cos(), rise);
 
     assert!(
@@ -113,6 +126,7 @@ fn a_prism_shows_an_arrow_on_a_corner_and_dragging_it_changes_the_number_of_side
     );
 
     drag_value_arrow(&mut harness, Measured::PrismSides, 12.0);
+
     let more = prism_sides(&harness, prism);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Prism 1"));
@@ -120,6 +134,7 @@ fn a_prism_shows_an_arrow_on_a_corner_and_dragging_it_changes_the_number_of_side
     assert_eq!(more, 4.0);
 
     drag_value_arrow(&mut harness, Measured::PrismSides, -12.0);
+
     let most = prism_sides(&harness, prism);
 
     assert_eq!(most, 5.0);

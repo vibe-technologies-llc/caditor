@@ -2,13 +2,13 @@ const UNITS: [&str; 8] = ["mm", "cm", "m", "um", "µm", "°", "deg", "rad"];
 const MOST_DIGITS: usize = 30;
 const BIG_STEP: i128 = 10;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Up,
     Down,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     Empty,
     NotPlain,
@@ -37,9 +37,11 @@ struct Plain<'a> {
 
 fn plain(text: &str) -> Result<Plain<'_>, Refusal> {
     let text = text.trim();
+
     if text.is_empty() {
         return Err(Refusal::Empty);
     }
+
     let (negative, rest) = match text.strip_prefix('-') {
         Some(rest) => (true, rest),
         None => (false, text),
@@ -47,20 +49,25 @@ fn plain(text: &str) -> Result<Plain<'_>, Refusal> {
     let number_end = rest
         .find(|character: char| !(character.is_ascii_digit() || character == '.'))
         .unwrap_or(rest.len());
+
     let (number, tail) = rest.split_at(number_end);
     let (whole, fraction) = match number.split_once('.') {
         Some((whole, fraction)) => (whole, fraction),
         None => (number, ""),
     };
+
     let well_formed = !whole.is_empty()
         && whole.chars().all(|character| character.is_ascii_digit())
         && fraction.chars().all(|character| character.is_ascii_digit())
         && (number.find('.').is_none() || !fraction.is_empty());
+
     if !well_formed {
         return Err(Refusal::NotPlain);
     }
+
     let unit = tail.trim_start();
     let gap = tail.strip_suffix(unit).unwrap_or_default();
+
     if !(unit.is_empty() || UNITS.contains(&unit)) {
         return Err(Refusal::NotPlain);
     }
@@ -79,21 +86,25 @@ fn plain(text: &str) -> Result<Plain<'_>, Refusal> {
 pub fn step(text: &str, direction: Direction, big: bool) -> Result<String, Refusal> {
     let plain = plain(text)?;
     let magnitude: i128 = plain.digits.parse().map_err(|_| Refusal::TooLong)?;
+
     let value = if plain.negative {
         -magnitude
     } else {
         magnitude
     };
     let size = if big { BIG_STEP } else { 1 };
+
     let stepped = match direction {
         Direction::Up => value + size,
         Direction::Down => value - size,
     };
     let sign = if stepped < 0 { "-" } else { "" };
     let mut digits = stepped.unsigned_abs().to_string();
+
     while digits.len() <= plain.decimals {
         digits.insert(0, '0');
     }
+
     let (whole, fraction) = digits.split_at(digits.len() - plain.decimals);
     let point = if plain.decimals == 0 { "" } else { "." };
     let gap = if plain.unit.is_empty() { "" } else { plain.gap };
@@ -158,6 +169,7 @@ mod tests {
         ] {
             assert_eq!(up(text), Err(Refusal::NotPlain), "{text}");
         }
+
         assert_eq!(up("  "), Err(Refusal::Empty));
         assert_eq!(up(&"9".repeat(40)), Err(Refusal::TooLong));
     }

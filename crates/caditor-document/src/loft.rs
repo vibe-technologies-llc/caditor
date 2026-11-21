@@ -18,7 +18,7 @@ use crate::{
 
 pub const LOFT_SHAPE: &str = "loft";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LoftSection {
     pub sketch: FeatureId,
     pub region: Option<RegionReference>,
@@ -39,7 +39,7 @@ impl LoftSection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Loft {
     pub profiles: Vec<LoftSection>,
     pub end: Option<PointReference>,
@@ -186,6 +186,7 @@ fn profile_of(
             FixTarget::Feature(sketch_id),
         ));
     };
+
     let context = solid::Context::of_sketch(feature, name.clone(), sketch_id, &sketch.geometry);
     let no_shape = || {
         failed(
@@ -196,11 +197,13 @@ fn profile_of(
             FixTarget::Feature(sketch_id),
         )
     };
+
     let wording = |error: ProfileError| match error {
         ProfileError::EmptySelection => no_shape(),
         other => profile_failure(&context, &other),
     };
     let profile = sketch.profile().map_err(wording)?;
+
     let selection = match &section.region {
         None => Selection::EvenDepth,
         Some(reference) => Selection::Regions(
@@ -320,6 +323,7 @@ fn weight(
         return Ok(None);
     };
     let value = context.value_as(expression, what, Dimension::NONE)?;
+
     if value <= 0.0 || !value.is_finite() {
         return Err(weightless(feature));
     }
@@ -343,13 +347,16 @@ pub(crate) fn evaluate(
             &LoftError::TooManyProfiles,
         ));
     }
+
     let mut profiles = Vec::with_capacity(definition.profiles.len());
+
     for section in &definition.profiles {
         profiles.push(profile_of(feature, inputs, section)?);
         if cancel.is_cancelled() {
             return Err(Failure::Cancelled);
         }
     }
+
     let apex = definition
         .end
         .as_ref()
@@ -371,15 +378,17 @@ pub(crate) fn evaluate(
             "end weight",
         )?,
     };
+
     let made = loft_through(&profiles, apex, (definition.skin, ends), feature.id().raw())
         .map_err(|error| failure(feature, inputs, definition, &error))?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
     combined(&context, made, definition.operation)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum LoftCause {
     ProfileUnavailable {
         sketch: String,

@@ -12,7 +12,7 @@ use crate::{
 const SMALLEST_RADIUS: f64 = 1e-6;
 const CORNER_REACH: f64 = 3.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Round {
     Axial {
         origin: Point3,
@@ -33,7 +33,7 @@ pub(super) enum Round {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Cut {
     pub(super) at: Point3,
     pub(super) toward: Vector3,
@@ -109,6 +109,7 @@ impl Round {
             behind,
         } = cut;
         let refused_now = || refused.clone();
+
         let outward = self.outward(at).ok_or_else(refused_now)?;
         let away = toward.dot(outward) > 0.0;
         let start = Plane::new(at - toward * behind, toward).ok_or_else(refused_now)?;
@@ -163,15 +164,18 @@ impl Round {
         else {
             return Err(refused_now());
         };
+
         if minor >= major - SMALLEST_RADIUS {
             return Err(refused_now());
         }
+
         let plane = Self::radial_frame(origin, axis, at).ok_or_else(refused_now)?;
         let reach = CORNER_REACH * minor;
         let across = |distance: f64| (major + radial_sign * distance).max(0.0);
         let centre = Point2::new(major, 0.0);
         let on_rim = Point2::new(across(minor), 0.0);
         let on_side = Point2::new(major, axial_sign * minor);
+
         let corners = [
             on_rim,
             Point2::new(across(reach), 0.0),
@@ -187,6 +191,7 @@ impl Round {
                 _ => None,
             })
             .collect();
+
         curves.push(if radial_sign * axial_sign > 0.0 {
             ProfileCurve::arc(9, centre, on_rim, on_side)
         } else {
@@ -215,6 +220,7 @@ impl Round {
                 let radius_at = |at: f64| radius + at * slope;
                 let mut low = height - reach;
                 let mut high = height + reach;
+
                 if slope != 0.0 {
                     let apex = -radius / slope;
                     if apex > low && apex < high {
@@ -225,7 +231,9 @@ impl Round {
                         }
                     }
                 }
+
                 let mut corners = vec![Point2::new(0.0, low)];
+
                 if radius_at(low) > SMALLEST_RADIUS {
                     corners.push(Point2::new(radius_at(low), low));
                 }
@@ -233,6 +241,7 @@ impl Round {
                     corners.push(Point2::new(radius_at(high), high));
                 }
                 corners.push(Point2::new(0.0, high));
+
                 let curves: Vec<ProfileCurve> = corners
                     .iter()
                     .zip(corners.iter().cycle().skip(1))
@@ -268,6 +277,7 @@ impl Round {
                 if minor >= major - SMALLEST_RADIUS {
                     return Err(refused());
                 }
+
                 let plane = Self::radial_frame(origin, axis, near).ok_or_else(refused)?;
                 let curves = [ProfileCurve::circle(1, Point2::new(major, 0.0), minor)];
                 swept(&plane, &curves, feature)
@@ -294,9 +304,11 @@ fn facing(solid: &Solid, face: FaceId, origin: Point3, axis: Vector3) -> Option<
     let definition = solid.face(face)?;
     let surface = definition.surface();
     let middle = solid.classifier().face_uv_box(face)?.center();
+
     let point = surface.point_at(middle);
     let normal = surface.normal(middle.x, middle.y)? * definition.sense().sign();
     let along = (point - origin).dot(axis);
+
     let radial = (point - origin - axis * along).try_normalize()?;
     let [across, up] = [normal.dot(radial), normal.dot(axis)];
     (across.abs() >= LEANING && up.abs() >= LEANING).then_some([across.signum(), up.signum()])

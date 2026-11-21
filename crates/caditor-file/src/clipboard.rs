@@ -22,7 +22,7 @@ const KIND_SEPARATOR: &str = ": ";
 const VERSION_SEPARATOR: &str = ", version ";
 const PASTED_GEOMETRY: &str = "the pasted geometry";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClipboardKind {
     SketchGeometry,
     Features,
@@ -52,7 +52,7 @@ impl fmt::Display for ClipboardKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ClipboardError {
     #[error("the clipboard holds text that did not come from caditor")]
     Foreign,
@@ -80,7 +80,7 @@ pub enum ClipboardError {
     Clip(#[from] ClipError),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 struct CarriedParameterRecord {
     id: u64,
     name: String,
@@ -88,7 +88,7 @@ struct CarriedParameterRecord {
     value: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 struct SketchClipRecord {
     source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,7 +99,7 @@ struct SketchClipRecord {
     parameters: Vec<Lenient<CarriedParameterRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 struct FeaturesRecord {
     source: String,
     features: Vec<Lenient<FeatureRecord>>,
@@ -109,7 +109,7 @@ struct FeaturesRecord {
     parameters: Vec<Lenient<CarriedParameterRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PastedGeometry {
     pub clip: SketchClip,
     pub origin: PasteOrigin,
@@ -118,7 +118,7 @@ pub struct PastedGeometry {
     pub notes: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CopiedFeatures {
     pub features: Vec<Feature>,
     pub parameters: CarriedParameters,
@@ -138,7 +138,9 @@ pub fn sketch_clipboard_text(
     sketch: FeatureId,
 ) -> Result<String, ClipboardError> {
     let mut holder = Sketch::new(Plane::XY);
+
     holder.paste(clip, Vector2::ZERO)?;
+
     let record = SketchClipRecord {
         source: source.to_owned(),
         sketch: Some(sketch.raw()),
@@ -184,6 +186,7 @@ pub fn read_sketch_clipboard(
     let record: SketchClipRecord = read_payload(text, kind)?;
     let origin = origin_of(&record.source, own_source);
     let mut notes = Vec::new();
+
     let parameters = restore_parameters(&record.parameters, &mut notes);
     let stored = SketchRecord {
         plane: plane_record(Plane::XY),
@@ -200,6 +203,7 @@ pub fn read_sketch_clipboard(
         .constraints()
         .filter_map(|(id, constraint)| Some((id, constraint.dimension()?.clone())))
         .collect();
+
     for (id, value) in dimensions {
         match parameters.carry(&value, target, origin) {
             Ok(carried) => {
@@ -216,21 +220,25 @@ pub fn read_sketch_clipboard(
             }
         }
     }
+
     let texts: Vec<(EntityId, Text)> = sketch
         .texts()
         .map(|(id, text)| (id, text.clone()))
         .collect();
+
     for (id, text) in texts {
         let height = parameters.carry(&text.height, target, origin);
         let angle = parameters.carry(&text.angle, target, origin);
         match (height, angle) {
             (Ok(height), Ok(angle)) => {
                 inlined += height.inlined + angle.inlined;
+
                 let carried = Text {
                     height: height.expression,
                     angle: angle.expression,
                     ..text
                 };
+
                 sketch.replace_text(id, carried).map_err(ClipError::from)?;
             }
             (Err(error), _) | (_, Err(error)) => {
@@ -239,13 +247,16 @@ pub fn read_sketch_clipboard(
             }
         }
     }
+
     let gears: Vec<(EntityId, Gear)> = sketch
         .gears()
         .map(|(id, gear)| (id, gear.clone()))
         .collect();
+
     for (id, gear) in gears {
         let mut carried = gear.clone();
         let mut failure = None;
+
         for expression in carried.expressions_mut() {
             match parameters.carry(expression, target, origin) {
                 Ok(done) => {
@@ -268,6 +279,7 @@ pub fn read_sketch_clipboard(
             }
         }
     }
+
     let items: Vec<EntityId> = sketch
         .entities()
         .map(|(id, _)| id)
@@ -314,17 +326,21 @@ pub fn read_features_clipboard(
 ) -> Result<CopiedFeatures, ClipboardError> {
     let record: FeaturesRecord = read_payload(text, ClipboardKind::Features)?;
     let mut notes = Vec::new();
+
     let parameters = restore_parameters(&record.parameters, &mut notes);
     let mut features = Vec::new();
+
     for feature in &record.features {
         match feature {
             Lenient::Read(read) => {
                 let mut restored = restore_feature(read, &mut notes);
+
                 restored.suppressed = record.suppressed.contains(&read.id);
                 features.push(restored);
             }
             Lenient::Unreadable(value) => {
                 let unreadable = Unreadable(value);
+
                 notes.push(match unreadable.name() {
                     Some(name) => format!(
                         "“{name}” was left out because it is damaged or of a kind this version \
@@ -373,10 +389,12 @@ fn split_header(text: &str) -> Result<(ClipboardKind, &str), ClipboardError> {
         .into_iter()
         .find(|kind| kind.word() == word)
         .ok_or(ClipboardError::UnknownKind)?;
+
     let version: u32 = version
         .trim()
         .parse()
         .map_err(|_| ClipboardError::Damaged { kind })?;
+
     if version > CLIPBOARD_VERSION {
         return Err(ClipboardError::Newer { kind, version });
     }
@@ -390,7 +408,9 @@ fn read_payload<T: for<'de> Deserialize<'de>>(
     if text.len() > MAX_CLIPBOARD_TEXT {
         return Err(ClipboardError::TooLarge { length: text.len() });
     }
+
     let (found, body) = split_header(text)?;
+
     if found != expected {
         return Err(ClipboardError::OtherKind { found, expected });
     }
@@ -418,6 +438,7 @@ fn restore_parameters(
     notes: &mut Vec<String>,
 ) -> CarriedParameters {
     let mut parameters = CarriedParameters::default();
+
     for record in records {
         match record {
             Lenient::Read(record) => parameters.insert(
@@ -437,6 +458,7 @@ fn restore_parameters(
 
 fn literal_value(text: &str) -> Option<Quantity> {
     let expression = Expression::parse_stored(text).ok()?;
+
     if !expression.parameters().is_empty() {
         return None;
     }

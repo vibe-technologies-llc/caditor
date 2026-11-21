@@ -59,7 +59,7 @@ use crate::{
 
 pub const FIRST_UNSTORABLE_ID: u64 = 1 << 63;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FeatureId(u64);
 
 const PIECE_MARK: u64 = FIRST_UNSTORABLE_ID;
@@ -108,7 +108,7 @@ impl fmt::Display for FeatureId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Parameter {
     id: ParameterId,
     pub name: String,
@@ -145,7 +145,7 @@ impl Parameter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FeatureKind {
     Sketch(SketchFeature),
     Solid(SolidFeature),
@@ -404,6 +404,7 @@ impl FeatureKind {
 
     pub fn bodies_used(&self) -> BTreeSet<FeatureId> {
         let mut used: BTreeSet<FeatureId> = self.body_input().into_iter().collect();
+
         match self {
             Self::Solid(solid) => {
                 used.extend(solid.other_bodies());
@@ -775,6 +776,7 @@ impl FeatureKind {
             Self::Measurement(measurement) => measurement.sketches(),
             Self::Datum(datum) => {
                 let mut sketches = datum.point_sketches();
+
                 sketches.extend(datum.axis_sketches());
                 sketches
             }
@@ -1623,6 +1625,7 @@ impl FeatureKind {
             Self::ReferenceImage(image) => image.features(),
             Self::Import(_) => BTreeSet::new(),
         };
+
         used.extend(self.bodies_used());
         used.extend(self.planes_used());
         used.extend(self.axes_used());
@@ -1679,12 +1682,13 @@ impl FeatureKind {
 
     pub fn dependencies(&self) -> BTreeSet<FeatureId> {
         let mut used = self.features();
+
         used.extend(self.origin_features());
         used
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Feature {
     id: FeatureId,
     pub name: String,
@@ -1737,6 +1741,7 @@ impl Feature {
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         let mut used = self.kind.parameters();
+
         used.extend(self.appearance.parameters());
         used.extend(self.piece_looks.parameters());
         used
@@ -1838,6 +1843,7 @@ impl Feature {
             _ => Vec::new(),
         };
         let mut bodies: Vec<FeatureId> = self.body().into_iter().chain(made_apart).collect();
+
         for body in cut_too.iter().chain(&mirrored) {
             if !bodies.contains(body) {
                 bodies.push(*body);
@@ -1890,20 +1896,20 @@ impl Feature {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum RollbackBar {
     #[default]
     AtEnd,
     Before(FeatureId),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum TreeRow {
     Feature(FeatureId),
     Bar,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParameterUser {
     Parameter(ParameterId),
     Feature(FeatureId),
@@ -1912,7 +1918,7 @@ pub enum ParameterUser {
     Drawing(DrawingId),
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Document {
     pub(crate) parameters: ParameterList,
     pub(crate) features: FeatureList,
@@ -1967,6 +1973,7 @@ impl Document {
                 feature.appearance.name.as_deref().unwrap_or(&feature.name),
             ));
         };
+
         if let Some(own) = feature
             .piece_looks
             .appearance(key)
@@ -1976,6 +1983,7 @@ impl Document {
         }
         if let Some(source) = self.image_source(body) {
             let source = self.body_label(source).unwrap_or_default();
+
             return Some(Cow::Owned(format!("{} (image of {source})", feature.name)));
         }
         if let Some(copy) = self.pattern_copy(body) {
@@ -2098,6 +2106,7 @@ impl Document {
             .filter(|feature| feature.has_modelled_thread())
             .map(Feature::id)
             .collect();
+
         for id in modelled {
             if let Some(feature) = shown.features.get_mut_by_id(id) {
                 let feature = Arc::make_mut(feature);
@@ -2132,6 +2141,7 @@ impl Document {
             .iter()
             .map(|feature| TreeRow::Feature(feature.id))
             .collect();
+
         rows.insert(bar.min(rows.len()), TreeRow::Bar);
         rows
     }
@@ -2281,6 +2291,7 @@ impl Document {
         match (restored.kind.sketch(), current) {
             (Some(sketch), Some(next_id)) if next_id > sketch.next_id() => {
                 let mut raised = Feature::clone(restored);
+
                 if let Some(sketch) = raised.kind.sketch_mut() {
                     sketch.reserve_ids_below(next_id);
                 }
@@ -2395,6 +2406,7 @@ pub(crate) fn path_to(
 ) -> Option<Vec<ParameterId>> {
     let mut parents = BTreeMap::new();
     let mut queue = VecDeque::new();
+
     for step in first_steps {
         if parents.insert(step, target).is_none() {
             queue.push_back(step);
@@ -2420,6 +2432,7 @@ fn path_back_to(
 ) -> Vec<ParameterId> {
     let mut path = vec![target];
     let mut current = parents.get(&target).copied();
+
     while let Some(step) = current {
         path.push(step);
         if step == target || path.len() > parents.len() + 1 {

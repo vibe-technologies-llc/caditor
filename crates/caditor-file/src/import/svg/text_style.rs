@@ -42,20 +42,20 @@ const SHORTHAND_KEYWORDS: [&str; 10] = [
     "ultra-expanded",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum FontSize {
     Pixels(f64),
     OfParent(f64),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum FontWeight {
     Absolute(f64),
     Bolder,
     Lighter,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum Anchor {
     #[default]
     Start,
@@ -63,13 +63,13 @@ pub(super) enum Anchor {
     End,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Spacing {
     Pixels(f64),
     Ems(f64),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum BaselineShift {
     Pixels(f64),
     Ems(f64),
@@ -78,7 +78,7 @@ pub(super) enum BaselineShift {
     Superscript,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(super) struct FontShift {
     pub subscripted: f64,
     pub superscripted: f64,
@@ -95,7 +95,7 @@ impl FontShift {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(super) struct TextProperties<'a> {
     pub size: Option<FontSize>,
     pub family: Option<&'a str>,
@@ -108,7 +108,7 @@ pub(super) struct TextProperties<'a> {
     pub baseline_shift: Option<BaselineShift>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Shorthand<'a> {
     size: FontSize,
     family: &'a str,
@@ -163,7 +163,7 @@ fn chosen<'a, T>(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct TextStyle<'a> {
     pub size: f64,
     pub family: Option<&'a str>,
@@ -273,6 +273,7 @@ fn lighter(weight: f64) -> f64 {
 
 fn font_size(value: &str) -> Option<FontSize> {
     let value = value.trim();
+
     if let Some((_, size)) = KEYWORD_SIZES
         .iter()
         .find(|(keyword, _)| value.eq_ignore_ascii_case(keyword))
@@ -285,6 +286,7 @@ fn font_size(value: &str) -> Option<FontSize> {
     if value.eq_ignore_ascii_case("smaller") {
         return Some(FontSize::OfParent(1.0 / SIZE_STEP));
     }
+
     let size = relative(value, FontSize::OfParent, FontSize::Pixels).or_else(|| {
         let length = Length::parse(value)?;
         Some(match length.unit {
@@ -302,6 +304,7 @@ fn font_size(value: &str) -> Option<FontSize> {
 
 fn relative<T>(value: &str, ems: impl Fn(f64) -> T, pixels: impl Fn(f64) -> T) -> Option<T> {
     let mut scanner = Scanner::new(value);
+
     let number = scanner.number()?;
     let unit = std::str::from_utf8(scanner.rest())
         .ok()?
@@ -354,9 +357,11 @@ fn anchor(value: &str) -> Option<Anchor> {
 
 fn spacing(value: &str) -> Option<Spacing> {
     let value = value.trim();
+
     if value.eq_ignore_ascii_case("normal") {
         return Some(Spacing::Pixels(0.0));
     }
+
     let spacing = relative(value, Spacing::Ems, Spacing::Pixels).or_else(|| {
         let length = Length::parse(value).filter(|length| length.unit != Unit::Percent)?;
         Some(Spacing::Pixels(length.pixels(0.0)))
@@ -392,27 +397,34 @@ fn baseline_shift(value: &str) -> Option<BaselineShift> {
 
 fn shorthand(value: &str) -> Option<Shorthand<'_>> {
     let value = value.trim();
+
     if SYSTEM_FONTS
         .iter()
         .any(|system| value.eq_ignore_ascii_case(system))
     {
         return None;
     }
+
     let mut weight = FontWeight::Absolute(NORMAL_WEIGHT);
     let mut slanted = false;
     let mut words = words(value).into_iter().peekable();
+
     let (size, mut after) = loop {
         let (at, word) = words.next()?;
+
         if word.parse::<f64>().is_ok() {
             weight = font_weight(word)?;
             continue;
         }
+
         let (size_text, line_height) = match word.split_once('/') {
             Some((size, line_height)) => (size, Some(line_height)),
             None => (word, None),
         };
+
         if let Some(size) = font_size(size_text) {
             let mut after = at + word.len();
+
             if line_height == Some("") {
                 after = words.next().map_or(after, |(at, word)| at + word.len());
             } else if line_height.is_none()
@@ -438,7 +450,9 @@ fn shorthand(value: &str) -> Option<Shorthand<'_>> {
             return None;
         }
     };
+
     after = after.min(value.len());
+
     let family = family(value.get(after..)?)?;
     Some(Shorthand {
         size,
@@ -451,6 +465,7 @@ fn shorthand(value: &str) -> Option<Shorthand<'_>> {
 fn words(text: &str) -> Vec<(usize, &str)> {
     let mut words = Vec::new();
     let mut start = None;
+
     for (at, character) in text.char_indices().chain([(text.len(), ' ')]) {
         match (character.is_whitespace(), start) {
             (true, Some(from)) => {

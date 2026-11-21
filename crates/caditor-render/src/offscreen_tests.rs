@@ -36,6 +36,7 @@ fn answered_pick(picking: &mut crate::picking::Picking, device: &wgpu::Device) -
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let polled = picking.poll(device);
+
         if polled != crate::PickPoll::Pending || Instant::now() > deadline {
             return polled;
         }
@@ -68,11 +69,13 @@ fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
 
 fn gpu_with(limits: wgpu::Limits) -> Option<(wgpu::Device, wgpu::Queue)> {
     let found = device(limits);
+
     if found.is_none() {
         assert!(
             std::env::var_os(REQUIRE_GPU).is_none(),
             "no graphics adapter is available, and {REQUIRE_GPU} says the offscreen tests must run"
         );
+
         eprintln!("no graphics adapter available, skipping the offscreen test");
     }
     found
@@ -84,6 +87,7 @@ fn device(limits: wgpu::Limits) -> Option<(wgpu::Device, wgpu::Queue)> {
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .ok()?;
+
     remember_linear_resolve(&adapter);
     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         required_limits: limits,
@@ -111,6 +115,7 @@ fn the_backend_asked_for_by_the_environment_is_the_one_the_tests_run_on() {
             std::env::var_os(REQUIRE_GPU).is_none(),
             "{requested} was asked for and {REQUIRE_GPU} says the offscreen tests must run"
         );
+
         return;
     };
 
@@ -196,6 +201,7 @@ fn render(
 
 fn viewport_renderer(device: &wgpu::Device, sample_count: u32) -> ViewportRenderer {
     let mut renderer = ViewportRenderer::new(device, FORMAT, sample_count);
+
     renderer.set_linear_resolve(linear_resolve());
     renderer
 }
@@ -234,6 +240,7 @@ fn render_with(
     });
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
     renderer.draw(
         device,
         queue,
@@ -257,7 +264,9 @@ fn render_with(
         },
         target.size(),
     );
+
     let submission = queue.submit([encoder.finish()]);
+
     renderer.after_submit(device, &no_wake(), submission);
     readback.map_async(wgpu::MapMode::Read, .., |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
@@ -336,6 +345,7 @@ fn lines_and_markers_keep_their_size_in_points_at_every_scale() {
     let scene = line_and_marker();
     let across_line = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap();
     let marker = view.project(Point3::new(10.0, 20.0, 0.0)).unwrap();
+
     let measure = |pixels_per_point: f32| {
         let rendered = render_frame(
             &device,
@@ -371,9 +381,12 @@ fn a_dashed_line_leaves_gaps_that_still_pick_it() {
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
     let mut scene = line_and_marker();
+
     batch_of(&mut scene).markers.clear();
+
     let from = view.project(Point3::new(-15.0, 0.0, 0.0)).unwrap();
     let to = view.project(Point3::new(15.0, 0.0, 0.0)).unwrap();
+
     let lit_along = |scene: &Scene, pick_at: DVec2| {
         let rendered = render(&device, &queue, &view, scene, pick_at);
         let lit: Vec<bool> = row(from.y.floor(), (from.x + to.x) / 2.0, (to.x - from.x) / 2.0)
@@ -383,7 +396,9 @@ fn a_dashed_line_leaves_gaps_that_still_pick_it() {
     };
 
     let (solid, _) = lit_along(&scene, from);
+
     batch_of(&mut scene).lines[0].stroke = Stroke::Dashed { along: 0.0 };
+
     let (dashed, _) = lit_along(&scene, from);
     let drawn = dashed.iter().filter(|lit| **lit).count() as f64 / dashed.len() as f64;
     let dashes = dashed.windows(2).filter(|pair| pair[0] && !pair[1]).count();
@@ -412,6 +427,7 @@ fn picks_reach_as_far_in_points_at_a_doubled_scale() {
     let scene = line_and_marker();
     let above_line = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap() - DVec2::new(0.0, 12.0);
     let line = PickId::from_index(0).unwrap();
+
     let pick = |pixels_per_point: f32| {
         render_frame(
             &device,
@@ -450,6 +466,7 @@ fn draws_and_picks_a_line_over_a_fill() {
     let rendered = render(&device, &queue, &view, &scene(), on_line);
 
     let nearest = rendered.pick.hits[0];
+
     assert_eq!(nearest.id, PickId::from_index(0).unwrap());
     assert_eq!(nearest.offset_points, 0.0);
     assert!(nearest.position.distance(Point3::new(5.0, 0.0, 0.0)) < 0.5);
@@ -469,11 +486,14 @@ fn draws_and_picks_a_line_over_a_fill() {
     );
 
     let [red, green, blue, _] = pixel(&rendered, on_line);
+
     assert!(
         red > 200 && green < 80 && blue < 80,
         "line pixel was {red} {green} {blue}"
     );
+
     let [red, _, blue, _] = pixel(&rendered, off_line);
+
     assert!(blue > red, "fill pixel was not tinted blue");
 
     let rendered = render(
@@ -489,6 +509,7 @@ fn draws_and_picks_a_line_over_a_fill() {
         .iter()
         .find(|hit| hit.id == PickId::from_index(2).unwrap())
         .unwrap();
+
     assert!(marker.offset_points > 0.0 && marker.offset_points < 7.5);
 }
 
@@ -499,6 +520,7 @@ fn box_mesh(half: f64) -> ShadedMesh {
 fn cuboid_mesh(half: Vector3) -> ShadedMesh {
     let face = |normal: Vector3| {
         let (u, v) = normal.any_orthonormal_pair();
+
         let corner = |a: f64, b: f64| MeshPoint {
             position: Point3::ZERO + (normal + u * a + v * b) * half,
             normal,
@@ -531,6 +553,7 @@ fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front(
     let Some((device, queue)) = gpu() else {
         return;
     };
+
     draws_and_picks_a_box(&device, &queue);
 }
 
@@ -541,6 +564,7 @@ fn a_downlevel_device_without_vertex_storage_draws_and_picks_faces() {
     };
 
     assert_eq!(device.limits().max_storage_buffers_per_shader_stage, 0);
+
     draws_and_picks_a_box(&device, &queue);
 }
 
@@ -553,6 +577,7 @@ fn a_lost_device_is_reported_and_a_new_one_draws() {
     };
     let woken = Arc::new(AtomicBool::new(false));
     let wake = Arc::clone(&woken);
+
     let loss = DeviceLoss::watch(
         &lost.device,
         Arc::new(move || wake.store(true, Ordering::SeqCst)),
@@ -561,6 +586,7 @@ fn a_lost_device_is_reported_and_a_new_one_draws() {
     assert!(!loss.is_lost());
 
     lost.device.destroy();
+
     let _ = lost.device.poll(wgpu::PollType::wait_indefinitely());
 
     assert!(loss.is_lost());
@@ -574,7 +600,9 @@ fn a_lost_device_is_reported_and_a_new_one_draws() {
     let rendered = render(&reopened.device, &reopened.queue, &view, &scene(), on_line);
 
     assert_eq!(rendered.pick.hits[0].id, PickId::from_index(0).unwrap());
+
     let [red, green, _, _] = pixel(&rendered, on_line);
+
     assert!(red > 200 && green < 80, "line pixel was {red} {green}");
 }
 
@@ -585,6 +613,7 @@ fn opened_device(instance: &wgpu::Instance) -> Option<gpu::OpenedDevice> {
         crate::AdapterPreference::default(),
     ))
     .ok();
+
     if let Some(opened) = &opened {
         remember_linear_resolve(&opened.adapter);
     } else {
@@ -605,6 +634,7 @@ fn draws_and_picks_a_box(device: &wgpu::Device, queue: &wgpu::Queue) {
             finish: None,
         })
         .collect();
+
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh,
@@ -634,26 +664,34 @@ fn draws_and_picks_a_box(device: &wgpu::Device, queue: &wgpu::Queue) {
     let rendered = render(device, queue, &view, &scene, on_top);
 
     let nearest = rendered.pick.hits[0];
+
     assert_eq!(nearest.id, PickId::from_index(14).unwrap());
     assert_eq!(nearest.offset_points, 0.0);
     assert!(nearest.position.distance(Point3::new(0.0, 10.0, 20.0)) < 0.5);
+
     let [red, green, blue, _] = pixel(&rendered, on_top);
+
     assert!(
         green > 60 && green > red * 2 && green > blue * 2,
         "face pixel was {red} {green} {blue}"
     );
+
     let [red, green, _, _] = pixel(&rendered, hidden_line);
+
     assert!(
         green > red,
         "the line inside the box showed through its top"
     );
+
     let [red, green, _, _] = pixel(&rendered, visible_line);
+
     assert!(
         red > 200 && green < 80,
         "the line outside the box was hidden"
     );
 
     let rendered = render(device, queue, &view, &scene, hidden_line);
+
     assert!(
         rendered
             .pick
@@ -740,11 +778,13 @@ fn a_section_cuts_bodies_and_lines_away_caps_the_cut_and_picks_neither() {
     let whole = render(&device, &queue, &view, &whole, cut_line);
 
     let [red, green, blue, _] = pixel(&filled, on_cap);
+
     assert!(
         green > 40 && green > red * 2 && green > blue * 2,
         "the cap pixel was {red} {green} {blue}"
     );
     assert!(filled.pick.hits.is_empty(), "{:?}", filled.pick.hits);
+
     let filled_row: Vec<u32> = across_cap
         .iter()
         .map(|at| brightness(pixel(&filled, *at)))
@@ -754,10 +794,13 @@ fn a_section_cuts_bodies_and_lines_away_caps_the_cut_and_picks_neither() {
         .map(|at| brightness(pixel(&hatched, *at)))
         .collect();
     let spread = |row: &[u32]| row.iter().max().unwrap() - row.iter().min().unwrap();
+
     assert!(spread(&filled_row) < 20, "{filled_row:?}");
     assert!(spread(&hatched_row) > 60, "{hatched_row:?}");
     assert!(is_background(pixel(&hatched, cut_line)));
+
     let [red, green, _, _] = pixel(&whole, cut_line);
+
     assert!(red > 200 && green < 80, "the line was {red} {green}");
     assert_eq!(whole.pick.hits[0].id, PickId::from_index(0).unwrap());
     assert!(hatched.pick.hits.is_empty(), "{:?}", hatched.pick.hits);
@@ -773,6 +816,7 @@ fn a_see_through_face_is_not_capped_in_the_pick_pass_so_a_click_reaches_what_is_
     let through_hole = view.project(Point3::new(5.0, 10.0, 0.0)).unwrap();
     let below = PickId::from_index(24).unwrap();
     let mut scene = sectioned_box(CutFace::Filled, Vector3::Z);
+
     Arc::make_mut(&mut scene.meshes[0].faces)[5].color =
         Color::from_rgb8(40, 200, 40).with_alpha(0.0);
     scene.meshes.push(MeshInstance {
@@ -790,6 +834,7 @@ fn a_see_through_face_is_not_capped_in_the_pick_pass_so_a_click_reaches_what_is_
     let rendered = render(&device, &queue, &view, &scene, through_hole);
 
     let [red, green, blue, _] = pixel(&rendered, through_hole);
+
     assert!(
         red > 40 && red > green * 2 && red > blue * 2,
         "the box behind the see-through face was {red} {green} {blue}"
@@ -811,6 +856,7 @@ fn a_mesh_that_is_not_closed_is_cut_without_a_cap_so_its_far_side_is_seen_and_pi
     let on_cap = view.project(Point3::new(5.0, 10.0, 0.0)).unwrap();
     let open = |closed: bool| {
         let mut scene = sectioned_box(CutFace::Filled, Vector3::Z);
+
         scene.meshes[0].mesh = Arc::new(box_mesh(20.0).with_closed(closed));
         scene
     };
@@ -823,7 +869,9 @@ fn a_mesh_that_is_not_closed_is_cut_without_a_cap_so_its_far_side_is_seen_and_pi
         !sheet.pick.hits.is_empty(),
         "the far side of the sheet was capped"
     );
+
     let [red, green, blue, _] = pixel(&sheet, on_cap);
+
     assert!(
         green > 40 && green > red * 2 && green > blue * 2,
         "the far side was {red} {green} {blue}"
@@ -897,6 +945,7 @@ fn face_colours_and_the_eye_follow_every_frame_with_one_renderer() {
         f64::from(SIZE),
     );
     let middle = DVec2::splat(f64::from(SIZE) / 2.0);
+
     let mut shown = |view: &View, scene: &Scene| {
         let rendered = render_with(
             &mut renderer,
@@ -1038,6 +1087,7 @@ fn a_line_dashed_where_hidden_also_draws_dashed_where_a_face_covers_it_and_picks
     let open_dashed = render(&device, &queue, &view, &dashed, in_the_open);
 
     let (covered_red, covered_gaps) = red_along(&covered, covered_span.0, covered_span.1);
+
     assert!(
         covered_red > 0 && covered_gaps > 0,
         "covered {covered_red} red and {covered_gaps} gaps"
@@ -1063,6 +1113,7 @@ fn batches_outside_the_view_are_culled_but_a_mark_reaching_into_the_pick_window_
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
     let cursor = DVec2::new(100.0, 100.0);
     let diameter = 40.0;
+
     let beside = view
         .unproject(
             cursor + DVec2::new(crate::picking::PICK_RADIUS_POINTS + diameter * 0.25, 0.0),
@@ -1077,6 +1128,7 @@ fn batches_outside_the_view_are_culled_but_a_mark_reaching_into_the_pick_window_
         layer: Layer::Model,
         pick: PickId::from_index(pick),
     };
+
     let scene = Scene {
         batches: vec![
             Arc::new(Batch {
@@ -1167,16 +1219,21 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
     let on_fill = render(&device, &queue, &view, &scene, fill_inside);
 
     let [red, green, blue, _] = pixel(&on_line, line_inside);
+
     assert!(
         red > 230 && green < 40 && blue < 40,
         "the line inside the box was hidden or tinted: {red} {green} {blue}"
     );
+
     let [red, green, blue, _] = pixel(&on_line, marker_inside);
+
     assert!(
         red > 200 && green > 200 && blue > 200,
         "the marker inside the box was hidden: {red} {green} {blue}"
     );
+
     let [red, _, blue, _] = pixel(&on_line, fill_inside);
+
     assert!(blue > red + 10, "the fill inside the box was hidden");
     assert_eq!(on_line.pick.hits[0].id, PickId::from_index(0).unwrap());
     assert_eq!(on_line.pick.hits[0].offset_points, 0.0);
@@ -1242,6 +1299,7 @@ fn reference_fills_are_picked_only_where_nothing_else_is() {
     };
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+
     let first_hit = |at: Point3| {
         render(&device, &queue, &view, &scene, view.project(at).unwrap())
             .pick
@@ -1251,13 +1309,16 @@ fn reference_fills_are_picked_only_where_nothing_else_is() {
     };
 
     let (id, position) = first_hit(Point3::new(12.0, 12.0, 20.0)).unwrap();
+
     assert_eq!(id, top_face);
     assert!(position.distance(Point3::new(12.0, 12.0, 20.0)) < 0.5);
 
     let (id, _) = first_hit(Point3::new(0.0, 0.0, 20.0)).unwrap();
+
     assert_eq!(id, PickId::from_index(3).unwrap());
 
     let (id, position) = first_hit(Point3::new(45.0, 45.0, 40.0)).unwrap();
+
     assert_eq!(id, PickId::from_index(1).unwrap());
     assert!((position.z - 40.0).abs() < 0.5, "{position:?}");
 }
@@ -1287,8 +1348,10 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_wakes_the_app_a
     });
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
     let scene = scene();
+
     let draw = |renderer: &mut ViewportRenderer| {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
         renderer.draw(
             &device,
             &queue,
@@ -1315,9 +1378,13 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_wakes_the_app_a
     };
 
     let idle = renderer.picking().is_answered(&device);
+
     drop(draw(&mut renderer));
+
     let pending = renderer.picking().poll(&device);
+
     renderer.picking().abandon_unsubmitted();
+
     let abandoned_is_answered = renderer.picking().is_answered(&device);
     let abandoned = renderer.picking().poll(&device);
     let encoder = draw(&mut renderer);
@@ -1327,9 +1394,12 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_wakes_the_app_a
         counted.fetch_add(1, Ordering::SeqCst);
     });
     let submission = queue.submit([encoder.finish()]);
+
     renderer.picking().after_submit(&device, &wake, submission);
+
     let woken = (0..5_000).any(|_| {
         let woken = wakes.load(Ordering::SeqCst) > 0;
+
         if !woken {
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -1337,6 +1407,7 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_wakes_the_app_a
     });
     let answered = (0..5_000).any(|_| {
         let answered = renderer.picking().is_answered(&device);
+
         if !answered {
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -1376,8 +1447,10 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+
     let mut draw = |scene: &Scene, size: f32| {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
         renderer.draw(
             &device,
             &queue,
@@ -1422,12 +1495,15 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
 
     draw(&scene, SIZE as f32);
     drop(scene);
+
     assert_eq!(Arc::strong_count(&mesh), 3);
 
     draw(&Scene::default(), 0.0);
+
     assert_eq!(Arc::strong_count(&mesh), 3);
 
     draw(&Scene::default(), SIZE as f32);
+
     assert_eq!(Arc::strong_count(&mesh), 1);
 }
 
@@ -1445,9 +1521,13 @@ fn a_buffer_grows_with_headroom_and_shrinks_back_once_an_upload_fills_under_a_qu
 
     let written = buffer.upload(&device, &queue, floats(100_000));
     let grown = buffer.size();
+
     buffer.upload(&device, &queue, floats(50_000));
+
     let after_half = buffer.size();
+
     buffer.upload(&device, &queue, floats(10));
+
     let after_small = buffer.size();
 
     assert_eq!(written, 100_000);
@@ -1488,9 +1568,11 @@ fn a_viewport_away_from_the_corner_draws_and_picks_inside_its_rect_only() {
     let corner = DVec2::new(f64::from(rect.x), f64::from(rect.y));
     let view = looking_down(100.0, f64::from(rect.width), f64::from(rect.height));
     let mut scene = line_and_marker();
+
     batch_of(&mut scene)
         .fills
         .push(square_fill(-1.0, 500.0, Layer::Reference, 5));
+
     let on_line = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap();
     let marker = view.project(Point3::new(10.0, 20.0, 0.0)).unwrap();
 
@@ -1510,17 +1592,23 @@ fn a_viewport_away_from_the_corner_draws_and_picks_inside_its_rect_only() {
     assert_eq!(nearest.id, PickId::from_index(0).unwrap());
     assert_eq!(nearest.offset_points, 0.0);
     assert!(nearest.position.distance(Point3::new(-10.0, 0.0, 0.0)) < 0.5);
+
     let [red, green, blue, _] = pixel(&rendered, corner + on_line);
+
     assert!(
         red > 200 && green < 80 && blue < 80,
         "line pixel was {red} {green} {blue}"
     );
+
     let [red, green, blue, _] = pixel(&rendered, corner + marker);
+
     assert!(
         red > 200 && green > 200 && blue > 200,
         "marker pixel was {red} {green} {blue}"
     );
+
     let [red, _, blue, _] = pixel(&rendered, corner + DVec2::new(5.0, 5.0));
+
     assert!(blue > red, "the fill did not reach the viewport's corner");
     for outside in [
         DVec2::new(10.0, 10.0),
@@ -1575,6 +1663,7 @@ fn markers_are_round_and_picked_only_where_they_cover() {
     );
 
     let [red, green, blue, _] = pixel(&at_center, center);
+
     assert!(red > 240 && green > 240 && blue > 240);
     assert!(is_background(pixel(
         &at_center,
@@ -1587,6 +1676,7 @@ fn markers_are_round_and_picked_only_where_they_cover() {
     assert_eq!(at_center.pick.hits[0].id, marker);
     assert_eq!(at_center.pick.hits[0].offset_points, 0.0);
     assert!(at_center.pick.hits[0].position.distance(Point3::ZERO) < 0.5);
+
     let offset = |rendered: &Rendered| {
         rendered
             .pick
@@ -1596,6 +1686,7 @@ fn markers_are_round_and_picked_only_where_they_cover() {
             .unwrap()
             .offset_points
     };
+
     assert!(
         (2.0..5.0).contains(&offset(&diagonal)),
         "{}",
@@ -1629,6 +1720,7 @@ fn a_marker_with_no_colour_draws_nothing_but_is_still_picked() {
         ..Scene::default()
     };
     let mut over = under.clone();
+
     batch_of(&mut over).markers.push(Marker {
         position: Point3::ZERO,
         color: Color::from_rgba8(0, 0, 0, 0),
@@ -1636,6 +1728,7 @@ fn a_marker_with_no_colour_draws_nothing_but_is_still_picked() {
         layer: Layer::Model,
         pick: Some(unmarked),
     });
+
     let center = view.project(Point3::ZERO).unwrap();
 
     let without = render(&device, &queue, &view, &under, center);
@@ -1679,6 +1772,7 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
         .into(),
         placement: None,
     };
+
     let both = Scene {
         meshes: vec![solid.clone()],
         translucent_meshes: vec![glass],
@@ -1698,6 +1792,7 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
     let [_, green, ..] = pixel(&through, middle);
     let [_, bare_green, ..] = pixel(&bare, middle);
     let [rim_red, rim_green, ..] = pixel(&at_rim, rim);
+
     assert!(
         green > bare_green + 20,
         "the glass added {green} over {bare_green}"
@@ -1743,6 +1838,7 @@ fn an_overlay_mesh_shows_through_whatever_covers_it_and_is_never_picked() {
         .into(),
         placement: None,
     };
+
     let both = Scene {
         meshes: vec![cover.clone()],
         overlay_meshes: vec![inside],
@@ -1759,6 +1855,7 @@ fn an_overlay_mesh_shows_through_whatever_covers_it_and_is_never_picked() {
 
     let [_, green, ..] = pixel(&through, middle);
     let [_, bare_green, ..] = pixel(&bare, middle);
+
     assert!(
         green > bare_green + 40,
         "the covered overlay added {green} over {bare_green}"
@@ -1774,6 +1871,7 @@ fn a_flat_mesh_shows_its_colour_unlit_hides_what_is_behind_it_and_is_picked() {
     let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
     let paper = Color::from_rgb8(236, 238, 242);
     let face_pick = PickId::from_index(0).unwrap();
+
     let flat = MeshInstance {
         mesh: Arc::new(box_mesh(40.0)),
         faces: vec![
@@ -1858,6 +1956,7 @@ fn half_covered_column(
             None,
         )
     };
+
     let scene = Scene::from(Batch {
         fills: vec![
             quad(half_pixel, 40.0, Color::from_rgb8(255, 255, 255)),
@@ -1867,7 +1966,9 @@ fn half_covered_column(
     });
     let centre = view.project(Point3::ZERO).unwrap();
     let mut renderer = viewport_renderer(device, 4);
+
     renderer.set_linear_resolve(linear);
+
     let rendered = render_with(
         &mut renderer,
         device,
@@ -1904,9 +2005,11 @@ fn multisampled_edges_resolve_in_linear_light_and_opaque_colours_keep_their_byte
     let Some((device, queue)) = gpu() else {
         return;
     };
+
     if !linear_resolve() {
         return;
     }
+
     let canvas = [
         crate::viewport::BACKGROUND.r,
         crate::viewport::BACKGROUND.g,
@@ -1998,9 +2101,12 @@ fn silhouetted(mesh: &Arc<ShadedMesh>, with_faces: bool) -> Scene {
 fn red_runs(rendered: &Rendered, pixels: impl Iterator<Item = DVec2>) -> Vec<f64> {
     let mut runs: Vec<(f64, f64)> = Vec::new();
     let mut previous = false;
+
     for at in pixels {
         let [red, green, _, _] = pixel(rendered, at);
+
         let lit = i32::from(red) - i32::from(green) > 100;
+
         match (lit, previous, runs.last_mut()) {
             (true, true, Some((sum, count))) => {
                 *sum += at.y;
@@ -2028,6 +2134,7 @@ fn a_cylinder_seen_side_on_shows_its_silhouette_wherever_the_view_turns() {
     );
     let middle = top.project(Point3::ZERO).unwrap();
     let side = top.project(Point3::new(0.0, 15.0, 0.0)).unwrap();
+
     let across = |view: &View, scene: &Scene| {
         let centre = view.project(Point3::ZERO).unwrap();
         let rendered = render(&device, &queue, view, scene, centre);
@@ -2071,9 +2178,12 @@ fn a_cylinder_seen_side_on_shows_its_silhouette_wherever_the_view_turns() {
 fn red_run_count(rendered: &Rendered, pixels: impl Iterator<Item = DVec2>) -> usize {
     let mut previous = false;
     let mut runs = 0;
+
     for at in pixels {
         let [red, green, _, _] = pixel(rendered, at);
+
         let lit = i32::from(red) - i32::from(green) > 100;
+
         if lit && !previous {
             runs += 1;
         }
@@ -2101,8 +2211,10 @@ fn a_silhouette_dashed_where_hidden_shows_dashes_only_where_a_face_covers_it_and
         .into(),
         placement: None,
     };
+
     let scene = |dashed_where_hidden: bool| {
         let mut scene = silhouetted(&cylinder, true);
+
         scene.meshes.push(covering.clone());
         if let Some(silhouette) = scene.silhouettes.first_mut() {
             silhouette.dashed_where_hidden = dashed_where_hidden;
@@ -2115,6 +2227,7 @@ fn a_silhouette_dashed_where_hidden_shows_dashes_only_where_a_face_covers_it_and
     let box_side = view.project(Point3::new(18.0, 15.0, 0.0)).unwrap().x;
     let open_end = view.project(Point3::new(29.0, 15.0, 0.0)).unwrap().x;
     let open_start = view.project(Point3::new(22.0, 15.0, 0.0)).unwrap().x;
+
     let covered_row = |rendered: &Rendered| {
         let half = box_side - under_face.x;
         red_run_count(rendered, row(under_face.y, under_face.x, half))
@@ -2153,8 +2266,10 @@ fn flat_faces_upload_no_silhouette_and_curved_ones_upload_theirs() {
     let flat = Arc::new(box_mesh(20.0));
     let curved = Arc::new(cylinder(15.0, 60.0, 48));
     let mut renderer = viewport_renderer(&device, 4);
+
     let mut silhouettes_of = |mesh: &Arc<ShadedMesh>| {
         let scene = silhouetted(mesh, true);
+
         render_with(
             &mut renderer,
             &device,
@@ -2281,6 +2396,7 @@ fn invisible_lines_and_markers_stay_out_of_the_colour_pass_but_are_still_picked(
         layer: Layer::Model,
         pick: Some(pick),
     };
+
     let scene = Scene::from(Batch {
         lines: vec![line(10.0, 0, picks[0]), line(-10.0, 255, picks[1])],
         markers: vec![marker(10.0, 0, picks[2]), marker(-10.0, 255, picks[3])],
@@ -2399,6 +2515,7 @@ fn a_face_on_the_grid_plane_hides_the_grid_and_a_reference_fill_without_speckles
     let rendered = render(&device, &queue, &view, &scene, centre);
 
     let mut tainted = Vec::new();
+
     for step_x in -30..=30 {
         for step_y in -30..=30 {
             let at = Point3::new(f64::from(step_x), f64::from(step_y), 0.0);
@@ -2411,6 +2528,7 @@ fn a_face_on_the_grid_plane_hides_the_grid_and_a_reference_fill_without_speckles
             }
         }
     }
+
     assert!(
         tainted.is_empty(),
         "{} tainted, first {:?}",
@@ -2444,6 +2562,7 @@ fn an_edge_beyond_a_face_seen_at_a_grazing_angle_is_not_eaten_by_it() {
         pick: PickId::from_index(1),
         stroke: Stroke::Solid,
     };
+
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::new(box_mesh(20.0)),
@@ -2479,6 +2598,7 @@ fn an_edge_beyond_a_face_seen_at_a_grazing_angle_is_not_eaten_by_it() {
             reddest(at) == 0
         })
         .collect();
+
     assert!(
         missing.is_empty(),
         "the far edge is hidden at y {missing:?}"
@@ -2527,6 +2647,7 @@ fn lines_crossing_the_near_plane_are_cut_there_and_lines_behind_the_eye_vanish()
         ..Scene::default()
     };
     let near_the_eye = Point3::new(-10.0, 0.0, 50.0);
+
     let visible = view.project(near_the_eye).unwrap();
     let start = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap();
 
@@ -2540,19 +2661,25 @@ fn lines_crossing_the_near_plane_are_cut_there_and_lines_behind_the_eye_vanish()
     );
 
     let [red, green, _, _] = pixel(&rendered, visible);
+
     assert!(
         red > 200 && green < 80,
         "the line in front of the eye was hidden"
     );
+
     let [red, green, _, _] = pixel(&rendered, start - DVec2::new(2.0, 0.0));
+
     assert!(red > 200 && green < 80, "the line's visible end was hidden");
+
     for column in (start.x.ceil() as u32 + 3)..SIZE {
         assert!(
             is_background(pixel(&rendered, DVec2::new(f64::from(column), start.y))),
             "column {column} beyond the line's visible end was drawn on"
         );
     }
+
     let hit = rendered.pick.hits[0];
+
     assert_eq!(hit.id, crossing);
     assert!(hit.position.distance(near_the_eye) < 1.0, "{hit:?}");
     assert!(behind.pick.hits.is_empty(), "{:?}", behind.pick.hits);
@@ -2587,6 +2714,7 @@ fn faces_that_cannot_be_picked_hide_faces_and_reference_fills_as_pickable_ones_d
             .collect(),
         placement: None,
     };
+
     let scene = Scene {
         meshes: vec![unpickable, behind],
         batches: vec![Arc::new(Batch {
@@ -2596,6 +2724,7 @@ fn faces_that_cannot_be_picked_hide_faces_and_reference_fills_as_pickable_ones_d
         ..Scene::default()
     };
     let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
+
     let first_hit = |at: Point3| {
         render(&device, &queue, &view, &scene, view.project(at).unwrap())
             .pick
@@ -2635,9 +2764,11 @@ fn a_failed_readback_replaces_the_pick_buffer_and_the_next_pick_is_read() {
         view_formats: &[],
     });
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
     let frame = full_frame(&view, &scene, on_line);
     let pick = |renderer: &mut ViewportRenderer, lose_readback: bool| {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
         renderer.draw(
             &device,
             &queue,
@@ -2649,7 +2780,9 @@ fn a_failed_readback_replaces_the_pick_buffer_and_the_next_pick_is_read() {
             },
             Some(&frame),
         );
+
         let submission = queue.submit([encoder.finish()]);
+
         renderer
             .picking()
             .after_submit(&device, &no_wake(), submission);
@@ -2694,6 +2827,7 @@ fn strip_mesh(quads: u32, length: f64) -> ShadedMesh {
 #[test]
 fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
     const BUFFER_LIMIT: u64 = 256 * 1024;
+
     let Some((device, queue)) = gpu_with(wgpu::Limits {
         max_buffer_size: BUFFER_LIMIT,
         max_texture_dimension_2d: 256,
@@ -2732,6 +2866,7 @@ fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
             )
         })
         .collect();
+
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::clone(&mesh),
@@ -2774,6 +2909,7 @@ fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
 
     for (rendered, at) in [(&at_near_end, near_end), (&at_far_end, far_end)] {
         let [red, green, blue, _] = pixel(rendered, view.project(at).unwrap());
+
         assert!(
             green > 60 && green > red * 2 && green > blue * 2,
             "the strip at {at} was {red} {green} {blue}"
@@ -2784,7 +2920,9 @@ fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
             rendered.pick.hits
         );
     }
+
     let [red, green, _, _] = pixel(&on_the_lines, view.project(on_lines).unwrap());
+
     assert!(red > 200 && green < 80, "the lines were {red} {green}");
     assert!(on_the_lines.pick.hits[0].id.index() < many);
 }
@@ -2810,6 +2948,7 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
         pick: PickId::from_index(index),
         stroke: Stroke::Solid,
     };
+
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::new(box_mesh(20.0)),
@@ -2838,6 +2977,7 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE))
         .with_projection(Projection::Orthographic);
     let top = Point3::new(0.0, 10.0, 20.0);
+
     let on_top = view.project(top).unwrap();
     let edge_on_top = view.project(Point3::new(10.0, 0.0, 20.0)).unwrap();
     let edge_beside = view.project(Point3::new(26.0, 0.0, 20.0)).unwrap();
@@ -2850,6 +2990,7 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
     let rendered = render(&device, &queue, &view, &scene, on_top);
 
     let nearest = rendered.pick.hits[0];
+
     assert!(view.view_depth(top) < 0.0);
     assert_eq!(nearest.id, PickId::from_index(14).unwrap());
     assert!(
@@ -2876,6 +3017,7 @@ fn polyline(points: &[Point3], alpha: u8, dashed: bool) -> Vec<Line> {
             } else {
                 Stroke::Solid
             };
+
             along += start.distance(end) as f32;
             Some(Line {
                 start,
@@ -2920,6 +3062,7 @@ fn polylines_join_round_where_their_segments_meet_and_translucent_ones_blend_onc
     let offset = |x: f64, y: f64| Vector3::new(x, y, 0.0) * pixel_size;
     let corner = Point3::ZERO;
     let far_end = Point3::new(0.0, 20.0, 0.0);
+
     let turn = [Point3::new(-20.0, 0.0, 0.0), corner, far_end];
     let hairpin = [
         Point3::new(-20.0, 0.0, 0.0),
@@ -2954,6 +3097,7 @@ fn polylines_join_round_where_their_segments_meet_and_translucent_ones_blend_onc
         assert!(red_at(&opaque, corner + offset(2.5, -2.5))[0] > 200);
         assert!(red_at(&opaque, far_end + offset(0.0, 2.5))[0] > 200);
         assert!(once[0] > 120 && once[0] < 230, "{once:?}");
+
         for inside in [
             corner,
             corner + offset(-1.5, 1.5),
@@ -2962,8 +3106,10 @@ fn polylines_join_round_where_their_segments_meet_and_translucent_ones_blend_onc
         ] {
             assert_eq!(red_at(&translucent, inside), once, "at {inside}");
         }
+
         assert!(red_at(&translucent, corner + offset(3.5, -3.5))[0] < once[0]);
         assert!(red_at(&translucent, far_end + offset(0.0, 2.5))[0] < 100);
+
         for inside in [
             corner,
             corner + offset(-3.0, 0.5),
@@ -3036,6 +3182,7 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
         return;
     };
     let (device, queue) = (&opened.device, &opened.queue);
+
     let offered = gpu::offered_msaa(
         &opened.adapter,
         device,
@@ -3076,8 +3223,10 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
 
     assert!(offered.contains(&Msaa::Off));
     assert!(offered.contains(&Msaa::X4), "{offered:?}");
+
     for &level in &offered {
         renderer.set_sample_count(device, level.samples());
+
         let edges = render_with(
             &mut renderer,
             device,
@@ -3092,9 +3241,13 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
         );
 
         assert_eq!(renderer.sample_count(), level.samples());
+
         let softened = partly_covered_pixels(&edges);
+
         assert!(softened > 40, "{level:?} softened only {softened} pixels");
+
         let [red, green, blue, _] = pixel(&front, inside);
+
         assert!(
             red > 230 && green < 40 && blue < 40,
             "{level:?}: the front line inside the box was {red} {green} {blue}"
@@ -3110,8 +3263,10 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
     }
 
     let built = renderer.work().pipeline_builds;
+
     for level in offered.iter().rev() {
         renderer.set_sample_count(device, level.samples());
+
         let again = render_with(
             &mut renderer,
             device,
@@ -3159,8 +3314,10 @@ fn enhanced_shading_sets_faces_apart_keeps_their_tint_and_keeps_dimmed_bodies_da
         Point3::new(20.0, 0.0, 0.0),
     ]
     .map(|point| view.project(point).unwrap());
+
     let mut shade = |shading: Shading, scene: &Scene| {
         renderer.set_shading(shading);
+
         let rendered = render_with(
             &mut renderer,
             &device,
@@ -3183,6 +3340,7 @@ fn enhanced_shading_sets_faces_apart_keeps_their_tint_and_keeps_dimmed_bodies_da
             "{red} {green} {blue}"
         );
     }
+
     assert!(
         standard
             .iter()
@@ -3190,16 +3348,20 @@ fn enhanced_shading_sets_faces_apart_keeps_their_tint_and_keeps_dimmed_bodies_da
             .any(|(a, b)| a[1].abs_diff(b[1]) > 6),
         "{standard:?} {enhanced:?}"
     );
+
     let greens = enhanced.map(|[_, green, _, _]| green);
+
     assert!(greens[0].abs_diff(greens[1]) > 5, "{greens:?}");
     assert!(greens[1].abs_diff(greens[2]) > 5, "{greens:?}");
     assert!(greens[0].abs_diff(greens[2]) > 5, "{greens:?}");
+
     for (body, dimmed) in lit_body.into_iter().zip(lit_dimmed) {
         assert!(
             brightness(dimmed) + 60 < brightness(body),
             "{body:?} {dimmed:?}"
         );
     }
+
     assert_eq!(pick.hits[0].id, PickId::from_index(14).unwrap());
 }
 
@@ -3258,6 +3420,7 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
     let view = looking_down(150.0, f64::from(size.width), f64::from(size.height));
     let on_top = view.project(Point3::new(0.0, 0.0, 20.0)).unwrap();
     let corner = DVec2::new(2.0, 2.0);
+
     let request = |background| ImageRequest {
         size,
         view: &view,
@@ -3290,6 +3453,7 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
         64,
     );
     let swapped = export_image(&bgra, &device, &queue, &request(Background::Viewport), 128);
+
     let differing = whole
         .pixels
         .as_chunks::<4>()
@@ -3302,7 +3466,9 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
 
     assert_eq!((whole.width, whole.height), (300, 180));
     assert_eq!(whole.pixels.len(), 300 * 180 * 4);
+
     let [red, green, blue, alpha] = image_pixel(&whole, on_top);
+
     assert!(
         green > 60 && green > red * 2 && green > blue * 2 && alpha == 255,
         "the top of the box was {red} {green} {blue} {alpha}"
@@ -3317,7 +3483,9 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
             .zip(image_pixel(&whole, on_top))
             .all(|(a, b)| a.abs_diff(b) <= 1)
     );
+
     let [red, green, blue, _] = image_pixel(&swapped, on_top);
+
     assert!(
         green > red * 2 && green > blue * 2,
         "a BGRA target gave {red} {green} {blue}"
@@ -3363,6 +3531,7 @@ fn an_exported_image_streams_in_bands_through_a_few_reused_readback_buffers() {
     };
     let scene = green_box_scene();
     let view = looking_down(150.0, f64::from(size.width), f64::from(size.height));
+
     let request = ImageRequest {
         size,
         view: &view,
@@ -3381,11 +3550,14 @@ fn an_exported_image_streams_in_bands_through_a_few_reused_readback_buffers() {
     .unwrap();
     let mut streamed = Vec::new();
     let mut rows = Vec::new();
+
     while let Some(band) = bands.next_band() {
         let band = band.unwrap();
+
         rows.push(band.len() / (300 * 4));
         streamed.extend_from_slice(band);
     }
+
     let made = bands.buffers_made();
     let collected = export_image(&renderer, &device, &queue, &request, 64);
 
@@ -3405,6 +3577,7 @@ fn image_tiles_wake_for_each_returned_buffer_and_stop_once_the_bands_are_dropped
     };
     let scene = green_box_scene();
     let view = looking_down(150.0, f64::from(size.width), f64::from(size.height));
+
     let request = ImageRequest {
         size,
         view: &view,
@@ -3426,12 +3599,17 @@ fn image_tiles_wake_for_each_returned_buffer_and_stop_once_the_bands_are_dropped
         }),
     )
     .unwrap();
+
     tiles.advance();
+
     let drawn_first = tiles.buffers_made();
     let first = bands.next_band().unwrap().unwrap().len();
     let woken_by_the_first_band = wakes.load(Ordering::SeqCst);
+
     tiles.advance();
+
     let made = tiles.buffers_made();
+
     drop(bands);
     tiles.advance();
 
@@ -3454,6 +3632,7 @@ fn every_adapter_preference_opens_a_device_when_any_adapter_exists() {
             adapter,
             ..crate::GraphicsSettings::default()
         });
+
         assert!(opened.is_ok(), "{adapter:?} opened no device");
     }
 }
@@ -3511,7 +3690,9 @@ fn a_window_less_renderer_draws_an_image_without_a_surface() {
         .unwrap();
 
     assert_eq!((image.width, image.height), (300, 180));
+
     let [red, green, blue, alpha] = image_pixel(&image, on_top);
+
     assert!(
         green > 60 && green > red * 2 && green > blue * 2 && alpha == 255,
         "the top of the box was {red} {green} {blue} {alpha}"
@@ -3522,11 +3703,13 @@ fn a_window_less_renderer_draws_an_image_without_a_surface() {
 
 fn offscreen_renderer() -> Option<crate::OffscreenRenderer> {
     let opened = crate::OffscreenRenderer::new(crate::GraphicsSettings::default());
+
     if opened.is_err() {
         assert!(
             std::env::var_os(REQUIRE_GPU).is_none(),
             "no graphics adapter is available, and {REQUIRE_GPU} says the offscreen tests must run"
         );
+
         eprintln!("no graphics adapter available, skipping the offscreen test");
     }
     opened.ok()
@@ -3561,6 +3744,7 @@ fn a_window_less_renderer_draws_a_scene_s_pictures_behind_bodies_or_in_front_of_
     let view = looking_down(150.0, f64::from(size.width), f64::from(size.height));
     let on_the_box = view.project(Point3::new(0.0, 0.0, 10.0)).unwrap();
     let beside_the_box = view.project(Point3::new(20.0, -20.0, 0.0)).unwrap();
+
     let mut drawn = |in_front: bool| {
         renderer
             .render(&ImageRequest {
@@ -3597,6 +3781,7 @@ fn lines_in_an_exported_image_widen_with_its_pixels_per_point() {
     let scene = line_and_marker();
     let across = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap();
     let renderer = viewport_renderer(&device, 1);
+
     let width = |pixels_per_point: f32| {
         let image = export_image(
             &renderer,
@@ -3734,7 +3919,9 @@ fn silhouettes_of(meshes: &[MeshInstance]) -> Vec<Silhouette> {
 
 fn hovered(scene: &Scene, frame: u32) -> Scene {
     let mut hovered = scene.clone();
+
     let count = hovered.meshes.len() as u32;
+
     if let Some(instance) = hovered.meshes.get_mut((frame % count.max(1)) as usize)
         && let Some(face) =
             Arc::make_mut(&mut instance.faces).get_mut((frame % LARGE_MESH_SIDE) as usize)
@@ -3798,15 +3985,19 @@ impl<'a> Bench<'a> {
         if std::env::var("CADITOR_BENCH_CASE").is_ok_and(|only| !name.contains(&only)) {
             return;
         }
+
         let (device, queue) = (self.device, self.queue);
         let mut renderer = viewport_renderer(device, 4);
+
         if let Some(bytes) = upload_bytes {
             renderer.set_mesh_upload_bytes(bytes);
         }
+
         let mut elapsed = Duration::ZERO;
         let mut worst = Duration::ZERO;
         let mut waited = Duration::ZERO;
         let mut uploading_frames = 0;
+
         for frame in 0..BENCH_FRAMES + BENCH_WARM_UP {
             let shown = frames(frame);
             let view = View::new(
@@ -3818,6 +4009,7 @@ impl<'a> Bench<'a> {
             let started = Instant::now();
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
             renderer.draw(
                 device,
                 queue,
@@ -3840,17 +4032,24 @@ impl<'a> Bench<'a> {
                     pixels_per_point: 1.0,
                 }),
             );
+
             let submission = queue.submit([encoder.finish()]);
+
             renderer.after_submit(device, &no_wake(), submission);
+
             let submitted = Instant::now();
+
             device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+
             let polled = Instant::now();
+
             if shown.pick_at.is_some() {
                 assert!(matches!(
                     answered_pick(renderer.picking(), device),
                     crate::PickPoll::Ready(_)
                 ));
             }
+
             let spent = (submitted - started) + polled.elapsed();
 
             if frame >= BENCH_WARM_UP {
@@ -3926,6 +4125,7 @@ fn frame_costs_of_drawing_a_large_scene() {
     let Some((device, queue)) = gpu() else {
         return;
     };
+
     let bench = Bench::new(&device, &queue);
 
     let meshes = large_meshes();
@@ -3950,6 +4150,7 @@ fn frame_costs_of_drawing_a_large_scene() {
             ..instance.clone()
         })
         .collect();
+
     let reshown = Scene {
         silhouettes: silhouettes_of(&reshown_meshes),
         meshes: reshown_meshes,
@@ -4038,6 +4239,7 @@ fn frame_costs_of_drawing_a_large_scene() {
         viewpoint,
         pick_at: None,
     };
+
     bench.time("2,000 small meshes, idle", None, |_| {
         small_frame(small_view)
     });
@@ -4052,9 +4254,11 @@ fn frame_costs_of_the_rendered_view() {
     let Some((device, queue)) = gpu() else {
         return;
     };
+
     let bench = Bench::new(&device, &queue);
 
     let mut scene = small_meshes();
+
     for instance in &mut scene.meshes {
         instance.faces = instance
             .faces
@@ -4066,6 +4270,7 @@ fn frame_costs_of_the_rendered_view() {
             .collect();
     }
     scene.silhouettes.clear();
+
     let viewpoint = Viewpoint::looking_from(
         Vector3::new(0.6, -0.8, 0.7),
         Point3::new(300.0, 240.0, 0.0),
@@ -4074,6 +4279,7 @@ fn frame_costs_of_the_rendered_view() {
     .unwrap();
     let lit = |shadows: bool, bounce: f32, occlusion: f32, floor: bool| {
         let mut shown = scene.clone();
+
         shown.lighting = Some(crate::Lighting {
             shadows,
             bounce,
@@ -4150,15 +4356,18 @@ fn a_mesh_over_the_frame_budget_uploads_across_frames_while_the_one_it_replaces_
     let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
     let on_top = view.project(Point3::new(0.0, 10.0, 20.0)).unwrap();
     let mut renderer = viewport_renderer(&device, 4);
+
     let first = render_with(
         &mut renderer,
         &device,
         &queue,
         &full_frame(&view, &shown, on_top),
     );
+
     renderer.set_mesh_upload_bytes(200);
 
     let mut while_uploading = Vec::new();
+
     let finished = loop {
         let rendered = render_with(
             &mut renderer,
@@ -4166,18 +4375,22 @@ fn a_mesh_over_the_frame_budget_uploads_across_frames_while_the_one_it_replaces_
             &queue,
             &full_frame(&view, &replacing, on_top),
         );
+
         if !renderer.is_uploading() {
             break rendered;
         }
         while_uploading.push(rendered);
+
         assert!(while_uploading.len() < 10);
     };
+
     render_with(
         &mut renderer,
         &device,
         &queue,
         &full_frame(&view, &shown, on_top),
     );
+
     let shown_again_uploading = renderer.is_uploading();
     let exported = export_image(
         &renderer,
@@ -4201,10 +4414,12 @@ fn a_mesh_over_the_frame_budget_uploads_across_frames_while_the_one_it_replaces_
     assert!(greenest(pixel(&first, on_top)));
     assert_eq!(first.pick.hits[0].id, PickId::from_index(14).unwrap());
     assert!(while_uploading.len() >= 3, "{}", while_uploading.len());
+
     for rendered in &while_uploading {
         assert!(greenest(pixel(rendered, on_top)));
         assert!(rendered.pick.hits.is_empty(), "{:?}", rendered.pick.hits);
     }
+
     assert!(reddest(pixel(&finished, on_top)));
     assert_eq!(finished.pick.hits[0].id, PickId::from_index(24).unwrap());
     assert!(shown_again_uploading);
@@ -4240,6 +4455,7 @@ fn an_unchanged_scene_is_uploaded_and_drawn_once_and_the_camera_moves_without_up
         f64::from(SIZE),
         f64::from(SIZE),
     );
+
     let first_at = first_view.project(marker_at(&scene)).unwrap();
     let turned_at = turned_view.project(marker_at(&scene)).unwrap();
     let mut renderer = viewport_renderer(&device, 4);
@@ -4323,6 +4539,7 @@ fn only_a_changed_batch_is_uploaded_again_and_a_dropped_one_stops_drawing() {
     let left = view.project(Point3::new(-10.0, 20.0, 0.0)).unwrap();
     let right = view.project(Point3::new(10.0, 20.0, 0.0)).unwrap();
     let mut renderer = viewport_renderer(&device, 4);
+
     let mut draw = |scene: &Scene| {
         render_with(
             &mut renderer,
@@ -4371,6 +4588,7 @@ fn batches_are_kept_by_identity_so_one_coming_or_going_uploads_only_itself() {
     };
     let fourth_at = view.project(Point3::new(10.0, 20.0, 0.0)).unwrap();
     let mut renderer = viewport_renderer(&device, 4);
+
     let mut draw = |scene: &Scene| {
         let drawn = render_with(
             &mut renderer,
@@ -4413,7 +4631,9 @@ fn new_batches_past_the_upload_budget_wait_for_the_next_frames() {
     };
     let point = view.project(Point3::new(0.0, 20.0, 0.0)).unwrap();
     let mut renderer = viewport_renderer(&device, 1);
+
     renderer.set_mesh_upload_bytes(1);
+
     let frame = |renderer: &mut ViewportRenderer| {
         render_with(renderer, &device, &queue, &full_frame(&view, &scene, point));
         (renderer.uploaded().len(), renderer.is_uploading())
@@ -4457,9 +4677,11 @@ fn edges_small_on_screen_draw_fewer_segments_and_close_ones_every_segment() {
         ..Scene::default()
     };
     let mut renderer = viewport_renderer(&device, 4);
+
     let mut levels_at = |distance: f64| {
         let view = looking_down(distance, f64::from(SIZE), f64::from(SIZE));
         let centre = DVec2::splat(f64::from(SIZE) / 2.0);
+
         render_with(
             &mut renderer,
             &device,
@@ -4506,7 +4728,9 @@ fn zooming_in_a_hundredfold_keeps_the_uploaded_scene_since_its_rounding_stays_fa
         &queue,
         &full_frame(&wide, &scene, point),
     );
+
     let anchor = renderer.anchor();
+
     render_with(
         &mut renderer,
         &device,
@@ -4545,6 +4769,7 @@ fn moving_far_from_where_the_scene_was_uploaded_uploads_it_again_as_exactly_as_e
     };
     let start = view_at(Point3::ZERO);
     let nearby = view_at(Point3::new(150.0, 0.0, 0.0));
+
     let arrived = view_at(far);
     let on_line = arrived
         .project(far + Vector3::new(-10.0, 0.0, 0.0))
@@ -4591,6 +4816,7 @@ fn translucent_fills_are_ordered_again_when_the_view_turns_over() {
         color: Color::from_rgba8(0, 255, 0, 128),
         ..square_fill(-5.0, 20.0, Layer::Model, 1)
     };
+
     let scene = Scene::from(Batch {
         fills: vec![red, green],
         ..Batch::default()
@@ -4660,6 +4886,7 @@ fn an_allocation_the_device_refuses_comes_back_as_an_error_instead_of_a_lost_enc
             mapped_at_creation: false,
         })
     });
+
     drop(buffer);
     queue.submit([]);
 
@@ -4688,8 +4915,10 @@ fn viewport_targets_the_device_refuses_are_reported_once_and_the_frame_is_still_
         view_formats: &[],
     });
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
     let mut draw = |side: u32| {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
         let faults = renderer.draw(
             &device,
             &queue,
@@ -4701,6 +4930,7 @@ fn viewport_targets_the_device_refuses_are_reported_once_and_the_frame_is_still_
             },
             None,
         );
+
         queue.submit([encoder.finish()]);
         faults
     };
@@ -4726,6 +4956,7 @@ fn a_placed_mesh_draws_and_picks_where_its_placement_puts_it() {
     let turned = RigidTransform::rotation_about(Point3::ZERO, Vector3::Z, 0.5).unwrap();
     let placement =
         turned.then(&RigidTransform::translation(Vector3::new(20.0, 0.0, 0.0)).unwrap());
+
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh,
@@ -4741,6 +4972,7 @@ fn a_placed_mesh_draws_and_picks_where_its_placement_puts_it() {
     };
     let moved_to = view.project(Point3::new(20.0, 0.0, 0.0)).unwrap();
     let left_behind = view.project(Point3::new(-4.0, -4.5, 0.0)).unwrap();
+
     let rendered = render(&device, &queue, &view, &scene, moved_to);
 
     assert!(pixel(&rendered, moved_to)[0] > 128);
@@ -4762,6 +4994,7 @@ fn a_far_placed_mesh_and_silhouette_draw_as_fresh_ones_once_the_eye_moves_within
     let far = Point3::new(4.0e6, -3.0e6, 2.0e5);
     let mesh = Arc::new(cylinder(10.0, 40.0, 24));
     let placement = RigidTransform::translation(far - Point3::ZERO);
+
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::clone(&mesh),
@@ -4797,6 +5030,7 @@ fn a_far_placed_mesh_and_silhouette_draw_as_fresh_ones_once_the_eye_moves_within
         &queue,
         &full_frame(&start, &scene, on_mesh),
     );
+
     let anchor = renderer.anchor();
     let cached = render_with(
         &mut renderer,
@@ -4828,6 +5062,7 @@ fn a_mesh_moved_to_another_style_or_also_drawn_see_through_draws_at_once_without
         flat_meshes: vec![shaded.clone()],
         ..Scene::default()
     };
+
     let see_through = Scene {
         translucent_meshes: vec![MeshInstance {
             faces: shaded
@@ -4845,7 +5080,9 @@ fn a_mesh_moved_to_another_style_or_also_drawn_see_through_draws_at_once_without
     let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
     let on_top = view.project(Point3::new(0.0, 10.0, 20.0)).unwrap();
     let mut renderer = viewport_renderer(&device, 4);
+
     renderer.set_mesh_upload_bytes(200);
+
     let mut draw = |scene: &Scene| {
         let rendered = render_with(
             &mut renderer,
@@ -4857,10 +5094,13 @@ fn a_mesh_moved_to_another_style_or_also_drawn_see_through_draws_at_once_without
     };
 
     let mut frames = 1;
+
     while draw(&opaque).1 {
         frames += 1;
+
         assert!(frames < 20);
     }
+
     let (moved, moved_uploading) = draw(&flat);
     let (both, both_uploading) = draw(&see_through);
 
@@ -4899,6 +5139,7 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
     let Some((device, queue)) = gpu() else {
         return;
     };
+
     let gpu = (&device, &queue);
     let viewpoint =
         Viewpoint::looking_from(Vector3::new(0.4, -0.7, 1.0), Point3::ZERO, 160.0).unwrap();
@@ -4909,8 +5150,11 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
         ..scene()
     };
     let mut restyled = shown.clone();
+
     Arc::make_mut(&mut restyled.meshes[0].faces)[4].color = Color::from_rgb8(230, 160, 30);
+
     let mut overlaid = restyled.clone();
+
     overlaid.batches.push(Arc::new(Batch {
         lines: vec![Line {
             start: Point3::new(-30.0, -30.0, 25.0),
@@ -4923,16 +5167,21 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
         }],
         ..Batch::default()
     }));
+
     let mut sectioned = overlaid.clone();
+
     sectioned.section = vec![SectionPlane {
         plane: Plane::new(Point3::new(10.0, 0.0, 0.0), Vector3::X).unwrap(),
         cut_face: CutFace::Hatched,
     }];
+
     let mut gridded = sectioned.clone();
+
     gridded.grid = Some(Grid {
         plane: Plane::XY,
         color: Color::from_rgb8(255, 255, 255),
     });
+
     let rect = ViewportRect {
         x: 30.0,
         y: 20.0,
@@ -4940,6 +5189,7 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
         height: 170.0,
     };
     let inset_view = View::new(viewpoint, f64::from(rect.width), f64::from(rect.height));
+
     let inset = |scene| ViewportFrame {
         rect,
         pick_at: Some(DVec2::new(75.0, 85.0)),
@@ -4951,10 +5201,12 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
     };
     let fresh = |samples, shading, frame: &ViewportFrame<'_>| {
         let mut fresh = viewport_renderer(&device, samples);
+
         fresh.set_shading(shading);
         render_with(&mut fresh, &device, &queue, frame)
     };
     let mut renderer = viewport_renderer(&device, 4);
+
     renderer.set_shading(Shading::Standard);
 
     let first = render_with(
@@ -4979,20 +5231,27 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
     );
 
     let mut last = copied;
+
     for scene in [&restyled, &overlaid, &sectioned, &gridded] {
         let frame = full_frame(&view, scene, middle);
         let expected = fresh(4, Shading::Standard, &frame);
+
         last = drawn_again_once(&mut renderer, gpu, &frame, &last, &expected);
     }
     for frame in [inset(&gridded), doubled(&gridded)] {
         let expected = fresh(4, Shading::Standard, &frame);
+
         last = drawn_again_once(&mut renderer, gpu, &frame, &last, &expected);
     }
     renderer.set_shading(Shading::Enhanced);
+
     let expected = fresh(4, Shading::Enhanced, &doubled(&gridded));
+
     last = drawn_again_once(&mut renderer, gpu, &doubled(&gridded), &last, &expected);
     renderer.set_sample_count(&device, 1);
+
     let expected = fresh(1, Shading::Enhanced, &doubled(&gridded));
+
     last = drawn_again_once(&mut renderer, gpu, &doubled(&gridded), &last, &expected);
 
     let target = device.create_texture(&wgpu::TextureDescriptor {
@@ -5010,6 +5269,7 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
         view_formats: &[],
     });
     let mut unsubmitted = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
     renderer.draw(
         &device,
         &queue,
@@ -5026,7 +5286,9 @@ fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
     );
     drop(unsubmitted);
     renderer.abandon_unsubmitted();
+
     let expected = fresh(1, Shading::Enhanced, &doubled(&shown));
+
     drawn_again_once(&mut renderer, gpu, &doubled(&shown), &last, &expected);
 }
 
@@ -5034,6 +5296,7 @@ fn sphere_mesh(radius: f64, around: u32) -> ShadedMesh {
     let up = around / 2;
     let mut points = Vec::new();
     let mut triangles = Vec::new();
+
     for ring in 0..=up {
         let polar = std::f64::consts::PI * f64::from(ring) / f64::from(up);
         for step in 0..=around {
@@ -5043,16 +5306,20 @@ fn sphere_mesh(radius: f64, around: u32) -> ShadedMesh {
                 polar.sin() * azimuth.sin(),
                 polar.cos(),
             );
+
             points.push(MeshPoint {
                 position: Point3::ZERO + normal * radius,
                 normal,
             });
         }
     }
+
     let row = around + 1;
+
     for ring in 0..up {
         for step in 0..around {
             let corner = ring * row + step;
+
             triangles.push([corner, corner + row, corner + 1]);
             triangles.push([corner + 1, corner + row, corner + row + 1]);
         }
@@ -5102,6 +5369,7 @@ fn a_metal_finish_shades_its_faces_as_metal_while_faces_without_one_shade_as_bef
         meshes: vec![cube_in(color, finish)],
         ..Scene::default()
     };
+
     let beside_metal = Scene {
         meshes: vec![
             cube_in(body, None),
@@ -5127,8 +5395,10 @@ fn a_metal_finish_shades_its_faces_as_metal_while_faces_without_one_shade_as_bef
         Point3::new(20.0, 0.0, 0.0),
     ]
     .map(|point| view.project(point).unwrap());
+
     let mut shade = |shading: Shading, scene: &Scene| {
         renderer.set_shading(shading);
+
         let rendered = render_with(
             &mut renderer,
             &device,
@@ -5143,11 +5413,13 @@ fn a_metal_finish_shades_its_faces_as_metal_while_faces_without_one_shade_as_bef
         let (metal, metal_pick) = shade(shading, &painted(body, Some(POLISHED_METAL)));
         let (beside, _) = shade(shading, &beside_metal);
         let (golden, _) = shade(shading, &painted(brass, Some(POLISHED_METAL)));
+
         for (now, before) in plain.iter().zip(before) {
             for (now, before) in now.iter().zip(before) {
                 assert!(now.abs_diff(before) <= 2, "{shading:?}: {plain:?}");
             }
         }
+
         assert_eq!(beside, plain, "{shading:?}");
         assert!(
             plain
@@ -5156,12 +5428,14 @@ fn a_metal_finish_shades_its_faces_as_metal_while_faces_without_one_shade_as_bef
                 .any(|(plain, metal)| brightness(*plain).abs_diff(brightness(*metal)) > 40),
             "{shading:?}: {plain:?} {metal:?}"
         );
+
         for [red, _, blue, _] in golden {
             assert!(
                 u16::from(red) > 2 * u16::from(blue),
                 "{shading:?}: {golden:?}"
             );
         }
+
         assert_eq!(plain_pick.hits[0].id, metal_pick.hits[0].id);
         assert_eq!(metal_pick.hits[0].id, PickId::from_index(14).unwrap());
     }
@@ -5230,18 +5504,24 @@ fn a_picture_draws_behind_bodies_or_over_them_and_picks_only_where_nothing_cover
 
     let behind = box_scene(blue_picture(0.0, false, picture_id));
     let rendered = render(&device, &queue, &view, &behind, beside_the_box);
+
     assert!(is_blue(pixel(&rendered, beside_the_box)));
     assert!(!is_blue(pixel(&rendered, on_the_box)));
     assert!(is_line_red(pixel(&rendered, on_the_line)));
     assert_eq!(rendered.pick.hits[0].id, picture_id.unwrap());
+
     let rendered = render(&device, &queue, &view, &behind, on_the_box);
+
     assert_eq!(rendered.pick.hits[0].id, PickId::from_index(7).unwrap());
 
     let over = box_scene(blue_picture(0.0, true, None));
     let rendered = render(&device, &queue, &view, &over, on_the_box);
+
     assert!(is_blue(pixel(&rendered, on_the_box)));
     assert!(is_line_red(pixel(&rendered, on_the_line)));
+
     let rendered = render(&device, &queue, &view, &over, beside_the_box);
+
     assert!(
         rendered
             .pick
@@ -5302,6 +5582,7 @@ fn a_run_over_shared_polylines_draws_and_picks_as_the_lines_it_stands_for() {
         batches: vec![Arc::new(batch)],
         ..Scene::default()
     };
+
     let from_run = of(Batch {
         runs: vec![run],
         ..Batch::default()
@@ -5367,6 +5648,7 @@ fn rendered_pixels(scene: &Scene, view: &View, at: &[Point3]) -> Option<Vec<[u8;
         .iter()
         .map(|point| view.project(*point).unwrap())
         .collect();
+
     let rendered = render_with(
         &mut renderer,
         &device,
@@ -5392,6 +5674,7 @@ fn rendered_lighting_lights_faces_toward_the_light_and_the_environment_fills_tho
         Point3::new(0.0, -20.0, 0.0),
         Point3::new(20.0, 0.0, 0.0),
     ];
+
     let scene_lit = |lighting: crate::Lighting| Scene {
         meshes: vec![finished_mesh(&cube, grey, MATTE, None)],
         lighting: Some(lighting),
@@ -5436,6 +5719,7 @@ fn a_body_in_the_lights_path_shadows_the_floor_behind_it_only_while_shadows_are_
     let raised = RigidTransform::translation(Vector3::new(0.0, 0.0, 20.0));
     let view = oblique_view(220.0);
     let spots = [Point3::new(-20.0, 0.0, 0.0), Point3::new(30.0, 0.0, 0.0)];
+
     let scene_with = |shadows: bool| Scene {
         meshes: vec![
             finished_mesh(&floor, white, MATTE, None),
@@ -5477,6 +5761,7 @@ fn light_bounced_off_a_red_wall_tints_the_white_floor_beside_it() {
     let wall = RigidTransform::translation(Vector3::new(-20.0, 0.0, 10.0));
     let view = oblique_view(220.0);
     let spots = [Point3::new(-6.0, -2.0, 0.0)];
+
     let scene_with = |bounce: f32| Scene {
         meshes: vec![
             finished_mesh(&floor, white, MATTE, None),
@@ -5520,6 +5805,7 @@ fn a_thin_wall_between_a_red_wall_and_the_floor_stops_the_light_it_would_bounce_
     let between = RigidTransform::translation(Vector3::new(-8.0, 0.0, 3.0));
     let view = oblique_view(220.0);
     let spots = [Point3::new(-6.0, -2.0, 0.0)];
+
     let scene_with = |bounce: f32, thin_wall: bool| Scene {
         meshes: [
             Some(finished_mesh(&floor, white, MATTE, None)),
@@ -5538,6 +5824,7 @@ fn a_thin_wall_between_a_red_wall_and_the_floor_stops_the_light_it_would_bounce_
         ..Scene::default()
     };
     let warmth = |[red, _, blue, _]: [u8; 4]| i32::from(red) - i32::from(blue);
+
     let tint = |thin_wall: bool| {
         let plain = rendered_pixels(&scene_with(0.0, thin_wall), &view, &spots)?;
         let bounced = rendered_pixels(&scene_with(4.0, thin_wall), &view, &spots)?;
@@ -5570,6 +5857,7 @@ fn a_wall_the_sun_does_not_light_still_stops_the_light_it_would_bounce_there() {
     let above = RigidTransform::translation(Vector3::new(17.23, 0.0, 42.6));
     let view = oblique_view(220.0);
     let spots = [Point3::new(-6.0, -2.0, 0.0)];
+
     let scene_with = |bounce: f32, shaded_wall: bool| Scene {
         meshes: [
             Some(finished_mesh(&floor, white, MATTE, None)),
@@ -5589,6 +5877,7 @@ fn a_wall_the_sun_does_not_light_still_stops_the_light_it_would_bounce_there() {
         ..Scene::default()
     };
     let warmth = |[red, _, blue, _]: [u8; 4]| i32::from(red) - i32::from(blue);
+
     let tint = |shaded_wall: bool| {
         let plain = rendered_pixels(&scene_with(0.0, shaded_wall), &view, &spots)?;
         let bounced = rendered_pixels(&scene_with(4.0, shaded_wall), &view, &spots)?;
@@ -5634,6 +5923,7 @@ fn a_wall_edge_on_to_the_sun_still_stops_the_light_it_would_bounce_there() {
     let wall = RigidTransform::translation(Vector3::new(-20.0, 4.0, 10.0));
     let view = oblique_view(220.0);
     let spots = [Point3::new(-6.0, -2.0, 0.0)];
+
     let scene_with = |bounce: f32, screened: bool| Scene {
         meshes: [
             Some(finished_mesh(&floor, white, MATTE, None)),
@@ -5652,6 +5942,7 @@ fn a_wall_edge_on_to_the_sun_still_stops_the_light_it_would_bounce_there() {
         ..Scene::default()
     };
     let warmth = |[red, _, blue, _]: [u8; 4]| i32::from(red) - i32::from(blue);
+
     let tint = |screened: bool| {
         let plain = rendered_pixels(&scene_with(0.0, screened), &view, &spots)?;
         let bounced = rendered_pixels(&scene_with(4.0, screened), &view, &spots)?;
@@ -5700,6 +5991,7 @@ fn a_wall_edge_on_to_the_sun_and_the_cross_light_still_stops_the_light_it_would_
     let leaning = RigidTransform::translation(Vector3::new(-9.44, 0.0, 0.0));
     let view = oblique_view(220.0);
     let spots = [Point3::new(-6.0, -2.0, 0.0)];
+
     let scene_with = |bounce: f32, screened: bool| Scene {
         meshes: [
             Some(finished_mesh(&floor, white, MATTE, None)),
@@ -5718,6 +6010,7 @@ fn a_wall_edge_on_to_the_sun_and_the_cross_light_still_stops_the_light_it_would_
         ..Scene::default()
     };
     let warmth = |[red, _, blue, _]: [u8; 4]| i32::from(red) - i32::from(blue);
+
     let tint = |screened: bool| {
         let plain = rendered_pixels(&scene_with(0.0, screened), &view, &spots)?;
         let bounced = rendered_pixels(&scene_with(4.0, screened), &view, &spots)?;
@@ -5743,6 +6036,7 @@ fn the_visible_floor_bounces_light_onto_the_foot_of_a_body_and_not_while_it_is_h
     let raised = RigidTransform::translation(Vector3::new(0.0, 0.0, 10.0));
     let view = oblique_view(220.0);
     let spots = [Point3::new(0.0, -10.0, 2.0)];
+
     let scene_with = |bounce: f32, floor: bool| Scene {
         meshes: vec![finished_mesh(&cube, white, MATTE, raised)],
         lighting: Some(crate::Lighting {
@@ -5781,6 +6075,7 @@ fn the_visible_floor_occludes_the_sky_for_the_foot_of_a_body_and_not_while_it_is
     let raised = RigidTransform::translation(Vector3::new(0.0, 0.0, 10.0));
     let view = oblique_view(220.0);
     let spots = [Point3::new(0.0, -10.0, 0.5), Point3::new(0.0, -10.0, 18.0)];
+
     let scene_with = |floor: bool| Scene {
         meshes: vec![finished_mesh(&cube, white, MATTE, raised)],
         lighting: Some(crate::Lighting {
@@ -5818,6 +6113,7 @@ fn the_visible_floor_is_darker_beside_a_body_standing_on_it_only_under_occlusion
     let raised = RigidTransform::translation(Vector3::new(0.0, 0.0, 20.0));
     let view = oblique_view(300.0);
     let spots = [Point3::new(0.0, -20.6, 0.0), Point3::new(0.0, -70.0, 0.0)];
+
     let scene_with = |occlusion: f32| Scene {
         meshes: vec![finished_mesh(&cube, white, MATTE, raised)],
         lighting: Some(crate::Lighting {
@@ -5865,6 +6161,7 @@ fn a_metal_renders_apart_from_a_dielectric_of_its_colour_and_exposure_brightens_
         metalness: 1.0,
         roughness: 0.3,
     };
+
     let scene_of = |finish: crate::SurfaceFinish, exposure: f32| Scene {
         meshes: vec![finished_mesh(&cube, steel, finish, None)],
         lighting: Some(crate::Lighting {
@@ -5949,6 +6246,7 @@ fn occluded_corner_image(
     let view = View::new(viewpoint, f64::from(size.width), f64::from(size.height));
     let corner = view.project(INSIDE_CORNER).unwrap();
     let scene = occluded_corner_scene(occlusion);
+
     let request = ImageRequest {
         size,
         view: &view,
@@ -6025,6 +6323,7 @@ fn the_rendered_view_draws_a_blue_sky_and_the_ground_catches_a_body_s_shadow() {
     let resting = RigidTransform::translation(Vector3::new(0.0, 0.0, 10.0));
     let view = oblique_view(160.0);
     let shadow = view.project(Point3::new(-20.0, 0.0, 0.0)).unwrap();
+
     let scene_with = |shadows: bool| Scene {
         meshes: vec![finished_mesh(&cube, grey, MATTE, resting)],
         lighting: Some(crate::Lighting {
@@ -6037,6 +6336,7 @@ fn the_rendered_view_draws_a_blue_sky_and_the_ground_catches_a_body_s_shadow() {
     let Some((device, queue)) = gpu() else {
         return;
     };
+
     let shot = |scene: &Scene| {
         let mut renderer = viewport_renderer(&device, 4);
         render_with(
@@ -6074,6 +6374,7 @@ fn a_plain_backdrop_replaces_the_sky_with_its_colour_and_a_visible_floor_takes_t
     let shadow = view.project(Point3::new(14.0, -14.0, 0.0)).unwrap();
     let sunlit = view.project(Point3::new(26.0, -26.0, 0.0)).unwrap();
     let plain = Color::from_rgb8(200, 40, 40);
+
     let scene_with = |surroundings: crate::Surroundings| Scene {
         meshes: vec![finished_mesh(&cube, grey, MATTE, resting)],
         lighting: Some(crate::Lighting {
@@ -6090,6 +6391,7 @@ fn a_plain_backdrop_replaces_the_sky_with_its_colour_and_a_visible_floor_takes_t
     let Some((device, queue)) = gpu() else {
         return;
     };
+
     let shot = |scene: &Scene| {
         let mut renderer = viewport_renderer(&device, 4);
         render_with(
@@ -6118,12 +6420,15 @@ fn a_plain_backdrop_replaces_the_sky_with_its_colour_and_a_visible_floor_takes_t
 
     for at in [corner, bottom] {
         let seen = pixel(&coloured, at);
+
         assert!(
             seen[0].abs_diff(200) <= 2 && seen[1].abs_diff(40) <= 2 && seen[2].abs_diff(40) <= 2,
             "{seen:?}"
         );
     }
+
     assert_eq!(pixel(&coloured, shadow), pixel(&coloured, corner));
+
     let sky_floor = pixel(&sky, sunlit);
     let lit_floor = pixel(&floored, sunlit);
     let shaded_floor = pixel(&floored, shadow);
@@ -6149,6 +6454,7 @@ fn a_visible_floor_in_an_orthographic_view_holds_the_shadow_where_the_body_proje
     let view = oblique_view(160.0).with_projection(crate::Projection::Orthographic);
     let shadow = view.project(Point3::new(14.0, -14.0, 0.0)).unwrap();
     let sunlit = view.project(Point3::new(26.0, -26.0, 0.0)).unwrap();
+
     let scene = Scene {
         meshes: vec![finished_mesh(&cube, grey, MATTE, resting)],
         lighting: Some(crate::Lighting {
@@ -6229,6 +6535,7 @@ fn an_environment_picture_is_the_backdrop_turned_by_the_angle_given() {
     let Some((device, queue)) = gpu() else {
         return;
     };
+
     let shot = |turn: f32| {
         let scene = Scene {
             lighting: Some(lit_by(0.0, std::f64::consts::FRAC_PI_4)),
@@ -6274,6 +6581,7 @@ fn an_environment_picture_lights_bodies_with_its_own_colour_and_brightness() {
         Point3::new(20.0, 0.0, 0.0),
     ];
     let red_sky = painted_environment(64, |_, _| [0.6, 0.05, 0.05]);
+
     let scene_with = |backdrop: Option<crate::Backdrop>| Scene {
         meshes: vec![finished_mesh(&cube, grey, MATTE, None)],
         lighting: Some(crate::Lighting {
@@ -6309,6 +6617,7 @@ fn an_environment_picture_lights_bodies_with_its_own_colour_and_brightness() {
             brighter[face]
         );
     }
+
     assert!(plain[0][2] + 10 >= plain[0][0], "{:?}", plain[0]);
 }
 
@@ -6359,6 +6668,7 @@ fn the_hidden_inside_of_a_closed_body_never_shows_along_its_far_silhouette() {
         color: Color::from_rgb8(160, 170, 200),
         ..wall_style
     };
+
     let scene = Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::clone(&disc),
@@ -6386,6 +6696,7 @@ fn the_hidden_inside_of_a_closed_body_never_shows_along_its_far_silhouette() {
     );
     let far_side = (0..SIZE)
         .flat_map(|x| (0..middle.y as u32).map(move |y| DVec2::new(f64::from(x), f64::from(y))));
+
     let showing_through = far_side
         .filter(|at| {
             let [red, _, blue, _] = pixel(&rendered, *at);
@@ -6408,7 +6719,9 @@ fn stopping_the_upload_leaves_batches_not_yet_uploaded_out_until_it_resumes() {
     };
     let point = view.project(Point3::new(0.0, 20.0, 0.0)).unwrap();
     let mut renderer = viewport_renderer(&device, 1);
+
     renderer.set_mesh_upload_bytes(1);
+
     let frame = |renderer: &mut ViewportRenderer| {
         render_with(renderer, &device, &queue, &full_frame(&view, &scene, point));
         (
@@ -6419,17 +6732,23 @@ fn stopping_the_upload_leaves_batches_not_yet_uploaded_out_until_it_resumes() {
     };
 
     let started = frame(&mut renderer);
+
     renderer.stop_uploading();
+
     let stopped = [
         frame(&mut renderer),
         frame(&mut renderer),
         frame(&mut renderer),
     ];
     let passes = renderer.work().view_passes;
+
     frame(&mut renderer);
     frame(&mut renderer);
+
     let passes_after_still_frames = renderer.work().view_passes;
+
     renderer.resume_uploading();
+
     let resumed = [frame(&mut renderer), frame(&mut renderer)];
     let finished = frame(&mut renderer);
 
@@ -6453,6 +6772,7 @@ fn stopping_the_upload_after_the_last_mesh_has_gone_up_leaves_nothing_out() {
     let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
     let on_top = view.project(Point3::new(0.0, 10.0, 20.0)).unwrap();
     let mut renderer = viewport_renderer(&device, 4);
+
     render_with(
         &mut renderer,
         &device,
@@ -6461,6 +6781,7 @@ fn stopping_the_upload_after_the_last_mesh_has_gone_up_leaves_nothing_out() {
     );
 
     renderer.stop_uploading();
+
     let rendered = render_with(
         &mut renderer,
         &device,
@@ -6498,7 +6819,9 @@ fn stopping_the_upload_leaves_meshes_and_silhouettes_not_yet_uploaded_out_until_
     let view = looking_down(400.0, f64::from(SIZE), f64::from(SIZE));
     let centres = [-40.0, 40.0].map(|x| view.project(Point3::new(x, 0.0, 10.0)).unwrap());
     let mut renderer = viewport_renderer(&device, 4);
+
     renderer.set_mesh_upload_bytes(200);
+
     let frame = |renderer: &mut ViewportRenderer| {
         let rendered = render_with(
             renderer,
@@ -6512,23 +6835,32 @@ fn stopping_the_upload_leaves_meshes_and_silhouettes_not_yet_uploaded_out_until_
 
     let mut frames = 1;
     let mut state = frame(&mut renderer);
+
     while state.0 != [true, false] {
         frames += 1;
+
         assert!(frames < 60, "{state:?}");
+
         state = frame(&mut renderer);
     }
     renderer.stop_uploading();
+
     let stopped = [
         frame(&mut renderer),
         frame(&mut renderer),
         frame(&mut renderer),
     ];
     let left_out = (renderer.is_uploading(), renderer.is_upload_stopped());
+
     renderer.resume_uploading();
+
     let mut resumed = frame(&mut renderer);
+
     while renderer.is_uploading() {
         frames += 1;
+
         assert!(frames < 120);
+
         resumed = frame(&mut renderer);
     }
 

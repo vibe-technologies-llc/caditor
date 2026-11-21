@@ -35,6 +35,7 @@ fn lies_on(piece: &BSpline, whole: &BSpline) {
         let off = whole
             .point_at(closest_spline_parameter(whole, point))
             .distance(point);
+
         assert!(off < EXACT, "{point} lies {off} off the spline");
     }
 }
@@ -43,12 +44,14 @@ fn lies_on(piece: &BSpline, whole: &BSpline) {
 fn a_control_spline_takes_the_degree_chosen_for_it_and_keeps_its_points() {
     for degree in [1, 2, 4, 5, 6] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline(&wave());
         let points = sketch.entity(spline).unwrap().points();
 
         sketch.set_spline_degree(spline, degree).unwrap();
 
         let curve = sketch.spline(spline).unwrap();
+
         assert_eq!(curve.degree(), degree);
         assert_eq!(sketch.spline_degree(spline), Some(degree));
         assert_eq!(sketch.entity(spline).unwrap().points(), points);
@@ -60,6 +63,7 @@ fn a_control_spline_takes_the_degree_chosen_for_it_and_keeps_its_points() {
 #[test]
 fn a_degree_of_three_is_the_plain_control_spline_again() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wave());
     let before = sketch.spline(spline).unwrap();
 
@@ -67,12 +71,14 @@ fn a_degree_of_three_is_the_plain_control_spline_again() {
     sketch.set_spline_degree(spline, 3).unwrap();
 
     assert_eq!(kind_of(&sketch, spline), SplineKind::OPEN);
+
     lies_on(&sketch.spline(spline).unwrap(), &before);
 }
 
 #[test]
 fn a_degree_the_points_cannot_carry_or_a_spline_without_one_is_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wave()[..4]);
     let fit = sketch.add_spline_of(&wave(), SplineKind::fit(false));
     let closed = sketch.add_spline_of(&wave()[..4], SplineKind::Control { closed: true });
@@ -113,6 +119,7 @@ fn a_degree_the_points_cannot_carry_or_a_spline_without_one_is_refused_in_words(
 #[test]
 fn a_spline_of_degree_one_drops_a_curvature_and_a_higher_one_keeps_every_other_constraint() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wave());
     let other = sketch.add_spline(&[
         Point2::new(60.0, 0.0),
@@ -122,6 +129,7 @@ fn a_spline_of_degree_one_drops_a_curvature_and_a_higher_one_keeps_every_other_c
     ]);
     let (_, end) = sketch.entity(spline).and_then(Entity::spline_ends).unwrap();
     let (start, _) = sketch.entity(other).and_then(Entity::spline_ends).unwrap();
+
     sketch
         .add_constraint(Constraint::Coincident(end, start))
         .unwrap();
@@ -150,13 +158,17 @@ fn a_spline_of_degree_one_drops_a_curvature_and_a_higher_one_keeps_every_other_c
 #[test]
 fn a_spline_of_a_chosen_degree_solves_in_place_with_a_point_held_on_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wave());
+
     sketch.set_spline_degree(spline, 5).unwrap();
+
     let on = sketch
         .spline(spline)
         .map(|curve| curve.point_at(0.4))
         .unwrap();
     let point = sketch.add_point(on);
+
     sketch
         .add_constraint(Constraint::Coincident(point, spline))
         .unwrap();
@@ -166,17 +178,22 @@ fn a_spline_of_a_chosen_degree_solves_in_place_with_a_point_held_on_it() {
     for (id, entity) in sketch.entities() {
         if let Entity::Point(position) = entity {
             let moved = solved.geometry.point(id).unwrap().distance(*position);
+
             assert!(moved < 1e-7, "point {id:?} moved by {moved}");
         }
     }
+
     assert!(solved.solution.redundancies().is_empty());
 }
 
 #[test]
 fn a_spline_of_a_chosen_degree_is_trimmed_split_and_given_a_point_without_changing_its_shape() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wave());
+
     sketch.set_spline_degree(spline, 5).unwrap();
+
     let whole = sketch.spline(spline).unwrap();
     let cutter = sketch.add_line(Point2::new(25.0, -30.0), Point2::new(25.0, 30.0));
     let near = sketch.spline(spline).unwrap().point_at(0.8);
@@ -184,26 +201,34 @@ fn a_spline_of_a_chosen_degree_is_trimmed_split_and_given_a_point_without_changi
     assert!(matches!(sketch.trim(spline, near), Ok(Trimmed::Shortened)));
 
     let trimmed = sketch.spline(spline).unwrap();
+
     assert_eq!(trimmed.degree(), 5);
     assert!(sketch.entity(cutter).is_some());
+
     lies_on(&trimmed, &whole);
 
     let before = sketch.spline(spline).unwrap();
     let count = sketch.entity(spline).unwrap().points().len();
+
     sketch.insert_control_point(spline, None).unwrap();
 
     assert_eq!(sketch.entity(spline).unwrap().points().len(), count + 1);
     assert_eq!(sketch.spline(spline).unwrap().degree(), 5);
+
     lies_on(&sketch.spline(spline).unwrap(), &before);
 }
 
 #[test]
 fn a_spline_of_a_chosen_degree_splits_at_a_point_on_it_into_two_exact_pieces() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wave());
+
     sketch.set_spline_degree(spline, 4).unwrap();
+
     let whole = sketch.spline(spline).unwrap();
     let cut = sketch.add_point(whole.point_at(0.45));
+
     sketch
         .add_constraint(Constraint::Coincident(cut, spline))
         .unwrap();
@@ -212,6 +237,7 @@ fn a_spline_of_a_chosen_degree_splits_at_a_point_on_it_into_two_exact_pieces() {
 
     for part in [spline, piece] {
         assert_eq!(sketch.spline(part).unwrap().degree(), 4);
+
         lies_on(&sketch.spline(part).unwrap(), &whole);
     }
 }
@@ -219,6 +245,7 @@ fn a_spline_of_a_chosen_degree_splits_at_a_point_on_it_into_two_exact_pieces() {
 #[test]
 fn an_invalid_degree_or_span_list_is_refused_when_a_spline_is_added() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let points: Vec<EntityId> = wave()
         .iter()
         .map(|position| sketch.add_point(*position))
@@ -272,6 +299,7 @@ fn a_spline_drawn_at_a_degree_its_points_cannot_carry_takes_the_most_they_can() 
     assert_eq!(SplineKind::drawn(5, 1), SplineKind::OPEN);
 
     let kind = SplineKind::drawn(5, 5);
+
     assert_eq!(kind.degree_of(5), Some(4));
     assert_eq!(kind, SplineKind::graded(4, 5).unwrap());
 }
@@ -300,6 +328,7 @@ fn a_spline_added_at_a_drawn_degree_is_the_one_set_afterwards() {
 
     let at_five = drawn.add_spline_of(&wave(), SplineKind::drawn(5, wave().len()));
     let later = set.add_spline(&wave());
+
     set.set_spline_degree(later, 5).unwrap();
 
     assert_eq!(kind_of(&drawn, at_five), kind_of(&set, later));

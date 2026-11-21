@@ -10,7 +10,7 @@ pub const MOST_ISOPARAMETRIC_LINES: usize = 64;
 const SAMPLES_PER_LINE: usize = 96;
 const END_BISECTIONS: usize = 40;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Along {
     U,
     V,
@@ -26,6 +26,7 @@ impl Along {
 
     fn spans(self, uv_box: &Aabb2) -> Option<(Interval, Interval)> {
         let (min, max) = (uv_box.min(), uv_box.max());
+
         let u = Interval::new(min.x, max.x)?;
         let v = Interval::new(min.y, max.y)?;
         Some(match self {
@@ -35,7 +36,7 @@ impl Along {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct IsoparametricRun {
     pub along: Along,
     pub fixed: f64,
@@ -48,7 +49,7 @@ impl IsoparametricRun {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum IsoparametricError {
     #[error("the face is not part of the solid or has no boundary")]
     MissingFace,
@@ -78,6 +79,7 @@ impl Lines<'_> {
 
     fn boundary(&self, along: Along, fixed: f64, inside: f64, outside: f64) -> f64 {
         let (mut inside, mut outside) = (inside, outside);
+
         for _ in 0..END_BISECTIONS {
             let middle = 0.5 * (inside + outside);
             if self.inside(along, fixed, middle) {
@@ -96,6 +98,7 @@ impl Lines<'_> {
             .collect();
         let mut runs = Vec::new();
         let mut start = None;
+
         for (sample, is_inside) in inside.iter().copied().chain([false]).enumerate() {
             match (is_inside, start) {
                 (true, None) => start = Some(sample),
@@ -115,6 +118,7 @@ impl Lines<'_> {
                     } else {
                         self.boundary(along, fixed, parameter_at(last), parameter_at(last + 1))
                     };
+
                     if let Some(run_span) = Interval::new(from, to).filter(|run| run.length() > 0.0)
                     {
                         runs.push(IsoparametricRun {
@@ -150,9 +154,12 @@ impl Solid {
         let lines_found = Lines { classifier, face };
         let count = lines.clamp(1, MOST_ISOPARAMETRIC_LINES);
         let mut runs = Vec::new();
+
         for line in 0..count {
             interrupt::check()?;
+
             let fixed = across.at((line + 1) as f64 / (count + 1) as f64);
+
             runs.extend(lines_found.runs_of_line(along, fixed, span));
         }
         Ok(runs)
@@ -190,6 +197,7 @@ mod tests {
             })
             .map(|(id, _)| id)
             .unwrap();
+
         let surface = solid.face(bottom).unwrap().surface().clone();
         let centre = Point3::new(5.0, 5.0, 0.0);
 
@@ -205,6 +213,7 @@ mod tests {
                     let on_outline = [point.x, point.y]
                         .iter()
                         .any(|value| value.abs() < 1e-6 || (value - 10.0).abs() < 1e-6);
+
                     assert!(on_hole || on_outline, "{point:?}");
                 }
             }
@@ -215,6 +224,7 @@ mod tests {
     fn a_cylinder_side_has_whole_circles_one_way_and_whole_rulings_the_other() {
         let solid = cylinder(3.0, 8.0);
         let side = face_where(&solid, |surface| matches!(surface, Surface::Cylinder(_)));
+
         let surface = solid.face(side).unwrap().surface().clone();
 
         let circles = solid.isoparametric_runs(side, Along::U, 4).unwrap();
@@ -227,14 +237,18 @@ mod tests {
                 .all(|run| (run.span.length() - std::f64::consts::TAU).abs() < 1e-9)
         );
         assert_eq!(rulings.len(), 5);
+
         for run in &rulings {
             let ends = [run.span.start(), run.span.end()].map(|end| surface.point_at(run.uv(end)));
+
             assert!((ends[0].distance(ends[1]) - 8.0).abs() < 1e-9);
         }
+
         let heights: Vec<f64> = circles
             .iter()
             .map(|run| surface.point_at(run.uv(run.span.start())).z)
             .collect();
+
         assert!(
             heights
                 .iter()

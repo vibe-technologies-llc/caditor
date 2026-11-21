@@ -16,7 +16,7 @@ const SMALLEST_STEP: f64 = 1e-15;
 const REACHES: f64 = 1e-9;
 const FARTHEST_FOOT: f64 = 3.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Contact {
     pub face: FaceId,
     pub uv: Point2,
@@ -24,7 +24,7 @@ pub(super) struct Contact {
     pub normal: Vector3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Cross {
     pub point: Point3,
     pub tangent: Vector3,
@@ -34,7 +34,7 @@ pub(super) struct Cross {
     pub bend: Vector3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Missed {
     Short,
     Angle,
@@ -47,7 +47,7 @@ pub(super) struct Sides<'a> {
     pub convex: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Local {
     point: Point3,
     du: Vector3,
@@ -68,9 +68,11 @@ fn local(surface: &Surface, sign: f64, uv: Point2) -> Option<Local> {
     let derivatives = derivatives(surface, uv);
     let cross = derivatives.du.cross(derivatives.dv);
     let length = cross.length();
+
     if !length.is_finite() || length <= f64::MIN_POSITIVE {
         return None;
     }
+
     let normal = cross / length;
     let along_u = derivatives.duu.cross(derivatives.dv) + derivatives.du.cross(derivatives.duv);
     let along_v = derivatives.duv.cross(derivatives.dv) + derivatives.du.cross(derivatives.dvv);
@@ -92,17 +94,22 @@ pub(super) fn newton<const N: usize>(
     let mut current = start;
     let norm = |values: &[f64; N]| values.iter().map(|value| value * value).sum::<f64>().sqrt();
     let (mut values, mut jacobian) = residual(&current)?;
+
     for _ in 0..MAX_ITERATIONS {
         if norm(&values) <= CONVERGED {
             return Some(current);
         }
+
         let matrix: Vec<f64> = jacobian.iter().flatten().copied().collect();
         let rhs: Vec<f64> = values.iter().map(|value| -value).collect();
+
         let step = solve_dense(N, matrix, rhs)?;
         let mut scale = 1.0;
         let mut accepted = None;
+
         while scale >= 1.0 / 1024.0 {
             let mut trial = current;
+
             for (slot, delta) in trial.iter_mut().zip(&step) {
                 *slot += scale * delta;
             }
@@ -114,12 +121,14 @@ pub(super) fn newton<const N: usize>(
             }
             scale *= 0.5;
         }
+
         let (trial, next) = accepted?;
         let moved = trial
             .iter()
             .zip(&current)
             .map(|(a, b)| (a - b).abs())
             .fold(0.0, larger);
+
         current = trial;
         (values, jacobian) = next;
         if moved <= SMALLEST_STEP {
@@ -164,6 +173,7 @@ fn fillet_contacts(
 ) -> Option<([Contact; 2], Point3)> {
     let toward = if convex { -radius } else { radius };
     let [first, second] = faces;
+
     let solved = newton(
         [starts[0].x, starts[0].y, starts[1].x, starts[1].y],
         |x: &[f64; 4]| {
@@ -171,6 +181,7 @@ fn fillet_contacts(
             let b = local(second.surface, second.sign, Point2::new(x[2], x[3]))?;
             let center_a = a.point + a.normal * toward;
             let center_b = b.point + b.normal * toward;
+
             let gap = center_a - center_b;
             let columns = [
                 a.du + a.nu * toward,
@@ -180,6 +191,7 @@ fn fillet_contacts(
             ];
             let along = [columns[0].dot(tangent), columns[1].dot(tangent), 0.0, 0.0];
             let values = [gap.x, gap.y, gap.z, (center_a - point).dot(tangent)];
+
             let jacobian = [
                 columns.map(|column| column.x),
                 columns.map(|column| column.y),
@@ -211,6 +223,7 @@ fn chamfer_contact(
             offset.length_squared() - distance * distance,
             offset.dot(tangent),
         ];
+
         let jacobian = [
             [2.0 * offset.dot(here.du), 2.0 * offset.dot(here.dv)],
             [here.du.dot(tangent), here.dv.dot(tangent)],
@@ -351,6 +364,7 @@ fn solve_with(
                 Side::First => (0, 1),
                 Side::Second => (1, 0),
             };
+
             let (Some(near_face), Some(far_face), Some(near_start), Some(far_start)) = (
                 faces.get(near_index),
                 faces.get(far_index),
@@ -359,12 +373,15 @@ fn solve_with(
             ) else {
                 return Err(Missed::Short);
             };
+
             let near = chamfer_contact(near_face, *near_start, point, tangent, distance)
                 .ok_or(Missed::Short)?;
             let mut back = tangent.cross(near.normal);
+
             if back.dot(point - near.point) < 0.0 {
                 back = -back;
             }
+
             let side = if convex { -1.0 } else { 1.0 };
             let direction = [angle, -angle]
                 .map(|turn| rotated(back, tangent, turn))
@@ -373,9 +390,11 @@ fn solve_with(
                 .ok_or(Missed::Angle)?;
             let (far, along) =
                 line_contact(far_face, *far_start, near.point, direction).ok_or(Missed::Angle)?;
+
             if along <= REACHES {
                 return Err(Missed::Angle);
             }
+
             let feet = match measured_on {
                 Side::First => [near, far],
                 Side::Second => [far, near],
@@ -420,6 +439,7 @@ pub(super) fn cross(sides: &Sides<'_>, request: &Request) -> Result<Cross, Misse
     let [Some(first_own), Some(second_own)] = own else {
         return Err(Missed::Short);
     };
+
     let normals = [
         contact(&first_own, first_own.surface.project(point, None))
             .ok_or(Missed::Short)?
@@ -477,9 +497,11 @@ pub(super) fn cross(sides: &Sides<'_>, request: &Request) -> Result<Cross, Misse
         let inside = feet.map(|foot| is_inside(sides.classifier, &foot));
         (*feet, *center, inside)
     });
+
     let settled = best
         .as_ref()
         .is_some_and(|(feet, _, inside)| *inside == [true, true] && near(feet));
+
     if !settled {
         let nearby = |index: usize| -> Vec<Face<'_>> {
             let guess = guessed_feet.get(index).copied().unwrap_or(point);
@@ -495,15 +517,18 @@ pub(super) fn cross(sides: &Sides<'_>, request: &Request) -> Result<Cross, Misse
         let first_all = nearby(0);
         let second_all = nearby(1);
         let mut found: Option<([Contact; 2], Option<Point3>, f64)> = None;
+
         for a in &first_all {
             for b in &second_all {
                 let Ok((feet, center)) = solve([a, b]) else {
                     continue;
                 };
                 let inside = feet.map(|foot| is_inside(sides.classifier, &foot));
+
                 if inside != [true, true] || !near(&feet) {
                     continue;
                 }
+
                 let score = strayed(&feet);
                 if found.as_ref().is_none_or(|(_, _, best)| score < *best) {
                     found = Some((feet, center, score));
@@ -514,12 +539,14 @@ pub(super) fn cross(sides: &Sides<'_>, request: &Request) -> Result<Cross, Misse
             best = Some((feet, center, [true, true]));
         }
     }
+
     let best = best.ok_or(Missed::Short)?;
     let (feet, center, inside) = best;
     let reaches = feet
         .iter()
         .zip(inward)
         .all(|(foot, inward)| (foot.point - point).dot(inward) > REACHES);
+
     if !reaches {
         return Err(Missed::Short);
     }
@@ -538,10 +565,13 @@ impl Cross {
         let center = self.center?;
         let [first, second] = self.feet.map(|foot| foot.point - center);
         let radius = first.length();
+
         let turned = first.angle_between(second);
+
         if !turned.is_finite() || turned <= 0.0 || turned >= std::f64::consts::PI {
             return None;
         }
+
         let half = 0.5 * turned;
         let middle = (first + second).try_normalize()? * (radius / half.cos_libm());
         Some((center + middle, half.cos_libm()))
@@ -555,6 +585,7 @@ pub(super) fn on_both(surfaces: [&Surface; 2], point: Point3, across: Vector3) -
         |x: &[f64; 4]| {
             let a = derivatives(surfaces[0], Point2::new(x[0], x[1]));
             let b = derivatives(surfaces[1], Point2::new(x[2], x[3]));
+
             let gap = a.point - b.point;
             let columns = [a.du, a.dv, -b.du, -b.dv];
             Some((

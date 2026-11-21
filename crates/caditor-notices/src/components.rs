@@ -91,6 +91,7 @@ pub fn inventory(metadata: &Metadata) -> Result<Inventory, NoticesError> {
         .into_iter()
         .map(crate_component)
         .collect::<Result<Vec<_>, _>>()?;
+
     crates.push(standard_library()?);
 
     Ok(Inventory { assets, crates })
@@ -114,8 +115,10 @@ fn crate_component(package: &Package) -> Result<Component, NoticesError> {
     let name = format!("{} {}", package.name, package.version);
     let license = package.license.clone().unwrap_or_default();
     let mut texts = license_files(package.directory())?;
+
     if texts.is_empty() {
         let holders = copyright_holders(package);
+
         texts = standard_texts(&license, &holders);
     }
     if texts.is_empty() {
@@ -133,6 +136,7 @@ fn crate_component(package: &Package) -> Result<Component, NoticesError> {
 
 fn standard_library() -> Result<Component, NoticesError> {
     let texts = standard_texts(STANDARD_LIBRARY_LICENSE, STANDARD_LIBRARY_AUTHORS);
+
     if texts.is_empty() {
         return Err(NoticesError::NoLicenseText {
             package: STANDARD_LIBRARY.to_owned(),
@@ -152,6 +156,7 @@ fn license_files(directory: &Path) -> Result<Vec<String>, NoticesError> {
         source,
     };
     let mut paths = Vec::new();
+
     for entry in fs::read_dir(directory).map_err(unreadable)? {
         let path = entry.map_err(unreadable)?.path();
         let upper = path
@@ -206,8 +211,10 @@ fn standard_texts(license: &str, holders: &str) -> Vec<String> {
     let named = |identifier: &str| identifiers.contains(&identifier);
 
     let mut texts = Vec::new();
+
     if named("MIT") {
         let mit = format!("MIT License\n\nCopyright (c) {holders}\n\n{MIT_TERMS}");
+
         texts.push(normalized(&mit));
     }
     if named("Apache-2.0") {
@@ -218,6 +225,7 @@ fn standard_texts(license: &str, holders: &str) -> Vec<String> {
     }
     if named("BSD-3-Clause") {
         let bsd = format!("Copyright (c) {holders}\n\n{BSD_THREE_CLAUSE_TERMS}");
+
         texts.push(normalized(&bsd));
     }
     texts

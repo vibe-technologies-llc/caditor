@@ -63,6 +63,7 @@ pub(crate) fn clone_range(
 ) -> usize {
     let (mut from, mut at) = (from, at);
     let mut copied = 0;
+
     while copied < length {
         match rustix::fs::copy_file_range(
             source,
@@ -83,7 +84,7 @@ pub(crate) fn clone_range(
     copied.min(length)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ChangeStamp {
     length: u64,
     modified: (i64, i64),
@@ -100,7 +101,7 @@ impl ChangeStamp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FileKey {
     device: u64,
     inode: u64,
@@ -144,12 +145,14 @@ pub(crate) fn take_ownership_and_attributes(file: &File, target: &Path, existing
     let group_differs = file
         .metadata()
         .is_ok_and(|created| created.gid() != existing.gid());
+
     if group_differs && let Err(error) = fchown(file, None, Some(existing.gid())) {
         log::debug!(
             "could not give the saved file the group of {}: {error}",
             target.display()
         );
     }
+
     let names = match xattr::list(target) {
         Ok(names) => names,
         Err(error) => {

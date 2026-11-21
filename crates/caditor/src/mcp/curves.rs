@@ -25,7 +25,7 @@ use crate::{
     units::LengthUnit,
 };
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Helixing {
     pub axis: Option<AxisChoice>,
@@ -50,14 +50,14 @@ pub struct Helixing {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PitchRowAsked {
     pub turns: Amount,
     pub pitch: Amount,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CurvePatterning {
     pub body: Option<Named>,
@@ -74,7 +74,7 @@ pub struct CurvePatterning {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PointPatterning {
     pub body: Option<Named>,
@@ -86,7 +86,7 @@ pub struct PointPatterning {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CurveToolError {
     #[error(
         "the curves of {sketch} do not join end to end into one chain to follow; make the other \
@@ -169,7 +169,9 @@ pub fn helix_built(
     })?;
     let table = pitch_rows(session, asked.pitch_table.as_deref())?;
     let final_pitch_given = final_pitch.is_some();
+
     session.evaluate(work)?;
+
     let unit = LengthUnit::Millimetre;
     let mut helix = match base {
         Some(base) => base.clone(),
@@ -184,6 +186,7 @@ pub fn helix_built(
             )
         },
     };
+
     if let Some(choice) = &asked.axis {
         helix.axis = places::axis(session.document(), session.evaluation(), choice)?;
     }
@@ -197,12 +200,14 @@ pub fn helix_built(
             HelixKind::Helix
         };
     }
+
     let reach = match (helix.is_flat(), height, outer) {
         (true, Some(_), _) => return Err(CurveToolError::FlatHeight.into()),
         (false, _, Some(_)) => return Err(CurveToolError::HelixOuterDiameter.into()),
         (true, None, outer) => outer,
         (false, height, None) => height,
     };
+
     if let Some(diameter) = diameter {
         helix.diameter = diameter;
     }
@@ -227,7 +232,9 @@ pub fn helix_built(
         (end_turns, end_pitch, end_change),
     )?;
     helix.final_pitch = progression(&helix, asked.progressive, final_pitch)?;
+
     let other_laws = asked.progressive == Some(true) || final_pitch_given;
+
     helix.pitch_table = tabled(&helix, table, other_laws)?;
     if !helix.pitch_table.is_empty() {
         helix.final_pitch = None;
@@ -239,6 +246,7 @@ pub fn helix_built(
             CoilTurning::CounterClockwise
         };
     }
+
     let title = helix_tools::title(helix.kind);
     Ok(Built::new(FeatureKind::Helix(helix), title, asked.name))
 }
@@ -250,6 +258,7 @@ fn pitch_rows(
     let Some(asked) = asked else {
         return Ok(None);
     };
+
     if asked.len() > MAX_PITCH_ROWS {
         return Err(CurveToolError::PitchTableLong { rows: asked.len() }.into());
     }
@@ -285,6 +294,7 @@ fn closed_ends(
     (turns, pitch, change): (Option<Expression>, Option<Expression>, Option<Expression>),
 ) -> Result<Option<Box<ClosedEnds>>, CurveToolError> {
     let sized = turns.is_some() || pitch.is_some() || change.is_some();
+
     if closed == Some(false) {
         return if sized {
             Err(CurveToolError::OpenEndsSized)
@@ -298,6 +308,7 @@ fn closed_ends(
     if helix.is_flat() {
         return Err(CurveToolError::FlatEnds);
     }
+
     let kept = *helix.ends.clone().unwrap_or_default();
     Ok(Some(Box::new(ClosedEnds {
         turns: turns.unwrap_or(kept.turns),
@@ -347,7 +358,9 @@ pub fn curve_pattern_built(
     let spacing = parsed(session, asked.spacing.as_ref(), |session, given| {
         length(session, "spacing", given)
     })?;
+
     session.evaluate(work)?;
+
     let chosen = kept_subject(
         session,
         (asked.body.as_ref(), asked.features.as_deref()),
@@ -366,6 +379,7 @@ pub fn curve_pattern_built(
         },
         None => sketch_pattern_tools::curve(path, LengthUnit::Millimetre),
     };
+
     if let Some(copies) = copies {
         curve.count = copies;
     }
@@ -387,6 +401,7 @@ pub fn curve_pattern_built(
     if let Some(reversed) = asked.reversed {
         curve.reversed = reversed;
     }
+
     let skipped = skipped_copies(in_row(asked.skipped.as_deref()).as_deref(), base)?;
     Ok(pattern_built(
         session,
@@ -412,7 +427,9 @@ fn curve_path_of(
             if along.edges.is_empty() {
                 return Err(CurveToolError::NoPathEdges.into());
             }
+
             let body = references::body(document, session.evaluation(), &along.body)?;
+
             return Ok(CurvePatternPath::Edges {
                 body,
                 edges: edge_references(session, body, &along.edges)?,
@@ -422,8 +439,10 @@ fn curve_path_of(
         (Some(named), None, _) => Some(named),
         (None, None, Some(CurvePatternPath::Sketch(_)) | None) => None,
     };
+
     let (sketch, sketch_name, _) =
         sketch_of(document, sketch, kept.and_then(CurvePatternPath::sketch))?;
+
     if !solved(session.evaluation(), sketch).is_some_and(is_curve_path) {
         return Err(CurveToolError::NotAPath {
             sketch: sketch_name.to_owned(),
@@ -449,6 +468,7 @@ pub fn point_pattern_built(
     base: Option<&Pattern>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let chosen = kept_subject(
         session,
         (asked.body.as_ref(), asked.features.as_deref()),
@@ -466,14 +486,17 @@ pub fn point_pattern_built(
         asked.sketch.as_ref(),
         kept.map(|kept| kept.sketch),
     )?;
+
     let has_points =
         solved(evaluation, sketch).is_some_and(|solved| !solved.layout_points().is_empty());
+
     if !has_points {
         return Err(CurveToolError::NoPoints {
             sketch: sketch_name.to_owned(),
         }
         .into());
     }
+
     let from = match (&asked.from, kept) {
         (Some(choice), _) => places::point(document, evaluation, choice)?,
         (None, Some(kept)) => kept.base.clone(),

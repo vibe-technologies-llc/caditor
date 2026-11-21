@@ -25,19 +25,19 @@ const COLLINEAR_FRACTION: f64 = 1e-9;
 const MERGE_ATTEMPTS: usize = 8;
 const VOID_VOLUME_FRACTION: f64 = 1e-12;
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TriangleMesh {
     pub positions: Vec<Point3>,
     pub triangles: Vec<[usize; 3]>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FaceMesh {
     pub mesh: TriangleMesh,
     pub faces: Vec<FaceId>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MeshRepairs {
     pub welded: usize,
     pub degenerate: usize,
@@ -51,7 +51,7 @@ pub struct MeshRepairs {
     pub kept_triangles: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FacetedSolids {
     pub solids: Vec<Solid>,
     pub repairs: MeshRepairs,
@@ -59,7 +59,7 @@ pub struct FacetedSolids {
     pub sources: Vec<Vec<Vec<usize>>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum FacetedError {
     #[error("it holds no triangles")]
     NoTriangles,
@@ -85,34 +85,47 @@ pub enum FacetedError {
 
 pub fn faceted_solids(mesh: &TriangleMesh) -> Result<FacetedSolids, FacetedError> {
     let mut repairs = MeshRepairs::default();
+
     let (welded, welded_sources) = weld(mesh, &mut repairs)?;
+
     interrupt::check()?;
+
     let (mut triangles, cleaned) = clean(&welded.positions, &welded.triangles, &mut repairs);
+
     if triangles.is_empty() {
         return Err(FacetedError::NoTriangles);
     }
     interrupt::check()?;
+
     let mut sources: Vec<Option<usize>> = cleaned
         .into_iter()
         .map(|kept| welded_sources.get(kept).copied())
         .collect();
+
     repairs.filled_holes = fill_holes(&mut triangles);
     sources.resize(triangles.len(), None);
     interrupt::check()?;
+
     let positions = welded.positions;
     let shells = shells(&positions, &triangles, &sources, &mut repairs)?;
+
     if shells.is_empty() {
         let open_edges = open_edge_count(&triangles);
+
         return Err(FacetedError::NotClosed { open_edges });
     }
+
     let noise = noise_of(&positions);
     let mut solids = Vec::with_capacity(shells.len());
     let mut face_sources = Vec::with_capacity(shells.len());
     let mut faces = 0usize;
+
     for shell in &shells {
         interrupt::check()?;
+
         let room = MAX_FACETED_FACES.saturating_sub(faces);
         let built = shell_solid(&positions, shell, noise, room)?;
+
         faces += built.faces;
         if built.kept_triangles {
             repairs.kept_triangles += 1;
@@ -138,22 +151,26 @@ fn weld(
         .copied()
         .filter(|point| point.is_finite())
         .collect();
+
     if finite
         .iter()
         .any(|point| point.abs().max_element() > MAX_SIZE)
     {
         return Err(FacetedError::TooFar);
     }
+
     let bounds = Aabb::from_points(finite).ok_or(FacetedError::NoTriangles)?;
     let reach = (bounds.diagonal() * WELD_FRACTION).max(LINEAR_RESOLUTION);
     let mut cells: BTreeMap<[i64; 3], Vec<usize>> = BTreeMap::new();
     let mut positions: Vec<Point3> = Vec::new();
     let mut renumbered: Vec<Option<usize>> = Vec::with_capacity(mesh.positions.len());
+
     for point in &mesh.positions {
         if !point.is_finite() {
             renumbered.push(None);
             continue;
         }
+
         let key = (*point / reach)
             .floor()
             .to_array()
@@ -168,17 +185,23 @@ fn weld(
                     .distance(self::point(&positions, *a))
                     .total_cmp(&point.distance(self::point(&positions, *b)))
             });
+
         let index = welded.unwrap_or_else(|| {
             positions.push(*point);
+
             let index = positions.len() - 1;
+
             cells.entry(key).or_default().push(index);
             index
         });
+
         renumbered.push(Some(index));
     }
     repairs.welded = mesh.positions.len().saturating_sub(positions.len());
+
     let mut triangles = Vec::with_capacity(mesh.triangles.len());
     let mut sources = Vec::with_capacity(mesh.triangles.len());
+
     for (source, corners) in mesh.triangles.iter().enumerate() {
         let mapped = corners.map(|corner| renumbered.get(corner).copied().flatten());
         match mapped {
@@ -232,13 +255,17 @@ fn clean(
     let mut seen = BTreeSet::new();
     let mut kept = Vec::with_capacity(triangles.len());
     let mut kept_indices = Vec::with_capacity(triangles.len());
+
     for (index, triangle) in triangles.iter().enumerate() {
         let [a, b, c] = *triangle;
+
         if a == b || b == c || a == c || area_vector(positions, *triangle).length() <= tiny {
             repairs.degenerate += 1;
             continue;
         }
+
         let mut key = *triangle;
+
         key.sort_unstable();
         if !seen.insert(key) {
             repairs.duplicate += 1;
@@ -261,6 +288,7 @@ fn undirected(edge: (usize, usize)) -> (usize, usize) {
 
 fn edge_users(triangles: &[[usize; 3]]) -> BTreeMap<(usize, usize), Vec<usize>> {
     let mut users: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
+
     for (index, triangle) in triangles.iter().enumerate() {
         for edge in half_edges(*triangle) {
             users.entry(undirected(edge)).or_default().push(index);
@@ -278,31 +306,39 @@ fn open_edge_count(triangles: &[[usize; 3]]) -> usize {
 
 fn fill_holes(triangles: &mut Vec<[usize; 3]>) -> usize {
     let mut directed: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+
     for triangle in triangles.iter() {
         for edge in half_edges(*triangle) {
             *directed.entry(edge).or_default() += 1;
         }
     }
+
     let mut needed: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+
     for ((from, to), count) in &directed {
         let reverse = directed.get(&(*to, *from)).copied().unwrap_or(0);
         if *count == 1 && reverse == 0 {
             needed.entry(*to).or_default().push(*from);
         }
     }
+
     let mut used: BTreeSet<usize> = BTreeSet::new();
     let mut filled = 0;
     let starts: Vec<usize> = needed.keys().copied().collect();
+
     for start in starts {
         if used.contains(&start) {
             continue;
         }
+
         let mut hole = vec![start];
         let mut at = start;
+
         let closed = loop {
             let Some([next]) = needed.get(&at).map(Vec::as_slice) else {
                 break false;
             };
+
             if *next == start {
                 break true;
             }
@@ -312,13 +348,16 @@ fn fill_holes(triangles: &mut Vec<[usize; 3]>) -> usize {
             hole.push(*next);
             at = *next;
         };
+
         if !closed || hole.len() < 3 {
             continue;
         }
         used.extend(hole.iter().copied());
+
         let Some((first, rest)) = hole.split_first() else {
             continue;
         };
+
         for pair in rest.windows(2) {
             if let [b, c] = pair {
                 triangles.push([*first, *b, *c]);
@@ -354,19 +393,24 @@ fn shells(
     let mut component = vec![usize::MAX; triangles.len()];
     let mut oriented: Vec<[usize; 3]> = triangles.to_vec();
     let mut shells: Vec<(Vec<usize>, bool, bool)> = Vec::new();
+
     for seed in 0..triangles.len() {
         if component.get(seed) != Some(&usize::MAX) {
             continue;
         }
         interrupt::check()?;
+
         let id = shells.len();
         let mut members = vec![seed];
         let mut open = false;
         let mut tangled = false;
+
         if let Some(slot) = component.get_mut(seed) {
             *slot = id;
         }
+
         let mut queue = VecDeque::from([seed]);
+
         while let Some(current) = queue.pop_front() {
             let Some(triangle) = oriented.get(current).copied() else {
                 continue;
@@ -375,6 +419,7 @@ fn shells(
                 let Some(sharing) = users.get(&undirected(edge)) else {
                     continue;
                 };
+
                 if sharing.len() != 2 {
                     open = true;
                 }
@@ -402,7 +447,9 @@ fn shells(
         }
         shells.push((members, open, tangled));
     }
+
     let mut closed: Vec<(Shell, f64)> = Vec::new();
+
     for (members, open, tangled) in shells {
         if open {
             repairs.open_shells += 1;
@@ -412,6 +459,7 @@ fn shells(
             repairs.tangled_shells += 1;
             continue;
         }
+
         let shell = Shell {
             triangles: members
                 .iter()
@@ -423,8 +471,10 @@ fn shells(
                 .collect(),
         };
         let volume = signed_volume(positions, &shell.triangles);
+
         closed.push((shell, volume));
     }
+
     let largest = closed
         .iter()
         .map(|(_, volume)| volume.abs())
@@ -442,11 +492,13 @@ fn shells(
         })
         .collect();
     let mut kept = Vec::new();
+
     for (index, (shell, volume)) in closed.iter().enumerate() {
         if volume.abs() <= largest * VOID_VOLUME_FRACTION {
             repairs.tangled_shells += 1;
             continue;
         }
+
         let inside_another = boxes.get(index).copied().flatten().is_some_and(|inner| {
             boxes
                 .iter()
@@ -458,10 +510,12 @@ fn shells(
                         && outer.is_some_and(|outer| encloses(&outer, &inner))
                 })
         });
+
         if *volume < 0.0 && inside_another {
             repairs.sealed_voids += 1;
             continue;
         }
+
         let triangles = if *volume < 0.0 {
             repairs.inverted_shells += 1;
             shell
@@ -472,6 +526,7 @@ fn shells(
         } else {
             shell.triangles.clone()
         };
+
         kept.push(Shell {
             triangles,
             sources: shell.sources.clone(),
@@ -529,16 +584,21 @@ fn shell_solid(
     let mut attempt = 0;
     loop {
         interrupt::check()?;
+
         let keeping_triangles = attempt >= MERGE_ATTEMPTS;
+
         if keeping_triangles {
             split.clone_from(&everything);
         }
+
         let layout = layout(positions, triangles, &split, noise);
+
         if layout.regions.len() > room {
             return Err(FacetedError::TooDetailed {
                 faces: layout.regions.len() + MAX_FACETED_FACES - room,
             });
         }
+
         let snapped = match snap(positions, triangles, &layout) {
             Ok(snapped) => snapped,
             Err(unsnapped) => {
@@ -560,6 +620,7 @@ fn shell_solid(
                             .collect()
                     })
                     .collect();
+
                 return Ok(Built {
                     solid,
                     faces: layout.regions.len(),
@@ -600,16 +661,19 @@ fn layout(
         .collect();
     let mut region_of = vec![usize::MAX; triangles.len()];
     let mut regions = Vec::new();
+
     for seed in 0..triangles.len() {
         if region_of.get(seed) != Some(&usize::MAX) {
             continue;
         }
+
         let id = regions.len();
         let normal = normals.get(seed).copied().unwrap_or(Vector3::Z);
         let anchor = triangles
             .get(seed)
             .map_or(Point3::ZERO, |triangle| point(positions, triangle[0]));
         let mut members = vec![seed];
+
         if let Some(slot) = region_of.get_mut(seed) {
             *slot = id;
         }
@@ -627,6 +691,7 @@ fn layout(
                         if region_of.get(other) != Some(&usize::MAX) || split.contains(&other) {
                             continue;
                         }
+
                         let flat = normals
                             .get(other)
                             .is_some_and(|other| other.dot(normal) >= FLAT_ANGLE_COSINE);
@@ -646,6 +711,7 @@ fn layout(
                 }
             }
         }
+
         let summed: Vector3 = members
             .iter()
             .filter_map(|index| triangles.get(*index))
@@ -658,11 +724,13 @@ fn layout(
             .flatten()
             .copied()
             .collect();
+
         let offset = corners
             .iter()
             .map(|corner| fitted.dot(point(positions, *corner)))
             .sum::<f64>()
             / corners.len().max(1) as f64;
+
         regions.push(Region {
             triangles: members,
             normal: fitted,
@@ -678,6 +746,7 @@ fn snap(
     layout: &Layout,
 ) -> Result<Vec<Point3>, BTreeSet<usize>> {
     let mut planes_at: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+
     for (index, triangle) in triangles.iter().enumerate() {
         let region = layout.region_of.get(index).copied().unwrap_or(usize::MAX);
         if layout.regions.get(region).is_some_and(Region::merged) {
@@ -686,8 +755,10 @@ fn snap(
             }
         }
     }
+
     let mut snapped = positions.to_vec();
     let mut failed = BTreeSet::new();
+
     for (corner, regions) in &planes_at {
         let original = point(positions, *corner);
         let planes: Vec<(Vector3, f64)> = regions
@@ -695,6 +766,7 @@ fn snap(
             .filter_map(|region| layout.regions.get(*region))
             .map(|region| (region.normal, region.offset))
             .collect();
+
         let moved = closest_on_planes(original, &planes);
         let fits = planes
             .iter()
@@ -723,17 +795,22 @@ fn closest_on_planes(original: Point3, planes: &[(Vector3, f64)]) -> Point3 {
         Vector3::Z * SNAP_WEIGHT,
     ];
     let mut right = original * SNAP_WEIGHT;
+
     for (normal, offset) in planes {
         rows[0] += *normal * normal.x;
         rows[1] += *normal * normal.y;
         rows[2] += *normal * normal.z;
         right += *normal * *offset;
     }
+
     let [r0, r1, r2] = rows;
+
     let determinant = r0.dot(r1.cross(r2));
+
     if determinant.abs() <= f64::MIN_POSITIVE {
         return original;
     }
+
     let solved =
         (r1.cross(r2) * right.x + r2.cross(r0) * right.y + r0.cross(r1) * right.z) / determinant;
     if solved.is_finite() { solved } else { original }
@@ -754,11 +831,13 @@ fn assemble(
     layout: &Layout,
 ) -> Result<Solid, Assembly> {
     let mut owner: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+
     for (index, triangle) in triangles.iter().enumerate() {
         for edge in half_edges(*triangle) {
             owner.insert(edge, index);
         }
     }
+
     let region_at = |triangle: usize| {
         layout
             .region_of
@@ -770,10 +849,12 @@ fn assemble(
         vec![BTreeMap::new(); layout.regions.len()];
     let mut touching: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
     let mut degree: BTreeMap<usize, usize> = BTreeMap::new();
+
     for (index, triangle) in triangles.iter().enumerate() {
         let region = region_at(index);
         for (from, to) in half_edges(*triangle) {
             let twin = owner.get(&(to, from)).copied().map(region_at);
+
             if twin == Some(region) {
                 continue;
             }
@@ -784,9 +865,11 @@ fn assemble(
             *degree.entry(from).or_default() += 1;
         }
     }
+
     let scale =
         Aabb::from_points(positions.iter().copied()).map_or(1.0, |bounds| bounds.diagonal());
     let mut incoming: Vec<BTreeMap<usize, Vec<usize>>> = vec![BTreeMap::new(); boundary.len()];
+
     for (region, map) in boundary.iter().enumerate() {
         for (from, targets) in map {
             for to in targets {
@@ -796,10 +879,12 @@ fn assemble(
             }
         }
     }
+
     let removable = |vertex: usize| -> bool {
         let Some(regions) = touching.get(&vertex) else {
             return false;
         };
+
         if regions.len() != 2 || degree.get(&vertex) != Some(&2) {
             return false;
         }
@@ -809,21 +894,25 @@ fn assemble(
         {
             return false;
         }
+
         let Some(first) = regions.first() else {
             return false;
         };
         let next = boundary.get(*first).and_then(|map| map.get(&vertex));
         let previous = incoming.get(*first).and_then(|map| map.get(&vertex));
+
         let (Some([next]), Some([previous])) =
             (next.map(Vec::as_slice), previous.map(Vec::as_slice))
         else {
             return false;
         };
+
         let (a, v, b) = (
             point(positions, *previous),
             point(positions, vertex),
             point(positions, *next),
         );
+
         let along = (b - a).normalize_or_zero();
         let offset = v - a;
         offset.cross(along).length() <= COLLINEAR_FRACTION * scale
@@ -839,13 +928,16 @@ fn assemble(
     let mut vertices: BTreeMap<usize, VertexId> = BTreeMap::new();
     let mut edges: BTreeMap<Vec<usize>, EdgeId> = BTreeMap::new();
     let shell = builder.shell().map_err(Assembly::Build)?;
+
     for (index, region) in layout.regions.iter().enumerate() {
         let Some(map) = boundary.get(index) else {
             continue;
         };
+
         if map.values().any(|targets| targets.len() != 1) {
             return Err(Assembly::Region(index));
         }
+
         let loops = region_loops(map, &removed).ok_or(Assembly::Region(index))?;
         let plane = region_plane(positions, triangles, region).ok_or(Assembly::Region(index))?;
         let area = |chains: &[Chain]| -> f64 {
@@ -861,15 +953,20 @@ fn assemble(
                 .collect();
             crate::topology::signed_area(&points)
         };
+
         let mut ordered: Vec<(f64, Vec<Chain>)> = loops
             .into_iter()
             .map(|chains| (area(&chains), chains))
             .collect();
+
         ordered.sort_by(|a, b| b.0.total_cmp(&a.0));
+
         let outer = ordered.iter().filter(|(area, _)| *area > 0.0).count();
+
         if outer != 1 {
             return Err(Assembly::Region(index));
         }
+
         let surface = PlaneSurface::new(plane)
             .map(Surface::from)
             .map_err(|error| Assembly::Build(BuildError::Geometry(error)))?;
@@ -878,9 +975,11 @@ fn assemble(
             .map_err(Assembly::Build)?;
         for (_, chains) in ordered {
             let mut coedges = Vec::with_capacity(chains.len());
+
             for chain in chains {
                 let reversed: Vec<usize> = chain.vertices.iter().rev().copied().collect();
                 let forward = chain.vertices.as_slice() <= reversed.as_slice();
+
                 let key = if forward {
                     chain.vertices.clone()
                 } else {
@@ -889,6 +988,7 @@ fn assemble(
                 let (Some(start), Some(end)) = (key.first().copied(), key.last().copied()) else {
                     return Err(Assembly::Region(index));
                 };
+
                 let edge = match edges.get(&key) {
                     Some(found) => *found,
                     None => {
@@ -898,15 +998,20 @@ fn assemble(
                             if let Some(existing) = vertices.get(&vertex) {
                                 return Ok(*existing);
                             }
+
                             let id = builder
                                 .vertex(point(positions, vertex))
                                 .map_err(Assembly::Build)?;
+
                             vertices.insert(vertex, id);
                             Ok(id)
                         };
+
                         let from = corner(start, &mut builder)?;
                         let to = corner(end, &mut builder)?;
+
                         let edge = builder.line_edge(from, to).map_err(Assembly::Build)?;
+
                         edges.insert(key, edge);
                         edge
                     }
@@ -916,6 +1021,7 @@ fn assemble(
                 } else {
                     Sense::Reversed
                 };
+
                 coedges.push((edge, sense));
             }
             builder.add_loop(face, &coedges).map_err(Assembly::Build)?;
@@ -928,6 +1034,7 @@ fn region_plane(positions: &[Point3], triangles: &[[usize; 3]], region: &Region)
     if region.merged() {
         return Plane::new(region.normal * region.offset, region.normal);
     }
+
     let triangle = *triangles.get(*region.triangles.first()?)?;
     let normal = area_vector(positions, triangle).try_normalize()?;
     Plane::new(point(positions, triangle[0]), normal)
@@ -943,13 +1050,17 @@ fn region_loops(
     };
     let mut unused: BTreeSet<usize> = map.keys().copied().collect();
     let mut loops = Vec::new();
+
     while let Some(&start) = unused.iter().find(|vertex| !removed.contains(vertex)) {
         let mut chains = Vec::new();
         let mut chain = vec![start];
         let mut at = start;
+
         loop {
             unused.remove(&at);
+
             let to = next(at)?;
+
             chain.push(to);
             if !removed.contains(&to) {
                 chains.push(Chain {

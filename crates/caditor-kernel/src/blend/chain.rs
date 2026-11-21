@@ -3,14 +3,14 @@ use std::collections::BTreeSet;
 use super::{Topology, continues};
 use crate::topology::{EdgeId, Solid, VertexId};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Run {
     pub edge: EdgeId,
     pub from: f64,
     pub to: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Chain {
     pub runs: Vec<Run>,
     pub closed: bool,
@@ -92,12 +92,15 @@ fn walk(
     seed: EdgeId,
 ) -> Option<Chain> {
     let definition = solid.edge(seed)?;
+
     if definition.is_closed() {
         return split_closed(solid, seed);
     }
+
     let mut first = seed;
     let mut entered = definition.start();
     let mut seen = BTreeSet::from([seed]);
+
     while let Some(before) = next_at(solid, topology, chosen, first, entered) {
         if !seen.insert(before) {
             break;
@@ -105,6 +108,7 @@ fn walk(
         entered = far_end(solid, before, entered)?;
         first = before;
     }
+
     let start_vertex = entered;
     let mut runs = Vec::new();
     let mut edge = first;
@@ -112,6 +116,7 @@ fn walk(
     loop {
         visited.insert(edge);
         runs.push(run_from(solid, edge, entered)?);
+
         let leaving = far_end(solid, edge, entered)?;
         match next_at(solid, topology, chosen, edge, leaving) {
             Some(next) if next == first && leaving == start_vertex => {
@@ -139,11 +144,13 @@ fn walk(
 pub(super) fn chains(solid: &Solid, topology: &Topology, chosen: &BTreeSet<EdgeId>) -> Vec<Chain> {
     let mut left = chosen.clone();
     let mut found = Vec::new();
+
     while let Some(seed) = left.iter().next().copied() {
         let Some(chain) = walk(solid, topology, chosen, seed) else {
             left.remove(&seed);
             continue;
         };
+
         for edge in chain.edges() {
             left.remove(&edge);
         }

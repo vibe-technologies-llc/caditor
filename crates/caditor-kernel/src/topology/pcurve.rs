@@ -29,7 +29,7 @@ const SIDES: [SurfaceSide; 4] = [
     SurfaceSide::UEnd,
 ];
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum PcurveError {
     #[error("a pcurve needs at least two samples")]
     TooFewSamples,
@@ -43,13 +43,13 @@ pub enum PcurveError {
     Cancelled(#[from] Interrupted),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PcurveSample {
     pub parameter: f64,
     pub uv: Point2,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Pcurve {
     samples: Arc<[PcurveSample]>,
     tolerance: f64,
@@ -75,20 +75,24 @@ impl Pcurve {
         if samples.len() < 2 {
             return Err(PcurveError::TooFewSamples);
         }
+
         let finite = tolerance.is_finite()
             && tolerance >= 0.0
             && samples
                 .iter()
                 .all(|sample| sample.parameter.is_finite() && sample.uv.is_finite());
+
         if !finite {
             return Err(PcurveError::NonFinite);
         }
+
         let increasing = samples
             .windows(2)
             .all(|pair| matches!(pair, [a, b] if b.parameter > a.parameter));
         let decreasing = samples
             .windows(2)
             .all(|pair| matches!(pair, [a, b] if b.parameter < a.parameter));
+
         if !increasing && !decreasing {
             return Err(PcurveError::NotMonotone);
         }
@@ -138,6 +142,7 @@ impl Pcurve {
         else {
             return self.start();
         };
+
         let span = second.parameter - first.parameter;
         let fraction = if span != 0.0 {
             ((parameter - first.parameter) / span).clamp(0.0, 1.0)
@@ -152,7 +157,9 @@ impl Pcurve {
         if self.start() == start && self.end() == end {
             return self.clone();
         }
+
         let mut samples = self.samples.to_vec();
+
         if let Some(first) = samples.first_mut() {
             first.uv = start;
         }
@@ -185,6 +192,7 @@ impl Pcurve {
     ) -> Result<Self, PcurveError> {
         let refined = refine(surface, curve, &self.samples, tolerance)?;
         let usable = tolerance.is_finite() && tolerance >= 0.0;
+
         if usable && refined.len() == self.samples.len() {
             return Ok(Self {
                 samples: Arc::clone(&self.samples),
@@ -223,12 +231,16 @@ pub(crate) fn fit(
     if let Some(pcurve) = along_side(surface, curve, interval, sense) {
         return Ok(pcurve);
     }
+
     let mut parameters = curve.seeds(interval);
+
     if !sense.is_same() {
         parameters.reverse();
     }
+
     let mut samples: Vec<PcurveSample> = Vec::with_capacity(parameters.len());
     let mut parameters = parameters.into_iter();
+
     if let Some(parameter) = parameters.next() {
         samples.push(PcurveSample {
             parameter,
@@ -239,9 +251,11 @@ pub(crate) fn fit(
         let Some(from) = samples.last().copied() else {
             break;
         };
+
         follow(surface, curve, from, parameter, &mut samples)?;
     }
     settle_pole_ends(surface, &mut samples);
+
     let tolerance = shape_tolerance(curve, interval);
     let refined = refine(surface, curve, &samples, tolerance)?;
     Pcurve::new(refined, tolerance)
@@ -256,22 +270,29 @@ fn along_side(
     let (Surface::BSpline(spline), Curve::BSpline(row)) = (surface, curve) else {
         return None;
     };
+
     if spline.u_period().is_some() || spline.v_period().is_some() {
         return None;
     }
+
     let domain = row.domain();
+
     if interval.start() < domain.start() || interval.end() > domain.end() {
         return None;
     }
+
     let (u, v) = (spline.u_domain(), spline.v_domain());
     let (side, pivot) = SIDES.into_iter().find_map(|side| {
         let edge = spline.side(side)?;
+
         if same_spline(row, &edge) {
             return Some((side, None));
         }
+
         let pivot = edge.domain().start() + edge.domain().end();
         same_spline(row, &edge.reversed()).then_some((side, Some(pivot)))
     })?;
+
     let uv_at = |parameter: f64| {
         let along = pivot.map_or(parameter, |pivot| pivot - parameter);
         match side {
@@ -286,6 +307,7 @@ fn along_side(
         uv: uv_at(parameter),
     };
     let (first, last) = (sample(interval.start()), sample(interval.end()));
+
     let samples = if sense.is_same() {
         vec![first, last]
     } else {
@@ -318,6 +340,7 @@ fn same_spline(a: &BSplineCurve, b: &BSplineCurve) -> bool {
 
 pub(crate) fn shape_tolerance(curve: &Curve, interval: Interval) -> f64 {
     let (start, end) = (curve.point(interval.start()), curve.point(interval.end()));
+
     let bow = BOW_SAMPLES
         .iter()
         .map(|fraction| distance_to_segment(curve.point(interval.at(*fraction)), start, end))
@@ -334,16 +357,20 @@ fn follow(
 ) -> Result<(), PcurveError> {
     let mut pending = vec![(to, 0)];
     let mut last = from;
+
     while let Some((parameter, depth)) = pending.pop() {
         interrupt::check()?;
         if samples.len() + pending.len() >= MAX_PCURVE_SAMPLES {
             return Err(PcurveError::TooComplex(MAX_PCURVE_SAMPLES));
         }
+
         let uv = surface.project(curve.point(parameter), Some(last.uv));
         let middle = 0.5 * (last.parameter + parameter);
         let divisible = depth < MAX_PCURVE_DEPTH && middle != last.parameter && middle != parameter;
+
         let turning = turns_too_far(surface, last.uv, uv)
             || turns_too_far_through(surface, curve.point(middle), last.uv, uv);
+
         if divisible && turning {
             pending.push((parameter, depth + 1));
             pending.push((middle, depth + 1));
@@ -359,6 +386,7 @@ fn turns_too_far_through(surface: &Surface, middle: Point3, from: Point2, to: Po
     if surface.u_period().is_none() && surface.v_period().is_none() {
         return false;
     }
+
     let through = surface.project(middle, Some(from));
     turns_too_far(surface, from, through) || turns_too_far(surface, through, to)
 }
@@ -367,6 +395,7 @@ fn turns_too_far(surface: &Surface, from: Point2, to: Point2) -> bool {
     if surface.pole_at(from).is_some() || surface.pole_at(to).is_some() {
         return false;
     }
+
     let beyond = |step: f64, period: Option<f64>| {
         period.is_some_and(|period| step.abs() > period * MAX_PERIOD_FRACTION_PER_STEP)
     };
@@ -397,18 +426,22 @@ fn refine(
         return Err(PcurveError::TooFewSamples);
     };
     let mut refined = vec![*first];
+
     for pair in samples.windows(2) {
         let [start, end] = pair else {
             continue;
         };
+
         let mut pending = vec![(*start, *end, 0)];
         while let Some((low, high, depth)) = pending.pop() {
             interrupt::check()?;
             if refined.len() + pending.len() >= MAX_PCURVE_SAMPLES {
                 return Err(PcurveError::TooComplex(MAX_PCURVE_SAMPLES));
             }
+
             let parameter = 0.5 * (low.parameter + high.parameter);
             let chord = low.uv.lerp(high.uv, 0.5);
+
             let uv = surface.project(curve.point(parameter), Some(chord));
             let deviation = surface.point_at(chord).distance(surface.point_at(uv));
             let splittable = depth < MAX_PCURVE_DEPTH
@@ -416,6 +449,7 @@ fn refine(
                 && parameter != high.parameter;
             if splittable && (deviation.is_nan() || deviation > tolerance) {
                 let middle = PcurveSample { parameter, uv };
+
                 pending.push((middle, high, depth + 1));
                 pending.push((low, middle, depth + 1));
             } else {

@@ -17,6 +17,7 @@ struct Block<'a> {
 
 pub fn render(inventory: &Inventory) -> String {
     let mut output = String::new();
+
     output.push_str("caditor third-party notices\n===========================\n\n");
     output.push_str(INTRODUCTION);
     output.push_str("\n\n");
@@ -53,6 +54,7 @@ fn list(output: &mut String, title: &str, components: &[Component]) {
         } else {
             &component.license
         };
+
         output.push_str(&format!("{} ({license})\n", component.name));
     }
     output.push('\n');
@@ -60,6 +62,7 @@ fn list(output: &mut String, title: &str, components: &[Component]) {
 
 fn blocks(inventory: &Inventory) -> Vec<Block<'_>> {
     let mut blocks: Vec<Block<'_>> = Vec::new();
+
     for component in inventory.assets.iter().chain(&inventory.crates) {
         for text in &component.texts {
             match blocks.iter_mut().find(|block| block.text == text) {

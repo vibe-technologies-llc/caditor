@@ -122,7 +122,9 @@ fn the_export_dialog_opens_the_chosen_bodies_in_the_app_and_closes() {
 fn a_refused_hand_over_is_said_after_the_export() {
     let dir = TempDir::new().unwrap();
     let refused = LaunchError::Unavailable(ErrorKind::NotFound);
+
     let (mut harness, _) = with_fusion_app(dir.path(), Err(refused.clone()));
+
     extruded_plate(&mut harness);
 
     harness.command(FileCommand::OpenInFusionApp(Vec::new()));
@@ -140,6 +142,7 @@ fn bodies_named_by_the_command_are_the_only_ones_handed_over() {
     let dir = TempDir::new().unwrap();
     let (mut harness, launched) = with_fusion_app(dir.path(), Ok(()));
     let (plate, _) = extruded_plate(&mut harness);
+
     add_peg(&mut harness);
     harness.settle();
 
@@ -167,6 +170,7 @@ fn the_palette_hands_over_only_the_selected_body() {
     let dir = TempDir::new().unwrap();
     let (mut harness, launched) = with_fusion_app(dir.path(), Ok(()));
     let (_, top) = extruded_plate(&mut harness);
+
     add_peg(&mut harness);
     harness.settle();
 

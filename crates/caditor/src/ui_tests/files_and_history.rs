@@ -56,6 +56,7 @@ fn add_parameters(harness: &mut Harness, names: &[&str]) {
     for name in names {
         let length = harness.model.length_unit().default_length(10.0);
         let mut transaction = harness.document().transaction(format!("Add {name}"));
+
         transaction.add_parameter((*name).to_owned(), length);
         harness.perform(Action::Apply(transaction.finish()));
         harness.settle();
@@ -64,6 +65,7 @@ fn add_parameters(harness: &mut Harness, names: &[&str]) {
 
 fn exported(harness: &mut Harness, file: &str) {
     let text = format!("Exported 1 body to “{file}”");
+
     harness.wait_until("the export is written", |harness| {
         notice_starts(harness, &text)
     });
@@ -71,6 +73,7 @@ fn exported(harness: &mut Harness, file: &str) {
 
 fn saved_model(dir: &Path, name: &str) -> std::path::PathBuf {
     let path = dir.join(name);
+
     caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
     path
 }
@@ -78,7 +81,9 @@ fn saved_model(dir: &Path, name: &str) -> std::path::PathBuf {
 #[test]
 fn the_undo_history_goes_back_to_before_every_change_and_marks_the_current_one() {
     let mut harness = Harness::new();
+
     let before = harness.document().parameters().len();
+
     add_parameters(&mut harness, &["first", "second"]);
 
     run_from_palette(&mut harness, "undo history");
@@ -112,6 +117,7 @@ fn the_undo_history_goes_back_to_before_every_change_and_marks_the_current_one()
 #[test]
 fn the_edit_menu_names_the_step_undo_and_redo_would_take() {
     let mut harness = Harness::new();
+
     add_parameters(&mut harness, &["first"]);
 
     harness.click("Edit");
@@ -135,6 +141,7 @@ fn revert_to_saved_goes_back_to_the_file_in_one_step_that_undo_takes_back() {
     let root = canonical(&dir);
     let path = saved_model(&root, "kept.caditor");
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     harness.frame();
 
     assert_eq!(
@@ -154,7 +161,9 @@ fn revert_to_saved_goes_back_to_the_file_in_one_step_that_undo_takes_back() {
     );
 
     let saved = harness.document().clone();
+
     add_parameters(&mut harness, &["first", "second"]);
+
     assert!(harness.model.is_dirty());
 
     run_from_palette(&mut harness, "revert to the saved");
@@ -182,8 +191,11 @@ fn revert_to_saved_goes_back_to_the_file_in_one_step_that_undo_takes_back() {
 fn file_dialogs_start_in_the_folder_last_chosen_for_the_same_purpose() {
     let dir = TempDir::new().unwrap();
     let exports = dir.path().join("exports");
+
     fs::create_dir(&exports).unwrap();
+
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     extruded_plate(&mut harness);
 
     harness.command(FileCommand::Export(ExportCommand::Show));
@@ -212,6 +224,7 @@ fn export_again_repeats_the_last_export_and_asks_only_once_the_file_changed_else
     let dir = TempDir::new().unwrap();
     let plate = dir.path().join("plate.stl");
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     extruded_plate(&mut harness);
     harness.frame();
 
@@ -274,6 +287,7 @@ fn a_recent_model_is_removed_on_its_own_and_a_missing_one_is_marked_and_said_to_
     let second = saved_model(&root, "second.caditor");
     let third = saved_model(&root, "third.caditor");
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     for path in [&first, &second, &third] {
         harness.command(FileCommand::OpenPath(path.clone()));
         harness.wait_until("the file is open", |harness| {
@@ -336,7 +350,9 @@ fn a_recent_model_that_cannot_be_reached_stays_in_the_recent_models() {
     let dir = TempDir::new().unwrap();
     let root = canonical(&dir);
     let share = root.join("share");
+
     fs::create_dir(&share).unwrap();
+
     let model = saved_model(&share, "shared.caditor");
     let mut harness = Harness::with_directories(Some(root.as_path()));
 
@@ -346,6 +362,7 @@ fn a_recent_model_that_cannot_be_reached_stays_in_the_recent_models() {
     });
     harness.command(FileCommand::New);
     harness.settle();
+
     assert!(harness.files.wait_for_jobs(Duration::from_secs(10)));
 
     fs::set_permissions(&share, fs::Permissions::from_mode(0o000)).unwrap();
@@ -390,6 +407,7 @@ fn a_recent_model_is_not_announced_as_removed_when_the_list_could_not_be_saved()
     harness.wait_until("the file is open", |harness| {
         harness.model.path() == Some(first.as_path())
     });
+
     assert!(harness.files.wait_for_jobs(Duration::from_secs(10)));
 
     fs::remove_dir_all(root.join("state")).unwrap();
@@ -406,6 +424,7 @@ fn a_recent_model_is_not_announced_as_removed_when_the_list_could_not_be_saved()
     });
 
     let notice = harness.model.notice().unwrap();
+
     assert!(notice.outlasts_edits);
     assert!(
         notice.text.starts_with(
@@ -433,6 +452,7 @@ fn drag_screen(harness: &mut Harness, from: Pos2, to: Pos2) {
     harness.frame();
     for step in 1..=4 {
         let point = from + (to - from) * (step as f32 / 4.0);
+
         harness.events.push(Event::PointerMoved(point));
         harness.frame();
     }
@@ -449,9 +469,11 @@ fn drag_screen(harness: &mut Harness, from: Pos2, to: Pos2) {
 #[test]
 fn right_hand_panels_open_as_wide_as_one_was_last_made() {
     let mut harness = Harness::new();
+
     harness.workspace.measure.toggle();
     harness.frame();
     harness.frame();
+
     let width = measure_width(&harness).unwrap();
     let edge = PanelState::load(&harness.context, top_level_panel("measure"))
         .unwrap()
@@ -462,6 +484,7 @@ fn right_hand_panels_open_as_wide_as_one_was_last_made() {
     assert_eq!(harness.workspace.preferences.panels.right_width, None);
 
     drag_screen(&mut harness, edge, edge - egui::vec2(80.0, 0.0));
+
     let widened = measure_width(&harness).unwrap();
 
     assert!(widened > width + 40.0, "{width} → {widened}");
@@ -471,16 +494,19 @@ fn right_hand_panels_open_as_wide_as_one_was_last_made() {
     );
 
     let mut preferences = Preferences::from_settings(caditor_file::Settings::default());
+
     preferences.onboarding = crate::onboarding::Onboarding::finished();
     preferences.panels = PanelLayout {
         right_width: Some(widened.round()),
         ..PanelLayout::default()
     };
+
     let mut later = Harness::starting(
         None,
         sample_document().unwrap(),
         Workspace::with_preferences(preferences),
     );
+
     later.workspace.guide.open = true;
     later.frame();
     later.frame();
@@ -489,6 +515,7 @@ fn right_hand_panels_open_as_wide_as_one_was_last_made() {
         .unwrap()
         .size()
         .x;
+
     assert!((guide - widened.round()).abs() <= 1.0, "{guide}");
 }
 
@@ -496,6 +523,7 @@ fn set_width(harness: &mut Harness, width: &str) {
     let document = harness.document();
     let id = document.parameter_named("width").unwrap().id();
     let expression = document.parse(width).unwrap();
+
     harness.perform(Action::Apply(Transaction::single(
         "Width",
         Edit::SetParameterExpression { id, expression },
@@ -508,8 +536,10 @@ fn set_width(harness: &mut Harness, width: &str) {
 fn a_kept_version_is_previewed_in_the_background_without_touching_the_model() {
     let dir = TempDir::new().unwrap();
     let plate = Sample::Plate.document().unwrap();
+
     let mut harness = Harness::starting(Some(dir.path()), plate, Workspace::new());
     let path = dir.path().join("plate.caditor");
+
     harness.answer_dialog(Some(path));
     harness.command(FileCommand::SaveAs);
     harness.wait_until("the model is saved", |harness| {
@@ -519,6 +549,7 @@ fn a_kept_version_is_previewed_in_the_background_without_touching_the_model() {
     harness.command(FileCommand::Save);
     harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
     harness.edit_width("47 mm");
+
     let revision = harness.model.revision();
     let undo_label = harness.model.undo_label().map(str::to_owned);
     let features = harness.document().features().len();
@@ -540,7 +571,9 @@ fn a_kept_version_is_previewed_in_the_background_without_touching_the_model() {
     assert!(harness.shows("Compared with the model now:"));
     assert!(harness.shows("Parameters changed since: width"));
     assert!(harness.shows(version_preview::HIDE));
+
     let preview = harness.files.version_preview().unwrap();
+
     assert_eq!(preview.summary().unwrap().features, features);
     assert_eq!(preview.changes().unwrap().parameters, ["width"]);
     assert_eq!(harness.model.revision(), revision);
@@ -548,11 +581,15 @@ fn a_kept_version_is_previewed_in_the_background_without_touching_the_model() {
     assert_eq!(harness.expression_text("width"), "47 mm");
 
     set_width(&mut harness, "50 mm");
+
     assert!(harness.shows(version_preview::SAME_AS_NOW));
+
     set_width(&mut harness, "47 mm");
+
     assert!(harness.shows("Parameters changed since: width"));
 
     harness.click(version_preview::HIDE);
+
     assert!(harness.files.version_preview().is_none());
     assert!(!harness.shows("Parameters changed since: width"));
 
@@ -564,6 +601,7 @@ fn a_kept_version_is_previewed_in_the_background_without_touching_the_model() {
     harness.wait_until("the version is restored", |harness| {
         notice_starts(harness, "Restored the version saved")
     });
+
     assert_eq!(harness.expression_text("width"), "50 mm");
     assert!(harness.files.version_preview().is_none());
 }
@@ -572,8 +610,10 @@ fn a_kept_version_is_previewed_in_the_background_without_touching_the_model() {
 fn the_preview_card_offers_no_restore_while_a_version_is_being_restored() {
     let dir = TempDir::new().unwrap();
     let plate = Sample::Plate.document().unwrap();
+
     let mut harness = Harness::starting(Some(dir.path()), plate, Workspace::new());
     let path = dir.path().join("plate.caditor");
+
     harness.answer_dialog(Some(path));
     harness.command(FileCommand::SaveAs);
     harness.wait_until("the model is saved", |harness| {
@@ -593,21 +633,28 @@ fn the_preview_card_offers_no_restore_while_a_version_is_being_restored() {
     });
 
     let release = harness.files.hold_jobs();
+
     harness.click("Restore");
     harness.click("Restore this version");
     release.send(()).unwrap();
+
     assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+
     harness.wait_until("the version is restored", |harness| {
         harness.files.version_preview().is_none()
     });
+
     assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+
     harness.frame();
     harness.frame();
 
     assert!(notice_starts(&harness, "Restored the version saved"));
     assert_eq!(harness.expression_text("width"), "50 mm");
     assert_eq!(harness.model.undo_label(), Some("Restore earlier version"));
+
     harness.perform(Action::Undo);
+
     assert_eq!(harness.expression_text("width"), "47 mm");
 }
 
@@ -623,6 +670,7 @@ fn start_image_export(harness: &mut Harness, target: std::path::PathBuf) {
 fn closing_the_window_while_an_image_export_runs_waits_for_it_to_finish() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     harness.renders_held = true;
 
     start_image_export(&mut harness, dir.path().join("plate"));
@@ -649,6 +697,7 @@ fn closing_the_window_while_an_image_export_runs_waits_for_it_to_finish() {
 fn quitting_while_an_export_runs_can_be_called_off_or_stop_the_export_and_quit() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     extruded_plate(&mut harness);
     harness.renders_held = true;
 
@@ -714,7 +763,9 @@ fn quit_while_the_replacing_write_is_held(harness: &mut Harness, running: &str) 
 fn quitting_while_the_parameters_are_being_written_waits_for_the_file() {
     let dir = TempDir::new().unwrap();
     let written = dir.path().join("dimensions.csv");
+
     fs::write(&written, b"precious").unwrap();
+
     let mut harness = Harness::with_directories(Some(dir.path()));
 
     harness.answer_dialog(Some(dir.path().join("dimensions")));
@@ -739,8 +790,10 @@ fn quitting_while_a_template_is_being_saved_waits_for_the_file() {
     let dir = TempDir::new().unwrap();
     let folder = dir.path().join("config").join("templates");
     let written = folder.join("Bracket.caditor");
+
     fs::create_dir_all(&folder).unwrap();
     fs::write(&written, b"precious").unwrap();
+
     let mut harness = Harness::with_directories(Some(dir.path()));
 
     harness.answer_dialog(Some(folder.join("Bracket")));
@@ -757,11 +810,16 @@ fn quitting_while_a_template_is_being_saved_waits_for_the_file() {
 fn quitting_while_a_drawing_is_being_written_waits_for_the_file() {
     let dir = TempDir::new().unwrap();
     let written = dir.path().join("outline.dxf");
+
     fs::write(&written, b"precious").unwrap();
+
     let mut harness = Harness::with_directories(Some(dir.path()));
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
+
     let id = harness.add_sketch(sketch);
+
     harness.settle();
     harness.workspace.panels.choose_only(id);
     harness.frame();
@@ -780,18 +838,25 @@ fn quitting_while_a_drawing_is_being_written_waits_for_the_file() {
 #[test]
 fn a_model_changed_while_quit_waited_for_a_write_is_not_closed_without_asking() {
     let dir = TempDir::new().unwrap();
+
     fs::write(dir.path().join("dimensions.csv"), b"precious").unwrap();
+
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     harness.answer_dialog(Some(dir.path().join("dimensions")));
     run_from_palette(&mut harness, "Export parameters");
     harness.wait_until("the replacement is confirmed", |harness| {
         harness.shows("Replace “dimensions.csv”?")
     });
+
     let release = harness.files.hold_jobs();
+
     harness.click("Replace");
 
     harness.command(FileCommand::Quit);
+
     let waiting = harness.shows("Closing…") && !harness.model.is_dirty();
+
     add_parameters(&mut harness, &["depth"]);
     release.send(()).unwrap();
     harness.wait_until("the unsaved changes are asked about", |harness| {
@@ -813,7 +878,9 @@ fn a_save_as_checked_after_another_model_opened_writes_nothing_and_says_so() {
     let other = saved_model(&root, "other.caditor");
     let copy = root.join("copy.caditor");
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+
     let release = harness.files.hold_jobs();
 
     harness.answer_dialog(Some(copy.clone()));
@@ -843,8 +910,11 @@ fn an_export_checked_after_another_model_opened_writes_nothing_and_says_so() {
     let root = canonical(&dir);
     let other = saved_model(&root, "other.caditor");
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     extruded_plate(&mut harness);
+
     assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+
     let release = harness.files.hold_jobs();
 
     harness.command(FileCommand::Export(ExportCommand::Show));
@@ -868,6 +938,7 @@ fn an_export_checked_after_another_model_opened_writes_nothing_and_says_so() {
 fn plate_saved_twice(dir: &TempDir) -> Harness {
     let plate = Sample::Plate.document().unwrap();
     let mut harness = Harness::starting(Some(dir.path()), plate, Workspace::new());
+
     harness.answer_dialog(Some(dir.path().join("plate.caditor")));
     harness.command(FileCommand::SaveAs);
     harness.wait_until("the model is saved", |harness| {
@@ -884,7 +955,9 @@ fn list_then_save_again_unseen(harness: &mut Harness) -> std::sync::mpsc::Sender
     harness.wait_until("the versions are listed", |harness| {
         harness.shows(version_preview::SHOW)
     });
+
     let release = harness.files.hold_jobs();
+
     set_width(harness, "47 mm");
     harness.command(FileCommand::Save);
     harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
@@ -905,9 +978,13 @@ fn keep_clicked_in_a_list_a_save_has_since_changed_is_refused_and_the_list_read_
             "Could not change which versions of “plate.caditor” are kept",
         )
     });
+
     let refusal = harness.model.notice().unwrap().text.clone();
+
     release.send(()).unwrap();
+
     assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+
     harness.frame();
     harness.frame();
 
@@ -916,7 +993,9 @@ fn keep_clicked_in_a_list_a_save_has_since_changed_is_refused_and_the_list_read_
         "Could not change which versions of “plate.caditor” are kept: the saved versions changed \
          since the list was read; choose the version again from the updated list."
     );
+
     let listed = caditor_file::history(&path).unwrap();
+
     assert_eq!(listed.versions.len(), 2);
     assert!(listed.versions.iter().all(|version| !version.kept));
     assert!(!harness.shows("Kept"));
@@ -926,6 +1005,7 @@ fn keep_clicked_in_a_list_a_save_has_since_changed_is_refused_and_the_list_read_
 fn restore_clicked_in_a_list_a_save_has_since_changed_is_refused_and_the_model_kept() {
     let dir = TempDir::new().unwrap();
     let mut harness = plate_saved_twice(&dir);
+
     let release = list_then_save_again_unseen(&mut harness);
     let revision = harness.model.revision();
 
@@ -934,7 +1014,9 @@ fn restore_clicked_in_a_list_a_save_has_since_changed_is_refused_and_the_model_k
     harness.wait_until("the restore is refused", |harness| {
         notice_starts(harness, "Could not restore that version")
     });
+
     assert!(harness.files.wait_for_jobs(FILE_TIMEOUT));
+
     harness.frame();
 
     assert_eq!(
@@ -949,6 +1031,7 @@ fn restore_clicked_in_a_list_a_save_has_since_changed_is_refused_and_the_model_k
     harness.wait_until("the version is restored", |harness| {
         notice_starts(harness, "Restored the version saved")
     });
+
     assert_eq!(harness.expression_text("width"), "45 mm");
 }
 
@@ -965,13 +1048,17 @@ fn quitting_while_a_save_runs_waits_for_it_and_then_quits_without_asking() {
     let root = canonical(&dir);
     let path = root.join("plate.caditor");
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     harness.edit_width("45 mm");
+
     assert!(harness.model.flush_journal(FILE_TIMEOUT));
 
     harness.model.save_to(path.clone());
     harness.files.perform(FileCommand::Quit, &mut harness.model);
+
     let asked = harness.files.is_blocking();
     let noted = notice_starts(&harness, crate::files::QUITS_ONCE_SAVED);
+
     harness.wait_until("caditor quits", |harness| harness.files.should_quit());
 
     assert!(!asked);
@@ -994,16 +1081,21 @@ fn quitting_while_a_save_runs_asks_as_usual_and_keeps_the_journal_when_the_save_
     let root = canonical(&dir);
     let recovery = root.join("recovery");
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     harness.edit_width("45 mm");
+
     assert!(harness.model.flush_journal(FILE_TIMEOUT));
+
     let journaled = journals_in(&recovery);
 
     harness
         .model
         .save_to(root.join("missing").join("plate.caditor"));
     harness.files.perform(FileCommand::Quit, &mut harness.model);
+
     let asked_while_saving = harness.files.is_blocking();
     let noted = notice_starts(&harness, crate::files::QUITS_ONCE_SAVED);
+
     harness.wait_until("the unsaved changes are asked about", |harness| {
         harness.shows("Save changes to “Untitled”?")
     });
@@ -1016,6 +1108,7 @@ fn quitting_while_a_save_runs_asks_as_usual_and_keeps_the_journal_when_the_save_
     assert!(journaled.iter().all(|journal| journal.exists()));
 
     harness.click("Cancel");
+
     assert!(!harness.files.should_quit());
     assert!(journaled.iter().all(|journal| journal.exists()));
 }
@@ -1026,10 +1119,13 @@ fn a_change_landing_after_quit_closed_storage_is_journaled_and_asked_about() {
     let root = canonical(&dir);
     let recovery = root.join("recovery");
     let mut harness = Harness::with_directories(Some(root.as_path()));
+
     assert!(!harness.model.is_dirty());
 
     harness.files.perform(FileCommand::Quit, &mut harness.model);
+
     let mut transaction = harness.document().transaction("Add depth");
+
     transaction.add_parameter(
         "depth".to_owned(),
         harness.model.length_unit().default_length(10.0),
@@ -1038,6 +1134,7 @@ fn a_change_landing_after_quit_closed_storage_is_journaled_and_asked_about() {
     harness.wait_until("the late change is asked about", |harness| {
         harness.shows("Save changes to “Untitled”?")
     });
+
     assert!(harness.model.flush_journal(FILE_TIMEOUT));
 
     assert!(!harness.files.should_quit());
@@ -1046,5 +1143,6 @@ fn a_change_landing_after_quit_closed_storage_is_journaled_and_asked_about() {
 
     harness.click("Close without saving");
     harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+
     assert!(journals_in(&recovery).is_empty());
 }

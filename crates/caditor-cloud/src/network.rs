@@ -134,14 +134,17 @@ impl Read for Tracked<'_> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         let remaining = self.bytes.get(self.position..).unwrap_or_default();
         let count = remaining.len().min(buffer.len()).min(COPY_CHUNK);
+
         let (Some(from), Some(into)) = (remaining.get(..count), buffer.get_mut(..count)) else {
             return Ok(0);
         };
+
         if count == 0 {
             return Ok(0);
         }
         into.copy_from_slice(from);
         self.position += count;
+
         let sent = u64::try_from(self.position).unwrap_or(u64::MAX);
         let total = u64::try_from(self.bytes.len()).unwrap_or(u64::MAX);
         if (self.progress)(sent, total) {
@@ -209,16 +212,19 @@ impl Transport for Network {
         let encoded = multipart.encoded();
         let total = u64::try_from(encoded.len()).unwrap_or(u64::MAX);
         let stopped = Cell::new(false);
+
         let mut body = Tracked {
             bytes: &encoded,
             position: 0,
             progress,
             stopped: &stopped,
         };
+
         let outcome = authorised(builder, request)
             .header("Content-Type", multipart.content_type())
             .header("Content-Length", total.to_string())
             .send(SendBody::from_reader(&mut body));
+
         if stopped.get() {
             return Err(TransportError::Stopped);
         }
@@ -234,6 +240,7 @@ impl Transport for Network {
         let response = Self::call(&self.downloads, request)?;
         let status = response.status().as_u16();
         let retry_after_seconds = retry_after(&response);
+
         if !(200..300).contains(&status) {
             return Ok(Fetched {
                 status,
@@ -241,12 +248,14 @@ impl Transport for Network {
                 bytes: 0,
             });
         }
+
         let total = response
             .headers()
             .get("content-length")
             .and_then(|value| value.to_str().ok())
             .and_then(|text| text.trim().parse::<u64>().ok());
         let mut reader = response.into_body().into_reader();
+
         let bytes = copy_limited(&mut reader, sink, total, progress)?;
         Ok(Fetched {
             status,
@@ -280,6 +289,7 @@ fn copy_limited(
         let read = reader
             .read(&mut chunk)
             .map_err(|error| classify(ureq::Error::Io(error)))?;
+
         if read == 0 {
             return Ok(bytes);
         }
@@ -287,7 +297,9 @@ fn copy_limited(
         if bytes > limit {
             return Err(TransportError::TooLarge);
         }
+
         let filled = chunk.get(..read).unwrap_or_default();
+
         sink.write_all(filled)
             .map_err(|error| TransportError::Io(error.kind()))?;
         if !progress(bytes, total) {
@@ -305,6 +317,7 @@ mod tests {
         let mut buffer = vec![0_u8; 1 << 20];
         loop {
             let read = reader.read(&mut buffer)?;
+
             if read == 0 {
                 return Ok(all);
             }
@@ -321,6 +334,7 @@ mod tests {
             seen.push((sent, total));
             true
         };
+
         let mut reader = Tracked {
             bytes: &bytes,
             position: 0,
@@ -332,6 +346,7 @@ mod tests {
 
         let chunk = COPY_CHUNK as u64;
         let total = bytes.len() as u64;
+
         assert_eq!(read, bytes);
         assert_eq!(seen, [(chunk, total), (chunk * 2, total), (total, total)]);
         assert!(!stopped.get());
@@ -342,6 +357,7 @@ mod tests {
         let bytes = vec![1_u8; COPY_CHUNK * 3];
         let stopped = Cell::new(false);
         let mut progress = |sent: u64, _: u64| sent < COPY_CHUNK as u64 * 2;
+
         let mut reader = Tracked {
             bytes: &bytes,
             position: 0,

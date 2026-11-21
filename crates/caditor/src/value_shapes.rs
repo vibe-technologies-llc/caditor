@@ -12,7 +12,7 @@ use crate::{
     turn_handles::{self, TurnEnd},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Drawn {
     Stacked,
     Path(Vec<Point3>),
@@ -37,8 +37,10 @@ fn halfway(points: &[Point3]) -> Option<Point3> {
     };
     let total: f64 = legs().map(|(from, to)| from.distance(to)).sum();
     let mut left = total / 2.0;
+
     for (from, to) in legs() {
         let length = from.distance(to);
+
         if length >= left && length > 0.0 {
             return Some(from.lerp(to, left / length));
         }
@@ -91,6 +93,7 @@ fn hole_shapes(model: &Model, hole: &Hole) -> Vec<(ValueSlot, Drawn)> {
     let Some(HoleTop { top, down, across }) = hole_top(model, hole) else {
         return Vec::new();
     };
+
     let rim = length(model, &hole.diameter).map(|diameter| {
         let half = across * diameter / 2.0;
         (
@@ -114,6 +117,7 @@ fn offset_shape(model: &Model, feature: FeatureId, offset: &OffsetFace) -> Optio
     let before = model.evaluation().body_before(feature)?;
     let solid = &before.solid()?.solid;
     let face = offset.faces.first()?.resolve(solid).ok()?;
+
     let plane = face_plane(solid, face)?;
     let middle = plane.to_world(hole_tools::middle_of(solid, face, &plane)?);
     let distance = length(model, &offset.distance)?;
@@ -128,6 +132,7 @@ fn face_point(model: &Model, feature: FeatureId) -> Option<Point3> {
     let (face, bounds) = feature_values::made_faces(solid, feature)
         .max_by(|(_, a), (_, b)| a.diagonal().total_cmp(&b.diagonal()))?;
     let surface = face.surface();
+
     let at = surface.point_at(surface.project(bounds.center(), None));
     at.is_finite().then_some(at)
 }

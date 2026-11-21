@@ -48,6 +48,7 @@ impl LandingInputs {
         match &self.readings {
             Some(readings) => {
                 let mut values = outer.clone();
+
                 values.take_readings(readings);
                 Cow::Owned(values)
             }
@@ -138,8 +139,10 @@ impl<'a> Lander<'a> {
     pub(crate) fn of(kind: &'a FeatureKind) -> Option<Self> {
         if let Some(hole) = kind.hole() {
             let lands = !hole.depth.is_blind() && !hole.is_modelled_thread();
+
             return lands.then_some(Self::Hole(hole));
         }
+
         let solid = kind.solid()?;
         let SolidFeature::Extrude(extrude) = solid else {
             return None;
@@ -176,10 +179,12 @@ impl Copies<'_> {
         let inputs = &seen;
         let mut body = standing;
         let mut tools = Vec::new();
+
         for copy in copies {
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
             }
+
             let landing = Landing {
                 repeater: repeat.feature,
                 copy: copy.index,
@@ -197,6 +202,7 @@ impl Copies<'_> {
                 }
             }
             .map_err(|failure| self.failure(failure, repeat, copy.index))?;
+
             body = landed.body;
             tools.extend(landed.tools);
         }

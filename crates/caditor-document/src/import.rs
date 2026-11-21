@@ -14,7 +14,7 @@ use crate::{
     step_text::StepText,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Import {
     pub source: String,
     pub path: Option<PathBuf>,
@@ -71,16 +71,20 @@ pub(crate) fn evaluate(
     let failure = |cause: ImportCause| {
         Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(feature.id())))
     };
+
     if definition.solid.shells().next().is_none() {
         return Err(failure(ImportCause::Unreadable {
             feature: feature.name.clone(),
             source: definition.source.clone(),
         }));
     }
+
     let solid = (*definition.solid).clone().imported(feature.id().raw());
+
     if definition.placement.is_at_origin() {
         return Ok(FeatureResult::Solid(SolidResult::new(feature.id(), solid)));
     }
+
     let solid = if definition.placement.is_unscaled() {
         solid
     } else {
@@ -89,12 +93,14 @@ pub(crate) fn evaluate(
             Dimension::NONE,
             "scale",
         )?;
+
         if !(MIN_SCALE_FACTOR..=MAX_SCALE_FACTOR).contains(&factor) {
             return Err(failure(ImportCause::ScaleRange {
                 feature: feature.name.clone(),
                 factor,
             }));
         }
+
         let scaling = Similarity::scaling(Point3::ZERO, factor).ok_or_else(|| {
             failure(ImportCause::Unscalable {
                 feature: feature.name.clone(),
@@ -108,6 +114,7 @@ pub(crate) fn evaluate(
         })?
     };
     let placement = placement_transform(feature, inputs, &definition.placement)?;
+
     let placed = solid.transformed(&placement).map_err(|_| {
         failure(ImportCause::TooFar {
             feature: feature.name.clone(),
@@ -116,7 +123,7 @@ pub(crate) fn evaluate(
     Ok(FeatureResult::Solid(SolidResult::new(feature.id(), placed)))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ImportCause {
     Unreadable { feature: String, source: String },
     ScaleRange { feature: String, factor: f64 },

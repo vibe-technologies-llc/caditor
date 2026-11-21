@@ -28,7 +28,7 @@ const DEFAULT_TEMPLATE_KEY: &str = "files.default_template";
 pub const NEW_FROM_TEMPLATE: &str = "New from template";
 const NO_TEMPLATES: &str = "No templates yet";
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Templates {
     folder: Option<PathBuf>,
     listed: Vec<PathBuf>,
@@ -106,6 +106,7 @@ pub fn list(folder: &Path) -> Vec<PathBuf> {
         .map(|entry| entry.path())
         .filter(|path| is_template(path))
         .collect();
+
     listed.sort_by_cached_key(|path| display_name(Some(path)).to_lowercase());
     listed
 }
@@ -137,6 +138,7 @@ impl Files {
             }
             return;
         };
+
         self.spawn(
             move || {
                 if then.is_some()
@@ -193,13 +195,17 @@ impl Files {
 
     pub(super) fn load_template(&mut self, path: PathBuf, origin: Origin, since: Since) {
         self.abandon_open();
+
         let opening = Opening::new(path.clone(), origin);
         let cancel = opening.token();
+
         self.opening = Some(opening);
         self.open_attempt += 1;
+
         let attempt = self.open_attempt;
         let loader = Arc::clone(&self.model_loader);
         let failed = path.clone();
+
         self.spawn_own(
             "open",
             move || {
@@ -254,6 +260,7 @@ impl Files {
                 } else {
                     ""
                 };
+
                 if changed_meanwhile {
                     model.set_notice(Notice::failure(format!(
                         "Could not start from the template “{name}”: {error}. Your model was not \
@@ -272,6 +279,7 @@ impl Files {
 
     pub(super) fn template_target(&mut self, path: PathBuf, session: u64, model: &mut Model) {
         let named = with_extension(path.clone());
+
         if model.path() == Some(named.as_path()) || model.path() == Some(path.as_path()) {
             model.set_notice(Notice::warning(format!(
                 "“{}” is the open model's own file, so it is already saved as that template \
@@ -286,6 +294,7 @@ impl Files {
     pub(super) fn save_template(&mut self, path: PathBuf, model: &Model) {
         let document = model.document().clone();
         let failed = path.clone();
+
         self.spawn_write(
             WriteKind::Template,
             path.clone(),

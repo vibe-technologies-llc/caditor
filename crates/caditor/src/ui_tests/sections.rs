@@ -38,6 +38,7 @@ fn run(harness: &mut Harness, query: &str) {
 #[test]
 fn a_section_view_cuts_from_the_palette_follows_a_selected_face_and_never_changes_the_model() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
     let revision = harness.model.revision();
 
@@ -57,6 +58,7 @@ fn a_section_view_cuts_from_the_palette_follows_a_selected_face_and_never_change
 
     assert_eq!(harness.workspace.section.cuts[0].base, top);
     assert!(close(&shown_normals(&mut harness), &[Vector3::Z]));
+
     let lid = harness.built().scene.section[0].plane.origin().z;
 
     run(&mut harness, "flip the side the current section plane");
@@ -86,6 +88,7 @@ fn a_section_view_cuts_from_the_palette_follows_a_selected_face_and_never_change
 #[test]
 fn slicing_while_sketching_cuts_the_bodies_in_front_of_the_sketch_plane_only_while_it_is_edited() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     edit_base_sketch(&mut harness);
 
@@ -94,6 +97,7 @@ fn slicing_while_sketching_cuts_the_bodies_in_front_of_the_sketch_plane_only_whi
     run(&mut harness, "slice the bodies at the sketch plane");
 
     let section = harness.built().scene.section;
+
     assert_eq!(section.len(), 1);
     assert!(section[0].plane.normal().distance(Vector3::Z) < 1e-9);
     assert!(section[0].plane.origin().z.abs() < 1e-9);
@@ -121,26 +125,35 @@ fn selected_curves(harness: &Harness, sketch: FeatureId) -> usize {
 fn a_box_over_sketch_curves_leaves_out_what_a_section_plane_cuts_away() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+
     let plate = harness.add_sketch(sketch);
+
     harness.select([]);
     run_from_palette(&mut harness, "fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.frame();
+
     let (low, high) = plate_on_screen(&harness);
     let margin = egui::vec2(12.0, 12.0);
+
     harness
         .workspace
         .viewport
         .set_filter(SelectionFilter::SketchGeometry);
 
     drag_screen(&mut harness, low - margin, high + margin);
+
     let whole = selected_curves(&harness, plate);
 
     run(&mut harness, "show or hide the section view");
+
     let (low, high) = plate_on_screen(&harness);
+
     drag_screen(&mut harness, low - margin, high + margin);
+
     let cut = selected_curves(&harness, plate);
 
     assert_eq!(whole, 4);

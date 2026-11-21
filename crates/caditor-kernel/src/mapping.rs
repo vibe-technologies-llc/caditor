@@ -4,7 +4,7 @@ use caditor_geometry::Point2;
 
 use crate::interval::Interval;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Affine {
     scale: f64,
     offset: f64,
@@ -38,7 +38,7 @@ impl Affine {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct UvMap {
     pub(crate) u: Affine,
     pub(crate) v: Affine,

@@ -14,7 +14,7 @@ use crate::{
 
 const OVERLAP_SAMPLES: usize = 16;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Flaw {
     NearlyJoined {
         first: EntityId,
@@ -34,7 +34,7 @@ pub enum Flaw {
     },
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Fix {
     pub remove: Vec<EntityId>,
     pub add: Vec<Constraint>,
@@ -55,6 +55,7 @@ impl Sketch {
             .filter(|curve| self.has_no_length(*curve, tolerance))
             .map(|curve| Flaw::NoLength { curve })
             .collect();
+
         let short: BTreeSet<EntityId> = flaws
             .iter()
             .filter_map(|flaw| match flaw {
@@ -62,6 +63,7 @@ impl Sketch {
                 _ => None,
             })
             .collect();
+
         for curve in &short {
             if let [start, end] = self.entity(*curve).map(Entity::ends).unwrap_or_default()[..] {
                 classes.join(start, end);
@@ -81,6 +83,7 @@ impl Sketch {
             },
             Flaw::NoLength { curve } => {
                 let mut fix = self.removal(curve);
+
                 let ends: Vec<EntityId> = self
                     .entity(curve)
                     .map(Entity::ends)
@@ -88,6 +91,7 @@ impl Sketch {
                     .into_iter()
                     .filter(|end| !fix.remove.contains(end))
                     .collect();
+
                 if let [start, end] = ends.as_slice()
                     && classes.root(*start) != classes.root(*end)
                 {
@@ -104,6 +108,7 @@ impl Sketch {
                     .into_iter()
                     .map(|end| classes.root(end))
                     .collect();
+
                 let kept_ends: Vec<EntityId> = self
                     .entity(curve)
                     .map(Entity::ends)
@@ -112,6 +117,7 @@ impl Sketch {
                     .filter(|end| !fix.remove.contains(end))
                     .filter(|end| !on_ends.contains(&classes.root(*end)))
                     .collect();
+
                 for end in kept_ends {
                     let held = Constraint::Coincident(end, on);
                     if self.check_constraint(&held).is_ok() {
@@ -126,6 +132,7 @@ impl Sketch {
 
     fn coincident_classes(&self) -> Classes {
         let mut classes = Classes::default();
+
         for (_, constraint) in self.active_constraints() {
             if let Constraint::Coincident(a, b) = *constraint
                 && self.point(a).is_some()
@@ -179,6 +186,7 @@ impl Sketch {
 
     fn removal(&self, curve: EntityId) -> Fix {
         let mut remove = vec![curve];
+
         for point in self.entity(curve).map(Entity::points).unwrap_or_default() {
             let used_elsewhere = self.entities_using(point).iter().any(|user| *user != curve)
                 || !self.constraints_using(point).is_empty();
@@ -199,6 +207,7 @@ impl Sketch {
         tolerance: Tolerance,
     ) -> Vec<Flaw> {
         let mut ends: Vec<(EntityId, EntityId)> = Vec::new();
+
         for curve in self.curve_ids() {
             if short.contains(&curve) {
                 continue;
@@ -207,6 +216,7 @@ impl Sketch {
                 ends.push((end, curve));
             }
         }
+
         let located: Vec<(EntityId, Point2)> = ends
             .iter()
             .filter_map(|&(end, _)| Some((end, self.point(end)?)))
@@ -214,6 +224,7 @@ impl Sketch {
         let grid = Grid::new(&located, tolerance.distance);
         let mut flagged = BTreeSet::new();
         let mut flaws = Vec::new();
+
         for (index, &(end, at)) in located.iter().enumerate() {
             for other in grid.near(at) {
                 let (Some(&(neighbour, there)), Some(&(_, curve)), Some(&(_, other_curve))) =
@@ -223,6 +234,7 @@ impl Sketch {
                 };
                 let pair = (classes.root(end), classes.root(neighbour));
                 let gap = at.distance(there);
+
                 if other <= index
                     || curve == other_curve
                     || pair.0 == pair.1
@@ -251,8 +263,11 @@ impl Sketch {
                 Some((curve, reach.0, reach.1))
             })
             .collect();
+
         boxes.sort_by(|a, b| a.1.x.total_cmp(&b.1.x));
+
         let mut flaws = Vec::new();
+
         for (index, &(first, low, high)) in boxes.iter().enumerate() {
             for &(second, other_low, other_high) in boxes.iter().skip(index + 1) {
                 if other_low.x > high.x + tolerance.distance {
@@ -263,13 +278,16 @@ impl Sketch {
                 {
                     continue;
                 }
+
                 let (newer, older) = if first < second {
                     (second, first)
                 } else {
                     (first, second)
                 };
+
                 let newer_on_older = self.share_on(newer, older, tolerance);
                 let older_on_newer = self.share_on(older, newer, tolerance);
+
                 let flaw = match (newer_on_older, older_on_newer) {
                     (Some(Share::Whole), _) => Flaw::LiesOn {
                         curve: newer,
@@ -285,6 +303,7 @@ impl Sketch {
                     },
                     (None, None) => continue,
                 };
+
                 flaws.push(flaw);
             }
         }
@@ -329,6 +348,7 @@ impl Sketch {
             }
             Entity::Circle { .. } => {
                 let (centre, radius) = self.circle(curve)?;
+
                 let circle = ArcGeometry::full_circle(centre, radius);
                 Some(
                     fractions
@@ -354,9 +374,11 @@ impl Sketch {
             Some(Entity::Line { .. }) => self.line_endpoints(curve).is_some_and(|(start, end)| {
                 let span = end - start;
                 let length = span.length();
+
                 if length <= slack {
                     return false;
                 }
+
                 let along = span / length;
                 let reach = along.dot(point - start);
                 along.perp_dot(point - start).abs() <= slack
@@ -375,7 +397,7 @@ impl Sketch {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Share {
     Whole,
     Part,

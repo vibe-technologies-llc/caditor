@@ -35,7 +35,7 @@ impl fmt::Debug for HttpRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StreamStatus {
     pub status: u16,
     pub retry_after_seconds: Option<u64>,

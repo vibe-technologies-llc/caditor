@@ -51,9 +51,11 @@ impl Presentation<'_> {
         thread::scope(|scope| {
             let (shown, received) = mpsc::channel();
             let meshes = shown.clone();
+
             let spawned = thread::Builder::new()
                 .name("recompute display".to_owned())
                 .spawn_scoped(scope, move || self.present(&received, &meshes));
+
             if let Err(error) = spawned {
                 log::warn!(
                     "could not start a thread to show a recompute as it goes, so it shows when \
@@ -61,6 +63,7 @@ impl Presentation<'_> {
                 );
                 return run(&|_| {});
             }
+
             let ending = Ending(shown);
             run(&|glimpse| {
                 let _ = ending.0.send(Shown::Glimpse(Box::new(glimpse)));
@@ -77,11 +80,13 @@ impl Presentation<'_> {
             if self.cancel.is_cancelled() {
                 return;
             }
+
             let now = Instant::now();
             let due = match reported {
                 Some(at) if only_meshes => self.from.max(at + MESHES_REPORTED_EVERY),
                 Some(_) | None => self.from,
             };
+
             if unreported && now >= due {
                 if let Some(evaluation) = &latest {
                     (self.report)(evaluation.clone());
@@ -89,6 +94,7 @@ impl Presentation<'_> {
                 }
                 unreported = false;
             }
+
             let received = if unreported {
                 shown.recv_timeout(due.saturating_duration_since(now))
             } else {
@@ -102,6 +108,7 @@ impl Presentation<'_> {
                         evaluation,
                         settled,
                     } = *glimpse;
+
                     if let Some(evaluation) = evaluation {
                         latest = Some(evaluation);
                         only_meshes = false;
@@ -109,6 +116,7 @@ impl Presentation<'_> {
                     }
                     for body in settled {
                         let meshes = meshes.clone();
+
                         (self.mesh)(
                             body,
                             Box::new(move |meshed| {

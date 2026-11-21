@@ -54,6 +54,7 @@ fn triangle_facing(normal: Vector3, outward: Vector3) -> Sketch {
         Point2::new(11.0, 1.0),
         Point2::new(9.0, 0.0),
     ];
+
     for (from, to) in corners.iter().zip(corners.iter().cycle().skip(1)) {
         sketch.add_line(*from, *to);
     }
@@ -72,9 +73,12 @@ fn thread_along(helix: Helix) -> Model {
 
 fn thread_of(helix: Helix, profile: Sketch) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let helix = transaction.add_feature("Helix 1", FeatureKind::Helix(helix));
     let profile = transaction.add_feature("Profile", FeatureKind::from(profile));
+
     let sweep = transaction.add_feature(
         "Sweep 1",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(
@@ -82,6 +86,7 @@ fn thread_of(helix: Helix, profile: Sketch) -> Model {
             SweepPath::Helix { helix },
         ))),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -93,8 +98,11 @@ fn thread_of(helix: Helix, profile: Sketch) -> Model {
 #[test]
 fn a_helix_is_a_curve_feature_of_one_piece_a_turn_making_no_body() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let helix = transaction.add_feature("Helix 1", FeatureKind::Helix(helix_of(2.5, 3.0)));
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -105,7 +113,9 @@ fn a_helix_is_a_curve_feature_of_one_piece_a_turn_making_no_body() {
     assert_eq!(curve.turns.len(), 3);
     assert!(curve.start().unwrap().distance(Point3::new(10.0, 0.0, 0.0)) < 1e-9);
     assert!(curve.end().unwrap().distance(Point3::new(-10.0, 0.0, 7.5)) < 1e-9);
+
     let feature = document.feature(helix).unwrap();
+
     assert!(!feature.makes_body());
     assert_eq!(feature.body(), None);
 }
@@ -117,15 +127,21 @@ fn a_triangle_swept_along_a_helix_makes_a_thread_of_the_analytic_volume() {
     let evaluation = evaluate(&model.document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let solid = evaluation.body(model.sweep).unwrap();
+
     assert_eq!(solid.validate(), Ok(()));
+
     let expected = 2.0 * TAU * 2.0 * (31.0 / 3.0);
     let found = volume(&evaluation, model.sweep);
+
     assert!(
         (found - expected).abs() < 1e-3 * expected,
         "{found} against {expected}"
     );
+
     let sweep = model.document.feature(model.sweep).unwrap();
+
     assert!(sweep.kind.features().contains(&model.helix));
 }
 
@@ -141,11 +157,13 @@ fn a_clockwise_reversed_helix_winds_the_other_way_down_its_axis() {
     let evaluation = evaluate(&model.document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let bounds = evaluation
         .body(model.sweep)
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!(bounds.max().z < 1.0 + 1e-6, "{bounds:?}");
     assert!(bounds.min().z < -4.4, "{bounds:?}");
 }
@@ -207,10 +225,12 @@ fn the_helix_s_values_are_expressions_it_scales_and_inlines() {
 
     assert_eq!(helix.expressions().len(), 5);
     assert_eq!(helix.lengths_mut().len(), 2);
+
     helix.length = CoilLength::HeightAndPitch {
         height: mm(12.0),
         pitch: mm(3.0),
     };
+
     assert_eq!(helix.lengths_mut().len(), 3);
 }
 
@@ -234,10 +254,14 @@ fn a_start_angle_starts_the_helix_and_the_sweep_along_it_further_round_its_axis(
     assert_eq!(evaluation.failed_count(), 0);
     assert!(curve.start().unwrap().distance(Point3::new(0.0, 10.0, 0.0)) < 1e-9);
     assert!(curve.end().unwrap().distance(Point3::new(0.0, 10.0, 6.0)) < 1e-9);
+
     let solid = evaluation.body(model.sweep).unwrap();
+
     assert_eq!(solid.validate(), Ok(()));
+
     let expected = 2.0 * TAU * 2.0 * (31.0 / 3.0);
     let found = volume(&evaluation, model.sweep);
+
     assert!(
         (found - expected).abs() < 1e-3 * expected,
         "{found} against {expected}"
@@ -266,14 +290,17 @@ struct Pointed {
 
 fn marks_at(position: Point2) -> (Sketch, EntityId) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let mark = sketch.add_point(position);
     (sketch, mark)
 }
 
 fn pointed(position: Point2, helix: impl FnOnce(PointReference) -> Helix) -> Pointed {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let (sketch, mark) = marks_at(position);
+
     let marks = transaction.add_feature("Marks", FeatureKind::from(sketch));
     let helix = transaction.add_feature(
         "Helix 1",
@@ -282,6 +309,7 @@ fn pointed(position: Point2, helix: impl FnOnce(PointReference) -> Helix) -> Poi
             entity: mark,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     Pointed {
         document,
@@ -339,6 +367,7 @@ fn the_picked_point_wins_over_the_typed_angle_which_returns_once_the_point_is_cl
         .helix()
         .unwrap()
         .clone();
+
     cleared.start_point = None;
     model
         .document
@@ -350,6 +379,7 @@ fn the_picked_point_wins_over_the_typed_angle_which_returns_once_the_point_is_cl
             },
         ))
         .unwrap();
+
     let without_point = start_of(&evaluate(&model.document), model.helix);
 
     assert!(with_point.distance(Point3::new(0.0, 10.0, 0.0)) < 1e-9);
@@ -359,6 +389,7 @@ fn the_picked_point_wins_over_the_typed_angle_which_returns_once_the_point_is_cl
 #[test]
 fn the_start_follows_the_point_when_the_sketch_moves_it() {
     let mut model = pointed(Point2::new(7.0, 0.0), started_at);
+
     let before = start_of(&evaluate(&model.document), model.helix);
 
     model
@@ -372,6 +403,7 @@ fn the_start_follows_the_point_when_the_sketch_moves_it() {
             },
         ))
         .unwrap();
+
     let after = start_of(&evaluate(&model.document), model.helix);
 
     assert!(before.distance(Point3::new(10.0, 0.0, 0.0)) < 1e-9);
@@ -411,6 +443,7 @@ fn a_point_on_the_axis_fails_the_helix_in_words() {
 #[test]
 fn a_helix_started_at_a_corner_of_a_body_follows_it_by_name() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut outline = Sketch::new(Plane::XY);
     let corners = [
@@ -419,9 +452,11 @@ fn a_helix_started_at_a_corner_of_a_body_follows_it_by_name() {
         Point2::new(10.0, 8.0),
         Point2::new(0.0, 8.0),
     ];
+
     for index in 0..4 {
         outline.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = transaction.add_feature(
         "Base",
@@ -437,11 +472,14 @@ fn a_helix_started_at_a_corner_of_a_body_follows_it_by_name() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
     let solid = evaluation.body(base).unwrap();
     let names = vertex_names(solid);
     let corner = Point3::new(10.0, 8.0, 4.0);
+
     let (id, _) = solid
         .vertices()
         .find(|(_, vertex)| vertex.point().distance(corner) < 1e-9)
@@ -452,10 +490,12 @@ fn a_helix_started_at_a_corner_of_a_body_follows_it_by_name() {
         .map(|(_, name)| *name)
         .unwrap();
     let mut transaction = document.transaction("Helix");
+
     let helix = transaction.add_feature(
         "Helix 1",
         FeatureKind::Helix(started_at(PointReference::Vertex { body: base, vertex })),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -506,11 +546,14 @@ fn tabled(turns: f64, pitch: f64, rows: &[(f64, f64)]) -> Helix {
 #[test]
 fn a_helix_follows_a_table_of_pitches_by_turn_and_ends_where_the_table_says() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let helix = transaction.add_feature(
         "Helix 1",
         FeatureKind::Helix(tabled(6.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)])),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -524,19 +567,25 @@ fn a_helix_follows_a_table_of_pitches_by_turn_and_ends_where_the_table_says() {
 #[test]
 fn a_table_sizes_the_helix_by_its_height_and_by_its_turns() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut by_height = tabled(6.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
+
     by_height.length = CoilLength::HeightAndTurns {
         height: mm(24.0),
         turns: Expression::number(6.0),
     };
+
     let mut by_pitch = tabled(6.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
+
     by_pitch.length = CoilLength::HeightAndPitch {
         height: mm(24.0),
         pitch: mm(2.0),
     };
+
     let first = transaction.add_feature("By height", FeatureKind::Helix(by_height));
     let second = transaction.add_feature("By pitch", FeatureKind::Helix(by_pitch));
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -545,6 +594,7 @@ fn a_table_sizes_the_helix_by_its_height_and_by_its_turns() {
     for feature in [first, second] {
         let result = evaluation.feature(feature).unwrap().result.clone().unwrap();
         let end = result.helix().unwrap().end().unwrap();
+
         assert!(end.distance(Point3::new(10.0, 0.0, 24.0)) < 1e-6, "{end}");
     }
 }
@@ -552,7 +602,9 @@ fn a_table_sizes_the_helix_by_its_height_and_by_its_turns() {
 #[test]
 fn a_table_row_past_the_turns_or_beside_a_final_pitch_fails_the_helix_alone() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let beyond = transaction.add_feature(
         "Beyond",
         FeatureKind::Helix(tabled(4.0, 2.0, &[(5.0, 3.0)])),
@@ -565,6 +617,7 @@ fn a_table_row_past_the_turns_or_beside_a_final_pitch_fails_the_helix_alone() {
         }),
     );
     let fine = transaction.add_feature("Fine", FeatureKind::Helix(helix_of(2.0, 3.0)));
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -584,8 +637,11 @@ fn tabled_between_ends(turns: f64, pitch: f64, rows: &[(f64, f64)]) -> Helix {
 
 fn end_of(helix: Helix) -> Point3 {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let feature = transaction.add_feature("Helix 1", FeatureKind::Helix(helix));
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -606,6 +662,7 @@ fn a_table_between_closed_ends_counts_its_turns_from_the_body_between_them() {
 fn a_table_between_closed_ends_sizes_the_helix_by_its_height_and_by_its_turns() {
     let law = tabled_between_ends(9.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
     let height = 32.25;
+
     let by_height = Helix {
         length: CoilLength::HeightAndTurns {
             height: mm(height),
@@ -623,6 +680,7 @@ fn a_table_between_closed_ends_sizes_the_helix_by_its_height_and_by_its_turns() 
 
     for sized in [by_height, by_pitch] {
         let end = end_of(sized);
+
         assert!(end.distance(Point3::new(10.0, 0.0, height)) < 1e-6, "{end}");
     }
 }
@@ -630,16 +688,20 @@ fn a_table_between_closed_ends_sizes_the_helix_by_its_height_and_by_its_turns() 
 #[test]
 fn a_table_row_past_the_body_between_closed_ends_fails_the_helix_in_words() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let beyond = transaction.add_feature(
         "Beyond",
         FeatureKind::Helix(tabled_between_ends(6.0, 2.0, &[(3.5, 3.0)])),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
 
     let reason = failure(&evaluation, beyond).reason();
+
     assert!(reason.contains("between its closed ends"), "{reason}");
     assert!(reason.contains("3.00"), "{reason}");
 }

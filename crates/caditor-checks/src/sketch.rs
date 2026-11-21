@@ -108,6 +108,7 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
         _ => {
             let corner = point(input)?;
             let far = Point2::new(corner.x + length(input)?, corner.y + length(input)?);
+
             let corners = [
                 corner,
                 Point2::new(far.x, corner.y),
@@ -116,6 +117,7 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
             ]
             .map(|position| sketch.add_point(position));
             let mut last = None;
+
             for (start, end) in corners.iter().zip(corners.iter().cycle().skip(1)) {
                 last = insert(
                     sketch,
@@ -133,6 +135,7 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
 
 fn any_entity(input: &mut Unstructured, sketch: &Sketch) -> Result<EntityId> {
     let mut candidates: Vec<EntityId> = sketch.entities().map(|(id, _)| id).collect();
+
     candidates.extend(EntityId::REFERENCES);
     if input.ratio(1u8, 32)? {
         return Ok(EntityId::from_raw(input.arbitrary()?));
@@ -257,6 +260,7 @@ pub fn constraint(input: &mut Unstructured, sketch: &Sketch) -> Result<Constrain
 
 pub fn sketch(input: &mut Unstructured, plane: Plane) -> Result<Sketch> {
     let mut sketch = Sketch::new(plane);
+
     for _ in 0..input.int_in_range(1..=MOST_SHAPES)? {
         if let Some(curve) = shape(input, &mut sketch)?
             && input.ratio(1u8, 6)?
@@ -291,6 +295,7 @@ pub fn regraded(input: &mut Unstructured, sketch: &Sketch) -> Result<Sketch> {
             _ => None,
         })
         .collect();
+
     for (spline, fewest, most) in splines {
         let degree = input.int_in_range(fewest..=most)?;
         let _ = graded.set_spline_degree(spline, degree);
@@ -300,6 +305,7 @@ pub fn regraded(input: &mut Unstructured, sketch: &Sketch) -> Result<Sketch> {
 
 pub fn drag(input: &mut Unstructured, sketch: &Sketch) -> Result<Option<Drag>> {
     let existing = points(sketch);
+
     if existing.is_empty() {
         return Ok(None);
     }

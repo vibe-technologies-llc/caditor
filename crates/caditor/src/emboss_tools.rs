@@ -23,7 +23,7 @@ use crate::{
 pub const TITLE: &str = "Emboss";
 pub const DEFAULT_DEPTH: f64 = 0.5;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum EmbossError {
     #[error("Select the face to emboss, or a sketch drawn on it")]
     ChooseFaces,
@@ -57,7 +57,7 @@ impl Reason for EmbossError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EmbossSource {
     pub body: FeatureId,
     pub faces: Vec<FaceKey>,
@@ -70,6 +70,7 @@ pub struct EmbossSource {
 fn chosen_sketch(model: &Model, selection: &Selection) -> Result<Option<FeatureId>, EmbossError> {
     let document = model.document();
     let mut sketches: Vec<FeatureId> = Vec::new();
+
     for pickable in selection.iter() {
         if let Pickable::SketchEntity { feature, .. } | Pickable::SketchRegion { feature, .. } =
             pickable
@@ -96,6 +97,7 @@ pub fn source(model: &Model, selection: &Selection) -> Result<EmbossSource, Embo
     let mut body = None;
     let mut faces = Vec::new();
     let mut left_out = Vec::new();
+
     for pickable in selection.iter() {
         match pickable {
             Pickable::Face { body: owner, face } => {
@@ -109,6 +111,7 @@ pub fn source(model: &Model, selection: &Selection) -> Result<EmbossSource, Embo
             other => left_out.push(other),
         }
     }
+
     let sketch = chosen_sketch(model, selection)?;
     let regions = selection
         .iter()
@@ -118,16 +121,20 @@ pub fn source(model: &Model, selection: &Selection) -> Result<EmbossSource, Embo
         })
         .collect();
     let mut attached = None;
+
     if faces.is_empty() {
         let attachment = sketch
             .and_then(|sketch| model.document().feature(sketch))
             .and_then(|sketch| sketch.kind.attachment())
             .and_then(|attachment| attachment.face())
             .ok_or(EmbossError::ChooseFaces)?;
+
         body = Some(attachment.body);
         attached = Some(attachment.face.clone());
     }
+
     let body = body.ok_or(EmbossError::ChooseFaces)?;
+
     bodies::shown(model.evaluation(), body).ok_or(EmbossError::ChooseFaces)?;
     Ok(EmbossSource {
         body,
@@ -147,6 +154,7 @@ fn chosen_regions(evaluation: &Evaluation, source: &EmbossSource) -> RegionChoic
     else {
         return RegionChoice::All;
     };
+
     if chosen.is_empty()
         || !regions
             .iter()
@@ -169,12 +177,15 @@ pub fn create(
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
+
     if faces.len() < source.faces.len() {
         return Err(EmbossError::FacesGone);
     }
     faces.extend(source.attached.clone());
+
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Emboss(Emboss {
@@ -255,6 +266,7 @@ pub fn sketch_change(
     emboss: &Emboss,
 ) -> Result<Transaction, EmbossError> {
     let sketch = chosen_sketch(model, selection)?.ok_or(EmbossError::NoSketch)?;
+
     if emboss.sketch == Some(sketch) {
         return Err(EmbossError::Already);
     }
@@ -287,10 +299,13 @@ pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Op
     let owner = document.feature(feature)?;
     let emboss = owner.kind.emboss()?;
     let (_, regions) = selection::swept_regions(document, model.evaluation(), feature)?;
+
     let mut chosen = scene::chosen_regions(&emboss.regions, regions);
+
     if !chosen.remove(&region) {
         chosen.insert(region);
     }
+
     let choice = RegionChoice::Chosen(scene::region_references(&chosen, regions));
     Some(Transaction::single(
         format!("Choose regions of {}", owner.name),
@@ -304,6 +319,7 @@ pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Op
 pub fn choose_every_region(model: &Model, feature: FeatureId) -> Result<Transaction, EmbossError> {
     let document = model.document();
     let gone = EmbossError::Gone { feature };
+
     let emboss = document
         .feature(feature)
         .and_then(|owner| owner.kind.emboss())
@@ -311,6 +327,7 @@ pub fn choose_every_region(model: &Model, feature: FeatureId) -> Result<Transact
     let (_, regions) =
         selection::swept_regions(document, model.evaluation(), feature).ok_or(gone)?;
     let keys = scene::chosen_regions(&RegionChoice::All, regions);
+
     let chosen = RegionChoice::Chosen(scene::region_references(&keys, regions));
     change(model, feature, with_regions(emboss, chosen))
 }
@@ -321,11 +338,13 @@ pub fn select_all_regions(model: &Model, feature: &Feature) -> Result<Transactio
             name: feature.name.clone(),
         });
     };
+
     if matches!(emboss.regions, RegionChoice::All) {
         return Err(RegionError::AlreadyEvery {
             name: feature.name.clone(),
         });
     }
+
     let sketch = emboss
         .sketch
         .and_then(|sketch| model.document().feature(sketch))
@@ -349,9 +368,11 @@ pub fn take_sketch_regions(
             name: feature.name.clone(),
         });
     };
+
     if emboss.sketch == Some(sketch) {
         return select_all_regions(model, feature);
     }
+
     let document = model.document();
     let name = document
         .feature(sketch)
@@ -380,6 +401,7 @@ pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, Re
     };
     let nothing_chosen =
         chosen_region_keys(model, feature.id()).is_some_and(|keys| keys.is_empty());
+
     if nothing_chosen {
         return Err(RegionError::NoneChosen {
             name: feature.name.clone(),
@@ -414,6 +436,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let clicked = bodies::find_face(input, face)?;
     let solid = &input.solid;
     let mut changed = emboss.clone();
+
     changed.faces = emboss
         .faces
         .iter()
@@ -421,6 +444,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
         .filter(|(_, resolution)| !resolution.found().contains(&clicked))
         .map(|(reference, _)| reference.clone())
         .collect();
+
     let label = if changed.faces.len() == emboss.faces.len() {
         changed.faces.push(FaceReference::capture(solid, clicked)?);
         format!("Emboss a face with {}", owner.name)
@@ -445,16 +469,19 @@ pub fn with_selected_faces(
     let emboss = owner.kind.emboss()?;
     let input = bodies::input(model.evaluation(), feature)?;
     let solid = &input.solid;
+
     let mut taken: BTreeSet<FaceId> = emboss
         .resolutions(solid)
         .iter()
         .flat_map(|resolution| resolution.found().iter().copied())
         .collect();
     let mut changed = emboss.clone();
+
     for pickable in selection.iter() {
         let Pickable::Face { body, face } = pickable else {
             continue;
         };
+
         let Some(found) = (body == emboss.body)
             .then(|| bodies::find_face(input, face))
             .flatten()
@@ -462,6 +489,7 @@ pub fn with_selected_faces(
         else {
             continue;
         };
+
         changed.faces.push(FaceReference::capture(solid, found)?);
         taken.insert(found);
     }

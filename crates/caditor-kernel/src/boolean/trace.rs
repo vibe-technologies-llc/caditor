@@ -28,7 +28,7 @@ const POLE_RING: usize = 8;
 const POLE_OFFSET: f64 = 1e-3;
 const GROUP_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct HalfEdge {
     pub piece: usize,
     pub sense: Sense,
@@ -45,14 +45,14 @@ impl HalfEdge {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) struct Chart<'a> {
     pub surface: &'a Surface,
     pub sense: Sense,
     pub center: Point2,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Coedge {
     pub half_edge: HalfEdge,
     pub pcurve: Pcurve,
@@ -72,7 +72,7 @@ impl Coedge {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct TracedLoop {
     pub coedges: Vec<Coedge>,
     pub area: f64,
@@ -117,7 +117,7 @@ impl TracedLoop {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Fragment {
     pub loops: Vec<TracedLoop>,
 }
@@ -131,7 +131,7 @@ impl Fragment {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Travel {
     start: usize,
     end: usize,
@@ -170,8 +170,11 @@ fn shortest_travel<'a>(
             .map_or(0.0, |(start, end)| start.distance(end))
     };
     let mut by_chord: Vec<(f64, &Travel)> = travels.map(|travel| (chord(travel), travel)).collect();
+
     by_chord.sort_by(|a, b| a.0.total_cmp(&b.0));
+
     let mut shortest = f64::INFINITY;
+
     for (chord, travel) in by_chord {
         if chord >= shortest {
             break;
@@ -193,6 +196,7 @@ fn point_along(
 ) -> Option<Point3> {
     let (curve, piece) = arrangement.curve(travel.piece)?;
     let forward = travel.sense.is_same() == from_start;
+
     let (origin, direction) = if forward {
         (piece.interval.start(), 1.0)
     } else {
@@ -240,6 +244,7 @@ impl Turn {
     fn new(frame: &Frame, leaving: Vector3, chord: Vector3, reference: f64) -> Self {
         let tangent = frame.angle(leaving);
         let chord_angle = frame.signed_angle(chord);
+
         let primary = if tangent < ANGLE_TIE || tangent > TAU - ANGLE_TIE {
             let turn = chord_angle - reference;
             if turn > 0.0 { turn } else { TAU + turn }
@@ -273,6 +278,7 @@ fn vertex_normal(
 ) -> Option<Vector3> {
     let point = arrangement.point(vertex)?;
     let surface = chart.surface;
+
     let uv = surface.project(point, Some(hint.unwrap_or(chart.center)));
     let normal = match surface.pole_at(uv) {
         Some(pole) => pole_normal(surface, pole.v)?,
@@ -289,6 +295,7 @@ fn pole_normal(surface: &Surface, pole: f64) -> Option<Vector3> {
     } else {
         POLE_OFFSET
     };
+
     let inward = if (pole - domain.start()).abs() <= (pole - domain.end()).abs() {
         offset
     } else {
@@ -297,6 +304,7 @@ fn pole_normal(surface: &Surface, pole: f64) -> Option<Vector3> {
     let period = surface.u_period().unwrap_or(TAU);
     let start = surface.u_domain().start();
     let start = if start.is_finite() { start } else { 0.0 };
+
     let sum = (0..POLE_RING)
         .filter_map(|index| {
             let u = start + period * index as f64 / POLE_RING as f64;
@@ -317,6 +325,7 @@ fn first_clockwise(
     let frame = Frame::new(normal, -travel.arriving)?;
     let point = arrangement.point(travel.end)?;
     let back = point_along(arrangement, travel, false, reach)? - point;
+
     let reference = frame.signed_angle(back);
     let turns: Vec<(usize, Turn)> = forward
         .iter()
@@ -353,6 +362,7 @@ fn without_spikes(
             })
             .collect();
         let mut leaving: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+
         for (index, (start, _)) in ends
             .iter()
             .enumerate()
@@ -360,6 +370,7 @@ fn without_spikes(
         {
             leaving.entry(start).or_default().push(index);
         }
+
         let spike = kept.iter().zip(&ends).find_map(|(half_edge, ends)| {
             let (_, end) = (*ends)?;
             let only_back = match leaving.get(&end).map(Vec::as_slice) {
@@ -374,6 +385,7 @@ fn without_spikes(
         let Some(spike) = spike else {
             return kept;
         };
+
         kept.retain(|half_edge| half_edge.piece != spike);
     }
 }
@@ -399,10 +411,13 @@ pub(super) fn trace(
         .collect::<Option<Vec<Travel>>>()
         .ok_or_else(BooleanError::split)?;
     let mut leaving: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+
     for (index, travel) in travels.iter().enumerate() {
         leaving.entry(travel.start).or_default().push(index);
     }
+
     let mut normals: BTreeMap<usize, Vector3> = BTreeMap::new();
+
     for (vertex, members) in &leaving {
         let hint = members
             .iter()
@@ -411,6 +426,7 @@ pub(super) fn trace(
             normals.insert(*vertex, normal);
         }
     }
+
     let next = |arriving: usize| -> Result<Option<usize>, Interrupted> {
         let Some((travel, current)) = travels.get(arriving).zip(half_edges.get(arriving)) else {
             return Ok(None);
@@ -418,6 +434,7 @@ pub(super) fn trace(
         let Some(candidates) = leaving.get(&travel.end) else {
             return Ok(None);
         };
+
         let forward: Vec<usize> = candidates
             .iter()
             .copied()
@@ -427,11 +444,13 @@ pub(super) fn trace(
                     .is_some_and(|candidate| !candidate.is_reverse_of(current))
             })
             .collect();
+
         match forward.as_slice() {
             [] => return Ok(candidates.first().copied()),
             [only] => return Ok(Some(*only)),
             _ => {}
         }
+
         let reach = CHORD_FRACTION
             * shortest_travel(
                 arrangement,
@@ -446,16 +465,19 @@ pub(super) fn trace(
     };
     let mut used = vec![false; half_edges.len()];
     let mut loops = Vec::new();
+
     for start in 0..half_edges.len() {
         if used.get(start).copied().unwrap_or(true) {
             continue;
         }
+
         let mut members = Vec::new();
         let mut current = start;
         let stuck_at = |index: usize, at_end: bool| {
             let travel = travels.get(index)?;
             arrangement.point(if at_end { travel.end } else { travel.start })
         };
+
         loop {
             match used.get_mut(current) {
                 Some(flag) if !*flag => *flag = true,
@@ -482,18 +504,22 @@ pub(super) fn fit_loop(
         .iter()
         .position(|half_edge| half_edge.hint.is_some())
         .unwrap_or(0);
+
     members.rotate_left(first_hinted);
+
     let hinted: Vec<bool> = members
         .iter()
         .map(|half_edge| half_edge.hint.is_some())
         .collect();
     let mut coedges: Vec<Coedge> = Vec::with_capacity(members.len());
+
     for half_edge in members {
         let (curve, piece) = arrangement
             .curve(half_edge.piece)
             .ok_or_else(BooleanError::split)?;
         let previous = coedges.last().map(|coedge| coedge.pcurve.end());
         let hint = half_edge.hint.or(previous).unwrap_or(chart.center);
+
         let pcurve = fit_pcurve(
             chart.surface,
             curve,
@@ -504,6 +530,7 @@ pub(super) fn fit_loop(
         .map_err(|error| {
             BooleanError::unfitted(error).or_point(|| Some(curve.point(piece.interval.middle())))
         })?;
+
         coedges.push(Coedge {
             half_edge: HalfEdge {
                 hint: Some(pcurve.start()),
@@ -514,7 +541,9 @@ pub(super) fn fit_loop(
     }
     place_runs_from_poles(chart, &hinted, &mut coedges);
     snap_ends(arrangement, chart.surface, &mut coedges);
+
     let count = coedges.len();
+
     for (index, coedge) in coedges.iter().enumerate() {
         let next = coedges
             .get((index + 1) % count)
@@ -524,7 +553,9 @@ pub(super) fn fit_loop(
                 .or_point(|| Some(chart.surface.point_at(coedge.pcurve.end()))));
         }
     }
+
     let mut traced = TracedLoop { coedges, area: 0.0 };
+
     traced.area = signed_area(&traced.polygon());
     open_flat(arrangement, chart, &mut traced)?;
     if !traced.area.is_finite() || traced.area == 0.0 {
@@ -562,9 +593,11 @@ pub(super) fn snap_ends(arrangement: &Arrangement, surface: &Surface, coedges: &
             piece.map(|piece| piece.end_of(coedge.half_edge.sense)),
             coedge.pcurve.end(),
         );
+
         coedge.pcurve = coedge.pcurve.with_ends(start, end);
         coedge.half_edge.hint = Some(start);
     }
+
     let count = coedges.len();
     for index in 0..count {
         let Some(end) = coedges.get(index).map(|coedge| coedge.pcurve.end()) else {
@@ -591,17 +624,21 @@ fn place_runs_from_poles(chart: &Chart, hinted: &[bool], coedges: &mut [Coedge])
     while index < count {
         let free =
             !hinted.get(index).copied().unwrap_or(true) && coedges.get(index).is_some_and(at_pole);
+
         if !free {
             index += 1;
             continue;
         }
+
         let mut end = index + 1;
+
         while end < count
             && !hinted.get(end).copied().unwrap_or(true)
             && !coedges.get(end).is_some_and(at_pole)
         {
             end += 1;
         }
+
         let following = coedges
             .get(end % count)
             .filter(|coedge| hinted.get(end % count).copied().unwrap_or(false) && !at_pole(coedge));
@@ -614,7 +651,9 @@ fn place_runs_from_poles(chart: &Chart, hinted: &[bool], coedges: &mut [Coedge])
             ),
             _ => break,
         };
+
         let offset = Vector2::new(((target - reference) / period).round() * period, 0.0);
+
         if offset.x != 0.0 {
             for coedge in coedges.iter_mut().take(end).skip(index) {
                 coedge.pcurve = coedge.pcurve.shifted(offset);
@@ -701,6 +740,7 @@ pub(super) fn group(chart: &Chart, loops: Vec<TracedLoop>) -> Result<Vec<Fragmen
     let tree = BoxTree::new(boxes.iter().map(|bounds| flat_box(*bounds, Vector2::ZERO)));
     let offsets = shifts(chart.surface);
     let mut placed: Vec<(usize, TracedLoop)> = Vec::new();
+
     for hole in holes {
         let candidates: BTreeSet<usize> = uv_bounds(&hole)
             .into_iter()
@@ -713,6 +753,7 @@ pub(super) fn group(chart: &Chart, loops: Vec<TracedLoop>) -> Result<Vec<Fragmen
             })
             .collect();
         let mut best: Option<(usize, f64, Vector2)> = None;
+
         for index in candidates {
             let Some(outer) = indexed.get(index) else {
                 continue;
@@ -720,6 +761,7 @@ pub(super) fn group(chart: &Chart, loops: Vec<TracedLoop>) -> Result<Vec<Fragmen
             let Some(probe) = probe_outside(&hole, &outer.pieces) else {
                 continue;
             };
+
             let Some(offset) = offsets
                 .iter()
                 .copied()
@@ -731,14 +773,18 @@ pub(super) fn group(chart: &Chart, loops: Vec<TracedLoop>) -> Result<Vec<Fragmen
                 best = Some((index, outer.area, offset));
             }
         }
+
         let (index, _, offset) =
             best.ok_or_else(|| BooleanError::split().or_point(|| hole.point_on(chart.surface)))?;
+
         placed.push((index, hole.shifted(offset)));
     }
+
     let mut fragments: Vec<Fragment> = outers
         .into_iter()
         .map(|outer| Fragment { loops: vec![outer] })
         .collect();
+
     for (index, hole) in placed {
         if let Some(fragment) = fragments.get_mut(index) {
             fragment.loops.push(hole);
@@ -751,6 +797,7 @@ fn scan(polygons: &[Vec<Point2>], level: f64, across: bool) -> Vec<f64> {
     let along = |point: Point2| if across { point.y } else { point.x };
     let height = |point: Point2| if across { point.x } else { point.y };
     let mut crossings = Vec::new();
+
     for polygon in polygons {
         let count = polygon.len();
         for (index, a) in polygon.iter().enumerate() {
@@ -760,6 +807,7 @@ fn scan(polygons: &[Vec<Point2>], level: f64, across: bool) -> Vec<f64> {
             let (ha, hb) = (height(*a), height(*b));
             if (ha > level) != (hb > level) {
                 let fraction = (level - ha) / (hb - ha);
+
                 crossings.push(along(*a) + fraction * (along(*b) - along(*a)));
             }
         }
@@ -777,6 +825,7 @@ fn spans(fragment: &Fragment, surface: &Surface) -> Vec<(f64, Point2)> {
         return Vec::new();
     };
     let mut spans: Vec<(f64, Point2)> = Vec::new();
+
     for across in [false, true] {
         let (low, high) = if across {
             (bounds.min().x, bounds.max().x)
@@ -827,6 +876,7 @@ pub(super) fn interior_points(fragment: &Fragment, surface: &Surface) -> Vec<Poi
         .flat_map(|traced| &traced.coedges)
         .map(|coedge| coedge.pcurve.tolerance())
         .fold(0.0, larger);
+
     let clear: Vec<Point2> = spans
         .iter()
         .copied()
@@ -870,6 +920,7 @@ fn depths(fragment: &Fragment, surface: &Surface) -> Vec<(f64, Point2)> {
         return Vec::new();
     };
     let mut candidates: Vec<(f64, Point2)> = Vec::new();
+
     for across in [false, true] {
         let (low, high) = if across {
             (bounds.min().x, bounds.max().x)

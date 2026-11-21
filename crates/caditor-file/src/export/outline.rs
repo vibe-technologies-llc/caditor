@@ -34,6 +34,7 @@ pub(super) fn face_figure(
         ..FaceExported::default()
     };
     let mut written = BTreeSet::new();
+
     for (index, loop_id) in definition.loops().iter().enumerate() {
         let layer = if index == 0 {
             Layer::Outline
@@ -41,15 +42,19 @@ pub(super) fn face_figure(
             Layer::Holes
         };
         let face_loop = solid.face_loop(*loop_id).ok_or(ExportError::Encoding)?;
+
         exported.loops += 1;
         for coedge in face_loop.coedges() {
             let coedge = solid.coedge(*coedge).ok_or(ExportError::Encoding)?;
+
             if !written.insert(coedge.edge()) {
                 continue;
             }
+
             let edge = solid.edge(coedge.edge()).ok_or(ExportError::Encoding)?;
             let (shape, exact) =
                 edge_shape(solid, edge, &frame, &tolerance).ok_or(ExportError::Encoding)?;
+
             exported.curves += 1;
             if !exact {
                 exported.approximated += 1;
@@ -70,6 +75,7 @@ fn drawing_frame(face: &Plane) -> Option<Plane> {
     } else {
         Vector3::Y
     };
+
     let right = up.reject_from_normalized(normal).cross(normal);
     let origin = Point3::ZERO - normal * face.signed_distance(Point3::ZERO);
     Plane::with_x_axis(origin, normal, right)
@@ -96,6 +102,7 @@ fn edge_shape(
     let end = frame.to_local(solid.vertex(edge.end())?.point());
     let interval = edge.interval();
     let full = edge.is_closed() && interval.length() >= TAU - LINEAR_RESOLUTION;
+
     let exact = match edge.curve() {
         Curve::Line(_) => Some(Shape::Line(start, end)),
         Curve::Circle(circle) => {
@@ -162,22 +169,28 @@ fn fitted(
     if polyline.len() <= FITTED_DEGREE {
         return None;
     }
+
     let spline = BSpline::interpolating(FITTED_DEGREE, polyline).ok()?;
     let samples = edge.curve().sample(edge.interval(), tolerance);
+
     if samples.len() != polyline.len() {
         return None;
     }
+
     let mut travelled = 0.0;
+
     for (pair, points) in samples.windows(2).zip(polyline.windows(2)) {
         let ([before, after], [from, to]) = (pair, points) else {
             return None;
         };
+
         let step = from.distance(*to);
         let middle = spline.point(travelled + step / 2.0);
         let wanted = frame.to_local(
             edge.curve()
                 .point((before.parameter + after.parameter) / 2.0),
         );
+
         if middle.distance(wanted) > tolerance.chord() {
             return None;
         }
@@ -205,6 +218,7 @@ fn sampled(
         .into_iter()
         .map(|sample| frame.to_local(sample.point))
         .collect();
+
     if let Some(first) = points.first_mut() {
         *first = start;
     }
@@ -253,9 +267,11 @@ fn conic(
     interval: Interval,
 ) -> Option<Conic2> {
     let alignment = conic.normal().dot(frame.normal());
+
     if (alignment.abs() - 1.0).abs() > CONIC_ALIGNMENT || along_x <= 0.0 || along_y <= 0.0 {
         return None;
     }
+
     let x_axis = Vector2::new(
         conic.x_axis().dot(frame.x_axis()),
         conic.x_axis().dot(frame.y_axis()),

@@ -35,7 +35,9 @@ fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
 
 fn add(document: &mut Document, name: &str, datum: Datum) -> FeatureId {
     let mut transaction = document.transaction("Add");
+
     let feature = transaction.add_feature(name, FeatureKind::Datum(datum));
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -79,7 +81,9 @@ struct Parts {
 
 fn parts() -> Parts {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
 
     let mut outline = Sketch::new(Plane::XY);
@@ -89,14 +93,18 @@ fn parts() -> Parts {
         Point2::new(10.0, 8.0),
         Point2::new(0.0, 8.0),
     ];
+
     for index in 0..4 {
         outline.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let block = transaction.add_feature("Block", extrude(outline, Expression::Parameter(height)));
 
     let mut disc = Sketch::new(Plane::XY);
+
     disc.add_circle(Point2::new(30.0, -2.0), 5.0);
+
     let disc = transaction.add_feature("Disc", FeatureKind::from(disc));
     let pin = transaction.add_feature("Pin", extrude(disc, millimetres(6.0)));
 
@@ -107,14 +115,18 @@ fn parts() -> Parts {
         Point2::new(2.0, 6.0),
         Point2::new(0.0, 6.0),
     ];
+
     for index in 0..4 {
         profile.add_line(section[index], section[(index + 1) % 4]);
     }
+
     let profile = transaction.add_feature("Profile", FeatureKind::from(profile));
     let cone = transaction.add_feature("Cone", revolve(profile));
 
     let mut tube = Sketch::new(Plane::XZ);
+
     tube.add_circle(Point2::new(20.0, 5.0), 1.0);
+
     let tube = transaction.add_feature("Tube", FeatureKind::from(tube));
     let ring = transaction.add_feature("Ring", revolve(tube));
 
@@ -184,10 +196,12 @@ fn principal(plane: PrincipalPlane) -> PlaneReference {
 #[test]
 fn a_plane_lies_tangent_to_a_cylinder_on_the_side_of_a_point() {
     let mut parts = parts();
+
     let evaluation = evaluate(&parts.document);
     let solid = evaluation.body(parts.pin).unwrap();
     let wall = face_where(solid, |surface| matches!(surface, Surface::Cylinder(_)));
     let toward = add(&mut parts.document, "Side", offset_point(30.0, 20.0, 1.0));
+
     let tangent = add(
         &mut parts.document,
         "Tangent",
@@ -209,10 +223,12 @@ fn a_plane_lies_tangent_to_a_cylinder_on_the_side_of_a_point() {
 #[test]
 fn a_tangent_plane_to_a_cone_touches_it_along_a_generator() {
     let mut parts = parts();
+
     let evaluation = evaluate(&parts.document);
     let solid = evaluation.body(parts.cone).unwrap();
     let slope = face_where(solid, |surface| matches!(surface, Surface::Cone(_)));
     let toward = add(&mut parts.document, "Side", offset_point(10.0, 0.0, 0.0));
+
     let tangent = add(
         &mut parts.document,
         "Tangent",
@@ -235,6 +251,7 @@ fn a_tangent_plane_to_a_cone_touches_it_along_a_generator() {
 #[test]
 fn a_tangent_plane_fails_alone_when_the_side_is_on_the_axis_or_the_face_is_flat() {
     let mut parts = parts();
+
     let evaluation = evaluate(&parts.document);
     let solid = evaluation.body(parts.pin).unwrap();
     let wall = face_where(solid, |surface| matches!(surface, Surface::Cylinder(_)));
@@ -249,6 +266,7 @@ fn a_tangent_plane_fails_alone_when_the_side_is_on_the_axis_or_the_face_is_flat(
         "Off axis",
         offset_point(30.0, 20.0, 1.0),
     );
+
     let centred = add(
         &mut parts.document,
         "Centred",
@@ -289,12 +307,14 @@ fn a_tangent_plane_fails_alone_when_the_side_is_on_the_axis_or_the_face_is_flat(
 #[test]
 fn a_plane_stands_square_to_a_round_edge_at_a_distance_along_it() {
     let mut parts = parts();
+
     let evaluation = evaluate(&parts.document);
     let solid = evaluation.body(parts.pin).unwrap();
     let (rim, _) = solid
         .edges()
         .find(|(_, edge)| matches!(edge.curve(), Curve::Circle(circle) if circle.center().z > 3.0))
         .unwrap();
+
     let rim = EdgeReference::capture(solid, rim).unwrap();
     let centre = Point3::new(30.0, -2.0, 6.0);
     let quarter = std::f64::consts::PI * 5.0 / 2.0;
@@ -306,6 +326,7 @@ fn a_plane_stands_square_to_a_round_edge_at_a_distance_along_it() {
         })))
     };
     let start = add(&mut parts.document, "Start", station(0.0));
+
     let turned = add(&mut parts.document, "Quarter", station(quarter));
     let backwards = add(&mut parts.document, "Back", station(-quarter));
 
@@ -316,10 +337,12 @@ fn a_plane_stands_square_to_a_round_edge_at_a_distance_along_it() {
 
     for plane in [first, second, third] {
         let radial = plane.origin() - centre;
+
         assert!((radial.length() - 5.0).abs() < CLOSE);
         assert!(plane.normal().dot(radial).abs() < 1e-7);
         assert!(plane.normal().z.abs() < CLOSE);
     }
+
     assert!(
         (second.origin() - centre)
             .dot(first.origin() - centre)
@@ -333,6 +356,7 @@ fn a_plane_stands_square_to_a_round_edge_at_a_distance_along_it() {
 #[test]
 fn a_point_lies_a_distance_along_a_straight_edge_and_follows_a_parameter() {
     let mut parts = parts();
+
     let station = along(
         &parts,
         Point3::new(0.0, 0.0, 0.0),
@@ -346,6 +370,7 @@ fn a_point_lies_a_distance_along_a_straight_edge_and_follows_a_parameter() {
     );
     let before = result(&evaluate(&parts.document), point).point().unwrap();
     let longer = parts.document.parse("7 mm").unwrap();
+
     parts
         .document
         .apply(Transaction::single(
@@ -356,6 +381,7 @@ fn a_point_lies_a_distance_along_a_straight_edge_and_follows_a_parameter() {
             },
         ))
         .unwrap();
+
     let after = result(&evaluate(&parts.document), point).point().unwrap();
 
     let reached = |point: Point3, distance: f64| {
@@ -380,6 +406,7 @@ fn a_point_lies_a_distance_along_a_straight_edge_and_follows_a_parameter() {
 #[test]
 fn a_point_along_an_edge_counts_back_from_the_end_and_refuses_a_distance_past_it() {
     let mut parts = parts();
+
     let edge = |distance: f64| {
         Datum::PointBy(PointBy::Along(Box::new(along(
             &parts,
@@ -412,6 +439,7 @@ fn a_point_along_an_edge_counts_back_from_the_end_and_refuses_a_distance_past_it
 #[test]
 fn a_plane_passes_through_two_lines_that_cross_or_run_parallel() {
     let mut parts = parts();
+
     let along_x = block_edge(
         &parts,
         Point3::new(0.0, 0.0, 0.0),
@@ -432,6 +460,7 @@ fn a_plane_passes_through_two_lines_that_cross_or_run_parallel() {
         Point3::new(10.0, 8.0, 0.0),
         Point3::new(10.0, 8.0, 4.0),
     );
+
     let crossing = add(
         &mut parts.document,
         "Crossing",
@@ -479,6 +508,7 @@ fn a_plane_passes_through_two_lines_that_cross_or_run_parallel() {
 #[test]
 fn a_point_sits_where_two_edges_cross_and_a_miss_is_explained() {
     let mut parts = parts();
+
     let along_x = block_edge(
         &parts,
         Point3::new(0.0, 0.0, 0.0),
@@ -504,6 +534,7 @@ fn a_point_sits_where_two_edges_cross_and_a_miss_is_explained() {
         Point3::new(10.0, 0.0, 0.0),
         Point3::new(10.0, 8.0, 0.0),
     );
+
     let sideways = add(
         &mut parts.document,
         "Sideways",
@@ -553,6 +584,7 @@ fn a_point_sits_where_two_edges_cross_and_a_miss_is_explained() {
 #[test]
 fn a_point_sits_where_an_edge_meets_a_plane() {
     let mut parts = parts();
+
     let upright = block_edge(
         &parts,
         Point3::new(10.0, 8.0, 0.0),
@@ -572,6 +604,7 @@ fn a_point_sits_where_an_edge_meets_a_plane() {
             offset: millimetres(9.0),
         }),
     );
+
     let high = add(
         &mut parts.document,
         "High",
@@ -621,6 +654,7 @@ fn a_point_sits_where_an_edge_meets_a_plane() {
 #[test]
 fn a_point_sits_where_three_planes_meet_and_refuses_planes_sharing_a_line() {
     let mut parts = parts();
+
     let raised = add(
         &mut parts.document,
         "Raised",
@@ -668,6 +702,7 @@ fn a_point_sits_where_three_planes_meet_and_refuses_planes_sharing_a_line() {
 #[test]
 fn a_point_sits_at_the_centre_of_a_torus_and_a_flat_face_gives_none() {
     let mut parts = parts();
+
     let evaluation = evaluate(&parts.document);
     let torus = evaluation.body(parts.ring).unwrap();
     let skin = face_where(torus, |surface| matches!(surface, Surface::Torus(_)));
@@ -712,6 +747,7 @@ fn a_point_sits_at_the_centre_of_a_torus_and_a_flat_face_gives_none() {
 #[test]
 fn constructed_points_and_planes_report_what_they_use() {
     let mut parts = parts();
+
     let upright = block_edge(
         &parts,
         Point3::new(10.0, 8.0, 0.0),
@@ -726,6 +762,7 @@ fn constructed_points_and_planes_report_what_they_use() {
             offset: millimetres(9.0),
         }),
     );
+
     let point = add(
         &mut parts.document,
         "Meeting",
@@ -740,6 +777,7 @@ fn constructed_points_and_planes_report_what_they_use() {
 
 fn sphere_at(document: &mut Document, x: f64) -> FeatureId {
     let mut transaction = document.transaction("Ball");
+
     let ball = transaction.add_feature(
         "Ball",
         FeatureKind::Primitive(Primitive {
@@ -753,6 +791,7 @@ fn sphere_at(document: &mut Document, x: f64) -> FeatureId {
             operation: BodyOperation::NewBody,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     ball
 }
@@ -772,8 +811,10 @@ fn near(first: Point3, second: Point3, within: f64) -> bool {
 #[test]
 fn a_plane_touches_a_sphere_or_torus_and_an_axis_stands_square_to_it_nearest_a_point() {
     let mut parts = parts();
+
     let ball = sphere_at(&mut parts.document, 50.0);
     let evaluation = evaluate(&parts.document);
+
     let skin = face_where(evaluation.body(ball).unwrap(), |surface| {
         matches!(surface, Surface::Sphere(_))
     });
@@ -783,6 +824,7 @@ fn a_plane_touches_a_sphere_or_torus_and_an_axis_stands_square_to_it_nearest_a_p
     let above = add(&mut parts.document, "Above", offset_point(50.0, 0.0, 20.0));
     let outside = add(&mut parts.document, "Outside", offset_point(30.0, 0.0, 5.0));
     let centre = add(&mut parts.document, "Centre", offset_point(50.0, 0.0, 0.0));
+
     let on_ball = add(
         &mut parts.document,
         "On ball",
@@ -844,11 +886,13 @@ fn a_plane_touches_a_sphere_or_torus_and_an_axis_stands_square_to_it_nearest_a_p
 #[test]
 fn a_tangent_plane_at_a_point_refuses_a_flat_face() {
     let mut parts = parts();
+
     let evaluation = evaluate(&parts.document);
     let side = face_where(evaluation.body(parts.block).unwrap(), |surface| {
         matches!(surface, Surface::Plane(_))
     });
     let toward = add(&mut parts.document, "Toward", offset_point(0.0, 0.0, 20.0));
+
     let flat = add(
         &mut parts.document,
         "Flat",
@@ -869,6 +913,7 @@ fn a_tangent_plane_at_a_point_refuses_a_flat_face() {
 #[test]
 fn a_point_sits_at_the_middle_of_an_edge_or_the_centre_of_a_face() {
     let mut parts = parts();
+
     let evaluation = evaluate(&parts.document);
     let block = evaluation.body(parts.block).unwrap();
     let bottom = edge_between(

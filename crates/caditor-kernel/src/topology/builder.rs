@@ -25,7 +25,7 @@ use crate::{
 const INTERVAL_SLACK: f64 = 1e-9;
 const LOOP_PLACEMENT_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum BuildError {
     #[error("vertex {0:?} does not exist")]
     UnknownVertex(VertexId),
@@ -82,7 +82,7 @@ pub(crate) struct Blamed {
     pub faces: Vec<FaceId>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SolidBuilder {
     solid: Solid,
     settled: BTreeSet<CoedgeId>,
@@ -97,8 +97,10 @@ impl SolidBuilder {
         if !point.is_finite() {
             return Err(BuildError::NonFinitePoint);
         }
+
         let id =
             VertexId::from_index(self.solid.vertices.len()).ok_or(BuildError::TooManyEntities)?;
+
         self.solid.vertices.push(Vertex { point });
         Ok(id)
     }
@@ -112,6 +114,7 @@ impl SolidBuilder {
     ) -> Result<EdgeId, BuildError> {
         let start_point = self.point_of(start)?;
         let end_point = self.point_of(end)?;
+
         check_interval(&curve, interval)?;
         for (vertex, point, parameter) in [
             (start, start_point, interval.start()),
@@ -125,7 +128,9 @@ impl SolidBuilder {
         if !curve.is_longer_than(interval, LINEAR_RESOLUTION) {
             return Err(BuildError::ZeroLengthEdge);
         }
+
         let id = EdgeId::from_index(self.solid.edges.len()).ok_or(BuildError::TooManyEntities)?;
+
         self.solid.edges.push(Edge {
             curve,
             interval,
@@ -139,6 +144,7 @@ impl SolidBuilder {
 
     pub fn line_edge(&mut self, start: VertexId, end: VertexId) -> Result<EdgeId, BuildError> {
         let (from, to) = (self.point_of(start)?, self.point_of(end)?);
+
         let line = Line::through(from, to)?;
         let interval = Interval::new(0.0, from.distance(to)).ok_or(BuildError::NonFinitePoint)?;
         self.edge(line.into(), interval, start, end)
@@ -155,6 +161,7 @@ impl SolidBuilder {
 
     pub fn shell(&mut self) -> Result<ShellId, BuildError> {
         let id = ShellId::from_index(self.solid.shells.len()).ok_or(BuildError::TooManyEntities)?;
+
         self.solid.shells.push(Shell::default());
         Ok(id)
     }
@@ -166,6 +173,7 @@ impl SolidBuilder {
         sense: Sense,
     ) -> Result<FaceId, BuildError> {
         let id = FaceId::from_index(self.solid.faces.len()).ok_or(BuildError::TooManyEntities)?;
+
         self.solid
             .shells
             .get_mut(shell.index())
@@ -214,6 +222,7 @@ impl SolidBuilder {
             .clone();
         let mut hint: Option<Point2> = None;
         let mut fitted = Vec::with_capacity(coedges.len());
+
         for &(edge_id, sense) in coedges {
             let edge = self
                 .solid
@@ -221,11 +230,14 @@ impl SolidBuilder {
                 .ok_or(BuildError::UnknownEdge(edge_id))?;
             let pcurve = fit(&surface, &edge.curve, edge.interval, sense, hint)
                 .map_err(|error| BuildError::pcurve(edge_id, error))?;
+
             hint = Some(pcurve.end());
             fitted.push((edge_id, sense, pcurve));
         }
+
         let placed = place_loop(&surface, self.first_loop_bounds(face), fitted);
         let id = self.add_loop_with_pcurves(face, placed)?;
+
         self.align_seams(face);
         Ok(id)
     }
@@ -238,6 +250,7 @@ impl SolidBuilder {
             .iter()
             .filter_map(|coedge| self.solid.coedge(*coedge))
             .flat_map(|coedge| coedge.pcurve.samples().iter().map(|sample| sample.uv));
+
         let start = samples.next()?;
         Some(samples.fold((start, start), |(low, high), uv| {
             (low.min(uv), high.max(uv))
@@ -261,12 +274,15 @@ impl SolidBuilder {
         {
             return Err(BuildError::UnknownEdge(*edge));
         }
+
         let loop_id =
             LoopId::from_index(self.solid.loops.len()).ok_or(BuildError::TooManyEntities)?;
         let mut members = Vec::with_capacity(coedges.len());
+
         for (edge, sense, pcurve) in coedges {
             let id = CoedgeId::from_index(self.solid.coedges.len())
                 .ok_or(BuildError::TooManyEntities)?;
+
             if let Some(edge) = self.solid.edges.get_mut(edge.index()) {
                 edge.coedges.push(id);
             }
@@ -328,6 +344,7 @@ impl SolidBuilder {
         let mesh = tessellation::tessellate(&self.solid, &tolerance)?;
         let mut triangles = Vec::with_capacity(mesh.triangles().len());
         let mut faces = Vec::with_capacity(mesh.triangles().len());
+
         for face in mesh.faces() {
             let corners = mesh
                 .triangles()
@@ -372,6 +389,7 @@ impl SolidBuilder {
         let surface = face.surface.clone();
         let face_sense = face.sense;
         let mut uses: BTreeMap<EdgeId, Vec<CoedgeId>> = BTreeMap::new();
+
         for coedge in face
             .loops
             .iter()
@@ -386,11 +404,13 @@ impl SolidBuilder {
             let [first, second] = pair.as_slice() else {
                 continue;
             };
+
             let (Some(first_data), Some(second_data)) =
                 (self.solid.coedge(*first), self.solid.coedge(*second))
             else {
                 continue;
             };
+
             let Some(offset) = seam_offset(
                 &surface,
                 face_sense,
@@ -426,6 +446,7 @@ impl SolidBuilder {
             .position(|coedge| *coedge == first)
             .and_then(|position| members.get(position + 1))
             == Some(&second);
+
         if !follows || surface.pole_at(first_data.pcurve.end()).is_none() {
             return Vec::new();
         }
@@ -466,9 +487,11 @@ fn place_loop(
     let Some(first) = uvs.first() else {
         return fitted;
     };
+
     let (low, high) = uvs.iter().fold((*first, *first), |(low, high), uv| {
         (low.min(*uv), high.max(*uv))
     });
+
     let middle = (low + high) * 0.5;
     let shift = |period: Option<f64>, value: f64, target_low: f64| -> f64 {
         match period.filter(|period| *period > 0.0 && period.is_finite()) {
@@ -476,6 +499,7 @@ fn place_loop(
             None => 0.0,
         }
     };
+
     let offset = match outer {
         None => Vector2::new(
             shift(surface.u_period(), low.x + LOOP_PLACEMENT_SLACK, 0.0),
@@ -486,6 +510,7 @@ fn place_loop(
             shift(surface.v_period(), middle.y, outer_low.y),
         ),
     };
+
     if offset == Vector2::ZERO {
         return fitted;
     }
@@ -511,11 +536,13 @@ fn seam_offset(
 ) -> Option<Vector2> {
     let travel = first.end() - first.start();
     let apart = mean_uv(second) - mean_uv(first);
+
     if let Some(period) = surface.u_period()
         && travel.y.abs() >= travel.x.abs()
     {
         let first_on_larger_u = (travel.y > 0.0) == face_sense.is_same();
         let shift = if first_on_larger_u { -period } else { period };
+
         return (apart.x.abs() < 0.5 * period).then_some(Vector2::new(shift, 0.0));
     }
     if let Some(period) = surface.v_period()
@@ -523,6 +550,7 @@ fn seam_offset(
     {
         let first_on_smaller_v = (travel.x > 0.0) == face_sense.is_same();
         let shift = if first_on_smaller_v { period } else { -period };
+
         return (apart.y.abs() < 0.5 * period).then_some(Vector2::new(0.0, shift));
     }
     None

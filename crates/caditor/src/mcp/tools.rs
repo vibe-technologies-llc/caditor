@@ -28,7 +28,7 @@ use crate::{
     variants::all_variants,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tool {
     GetModel,
     ListFeatures,
@@ -159,7 +159,7 @@ all_variants!(
     DeleteFeatures
 );
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Effect {
     Reads,
     Adds,

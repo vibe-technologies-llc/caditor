@@ -30,7 +30,7 @@ const BAND_SHARE: f64 = 1e-9;
 const TURN_BOUND: f64 = 4.0 * (3.0 + 16.0 * f64::EPSILON) * f64::EPSILON;
 const IN_CIRCLE_BOUND: f64 = 4.0 * (10.0 + 96.0 * f64::EPSILON) * f64::EPSILON;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Span {
     low: f64,
     high: f64,
@@ -46,7 +46,7 @@ impl Span {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Strip {
     core: Span,
     reach: Span,
@@ -59,7 +59,7 @@ impl Strip {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Circle {
     centre: PlanePoint<f64>,
     radius: f64,
@@ -69,16 +69,21 @@ struct Circle {
 impl Circle {
     fn through(corners: [PlanePoint<f64>; 3]) -> Option<Self> {
         let [a, b, c] = corners;
+
         let (bx, by, cx, cy) = (b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+
         let twice = 2.0 * (bx * cy - by * cx);
         let (b_square, c_square) = (bx * bx + by * by, cx * cx + cy * cy);
+
         let centre_x = (cy * b_square - by * c_square) / twice;
         let centre_y = (bx * c_square - cx * b_square) / twice;
+
         let radius = centre_x.hypot_libm(centre_y);
         let centre = PlanePoint::new(a.x + centre_x, a.y + centre_y);
         let spread = cy.abs() * b_square
             + by.abs() * c_square
             + centre_x.abs() * 2.0 * ((bx * cy).abs() + (by * cx).abs());
+
         let error = CENTRE_ERROR * f64::EPSILON * (spread / twice.abs() + centre.x.abs());
         (radius.is_finite() && centre.x.is_finite() && centre.y.is_finite() && error.is_finite())
             .then_some(Self {
@@ -111,6 +116,7 @@ pub(super) fn triangles(
     threads: usize,
 ) -> Result<Option<Vec<[usize; 3]>>, Interrupted> {
     let strips = strips(mapped, outline, threads)?;
+
     if strips.len() < 2 {
         return Ok(None);
     }
@@ -148,6 +154,7 @@ impl Ranked {
 
     fn between(&self, rank: usize) -> Option<f64> {
         let (before, after) = (self.at(rank.checked_sub(1)?)?, self.at(rank)?);
+
         let cut = before + (after - before) * CUT_SHARE;
         cut.is_finite().then_some(cut)
     }
@@ -167,11 +174,13 @@ impl Ranked {
         if !target.is_finite() {
             return target;
         }
+
         let first = self.xs.partition_point(|x| *x < target - slack).max(1);
         let end = self.xs.partition_point(|x| *x <= target + slack);
         (first..end)
             .filter_map(|rank| {
                 let (before, after) = (self.at(rank.checked_sub(1)?)?, self.at(rank)?);
+
                 let middle = 0.5 * (before + after);
                 (before < after).then(|| (self.straddling(middle), (middle - target).abs(), middle))
             })
@@ -187,18 +196,22 @@ fn strips(
 ) -> Result<Vec<Strip>, Interrupted> {
     let count = mapped.len();
     let most = (count / POINTS_PER_PIECE).min(MAX_PIECES);
+
     if count < SPLIT_POINTS || most < 2 {
         return Ok(Vec::new());
     }
+
     let (ranked, gap) = fan_out::both(
         threads,
         || Ranked::new(mapped, outline),
         || gaps::widest(mapped, outline),
     );
+
     let (Some(gap), Some(width)) = (gap?, ranked.width()) else {
         return Ok(Vec::new());
     };
     let reach = REACH_GAPS * gap;
+
     let fitting = (width / (STRIP_REACHES * reach)) as usize;
     Ok(cut(&ranked, most.min(fitting), reach, BAND_SHARE * width))
 }
@@ -206,10 +219,13 @@ fn strips(
 fn cut(ranked: &Ranked, pieces: usize, reach: f64, band: f64) -> Vec<Strip> {
     let slack = reach * EDGE_SLACK;
     let count = ranked.xs.len();
+
     if pieces < 2 {
         return Vec::new();
     }
+
     let mut cuts: Vec<f64> = vec![f64::NEG_INFINITY];
+
     for piece in 1..pieces {
         let Some(cut) = ranked.between(piece * count / pieces) else {
             return Vec::new();
@@ -253,6 +269,7 @@ fn in_pieces(
         .into_iter()
         .flat_map(|piece| piece.triangles)
         .collect();
+
     triangles.extend(remainder);
     Ok(triangles)
 }
@@ -280,6 +297,7 @@ fn piece(
     index: usize,
 ) -> Result<Piece, TessellationError> {
     interrupt::check()?;
+
     let strip = strips
         .get(index)
         .ok_or(TessellationError::Triangulation(face))?;
@@ -290,17 +308,21 @@ fn piece(
         .filter(|hole| strip.reach.overlaps(hole.low, hole.high))
         .collect();
     let mut taken = vec![false; outline.segments.len()];
+
     for segment in met.iter().flat_map(|hole| hole.segments.clone()) {
         if let Some(slot) = taken.get_mut(segment) {
             *slot = true;
         }
     }
+
     let mut crossing = Vec::new();
     let mut crossing_segments = Vec::new();
+
     for (step, (from, to)) in outline.segments.iter().enumerate() {
         if step.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
         }
+
         let (a, b) = (point(mapped, *from, face)?, point(mapped, *to, face)?);
         if taken.get(step).copied().unwrap_or(false) || strip.reach.overlaps(a.x, b.x) {
             crossing.push((*from, *to));
@@ -312,6 +334,7 @@ fn piece(
             }
         }
     }
+
     let members: Vec<usize> = member
         .iter()
         .enumerate()
@@ -319,6 +342,7 @@ fn piece(
         .map(|(index, _)| index)
         .collect();
     let helpers: Vec<PlanePoint<f64>> = met.iter().map(|hole| hole.centre).collect();
+
     let built = constrained::build(
         face,
         mapped,
@@ -335,8 +359,10 @@ fn piece(
             .iter()
             .all(|at| strip.reach.holds(at.x))
     };
+
     let inside = inside_within(&built, mapped, &crossing, face, &within)?;
     let mut kept = vec![false; built.cdt.num_all_faces()];
+
     for fixed in built.cdt.fixed_inner_faces() {
         let here = inside.get(fixed.index()).copied().unwrap_or(false);
         let Some(corners) = built.corners(fixed) else {
@@ -349,9 +375,11 @@ fn piece(
             *slot = here && keeps(&built, mapped, strips, index, fixed, corners);
         }
     }
+
     let is_kept =
         |fixed: FixedFaceHandle<InnerTag>| kept.get(fixed.index()).copied().unwrap_or(false);
     let mut made = Piece::default();
+
     for (step, face_handle) in built.cdt.inner_faces().enumerate() {
         if step.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
@@ -408,16 +436,21 @@ fn keeps(
     corners: [usize; 3],
 ) -> bool {
     let mut canonical = corners;
+
     canonical.sort_unstable();
+
     let [Some(a), Some(b), Some(c)] = canonical.map(|corner| mapped.get(corner).copied()) else {
         return false;
     };
+
     let (Some(strip), Some(circle)) = (strips.get(index), Circle::through([a, b, c])) else {
         return false;
     };
+
     if core_of(strips, circle.centre.x) != index || !circle.within(&strip.reach) {
         return false;
     }
+
     let settled = circle.error * 4.0 <= strip.band && strip.clear_of_cuts(circle.centre.x);
     settled || strictly_delaunay(built, fixed)
 }
@@ -429,10 +462,13 @@ fn strictly_delaunay(built: &Built, fixed: FixedFaceHandle<InnerTag>) -> bool {
         if built.cdt.is_constraint_edge(edge.fix().as_undirected()) {
             return true;
         }
+
         let across = edge.rev();
+
         if across.face().is_outer() {
             return true;
         }
+
         let apex = across.next().to();
         built.member(apex.fix()).is_some() && strictly_outside(corners, apex.position())
     })
@@ -440,7 +476,9 @@ fn strictly_delaunay(built: &Built, fixed: FixedFaceHandle<InnerTag>) -> bool {
 
 fn turning(corners: [PlanePoint<f64>; 3]) -> f64 {
     let [a, b, c] = corners;
+
     let (left, right) = ((b.x - a.x) * (c.y - a.y), (b.y - a.y) * (c.x - a.x));
+
     let turn = left - right;
     if turn.abs() > TURN_BOUND * (left.abs() + right.abs()) {
         turn.signum()
@@ -453,9 +491,11 @@ fn strictly_outside(corners: [PlanePoint<f64>; 3], at: PlanePoint<f64>) -> bool 
     let turn = turning(corners);
     let [a, b, c] = corners.map(|corner| (corner.x - at.x, corner.y - at.y));
     let lift = |(x, y): (f64, f64)| x * x + y * y;
+
     let (bc, cb) = (b.0 * c.1, c.0 * b.1);
     let (ca, ac) = (c.0 * a.1, a.0 * c.1);
     let (ab, ba) = (a.0 * b.1, b.0 * a.1);
+
     let determinant = lift(a) * (bc - cb) + lift(b) * (ca - ac) + lift(c) * (ab - ba);
     let permanent = (bc.abs() + cb.abs()) * lift(a)
         + (ca.abs() + ac.abs()) * lift(b)
@@ -472,6 +512,7 @@ fn inside_within(
 ) -> Result<Vec<bool>, TessellationError> {
     let cdt = &built.cdt;
     let mut parity: Vec<Option<bool>> = vec![None; cdt.num_all_faces()];
+
     for (step, fixed) in cdt.fixed_inner_faces().enumerate() {
         if step.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
@@ -479,12 +520,14 @@ fn inside_within(
         if parity.get(fixed.index()).copied().flatten().is_some() || !within(fixed) {
             continue;
         }
+
         let corners = cdt.face(fixed).positions();
         let centroid = PlanePoint::new(
             corners.iter().map(|at| at.x / 3.0).sum(),
             corners.iter().map(|at| at.y / 3.0).sum(),
         );
         let seed = encloses(mapped, crossing, centroid, face)?;
+
         if let Some(slot) = parity.get_mut(fixed.index()) {
             *slot = Some(seed);
         }
@@ -503,11 +546,14 @@ fn encloses(
     face: FaceId,
 ) -> Result<bool, TessellationError> {
     let mut inside = false;
+
     for (from, to) in crossing {
         let (a, b) = (point(mapped, *from, face)?, point(mapped, *to, face)?);
+
         if (a.x <= at.x) == (b.x <= at.x) {
             continue;
         }
+
         let y = a.y + (at.x - a.x) * (b.y - a.y) / (b.x - a.x);
         if y > at.y {
             inside = !inside;
@@ -523,14 +569,18 @@ fn remainder(
     pieces: &[Piece],
 ) -> Result<Vec<[usize; 3]>, TessellationError> {
     interrupt::check()?;
+
     let mut covered = vec![false; outline.segments.len()];
+
     for segment in pieces.iter().flat_map(|piece| piece.covered.iter()) {
         if let Some(slot) = covered.get_mut(*segment) {
             *slot = true;
         }
     }
+
     let is_covered = |segment: usize| covered.get(segment).copied().unwrap_or(false);
     let mut used = vec![false; mapped.len()];
+
     for corner in pieces
         .iter()
         .flat_map(|piece| piece.triangles.iter().flatten())
@@ -539,16 +589,20 @@ fn remainder(
             *slot = true;
         }
     }
+
     let mut borders: Vec<(usize, usize)> = pieces
         .iter()
         .flat_map(|piece| piece.border.iter().copied())
         .collect();
+
     borders.sort_unstable();
+
     let mut constraints: Vec<(usize, usize)> = borders
         .iter()
         .filter(|(from, to)| borders.binary_search(&(*to, *from)).is_err())
         .copied()
         .collect();
+
     constraints.extend(
         outline
             .segments
@@ -557,12 +611,15 @@ fn remainder(
             .filter(|(segment, _)| !is_covered(*segment))
             .map(|(_, segment)| *segment),
     );
+
     let mut member: Vec<bool> = used.iter().map(|used| !used).collect();
+
     for end in constraints.iter().flat_map(|(from, to)| [*from, *to]) {
         if let Some(slot) = member.get_mut(end) {
             *slot = true;
         }
     }
+
     let members: Vec<usize> = member
         .iter()
         .enumerate()
@@ -575,6 +632,7 @@ fn remainder(
         .filter(|hole| hole.segments.clone().any(|segment| !is_covered(segment)))
         .map(|hole| hole.centre)
         .collect();
+
     let built = constrained::build(
         face,
         mapped,
@@ -617,6 +675,7 @@ mod tests {
         let pitch = SIDE / HOLES as f64;
         let mut centres = Vec::new();
         let mut area = SIDE * SIDE;
+
         for row in 0..HOLES {
             for column in 0..HOLES {
                 let centre = PlanePoint::new(
@@ -624,8 +683,10 @@ mod tests {
                     pitch * (row as f64 + 0.5) + stagger * column as f64,
                 );
                 let mut hole = Vec::new();
+
                 for step in 0..HOLE_POINTS {
                     let angle = -TAU * step as f64 / HOLE_POINTS as f64;
+
                     hole.push(mapped.len());
                     mapped.push(PlanePoint::new(
                         centre.x + HOLE_RADIUS * angle.cos_libm(),
@@ -674,12 +735,15 @@ mod tests {
     fn assert_closed_over(plate: &Plate, triangles: &[[usize; 3]]) {
         let mut directed = BTreeSet::new();
         let mut uses: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+
         for [a, b, c] in triangles {
             for (from, to) in [(*a, *b), (*b, *c), (*c, *a)] {
                 assert!(directed.insert((from, to)), "edge {from}-{to} used twice");
+
                 *uses.entry((from.min(to), from.max(to))).or_default() += 1;
             }
         }
+
         let boundary: BTreeSet<(usize, usize)> = plate
             .outline
             .segments
@@ -688,6 +752,7 @@ mod tests {
             .collect();
         for (edge, count) in uses {
             let wanted = if boundary.contains(&edge) { 1 } else { 2 };
+
             assert_eq!(count, wanted, "edge {edge:?}");
         }
     }
@@ -710,6 +775,7 @@ mod tests {
                 })
                 .collect();
             let certified = kept.len();
+
             let straddling = kept
                 .iter()
                 .filter(|corners| {
@@ -726,12 +792,17 @@ mod tests {
                 whole.len()
             );
             assert!(straddling > 0);
+
             let alone = alone.unwrap();
+
             assert_eq!(shared, Some(alone.clone()));
             assert_eq!(alone.len(), whole.len());
+
             assert_closed_over(&plate, &alone);
             assert_closed_over(&plate, &whole);
+
             let (pieced, entire) = (area(&plate.mapped, &alone), area(&plate.mapped, &whole));
+
             assert!((pieced - plate.area).abs() < 1e-9 * plate.area, "{pieced}");
             assert!((entire - plate.area).abs() < 1e-9 * plate.area, "{entire}");
         }
@@ -761,6 +832,7 @@ mod tests {
             let gap = gaps::widest(&plate.mapped, &plate.outline)
                 .unwrap()
                 .unwrap();
+
             let strips = cut(&ranked, MAX_PIECES, REACH_GAPS * gap, BAND_SHARE * width);
 
             let whole = constrained::whole(face, &plate.mapped, &plate.outline).unwrap();
@@ -791,6 +863,7 @@ mod tests {
                 whole.len()
             );
             assert_eq!(pieced.len(), whole.len());
+
             assert_closed_over(&plate, &pieced);
         }
     }

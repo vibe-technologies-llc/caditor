@@ -12,7 +12,9 @@ fn draft_analysis_bands_the_faces_of_a_plate_and_leaves_the_model_alone() {
     use crate::{analysis::Band, scene_palette::Contrast};
 
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
+
     let revision = harness.model.revision();
     let palette = Contrast::Standard.palette(crate::scene_palette::Canvas::Dark);
     let on_screen =
@@ -52,7 +54,9 @@ fn reach_analysis_colours_what_a_tool_from_above_gets_to_and_reverses_to_the_oth
     use crate::{analysis::Band, scene_palette::Contrast};
 
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
+
     let revision = harness.model.revision();
     let palette = Contrast::Standard.palette(crate::scene_palette::Canvas::Dark);
     let on_screen =
@@ -86,7 +90,9 @@ fn curvature_zebra_and_chrome_show_on_the_bodies_and_leave_the_model_alone() {
     use crate::{analysis::Band, scene_palette::Contrast};
 
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
+
     let revision = harness.model.revision();
     let palette = Contrast::Standard.palette(crate::scene_palette::Canvas::Dark);
 
@@ -104,6 +110,7 @@ fn curvature_zebra_and_chrome_show_on_the_bodies_and_leave_the_model_alone() {
     run_from_palette(&mut harness, "show zebra stripes");
     harness.frame();
     harness.frame();
+
     let striped = harness.built().scene;
 
     assert!(harness.shows(crate::analysis_panel::STRIPES));
@@ -120,6 +127,7 @@ fn curvature_zebra_and_chrome_show_on_the_bodies_and_leave_the_model_alone() {
     run_from_palette(&mut harness, "show a chrome reflection");
     harness.frame();
     harness.frame();
+
     let chrome = harness.built().scene;
 
     assert_eq!(chrome.reflective_meshes.len(), 1);
@@ -128,6 +136,7 @@ fn curvature_zebra_and_chrome_show_on_the_bodies_and_leave_the_model_alone() {
     run_from_palette(&mut harness, "show a chrome reflection");
     harness.frame();
     harness.frame();
+
     let plain = harness.built().scene;
 
     assert!(!harness.workspace.analysis.open);
@@ -144,8 +153,11 @@ fn the_pull_direction_follows_the_selected_face_and_reverses_from_the_palette() 
     };
 
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([]);
+
     let use_selected = Command::Analysis(AnalysisCommand::UseSelected);
     let offered = |harness: &Harness| -> Option<Offer> {
         harness
@@ -194,6 +206,7 @@ fn the_curvature_comb_combs_the_chosen_sketch_curves_and_names_the_jump_where_th
 
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
     let arc = sketch.add_arc(
         Point2::new(10.0, 5.0),
@@ -241,7 +254,9 @@ fn the_curvature_comb_follows_a_selected_body_edge_and_reads_it_as_straight() {
     use crate::{comb_panel, scene_palette::Contrast};
 
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
+
     let edge = harness
         .built()
         .picks
@@ -268,12 +283,14 @@ fn the_curvature_comb_follows_a_selected_body_edge_and_reads_it_as_straight() {
 
 fn worked_out_isocurves(harness: &mut Harness) {
     let deadline = Instant::now() + RECOMPUTE_TIMEOUT;
+
     harness.frame();
     while harness.workspace.isocurves.is_working() {
         assert!(
             Instant::now() < deadline,
             "the isocurves were not worked out"
         );
+
         std::thread::yield_now();
         harness.frame();
     }
@@ -286,6 +303,7 @@ fn isocurves_draw_the_parameter_lines_of_the_chosen_faces_with_their_combs() {
 
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_circle(Point2::new(0.0, 0.0), 10.0);
     harness.add_sketch(sketch);
     harness.select([]);
@@ -293,6 +311,7 @@ fn isocurves_draw_the_parameter_lines_of_the_chosen_faces_with_their_combs() {
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let faces: Vec<Pickable> = harness
         .built()
         .picks
@@ -306,9 +325,12 @@ fn isocurves_draw_the_parameter_lines_of_the_chosen_faces_with_their_combs() {
 
     run_from_palette(&mut harness, "isocurves");
     harness.frame();
+
     let nothing_chosen = harness.shows_containing(isocurve_panel::NOTHING_CHOSEN);
+
     harness.select(faces.clone());
     worked_out_isocurves(&mut harness);
+
     let lines = comb_lines(&mut harness, look.isocurve);
     let teeth = comb_lines(&mut harness, look.teeth);
     let circles_combed = harness.shows_containing("U lines bend to a smallest radius of ≈ 10");
@@ -316,12 +338,14 @@ fn isocurves_draw_the_parameter_lines_of_the_chosen_faces_with_their_combs() {
 
     harness.workspace.isocurves.directions = isocurves::Directions::V;
     worked_out_isocurves(&mut harness);
+
     let only_rulings_teeth = comb_lines(&mut harness, look.teeth);
     let only_rulings_lines = comb_lines(&mut harness, look.isocurve);
 
     harness.workspace.isocurves.scale = DEFAULT_SCALE * 2.0;
     harness.select([]);
     harness.frame();
+
     let kept = comb_lines(&mut harness, look.isocurve);
 
     run_from_palette(&mut harness, "isocurves");
@@ -351,13 +375,17 @@ fn analysing_a_large_body_can_be_cancelled_leaving_it_plain_until_analysed_again
     use crate::{analysis::Band, analysis_panel, bodies::Hold, scene_palette::Contrast};
 
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
+
     let hold = Hold::holding();
+
     harness
         .workspace
         .viewport
         .analyses_mut()
         .hold_on_a_thread(hold.clone());
+
     let palette = Contrast::Standard.palette(crate::scene_palette::Canvas::Dark);
     let revision = harness.model.revision();
 

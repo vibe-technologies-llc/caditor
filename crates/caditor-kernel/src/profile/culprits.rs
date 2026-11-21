@@ -12,9 +12,11 @@ pub(super) fn culprits(
     let mut kept = curves.to_vec();
     let mut probes = PROBE_BUDGET;
     let mut chunk = kept.len() / 2;
+
     while chunk > 0 && probes > 0 {
         let mut start = 0;
         let mut shrunk = false;
+
         while start < kept.len() && probes > 0 {
             let removed = start..start + chunk;
             let candidate: Vec<ProfileCurve> = kept
@@ -23,6 +25,7 @@ pub(super) fn culprits(
                 .filter(|(index, _)| !removed.contains(index))
                 .map(|(_, curve)| curve.clone())
                 .collect();
+
             probes -= 1;
             if !candidate.is_empty() && still_fails(&candidate) {
                 kept = candidate;

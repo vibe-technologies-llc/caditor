@@ -15,7 +15,7 @@ pub(crate) type Gradient = Vec<(usize, f64)>;
 const DEGENERATE_LENGTH: f64 = 1e-12;
 const COLLAPSED_LENGTH: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Context {
     pub scale: f64,
     pub degenerate_length: f64,
@@ -44,7 +44,7 @@ pub(crate) fn fallback_direction(vector: Vector2) -> Vector2 {
     vector.try_normalize().unwrap_or(Vector2::X)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum PointHandle {
     Variable(usize),
     Fixed(Point2),
@@ -66,7 +66,7 @@ impl PointHandle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LineHandle {
     pub start: PointHandle,
     pub end: PointHandle,
@@ -88,7 +88,7 @@ impl LineHandle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum RadiusHandle {
     Variable(usize),
     Fixed(f64),
@@ -98,7 +98,7 @@ pub(crate) enum RadiusHandle {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CircleHandle {
     pub center: PointHandle,
     pub radius: RadiusHandle,
@@ -122,6 +122,7 @@ impl CircleHandle {
             RadiusHandle::ToArcStart { start, fallback } => {
                 let direction =
                     Direction::of(start.at(values) - self.center.at(values), fallback, context);
+
                 start.push(gradient, direction.unit * factor);
                 self.center.push(gradient, -direction.unit * factor);
             }
@@ -129,7 +130,7 @@ impl CircleHandle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EllipseHandle {
     pub center: PointHandle,
     pub major: PointHandle,
@@ -193,6 +194,7 @@ impl EllipseHandle {
     fn turned(&self, values: &[f64], context: &Context, cos: f64, sin: f64) -> EllipseAt {
         let frame = self.frame(values, context);
         let (unit, across) = (frame.axis.unit, frame.axis.unit.perp());
+
         let radial = unit * (frame.major * cos) + across * (frame.minor * sin);
         EllipseAt {
             point: self.center.at(values) + radial,
@@ -214,12 +216,15 @@ impl EllipseHandle {
     ) {
         let (a, b) = (at.frame.major, at.frame.minor);
         let unit = at.frame.axis.unit;
+
         self.center.push(gradient, partial);
+
         let partials = EllipsePartials {
             axis: partial * (a * at.cos) - partial.perp() * (b * at.sin),
             major: at.cos * partial.dot(unit),
             minor: at.sin * partial.dot(unit.perp()),
         };
+
         self.push(values, context, &at.frame, gradient, &partials);
     }
 
@@ -233,11 +238,13 @@ impl EllipseHandle {
     ) {
         let (a, b) = (at.frame.major, at.frame.minor);
         let unit = at.frame.axis.unit;
+
         let partials = EllipsePartials {
             axis: (-partial * (a * at.sin) - partial.perp() * (b * at.cos)) * TAU,
             major: -TAU * at.sin * partial.dot(unit),
             minor: TAU * at.cos * partial.dot(unit.perp()),
         };
+
         self.push(values, context, &at.frame, gradient, &partials);
     }
 
@@ -254,6 +261,7 @@ impl EllipseHandle {
         } else {
             frame.axis.back_from_unit(partials.axis) + frame.axis.unit * partials.major
         };
+
         self.major.push(gradient, along);
         self.center.push(gradient, -along);
         self.minor_circle()
@@ -261,7 +269,7 @@ impl EllipseHandle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum TargetHandle {
     Sum(Arc<[(PointHandle, f64)]>),
     Rim {
@@ -301,13 +309,14 @@ impl TargetHandle {
             }
             Self::Turned { ellipse, cos, sin } => {
                 let at = ellipse.turned(values, context, *cos, *sin);
+
                 ellipse.push_point(values, context, &at, gradient, partial);
             }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SplineHandle {
     pub points: Vec<PointHandle>,
     pub degree: usize,
@@ -316,7 +325,7 @@ pub(crate) struct SplineHandle {
     pub periodic: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SplineEndHandle {
     pub end: PointHandle,
     pub next: PointHandle,
@@ -335,9 +344,11 @@ impl SplineEndHandle {
     fn bend(&self, values: &[f64], context: &Context) -> EndBend {
         let end = self.end.at(values);
         let next = self.next.at(values);
+
         let first = next - end;
         let second = self.after.at(values) - next;
         let length = first.length();
+
         if !(length > context.degenerate_length && length.is_finite()) {
             return EndBend {
                 value: 0.0,
@@ -346,8 +357,10 @@ impl SplineEndHandle {
                 after: Vector2::ZERO,
             };
         }
+
         let cube = length.powi(3);
         let value = self.factor * first.perp_dot(second) / cube;
+
         let by_first =
             -second.perp() * (self.factor / cube) - first * (3.0 * value / (length * length));
         let by_second = first.perp() * (self.factor / cube);
@@ -366,7 +379,7 @@ impl SplineEndHandle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum LengthOf {
     Line(LineHandle),
     Spline(Arc<SplineHandle>),
@@ -383,6 +396,7 @@ impl LengthOf {
         match self {
             Self::Line(line) => {
                 let direction = line.direction(values, context);
+
                 line.push_vector(gradient, direction.unit * factor);
                 direction.length
             }
@@ -432,8 +446,10 @@ impl SplineHandle {
     fn length(&self, values: &[f64], gradient: &mut Gradient, factor: f64) -> f64 {
         let count = self.points.len();
         let mut total = 0.0;
+
         for (parameter, weight) in length_nodes(self.degree, &self.knots, count) {
             let [_, (first, slopes), _] = self.basis(parameter);
+
             let tangent = slopes
                 .iter()
                 .zip(self.points.iter().skip(first))
@@ -441,6 +457,7 @@ impl SplineHandle {
                     sum + point.at(values) * *slope
                 });
             let speed = tangent.length();
+
             total += speed * weight;
             if speed > 0.0 && speed.is_finite() {
                 self.push(gradient, first, &slopes, tangent / speed * weight * factor);
@@ -479,7 +496,7 @@ impl SplineHandle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum CurveHandle {
     Spline(Arc<SplineHandle>),
     Ellipse(EllipseHandle),
@@ -602,12 +619,14 @@ struct ArcChord {
 impl ArcChord {
     fn of(chord: &LineHandle, center: PointHandle, values: &[f64], context: &Context) -> Self {
         let direction = chord.direction(values, context);
+
         if !direction.degenerate {
             return Self {
                 direction,
                 closed: false,
             };
         }
+
         let radial = chord.start.at(values) - center.at(values);
         Self {
             direction: Direction::of(-radial.perp(), chord.fallback, context),
@@ -632,13 +651,13 @@ impl ArcChord {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Contact {
     External,
     Internal { larger_first: f64 },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Form {
     SameX(PointHandle, PointHandle),
     SameY(PointHandle, PointHandle),
@@ -925,7 +944,7 @@ pub(crate) enum Form {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Equation {
     pub owner: Option<ConstraintId>,
     pub form: Form,
@@ -944,8 +963,11 @@ impl Equation {
 
     pub fn variables(&self, values: &[f64]) -> Vec<usize> {
         let mut gradient = Vec::new();
+
         self.linearize(values, &Context::UNIT, &mut gradient);
+
         let mut variables: Vec<usize> = gradient.into_iter().map(|(index, _)| index).collect();
+
         variables.sort_unstable();
         variables.dedup();
         variables
@@ -1033,11 +1055,13 @@ impl Form {
             } => {
                 let direction = line.direction(values, context);
                 let offset = point.at(values) - target.at(values, context);
+
                 let (normal, turning) = if square {
                     (direction.unit, offset)
                 } else {
                     (direction.unit.perp(), -offset.perp())
                 };
+
                 point.push(gradient, normal);
                 target.push(values, context, gradient, -normal);
                 line.push_vector(gradient, direction.back_from_unit(turning));
@@ -1049,7 +1073,9 @@ impl Form {
                 along,
             } => {
                 point.push(gradient, along);
+
                 let mut combined = Vector2::ZERO;
+
                 for (term, weight) in terms.iter() {
                     term.push(gradient, -along * *weight);
                     combined += term.at(values) * *weight;
@@ -1068,6 +1094,7 @@ impl Form {
             Self::OnMinorAxis { point, axis } => {
                 let direction = axis.direction(values, context);
                 let offset = point.at(values) - axis.start.at(values);
+
                 point.push(gradient, direction.unit);
                 axis.start.push(gradient, -direction.unit);
                 axis.push_vector(gradient, direction.back_from_unit(offset));
@@ -1082,7 +1109,9 @@ impl Form {
                 let at = ellipse.at(values, context, parameter);
                 let along = Direction::of(at.tangent, fallback, context);
                 let offset = point.at(values) - at.point;
+
                 let turning = along.back_from_unit(offset);
+
                 point.push(gradient, along.unit);
                 ellipse.push_point(values, context, &at, gradient, -along.unit);
                 ellipse.push_tangent(values, context, &at, gradient, turning);
@@ -1101,7 +1130,9 @@ impl Form {
                 let along = Direction::of(at.tangent, fallback, context);
                 let offset = point.at(values) - at.point;
                 let normal = along.unit.perp() * side;
+
                 let turning = along.back_from_unit(-offset.perp() * side);
+
                 point.push(gradient, normal);
                 ellipse.push_point(values, context, &at, gradient, -normal);
                 ellipse.push_tangent(values, context, &at, gradient, turning);
@@ -1120,6 +1151,7 @@ impl Form {
                 let direction =
                     Direction::of(at.point - circle.center.at(values), fallback, context);
                 let outward = direction.unit * side;
+
                 ellipse.push_point(values, context, &at, gradient, outward);
                 gradient.push((parameter, outward.dot(at.tangent)));
                 circle.center.push(gradient, -outward);
@@ -1140,8 +1172,10 @@ impl Form {
                 );
                 let tangent = Direction::of(at.tangent, tangent_fallback, context);
                 let scale = context.scale;
+
                 let across = radial.back_from_unit(tangent.unit * scale);
                 let turning = tangent.back_from_unit(radial.unit * scale);
+
                 ellipse.push_point(values, context, &at, gradient, across);
                 circle.center.push(gradient, -across);
                 ellipse.push_tangent(values, context, &at, gradient, turning);
@@ -1177,7 +1211,9 @@ impl Form {
                     context,
                     gradient,
                 );
+
                 let by_radius = radius.back_from_unit(-by_tangent.perp());
+
                 point.push(gradient, by_radius);
                 circle.center.push(gradient, -by_radius);
                 value
@@ -1191,7 +1227,9 @@ impl Form {
                 let at = spline.at(values, parameter);
                 let along = at.tangent_line(fallback, context);
                 let offset = point.at(values) - at.point;
+
                 let turning = along.back_from_unit(offset);
+
                 point.push(gradient, along.unit);
                 spline.push_point(&at, gradient, -along.unit);
                 spline.push_tangent(&at, gradient, turning);
@@ -1210,7 +1248,9 @@ impl Form {
                 let along = at.tangent_line(fallback, context);
                 let offset = point.at(values) - at.point;
                 let normal = along.unit.perp() * side;
+
                 let turning = along.back_from_unit(-offset.perp() * side);
+
                 point.push(gradient, normal);
                 spline.push_point(&at, gradient, -normal);
                 spline.push_tangent(&at, gradient, turning);
@@ -1221,6 +1261,7 @@ impl Form {
                 let bend = end.bend(values, context);
                 let radius = circle.radius(values);
                 let scale = context.scale;
+
                 end.push(gradient, &bend, radius * scale);
                 circle.push_radius(values, context, gradient, bend.value * scale);
                 (bend.value * radius - side) * scale
@@ -1228,6 +1269,7 @@ impl Form {
             Self::MatchedCurvature(first, second) => {
                 let squared = context.scale * context.scale;
                 let (one, other) = (first.bend(values, context), second.bend(values, context));
+
                 first.push(gradient, &one, squared);
                 second.push(gradient, &other, squared);
                 (one.value + other.value) * squared
@@ -1239,6 +1281,7 @@ impl Form {
                 along,
             } => {
                 let at = spline.at(values, parameter);
+
                 point.push(gradient, along);
                 spline.push_point(&at, gradient, -along);
                 gradient.push((parameter, -along.dot(at.tangent)));
@@ -1255,6 +1298,7 @@ impl Form {
                 let direction = line.direction(values, context);
                 let offset = at.point - line.start.at(values);
                 let normal = direction.unit.perp() * side;
+
                 spline.push_point(&at, gradient, normal);
                 gradient.push((parameter, normal.dot(at.tangent)));
                 line.start.push(gradient, -normal);
@@ -1269,6 +1313,7 @@ impl Form {
             } => {
                 let at = first.at(values, context, one);
                 let there = second.at(values, context, other);
+
                 at.push_point(values, context, gradient, along);
                 gradient.push((one, along.dot(at.tangent())));
                 there.push_point(values, context, gradient, -along);
@@ -1286,8 +1331,10 @@ impl Form {
                 let one_way = at.tangent_line(first_fallback, context);
                 let other_way = there.tangent_line(second_fallback, context);
                 let scale = context.scale;
+
                 let turning = one_way.back_from_unit(-other_way.unit.perp() * scale);
                 let other_turning = other_way.back_from_unit(one_way.unit.perp() * scale);
+
                 at.push_tangent(values, context, gradient, turning);
                 gradient.push((one, turning.dot(at.bend())));
                 there.push_tangent(values, context, gradient, other_turning);
@@ -1303,8 +1350,10 @@ impl Form {
                 let at = first.at(values, context, one);
                 let there = second.at(values, context, other);
                 let along = at.tangent_line(fallback, context);
+
                 let offset = there.point() - at.point();
                 let turning = along.back_from_unit(offset);
+
                 there.push_point(values, context, gradient, along.unit);
                 gradient.push((other, along.unit.dot(there.tangent())));
                 at.push_point(values, context, gradient, -along.unit);
@@ -1323,9 +1372,11 @@ impl Form {
                 let at = first.at(values, context, one);
                 let there = second.at(values, context, other);
                 let along = at.tangent_line(fallback, context);
+
                 let offset = there.point() - at.point();
                 let normal = along.unit.perp() * side;
                 let turning = along.back_from_unit(-offset.perp() * side);
+
                 there.push_point(values, context, gradient, normal);
                 gradient.push((other, normal.dot(there.tangent())));
                 at.push_point(values, context, gradient, -normal);
@@ -1349,29 +1400,35 @@ impl Form {
                 radians,
             } => {
                 let mut unused = Vec::new();
+
                 let (_, normal) =
                     ellipse_touch_along(Vector2::X, point, ellipse, values, context, &mut unused);
                 let along = line.direction(values, context);
                 let across = Direction::of(normal, fallback, context);
+
                 let (first, second) = if ellipse_first {
                     (&across, &along)
                 } else {
                     (&along, &across)
                 };
                 let scale = context.scale;
+
                 let angle = first
                     .unit
                     .perp_dot(second.unit)
                     .atan2(first.unit.dot(second.unit));
                 let by_first = first.back_from_unit(-first.unit.perp() * scale);
                 let by_second = second.back_from_unit(second.unit.perp() * scale);
+
                 let (by_line, by_normal) = if ellipse_first {
                     (by_second, by_first)
                 } else {
                     (by_first, by_second)
                 };
+
                 line.push_vector(gradient, by_line);
                 ellipse_touch_along(by_normal, point, ellipse, values, context, gradient);
+
                 let turn = if reversed { PI } else { 0.0 };
                 wrap_angle(angle + turn - radians) * scale
             }
@@ -1389,8 +1446,11 @@ impl Form {
                 let first = line.direction(values, context);
                 let second = at.tangent_line(fallback, context);
                 let scale = context.scale;
+
                 line.push_vector(gradient, first.back_from_unit(-second.unit.perp() * scale));
+
                 let turning = second.back_from_unit(first.unit.perp() * scale);
+
                 spline.push_tangent(&at, gradient, turning);
                 gradient.push((parameter, turning.dot(at.bend)));
                 first.unit.perp_dot(second.unit) * scale
@@ -1407,6 +1467,7 @@ impl Form {
                 let direction =
                     Direction::of(at.point - circle.center.at(values), fallback, context);
                 let outward = direction.unit * side;
+
                 spline.push_point(&at, gradient, outward);
                 gradient.push((parameter, outward.dot(at.tangent)));
                 circle.center.push(gradient, -outward);
@@ -1427,8 +1488,10 @@ impl Form {
                 );
                 let tangent = at.tangent_line(tangent_fallback, context);
                 let scale = context.scale;
+
                 let across = radial.back_from_unit(tangent.unit * scale);
                 let turning = tangent.back_from_unit(radial.unit * scale);
+
                 spline.push_point(&at, gradient, across);
                 circle.center.push(gradient, -across);
                 spline.push_tangent(&at, gradient, turning);
@@ -1439,6 +1502,7 @@ impl Form {
                 let turn = ArcChord::of(&chord, arc.center, values, context);
                 let middle = chord.start.at(values).midpoint(chord.end.at(values));
                 let offset = point.at(values) - middle;
+
                 point.push(gradient, turn.direction.unit);
                 chord.start.push(gradient, -turn.direction.unit * 0.5);
                 chord.end.push(gradient, -turn.direction.unit * 0.5);
@@ -1449,6 +1513,7 @@ impl Form {
                 let turn = ArcChord::of(&chord, arc.center, values, context);
                 let offset = point.at(values) - arc.center.at(values);
                 let outward = turn.direction.unit.perp();
+
                 point.push(gradient, outward);
                 arc.center.push(gradient, -outward);
                 turn.push(&chord, arc.center, gradient, -offset.perp());
@@ -1478,6 +1543,7 @@ impl Form {
                     fallback,
                     context,
                 );
+
                 point.push(gradient, direction.unit);
                 circle.center.push(gradient, -direction.unit);
                 circle.push_radius(values, context, gradient, -1.0);
@@ -1494,6 +1560,7 @@ impl Form {
             Self::Parallel(a, b) => {
                 let (first, second) = (a.direction(values, context), b.direction(values, context));
                 let scale = context.scale;
+
                 a.push_vector(gradient, first.back_from_unit(-second.unit.perp() * scale));
                 b.push_vector(gradient, second.back_from_unit(first.unit.perp() * scale));
                 first.unit.perp_dot(second.unit) * scale
@@ -1501,6 +1568,7 @@ impl Form {
             Self::Perpendicular(a, b) => {
                 let (first, second) = (a.direction(values, context), b.direction(values, context));
                 let scale = context.scale;
+
                 a.push_vector(gradient, first.back_from_unit(second.unit * scale));
                 b.push_vector(gradient, second.back_from_unit(first.unit * scale));
                 first.unit.dot(second.unit) * scale
@@ -1508,6 +1576,7 @@ impl Form {
             Self::LineTangent { line, circle, side } => {
                 let distance =
                     signed_distance(circle.center, &line, values, context, gradient, 1.0);
+
                 circle.push_radius(values, context, gradient, -side);
                 distance - side * circle.radius(values)
             }
@@ -1552,11 +1621,13 @@ impl Form {
             } => {
                 let distance =
                     signed_distance(circle.center, &line, values, context, gradient, side);
+
                 circle.push_radius(values, context, gradient, -1.0);
                 distance - circle.radius(values) - value
             }
             Self::EqualLength(a, b) => {
                 let (first, second) = (a.direction(values, context), b.direction(values, context));
+
                 a.push_vector(gradient, first.unit);
                 b.push_vector(gradient, -second.unit);
                 first.length - second.length
@@ -1573,6 +1644,7 @@ impl Form {
                 value,
             } => {
                 let direction = Direction::of(to.at(values) - from.at(values), fallback, context);
+
                 to.push(gradient, direction.unit);
                 from.push(gradient, -direction.unit);
                 direction.length - value
@@ -1594,10 +1666,12 @@ impl Form {
                     to.direction(values, context),
                 );
                 let scale = context.scale;
+
                 let angle = first
                     .unit
                     .perp_dot(second.unit)
                     .atan2(first.unit.dot(second.unit));
+
                 if !first.degenerate {
                     from.push_vector(gradient, -first.unit.perp() / first.length * scale);
                 } else {
@@ -1608,6 +1682,7 @@ impl Form {
                 } else {
                     to.push_vector(gradient, Vector2::ZERO);
                 }
+
                 let turn = if reversed { PI } else { 0.0 };
                 wrap_angle(angle + turn - radians) * scale
             }
@@ -1620,12 +1695,14 @@ impl Form {
                     from.direction(values, context),
                     to.direction(values, context),
                 );
+
                 let turn = first
                     .unit
                     .perp_dot(second.unit)
                     .atan2(first.unit.dot(second.unit))
                     .rem_euclid(TAU);
                 let sweep = if turn > 0.0 { turn } else { TAU };
+
                 if first.degenerate {
                     from.push_vector(gradient, Vector2::ZERO);
                 } else {
@@ -1657,6 +1734,7 @@ impl Form {
                 let middle = (first.at(values) + second.at(values)) / 2.0;
                 let offset = middle - line.start.at(values);
                 let normal = direction.unit.perp();
+
                 first.push(gradient, normal / 2.0);
                 second.push(gradient, normal / 2.0);
                 line.start.push(gradient, -normal);
@@ -1670,6 +1748,7 @@ impl Form {
             } => {
                 let direction = line.direction(values, context);
                 let span = second.at(values) - first.at(values);
+
                 second.push(gradient, direction.unit);
                 first.push(gradient, -direction.unit);
                 line.push_vector(gradient, direction.back_from_unit(span));
@@ -1696,6 +1775,7 @@ impl Form {
                 let direction = line.direction(values, context);
                 let offset = point.at(values) + along * (side * value) - line.start.at(values);
                 let normal = direction.unit.perp();
+
                 point.push(gradient, normal);
                 line.start.push(gradient, -normal);
                 line.push_vector(gradient, direction.back_from_unit(-offset.perp()));
@@ -1713,6 +1793,7 @@ impl Form {
                     fallback,
                     context,
                 );
+
                 point.push(gradient, direction.unit * side);
                 circle.center.push(gradient, -direction.unit * side);
                 circle.push_radius(values, context, gradient, -side);
@@ -1744,8 +1825,10 @@ fn circle_tangency(
         fallback,
         context,
     );
+
     first.center.push(gradient, direction.unit);
     second.center.push(gradient, -direction.unit);
+
     let (first_radius, second_radius) = (first.radius(values), second.radius(values));
     match contact {
         Contact::External => {
@@ -1759,6 +1842,7 @@ fn circle_tangency(
             } else {
                 larger_first
             };
+
             first.push_radius(values, context, gradient, -larger_first);
             second.push_radius(values, context, gradient, larger_first);
             direction.length - larger_first * (first_radius - second_radius)
@@ -1777,6 +1861,7 @@ fn signed_distance(
     let direction = line.direction(values, context);
     let offset = point.at(values) - line.start.at(values);
     let normal = direction.unit.perp();
+
     point.push(gradient, normal * factor);
     line.start.push(gradient, -normal * factor);
     line.push_vector(gradient, direction.back_from_unit(-offset.perp()) * factor);
@@ -1794,10 +1879,13 @@ fn on_ellipse(
     let (unit, across) = (frame.axis.unit, frame.axis.unit.perp());
     let (a, b) = (frame.major, frame.minor);
     let offset = point.at(values) - ellipse.center.at(values);
+
     let (x, y) = (offset.dot(unit), offset.dot(across));
     let by_x = b * x / (a * a);
     let by_y = y / b;
+
     let toward = unit * by_x + across * by_y;
+
     point.push(gradient, toward);
     ellipse.center.push(gradient, -toward);
     ellipse.push(
@@ -1828,12 +1916,17 @@ fn ellipse_tangent(
     let frame = ellipse.frame(values, context);
     let (unit, across) = (frame.axis.unit, frame.axis.unit.perp());
     let (a, b) = (frame.major, frame.minor);
+
     let (along, sideways) = (normal.dot(unit), normal.dot(across));
+
     let reach = (a * a * along * along + b * b * sideways * sideways).sqrt();
+
     if reach > context.degenerate_length && reach.is_finite() {
         let by_along = -side * a * a * along / reach;
         let by_sideways = -side * b * b * sideways / reach;
+
         let by_normal = unit * by_along + across * by_sideways;
+
         line.push_vector(gradient, direction.back_from_unit(-by_normal.perp()));
         ellipse.push(
             values,
@@ -1861,6 +1954,7 @@ fn ellipse_touch(
     let direction = line.direction(values, context);
     let (value, by_tangent) =
         ellipse_touch_along(direction.unit, point, ellipse, values, context, gradient);
+
     line.push_vector(gradient, direction.back_from_unit(by_tangent));
     value
 }
@@ -1877,17 +1971,23 @@ fn ellipse_touch_along(
     let (unit, across) = (frame.axis.unit, frame.axis.unit.perp());
     let (a, b) = (frame.major, frame.minor);
     let offset = point.at(values) - ellipse.center.at(values);
+
     let (x, y) = (offset.dot(unit), offset.dot(across));
     let scale = a * b;
     let (on_unit, on_across) = (tangent.dot(unit), tangent.dot(across));
+
     let normal = unit * (x * b * b) + across * (y * a * a);
     let total = tangent.dot(normal);
     let by_x = b * b * on_unit / scale;
     let by_y = a * a * on_across / scale;
+
     let toward = unit * by_x + across * by_y;
+
     point.push(gradient, toward);
     ellipse.center.push(gradient, -toward);
+
     let direct = (tangent * (x * b * b) - tangent.perp() * (y * a * a)) / scale;
+
     ellipse.push(
         values,
         context,
@@ -1911,6 +2011,7 @@ fn ellipses_touch(
     gradient: &mut Gradient,
 ) -> f64 {
     let mut unused = Vec::new();
+
     let (_, first_normal) =
         ellipse_touch_along(Vector2::X, point, first, values, context, &mut unused);
     let (_, second_normal) =
@@ -1918,8 +2019,10 @@ fn ellipses_touch(
     let one_way = Direction::of(first_normal, first_fallback, context);
     let other_way = Direction::of(second_normal, second_fallback, context);
     let scale = context.scale;
+
     let turning = one_way.back_from_unit(-other_way.unit.perp() * scale);
     let other_turning = other_way.back_from_unit(one_way.unit.perp() * scale);
+
     ellipse_touch_along(turning, point, first, values, context, gradient);
     ellipse_touch_along(other_turning, point, second, values, context, gradient);
     one_way.unit.perp_dot(other_way.unit) * scale
@@ -1940,9 +2043,12 @@ fn ellipse_turn(
     let (unit, across) = (frame.axis.unit, frame.axis.unit.perp());
     let (a, b) = (frame.major, frame.minor);
     let offset = point.at(values) - ellipse.center.at(values);
+
     let (x, y) = (offset.dot(unit) / a, offset.dot(across) / b);
+
     let spread = x * x + y * y;
     let angle = y.atan2(x);
+
     if !(spread > f64::EPSILON && spread.is_finite()) {
         return EllipseTurn {
             angle,
@@ -1954,6 +2060,7 @@ fn ellipse_turn(
             },
         };
     }
+
     let (by_x, by_y) = (-y / spread, x / spread);
     EllipseTurn {
         angle,
@@ -1982,6 +2089,7 @@ fn ellipse_middle(
         (end, -0.5, ellipse_turn(end, ellipse, &frame, values)),
     ];
     let [(_, _, at), (_, _, from), (_, _, to)] = &turns;
+
     let sweep = (to.angle - from.angle).rem_euclid(TAU);
     let off = wrap_angle(at.angle - from.angle - sweep / 2.0);
     let mut partials = EllipsePartials {
@@ -1989,8 +2097,10 @@ fn ellipse_middle(
         major: off,
         minor: 0.0,
     };
+
     for (handle, weight, turn) in &turns {
         let factor = a * weight;
+
         handle.push(gradient, turn.by_point * factor);
         ellipse.center.push(gradient, -turn.by_point * factor);
         partials.axis += turn.partials.axis * factor;
@@ -2646,19 +2756,27 @@ mod tests {
                 form: form.clone(),
             };
             let mut gradient = Vec::new();
+
             equation.linearize(&base, &CONTEXT, &mut gradient);
+
             let mut analytic = vec![0.0; base.len()];
+
             for (index, partial) in gradient {
                 analytic[index] += partial;
             }
             for (index, expected) in analytic.iter().enumerate() {
                 let mut plus = base.clone();
+
                 plus[index] += STEP;
+
                 let mut minus = base.clone();
+
                 minus[index] -= STEP;
+
                 let numeric = (equation.residual(&plus, &CONTEXT, &mut Vec::new())
                     - equation.residual(&minus, &CONTEXT, &mut Vec::new()))
                     / (2.0 * STEP);
+
                 assert!(
                     (numeric - expected).abs() < 1e-6 * (1.0 + expected.abs()),
                     "{form:?}: variable {index} is {expected} analytically but {numeric} \
@@ -2677,7 +2795,9 @@ mod tests {
                 form: form.clone(),
             };
             let mut gradient = Vec::new();
+
             let residual = equation.linearize(&collapsed, &CONTEXT, &mut gradient);
+
             assert!(residual.is_finite(), "{form:?}");
             assert!(
                 gradient.iter().all(|(_, partial)| partial.is_finite()),

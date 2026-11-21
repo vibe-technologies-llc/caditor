@@ -38,7 +38,7 @@ const SUGGESTING: &str = "suggesting";
 const ASKED_FOCUS_KEY: &str = "asked-field-focus";
 const ASKED_FOCUS_PASSES: u64 = 30;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct AskedFocus {
     field: Id,
     pass: u64,
@@ -46,6 +46,7 @@ struct AskedFocus {
 
 pub fn ask_focus(ctx: &egui::Context, field: Id) {
     let pass = ctx.cumulative_pass_nr();
+
     ctx.data_mut(|data| data.insert_temp(Id::unique(ASKED_FOCUS_KEY), AskedFocus { field, pass }));
 }
 
@@ -61,7 +62,7 @@ fn focus_arrived(ctx: &egui::Context, field: Id) {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct Suggesting {
     names: Vec<String>,
     rows: Vec<Rect>,
@@ -70,7 +71,7 @@ struct Suggesting {
     dismissed: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct Draft {
     text: String,
     error: Option<String>,
@@ -102,7 +103,7 @@ pub fn focused_value_field(ui: &Ui) -> Option<Id> {
         .map(|_| focused)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Step {
     direction: Direction,
     big: bool,
@@ -111,6 +112,7 @@ pub struct Step {
 fn take_step(ui: &Ui) -> Option<Step> {
     ui.input_mut(|input| {
         let mut taken = None;
+
         input.events.retain(|event| {
             let Event::Key {
                 key,
@@ -126,6 +128,7 @@ fn take_step(ui: &Ui) -> Option<Step> {
                 Key::ArrowDown => Direction::Down,
                 _ => return true,
             };
+
             if modifiers.command || modifiers.alt {
                 return true;
             }
@@ -139,7 +142,7 @@ fn take_step(ui: &Ui) -> Option<Step> {
     })
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Behaviour<'a> {
     focus: bool,
     value: bool,
@@ -198,9 +201,11 @@ pub fn live_value_field(ui: &mut Ui, id: Id, text: &mut String, hint: &str) -> L
         reverts: false,
     };
     let kept_as_typed = |typed: &str| Ok::<_, Infallible>(typed.to_owned());
+
     let field = field(ui, id, &stored, width, behaviour, kept_as_typed);
     let typed = field.edited.or(field.committed);
     let changed = typed.is_some();
+
     if let Some(typed) = typed {
         *text = typed;
     }
@@ -227,6 +232,7 @@ pub fn live_value(
 ) -> Option<String> {
     ui.vertical(|ui| {
         let live = live_value_field(ui, value.id, text, value.hint);
+
         live.response.on_hover_text(value.about);
         if live.refusal.is_none()
             && let Some(preview) = typed_preview(model, text, value.expected)
@@ -274,20 +280,25 @@ fn field<T, E: Display>(
     let mut text = draft
         .as_ref()
         .map_or_else(|| stored.to_owned(), |draft| draft.text.clone());
+
     let mut suggesting = if value && editing {
         ui.data(|data| data.get_temp::<Suggesting>(suggesting_key))
             .unwrap_or_default()
     } else {
         Suggesting::default()
     };
+
     let popup_open = !suggesting.names.is_empty();
     let mut completed = Completed::default();
+
     if value && editing {
         completed = complete(ui, id, &mut text, &mut suggesting);
         completed.held |= pointer_holds(ui, id, completed.held);
     }
+
     let mut stepped = completed.replaced;
     let mut refusal: Option<Refusal> = None;
+
     if value
         && editing
         && let Some(requested) = take_step(ui)
@@ -301,6 +312,7 @@ fn field<T, E: Display>(
             Err(reason) => refusal = Some(reason),
         }
     }
+
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
@@ -312,6 +324,7 @@ fn field<T, E: Display>(
                 .event_filter(completion::filter(popup_open)),
         )
     });
+
     widgets::tie_to_caption(ui, &response);
     if focus {
         response.request_focus();
@@ -323,7 +336,9 @@ fn field<T, E: Display>(
     if completed.held {
         response.request_focus();
     }
+
     let focused = response.has_focus() || completed.held;
+
     if arrived(ui, id, focused) && text == stored {
         select_all(ui.ctx(), id, &text);
     }
@@ -340,8 +355,10 @@ fn field<T, E: Display>(
     } else {
         ui.data_mut(|data| data.remove::<Suggesting>(suggesting_key));
     }
+
     let changed = response.changed() || stepped;
     let edited = changed.then(|| text.trim().to_owned());
+
     if changed {
         draft = Some(Draft {
             text: text.clone(),
@@ -359,6 +376,7 @@ fn field<T, E: Display>(
 
     let left = response.lost_focus() && !completed.held;
     let mut committed = None;
+
     if left {
         let reverted =
             reverts && ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape));
@@ -382,6 +400,7 @@ fn field<T, E: Display>(
     }
 
     let error = draft.as_ref().and_then(|draft| draft.error.clone());
+
     if error.is_some() {
         ui.painter().rect_stroke(
             response.rect,
@@ -405,18 +424,21 @@ fn field<T, E: Display>(
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Holding;
 
 fn pointer_holds(ui: &Ui, id: Id, started: bool) -> bool {
     let key = id.with("holding");
+
     if started {
         ui.data_mut(|data| data.insert_temp(key, Holding));
         return true;
     }
+
     let holding = ui.data(|data| data.get_temp::<Holding>(key).is_some());
     let (down, released) =
         ui.input(|input| (input.pointer.any_down(), input.pointer.any_released()));
+
     if holding && !down && !released {
         ui.data_mut(|data| data.remove::<Holding>(key));
     }
@@ -440,6 +462,7 @@ fn complete(ui: &Ui, id: Id, text: &mut String, suggesting: &mut Suggesting) -> 
             .then(|| input.pointer.interact_pos())
             .flatten()
     });
+
     if let Some(position) = pressed {
         if let Some(row) = suggesting
             .rows
@@ -452,7 +475,9 @@ fn complete(ui: &Ui, id: Id, text: &mut String, suggesting: &mut Suggesting) -> 
         }
         if let Some(offered) = completion::offered(ctx) {
             let (start, end) = completion::selection_of(ctx, id, text);
+
             let (next, caret) = completion::inserted(text, start, end, &offered);
+
             *text = next;
             completion::place_caret(ctx, id, caret);
             completion::mark_taken(ctx);
@@ -463,7 +488,9 @@ fn complete(ui: &Ui, id: Id, text: &mut String, suggesting: &mut Suggesting) -> 
             return completed;
         }
     }
+
     let count = suggesting.names.len();
+
     if count == 0 {
         return completed;
     }
@@ -478,10 +505,12 @@ fn complete(ui: &Ui, id: Id, text: &mut String, suggesting: &mut Suggesting) -> 
         }
         Some(PopupKey::Accept | PopupKey::Enter) => {
             let row = suggesting.selected;
+
             accept(ctx, id, text, suggesting, row, &mut completed);
         }
         Some(PopupKey::Close) => {
             let (_, caret) = completion::selection_of(ctx, id, text);
+
             suggesting.dismissed = completion::token_at(text, caret).map(|token| token.text);
             suggesting.names.clear();
             suggesting.rows.clear();
@@ -504,8 +533,10 @@ fn accept(
         return;
     };
     let (_, caret) = completion::selection_of(ctx, id, text);
+
     if let Some(token) = completion::token_at(text, caret) {
         let (next, placed) = completion::replaced(text, token.start, token.end, &name);
+
         *text = next;
         completion::place_caret(ctx, id, placed);
         completed.replaced = true;
@@ -529,14 +560,17 @@ fn suggest(
     let ctx = ui.ctx();
     let (first, last) = completion::selection_of(ctx, response.id, text);
     let caret = caret.unwrap_or(last);
+
     let token = (caret == last && first == last)
         .then(|| completion::token_at(text, caret))
         .flatten();
     let token_text = token.map(|token| token.text);
     let blocked = suggesting.dismissed.is_some() && suggesting.dismissed == token_text;
+
     if !blocked {
         suggesting.dismissed = None;
     }
+
     let shown: Vec<Candidate> = match (&token_text, completion::available(ctx)) {
         (Some(typed), Some(completions)) if !blocked => {
             completions.matching(typed, editing_parameter, completion::MAX_SHOWN)
@@ -547,6 +581,7 @@ fn suggest(
         .iter()
         .map(|candidate| candidate.name.clone())
         .collect();
+
     if names != suggesting.names {
         suggesting.selected = 0;
         suggesting.navigated = false;
@@ -560,12 +595,13 @@ fn suggest(
     };
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct HeldFocus;
 
 fn arrived(ui: &Ui, id: Id, focused: bool) -> bool {
     let key = id.with("held-focus");
     let held = ui.data(|data| data.get_temp::<HeldFocus>(key).is_some());
+
     match (focused, held) {
         (true, false) => ui.data_mut(|data| {
             data.insert_temp(key, HeldFocus);
@@ -578,6 +614,7 @@ fn arrived(ui: &Ui, id: Id, focused: bool) -> bool {
 
 pub fn select_all(context: &egui::Context, id: Id, text: &str) {
     let mut state = TextEdit::load_state(context, id).unwrap_or_default();
+
     state.cursor.set_char_range(Some(CCursorRange::two(
         CCursor::new(0),
         CCursor::new(text.chars().count()),
@@ -585,7 +622,7 @@ pub fn select_all(context: &egui::Context, id: Id, text: &str) {
     TextEdit::store_state(context, id, state);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Expected {
     pub dimension: Option<Dimension>,
     pub non_negative: bool,
@@ -598,7 +635,7 @@ impl Expected {
     };
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ExpressionError {
     #[error(transparent)]
     Unreadable(#[from] ParseError),
@@ -622,6 +659,7 @@ pub fn parse_expression(
     let value = parameters
         .evaluate_expression(&expression)
         .map_err(ExpressionError::Unevaluable)?;
+
     if let Some(dimension) = expected.dimension {
         expression
             .evaluate_as(dimension, &|id| parameters.value(id))
@@ -735,13 +773,13 @@ pub struct NamedField<'a> {
     pub current: &'a Expression,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum CheckError {
     #[error(transparent)]
     Rejected(#[from] EditError),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum NamedEditError<P, H> {
     #[error("{0}")]
     Unparsed(P),
@@ -785,9 +823,11 @@ impl NamedField<'_> {
                     Expression::Negate(Box::new(Expression::Negate(Box::new(expression.clone()))));
                 let holding = hold(marker.clone()).map_err(NamedEditError::Unheld)?;
                 let mut transaction = document.transaction(format!("Name {}", naming.name));
+
                 let id =
                     transaction.add_owned_parameter(naming.name, expression, self.owner.clone());
                 let (holding, count) = holding.substituting(&marker, &Expression::Parameter(id));
+
                 if count == 0 {
                     return Err(NamedEditError::NotNameable);
                 }
@@ -805,14 +845,17 @@ impl NamedField<'_> {
         parse: impl Fn(&str) -> Result<Expression, P>,
     ) -> Option<Result<Transaction, NamedEditError<P, H>>> {
         let document = self.document;
+
         if document
             .owned_parameter(&self.owner, self.current)
             .is_some()
         {
             return None;
         }
+
         let parameter = referenced_parameter(document, self.current)?;
         let naming = Naming::split(text)?;
+
         if let Some(measurement) = document.measurement_of(parameter.id()) {
             return Some(Err(NamedEditError::MeasuredReading {
                 parameter: parameter.name.clone(),
@@ -835,6 +878,7 @@ impl NamedField<'_> {
             id,
             name: naming.name.to_owned(),
         });
+
         let changing = (expression != parameter.expression)
             .then_some(Edit::SetParameterExpression { id, expression });
         checked(
@@ -860,7 +904,7 @@ impl NamedField<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DimensionTarget {
     pub feature: FeatureId,
     pub constraint: ConstraintId,
@@ -875,13 +919,13 @@ impl DimensionTarget {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reference {
     Replaced,
     Followed,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DimensionValueError {
     #[error(transparent)]
     Expression(#[from] ExpressionError),
@@ -897,7 +941,7 @@ pub enum DimensionValueError {
     Refused(DimensionError),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DimensionEditError {
     #[error("The sketch no longer exists")]
     SketchGone { sketch: FeatureId },
@@ -949,6 +993,7 @@ pub fn dimension_edit(
         sketch: target.feature,
         constraint: target.constraint,
     };
+
     let definition = owner
         .kind
         .sketch()
@@ -958,6 +1003,7 @@ pub fn dimension_edit(
         definition,
         Constraint::HorizontalDistance { .. } | Constraint::VerticalDistance { .. }
     );
+
     let expected = Expected {
         dimension: definition.dimension_kind(),
         non_negative: !offset && !matches!(definition, Constraint::Angle { .. }),
@@ -968,6 +1014,7 @@ pub fn dimension_edit(
         let quantity = parameters
             .evaluate_expression(&value)
             .map_err(DimensionValueError::Unevaluable)?;
+
         definition
             .check_dimension_value(quantity.value)
             .map_err(|error| match error {
@@ -999,6 +1046,7 @@ pub fn dimension_edit(
         owner: target.owner(),
         current,
     };
+
     if reference == Reference::Followed
         && let Some(edited) = field.through_reference(text, parse)
     {
@@ -1023,6 +1071,7 @@ pub fn value_preview(
     unit: impl Into<Units>,
 ) -> Option<String> {
     let unit = unit.into();
+
     if expression.is_literal() {
         return None;
     }
@@ -1049,7 +1098,9 @@ mod tests {
 
     fn document() -> Document {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Parameters");
+
         transaction.add_parameter("width", Expression::Measure(40.0, Unit::Millimetre));
         transaction.add_parameter("zero", Expression::Number(0.0));
         document.apply(transaction.finish()).unwrap();
@@ -1101,6 +1152,7 @@ mod tests {
     fn a_plain_parameter_value_keeps_the_kind_of_the_parameter() {
         let document = document();
         let parameters = ParameterValues::evaluate(&document);
+
         let text = |input: &str, current: Option<Dimension>| {
             parameter_expression(
                 &document,
@@ -1113,6 +1165,7 @@ mod tests {
         };
         let length = Some(Dimension::LENGTH);
         let angle = Some(Dimension::ANGLE);
+
         assert_eq!(text("12", length).unwrap(), "12 cm");
         assert_eq!(text("-2", length).unwrap(), "-2 cm");
         assert_eq!(text("2 * 3", length).unwrap(), "(2 * 3) cm");
@@ -1135,6 +1188,7 @@ mod tests {
             dimension: Some(Dimension::ANGLE),
             non_negative: false,
         };
+
         let text = |input: &str, unit: Units| {
             parse_expression(&document, &parameters, input, angle, unit)
                 .map(|expression| document.expression_text(&expression))
@@ -1160,6 +1214,7 @@ mod tests {
     fn a_dimension_value_must_suit_its_constraint() {
         let mut document = document();
         let mut sketch = caditor_sketch::Sketch::new(caditor_geometry::Plane::XY);
+
         let circle = sketch.add_circle(caditor_geometry::Point2::ZERO, 5.0);
         let radius = sketch
             .add_constraint(Constraint::Radius {
@@ -1168,13 +1223,17 @@ mod tests {
             })
             .unwrap();
         let mut transaction = document.transaction("Sketch");
+
         let feature = transaction.add_feature("Holes", caditor_document::FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let parameters = ParameterValues::evaluate(&document);
         let target = DimensionTarget {
             feature,
             constraint: radius,
         };
+
         let edit = |text| {
             dimension_transaction(&document, &parameters, target, text, LengthUnit::Millimetre)
                 .map_err(|error| error.to_string())
@@ -1199,6 +1258,7 @@ mod tests {
     fn a_dimension_named_in_its_field_holds_a_model_parameter() {
         let mut document = document();
         let mut sketch = caditor_sketch::Sketch::new(caditor_geometry::Plane::XY);
+
         let circle = sketch.add_circle(caditor_geometry::Point2::ZERO, 5.0);
         let radius = sketch
             .add_constraint(Constraint::Radius {
@@ -1207,8 +1267,11 @@ mod tests {
             })
             .unwrap();
         let mut transaction = document.transaction("Sketch");
+
         let feature = transaction.add_feature("Holes", caditor_document::FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let target = DimensionTarget {
             feature,
             constraint: radius,
@@ -1265,8 +1328,10 @@ mod tests {
     fn a_negative_horizontal_or_vertical_distance_is_refused_with_its_reason() {
         let mut document = document();
         let mut sketch = caditor_sketch::Sketch::new(caditor_geometry::Plane::XY);
+
         let from = sketch.add_point(caditor_geometry::Point2::ZERO);
         let to = sketch.add_point(caditor_geometry::Point2::X);
+
         let across = sketch
             .add_constraint(Constraint::HorizontalDistance {
                 from,
@@ -1275,13 +1340,17 @@ mod tests {
             })
             .unwrap();
         let mut transaction = document.transaction("Sketch");
+
         let feature = transaction.add_feature("Holes", caditor_document::FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let parameters = ParameterValues::evaluate(&document);
         let target = DimensionTarget {
             feature,
             constraint: across,
         };
+
         let edit = |text| {
             dimension_transaction(&document, &parameters, target, text, LengthUnit::Millimetre)
                 .map_err(|error| error.to_string())
@@ -1303,6 +1372,7 @@ mod tests {
     fn previews_show_computed_values_only_for_non_literals() {
         let document = document();
         let parameters = ParameterValues::evaluate(&document);
+
         let preview = |text: &str| {
             value_preview(
                 &parameters,
@@ -1310,6 +1380,7 @@ mod tests {
                 LengthUnit::Millimetre,
             )
         };
+
         assert_eq!(preview("width / 4"), Some("= 10 mm".to_owned()));
         assert_eq!(preview("2 cm"), None);
         assert_eq!(preview("width / zero"), None);

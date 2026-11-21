@@ -84,7 +84,7 @@ const MIN_SLIDER_WIDTH: f32 = 40.0;
 const WIDTH_CHANGE: f32 = 0.5;
 const BALANCE_STEPS: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
     Neutral,
     Info,
@@ -167,8 +167,11 @@ impl Progress {
     pub fn show(self, ui: &mut Ui) -> bool {
         let add = |ui: &mut Ui| {
             let spinner = spinner(ui);
+
             decorative(ui, &spinner);
+
             let label = ui.add(Label::new(self.label.as_str()).selectable(false));
+
             announced(ui, &label, false);
             if let Some((shown, total)) = self.count {
                 ui.label(muted(format!("{shown} of {total}"), ui));
@@ -187,12 +190,15 @@ impl Progress {
 pub fn spinner(ui: &mut Ui) -> Response {
     let size = ui.style().spacing.interact_size.y;
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
+
     response.widget_info(|| WidgetInfo::new(Role::ProgressIndicator));
     if ui.is_rect_visible(rect) {
         let still = ui.style().animation_time <= 0.0;
+
         if !still {
             ui.ctx().request_repaint_after(SPINNER_FRAME);
         }
+
         let color = ui.visuals().strong_text_color();
         let radius = rect.height().min(rect.width()) / 2.0 - SPINNER_INSET;
         let count = (radius.round() as u32).clamp(*SPINNER_POINTS.start(), *SPINNER_POINTS.end());
@@ -202,6 +208,7 @@ pub fn spinner(ui: &mut Ui) -> Response {
             ui.input(|input| input.time)
         };
         let start = time * TAU;
+
         let end = start + SPINNER_SWEEP_DEGREES.to_radians() * time.sin();
         let points = (0..count)
             .map(|index| {
@@ -209,6 +216,7 @@ pub fn spinner(ui: &mut Ui) -> Response {
                 rect.center() + radius * vec2(cos as f32, sin as f32)
             })
             .collect();
+
         ui.painter().add(egui::Shape::line(
             points,
             Stroke::new(SPINNER_STROKE, color),
@@ -219,12 +227,14 @@ pub fn spinner(ui: &mut Ui) -> Response {
 
 pub fn icon_label(ui: &mut Ui, glyph: &str, color: Color32) -> Response {
     let response = ui.add(Label::new(icon(glyph).color(color)).selectable(false));
+
     decorative(ui, &response);
     response
 }
 
 pub fn described_icon(ui: &mut Ui, glyph: &str, color: Color32, description: &str) -> Response {
     let response = ui.add(Label::new(icon(glyph).color(color)).selectable(false));
+
     response.widget_info(|| WidgetInfo::labeled(Role::Label, true, description));
     response.on_hover_text(description)
 }
@@ -246,6 +256,7 @@ pub fn announced(ui: &Ui, response: &Response, urgent: bool) {
     } else {
         Live::Polite
     };
+
     ui.ctx()
         .accesskit_node_builder(response.id, |node| node.set_live(live));
 }
@@ -257,6 +268,7 @@ pub fn decorative(ui: &Ui, response: &Response) {
 
 fn name_button(response: Response, name: &str, selected: Option<bool>) -> Response {
     let enabled = response.enabled();
+
     response.widget_info(|| match selected {
         Some(selected) => WidgetInfo::selected(Role::Button, enabled, selected, name),
         None => WidgetInfo::labeled(Role::Button, enabled, name),
@@ -294,6 +306,7 @@ impl<W: Widget> Widget for Named<W> {
 pub fn icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     let muted = appearance::tokens(ui).text_muted;
     let side = ui.spacing().interact_size.y;
+
     let button = Button::new(icon(glyph).color(muted))
         .frame_when_inactive(false)
         .min_size(Vec2::splat(side));
@@ -370,6 +383,7 @@ fn paint_swatch(
     let tokens = appearance::tokens(ui);
     let side = ui.spacing().interact_size.y;
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
+
     if ui.is_rect_visible(rect) {
         let colour = rect.shrink(SWATCH_INSET);
         let radius = CornerRadius::same(WIDGET_RADIUS);
@@ -379,6 +393,7 @@ fn paint_swatch(
             tokens.field_border
         };
         let painter = ui.painter();
+
         painter.rect_filled(colour, radius, fill);
         painter.rect_stroke(
             colour,
@@ -410,7 +425,7 @@ fn paint_swatch(
     name_button(response, name, Some(chosen)).on_hover_text(name)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThemeSample {
     pub panel: Color32,
     pub raised: Color32,
@@ -451,6 +466,7 @@ pub fn theme_card(
     );
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let response = ui.interact(rect, id, Sense::click());
+
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         let radius = CornerRadius::same(CARD_RADIUS);
@@ -459,7 +475,9 @@ pub fn theme_card(
         } else {
             tokens.raised
         };
+
         painter.rect_filled(rect, radius, fill);
+
         let (outline, width) = if chosen {
             (tokens.accent_text, THEME_CARD_CHOSEN_WIDTH)
         } else if response.hovered() {
@@ -467,20 +485,24 @@ pub fn theme_card(
         } else {
             (tokens.border, BORDER_WIDTH)
         };
+
         painter.rect_stroke(
             rect,
             radius,
             Stroke::new(width, outline),
             StrokeKind::Inside,
         );
+
         let sample = Rect::from_min_size(
             rect.min + Vec2::splat(THEME_CARD_PADDING),
             vec2(rect.width() - THEME_CARD_PADDING * 2.0, THEME_SAMPLE_HEIGHT),
         );
         let share = sample.width() / samples.len().max(1) as f32;
+
         for (index, theme) in samples.iter().enumerate() {
             let left = sample.left() + share * index as f32;
             let slice = Rect::from_x_y_ranges(left..=left + share, sample.y_range());
+
             paint_theme_sample(&painter.with_clip_rect(slice), sample, theme);
         }
         painter.rect_stroke(
@@ -489,8 +511,10 @@ pub fn theme_card(
             Stroke::new(BORDER_WIDTH, tokens.border),
             StrokeKind::Inside,
         );
+
         let name_top = sample.bottom() + THEME_CARD_PADDING;
         let mut name_left = sample.left();
+
         if chosen {
             let check = painter.text(
                 pos2(name_left, name_top),
@@ -499,8 +523,10 @@ pub fn theme_card(
                 egui::FontId::new(SMALL_SIZE, fonts::icons()),
                 tokens.accent_text,
             );
+
             name_left = check.right() + SPACE_S;
         }
+
         let colour = if chosen {
             tokens.text
         } else {
@@ -512,9 +538,13 @@ pub fn theme_card(
             egui::FontId::new(SMALL_SIZE, egui::FontFamily::Proportional)
         };
         let room = (sample.right() - name_left).max(0.0);
+
         let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), font, colour);
+
         job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+
         let galley = painter.layout_job(job);
+
         painter.galley(pos2(name_left, name_top), galley, colour);
         if response.has_focus() {
             paint_focus_ring(ui, rect);
@@ -528,8 +558,11 @@ pub fn theme_card(
 
 fn paint_theme_sample(painter: &egui::Painter, rect: Rect, theme: &ThemeSample) {
     let radius = CornerRadius::same(WIDGET_RADIUS);
+
     painter.rect_filled(rect, radius, theme.panel);
+
     let bar = Rect::from_min_size(rect.min, vec2(rect.width(), SAMPLE_BAR));
+
     painter.rect_filled(
         bar,
         CornerRadius {
@@ -547,8 +580,10 @@ fn paint_theme_sample(painter: &egui::Painter, rect: Rect, theme: &ThemeSample) 
     );
     for step in 0..3 {
         let x = bar.left() + SAMPLE_INSET + step as f32 * (SAMPLE_LINE * 3.0);
+
         painter.circle_filled(pos2(x, bar.center().y), SAMPLE_LINE / 2.0, theme.muted);
     }
+
     let side = Rect::from_min_max(
         pos2(rect.left(), bar.bottom()),
         pos2(
@@ -559,6 +594,7 @@ fn paint_theme_sample(painter: &egui::Painter, rect: Rect, theme: &ThemeSample) 
     let line = |top: f32, share: f32, colour: Color32| {
         let left = side.left() + SAMPLE_INSET;
         let width = (side.width() - SAMPLE_INSET * 2.0) * share;
+
         painter.rect_filled(
             Rect::from_min_size(pos2(left, top), vec2(width, SAMPLE_LINE)),
             CornerRadius::same(1),
@@ -566,9 +602,11 @@ fn paint_theme_sample(painter: &egui::Painter, rect: Rect, theme: &ThemeSample) 
         );
     };
     let first = side.top() + SAMPLE_INSET;
+
     line(first, 0.9, theme.text);
     line(first + SAMPLE_LINE * 2.5, 0.6, theme.muted);
     line(first + SAMPLE_LINE * 5.0, 0.75, theme.muted);
+
     let button = Rect::from_min_size(
         pos2(
             side.left() + SAMPLE_INSET,
@@ -576,8 +614,11 @@ fn paint_theme_sample(painter: &egui::Painter, rect: Rect, theme: &ThemeSample) 
         ),
         vec2((side.width() - SAMPLE_INSET * 2.0) * 0.8, SAMPLE_LINE * 2.5),
     );
+
     painter.rect_filled(button, CornerRadius::same(2), theme.accent);
+
     let view = Rect::from_min_max(pos2(side.right(), bar.bottom()), rect.max);
+
     painter.rect_filled(
         view,
         CornerRadius {
@@ -593,13 +634,17 @@ fn paint_theme_sample(painter: &egui::Painter, rect: Rect, theme: &ThemeSample) 
         view.y_range(),
         Stroke::new(BORDER_WIDTH, theme.border),
     );
+
     let grid = Stroke::new(BORDER_WIDTH, theme.grid);
     let mut y = view.bottom() - SAMPLE_GRID_STEP / 2.0;
+
     while y > view.top() {
         painter.hline(view.x_range(), y, grid);
         y -= SAMPLE_GRID_STEP;
     }
+
     let body = Rect::from_center_size(view.center(), Vec2::splat(SAMPLE_BODY));
+
     painter.rect(
         body,
         CornerRadius::same(2),
@@ -612,6 +657,7 @@ fn paint_theme_sample(painter: &egui::Painter, rect: Rect, theme: &ThemeSample) 
 pub fn instance_toggle(ui: &mut Ui, kept: bool, name: &str, hover: &str) -> Response {
     let side = ui.spacing().interact_size.y;
     let glyph = if kept { icons::DONE } else { "" };
+
     let button = Button::new(icon(glyph))
         .selected(kept)
         .min_size(Vec2::splat(side));
@@ -624,7 +670,7 @@ pub fn removable_row(ui: &mut Ui, text: RichText, hover: &str) -> bool {
     removable_row_hovered(ui, text, hover).removed
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RemovableRow {
     pub removed: bool,
     pub hovered: bool,
@@ -633,8 +679,10 @@ pub struct RemovableRow {
 pub fn removable_row_hovered(ui: &mut Ui, text: RichText, hover: &str) -> RemovableRow {
     let button_side = ui.spacing().interact_size.y;
     let gap = ui.spacing().item_spacing.x;
+
     let row = ui.horizontal_top(|ui| {
         let room = (ui.available_width() - button_side - gap).max(button_side);
+
         ui.allocate_ui_with_layout(vec2(room, 0.0), Layout::top_down(Align::Min), |ui| {
             ui.set_min_width(room);
             ui.set_max_width(room);
@@ -674,8 +722,11 @@ pub fn balanced_label(ui: &mut Ui, text: RichText) -> Response {
             TextStyle::Body,
         )
     };
+
     let mut best = lay_out(widest);
+
     let rows = best.rows.len();
+
     if rows > 1 {
         let mut narrow = widest / rows as f32;
         let mut wide = widest;
@@ -702,6 +753,7 @@ pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Named<Button<'stati
     } else {
         ui.available_width()
     };
+
     let wider_than_a_row = natural > row;
     let button = Button::new((
         icon(glyph).color(muted),
@@ -714,13 +766,13 @@ pub fn button(text: impl Into<String>) -> Button<'static> {
     Button::new(RichText::new(text.into()).text_style(TextStyle::Body))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Emphasis {
     Primary,
     Danger,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct EmphasisLook {
     fill: Color32,
     edge: Stroke,
@@ -788,9 +840,11 @@ impl Widget for EmphasizedButton {
     fn ui(self, ui: &mut Ui) -> Response {
         let tokens = appearance::tokens(ui);
         let [rest, hover, pressed] = self.emphasis.looks(&tokens);
+
         let response = ui
             .scope(|ui| {
                 let widgets = &mut ui.visuals_mut().widgets;
+
                 for (state, look) in [
                     (&mut widgets.inactive, rest),
                     (&mut widgets.hovered, hover),
@@ -802,6 +856,7 @@ impl Widget for EmphasizedButton {
                     state.bg_stroke = look.edge;
                     state.fg_stroke = Stroke::new(BORDER_WIDTH, look.text);
                 }
+
                 let text = RichText::new(self.text.clone());
                 let button = match &self.glyph {
                     Some(glyph) => Button::new((icon(glyph), text)),
@@ -813,6 +868,7 @@ impl Widget for EmphasizedButton {
                 ))
             })
             .inner;
+
         if response.has_focus() {
             paint_focus_ring(ui, response.rect.expand(FOCUS_GAP));
         }
@@ -837,6 +893,7 @@ pub fn danger_button(text: impl Into<String>) -> EmphasizedButton {
 
 pub fn paint_focus_ring(ui: &Ui, rect: Rect) {
     let focus = appearance::tokens(ui).focus;
+
     paint_focus_ring_in(ui.painter(), rect, f32::from(WIDGET_RADIUS), focus);
 }
 
@@ -858,6 +915,7 @@ pub fn text_field<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let tokens = appearance::tokens(ui);
     ui.scope(|ui| {
         let visuals = ui.visuals_mut();
+
         visuals.widgets.inactive.bg_stroke = Stroke::new(BORDER_WIDTH, tokens.field_border);
         visuals.widgets.hovered.bg_stroke = Stroke::new(BORDER_WIDTH, tokens.text_muted);
         visuals.selection.stroke = Stroke::new(FOCUS_WIDTH, tokens.focus);
@@ -928,6 +986,7 @@ fn segmented_menu(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opt
     let current = segments.get(selected).map_or("", |segment| segment.label);
     let salt: Vec<&str> = segments.iter().map(|segment| segment.label).collect();
     let width = ui.available_width();
+
     combo(("segmented", salt), current)
         .width(width)
         .show(ui, |ui| {
@@ -950,6 +1009,7 @@ fn segmented_row(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opti
     let tokens = appearance::tokens(ui);
     let (thumb, thumb_edge) = segment_thumb(ui, &tokens);
     let mut chosen = None;
+
     Frame::new()
         .fill(tokens.button)
         .corner_radius(CornerRadius::same(WIDGET_RADIUS))
@@ -960,6 +1020,7 @@ fn segmented_row(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opti
                 if !appearance::is_high_contrast(ui) {
                     ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::NONE;
                 }
+
                 let segment_height = CONTROL_HEIGHT - 2.0 * f32::from(SEGMENT_INSET);
                 for (index, segment) in segments.iter().enumerate() {
                     let current = index == selected;
@@ -971,11 +1032,13 @@ fn segmented_row(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opti
                     let mut button = Button::new(RichText::new(segment.label).color(color))
                         .min_size(vec2(0.0, segment_height))
                         .corner_radius(CornerRadius::same(WIDGET_RADIUS - SEGMENT_INSET as u8));
+
                     button = if current {
                         button.fill(thumb).stroke(thumb_edge)
                     } else {
                         button.frame_when_inactive(false)
                     };
+
                     let named = Named::new(button, segment.label).selected(current);
                     let response =
                         offered(ui.add_enabled(segment.refusal.is_none(), named), segment);
@@ -1008,7 +1071,9 @@ pub fn key_cap(ui: &mut Ui, keys: &str) -> Response {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = SPACE_XS;
         ui.spacing_mut().interact_size.y = 0.0;
+
         let mut keys: Vec<&str> = keys.split('+').filter(|key| !key.is_empty()).collect();
+
         if backwards {
             keys.reverse();
         }
@@ -1061,9 +1126,12 @@ pub fn stepper(
     larger: (&str, bool),
 ) -> Option<i8> {
     let mut step = None;
+
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = SPACE_XS;
+
         let (smaller_name, can_shrink) = smaller;
+
         if ui
             .add_enabled_ui(can_shrink, |ui| {
                 icon_button(ui, icons::SUBTRACT, smaller_name)
@@ -1078,6 +1146,7 @@ pub fn stepper(
                 .selectable(false)
                 .wrap_mode(TextWrapMode::Extend),
         );
+
         let (larger_name, can_grow) = larger;
         if ui
             .add_enabled_ui(can_grow, |ui| icon_button(ui, icons::ADD, larger_name))
@@ -1101,7 +1170,9 @@ pub fn panel_header<R>(
     let spacing = ui.spacing().item_spacing.x;
     let heading = |ui: &mut Ui| {
         icon_label(ui, glyph, tokens.text_muted);
+
         let title = RichText::new(title).font(egui::FontId::new(TITLE_SIZE, fonts::semibold()));
+
         ui.add(Label::new(title).selectable(false));
         ui.min_rect().width()
     };
@@ -1109,6 +1180,7 @@ pub fn panel_header<R>(
         let inner = actions(ui);
         (inner, ui.min_rect().width())
     };
+
     let (heading_width, (inner, actions_width)) =
         if remembered_width(ui, width_id) <= ui.available_width() {
             Sides::new().show(ui, heading, trailing)
@@ -1120,6 +1192,7 @@ pub fn panel_header<R>(
                 .inner;
             (heading_width, actions)
         };
+
     remember_width(ui, width_id, heading_width + spacing + actions_width);
     inner
 }
@@ -1160,13 +1233,16 @@ pub fn side_panel_parts<H, R>(
 ) -> SidePanel<H, R> {
     panel.show(ui, room, |ui| {
         ui.add_space(SPACE_S);
+
         let (closed, actions) = panel_header(ui, title.glyph, title.title, |ui| {
             let closed = icon_button(ui, icons::CLOSE, title.close).clicked();
+
             if let Some(page) = title.help {
                 guide_panel::help_button(ui, page);
             }
             (closed, actions(ui))
         });
+
         ui.add_space(SPACE_S);
         SidePanel {
             closed,
@@ -1190,15 +1266,19 @@ pub fn follow_keyboard_focus(ui: &mut Ui) {
     };
     let pointer_acting =
         ctx.input(|input| input.pointer.any_pressed() || input.pointer.any_released());
+
     if pointer_acting {
         return;
     }
+
     let Some(response) = ctx.read_response(id) else {
         return;
     };
+
     if !response.gained_focus() {
         return;
     }
+
     let within = ui.min_rect().contains(response.rect.center());
     if within && !ui.clip_rect().contains_rect(response.rect) {
         ui.scroll_to_rect(response.rect, None);
@@ -1212,6 +1292,7 @@ pub fn panel_scroll<R>(ui: &mut Ui, id_salt: impl AsIdSalt, add: impl FnOnce(&mu
         .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
             let shown = add(ui);
+
             follow_keyboard_focus(ui);
             shown
         })
@@ -1236,6 +1317,7 @@ fn focus_primary_action(ctx: &egui::Context) {
 pub fn link(ui: &mut Ui, text: &str, style: Option<TextStyle>) -> Response {
     let tokens = appearance::tokens(ui);
     let mut rich = RichText::new(text).color(tokens.accent_text).underline();
+
     if let Some(style) = style {
         rich = rich.text_style(style);
     }
@@ -1251,10 +1333,13 @@ pub fn truncated_link(ui: &mut Ui, text: &str) -> Response {
 fn link_from(ui: &mut Ui, text: &str, label: Label) -> Response {
     let tokens = appearance::tokens(ui);
     let response = ui.add(label.selectable(false).sense(Sense::click()));
+
     response.widget_info(|| WidgetInfo::labeled(Role::Link, true, text));
     if response.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+
         let stroke = Stroke::new(UNDERLINE_WIDTH * 2.0, tokens.accent_text);
+
         ui.painter()
             .hline(response.rect.x_range(), response.rect.bottom(), stroke);
     }
@@ -1266,9 +1351,12 @@ fn link_from(ui: &mut Ui, text: &str, label: Label) -> Response {
 
 pub fn link_label(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
     let response = ui.add(Label::new(text).selectable(false).sense(Sense::click()));
+
     if response.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+
         let stroke = Stroke::new(UNDERLINE_WIDTH, ui.visuals().text_color());
+
         ui.painter()
             .hline(response.rect.x_range(), response.rect.bottom(), stroke);
     }
@@ -1293,7 +1381,7 @@ pub fn status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response
     status_pill_parts(ui, tone, text).0
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PillRole<'a> {
     Shown,
     Named(&'a str),
@@ -1369,6 +1457,7 @@ fn glyph_pill_sized(
     let text = RichText::new(text)
         .text_style(TextStyle::Small)
         .color(color);
+
     let room = pill_room(
         &[
             unwrapped(ui, icon.clone(), TextStyle::Small),
@@ -1377,13 +1466,17 @@ fn glyph_pill_sized(
         row_height,
     );
     let hidden_text = role != PillRole::Shown;
+
     let response = ui
         .allocate_ui(room, |ui| {
             pill_frame(&tokens, tone).show(ui, |ui| {
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = PILL_ICON_GAP;
+
                     let glyph = ui.add(Label::new(icon).selectable(false));
+
                     decorative(ui, &glyph);
+
                     let label = ui.add(Label::new(text).selectable(false));
                     if hidden_text {
                         decorative(ui, &label);
@@ -1412,6 +1505,7 @@ fn glyph_pill_sized(
             } else {
                 Stroke::new(BORDER_WIDTH, color.gamma_multiply(BUTTON_PILL_OUTLINE))
             };
+
             ui.painter().rect_stroke(
                 response.rect,
                 CornerRadius::same(PILL_RADIUS),
@@ -1425,6 +1519,7 @@ fn glyph_pill_sized(
 
 pub fn announced_status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
     let (pill, label) = status_pill_parts(ui, tone, text);
+
     announced(ui, &label, tone == Tone::Error);
     pill
 }
@@ -1438,6 +1533,7 @@ fn status_pill_parts(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> (Respo
     let text = RichText::new(text)
         .text_style(TextStyle::Small)
         .color(color);
+
     let room = pill_room(
         &[
             unwrapped(ui, icon.clone(), TextStyle::Small),
@@ -1450,7 +1546,9 @@ fn status_pill_parts(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> (Respo
             pill_frame(&tokens, tone).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = PILL_ICON_GAP;
+
                     let glyph = ui.add(Label::new(icon).selectable(false));
+
                     decorative(ui, &glyph);
                     ui.add(Label::new(text).selectable(false))
                 })
@@ -1524,6 +1622,7 @@ fn surface_edge(ui: &Ui, tokens: &Tokens) -> Stroke {
 
 pub fn column_caption(ui: &mut Ui, text: &str) {
     let tokens = appearance::tokens(ui);
+
     ui.add(
         Label::new(
             RichText::new(text)
@@ -1539,6 +1638,7 @@ pub fn caption(ui: &mut Ui, text: &str) {
     let room = ui
         .data(|data| data.get_temp::<f32>(Id::unique(CAPTION_ROOM_KEY)))
         .unwrap_or(f32::INFINITY);
+
     let galley = WidgetText::from(RichText::new(text).color(tokens.text_muted)).into_galley(
         ui,
         Some(TextWrapMode::Wrap),
@@ -1547,6 +1647,7 @@ pub fn caption(ui: &mut Ui, text: &str) {
     );
     let label = ui.add(Label::new(galley).selectable(false));
     let key = ui.unique_id().with(CAPTION_KEY);
+
     ui.data_mut(|data| data.insert_temp(key, label.id));
 }
 
@@ -1578,15 +1679,20 @@ pub fn properties<R>(
         CAPTION_WIDTH
     };
     let outer_room = ui.data(|data| data.get_temp::<f32>(room_key));
+
     ui.data_mut(|data| data.insert_temp(room_key, caption_room));
+
     let outside = ui.style().wrap_mode;
+
     ui.style_mut().wrap_mode = Some(TextWrapMode::Wrap);
+
     let inner = Grid::new(Id::unique(("properties", id)))
         .num_columns(2)
         .spacing(PROPERTY_SPACING)
         .min_col_width(least_caption)
         .show(ui, add)
         .inner;
+
     ui.style_mut().wrap_mode = outside;
     ui.data_mut(|data| match outer_room {
         Some(room) => {
@@ -1599,7 +1705,9 @@ pub fn properties<R>(
 
 pub fn property<R>(ui: &mut Ui, text: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
     caption(ui, text);
+
     let inner = add(ui);
+
     ui.end_row();
     inner
 }
@@ -1691,6 +1799,7 @@ fn section_with(
     let tokens = appearance::tokens(ui);
     let mut state =
         CollapsingState::load_with_default_open(ui.ctx(), Id::unique(("section", id)), true);
+
     let row = |ui: &mut Ui| {
         ui.horizontal(|ui| {
             let chevron = if state.is_open() {
@@ -1710,6 +1819,7 @@ fn section_with(
                 Some(explanation) => button.on_hover_text(explanation),
                 None => button,
             };
+
             if let Some(count) = header.count {
                 match header.explanation {
                     Some(_) => {
@@ -1727,6 +1837,7 @@ fn section_with(
                     }
                 }
             }
+
             let acted = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
                     header
@@ -1753,6 +1864,7 @@ fn section_with(
         }
         None => row(ui),
     };
+
     if toggled {
         state.toggle(ui);
     }
@@ -1769,6 +1881,7 @@ fn section_with(
 pub fn menu_room(ui: &Ui) -> f32 {
     let screen = ui.ctx().content_rect();
     let margin = ui.spacing().menu_margin;
+
     let below = screen.bottom() - ui.max_rect().top() - f32::from(margin.bottom) - DIALOG_EDGE;
     let least = (screen.height() - margin.sum().y - 2.0 * DIALOG_EDGE) * MIN_MENU_SHARE;
     below.max(least).max(MIN_LIST_HEIGHT)
@@ -1780,10 +1893,13 @@ pub fn fitted_menu<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 pub fn measured_menu<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> (R, f32) {
     let room = menu_room(ui);
+
     ui.set_max_height(room);
+
     let margins = ui.spacing().menu_margin.sum().y;
     let shown = ScrollArea::vertical().max_height(room).show(ui, |ui| {
         let shown = add(ui);
+
         follow_keyboard_focus(ui);
         shown
     });
@@ -1799,6 +1915,7 @@ pub fn menu_opening_down(
     let Some(size) = size else {
         return anchor;
     };
+
     let farthest = screen.right_bottom() - size - vec2(DIALOG_EDGE, DIALOG_EDGE);
     let nearest = screen.left_top() + vec2(DIALOG_EDGE, DIALOG_EDGE);
     anchor.min(farthest).max(nearest)
@@ -1807,6 +1924,7 @@ pub fn menu_opening_down(
 pub fn menu_item(ui: &mut Ui, glyph: &str, title: &str, keys: Option<String>) -> Response {
     let muted = appearance::tokens(ui).text_muted;
     let mut button = Button::new((icon(glyph).color(muted), title.to_owned()));
+
     if let Some(keys) = keys {
         button = button.shortcut_text(RichText::new(keys).text_style(TextStyle::Small));
     }
@@ -1822,6 +1940,7 @@ pub fn menu_choice(
 ) -> Response {
     let muted = appearance::tokens(ui).text_muted;
     let mut button = Button::new((icon(glyph).color(muted), title.to_owned())).selected(chosen);
+
     if let Some(keys) = keys {
         button = button.shortcut_text(RichText::new(keys).text_style(TextStyle::Small));
     }
@@ -1847,6 +1966,7 @@ pub fn arrow_beside(ui: &mut Ui, group: Rect, menu: &ArrowMenu<'_>) -> Response 
         pos2(group.right() + ui.spacing().item_spacing.x, group.top()),
         vec2(ARROW_WIDTH, group.height()),
     );
+
     ui.allocate_rect(rect, Sense::hover());
     arrow(ui, rect, menu)
 }
@@ -1874,8 +1994,11 @@ fn trigger(
 ) -> Response {
     let tokens = appearance::tokens(ui);
     let response = ui.interact(rect, menu.id, Sense::click());
+
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), menu.name));
+
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response));
+
     if ui.is_rect_visible(rect) {
         let fill = if response.is_pointer_button_down_on() {
             tokens.pressed
@@ -1894,6 +2017,7 @@ fn trigger(
         } else {
             tokens.text
         };
+
         ui.painter().rect(
             rect,
             CornerRadius::same(WIDGET_RADIUS),
@@ -1913,6 +2037,7 @@ pub fn group_title(ui: &mut Ui, rect: Rect, id: Id, title: Arc<Galley>, name: &s
     let tokens = appearance::tokens(ui);
     let response = ui.interact(rect, id, Sense::click());
     let open = group_menu_trigger(ui, &response, rect, name);
+
     if ui.is_rect_visible(rect) {
         let colour = if response.hovered() || open {
             tokens.text
@@ -1923,10 +2048,12 @@ pub fn group_title(ui: &mut Ui, rect: Rect, id: Id, title: Arc<Galley>, name: &s
         let width = group_title_width(ui, &title);
         let left = rect.center().x - width / 2.0;
         let title_at = pos2(left, rect.center().y - title.size().y / 2.0);
+
         let caret_at = pos2(
             left + title.size().x + SPACE_XS,
             rect.center().y - caret.size().y / 2.0,
         );
+
         ui.painter()
             .galley_with_override_text_color(title_at, title, colour);
         ui.painter()
@@ -1949,8 +2076,11 @@ fn title_caret(ui: &Ui) -> Arc<Galley> {
 
 fn group_menu_trigger(ui: &Ui, response: &Response, rect: Rect, name: &str) -> bool {
     let tokens = appearance::tokens(ui);
+
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), name));
+
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(response));
+
     ui.ctx().accesskit_node_builder(response.id, |node| {
         node.set_has_popup(HasPopup::Menu);
         node.set_expanded(open);
@@ -1968,6 +2098,7 @@ fn group_menu_trigger(ui: &Ui, response: &Response, rect: Rect, name: &str) -> b
         } else {
             Stroke::NONE
         };
+
         ui.painter().rect(
             rect,
             CornerRadius::same(WIDGET_RADIUS),
@@ -2054,6 +2185,7 @@ impl Widget for ToolButton<'_> {
             None => Vec2::splat(compact_tool_side(ui)),
         };
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+
         response.widget_info(|| {
             WidgetInfo::selected(Role::Button, ui.is_enabled(), self.selected, self.label)
         });
@@ -2061,6 +2193,7 @@ impl Widget for ToolButton<'_> {
             let visuals = ui.style().interact_selectable(&response, self.selected);
             let pressed = response.is_pointer_button_down_on();
             let hovered = response.hovered() && ui.is_enabled();
+
             let fill = match (self.selected, pressed, hovered) {
                 (true, true, _) => tokens.pressed,
                 (true, false, _) => tokens.accent_subtle,
@@ -2079,8 +2212,10 @@ impl Widget for ToolButton<'_> {
                 Stroke::NONE
             };
             let radius = CornerRadius::same(WIDGET_RADIUS);
+
             ui.painter()
                 .rect(rect, radius, fill, stroke, StrokeKind::Inside);
+
             let color = if self.selected {
                 tokens.accent_text
             } else {
@@ -2094,11 +2229,13 @@ impl Widget for ToolButton<'_> {
                         rect.center().x - label.size().x / 2.0,
                         top + glyph.size().y + TOOL_LABEL_GAP,
                     );
+
                     ui.painter().galley(glyph_pos, glyph, color);
                     ui.painter().galley(label_pos, label, color);
                 }
                 None => {
                     let glyph_pos = rect.center() - glyph.size() / 2.0;
+
                     ui.painter().galley(glyph_pos, glyph, color);
                 }
             }
@@ -2134,6 +2271,7 @@ impl Widget for TabButton<'_> {
                 f32::INFINITY,
                 TextStyle::Body,
             );
+
         let content_height = glyph.size().y.max(label.size().y);
         let size = vec2(
             glyph.size().x + TAB_ICON_GAP + label.size().x + 2.0 * TAB_PADDING.x,
@@ -2141,6 +2279,7 @@ impl Widget for TabButton<'_> {
         );
         let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
         let response = ui.interact(rect, self.id, Sense::click());
+
         response.widget_info(|| {
             WidgetInfo::selected(Role::Button, ui.is_enabled(), self.selected, self.tab.label)
         });
@@ -2167,27 +2306,33 @@ impl Widget for TabButton<'_> {
                 sw: 0,
                 se: 0,
             };
+
             ui.painter()
                 .rect(rect, radius, fill, stroke, StrokeKind::Inside);
+
             let (color, glyph_color) = if self.selected {
                 (tokens.text, tokens.accent_text)
             } else {
                 (tokens.text_muted, tokens.text_muted)
             };
+
             if self.selected {
                 let underline = rect.bottom() - TAB_UNDERLINE / 2.0;
+
                 ui.painter().hline(
                     rect.x_range(),
                     underline,
                     Stroke::new(TAB_UNDERLINE, tokens.accent),
                 );
             }
+
             let left = rect.left() + TAB_PADDING.x;
             let glyph_pos = egui::pos2(left, rect.center().y - glyph.size().y / 2.0);
             let label_pos = egui::pos2(
                 left + glyph.size().x + TAB_ICON_GAP,
                 rect.center().y - label.size().y / 2.0,
             );
+
             ui.painter().galley(glyph_pos, glyph, glyph_color);
             ui.painter().galley(label_pos, label, color);
         }
@@ -2249,6 +2394,7 @@ pub fn tabs(
         .flatten()
         .and_then(|step| stepped(selected, step, count));
     let mut focus = None;
+
     let row = ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = TAB_GAP;
         for (index, tab) in tabs.iter().enumerate() {
@@ -2257,6 +2403,7 @@ pub fn tabs(
                 tab,
                 selected: index == selected,
             });
+
             if response.clicked() {
                 chosen = Some(index);
             }
@@ -2269,6 +2416,7 @@ pub fn tabs(
         }
     });
     let border = appearance::tokens(ui).border;
+
     ui.painter().hline(
         row.response.rect.x_range(),
         row.response.rect.bottom(),
@@ -2283,7 +2431,7 @@ pub fn tabs(
     chosen.filter(|index| *index != selected && *index < count)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DialogWidth {
     Medium,
     Wide,
@@ -2309,7 +2457,7 @@ impl<T> DialogResponse<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct HelpAsked {
     pass: u64,
 }
@@ -2320,6 +2468,7 @@ fn help_asked_key() -> Id {
 
 pub fn ask_dialog_help(ctx: &egui::Context) {
     let pass = ctx.cumulative_pass_nr();
+
     ctx.data_mut(|data| data.insert_temp(help_asked_key(), HelpAsked { pass }));
 }
 
@@ -2329,6 +2478,7 @@ fn take_help_asked(ui: &Ui) -> bool {
     let asked = ui
         .data(|data| data.get_temp::<HelpAsked>(help_asked_key()))
         .is_some_and(|asked| asked.pass == pass);
+
     if top && asked {
         ui.data_mut(|data| data.remove::<HelpAsked>(help_asked_key()));
     }
@@ -2373,12 +2523,14 @@ fn closable_dialog<T>(
 ) -> DialogResponse<T> {
     let mut closed = false;
     let mut opened_help = false;
+
     let response = titled_dialog(
         ctx,
         id,
         width,
         |ui| {
             let by_key = help.is_some() && take_help_asked(ui);
+
             Sides::new().show(
                 ui,
                 |ui| ui.heading(title),
@@ -2386,6 +2538,7 @@ fn closable_dialog<T>(
                     closed = icon_button(ui, icons::CLOSE, CLOSE_DIALOG).clicked();
                     if let Some(page) = help {
                         let hover = dialog_help_hover(page);
+
                         opened_help = icon_button(ui, icons::HELP, &hover).clicked() || by_key;
                     }
                 },
@@ -2393,9 +2546,11 @@ fn closable_dialog<T>(
         },
         add,
     );
+
     if let Some(page) = help.filter(|_| opened_help) {
         guide::ask(ctx, page);
     }
+
     let close = closed || opened_help || response.should_close();
     DialogResponse {
         inner: response.inner,
@@ -2429,6 +2584,7 @@ pub fn search_dialog<T>(
 ) -> DialogResponse<T> {
     let id = Id::unique(id);
     let top = TOP_DIALOG_OFFSET.max(window_frame::controls_bottom(ctx) + DIALOG_EDGE);
+
     let response = Modal::new(id)
         .area(Modal::default_area(id).anchor(Align2::CENTER_TOP, vec2(0.0, top)))
         .frame(dialog_frame(ctx))
@@ -2451,7 +2607,9 @@ fn titled_dialog<T>(
     add: impl FnOnce(&mut Ui) -> T,
 ) -> egui::ModalResponse<T> {
     let id = Id::unique(id);
+
     ctx.data_mut(|data| data.remove::<Id>(primary_action_key()));
+
     let below_controls = vec2(0.0, window_frame::controls_bottom(ctx) / 2.0);
     Modal::new(id)
         .area(Modal::default_area(id).anchor(Align2::CENTER_CENTER, below_controls))
@@ -2460,7 +2618,9 @@ fn titled_dialog<T>(
             ui.set_width(fitting_width(ctx, width.points()));
             heading(ui);
             ui.add_space(ui.spacing().item_spacing.y);
+
             let inner = arrange_dialog(ui, id, add);
+
             focus_primary_action(ui.ctx());
             inner
         })
@@ -2469,6 +2629,7 @@ fn titled_dialog<T>(
 fn arrange_dialog<T>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> T) -> T {
     let top = ui.cursor().min.y;
     let heading = top - ui.min_rect().min.y;
+
     let open = OpenDialog {
         id,
         top,
@@ -2476,11 +2637,14 @@ fn arrange_dialog<T>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> T) -> T {
         body_end: None,
     };
     let key = Id::unique(OPEN_DIALOG_KEY);
+
     ui.data_mut(|data| data.insert_temp(key, open));
+
     let inner = add(ui);
     let body_end = ui
         .data(|data| data.get_temp::<OpenDialog>(key))
         .and_then(|open| open.body_end);
+
     ui.data_mut(|data| data.remove::<OpenDialog>(key));
     if let Some(body_end) = body_end {
         let below = ui.cursor().min.y - body_end;
@@ -2520,7 +2684,7 @@ pub fn remember_height(ui: &Ui, id: Id, height: f32) {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct OpenDialog {
     id: Id,
     top: f32,
@@ -2528,7 +2692,7 @@ struct OpenDialog {
     body_end: Option<f32>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct DialogBody {
     id_salt: Option<Id>,
     min_height: f32,
@@ -2574,6 +2738,7 @@ impl DialogBody {
             open.map_or(ui.scope_id(), |open| open.id)
                 .with(OPEN_DIALOG_KEY)
         });
+
         let inner = ScrollArea::vertical()
             .id_salt(id_salt)
             .max_height(room)
@@ -2581,13 +2746,17 @@ impl DialogBody {
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 ui.set_min_height(least);
+
                 let shown = add(ui);
+
                 follow_keyboard_focus(ui);
                 shown
             })
             .inner;
+
         if let Some(open) = open {
             let body_end = Some(ui.cursor().min.y);
+
             ui.data_mut(|data| data.insert_temp(key, OpenDialog { body_end, ..open }));
         }
         inner
@@ -2604,7 +2773,7 @@ pub fn fitting_width(ctx: &egui::Context, wanted: f32) -> f32 {
     wanted.min(room).max(MIN_DIALOG_WIDTH)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListHeight {
     Short,
     Medium,
@@ -2661,6 +2830,7 @@ fn with_box_look<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let tokens = appearance::tokens(ui);
     ui.scope(|ui| {
         let widgets = &mut ui.visuals_mut().widgets;
+
         widgets.inactive.bg_fill = tokens.sunken;
         widgets.inactive.bg_stroke = Stroke::new(BORDER_WIDTH, tokens.field_border);
         widgets.hovered.bg_stroke = Stroke::new(BORDER_WIDTH, tokens.text_muted);
@@ -2685,6 +2855,7 @@ pub fn checkbox(ui: &mut Ui, checked: &mut bool, label: impl Into<String>) -> Re
 pub fn unlabelled_checkbox(ui: &mut Ui, checked: &mut bool, name: &str) -> Response {
     let response = with_box_look(ui, |ui| ui.add(Checkbox::new(checked, "")));
     let (enabled, selected) = (response.enabled(), *checked);
+
     response.widget_info(|| WidgetInfo::selected(Role::CheckBox, enabled, selected, name));
     response
 }
@@ -2692,6 +2863,7 @@ pub fn unlabelled_checkbox(ui: &mut Ui, checked: &mut bool, name: &str) -> Respo
 pub fn unlabelled_radio(ui: &mut Ui, selected: bool, name: &str) -> Response {
     let response = with_box_look(ui, |ui| ui.add(RadioButton::new(selected, "")));
     let enabled = response.enabled();
+
     response.widget_info(|| WidgetInfo::selected(Role::RadioButton, enabled, selected, name));
     response
 }
@@ -2728,10 +2900,13 @@ impl<H: AsIdSalt> Combo<H> {
             .selected_text(self.selected)
             .height(list_height(ui.ctx(), COMBO_HEIGHT))
             .wrap_mode(TextWrapMode::Truncate);
+
         if let Some(width) = self.width {
             combo = combo.width(width);
         }
+
         let shown = combo.show_ui(ui, add);
+
         tie_to_caption(ui, &shown.response);
         match self.hover {
             Some(hover) => InnerResponse::new(shown.inner, shown.response.on_hover_text(hover)),
@@ -2744,7 +2919,7 @@ pub fn menu_option(ui: &mut Ui, chosen: bool, title: &str) -> Response {
     ui.add(Named::new(Button::selectable(chosen, title), title).selected(chosen))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RemovableItem {
     pub chosen: bool,
     pub removed: bool,
@@ -2769,6 +2944,7 @@ pub fn removable_menu_item(ui: &mut Ui, entry: &MenuEntry<'_>) -> RemovableItem 
     } else {
         RichText::new(entry.title)
     };
+
     let laid_out = Button::new((
         icon(entry.glyph).color(muted),
         title,
@@ -2782,6 +2958,7 @@ pub fn removable_menu_item(ui: &mut Ui, entry: &MenuEntry<'_>) -> RemovableItem 
     let place = laid_out.rect(slot);
     let item = name_button(laid_out.response, entry.title, None).on_hover_text(entry.hover);
     let focused = ui.data(|data| data.get_temp::<bool>(focus_key).unwrap_or(false));
+
     let shown = focused || ui.rect_contains_pointer(item.rect);
     let removed = place.is_some_and(|place| {
         let button = Rect::from_center_size(place.center(), Vec2::splat(side));
@@ -2794,6 +2971,7 @@ pub fn removable_menu_item(ui: &mut Ui, entry: &MenuEntry<'_>) -> RemovableItem 
             })
             .inner;
         let has_focus = response.has_focus();
+
         if has_focus != focused {
             ui.data_mut(|data| data.insert_temp(focus_key, has_focus));
             ui.ctx().request_repaint();
@@ -2815,11 +2993,14 @@ mod tests {
     #[test]
     fn a_spinner_asks_for_its_next_frame_on_a_timer_rather_than_at_once() {
         let context = Context::default();
+
         context.set_fonts(fonts::definitions_with(&[]));
+
         let input = || RawInput {
             screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 100.0))),
             ..RawInput::default()
         };
+
         for _ in 0..3 {
             context.run_ui(input(), |_| {}).textures_delta.clear();
         }
@@ -2827,6 +3008,7 @@ mod tests {
         let mut output = context.run_ui(input(), |ui| {
             spinner(ui);
         });
+
         output.textures_delta.clear();
 
         let delay = output
@@ -2834,6 +3016,7 @@ mod tests {
             .get(&egui::ViewportId::ROOT)
             .map(|viewport| viewport.repaint_delay)
             .unwrap();
+
         assert!(
             delay > Duration::ZERO && delay <= SPINNER_FRAME,
             "{delay:?}"
@@ -2843,20 +3026,25 @@ mod tests {
     #[test]
     fn a_spinner_stands_still_and_asks_for_no_frame_when_animations_are_off() {
         let context = Context::default();
+
         context.set_fonts(fonts::definitions_with(&[]));
         context.all_styles_mut(|style| style.animation_time = 0.0);
+
         let input = || RawInput {
             screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 100.0))),
             ..RawInput::default()
         };
+
         for _ in 0..3 {
             context.run_ui(input(), |_| {}).textures_delta.clear();
         }
 
         let mut output = context.run_ui(input(), |ui| {
             let response = spinner(ui);
+
             assert!(response.rect.width() > 0.0);
         });
+
         output.textures_delta.clear();
 
         let delay = output
@@ -2864,12 +3052,15 @@ mod tests {
             .get(&egui::ViewportId::ROOT)
             .map(|viewport| viewport.repaint_delay)
             .unwrap();
+
         assert!(delay > SPINNER_FRAME, "{delay:?}");
     }
 
     fn pills_in_a_wrapped_row(width: f32, texts: [&str; 2]) -> (Vec<Rect>, Vec<Rect>, Rect) {
         let context = Context::default();
+
         context.set_fonts(fonts::definitions_with(&[]));
+
         let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 400.0));
         let mut measured = None;
 
@@ -2885,8 +3076,10 @@ mod tests {
                     (status, plain)
                 });
                 let (status, plain) = row.inner;
+
                 measured = Some((status.to_vec(), plain.to_vec(), ui.max_rect()));
             });
+
             output.textures_delta.clear();
         }
         measured.unwrap()
@@ -2897,6 +3090,7 @@ mod tests {
         let texts = ["8 degrees of freedom left", "4 open ends"];
         let (roomy_status, roomy_plain, _) = pills_in_a_wrapped_row(2000.0, texts);
         let first = roomy_status[0];
+
         let width = first.width() + roomy_status[1].width() / 2.0;
 
         let (status, plain, panel) = pills_in_a_wrapped_row(width, texts);
@@ -2909,6 +3103,7 @@ mod tests {
             assert!(pill.right() <= panel.right(), "{pill:?} in {panel:?}");
             assert_eq!(pill.size(), roomy.size());
         }
+
         assert!(status[1].top() >= status[0].bottom(), "{status:?}");
         assert!(plain[0].top() >= status[1].bottom(), "{status:?} {plain:?}");
         assert!(plain[1].top() >= plain[0].bottom(), "{plain:?}");
@@ -2917,7 +3112,9 @@ mod tests {
     #[test]
     fn a_long_removable_row_wraps_to_keep_its_button_in_the_panel() {
         let context = Context::default();
+
         context.set_fonts(fonts::definitions_with(&[]));
+
         let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(220.0, 400.0));
         let description = "Edge between Extrude 1 side from Line 3 and Extrude 1 end cap".repeat(3);
         let mut measured = None;
@@ -2932,10 +3129,13 @@ mod tests {
                     .scope(|ui| removable_row(ui, RichText::new(description.as_str()), "Remove"))
                     .response
                     .rect;
+
                 measured = Some((row, ui.max_rect(), ui.text_style_height(&TextStyle::Body)));
             });
+
             output.textures_delta.clear();
         }
+
         let (row, panel, line) = measured.unwrap();
 
         assert!(row.right() <= panel.right() + 0.5, "{row:?} in {panel:?}");

@@ -15,6 +15,7 @@ pub enum OpenError {
 
 pub fn open(address: &str) -> Result<(), OpenError> {
     let secure = address.starts_with("https://") && !address.chars().any(char::is_whitespace);
+
     if !secure {
         return Err(OpenError::NotSecure);
     }
@@ -23,6 +24,7 @@ pub fn open(address: &str) -> Result<(), OpenError> {
 
 fn start(program: &str, leading: &[&str], address: &OsStr) -> io::Result<()> {
     let mut command = Command::new(program);
+
     command.args(leading).arg(address);
     detach(command)
 }
@@ -33,6 +35,7 @@ pub(crate) fn detach(mut command: Command) -> io::Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
+
     let reaper = thread::Builder::new()
         .name("browser".to_owned())
         .spawn(move || {
@@ -40,6 +43,7 @@ pub(crate) fn detach(mut command: Command) -> io::Result<()> {
                 log::debug!("the browser launcher could not be waited for: {error}");
             }
         });
+
     if let Err(error) = reaper {
         log::debug!("the browser launcher is left to finish by itself: {error}");
     }

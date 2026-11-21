@@ -29,7 +29,7 @@ const UPDATE_HOVER: &str = "Replace it with the current view";
 const RENAME_HOVER: &str = "Rename it";
 const DELETE_HOVER: &str = "Delete it";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SavedViewError {
     #[error("The view '{name}' no longer exists")]
     Missing { name: String },
@@ -59,13 +59,16 @@ fn replacing(
     change: impl FnOnce(&mut SavedViews) -> Result<(), SavedViewError>,
 ) -> Result<Transaction, SavedViewError> {
     let mut views = document.saved_views().clone();
+
     change(&mut views)?;
+
     let transaction = Transaction::single(
         label,
         Edit::SetSavedViews {
             views: Box::new(views),
         },
     );
+
     document.check(&transaction)?;
     Ok(transaction)
 }
@@ -98,6 +101,7 @@ pub fn update(
 ) -> Result<Transaction, SavedViewError> {
     replacing(document, format!("Update view “{name}”"), |views| {
         let index = views.position(name).ok_or_else(|| missing(name))?;
+
         if let Some(named) = views.named.get_mut(index) {
             named.view = view;
         }
@@ -112,6 +116,7 @@ pub fn rename(document: &Document, name: &str, to: &str) -> Result<Transaction, 
         format!("Rename view “{name}” to “{to}”"),
         |views| {
             let index = views.position(name).ok_or_else(|| missing(name))?;
+
             if let Some(named) = views.named.get_mut(index) {
                 named.name = to.clone();
             }
@@ -123,6 +128,7 @@ pub fn rename(document: &Document, name: &str, to: &str) -> Result<Transaction, 
 pub fn delete(document: &Document, name: &str) -> Result<Transaction, SavedViewError> {
     replacing(document, format!("Delete view “{name}”"), |views| {
         let index = views.position(name).ok_or_else(|| missing(name))?;
+
         views.named.remove(index);
         Ok(())
     })
@@ -150,14 +156,14 @@ pub fn reset_home(document: &Document) -> Result<Transaction, SavedViewError> {
     )
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Renaming {
     from: String,
     to: String,
     focus_pending: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ViewsDraft {
     name: String,
     renaming: Option<Renaming>,
@@ -178,7 +184,7 @@ impl ViewsDraft {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Close,
     Apply(Transaction),
@@ -206,6 +212,7 @@ pub fn dialog(ctx: &egui::Context, document: &Document, draft: &mut ViewsDraft) 
 fn body(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Outcome> {
     let views = document.saved_views();
     let mut outcome = None;
+
     widgets::caption(ui, "Views");
     if views.named.is_empty() {
         ui.label(widgets::muted(EMPTY, ui));
@@ -262,14 +269,17 @@ fn row(
         .renaming
         .as_ref()
         .is_some_and(|renaming| renaming.from == named.name);
+
     if renaming {
         return renaming_row(ui, document, draft);
     }
+
     let mut outcome = None;
     let mut rename = false;
     let mut delete = false;
     let mut update = false;
     let mut show = false;
+
     Sides::new().shrink_left().truncate().show(
         ui,
         |ui| {
@@ -294,10 +304,12 @@ fn row(
     }
     if update {
         let built = self::update(document, &named.name, draft.current);
+
         outcome = applying(draft, built);
     }
     if delete {
         let built = self::delete(document, &named.name);
+
         outcome = applying(draft, built);
     }
     if rename {
@@ -315,6 +327,7 @@ fn renaming_row(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Opt
     let focus = std::mem::take(&mut renaming.focus_pending);
     let mut done = false;
     let mut cancelled = false;
+
     ui.horizontal(|ui| {
         let field = widgets::text_field(ui, |ui| {
             ui.add(
@@ -324,11 +337,14 @@ fn renaming_row(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Opt
                     .desired_width(ui.available_width() - 2.0 * ui.spacing().interact_size.y),
             )
         });
+
         if focus {
             field.request_focus();
         }
+
         let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
         let escape = widgets::escape_cancels(ui, &field);
+
         done = widgets::icon_button(ui, icons::DONE, "Rename the view").clicked() || enter;
         cancelled =
             widgets::icon_button(ui, icons::CLOSE, "Keep the name (Esc)").clicked() || escape;
@@ -340,6 +356,7 @@ fn renaming_row(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Opt
     if !done {
         return None;
     }
+
     let renaming = draft.renaming.take()?;
     let built = rename(document, &renaming.from, &renaming.to);
     applying(draft, built)
@@ -348,6 +365,7 @@ fn renaming_row(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Opt
 fn saving(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Outcome> {
     let focus = std::mem::take(&mut draft.focus_pending);
     let mut save_now = false;
+
     widgets::properties(ui, (DIALOG_ID, "save"), |ui| {
         widgets::property(ui, NAME_CAPTION, |ui| {
             ui.horizontal(|ui| {
@@ -361,11 +379,14 @@ fn saving(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Ou
                             ),
                     )
                 });
+
                 widgets::tie_to_caption(ui, &field);
                 if focus {
                     field.request_focus();
                 }
+
                 let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
+
                 save_now = ui.add(widgets::button(SAVE_LABEL)).clicked() || enter;
             });
         });
@@ -373,11 +394,14 @@ fn saving(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Ou
     if !save_now {
         return None;
     }
+
     let name = draft.name.clone();
     let built = save(document, &name, draft.current);
     let outcome = applying(draft, built);
+
     if outcome.is_some() {
         let mut taken = document.saved_views().clone();
+
         taken.named.push(NamedView {
             name: view_name(&name),
             view: draft.current,
@@ -390,17 +414,22 @@ fn saving(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Ou
 fn isometric(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Outcome> {
     let redefined = document.saved_views().home.is_some();
     let mut outcome = None;
+
     widgets::caption(ui, HOME_VIEW_NAME);
     ui.label(widgets::muted(ISOMETRIC_EXPLANATION, ui));
     ui.horizontal(|ui| {
         let set = ui.add(widgets::button(Command::SetHomeView.title()));
+
         if set.clicked() {
             let built = set_home(document, draft.current);
+
             outcome = applying(draft, built);
         }
+
         let reset = ui.add_enabled(redefined, widgets::button(Command::ResetHomeView.title()));
         if reset.clicked() {
             let built = reset_home(document);
+
             outcome = applying(draft, built);
         }
     });

@@ -41,7 +41,7 @@ pub const MIN_STRIPES: u32 = 4;
 pub const MAX_STRIPES: u32 = 48;
 pub const DEFAULT_STRIPES: u32 = 12;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AnalysisCommand {
     Draft,
     Radius,
@@ -112,7 +112,7 @@ impl AnalysisCommand {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FaceAnalysis {
     Draft { pull: Vector3, limit: f64 },
     Radius { limit: f64 },
@@ -120,7 +120,7 @@ pub enum FaceAnalysis {
     Curvature { measure: Measure, radius: f64 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Analysis {
     Faces(FaceAnalysis),
     Reflection(Reflection),
@@ -142,7 +142,7 @@ impl Analysis {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Measure {
     #[default]
     Gaussian,
@@ -198,7 +198,7 @@ impl Measure {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Band {
     Drafted,
     TooLittleDraft,
@@ -369,7 +369,7 @@ impl FaceAnalysis {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShapeOperator {
     across: f64,
     twist: f64,
@@ -384,14 +384,18 @@ impl ShapeOperator {
                 corner.normal.as_dvec3().normalize_or_zero(),
             )
         });
+
         let first = (b.0 - a.0).normalize_or_zero();
         let normal = (b.0 - a.0).cross(c.0 - a.0).normalize_or_zero();
+
         if first == Vector3::ZERO || normal == Vector3::ZERO {
             return None;
         }
+
         let second = normal.cross(first);
         let mut columns = [Vector3::ZERO; 3];
         let mut target = Vector3::ZERO;
+
         for (from, to) in [(a, b), (b, c), (c, a)] {
             let step = to.0 - from.0;
             let turn = to.1 - from.1;
@@ -404,9 +408,12 @@ impl ShapeOperator {
                 target += row * value;
             }
         }
+
         let [p, q, r] = columns;
+
         let determinant = p.dot(q.cross(r));
         let scale = p.length() * q.length() * r.length();
+
         if !determinant.is_finite() || determinant.abs() <= SINGULAR_FIT * scale {
             return None;
         }
@@ -448,6 +455,7 @@ fn curvature_class(measure: Measure, radius: f64, corners: [Corner; 3]) -> u8 {
         Measure::Smallest => shape.smallest() * radius,
     };
     let [tight_negative, negative, flat, positive, tight_positive] = *measure.bands();
+
     let band = if scaled <= -1.0 {
         tight_negative
     } else if scaled < -FLAT_SHARE {
@@ -471,9 +479,11 @@ fn mean_normal(corners: [Corner; 3]) -> Vector3 {
 
 fn reach_class(reach: Vector3, grid: &Grid, origin: Point3, corners: [Corner; 3]) -> u8 {
     let normal = mean_normal(corners);
+
     if normal.dot(reach) < -FACING_SLACK {
         return Band::FacesAway.class();
     }
+
     let centroid = origin
         + corners.iter().fold(Vector3::ZERO, |sum, corner| {
             sum + corner.position.as_dvec3()
@@ -487,9 +497,11 @@ fn reach_class(reach: Vector3, grid: &Grid, origin: Point3, corners: [Corner; 3]
 
 fn draft_class(pull: Vector3, limit_degrees: f64, corners: [Corner; 3]) -> u8 {
     let normal = mean_normal(corners);
+
     if normal == Vector3::ZERO {
         return Band::TooLittleDraft.class();
     }
+
     let angle = normal.dot(pull).clamp(-1.0, 1.0).asin().to_degrees();
     let band = if angle >= limit_degrees {
         Band::Drafted
@@ -503,12 +515,15 @@ fn draft_class(pull: Vector3, limit_degrees: f64, corners: [Corner; 3]) -> u8 {
 
 fn radius_class(limit: f64, corners: [Corner; 3]) -> u8 {
     let [a, b, c] = corners;
+
     let tight = [(a, b), (b, c), (c, a)].into_iter().any(|(from, to)| {
         let chord = to.position.as_dvec3() - from.position.as_dvec3();
         let squared = chord.length_squared();
+
         if squared < SMALLEST_CHORD_SQUARED {
             return false;
         }
+
         let turn = to.normal.as_dvec3() - from.normal.as_dvec3();
         let curvature = turn.dot(chord) / squared;
         curvature * limit < -(1.0 + RADIUS_SLACK)
@@ -530,6 +545,7 @@ impl Analysed {
     ) -> Result<Self, Interrupted> {
         let origin = mesh.origin();
         let grid = occluders.map(Occluders::grid);
+
         let division = mesh.divide(|corners| {
             check_interrupt()?;
             Ok(analysis.classify(origin, grid, corners))
@@ -541,7 +557,7 @@ impl Analysed {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Outcome {
     Ready(Arc<Analysed>),
     Working,
@@ -646,7 +662,9 @@ impl Analyses {
 
     pub fn stop(&self) {
         self.stops.fetch_add(1, Ordering::AcqRel);
+
         let mut entries = self.entries.lock();
+
         for entry in entries.values_mut() {
             if matches!(entry.state, State::Working) {
                 entry.state = State::Stopped;
@@ -675,11 +693,13 @@ impl Analyses {
                 None => entries.clear(),
             }
         }
+
         let mut occluders = self.occluders.lock();
         let Some(FaceAnalysis::Reach { reach, .. }) = analysis else {
             *occluders = None;
             return analysis;
         };
+
         let kept = occluders
             .as_ref()
             .map(|current| (current.generation, current.is_of(reach, meshes)));
@@ -688,6 +708,7 @@ impl Analyses {
             Some((generation, false)) => generation + 1,
             None => 1,
         };
+
         if kept != Some((generation, true)) {
             *occluders = Some(Arc::new(Occluders::new(generation, reach, meshes)));
         }
@@ -717,18 +738,22 @@ impl Analyses {
         let weak = Arc::downgrade(mesh);
         let key = key_of(&weak);
         let mut entries = self.entries.lock();
+
         if let Some(entry) = entries.get(&key).filter(|entry| entry.analysis == analysis) {
             return entry.state.outcome();
         }
         entries.remove(&key);
+
         let work = mesh.triangle_count()
             + occluders
                 .as_ref()
                 .map_or(0, |occluders| occluders.triangles);
         let run = self.stops.load(Ordering::Acquire);
+
         if work <= self.inline_triangles {
             let state = State::worked_out(Ok(Analysed::of(mesh, analysis, occluders.as_deref())));
             let outcome = state.outcome();
+
             entries.insert(
                 key,
                 Entry {
@@ -767,6 +792,7 @@ impl Analyses {
         let stops = Arc::clone(&self.stops);
         #[cfg(test)]
         let hold = self.hold.clone();
+
         let spawned = thread::Builder::new()
             .name("analysis".to_owned())
             .spawn(move || {
@@ -779,6 +805,7 @@ impl Analyses {
                     }))
                 });
                 let state = State::worked_out(worked_out);
+
                 drop(mesh);
                 drop(occluders);
                 {
@@ -798,6 +825,7 @@ impl Analyses {
             });
         if let Err(error) = spawned {
             log::error!("could not start the analysis thread: {error}");
+
             let mut entries = self.entries.lock();
             for entry in entries.values_mut() {
                 if matches!(entry.state, State::Working) {
@@ -808,7 +836,7 @@ impl Analyses {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Tally {
     pub areas: BTreeMap<Band, f64>,
     pub working: bool,
@@ -823,6 +851,7 @@ impl Tally {
         analysis: FaceAnalysis,
     ) -> Self {
         let mut tally = Self::default();
+
         for band in analysis.bands() {
             tally.areas.insert(*band, 0.0);
         }
@@ -846,7 +875,7 @@ impl Tally {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Kind {
     #[default]
     Draft,
@@ -894,13 +923,13 @@ impl Kind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pull {
     Axis(Axis),
     Picked(Pickable),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum Problem {
     #[error(
         "The item chosen as the pull direction is gone or no longer gives a direction. Choose \
@@ -931,7 +960,7 @@ pub fn check_radius_limit(millimetres: f64) -> Result<(), Problem> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum Refusal {
     #[error("Select an axis, a straight edge, a flat face or a round face to pull along.")]
     NothingGivesADirection,
@@ -991,6 +1020,7 @@ impl AnalysisTool {
         if selection.len() > MOST_CONSIDERED {
             return Err(Refusal::TooManySelected(selection.len()));
         }
+
         let mut giving: Vec<Pull> = selection
             .in_pick_order()
             .into_iter()
@@ -1018,7 +1048,9 @@ impl AnalysisTool {
         let faces = match self.kind {
             Kind::Draft => {
                 let limit = self.limit(model, &self.draft_limit, Dimension::ANGLE)?;
+
                 check_draft_limit(limit)?;
+
                 let pull = self.direction(model)?;
                 FaceAnalysis::Draft {
                     pull: if self.reversed { -pull } else { pull },
@@ -1027,6 +1059,7 @@ impl AnalysisTool {
             }
             Kind::Radius => {
                 let limit = self.limit(model, &self.radius_limit, Dimension::LENGTH)?;
+
                 check_radius_limit(limit)?;
                 FaceAnalysis::Radius { limit }
             }
@@ -1039,6 +1072,7 @@ impl AnalysisTool {
             }
             Kind::Curvature => {
                 let radius = self.limit(model, &self.reference_radius, Dimension::LENGTH)?;
+
                 check_radius_limit(radius)?;
                 FaceAnalysis::Curvature {
                     measure: self.measure,
@@ -1066,6 +1100,7 @@ impl AnalysisTool {
             .parameters()
             .evaluate_expression(expression)
             .map_err(|_| Problem::LimitUnreadable)?;
+
         if quantity.dimension != dimension || !quantity.value.is_finite() {
             return Err(Problem::LimitUnreadable);
         }
@@ -1352,6 +1387,7 @@ mod tests {
         let meshes = plate();
         let analyses = Analyses::default();
         let walls = 2.0 * std::f64::consts::TAU * 4.0 * 6.0;
+
         let curvature = |measure: Measure| {
             Tally::of(
                 &analyses,
@@ -1442,6 +1478,7 @@ mod tests {
         let analyses = Analyses::default();
         let floor = slab(Point3::ZERO, Point3::new(10.0, 10.0, 1.0));
         let roof = slab(Point3::new(-1.0, -1.0, 4.0), Point3::new(5.0, 12.0, 5.0));
+
         let meshes = vec![Arc::clone(&floor), roof];
 
         let (_, from_above) = reach_of(&analyses, &meshes, Vector3::Z);
@@ -1486,6 +1523,7 @@ mod tests {
             panic!("a small mesh is analysed inline");
         };
         let held = Arc::downgrade(&analysed);
+
         drop(analysed);
 
         assert!(held.upgrade().is_some());
@@ -1499,14 +1537,18 @@ mod tests {
         let analyses = Analyses::working_inline_up_to(0);
         let woken = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&woken);
+
         analyses.wake_with(|| Box::new(move || flag.store(true, Ordering::Release)));
+
         let analysis = FaceAnalysis::Radius { limit: 5.0 };
         let mesh = meshes.first().unwrap();
 
         let first = analyses.of(mesh, analysis);
         let deadline = Instant::now() + Duration::from_secs(10);
+
         while analyses.finished() == 0 {
             assert!(Instant::now() < deadline, "the analysis never finished");
+
             thread::sleep(Duration::from_millis(2));
         }
 
@@ -1519,6 +1561,7 @@ mod tests {
     fn a_body_has_one_entry_whatever_its_analysis_and_a_gone_body_loses_it_at_the_next_prepare() {
         let analyses = Analyses::default();
         let mut meshes = plate();
+
         let kept = meshes.first().map(Arc::clone).unwrap();
         let radius = FaceAnalysis::Radius { limit: 5.0 };
         let wider = FaceAnalysis::Radius { limit: 6.0 };
@@ -1529,15 +1572,18 @@ mod tests {
         let Outcome::Ready(again) = analyses.of(&kept, radius) else {
             panic!("a small mesh is analysed inline");
         };
+
         assert!(Arc::ptr_eq(&first, &again));
         assert_eq!(analyses.tracked(), 1);
 
         analyses.of(&kept, wider);
+
         assert_eq!(analyses.tracked(), 1);
 
         meshes.clear();
         drop(kept);
         analyses.prepare(Some(wider), &meshes);
+
         assert_eq!(analyses.tracked(), 0);
     }
 }

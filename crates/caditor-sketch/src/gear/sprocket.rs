@@ -24,7 +24,7 @@ const MIN_TIP_LAND: f64 = 0.02;
 const MIN_RIM_PITCHES: f64 = 0.3;
 const PIECES_PER_GAP: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChainSize {
     pub designation: &'static str,
     pub pitch: f64,
@@ -85,14 +85,14 @@ impl ChainSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sprocket {
     pub chain: ChainSize,
     pub teeth: u32,
     pub bore: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SprocketCircles {
     pub pitch: f64,
     pub tip: f64,
@@ -105,7 +105,7 @@ impl SprocketCircles {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SprocketOutline {
     pub centre: Point2,
     pub circles: SprocketCircles,
@@ -148,7 +148,7 @@ impl SprocketOutline {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct ToothForm {
     seat_centre: Point2,
     seat_end: Point2,
@@ -200,12 +200,15 @@ impl Sprocket {
         let seat_centre = Point2::new(self.pitch_radius(), 0.0);
         let half = self.seating_angle() / 2.0;
         let outward = Vector2::new(-half.cos(), half.sin());
+
         let seat_end = seat_centre + outward * seat_radius;
         let flank_radius = self.flank_radius();
         let flank_centre = seat_centre + outward * (seat_radius - flank_radius);
+
         let tip = first_crossing(flank_centre, flank_radius, seat_end, self.tip_radius())
             .ok_or_else(|| pointed.clone())?;
         let land = (PI / f64::from(self.teeth) - tip.y.atan2(tip.x)) * 2.0 * self.tip_radius();
+
         if land < MIN_TIP_LAND * self.chain.pitch || tip.y <= seat_end.y {
             return Err(pointed);
         }
@@ -247,10 +250,12 @@ impl Sprocket {
     pub fn outline_turned(&self, centre: Point2, turn: f64) -> Result<SprocketOutline, GearError> {
         let form = self.checked()?;
         let circles = self.circles();
+
         if !(centre.is_finite() && turn.is_finite() && centre.length() + circles.tip <= MAX_LENGTH)
         {
             return Err(GearError::OutOfReach);
         }
+
         let seat_end = form.seat_end;
         let seat = GearPiece::Arc {
             center: form.seat_centre,
@@ -278,9 +283,11 @@ impl Sprocket {
             }
         };
         let mut pieces = Vec::new();
+
         for gap in 0..self.teeth {
             let here = place(step * f64::from(gap));
             let next = place(step * f64::from((gap + 1) % self.teeth));
+
             pieces.push(lower.placed(&here));
             pieces.push(seat.placed(&here));
             pieces.push(upper.placed(&here));
@@ -308,15 +315,19 @@ fn first_crossing(
     tip_radius: f64,
 ) -> Option<Point2> {
     let distance = flank_centre.length();
+
     if distance <= 0.0 {
         return None;
     }
+
     let along = (tip_radius * tip_radius - flank_radius * flank_radius + distance * distance)
         / (2.0 * distance);
     let height_squared = tip_radius * tip_radius - along * along;
+
     if height_squared < 0.0 {
         return None;
     }
+
     let direction = flank_centre / distance;
     let across = Vector2::new(-direction.y, direction.x) * height_squared.sqrt();
     let base = direction * along;

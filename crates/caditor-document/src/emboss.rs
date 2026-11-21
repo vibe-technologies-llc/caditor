@@ -32,7 +32,7 @@ use crate::{
 pub const EMBED: f64 = 0.01;
 pub const MAX_EMBOSS_DRAFT_DEGREES: f64 = 45.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EmbossForm {
     #[default]
     Raised,
@@ -45,7 +45,7 @@ impl EmbossForm {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Emboss {
     pub body: FeatureId,
     pub faces: Vec<FaceReference>,
@@ -172,6 +172,7 @@ impl Context<'_> {
                     error,
                 ))
             })?;
+
         if depth <= LINEAR_RESOLUTION {
             return Err(self.error(EmbossCause::DepthNotPositive));
         }
@@ -194,6 +195,7 @@ impl Context<'_> {
                     error,
                 ))
             })?;
+
         if degrees < 0.0 {
             return Err(self.error(EmbossCause::DraftNegative));
         }
@@ -237,16 +239,20 @@ impl Context<'_> {
             SweptError::Profile(ProfileError::Cancelled(_)) => Failure::Cancelled,
             other => self.unbuilt(&other),
         };
+
         if curves.is_empty() {
             return Err(failed(SweptError::NoCurves));
         }
+
         let profile = result
             .profile()
             .map_err(|error| failed(SweptError::Profile(error)))?;
         let selection = self.selection(sketch, &name, profile)?;
+
         let regions = profile
             .select(&selection)
             .map_err(|error| failed(SweptError::Profile(error)))?;
+
         if regions.is_empty() {
             return Err(failed(SweptError::NotOneChain));
         }
@@ -267,6 +273,7 @@ impl Context<'_> {
             RegionChoice::All => return Ok(Selection::EvenDepth),
             RegionChoice::Chosen(references) => references,
         };
+
         if references.is_empty() {
             return Err(Failure::Waiting(MissingInput::RegionsToEmboss { sketch }));
         }
@@ -293,9 +300,12 @@ impl Context<'_> {
     ) -> Result<Ground, Failure> {
         let planes: Vec<Option<Plane>> =
             faces.iter().map(|face| face_plane(solid, *face)).collect();
+
         if planes.iter().all(Option::is_some) {
             let mut planes = planes.into_iter().flatten();
+
             let first = planes.next().ok_or_else(|| self.waiting_for_faces())?;
+
             if planes.any(|other| !tolerance::same_plane(&first, &other)) {
                 return Err(self.error(EmbossCause::MixedFaces {
                     body: self.body_name.clone(),
@@ -304,6 +314,7 @@ impl Context<'_> {
             }
             return Ok(Ground::Flat(first));
         }
+
         let context = self.split_context(&outlines.name);
         let unrolled = wrapping_surface(&context, solid, faces, &outlines.name)?;
         let concave = faces
@@ -333,6 +344,7 @@ impl Context<'_> {
         (depth, draft): (f64, f64),
     ) -> Result<Solid, Failure> {
         let sketch = &outlines.plane;
+
         if !tolerance::parallel(sketch.normal(), face.normal()) {
             return Err(self.error_at(
                 EmbossCause::NotParallel {
@@ -341,14 +353,17 @@ impl Context<'_> {
                 self.definition.sketch.unwrap_or(self.feature.id()),
             ));
         }
+
         let facing = sketch.normal().dot(face.normal()).signum();
         let level = (face.origin() - sketch.origin()).dot(sketch.normal());
         let (below, above) = self.heights(depth);
+
         let (start, end) = if facing > 0.0 {
             (below, above)
         } else {
             (-above, -below)
         };
+
         let extent = LinearExtent::new(start, end).map_err(|error| self.unbuilt(&error))?;
         let drawn = self.definition.sketch.unwrap_or(self.feature.id());
 
@@ -399,12 +414,15 @@ impl Context<'_> {
                 self.definition.sketch.unwrap_or(self.feature.id()),
             ));
         }
+
         let (below, above) = self.heights(depth);
+
         let (inward, outward) = if concave {
             (above, -below)
         } else {
             (-below, above)
         };
+
         let narrowing = if inward > outward {
             WrapNarrowing::Inward
         } else {
@@ -462,7 +480,9 @@ impl Context<'_> {
                     other,
                     Adjust::MoveItsCurves,
                 );
+
                 log::warn!("{} could not be built: {other}", self.feature.name);
+
                 let place = trouble.place;
                 self.error(EmbossCause::Uncombined {
                     body: self.body_name.clone(),
@@ -564,9 +584,11 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     if definition.faces.is_empty() {
         return Err(context.waiting_for_faces());
     }
+
     let Some(sketch) = definition.sketch else {
         return Err(Failure::Waiting(MissingInput::SketchToEmboss {
             body: definition.body,
@@ -584,12 +606,16 @@ pub(crate) fn evaluate(
             .fixing(FixTarget::Feature(feature.id())),
         )
     })?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let outlines = context.outlines(sketch)?;
     let ground = context.ground(solid, &faces, &outlines)?;
+
     let tool = context.tool(&ground, &outlines, (depth, draft))?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -597,6 +623,7 @@ pub(crate) fn evaluate(
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let operation = match definition.form {
         EmbossForm::Raised => BooleanOperation::Union,
         EmbossForm::Recessed => BooleanOperation::Difference,
@@ -610,7 +637,7 @@ pub(crate) fn evaluate(
     }))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum EmbossCause {
     DepthNotPositive,
     DepthTooBig,

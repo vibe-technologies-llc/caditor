@@ -64,7 +64,7 @@ mod read_ahead_tests;
 
 pub const FORMAT_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Record {
     Parameter(ParameterRecord),
@@ -96,25 +96,25 @@ pub(crate) const RECORD_KINDS: [&str; 12] = [
     "drawings",
 ];
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub(crate) struct NamedValuesRecord {
     pub values: Vec<Lenient<NamedValueRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct NamedValueRecord {
     pub parameter: u64,
     pub owner: OwnerRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum OwnerRecord {
     Feature { feature: u64, value: String },
     Dimension { sketch: u64, constraint: u64 },
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PropertiesRecord {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
@@ -132,7 +132,7 @@ pub(crate) struct PropertiesRecord {
     pub notes: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ViewsRecord {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub named: Vec<Lenient<NamedViewRecord>>,
@@ -140,30 +140,30 @@ pub(crate) struct ViewsRecord {
     pub home: Option<Lenient<ViewRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct NamedViewRecord {
     pub name: String,
     pub view: ViewRecord,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ViewRecord {
     pub target: [f64; 3],
     pub orientation: [f64; 4],
     pub distance: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SuppressedRecord {
     pub features: Vec<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RollbackRecord {
     pub before: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ParameterRecord {
     pub id: u64,
     pub name: String,
@@ -172,7 +172,7 @@ pub(crate) struct ParameterRecord {
     pub note: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FeatureRecord {
     pub id: u64,
     pub name: String,
@@ -190,7 +190,7 @@ pub(crate) struct FeatureRecord {
     pub kind: FeatureKindRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PieceLookRecord {
     pub piece: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -199,25 +199,25 @@ pub(crate) struct PieceLookRecord {
     pub hidden: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub(crate) struct StandInRecord {
     pub curve: u64,
     pub carrier: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SeparatePiecesRecord {
     pub feature: FeatureKindRecord,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PiecesRecord {
     OneBody,
     BodyEach,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct AppearanceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub colour: Option<String>,
@@ -237,7 +237,7 @@ pub(crate) struct AppearanceRecord {
     pub faces: Vec<Lenient<FaceColourRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FaceColourRecord {
     #[serde(flatten)]
     pub face: FaceRecord,
@@ -248,7 +248,7 @@ pub(crate) struct FaceColourRecord {
     pub finish: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FeatureKindRecord {
     Sketch(SketchRecord),
@@ -364,7 +364,7 @@ pub(crate) enum FeatureKindRecord {
     PitchedSpiral(Box<FlatSpiralRecord>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HelixRecord {
     pub axis: Lenient<AxisReferenceRecord>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -375,7 +375,7 @@ pub(crate) struct HelixRecord {
     pub turning: CoilTurningRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ShapedRibRecord {
     pub feature: FeatureKindRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -384,62 +384,62 @@ pub(crate) struct ShapedRibRecord {
     pub ends: Option<RibEndsRecord>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RibEndsRecord {
     Straight,
     RoundArcs,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HelixStartRecord {
     pub feature: FeatureKindRecord,
     pub start: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HelixPointRecord {
     pub feature: FeatureKindRecord,
     pub point: Lenient<PointReferenceRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FlatSpiralRecord {
     pub feature: FeatureKindRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HelixEndsRecord {
     pub feature: FeatureKindRecord,
     pub turns: String,
     pub pitch: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HelixEndChangeRecord {
     pub feature: FeatureKindRecord,
     pub turns: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HelixProgressiveRecord {
     pub feature: FeatureKindRecord,
     pub pitch: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HelixPitchTableRecord {
     pub feature: FeatureKindRecord,
     pub rows: Vec<PitchRowRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PitchRowRecord {
     pub turns: String,
     pub pitch: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct LoftEndsRecord {
     pub feature: FeatureKindRecord,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -450,33 +450,33 @@ pub(crate) struct LoftEndsRecord {
     pub end: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SweepShapeRecord {
     pub feature: FeatureKindRecord,
     pub twist: String,
     pub scale: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SweepShapeLawRecord {
     pub feature: FeatureKindRecord,
     pub rows: Vec<ShapeRowRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ShapeRowRecord {
     pub fraction: String,
     pub twist: String,
     pub scale: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct AlongHelixRecord {
     pub feature: FeatureKindRecord,
     pub helix: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct LoftRecord {
     pub profiles: Vec<Lenient<LoftProfileRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -485,7 +485,7 @@ pub(crate) struct LoftRecord {
     pub operation: OperationRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct LoftProfileRecord {
     pub sketch: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -494,14 +494,14 @@ pub(crate) struct LoftProfileRecord {
     pub reference: Option<Lenient<RegionReferenceRecord>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum LoftSkinRecord {
     Smooth,
     Ruled,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RibRecord {
     pub sketch: u64,
     pub body: u64,
@@ -512,7 +512,7 @@ pub(crate) struct RibRecord {
     pub reversed: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RibSideRecord {
     OneSide,
@@ -520,14 +520,14 @@ pub(crate) enum RibSideRecord {
     Symmetric,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RibDirectionRecord {
     Parallel,
     Square,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct CoilRecord {
     pub axis: Lenient<AxisReferenceRecord>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -542,7 +542,7 @@ pub(crate) struct CoilRecord {
     pub operation: OperationRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CoilLengthRecord {
     TurnsAndPitch { turns: String, pitch: String },
@@ -550,14 +550,14 @@ pub(crate) enum CoilLengthRecord {
     HeightAndPitch { height: String, pitch: String },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CoilShapeRecord {
     Round,
     Square,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CoilPlacementRecord {
     Inside,
@@ -565,14 +565,14 @@ pub(crate) enum CoilPlacementRecord {
     Outside,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CoilTurningRecord {
     CounterClockwise,
     Clockwise,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PipeRecord {
     pub path: Lenient<SweepPathRecord>,
     pub shape: PipeShapeRecord,
@@ -583,7 +583,7 @@ pub(crate) struct PipeRecord {
     pub operation: OperationRecord,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PipeShapeRecord {
     Round,
@@ -591,7 +591,7 @@ pub(crate) enum PipeShapeRecord {
     Triangle,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SweepRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
@@ -602,7 +602,7 @@ pub(crate) struct SweepRecord {
     pub operation: OperationRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SweepPathRecord {
     Unchosen,
@@ -616,20 +616,20 @@ pub(crate) enum SweepPathRecord {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SweepOrientationRecord {
     Square,
     Parallel,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct BlendGroupsRecord {
     pub feature: FeatureKindRecord,
     pub groups: Vec<Lenient<EdgeGroupRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum EdgeGroupRecord {
     Face(FaceRecord),
@@ -639,12 +639,12 @@ pub(crate) enum EdgeGroupRecord {
     MadeBy(u64),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SplitFaceWrappedRecord {
     pub feature: FeatureKindRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SplitSurfaceRecord {
     pub body: u64,
     pub face: Lenient<AttachmentRecord>,
@@ -652,13 +652,13 @@ pub(crate) struct SplitSurfaceRecord {
     pub flipped: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SplitFaceSurfaceRecord {
     pub feature: FeatureKindRecord,
     pub face: Lenient<AttachmentRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FaceOnRoundMateRecord {
     pub body: u64,
     pub face: Lenient<FaceRecord>,
@@ -668,7 +668,7 @@ pub(crate) struct FaceOnRoundMateRecord {
     pub flipped: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum MeasuredQuantityRecord {
     Distance,
@@ -684,7 +684,7 @@ pub(crate) enum MeasuredQuantityRecord {
     Mass,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum MeasuredItemRecord {
     Point(PointReferenceRecord),
@@ -696,7 +696,7 @@ pub(crate) enum MeasuredItemRecord {
     Body { body: u64 },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MeasurementRecord {
     pub quantity: MeasuredQuantityRecord,
     pub items: Vec<Lenient<MeasuredItemRecord>>,
@@ -704,7 +704,7 @@ pub(crate) struct MeasurementRecord {
     pub parameter: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct CurvePatternRecord {
     pub body: u64,
     pub sketch: u64,
@@ -720,7 +720,7 @@ pub(crate) struct CurvePatternRecord {
     pub skipped: Vec<[u32; 2]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct EdgeCurvePatternRecord {
     pub body: u64,
     pub path_body: u64,
@@ -737,7 +737,7 @@ pub(crate) struct EdgeCurvePatternRecord {
     pub skipped: Vec<[u32; 2]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PointPatternRecord {
     pub body: u64,
     pub sketch: u64,
@@ -746,20 +746,20 @@ pub(crate) struct PointPatternRecord {
     pub skipped: Vec<[u32; 2]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SplitFaceRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
     pub along: SplitFaceToolRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SplitFaceAlongRecord {
     pub feature: FeatureKindRecord,
     pub direction: Lenient<AxisReferenceRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SplitFaceToolRecord {
     Unchosen,
@@ -768,12 +768,12 @@ pub(crate) enum SplitFaceToolRecord {
     Sketch(u64),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ChordFilletRecord {
     pub feature: FeatureKindRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ShapedChamferRecord {
     pub feature: FeatureKindRecord,
     pub form: ChamferFormRecord,
@@ -781,14 +781,14 @@ pub(crate) struct ShapedChamferRecord {
     pub flipped: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ChamferFormRecord {
     TwoDistances { second: String },
     DistanceAngle { angle: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MateRecord {
     pub body: u64,
     pub pair: MatePairRecord,
@@ -796,27 +796,27 @@ pub(crate) struct MateRecord {
     pub flipped: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum MatePairRecord {
     Faces(Box<FaceMateRecord>),
     Axes(Box<AxisMateRecord>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FaceMateRecord {
     pub face: Lenient<FaceRecord>,
     pub target: Lenient<PlaneReferenceRecord>,
     pub distance: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct AxisMateRecord {
     pub axis: Lenient<AxisReferenceRecord>,
     pub target: Lenient<AxisReferenceRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FaceAxisMateRecord {
     pub body: u64,
     pub faces: FaceMateRecord,
@@ -825,27 +825,27 @@ pub(crate) struct FaceAxisMateRecord {
     pub flipped: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FacePairRecord {
     pub face: Lenient<FaceRecord>,
     pub target: Lenient<PlaneReferenceRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum AngleSidesRecord {
     Faces(Box<FacePairRecord>),
     Axes(Box<AxisMateRecord>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct AngleMateRecord {
     pub body: u64,
     pub sides: AngleSidesRecord,
     pub angle: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct TangentMateRecord {
     pub body: u64,
     pub sides: FacePairRecord,
@@ -853,21 +853,21 @@ pub(crate) struct TangentMateRecord {
     pub flipped: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PointTargetRecord {
     Point(Lenient<PointReferenceRecord>),
     Plane(Lenient<PlaneReferenceRecord>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PointMateRecord {
     pub body: u64,
     pub point: Lenient<PointReferenceRecord>,
     pub target: PointTargetRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct CoordinateSystemRecord {
     pub origin: Lenient<PointReferenceRecord>,
     pub x_axis: Lenient<AxisReferenceRecord>,
@@ -878,36 +878,36 @@ pub(crate) struct CoordinateSystemRecord {
     pub reverse_z: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MoveInFrameRecord {
     pub feature: FeatureKindRecord,
     pub frame: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ScaledImportRecord {
     pub feature: FeatureKindRecord,
     pub scale: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FrameOriginRecord {
     pub feature: FeatureKindRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SketchOnFrameRecord {
     pub feature: FeatureKindRecord,
     pub frame: FramePlaneRecord,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FramePlaneRecord {
     pub frame: u64,
     pub plane: PrincipalPlaneRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ThreadRecord {
     pub body: u64,
     pub face: FaceRecord,
@@ -925,19 +925,19 @@ pub(crate) struct ThreadRecord {
     pub modelled: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FeatureMirrorRecord {
     pub feature: FeatureKindRecord,
     pub mirrored: Vec<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FaceMirrorRecord {
     pub feature: FeatureKindRecord,
     pub faces: Vec<Lenient<FaceRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PrimitiveShapeRecord {
     Box {
@@ -974,7 +974,7 @@ pub(crate) enum PrimitiveShapeRecord {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PrimitiveAnchorRecord {
     Corner,
@@ -982,7 +982,7 @@ pub(crate) enum PrimitiveAnchorRecord {
     Centre,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PrimitiveRecord {
     pub shape: PrimitiveShapeRecord,
     pub plane: Lenient<PlaneReferenceRecord>,
@@ -993,7 +993,7 @@ pub(crate) struct PrimitiveRecord {
     pub operation: OperationRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct OffsetFaceRecord {
     pub body: u64,
     pub distance: String,
@@ -1002,13 +1002,13 @@ pub(crate) struct OffsetFaceRecord {
     pub tangent: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DeleteFaceRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DraftRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
@@ -1024,7 +1024,7 @@ pub(crate) struct DraftRecord {
     pub own: Vec<Lenient<FaceAngleRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ReplaceFaceRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
@@ -1032,13 +1032,13 @@ pub(crate) struct ReplaceFaceRecord {
     pub target: Option<Lenient<PlaneReferenceRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FaceAngleRecord {
     pub face: FaceRecord,
     pub angle: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct EmbossRecord {
     pub body: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1053,13 +1053,13 @@ pub(crate) struct EmbossRecord {
     pub region_references: RegionReferencesRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DraftedEmbossRecord {
     pub emboss: EmbossRecord,
     pub draft: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MoveFaceRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
@@ -1071,13 +1071,13 @@ pub(crate) struct MoveFaceRecord {
     pub axis: Option<Lenient<AxisReferenceRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DrillPointHoleRecord {
     pub feature: FeatureKindRecord,
     pub angle: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct CombineToolsRecord {
     pub feature: FeatureKindRecord,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1086,61 +1086,61 @@ pub(crate) struct CombineToolsRecord {
     pub keep_tool: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MoveAboutAxisRecord {
     pub feature: FeatureKindRecord,
     pub axis: AxisReferenceRecord,
     pub angle: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MoveAboutCentreRecord {
     pub feature: FeatureKindRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FeaturePatternRecord {
     pub feature: FeatureKindRecord,
     pub repeated: Vec<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SteppedHoleRecord {
     pub feature: FeatureKindRecord,
     pub steps: Vec<HoleStepRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HoleStepRecord {
     pub diameter: String,
     pub depth: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PatternNewBodiesRecord {
     pub feature: FeatureKindRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MirrorSeveralRecord {
     pub feature: FeatureKindRecord,
     pub bodies: Vec<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct CutSeveralRecord {
     pub feature: FeatureKindRecord,
     pub bodies: Vec<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum AxisSideRecord {
     Left,
     Right,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum WallSideRecord {
     Inside,
@@ -1148,13 +1148,13 @@ pub(crate) enum WallSideRecord {
     Centred,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct WallRecord {
     pub thickness: String,
     pub side: WallSideRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ShapedSweepRecord {
     pub feature: FeatureKindRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1163,13 +1163,13 @@ pub(crate) struct ShapedSweepRecord {
     pub wall: Option<Lenient<WallRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ExtrudeAlongRecord {
     pub feature: FeatureKindRecord,
     pub direction: Lenient<AxisReferenceRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RevolveUpToRecord {
     pub feature: FeatureKindRecord,
     pub target: Lenient<PlaneReferenceRecord>,
@@ -1177,14 +1177,14 @@ pub(crate) struct RevolveUpToRecord {
     pub reversed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RevolveUpToNextRecord {
     pub feature: FeatureKindRecord,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reversed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RevolveUpToSurfaceRecord {
     pub feature: FeatureKindRecord,
     pub face: Lenient<AttachmentRecord>,
@@ -1192,13 +1192,13 @@ pub(crate) struct RevolveUpToSurfaceRecord {
     pub reversed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RevolveOffsetRecord {
     pub feature: FeatureKindRecord,
     pub offset: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SurfaceEndsRecord {
     pub feature: FeatureKindRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1207,7 +1207,7 @@ pub(crate) struct SurfaceEndsRecord {
     pub backward: Option<Lenient<AttachmentRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct OffsetEndsRecord {
     pub feature: FeatureKindRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1216,14 +1216,14 @@ pub(crate) struct OffsetEndsRecord {
     pub backward: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum HoleEndRecord {
     UpToNext,
     UpToFace(PlaneReferenceRecord),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HoleUpToRecord {
     pub feature: FeatureKindRecord,
     pub end: Lenient<HoleEndRecord>,
@@ -1231,7 +1231,7 @@ pub(crate) struct HoleUpToRecord {
     pub offset: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RevolveOneSideRecord {
     pub feature: FeatureKindRecord,
     pub side: AxisSideRecord,
@@ -1343,7 +1343,7 @@ pub(crate) const FEATURE_KINDS: [&str; 95] = [
     "pitched_spiral",
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum StepField {
     Read(String),
     Kept(StepText),
@@ -1406,7 +1406,7 @@ impl<'de> Deserialize<'de> for StepField {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ImportRecord {
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1414,7 +1414,7 @@ pub(crate) struct ImportRecord {
     pub step: StepField,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PlacedImportRecord {
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1447,6 +1447,7 @@ impl ImportTexts {
 
     pub fn reading_ahead(records: &[FeatureRecord]) -> Self {
         let mut texts: BTreeMap<String, (blake3::Hash, Cow<'_, str>)> = BTreeMap::new();
+
         for field in records
             .iter()
             .filter_map(|record| stored_step(&record.kind))
@@ -1455,14 +1456,17 @@ impl ImportTexts {
                 continue;
             };
             let hash = blake3::hash(plain.as_bytes());
+
             texts
                 .entry(hash.to_hex().to_string())
                 .or_insert((hash, plain));
         }
+
         let texts: Vec<(String, (blake3::Hash, Cow<'_, str>))> = texts.into_iter().collect();
         let read = in_parallel(&texts, |(_, (hash, plain))| {
             crate::step_cache::first_solid_hashed(plain, *hash)
         });
+
         persist_checked();
         Self {
             read_ahead: texts
@@ -1493,7 +1497,7 @@ struct StoredShape<'a> {
     shares: Option<&'a str>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PrincipalPlaneRecord {
     Xy,
@@ -1501,7 +1505,7 @@ pub(crate) enum PrincipalPlaneRecord {
     Yz,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PrincipalAxisRecord {
     X,
@@ -1509,7 +1513,7 @@ pub(crate) enum PrincipalAxisRecord {
     Z,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PrincipalGeometryRecord {
     Origin,
@@ -1517,14 +1521,14 @@ pub(crate) enum PrincipalGeometryRecord {
     Plane(PrincipalPlaneRecord),
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PrincipalRecord {
     pub hidden: Vec<PrincipalGeometryRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shown: Vec<PrincipalGeometryRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PlaneReferenceRecord {
     Principal(PrincipalPlaneRecord),
@@ -1533,7 +1537,7 @@ pub(crate) enum PlaneReferenceRecord {
     Frame(FramePlaneRecord),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum AxisReferenceRecord {
     Principal(PrincipalAxisRecord),
@@ -1556,13 +1560,13 @@ pub(crate) enum AxisReferenceRecord {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RotationRecord {
     pub axis: AxisReferenceRecord,
     pub angle: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DatumPlaneRecord {
     pub base: PlaneReferenceRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1570,14 +1574,14 @@ pub(crate) struct DatumPlaneRecord {
     pub offset: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DatumAxisRecord {
     Along(AxisReferenceRecord),
     Intersection([PlaneReferenceRecord; 2]),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PointReferenceRecord {
     Origin,
@@ -1589,13 +1593,13 @@ pub(crate) enum PointReferenceRecord {
     Frame(u64),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DatumPointRecord {
     pub base: PointReferenceRecord,
     pub offset: [String; 3],
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PlaneThroughRecord {
     Points([PointReferenceRecord; 3]),
@@ -1610,14 +1614,14 @@ pub(crate) enum PlaneThroughRecord {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct CurveStationRecord {
     pub body: u64,
     pub edge: EdgeRecord,
     pub distance: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PlaneConstructionRecord {
     Tangent {
@@ -1629,14 +1633,14 @@ pub(crate) enum PlaneConstructionRecord {
     Lines([AxisReferenceRecord; 2]),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FaceTangentRecord {
     pub body: u64,
     pub face: FaceRecord,
     pub toward: PointReferenceRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DatumConstructionRecord {
     TangentAt(FaceTangentRecord),
@@ -1645,7 +1649,7 @@ pub(crate) enum DatumConstructionRecord {
     FaceCentre { body: u64, face: FaceRecord },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PointConstructionRecord {
     LinesCross([AxisReferenceRecord; 2]),
@@ -1657,7 +1661,7 @@ pub(crate) enum PointConstructionRecord {
     Along(CurveStationRecord),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum AxisThroughRecord {
     Points([PointReferenceRecord; 2]),
@@ -1667,14 +1671,14 @@ pub(crate) enum AxisThroughRecord {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum RevolveAxisRecord {
     Sketch(u64),
     Model(Box<AxisReferenceRecord>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ShellRecord {
     pub body: u64,
     pub thickness: String,
@@ -1685,7 +1689,7 @@ pub(crate) struct ShellRecord {
     pub faces: Vec<Lenient<FaceThicknessRecord>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ShellSideRecord {
     Inside,
@@ -1693,13 +1697,13 @@ pub(crate) enum ShellSideRecord {
     BothSides,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FaceThicknessRecord {
     pub face: FaceRecord,
     pub thickness: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CombineOperationRecord {
     Join,
@@ -1707,14 +1711,14 @@ pub(crate) enum CombineOperationRecord {
     Intersect,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum HoleDepthRecord {
     ThroughAll,
     Blind(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum HoleStyleRecord {
     Plain,
@@ -1722,7 +1726,7 @@ pub(crate) enum HoleStyleRecord {
     Countersink { diameter: String, angle: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HoleRecord {
     pub sketch: u64,
     pub body: u64,
@@ -1739,7 +1743,7 @@ pub(crate) struct HoleRecord {
     pub thread: Option<TappedThreadRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct TappedThreadRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub class: Option<String>,
@@ -1751,39 +1755,39 @@ pub(crate) struct TappedThreadRecord {
     pub modelled: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SlotRecord {
     pub length: String,
     pub angle: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct HoleStandardRecord {
     pub size: String,
     pub fit: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MoveRecord {
     pub body: u64,
     pub offset: [String; 3],
     pub turn: [String; 3],
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MirrorRecord {
     pub body: u64,
     pub plane: Lenient<PlaneReferenceRecord>,
     pub keep_original: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MirrorNewBodyRecord {
     pub body: u64,
     pub plane: Lenient<PlaneReferenceRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SplitRecord {
     pub body: u64,
     pub plane: Lenient<PlaneReferenceRecord>,
@@ -1791,7 +1795,7 @@ pub(crate) struct SplitRecord {
     pub flipped: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SplitAlongRecord {
     pub body: u64,
     pub along: SplitToolRecord,
@@ -1799,7 +1803,7 @@ pub(crate) struct SplitAlongRecord {
     pub flipped: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SplitToolRecord {
     Unchosen,
@@ -1807,26 +1811,26 @@ pub(crate) enum SplitToolRecord {
     Sketch(u64),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ScaleRecord {
     pub body: u64,
     pub factor: String,
     pub center: [String; 3],
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RemoveRecord {
     pub body: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct CombineRecord {
     pub body: u64,
     pub tool: u64,
     pub operation: CombineOperationRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DirectionRecord {
     pub axis: AxisReferenceRecord,
     pub count: String,
@@ -1836,7 +1840,7 @@ pub(crate) struct DirectionRecord {
     pub total: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct LinearPatternRecord {
     pub body: u64,
     pub first: DirectionRecord,
@@ -1844,21 +1848,21 @@ pub(crate) struct LinearPatternRecord {
     pub second: Option<DirectionRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PatternShapeRecord {
     Linear(Box<LinearPatternRecord>),
     Circular(Box<CircularPatternRecord>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PatternRecord {
     pub shape: PatternShapeRecord,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skipped: Vec<[u32; 2]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct CircularPatternRecord {
     pub body: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1868,7 +1872,7 @@ pub(crate) struct CircularPatternRecord {
     pub reversed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct FaceRecord {
     pub face: String,
     pub origin: Option<FaceOriginRecord>,
@@ -1877,20 +1881,20 @@ pub(crate) struct FaceRecord {
     pub copy: Option<CopyRecord>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct CopyRecord {
     pub pattern: u64,
     pub index: [u32; 2],
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct BlendRecord {
     pub body: u64,
     pub size: String,
     pub edges: Vec<Lenient<EdgeRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct EdgeRecord {
     pub name: String,
     pub faces: [String; 2],
@@ -1901,7 +1905,7 @@ pub(crate) struct EdgeRecord {
     pub copies: Option<[Option<CopyRecord>; 2]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RegionsRecord {
     All,
@@ -1910,28 +1914,28 @@ pub(crate) enum RegionsRecord {
 
 type RegionReferencesRecord = Option<Vec<Lenient<RegionReferenceRecord>>>;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RegionReferenceRecord {
     pub boundary: Vec<BoundaryPieceRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<[f64; 2]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct BoundaryPieceRecord {
     pub entity: u64,
     pub side: SideRecord,
     pub piece: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SideRecord {
     Left,
     Right,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum OperationRecord {
     NewBody,
@@ -1940,7 +1944,7 @@ pub(crate) enum OperationRecord {
     Intersect(u64),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ExtrudeExtentRecord {
     OneSide { distance: String, reversed: bool },
@@ -1948,7 +1952,7 @@ pub(crate) enum ExtrudeExtentRecord {
     TwoSides { forward: String, backward: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RevolveExtentRecord {
     Full,
@@ -1956,7 +1960,7 @@ pub(crate) enum RevolveExtentRecord {
     Symmetric { angle: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ExtrudeRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
@@ -1968,7 +1972,7 @@ pub(crate) struct ExtrudeRecord {
     pub start: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ExtrudeEndRecord {
     Distance(String),
@@ -1977,7 +1981,7 @@ pub(crate) enum ExtrudeEndRecord {
     UpToFace(PlaneReferenceRecord),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ExtrudeEndsRecord {
     OneSide {
@@ -1990,7 +1994,7 @@ pub(crate) enum ExtrudeEndsRecord {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ExtrudeToRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
@@ -2002,14 +2006,14 @@ pub(crate) struct ExtrudeToRecord {
     pub start: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SolidStartRecord {
     Distance(String),
     Plane(PlaneReferenceRecord),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ExtrudeFromExtentRecord {
     Symmetric {
@@ -2025,7 +2029,7 @@ pub(crate) enum ExtrudeFromExtentRecord {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ExtrudeFromRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
@@ -2036,7 +2040,7 @@ pub(crate) struct ExtrudeFromRecord {
     pub start: Lenient<SolidStartRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RevolveFromExtentRecord {
     Full,
@@ -2045,7 +2049,7 @@ pub(crate) enum RevolveFromExtentRecord {
     TwoSides { forward: String, backward: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RevolveFromRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
@@ -2057,7 +2061,7 @@ pub(crate) struct RevolveFromRecord {
     pub start: Lenient<SolidStartRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RevolveTwoAnglesRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
@@ -2069,7 +2073,7 @@ pub(crate) struct RevolveTwoAnglesRecord {
     pub operation: OperationRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RevolveRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
@@ -2080,7 +2084,7 @@ pub(crate) struct RevolveRecord {
     pub operation: OperationRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SketchRecord {
     pub plane: PlaneRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2094,13 +2098,13 @@ pub(crate) struct SketchRecord {
     pub next_id: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ProjectionRecord {
     pub entity: u64,
     pub source: ProjectionSourceRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ProjectionSourceRecord {
     Edge {
@@ -2147,14 +2151,14 @@ pub(crate) enum ProjectionSourceRecord {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum OutlineOriginRecord {
     Edge(EdgeRecord),
     Silhouette(FaceRecord),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct AttachmentRecord {
     pub body: u64,
     pub face: String,
@@ -2164,7 +2168,7 @@ pub(crate) struct AttachmentRecord {
     pub copy: Option<CopyRecord>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FaceOriginRecord {
     Side { feature: u64, entity: u64 },
@@ -2176,14 +2180,14 @@ pub(crate) enum FaceOriginRecord {
     Imported { feature: u64, face: u32 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct PlaneRecord {
     pub origin: [f64; 3],
     pub normal: [f64; 3],
     pub x_axis: [f64; 3],
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct EntityRecord {
     pub id: u64,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -2194,7 +2198,7 @@ pub(crate) struct EntityRecord {
     pub kind: EntityKindRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum EntityKindRecord {
     Point([f64; 2]),
@@ -2276,7 +2280,7 @@ pub(crate) enum EntityKindRecord {
     Sprocket(SprocketRecord),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MeshedGearRecord {
     pub centre: u64,
     pub driver: u64,
@@ -2285,7 +2289,7 @@ pub(crate) struct MeshedGearRecord {
     pub direction: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SprocketRecord {
     pub centre: u64,
     pub chain: String,
@@ -2294,7 +2298,7 @@ pub(crate) struct SprocketRecord {
     pub turn: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct GearRecord {
     pub centre: u64,
     pub module: String,
@@ -2306,7 +2310,7 @@ pub(crate) struct GearRecord {
     pub turn: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct TextRecord {
     pub anchor: u64,
     pub content: String,
@@ -2320,7 +2324,7 @@ pub(crate) struct TextRecord {
     pub align: TextAlignRecord,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TextAlignRecord {
     #[default]
@@ -2387,7 +2391,7 @@ const ENTITY_KINDS: [&str; 22] = [
     "sprocket",
 ];
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ConstraintRecord {
     pub id: u64,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -2398,7 +2402,7 @@ pub(crate) struct ConstraintRecord {
     pub kind: ConstraintKindRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ConstraintKindRecord {
     Coincident([u64; 2]),
@@ -2507,7 +2511,7 @@ pub(crate) enum ConstraintKindRecord {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TargetRecord {
     Point(u64),
@@ -2518,7 +2522,7 @@ pub(crate) enum TargetRecord {
     EllipseEnd { ellipse: u64, end: EllipseEndRecord },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum QuadrantRecord {
     Right,
@@ -2527,7 +2531,7 @@ pub(crate) enum QuadrantRecord {
     Bottom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum EllipseEndRecord {
     Major,
@@ -2634,19 +2638,19 @@ const CONSTRAINT_KINDS: [&str; 32] = [
     "spline_handle",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct NextIdsRecord {
     pub parameter: u64,
     pub feature: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct TransactionRecord {
     pub label: String,
     pub edits: Vec<EditRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum EditRecord {
     InsertParameter {
@@ -2860,7 +2864,7 @@ pub(crate) enum EditRecord {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Lenient<T> {
     Read(T),
     Unreadable(Value),
@@ -2960,6 +2964,7 @@ pub(crate) fn feature_records(document: &Document) -> impl Iterator<Item = Featu
             (!import.placement.is_unmoved()).then(|| digest.to_hex().to_string())
         });
         let mut record = feature_record_sharing(feature, shares);
+
         share_picture(&mut record.kind, &mut written_pictures);
         record
     })
@@ -2988,13 +2993,16 @@ struct WrittenTexts {
 impl WrittenTexts {
     fn earlier(&mut self, text: &StepText) -> Option<&WrittenText> {
         let same_length = self.by_length.entry(text.len()).or_default();
+
         if let Some(at) = same_length
             .iter()
             .position(|seen| seen.text.address() == text.address())
         {
             return same_length.get(at);
         }
+
         let digest = OnceCell::new();
+
         if !same_length.is_empty()
             && let Some(hash) = *digest.get_or_init(|| digest_of(text))
             && let Some(at) = same_length
@@ -3053,6 +3061,7 @@ fn piece_look_records(looks: &PieceLooks) -> Vec<Lenient<PieceLookRecord>> {
             )
         })
         .collect();
+
     for key in looks.hidden() {
         records
             .entry(key.raw())
@@ -3072,6 +3081,7 @@ fn restore_piece_looks(
     issues: &mut Vec<String>,
 ) -> PieceLooks {
     let mut looks = PieceLooks::default();
+
     for record in records {
         let Lenient::Read(record) = record else {
             issues.push(format!(
@@ -3080,6 +3090,7 @@ fn restore_piece_looks(
             continue;
         };
         let key = PieceKey::from_raw(record.piece);
+
         if let Some(appearance) = &record.appearance {
             looks = looks.with_appearance(key, restore_appearance(appearance, name, issues));
         }
@@ -3123,6 +3134,7 @@ fn restore_feature_stand_ins(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if read.len() < records.len() {
         issues.push(format!(
             "Which curve stands in for a deleted one in “{name}” could not all be read, so a \
@@ -3188,6 +3200,7 @@ fn restore_appearance(
     };
     let colour = record.colour.as_deref().and_then(|text| {
         let colour = Rgb::from_hex(text);
+
         if colour.is_none() {
             issues.push(format!(
                 "The colour of “{name}” could not be read, so it shows in the default colour."
@@ -3198,6 +3211,7 @@ fn restore_appearance(
     let material = record.material.as_deref().and_then(|text| {
         let material = material_name(text)
             .filter(|material| material.chars().count() <= MAX_MATERIAL_NAME_CHARS);
+
         if material.is_none() {
             issues.push(format!(
                 "The material name of “{name}” could not be used, so it was left out."
@@ -3207,6 +3221,7 @@ fn restore_appearance(
     });
     let density = record.density.as_deref().and_then(|text| {
         let density = Expression::parse_stored(text).ok();
+
         if density.is_none() {
             issues.push(format!(
                 "The density of “{name}” could not be read, so it was left out. Enter it again \
@@ -3218,6 +3233,7 @@ fn restore_appearance(
     let body_name = record.name.as_deref().and_then(|text| {
         let body_name = material_name(text)
             .filter(|body_name| body_name.chars().count() <= MAX_BODY_NAME_CHARS);
+
         if body_name.is_none() {
             issues.push(format!(
                 "The body name of “{name}” could not be used, so the body is named after it."
@@ -3228,6 +3244,7 @@ fn restore_appearance(
     let folder = restore_folder(&record.folder, name, issues);
     let opacity = record.opacity.and_then(|opacity| {
         let usable = (MIN_OPACITY_PERCENT..OPAQUE_PERCENT).contains(&opacity);
+
         if !usable {
             issues.push(format!(
                 "The opacity of “{name}” could not be used, so it is drawn solid."
@@ -3237,6 +3254,7 @@ fn restore_appearance(
     });
     let finish = record.finish.as_deref().and_then(|key| {
         let finish = Finish::from_key(key);
+
         if finish.is_none() {
             issues.push(format!(
                 "The finish of “{name}” is one this version does not know, so it is drawn \
@@ -3247,6 +3265,7 @@ fn restore_appearance(
     });
     let mut unusable_opacities = 0;
     let mut unknown_finishes = 0;
+
     let faces: Vec<FaceColour> = record
         .faces
         .iter()
@@ -3261,6 +3280,7 @@ fn restore_appearance(
                 colour: Rgb::from_hex(&coloured.colour)?,
                 opacity: coloured.opacity.and_then(|opacity| {
                     let usable = (MIN_OPACITY_PERCENT..=OPAQUE_PERCENT).contains(&opacity);
+
                     if !usable {
                         unusable_opacities += 1;
                     }
@@ -3268,6 +3288,7 @@ fn restore_appearance(
                 }),
                 finish: coloured.finish.as_deref().and_then(|key| {
                     let finish = Finish::from_key(key);
+
                     if finish.is_none() {
                         unknown_finishes += 1;
                     }
@@ -3277,6 +3298,7 @@ fn restore_appearance(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     match unusable_opacities {
         0 => {}
         1 => issues.push(format!(
@@ -3333,12 +3355,14 @@ fn restore_folder(record: &[Lenient<String>], name: &str, issues: &mut Vec<Strin
         .take(MAX_BODY_FOLDER_DEPTH)
         .map_while(|group| group)
         .collect();
+
     if folder.len() < record.len() {
         let place = if folder.is_empty() {
             "outside any group".to_owned()
         } else {
             format!("in “{}”", folder_label(&folder))
         };
+
         issues.push(format!(
             "The group of “{name}” could not be used in full, so the body is listed {place}."
         ));
@@ -3355,6 +3379,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             sizing: FilletSizing::Radius,
             ..blend.clone()
         };
+
         return FeatureKindRecord::ChordFillet(Box::new(ChordFilletRecord {
             feature: feature_kind_record(&FeatureKind::Blend(radius_sized)),
         }));
@@ -3366,6 +3391,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             groups: Vec::new(),
             ..blend.clone()
         };
+
         return FeatureKindRecord::BlendGroups(Box::new(BlendGroupsRecord {
             feature: feature_kind_record(&FeatureKind::Blend(listed)),
             groups: blend
@@ -3389,6 +3415,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         && (!combine.more_tools.is_empty() || combine.keep_tool)
     {
         let alone = Combine::new(combine.body, combine.tool, combine.operation);
+
         return FeatureKindRecord::CombineTools(Box::new(CombineToolsRecord {
             feature: feature_kind_record(&FeatureKind::Combine(alone)),
             more_tools: combine.more_tools.iter().map(|tool| tool.raw()).collect(),
@@ -3402,6 +3429,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             direction: None,
             ..extrude.clone()
         };
+
         return FeatureKindRecord::ExtrudeAlong(Box::new(ExtrudeAlongRecord {
             feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(square))),
             direction: Lenient::Read(axis_record(direction)),
@@ -3414,6 +3442,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             along: SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz)),
             ..split.clone()
         };
+
         return FeatureKindRecord::SplitFaceSurface(Box::new(SplitFaceSurfaceRecord {
             feature: feature_kind_record(&FeatureKind::SplitFace(plain)),
             face: Lenient::Read(attachment_record(face)),
@@ -3426,6 +3455,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             carry: SplitCarry::Square,
             ..split.clone()
         };
+
         return FeatureKindRecord::SplitFaceWrapped(Box::new(SplitFaceWrappedRecord {
             feature: feature_kind_record(&FeatureKind::SplitFace(square)),
         }));
@@ -3437,6 +3467,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             carry: SplitCarry::Square,
             ..split.clone()
         };
+
         return FeatureKindRecord::SplitFaceAlong(Box::new(SplitFaceAlongRecord {
             feature: feature_kind_record(&FeatureKind::SplitFace(square)),
             direction: Lenient::Read(axis_record(direction)),
@@ -3449,6 +3480,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             extent: revolve.extent.clone().with_offset(None),
             ..revolve.clone()
         };
+
         return FeatureKindRecord::RevolveOffset(Box::new(RevolveOffsetRecord {
             feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(plain))),
             offset: offset.to_stored_text(),
@@ -3461,6 +3493,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             extent: RevolveExtent::Full,
             ..revolve.clone()
         };
+
         return FeatureKindRecord::RevolveUpToNext(Box::new(RevolveUpToNextRecord {
             feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(full))),
             reversed: *reversed,
@@ -3473,6 +3506,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             extent: RevolveExtent::Full,
             ..revolve.clone()
         };
+
         return FeatureKindRecord::RevolveUpToSurface(Box::new(RevolveUpToSurfaceRecord {
             feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(full))),
             face: Lenient::Read(attachment_record(face)),
@@ -3488,6 +3522,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             extent: RevolveExtent::Full,
             ..revolve.clone()
         };
+
         return FeatureKindRecord::RevolveUpTo(Box::new(RevolveUpToRecord {
             feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(full))),
             target: Lenient::Read(plane_reference_record(target)),
@@ -3529,6 +3564,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             }),
             SolidFeature::Sweep(sweep) => SolidFeature::Sweep(sweep.clone()),
         };
+
         return FeatureKindRecord::ShapedSweep(Box::new(ShapedSweepRecord {
             feature: feature_kind_record(&FeatureKind::Solid(plain)),
             taper: solid.taper().map(Expression::to_stored_text),
@@ -3551,6 +3587,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             shape_law: Vec::new(),
             ..sweep.clone()
         };
+
         return FeatureKindRecord::SweepShapeLaw(Box::new(SweepShapeLawRecord {
             feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Sweep(even))),
             rows: sweep
@@ -3572,6 +3609,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             scale: unscaled(),
             ..sweep.clone()
         };
+
         return FeatureKindRecord::SweepShape(Box::new(SweepShapeRecord {
             feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Sweep(plain))),
             twist: sweep.twist.to_stored_text(),
@@ -3582,6 +3620,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         && !solid.other_bodies().is_empty()
     {
         let mut alone = solid.clone();
+
         alone.other_bodies_mut().clear();
         return FeatureKindRecord::CutSeveral(Box::new(CutSeveralRecord {
             feature: feature_kind_record(&FeatureKind::Solid(alone)),
@@ -3601,6 +3640,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             side: None,
             ..revolve.clone()
         };
+
         return FeatureKindRecord::RevolveOneSide(Box::new(RevolveOneSideRecord {
             feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(whole))),
             side: match side {
@@ -4034,6 +4074,7 @@ fn unframed_import_record(import: &Import, shares: Option<String>) -> FeatureKin
         .as_ref()
         .and_then(|path| path.to_str())
         .map(str::to_owned);
+
     if import.placement.is_unmoved() {
         return FeatureKindRecord::Import(ImportRecord {
             source,
@@ -4083,10 +4124,13 @@ fn surface_ends_record(extrude: &Extrude) -> Option<FeatureKindRecord> {
         ExtrudeExtent::TwoSides { forward, backward } => (surface(forward), surface(backward)),
         ExtrudeExtent::Symmetric { .. } => (None, None),
     };
+
     if forward.is_none() && backward.is_none() {
         return None;
     }
+
     let mut plain = extrude.clone();
+
     for end in plain.extent.ends_mut() {
         if end.surface().is_some() {
             *end = ExtrudeEnd::ThroughAll;
@@ -4107,10 +4151,13 @@ fn offset_ends_record(extrude: &Extrude) -> Option<FeatureKindRecord> {
         ExtrudeExtent::TwoSides { forward, backward } => (forward.offset(), backward.offset()),
         ExtrudeExtent::Symmetric { .. } => (None, None),
     };
+
     if forward.is_none() && backward.is_none() {
         return None;
     }
+
     let mut plain = extrude.clone();
+
     for end in plain.extent.ends_mut() {
         *end = end.clone().with_offset(None);
     }
@@ -4156,6 +4203,7 @@ fn extrude_record(extrude: &Extrude) -> FeatureKindRecord {
     if let Some(start @ SolidStart::Plane(_)) = &extrude.start {
         return extrude_from_record(extrude, start);
     }
+
     let start_text = extrude
         .start
         .as_ref()
@@ -4292,12 +4340,14 @@ fn pipe_record(pipe: &Pipe) -> FeatureKindRecord {
 
 fn rib_record(rib: &Rib) -> FeatureKindRecord {
     let round = rib.ends == RibEnds::RoundArcs;
+
     if rib.is_drafted() || round {
         let plain = Rib {
             draft: Expression::measure(0.0, Unit::Degree),
             ends: RibEnds::Straight,
             ..rib.clone()
         };
+
         return FeatureKindRecord::ShapedRib(Box::new(ShapedRibRecord {
             feature: rib_record(&plain),
             draft: rib.is_drafted().then(|| rib.draft.to_stored_text()),
@@ -4404,6 +4454,7 @@ fn starts_where_its_frame_points(start: &Expression) -> bool {
 
 fn helix_record(helix: &Helix) -> FeatureKindRecord {
     let text = Expression::to_stored_text;
+
     if helix.is_flat() {
         let helical = Helix {
             kind: HelixKind::Helix,
@@ -4412,6 +4463,7 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
         let record = Box::new(FlatSpiralRecord {
             feature: helix_record(&helical),
         });
+
         return if helix.is_progressive() || helix.has_pitch_table() {
             FeatureKindRecord::PitchedSpiral(record)
         } else {
@@ -4423,6 +4475,7 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             pitch_table: Vec::new(),
             ..helix.clone()
         };
+
         return FeatureKindRecord::HelixPitchTable(Box::new(HelixPitchTableRecord {
             feature: helix_record(&even),
             rows: helix
@@ -4440,6 +4493,7 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             final_pitch: None,
             ..helix.clone()
         };
+
         return FeatureKindRecord::HelixProgressive(Box::new(HelixProgressiveRecord {
             feature: helix_record(&even),
             pitch: text(last),
@@ -4457,6 +4511,7 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             })),
             ..helix.clone()
         };
+
         return FeatureKindRecord::HelixEndChange(Box::new(HelixEndChangeRecord {
             feature: helix_record(&quick),
             turns: text(&ends.change),
@@ -4467,6 +4522,7 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             ends: None,
             ..helix.clone()
         };
+
         return FeatureKindRecord::HelixEnds(Box::new(HelixEndsRecord {
             feature: helix_record(&open),
             turns: text(&ends.turns),
@@ -4478,6 +4534,7 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             start_point: None,
             ..helix.clone()
         };
+
         return FeatureKindRecord::HelixPoint(Box::new(HelixPointRecord {
             feature: helix_record(&typed),
             point: Lenient::Read(point_record(point)),
@@ -4488,6 +4545,7 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             start: Expression::measure(0.0, Unit::Degree),
             ..helix.clone()
         };
+
         return FeatureKindRecord::HelixStart(Box::new(HelixStartRecord {
             feature: helix_record(&plain),
             start: text(&helix.start),
@@ -4592,6 +4650,7 @@ fn restore_coil(record: &CoilRecord, feature: &str, issues: &mut Vec<String>) ->
     let mut value = |text: &str, what: &str, fallback: &str| {
         restore_value(text, what, fallback, feature, issues)
     };
+
     let diameter = value(&record.diameter, "diameter", "20 mm");
     let size = value(&record.size, "section size", "2 mm");
     let taper = value(&record.taper, "taper angle", "0 deg");
@@ -4625,6 +4684,7 @@ fn loft_record(loft: &Loft) -> FeatureKindRecord {
             square_end: None,
             ..loft.clone()
         };
+
         return FeatureKindRecord::LoftEnds(Box::new(LoftEndsRecord {
             feature: loft_record(&open),
             closed: loft.closed,
@@ -4690,16 +4750,19 @@ fn restore_loft(record: &LoftRecord, feature: &str, issues: &mut Vec<String>) ->
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if profiles.len() < record.profiles.len() {
         issues.push(format!(
             "Some profiles of “{feature}” could not be read and were left out."
         ));
     }
+
     let end = record.end.as_ref().and_then(|end| {
         let read = match end {
             Lenient::Read(end) => restore_point(end),
             Lenient::Unreadable(_) => None,
         };
+
         if read.is_none() {
             issues.push(format!(
                 "The end point of “{feature}” could not be read, so it ends at its last profile."
@@ -4758,6 +4821,7 @@ fn restore_sweep_path(
                     Lenient::Unreadable(_) => None,
                 })
                 .collect();
+
             if read.len() < edges.len() {
                 issues.push(format!(
                     "Some edges of the path of “{feature}” could not be read and were left out."
@@ -4802,9 +4866,11 @@ fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
         region_references_record(&revolve.regions),
         operation_record(revolve.operation),
     );
+
     if let Some(start) = &revolve.start {
         return revolve_from_record(revolve, start);
     }
+
     let axis = match &revolve.axis {
         RevolveAxis::Sketch(line) => RevolveAxisRecord::Sketch(line.raw()),
         RevolveAxis::Model(axis) => RevolveAxisRecord::Model(Box::new(axis_record(axis))),
@@ -4866,6 +4932,7 @@ fn restore_tapped_thread(
             .iter()
             .copied()
             .find(|class| class.id() == id);
+
         if class.is_none() {
             issues.push(format!(
                 "The thread class of “{feature}” ({id}) could not be read, so its tapped thread \
@@ -4986,6 +5053,7 @@ fn hole_record(hole: &Hole) -> FeatureKindRecord {
 fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
     let body = pattern.body.raw();
     let skipped: Vec<[u32; 2]> = pattern.skipped.iter().copied().collect();
+
     let record = match &pattern.kind {
         PatternKind::Linear { first, second } => grid_pattern_record(
             PatternShapeRecord::Linear(Box::new(LinearPatternRecord {
@@ -5053,6 +5121,7 @@ fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
             }))
         }
     };
+
     if pattern.repeated.is_empty() {
         return record;
     }
@@ -5085,6 +5154,7 @@ fn grid_pattern_record(shape: PatternShapeRecord, skipped: Vec<[u32; 2]>) -> Fea
 fn mirror_record(mirror: &Mirror) -> FeatureKindRecord {
     let body = mirror.body.raw();
     let plane = Lenient::Read(plane_reference_record(&mirror.plane));
+
     let whole = match mirror.outcome {
         MirrorOutcome::NewBody => {
             FeatureKindRecord::MirrorNewBody(MirrorNewBodyRecord { body, plane })
@@ -5115,6 +5185,7 @@ fn mirror_record(mirror: &Mirror) -> FeatureKindRecord {
                 .collect(),
         }))
     };
+
     if mirror.faces.is_empty() {
         return features;
     }
@@ -5298,6 +5369,7 @@ pub(crate) fn restore_properties(
         notes: record.notes,
     }
     .normalized();
+
     for property in ModelProperty::ALL {
         let field = properties.get_mut(property);
         let limit = property.max_chars();
@@ -5401,8 +5473,10 @@ pub(crate) fn views_record(document: &Document) -> Option<ViewsRecord> {
 
 fn fitting_view_name(name: &str, taken: &SavedViews, issues: &mut Vec<String>) -> String {
     let mut name = view_name(name);
+
     if name.is_empty() {
         let numbered = taken.unused_name();
+
         issues.push(format!(
             "A saved view had no name, so it is called “{numbered}”."
         ));
@@ -5423,12 +5497,14 @@ fn fitting_view_name(name: &str, taken: &SavedViews, issues: &mut Vec<String>) -
     if !taken.is_taken(&name) {
         return name;
     }
+
     let room = MAX_VIEW_NAME_CHARS - 6;
     let base: String = name.chars().take(room).collect();
     let numbered = (2..)
         .map(|number| format!("{base} {number}"))
         .find(|candidate| !taken.is_taken(candidate))
         .unwrap_or_else(|| name.clone());
+
     issues.push(format!(
         "Two saved views were called “{name}”, so one is called “{numbered}”."
     ));
@@ -5437,18 +5513,22 @@ fn fitting_view_name(name: &str, taken: &SavedViews, issues: &mut Vec<String>) -
 
 pub(crate) fn restore_views(record: ViewsRecord, issues: &mut Vec<String>) -> SavedViews {
     let mut views = SavedViews::default();
+
     for named in record.named {
         let Lenient::Read(named) = named else {
             issues.push("A saved view could not be read, so it was left out.".to_owned());
             continue;
         };
+
         if views.named.len() >= MAX_SAVED_VIEWS {
             issues.push(format!(
                 "A model keeps at most {MAX_SAVED_VIEWS} saved views, so the rest were left out."
             ));
             break;
         }
+
         let view = saved_view_of(named.view);
+
         if !view.is_usable() {
             issues.push(format!(
                 "The saved view “{}” is not a view the camera can show, so it was left out.",
@@ -5456,7 +5536,9 @@ pub(crate) fn restore_views(record: ViewsRecord, issues: &mut Vec<String>) -> Sa
             ));
             continue;
         }
+
         let name = fitting_view_name(&named.name, &views, issues);
+
         views.named.push(NamedView {
             name,
             view: view.normalized(),
@@ -5466,6 +5548,7 @@ pub(crate) fn restore_views(record: ViewsRecord, issues: &mut Vec<String>) -> Sa
         None => None,
         Some(Lenient::Read(home)) => {
             let home = saved_view_of(home);
+
             if !home.is_usable() {
                 issues.push(format!(
                     "The {HOME_VIEW_NAME} view is not a view the camera can show, so the default \
@@ -5850,6 +5933,7 @@ fn restore_projections(
     issues: &mut Vec<String>,
 ) -> BTreeMap<EntityId, ProjectionSource> {
     let mut projections = BTreeMap::new();
+
     for projection in &record.projections {
         let Lenient::Read(projection) = projection else {
             issues.push(format!(
@@ -5870,7 +5954,9 @@ fn restore_projections(
             ));
             continue;
         };
+
         let marked: Vec<EntityId> = entity.points().into_iter().chain([id]).collect();
+
         for each in marked {
             if sketch.set_projected(each, true).is_err() {
                 issues.push(format!(
@@ -6321,6 +6407,7 @@ pub(crate) fn transaction_record_sharing(
     written: &mut BTreeSet<String>,
 ) -> TransactionRecord {
     let mut record = transaction_record(transaction);
+
     for edit in &mut record.edits {
         match edit {
             EditRecord::InsertFeature { feature, .. } | EditRecord::SetFeatureKind { feature } => {
@@ -6633,6 +6720,7 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
                 parse(&parameter.expression)?,
             )
             .with_note(parameter.note);
+
             restored.owner = owner.map(restore_owner);
             Edit::InsertParameter {
                 index,
@@ -6668,7 +6756,9 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
             suppressed,
         } => {
             let mut issues = Vec::new();
+
             let mut feature = restore_feature_sharing(&feature, texts, &mut issues);
+
             if !issues.is_empty() {
                 return None;
             }
@@ -6703,7 +6793,9 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         },
         EditRecord::SetBodyAppearance { id, appearance } => {
             let mut issues = Vec::new();
+
             let appearance = restore_appearance(&Lenient::Read(appearance), "", &mut issues);
+
             if !issues.is_empty() {
                 return None;
             }
@@ -6749,7 +6841,9 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         },
         EditRecord::SetConfigurations { configurations } => {
             let mut issues = Vec::new();
+
             let configurations = restore_configurations(configurations, &mut issues);
+
             if !issues.is_empty() {
                 return None;
             }
@@ -6762,7 +6856,9 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         },
         EditRecord::SetFeatureKind { feature } => {
             let mut issues = Vec::new();
+
             let kind = restore_kind(&feature.kind, "", texts, &mut issues);
+
             if !issues.is_empty() {
                 return None;
             }
@@ -6932,6 +7028,7 @@ pub(crate) fn restore_feature_sharing(
 ) -> Feature {
     let name = if record.name.trim().is_empty() {
         let fallback = format!("Feature {}", record.id);
+
         issues.push(format!(
             "A feature had no name, so it was named “{fallback}”."
         ));
@@ -6943,8 +7040,10 @@ pub(crate) fn restore_feature_sharing(
         FeatureKindRecord::SeparatePieces(separate) => (&separate.feature, Pieces::BodyEach),
         kind => (kind, Pieces::OneBody),
     };
+
     let kind = restore_kind(kind, &name, texts, issues);
     let mut feature = Feature::new(FeatureId::from_raw(record.id), name, kind);
+
     feature.hidden = record.hidden;
     feature.pieces = pieces;
     if let Some(appearance) = &record.appearance {
@@ -6962,6 +7061,7 @@ pub(crate) fn restore_feature_sharing(
 
 fn restore_group(group: &str, feature: &str, issues: &mut Vec<String>) -> Option<String> {
     let name = group_name(group)?;
+
     if name.chars().count() <= MAX_GROUP_NAME_CHARS {
         return Some(name);
     }
@@ -6988,6 +7088,7 @@ fn restore_kind(
         }
         FeatureKindRecord::CutSeveral(several) => {
             let mut kind = restore_kind(&several.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Solid(solid) => {
                     *solid.other_bodies_mut() = several
@@ -7006,6 +7107,7 @@ fn restore_kind(
         }
         FeatureKindRecord::DrillPointHole(pointed) => {
             let mut kind = restore_kind(&pointed.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Hole(hole) => {
                     hole.bottom = HoleBottom::DrillPoint(restore_value(
@@ -7024,6 +7126,7 @@ fn restore_kind(
         }
         FeatureKindRecord::ShapedChamfer(shaped) => {
             let mut kind = restore_kind(&shaped.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Blend(blend) => {
                     blend.form = match &shaped.form {
@@ -7045,6 +7148,7 @@ fn restore_kind(
         }
         FeatureKindRecord::SteppedHole(stepped) => {
             let mut kind = restore_kind(&stepped.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Hole(hole) => {
                     hole.style = HoleStyle::Stepped(
@@ -7083,10 +7187,12 @@ fn restore_kind(
         }
         FeatureKindRecord::FeaturePattern(repeating) => {
             let mut kind = restore_kind(&repeating.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Pattern(pattern) => {
                     let mut repeated = Vec::new();
                     let mut seen = BTreeSet::new();
+
                     for raw in &repeating.repeated {
                         let feature = FeatureId::from_raw(*raw);
                         if seen.insert(feature) {
@@ -7104,10 +7210,12 @@ fn restore_kind(
         }
         FeatureKindRecord::FeatureMirror(mirroring) => {
             let mut kind = restore_kind(&mirroring.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Mirror(mirror) => {
                     let mut mirrored = Vec::new();
                     let mut seen = BTreeSet::new();
+
                     for raw in &mirroring.mirrored {
                         let feature = FeatureId::from_raw(*raw);
                         if seen.insert(feature) {
@@ -7125,6 +7233,7 @@ fn restore_kind(
         }
         FeatureKindRecord::PatternNewBodies(apart) => {
             let mut kind = restore_kind(&apart.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Pattern(pattern) => pattern.outcome = PatternOutcome::NewBodies,
                 _ => issues.push(format!(
@@ -7136,9 +7245,11 @@ fn restore_kind(
         }
         FeatureKindRecord::MirrorSeveral(several) => {
             let mut kind = restore_kind(&several.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Mirror(mirror) => {
                     let mut seen = BTreeSet::from([mirror.body]);
+
                     mirror.more_bodies = several
                         .bodies
                         .iter()
@@ -7156,6 +7267,7 @@ fn restore_kind(
         }
         FeatureKindRecord::FaceMirror(mirroring) => {
             let mut kind = restore_kind(&mirroring.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Mirror(mirror) => {
                     mirror.faces = restore_mirrored_faces(&mirroring.faces, name, issues);
@@ -7169,6 +7281,7 @@ fn restore_kind(
         }
         FeatureKindRecord::MoveAboutCentre(centred) => {
             let mut kind = restore_kind(&centred.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Move(movement) => movement.about = TurnCentre::Body,
                 _ => issues.push(format!(
@@ -7180,6 +7293,7 @@ fn restore_kind(
         }
         FeatureKindRecord::MoveInFrame(framed) => {
             let mut kind = restore_kind(&framed.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Move(movement) => {
                     movement.frame = Some(FeatureId::from_raw(framed.frame));
@@ -7193,6 +7307,7 @@ fn restore_kind(
         }
         FeatureKindRecord::FrameOriginDatum(framed) => {
             let kind = restore_kind(&framed.feature, name, texts, issues);
+
             if !matches!(kind, FeatureKind::Datum(_)) {
                 issues.push(format!(
                     "“{name}” was to use the origin of a coordinate system, but it is not a \
@@ -7203,6 +7318,7 @@ fn restore_kind(
         }
         FeatureKindRecord::ScaleInFrame(framed) => {
             let mut kind = restore_kind(&framed.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Scale(scale) => {
                     scale.frame = Some(FeatureId::from_raw(framed.frame));
@@ -7216,6 +7332,7 @@ fn restore_kind(
         }
         FeatureKindRecord::ScaledImport(scaled) => {
             let mut kind = restore_kind(&scaled.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Import(import) => {
                     import.placement.scale =
@@ -7230,6 +7347,7 @@ fn restore_kind(
         }
         FeatureKindRecord::ImportInFrame(framed) => {
             let mut kind = restore_kind(&framed.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Import(import) => {
                     import.placement.frame = Some(FeatureId::from_raw(framed.frame));
@@ -7243,6 +7361,7 @@ fn restore_kind(
         }
         FeatureKindRecord::SketchOnFrame(placed) => {
             let mut kind = restore_kind(&placed.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Sketch(sketch) => {
                     sketch.attachment = Some(SketchAttachment::Frame {
@@ -7259,6 +7378,7 @@ fn restore_kind(
         }
         FeatureKindRecord::MoveAboutAxis(about) => {
             let mut kind = restore_kind(&about.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Move(movement) => {
                     movement.about = restore_axis_turn(about, name, issues);
@@ -7272,6 +7392,7 @@ fn restore_kind(
         }
         FeatureKindRecord::HoleUpTo(up_to) => {
             let mut kind = restore_kind(&up_to.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Hole(hole) => {
                     hole.depth = restore_hole_end(up_to, name, issues);
@@ -7285,6 +7406,7 @@ fn restore_kind(
         }
         FeatureKindRecord::ShapedRib(shaped) => {
             let mut kind = restore_kind(&shaped.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Rib(rib) => {
                     if let Some(draft) = &shaped.draft {
@@ -7304,6 +7426,7 @@ fn restore_kind(
         }
         FeatureKindRecord::HelixStart(started) => {
             let mut kind = restore_kind(&started.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Helix(helix) => {
                     helix.start =
@@ -7318,6 +7441,7 @@ fn restore_kind(
         }
         FeatureKindRecord::HelixPoint(pointed) => {
             let mut kind = restore_kind(&pointed.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Helix(helix) => {
                     helix.start_point = match &pointed.point {
@@ -7340,6 +7464,7 @@ fn restore_kind(
         }
         FeatureKindRecord::HelixEnds(ends) => {
             let mut kind = restore_kind(&ends.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Helix(helix) => {
                     helix.ends = Some(Box::new(ClosedEnds {
@@ -7357,6 +7482,7 @@ fn restore_kind(
         }
         FeatureKindRecord::HelixEndChange(changed) => {
             let mut kind = restore_kind(&changed.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Helix(helix) => match &mut helix.ends {
                     Some(ends) => {
@@ -7377,6 +7503,7 @@ fn restore_kind(
         }
         FeatureKindRecord::HelixProgressive(progressive) => {
             let mut kind = restore_kind(&progressive.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Helix(helix) => {
                     helix.final_pitch = Some(restore_value(
@@ -7396,6 +7523,7 @@ fn restore_kind(
         }
         FeatureKindRecord::HelixPitchTable(table) => {
             let mut kind = restore_kind(&table.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Helix(helix) => {
                     helix.pitch_table = table
@@ -7416,6 +7544,7 @@ fn restore_kind(
         }
         FeatureKindRecord::FlatSpiral(flat) => {
             let mut kind = restore_kind(&flat.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Helix(helix) => {
                     helix.kind = HelixKind::FlatSpiral;
@@ -7431,6 +7560,7 @@ fn restore_kind(
         }
         FeatureKindRecord::PitchedSpiral(flat) => {
             let mut kind = restore_kind(&flat.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Helix(helix) => helix.kind = HelixKind::FlatSpiral,
                 _ => issues.push(format!(
@@ -7442,6 +7572,7 @@ fn restore_kind(
         }
         FeatureKindRecord::LoftEnds(ends) => {
             let mut kind = restore_kind(&ends.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Loft(loft) => {
                     loft.closed = ends.closed;
@@ -7463,6 +7594,7 @@ fn restore_kind(
         }
         FeatureKindRecord::SweepShape(shaped) => {
             let mut kind = restore_kind(&shaped.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Solid(SolidFeature::Sweep(sweep)) => {
                     sweep.twist = restore_value(&shaped.twist, "twist", "0 deg", name, issues);
@@ -7477,6 +7609,7 @@ fn restore_kind(
         }
         FeatureKindRecord::SweepShapeLaw(law) => {
             let mut kind = restore_kind(&law.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Solid(SolidFeature::Sweep(sweep)) => {
                     sweep.shape_law = law
@@ -7507,6 +7640,7 @@ fn restore_kind(
             let path = SweepPath::Helix {
                 helix: FeatureId::from_raw(along.helix),
             };
+
             match &mut kind {
                 FeatureKind::Solid(SolidFeature::Sweep(sweep)) => sweep.path = path,
                 FeatureKind::Pipe(pipe) => pipe.path = path,
@@ -7523,6 +7657,7 @@ fn restore_kind(
                 Lenient::Read(direction) => restore_axis(direction),
                 Lenient::Unreadable(_) => None,
             };
+
             match (&mut kind, direction) {
                 (FeatureKind::Solid(SolidFeature::Extrude(extrude)), Some(direction)) => {
                     extrude.direction = Some(Box::new(direction));
@@ -7544,6 +7679,7 @@ fn restore_kind(
                 Lenient::Read(face) => restore_attachment(face),
                 Lenient::Unreadable(_) => None,
             };
+
             match (&mut kind, face) {
                 (FeatureKind::SplitFace(split), Some(face)) => {
                     split.along = SplitAlong::Surface(face);
@@ -7562,6 +7698,7 @@ fn restore_kind(
         }
         FeatureKindRecord::ChordFillet(chord) => {
             let mut kind = restore_kind(&chord.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Blend(blend) if blend.kind == BlendKind::Fillet => {
                     blend.sizing = FilletSizing::ChordLength;
@@ -7596,6 +7733,7 @@ fn restore_kind(
                     Lenient::Unreadable(_) => None,
                 })
                 .collect();
+
             if groups.len() < grouped.groups.len() {
                 issues.push(format!(
                     "Some of the faces or kinds of edges “{name}” rounds could not be read and \
@@ -7613,6 +7751,7 @@ fn restore_kind(
         }
         FeatureKindRecord::SplitFaceWrapped(wrapped) => {
             let mut kind = restore_kind(&wrapped.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::SplitFace(split) => split.carry = SplitCarry::Wrapped,
                 _ => issues.push(format!(
@@ -7628,6 +7767,7 @@ fn restore_kind(
                 Lenient::Read(direction) => restore_axis(direction),
                 Lenient::Unreadable(_) => None,
             };
+
             match (&mut kind, direction) {
                 (FeatureKind::SplitFace(split), Some(direction)) => {
                     split.carry = SplitCarry::Along(Box::new(direction));
@@ -7649,6 +7789,7 @@ fn restore_kind(
                 Lenient::Read(target) => restore_plane_reference(target),
                 Lenient::Unreadable(_) => None,
             };
+
             match (&mut kind, target) {
                 (FeatureKind::Solid(SolidFeature::Revolve(revolve)), Some(target)) => {
                     revolve.extent = RevolveExtent::up_to(target, up_to.reversed);
@@ -7666,6 +7807,7 @@ fn restore_kind(
         }
         FeatureKindRecord::RevolveUpToNext(up_to) => {
             let mut kind = restore_kind(&up_to.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
                     revolve.extent = RevolveExtent::up_to_next(up_to.reversed);
@@ -7683,6 +7825,7 @@ fn restore_kind(
                 Lenient::Read(face) => restore_attachment(face),
                 Lenient::Unreadable(_) => None,
             };
+
             match (&mut kind, face) {
                 (FeatureKind::Solid(SolidFeature::Revolve(revolve)), Some(face)) => {
                     revolve.extent = RevolveExtent::up_to_surface(face, up_to.reversed);
@@ -7700,11 +7843,13 @@ fn restore_kind(
         }
         FeatureKindRecord::RevolveOffset(offset) => {
             let mut kind = restore_kind(&offset.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Solid(SolidFeature::Revolve(revolve))
                     if revolve.extent.turns_up_to() =>
                 {
                     let angle = restore_value(&offset.offset, "end offset", "0 deg", name, issues);
+
                     revolve.extent = revolve.extent.clone().with_offset(Some(angle));
                 }
                 _ => issues.push(format!(
@@ -7716,11 +7861,13 @@ fn restore_kind(
         }
         FeatureKindRecord::SurfaceEnds(surfaces) => {
             let mut kind = restore_kind(&surfaces.feature, name, texts, issues);
+
             restore_surfaces(&mut kind, surfaces, name, issues);
             kind
         }
         FeatureKindRecord::OffsetEnds(offsets) => {
             let mut kind = restore_kind(&offsets.feature, name, texts, issues);
+
             restore_offsets(&mut kind, offsets, name, issues);
             kind
         }
@@ -7734,6 +7881,7 @@ fn restore_kind(
                 .wall
                 .as_ref()
                 .map(|record| restore_wall(record, name, issues));
+
             match &mut kind {
                 FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
                     extrude.taper = taper.map(Box::new);
@@ -7757,6 +7905,7 @@ fn restore_kind(
         }
         FeatureKindRecord::RevolveOneSide(one_side) => {
             let mut kind = restore_kind(&one_side.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
                     revolve.side = Some(match one_side.side {
@@ -7777,12 +7926,14 @@ fn restore_kind(
                 Some(Lenient::Read(record)) => restore_attachment(record),
                 Some(Lenient::Unreadable(_)) => None,
             };
+
             if sketch.attachment.is_some() && attachment.is_none() {
                 issues.push(format!(
                     "The face that “{name}” lies on could not be read, so the sketch stays where \
                      it was."
                 ));
             }
+
             let attachment = attachment
                 .map(|face| SketchAttachment::Face(Box::new(face)))
                 .or_else(|| {
@@ -7791,6 +7942,7 @@ fn restore_kind(
                         .map(|datum| SketchAttachment::Datum(FeatureId::from_raw(datum)))
                 });
             let mut restored = restore_sketch(sketch, name, issues);
+
             let projections = restore_projections(sketch, &mut restored, name, issues);
             FeatureKind::Sketch(SketchFeature {
                 sketch: restored,
@@ -7801,6 +7953,7 @@ fn restore_kind(
         FeatureKindRecord::Extrude(extrude) => {
             let mut value =
                 |text: &str, what: &str| restore_value(text, what, "10 mm", name, issues);
+
             let extent = match &extrude.extent {
                 ExtrudeExtentRecord::OneSide { distance, reversed } => {
                     ExtrudeExtent::one_side(value(distance, "distance"), *reversed)
@@ -7918,6 +8071,7 @@ fn restore_kind(
         FeatureKindRecord::RevolveFrom(revolve) => {
             let mut value =
                 |text: &str, what: &str| restore_value(text, what, "180 deg", name, issues);
+
             let extent = match &revolve.extent {
                 RevolveFromExtentRecord::Full => RevolveExtent::Full,
                 RevolveFromExtentRecord::OneSide { angle, reversed } => RevolveExtent::OneSide {
@@ -7953,6 +8107,7 @@ fn restore_kind(
         }
         FeatureKindRecord::Revolve(revolve) => {
             let mut value = |text: &str| restore_value(text, "angle", "360 deg", name, issues);
+
             let extent = match &revolve.extent {
                 RevolveExtentRecord::Full => RevolveExtent::Full,
                 RevolveExtentRecord::OneSide { angle, reversed } => RevolveExtent::OneSide {
@@ -7983,6 +8138,7 @@ fn restore_kind(
         FeatureKindRecord::RevolveTwoAngles(revolve) => {
             let mut value =
                 |text: &str, what: &str| restore_value(text, what, "180 deg", name, issues);
+
             let extent = RevolveExtent::TwoSides {
                 forward: value(&revolve.forward, "forward angle"),
                 backward: value(&revolve.backward, "backward angle"),
@@ -8054,6 +8210,7 @@ fn restore_kind(
         )),
         FeatureKindRecord::CombineTools(tools) => {
             let mut kind = restore_kind(&tools.feature, name, texts, issues);
+
             match &mut kind {
                 FeatureKind::Combine(combine) => {
                     combine.more_tools = tools
@@ -8360,6 +8517,7 @@ fn restore_offsets(
         match end {
             Some(end) if end.takes_offset() => {
                 let offset = restore_value(text, what, "0 mm", name, issues);
+
                 *end = end.clone().with_offset(Some(offset));
             }
             _ => issues.push(format!(
@@ -8448,6 +8606,7 @@ fn restore_import(
         Some(hash) => crate::step_cache::first_solid_hashed(text, hash),
         None => crate::step_cache::first_solid(text),
     };
+
     let solid = match texts.solids.get(&digest) {
         Some(solid) => solid.clone(),
         None => {
@@ -8461,6 +8620,7 @@ fn restore_import(
             match read {
                 Ok(read) => {
                     let read = read.unwrap_or_default();
+
                     if !digest.is_empty() {
                         texts.solids.insert(digest, read.clone());
                     }
@@ -8501,6 +8661,7 @@ fn restore_placed_import(
             .each_ref()
             .map(|text| restore_value(text, what, fallback, name, issues))
     };
+
     let placement = BodyPlacement {
         offset: read(&record.offset, "placement distance", "0 mm"),
         turn: read(&record.turn, "placement turn", "0 deg"),
@@ -8915,6 +9076,7 @@ fn restore_pattern(record: &PatternRecord, feature: &str, issues: &mut Vec<Strin
             restore_circular_pattern(circular, feature, issues)
         }
     };
+
     pattern.skipped = record
         .skipped
         .iter()
@@ -8961,6 +9123,7 @@ fn restore_curve(
             reversed: settings.reversed,
         }),
     );
+
     pattern.skipped = settings
         .skipped
         .iter()
@@ -9009,6 +9172,7 @@ fn restore_edge_curve_pattern(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if edges.len() < record.edges.len() {
         issues.push(format!(
             "Some edges of the path of “{feature}” could not be read and were left out."
@@ -9057,6 +9221,7 @@ fn restore_point_pattern(
             base,
         }),
     );
+
     pattern.skipped = record
         .skipped
         .iter()
@@ -9121,6 +9286,7 @@ fn restore_linear_pattern(
     });
     let second = record.second.as_ref().and_then(|second| {
         let restored = restore_direction(second, "second ", feature, issues);
+
         if restored.is_none() {
             issues.push(format!(
                 "The second direction of “{feature}” could not be read, so it was left out."
@@ -9141,6 +9307,7 @@ fn restore_circular_pattern(
 ) -> Pattern {
     let axis = record.axis.as_ref().and_then(|axis| {
         let restored = restore_axis(axis);
+
         if restored.is_none() {
             issues.push(format!(
                 "The axis of “{feature}” could not be read; choose the axis it turns about."
@@ -9168,6 +9335,7 @@ fn restore_hole(
     let mut value = |text: &str, what: &str, fallback: &str| {
         restore_value(text, what, fallback, feature, issues)
     };
+
     let diameter = value(&record.diameter, "diameter", "5 mm");
     let depth = match &record.depth {
         HoleDepthRecord::ThroughAll => HoleDepth::ThroughAll,
@@ -9196,6 +9364,7 @@ fn restore_hole(
             .zip(HoleFit::from_id(&standard.fit))
             .filter(|(size, fit)| size.offers(*fit))
             .map(|(size, fit)| HoleStandard { size, fit });
+
         if read.is_none() {
             issues.push(format!(
                 "The standard size of “{feature}” ({} {}) is not one this version of caditor \
@@ -9470,6 +9639,7 @@ fn restore_axis_mate(record: &AxisMateRecord, feature: &str, issues: &mut Vec<St
             AxisReference::Principal(PrincipalAxis::Z)
         })
     };
+
     let axis = axis_or_z(&record.axis, "mates");
     let target = axis_or_z(&record.target, "mates onto");
     AxisMate { axis, target }
@@ -9708,6 +9878,7 @@ fn restore_primitive(
     issues: &mut Vec<String>,
 ) -> Primitive {
     let mut size = |text: &str, what: &str| restore_value(text, what, "10 mm", feature, issues);
+
     let shape = match &record.shape {
         PrimitiveShapeRecord::Box {
             length,
@@ -9812,11 +9983,13 @@ fn restore_shell(record: &ShellRecord, feature: &str, issues: &mut Vec<String>) 
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if open.len() < record.open.len() {
         issues.push(format!(
             "Some faces opened by “{feature}” could not be read and were left closed."
         ));
     }
+
     let faces: Vec<FaceThickness> = record
         .faces
         .iter()
@@ -9833,6 +10006,7 @@ fn restore_shell(record: &ShellRecord, feature: &str, issues: &mut Vec<String>) 
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if faces.len() < record.faces.len() {
         issues.push(format!(
             "Some faces given their own thickness by “{feature}” could not be read and take the \
@@ -9868,6 +10042,7 @@ fn restore_offset_face(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if faces.len() < record.faces.len() {
         issues.push(format!(
             "Some faces moved by “{feature}” could not be read and were left where they are."
@@ -9896,6 +10071,7 @@ fn restore_delete_face(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if faces.len() < record.faces.len() {
         issues.push(format!(
             "Some faces deleted by “{feature}” could not be read and were left on the body."
@@ -9928,11 +10104,13 @@ fn restore_draft(record: &DraftRecord, feature: &str, issues: &mut Vec<String>) 
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if faces.len() < record.faces.len() {
         issues.push(format!(
             "Some faces drafted by “{feature}” could not be read and were left as they stand."
         ));
     }
+
     let neutral = match &record.neutral {
         Lenient::Read(plane) => restore_plane_reference(plane),
         Lenient::Unreadable(_) => None,
@@ -9959,6 +10137,7 @@ fn restore_draft(record: &DraftRecord, feature: &str, issues: &mut Vec<String>) 
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if own.len() < record.own.len() {
         issues.push(format!(
             "Some faces given their own angle by “{feature}” could not be read and were left as \
@@ -9992,16 +10171,19 @@ fn restore_replace_face(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if faces.len() < record.faces.len() {
         issues.push(format!(
             "Some faces replaced by “{feature}” could not be read and were left as they stand."
         ));
     }
+
     let target = record.target.as_ref().and_then(|target| {
         let restored = match target {
             Lenient::Read(plane) => restore_plane_reference(plane),
             Lenient::Unreadable(_) => None,
         };
+
         if restored.is_none() {
             issues.push(format!(
                 "The target plane of “{feature}” could not be read, so it waits for a target to \
@@ -10048,6 +10230,7 @@ fn restore_emboss(record: &EmbossRecord, feature: &str, issues: &mut Vec<String>
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if faces.len() < record.faces.len() {
         issues.push(format!(
             "Some faces embossed by “{feature}” could not be read and were left plain."
@@ -10086,17 +10269,20 @@ fn restore_move_face(record: &MoveFaceRecord, feature: &str, issues: &mut Vec<St
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if faces.len() < record.faces.len() {
         issues.push(format!(
             "Some faces moved by “{feature}” could not be read and were left where they are."
         ));
     }
+
     let mut restored = |reference: &Option<Lenient<AxisReferenceRecord>>, what: &str| {
         let read = match reference {
             None => return None,
             Some(Lenient::Read(record)) => restore_axis(record),
             Some(Lenient::Unreadable(_)) => None,
         };
+
         if read.is_none() {
             issues.push(format!(
                 "The {what} of “{feature}” could not be read, so it was left unchosen."
@@ -10104,6 +10290,7 @@ fn restore_move_face(record: &MoveFaceRecord, feature: &str, issues: &mut Vec<St
         }
         read
     };
+
     let direction = restored(&record.direction, "direction");
     let axis = restored(&record.axis, "tilt axis");
     MoveFace {
@@ -10130,6 +10317,7 @@ fn restore_mirrored_faces(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if faces.is_empty() {
         issues.push(format!(
             "The faces “{feature}” mirrors could not be read, so it mirrors the whole body."
@@ -10157,11 +10345,13 @@ fn restore_split_face(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if faces.len() < record.faces.len() {
         issues.push(format!(
             "Some faces split by “{feature}” could not be read and were left whole."
         ));
     }
+
     let along = match &record.along {
         SplitFaceToolRecord::Plane(plane) => {
             let plane = match plane {
@@ -10308,6 +10498,7 @@ fn restore_measurement(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if items.len() < wanted {
         let instead = match record.quantity {
             MeasuredQuantityRecord::Along | MeasuredQuantityRecord::Position => {
@@ -10315,18 +10506,22 @@ fn restore_measurement(
             }
             _ => "from the origin",
         };
+
         issues.push(format!(
             "What “{feature}” measures could not be read in full, so it measures {instead} \
              instead; measure again and keep the measurement."
         ));
     }
+
     let along_x = || MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::X));
     let mut items = items.into_iter();
+
     let mut next = || {
         items
             .next()
             .unwrap_or(MeasuredItem::Point(PointReference::Origin))
     };
+
     let reading = match record.quantity {
         MeasuredQuantityRecord::Distance => Reading::Between {
             quantity: Between::Distance,
@@ -10410,6 +10605,7 @@ fn restore_thread(record: &ThreadRecord, feature: &str, issues: &mut Vec<String>
     });
     let size = ThreadSize::from_id(family, &record.size).unwrap_or_else(|| {
         let fallback = family.nearest(DEFAULT_THREAD_DIAMETER, ThreadSide::External);
+
         issues.push(format!(
             "The thread size of “{feature}” could not be read, so it was set to {}.",
             fallback.label()
@@ -10418,6 +10614,7 @@ fn restore_thread(record: &ThreadRecord, feature: &str, issues: &mut Vec<String>
     });
     let class = family.class_from_id(&record.class).unwrap_or_else(|| {
         let fallback = family.default_class(ThreadSide::Internal);
+
         issues.push(format!(
             "The thread class of “{feature}” could not be read, so it was set to {}.",
             fallback.label()
@@ -10473,6 +10670,7 @@ fn restore_blend(
             Lenient::Unreadable(_) => None,
         })
         .collect();
+
     if edges.len() < record.edges.len() {
         issues.push(format!(
             "Some edges chosen for “{feature}” could not be read and were left out."
@@ -10497,9 +10695,12 @@ pub(crate) fn restore_edge(record: &EdgeRecord) -> Option<EdgeReference> {
     let [from, to] = &record.ends;
     let [first_copy, second_copy] = record.copies.unwrap_or_default();
     let [first_origin, second_origin] = record.origins.unwrap_or_default();
+
     let first_origin = first_origin.map(|origin| restore_copied_origin(origin, first_copy));
     let second_origin = second_origin.map(|origin| restore_copied_origin(origin, second_copy));
+
     let mut sides = [(face(first)?, first_origin), (face(second)?, second_origin)];
+
     sides.sort_by_key(|(name, _)| *name);
     Some(
         EdgeReference::new(
@@ -10591,6 +10792,7 @@ fn restore_regions(
         Lenient::Read(record) => Some(record),
         Lenient::Unreadable(_) => None,
     };
+
     let read: Vec<RegionReference> = keys
         .iter()
         .enumerate()
@@ -10599,6 +10801,7 @@ fn restore_regions(
             Some(restore_region_reference(key, reference_at(index)))
         })
         .collect();
+
     if read.len() == keys.len() {
         return RegionChoice::Chosen(read);
     }
@@ -10638,6 +10841,7 @@ pub(crate) fn restore_sketch(
     let mut sketch = Sketch::new(plane);
 
     let mut readable = Vec::new();
+
     for entity in &record.entities {
         match entity {
             Lenient::Read(entity) => readable.push(entity),
@@ -10646,6 +10850,7 @@ pub(crate) fn restore_sketch(
             }
         }
     }
+
     let (texts, readable): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Text(_)));
@@ -10661,12 +10866,14 @@ pub(crate) fn restore_sketch(
     let (points, others): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Point(_)));
+
     for record in points.into_iter().chain(others) {
         let Some(entity) = restore_entity(&record.kind) else {
             continue;
         };
         let label = format!("{} {}", entity.kind_name(), record.id);
         let id = EntityId::from_raw(record.id);
+
         if let Err(error) = sketch.insert_entity(id, entity) {
             issues.push(format!(
                 "In “{feature}”, {label} was left out because {error}."
@@ -10746,6 +10953,7 @@ fn restore_sketch_gear(
             fallback
         })
     };
+
     let gear = Gear {
         centre: EntityId::from_raw(record.centre),
         module: value(
@@ -10814,6 +11022,7 @@ fn restore_sketch_sprocket(
             fallback
         })
     };
+
     let gear = Gear::sprocket(
         EntityId::from_raw(record.centre),
         chain,
@@ -10853,6 +11062,7 @@ fn restore_sketch_meshed_gear(
             fallback
         })
     };
+
     let gear = Gear::meshed(
         EntityId::from_raw(record.centre),
         EntityId::from_raw(record.driver),
@@ -10900,6 +11110,7 @@ fn restore_sketch_text(
         ));
         Expression::Measure(0.0, Unit::Degree)
     });
+
     let text = Text {
         anchor: EntityId::from_raw(record.anchor),
         content: record.content.clone(),
@@ -11184,6 +11395,7 @@ fn constraint_from_record(
             diameter,
         } => {
             let (from, to) = (entity(*from), entity(*to));
+
             let value = value(text, DrawnValue::Distance { from, to })?;
             if *diameter {
                 Constraint::AxisDiameter {
@@ -11202,6 +11414,7 @@ fn constraint_from_record(
             value: text,
         } => {
             let (from, to, reversed) = (entity(*from), entity(*to), *reversed);
+
             let value = value(text, DrawnValue::Angle { from, to, reversed })?;
             Constraint::Angle {
                 from,
@@ -11281,6 +11494,7 @@ fn constraint_from_record(
             value: text,
         } => {
             let (from, to) = (entity(*from), entity(*to));
+
             let value = value(text, DrawnValue::HorizontalDistance { from, to })?;
             Constraint::HorizontalDistance { from, to, value }
         }
@@ -11290,6 +11504,7 @@ fn constraint_from_record(
             value: text,
         } => {
             let (from, to) = (entity(*from), entity(*to));
+
             let value = value(text, DrawnValue::VerticalDistance { from, to })?;
             Constraint::VerticalDistance { from, to, value }
         }
@@ -11381,7 +11596,7 @@ fn diameter_of_radius(radius: Expression) -> Expression {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DrawnValue {
     Distance {
         from: EntityId,
@@ -11500,6 +11715,7 @@ fn restore_dimension(
     if let Ok(value) = Expression::parse_stored(text) {
         return Some(value);
     }
+
     let noun = kind.noun();
     let Some(drawn) = kind.measure(sketch) else {
         issues.push(format!(
@@ -11507,11 +11723,13 @@ fn restore_dimension(
         ));
         return None;
     };
+
     issues.push(format!(
         "In “{feature}”, the value of {noun} could not be read, so it was set to its {}, \
          {drawn}.",
         kind.drawn_name()
     ));
+
     let unit = match kind {
         DrawnValue::Rho(_) => return Some(Expression::Number(drawn.value)),
         DrawnValue::Angle { .. } => Unit::Degree,

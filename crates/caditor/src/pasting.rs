@@ -26,7 +26,7 @@ pub const NOT_PASTING: &str = "Nothing is being pasted";
 pub const STOPPED: &str = "Stopped pasting. Nothing was added.";
 const CRASHED: &str = "Nothing was pasted: finding the faces and edges the copies pick failed \
                        unexpectedly. Your model is safe.";
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PasteStartError {
     #[error("{}", STILL_PASTING)]
     StillPasting,
@@ -37,7 +37,7 @@ pub enum PasteStartError {
 #[cfg(test)]
 const PATIENCE: Duration = Duration::from_secs(60);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PasteRequest {
     pub features: Vec<Feature>,
     pub parameters: CarriedParameters,
@@ -45,7 +45,7 @@ pub struct PasteRequest {
     pub notes: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Planned {
     Paste {
         transaction: Transaction,
@@ -61,13 +61,13 @@ pub enum PasteFinished {
     Cancelled,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PastedFeatures {
     pub serial: u64,
     pub features: Vec<FeatureId>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PasteProgress {
     pub features: usize,
     pub found: usize,
@@ -126,11 +126,13 @@ impl Pastes {
         if self.running.is_some() {
             return Err(PasteStartError::StillPasting);
         }
+
         let request = Arc::new(request);
         let cancelled = Arc::new(AtomicBool::new(false));
         let found = Arc::new(AtomicUsize::new(0));
         let total = Arc::new(AtomicUsize::new(0));
         let (sender, outcome) = mpsc::channel();
+
         let job = Job {
             document: target.document.clone(),
             request: Arc::clone(&request),
@@ -167,6 +169,7 @@ impl Pastes {
                 .map(|_| ())
                 .map_err(|error| error.to_string()),
         };
+
         if let Err(error) = queued {
             log::warn!("could not start pasting: {error}");
             return Err(PasteStartError::Crashed);
@@ -187,6 +190,7 @@ impl Pastes {
         if self.held {
             return None;
         }
+
         let outcome = match self.running.as_ref()?.outcome.try_recv() {
             Ok(outcome) => outcome,
             Err(TryRecvError::Disconnected) => Outcome::Crashed,
@@ -228,6 +232,7 @@ impl Pastes {
         let Some(running) = self.running.take() else {
             return false;
         };
+
         running.cancelled.store(true, Ordering::Relaxed);
         true
     }
@@ -255,6 +260,7 @@ impl Job {
     ) -> Outcome {
         let cancelled = Arc::clone(&self.cancelled);
         let interrupted = superseded.clone();
+
         let cancel = CancelToken::new(move || {
             cancelled.load(Ordering::Relaxed) || interrupted.is_cancelled()
         });
@@ -262,6 +268,7 @@ impl Job {
             self.found.store(found, Ordering::Relaxed);
             self.total.store(total, Ordering::Relaxed);
         };
+
         let planned = self.document.paste_features_finding_picks(
             &self.request.features,
             &self.request.parameters,
@@ -295,6 +302,7 @@ pub fn planned(result: Result<FeaturePaste, PasteError>, notes: &[String]) -> Pl
         }
         Err(PasteError::NothingPasted { left_out }) => {
             let mut parts = vec!["Nothing was pasted.".to_owned()];
+
             parts.extend(left_out.iter().map(left_out_sentence));
             parts.extend(notes.iter().cloned());
             Planned::Refused(Notice::warning(parts.join(" ")))
@@ -305,6 +313,7 @@ pub fn planned(result: Result<FeaturePaste, PasteError>, notes: &[String]) -> Pl
 
 pub fn progress_text(progress: PasteProgress) -> String {
     let pasting = count(progress.features, "feature", "features");
+
     if progress.total == 0 {
         return format!("Pasting {pasting}…");
     }
@@ -324,8 +333,10 @@ fn left_out_sentence(left_out: &LeftOut) -> String {
 
 fn paste_note(paste: &FeaturePaste, notes: &[String]) -> Option<String> {
     let mut parts: Vec<String> = paste.left_out.iter().map(left_out_sentence).collect();
+
     if paste.inlined > 0 {
         let one = paste.inlined == 1;
+
         parts.push(format!(
             "{} written as {}, since this model has no parameter of {} name.",
             count(paste.inlined, "value", "values"),
@@ -337,6 +348,7 @@ fn paste_note(paste: &FeaturePaste, notes: &[String]) -> Option<String> {
     if parts.is_empty() {
         return None;
     }
+
     let pasted = count(paste.pasted.len(), "feature", "features");
     Some(format!("Pasted {pasted}. {}", parts.join(" ")))
 }

@@ -20,7 +20,7 @@ use crate::{
 pub const TITLE: &str = "Rib";
 pub const DEFAULT_THICKNESS: f64 = 2.0;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum RibError {
     #[error("Make a body first, then add a rib or web to it")]
     NoBody,
@@ -54,7 +54,7 @@ impl Reason for RibError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RibStart {
     pub sketch: FeatureId,
     pub body: FeatureId,
@@ -117,8 +117,10 @@ fn selected_sketch(
                 .is_some_and(|feature| matches!(feature.kind, FeatureKind::Sketch(_)))
         }))
         .collect();
+
     sketches.sort_unstable();
     sketches.dedup();
+
     let [sketch] = sketches.as_slice() else {
         return if sketches.is_empty() {
             Ok(None)
@@ -126,6 +128,7 @@ fn selected_sketch(
             Err(RibError::SeveralSketches)
         };
     };
+
     if document
         .feature_index(*sketch)
         .is_none_or(|index| index >= before)
@@ -151,11 +154,13 @@ fn chosen_body(
     } else {
         tree.to_vec()
     };
+
     match picked.as_slice() {
         [body] if standing.contains(body) => return Ok(*body),
         [_, _, ..] => return Err(RibError::SeveralBodies),
         [_] | [] => {}
     }
+
     let attached = document
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
@@ -172,6 +177,7 @@ pub fn source(
     (tree, rows): (&[FeatureId], &[FeatureId]),
 ) -> Result<RibStart, RibError> {
     let before = model.document().bar_index();
+
     if model
         .document()
         .bodies_standing_in(model.evaluation())
@@ -179,6 +185,7 @@ pub fn source(
     {
         return Err(RibError::NoBody);
     }
+
     let sketch = match selected_sketch(model, selection, rows, before)? {
         Some(sketch) => sketch,
         None => guess(model, before).ok_or(RibError::NoSketch)?,
@@ -222,6 +229,7 @@ pub fn create(
     );
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(name, FeatureKind::Rib(rib));
     (transaction.finish(), feature)
 }

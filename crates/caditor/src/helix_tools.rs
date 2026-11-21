@@ -23,7 +23,7 @@ pub const TITLE: &str = "Helix";
 pub const SPIRAL_TITLE: &str = "Spiral";
 const POINTS_PER_TURN: usize = 64;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum HelixError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -71,16 +71,19 @@ pub fn create(
         )
     };
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(name, FeatureKind::Helix(helix));
     (transaction.finish(), feature)
 }
 
 pub fn create_actions(model: &Model, start: &CoilStart, kind: HelixKind) -> Vec<Action> {
     let (transaction, feature) = create(model.document(), start, model.length_unit(), kind);
+
     let mut actions = vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
     ];
+
     if start.axis.is_none() {
         actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
             feature,
@@ -128,6 +131,7 @@ pub fn axis_change(
     let axis = datum_tools::only_axis(model, selection, index)
         .map_err(HelixError::AxisSelection)?
         .ok_or(HelixError::NoAxis)?;
+
     if axis == helix.axis {
         return Err(HelixError::AlreadyAround);
     }
@@ -154,6 +158,7 @@ pub fn start_point_change(
     let point = datum_tools::only_point(model, selection, index)
         .map_err(HelixError::PointSelection)?
         .ok_or(HelixError::NoStartPoint)?;
+
     if helix.start_point.as_ref() == Some(&point) {
         return Err(HelixError::AlreadyStartsThere);
     }
@@ -233,6 +238,7 @@ pub fn with_pitch_row_added(model: &Model, helix: &Helix) -> Helix {
     let after = last
         .and_then(|row| number(model, &row.turns))
         .unwrap_or(0.0);
+
     let row = PitchRow::new(
         Expression::number((0.5 * (after + turns.max(after)) * 100.0).round() / 100.0),
         last.map_or_else(
@@ -241,6 +247,7 @@ pub fn with_pitch_row_added(model: &Model, helix: &Helix) -> Helix {
         ),
     );
     let mut pitch_table = helix.pitch_table.clone();
+
     pitch_table.push(row);
     Helix {
         pitch_table,
@@ -250,6 +257,7 @@ pub fn with_pitch_row_added(model: &Model, helix: &Helix) -> Helix {
 
 pub fn with_last_pitch_row_removed(helix: &Helix) -> Helix {
     let mut pitch_table = helix.pitch_table.clone();
+
     pitch_table.pop();
     Helix {
         pitch_table,
@@ -259,6 +267,7 @@ pub fn with_last_pitch_row_removed(helix: &Helix) -> Helix {
 
 pub fn with_pitch_row(helix: &Helix, index: usize, turns: bool, value: Expression) -> Helix {
     let mut pitch_table = helix.pitch_table.clone();
+
     if let Some(row) = pitch_table.get_mut(index) {
         if turns {
             row.turns = value;
@@ -348,6 +357,7 @@ fn spiral_span(model: &Model, helix: &Helix) -> CoilSpan {
     let length = &helix.length;
     let plan = evaluated_plan(model, helix).unwrap_or_default();
     let inner = value(model, Some(&helix.diameter), Dimension::LENGTH).unwrap_or(DEFAULT_DIAMETER);
+
     let width = value(model, length.height(), Dimension::LENGTH)
         .map(|outer| 0.5 * (outer - inner))
         .filter(|width| *width > 0.0);
@@ -359,6 +369,7 @@ fn spiral_span(model: &Model, helix: &Helix) -> CoilSpan {
         (_, Some(pitch), Some(turns)) => (pitch, turns),
         _ => (DEFAULT_PITCH, DEFAULT_TURNS),
     };
+
     let (pitch, turns) = if pitch.is_finite() && pitch > 0.0 && turns.is_finite() && turns > 0.0 {
         (pitch, turns)
     } else {
@@ -400,9 +411,11 @@ pub fn points(evaluation: &Evaluation, feature: FeatureId) -> Vec<Point3> {
         return Vec::new();
     };
     let mut points = Vec::with_capacity(result.turns.len() * POINTS_PER_TURN + 1);
+
     for (index, turn) in result.turns.iter().enumerate() {
         let range = turn.range();
         let first = usize::from(index > 0);
+
         points.extend((first..=POINTS_PER_TURN).map(|step| {
             turn.curve()
                 .point(range.at(step as f64 / POINTS_PER_TURN as f64))

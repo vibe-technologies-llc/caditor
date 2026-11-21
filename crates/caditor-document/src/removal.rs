@@ -6,7 +6,7 @@ use crate::{
     solid::SolidResult,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Remove {
     pub body: FeatureId,
 }

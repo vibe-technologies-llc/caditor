@@ -127,6 +127,7 @@ fn derivatives_match_finite_differences() {
             let close = |numeric: Vector3, analytic: Vector3| {
                 (numeric - analytic).length() < 1e-5 * (1.0 + analytic.length())
             };
+
             assert!(
                 close((u_ahead.point - u_behind.point) / (2.0 * step), exact.du),
                 "{surface:?}"
@@ -163,6 +164,7 @@ fn normals_follow_the_parametrization() {
             let uv = interior_uv(&surface, &mut random);
             let parametric = surface.evaluate(uv.x, uv.y).normal().unwrap();
             let normal = surface.normal(uv.x, uv.y).unwrap();
+
             assert!((normal - parametric).length() < 1e-9, "{surface:?} at {uv}");
         }
     }
@@ -176,6 +178,7 @@ fn projection_round_trips_points_on_and_near_the_surface() {
             let uv = interior_uv(&surface, &mut random);
             let point = surface.point_at(uv);
             let found = surface.project(point, None);
+
             assert!(
                 surface.point_at(found).distance(point) < 1e-9,
                 "{surface:?} at {uv}"
@@ -184,6 +187,7 @@ fn projection_round_trips_points_on_and_near_the_surface() {
             let normal = surface.normal(uv.x, uv.y).unwrap();
             let lifted = point + normal * 0.05;
             let found = surface.project(lifted, Some(uv));
+
             assert!(
                 surface.point_at(found).distance(point) < 1e-7,
                 "{surface:?} at {uv}: {found}"
@@ -204,12 +208,16 @@ fn projection_picks_the_periodic_branch_nearest_the_hint() {
             let uv = interior_uv(&surface, &mut random);
             let point = surface.point_at(uv);
             let shifted = Point2::new(uv.x + u_period, uv.y + v_period.unwrap_or(0.0));
+
             let found = surface.project(point, Some(shifted + Point2::splat(0.1)));
+
             assert!(
                 (found - shifted).length() < 1e-7,
                 "{surface:?}: {found} vs {shifted}"
             );
+
             let principal = surface.project(point, None);
+
             assert!((0.0..u_period).contains(&principal.x));
         }
     }
@@ -221,31 +229,41 @@ fn poles_sit_where_the_u_derivative_vanishes() {
         for pole in surface.poles() {
             for u in [0.0, 1.0, 4.0] {
                 let at = surface.evaluate(u, pole.v);
+
                 assert!(at.point.distance(pole.point) < 1e-9);
                 assert!(at.du.length() < 1e-9);
                 assert!(surface.pole_at(Point2::new(u, pole.v)).is_some());
             }
         }
     }
+
     let sphere = Surface::from(Sphere::new(Plane::XY, 2.0).unwrap());
+
     assert_eq!(sphere.poles().len(), 2);
+
     let north = sphere.project(Point3::new(0.0, 0.0, 5.0), Some(Point2::new(1.25, 0.0)));
+
     assert_eq!(north, Point2::new(1.25, FRAC_PI_2));
     assert!(sphere.normal(3.0, FRAC_PI_2).unwrap().distance(Vector3::Z) < 1e-15);
 
     let cone = Surface::from(Cone::new(Plane::XY, 2.0, 0.5).unwrap());
     let apex = cone.poles()[0];
+
     assert!(
         apex.point
             .distance(Point3::new(0.0, 0.0, -2.0 / 0.5f64.tan_libm()))
             < 1e-12
     );
+
     let below = cone.project(Point3::new(0.1, 0.0, -20.0), Some(Point2::new(2.0, 0.0)));
+
     assert_eq!(below, Point2::new(2.0, apex.v));
     assert!(cone.normal(1.0, apex.v).is_some());
 
     let dome = Surface::from(Revolution::new(dome_profile(), Point3::ZERO, Vector3::Z).unwrap());
+
     assert!(dome.poles().is_empty());
+
     let capped = Revolution::new(
         BSpline::clamped_uniform(
             1,
@@ -263,6 +281,7 @@ fn poles_sit_where_the_u_derivative_vanishes() {
     .unwrap();
     let capped = Surface::from(capped);
     let poles = capped.poles();
+
     assert_eq!(poles.len(), 1);
     assert_eq!(poles[0].v, 0.0);
     assert!(capped.normal(0.3, 0.0).unwrap().distance(Vector3::NEG_Z) < 1e-6);
@@ -285,6 +304,7 @@ fn transforms_move_every_point() {
         for _ in 0..10 {
             let uv = interior_uv(&surface, &mut random);
             let expected = transform.apply_point(surface.point_at(uv));
+
             assert!(moved.point_at(uv).distance(expected) < 1e-9, "{surface:?}");
         }
     }
@@ -301,7 +321,9 @@ fn every_surface_is_the_same_as_itself_and_its_transformed_copy_is_not() {
             Some(Sense::Same),
             "{surface:?}"
         );
+
         let moved = surface.transformed(&shift).unwrap();
+
         assert_eq!(surface.same_surface(&moved), None, "{surface:?}");
     }
 }
@@ -311,18 +333,23 @@ fn planes_match_regardless_of_frame_and_report_flipped_normals() {
     let base = Surface::from(PlaneSurface::new(tilted()).unwrap());
     let origin = tilted().to_world(Point2::new(7.0, -3.0));
     let turned = Plane::with_x_axis(origin, tilted().normal(), tilted().y_axis()).unwrap();
+
     assert_eq!(
         base.same_surface(&PlaneSurface::new(turned).unwrap().into()),
         Some(Sense::Same)
     );
+
     let flipped = PlaneSurface::new(turned.flipped()).unwrap();
+
     assert_eq!(base.same_surface(&flipped.into()), Some(Sense::Reversed));
+
     let parallel = Plane::from_frame(
         origin + tilted().normal() * 0.01,
         tilted().normal(),
         tilted().x_axis(),
     )
     .unwrap();
+
     assert_eq!(
         base.same_surface(&PlaneSurface::new(parallel).unwrap().into()),
         None
@@ -339,11 +366,16 @@ fn cylinders_match_with_different_seams_and_axis_directions() {
     )
     .unwrap();
     let other = Surface::from(Cylinder::new(reseamed, 3.0).unwrap());
+
     assert_eq!(base.same_surface(&other), Some(Sense::Same));
     assert_eq!(other.same_surface(&base), Some(Sense::Same));
+
     let wider = Surface::from(Cylinder::new(reseamed, 3.1).unwrap());
+
     assert_eq!(base.same_surface(&wider), None);
+
     let beside = Plane::from_frame(Point3::new(0.1, 0.0, 0.0), Vector3::Z, Vector3::X).unwrap();
+
     assert_eq!(
         base.same_surface(&Cylinder::new(beside, 3.0).unwrap().into()),
         None
@@ -356,9 +388,13 @@ fn cylinders_match_with_different_seams_and_axis_directions() {
     .unwrap()
     .into();
     let outward = Extrusion::new(circle.clone(), Vector3::Z).unwrap();
+
     assert_eq!(base.same_surface(&outward.into()), Some(Sense::Same));
+
     let inward = Extrusion::new(circle, Vector3::NEG_Z).unwrap();
+
     assert_eq!(base.same_surface(&inward.into()), Some(Sense::Reversed));
+
     let revolved_line = Revolution::new(
         Line::new(Point3::new(0.0, 3.0, 0.0), Vector3::Z)
             .unwrap()
@@ -367,6 +403,7 @@ fn cylinders_match_with_different_seams_and_axis_directions() {
         Vector3::Z,
     )
     .unwrap();
+
     assert_eq!(base.same_surface(&revolved_line.into()), Some(Sense::Same));
 }
 
@@ -375,11 +412,14 @@ fn spheres_cones_and_tori_match_by_shape_not_frame() {
     let frame = Plane::with_x_axis(Point3::new(1.0, 2.0, 3.0), Vector3::Y, Vector3::Z).unwrap();
     let flipped = Plane::with_x_axis(frame.origin(), Vector3::NEG_Y, Vector3::X).unwrap();
     let sphere = Surface::from(Sphere::new(frame, 2.0).unwrap());
+
     assert_eq!(
         sphere.same_surface(&Sphere::new(flipped, 2.0).unwrap().into()),
         Some(Sense::Same)
     );
+
     let torus = Surface::from(Torus::new(frame, 5.0, 1.0).unwrap());
+
     assert_eq!(
         torus.same_surface(&Torus::new(flipped, 5.0, 1.0).unwrap().into()),
         Some(Sense::Same)
@@ -394,8 +434,11 @@ fn spheres_cones_and_tori_match_by_shape_not_frame() {
     let from_apex = Plane::with_x_axis(apex, Vector3::NEG_Y, Vector3::X).unwrap();
     let opposite = Cone::new(from_apex, 0.0, -0.4).unwrap();
     let cone = Surface::from(cone);
+
     assert_eq!(cone.same_surface(&opposite.into()), Some(Sense::Same));
+
     let mirrored = Cone::new(from_apex, 0.0, 0.4).unwrap();
+
     assert_eq!(cone.same_surface(&mirrored.into()), None);
     assert_eq!(cone.same_surface(&sphere), None);
 }
@@ -407,10 +450,14 @@ fn swept_surfaces_match_shifted_and_reversed_copies() {
     let shifted_profile = extrusion_profile()
         .transformed(&RigidTransform::translation(direction * 2.5).unwrap())
         .unwrap();
+
     let shifted = Surface::from(Extrusion::new(shifted_profile, -direction).unwrap());
+
     assert_eq!(base.same_surface(&shifted), Some(Sense::Reversed));
+
     let reversed =
         Surface::from(Extrusion::new(extrusion_profile().reversed(), -direction).unwrap());
+
     assert_eq!(base.same_surface(&reversed), Some(Sense::Same));
 
     let revolved = Surface::from(
@@ -422,6 +469,7 @@ fn swept_surfaces_match_shifted_and_reversed_copies() {
     let turned = Surface::from(
         Revolution::new(turned_profile, Point3::new(0.0, 0.0, -4.0), Vector3::NEG_Z).unwrap(),
     );
+
     assert_eq!(revolved.same_surface(&turned), Some(Sense::Reversed));
 }
 
@@ -429,8 +477,11 @@ fn swept_surfaces_match_shifted_and_reversed_copies() {
 fn projecting_a_non_finite_point_stays_finite() {
     for surface in surfaces() {
         let found = surface.project(Point3::new(f64::NAN, 0.0, 1.0), None);
+
         assert!(found.is_finite(), "{surface:?}");
+
         let hint = Point2::new(0.5, 0.25);
+
         assert_eq!(
             surface.project(Point3::splat(f64::INFINITY), Some(hint)),
             hint
@@ -475,7 +526,9 @@ fn constructors_reject_degenerate_surfaces() {
         Sphere::new(Plane::XY, f64::NAN),
         Err(GeometryError::NonFinite)
     ));
+
     let vertical = Curve::from(Line::new(Point3::ZERO, Vector3::Z).unwrap());
+
     assert_eq!(
         Extrusion::new(vertical.clone(), Vector3::Z),
         Err(GeometryError::DegenerateSurface)
@@ -488,25 +541,33 @@ fn constructors_reject_degenerate_surfaces() {
         Revolution::new(profile_spline(), Point3::ZERO, Vector3::ZERO),
         Err(GeometryError::ZeroDirection)
     );
+
     let skew =
         Curve::from(Line::new(Point3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 1.0)).unwrap());
+
     assert_eq!(
         Revolution::new(skew, Point3::ZERO, Vector3::Z),
         Err(GeometryError::ProfileOutsideMeridian)
     );
+
     let flat_ring = Curve::from(Circle::new(Plane::XY, 3.0).unwrap());
+
     assert_eq!(
         Revolution::new(flat_ring, Point3::ZERO, Vector3::Z),
         Err(GeometryError::ProfileOutsideMeridian)
     );
+
     let straddling = Curve::from(Circle::new(Plane::XZ, 1.0).unwrap());
+
     assert!(Revolution::new(straddling, Point3::new(-5.0, 0.0, 0.0), Vector3::Z).is_ok());
+
     let _ = PI;
 }
 
 #[test]
 fn a_line_extruded_almost_along_itself_is_refused_and_a_steep_one_projects_exactly() {
     let along = Line::new(Point3::ZERO, Vector3::new(1e-8, 0.0, 1.0)).unwrap();
+
     assert_eq!(
         Extrusion::new(along.into(), Vector3::Z),
         Err(GeometryError::DegenerateSurface)
@@ -518,6 +579,7 @@ fn a_line_extruded_almost_along_itself_is_refused_and_a_steep_one_projects_exact
         let point = surface.evaluate(u, v).point;
         let found = surface.project(point, None);
         let back = surface.evaluate(found.x, found.y).point;
+
         assert!(back.distance(point) < 1e-9, "{u} {v}: {found:?}");
         assert!(
             (found.x - u).abs() < 1e-6 * (1.0 + u.abs()),
@@ -539,6 +601,7 @@ fn a_pole_far_from_the_origin_keeps_the_hints_angle() {
         (&cone, cone.pole_slots()[0].unwrap().point),
     ] {
         let found = surface.project(pole, Some(hint));
+
         assert_eq!(found.x, hint.x, "{found:?}");
         assert!(surface.pole_at(found).is_some());
     }
@@ -549,6 +612,7 @@ fn a_revolution_profile_outside_a_plane_through_its_axis_is_refused() {
     let skew: Curve = Line::new(Point3::new(3.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 1.0))
         .unwrap()
         .into();
+
     assert_eq!(
         Revolution::new(skew, Point3::ZERO, Vector3::Z),
         Err(GeometryError::ProfileOutsideMeridian)
@@ -557,6 +621,7 @@ fn a_revolution_profile_outside_a_plane_through_its_axis_is_refused() {
     let meridian: Curve = Line::new(Point3::new(3.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 1.0))
         .unwrap()
         .into();
+
     assert!(Revolution::new(meridian, Point3::ZERO, Vector3::Z).is_ok());
 }
 
@@ -605,6 +670,7 @@ fn projection_onto_a_profile_of_many_spans_finds_the_nearest_foot() {
             surface.u_domain().clipped(3.0),
             surface.v_domain().clipped(3.0),
         );
+
         let samples: Vec<Point3> = v_range
             .split(120)
             .flat_map(|v| u_range.split(2400).map(move |u| Point2::new(u, v)))
@@ -638,6 +704,7 @@ fn projection_leaves_a_corner_where_the_surface_curves_back_from_the_point() {
         Point3::new(1.92, 0.0, 1.8),
     ];
     let lifted = rail.map(|point| point + Vector3::new(0.0, 0.6, 0.0));
+
     let spline = BSplineSurface::new(
         3,
         1,
@@ -650,6 +717,7 @@ fn projection_leaves_a_corner_where_the_surface_curves_back_from_the_point() {
     .unwrap();
     let surface = Surface::from(spline);
     let foot = Point2::new(0.9375, 0.0);
+
     let point = surface.point_at(foot);
 
     let found = [None, Some(Point2::new(1.0, 0.0))].map(|hint| surface.project(point, hint));
@@ -666,6 +734,7 @@ fn a_point_just_beyond_the_side_of_a_strip_of_many_turns_projects_onto_its_own_t
     let spans = 4 * turns;
     let pitch = 0.5;
     let corner_weight = FRAC_PI_4.cos_libm();
+
     let at = |radius: f64, half_steps: usize| {
         let angle = FRAC_PI_4 * half_steps as f64;
         let stretch = if half_steps % 2 == 1 {
@@ -681,16 +750,19 @@ fn a_point_just_beyond_the_side_of_a_strip_of_many_turns_projects_onto_its_own_t
     };
     let count = 2 * spans + 1;
     let mut v_knots = vec![0.0; 3];
+
     for span in 1..spans {
         v_knots.extend([span as f64; 2]);
     }
     v_knots.extend([spans as f64; 3]);
+
     let control_points: Vec<Point3> = (0..count)
         .flat_map(|index| [at(1.0, index), at(2.0, index)])
         .collect();
     let weights: Vec<f64> = (0..count)
         .flat_map(|index| [if index % 2 == 1 { corner_weight } else { 1.0 }; 2])
         .collect();
+
     let surface = Surface::from(
         BSplineSurface::new(
             1,
@@ -712,6 +784,7 @@ fn a_point_just_beyond_the_side_of_a_strip_of_many_turns_projects_onto_its_own_t
             let side = surface.point_at(foot);
             let radial = Vector3::new(side.x, side.y, 0.0).normalize();
             let outward = if u == 0.0 { -radial } else { radial };
+
             let point = side + outward * beyond;
             let found = surface.point_at(surface.project(point, None));
             (foot.y, found.distance(point))

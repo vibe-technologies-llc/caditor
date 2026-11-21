@@ -158,10 +158,13 @@ impl Assistant {
         let (events_tx, events_rx) = mpsc::channel();
         let (bridge_tx, bridge_rx) = mpsc::channel();
         let mut keys = BTreeMap::new();
+
         for provider in ApiProvider::ALL {
             keys.insert(provider, (ApiKey::default(), KeySource::Missing));
         }
+
         let mut clis = BTreeMap::new();
+
         for tool in CliTool::ALL {
             clis.insert(tool, CliState::Checking);
         }
@@ -292,6 +295,7 @@ impl Assistant {
             && !self.entries.is_empty()
         {
             let id = self.alloc_entry_id();
+
             self.entries.push(ChatEntry {
                 id,
                 kind: EntryKind::Notice,
@@ -360,7 +364,9 @@ impl Assistant {
 
     pub fn poll_model(&mut self, model: &mut Model, actions: &mut VecDeque<Action>) {
         self.note_model_session(model);
+
         let mut drained = Vec::new();
+
         self.drain_events(&mut drained);
         actions.extend(drained);
         for outcome in model.take_save_outcomes() {
@@ -408,23 +414,27 @@ impl Assistant {
 
     fn alloc_entry_id(&mut self) -> u64 {
         let id = self.next_entry_id;
+
         self.next_entry_id = self.next_entry_id.saturating_add(1);
         id
     }
 
     fn start_loading_keys(&mut self) {
         self.keys_requested = true;
+
         let store = KeyStore::new(
             self.services.state_dir.as_deref(),
             Arc::clone(&self.services.keyring),
         );
         let tx = self.events_tx.clone();
         let wake = (self.services.make_waker)();
+
         let _ = thread::Builder::new()
             .name("assistant keys".to_owned())
             .spawn(move || {
                 let loaded = store.load_all();
                 let _ = tx.send(WorkerEvent::KeysLoaded(loaded));
+
                 wake();
             });
     }
@@ -436,6 +446,7 @@ impl Assistant {
         );
         let tx = self.events_tx.clone();
         let wake = (self.services.make_waker)();
+
         let _ = thread::Builder::new()
             .name("assistant save key".to_owned())
             .spawn(move || {
@@ -456,12 +467,14 @@ impl Assistant {
                         )
                     }
                 };
+
                 let _ = tx.send(WorkerEvent::KeyUpdated {
                     provider,
                     key: saved_key,
                     source,
                     notice,
                 });
+
                 wake();
             });
     }
@@ -473,6 +486,7 @@ impl Assistant {
         );
         let tx = self.events_tx.clone();
         let wake = (self.services.make_waker)();
+
         let _ = thread::Builder::new()
             .name("assistant clear key".to_owned())
             .spawn(move || {
@@ -485,12 +499,14 @@ impl Assistant {
                     ))),
                 };
                 let (key, source) = store.load(provider);
+
                 let _ = tx.send(WorkerEvent::KeyUpdated {
                     provider,
                     key,
                     source,
                     notice,
                 });
+
                 wake();
             });
     }
@@ -500,6 +516,7 @@ impl Assistant {
         for tool in CliTool::ALL {
             self.clis.insert(tool, CliState::Checking);
         }
+
         let cli = Arc::clone(&self.services.cli);
         let overrides = [
             (CliTool::ClaudeCode, prefs.claude_cli.clone()),
@@ -508,26 +525,33 @@ impl Assistant {
         ];
         let tx = self.events_tx.clone();
         let wake = (self.services.make_waker)();
+
         let _ = thread::Builder::new()
             .name("assistant cli discovery".to_owned())
             .spawn(move || {
                 let mut discovered = BTreeMap::new();
+
                 for (tool, custom) in overrides {
                     discovered.insert(tool, cli.discover(tool, &custom));
                 }
+
                 let _ = tx.send(WorkerEvent::ClisDiscovered(discovered));
+
                 wake();
             });
     }
 
     fn start_turn(&mut self, raw_prompt: String, prefs: &AssistantPreferences) {
         let prompt = raw_prompt.trim().to_owned();
+
         if prompt.is_empty() || self.is_busy() {
             return;
         }
         self.ensure_loaded(prefs);
         self.last_prompt = Some(prompt.clone());
+
         let user_id = self.alloc_entry_id();
+
         self.entries.push(ChatEntry {
             id: user_id,
             kind: EntryKind::User,
@@ -535,7 +559,9 @@ impl Assistant {
             tools: Vec::new(),
             failure: None,
         });
+
         let assistant_id = self.alloc_entry_id();
+
         self.entries.push(ChatEntry {
             id: assistant_id,
             kind: EntryKind::Assistant,
@@ -543,9 +569,13 @@ impl Assistant {
             tools: Vec::new(),
             failure: None,
         });
+
         let turn_id = self.next_turn_id;
+
         self.next_turn_id = self.next_turn_id.saturating_add(1);
+
         let cancel = Arc::new(AtomicBool::new(false));
+
         self.active_turn = Some(ActiveTurn {
             id: turn_id,
             entry_id: assistant_id,
@@ -570,7 +600,9 @@ impl Assistant {
                 let base_url =
                     (provider == ApiProvider::Custom).then(|| prefs.custom_base_url.clone());
                 let mut history = self.api_history.clone();
+
                 history.push(Message::User { text: prompt });
+
                 let transport = Arc::clone(&self.services.transport);
                 let spawned = thread::Builder::new()
                     .name("assistant turn".to_owned())
@@ -601,6 +633,7 @@ impl Assistant {
                 let discovered = self.clis.get(&tool).cloned();
                 let session_id = self.cli_sessions.get(&tool).cloned();
                 let state_dir = self.services.state_dir.clone();
+
                 let spawned = thread::Builder::new()
                     .name("assistant cli turn".to_owned())
                     .spawn(move || {
@@ -660,6 +693,7 @@ impl Assistant {
                     let Some(active) = &self.active_turn else {
                         continue;
                     };
+
                     if active.id != turn_id {
                         continue;
                     }
@@ -676,9 +710,11 @@ impl Assistant {
                     let Some(active) = &self.active_turn else {
                         continue;
                     };
+
                     if active.id != turn_id {
                         continue;
                     }
+
                     let entry = self
                         .entries
                         .iter_mut()
@@ -754,10 +790,13 @@ impl Assistant {
                     let Some(active) = &self.active_turn else {
                         continue;
                     };
+
                     if active.id != turn_id {
                         continue;
                     }
+
                     let entry_id = active.entry_id;
+
                     self.active_turn = None;
                     self.status = AssistantStatus::Idle;
                     if !history.is_empty() {
@@ -791,10 +830,12 @@ impl Assistant {
                 } => {
                     if model.session() != expected_session {
                         let _ = reply.send(CommitOutcome::ModelChanged);
+
                         continue;
                     }
                     if model.revision() != expected_revision {
                         let _ = reply.send(CommitOutcome::Stale);
+
                         continue;
                     }
                     for change in changes {
@@ -806,6 +847,7 @@ impl Assistant {
                             Change::Redo => actions.push_back(Action::Redo),
                         }
                     }
+
                     let _ = reply.send(CommitOutcome::Applied);
                 }
                 BridgeRequest::Save {
@@ -815,15 +857,19 @@ impl Assistant {
                 } => {
                     if model.session() != expected_session {
                         let _ = reply.send(Err(SaveFailure::WriterStopped));
+
                         continue;
                     }
+
                     let target = match path.or_else(|| model.path().map(PathBuf::from)) {
                         Some(target) => target,
                         None => {
                             let _ = reply.send(Err(SaveFailure::NoFilePath));
+
                             continue;
                         }
                     };
+
                     model.save_to(target.clone());
                     self.pending_save = Some(PendingSave { reply, target });
                 }
@@ -835,6 +881,7 @@ impl Assistant {
         if matches!(model.status(), RecomputeStatus::Running { .. }) {
             return;
         }
+
         let Some(reply) = self.pending_snapshot.take() else {
             return;
         };
@@ -849,6 +896,7 @@ impl Assistant {
             is_unsaved: model.is_dirty(),
             load_issues: Vec::new(),
         };
+
         let _ = reply.send(snapshot);
     }
 }
@@ -887,6 +935,7 @@ fn run_api_turn(params: ApiTurnParams<'_>) {
     } = params;
     let (exec_tx, exec_rx) = mpsc::channel();
     let forward_tx = tx.clone();
+
     let forwarder = thread::Builder::new()
         .name("assistant events".to_owned())
         .spawn(move || {
@@ -912,6 +961,7 @@ fn run_api_turn(params: ApiTurnParams<'_>) {
             if cancel.load(Ordering::Acquire) {
                 return Err(AssistantFailure::Api(caditor_ai::AiError::Cancelled));
             }
+
             let turn = stream_turn(
                 &*transport,
                 &config,
@@ -921,11 +971,13 @@ fn run_api_turn(params: ApiTurnParams<'_>) {
                 &mut |event| {
                     if let StreamEvent::TextDelta(chunk) = event {
                         let _ = tx.send(WorkerEvent::TextDelta { turn_id, chunk });
+
                         wake_worker();
                     }
                 },
             )?;
             let calls = turn.tool_calls.clone();
+
             history.push(Message::Assistant {
                 text: turn.text,
                 tool_calls: turn.tool_calls,
@@ -933,13 +985,17 @@ fn run_api_turn(params: ApiTurnParams<'_>) {
             if calls.is_empty() {
                 return Ok(());
             }
+
             let mut results = Vec::with_capacity(calls.len());
+
             for call in calls {
                 if cancel.load(Ordering::Acquire) {
                     return Err(AssistantFailure::Api(caditor_ai::AiError::Cancelled));
                 }
+
                 let result =
                     executor.execute_for_api(&call.id, &call.name, call.arguments, &cancel);
+
                 results.push(result);
             }
             history.push(Message::ToolResults(results));
@@ -963,6 +1019,7 @@ fn run_api_turn(params: ApiTurnParams<'_>) {
         cli_session: None,
         failure,
     });
+
     wake_worker();
 }
 
@@ -1000,6 +1057,7 @@ fn run_cli_turn(params: CliWorkerParams<'_>) {
         wake_exec,
         wake_worker,
     } = params;
+
     let binary = match discovered {
         Some(CliState::Found(path)) => path,
         _ => match cli.discover(tool, &override_path) {
@@ -1014,6 +1072,7 @@ fn run_cli_turn(params: CliWorkerParams<'_>) {
                         binary: expected,
                     }),
                 });
+
                 wake_worker();
                 return;
             }
@@ -1027,6 +1086,7 @@ fn run_cli_turn(params: CliWorkerParams<'_>) {
                         binary: tool.default_binary().to_owned(),
                     }),
                 });
+
                 wake_worker();
                 return;
             }
@@ -1035,6 +1095,7 @@ fn run_cli_turn(params: CliWorkerParams<'_>) {
 
     let (exec_tx, exec_rx) = mpsc::channel();
     let forward_tx = tx.clone();
+
     let forwarder = thread::Builder::new()
         .name("assistant cli events".to_owned())
         .spawn(move || {
@@ -1052,12 +1113,14 @@ fn run_cli_turn(params: CliWorkerParams<'_>) {
             if let Some(handle) = forwarder {
                 let _ = handle.join();
             }
+
             let _ = tx.send(WorkerEvent::TurnFinished {
                 turn_id,
                 history: Vec::new(),
                 cli_session: None,
                 failure: Some(failure),
             });
+
             wake_worker();
             return;
         }
@@ -1077,9 +1140,11 @@ fn run_cli_turn(params: CliWorkerParams<'_>) {
     let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
         cli.run_turn(&request, &cancel, &mut |chunk| {
             let _ = tx.send(WorkerEvent::TextDelta { turn_id, chunk });
+
             wake_worker();
         })
     }));
+
     bridge.shutdown();
     drop(executor);
     if let Some(handle) = forwarder {
@@ -1091,11 +1156,13 @@ fn run_cli_turn(params: CliWorkerParams<'_>) {
         Ok(Err(error)) => (None, Some(error)),
         Err(_) => (None, Some(AssistantFailure::WorkerPanicked)),
     };
+
     let _ = tx.send(WorkerEvent::TurnFinished {
         turn_id,
         history: Vec::new(),
         cli_session: next_session,
         failure,
     });
+
     wake_worker();
 }

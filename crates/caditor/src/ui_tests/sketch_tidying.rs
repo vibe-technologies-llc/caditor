@@ -37,9 +37,13 @@ fn found(harness: &mut Harness) {
 fn relations_the_drawing_shows_are_listed_then_added_as_one_undoable_change() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     loose_rectangle(&mut sketch);
+
     let feature = edit_free_sketch(&mut harness, sketch);
+
     harness.settle();
+
     let before = harness.sketch(feature).clone();
 
     run_from_palette(&mut harness, FIND_RELATIONS);
@@ -48,6 +52,7 @@ fn relations_the_drawing_shows_are_listed_then_added_as_one_undoable_change() {
     for (text, _) in &harness.texts {
         eprintln!("TEXT {text}");
     }
+
     assert_eq!(harness.workspace.tidying.task, Task::Relations);
     assert!(harness.shows_containing(tidy_panel::TITLE));
     assert!(harness.shows("Coincident ends (4)"));
@@ -59,6 +64,7 @@ fn relations_the_drawing_shows_are_listed_then_added_as_one_undoable_change() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 4);
     assert_eq!(constraints_of_kind(sketch, "Horizontal").len(), 2);
     assert_eq!(constraints_of_kind(sketch, "Vertical").len(), 2);
@@ -76,10 +82,12 @@ fn relations_the_drawing_shows_are_listed_then_added_as_one_undoable_change() {
     );
 
     found(&mut harness);
+
     assert!(harness.shows(tidy_panel::NO_RELATIONS));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
@@ -87,22 +95,29 @@ fn relations_the_drawing_shows_are_listed_then_added_as_one_undoable_change() {
 fn a_line_drawn_twice_is_named_by_the_check_and_its_fix_removes_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(5.0, 5.0), Point2::new(40.0, 5.0));
+
     let copy = sketch.add_line(Point2::new(10.0, 5.0), Point2::new(30.0, 5.0));
     let feature = edit_free_sketch(&mut harness, sketch);
+
     harness.settle();
 
     run_from_palette(&mut harness, CHECK);
     found(&mut harness);
 
     assert!(harness.shows_containing(&format!("Line {copy} lies on")));
+
     harness.click_button("Fix 1 flaw");
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(entities_of_kind(sketch, "Line").len(), 1);
     assert!(sketch.entity(copy).is_none());
+
     found(&mut harness);
+
     assert!(harness.shows(tidy_panel::NO_FLAWS));
 }
 
@@ -110,6 +125,7 @@ fn a_line_drawn_twice_is_named_by_the_check_and_its_fix_removes_it() {
 fn a_rectangle_dimensioned_from_its_selected_corner_becomes_fully_constrained() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let sides = loose_rectangle(&mut sketch);
     let related = sketch
         .inferred_relations(
@@ -119,13 +135,16 @@ fn a_rectangle_dimensioned_from_its_selected_corner_becomes_fully_constrained() 
             &|| false,
         )
         .unwrap();
+
     for constraint in related.constraints {
         sketch.add_constraint(constraint).unwrap();
     }
+
     let Some(&Entity::Line { start: corner, .. }) = sketch.entity(sides[0]) else {
         panic!("the side is a line");
     };
     let feature = edit_free_sketch(&mut harness, sketch);
+
     harness.settle();
 
     harness.select(entity_pickables(feature, &[corner]));
@@ -134,10 +153,12 @@ fn a_rectangle_dimensioned_from_its_selected_corner_becomes_fully_constrained() 
 
     assert_eq!(harness.workspace.tidying.datum, corner);
     assert!(harness.shows("Adding them leaves the sketch fully constrained."));
+
     harness.click_button("Add 4 dimensions");
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(
         sketch
             .constraints()

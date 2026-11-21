@@ -8,6 +8,7 @@ use crate::model::Action;
 fn a_circle_dragged_onto_a_corner_passes_through_it_and_keeps_it_there() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::ZERO, 10.0);
     let corner = sketch.add_point(Point2::new(30.0, 40.0));
     let feature = edit_free_sketch(&mut harness, sketch);
@@ -17,6 +18,7 @@ fn a_circle_dragged_onto_a_corner_passes_through_it_and_keeps_it_there() {
         Point2::new(10.0, 0.0),
         sketch_entity(feature, circle),
     );
+
     drag_in_sketch(&mut harness, grabbed, Point2::new(30.2, 40.1));
     harness.wait_until("the drag is committed", |harness| {
         matches!(
@@ -33,5 +35,6 @@ fn a_circle_dragged_onto_a_corner_passes_through_it_and_keeps_it_there() {
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(constraints_of_kind(harness.sketch(feature), "Coincident").is_empty());
 }

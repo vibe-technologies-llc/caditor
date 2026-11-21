@@ -19,7 +19,7 @@ use crate::{
     selection::{Pickable, Selection},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FaceChoice {
     pub body: FeatureId,
     pub face: FaceKey,
@@ -34,7 +34,7 @@ impl FaceChoice {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DatumTarget {
     Plane(FeatureId),
     Frame {
@@ -84,13 +84,14 @@ impl DatumTarget {
 
 pub fn selected_face(selection: &Selection) -> Option<FaceChoice> {
     let mut faces = selection.iter().filter_map(FaceChoice::of);
+
     let face = faces.next()?;
     faces.next().is_none().then_some(face)
 }
 
 pub const NOT_FLAT: &str = "The selected face is curved; sketches lie on planes and flat faces";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AttachmentError {
     #[error("{}", GONE)]
     Gone,
@@ -139,7 +140,7 @@ pub fn outward_direction(model: &Model, choice: FaceChoice) -> Option<Vector3> {
     face_plane(&shown.solid, face).map(|plane| plane.normal())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StateError {
     NotRecomputed,
     MadeAfter,
@@ -237,12 +238,15 @@ pub fn attachment_in(
     let body = bodies::shown(evaluation, choice.body).ok_or(AttachmentError::Gone)?;
     let face = bodies::find_face(body, choice.face).ok_or(AttachmentError::Gone)?;
     let shown = &body.solid;
+
     if face_plane(shown, face).is_none() {
         return Err(AttachmentError::NotFlat);
     }
+
     let reference = FaceReference::capture(shown, face).ok_or(AttachmentError::Gone)?;
     let state =
         body_state_in(document, evaluation, choice.body, index).map_err(StateError::face)?;
+
     let there = reference
         .resolve(state)
         .map_err(|_| AttachmentError::MadeAfter)?;
@@ -265,9 +269,11 @@ pub fn surface_in(
 ) -> Result<FaceAttachment, AttachmentError> {
     let body = bodies::shown(evaluation, choice.body).ok_or(AttachmentError::Gone)?;
     let face = bodies::find_face(body, choice.face).ok_or(AttachmentError::Gone)?;
+
     let reference = FaceReference::capture(&body.solid, face).ok_or(AttachmentError::Gone)?;
     let state =
         body_state_in(document, evaluation, choice.body, index).map_err(StateError::face)?;
+
     let there = reference
         .resolve(state)
         .map_err(|_| AttachmentError::MadeAfter)?;
@@ -286,6 +292,7 @@ pub fn new_sketch(
     let (attachment, plane) = attachment_at(model, choice, document.bar_index())?;
     let name = editing::next_sketch_name(document);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Sketch(SketchFeature::on_face(Sketch::new(plane), attachment)),
@@ -303,6 +310,7 @@ pub fn place(
         .feature_index(sketch)
         .ok_or(PlaceError::SketchGone)?;
     let (attachment, plane) = attachment_at(model, choice, index)?;
+
     if document
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
@@ -311,6 +319,7 @@ pub fn place(
     {
         return Err(PlaceError::AlreadyOnFace);
     }
+
     let name = feature_name(document, sketch);
     let transaction = Transaction::single(
         format!("Place {name} on a face"),
@@ -320,6 +329,7 @@ pub fn place(
             attachment: Some(SketchAttachment::Face(Box::new(attachment))),
         },
     );
+
     document
         .check(&transaction)
         .map_err(|_| PlaceError::CannotLieOnFace)?;
@@ -356,7 +366,7 @@ pub fn describe(document: &Document, attachment: &SketchAttachment) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum NewSketchError {
     #[error("The selected plane has no position yet")]
     PlaneUnplaced { datum: DatumTarget },
@@ -380,6 +390,7 @@ pub fn new_sketch_on_datum(
         .ok_or(NewSketchError::PlaneUnplaced { datum })?;
     let name = editing::next_sketch_name(document);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Sketch(SketchFeature {
@@ -388,6 +399,7 @@ pub fn new_sketch_on_datum(
         }),
     );
     let transaction = transaction.finish();
+
     document.check(&transaction)?;
     Ok((transaction, feature))
 }
@@ -399,6 +411,7 @@ pub fn place_on_datum(
 ) -> Result<Transaction, PlaceError> {
     let document = model.document();
     let attachment = datum.attachment();
+
     if document
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
@@ -406,6 +419,7 @@ pub fn place_on_datum(
     {
         return Err(PlaceError::AlreadyOnPlane);
     }
+
     let plane = datum
         .plane(model.evaluation())
         .ok_or(PlaceError::PlaneUnplaced)?;
@@ -418,13 +432,14 @@ pub fn place_on_datum(
             attachment: Some(attachment),
         },
     );
+
     document
         .check(&transaction)
         .map_err(|_| PlaceError::PlaneAfterSketch)?;
     Ok(transaction)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PlaceError {
     #[error("The sketch no longer exists")]
     SketchGone,
@@ -446,13 +461,13 @@ pub enum PlaceError {
     Attachment(#[from] AttachmentError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TargetError {
     #[error("{}", SEVERAL_TO_SKETCH_ON)]
     Several,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlacementTarget {
     Plane(DatumTarget),
     Face(FaceChoice),
@@ -479,7 +494,7 @@ pub fn placement_target(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SketchTarget {
     Principal(PrincipalPlane),
     Datum(DatumTarget),

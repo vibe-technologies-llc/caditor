@@ -29,10 +29,14 @@ pub(crate) fn assert_cancelled_anywhere<T, E: Debug>(
     cancelled: impl Fn(&E) -> bool,
 ) -> usize {
     let (finished, total) = cancelled_after(usize::MAX, &work);
+
     assert!(finished.is_ok(), "{name}: {:?}", finished.err());
+
     let mut allowed = 0;
+
     while allowed < total {
         let (result, _) = cancelled_after(allowed, &work);
+
         match result {
             Err(error) if cancelled(&error) => {}
             Err(error) => panic!("{name} stopped after {allowed} of {total} polls: {error:?}"),
@@ -52,7 +56,9 @@ impl Random {
 
     fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+
         let mut mixed = self.0;
+
         mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         mixed ^ (mixed >> 31)
@@ -104,6 +110,7 @@ pub(crate) fn arc(
 pub(crate) fn spline(entity: u64, points: &[(f64, f64)]) -> ProfileCurve {
     let count = points.len();
     let degree = 3.min(count - 1);
+
     let spans = count - degree;
     let knots = std::iter::repeat_n(0.0, degree + 1)
         .chain((1..spans).map(|index| index as f64 / spans as f64))
@@ -128,12 +135,14 @@ pub(crate) fn rectangle(first: u64, min: (f64, f64), max: (f64, f64)) -> Vec<Pro
 
 pub(crate) fn assert_watertight(name: &str, mesh: &Mesh) {
     let mut directed: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+
     for [a, b, c] in mesh.position_triangles() {
         assert!(a != b && b != c && a != c, "{name}: degenerate triangle");
         for edge in [(a, b), (b, c), (c, a)] {
             *directed.entry(edge).or_default() += 1;
         }
     }
+
     assert!(!directed.is_empty(), "{name}: no triangles");
     for ((from, to), count) in &directed {
         assert_eq!(*count, 1, "{name}: edge {from}->{to} used {count} times");

@@ -36,6 +36,7 @@ impl Listener {
     pub fn bind(port: u16) -> Result<Self, Error> {
         let tries = if port == 0 { ANY_PORT_TRIES } else { 1 };
         let mut bound = Self::bind_both(port);
+
         for _ in 1..tries {
             if bound.is_ok() {
                 break;
@@ -94,13 +95,16 @@ impl Listener {
             if stop.load(Ordering::Relaxed) {
                 return Err(Error::Stopped);
             }
+
             let now = Instant::now();
+
             if now >= deadline {
                 return Err(Error::SignInTimedOut);
             }
 
             let mut busy = self.accept(&mut open, now)?;
             let mut kept = VecDeque::with_capacity(open.len());
+
             while let Some(mut connection) = open.pop_front() {
                 match connection.read() {
                     Reading::Waiting if now < connection.deadline => kept.push_back(connection),
@@ -123,6 +127,7 @@ impl Listener {
 
     fn accept(&self, open: &mut VecDeque<Connection>, now: Instant) -> Result<bool, Error> {
         let mut accepted = false;
+
         for socket in &self.sockets {
             for _ in 0..MAX_OPEN_CONNECTIONS {
                 match socket.accept() {
@@ -274,6 +279,7 @@ fn judge(head: &[u8], state: &str) -> Verdict {
         return Verdict::Elsewhere;
     };
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
+
     if path != CALLBACK_PATH {
         return Verdict::Elsewhere;
     }
@@ -312,7 +318,9 @@ mod tests {
 
     fn get_from(mut stream: TcpStream, target: &str) -> String {
         write!(stream, "GET {target} HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+
         let mut reply = String::new();
+
         stream.read_to_string(&mut reply).unwrap();
         reply
     }
@@ -365,6 +373,7 @@ mod tests {
         if ipv6_loopback().is_none() {
             return;
         }
+
         let listener = Listener::bind(0).unwrap();
         let port = listener.port();
         let waiter = waiting(listener);
@@ -400,6 +409,7 @@ mod tests {
         let icon = get(port, "/favicon.ico");
         let empty = get(port, "/callback");
         let codeless = get(port, "/callback?state=xyz");
+
         get(port, "/callback?code=1&state=xyz");
 
         assert!(icon.starts_with("HTTP/1.1 404"));
@@ -417,6 +427,7 @@ mod tests {
         let foreign = get(port, "/callback?code=stolen&state=other");
         let unstated = get(port, "/callback?code=stolen");
         let refusal = get(port, "/callback?error=access_denied&state=other");
+
         get(port, "/callback?code=own&state=xyz");
 
         assert!(foreign.starts_with("HTTP/1.1 404"));
@@ -433,6 +444,7 @@ mod tests {
         let port = listener.port();
         let waiter = waiting(listener);
         let mut slow = connect(port);
+
         write!(slow, "GET /callback?code=").unwrap();
 
         let reply = get(port, "/callback?code=own&state=xyz");

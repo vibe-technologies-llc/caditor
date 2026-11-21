@@ -36,6 +36,7 @@ fn holes_on(origin: f64, per_side: usize) -> Sketch {
         Plane::from_frame(Point3::new(0.0, 0.0, PLATE_HEIGHT), Vector3::Z, Vector3::X).unwrap();
     let mut sketch = Sketch::new(top);
     let step = PLATE_SIDE / (per_side as f64 + 1.0);
+
     for row in 1..=per_side {
         for column in 1..=per_side {
             sketch.add_circle(
@@ -65,6 +66,7 @@ fn add_plate(transaction: &mut TransactionBuilder<'_>, index: usize, per_side: u
         format!("Holes {index}"),
         FeatureKind::from(holes_on(origin, per_side)),
     );
+
     let pockets = transaction.add_feature(
         format!("Pockets {index}"),
         extrude(holes, "3 mm", true, BodyOperation::Remove(body)),
@@ -78,10 +80,13 @@ fn add_plate(transaction: &mut TransactionBuilder<'_>, index: usize, per_side: u
 
 fn plates(count: usize, per_side: usize) -> (Document, Vec<Plate>) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let plates = (0..count)
         .map(|index| add_plate(&mut transaction, index, per_side))
         .collect();
+
     document.apply(transaction.finish()).unwrap();
     (document, plates)
 }
@@ -97,11 +102,14 @@ struct Mixed {
 
 fn mixed() -> Mixed {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let plates: Vec<Plate> = (0..4)
         .map(|index| add_plate(&mut transaction, index, 3))
         .collect();
     let peg = block(&mut transaction, "Peg", (5.0, 5.0), (9.0, 9.0), "12 mm");
+
     let combine = transaction.add_feature(
         "Join",
         FeatureKind::Combine(Combine::new(plates[0].body, peg, CombineOperation::Join)),
@@ -128,6 +136,7 @@ fn mixed() -> Mixed {
             BodyOperation::Remove(plates[2].body),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
     Mixed {
         document,
@@ -160,15 +169,18 @@ fn a_parallel_recompute_equals_the_sequential_one() {
         &together.feature(model.bad).unwrap().state,
         FeatureState::Failed(_)
     ));
+
     let FeatureState::Failed(consumed) = &together.feature(model.peg_cut).unwrap().state else {
         panic!("a feature cutting a body a combine consumed should fail");
     };
+
     assert!(consumed.reason().starts_with("Join combined"));
     assert_eq!(consumed.fix, Some(FixTarget::Feature(model.combine)));
     assert_eq!(
         together.feature(model.after_bad).unwrap().state,
         FeatureState::UpToDate
     );
+
     for plate in &model.plates {
         assert_eq!(
             together.feature(plate.pockets).unwrap().state,
@@ -194,6 +206,7 @@ fn a_parallel_recompute_equals_the_sequential_one() {
             },
         ))
         .unwrap();
+
     let alone = evaluate(&mut sequential, &model.document);
     let together = evaluate(&mut parallel, &model.document);
 
@@ -235,6 +248,7 @@ fn independent_features_run_at_once_and_a_cancel_stops_them_all() {
     let (document, plates) = plates(6, 2);
     let started = Arc::new(AtomicUsize::new(0));
     let spinning = Arc::new(AtomicUsize::new(0));
+
     let evaluator = SlowPockets {
         started: Arc::clone(&started),
         spinning: Arc::clone(&spinning),
@@ -256,14 +270,19 @@ fn independent_features_run_at_once_and_a_cancel_stops_them_all() {
         let _ = finished.send(evaluation);
     });
     let deadline = Instant::now() + TIMEOUT;
+
     while spinning.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
         thread::yield_now();
     }
+
     let concurrent = spinning.load(Ordering::SeqCst);
+
     stop.store(true, Ordering::SeqCst);
+
     let started_at_cancel = started.load(Ordering::SeqCst);
     let evaluation = evaluated.recv_timeout(TIMEOUT).unwrap();
     let started_in_all = started.load(Ordering::SeqCst);
+
     running.join().unwrap();
 
     assert!(concurrent >= 2);
@@ -280,8 +299,10 @@ fn independent_features_run_at_once_and_a_cancel_stops_them_all() {
 
 fn timed(runs: usize, mut run: impl FnMut()) -> Duration {
     let mut best = Duration::MAX;
+
     for _ in 0..runs {
         let started = Instant::now();
+
         run();
         best = best.min(started.elapsed());
     }
@@ -293,6 +314,7 @@ fn timed(runs: usize, mut run: impl FnMut()) -> Duration {
 fn parallel_recompute_costs() {
     let (document, plates) = plates(8, 6);
     let evaluation = evaluate(&mut Recompute::default(), &document);
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!(evaluation.is_complete());
     assert_eq!(evaluation.bodies().count(), plates.len());
@@ -306,6 +328,7 @@ fn parallel_recompute_costs() {
                 .with_workers(workers)
                 .run_without_display(&document, &ModelEvaluator, &CancelToken::never());
         });
+
         println!(
             "8 independent plates of 36 pockets on {workers} workers: {shown:.1?} with meshes, \
              {unshown:.1?} without"
@@ -315,9 +338,12 @@ fn parallel_recompute_costs() {
 
 fn blocks(count: usize) -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     for index in 0..count {
         let at = index as f64 * 2.0;
+
         block(
             &mut transaction,
             &format!("Block {index}"),
@@ -336,7 +362,9 @@ fn long_tree_recompute_costs() {
     for count in [250, 1_000] {
         let document = blocks(count);
         let mut longer = document.clone();
+
         let mut transaction = longer.transaction("Add");
+
         block(&mut transaction, "Last", (-4.0, 0.0), (-3.0, 1.0), "1 mm");
         longer.apply(transaction.finish()).unwrap();
 
@@ -351,13 +379,16 @@ fn long_tree_recompute_costs() {
             );
         });
         let mut engine = Recompute::default();
+
         evaluate(&mut engine, &document);
+
         let unchanged = timed(3, || {
             evaluate(&mut engine, &document);
         });
         let appended = timed(3, || {
             evaluate(&mut engine.clone(), &longer);
         });
+
         println!(
             "{} features: {shown:.1?} with meshes, {unshown:.1?} without, {unchanged:.1?} again \
              unchanged, {appended:.1?} with one block appended",
@@ -379,6 +410,7 @@ impl Evaluator for Recording {
     ) -> Result<FeatureResult, Failure> {
         let mut threads = self.threads.lock();
         let current = thread::current().id();
+
         if !threads.contains(&current) {
             threads.push(current);
         }
@@ -398,11 +430,13 @@ fn every_run_and_draft_computes_on_the_threads_of_one_pool() {
 
     for round in 0..3 {
         let mut draft = engine.draft_copy();
+
         let target = if round % 2 == 0 {
             &mut engine
         } else {
             &mut draft
         };
+
         target.run(&document, &evaluator, &CancelToken::never(), &|_, _| {});
         engine.clear_cache();
     }

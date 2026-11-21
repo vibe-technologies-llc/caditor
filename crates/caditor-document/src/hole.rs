@@ -39,7 +39,7 @@ const THROUGH_ALL_REACH: f64 = 0.05;
 const END_OFFSET: &str = "end offset";
 pub const MAX_CONE_ANGLE: f64 = 179.0;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum HoleDepth {
     Blind(Expression),
     ThroughAll,
@@ -117,14 +117,14 @@ impl HoleDepth {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum HoleBottom {
     #[default]
     Flat,
     DrillPoint(Expression),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum HoleStyle {
     Plain,
     Counterbore {
@@ -138,7 +138,7 @@ pub enum HoleStyle {
     Stepped(Vec<HoleStep>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HoleStep {
     pub diameter: Expression,
     pub depth: Expression,
@@ -181,7 +181,7 @@ impl HoleStyle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum HoleShape {
     Round,
     Slot {
@@ -190,7 +190,7 @@ pub enum HoleShape {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HoleSizing {
     #[default]
     Typed,
@@ -204,7 +204,7 @@ impl HoleSizing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Hole {
     pub sketch: FeatureId,
     pub body: FeatureId,
@@ -219,7 +219,7 @@ pub struct Hole {
     pub thread: TappedThread,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TappedThread {
     pub class: Option<ThreadClass>,
     pub hand: ThreadHand,
@@ -230,6 +230,7 @@ pub struct TappedThread {
 impl Hole {
     pub fn expressions(&self) -> Vec<&Expression> {
         let mut expressions = vec![&self.diameter];
+
         expressions.extend(self.depth.expressions());
         expressions.extend(self.style.expressions());
         if let HoleShape::Slot { length, angle } = &self.shape {
@@ -244,6 +245,7 @@ impl Hole {
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         let mut expressions = vec![&mut self.diameter];
+
         expressions.extend(self.depth.expressions_mut());
         expressions.extend(self.style.expressions_mut());
         if let HoleShape::Slot { length, angle } = &mut self.shape {
@@ -325,6 +327,7 @@ impl Hole {
         if entity >> THREAD_SHIFT != 1 {
             return None;
         }
+
         let wall = (entity >> THREAD_PART_BITS) & THREAD_WALL_MASK;
         let code = entity & THREAD_PART_MASK;
         let part = if code & THREAD_RING_PART == 0 {
@@ -339,6 +342,7 @@ impl Hole {
         if let Some((_, part)) = Self::thread_part(entity) {
             return thread::part_name(part).to_owned();
         }
+
         let step = entity >> STEP_SHIFT;
         let part = HolePart::ALL
             .into_iter()
@@ -351,7 +355,7 @@ impl Hole {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HolePart {
     Top = 0,
     Wall = 1,
@@ -435,7 +439,7 @@ pub fn centres(sketch: &Sketch) -> Vec<(EntityId, Point2)> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CircleSize {
     pub circle: EntityId,
     pub diameter: f64,
@@ -443,17 +447,21 @@ pub struct CircleSize {
 
 pub fn circle_sizes(sketch: &Sketch) -> BTreeMap<EntityId, CircleSize> {
     let mut sizes: BTreeMap<EntityId, CircleSize> = BTreeMap::new();
+
     for (circle, entity) in sketch.entities() {
         let Entity::Circle { center, radius } = entity else {
             continue;
         };
+
         if sketch.is_construction(circle) {
             continue;
         }
+
         let size = CircleSize {
             circle,
             diameter: 2.0 * radius,
         };
+
         sizes
             .entry(*center)
             .and_modify(|smallest| {
@@ -541,6 +549,7 @@ impl Context<'_> {
 
     fn length(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
         let value = self.value(expression, Dimension::LENGTH, what)?;
+
         if value <= 0.0 {
             return Err(self.error(HoleCause::NotPositive {
                 what: what.to_owned(),
@@ -560,6 +569,7 @@ impl Context<'_> {
             return Ok(None);
         };
         let family = designation.size.family();
+
         if !family
             .classes(ThreadSide::Internal)
             .contains(&designation.class)
@@ -585,6 +595,7 @@ impl Context<'_> {
     ) -> Result<(Solid, Vec<Solid>), Failure> {
         let raw = self.feature.id().raw();
         let mut walls: BTreeMap<u64, Vec<FaceId>> = BTreeMap::new();
+
         for (id, face) in body.faces() {
             if let Some(FaceOrigin::Side { feature, entity }) = face.origin()
                 && feature == raw
@@ -593,8 +604,10 @@ impl Context<'_> {
                 walls.entry(entity).or_default().push(id);
             }
         }
+
         let mut tapped = body.clone();
         let mut tools = Vec::new();
+
         for (wall, faces) in walls {
             let face = describe_origin(
                 self.inputs.document,
@@ -611,6 +624,7 @@ impl Context<'_> {
                 continue;
             };
             let number = |part: u64| Hole::thread_entity(wall, part);
+
             let (cut, made) = cut_thread(&tapped, &spec, raw, Some(&number)).map_err(|error| {
                 ThreadCause::cutting(
                     self.feature.id(),
@@ -620,6 +634,7 @@ impl Context<'_> {
                     error,
                 )
             })?;
+
             tapped = cut;
             tools.extend(made);
         }
@@ -637,12 +652,15 @@ impl Context<'_> {
         if steps.is_empty() || steps.len() > MAX_HOLE_STEPS {
             return Err(self.error(HoleCause::StepCount { count: steps.len() }));
         }
+
         let mut values: Vec<StepValues> = Vec::with_capacity(steps.len());
+
         for (index, step) in steps.iter().enumerate() {
             let number = index + 1;
             let wide =
                 self.length(&step.diameter, &format!("step {number} diameter"))? * head_scale;
             let deep = self.length(&step.depth, &format!("step {number} depth"))? * head_scale;
+
             if let Some(above) = values.last()
                 && wide >= above.diameter
             {
@@ -654,13 +672,17 @@ impl Context<'_> {
                     hole: hole.to_owned(),
                 }));
             }
+
             let floor = values.last().map_or(0.0, |above| above.floor) + deep;
+
             values.push(StepValues {
                 diameter: wide,
                 floor,
             });
         }
+
         let reach = values.last().map_or(0.0, |deepest| deepest.floor);
+
         if depth.is_some_and(|depth| reach >= depth) {
             return Err(self.error(HoleCause::StepsAsDeep));
         }
@@ -678,6 +700,7 @@ impl Context<'_> {
             HoleDepth::Blind(depth) => Some(self.length(depth, "depth")?),
             HoleDepth::ThroughAll | HoleDepth::UpToNext { .. } | HoleDepth::UpToFace { .. } => None,
         };
+
         let style = match &definition.style {
             HoleStyle::Plain => StyleValues::Plain,
             HoleStyle::Counterbore {
@@ -686,6 +709,7 @@ impl Context<'_> {
             } => {
                 let wide = self.length(wide, "counterbore diameter")? * head_scale;
                 let shallow = self.length(shallow, "counterbore depth")? * head_scale;
+
                 if wide <= diameter {
                     return Err(self.error(HoleCause::CounterboreNotWider { hole }));
                 }
@@ -704,14 +728,17 @@ impl Context<'_> {
             } => {
                 let wide = self.length(wide, "countersink diameter")? * head_scale;
                 let angle = self.value(angle, Dimension::ANGLE, "countersink angle")?;
+
                 if wide <= diameter {
                     return Err(self.error(HoleCause::CountersinkNotWider { hole }));
                 }
                 if angle <= 0.0 || angle > MAX_CONE_ANGLE {
                     return Err(self.error(HoleCause::CountersinkAngle));
                 }
+
                 let half_angle = (angle / 2.0).to_radians();
                 let cone = (wide - diameter) / 2.0 / half_angle.tan();
+
                 if depth.is_some_and(|depth| cone >= depth) {
                     return Err(self.error(HoleCause::CountersinkAsDeep));
                 }
@@ -725,12 +752,14 @@ impl Context<'_> {
             HoleBottom::Flat => None,
             HoleBottom::DrillPoint(angle) => {
                 let angle = self.value(angle, Dimension::ANGLE, "drill point angle")?;
+
                 if angle <= 0.0 || angle > MAX_CONE_ANGLE {
                     return Err(self.error(HoleCause::DrillPointAngle));
                 }
                 depth.map(|_| (angle / 2.0).to_radians())
             }
         };
+
         let slot = match &definition.shape {
             HoleShape::Round => None,
             HoleShape::Slot { length, angle } => {
@@ -765,17 +794,21 @@ fn outline(values: &Values, depth: f64, base: u64) -> Vec<(Point2, u64)> {
     let tip = values
         .point_half_angle
         .map_or(0.0, |half_angle| radius / half_angle.tan());
+
     let bore = [
         (Point2::new(radius, -depth), own(HolePart::Bottom)),
         (Point2::new(0.0, -depth - tip), own(HolePart::Axis)),
     ];
     let mut outline = vec![(Point2::new(0.0, top), own(HolePart::Top))];
+
     match &values.style {
         StyleValues::Plain => outline.push((Point2::new(radius, top), own(HolePart::Wall))),
         StyleValues::Stepped(steps) => {
             let mut above = top;
+
             for (index, step) in steps.iter().enumerate() {
                 let wide = step.diameter / 2.0;
+
                 outline.extend([
                     (
                         Point2::new(wide, above),
@@ -795,6 +828,7 @@ fn outline(values: &Values, depth: f64, base: u64) -> Vec<(Point2, u64)> {
             half_angle,
         } => {
             let slope = half_angle.tan();
+
             outline.extend([
                 (
                     Point2::new(wide / 2.0 + top * slope, top),
@@ -821,6 +855,7 @@ fn tool(
 ) -> Result<Solid, Failure> {
     let unusable = || context.error(HoleCause::Unshapable);
     let across = frame.x_axis();
+
     let plane = Plane::from_frame(centre, across.cross(up), across).ok_or_else(unusable)?;
     let curves: Vec<ProfileCurve> = outline
         .iter()
@@ -857,6 +892,7 @@ fn slot_tool(
 ) -> Result<Solid, Failure> {
     let unusable = || context.error(HoleCause::SlotUnshapable);
     let (sin, cos) = slot.angle.sin_cos();
+
     let along = frame.x_axis() * cos + frame.y_axis() * sin;
     let plane = Plane::from_frame(centre, up, along).ok_or_else(unusable)?;
     let SlotCut {
@@ -866,11 +902,13 @@ fn slot_tool(
         step,
     } = cut;
     let half = slot.length / 2.0;
+
     let [side, end, other_side, other_end] = parts.map(|part| step_entity(base, step, part));
     let first = Point2::new(-half, -radius);
     let second = Point2::new(half, -radius);
     let third = Point2::new(half, radius);
     let fourth = Point2::new(-half, radius);
+
     let curves = [
         ProfileCurve::line(side, first, second),
         ProfileCurve::arc(end, Point2::new(half, 0.0), second, third),
@@ -900,6 +938,7 @@ fn drills(
     let Some(slot) = values.slot else {
         let outline = outline(values, depth, base);
         let feature = context.feature.id().raw();
+
         return Ok(vec![tool(context, frame, centre, up, &outline, feature)?]);
     };
     let narrow = slot_tool(
@@ -922,6 +961,7 @@ fn drills(
         base,
     )?;
     let mut tools = vec![narrow];
+
     if let StyleValues::Stepped(steps) = &values.style {
         for (index, step) in steps.iter().enumerate() {
             tools.push(slot_tool(
@@ -1000,6 +1040,7 @@ impl Context<'_> {
             return Ok(0.0);
         };
         let value = self.value(offset, Dimension::LENGTH, END_OFFSET)?;
+
         if value.abs() > MAX_SIZE {
             return Err(self.error(HoleCause::EndOffsetTooBig));
         }
@@ -1036,20 +1077,25 @@ impl Context<'_> {
     ) -> Result<f64, Failure> {
         let at = drilled.at;
         let facing = plane.normal().dot(drilled.down);
+
         if tolerance::perpendicular(plane.normal(), drilled.down) {
             return Err(self.error(HoleCause::EndAlong {
                 end: name.to_owned(),
                 at: at.to_owned(),
             }));
         }
+
         let reached = -plane.signed_distance(drilled.centre) / facing;
+
         if reached <= LINEAR_RESOLUTION {
             return Err(self.error(HoleCause::EndBehind {
                 end: name.to_owned(),
                 at: at.to_owned(),
             }));
         }
+
         let depth = reached + offset / facing.abs();
+
         if depth <= LINEAR_RESOLUTION {
             return Err(self.error(HoleCause::EndOffsetTooShort {
                 offset,
@@ -1077,6 +1123,7 @@ impl Context<'_> {
         let at = drilled.at;
         let unusable = || self.error(HoleCause::NextNotFound { at: at.to_owned() });
         let (along, footprint) = footprint(values, drilled.frame).ok_or_else(unusable)?;
+
         let plane = Plane::from_frame(drilled.centre, drilled.down, along).ok_or_else(unusable)?;
         let describe = |face| {
             describe_origin(
@@ -1112,12 +1159,14 @@ impl Context<'_> {
                 });
             }
         };
+
         if found.entering {
             return Err(self.error(HoleCause::NextEntering {
                 at: at.to_owned(),
                 body: body_name.to_owned(),
             }));
         }
+
         let depth = self.depth_to(&found.plane, &describe(found.face), offset, drilled)?;
         Ok(Next::Plane(depth, found.plane))
     }
@@ -1138,6 +1187,7 @@ impl Context<'_> {
                 body: body_name.to_owned(),
             })
         };
+
         let stopped = stopped.map_err(|error| match error {
             StopError::Cancelled(_) => Failure::Cancelled,
             StopError::NoRegions => self.error(HoleCause::NextNotFound { at: at.to_owned() }),
@@ -1176,6 +1226,7 @@ impl Context<'_> {
                 .placed(place)
             }
         })?;
+
         if stopped.entering {
             return Err(self.error(HoleCause::NextEntering {
                 at: at.to_owned(),
@@ -1185,6 +1236,7 @@ impl Context<'_> {
         if stop.offset == 0.0 {
             return Ok(stopped.solid);
         }
+
         let travel = stop.plane.normal() * stop.offset.abs();
         let by = RigidTransform::translation(travel).ok_or_else(unbuilt)?;
         move_end(
@@ -1232,6 +1284,7 @@ impl Context<'_> {
                 Head::Countersink,
             ),
         };
+
         if head < depth {
             return Ok(());
         }
@@ -1323,6 +1376,7 @@ impl Context<'_> {
         let context = self;
         let feature = self.feature;
         let inputs = self.inputs;
+
         let body_name = context.name(definition.body);
         let mut tools = Vec::new();
         let mut reached = Vec::new();
@@ -1333,6 +1387,7 @@ impl Context<'_> {
             HoleSizing::Circles | HoleSizing::CirclesAndHeads => circle_sizes(sketch),
             HoleSizing::Typed => BTreeMap::new(),
         };
+
         for &(point, position) in centres {
             let own = match circles.get(&point) {
                 Some(size) => Some(context.values(
@@ -1346,11 +1401,14 @@ impl Context<'_> {
                 None => None,
             };
             let values = own.as_ref().unwrap_or(values);
+
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
             }
+
             let centre = frame.to_world(position);
             let at = sketch.entity_label(point);
+
             let drilled = Drilled {
                 frame: &frame,
                 centre,
@@ -1358,6 +1416,7 @@ impl Context<'_> {
                 at: &at,
             };
             let mut stop = None;
+
             let depth = match (&reach_kind, values.depth) {
                 (Reach::Blind, Some(depth)) => depth,
                 (Reach::Blind | Reach::ThroughAll, _) => {
@@ -1398,6 +1457,7 @@ impl Context<'_> {
                     _,
                 ) => {
                     let depth = context.depth_to(plane, name, *offset, &drilled)?;
+
                     context.head_fits(definition, values, depth, &at)?;
                     depth
                 }
@@ -1425,6 +1485,7 @@ impl Context<'_> {
                             }),
                             other => {
                                 log::warn!("{} could not drill: {other}", feature.name);
+
                                 let trouble = boolean_trouble(
                                     inputs.document,
                                     [&body, &drill],
@@ -1442,6 +1503,7 @@ impl Context<'_> {
                             }
                         }
                     })?;
+
                 if !leaves_a_face_of(&cut, &drill) {
                     return Err(context.error(HoleCause::Unreached {
                         at: sketch.entity_label(point),
@@ -1479,6 +1541,7 @@ pub(crate) fn evaluate(
         ));
     };
     let centres = centres(&sketch.geometry);
+
     if centres.is_empty() {
         return Err(context.error_at(
             HoleCause::NoCentres {
@@ -1496,6 +1559,7 @@ pub(crate) fn evaluate(
             definition.sketch,
         ));
     }
+
     let original = inputs
         .body(definition.body)
         .ok_or_else(|| inputs.missing_body(definition.body))?;
@@ -1516,10 +1580,12 @@ pub(crate) fn evaluate(
         },
         cancel,
     )?;
+
     if definition.is_modelled_thread()
         && let Some(designation) = hole_thread(definition)
     {
         let (tapped, threads) = context.tap(&body, designation, thread_depth)?;
+
         body = tapped;
         tools.extend(threads);
     }
@@ -1531,7 +1597,7 @@ pub(crate) fn evaluate(
     ))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Head {
     Steps,
     Counterbore,
@@ -1548,7 +1614,7 @@ impl Head {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum HoleCause {
     NotPositive {
         what: String,
@@ -1918,6 +1984,7 @@ pub(crate) fn land(
         ));
     };
     let centres = centres(&sketch.geometry);
+
     let bored = context.bore(
         &Drilling {
             definition,

@@ -23,7 +23,7 @@ pub const ANOTHER_BEING_CHANGED: &str = "Another version is being changed";
 const DAMAGED: &str = "This version is damaged inside the file, so it cannot be restored. The \
                        other versions are not affected.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HistoryCommand {
     Show,
     Hide,
@@ -33,7 +33,7 @@ pub enum HistoryCommand {
     StopPreview,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Listing {
     Loading,
     Loaded(History),
@@ -78,6 +78,7 @@ impl VersionHistory {
                 Err(error) => Listing::Failed(error),
             };
         }
+
         let still_listed = match (&self.shown, &self.preview) {
             (Some((_, Listing::Loaded(history))), Some(preview)) => {
                 history.versions.iter().any(|version| {
@@ -98,9 +99,12 @@ impl VersionHistory {
         let (path, version) = self.listed_version(index)?;
         let path = path.clone();
         let version = version.clone();
+
         self.stop_preview();
         self.preview_ticket = self.preview_ticket.wrapping_add(1);
+
         let (preview, started) = Preview::start(&version, self.preview_ticket);
+
         self.preview = Some(preview);
         Some((path, version.digest, started))
     }
@@ -147,8 +151,11 @@ impl VersionHistory {
         if !self.is_idle() {
             return None;
         }
+
         let (path, version) = self.listed_version(index)?;
+
         let started = (path.clone(), version.clone());
+
         self.restoring = Some(index);
         Some(started)
     }
@@ -161,8 +168,11 @@ impl VersionHistory {
         if !self.is_idle() {
             return None;
         }
+
         let (path, version) = self.listed_version(index)?;
+
         let started = (path.clone(), version.digest.clone());
+
         self.keeping = Some(index);
         Some(started)
     }
@@ -239,7 +249,9 @@ pub fn dialog(
                 ),
                 ui,
             ));
+
             let mut command = None;
+
             widgets::dialog_body(ui, |ui| match listing {
                 Listing::Loading => {
                     ui.horizontal(|ui| {
@@ -288,8 +300,10 @@ fn versions(
         ));
         return None;
     }
+
     let mut command = None;
     let height = widgets::list_height(ui.ctx(), LIST_HEIGHT);
+
     widgets::card(ui, |ui| {
         egui::ScrollArea::vertical()
             .max_height(height)
@@ -304,6 +318,7 @@ fn versions(
                             } else {
                                 icons::RECENT
                             };
+
                             widgets::icon_label(ui, glyph, muted);
                             ui.label(describe(&version.state));
                             if version.kept {
@@ -341,6 +356,7 @@ fn versions(
                                         },
                                     )
                                 };
+
                                 if ui
                                     .add(widgets::button(label))
                                     .on_hover_text(hover)
@@ -358,6 +374,7 @@ fn versions(
                                 {
                                     command = Some(HistoryCommand::Restore(version.index));
                                 }
+
                                 let (label, hover) = if version.kept {
                                     (
                                         "Stop keeping",
@@ -437,6 +454,7 @@ mod tests {
             })
             .collect();
         let mut history = VersionHistory::default();
+
         history.open(path.clone());
         history.listed(
             &path,
@@ -447,11 +465,14 @@ mod tests {
         );
 
         assert!(history.start_restoring(1).is_some());
+
         history.finish_restoring(&path, &Err(LoadError::VersionUnavailable));
 
         assert_eq!(history.start_restoring(1), None);
         assert!(history.start_restoring(0).is_some());
+
         history.finish_restoring(&path, &Err(LoadError::Empty));
+
         assert!(history.start_restoring(0).is_some());
     }
 
@@ -472,6 +493,7 @@ mod tests {
             })
             .collect();
         let mut history = VersionHistory::default();
+
         history.open(path.clone());
         history.listed(
             &path,
@@ -494,7 +516,9 @@ mod tests {
         assert_eq!(history.start_restoring(0), None);
         assert!(history.start_keeping(1).is_some());
         assert_eq!(history.start_restoring(1), None);
+
         history.finish_keeping();
+
         assert!(history.start_restoring(1).is_some());
     }
 
@@ -517,9 +541,13 @@ mod tests {
             })
             .collect();
         let mut history = VersionHistory::default();
+
         assert_eq!(history.start_keeping(0), None);
+
         history.open(path.clone());
+
         assert_eq!(history.start_keeping(0), None);
+
         history.listed(
             &path,
             Ok(History {
@@ -536,9 +564,13 @@ mod tests {
         );
         assert_eq!(history.start_keeping(0), None);
         assert_eq!(history.start_restoring(0), None);
+
         history.finish_keeping();
+
         assert!(history.start_keeping(0).is_some());
+
         history.close();
+
         assert_eq!(history.start_keeping(0), None);
     }
 

@@ -29,11 +29,13 @@ fn show_dimensions(harness: &mut Harness) {
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.frame();
+
     assert!(harness.workspace.viewport.dimensions_shown());
 }
 
 fn plate_with_distance_shown(harness: &mut Harness) -> FeatureId {
     let (extrude, top) = extruded_plate(harness);
+
     run_from_palette(harness, "fit view");
     show_dimensions(harness);
     harness.select([top]);
@@ -60,13 +62,16 @@ fn enter(harness: &mut Harness, text: &str) {
 #[test]
 fn show_dimensions_puts_the_shown_sketches_dimensions_on_the_model_and_edits_their_parameter() {
     let mut harness = Harness::new();
+
     harness.settle();
     run_from_palette(&mut harness, "fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     assert!(!harness.shows(WIDTH_LABEL));
 
     show_dimensions(&mut harness);
+
     assert!(harness.shows(WIDTH_LABEL));
     assert!(harness.shows(HEIGHT_LABEL));
 
@@ -74,6 +79,7 @@ fn show_dimensions_puts_the_shown_sketches_dimensions_on_the_model_and_edits_the
     harness.frame();
     harness.key(Key::A, Modifiers::COMMAND);
     enter(&mut harness, "width = 50 mm");
+
     assert_eq!(harness.expression_text("width"), "50 mm");
     assert!(harness.shows("width = 50 mm"));
     assert!(harness.shows("height = 25 mm"));
@@ -81,10 +87,12 @@ fn show_dimensions_puts_the_shown_sketches_dimensions_on_the_model_and_edits_the
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     harness.settle();
+
     assert_eq!(harness.expression_text("width"), "40 mm");
 
     run_from_palette(&mut harness, "dimensions on the model");
     harness.frame();
+
     assert!(!harness.workspace.viewport.dimensions_shown());
     assert!(!harness.shows(WIDTH_LABEL));
 }
@@ -93,7 +101,9 @@ fn show_dimensions_puts_the_shown_sketches_dimensions_on_the_model_and_edits_the
 fn a_selected_extrusion_shows_its_distance_on_the_model_and_a_double_click_changes_it_in_one_step()
 {
     let mut harness = Harness::new();
+
     let extrude = plate_with_distance_shown(&mut harness);
+
     assert!(harness.shows(DISTANCE_LABEL));
     assert!(
         harness
@@ -105,6 +115,7 @@ fn a_selected_extrusion_shows_its_distance_on_the_model_and_a_double_click_chang
 
     harness.double_click(DISTANCE_LABEL);
     harness.frame();
+
     assert_eq!(
         harness.focused(),
         Some(model_dimensions::value_field_id(
@@ -112,8 +123,10 @@ fn a_selected_extrusion_shows_its_distance_on_the_model_and_a_double_click_chang
             ValueSlot::Extrude(Reach::Only)
         ))
     );
+
     harness.key(Key::A, Modifiers::COMMAND);
     enter(&mut harness, "25");
+
     assert_eq!(distance_of(&harness, extrude), "25");
     assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
     assert!(harness.shows("Distance 25 mm"));
@@ -121,19 +134,23 @@ fn a_selected_extrusion_shows_its_distance_on_the_model_and_a_double_click_chang
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     harness.settle();
+
     assert_eq!(distance_of(&harness, extrude), "10 mm");
 }
 
 #[test]
 fn a_distance_driven_by_a_parameter_reads_name_equals_value_and_edits_the_parameter() {
     let mut harness = Harness::new();
+
     let extrude = plate_with_distance_shown(&mut harness);
     let mut transaction = harness.document().transaction("Name the depth");
+
     let depth = transaction.parse("12 mm").unwrap();
     let id = transaction.add_parameter("depth", depth);
     let SolidFeature::Extrude(mut extrusion) = harness.solid(extrude).clone() else {
         panic!("expected an extrusion");
     };
+
     extrusion.extent = caditor_document::ExtrudeExtent::one_side(
         caditor_expression::Expression::Parameter(id),
         false,
@@ -145,12 +162,14 @@ fn a_distance_driven_by_a_parameter_reads_name_equals_value_and_edits_the_parame
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
     harness.frame();
+
     assert!(harness.shows("depth = 12 mm"));
 
     harness.double_click("depth = 12 mm");
     harness.frame();
     harness.key(Key::A, Modifiers::COMMAND);
     enter(&mut harness, "depth = 30 mm");
+
     assert_eq!(harness.expression_text("depth"), "30 mm");
     assert_eq!(distance_of(&harness, extrude), "depth");
     assert!(harness.shows("depth = 30 mm"));
@@ -159,6 +178,7 @@ fn a_distance_driven_by_a_parameter_reads_name_equals_value_and_edits_the_parame
 #[test]
 fn the_highlight_keys_reach_a_features_value_and_enter_edits_it() {
     let mut harness = Harness::new();
+
     let extrude = plate_with_distance_shown(&mut harness);
     let target = distance_value(extrude);
 
@@ -169,6 +189,7 @@ fn the_highlight_keys_reach_a_features_value_and_enter_edits_it() {
         harness.key(Key::N, Modifiers::NONE);
         harness.frame();
     }
+
     assert_eq!(
         harness.workspace.viewport.keyboard_highlight(),
         Some(target)
@@ -177,6 +198,7 @@ fn the_highlight_keys_reach_a_features_value_and_enter_edits_it() {
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert_eq!(
         harness.focused(),
         Some(model_dimensions::value_field_id(
@@ -184,14 +206,17 @@ fn the_highlight_keys_reach_a_features_value_and_enter_edits_it() {
             ValueSlot::Extrude(Reach::Only)
         ))
     );
+
     harness.key(Key::A, Modifiers::COMMAND);
     enter(&mut harness, "18 mm");
+
     assert_eq!(distance_of(&harness, extrude), "18 mm");
 }
 
 #[test]
 fn a_refused_value_keeps_the_field_open_and_changes_nothing() {
     let mut harness = Harness::new();
+
     let extrude = plate_with_distance_shown(&mut harness);
     let undo = harness.model.undo_label().map(str::to_owned);
 
@@ -199,6 +224,7 @@ fn a_refused_value_keeps_the_field_open_and_changes_nothing() {
     harness.frame();
     harness.key(Key::A, Modifiers::COMMAND);
     enter(&mut harness, "0");
+
     assert_eq!(distance_of(&harness, extrude), "10 mm");
     assert!(harness.shows_containing("Enter a value other than zero"));
     assert_eq!(harness.model.undo_label().map(str::to_owned), undo);
@@ -207,12 +233,14 @@ fn a_refused_value_keeps_the_field_open_and_changes_nothing() {
 #[test]
 fn a_negative_distance_typed_on_the_model_reverses_the_extrusion_in_one_step() {
     let mut harness = Harness::new();
+
     let extrude = plate_with_distance_shown(&mut harness);
 
     harness.double_click(DISTANCE_LABEL);
     harness.frame();
     harness.key(Key::A, Modifiers::COMMAND);
     enter(&mut harness, "-4");
+
     let SolidFeature::Extrude(flipped) = harness.solid(extrude) else {
         panic!("expected an extrusion");
     };
@@ -250,6 +278,7 @@ fn close_feature(harness: &mut Harness) {
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     assert_eq!(harness.workspace.editing.solid(), None);
 }
 
@@ -272,25 +301,34 @@ fn shape_of(harness: &Harness, feature: FeatureId, value: ValueSlot) -> Option<S
 fn a_revolves_angle_is_drawn_as_an_arc_about_its_axis_and_edited_in_place() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XZ);
+
     rectangle(&mut sketch, Point2::new(10.0, 0.0), Point2::new(20.0, 10.0));
+
     let axis = sketch.add_line(Point2::new(0.0, -5.0), Point2::new(0.0, 15.0));
     let sketch = harness.add_sketch(sketch);
+
     harness.select([Pickable::SketchEntity {
         feature: sketch,
         entity: axis,
     }]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_feature(&harness);
+
     close_feature(&mut harness);
+
     let SolidFeature::Revolve(mut turned) = harness.solid(revolve).clone() else {
         panic!("expected a revolve");
     };
+
     turned.extent = RevolveExtent::OneSide {
         angle: Expression::measure(90.0, Unit::Degree),
         reversed: false,
     };
+
     let mut transaction = harness.document().transaction("Turn a quarter");
+
     transaction.edit(Edit::SetFeatureKind {
         id: revolve,
         kind: FeatureKind::Solid(SolidFeature::Revolve(turned)),
@@ -303,6 +341,7 @@ fn a_revolves_angle_is_drawn_as_an_arc_about_its_axis_and_edited_in_place() {
     choose_row(&mut harness, "Revolve 1");
 
     let label = "Angle 90°";
+
     assert!(harness.shows(label));
     assert!(matches!(
         shape_of(&harness, revolve, ValueSlot::RevolveAngle),
@@ -313,6 +352,7 @@ fn a_revolves_angle_is_drawn_as_an_arc_about_its_axis_and_edited_in_place() {
     harness.frame();
     harness.key(Key::A, Modifiers::COMMAND);
     enter(&mut harness, "120");
+
     assert_eq!(harness.model.undo_label(), Some("Edit Revolve 1"));
     assert!(harness.shows("Angle 120°"));
 }
@@ -320,11 +360,15 @@ fn a_revolves_angle_is_drawn_as_an_arc_about_its_axis_and_edited_in_place() {
 #[test]
 fn a_holes_diameter_spans_its_rim_and_its_depth_runs_along_its_axis() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
+
     let hole = open_feature(&harness);
+
     close_feature(&mut harness);
     run_from_palette(&mut harness, "fit view");
     show_dimensions(&mut harness);
@@ -346,11 +390,15 @@ fn a_holes_diameter_spans_its_rim_and_its_depth_runs_along_its_axis() {
 #[test]
 fn a_fillets_radius_is_a_leader_to_its_round_face() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click_tool(BlendKind::Fillet.title());
     harness.settle();
+
     let fillet = open_feature(&harness);
+
     close_feature(&mut harness);
     run_from_palette(&mut harness, "fit view");
     show_dimensions(&mut harness);
@@ -367,12 +415,15 @@ fn a_fillets_radius_is_a_leader_to_its_round_face() {
 #[test]
 fn a_boxs_sizes_are_offered_on_the_model_and_a_double_click_changes_one() {
     let mut harness = Harness::new();
+
     harness.select([]);
     run_from_palette(&mut harness, "Box");
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let made = open_feature(&harness);
+
     close_feature(&mut harness);
     run_from_palette(&mut harness, "fit view");
     show_dimensions(&mut harness);
@@ -380,17 +431,21 @@ fn a_boxs_sizes_are_offered_on_the_model_and_a_double_click_changes_one() {
     choose_row(&mut harness, "Box 1");
 
     let length = ValueSlot::Primitive(PrimitiveSize::Length);
+
     assert_eq!(shape_of(&harness, made, length), Some(ShownShape::Stacked));
     assert!(harness.shows("Length 20 mm"));
 
     harness.double_click("Length 20 mm");
     harness.frame();
+
     assert_eq!(
         harness.focused(),
         Some(model_dimensions::value_field_id(made, length))
     );
+
     harness.key(Key::A, Modifiers::COMMAND);
     enter(&mut harness, "45");
+
     assert_eq!(harness.model.undo_label(), Some("Edit Box 1"));
     assert!(matches!(
         &primitive_of(&harness, made).shape,
@@ -401,7 +456,9 @@ fn a_boxs_sizes_are_offered_on_the_model_and_a_double_click_changes_one() {
 #[test]
 fn labels_of_two_sketches_are_thinned_together_so_they_never_overlap() {
     let mut harness = Harness::new();
+
     harness.settle();
+
     let base = harness
         .document()
         .features()
@@ -410,6 +467,7 @@ fn labels_of_two_sketches_are_thinned_together_so_they_never_overlap() {
         .expect("the model has a sketch");
     let copy = harness.sketch(base).clone();
     let twin = harness.add_sketch(copy);
+
     run_from_palette(&mut harness, "fit view");
     show_dimensions(&mut harness);
     harness.frame();
@@ -425,6 +483,7 @@ fn labels_of_two_sketches_are_thinned_together_so_they_never_overlap() {
             .filter(move |(owner, _)| *owner == feature)
             .map(|(_, rect)| *rect)
     };
+
     assert!(of(base).next().is_some());
     assert!(
         of(base)

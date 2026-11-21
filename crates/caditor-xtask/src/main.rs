@@ -59,6 +59,7 @@ fn steps_for(asked: &Asked, root: &Path) -> Result<Vec<Step>, Error> {
             let scoped = scoped(asked, root)?;
 
             let mut steps = plan::format(true);
+
             steps.extend(plan::lint(&scoped.selection, asked.windows, asked.locked));
             if scoped.dependencies_moved {
                 steps.extend(plan::deny(asked.locked));

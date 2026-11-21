@@ -7,7 +7,7 @@ use crate::topology::{EdgeId, Solid};
 const TURN_SAMPLES: [f64; 9] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
 const SAME_TURN: f64 = 1e-5;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum ChordError {
     #[error("no edge is chosen")]
     NoEdges,
@@ -25,7 +25,7 @@ pub enum ChordError {
     DifferingTurns { first: EdgeId, second: EdgeId },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Turn {
     Smooth,
     Constant(f64),
@@ -37,9 +37,11 @@ fn turn_along(solid: &Solid, edge: EdgeId) -> Result<Turn, ChordError> {
     let [(first, _), (second, _)] = faces.as_slice() else {
         return Err(ChordError::Unsupported(edge));
     };
+
     if first == second {
         return Err(ChordError::Unsupported(edge));
     }
+
     let interval = definition.interval();
     let turns = TURN_SAMPLES
         .iter()
@@ -51,12 +53,15 @@ fn turn_along(solid: &Solid, edge: EdgeId) -> Result<Turn, ChordError> {
         })
         .collect::<Result<Vec<f64>, ChordError>>()?;
     let smooth = |turn: &f64| *turn <= TANGENT_FACE_ANGLE;
+
     if turns.iter().all(smooth) {
         return Ok(Turn::Smooth);
     }
+
     let Some(&reference) = turns.first() else {
         return Err(ChordError::Unsupported(edge));
     };
+
     if turns
         .iter()
         .any(|turn| (turn - reference).abs() > SAME_TURN)
@@ -73,12 +78,14 @@ pub fn chord_fillet_radius(solid: &Solid, edges: &[EdgeId], chord: f64) -> Resul
     if edges.is_empty() {
         return Err(ChordError::NoEdges);
     }
+
     let chain = match blend_chain(solid, edges) {
         chain if chain.is_empty() => edges.to_vec(),
         chain => chain,
     };
     let mut found: Option<(EdgeId, f64)> = None;
     let mut first_smooth = None;
+
     for edge in chain {
         match turn_along(solid, edge)? {
             Turn::Smooth => {

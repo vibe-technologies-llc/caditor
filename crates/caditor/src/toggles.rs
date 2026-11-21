@@ -5,7 +5,7 @@ use crate::{
     selection::SelectionFilter, view_aids::ViewAids, viewport::ViewportState,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shown {
     On,
     Off,
@@ -28,7 +28,7 @@ impl Shown {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ToggleStates {
     pub filter: SelectionFilter,
     pub style: DisplayStyle,
@@ -216,12 +216,14 @@ mod tests {
         ] {
             let on = quiet_toggle_notice(command, true);
             let off = quiet_toggle_notice(command, false);
+
             assert!(
                 on.is_some() && off.is_some() && on != off,
                 "{}",
                 command.id()
             );
         }
+
         assert_eq!(quiet_toggle_notice(Command::ToggleGlyphs, true), None);
     }
 }

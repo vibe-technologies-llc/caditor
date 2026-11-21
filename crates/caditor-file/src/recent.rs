@@ -42,14 +42,14 @@ const RECENT_FILE: &str = "recent-files.json";
 const UNREADABLE_STEM: &str = "recent-files.unreadable";
 const LOCK_FILE: &str = "recent-files.lock";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RecentChange {
     Opened(PathBuf),
     Forgotten(PathBuf),
     Cleared,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RecentFiles {
     paths: Vec<PathBuf>,
 }
@@ -69,6 +69,7 @@ impl RecentFiles {
 
     fn from_stored(stored: &[Value]) -> Self {
         let mut recent = Self::default();
+
         for path in stored.iter().rev().filter_map(stored_path) {
             recent.add(path);
         }
@@ -78,6 +79,7 @@ impl RecentFiles {
     pub fn save_changes(state_dir: &Path, changes: &[RecentChange]) -> Result<(), UpdateFailure> {
         locked_update(state_dir, LOCK_FILE, || {
             let mut stored = Self::load_keeping_unreadable(state_dir)?;
+
             for change in changes {
                 stored.apply(change);
             }
@@ -93,6 +95,7 @@ impl RecentFiles {
                 Err(error) => {
                     let kept = keep_unreadable(&path, UNREADABLE_STEM)
                         .map_err(|error| UpdateFailure::writing(&error))?;
+
                     log::warn!(
                         "the recent files in {} were unreadable ({error}) and were kept as {}",
                         path.display(),
@@ -173,6 +176,7 @@ mod tests {
         use std::os::windows::ffi::OsStringExt;
 
         let mut units: Vec<u16> = "/models/caf".encode_utf16().collect();
+
         units.push(0xd800);
         units.extend(".caditor".encode_utf16());
         OsString::from_wide(&units)
@@ -184,9 +188,11 @@ mod tests {
         let odd = PathBuf::from(not_utf8());
         let plain = PathBuf::from("/models/plate.caditor");
         let mut recent = RecentFiles::default();
+
         recent.add(odd.clone());
         recent.add(plain.clone());
         recent.save(dir.path()).unwrap();
+
         assert_eq!(RecentFiles::load(dir.path()).paths(), [plain, odd]);
     }
 
@@ -207,7 +213,9 @@ mod tests {
                 PathBuf::from(r"c:/models/PLATE.caditor")
             ]
         );
+
         recent.remove(Path::new(r"C:\MODELS\plate.CADITOR"));
+
         assert_eq!(recent.paths(), [PathBuf::from(r"C:\models\ärmel.caditor")]);
     }
 
@@ -226,6 +234,7 @@ mod tests {
     fn an_unreadable_list_is_kept_aside_before_it_is_replaced() {
         let dir = TempDir::new().unwrap();
         let opened = PathBuf::from("/models/plate.caditor");
+
         std::fs::write(dir.path().join(RECENT_FILE), "[ broken").unwrap();
 
         RecentFiles::save_changes(dir.path(), &[RecentChange::Opened(opened.clone())]).unwrap();
@@ -238,6 +247,7 @@ mod tests {
 
         std::fs::write(dir.path().join(RECENT_FILE), "{}").unwrap();
         RecentFiles::default().save(dir.path()).unwrap();
+
         assert_eq!(
             std::fs::read_to_string(dir.path().join("recent-files.unreadable-2.json")).unwrap(),
             "{}"
@@ -252,10 +262,12 @@ mod tests {
                 let state = dir.path().to_path_buf();
                 std::thread::spawn(move || {
                     let path = PathBuf::from(format!("/models/{index}.caditor"));
+
                     RecentFiles::save_changes(&state, &[RecentChange::Opened(path)]).unwrap();
                 })
             })
             .collect();
+
         for window in windows {
             window.join().unwrap();
         }
@@ -269,6 +281,7 @@ mod tests {
         let first = PathBuf::from("/models/first.caditor");
         let second = PathBuf::from("/models/second.caditor");
         let old = PathBuf::from("/models/old.caditor");
+
         RecentFiles::save_changes(dir.path(), &[RecentChange::Opened(old.clone())]).unwrap();
 
         RecentFiles::save_changes(dir.path(), &[RecentChange::Opened(first.clone())]).unwrap();
@@ -289,6 +302,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let first = PathBuf::from("/models/first.caditor");
         let second = PathBuf::from("/models/second.caditor");
+
         RecentFiles::save_changes(
             dir.path(),
             &[
@@ -299,9 +313,11 @@ mod tests {
         .unwrap();
 
         RecentFiles::save_changes(dir.path(), &[RecentChange::Cleared]).unwrap();
+
         assert!(RecentFiles::load(dir.path()).paths().is_empty());
 
         RecentFiles::save_changes(dir.path(), &[RecentChange::Opened(first.clone())]).unwrap();
+
         assert_eq!(RecentFiles::load(dir.path()).paths(), [first]);
     }
 }

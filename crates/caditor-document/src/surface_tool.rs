@@ -46,7 +46,7 @@ impl From<HalfSpaceError> for SurfaceToolError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SurfaceCause {
     Gone { face: String, holder: String },
     Divided { face: String },
@@ -166,9 +166,11 @@ pub(crate) fn surface_tool(
     let id = chosen_face(holder, face)?;
     let chosen = holder.face(id).ok_or(SurfaceToolError::Missing)?;
     let outward = chosen.sense().is_same();
+
     let solid = match chosen.surface() {
         Surface::Plane(_) => {
             let plane = face_plane(holder, id).ok_or(SurfaceToolError::Missing)?;
+
             return Ok(SurfaceTool {
                 solid: half_space_solid(body, &plane, flipped, feature)?,
                 keep_inside: true,
@@ -177,8 +179,10 @@ pub(crate) fn surface_tool(
         Surface::Cylinder(cylinder) => {
             let frame = cylinder.frame();
             let along = frame.normal();
+
             let Reach { low, high, margin } =
                 reach(body, frame.origin(), along).ok_or(SurfaceToolError::NoExtent)?;
+
             let base = Plane::from_frame(
                 frame.origin() + along * (low - margin),
                 along,
@@ -201,14 +205,18 @@ pub(crate) fn surface_tool(
                 .opening_direction()
                 .try_normalize()
                 .ok_or(SurfaceToolError::NoExtent)?;
+
             let Reach { high, margin, .. } =
                 reach(body, apex, up).ok_or(SurfaceToolError::NoExtent)?;
+
             if high <= LINEAR_RESOLUTION {
                 return Err(SurfaceToolError::Misses);
             }
+
             let height = high + margin;
             let rim = Point2::new(height * cone.half_angle().abs().tan(), height);
             let top = Point2::new(0.0, height);
+
             let curves = [
                 ProfileCurve::line(SURFACE_ENTITY, Point2::ZERO, rim),
                 ProfileCurve::line(CAP_ENTITY, rim, top),

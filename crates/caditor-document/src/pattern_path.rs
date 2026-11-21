@@ -13,7 +13,7 @@ use crate::{
 const TRANSPORT_STEPS: usize = 64;
 const BISECTION_STEPS: usize = 60;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PathError {
     #[error("the sketch has no curve")]
     NoCurves,
@@ -46,7 +46,7 @@ pub(crate) struct CurvePath {
     length: f64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Station {
     pub point: Point2,
     pub tangent: Vector2,
@@ -54,12 +54,15 @@ pub(crate) struct Station {
 
 fn segment(curve: &ProfileCurve) -> Result<Segment, PathError> {
     let (path, range) = curve.curve().map_err(PathError::Curve)?;
+
     let length = path.length(range);
+
     if !length.is_finite() || length <= LINEAR_RESOLUTION {
         return Err(PathError::NoLength {
             entity: curve.entity,
         });
     }
+
     let ends = [
         path.evaluate(range.start()).point,
         path.evaluate(range.end()).point,
@@ -136,8 +139,10 @@ pub(crate) fn curve_path(sketch: &Sketch) -> Result<CurvePath, PathError> {
         .iter()
         .map(segment)
         .collect::<Result<Vec<_>, _>>()?;
+
     if let [only] = segments.as_slice() {
         let closed = is_closed(only);
+
         return Ok(CurvePath::new(
             vec![Piece {
                 curve: only.curve.clone(),
@@ -154,21 +159,27 @@ pub(crate) fn curve_path(sketch: &Sketch) -> Result<CurvePath, PathError> {
     if segments.iter().any(is_closed) {
         return Err(PathError::NotOneChain);
     }
+
     let joined = partners(&segments);
+
     if joined.iter().any(|partners| partners.len() > 1) {
         return Err(PathError::NotOneChain);
     }
+
     let (start, closed) = first_end(&segments, &joined)?;
     let mut pieces = Vec::with_capacity(segments.len());
     let mut at = start;
+
     loop {
         let segment = segments.get(at / 2).ok_or(PathError::NotOneChain)?;
+
         pieces.push(Piece {
             curve: segment.curve.clone(),
             range: segment.range,
             reversed: !at.is_multiple_of(2),
             length: segment.length,
         });
+
         let next = joined.get(at ^ 1).and_then(|partners| partners.first());
         match next {
             None if !closed => break,
@@ -191,10 +202,13 @@ impl Piece {
             (self.range.start(), self.range.end())
         };
         let share = (distance / self.length).clamp(0.0, 1.0);
+
         if matches!(self.curve, Curve2::Line(_) | Curve2::Circle(_)) {
             return from + (to - from) * share;
         }
+
         let (mut low, mut high) = (0.0, 1.0);
+
         for _ in 0..BISECTION_STEPS {
             let middle = 0.5 * (low + high);
             let parameter = from + (to - from) * middle;
@@ -240,6 +254,7 @@ impl CurvePath {
     fn forward(&self, distance: f64) -> Option<Station> {
         let mut left = distance.clamp(0.0, self.length);
         let last = self.pieces.len().checked_sub(1)?;
+
         for (index, piece) in self.pieces.iter().enumerate() {
             if left <= piece.length || index == last {
                 return piece.station(left);
@@ -253,6 +268,7 @@ impl CurvePath {
         if !reversed {
             return self.forward(distance);
         }
+
         let back = if self.closed {
             (self.length - distance).rem_euclid(self.length)
         } else {
@@ -278,14 +294,14 @@ enum Walk {
     Spatial(EdgeWalk),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CopyStop {
     pub placement: RigidTransform,
     pub point: Point3,
     pub tangent: Vector3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum EdgePathError {
     Lost {
         edge: usize,
@@ -306,6 +322,7 @@ pub(crate) fn edge_segments(
         .map(|(index, reference)| {
             let lost = |cause| EdgePathError::Lost { edge: index, cause };
             let id = reference.resolve_in(&naming).map_err(lost)?;
+
             let edge = solid
                 .edge(id)
                 .ok_or_else(|| lost(ReferenceError::Missing))?;
@@ -385,7 +402,7 @@ impl PatternPath {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Frame {
     point: Point3,
     tangent: Vector3,
@@ -409,6 +426,7 @@ impl Frame {
     fn carried_to(&self, point: Point3, tangent: Vector3) -> Option<Self> {
         let step = point - self.point;
         let reach = step.length_squared();
+
         let (across, along) = if reach > 0.0 {
             (
                 self.across - step * (2.0 * step.dot(self.across) / reach),
@@ -419,6 +437,7 @@ impl Frame {
         };
         let second = tangent - along;
         let second_reach = second.length_squared();
+
         let turned = if second_reach > 0.0 {
             across - second * (2.0 * second.dot(across) / second_reach)
         } else {
@@ -463,10 +482,13 @@ impl Leg {
     fn parameter_at(&self, distance: f64) -> f64 {
         let (from, to) = (self.range.start(), self.range.end());
         let share = (distance / self.length).clamp(0.0, 1.0);
+
         if matches!(self.curve, Curve::Line(_) | Curve::Circle(_)) {
             return from + (to - from) * share;
         }
+
         let (mut low, mut high) = (0.0, 1.0);
+
         for _ in 0..BISECTION_STEPS {
             let middle = 0.5 * (low + high);
             let reached = Interval::new(from, from + (to - from) * middle)
@@ -503,22 +525,28 @@ impl Spatial {
     fn new(legs: impl Iterator<Item = (Curve, Interval)>) -> Option<Self> {
         let mut built = Vec::new();
         let mut carried: Option<Frame> = None;
+
         for (curve, range) in legs {
             let length = curve.length(range);
+
             if !length.is_finite() || length <= LINEAR_RESOLUTION {
                 return None;
             }
+
             let mut samples = Vec::with_capacity(TRANSPORT_STEPS + 1);
+
             for step in 0..=TRANSPORT_STEPS {
                 let share = step as f64 / TRANSPORT_STEPS as f64;
                 let parameter = range.start() + (range.end() - range.start()) * share;
                 let derivatives = curve.evaluate(parameter);
                 let tangent = derivatives.first.try_normalize()?;
+
                 let frame = match (carried, step) {
                     (Some(previous), 0) => previous.turned_to(derivatives.point, tangent)?,
                     (Some(previous), _) => previous.carried_to(derivatives.point, tangent)?,
                     (None, _) => Frame::first(derivatives.point, tangent)?,
                 };
+
                 carried = Some(frame);
                 samples.push(Sample { parameter, frame });
             }
@@ -529,6 +557,7 @@ impl Spatial {
                 samples,
             });
         }
+
         let length = built.iter().map(|leg| leg.length).sum();
         Some(Self {
             legs: built,
@@ -539,6 +568,7 @@ impl Spatial {
     fn frame_at(&self, distance: f64) -> Option<Frame> {
         let mut left = distance.clamp(0.0, self.length);
         let last = self.legs.len().checked_sub(1)?;
+
         for (index, leg) in self.legs.iter().enumerate() {
             if left <= leg.length || index == last {
                 return leg.frame_at(left);
@@ -585,6 +615,7 @@ impl EdgeWalk {
         };
         let start = walk.frame_at(0.0)?;
         let station = walk.frame_at(distance)?;
+
         let placement = match orientation {
             CopyOrientation::Kept => RigidTransform::translation(station.point - start.point)?,
             CopyOrientation::Following => {

@@ -6,7 +6,7 @@ pub const HOME_VIEW_NAME: &str = "Isometric";
 const NUMBERED_NAME: &str = "View";
 const UNIT_TOLERANCE: f64 = 1e-12;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SavedView {
     pub target: Point3,
     pub orientation: Rotation3,
@@ -35,13 +35,13 @@ impl SavedView {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NamedView {
     pub name: String,
     pub view: SavedView,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SavedViews {
     pub named: Vec<NamedView>,
     pub home: Option<SavedView>,

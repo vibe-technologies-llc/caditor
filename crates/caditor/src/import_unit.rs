@@ -11,7 +11,7 @@ use crate::{
     widgets::{self, DialogWidth, Tone},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImportUnitCommand {
     Choose(MeshUnit),
     Confirm,
@@ -92,12 +92,14 @@ pub fn dialog(ctx: &egui::Context, model: &Model, scaling: &Scaling) -> Option<I
     let title = format!("Import “{}”", display_name(Some(&scaling.path)));
     let response = widgets::dialog(ctx, "import-unit", &title, DialogWidth::Medium, |ui| {
         let mut command = None;
+
         widgets::dialog_body(ui, |ui| {
             widgets::callout(ui, Tone::Info, |ui| {
                 ui.add(Label::new(explanation(scaling, model)).wrap());
             });
 
             export::heading(ui, "Units");
+
             let choices: Vec<(MeshUnit, &str, String)> = MeshUnit::ALL
                 .iter()
                 .map(|unit| (*unit, unit_label(*unit), unit_hover(*unit)))
@@ -106,6 +108,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model, scaling: &Scaling) -> Option<I
                 .iter()
                 .map(|(unit, label, hover)| (*unit, *label, hover.as_str()))
                 .collect();
+
             if let Some(unit) = preferences::choice(ui, &options, scaling.chosen) {
                 command = Some(ImportUnitCommand::Choose(unit));
             }

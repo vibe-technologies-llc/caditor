@@ -11,6 +11,7 @@ pub(crate) fn parameter_at_length(curve: &Curve, interval: Interval, along: f64)
         Curve::Circle(circle) => interval.start() + along / circle.radius(),
         _ => {
             let (mut low, mut high) = (interval.start(), interval.end());
+
             for _ in 0..LENGTH_BISECTIONS {
                 let middle = 0.5 * (low + high);
                 let reached = Interval::new(interval.start(), middle)
@@ -58,6 +59,7 @@ impl<'a> Traversed<'a> {
         } else {
             self.length - along
         };
+
         let parameter = interval.clamp(parameter_at_length(curve, interval, from_start.max(0.0)));
         let derivatives = curve.evaluate(parameter);
         let tangent = if self.forward {
@@ -91,15 +93,18 @@ impl<'a> EdgeRun<'a> {
             .iter()
             .map(|id| solid.edge(*id).map(|edge| (*id, edge)))
             .collect::<Option<_>>()?;
+
         if edges.iter().any(|(_, edge)| edge.is_closed()) {
             return None;
         }
 
         let mut touching: BTreeMap<VertexId, usize> = BTreeMap::new();
+
         for (_, edge) in &edges {
             *touching.entry(edge.start()).or_default() += 1;
             *touching.entry(edge.end()).or_default() += 1;
         }
+
         let ends: Vec<VertexId> = touching
             .iter()
             .filter(|(_, count)| **count == 1)
@@ -109,6 +114,7 @@ impl<'a> EdgeRun<'a> {
         let [start, _] = ends.as_slice() else {
             return None;
         };
+
         if branched {
             return None;
         }
@@ -116,12 +122,14 @@ impl<'a> EdgeRun<'a> {
         let mut left = edges;
         let mut at = *start;
         let mut chain = Vec::with_capacity(left.len());
+
         while let Some(index) = left
             .iter()
             .position(|(_, edge)| edge.start() == at || edge.end() == at)
         {
             let (id, edge) = left.swap_remove(index);
             let forward = edge.start() == at;
+
             at = if forward { edge.end() } else { edge.start() };
             chain.push(Traversed::new(id, edge, forward));
         }
@@ -136,10 +144,13 @@ impl<'a> EdgeRun<'a> {
                 .is_some_and(|piece| !piece.forward),
             None => chain.first().is_some_and(|piece| !piece.forward),
         };
+
         if leading_backward {
             chain = chain.into_iter().rev().map(Traversed::reversed).collect();
         }
+
         let mut pieces = chain.into_iter();
+
         let first = pieces.next()?;
         Some(Self {
             first,
@@ -163,12 +174,14 @@ impl<'a> EdgeRun<'a> {
 
     pub(crate) fn at(&self, along: f64) -> (Point3, Vector3) {
         let mut before = 0.0;
+
         for piece in self.pieces() {
             if along <= before + piece.length {
                 return piece.at(along - before);
             }
             before += piece.length;
         }
+
         let last = self.rest.last().unwrap_or(&self.first);
         last.at(last.length)
     }

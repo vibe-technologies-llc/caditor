@@ -9,7 +9,7 @@ use crate::{browser, slicer};
 pub const FOLDER: &str = "fusion";
 const SCHEME_LINK: &str = "fusion360://host/?command=open&file=";
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PrepareError {
     #[error("caditor has no folder of its own to keep the file for Fusion 360 in")]
     NoFolder,
@@ -24,7 +24,7 @@ pub enum PrepareError {
     Crashed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LaunchError {
     #[error("The file’s place “{}” cannot be written in a link for Fusion 360", .0.display())]
     NotText(PathBuf),
@@ -44,6 +44,7 @@ pub fn prepare(
     opens_links: &dyn Fn() -> bool,
 ) -> Result<PathBuf, PrepareError> {
     let folder = folder.ok_or(PrepareError::NoFolder)?;
+
     slicer::make_folder(folder).map_err(PrepareError::Folder)?;
     if !opens_links() {
         return Err(PrepareError::NoHandler);
@@ -56,6 +57,7 @@ pub fn address(file: &Path) -> Result<String, LaunchError> {
         .to_str()
         .ok_or_else(|| LaunchError::NotText(file.to_path_buf()))?;
     let mut address = String::from(SCHEME_LINK);
+
     for byte in text.replace('\\', "/").bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
             address.push(char::from(byte));

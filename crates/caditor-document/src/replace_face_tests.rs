@@ -19,6 +19,7 @@ fn rectangle(from: Point2, size: Point2) -> Sketch {
         from + size,
         Point2::new(from.x, from.y + size.y),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -41,6 +42,7 @@ fn assert_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
         .unwrap()
         .mass_properties()
         .volume;
+
     assert!(
         (found - expected).abs() < 2e-3 * expected,
         "volume {found} instead of {expected}"
@@ -103,7 +105,9 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let offset = transaction.add_parameter("height", transaction.parse("6 mm").unwrap());
     let base = extruded(
         &mut transaction,
@@ -125,12 +129,16 @@ fn model() -> Model {
             offset: Expression::Parameter(offset),
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(base).unwrap();
     let top = flat_face(solid, Vector3::Z, Point3::new(1.0, 1.0, HIGH));
     let mut transaction = document.transaction("Replace face");
+
     let replace = transaction.add_feature(
         "Replace face 1",
         FeatureKind::ReplaceFace(ReplaceFace {
@@ -139,6 +147,7 @@ fn model() -> Model {
             target: Some(PlaneReference::Datum(datum)),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -165,6 +174,7 @@ fn set_replace(model: &mut Model, change: impl FnOnce(&mut ReplaceFace, &Solid))
         .replace_face()
         .unwrap()
         .clone();
+
     change(&mut definition, &before);
     model
         .document
@@ -191,8 +201,11 @@ fn a_top_replaced_by_a_datum_plane_follows_the_plane_and_undoes() {
 
     let evaluation = evaluate(&model.document, &mut model.engine);
     let kind = &model.document.feature(model.replace).unwrap().kind;
+
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(&evaluation, model.base, LONG * WIDE * 6.0);
+
     assert!(kind.dependencies().contains(&model.datum));
 
     let inverse = model
@@ -206,23 +219,30 @@ fn a_top_replaced_by_a_datum_plane_follows_the_plane_and_undoes() {
         ))
         .unwrap();
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_volume(&evaluation, model.base, LONG * WIDE * 2.5);
 
     model.document.apply(inverse).unwrap();
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_volume(&evaluation, model.base, LONG * WIDE * 6.0);
 }
 
 #[test]
 fn a_top_takes_the_plane_of_another_body_s_face() {
     let mut model = model();
+
     let target = tower_top(&mut model);
 
     set_replace(&mut model, |replace, _| replace.target = Some(target));
+
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(&evaluation, model.base, LONG * WIDE * 9.0);
+
     assert!(
         model
             .document
@@ -237,13 +257,16 @@ fn a_top_takes_the_plane_of_another_body_s_face() {
 #[test]
 fn a_face_of_an_imported_body_is_replaced_by_a_slanted_plane() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let solid = evaluation
         .body_seen_by(model.replace, model.base)
         .unwrap()
         .clone();
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
+
     let imported = transaction.add_feature(
         "Block",
         FeatureKind::Import(Import::new("block.step", solid, "")),
@@ -259,12 +282,16 @@ fn a_face_of_an_imported_body_is_replaced_by_a_slanted_plane() {
             offset: text("6 mm"),
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let read = evaluation.body(imported).unwrap();
     let top = flat_face(read, Vector3::Z, Point3::new(1.0, 1.0, HIGH));
     let mut transaction = document.transaction("Replace face");
+
     let replace = transaction.add_feature(
         "Replace face 1",
         FeatureKind::ReplaceFace(ReplaceFace {
@@ -273,7 +300,9 @@ fn a_face_of_an_imported_body_is_replaced_by_a_slanted_plane() {
             target: Some(PlaneReference::Datum(slanted)),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
 
     assert_eq!(
@@ -282,6 +311,7 @@ fn a_face_of_an_imported_body_is_replaced_by_a_slanted_plane() {
         "{:?}",
         evaluation.feature(replace)
     );
+
     let result = evaluation.body(imported).unwrap();
     let (sin, cos) = 10f64.to_radians().sin_cos();
     let volume = result
@@ -289,7 +319,9 @@ fn a_face_of_an_imported_body_is_replaced_by_a_slanted_plane() {
         .unwrap()
         .mass_properties()
         .volume;
+
     let leaning = |sign: f64| LONG * WIDE * (6.0 + sign * LONG / 2.0 * sin) / cos;
+
     assert_eq!(result.faces().count(), 6);
     assert!(
         [leaning(1.0), leaning(-1.0)]
@@ -313,8 +345,10 @@ fn replacing_errors_name_the_face_and_the_fix() {
     set_replace(&mut model, |replace, _| {
         replace.target = Some(PlaneReference::Principal(PrincipalPlane::Xz));
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.replace);
+
     assert!(
         error
             .reason()
@@ -327,8 +361,10 @@ fn replacing_errors_name_the_face_and_the_fix() {
     set_replace(&mut model, |replace, _| {
         replace.target = Some(PlaneReference::Principal(PrincipalPlane::Xy));
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.replace);
+
     assert!(
         error
             .reason()
@@ -339,14 +375,18 @@ fn replacing_errors_name_the_face_and_the_fix() {
     assert!(evaluation.body(model.base).is_some());
 
     let base = model.base;
+
     set_replace(&mut model, |replace, solid| {
         let top = flat_face(solid, Vector3::Z, Point3::new(1.0, 1.0, HIGH));
+
         replace.target = Some(PlaneReference::Face(
             FaceAttachment::capture(base, solid, top).unwrap().0,
         ));
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.replace);
+
     assert!(
         error
             .reason()
@@ -356,14 +396,18 @@ fn replacing_errors_name_the_face_and_the_fix() {
     );
 
     set_replace(&mut model, |replace, _| replace.target = None);
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert!(matches!(
         evaluation.feature(model.replace).unwrap().state,
         FeatureState::Waiting(MissingInput::TargetPlane { .. })
     ));
 
     set_replace(&mut model, |replace, _| replace.faces.clear());
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert!(matches!(
         evaluation.feature(model.replace).unwrap().state,
         FeatureState::Waiting(MissingInput::FacesToReplace { .. })
@@ -373,6 +417,7 @@ fn replacing_errors_name_the_face_and_the_fix() {
 #[test]
 fn a_curved_face_is_refused_by_name() {
     let mut model = model();
+
     let mut transaction = model.document.transaction("Round");
     let evaluation = evaluate(&model.document, &mut model.engine);
     let solid = evaluation
@@ -387,6 +432,7 @@ fn a_curved_face_is_refused_by_name() {
         })
         .map(|(id, _)| id)
         .unwrap();
+
     let round = transaction.add_feature(
         "Fillet 1",
         FeatureKind::Blend(Blend {
@@ -400,6 +446,7 @@ fn a_curved_face_is_refused_by_name() {
             sizing: FilletSizing::Radius,
         }),
     );
+
     model.document.apply(transaction.finish()).unwrap();
     model
         .document
@@ -417,8 +464,10 @@ fn a_curved_face_is_refused_by_name() {
             .find(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
             .map(|(id, _)| id)
             .unwrap();
+
         replace.faces = vec![FaceReference::capture(solid, rounded).unwrap()];
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.replace);
 
@@ -445,6 +494,7 @@ fn stepped_outline() -> Sketch {
         Point2::new(10.0, 10.0),
         Point2::new(0.0, 10.0),
     ];
+
     for (index, corner) in corners.iter().enumerate() {
         sketch.add_line(*corner, corners[(index + 1) % corners.len()]);
     }
@@ -454,10 +504,15 @@ fn stepped_outline() -> Sketch {
 #[test]
 fn a_step_levelled_keeps_the_replaced_face_s_name_for_later_features() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let base = extruded(&mut transaction, "Base", stepped_outline(), "10 mm");
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(base).unwrap().clone();
 
@@ -465,6 +520,7 @@ fn a_step_levelled_keeps_the_replaced_face_s_name_for_later_features() {
     let upper = flat_face(&solid, Vector3::Y, Point3::new(5.0, 10.0, 5.0));
     let reference = FaceReference::capture(&solid, lower).unwrap();
     let mut transaction = document.transaction("Replace face");
+
     let replace = transaction.add_feature(
         "Replace face 1",
         FeatureKind::ReplaceFace(ReplaceFace {
@@ -475,15 +531,20 @@ fn a_step_levelled_keeps_the_replaced_face_s_name_for_later_features() {
             )),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
 
     assert!(matches!(
         evaluation.feature(replace).unwrap().state,
         FeatureState::UpToDate
     ));
+
     assert_volume(&evaluation, base, 20.0 * 10.0 * 10.0);
+
     let level = evaluation.body(base).unwrap();
+
     assert_eq!(level.faces().count(), 6);
     assert!(reference.resolve(level).is_ok());
 }
@@ -495,6 +556,7 @@ fn drum(
     radius: f64,
 ) -> FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_circle(center, radius);
     extruded(transaction, name, sketch, "10 mm")
 }
@@ -510,12 +572,17 @@ fn round_wall(solid: &Solid) -> FaceId {
 #[test]
 fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_off_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let inner = drum(&mut transaction, "Inner", Point2::ZERO, 5.0);
     let outer = drum(&mut transaction, "Outer", Point2::ZERO, 7.0);
     let aside = drum(&mut transaction, "Aside", Point2::new(40.0, 0.0), 9.0);
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(inner).unwrap().clone();
     let wall = round_wall(&solid);
@@ -531,6 +598,7 @@ fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_o
     let top = flat_face(&solid, Vector3::Z, Point3::new(0.0, 0.0, 10.0));
 
     let mut transaction = document.transaction("Replace face");
+
     let replace = transaction.add_feature(
         "Replace face 1",
         FeatureKind::ReplaceFace(ReplaceFace {
@@ -539,8 +607,11 @@ fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_o
             target: Some(onto_outer),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
+
     assert_volume(&evaluation, inner, PI * 49.0 * 10.0);
 
     let definition = |faces: Vec<FaceReference>, target: PlaneReference| {
@@ -557,11 +628,14 @@ fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_o
         )
     };
     let chosen = FaceReference::capture(&solid, wall).unwrap();
+
     document
         .apply(definition(vec![chosen], onto_aside.clone()))
         .unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
     let error = failure(&evaluation, replace);
+
     assert!(
         error.reason().contains("cannot reach"),
         "{}",
@@ -569,8 +643,11 @@ fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_o
     );
 
     let flat = FaceReference::capture(&solid, top).unwrap();
+
     document.apply(definition(vec![flat], onto_aside)).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
     let error = failure(&evaluation, replace);
+
     assert!(error.reason().contains("is flat"), "{}", error.reason());
 }

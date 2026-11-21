@@ -14,12 +14,15 @@ use caditor_kernel::{
 pub(crate) fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
     let threads = available_threads().min(items.len());
     let helpers = HelperThreads::take(threads);
+
     if helpers.count() <= 1 {
         return items.iter().map(&work).collect();
     }
+
     let next = AtomicUsize::new(0);
     let interrupt = current_interrupt();
     let mut results: Vec<Option<R>> = items.iter().map(|_| None).collect();
+
     thread::scope(|scope| {
         let workers: Vec<_> = (0..helpers.count())
             .map(|_| {
@@ -27,11 +30,13 @@ pub(crate) fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R 
                 scope.spawn(move || {
                     let serve = || {
                         let mut done = Vec::new();
+
                         loop {
                             let at = next.fetch_add(1, Ordering::Relaxed);
                             let Some(item) = items.get(at) else {
                                 break;
                             };
+
                             if check_interrupt().is_err() {
                                 break;
                             }
@@ -65,6 +70,7 @@ pub(crate) fn each_in_parallel<T: Sync, R: Send>(
     work: impl Fn(&T) -> R + Sync,
 ) -> Vec<R> {
     let mut done = in_parallel(items, &work);
+
     for item in items.get(done.len()..).unwrap_or_default() {
         done.push(work(item));
     }

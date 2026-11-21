@@ -13,6 +13,7 @@ fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketch {
         Point2::new(max.0, max.1),
         Point2::new(min.0, max.1),
     ];
+
     for (index, corner) in corners.iter().enumerate() {
         sketch.add_line(*corner, corners[(index + 1) % 4]);
     }
@@ -80,12 +81,15 @@ struct Stack {
 
 fn stack() -> Stack {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Base");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
     );
+
     let base = transaction.add_feature(
         "Base",
         extrude(
@@ -94,14 +98,19 @@ fn stack() -> Stack {
             BodyOperation::NewBody,
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let solid = evaluate(&document, &mut engine).body(base).unwrap().clone();
     let (attachment, plane) = FaceAttachment::capture(base, &solid, end_cap(&solid, base)).unwrap();
+
     assert_eq!(plane.origin().z, 4.0);
     assert_eq!(plane.normal().z, 1.0);
+
     let mut transaction = document.transaction("Boss");
+
     let top = transaction.add_feature(
         "Top sketch",
         FeatureKind::Sketch(SketchFeature::on_face(
@@ -117,11 +126,13 @@ fn stack() -> Stack {
             BodyOperation::Add(base),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let solid = evaluate(&document, &mut engine).body(base).unwrap().clone();
     let (attachment, plane) = FaceAttachment::capture(base, &solid, end_cap(&solid, boss)).unwrap();
     let mut transaction = document.transaction("Cap");
+
     let cap = transaction.add_feature(
         "Cap sketch",
         FeatureKind::Sketch(SketchFeature::on_face(
@@ -129,6 +140,7 @@ fn stack() -> Stack {
             attachment,
         )),
     );
+
     document.apply(transaction.finish()).unwrap();
     Stack {
         document,
@@ -144,7 +156,9 @@ fn stack() -> Stack {
 fn sketches_on_faces_follow_the_faces_when_the_body_changes() {
     let mut stack = stack();
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&stack.document, &mut engine);
+
     assert_eq!(evaluation.failed_count(), 0);
     assert_eq!(sketch_plane(&evaluation, stack.top).origin().z, 4.0);
     assert_eq!(sketch_plane(&evaluation, stack.cap).origin().z, 7.0);
@@ -157,8 +171,11 @@ fn sketches_on_faces_follow_the_faces_when_the_body_changes() {
             expression: stack.document.parse("6 mm").unwrap(),
         },
     );
+
     stack.document.apply(taller).unwrap();
+
     let evaluation = evaluate(&stack.document, &mut engine);
+
     assert_eq!(evaluation.failed_count(), 0);
     assert_eq!(sketch_plane(&evaluation, stack.top).origin().z, 6.0);
     assert_eq!(sketch_plane(&evaluation, stack.cap).origin().z, 9.0);
@@ -182,7 +199,9 @@ fn sketches_on_faces_follow_the_faces_when_the_body_changes() {
 fn a_lost_face_fails_the_sketch_and_its_users_only() {
     let mut stack = stack();
     let mut engine = Recompute::default();
+
     evaluate(&stack.document, &mut engine);
+
     let plane = stack
         .document
         .feature(stack.top)
@@ -195,6 +214,7 @@ fn a_lost_face_fails_the_sketch_and_its_users_only() {
         body: stack.base,
         face: FaceReference::new(FaceName::from_digest(99), None, []),
     };
+
     stack
         .document
         .apply(Transaction::single(
@@ -206,11 +226,13 @@ fn a_lost_face_fails_the_sketch_and_its_users_only() {
             },
         ))
         .unwrap();
+
     let evaluation = evaluate(&stack.document, &mut engine);
 
     let FeatureState::Failed(error) = &evaluation.feature(stack.top).unwrap().state else {
         panic!("the sketch should fail");
     };
+
     assert_eq!(
         error.reason(),
         "The face this sketch lies on is no longer part of Base."
@@ -231,6 +253,7 @@ fn a_lost_face_fails_the_sketch_and_its_users_only() {
 fn placement_edits_are_checked_and_undone() {
     let stack = stack();
     let mut editor = Editor::new(stack.document.clone());
+
     let before = editor.document().clone();
     let attachment = before
         .feature(stack.top)
@@ -245,6 +268,7 @@ fn placement_edits_are_checked_and_undone() {
         caditor_geometry::Vector3::X,
     )
     .unwrap();
+
     editor
         .apply(Transaction::single(
             "Detach",
@@ -255,10 +279,14 @@ fn placement_edits_are_checked_and_undone() {
             },
         ))
         .unwrap();
+
     let detached = editor.document().feature(stack.top).unwrap();
+
     assert!(detached.kind.attachment().is_none());
     assert_eq!(detached.kind.sketch().unwrap().plane(), lifted);
+
     editor.undo().unwrap();
+
     assert_eq!(*editor.document(), before);
 
     let document = editor.document();
@@ -276,10 +304,12 @@ fn placement_edits_are_checked_and_undone() {
             }),
         },
     );
+
     assert_eq!(
         document.check(&on_sketch),
         Err(EditError::NotABody("Outline".to_owned()))
     );
+
     let on_a_solid = Transaction::single(
         "Place a solid",
         Edit::SetSketchPlacement {
@@ -288,11 +318,13 @@ fn placement_edits_are_checked_and_undone() {
             attachment: None,
         },
     );
+
     assert_eq!(
         document.check(&on_a_solid),
         Err(EditError::NotASketch("Boss".to_owned()))
     );
     assert!(!document.dependents_of(&[stack.base]).is_empty());
+
     let above_base = Transaction::single(
         "Move",
         Edit::MoveFeature {
@@ -300,6 +332,7 @@ fn placement_edits_are_checked_and_undone() {
             index: 1,
         },
     );
+
     assert!(matches!(
         document.check(&above_base),
         Err(EditError::AboveDependency { .. })

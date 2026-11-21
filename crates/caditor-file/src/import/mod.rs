@@ -62,7 +62,7 @@ pub const MAX_DRAWING_ELEMENTS: usize = 4_000_000;
 pub const MAX_UNPACKED_DRAWING: usize = 256 << 20;
 pub const MAX_UNPACKED_PART: usize = 256 << 20;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DrawingCurve {
     Point(Point2),
     Line {
@@ -146,7 +146,7 @@ impl DrawingCurve {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Drawing {
     pub curves: Vec<DrawingCurve>,
     pub construction: BTreeSet<usize>,
@@ -172,6 +172,7 @@ impl Default for Drawing {
 impl Drawing {
     pub fn extent(&self) -> f64 {
         let mut points = self.curves.iter().flat_map(DrawingCurve::points);
+
         let Some(first) = points.next() else {
             return 0.0;
         };
@@ -189,7 +190,7 @@ impl Drawing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ImportError {
     #[error("{0}")]
     Reading(ReadFailure),
@@ -343,8 +344,11 @@ pub enum ImportError {
 
 pub fn read_dxf(path: &Path, cancel: &CancelToken) -> Result<Drawing, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
+
     ensure_going(cancel)?;
+
     let drawing = interruptible(cancel.interrupt(), || parse_dxf(&bytes))?;
+
     ensure_going(cancel)?;
     Ok(drawing)
 }
@@ -355,7 +359,9 @@ pub fn read_drawing(
     cancel: &CancelToken,
 ) -> Result<Drawing, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
+
     ensure_going(cancel)?;
+
     let named = |extensions: &[&str]| {
         path.extension().is_some_and(|extension| {
             extensions
@@ -370,6 +376,7 @@ pub fn read_drawing(
     } else {
         interruptible(cancel.interrupt(), || parse_dxf(&bytes))
     }?;
+
     ensure_going(cancel)?;
     Ok(drawing)
 }

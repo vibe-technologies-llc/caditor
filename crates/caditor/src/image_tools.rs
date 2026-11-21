@@ -23,7 +23,7 @@ use crate::{
 pub const DEFAULT_WIDTH: f64 = 100.0;
 pub const NAME_PREFIX: &str = "Image";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SpotError {
     #[error("The reference image is not placed yet; fix it or recompute first")]
     NotPlaced,
@@ -33,7 +33,7 @@ pub enum SpotError {
     NotOnPicture,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ImageError {
     #[error("The reference image no longer exists")]
     Gone,
@@ -51,7 +51,7 @@ pub enum ImageError {
     Rejected(#[from] CheckError),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ImageTargetError {
     #[error(transparent)]
     ChosenPlane(datum_tools::OneChoiceError),
@@ -72,7 +72,7 @@ impl Reason for ImageTargetError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ImageTarget {
     Plane { plane: PlaneReference, at: Point2 },
     Sketch(FeatureId),
@@ -86,6 +86,7 @@ pub fn target(
     if let Some(sketch) = editing.feature() {
         return Ok(ImageTarget::Sketch(sketch));
     }
+
     let index = model.document().bar_index();
     let chosen = datum_tools::chosen_plane(model, selection, index)
         .map_err(ImageTargetError::ChosenPlane)?;
@@ -136,6 +137,7 @@ pub fn create(
     };
     let name = image_name(document, path);
     let mut transaction = document.transaction(format!("Insert {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::ReferenceImage(Box::new(ReferenceImage {
@@ -279,8 +281,10 @@ pub fn calibrated(
         to,
         distance: caditor_expression::Expression::Number(0.0),
     };
+
     let gap = calibration.spot_gap(image.picture.size().aspect());
     let distance = placed.width * gap;
+
     if !(distance > 0.0 && distance.is_finite()) {
         return Err(ImageError::SameSpot);
     }
@@ -335,7 +339,7 @@ pub fn calibration_prompt(editing_first: bool) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CalibrationGuide {
     pub from: Point3,
     pub to: Option<Point3>,
@@ -354,6 +358,7 @@ pub fn calibration_guide(
     let evaluation = model
         .draft_evaluation_of(picking.feature)
         .unwrap_or_else(|| model.evaluation());
+
     let placed = placed(evaluation, picking.feature)?;
     let from = placed.point_at(first);
     let to = ray

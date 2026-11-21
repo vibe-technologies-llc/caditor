@@ -82,8 +82,10 @@ fn derivatives_match_finite_differences() {
             let exact = curve.evaluate(parameter);
             let ahead = curve.evaluate(parameter + step);
             let behind = curve.evaluate(parameter - step);
+
             let first = (ahead.point - behind.point) / (2.0 * step);
             let second = (ahead.first - behind.first) / (2.0 * step);
+
             assert!(
                 (first - exact.first).length() < 1e-6 * (1.0 + exact.first.length()),
                 "{curve:?} at {parameter}"
@@ -104,6 +106,7 @@ fn closest_parameter_recovers_points_on_the_curve() {
             let parameter = range.at(random.unit());
             let point = curve.point(parameter);
             let found = curve.closest_parameter(point, range);
+
             assert!(
                 curve.point(found).distance(point) < 1e-9,
                 "{curve:?} at {parameter} found {found}"
@@ -120,12 +123,15 @@ fn closest_parameter_beats_dense_sampling_for_points_off_the_curve() {
         for _ in 0..100 {
             let point = random.point(25.0);
             let found = curve.closest_parameter(point, range);
+
             assert!(range.contains(found));
+
             let distance = curve.point(found).distance(point);
             let sampled = samples
                 .iter()
                 .map(|(_, sample)| sample.distance(point))
                 .fold(f64::INFINITY, f64::min);
+
             assert!(distance <= sampled + 1e-9, "{curve:?} for {point}");
         }
     }
@@ -135,11 +141,17 @@ fn closest_parameter_beats_dense_sampling_for_points_off_the_curve() {
 fn closest_parameter_on_a_circle_follows_the_range_across_the_seam() {
     let circle = Curve::from(Circle::new(Plane::XY, 2.0).unwrap());
     let range = Interval::new(1.5 * PI, 2.5 * PI).unwrap();
+
     let found = circle.closest_parameter(Point3::new(5.0, 0.5, 1.0), range);
+
     assert!((found - (TAU + 0.5f64.atan2_libm(5.0))).abs() < 1e-12);
+
     let outside = circle.closest_parameter(Point3::new(-5.0, 0.1, 0.0), range);
+
     assert!((outside - 2.5 * PI).abs() < 1e-12);
+
     let on_axis = circle.closest_parameter(Point3::new(0.0, 0.0, 3.0), range);
+
     assert_eq!(on_axis, range.start());
     assert_eq!(circle.period(), Some(TAU));
     assert_eq!(circle.domain().bounded(), Some(Interval::FULL_TURN));
@@ -150,6 +162,7 @@ fn sampling_holds_the_chord_and_angle_tolerances() {
     let tolerance = SamplingTolerance::new(0.01, 0.2).unwrap();
     for (curve, range) in curves() {
         let samples = curve.sample(range, &tolerance);
+
         assert_eq!(samples.first().unwrap().parameter, range.start());
         assert_eq!(samples.last().unwrap().parameter, range.end());
         assert!(samples.len() < 10_000);
@@ -157,19 +170,24 @@ fn sampling_holds_the_chord_and_angle_tolerances() {
             let [a, b] = pair else {
                 panic!("windows of two")
             };
+
             assert!(a.parameter < b.parameter);
+
             for fraction in [0.25, 0.5, 0.75] {
                 let middle = curve.point(a.parameter + (b.parameter - a.parameter) * fraction);
                 let deviation = crate::coordinates::distance_to_segment(middle, a.point, b.point);
+
                 assert!(
                     deviation <= 0.01 * 1.05,
                     "{curve:?} deviates by {deviation}"
                 );
             }
+
             let turning = crate::coordinates::angle_between(
                 curve.evaluate(a.parameter).first,
                 curve.evaluate(b.parameter).first,
             );
+
             assert!(turning <= 0.2 + 1e-9);
         }
     }
@@ -180,6 +198,7 @@ fn sampling_stays_bounded_for_extreme_tolerances() {
     let tolerance = SamplingTolerance::new(1e-300, 1e-300).unwrap();
     for (curve, range) in curves() {
         let samples = curve.sample(range, &tolerance);
+
         assert!(samples.len() <= (1 << 17));
         assert!(samples.iter().all(|sample| sample.point.is_finite()));
     }
@@ -188,6 +207,7 @@ fn sampling_stays_bounded_for_extreme_tolerances() {
 #[test]
 fn lengths_match_closed_forms_and_dense_polylines() {
     let circle = Curve::from(Circle::new(tilted_frame(), 6.0).unwrap());
+
     assert!((circle.length(Interval::new(0.0, FRAC_PI_2).unwrap()) - 3.0 * PI).abs() < 1e-12);
     for (curve, range) in curves() {
         let polyline: f64 = dense(&curve, range, 200_000)
@@ -195,6 +215,7 @@ fn lengths_match_closed_forms_and_dense_polylines() {
             .map(|pair| pair[0].1.distance(pair[1].1))
             .sum();
         let length = curve.length(range);
+
         assert!(
             (length - polyline).abs() < 1e-7 * length,
             "{curve:?}: {length} vs {polyline}"
@@ -207,6 +228,7 @@ fn bounding_boxes_contain_the_curve_and_are_tight_for_conics() {
     for (curve, range) in curves() {
         let bounds = curve.bounding_box(range).expanded(1e-9);
         let samples = dense(&curve, range, 5000);
+
         assert!(samples.iter().all(|(_, point)| {
             point.cmpge(bounds.min()).all() && point.cmple(bounds.max()).all()
         }));
@@ -214,6 +236,7 @@ fn bounding_boxes_contain_the_curve_and_are_tight_for_conics() {
             let tight =
                 caditor_geometry::Aabb::from_points(samples.iter().map(|(_, point)| *point))
                     .unwrap();
+
             assert!((tight.min() - bounds.min()).length() < 1e-5);
             assert!((tight.max() - bounds.max()).length() < 1e-5);
         }
@@ -225,13 +248,17 @@ fn reversal_retraces_every_curve_backwards() {
     for (curve, range) in curves() {
         let reversed = curve.reversed();
         let mirrored = curve.reversed_range(range);
+
         assert!((mirrored.length() - range.length()).abs() < 1e-12);
         for index in 0..=20 {
             let parameter = range.at(index as f64 / 20.0);
             let back = curve.reversed_parameter(parameter);
+
             assert!(mirrored.contains(back) || (back - mirrored.end()).abs() < 1e-12);
             assert!(reversed.point(back).distance(curve.point(parameter)) < 1e-9);
+
             let tangent = reversed.evaluate(back).first + curve.evaluate(parameter).first;
+
             assert!(tangent.length() < 1e-9 * (1.0 + curve.evaluate(parameter).first.length()));
         }
     }
@@ -251,6 +278,7 @@ fn rigid_transforms_move_every_point() {
         for index in 0..=10 {
             let parameter = range.at(index as f64 / 10.0);
             let expected = transform.apply_point(curve.point(parameter));
+
             assert!(moved.point(parameter).distance(expected) < 1e-9);
         }
     }
@@ -293,6 +321,7 @@ fn constructors_reject_degenerate_and_non_finite_input() {
 
     let farthest = Plane::new(Point3::new(f64::MAX, 0.0, 0.0), Vector3::Z).unwrap();
     let overflowing = RigidTransform::translation(Vector3::new(f64::MAX, 0.0, 0.0)).unwrap();
+
     let broken = farthest.transformed(&overflowing);
 
     assert!(!broken.origin().is_finite());
@@ -321,12 +350,17 @@ fn an_intersection_curve_rebuilt_through_rough_points_lies_on_both_surfaces() {
             Point3::new(x + 1e-4 * angle.sin_libm(), y, z + 1e-4)
         })
         .collect();
+
     let curve =
         IntersectionCurve::through([upright.clone(), across.clone()], &rough, true).unwrap();
+
     assert!(curve.is_closed());
+
     let domain = curve.domain();
+
     for step in 0..=200 {
         let point = curve.point(domain.at(step as f64 / 200.0));
+
         assert!(
             upright.distance(point) < 1e-6,
             "{}",
@@ -334,6 +368,7 @@ fn an_intersection_curve_rebuilt_through_rough_points_lies_on_both_surfaces() {
         );
         assert!(across.distance(point) < 1e-6, "{}", across.distance(point));
     }
+
     assert!(
         IntersectionCurve::through([upright.clone(), across.clone()], &[Point3::ZERO], false)
             .is_none()
@@ -342,6 +377,7 @@ fn an_intersection_curve_rebuilt_through_rough_points_lies_on_both_surfaces() {
     let stopped = crate::interruptible(std::sync::Arc::new(|| true), || {
         IntersectionCurve::through([upright, across], &rough, true)
     });
+
     assert!(stopped.is_none());
 }
 
@@ -354,6 +390,7 @@ fn a_curve_traced_to_its_ends_ends_on_a_point_both_nearly_tangent_surfaces_hold(
 
     let (radius, dip) = (5.0, 1e-7);
     let floor: Surface = PlaneSurface::new(Plane::XY).unwrap().into();
+
     let roller: Surface = Cylinder::new(
         Plane::from_frame(Point3::new(0.0, 0.0, radius - dip), Vector3::X, Vector3::Y).unwrap(),
         radius,
@@ -362,6 +399,7 @@ fn a_curve_traced_to_its_ends_ends_on_a_point_both_nearly_tangent_surfaces_hold(
     .into();
     let crossing = (2.0 * radius * dip).sqrt();
     let end = Point3::new(10.0, 2.0 * crossing, 0.0);
+
     let rough: Vec<Point3> = (0..=8)
         .map(|index| Point3::new(1.25 * index as f64, crossing, 0.0))
         .take(8)
@@ -375,10 +413,13 @@ fn a_curve_traced_to_its_ends_ends_on_a_point_both_nearly_tangent_surfaces_hold(
             .unwrap();
 
     assert!(followed.point(followed.domain().end()).distance(end) > 0.1 * crossing);
+
     let domain = pinned.domain();
+
     assert!(pinned.point(domain.end()).distance(end) < 1e-9);
     for step in 0..=200 {
         let point = pinned.point(domain.at(step as f64 / 200.0));
+
         assert!(floor.distance(point) < 1e-6);
         assert!(roller.distance(point) < 1e-6);
     }
@@ -399,6 +440,7 @@ fn contacts_with_no_intersection_curve_between_them_are_refused_where_it_strays(
             .unwrap()
             .into();
     let side = 0.75_f64.sqrt();
+
     let contacts = [side, -side].map(|y| {
         let point = Point3::new(0.5, y, 0.0);
         Contact {
@@ -418,6 +460,7 @@ fn contacts_with_no_intersection_curve_between_them_are_refused_where_it_strays(
     else {
         panic!("{refused:?}");
     };
+
     assert_eq!(cause, RefineStop::Unsolved);
     assert!(distance > INTERSECTION_TOLERANCE);
     assert!(
@@ -441,6 +484,7 @@ fn an_intersection_segment_fitting_at_its_middle_but_not_its_quarters_is_split()
         PlaneSurface::new(Plane::new(Point3::ZERO, Vector3::new(0.0, 1.0, 1.0)).unwrap())
             .unwrap()
             .into();
+
     let contacts = [0.9_f64, 1.11].map(|angle| {
         let point = Point3::new(
             2.0 * angle.cos_libm(),
@@ -465,6 +509,7 @@ fn an_intersection_segment_fitting_at_its_middle_but_not_its_quarters_is_split()
     let farthest = (0..=200)
         .map(|step| off(step as f64 / 200.0))
         .fold(0.0, f64::max);
+
     assert!(curve.nodes().len() > 2);
     assert!(farthest <= INTERSECTION_TOLERANCE, "{farthest:e}");
 }
@@ -529,6 +574,7 @@ fn closest_parameter_on_a_spline_of_many_spans_finds_the_nearest_point() {
     let mut random = Random::new(29);
     let curve = wavy_spline();
     let range = Interval::UNIT;
+
     let samples = dense(&curve, range, 40_000);
     for _ in 0..200 {
         let point = curve.point(random.unit()) + random.point(1.5);

@@ -30,7 +30,7 @@ pub const DEFAULT_IMAGE_SIZE: SurfaceSize = SurfaceSize {
     height: 1080,
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum ConfigurationChoice {
     #[default]
     Active,
@@ -38,7 +38,7 @@ pub enum ConfigurationChoice {
     Every,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Conversion {
     pub model: PathBuf,
     pub output: PathBuf,
@@ -47,7 +47,7 @@ pub struct Conversion {
     pub configurations: ConfigurationChoice,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Converted {
     pub summary: String,
     pub warnings: Vec<String>,
@@ -77,6 +77,7 @@ impl Target {
         let is_image = output
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case(PNG_EXTENSION));
+
         if is_image {
             return Some(Self::Image);
         }
@@ -134,9 +135,11 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
             display_name(Some(output))
         )
     })?;
+
     if size.is_some() && !matches!(target, Target::Image) {
         bail!("--size only applies to a .png export");
     }
+
     let settings = Settings {
         target,
         resolution: *resolution,
@@ -150,6 +153,7 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
     match configurations {
         ConfigurationChoice::Active => {
             let written = write(&document, &settings, model, output)?;
+
             warnings.extend(written.warnings);
             Ok(Converted {
                 summary: format!(
@@ -165,6 +169,7 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
         ConfigurationChoice::Named(name) => {
             let switched = switched_to(&document, name, model)?;
             let written = write(&switched, &settings, model, output)?;
+
             warnings.extend(written.warnings);
             Ok(Converted {
                 summary: format!(
@@ -186,6 +191,7 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
                 configurations_left_out: 0,
             };
             let mut files = Vec::new();
+
             for variant in variants(&document, model, output)? {
                 let written = variant
                     .document
@@ -246,9 +252,11 @@ fn names_of(document: &Document) -> String {
 fn switched_to(document: &Document, name: &str, model: &Path) -> Result<Document> {
     let model_name = display_name(Some(model));
     let configurations = document.configurations();
+
     if configurations.rows.is_empty() {
         bail!("“{model_name}” has no configurations, so there is no configuration “{name}”");
     }
+
     let row = configurations
         .position(name.trim())
         .and_then(|index| configurations.rows.get(index))
@@ -259,6 +267,7 @@ fn switched_to(document: &Document, name: &str, model: &Path) -> Result<Document
             )
         })?;
     let mut switched = document.clone();
+
     document
         .activating(row.id)
         .and_then(|transaction| switched.apply(transaction))
@@ -278,6 +287,7 @@ fn variants(document: &Document, model: &Path, output: &Path) -> Result<Vec<Vari
         .iter()
         .map(|row| (row.id, row.name.clone()))
         .collect();
+
     if rows.is_empty() {
         bail!(
             "“{}” has no configurations to export one by one",
@@ -288,6 +298,7 @@ fn variants(document: &Document, model: &Path, output: &Path) -> Result<Vec<Vari
         .into_iter()
         .map(|file| {
             let mut switched = document.clone();
+
             let applied = document
                 .activating(file.id)
                 .and_then(|transaction| switched.apply(transaction))
@@ -308,6 +319,7 @@ fn write(document: &Document, settings: &Settings, model: &Path, output: &Path) 
         }
         .into());
     }
+
     let evaluation = match settings.target {
         Target::Mesh(format) if format != ExportFormat::ThreeMf => Recompute::default()
             .run_without_display(document, &ModelEvaluator, &CancelToken::never()),
@@ -316,20 +328,24 @@ fn write(document: &Document, settings: &Settings, model: &Path, output: &Path) 
         }
     };
     let mut warnings = failures(document, &evaluation);
+
     let failed_features = warnings.len();
 
     let bodies = bodies(document, &evaluation);
+
     if bodies.is_empty() {
         let failed = if warnings.is_empty() {
             String::new()
         } else {
             format!(": {}", warnings.join("; "))
         };
+
         bail!(
             "“{}” has no bodies to export{failed}",
             display_name(Some(model))
         );
     }
+
     let delivered = deliver(
         document,
         &evaluation,
@@ -338,6 +354,7 @@ fn write(document: &Document, settings: &Settings, model: &Path, output: &Path) 
         output,
         &CancelToken::never(),
     )?;
+
     warnings.extend(delivered.warnings);
     Ok(Written {
         bodies: delivered.bodies,
@@ -367,6 +384,7 @@ pub fn deliver(
                 ExportFormat::ThreeMf => draw_thumbnail(document, evaluation),
                 _ => None,
             };
+
             let exported = caditor_file::export_bodies(
                 output,
                 format,
@@ -440,6 +458,7 @@ fn draw_image(
     let snapshot = snapshot::take(document, evaluation, size)?;
     let mut renderer = OffscreenRenderer::new(GraphicsSettings::default())
         .map_err(|error| anyhow!("no graphics adapter could draw “{name}”: {error}"))?;
+
     let bands = renderer
         .render(&ImageRequest {
             size,
@@ -460,6 +479,7 @@ fn draw_image(
 
 fn open(model: &Path) -> Result<Opened> {
     let name = display_name(Some(model));
+
     if files::is_drawing_file(model) {
         bail!("“{name}” is a drawing, which holds sketches and no bodies to export");
     }
@@ -468,7 +488,9 @@ fn open(model: &Path) -> Result<Opened> {
             import::read_model(model, &CancelToken::never(), &ReadingProgress::default())
                 .map_err(|error| anyhow!("could not import “{name}”: {error}"))?;
         let mut document = Document::default();
+
         let transaction = bodies_transaction(&document, &imported.bodies, format!("Import {name}"));
+
         document
             .apply(transaction)
             .map_err(|error| anyhow!("could not import “{name}”: {error}"))?;
@@ -477,6 +499,7 @@ fn open(model: &Path) -> Result<Opened> {
             issues: imported.notes,
         });
     }
+
     let loaded =
         caditor_file::load(model).map_err(|error| anyhow!("could not open “{name}”: {error}"))?;
     Ok(Opened {
@@ -533,6 +556,7 @@ fn failures(document: &Document, evaluation: &Evaluation) -> Vec<String> {
 
 pub fn run(conversion: &Conversion) -> Result<ExitCode> {
     let converted = convert(conversion)?;
+
     for warning in &converted.warnings {
         eprintln!("warning: {warning}");
     }
@@ -557,6 +581,7 @@ mod tests {
     fn saved_sample(folder: &TempDir) -> PathBuf {
         let path = folder.path().join("plate.caditor");
         let document = Sample::Plate.document().unwrap();
+
         caditor_file::save(&document, &path, false).unwrap();
         path
     }
@@ -574,15 +599,22 @@ mod tests {
     fn saved_configured_sample(folder: &TempDir) -> PathBuf {
         let path = folder.path().join("plate.caditor");
         let mut document = Sample::Plate.document().unwrap();
+
         let thickness = document.parameter_named("thickness").unwrap().id();
         let (added, _) = document.adding_configuration(Some("Thin"));
+
         document.apply(added).unwrap();
+
         let configure = document
             .configuring(ConfiguredValue::Parameter(thickness))
             .unwrap();
+
         document.apply(configure).unwrap();
+
         let (added, thick) = document.adding_configuration(Some("Thick/12"));
+
         document.apply(added).unwrap();
+
         let twelve = document.transaction("Parse").parse("12 mm").unwrap();
         let set = document
             .setting_configuration(
@@ -591,6 +623,7 @@ mod tests {
                 Setting::Expression(twelve),
             )
             .unwrap();
+
         document.apply(set).unwrap();
         caditor_file::save(&document, &path, false).unwrap();
         path
@@ -604,6 +637,7 @@ mod tests {
         let thick = folder.path().join("thick.stl");
 
         convert(&conversion(&model, &active)).unwrap();
+
         let converted = convert(&Conversion {
             configurations: ConfigurationChoice::Named("thick/12".to_owned()),
             ..conversion(&model, &thick)
@@ -662,7 +696,9 @@ mod tests {
         let folder = TempDir::new().unwrap();
         let configured = saved_configured_sample(&folder);
         let plain = folder.path().join("plain.caditor");
+
         caditor_file::save(&Sample::Plate.document().unwrap(), &plain, false).unwrap();
+
         let refused = |model: &Path, configurations: ConfigurationChoice| {
             convert(&Conversion {
                 configurations,
@@ -710,8 +746,11 @@ mod tests {
             );
             assert!(std::fs::read(&output).unwrap().starts_with(start), "{name}");
         }
+
         let stl = folder.path().join("plate.stl");
+
         convert(&conversion(&model, &stl)).unwrap();
+
         assert!(std::fs::metadata(&stl).unwrap().len() > 84);
     }
 
@@ -735,6 +774,7 @@ mod tests {
                 std::env::var_os("CADITOR_REQUIRE_GPU").is_none(),
                 "{converted:?}"
             );
+
             return;
         };
         let bytes = std::fs::read(&output).unwrap();
@@ -761,6 +801,7 @@ mod tests {
         let converted = convert(&conversion(&model, &output)).unwrap();
         let package = std::fs::read(&output).unwrap();
         let thumbnail = b"Metadata/thumbnail.png";
+
         let has_thumbnail = package
             .windows(thumbnail.len())
             .any(|name| name == thumbnail);
@@ -789,6 +830,7 @@ mod tests {
         let folder = TempDir::new().unwrap();
         let model = saved_sample(&folder);
         let step = folder.path().join("plate.step");
+
         convert(&conversion(&model, &step)).unwrap();
 
         let stl = folder.path().join("again.stl");
@@ -808,7 +850,9 @@ mod tests {
         let folder = TempDir::new().unwrap();
         let model = saved_sample(&folder);
         let step = folder.path().join("plate.step");
+
         convert(&conversion(&model, &step)).unwrap();
+
         let before = std::fs::read(&step).unwrap();
         let beside = folder.path().join(".").join("plate.step");
 
@@ -828,6 +872,7 @@ mod tests {
     fn a_drawing_is_refused_as_holding_no_bodies() {
         let folder = TempDir::new().unwrap();
         let drawing = folder.path().join("outline.dxf");
+
         std::fs::write(&drawing, "0\nEOF\n").unwrap();
 
         let refused = convert(&conversion(&drawing, &folder.path().join("out.step")))
@@ -860,7 +905,9 @@ mod tests {
         );
 
         let empty = folder.path().join("empty.caditor");
+
         caditor_file::save(&Document::default(), &empty, false).unwrap();
+
         assert_eq!(
             refused(&empty, "out.step"),
             "“empty.caditor” has no bodies to export"
@@ -870,10 +917,14 @@ mod tests {
 
     fn magenta_picture() -> std::sync::Arc<caditor_document::Picture> {
         let mut bytes = Vec::new();
+
         let mut encoder = png::Encoder::new(&mut bytes, 8, 4);
+
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
+
         let mut writer = encoder.write_header().unwrap();
+
         writer
             .write_image_data(&[255, 0, 255, 255].repeat(32))
             .unwrap();
@@ -887,10 +938,13 @@ mod tests {
         };
 
         let mut document = Sample::Plate.document().unwrap();
+
         let mut transaction = document.transaction("Insert picture");
+
         let zero = transaction.parse("0 mm").unwrap();
         let turn = transaction.parse("0 deg").unwrap();
         let width = transaction.parse("400 mm").unwrap();
+
         transaction.add_feature(
             "Picture",
             FeatureKind::ReferenceImage(Box::new(ReferenceImage {
@@ -923,7 +977,9 @@ mod tests {
         let mut reader = png::Decoder::new(std::io::Cursor::new(std::fs::read(output).unwrap()))
             .read_info()
             .unwrap();
+
         let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+
         let frame = reader.next_frame(&mut pixels).unwrap();
         magenta_pixels(&pixels[..frame.buffer_size()], frame.color_type.samples())
     }
@@ -933,7 +989,9 @@ mod tests {
         let folder = TempDir::new().unwrap();
         let plain = saved_sample(&folder);
         let with_picture = folder.path().join("picture.caditor");
+
         caditor_file::save(&plate_with_a_picture(), &with_picture, false).unwrap();
+
         let drawn = |model: &Path, name: &str| {
             let output = folder.path().join(name);
             convert(&Conversion {
@@ -948,6 +1006,7 @@ mod tests {
 
         let Ok(pictured) = drawn(&with_picture, "picture.png") else {
             assert!(std::env::var_os("CADITOR_REQUIRE_GPU").is_none());
+
             return;
         };
         let unpictured = drawn(&plain, "plain.png").unwrap();
@@ -972,6 +1031,7 @@ mod tests {
 
         let Some((size, pixels)) = thumbnail_of(&pictured) else {
             assert!(std::env::var_os("CADITOR_REQUIRE_GPU").is_none());
+
             return;
         };
         let (_, unpictured) = thumbnail_of(&plain).unwrap();

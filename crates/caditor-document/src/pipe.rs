@@ -51,7 +51,7 @@ pub(crate) fn wall_limit_words(shape: PipeShape) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Pipe {
     pub path: SweepPath,
     pub shape: PipeShape,
@@ -75,12 +75,14 @@ impl Pipe {
 
     pub fn expressions(&self) -> Vec<&Expression> {
         let mut expressions = vec![&self.size, &self.bend];
+
         expressions.extend(self.wall.as_ref());
         expressions
     }
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         let mut expressions = vec![&mut self.size, &mut self.bend];
+
         expressions.extend(self.wall.as_mut());
         expressions
     }
@@ -143,6 +145,7 @@ pub fn stand(
         })
         .into_iter()
         .collect();
+
     let inputs = Inputs {
         document,
         parameters: &evaluation.parameters,
@@ -209,6 +212,7 @@ fn clear_turns(
     let Some((spiral, spec)) = spiral_of(inputs, path) else {
         return Ok(());
     };
+
     if spec.turns_clear_of(size) {
         return Ok(());
     }
@@ -232,6 +236,7 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let context = Context::new(feature, inputs, PIPE_SHAPE);
     let shape = definition.shape;
+
     let size = context.size(&definition.size, size_name(shape))?;
     let wall = definition
         .wall
@@ -240,13 +245,16 @@ pub(crate) fn evaluate(
         .transpose()?;
     let bend = context.size_or_zero(&definition.bend, "bend radius")?;
     let path = path_of(feature, inputs, &definition.path)?;
+
     clear_turns(feature, inputs, &definition.path, size)?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let section = PipeSection { shape, size, wall };
     let made = pipe(&path.segments, &section, bend, path.up, feature.id().raw())
         .map_err(|error| failure(feature, &path, shape, &error))?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }

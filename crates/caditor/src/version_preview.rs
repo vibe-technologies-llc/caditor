@@ -42,7 +42,7 @@ pub const HIDE: &str = "Hide preview";
 pub const SHOW: &str = "Preview";
 pub const SAME_AS_NOW: &str = "The same as the model now.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Stage {
     #[default]
     Reading,
@@ -78,7 +78,7 @@ impl Progress {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PreviewFailure {
     #[error("This version could not be read: {0}.")]
     Unreadable(LoadError),
@@ -88,7 +88,7 @@ pub enum PreviewFailure {
     Cancelled,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PictureFailure {
     #[error("Its bodies could not be meshed for a picture: {0}.")]
     Unmeshed(Unmeshed),
@@ -98,7 +98,7 @@ pub enum PictureFailure {
     Crashed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Summary {
     pub features: usize,
     pub bodies: usize,
@@ -141,7 +141,7 @@ fn built_bodies(evaluation: &Evaluation) -> usize {
         .count()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Changes {
     pub only_in_version: Vec<String>,
     pub added_since: Vec<String>,
@@ -167,6 +167,7 @@ impl Changes {
             .features()
             .filter_map(|feature| {
                 let current = now_features.get(&feature.id())?;
+
                 if current.same_content(feature) {
                     return None;
                 }
@@ -233,10 +234,12 @@ fn changed_parameters(version: &Document, now: &Document) -> Vec<String> {
         .parameters()
         .iter()
         .filter(|parameter| !version_ids.contains(&parameter.id()));
+
     let mut names: Vec<String> = differing
         .chain(added)
         .map(|parameter| parameter.name.clone())
         .collect();
+
     names.dedup();
     names
 }
@@ -276,6 +279,7 @@ pub fn prepare(
     cancel: &CancelToken,
 ) -> Result<Prepared, PreviewFailure> {
     progress.set(Stage::Reading);
+
     let loaded =
         load_listed_version_cancellable(path, index, digest, cancel).map_err(
             |error| match error {
@@ -288,15 +292,18 @@ pub fn prepare(
         Recompute::default().run(&loaded.document, &ModelEvaluator, cancel, &|done, total| {
             progress.set(Stage::Recomputing { done, total })
         });
+
     if cancel.is_cancelled() {
         return Err(PreviewFailure::Cancelled);
     }
+
     let summary = Summary::of(&loaded.document, &evaluation, loaded.issues);
 
     let picture = if summary.bodies == 0 {
         Ok(None)
     } else {
         progress.set(Stage::Meshing);
+
         let pictures = ImageTextures::decoded_for(&loaded.document);
         let taken = snapshot::take_unless(
             &loaded.document,
@@ -363,6 +370,7 @@ impl Preview {
         let stopped = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(Progress::default());
         let flag = Arc::clone(&stopped);
+
         let started = Started {
             ticket,
             cancel: CancelToken::new(move || flag.load(Ordering::SeqCst)),
@@ -405,6 +413,7 @@ impl Preview {
         let State::Ready(ready) = &mut self.state else {
             return;
         };
+
         if !same_file {
             ready.changes = None;
             ready.compared = None;
@@ -460,6 +469,7 @@ pub fn read_picture(mut rows: ReadPixels) -> Result<Arc<ColorImage>, PictureFail
         height: rows.height(),
     };
     let mut pixels = Vec::new();
+
     while let Some(band) = rows.next_rows() {
         pixels.extend_from_slice(band.map_err(PictureFailure::Drawing)?);
     }
@@ -478,6 +488,7 @@ fn drawn(size: SurfaceSize, pixels: &[u8]) -> Option<Arc<ColorImage>> {
 
 pub fn show(ui: &mut Ui, preview: &Preview, idle: bool) -> Option<HistoryCommand> {
     let mut command = None;
+
     widgets::card(ui, |ui| {
         ui.label(widgets::strong(format!(
             "Preview of the version saved {}",
@@ -563,6 +574,7 @@ fn picture(ui: &mut Ui, picture: &Picture, ticket: u64) {
     match picture {
         Picture::Drawn(image) => {
             let texture = texture(ui, image, ticket);
+
             ui.add(
                 Image::new(SizedTexture::new(texture.id(), SHOWN_PICTURE)).alt_text(PICTURE_NAME),
             );
@@ -575,6 +587,7 @@ fn picture(ui: &mut Ui, picture: &Picture, ticket: u64) {
         }),
         Picture::Failed(failure) => placeholder(ui, |ui| {
             let muted = appearance::tokens(ui).text_muted;
+
             ui.horizontal_wrapped(|ui| {
                 widgets::icon_label(ui, Tone::Warning.icon(), muted);
                 ui.label(widgets::muted(failure.to_string(), ui));
@@ -587,25 +600,31 @@ fn placeholder(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     let (rect, _) = ui.allocate_exact_size(SHOWN_PICTURE, Sense::hover());
     let tokens = appearance::tokens(ui);
     let radius = f32::from(appearance::WIDGET_RADIUS);
+
     ui.painter().rect_filled(rect, radius, tokens.sunken);
+
     let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(radius)).layout(
         egui::Layout::centered_and_justified(egui::Direction::TopDown),
     ));
+
     add(&mut inner);
 }
 
 fn texture(ui: &Ui, image: &Arc<ColorImage>, ticket: u64) -> TextureHandle {
     let id = Id::unique("version-preview-picture");
+
     if let Some((shown, texture)) = ui.data(|data| data.get_temp::<(u64, TextureHandle)>(id))
         && shown == ticket
     {
         return texture;
     }
+
     let texture = ui.ctx().load_texture(
         "version-preview",
         ColorImage::clone(image),
         TextureOptions::LINEAR,
     );
+
     ui.data_mut(|data| data.insert_temp(id, (ticket, texture.clone())));
     texture
 }
@@ -626,8 +645,10 @@ mod tests {
 
     fn with_width(document: &Document, width: &str) -> Document {
         let mut changed = document.clone();
+
         let id = changed.parameter_named("width").unwrap().id();
         let expression = changed.parse(width).unwrap();
+
         changed
             .apply(Transaction::single(
                 "Width",
@@ -650,6 +671,7 @@ mod tests {
             .collect();
         let (last, last_name) = features.last().cloned().unwrap();
         let (first, first_name) = features.first().cloned().unwrap();
+
         now = with_width(&now, "61 mm");
         now.apply(Transaction::new(
             "Edit",
@@ -664,6 +686,7 @@ mod tests {
         .unwrap();
 
         let changes = Changes::between(&version, &now);
+
         assert_eq!(changes.only_in_version, [last_name.as_str()]);
         assert_eq!(changes.added_since, Vec::<String>::new());
         assert_eq!(
@@ -681,6 +704,7 @@ mod tests {
         );
 
         let reverse = Changes::between(&now, &version);
+
         assert_eq!(reverse.added_since, [last_name]);
         assert!(reverse.only_in_version.is_empty());
     }
@@ -703,8 +727,11 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("plate.caditor");
         let document = plate();
+
         caditor_file::save(&document, &path, false).unwrap();
+
         let changed = with_width(&document, "70 mm");
+
         caditor_file::save(&changed, &path, false).unwrap();
 
         let listed = caditor_file::history(&path).unwrap().versions[0].clone();
@@ -738,6 +765,7 @@ mod tests {
             &progress,
             &CancelToken::new(|| true),
         );
+
         assert_eq!(cancelled.err(), Some(PreviewFailure::Cancelled));
         assert!(matches!(
             prepare(
@@ -757,8 +785,10 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let pictures_in_scene = |name: &str, document: &Document| {
             let path = dir.path().join(name);
+
             caditor_file::save(document, &path, false).unwrap();
             caditor_file::save(&with_width(document, "70 mm"), &path, false).unwrap();
+
             let listed = caditor_file::history(&path).unwrap().versions[0].clone();
             let prepared = prepare(
                 &path,
@@ -774,10 +804,13 @@ mod tests {
 
         let plain = plate();
         let mut pictured = plate();
+
         let mut transaction = pictured.transaction("Insert picture");
+
         let zero = transaction.parse("0 mm").unwrap();
         let turn = transaction.parse("0 deg").unwrap();
         let width = transaction.parse("400 mm").unwrap();
+
         transaction.add_feature(
             "Picture",
             FeatureKind::ReferenceImage(Box::new(ReferenceImage {
@@ -800,10 +833,14 @@ mod tests {
 
     fn magenta_picture() -> Arc<caditor_document::Picture> {
         let mut bytes = Vec::new();
+
         let mut encoder = png::Encoder::new(&mut bytes, 2, 2);
+
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
+
         let mut writer = encoder.write_header().unwrap();
+
         writer
             .write_image_data(&[255, 0, 255, 255].repeat(4))
             .unwrap();

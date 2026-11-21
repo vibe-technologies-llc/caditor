@@ -15,7 +15,7 @@ const SAMPLES_PER_SPAN: usize = 16;
 const MAX_THROUGH_SAMPLES: usize = 60_000;
 const REPEATED_POINT_FRACTION: f64 = 1e-9;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FittedSpline {
     pub spline: BSpline,
     pub deviation: f64,
@@ -32,9 +32,11 @@ impl BSpline {
         let limit = control_point_limit(samples.len(), max_control_points);
         let mut best: Option<FittedSpline> = None;
         let mut count = MIN_CONTROL_POINTS;
+
         loop {
             if let Some(fitted) = fit_with(samples, &parameters, count, first, last) {
                 let within = fitted.deviation <= tolerance;
+
                 if best
                     .as_ref()
                     .is_none_or(|best| fitted.deviation < best.deviation)
@@ -57,6 +59,7 @@ impl BSpline {
         let limit = control_point_limit(sample_count, max_control_points);
         let mut attempts = 1;
         let mut count = MIN_CONTROL_POINTS;
+
         while count < limit {
             count = (count * 2).min(limit);
             attempts += 1;
@@ -72,12 +75,15 @@ impl BSpline {
 
     pub fn interpolate(points: &[Point2]) -> Option<BSpline> {
         let count = points.len();
+
         if count < 2 || points.iter().any(|point| !point.is_finite()) {
             return None;
         }
+
         let template = BSpline::clamped(vec![Point2::ZERO; count])?;
         let last = (count - 1) as f64;
         let parameters: Vec<f64> = (0..count).map(|index| index as f64 / last).collect();
+
         let control_points = collocate(template.degree(), template.knots(), points, &parameters)?;
         BSpline::clamped(control_points)
     }
@@ -91,15 +97,18 @@ impl BSpline {
         let parameters = chord_parameters(points)?;
         let count = points.len();
         let degree = MAX_SPLINE_DEGREE.min(count - 1);
+
         if degree == 1 {
             return Some(FittedSpline {
                 spline: BSpline::clamped(points.to_vec())?,
                 deviation: 0.0,
             });
         }
+
         let knots = averaged_knots(&parameters, degree);
         let control_points = collocate(degree, &knots, points, &parameters)?;
         let total = through_samples(count, degree, max_control_points);
+
         let samples: Vec<Point2> = (0..=total)
             .map(|index| {
                 let parameter = index as f64 / total as f64;
@@ -136,6 +145,7 @@ fn distinct(points: &[Point2]) -> Option<Vec<Point2>> {
     if points.iter().any(|point| !point.is_finite()) {
         return None;
     }
+
     let length: f64 = points
         .windows(2)
         .map(|pair| match pair {
@@ -145,13 +155,16 @@ fn distinct(points: &[Point2]) -> Option<Vec<Point2>> {
         .sum();
     let repeated = length * REPEATED_POINT_FRACTION;
     let mut kept: Vec<Point2> = Vec::with_capacity(points.len());
+
     for point in points {
         match kept.last() {
             Some(last) if last.distance(*point) <= repeated => {}
             _ => kept.push(*point),
         }
     }
+
     let last = *points.last()?;
+
     if let [.., before, end] = kept.as_mut_slice()
         && *end != last
         && before.distance(last) > repeated
@@ -165,6 +178,7 @@ fn chord_parameters(samples: &[Point2]) -> Option<Vec<f64>> {
     let mut travelled = 0.0;
     let mut parameters = Vec::with_capacity(samples.len());
     let mut previous = *samples.first()?;
+
     for sample in samples {
         if !sample.is_finite() {
             return None;
@@ -189,13 +203,16 @@ fn fit_with(
 ) -> Option<FittedSpline> {
     let template = BSpline::clamped(vec![Point2::ZERO; count])?;
     let mut parameters = parameters.to_vec();
+
     let mut spline = least_squares(&template, samples, &parameters, first, last)?;
+
     for _ in 0..PARAMETER_CORRECTIONS {
         correct_parameters(&spline, samples, &mut parameters);
         spline = least_squares(&template, samples, &parameters, first, last)?;
     }
     correct_parameters(&spline, samples, &mut parameters);
     tally::add(samples.len());
+
     let deviation = samples
         .iter()
         .zip(&parameters)
@@ -212,14 +229,17 @@ pub(crate) fn least_squares(
     last: Point2,
 ) -> Option<BSpline> {
     tally::add(samples.len());
+
     let count = template.control_points().len();
     let interior = count.checked_sub(2)?;
     let mut normal = Banded::zeros(interior, template.degree());
     let mut right = vec![[0.0; 2]; interior];
+
     for (sample, parameter) in samples.iter().zip(parameters) {
         let (start, values) = template_basis(template, *parameter);
         let mut target = *sample;
         let mut unknowns = Vec::with_capacity(values.len());
+
         for (offset, value) in values.iter().enumerate() {
             let index = start + offset;
             if index == 0 {
@@ -234,13 +254,17 @@ pub(crate) fn least_squares(
             for (column, column_value) in &unknowns {
                 normal.add(*row, *column, row_value * column_value)?;
             }
+
             let entry = right.get_mut(*row)?;
+
             entry[0] += row_value * target.x;
             entry[1] += row_value * target.y;
         }
     }
+
     let solved = normal.solve(right)?;
     let mut control_points = Vec::with_capacity(count);
+
     control_points.push(first);
     control_points.extend(solved.iter().map(|[x, y]| Point2::new(*x, *y)));
     control_points.push(last);
@@ -254,8 +278,10 @@ pub(crate) fn collocate(
     parameters: &[f64],
 ) -> Option<Vec<Point2>> {
     tally::add(points.len());
+
     let count = points.len();
     let mut matrix = Banded::zeros(count, degree);
+
     for (row, parameter) in parameters.iter().enumerate() {
         let (start, values) = basis_values(degree, knots, count, *parameter);
         for (offset, value) in values.iter().enumerate() {
@@ -264,6 +290,7 @@ pub(crate) fn collocate(
             }
         }
     }
+
     let right = points.iter().map(|point| [point.x, point.y]).collect();
     let solved = matrix.solve(right)?;
     Some(solved.iter().map(|[x, y]| Point2::new(*x, *y)).collect())
@@ -288,7 +315,9 @@ fn correct_parameters(spline: &BSpline, samples: &[Point2], parameters: &mut [f6
         for _ in 0..NEWTON_STEPS {
             let (point, first, second) = derivatives(spline, *parameter);
             let offset = point - *sample;
+
             let slope = first.length_squared() + offset.dot(second);
+
             if slope <= 0.0 || !slope.is_finite() {
                 break;
             }
@@ -301,6 +330,7 @@ fn derivatives(spline: &BSpline, parameter: f64) -> (Point2, Vector2, Vector2) {
     let step = DERIVATIVE_STEP;
     let low = (parameter - step).max(0.0);
     let high = (parameter + step).min(1.0);
+
     let middle = (low + high) / 2.0;
     let half = (high - low) / 2.0;
     let (before, at, after) = (
@@ -356,13 +386,16 @@ mod tests {
         for step in 0..=20 {
             let parameter = step as f64 / 20.0;
             let (start, values) = template_basis(&spline, parameter);
+
             assert!((values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+
             let combined = values
                 .iter()
                 .enumerate()
                 .fold(Point2::ZERO, |sum, (offset, value)| {
                     sum + spline.control_points()[start + offset] * *value
                 });
+
             assert!(combined.distance(spline.point_at(parameter)) < 1e-12);
         }
     }
@@ -371,6 +404,7 @@ mod tests {
     fn a_fit_keeps_the_ends_and_reaches_the_tolerance() {
         let samples = quarter_ellipse(400);
         let fitted = BSpline::fit(&samples, 1e-4, 200).unwrap();
+
         assert!(fitted.deviation <= 1e-4, "{}", fitted.deviation);
         assert_eq!(fitted.spline.degree(), 3);
         assert_eq!(fitted.spline.point_at(0.0), samples[0]);
@@ -386,6 +420,7 @@ mod tests {
                         .distance(exact)
                 })
                 .fold(f64::INFINITY, f64::min);
+
             assert!(nearest < 1e-2, "{nearest}");
         }
     }
@@ -396,6 +431,7 @@ mod tests {
             .map(|index| Point2::new(index as f64, if index % 2 == 0 { 0.0 } else { 1.0 }))
             .collect();
         let fitted = BSpline::fit(&zigzag, 1e-9, 8).unwrap();
+
         assert!(fitted.deviation > 1e-9);
         assert!(fitted.deviation.is_finite());
         assert_eq!(fitted.spline.control_points().len(), 8);
@@ -417,12 +453,17 @@ mod tests {
             })
             .collect();
         let spline = BSpline::interpolate(&points).unwrap();
+
         assert_eq!(spline.control_points().len(), points.len());
+
         for (index, point) in points.iter().enumerate() {
             let parameter = index as f64 / (points.len() - 1) as f64;
+
             assert!(spline.point_at(parameter).distance(*point) < 1e-9);
         }
+
         let line = BSpline::interpolate(&[Point2::ZERO, Point2::X]).unwrap();
+
         assert_eq!(line.degree(), 1);
         assert!(BSpline::interpolate(&[Point2::ZERO]).is_none());
     }
@@ -434,17 +475,23 @@ mod tests {
             .map(|x| Point2::new(*x, x * x / 10.0))
             .collect();
         let fitted = BSpline::through(&points, 1e-5, 400).unwrap();
+
         assert!(fitted.deviation <= 1e-5, "{}", fitted.deviation);
+
         let spline = fitted.spline;
+
         for point in &points {
             let nearest = (0..=100_000)
                 .map(|index| spline.point_at(index as f64 / 100_000.0).distance(*point))
                 .fold(f64::INFINITY, f64::min);
+
             assert!(nearest < 1e-3, "{nearest}");
         }
+
         let xs: Vec<f64> = (0..=400)
             .map(|index| spline.point_at(index as f64 / 400.0).x)
             .collect();
+
         assert!(
             xs.windows(2).all(|pair| pair[1] >= pair[0] - 1e-9),
             "the interpolated curve turns back"
@@ -472,11 +519,13 @@ mod tests {
             Point2::new(3.0, 1.0),
         ];
         let fitted = BSpline::through(&points, 1e-6, 400).unwrap();
+
         assert!(fitted.deviation <= 1e-6, "{}", fitted.deviation);
         assert_eq!(fitted.spline.point_at(0.0), Point2::ZERO);
         assert_eq!(fitted.spline.point_at(1.0), Point2::new(3.0, 1.0));
 
         let line = BSpline::through(&[Point2::ZERO, Point2::X, Point2::X], 1e-6, 400).unwrap();
+
         assert_eq!(line.spline.degree(), 1);
         assert!(BSpline::through(&[Point2::X, Point2::X, Point2::X], 1e-6, 400).is_none());
     }
@@ -493,6 +542,7 @@ mod tests {
 
         let ((), steps) = tally::measure(|| {
             let fitted = BSpline::fit(&samples, 1e-3, 400).unwrap();
+
             assert!(fitted.deviation.is_finite());
             assert!(BSpline::interpolate(&through).is_some());
             assert!(BSpline::through(&through, 1e-3, 400).is_some());

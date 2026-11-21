@@ -86,7 +86,7 @@ const NOT_DRAWN: [&str; 30] = [
     "solidcolor",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextOutlines<'f> {
     InFont {
         upright: &'f [u8],
@@ -106,14 +106,18 @@ pub fn parse_svg(bytes: &[u8], text_outlines: TextOutlines<'_>) -> Result<Drawin
     } else {
         bytes
     };
+
     if !looks_like_svg(bytes) {
         return Err(ImportError::NotSvg);
     }
+
     let (text, latin) = decoded(bytes);
     let mut notes = Vec::new();
+
     if latin {
         notes.push(LATIN_1_NOTE.to_owned());
     }
+
     let budget = Budget::for_elements(MAX_DRAWING_ELEMENTS);
     let tree = parse(&text, budget).map_err(|error| match error {
         XmlError::TooManyElements => ImportError::TooManyElements,
@@ -136,28 +140,36 @@ fn read_tree(
         return Err(ImportError::NotSvg);
     };
     let namespace = root.namespace();
+
     if root.name() != "svg" || namespace.is_some_and(|uri| uri != SVG_NAMESPACE) {
         return match damaged_at {
             Some(line) => Err(ImportError::DamagedAt(line)),
             None => Err(ImportError::NotSvg),
         };
     }
+
     let sizing = sizing(root);
+
     notes.extend(sizing.note.clone());
+
     let style_text = style_text(tree, namespace);
     let sheet = StyleSheet::parse(&style_text);
     let typeface = match text_outlines {
         TextOutlines::InFont { upright, italic } => Typeface::parse(upright, italic),
         TextOutlines::LeftOut => None,
     };
+
     let mut walker = Walker::new(tree, namespace, &sheet, typeface);
+
     walker.walk(root, &sizing)?;
+
     let mut drawing = flatten(
         &walker.shapes,
         &walker.shape_layers,
         &walker.construction,
         notes,
     )?;
+
     drawing.layers = std::mem::take(&mut walker.layer_names);
     drawing.unit_scale = sizing.unit_scale();
     match (walker.report(drawing), damaged_at) {
@@ -175,6 +187,7 @@ fn read_tree(
 
 fn style_text(tree: &Tree<'_>, namespace: Option<&str>) -> String {
     let mut text = String::new();
+
     for node in tree.nodes() {
         let is_css = node
             .attribute("type")
@@ -193,14 +206,14 @@ fn viewport_key(viewport: Vector2) -> ViewportKey {
     [viewport.x.to_bits(), viewport.y.to_bits()]
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MarkerPosition {
     Start,
     Middle,
     End,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Group,
     Viewport,
@@ -240,7 +253,7 @@ impl Kind {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Context<'a> {
     matrix: Matrix,
     viewport: Vector2,
@@ -299,11 +312,13 @@ impl<'a, 't> Walker<'a, 't> {
         typeface: Option<Typeface<'a>>,
     ) -> Self {
         let mut ids = UntrustedMap::new();
+
         for node in tree.nodes() {
             if let Some(id) = node.attribute("id") {
                 ids.entry(id).or_insert(node);
             }
         }
+
         let root = tree.root();
         let mut walker = Self {
             namespace,
@@ -327,6 +342,7 @@ impl<'a, 't> Walker<'a, 't> {
             tally: Tally::default(),
             typeface,
         };
+
         if let Some(root) = root {
             walker.layer_parent = walker.find_layer_parent(root).id();
         }
@@ -344,6 +360,7 @@ impl<'a, 't> Walker<'a, 't> {
 
     fn find_layer_parent(&mut self, root: Node<'a, 't>) -> Node<'a, 't> {
         let mut parent = root;
+
         for _ in 0..MAX_NESTING {
             let children: Vec<Node<'a, 't>> = parent
                 .children()
@@ -363,6 +380,7 @@ impl<'a, 't> Walker<'a, 't> {
     fn walk(&mut self, root: Node<'a, 't>, sizing: &Sizing) -> Result<(), ImportError> {
         let properties = self.properties(root);
         let transform = self.transform(properties);
+
         let context = Context {
             matrix: transform.then(&Matrix::scale(sizing.millimetres.x, sizing.millimetres.y)),
             viewport: sizing.viewport,
@@ -405,8 +423,10 @@ impl<'a, 't> Walker<'a, 't> {
 
     fn children(&mut self, node: Node<'a, 't>, context: &Context<'a>) -> Result<(), ImportError> {
         let is_switch = self.is_svg(node) && node.name() == "switch";
+
         if is_switch {
             let mut elements = node.children().filter(|child| self.is_svg(*child));
+
             let first = elements.clone().next();
             let chosen = elements
                 .find(|child| {
@@ -415,18 +435,22 @@ impl<'a, 't> Walker<'a, 't> {
                         .all(|name| child.attribute(name).is_none())
                 })
                 .or(first);
+
             return match chosen {
                 Some(child) => self.visit(child, context),
                 None => Ok(()),
             };
         }
+
         let names_layers = node.id() == self.layer_parent;
+
         for child in node.children() {
             if names_layers {
                 let context = Context {
                     layer: self.layer_name(child),
                     ..context.clone()
                 };
+
                 self.visit(child, &context)?;
             } else {
                 self.visit(child, context)?;
@@ -439,6 +463,7 @@ impl<'a, 't> Walker<'a, 't> {
         if !self.kind(node).is_some_and(Kind::forms_layer) {
             return Rc::from(UNGROUPED);
         }
+
         let named = node
             .attribute_in(INKSCAPE_NAMESPACE, "label")
             .or_else(|| node.attribute("id"))
@@ -468,9 +493,11 @@ impl<'a, 't> Walker<'a, 't> {
 
     fn visit(&mut self, node: Node<'a, 't>, context: &Context<'a>) -> Result<(), ImportError> {
         check_interrupt().map_err(|_| ImportError::Cancelled)?;
+
         let Some(kind) = self.kind(node) else {
             return Ok(());
         };
+
         match kind {
             Kind::NotDrawn => return Ok(()),
             Kind::LeftOut(singular, plural) => {
@@ -481,6 +508,7 @@ impl<'a, 't> Walker<'a, 't> {
                 self.tally.unsupported += 1;
                 if self.tally.unsupported_names.len() < MAX_NAMED_ELEMENTS {
                     let name: String = node.name().chars().take(40).collect();
+
                     self.tally.unsupported_names.insert(name);
                 }
                 return Ok(());
@@ -492,7 +520,9 @@ impl<'a, 't> Walker<'a, 't> {
             return Ok(());
         }
         self.charge(1)?;
+
         let properties = self.properties(node);
+
         if properties.hidden {
             self.tally.hidden += 1;
             return Ok(());
@@ -500,6 +530,7 @@ impl<'a, 't> Walker<'a, 't> {
         if properties.clipped {
             self.tally.clipped += 1;
         }
+
         let transform = self.transform(properties);
         let mut inner = Context {
             matrix: transform.then(&context.matrix),
@@ -510,6 +541,7 @@ impl<'a, 't> Walker<'a, 't> {
         match kind {
             Kind::Viewport => {
                 let (matrix, viewport) = nested_viewport(node, context.viewport);
+
                 inner.matrix = matrix.then(&inner.matrix);
                 inner.viewport = viewport;
                 self.children(node, &inner)
@@ -532,20 +564,25 @@ impl<'a, 't> Walker<'a, 't> {
             return Ok(());
         };
         let looping = self.referencing.contains(&target.id()) || target.encloses(node);
+
         if looping || self.referencing.len() >= MAX_USE_DEPTH {
             self.tally.too_deep += 1;
             return Ok(());
         }
+
         let x = length(node, "x", Axis::Horizontal, context.viewport).unwrap_or(0.0);
         let y = length(node, "y", Axis::Vertical, context.viewport).unwrap_or(0.0);
+
         context.matrix = Matrix::translation(x, y).then(&context.matrix);
         self.referencing.push(target.id());
+
         let is_symbol = self.is_svg(target) && target.name() == "symbol";
         let result = if is_symbol {
             self.symbol(target, node, &context)
         } else {
             self.visit(target, &context)
         };
+
         self.referencing.pop();
         result
     }
@@ -557,15 +594,19 @@ impl<'a, 't> Walker<'a, 't> {
         context: &Context<'a>,
     ) -> Result<(), ImportError> {
         self.charge(1)?;
+
         let properties = self.properties(node);
+
         if properties.hidden {
             self.tally.hidden += 1;
             return Ok(());
         }
+
         let transform = self.transform(properties);
         let Some((fitted, viewport)) = symbol_viewport(used, node, context.viewport) else {
             return Ok(());
         };
+
         let inner = Context {
             matrix: transform.then(&fitted).then(&context.matrix),
             viewport,
@@ -581,7 +622,9 @@ impl<'a, 't> Walker<'a, 't> {
             self.tally.hidden += 1;
             return Ok(());
         }
+
         let outline = self.outline(node, context.viewport);
+
         if outline.damaged {
             self.tally.damaged += 1;
         }
@@ -598,10 +641,13 @@ impl<'a, 't> Walker<'a, 't> {
 
     fn outline(&mut self, node: Node<'a, 't>, viewport: Vector2) -> Rc<Outline> {
         let key = (node.id(), viewport_key(viewport));
+
         if let Some(outline) = self.outlines.get(&key) {
             return Rc::clone(outline);
         }
+
         let outline = Rc::new(outline_of(node, viewport));
+
         self.outlines.insert(key, Rc::clone(&outline));
         outline
     }
@@ -609,6 +655,7 @@ impl<'a, 't> Walker<'a, 't> {
     fn markers(&mut self, vertices: &[Vertex], context: &Context<'a>) -> Result<(), ImportError> {
         let last = vertices.len().saturating_sub(1);
         let markers = context.style.markers;
+
         for (index, vertex) in vertices.iter().enumerate() {
             let placed = [
                 (index == 0, markers.start, MarkerPosition::Start),
@@ -645,6 +692,7 @@ impl<'a, 't> Walker<'a, 't> {
             return Ok(());
         };
         let style = self.marker_style(marker);
+
         let Some(style) = style.filter(|_| {
             !self.referencing.contains(&marker.id()) && self.referencing.len() < MAX_USE_DEPTH
         }) else {
@@ -654,10 +702,13 @@ impl<'a, 't> Walker<'a, 't> {
         let viewport = context.viewport;
         let width = length(marker, "markerWidth", Axis::Horizontal, viewport).unwrap_or(3.0);
         let height = length(marker, "markerHeight", Axis::Vertical, viewport).unwrap_or(3.0);
+
         if width <= 0.0 || height <= 0.0 {
             return Ok(());
         }
+
         let (fitted, inner_viewport) = fitted(marker, Vector2::new(width, height));
+
         let reference = fitted.apply(Point2::new(
             length(marker, "refX", Axis::Horizontal, inner_viewport).unwrap_or(0.0),
             length(marker, "refY", Axis::Vertical, inner_viewport).unwrap_or(0.0),
@@ -673,13 +724,16 @@ impl<'a, 't> Walker<'a, 't> {
             })
         };
         let angle = orientation(marker.attribute("orient"), vertex, position);
+
         let matrix = fitted
             .then(&Matrix::translation(-reference.x, -reference.y))
             .then(&Matrix::scale(scale, scale))
             .then(&Matrix::rotation(angle))
             .then(&Matrix::translation(vertex.at.x, vertex.at.y))
             .then(&context.matrix);
+
         self.referencing.push(marker.id());
+
         let inner = Context {
             matrix,
             viewport: inner_viewport,
@@ -688,6 +742,7 @@ impl<'a, 't> Walker<'a, 't> {
             ..context.clone()
         };
         let result = self.charge(1).and_then(|()| self.children(marker, &inner));
+
         self.referencing.pop();
         result
     }
@@ -696,18 +751,22 @@ impl<'a, 't> Walker<'a, 't> {
         if let Some(style) = self.marker_styles.get(&marker.id()) {
             return *style;
         }
+
         let lineage: Vec<Node<'a, 't>> = marker.ancestors().take(MAX_NESTING + 1).collect();
         let style = if lineage.len() > MAX_NESTING {
             None
         } else {
             let mut style = Inherited::default();
+
             for ancestor in lineage.into_iter().rev() {
                 let properties = self.properties(ancestor);
+
                 style = style.under(&properties);
             }
             style.markers = Default::default();
             Some(style)
         };
+
         self.marker_styles.insert(marker.id(), style);
         style
     }
@@ -719,10 +778,14 @@ impl<'a, 't> Walker<'a, 't> {
         context: &Context<'a>,
     ) -> Result<(), ImportError> {
         self.charge(shapes.len())?;
+
         let room = MAX_READ_CURVES.saturating_sub(self.shapes.len());
         let beyond = shapes.len().saturating_sub(room);
+
         self.beyond_the_limit = self.beyond_the_limit.saturating_add(beyond);
+
         let affine = matrix.affine();
+
         for shape in shapes.iter().take(room) {
             self.push(shape.transformed(&affine), context)?;
         }
@@ -738,7 +801,9 @@ impl<'a, 't> Walker<'a, 't> {
         if self.points > MAX_DRAWING_POINTS {
             return Err(ImportError::TooDetailed);
         }
+
         let layer = self.layer_index(&context.layer);
+
         if context.style.dashed {
             self.construction.insert(self.shapes.len());
         }
@@ -749,10 +814,13 @@ impl<'a, 't> Walker<'a, 't> {
 
     fn layer_index(&mut self, name: &str) -> usize {
         let key = name.to_lowercase();
+
         if let Some(index) = self.layer_indices.get(&key) {
             return *index;
         }
+
         let index = self.layer_names.len();
+
         self.layer_names.push(name.to_owned());
         self.layer_indices.insert(key, index);
         index
@@ -762,6 +830,7 @@ impl<'a, 't> Walker<'a, 't> {
         let earlier = drawing.notes.len();
         let tally = self.tally;
         let notes = &mut drawing.notes;
+
         if !tally.left_out.is_empty() {
             let kinds: Vec<String> = tally
                 .left_out
@@ -772,6 +841,7 @@ impl<'a, 't> Walker<'a, 't> {
                 .left_out
                 .values()
                 .fold(0, |sum: usize, count| sum.saturating_add(*count));
+
             notes.push(format!(
                 "{} {} left out, because sketches hold only points, lines, arcs, circles and \
                  splines.",
@@ -781,6 +851,7 @@ impl<'a, 't> Walker<'a, 't> {
         }
         if tally.unsupported > 0 {
             let names: Vec<String> = tally.unsupported_names.into_iter().collect();
+
             notes.push(format!(
                 "{} that caditor does not read {} left out: {}.",
                 capitalized(&counted(tally.unsupported, "element", "elements")),
@@ -788,6 +859,7 @@ impl<'a, 't> Walker<'a, 't> {
                 list(&names)
             ));
         }
+
         let mut count = |count: usize, singular: &str, plural: &str, rest: &str| {
             if count > 0 {
                 notes.push(format!(
@@ -797,6 +869,7 @@ impl<'a, 't> Walker<'a, 't> {
                 ));
             }
         };
+
         count(
             tally.hidden,
             "hidden element",
@@ -865,13 +938,16 @@ impl<'a, 't> Walker<'a, 't> {
         );
         if !tally.substituted_families.is_empty() {
             let families: Vec<String> = tally.substituted_families.into_iter().collect();
+
             notes.push(format!(
                 "Text set in {} was drawn in Inter, the font caditor carries, so its letters \
                  differ in shape and width from the drawing's.",
                 list(&families)
             ));
         }
+
         let sheet = self.sheet;
+
         if sheet.unread_selectors > 0 {
             drawing.notes.push(format!(
                 "{} in the drawing's style sheet {} ignored, because caditor reads only selectors \

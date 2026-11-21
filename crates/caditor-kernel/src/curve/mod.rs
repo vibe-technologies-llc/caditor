@@ -30,7 +30,7 @@ const MAX_TIGHT_SPANS: usize = 4;
 
 pub type BSplineCurve = BSpline<Point3>;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CurveDerivatives {
     pub point: Point3,
     pub first: Vector3,
@@ -40,22 +40,24 @@ pub struct CurveDerivatives {
 impl CurveDerivatives {
     pub fn curvature(&self) -> Option<Vector3> {
         let speed_squared = self.first.length_squared();
+
         if speed_squared <= 0.0 {
             return None;
         }
+
         let along = self.second.dot(self.first) / speed_squared;
         let curvature = (self.second - self.first * along) / speed_squared;
         curvature.is_finite().then_some(curvature)
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CurveSample {
     pub parameter: f64,
     pub point: Point3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Curve {
     Line(Line),
@@ -139,10 +141,13 @@ impl Curve {
             return coarse;
         };
         let knots = spline.knots_within(range);
+
         if knots.len() >= MAX_TIGHT_SPANS {
             return coarse;
         }
+
         let mut ends = vec![range.start()];
+
         ends.extend(knots);
         ends.push(range.end());
         ends.windows(2)

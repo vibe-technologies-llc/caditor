@@ -16,7 +16,7 @@ use crate::{
     topology::{FaceId, Solid},
 };
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum FaceSplitError {
     #[error("none of the faces to split is on the body")]
     NoFaces,
@@ -56,27 +56,37 @@ fn imprinted(
     feature: u64,
 ) -> Result<Solid, FaceSplitError> {
     interrupt::check()?;
+
     let chosen: BTreeSet<FaceId> = faces
         .iter()
         .copied()
         .filter(|face| solid.face(*face).is_some())
         .collect();
+
     if chosen.is_empty() {
         return Err(FaceSplitError::NoFaces);
     }
+
     let input = Input::imprinting(solid, tool, chosen.clone());
     let arrangement = imprint::imprint(&input)?;
+
     interrupt::check()?;
+
     let split = faces::split(&input, &arrangement)?;
+
     interrupt::check()?;
+
     let mut kept = Vec::new();
     let mut divided = false;
+
     for face in split {
         interrupt::check()?;
+
         let original = input
             .face(face.key)
             .ok_or_else(|| BooleanError::split().or_faces([face.key]))?;
         let is_chosen = chosen.contains(&face.key.face);
+
         divided |= is_chosen && face.fragments.len() > 1;
         for fragment in face.fragments {
             let name = if is_chosen {
@@ -92,6 +102,7 @@ fn imprinted(
             } else {
                 original.name()
             };
+
             kept.push(KeptFace {
                 key: face.key,
                 surface: original.surface().clone(),
@@ -106,6 +117,7 @@ fn imprinted(
         return Err(FaceSplitError::Undivided);
     }
     check_closed(&arrangement, &kept)?;
+
     let renamed = edge_names(&arrangement, &kept, &chosen);
     Ok(assemble(&input, &arrangement, kept, &renamed)?)
 }
@@ -129,9 +141,11 @@ fn edge_names(
                 .iter()
                 .filter_map(|(index, _)| faces.get(*index))
                 .collect();
+
             if !around.iter().any(|face| chosen.contains(&face.key.face)) {
                 return None;
             }
+
             let name = match (users.as_slice(), around.as_slice()) {
                 ([(first, _), (second, _)], _) if first == second => {
                     EdgeName::seam(faces.get(*first)?.name)

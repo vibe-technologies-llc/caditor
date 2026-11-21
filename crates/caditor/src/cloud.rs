@@ -73,7 +73,7 @@ pub fn built_in_client_id(service: Service) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
     #[error("Cloud services are turned off. Turn them on in Preferences › General › Cloud.")]
     Off,
@@ -313,6 +313,7 @@ impl Cloud {
 
     pub fn configure(&mut self, preferences: &CloudPreferences) {
         let before = std::mem::replace(&mut self.preferences, preferences.clone());
+
         if before.enabled && !preferences.enabled {
             for service in Service::ALL {
                 self.leave(service, true);
@@ -343,6 +344,7 @@ impl Cloud {
 
     pub fn poll(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
+
         self.start_restoring();
         while let Ok(event) = self.receiver.try_recv() {
             self.handle(event, &mut actions);
@@ -352,6 +354,7 @@ impl Cloud {
 
     pub fn run(&mut self, command: CloudCommand) -> Vec<Action> {
         let mut actions = Vec::new();
+
         if !self.preferences.enabled {
             return actions;
         }
@@ -448,6 +451,7 @@ impl Cloud {
 
     fn bump(&mut self, service: Service) -> u64 {
         let next = self.generation(service) + 1;
+
         self.generations.insert(service, next);
         next
     }
@@ -456,11 +460,13 @@ impl Cloud {
         if let Some(provider) = self.providers.get(&service) {
             return Arc::clone(provider);
         }
+
         let client_id = self.client_id(service).unwrap_or_default();
         let provider: Arc<dyn Provider> = match service {
             Service::Fusion => Arc::new(Fusion::new(client_id)),
             Service::Onshape => Arc::new(Onshape::new(client_id)),
         };
+
         self.providers.insert(service, Arc::clone(&provider));
         provider
     }
@@ -514,6 +520,7 @@ impl Cloud {
 
     fn leave(&mut self, service: Service, revoke: bool) {
         self.bump(service);
+
         let through = self.keeping(service).retire();
         let store = self.store(service);
         let Some(left) = self
@@ -540,6 +547,7 @@ impl Cloud {
             Link::Off | Link::SignedOut => return,
         };
         let signing_out = client.filter(|_| revoke);
+
         if signing_out.is_none() && store.is_none() {
             return;
         }
@@ -585,8 +593,10 @@ impl Cloud {
             return;
         }
         self.next_attempt += 1;
+
         let attempt = self.next_attempt;
         let stop = Arc::new(AtomicBool::new(false));
+
         self.set_link(
             service,
             Link::SigningIn(SigningIn {
@@ -595,6 +605,7 @@ impl Cloud {
                 stop: Arc::clone(&stop),
             }),
         );
+
         let job = SignInJob {
             service,
             attempt,
@@ -631,6 +642,7 @@ impl Cloud {
             self.connection(service).map(|connection| &connection.link),
             Some(Link::SigningIn(signing)) if signing.attempt == attempt
         );
+
         if !current {
             if let Ok(session) = outcome {
                 self.revoke_late(service, session);
@@ -641,7 +653,9 @@ impl Cloud {
             Ok(session) => self.link_with(service, session),
             Err(failure) => {
                 self.set_link(service, Link::SignedOut);
+
                 let failure = Arc::new(failure);
+
                 if let Some(connection) = self.connection_mut(service) {
                     connection.last_failure = Some(Arc::clone(&failure));
                 }
@@ -657,6 +671,7 @@ impl Cloud {
     fn revoke_late(&mut self, service: Service, session: Session) {
         let provider = self.provider(service);
         let transport = self.transport();
+
         self.courier.spawn(
             service,
             move || {
@@ -671,10 +686,12 @@ impl Cloud {
         let provider = self.provider(service);
         let transport = self.transport();
         let keeper = self.store(service).map(SessionStore::keeper);
+
         let client = Client::new(Arc::clone(&provider), Arc::clone(&transport), session)
             .saving_with(Arc::new(move |session| {
                 jobs::keep_renewed(keeper.as_ref(), &*provider, &*transport, session);
             }));
+
         self.bump(service);
         if let Some(connection) = self.connection_mut(service) {
             connection.last_failure = None;
@@ -686,9 +703,11 @@ impl Cloud {
 
     fn refresh(&mut self, service: Service) {
         self.bump(service);
+
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
+
         linked.roots.clear();
         linked.folders.clear();
         linked.thumbnails.clear();
@@ -703,9 +722,11 @@ impl Cloud {
 
     fn choose_workspace(&mut self, service: Service, workspace: WorkspaceId) {
         self.bump(service);
+
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
+
         linked.workspace = Some(workspace.clone());
         linked.roots.clear();
         linked.folders.clear();
@@ -721,6 +742,7 @@ impl Cloud {
         let Some(store) = self.store(service) else {
             return;
         };
+
         self.courier.spawn(
             service,
             move || jobs::remember_hub(&store, &workspace),
@@ -741,6 +763,7 @@ impl Cloud {
             )));
             return;
         };
+
         actions.push(match linked.remembered_destination() {
             Some(remembered) => {
                 Action::File(FileCommand::SendToCloud(remembered.destination(service)))
@@ -753,13 +776,17 @@ impl Cloud {
         let Some(store) = self.store(service) else {
             return;
         };
+
         self.next_destination_write += 1;
+
         let sequence = self.next_destination_write;
         let written = Arc::clone(&self.destinations_written);
+
         self.courier.spawn(
             service,
             move || {
                 let mut newest = written.lock();
+
                 if *newest > sequence {
                     return Ok(());
                 }
@@ -778,6 +805,7 @@ impl Cloud {
     fn open_link(&mut self, service: Service, name: String, link: String) {
         let opener = Arc::clone(&self.opener);
         let address = link.clone();
+
         self.courier.spawn(
             service,
             move || jobs::open_in_browser(&opener, &address),
@@ -795,11 +823,14 @@ impl Cloud {
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
+
         if linked.account.is_loading() {
             return;
         }
         linked.account = Load::Loading;
+
         let client = Arc::clone(&linked.client);
+
         self.courier.spawn(
             service,
             move || client.account().map_err(Failure::from),
@@ -816,12 +847,15 @@ impl Cloud {
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
+
         if linked.workspaces.is_loading() {
             return;
         }
         linked.workspaces = Load::Loading;
+
         let client = Arc::clone(&linked.client);
         let store = self.store(service);
+
         self.courier.spawn(
             service,
             move || jobs::list_workspaces(&client, store.as_ref()),
@@ -838,9 +872,12 @@ impl Cloud {
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
+
         linked.projects = Load::Loading;
+
         let client = Arc::clone(&linked.client);
         let asked = workspace.clone();
+
         self.courier.spawn(
             service,
             move || client.projects(&asked).map_err(Failure::from),
@@ -857,15 +894,20 @@ impl Cloud {
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
+
         if !matches!(linked.root(project), Load::Idle) {
             return;
         }
+
         let Some(known) = linked.project(project).cloned() else {
             return;
         };
+
         linked.roots.insert(project.clone(), Load::Loading);
+
         let client = Arc::clone(&linked.client);
         let id = project.clone();
+
         self.courier.spawn(
             service,
             move || client.root(&known).map_err(Failure::from),
@@ -890,12 +932,15 @@ impl Cloud {
             .values()
             .filter(|load| load.is_loading())
             .count();
+
         if !linked.wants_picture(&design.id) || loading >= AT_ONCE {
             return;
         }
         linked.thumbnails.insert(design.id.clone(), Load::Loading);
+
         let client = Arc::clone(&linked.client);
         let id = design.id.clone();
+
         self.courier.spawn(
             service,
             move || thumbnails::load(&client, cache.as_ref(), service, &design),
@@ -912,12 +957,15 @@ impl Cloud {
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
+
         if !matches!(linked.versions(&design.id), Load::Idle) {
             return;
         }
         linked.versions.insert(design.id.clone(), Load::Loading);
+
         let client = Arc::clone(&linked.client);
         let id = design.id.clone();
+
         self.courier.spawn(
             service,
             move || client.versions(&design).map_err(Failure::from),
@@ -934,12 +982,15 @@ impl Cloud {
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
+
         if !matches!(linked.parts(&design.id), Load::Idle) {
             return;
         }
         linked.parts.insert(design.id.clone(), Load::Loading);
+
         let client = Arc::clone(&linked.client);
         let id = design.id.clone();
+
         self.courier.spawn(
             service,
             move || client.parts(&design).map_err(Failure::from),
@@ -956,12 +1007,15 @@ impl Cloud {
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
+
         if !matches!(linked.folder(&folder), Load::Idle) {
             return;
         }
         linked.folders.insert(folder.clone(), Load::Loading);
+
         let client = Arc::clone(&linked.client);
         let asked = folder.clone();
+
         self.courier.spawn(
             service,
             move || client.folder(&asked).map_err(Failure::from),
@@ -977,7 +1031,9 @@ impl Cloud {
         let generation = self.generation(service);
         let dir = self.downloads.dir.clone();
         let courier = self.courier.clone();
+
         self.next_import += 1;
+
         let id = self.next_import;
         let Some(linked) = self.linked_mut(service) else {
             actions.push(Action::Inform(Notice::warning(
@@ -985,12 +1041,14 @@ impl Cloud {
             )));
             return;
         };
+
         if linked.is_importing() {
             actions.push(Action::Inform(Notice::warning(
                 Refusal::Importing(service).to_string(),
             )));
             return;
         }
+
         let Some(dir) = dir else {
             actions.push(Action::Inform(Notice::warning(
                 Failure::NoDownloadFolder.to_string(),
@@ -998,12 +1056,14 @@ impl Cloud {
             return;
         };
         let stop = Arc::new(AtomicBool::new(false));
+
         linked.import = Some(Import {
             id,
             item: item.clone(),
             stage: Stage::Starting,
             stop: Arc::clone(&stop),
         });
+
         let job = ImportJob {
             service,
             generation,
@@ -1014,6 +1074,7 @@ impl Cloud {
             stop,
             courier: courier.clone(),
         };
+
         courier.spawn(
             service,
             move || job.run(),
@@ -1030,17 +1091,21 @@ impl Cloud {
         let service = shipment.destination.service;
         let generation = self.generation(service);
         let courier = self.courier.clone();
+
         self.next_import += 1;
+
         let id = self.next_import;
         let refused = |refusal: Refusal| Action::Inform(Notice::warning(refusal.to_string()));
         let Some(linked) = self.linked_mut(service) else {
             actions.push(refused(Refusal::NotSignedIn(service)));
             return;
         };
+
         if linked.is_sending() {
             actions.push(refused(Refusal::Sending(service)));
             return;
         }
+
         let stop = Arc::new(AtomicBool::new(false));
         let remembered = linked
             .workspace
@@ -1069,12 +1134,14 @@ impl Cloud {
                 }
             }
         });
+
         linked.sending = Some(Send {
             id,
             shipment: shipment.clone(),
             stage: SendStage::Starting,
             stop: Arc::clone(&stop),
         });
+
         let job = SendJob {
             service,
             generation,
@@ -1084,6 +1151,7 @@ impl Cloud {
             stop,
             courier: courier.clone(),
         };
+
         courier.spawn(
             service,
             move || job.run(),
@@ -1119,6 +1187,7 @@ impl Cloud {
         let Some(dir) = self.downloads.dir.clone() else {
             return;
         };
+
         if self.downloads.measuring {
             return;
         }
@@ -1134,6 +1203,7 @@ impl Cloud {
         let Some(dir) = self.downloads.dir.clone() else {
             return;
         };
+
         self.downloads.measuring = true;
         self.courier
             .spawn(Service::Fusion, move || jobs::clear(&dir), Event::Cleared);
@@ -1282,6 +1352,7 @@ impl Cloud {
             | Loaded::Parts(_, Err(failure)) => Some(Arc::clone(failure)),
             _ => None,
         };
+
         if failed
             .as_ref()
             .is_some_and(|failure| failure.is_sign_in_needed())
@@ -1292,15 +1363,18 @@ impl Cloud {
             ))));
             return;
         }
+
         let Some(linked) = self.linked_mut(service) else {
             return;
         };
         let mut choose = None;
+
         match loaded {
             Loaded::Account(result) => linked.account = settle(result),
             Loaded::Workspaces(result) => {
                 let result = result.map(|listing| {
                     let workspaces = listing.workspaces;
+
                     choose = [linked.workspace.as_ref(), listing.hub.as_ref()]
                         .into_iter()
                         .flatten()
@@ -1320,6 +1394,7 @@ impl Cloud {
                     }
                     workspaces
                 });
+
                 linked.workspaces = settle(result);
             }
             Loaded::Projects(workspace, result) => {
@@ -1372,9 +1447,11 @@ impl Cloud {
                 linked.unopened = None;
                 linked.folders.remove(&shipment.destination.folder);
                 linked.roots.remove(&shipment.destination.folder.project);
+
                 let opening = shipment.destination.opening();
                 let link = sent.web_link.clone().filter(|_| opening);
                 let words = delivery_words(service, &shipment, &sent);
+
                 actions.push(Action::Inform(Notice::success(match (opening, &link) {
                     (false, _) => words,
                     (true, Some(_)) => format!("{words} {OPENING_WORDS}"),
@@ -1390,7 +1467,9 @@ impl Cloud {
                 linked
                     .destinations
                     .retain(|kept| kept.folder != shipment.destination.folder);
+
                 let kept = linked.destinations.clone();
+
                 self.save_destinations(service, kept);
                 actions.push(Action::Inform(Notice::warning(format!(
                     "“{name}” was not sent: the folder “{}” in {service} is gone or does not let \
@@ -1408,6 +1487,7 @@ impl Cloud {
             }
             Err(failure) => {
                 let failure = Arc::new(failure);
+
                 if let Some(current) = linked.sending.as_mut() {
                     current.stage = SendStage::Failed(Arc::clone(&failure));
                 }
@@ -1455,6 +1535,7 @@ impl Cloud {
             }
             Err(failure) => {
                 let failure = Arc::new(failure);
+
                 if let Some(current) = linked.import.as_mut() {
                     current.stage = Stage::Failed(Arc::clone(&failure));
                 }

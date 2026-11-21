@@ -121,7 +121,7 @@ const ROLL_FORWARD_LABEL: &str = "Roll forward to here";
 const NOTHING_TO_FILTER: &str = "The model has no features to filter yet";
 pub const CLEAR_FILTER_LABEL: &str = "Clear the filter";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TreeError {
     #[error("Select a feature in the tree, or open one, first")]
     NoFeatureChosen,
@@ -209,6 +209,7 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     let edited = editing.feature().or(editing.solid());
+
     if let Some(finished) = state
         .opened_for_editing
         .filter(|opened| Some(*opened) != edited)
@@ -230,7 +231,9 @@ fn combining_card(ui: &mut Ui, model: &Model, editing: &SketchEditing, actions: 
         ui.data_mut(|data| data.remove_by_type::<CombiningShown>());
         return;
     };
+
     ui.add_space(SPACE_S);
+
     let rect = ui
         .scope(|ui| combine_panel::show_choosing(ui, model, combining, actions))
         .response
@@ -254,14 +257,18 @@ fn rows(
     actions: &mut Vec<Action>,
 ) {
     let document = model.document();
+
     principal_tree::show(ui, model, selection, state, actions);
     bodies_tree::show(ui, model, selection, state, actions);
+
     let count = document.features().len();
+
     if count == 0 {
         tree_row::content(ui, |ui| empty_tree(ui, actions));
         state.dragging = None;
         return;
     }
+
     let query = filter_field(ui, state, count);
     let filtering = !query.is_empty();
     let bar = document.bar_index();
@@ -271,29 +278,37 @@ fn rows(
     let mut range_to = None;
     let mut previous_group: Option<&str> = None;
     let mut folded: Option<Rect> = None;
+
     for (index, feature) in document.features().enumerate() {
         if index == bar && !filtering {
             placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
         }
+
         let id = feature.id();
+
         if filtering && !kept_by_filter(model, state, editing, feature, &query) {
             continue;
         }
+
         let group = feature.group.as_deref().filter(|_| !filtering);
+
         if group != previous_group {
             folded = None;
             if let Some(name) = group {
                 let run = document.group_run(id);
                 let header = feature_groups::header(ui, document, state, actions, &run, name);
+
                 folded = (!header.open).then_some(header.rect);
             }
         }
         previous_group = group;
         if let Some(header) = folded {
             let hidden = Rect::from_min_size(header.left_bottom(), vec2(header.width(), 0.0));
+
             placed.push((TreeRow::Feature(id), hidden));
             continue;
         }
+
         let row = Row {
             feature,
             selection,
@@ -307,13 +322,17 @@ fn rows(
             rolled_back: index >= bar,
             grouped: group.is_some(),
         };
+
         drawn.push(id);
+
         let rect = ui
             .push_id(("feature", id), |ui| {
                 if let Some(rect) = off_screen_row(ui, model, state, &row) {
                     return rect;
                 }
+
                 let shown = feature_row(ui, model, state, actions, &row);
+
                 if is_plain(ui, model, state, &row) {
                     state.plain_row_height = Some(shown.rect.height());
                 }
@@ -321,6 +340,7 @@ fn rows(
                 shown.rect
             })
             .inner;
+
         placed.push((TreeRow::Feature(id), rect));
     }
     if let Some(end) = range_to {
@@ -352,6 +372,7 @@ fn show_links(ui: &Ui, model: &Model, state: &mut PanelState, placed: &[(TreeRow
         .find(|(_, rect)| rect.height() > 0.0 && ui.rect_contains_pointer(*rect))
         .map(|(id, _)| *id);
     let document = model.document();
+
     let Some(feature) = hovered
         .or(state.selected)
         .and_then(|id| document.feature(id))
@@ -359,8 +380,11 @@ fn show_links(ui: &Ui, model: &Model, state: &mut PanelState, placed: &[(TreeRow
         return;
     };
     let links = state.links.links(document, model.revision(), feature);
+
     feature_links::paint(ui, &rows, &feature_links::marks(feature.id(), links));
+
     let description = links.description(document, feature);
+
     ui.ctx()
         .accesskit_node_builder(feature_links::row_id(feature.id()), |node| {
             node.set_description(description);
@@ -370,13 +394,16 @@ fn show_links(ui: &Ui, model: &Model, state: &mut PanelState, placed: &[(TreeRow
 fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
     let wanted = state.take_focus(Focus::TreeFilter);
     let focused = ui.memory(|memory| memory.has_focus(Focus::TreeFilter.field_id()));
+
     if count < FILTER_FROM_FEATURES && state.tree_filter.is_empty() && !wanted && !focused {
         return String::new();
     }
     tree_row::content(ui, |ui| {
         ui.horizontal(|ui| {
             let muted = appearance::tokens(ui).text_muted;
+
             widgets::icon_label(ui, icons::SEARCH, muted);
+
             let field = widgets::text_field(ui, |ui| {
                 widgets::spoken_as(
                     ui.add(
@@ -542,6 +569,7 @@ fn empty_tree(ui: &mut Ui, actions: &mut Vec<Action>) {
     widgets::empty_state(ui, icons::FEATURES, EMPTY_TREE, |ui| {
         let title = Command::NewSketch.title();
         let new_sketch = widgets::small_button(ui, icons::command(Command::NewSketch), &title);
+
         if ui
             .add(new_sketch)
             .on_hover_text("Start a sketch on the plane or flat face you click next")
@@ -549,6 +577,7 @@ fn empty_tree(ui: &mut Ui, actions: &mut Vec<Action>) {
         {
             actions.push(Action::Editing(EditingCommand::NewSketch(None)));
         }
+
         let sample = widgets::small_button(ui, icons::SAMPLE, OPEN_SAMPLE_LABEL);
         if ui
             .add(sample)
@@ -587,7 +616,9 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
         vec2(ui.available_width(), BAR_ROW_HEIGHT),
         Sense::click_and_drag(),
     );
+
     response.widget_info(|| WidgetInfo::labeled(Role::Button, true, ROLLBACK_BAR_NAME));
+
     let included = document.bar_index();
     let total = document.features().len();
     let caption = if below > 0 {
@@ -595,6 +626,7 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
     } else {
         END_OF_MODEL.to_owned()
     };
+
     ui.ctx().accesskit_node_builder(response.id, |node| {
         node.set_role(Role::Slider);
         node.set_numeric_value(included as f64);
@@ -605,24 +637,29 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
         node.add_action(egui::accesskit::Action::Increment);
         node.add_action(egui::accesskit::Action::Decrement);
     });
+
     let (increment, decrement) = ui.input(|input| {
         (
             input.has_accesskit_action_request(response.id, egui::accesskit::Action::Increment),
             input.has_accesskit_action_request(response.id, egui::accesskit::Action::Decrement),
         )
     });
+
     if increment {
         state.requested.push(Command::RollbackDown);
     }
     if decrement {
         state.requested.push(Command::RollbackUp);
     }
+
     let response = response
         .on_hover_text(ROLLBACK_BAR_HINT)
         .on_hover_cursor(CursorIcon::Grab);
+
     if response.drag_started() {
         state.dragging = Some(TreeRow::Bar);
     }
+
     let emphasised =
         response.hovered() || response.has_focus() || state.dragging == Some(TreeRow::Bar);
     let color = if emphasised {
@@ -632,6 +669,7 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
     };
     let painter = ui.painter();
     let middle = rect.center().y;
+
     let grip = painter.text(
         pos2(rect.left() + SPACE_S, middle),
         Align2::LEFT_CENTER,
@@ -647,6 +685,7 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
         tokens.text_muted,
     );
     let start = caption.right() + SPACE_M;
+
     if start < rect.right() {
         painter.hline(
             start..=rect.right(),
@@ -677,24 +716,29 @@ fn drag_and_drop(
             input.consume_key(Modifiers::NONE, Key::Escape),
         )
     });
+
     let Some(pointer) = pointer.filter(|_| !cancelled) else {
         state.dragging = None;
         return;
     };
     let visible = ui.clip_rect();
+
     if !visible.contains(pointer) {
         if !held {
             state.dragging = None;
         }
         return;
     }
+
     let beyond_top = visible.top() + AUTOSCROLL_EDGE - pointer.y;
     let beyond_bottom = pointer.y - (visible.bottom() - AUTOSCROLL_EDGE);
+
     if held && beyond_top > 0.0 {
         ui.scroll_with_delta(vec2(0.0, beyond_top * AUTOSCROLL_RATE));
     } else if held && beyond_bottom > 0.0 {
         ui.scroll_with_delta(vec2(0.0, -beyond_bottom * AUTOSCROLL_RATE));
     }
+
     let gap = placed
         .iter()
         .position(|(_, rect)| pointer.y < rect.center().y)
@@ -706,6 +750,7 @@ fn drag_and_drop(
         }
         TreeRow::Bar => None,
     };
+
     let outcome = match &together {
         Some(features) => document.move_features(
             features,
@@ -714,6 +759,7 @@ fn drag_and_drop(
         ),
         None => document.move_row(dragged, gap, drag_label(document, dragged)),
     };
+
     if !held {
         state.dragging = None;
         if let Ok(transaction) = outcome
@@ -723,6 +769,7 @@ fn drag_and_drop(
         }
         return;
     }
+
     let tokens = appearance::tokens(ui);
     let line = match placed.get(gap) {
         Some((_, rect)) => rect.top() - tree_row::ROW_GAP / 2.0,
@@ -733,6 +780,7 @@ fn drag_and_drop(
     let span = placed
         .first()
         .map_or_else(|| ui.max_rect().x_range(), |(_, rect)| rect.x_range());
+
     match &outcome {
         Ok(transaction) if transaction.is_empty() => {
             ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
@@ -769,6 +817,7 @@ fn drop_refusal(ctx: &egui::Context, pointer: Pos2, reason: &str) {
                 ui.set_max_width(DROP_REASON_WIDTH);
                 ui.horizontal_wrapped(|ui| {
                     let color = appearance::tokens(ui).error;
+
                     widgets::icon_label(ui, icons::FAILED, color);
                     ui.label(reason);
                 });
@@ -789,6 +838,7 @@ enum Name {
 
 fn off_screen_row(ui: &mut Ui, model: &Model, state: &PanelState, row: &Row<'_>) -> Option<Rect> {
     let height = state.plain_row_height?;
+
     if near_view(ui, height) || !is_plain(ui, model, state, row) {
         return None;
     }
@@ -849,6 +899,7 @@ fn feature_row(
         false,
     );
     let editing_started = row.edited && state.opened_for_editing != Some(id);
+
     if editing_started {
         state.opened_for_editing = Some(id);
         state.reveal(id);
@@ -866,6 +917,7 @@ fn feature_row(
         selected: row.selected,
         open: row.edited,
     };
+
     let shown = tree_row::show(
         ui,
         look,
@@ -873,8 +925,11 @@ fn feature_row(
             if row.grouped {
                 ui.add_space(GROUP_INDENT);
             }
+
             let toggle = tree_row::chevron(ui, open, &feature.name);
+
             widgets::icon_label(ui, icons::feature(&feature.kind), kind_color(&tokens, row));
+
             let name = match renaming {
                 Some(renaming) => Name::Renaming(rename_field(ui, document, feature, renaming)),
                 None => {
@@ -911,18 +966,23 @@ fn feature_row(
             }
             tree_row::slot(ui, |ui| {
                 let computed = status.filter(|_| !model.evaluation().is_pending(id));
+
                 status_icon(ui, row, computed);
             });
         },
     );
     let row_rect = shown.rect;
+
     if ui.rect_contains_pointer(row_rect) {
         state.hovered_row = Some(id);
     }
+
     let (toggled, name) = shown.leading;
+
     if toggled {
         collapsing.toggle(ui);
     }
+
     let asked_to_focus = state.wants_focus(Focus::Feature(id));
     let range_to = match name {
         Name::Shown(name) => {
@@ -941,11 +1001,13 @@ fn feature_row(
     let healing = status
         .filter(|status| status.state == FeatureState::UpToDate)
         .and_then(|status| status.healing.as_deref());
+
     let has_callout = healing.is_some()
         || matches!(
             state_shown,
             Some(FeatureState::Failed(_) | FeatureState::Waiting(_) | FeatureState::Outdated)
         );
+
     if has_callout || collapsing.openness(ui.ctx()) > 0.0 {
         let below = tree_row::indented(ui, |ui| {
             let callouts = ui.scope(|ui| {
@@ -968,9 +1030,11 @@ fn feature_row(
                     let update = model
                         .current_healing(id)
                         .and_then(|current| current.update(document));
+
                     healed(ui, actions, healing, update);
                 }
             });
+
             if asked_to_focus && has_callout {
                 scroll_into_view(ui, row_rect.union(callouts.response.rect));
             }
@@ -985,9 +1049,11 @@ fn feature_row(
                 });
             })
         });
+
         ui.add_space(SPACE_S);
         if state.revealing(id) {
             let card = below.map_or(row_rect, |below| row_rect.union(below.response.rect));
+
             scroll_into_view(ui, card);
         }
     } else if state.revealing(id) {
@@ -1003,6 +1069,7 @@ fn feature_row(
 fn scroll_into_view(ui: &Ui, rect: Rect) {
     if !ui.ctx().will_discard() {
         let taller_than_view = rect.height() > ui.clip_rect().height();
+
         ui.scroll_to_rect(rect, taller_than_view.then_some(Align::TOP));
     }
 }
@@ -1012,6 +1079,7 @@ fn inactive_note(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, ro
     let Err(reason) = editable(document, feature) else {
         return;
     };
+
     ui.horizontal_wrapped(|ui| {
         let muted = appearance::tokens(ui).text_muted;
         let glyph = if feature.suppressed {
@@ -1019,6 +1087,7 @@ fn inactive_note(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, ro
         } else {
             icons::ROLLED_BACK
         };
+
         widgets::icon_label(ui, glyph, muted);
         ui.label(widgets::muted(format!("{reason}."), ui));
     });
@@ -1043,6 +1112,7 @@ fn inactive_note(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, ro
 fn outdated(ui: &mut Ui, actions: &mut Vec<Action>) {
     widgets::callout(ui, Tone::Warning, |ui| {
         ui.label("Not recomputed, because the recompute was cancelled.");
+
         let recompute =
             widgets::small_button(ui, icons::command(Command::Recompute), RECOMPUTE_LABEL);
         if ui.add(recompute).clicked() {
@@ -1055,6 +1125,7 @@ fn healed(ui: &mut Ui, actions: &mut Vec<Action>, healing: &Healing, update: Opt
     widgets::callout(ui, Tone::Warning, |ui| {
         ui.label(healing.reason());
         ui.label(widgets::muted(healing.remedy(), ui));
+
         let Some(update) = update else {
             return;
         };
@@ -1082,6 +1153,7 @@ fn respond(
     let id = row.feature.id();
     let (modifiers, enter) = ui.input(|input| (input.modifiers, input.key_pressed(Key::Enter)));
     let mut range_to = None;
+
     if name.clicked() {
         range_to = choose(state, id, modifiers);
     } else if name.gained_focus() {
@@ -1094,7 +1166,9 @@ fn respond(
         state.choose_only(id);
         name.scroll_to_me(Some(Align::Center));
     }
+
     let renames = name.double_clicked() && state.double_click == DoubleClick::Rename;
+
     if renames {
         start_renaming(state, row.feature);
     } else if name.double_clicked() || (name.has_focus() && enter) {
@@ -1117,6 +1191,7 @@ fn open_feature(
         collapsing.set_open(true);
         return;
     }
+
     let feature = row.feature;
     match edit_command(feature, false) {
         None => collapsing.toggle(ui),
@@ -1174,6 +1249,7 @@ fn choose_range(state: &mut PanelState, shown: &[FeatureId], end: FeatureId) {
                 .take(anchor.max(last) - first + 1)
                 .copied()
                 .collect();
+
             state.choose_range(range);
         }
         _ => state.choose_only(end),
@@ -1192,6 +1268,7 @@ fn body(
         .and_then(|dragged| model.draft_kind(dragged))
         .map(|kind| {
             let mut shown = row.feature.clone();
+
             shown.kind = kind.clone();
             shown
         });
@@ -1393,6 +1470,7 @@ fn body(
         }
         FeatureKind::Mirror(mirror) => {
             let chosen = state.chosen();
+
             mirror_panel::show(
                 ui,
                 model,
@@ -1417,6 +1495,7 @@ fn body(
         }
         FeatureKind::Pattern(pattern) => {
             let chosen = state.chosen();
+
             pattern_panel::show(
                 ui,
                 model,
@@ -1436,14 +1515,17 @@ fn body(
         FeatureKind::Import(import) => {
             ui.horizontal(|ui| {
                 let muted = appearance::tokens(ui).text_muted;
+
                 widgets::icon_label(ui, icons::FILE, muted);
                 ui.label(format!("Imported from “{}”", import.source));
             });
+
             let replace = widgets::small_button(
                 ui,
                 icons::command(Command::ReplaceImport),
                 REPLACE_FROM_FILE,
             );
+
             if ui.add(replace).on_hover_text(REPLACE_HINT).clicked() {
                 actions.push(Action::File(FileCommand::ReplaceImport(feature.id())));
             }
@@ -1517,6 +1599,7 @@ fn name_text(ui: &Ui, row: &Row<'_>, status: Option<&FeatureStatus>) -> RichText
     let feature = row.feature;
     let muted = appearance::tokens(ui).text_muted;
     let text = RichText::new(&feature.name);
+
     if feature.suppressed {
         return text.color(muted).strikethrough();
     }
@@ -1539,6 +1622,7 @@ fn visibility_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
     } else {
         (icons::SHOW, "Hide")
     };
+
     let response = widgets::named(
         widgets::icon_button(ui, glyph, hover),
         &format!("{hover} {}", feature.name),
@@ -1551,6 +1635,7 @@ fn visibility_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
 fn status_icon(ui: &mut Ui, row: &Row<'_>, status: Option<&FeatureStatus>) {
     let tokens = appearance::tokens(ui);
     let waiting = (icons::PENDING, tokens.text_muted, "Waiting to be computed");
+
     let (glyph, color, hint) = if row.feature.suppressed {
         (icons::SUPPRESS, tokens.text_muted, SUPPRESSED_HINT)
     } else if row.rolled_back {
@@ -1577,6 +1662,7 @@ fn status_icon(ui: &mut Ui, row: &Row<'_>, status: Option<&FeatureStatus>) {
             Some(FeatureState::UpToDate) => return,
         }
     };
+
     widgets::described_icon(ui, glyph, color, hint);
 }
 
@@ -1591,6 +1677,7 @@ fn more_menu(
         widgets::icon_button(ui, icons::MORE, MORE_HINT),
         &format!("More actions for {}", row.feature.name),
     );
+
     Popup::menu(&response).show(|ui| {
         widgets::fitted_menu(ui, |ui| context_menu(ui, model, state, actions, row));
     });
@@ -1609,6 +1696,7 @@ fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
     };
     let glyph = if row.edited { icons::DONE } else { icons::EDIT };
     let title = edit_title(row.feature, row.edited);
+
     let response = widgets::icon_button(ui, glyph, &title);
     if response.clicked() {
         actions.push(Action::Editing(command));
@@ -1771,6 +1859,7 @@ pub fn menu_entry<T, E: Display>(
         Ok(_) => response,
     };
     let clicked = response.clicked();
+
     if clicked {
         ui.close();
     }
@@ -1786,6 +1875,7 @@ fn context_menu(
 ) {
     let document = model.document();
     let feature = row.feature;
+
     if let Some(command) = edit_command(feature, row.edited) {
         let editable = if row.edited {
             Ok(command)
@@ -1793,6 +1883,7 @@ fn context_menu(
             editable(document, feature).map(|()| command)
         };
         let glyph = if row.edited { icons::DONE } else { icons::EDIT };
+
         if menu_entry(ui, glyph, &edit_title(feature, row.edited), &editable)
             && let Ok(command) = editable
         {
@@ -1812,6 +1903,7 @@ fn context_menu(
     {
         let taking = solid_tools::take_sketch_regions(model, open, feature.id());
         let title = format!("Take all regions of {} for {}", feature.name, open.name);
+
         if menu_entry(
             ui,
             icons::command(Command::SelectAllRegions),
@@ -1827,9 +1919,11 @@ fn context_menu(
         start_renaming(state, feature);
         ui.close();
     }
+
     let chosen = state.chosen();
     let targets = targets(document, &chosen, Some(feature));
     let ids: Vec<FeatureId> = targets.iter().map(|target| target.id()).collect();
+
     if visibility::toggle(feature).is_ok()
         && let Ok(toggle) = visibility::toggle_rows(document, &ids)
     {
@@ -1843,8 +1937,10 @@ fn context_menu(
             ui.close();
         }
     }
+
     let (glyph, label) = suppress_title(&targets);
     let suppression = suppress_change(document, &targets);
+
     if menu_entry(ui, glyph, label, &suppression)
         && let Ok(transaction) = suppression
     {
@@ -1858,7 +1954,9 @@ fn context_menu(
             actions.push(Action::Apply(transaction));
         }
     }
+
     let grouping = feature_groups::grouping(document, &ids);
+
     if menu_entry(
         ui,
         icons::command(Command::GroupFeatures),
@@ -1921,7 +2019,9 @@ fn context_menu(
         state.requested.push(Command::CopyFeatures);
         ui.close();
     }
+
     let update = reference_update(model, &targets);
+
     if menu_entry(
         ui,
         icons::command(Command::UpdateReferences),
@@ -1934,8 +2034,10 @@ fn context_menu(
     ui.separator();
     relations(ui, document, state, feature);
     ui.separator();
+
     let here = roll_to_here(document, feature);
     let here_label = format!("{} here", roll_verb(document, feature));
+
     if menu_entry(ui, icons::ROLL_TO_HERE, &here_label, &here)
         && let Ok(transaction) = here
     {
@@ -1950,6 +2052,7 @@ fn context_menu(
         }
     }
     ui.separator();
+
     let delete = delete_request(document, &targets);
     let label = match delete {
         Ok(Deletion::Ask(_)) => "Delete…",
@@ -1967,9 +2070,11 @@ fn relations(ui: &mut Ui, document: &Document, state: &mut PanelState, feature: 
     let features = |ids: &[FeatureId]| -> Vec<&Feature> {
         ids.iter().filter_map(|id| document.feature(*id)).collect()
     };
+
     let uses = features(&links.uses);
     let used_by = features(&links.used_by);
     let name = &feature.name;
+
     relation_menu(
         ui,
         state,
@@ -2022,6 +2127,7 @@ fn related_rows(ui: &mut Ui, state: &mut PanelState, related: &[&Feature]) {
             ui.close();
         }
     }
+
     let more = related.len().saturating_sub(MAX_LISTED_RELATIONS);
     if more > 0 {
         ui.label(widgets::muted(format!("and {more} more"), ui));
@@ -2038,6 +2144,7 @@ fn group_commands(
     actions: &mut Vec<Action>,
 ) {
     let grouped: Vec<FeatureId> = choice.targets.iter().map(|feature| feature.id()).collect();
+
     if let Some(transaction) =
         offer_change(offers, commands, Command::GroupFeatures, detail, || {
             Ok(feature_groups::grouping(document, &grouped)?)
@@ -2052,6 +2159,7 @@ fn group_commands(
             feature_groups::start_renaming(state, first);
         }
     }
+
     let member = choice
         .current
         .ok_or(TreeError::NoFeatureChosen)
@@ -2066,6 +2174,7 @@ fn group_commands(
         .as_ref()
         .ok()
         .and_then(|feature| feature.group.clone());
+
     if let Some(transaction) = offer_change(
         offers,
         commands,
@@ -2086,7 +2195,7 @@ fn group_commands(
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Direction {
     Up,
     Down,
@@ -2120,9 +2229,11 @@ impl Direction {
         let name = &feature.name;
         let row = TreeRow::Feature(feature.id());
         let mut rows = document.tree_rows();
+
         if document.rollback_bar() == RollbackBar::AtEnd {
             rows.pop();
         }
+
         let at = rows
             .iter()
             .position(|candidate| *candidate == row)
@@ -2141,6 +2252,7 @@ impl Direction {
 
 fn editable(document: &Document, feature: &Feature) -> Result<(), TreeError> {
     let name = &feature.name;
+
     if feature.suppressed {
         return Err(TreeError::Suppressed { name: name.clone() });
     }
@@ -2184,6 +2296,7 @@ fn suppress_change(document: &Document, targets: &[&Feature]) -> Result<Transact
     if targets.is_empty() {
         return Err(TreeError::NoFeatureChosen);
     }
+
     let suppress = targets.iter().any(|feature| !feature.suppressed);
     let verb = if suppress { "Suppress" } else { "Unsuppress" };
     let ids: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
@@ -2194,6 +2307,7 @@ fn reference_update(model: &Model, targets: &[&Feature]) -> Result<Transaction, 
     if targets.is_empty() {
         return Err(TreeError::NoFeatureChosen);
     }
+
     let document = model.document();
     let updates: Vec<Transaction> = targets
         .iter()
@@ -2237,6 +2351,7 @@ fn roll_to_here(document: &Document, feature: &Feature) -> Result<Transaction, T
         .feature_index(feature.id())
         .ok_or_else(|| TreeError::FeatureGone { name: name.clone() })?;
     let bar = document.bar_before_index(index + 1);
+
     if bar == document.rollback_bar() {
         return Err(TreeError::BarBelow { name: name.clone() });
     }
@@ -2264,6 +2379,7 @@ fn step_bar(document: &Document, up: bool) -> Result<Transaction, TreeError> {
         .iter()
         .position(|row| *row == TreeRow::Bar)
         .unwrap_or(rows.len());
+
     let gap = if up {
         at.checked_sub(1).ok_or(TreeError::BarAtTop)?
     } else {
@@ -2279,7 +2395,7 @@ fn step_bar(document: &Document, up: bool) -> Result<Transaction, TreeError> {
     Ok(document.move_row(TreeRow::Bar, gap, label)?)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Deletion {
     Now(Transaction),
     Ask(Vec<FeatureId>),
@@ -2310,15 +2426,18 @@ fn delete_request(document: &Document, targets: &[&Feature]) -> Result<Deletion,
     if targets.is_empty() {
         return Err(TreeError::NoFeatureChosen);
     }
+
     let ids: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
+
     if document.dependents_of(&ids).is_empty() {
         let label = format!("{DELETE_LABEL} {}", described(targets));
+
         return Ok(Deletion::Now(document.deletion(&ids, label)));
     }
     Ok(Deletion::Ask(ids))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DeleteChoice {
     WithDependents,
     KeepDependents,
@@ -2340,10 +2459,12 @@ pub fn delete_dialog(
         .collect();
     let ids: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
     let dependents = document.dependents_of(&ids);
+
     if targets.is_empty() {
         state.deleting = None;
         return;
     }
+
     let subject = match targets.as_slice() {
         [only] => format!("“{}”", only.name),
         _ => count(targets.len(), "feature", "features"),
@@ -2355,6 +2476,7 @@ pub fn delete_dialog(
         } else {
             "depend"
         };
+
         ui.label(format!(
             "{} {verb} on {subject}:",
             count(dependents.len(), "feature", "features")
@@ -2374,10 +2496,13 @@ pub fn delete_dialog(
         delete_footer(ui)
     });
     let closed = response.should_close().then_some(DeleteChoice::Cancel);
+
     let Some(choice) = response.inner.or(closed) else {
         return;
     };
+
     state.deleting = None;
+
     let everything: Vec<FeatureId> = ids.iter().chain(&dependents).copied().collect();
     let transaction = match choice {
         DeleteChoice::WithDependents => {
@@ -2395,6 +2520,7 @@ pub fn delete_dialog(
         }
         DeleteChoice::Cancel => return,
     };
+
     state.selected = None;
     actions.push(deleting(transaction));
 }
@@ -2406,6 +2532,7 @@ fn delete_footer(ui: &mut Ui) -> Option<DeleteChoice> {
             .memory(|memory| memory.focused())
             .and_then(|focused| ui.ctx().read_response(focused))
             .is_some_and(|focused| focused.layer_id == ui.layer_id());
+
         if !focused_here {
             cancel.request_focus();
         }
@@ -2434,12 +2561,14 @@ fn dependent_rows(ui: &mut Ui, document: &Document, ids: &[FeatureId], dependent
             continue;
         };
         let upstream: Vec<&FeatureId> = ids.iter().chain(dependents.iter().take(index)).collect();
+
         let uses: Vec<String> = document
             .dependencies_of(&feature.kind)
             .into_iter()
             .filter(|used| upstream.contains(&used))
             .map(|used| feature_name(document, used))
             .collect();
+
         ui.horizontal_wrapped(|ui| {
             widgets::icon_label(ui, icons::feature(&feature.kind), muted);
             ui.label(&feature.name);
@@ -2492,6 +2621,7 @@ fn edit_change(
     feature: &Feature,
 ) -> Result<EditingCommand, TreeError> {
     let name = &feature.name;
+
     if is_edited(editing, feature) {
         return Err(TreeError::AlreadyEdited { name: name.clone() });
     }
@@ -2517,9 +2647,11 @@ fn sketch_change(
     let name = &feature.name;
     let sketch =
         sketch_of(feature).ok_or_else(|| TreeError::NotFromASketch { name: name.clone() })?;
+
     let owner = document
         .feature(sketch)
         .ok_or_else(|| TreeError::SketchGone { name: name.clone() })?;
+
     if editing.feature() == Some(sketch) {
         return Err(TreeError::AlreadyEdited {
             name: owner.name.clone(),
@@ -2538,6 +2670,7 @@ fn not_of_kind(feature: &Feature, kind: &'static str) -> TreeError {
 
 fn detach_change(model: &Model, feature: &Feature) -> Result<Transaction, TreeError> {
     let name = &feature.name;
+
     if feature.kind.sketch().is_none() {
         return Err(not_of_kind(feature, "a sketch"));
     }
@@ -2683,7 +2816,7 @@ fn pattern_change(
         .map_err(TreeError::Pattern)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct OfferBasis {
     revision: u64,
     evaluation: u64,
@@ -2723,7 +2856,7 @@ impl OfferBasis {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TreeOffers {
     basis: Option<OfferBasis>,
     changes: BTreeMap<Command, Result<Transaction, TreeError>>,
@@ -2822,7 +2955,9 @@ struct Chosen<'a> {
 
 fn selected_feature<'a>(model: &'a Model, selection: &Selection) -> Option<&'a Feature> {
     let mut picked = selection.iter();
+
     let only = picked.next()?;
+
     if picked.next().is_some() {
         return None;
     }
@@ -2842,6 +2977,7 @@ fn feature_commands(
         editing,
     } = *context;
     let current = chosen.current;
+
     if let Some(command) = invoke_on(commands, Command::EditFeature, chosen.to_edit, |feature| {
         edit_change(model.document(), editing, feature)
     }) {
@@ -2852,20 +2988,26 @@ fn feature_commands(
     }) {
         actions.push(Action::Editing(command));
     }
+
     let open = editing.solid().ok_or(NOTHING_OPEN);
+
     if commands.invoke(Command::CloseFeature, &open) {
         actions.push(Action::Editing(EditingCommand::CloseSolid));
     }
+
     let cancelling = editing.cancelling(model);
     let open_name = editing
         .solid()
         .and_then(|id| model.document().feature(id))
         .map(|feature| feature.name.clone());
+
     if commands.invoke_detailed(Command::CancelFeature, open_name, &cancelling) {
         actions.push(Action::Editing(EditingCommand::CancelSolid));
     }
+
     let document = model.document();
     let detail = (!chosen.targets.is_empty()).then(|| described(chosen.targets));
+
     if let Some(transaction) =
         offer_change(offers, commands, Command::ToggleVisibility, detail, || {
             let toggled: Vec<FeatureId> = chosen.targets.iter().map(|target| target.id()).collect();
@@ -2943,6 +3085,7 @@ fn feature_commands(
     ) {
         actions.push(Action::Apply(transaction));
     }
+
     let target = chosen.open.or(current);
     let changes: [(Command, FeatureChange<'_>); 25] = [
         (Command::PlaceSketch, &|feature| {
@@ -3048,18 +3191,21 @@ pub fn commands(
         selection,
     } = *context;
     let document = model.document();
+
     let current = current_feature(document, editing, state);
     let open = editing
         .solid()
         .or(editing.feature())
         .and_then(|id| document.feature(id));
     let rows = state.chosen();
+
     let targets = targets(document, &rows, current);
     let to_edit = state
         .selected
         .and_then(|id| document.feature(id))
         .or_else(|| selected_feature(model, selection))
         .or(open);
+
     let choice = Chosen {
         current,
         open,
@@ -3068,17 +3214,22 @@ pub fn commands(
         targets: &targets,
     };
     let mut offers = std::mem::take(&mut state.tree_offers);
+
     offers.follow(OfferBasis::of(context, &choice));
     feature_commands(context, &choice, &mut offers, commands, actions);
+
     let filterable = document
         .features()
         .next()
         .map(|_| ())
         .ok_or(NOTHING_TO_FILTER);
+
     if commands.invoke(Command::FilterFeatures, &filterable) {
         state.request_focus(Focus::TreeFilter);
     }
+
     let chosen = current.ok_or(TreeError::NoFeatureChosen);
+
     if commands.invoke(Command::RenameFeature, &chosen)
         && let Some(feature) = current
     {
@@ -3097,7 +3248,9 @@ pub fn commands(
             actions.push(Action::Apply(transaction));
         }
     }
+
     let detail = (!targets.is_empty()).then(|| described(&targets));
+
     if let Some(transaction) = offer_change(
         &mut offers,
         commands,
@@ -3116,7 +3269,9 @@ pub fn commands(
         commands,
         actions,
     );
+
     let exportable = drawing_export::exportable_sketches(model, &targets);
+
     if commands.invoke_detailed(
         Command::ExportSketch,
         exportable
@@ -3127,13 +3282,16 @@ pub fn commands(
     ) && let Ok(sketches) = exportable
     {
         let faces = drawing_export::exportable_faces(model, selection).unwrap_or_default();
+
         actions.push(Action::File(FileCommand::ExportDrawing(
             DrawingSource::with_faces(sketches, faces),
         )));
     }
+
     let replaceable = current
         .filter(|feature| matches!(feature.kind, FeatureKind::Import(_)))
         .ok_or(NOT_AN_IMPORT);
+
     if commands.invoke_detailed(
         Command::ReplaceImport,
         replaceable.ok().map(|feature| feature.name.clone()),
@@ -3142,10 +3300,12 @@ pub fn commands(
     {
         actions.push(Action::File(FileCommand::ReplaceImport(feature.id())));
     }
+
     let reloadable = replaceable.and_then(|feature| match &feature.kind {
         FeatureKind::Import(import) if import.path.is_some() => Ok(feature),
         _ => Err(NO_KEPT_FILE),
     });
+
     if commands.invoke_detailed(
         Command::ReloadImport,
         reloadable.ok().map(|feature| feature.name.clone()),
@@ -3163,11 +3323,13 @@ pub fn commands(
     ) {
         actions.push(Action::Apply(transaction));
     }
+
     let rolls: [(Command, FeatureRoll); 3] = [
         (Command::RollToEnd, roll_to_end),
         (Command::RollbackUp, |document| step_bar(document, true)),
         (Command::RollbackDown, |document| step_bar(document, false)),
     ];
+
     for (command, roll) in rolls {
         if let Some(transaction) =
             offer_change(&mut offers, commands, command, None, || roll(document))
@@ -3193,9 +3355,11 @@ pub fn commands(
         commands,
         actions,
     );
+
     let delete = offers.deletion(Command::DeleteFeature, || {
         delete_request(document, &targets)
     });
+
     if commands.invoke_detailed(Command::DeleteFeature, detail, delete)
         && let Ok(deletion) = delete
     {
@@ -3239,12 +3403,15 @@ fn failure(
                 state.shown_place = Some(place);
             }
         }
+
         let Some(target) = error.fix else {
             return;
         };
+
         if let FixTarget::Unsuppress(id) = target {
             let label = format!("Unsuppress {}", feature_name(document, id));
             let button = widgets::small_button(ui, icons::UNSUPPRESS, &label);
+
             if ui.add(button).clicked() {
                 actions.push(Action::Apply(unsuppress(document, id)));
             }
@@ -3254,10 +3421,12 @@ fn failure(
             edit_itself(ui, document, actions, row);
             return;
         }
+
         let (glyph, label) = match target {
             FixTarget::Dimension { .. } => (icons::EDIT, "Edit the dimension".to_owned()),
             _ => (icons::GO_TO, fix_label(document, target)),
         };
+
         let button = widgets::small_button(ui, glyph, &label);
         if ui.add(button).clicked() {
             state.request_focus(target.into());
@@ -3278,6 +3447,7 @@ fn waiting(
         if row.edited || !row.active() {
             return;
         }
+
         let id = row.feature.id();
         let start = match missing {
             MissingInput::Axis => EditingCommand::Pick(Picking::new(id, Slot::PatternDirection)),
@@ -3327,6 +3497,7 @@ fn edit_itself(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, row:
     if row.edited {
         return;
     }
+
     let Some(command) = edit_command(row.feature, false) else {
         return;
     };
@@ -3393,6 +3564,7 @@ fn placement(
     if let Some(attachment) = &sketch.attachment {
         ui.horizontal_wrapped(|ui| {
             let muted = appearance::tokens(ui).text_muted;
+
             widgets::icon_label(ui, icons::ATTACHED, muted);
             ui.label(format!(
                 "Lies on {}",
@@ -3409,6 +3581,7 @@ fn placement(
             }
         });
     }
+
     let (label, hover) = match sketch_placement::placement_target(model.document(), selection) {
         Ok(Some(PlacementTarget::Plane(_))) => (
             PLACE_ON_PLANE_LABEL,
@@ -3454,6 +3627,7 @@ fn sketch_body(
     edited: bool,
 ) {
     let summary = SketchSummary::of(model.evaluation(), feature.id());
+
     ui.horizontal_wrapped(|ui| {
         match sketch_status::show(ui, &summary, edited) {
             Some(StatusRequest::ShowProblem(focus)) => state.request_focus(focus),
@@ -3466,6 +3640,7 @@ fn sketch_body(
             ui,
         ));
     });
+
     let (dimensions, constraints): (Vec<_>, Vec<_>) = sketch
         .constraints()
         .partition(|(_, definition)| definition.dimension().is_some());
@@ -3484,10 +3659,12 @@ fn sketch_body(
         solution: sketch_status::up_to_date_solution(model.evaluation(), feature.id()),
         busy: field::busy(ui, fields),
     };
+
     if dimensions.is_empty() && constraints.is_empty() {
         ui.label(widgets::muted("No constraints yet.", ui));
         return;
     }
+
     let sections = [
         (DIMENSIONS_TITLE, dimensions),
         (CONSTRAINTS_TITLE, constraints),
@@ -3496,7 +3673,9 @@ fn sketch_body(
         if listed.is_empty() {
             continue;
         }
+
         let id = format!("{title}-{:?}", feature.id());
+
         if state.focus_inside(feature.id()) {
             widgets::reveal_section(ui.ctx(), &id);
         }
@@ -3510,16 +3689,19 @@ fn sketch_body(
                     width: ui.available_width(),
                 };
                 let mut reserved = Reserved::default();
+
                 for (constraint, definition) in listed {
                     let row = card_row(&card, state, constraint, definition);
                     let dimension = definition.dimension().is_some();
                     let key = (feature.id(), constraint);
+
                     let known = match (row, dimension) {
                         (CardRow::Plain, false) => state.plain_constraint_height,
                         (CardRow::Plain, true) => state.plain_dimension_height,
                         (CardRow::Varied, _) => state.varied_row_heights.get(basis, key),
                         (CardRow::Live, _) => None,
                     };
+
                     if let Some(height) = known
                         && !reserved.near_view(ui, height)
                     {
@@ -3527,8 +3709,11 @@ fn sketch_body(
                         continue;
                     }
                     reserved.allocate(ui);
+
                     let top = ui.cursor().min.y;
+
                     constraint_row(ui, &card, state, actions, constraint, definition);
+
                     let height = ui.cursor().min.y - top - ui.spacing().item_spacing.y;
                     match (row, dimension) {
                         (CardRow::Live, _) => {}
@@ -3543,7 +3728,7 @@ fn sketch_body(
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct Reserved {
     height: f32,
     rows: usize,
@@ -3572,27 +3757,29 @@ impl Reserved {
         if self.rows == 0 {
             return;
         }
+
         let gaps = (self.rows - 1) as f32 * ui.spacing().item_spacing.y;
+
         ui.allocate_space(vec2(ui.available_width(), self.height + gaps));
         *self = Self::default();
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CardRow {
     Plain,
     Varied,
     Live,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct RowBasis {
     revision: u64,
     evaluation: u64,
     width: f32,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RowHeights {
     basis: Option<RowBasis>,
     heights: BTreeMap<(FeatureId, ConstraintId), f32>,
@@ -3662,6 +3849,7 @@ fn constraint_row(
     let redundancy = card
         .solution
         .and_then(|solution| solution.redundancy(constraint));
+
     let text = if card.involved.contains(&constraint) {
         RichText::new(&description).color(ui.visuals().error_fg_color)
     } else if redundancy.is_some() {
@@ -3678,6 +3866,7 @@ fn constraint_row(
         feature: feature.id(),
         constraint,
     };
+
     if row.hovered() {
         state.hovered_in_tree = Some(pickable);
     }
@@ -3685,7 +3874,9 @@ fn constraint_row(
         actions.push(Action::Editing(EditingCommand::Enter(feature.id())));
         state.chosen_in_tree = Some(pickable);
     }
+
     let mut deleted = deleted;
+
     row.context_menu(|ui| {
         if widgets::menu_item(ui, icons::DELETE, "Delete", None).clicked() {
             deleted = true;
@@ -3706,7 +3897,9 @@ fn constraint_row(
             ui.label(redundancy_text(sketch, redundancy));
         });
     }
+
     let label = row.id;
+
     reveal_if_focused(
         state,
         row,
@@ -3740,11 +3933,13 @@ fn dimension_field(
         constraint,
     };
     let mut error = None;
+
     if let Some(held) = document.owned_parameter(&target.owner(), expression) {
         completion::editing_parameter(ui, focus.field_id(), held.id());
     }
     ui.horizontal(|ui| {
         ui.add_space(SPACE_L);
+
         let field = field::value_field(
             ui,
             focus.field_id(),
@@ -3761,6 +3956,7 @@ fn dimension_field(
                 )
             },
         );
+
         field.response.clone().labelled_by(label);
         state.focus_reached(focus, field.response.has_focus());
         if let Some(transaction) = field.committed {
@@ -3852,20 +4048,25 @@ mod timing {
     fn sketch_card_costs_on_a_large_sketch() {
         let (document, sketch) = sketch_document(large_sketch());
         let model = settled(document);
+
         let feature = model.document().feature(sketch).unwrap();
         let definition = feature.kind.sketch().unwrap();
         let context = egui::Context::default();
+
         context.set_fonts(crate::fonts::definitions_with(&[]));
         context.set_global_style(crate::appearance::style(
             &crate::appearance::Skin::built_in(true, false),
         ));
+
         let mut state = PanelState::default();
+
         let mut frame = || {
             let input = RawInput {
                 screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 1000.0))),
                 ..RawInput::default()
             };
             let mut actions = Vec::new();
+
             let mut output = context.run_ui(input, |ui| {
                 ScrollArea::vertical().show(ui, |ui| {
                     sketch_body(
@@ -3879,12 +4080,16 @@ mod timing {
                     );
                 });
             });
+
             output.textures_delta.clear();
         };
+
         for _ in 0..WARM_UP {
             frame();
         }
+
         let started = Instant::now();
+
         for _ in 0..FRAMES {
             frame();
         }

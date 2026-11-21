@@ -64,7 +64,7 @@ const ANGLE: Expected = Expected {
     non_negative: false,
 };
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PatternTextError {
     #[error("The {label} is missing")]
     MissingValue { label: String },
@@ -79,7 +79,7 @@ pub enum PatternTextError {
     NotWholeCount { label: String },
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PatterningError {
     #[error(transparent)]
     SketchGone(#[from] trimming::SketchGone),
@@ -91,7 +91,7 @@ pub enum PatterningError {
     ValuesFirst { tool: Tool },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PatternKind {
     Rectangular,
     Circular,
@@ -122,7 +122,7 @@ impl PatternKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Direction(pub usize);
 
 impl Direction {
@@ -200,7 +200,7 @@ pub const DISTRIBUTIONS: [(Distribution, &str, &str); 2] = [
     ),
 ];
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TurnKind {
     #[default]
     FullTurn,
@@ -234,7 +234,7 @@ impl TurnKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Wording {
     distribution: Distribution,
     turn: TurnKind,
@@ -267,7 +267,7 @@ impl Wording {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum PatternField {
     Count(Direction),
     Spacing(Direction),
@@ -345,7 +345,7 @@ impl PatternField {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct DirectionSettings {
     count: String,
     spacing: String,
@@ -371,7 +371,7 @@ impl DirectionSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SpecProblem {
     #[error("Mend the {} first", .wording.noun(*.field))]
     MendFirst {
@@ -380,13 +380,13 @@ pub enum SpecProblem {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PatternEvaluation {
     pub problems: Vec<(PatternField, PatternTextError)>,
     pub spec: Result<Spec, SpecProblem>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PatternSettings {
     directions: Vec<DirectionSettings>,
     copies: String,
@@ -431,6 +431,7 @@ impl PatternSettings {
 
     pub fn add_direction(&mut self) -> Direction {
         let added = Direction(self.directions.len());
+
         self.directions.push(DirectionSettings::initial(added));
         added
     }
@@ -504,6 +505,7 @@ impl PatternSettings {
         lines: &[Option<EntityId>],
     ) -> PatternEvaluation {
         let mut problems = Vec::new();
+
         let spec = match kind {
             PatternKind::Rectangular => self.rectangular(model, lines, &mut problems),
             PatternKind::Circular => self.circular(model, &mut problems),
@@ -523,6 +525,7 @@ impl PatternSettings {
                 wording,
             }),
         };
+
         self.evaluated = spec.as_ref().ok().cloned();
         PatternEvaluation { problems, spec }
     }
@@ -557,6 +560,7 @@ impl PatternSettings {
         let wording = self.wording();
         let mut first_heading: Option<Heading> = None;
         let mut rows = Vec::with_capacity(self.directions.len());
+
         for (index, kept) in self.directions.iter().enumerate() {
             let direction = Direction(index);
             let count = noted(
@@ -599,6 +603,7 @@ impl PatternSettings {
                 )
                 .map(Heading::Angle),
             };
+
             if index == 0 {
                 first_heading.clone_from(&heading);
             }
@@ -615,6 +620,7 @@ impl PatternSettings {
                     }),
             );
         }
+
         let directions = rows.into_iter().collect::<Option<Vec<PatternRow>>>()?;
         Some(Spec::Rectangular(RectangularPattern {
             directions,
@@ -657,7 +663,7 @@ impl PatternSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Spec {
     Rectangular(RectangularPattern),
     Circular(CircularPattern),
@@ -679,7 +685,7 @@ impl Spec {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Patterning {
     kind: PatternKind,
     selected: Vec<EntityId>,
@@ -829,7 +835,9 @@ impl Patterning {
             PatternKind::Rectangular => None,
             PatternKind::Circular => lone_point(sketch, selected),
         };
+
         let exists = |point: &EntityId| is_centre(sketch, *point);
+
         self.chosen = self.chosen.filter(exists);
         for line in &mut self.directions {
             *line = line.filter(|line| mirroring::is_mirror(sketch, *line));
@@ -890,6 +898,7 @@ impl Patterning {
 
     pub fn preview(&self) -> Preview {
         let mut preview = Preview::default();
+
         if let Some(Ok(image)) = &self.image {
             preview.curves = image.curves.clone();
             preview.points = image.points.clone();
@@ -919,6 +928,7 @@ impl Patterning {
                 None => DIRECTION_PROMPT.to_owned(),
             });
         }
+
         let centre = self.centre();
         let items = self.repeated();
         match (self.spec.as_ref()?, &self.image) {
@@ -946,6 +956,7 @@ impl Patterning {
                 hint: Hint::Keys(DIRECTION_KEYS),
             };
         }
+
         let (text, keys) = match (self.kind, self.selected.is_empty()) {
             (PatternKind::Rectangular, true) => (RECTANGULAR_SELECT_FIRST, RECTANGULAR_GATHER_KEYS),
             (PatternKind::Rectangular, false) if self.gathered => {
@@ -1077,11 +1088,13 @@ impl Patterning {
             .or(self.chosen)
             .or(self.hover)
             .and_then(|aim| points.iter().position(|point| *point == aim));
+
         let next = match current {
             Some(index) => (index as isize + step).rem_euclid(total),
             None if step < 0 => total - 1,
             None => 0,
         };
+
         self.highlight = usize::try_from(next)
             .ok()
             .and_then(|next| points.get(next).copied());
@@ -1132,10 +1145,12 @@ fn lone_point(sketch: &Sketch, selected: &[EntityId]) -> Option<EntityId> {
         .filter_map(|item| sketch.entity(*item))
         .flat_map(Entity::points)
         .collect();
+
     let mut lone = selected
         .iter()
         .copied()
         .filter(|item| is_point(item) && !used.contains(item));
+
     let point = lone.next()?;
     let others = selected.len() > 1;
     (lone.next().is_none() && others).then_some(point)
@@ -1174,7 +1189,9 @@ fn noted<T>(
 fn whole_count(model: &Model, text: &str, label: &str) -> Result<usize, PatternTextError> {
     let counted = quantity(model, text, COUNT, label)?;
     let rounded = counted.value.round();
+
     let whole = (counted.value - rounded).abs() <= WHOLE_NUMBER_TOLERANCE;
+
     if !whole || rounded < 0.0 || rounded > f64::from(u32::MAX) {
         return Err(PatternTextError::NotWholeCount {
             label: label.to_owned(),
@@ -1212,6 +1229,7 @@ pub(crate) fn turned(angle: f64) -> Dimensioned {
 
 pub(crate) fn square_to(first: &Dimensioned) -> Dimensioned {
     let value = first.value + QUARTER_TURN_DEGREES;
+
     if first.expression.is_literal() {
         return turned(value);
     }
@@ -1232,11 +1250,13 @@ pub(crate) fn quantity(
     label: &str,
 ) -> Result<Dimensioned, PatternTextError> {
     let text = text.trim();
+
     if text.is_empty() {
         return Err(PatternTextError::MissingValue {
             label: label.to_owned(),
         });
     }
+
     let expression = field::parse_expression(
         model.document(),
         model.parameters(),
@@ -1249,6 +1269,7 @@ pub(crate) fn quantity(
         source,
     })?;
     let dimension = expected.dimension.unwrap_or(Dimension::NONE);
+
     let value = expression
         .evaluate_as(dimension, &|id| model.parameters().value(id))
         .map_err(|source| PatternTextError::Unevaluable {
@@ -1265,10 +1286,12 @@ mod tests {
     #[test]
     fn a_second_direction_defaults_to_square_to_the_first() {
         assert_eq!(square_to(&turned(30.0)).value, 120.0);
+
         let slanted = square_to(&Dimensioned {
             expression: Expression::Parameter(caditor_expression::ParameterId::from_raw(1)),
             value: 10.0,
         });
+
         assert_eq!(slanted.value, 100.0);
         assert!(!slanted.expression.is_literal());
     }

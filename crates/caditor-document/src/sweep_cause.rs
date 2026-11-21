@@ -9,7 +9,7 @@ use crate::{
 
 const TWIST_DECIMALS: usize = 3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Follower {
     Feature,
     Sweep,
@@ -17,13 +17,13 @@ pub(crate) enum Follower {
     Shaped,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Segments {
     pub labels: String,
     pub owner: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SweepCause {
     PathUnavailable {
         sketch: String,

@@ -97,6 +97,7 @@ impl DropTarget {
         };
         let (globals, queue) = registry_queue_init::<State>(&window.connection)?;
         let handle = queue.handle();
+
         let manager: WlDataDeviceManager = globals.bind(&handle, DATA_DEVICE_VERSIONS, ())?;
         let seats = globals.contents().with_list(|list| {
             list.iter()
@@ -111,10 +112,13 @@ impl DropTarget {
             tracker: Tracker::default(),
             steps: Vec::new(),
         };
+
         for name in seats {
             state.add_seat(globals.registry(), name, &handle);
         }
+
         let (finishing, finished) = mpsc::channel();
+
         let target = Self {
             queue,
             state,
@@ -124,6 +128,7 @@ impl DropTarget {
             local_host: rustix::system::uname().nodename().to_bytes().into(),
             window,
         };
+
         target.flush()?;
         Ok(Some(target))
     }
@@ -132,9 +137,12 @@ impl DropTarget {
         self.queue.dispatch_pending(&mut self.state)?;
         while let Ok(Finished { ticket, paths }) = self.finished.try_recv() {
             let steps = self.state.tracker.read(ticket, paths);
+
             self.state.steps.extend(steps);
         }
+
         let mut events = Vec::new();
+
         while !self.state.steps.is_empty() {
             for step in std::mem::take(&mut self.state.steps) {
                 self.perform(step, &mut events);
@@ -156,7 +164,9 @@ impl DropTarget {
             Step::Read { offer, ticket } => {
                 if let Err(error) = self.start_reading(&offer, ticket) {
                     log::warn!("the list of dragged files could not be asked for: {error}");
+
                     let steps = self.state.tracker.read(ticket, None);
+
                     self.state.steps.extend(steps);
                 }
             }
@@ -173,8 +183,10 @@ impl DropTarget {
 
     fn start_reading(&self, offer: &WlDataOffer, ticket: Ticket) -> io::Result<()> {
         let (reader, writer) = io::pipe()?;
+
         offer.receive(URI_LIST.to_owned(), writer.as_fd());
         drop(writer);
+
         let finishing = self.finishing.clone();
         let wake = Arc::clone(&self.wake);
         let local_host = Arc::clone(&self.local_host);
@@ -229,12 +241,14 @@ impl State {
     fn add_seat(&mut self, registry: &WlRegistry, name: u32, handle: &QueueHandle<Self>) {
         let seat: WlSeat = registry.bind(name, SEAT_VERSION, handle, ());
         let device = self.manager.get_data_device(&seat, handle, ());
+
         self.seats.push(Seat { name, device });
     }
 
     fn remove_seat(&mut self, name: u32) {
         self.seats.retain(|seat| {
             let kept = seat.name != name;
+
             if !kept {
                 seat.release();
             }
@@ -298,6 +312,7 @@ impl Dispatch<WlDataDevice, ()> for State {
             }
             _ => Vec::new(),
         };
+
         state.steps.extend(steps);
     }
 

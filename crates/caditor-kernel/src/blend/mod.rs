@@ -75,7 +75,7 @@ const APART_TOOLS: f64 = 10.0 * LINEAR_RESOLUTION;
 const SMALLEST_ANGLE: f64 = 1e-6;
 const BOUNDARY_SAMPLES: usize = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BlendShape {
     Fillet {
         radius: f64,
@@ -165,7 +165,7 @@ impl BlendShape {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum BlendError {
     #[error("the size is not a finite number above 0.000001 mm")]
     InvalidSize,
@@ -344,13 +344,13 @@ impl BlendError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Sweep {
     Along { length: f64 },
     Around { angle: f64, closed: bool },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct EdgeGeometry {
     edge: EdgeId,
     faces: [FaceId; 2],
@@ -359,7 +359,7 @@ struct EdgeGeometry {
     section: Section,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Blended {
     edge: EdgeId,
     faces: [FaceId; 2],
@@ -389,7 +389,7 @@ impl EdgeGeometry {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum End {
     Flush,
     Extended(f64),
@@ -418,7 +418,7 @@ impl End {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Named {
     name: FaceName,
     origin: Option<FaceOrigin>,
@@ -524,9 +524,11 @@ fn analyze(solid: &Solid, edge: EdgeId) -> Result<EdgeGeometry, BlendError> {
     let [(first_face, first_same), (second_face, second_same)] = sides.as_slice() else {
         return Err(unsupported());
     };
+
     if first_face == second_face {
         return Err(unsupported());
     }
+
     let interval = definition.interval();
     let start = definition.curve().point(interval.start());
     let tangent = definition
@@ -539,12 +541,14 @@ fn analyze(solid: &Solid, edge: EdgeId) -> Result<EdgeGeometry, BlendError> {
         face_normal(solid, *first_face, start).ok_or_else(unsupported)?,
         face_normal(solid, *second_face, start).ok_or_else(unsupported)?,
     ];
+
     if smooth_within(normals[0], normals[1]) {
         return Err(BlendError::Smooth(edge));
     }
     if knife_within(normals[0], normals[1]) {
         return Err(BlendError::BackToBack(edge));
     }
+
     let inward = [
         normals[0].cross(if *first_same { tangent } else { -tangent }),
         normals[1].cross(if *second_same { tangent } else { -tangent }),
@@ -565,6 +569,7 @@ fn analyze(solid: &Solid, edge: EdgeId) -> Result<EdgeGeometry, BlendError> {
             let radial = (start - circle.center())
                 .try_normalize()
                 .ok_or_else(unsupported)?;
+
             let frame = Plane::from_frame(circle.center(), radial.cross(axis), radial)
                 .ok_or_else(unsupported)?;
             (
@@ -578,6 +583,7 @@ fn analyze(solid: &Solid, edge: EdgeId) -> Result<EdgeGeometry, BlendError> {
         }
         _ => return Err(unsupported()),
     };
+
     let curve = |face: FaceId| -> Result<SectionCurve, BlendError> {
         let surface = solid.face(face).ok_or_else(unsupported)?.surface();
         match (definition.curve(), sweep) {
@@ -627,6 +633,7 @@ struct Topology {
 impl Topology {
     fn new(solid: &Solid) -> Self {
         let mut around: BTreeMap<VertexId, Vec<EdgeId>> = BTreeMap::new();
+
         for (id, edge) in solid.edges() {
             around.entry(edge.start()).or_default().push(id);
             if edge.end() != edge.start() {
@@ -643,9 +650,11 @@ impl Topology {
 
 fn leaving(solid: &Solid, edge: EdgeId, vertex: VertexId) -> Option<Vector3> {
     let definition = solid.edge(edge)?;
+
     if definition.is_closed() {
         return None;
     }
+
     let interval = definition.interval();
     let (parameter, sign) = if definition.start() == vertex {
         (interval.start(), -1.0)
@@ -675,6 +684,7 @@ fn continues(solid: &Solid, edge: EdgeId, other: EdgeId, vertex: VertexId) -> bo
     if edge == other {
         return false;
     }
+
     let (Some(out), Some(other_out)) =
         (leaving(solid, edge, vertex), leaving(solid, other, vertex))
     else {
@@ -706,11 +716,13 @@ fn propagate(
     let mut chosen = BTreeSet::new();
     let mut queue = Vec::new();
     let mut smooth = None;
+
     for edge in edges {
         let Some(definition) = solid.edge(*edge) else {
             return Err(BlendError::MissingEdge(*edge));
         };
         let start = definition.curve().point(definition.interval().start());
+
         if !is_sharp(solid, *edge, start) {
             smooth = smooth.or(Some(*edge));
             continue;
@@ -767,7 +779,7 @@ struct Surroundings<'a> {
     corners: &'a BTreeMap<VertexId, Corner>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SquareEnd {
     Flush,
     Past,
@@ -787,12 +799,14 @@ fn end_at(
         corners,
     } = *around;
     let edge = geometry.edge;
+
     if let Some(setback) = corners
         .get(&vertex)
         .and_then(|corner| corner.setbacks.get(&edge))
     {
         return Ok((End::Setback(*setback), None));
     }
+
     let refused = BlendError::UnsupportedEnd {
         edge,
         vertex: Some(vertex),
@@ -802,9 +816,11 @@ fn end_at(
         .edges_at(vertex)
         .iter()
         .any(|other| chosen.contains(other) && continues(solid, edge, *other, vertex));
+
     if continued {
         return Ok((End::Flush, None));
     }
+
     let own: BTreeSet<FaceId> = geometry.faces.into_iter().collect();
     let others: Vec<FaceId> = topology
         .edges_at(vertex)
@@ -821,10 +837,12 @@ fn end_at(
             .map(|end| (end, None))
             .ok_or(refused);
     };
+
     let normal = face_normal(solid, end_face, point).ok_or(refused.clone())?;
     let cosine = normal.dot(out);
     let planar = is_planar(solid, end_face);
     let free = geometry.convex == (cosine > 0.0);
+
     if !free && let Some(mitre) = mitre(around, geometry, vertex, point, end_face, reach) {
         return Ok((mitre, Some(end_face)));
     }
@@ -834,12 +852,15 @@ fn end_at(
     if cosine.abs() < SHALLOWEST_END {
         return Err(refused);
     }
+
     let extension = extension_past(cosine, reach);
+
     if free {
         return Ok((End::Extended(extension), Some(end_face)));
     }
     if !planar {
         let round = Round::of(solid, end_face).ok_or(refused)?;
+
         return Ok((
             End::Trimmed {
                 extension: extension + reach,
@@ -850,6 +871,7 @@ fn end_at(
             Some(end_face),
         ));
     }
+
     let plane = Plane::new(point, normal * cosine.signum()).ok_or(refused)?;
     Ok((End::Clipped { extension, plane }, Some(end_face)))
 }
@@ -871,13 +893,17 @@ fn out_through_corner(
     let same_kind_all_round = around.topology.edges_at(vertex).iter().all(|edge| {
         analyze(solid, *edge).is_ok_and(|other| other.section.convex == geometry.convex)
     });
+
     if end_faces.len() < 2 || !same_kind_all_round {
         return None;
     }
+
     let mut extension: f64 = 0.0;
+
     for face in end_faces {
         let cosine = face_normal(solid, *face, point)?.dot(out);
         let free = geometry.convex == (cosine > 0.0);
+
         if !is_planar(solid, *face) || !free || cosine.abs() < SHALLOWEST_END {
             return None;
         }
@@ -886,7 +912,7 @@ fn out_through_corner(
     Some(End::Extended(extension))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Meeting {
     Smooth,
     Convex,
@@ -908,6 +934,7 @@ fn meeting_at(solid: &Solid, edge: EdgeId, point: Point3) -> Option<Meeting> {
     let parameter = definition
         .curve()
         .closest_parameter(point, definition.interval());
+
     let tangent = definition
         .curve()
         .evaluate(parameter)
@@ -917,9 +944,11 @@ fn meeting_at(solid: &Solid, edge: EdgeId, point: Point3) -> Option<Meeting> {
         face_normal(solid, *first, point)?,
         face_normal(solid, *second, point)?,
     ];
+
     if smooth_within(normals[0], normals[1]) {
         return Some(Meeting::Smooth);
     }
+
     let inward = normals[0].cross(if *first_same { tangent } else { -tangent });
     Some(Meeting::sharp(normals[1].dot(inward) < 0.0))
 }
@@ -950,34 +979,44 @@ fn out_through_blends(
 ) -> Option<End> {
     let solid = around.solid;
     let kind = Meeting::sharp(geometry.convex);
+
     let alike_all_round = around.topology.edges_at(vertex).iter().all(|edge| {
         meeting_at(solid, *edge, point)
             .is_some_and(|meeting| meeting == kind || meeting == Meeting::Smooth)
     });
+
     if end_faces.len() < 2 || !alike_all_round {
         return None;
     }
+
     let own = [
         face_normal(solid, geometry.faces[0], point)?,
         face_normal(solid, geometry.faces[1], point)?,
     ];
     let mut extension: f64 = 0.0;
     let mut rising = false;
+
     for face in end_faces {
         let normal = face_normal(solid, *face, point)?;
+
         if own.iter().any(|own| smooth_within(*own, normal)) {
             rising = true;
+
             let farthest = farthest_along(solid, *face, point, out)?;
+
             extension = extension.max(farthest + END_MARGIN * reach);
             continue;
         }
+
         let cosine = normal.dot(out);
         let free = geometry.convex == (cosine > 0.0);
+
         if !is_planar(solid, *face) || !free || cosine.abs() < SHALLOWEST_END {
             return None;
         }
         extension = extension.max(extension_past(cosine, reach));
     }
+
     let beyond = point + out * extension;
     let wanted = if geometry.convex {
         PointClass::Outside
@@ -1011,9 +1050,11 @@ fn mitre(
 ) -> Option<End> {
     let solid = around.solid;
     let edge = geometry.edge;
+
     if !is_straight(solid, edge) {
         return None;
     }
+
     let own: BTreeSet<FaceId> = geometry.faces.into_iter().collect();
     let partner = around.topology.edges_at(vertex).iter().find(|other| {
         let faces = face_set(solid, **other);
@@ -1024,16 +1065,21 @@ fn mitre(
             && matches!(common.as_slice(), [common] if is_planar(solid, **common))
     })?;
     let alike = analyze(solid, *partner).is_ok_and(|other| other.section.convex == geometry.convex);
+
     if !alike || !is_straight(solid, *partner) {
         return None;
     }
+
     let out = leaving(solid, edge, vertex)?;
     let other_out = leaving(solid, *partner, vertex)?;
+
     let cosine = out.dot(other_out);
     let half_tangent = ((1.0 - cosine) / (1.0 + cosine)).max(0.0).sqrt();
+
     if !half_tangent.is_finite() || half_tangent < SHALLOWEST_END {
         return None;
     }
+
     let plane = Plane::new(point, (out - other_out).try_normalize()?)?;
     Some(End::Clipped {
         extension: reach * (MITRE_REACH / half_tangent + END_MARGIN),
@@ -1050,6 +1096,7 @@ fn ends(
         .solid
         .edge(geometry.edge)
         .ok_or(BlendError::MissingEdge(geometry.edge))?;
+
     if definition.is_closed() {
         return Ok(Ends {
             at: [End::Flush, End::Flush],
@@ -1057,6 +1104,7 @@ fn ends(
             beside: [Vec::new(), Vec::new()],
         });
     }
+
     let blended = geometry.blended();
     let (start, start_face) = end_at(
         around,
@@ -1066,11 +1114,13 @@ fn ends(
         SquareEnd::Flush,
     )?;
     let (end, end_face) = end_at(around, &blended, definition.end(), reach, SquareEnd::Flush)?;
+
     if let Sweep::Along { length } = geometry.sweep
         && length + start.extension() + end.extension() <= LINEAR_RESOLUTION
     {
         return Err(BlendError::TooLarge(geometry.edge));
     }
+
     let [beside_start, beside_end] = beside_ends(around.solid, around.topology, &blended);
     Ok(Ends {
         at: [start, end],
@@ -1136,12 +1186,14 @@ fn beside_vertex(
     };
     let at_end = faces_at(solid, topology, vertex);
     let end_faces: Vec<FaceId> = at_end.difference(own).copied().collect();
+
     if end_faces
         .iter()
         .any(|face| !is_planar(solid, *face) && Round::of(solid, *face).is_none())
     {
         return Vec::new();
     }
+
     let beside_own: BTreeSet<FaceId> = own
         .iter()
         .flat_map(|face| neighbours(solid, *face))
@@ -1195,8 +1247,10 @@ fn foot_path(geometry: &EdgeGeometry, foot: Point2) -> Option<(Curve, Interval)>
         Sweep::Around { angle, .. } => {
             let axis = geometry.frame.y_axis();
             let origin = geometry.frame.origin();
+
             let center = origin + axis * (start - origin).dot(axis);
             let radial = start - center;
+
             let frame = Plane::with_x_axis(center, axis, radial)?;
             Some((
                 Circle::new(frame, radial.length()).ok()?.into(),
@@ -1216,6 +1270,7 @@ fn crosses_boundary(
 ) -> bool {
     let (path, range) = foot;
     let step = range.length() * TOUCH_STEP;
+
     let leaves_at = |parameter: f64| {
         [parameter - step, parameter + step]
             .into_iter()
@@ -1233,6 +1288,7 @@ fn crosses_boundary(
             .all(|end| end.distance(point) > CROSSING_CLEARANCE)
     };
     let mut uses: BTreeMap<EdgeId, usize> = BTreeMap::new();
+
     for used in solid
         .face(face)
         .into_iter()
@@ -1243,6 +1299,7 @@ fn crosses_boundary(
     {
         *uses.entry(used).or_default() += 1;
     }
+
     let reach = path.bounding_box(*range);
     uses.iter().any(|(other, used)| {
         let Some(other_definition) = solid.edge(*other) else {
@@ -1253,15 +1310,19 @@ fn crosses_boundary(
         let trimmed = face_set(solid, *other)
             .iter()
             .any(|across| trimmed_by.contains(across));
+
         if *other == edge || incident || *used > 1 || trimmed {
             return false;
         }
+
         let other_reach = other_definition
             .curve()
             .bounding_box(other_definition.interval());
+
         if !boxes_overlap(&reach, &other_reach, CROSSING_CLEARANCE) {
             return false;
         }
+
         let Ok(found) = intersect_curves(
             path,
             *range,
@@ -1351,9 +1412,11 @@ fn fits(
                 let Some(point) = geometry.place(foot, *fraction) else {
                     return false;
                 };
+
                 if past_ends.iter().any(|end| end.passed_by(point)) {
                     return true;
                 }
+
                 let uv = surface.project(point, None);
                 let contained = classifier.point_in_face(*face, uv);
                 let accepted = matches!(
@@ -1399,6 +1462,7 @@ fn innermost(curves: &[ProfileCurve]) -> f64 {
             ProfileShape::Line { start, end } => start.x.min(end.x),
             ProfileShape::Arc { center, start, end } => {
                 let (from, to) = (*start - *center, *end - *center);
+
                 let sweep = from.angle_to(to).rem_euclid(TAU);
                 let to_axis = from.angle_to(Vector2::NEG_X).rem_euclid(TAU);
                 let ends = start.x.min(end.x);
@@ -1463,6 +1527,7 @@ fn tool(
     };
     let regions = Profile::new(&curves)?.select(&Selection::EvenDepth)?;
     let [start, end] = ends.at;
+
     let swept = match geometry.sweep {
         Sweep::Along { length } => extrude(
             &geometry.frame,
@@ -1477,9 +1542,11 @@ fn tool(
             } else {
                 let innermost = innermost(&curves);
                 let unextended = start.extension() == 0.0 && end.extension() == 0.0;
+
                 if innermost < -SMALLEST_RADIUS || (innermost <= SMALLEST_RADIUS && !unextended) {
                     return Err(BlendError::TooLarge(geometry.edge));
                 }
+
                 let (from, to) = if unextended {
                     (0.0, angle)
                 } else {
@@ -1488,6 +1555,7 @@ fn tool(
                         angle + end.extension() / innermost,
                     )
                 };
+
                 if to - from >= TAU {
                     return Err(BlendError::WrapsAround(geometry.edge));
                 }
@@ -1538,10 +1606,12 @@ fn cut_ends(
         vertex: None,
     };
     let mut beyond_rounds = [Vec::new(), Vec::new()];
+
     for ((end, cap), cutters) in ends.at.iter().zip(caps).zip(&mut beyond_rounds) {
         match end {
             End::Clipped { extension, plane } => {
                 let cutter = half_space(plane, CUTTER_SCALE * (reach + extension), feature, cap)?;
+
                 shaped = boolean(&shaped, &cutter, BooleanOperation::Difference)?;
             }
             End::Trimmed {
@@ -1556,6 +1626,7 @@ fn cut_ends(
                     span: CUTTER_SCALE * (reach + extension),
                     behind: reach,
                 };
+
                 cutters.push(round.region_beyond(cut, feature, cap, &refused)?);
             }
             End::Flush | End::Extended(_) | End::Setback(_) => {}
@@ -1575,6 +1646,7 @@ fn cut_ends(
                     span: CUTTER_SCALE * reach,
                     behind: reach,
                 };
+
                 cutters.push(round.region_beyond(cut, feature, cap, &refused)?);
             }
         }
@@ -1589,6 +1661,7 @@ fn cut_ends(
 
 fn united_cutters(cutters: Vec<Solid>) -> Result<Vec<Solid>, BlendError> {
     let mut united: Vec<Solid> = Vec::with_capacity(cutters.len());
+
     for cutter in cutters {
         let joined = match united.last() {
             Some(last) => match boolean(last, &cutter, BooleanOperation::Union) {
@@ -1621,7 +1694,9 @@ pub fn tangent_chain(solid: &Solid, edges: &[EdgeId]) -> Vec<EdgeId> {
         .copied()
         .filter(|edge| solid.edge(*edge).is_some())
         .collect();
+
     let queue = chosen.iter().copied().collect();
+
     follow(
         solid,
         &Topology::new(solid),
@@ -1638,7 +1713,9 @@ pub fn tangent_faces(solid: &Solid, faces: &[FaceId]) -> Vec<FaceId> {
         .copied()
         .filter(|face| solid.face(*face).is_some())
         .collect();
+
     let mut queue: Vec<FaceId> = chosen.iter().copied().collect();
+
     while let Some(face) = queue.pop() {
         for edge in bounding_edges(solid, face) {
             if !meets_smoothly(solid, edge) {
@@ -1654,7 +1731,7 @@ pub fn tangent_faces(solid: &Solid, faces: &[FaceId]) -> Vec<FaceId> {
     chosen.into_iter().collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EdgeConvexity {
     Convex,
     Concave,
@@ -1672,11 +1749,14 @@ fn middle_normals(solid: &Solid, edge: EdgeId) -> Option<MiddleNormals> {
     let [(first, forward), (second, _)] = faces.as_slice() else {
         return None;
     };
+
     if first == second {
         return None;
     }
+
     let definition = solid.edge(edge)?;
     let middle = definition.interval().at(0.5);
+
     let at = definition.curve().point(middle);
     let along = definition.curve().evaluate(middle).first;
     Some(MiddleNormals {
@@ -1698,12 +1778,14 @@ pub fn meets_back_to_back(solid: &Solid, edge: EdgeId) -> bool {
 pub fn edge_convexity(solid: &Solid, edge: EdgeId) -> Option<EdgeConvexity> {
     let normals = middle_normals(solid, edge)?;
     let (a, b) = (normals.first, normals.second);
+
     if a.dot(b) > 0.0 && a.angle_between(b) <= TANGENT_FACE_ANGLE {
         return Some(EdgeConvexity::Smooth);
     }
     if back_to_back(&normals) {
         return None;
     }
+
     let turn = a.cross(b).dot(normals.along);
     if turn > 0.0 {
         Some(EdgeConvexity::Convex)
@@ -1731,9 +1813,11 @@ pub(crate) fn meets_smoothly(solid: &Solid, edge: EdgeId) -> bool {
     let ([(first, _), (second, _)], Some(definition)) = (faces.as_slice(), solid.edge(edge)) else {
         return false;
     };
+
     if first == second {
         return false;
     }
+
     let interval = definition.interval();
     TANGENT_FACE_SAMPLES.iter().all(|fraction| {
         let at = definition.curve().point(interval.at(*fraction));
@@ -1759,7 +1843,7 @@ pub fn blend(
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Swept {
     Exactly,
     Lofted,
@@ -1785,6 +1869,7 @@ fn planned_and_applied(
     match apply_plan(solid, topology, &plan, shape, feature) {
         Err(error) if error.retried_lofted() && !plan.exact.is_empty() => {
             interrupt::check()?;
+
             let lofted = Plan::of(solid, topology, chosen, Swept::Lofted)?;
             apply_plan(solid, topology, &lofted, shape, feature).map_err(|_| error)
         }
@@ -1807,6 +1892,7 @@ impl Plan {
     ) -> Result<Self, BlendError> {
         let mut exact = BTreeMap::new();
         let mut unsupported = BTreeSet::new();
+
         for edge in chosen {
             match analyze(solid, *edge) {
                 Ok(_) if swept == Swept::Lofted => {
@@ -1821,21 +1907,26 @@ impl Plan {
                 Err(error) => return Err(error),
             }
         }
+
         let chosen_set: BTreeSet<EdgeId> = chosen.iter().copied().collect();
         let mut general = Vec::new();
         let mut convex: BTreeMap<EdgeId, bool> = exact
             .iter()
             .map(|(edge, geometry)| (*edge, geometry.section.convex))
             .collect();
+
         if !unsupported.is_empty() {
             for chain in chain::chains(solid, topology, &chosen_set) {
                 let edges = chain.edges();
+
                 if edges.is_disjoint(&unsupported) {
                     continue;
                 }
+
                 let first = edges.iter().next().copied().ok_or(BlendError::NoEdges)?;
                 let is_convex = general::chain_convexity(solid, &chain)
                     .ok_or(BlendError::Unsupported(first))?;
+
                 for edge in &edges {
                     exact.remove(edge);
                     convex.insert(*edge, is_convex);
@@ -1872,13 +1963,17 @@ fn blend_edges(
     if edges.is_empty() {
         return Err(BlendError::NoEdges);
     }
+
     let topology = Topology::new(solid);
     let chosen = propagate(solid, &topology, edges)?;
+
     let plan = Plan::of(solid, &topology, &chosen, Swept::Exactly)?;
     let (convex, concave) = plan.sided();
+
     if concave.is_empty() || convex.is_empty() {
         return planned_and_applied(solid, &topology, &chosen, shape, feature);
     }
+
     let naming = EdgeNaming::new(solid);
     let sides = Sides {
         convex: &convex,
@@ -1934,6 +2029,7 @@ fn concave_first(
     let references = references_in(naming, sides.convex)?;
     let filling = propagate(solid, topology, sides.concave)?;
     let filled = planned_and_applied(solid, topology, &filling, shape, feature)?;
+
     let original = find_again(&filled, &references)?;
     let remaining: Vec<EdgeId> = original.keys().copied().collect();
     apply(&filled, &remaining, shape, feature)
@@ -1951,9 +2047,12 @@ fn convex_first(
     let references = references_in(naming, sides.concave)?;
     let cutting = propagate(solid, topology, sides.convex)?;
     let cut = planned_and_applied(solid, topology, &cutting, shape, feature)?;
+
     let original = find_again(&cut, &references)?;
     let mut remaining: BTreeSet<EdgeId> = original.keys().copied().collect();
+
     remaining.extend(carried_round(&cut, &remaining, shape.origin(feature)));
+
     let remaining: Vec<EdgeId> = remaining.into_iter().collect();
     apply(&cut, &remaining, shape, feature)
         .map_err(|error| error.remapped(|edge| original.get(&edge).copied()))
@@ -1992,6 +2091,7 @@ fn find_again(
 ) -> Result<BTreeMap<EdgeId, EdgeId>, BlendError> {
     let naming = EdgeNaming::new(filled);
     let mut original = BTreeMap::new();
+
     for (edge, reference) in references {
         let found = match reference.resolve_by_names_in(&naming) {
             Ok(found) => vec![found],
@@ -2028,6 +2128,7 @@ fn apply_plan(
     let chosen_set: BTreeSet<EdgeId> = plan.convex.keys().copied().collect();
     let classifier = solid.classifier();
     let mut shared = shared_faces(geometries);
+
     for chain in &plan.general {
         for run in &chain.runs {
             for (face, _) in edge_faces(solid, run.edge) {
@@ -2035,12 +2136,16 @@ fn apply_plan(
             }
         }
     }
+
     let mut planned = Vec::with_capacity(chosen.len());
+
     for geometry in geometries {
         interrupt::check()?;
+
         let geometry = *geometry;
         let edge = geometry.edge;
         let measured_on = measured_side(solid, geometry.faces, &shared, shape.flipped());
+
         let blend = shape.cut(&geometry, measured_on)?;
         let past_ends = end_planes(solid, topology, &geometry.blended());
         let trimmed_by: BTreeSet<FaceId> = if geometry.section.convex {
@@ -2052,6 +2157,7 @@ fn apply_plan(
                 .map(|(_, face)| face)
                 .collect()
         };
+
         if !fits(
             &classifier,
             solid,
@@ -2062,16 +2168,21 @@ fn apply_plan(
         ) {
             return Err(BlendError::TooLarge(edge));
         }
+
         let reach = geometry.section.reach(&blend);
+
         planned.push((geometry, blend, reach));
     }
+
     let feet: Vec<(EdgeGeometry, Blend)> = planned
         .iter()
         .map(|(geometry, blend, _)| (*geometry, *blend))
         .collect();
+
     if let Some(edge) = feet::crossing(solid, &feet) {
         return Err(BlendError::TooLarge(edge));
     }
+
     let vertices: BTreeSet<VertexId> = chosen
         .iter()
         .filter_map(|edge| solid.edge(*edge))
@@ -2113,15 +2224,19 @@ fn apply_plan(
         chosen: &chosen_set,
         corners: &corners,
     };
+
     let mut tools = Vec::with_capacity(planned.len() + corners.len() + chamfer_corners.len());
     let mut blend_names = BTreeMap::new();
+
     for (geometry, blend, reach) in &planned {
         interrupt::check()?;
+
         let ends = ends(&around, geometry, *reach)?;
         let edge_name = solid
             .edge(geometry.edge)
             .ok_or(BlendError::MissingEdge(geometry.edge))?
             .name();
+
         blend_names.insert(geometry.edge, FaceName::blend(feature, edge_name));
         tools.push(
             tool(solid, geometry, blend, &ends, shape, feature)
@@ -2144,6 +2259,7 @@ fn apply_plan(
             edge: None,
         });
     }
+
     let measured_on = |faces: [FaceId; 2]| measured_side(solid, faces, &shared, shape.flipped());
     let context = general::Context {
         around: &around,
@@ -2153,20 +2269,26 @@ fn apply_plan(
         measured_on: &measured_on,
     };
     let mut rounded = Vec::new();
+
     for chain in &plan.general {
         interrupt::check()?;
+
         let planned = general::plan(&context, chain)?;
+
         tools.push(planned.tool);
         rounded.extend(planned.rounded);
     }
+
     let (convex, concave): (Vec<Tool>, Vec<Tool>) = tools.into_iter().partition(|tool| tool.convex);
     let mut result = solid.clone();
+
     for (group, operation) in [
         (convex, BooleanOperation::Difference),
         (concave, BooleanOperation::Union),
     ] {
         let edges: Vec<Option<EdgeId>> = group.iter().map(|tool| tool.edge).collect();
         let solids: Vec<Solid> = group.into_iter().map(|tool| tool.solid).collect();
+
         result = applied(&result, &solids, &edges, operation)?;
     }
     Ok(rounding::round(solid, &result, &rounded)?)
@@ -2174,6 +2296,7 @@ fn apply_plan(
 
 fn shared_faces(geometries: &[EdgeGeometry]) -> BTreeMap<FaceId, usize> {
     let mut shared = BTreeMap::new();
+
     for face in geometries.iter().flat_map(|geometry| geometry.faces) {
         *shared.entry(face).or_insert(0) += 1;
     }
@@ -2188,6 +2311,7 @@ pub fn measured_face(
 ) -> Option<FaceId> {
     let chosen = propagate(solid, &Topology::new(solid), edges).ok()?;
     let mut shared = BTreeMap::new();
+
     for face in chosen
         .iter()
         .flat_map(|chosen| edge_faces(solid, *chosen))
@@ -2195,6 +2319,7 @@ pub fn measured_face(
     {
         *shared.entry(face).or_insert(0) += 1;
     }
+
     let faces = edge_faces(solid, edge);
     let [(first, _), (second, _)] = faces.as_slice() else {
         return None;
@@ -2215,6 +2340,7 @@ fn measured_side(
         let name = solid.face(face).map(|face| face.name()).unwrap_or_default();
         (Reverse(shared.get(&face).copied().unwrap_or(0)), name)
     });
+
     let side = if second < first {
         Side::Second
     } else {
@@ -2282,12 +2408,14 @@ fn grouped(tools: &[Solid]) -> Result<Vec<ToolGroup>, BooleanError> {
         let mut progressed = false;
         let mut next = Vec::with_capacity(groups.len());
         let mut pending = groups.into_iter();
+
         while let Some(first) = pending.next() {
             let Some(second) = pending.next() else {
                 next.push(first);
                 break;
             };
             let pair = (first.members.clone(), second.members.clone());
+
             if refused.contains(&pair) {
                 next.extend([first, second]);
                 continue;
@@ -2316,6 +2444,7 @@ fn applied(
     operation: BooleanOperation,
 ) -> Result<Solid, BlendError> {
     let mut result = solid.clone();
+
     for group in grouped(tools)? {
         if group.members.len() > 1 {
             match boolean(&result, &group.solid, operation) {
@@ -2331,6 +2460,7 @@ fn applied(
                 continue;
             };
             let edge = edges.get(*member).copied().flatten();
+
             result = boolean(&result, tool, operation)
                 .map_err(|error| BlendError::from(error).at(edge))?;
         }

@@ -62,6 +62,7 @@ fn wrapped(ui: &mut Ui, text: impl Into<String>) {
 fn settings(ui: &mut Ui, tool: &mut IsocurveTool) {
     widgets::properties(ui, "isocurve-properties", |ui| {
         widgets::caption(ui, DIRECTIONS);
+
         let choices: Vec<(&str, &str)> = Directions::ALL
             .iter()
             .map(|directions| (directions.title(), direction_meaning(*directions)))
@@ -70,6 +71,7 @@ fn settings(ui: &mut Ui, tool: &mut IsocurveTool) {
             .iter()
             .position(|directions| *directions == tool.directions)
             .unwrap_or(0);
+
         if let Some(index) = widgets::segmented(ui, &choices, chosen)
             && let Some(directions) = Directions::ALL.get(index)
         {
@@ -78,26 +80,32 @@ fn settings(ui: &mut Ui, tool: &mut IsocurveTool) {
         ui.end_row();
 
         widgets::caption(ui, LINES);
+
         let lines = widgets::slider(
             ui,
             Slider::new(&mut tool.lines, isocurves::MIN_LINES..=isocurves::MAX_LINES),
         );
+
         widgets::tie_to_caption(ui, &lines);
         ui.end_row();
 
         widgets::caption(ui, TEETH);
+
         let teeth = widgets::slider(
             ui,
             Slider::new(&mut tool.teeth, comb::MIN_TEETH..=comb::MAX_TEETH),
         );
+
         widgets::tie_to_caption(ui, &teeth);
         ui.end_row();
 
         widgets::caption(ui, SCALE);
+
         let scale = widgets::slider(
             ui,
             Slider::new(&mut tool.scale, comb::MIN_SCALE..=comb::MAX_SCALE).logarithmic(true),
         );
+
         widgets::tie_to_caption(ui, &scale);
         ui.end_row();
     });
@@ -126,6 +134,7 @@ fn faces(ui: &mut Ui, units: Units, isocurves: &Isocurves) {
             } else {
                 format!("{}: {}", face.name, bends.join(", "))
             };
+
             wrapped(ui, text);
         }
         if isocurves.faces.len() > MAX_LISTED {
@@ -146,6 +155,7 @@ fn findings(
 ) {
     let working = tool.is_working().then_some(()).ok_or(NOT_WORKING);
     let mut stop = commands.invoke(Command::CancelIsocurves, &working);
+
     if tool.is_working() {
         stop |= widgets::progress(WORKING)
             .wrapping()
@@ -160,9 +170,11 @@ fn findings(
         widgets::callout(ui, Tone::Info, |ui| ui.label(STOPPED));
         ui.add_space(SPACE_S);
     }
+
     let Some(shown) = shown else {
         return;
     };
+
     if shown.failed {
         widgets::callout(ui, Tone::Warning, |ui| ui.label(FAILED));
         ui.add_space(SPACE_S);

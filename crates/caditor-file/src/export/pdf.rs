@@ -53,6 +53,7 @@ fn elliptic(
     let pieces = ((end - start).abs() / FRAC_PI_2).ceil().clamp(1.0, 64.0) as usize;
     let step = (end - start) / pieces as f64;
     let handle = 4.0 / 3.0 * (step / 4.0).tan();
+
     point(text, "m", at(start))?;
     for piece in 0..pieces {
         let from = start + step * piece as f64;
@@ -60,6 +61,7 @@ fn elliptic(
         let first = at(from) + along(from) * handle;
         let second = at(to) - along(to) * handle;
         let last = at(to);
+
         writeln!(
             text,
             "{} {} {} {} {} {} c",
@@ -86,6 +88,7 @@ fn letters(text: &mut String, label: &Text) -> Result<(), ExportError> {
         .map_err(|_| ExportError::Encoding)?;
     let along = Vector2::from_angle(label.angle);
     let up = along.perp();
+
     let start = match label.anchor {
         Anchor::Start => label.at,
         Anchor::Middle => {
@@ -105,6 +108,7 @@ fn letters(text: &mut String, label: &Text) -> Result<(), ExportError> {
                 continue;
             };
             let first = place(*first);
+
             if pen.is_none_or(|pen| pen.distance(first) > 1e-9) {
                 point(text, "m", first)?;
             }
@@ -165,6 +169,7 @@ fn stroked(text: &mut String, shape: &Shape) -> Result<(), ExportError> {
         }
         writeln!(text, "S")
     };
+
     drawn(text).map_err(|_| ExportError::Encoding)?;
     match shape {
         Shape::Point(at) => {
@@ -215,9 +220,11 @@ fn content(figure: &Figure) -> Result<String, ExportError> {
             Number(POINTS_PER_MILLIMETRE)
         )
     };
+
     opening(&mut text).map_err(|_| ExportError::Encoding)?;
     for layer in figure.layers() {
         let (width, dash) = layer_style(layer);
+
         let styled = |text: &mut String| -> std::fmt::Result {
             let pattern: Vec<String> = dash
                 .iter()
@@ -225,6 +232,7 @@ fn content(figure: &Figure) -> Result<String, ExportError> {
                 .collect();
             writeln!(text, "{} w [{}] 0 d", Number(width), pattern.join(" "))
         };
+
         styled(&mut text).map_err(|_| ExportError::Encoding)?;
         for (_, shape) in figure.shapes.iter().filter(|(on, _)| *on == layer) {
             stroked(&mut text, shape)?;
@@ -259,12 +267,15 @@ pub(super) fn encode(figure: &Figure, width: f64, height: f64) -> Result<Vec<u8>
     ];
     let mut bytes = HEADER.to_vec();
     let mut offsets = Vec::with_capacity(objects.len());
+
     for (index, object) in objects.iter().enumerate() {
         offsets.push(bytes.len());
         bytes.extend_from_slice(format!("{} 0 obj\n{object}\nendobj\n", index + 1).as_bytes());
     }
+
     let table = bytes.len();
     let mut trailer = format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1);
+
     for offset in offsets {
         trailer.push_str(&format!("{offset:010} 00000 n \n"));
     }

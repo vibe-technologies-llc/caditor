@@ -31,7 +31,7 @@ use crate::{
     values::{ParameterError, ParameterValues, evaluation_order},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MeasuredItem {
     Point(PointReference),
     Axis(AxisReference),
@@ -152,7 +152,7 @@ fn body_name(document: &Document, body: FeatureId) -> String {
         .map_or_else(|| feature_name(document, body), Cow::into_owned)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Between {
     Distance,
     Angle,
@@ -169,7 +169,7 @@ impl Between {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Of {
     Length,
     Radius,
@@ -204,7 +204,7 @@ impl Of {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Reading {
     Between {
         quantity: Between,
@@ -314,7 +314,7 @@ fn positioned(document: &Document, item: &MeasuredItem) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Measurement {
     pub reading: Reading,
     pub parameter: Option<ParameterId>,
@@ -396,6 +396,7 @@ impl Measurement {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = self.sketches();
+
         used.extend(self.plane_datums());
         used.extend(self.axis_datums());
         used.extend(self.point_datums());
@@ -424,7 +425,7 @@ impl Measurement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MeasurementResult {
     pub value: Quantity,
     pub line: Option<(Point3, Point3)>,
@@ -695,6 +696,7 @@ impl<'a> Measuring<'a> {
                 item: capitalised(&item.describe(document)),
             }));
         };
+
         let name = body_name(document, *body);
         let appearance = document
             .body_appearance(*body)
@@ -721,6 +723,7 @@ pub(crate) fn evaluate(
         resolver: Resolver { feature, inputs },
     };
     let document = inputs.document;
+
     let result = match &measurement.reading {
         Reading::Between {
             quantity,
@@ -729,9 +732,11 @@ pub(crate) fn evaluate(
         } => {
             let from = measuring.locate(first)?;
             let to = measuring.locate(second)?;
+
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
             }
+
             let nearest = nearest(&from, &to);
             let separation = nearest.as_ref().and_then(|nearest| nearest.separation);
             let line = separation.map(|separation| (separation.from, separation.to));
@@ -791,9 +796,11 @@ pub(crate) fn evaluate(
                     axis: capitalised(&axis.describe(document)),
                 })
             })?;
+
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
             }
+
             let separation = nearest(&from, &to)
                 .and_then(|nearest| nearest.separation)
                 .ok_or_else(|| {
@@ -832,6 +839,7 @@ pub(crate) fn evaluate(
                     axis: capitalised(&axis.describe(document)),
                 })
             })?;
+
             let coordinate = (point - origin).dot(direction);
             let foot = origin + direction * coordinate;
             MeasurementResult {
@@ -845,6 +853,7 @@ pub(crate) fn evaluate(
             let located = measuring.locate(item)?;
             let described = item.describe(document);
             let anchor = located.anchor();
+
             let (value, accuracy) = match (quantity, &located) {
                 (Of::Length, Located::Edge { solid, edge }) => {
                     let measured = edge_measure(solid, *edge).map_err(|_| {
@@ -1046,12 +1055,16 @@ pub fn face_perimeter(solid: &Solid, face: FaceId) -> Option<(f64, Accuracy)> {
         .and_then(|id| solid.face_loop(*id))?;
     let mut length = 0.0;
     let mut accuracy = Accuracy::Exact;
+
     for coedge in outer.coedges() {
         let edge = solid.coedge(*coedge)?.edge();
+
         if is_seam_of(solid, edge, face) {
             continue;
         }
+
         let measured = edge_measure(solid, edge).ok()?;
+
         length += measured.length;
         if measured.length_accuracy == Accuracy::Approximate {
             accuracy = Accuracy::Approximate;
@@ -1092,7 +1105,7 @@ fn capitalised(text: &str) -> String {
     })
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Measured {
     by_parameter: BTreeMap<ParameterId, FeatureId>,
     reads: BTreeMap<ParameterId, BTreeSet<FeatureId>>,
@@ -1115,16 +1128,20 @@ impl Measured {
                 Some((parameter, feature.id()))
             })
             .collect();
+
         if by_parameter.is_empty() {
             return Self::default();
         }
+
         let mut reads: BTreeMap<ParameterId, BTreeSet<FeatureId>> = BTreeMap::new();
         let mut derived = Vec::new();
+
         for id in evaluation_order(document) {
             if let Some(measurement) = by_parameter.get(&id) {
                 reads.insert(id, BTreeSet::from([*measurement]));
                 continue;
             }
+
             let Some(parameter) = document.parameter(id) else {
                 continue;
             };
@@ -1180,12 +1197,14 @@ impl Measured {
 
     pub(crate) fn features_read_by(&self, kind: &FeatureKind) -> BTreeSet<FeatureId> {
         let mut used = kind.features();
+
         used.extend(self.read_by(kind));
         used
     }
 
     pub(crate) fn dependencies_of(&self, kind: &FeatureKind) -> BTreeSet<FeatureId> {
         let mut used = kind.dependencies();
+
         used.extend(self.read_by(kind));
         used
     }
@@ -1195,6 +1214,7 @@ impl Measured {
             let value = parameters
                 .evaluate_expression(expression)
                 .map_err(ParameterError::Evaluation);
+
             parameters.set_measured(*id, value);
         }
     }
@@ -1209,10 +1229,13 @@ impl Measured {
             .parameters()
             .into_iter()
             .any(|parameter| self.reads_measurement(parameter));
+
         if !reads {
             return None;
         }
+
         let mut overlaid = parameters.clone();
+
         for (parameter, measurement) in self.pairs() {
             if let Some(reading) = results
                 .get(&measurement)
@@ -1228,6 +1251,7 @@ impl Measured {
 
 pub(crate) fn reading_users(document: &Document, parameter: ParameterId) -> Vec<&Feature> {
     let mut reading = BTreeSet::from([parameter]);
+
     for id in evaluation_order(document) {
         let uses = document.parameter(id).is_some_and(|definition| {
             definition
@@ -1287,9 +1311,11 @@ impl Document {
         if !seen.insert(from) {
             return None;
         }
+
         let used = self.parameter(from)?.expression.parameters();
         used.into_iter().find_map(|next| {
             let mut path = self.path_between(next, to, seen)?;
+
             path.insert(0, from);
             Some(path)
         })
@@ -1300,9 +1326,11 @@ impl Document {
             .pairs()
             .filter_map(|(parameter, measurement)| {
                 let status = evaluation.feature(measurement)?;
+
                 if status.state != FeatureState::UpToDate {
                     return None;
                 }
+
                 let reading = status.result.as_deref()?.measurement()?.value;
                 let expression = reading_literal(reading)?;
                 let stored = self.parameter(parameter)?;
@@ -1329,9 +1357,11 @@ impl Document {
                 Some((parameter, stored.expression.clone()))
             })
             .collect();
+
         if readings.is_empty() {
             return transaction;
         }
+
         let (label, mut edits) = transaction.into_parts();
         let removed: BTreeSet<ParameterId> = edits
             .iter()
@@ -1340,6 +1370,7 @@ impl Document {
                 _ => None,
             })
             .collect();
+
         edits.extend(
             readings
                 .into_iter()

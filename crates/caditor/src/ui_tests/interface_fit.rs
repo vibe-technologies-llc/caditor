@@ -68,6 +68,7 @@ fn sketch_bar_buttons() -> Vec<String> {
 #[test]
 fn at_200_percent_the_side_panels_leave_the_view_a_usable_width() {
     let mut harness = Harness::new();
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(2.0),
     )));
@@ -87,15 +88,20 @@ fn at_200_percent_the_side_panels_leave_the_view_a_usable_width() {
 #[test]
 fn the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_button() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
+
     let base = edit_base_sketch(&mut harness);
+
     harness.frame();
+
     let line = entities_of_kind(harness.sketch(base), "Line")[0];
 
     let bar = sketch_bar(&harness);
     let first_row = harness.button_rect("Line").center().y;
     let second_row = harness.button_rect("Parallel").center().y;
     let finish = harness.position_of(sketch_toolbar::FINISH_LABEL);
+
     assert!(harness.shows("Editing Base sketch"));
     assert_eq!(sketch_bar_problems(&harness, SCREEN), Vec::<String>::new());
     assert!((harness.button_rect("Select").center().y - first_row).abs() < 0.5);
@@ -110,12 +116,14 @@ fn the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_butt
     );
     assert!(second_row > first_row + CONTROL_HEIGHT);
     assert!((finish.y - first_row).abs() < CONTROL_HEIGHT);
+
     assert_readable(&harness, "The sketch bar");
     for name in sketch_bar_buttons() {
         assert!(harness.accessible_named(Role::Button, &name), "{name}");
     }
     for caption in GROUP_CAPTIONS {
         let name = sketch_toolbar::group_menu_name(caption);
+
         assert!(harness.accessible_named(Role::Button, &name), "{name}");
     }
 
@@ -125,8 +133,11 @@ fn the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_butt
     }]);
     harness.frame();
     harness.frame();
+
     assert_eq!(sketch_bar(&harness), bar);
+
     let delete = harness.button_rect(sketch_toolbar::DELETE_LABEL);
+
     assert!(bar.contains_rect(delete));
 
     harness.perform(Action::Preferences(PreferencesCommand::Change(
@@ -135,12 +146,15 @@ fn the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_butt
     harness.frame();
     harness.frame();
     harness.frame();
+
     let visible = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / 2.0);
+
     assert_eq!(sketch_bar_problems(&harness, visible), Vec::<String>::new());
     assert!(harness.button_rect("Parallel").top() > harness.button_rect("Point").bottom());
     assert!(!harness.shows("Constrain"));
     assert!(!harness.shows("Analyse"));
     assert!(harness.shows(sketch_toolbar::FINISH_LABEL));
+
     assert_readable(&harness, "The sketch bar at 200%");
     for name in sketch_bar_buttons() {
         assert!(harness.accessible_named(Role::Button, &name), "{name}");
@@ -150,20 +164,24 @@ fn the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_butt
 #[test]
 fn every_menu_stays_on_screen_at_the_largest_interface_size() {
     let mut harness = Harness::new();
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(2.0),
     )));
     harness.frame();
     harness.frame();
+
     let visible = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / 2.0);
 
     for menu in ["File", "Edit", "View", "Model", "Sketch", "Help"] {
         harness.click(menu);
         harness.frame();
         harness.frame();
+
         let menus = open_menus(&harness);
 
         assert!(!menus.is_empty(), "{menu} did not open");
+
         for rect in menus {
             assert!(
                 visible.expand(0.5).contains_rect(rect),
@@ -193,6 +211,7 @@ fn every_menu_stays_on_screen_at_the_largest_interface_size() {
 #[test]
 fn dialogs_fit_the_screen_at_the_largest_interface_size() {
     let mut harness = Harness::new();
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(2.0),
     )));
@@ -200,6 +219,7 @@ fn dialogs_fit_the_screen_at_the_largest_interface_size() {
     harness.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
     harness.frame();
     harness.show_new_windows();
+
     let visible = SCREEN.size() / 2.0;
     for label in ["Close", "Reset all shortcuts", "Keyboard shortcuts"] {
         let rect = harness
@@ -208,6 +228,7 @@ fn dialogs_fit_the_screen_at_the_largest_interface_size() {
             .find(|(shown, _)| shown == label)
             .unwrap_or_else(|| panic!("{label} is not on screen"))
             .1;
+
         assert!(
             rect.min.x >= 0.0
                 && rect.min.y >= 0.0
@@ -225,32 +246,40 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
 
     let document = harness.document().clone();
     let name = "Bracket for the front suspension, revised after the second test.caditor";
+
     harness
         .model
         .replace(document, Some(dir.path().join(name)), None, false);
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(2.0),
     )));
+
     let notice = "The sketch could not be placed on the selected face, because the face is curved; \
                   choose a flat face or a plane";
+
     harness.perform(Action::Inform(Notice::error(notice)));
     harness.frame();
     harness.frame();
+
     let panel_id = top_level_panel("model");
     let panel = egui::containers::panel::PanelState::load(&harness.context, panel_id)
         .unwrap()
         .outer_rect;
+
     drag_screen(
         &mut harness,
         Pos2::new(panel.max.x - 1.0, 300.0),
         Pos2::new(60.0, 300.0),
     );
+
     let narrowed = egui::containers::panel::PanelState::load(&harness.context, panel_id)
         .unwrap()
         .outer_rect;
+
     for _ in 0..5 {
         harness.frame();
     }
+
     let settled = egui::containers::panel::PanelState::load(&harness.context, panel_id)
         .unwrap()
         .outer_rect;
@@ -294,7 +323,9 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
     assert!(outside.is_empty(), "{outside:#?}");
     assert!(rect_of(notice).height() > 1.5 * line, "the notice wraps");
     assert!(rect_of(name).max.x <= rect_of("Search commands").min.x);
+
     harness.button_rect("Delete width");
+
     let deletes: Vec<Rect> = ["width", "height"]
         .iter()
         .filter_map(|name| {
@@ -312,6 +343,7 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
             )
         })
         .collect();
+
     assert!(!deletes.is_empty());
     assert!(deletes.iter().all(|rect| rect.max.x <= narrowed.max.x));
 }
@@ -319,6 +351,7 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
 #[test]
 fn the_ribbons_settle_on_one_layout_at_every_interface_size() {
     let mut harness = Harness::new();
+
     edit_base_sketch(&mut harness);
 
     let unsettled: Vec<u8> = (75_u8..=200)
@@ -329,11 +362,14 @@ fn the_ribbons_settle_on_one_layout_at_every_interface_size() {
             harness.frame();
             harness.frame();
             harness.frame();
+
             let passes = harness.context.cumulative_pass_nr();
+
             harness.frame();
             harness.context.cumulative_pass_nr() - passes > 1
         })
         .collect();
+
     assert_eq!(unsettled, Vec::<u8>::new());
 }
 
@@ -359,11 +395,13 @@ fn sketch_bar_button_starting(harness: &Harness, name: &str) -> Rect {
 #[test]
 fn the_buttons_beside_finish_sketch_keep_a_gap_from_it_at_every_interface_size() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     edit_base_sketch(&mut harness);
 
     let look = Command::LookAtSketch.title();
     let half_gap = ribbon::TOOL_GAP / 2.0 - 0.25;
+
     let overlapping: Vec<String> = (75_u8..=200)
         .step_by(5)
         .filter(|&percent| {
@@ -373,6 +411,7 @@ fn the_buttons_beside_finish_sketch_keep_a_gap_from_it_at_every_interface_size()
             harness.frame();
             harness.frame();
             harness.frame();
+
             let buttons = [
                 sketch_bar_button_starting(&harness, sketch_toolbar::FINISH_LABEL),
                 sketch_bar_button_starting(&harness, sketch_toolbar::CANCEL_LABEL),
@@ -386,5 +425,6 @@ fn the_buttons_beside_finish_sketch_keep_a_gap_from_it_at_every_interface_size()
         })
         .map(|percent| format!("{percent}%"))
         .collect();
+
     assert_eq!(overlapping, Vec::<String>::new());
 }

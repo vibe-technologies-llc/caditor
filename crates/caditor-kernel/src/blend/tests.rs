@@ -56,8 +56,11 @@ pub(super) fn volume(solid: &Solid) -> f64 {
 
 pub(super) fn check(name: &str, solid: &Solid, expected: f64) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
+
     assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
+
     let found = volume(solid);
+
     assert!(
         (found - expected).abs() <= 2e-3 * expected.abs().max(1.0),
         "{name}: volume {found} instead of {expected}"
@@ -104,13 +107,20 @@ fn blend_faces(solid: &Solid) -> Vec<FaceId> {
 fn a_box_edge_is_rounded_and_the_face_is_named_after_the_edge() {
     let solid = cuboid(Vector3::splat(10.0));
     let edge = edge_through(&solid, (5.0, 0.0, 10.0));
+
     let name = solid.edge(edge).unwrap().name();
     let result = run(&solid, &[edge], fillet(2.0));
+
     check("fillet", &result, 1000.0 - 10.0 * spandrel(2.0));
+
     assert_eq!(result.faces().count(), 7);
+
     let faces = blend_faces(&result);
+
     assert_eq!(faces.len(), 1);
+
     let face = result.face(faces[0]).unwrap();
+
     assert_eq!(face.name(), FaceName::blend(50, name));
     assert_eq!(face.origin(), Some(FaceOrigin::Fillet { feature: 50 }));
     assert!(matches!(face.surface(), Surface::Cylinder(_)));
@@ -120,9 +130,13 @@ fn a_box_edge_is_rounded_and_the_face_is_named_after_the_edge() {
 fn a_box_edge_is_chamfered_by_a_flat_face() {
     let solid = cuboid(Vector3::splat(10.0));
     let edge = edge_through(&solid, (10.0, 5.0, 10.0));
+
     let result = run(&solid, &[edge], BlendShape::Chamfer { distance: 3.0 });
+
     check("chamfer", &result, 1000.0 - 10.0 * 4.5);
+
     let faces = blend_faces(&result);
+
     assert_eq!(faces.len(), 1);
     assert!(matches!(
         result.face(faces[0]).unwrap().surface(),
@@ -137,21 +151,30 @@ fn edges_meeting_at_corners_are_mitred_or_rounded() {
         edge_through(&solid, (5.0, 0.0, 10.0)),
         edge_through(&solid, (0.0, 5.0, 10.0)),
     ];
+
     let result = run(&solid, &two, fillet(2.0));
+
     assert_eq!(result.validate(), Ok(()));
     assert_eq!(result.faces().count(), 8);
+
     let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
     let result = run(&solid, &every, BlendShape::Chamfer { distance: 1.0 });
+
     assert_eq!(result.validate(), Ok(()));
+
     assert_watertight(
         "all",
         &result.tessellate(&result.default_tolerance()).unwrap(),
     );
+
     assert_eq!(blend_faces(&result).len(), 20);
+
     let result = run(&solid, &every, fillet(1.0));
     let inner: f64 = 8.0;
     let rounded = inner.powi(3) + 6.0 * inner * inner + 3.0 * PI * inner + 4.0 / 3.0 * PI;
+
     check("rounded box", &result, rounded);
+
     assert_eq!(blend_faces(&result).len(), 20);
     assert_eq!(result.faces().count(), 26);
 }
@@ -194,9 +217,12 @@ fn three_chamfers_meeting_at_a_box_corner_end_on_a_triangle() {
     );
 
     check("every edge", &all, 1000.0 - 164.0 / 3.0);
+
     assert_eq!(all.faces().count(), 26);
     assert_eq!(corner_faces(&all).len(), 8);
+
     check("one corner", &one, 1000.0 - 43.0 / 3.0);
+
     assert_eq!(corner_faces(&one).len(), 1);
     assert_eq!(uneven.validate(), Ok(()));
     assert_eq!(corner_faces(&uneven).len(), 1);
@@ -206,16 +232,22 @@ fn three_chamfers_meeting_at_a_box_corner_end_on_a_triangle() {
 fn circular_edges_are_rounded_around_their_axis() {
     let solid = cylinder(5.0, 10.0);
     let rim = edge_through(&solid, (5.0, 0.0, 10.0));
+
     let result = run(&solid, &[rim], fillet(1.0));
     let ring = 2.0 * PI * (5.0 - SPANDREL_CENTROID) * spandrel(1.0);
+
     check("rim", &result, 250.0 * PI - ring);
+
     assert!(matches!(
         result.face(blend_faces(&result)[0]).unwrap().surface(),
         Surface::Torus(_)
     ));
+
     let chamfered = run(&solid, &[rim], BlendShape::Chamfer { distance: 1.0 });
     let cone = 2.0 * PI * (5.0 - 1.0 / 3.0) * 0.5;
+
     check("rim chamfer", &chamfered, 250.0 * PI - cone);
+
     assert!(matches!(
         chamfered
             .face(blend_faces(&chamfered)[0])
@@ -226,10 +258,13 @@ fn circular_edges_are_rounded_around_their_axis() {
 
     let plate = cuboid(Vector3::new(10.0, 10.0, 4.0));
     let drill = moved(cylinder(2.0, 6.0), (5.0, 5.0, -1.0));
+
     let holed = boolean(&plate, &drill, BooleanOperation::Difference).unwrap();
     let hole_rim = edge_through(&holed, (7.0, 5.0, 4.0));
+
     let result = run(&holed, &[hole_rim], fillet(0.5));
     let ring = 2.0 * PI * (2.0 + 0.5 * SPANDREL_CENTROID) * spandrel(0.5);
+
     check("hole rim", &result, 400.0 - 16.0 * PI - ring);
 }
 
@@ -248,16 +283,22 @@ fn inside_corners_are_filled() {
         5.0,
     );
     let inner = edge_through(&l_shape, (4.0, 4.0, 2.5));
+
     let result = run(&l_shape, &[inner], fillet(1.0));
+
     check("inner corner", &result, 5.0 * 64.0 + 5.0 * spandrel(1.0));
+
     assert_eq!(result.faces().count(), 9);
 
     let plate = cuboid(Vector3::new(10.0, 10.0, 2.0));
     let boss = moved(cylinder(2.0, 3.0), (5.0, 5.0, 1.0));
+
     let joined = boolean(&plate, &boss, BooleanOperation::Union).unwrap();
     let foot = edge_through(&joined, (7.0, 5.0, 2.0));
+
     let result = run(&joined, &[foot], fillet(0.5));
     let ring = 2.0 * PI * (2.0 + 0.5 * SPANDREL_CENTROID) * spandrel(0.5);
+
     check("boss foot", &result, 200.0 + 8.0 * PI + ring);
 }
 
@@ -271,10 +312,13 @@ fn smooth_chains_are_followed_from_one_edge() {
     ];
     let slot = swept(Plane::XY, &stadium, 3.0);
     let edge = edge_through(&slot, (5.0, 0.0, 3.0));
+
     let result = run(&slot, &[edge], fillet(0.5));
     let area = spandrel(0.5);
     let removed = 20.0 * area + 2.0 * PI * (2.0 - 0.5 * SPANDREL_CENTROID) * area;
+
     check("slot", &result, 3.0 * (40.0 + 4.0 * PI) - removed);
+
     assert_eq!(blend_faces(&result).len(), 4);
 }
 
@@ -328,8 +372,10 @@ fn slanted_ends_follow_the_face_they_meet() {
         4.0,
     );
     let edge = edge_through(&wedge, (5.0, 0.0, 4.0));
+
     let result = run(&wedge, &[edge], fillet(1.0));
     let area = spandrel(1.0);
+
     check(
         "open end",
         &result,
@@ -349,8 +395,10 @@ fn slanted_ends_follow_the_face_they_meet() {
         5.0,
     );
     let edge = edge_through(&step, (7.0, 0.0, 3.0));
+
     let result = run(&step, &[edge], fillet(1.0));
     let full = 5.0 * 40.5;
+
     check(
         "wall end",
         &result,
@@ -362,6 +410,7 @@ fn slanted_ends_follow_the_face_they_meet() {
 fn impossible_blends_are_refused_with_the_edge() {
     let solid = cuboid(Vector3::new(10.0, 10.0, 2.0));
     let edge = edge_through(&solid, (5.0, 0.0, 2.0));
+
     assert_eq!(
         blend(&solid, &[edge], fillet(3.0), 1),
         Err(BlendError::TooLarge(edge))
@@ -371,6 +420,7 @@ fn impossible_blends_are_refused_with_the_edge() {
         Err(BlendError::InvalidSize)
     );
     assert_eq!(blend(&solid, &[], fillet(1.0), 1), Err(BlendError::NoEdges));
+
     let stadium = [
         line(1, (0.0, 0.0), (10.0, 0.0)),
         arc(2, (10.0, 2.0), (10.0, 0.0), (10.0, 4.0)),
@@ -379,6 +429,7 @@ fn impossible_blends_are_refused_with_the_edge() {
     ];
     let slot = swept(Plane::XY, &stadium, 3.0);
     let seam = edge_through(&slot, (10.0, 0.0, 1.5));
+
     assert_eq!(
         blend(&slot, &[seam], fillet(0.5), 1),
         Err(BlendError::Smooth(seam))
@@ -398,7 +449,9 @@ fn blend_every_edge(name: &str, curves: &[ProfileCurve]) {
         let after = mesh.mass_properties().volume;
 
         assert_eq!(result.validate(), Ok(()), "{name} {shape:?}");
+
         assert_watertight(name, &mesh);
+
         assert!(
             after < before && after > 0.8 * before,
             "{name} {shape:?}: {after}"
@@ -406,6 +459,7 @@ fn blend_every_edge(name: &str, curves: &[ProfileCurve]) {
         for edge in blend_chain(&solid, &every) {
             let edge = solid.edge(edge).unwrap();
             let expected = crate::naming::FaceName::blend(50, edge.name());
+
             assert!(
                 result.faces().any(|(_, face)| face.name() == expected),
                 "{name} {shape:?}: an edge was left without its blend face"
@@ -502,12 +556,16 @@ fn turned_parts_are_rounded_on_every_edge() {
                 Ok(result) => result,
                 Err(error) => panic!("{name} {shape:?}: {error}"),
             };
+
             assert_eq!(result.validate(), Ok(()), "{name} {shape:?}");
+
             assert_watertight(
                 name,
                 &result.tessellate(&result.default_tolerance()).unwrap(),
             );
+
             let after = volume(&result);
+
             assert!(
                 (after - before).abs() < 0.1 * before,
                 "{name} {shape:?}: {after}"
@@ -540,6 +598,7 @@ fn a_face_that_narrows_away_from_the_middle_of_the_edge_is_too_small() {
             (middle - caditor_geometry::Point3::new(5.0, 0.0, 3.0)).length() < 1e-9
         })
         .unwrap();
+
     assert!(matches!(
         blend(&notched, &[front], fillet(0.5), 60),
         Err(BlendError::TooLarge(edge)) if edge == front
@@ -551,6 +610,7 @@ fn a_face_that_narrows_away_from_the_middle_of_the_edge_is_too_small() {
 fn every_refusal_names_what_cannot_be_blended() {
     let block = cuboid(Vector3::new(10.0, 10.0, 2.0));
     let gone = EdgeId::from_index(999).unwrap();
+
     assert_eq!(
         blend(&block, &[gone], fillet(1.0), 1),
         Err(BlendError::MissingEdge(gone))
@@ -562,6 +622,7 @@ fn every_refusal_names_what_cannot_be_blended() {
         2.0,
     );
     let long = edge_through(&sheared, (5.0, 0.0, 2.0));
+
     assert!(
         matches!(
             blend(&sheared, &[long], fillet(0.2), 1),
@@ -579,12 +640,14 @@ fn an_edge_the_fill_swallowed_is_named_as_lost() {
         10.0,
     );
     let edge = edge_through(&block, (5.0, 0.0, 10.0));
+
     let reference = EdgeReference::capture(&block, edge).unwrap();
     let filled = swept(
         Plane::XY,
         &polygon(&[(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)]),
         10.0,
     );
+
     assert_eq!(
         find_again(&filled, &[(edge, reference)]),
         Err(BlendError::Lost(edge))
@@ -604,7 +667,9 @@ fn an_edge_the_fill_swallowed_is_named_as_lost() {
 fn an_error_on_an_edge_the_fill_made_is_reported_after_the_fill() {
     let chosen = EdgeId::from_index(3).unwrap();
     let made = EdgeId::from_index(40).unwrap();
+
     let original = |edge: EdgeId| if edge == made { None } else { Some(chosen) };
+
     assert_eq!(
         BlendError::TooLarge(made).remapped(original),
         BlendError::AfterFill(Box::new(BlendError::TooLarge(made)))
@@ -622,6 +687,7 @@ fn an_error_on_an_edge_the_fill_made_is_reported_after_the_fill() {
 #[test]
 fn every_rim_of_a_perforated_plate_is_rounded_at_once() {
     let mut curves = polygon(&[(0.0, 0.0), (44.0, 0.0), (44.0, 32.0), (0.0, 32.0)]);
+
     for row in 0..3 {
         for column in 0..2 {
             curves.push(crate::test_support::circle(
@@ -631,6 +697,7 @@ fn every_rim_of_a_perforated_plate_is_rounded_at_once() {
             ));
         }
     }
+
     let plate = swept(Plane::XY, &curves, 5.0);
     let rims: Vec<EdgeId> = plate
         .edges()
@@ -640,15 +707,19 @@ fn every_rim_of_a_perforated_plate_is_rounded_at_once() {
         })
         .map(|(id, _)| id)
         .collect();
+
     assert_eq!(rims.len(), 6);
+
     let result = run(&plate, &rims, fillet(1.0));
     let hole = PI * 9.0 * 5.0;
     let rounded = 2.0 * PI * (3.0 + SPANDREL_CENTROID) * spandrel(1.0);
+
     check(
         "perforated",
         &result,
         44.0 * 32.0 * 5.0 - 6.0 * (hole + rounded),
     );
+
     assert_eq!(blend_faces(&result).len(), 6);
 }
 
@@ -657,6 +728,7 @@ fn a_blend_around_an_almost_full_circle_with_slanted_ends_names_the_edge() {
     let slot = moved(cuboid(Vector3::new(10.0, 0.4, 7.0)), (5.0, -0.2, -1.0));
     let solid = boolean(&cylinder(10.0, 5.0), &slot, BooleanOperation::Difference).unwrap();
     let edge = edge_through(&solid, (-10.0, 0.0, 5.0));
+
     assert_eq!(
         blend(&solid, &[edge], fillet(1.0), 50),
         Err(BlendError::WrapsAround(edge))
@@ -667,8 +739,10 @@ fn a_blend_around_an_almost_full_circle_with_slanted_ends_names_the_edge() {
 fn a_hole_between_the_sampled_points_of_a_foot_refuses_the_blend() {
     let block = cuboid(Vector3::splat(10.0));
     let near = moved(cylinder(0.3, 3.0), (1.5, 2.0, 8.0));
+
     let pierced = boolean(&block, &near, BooleanOperation::Difference).unwrap();
     let edge = edge_through(&pierced, (5.0, 0.0, 10.0));
+
     assert_eq!(
         blend(&pierced, &[edge], fillet(2.0), 50),
         Err(BlendError::TooLarge(edge))
@@ -678,6 +752,7 @@ fn a_hole_between_the_sampled_points_of_a_foot_refuses_the_blend() {
     let clear = boolean(&block, &far, BooleanOperation::Difference).unwrap();
     let edge = edge_through(&clear, (5.0, 0.0, 10.0));
     let hole = PI * 0.3 * 0.3 * 2.0;
+
     check(
         "clear of the hole",
         &run(&clear, &[edge], fillet(2.0)),
@@ -688,6 +763,7 @@ fn a_hole_between_the_sampled_points_of_a_foot_refuses_the_blend() {
 #[test]
 fn edges_of_one_lump_are_blended_without_disturbing_the_others() {
     let mut curves = polygon(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]);
+
     curves.extend(
         polygon(&[(6.0, 0.0), (10.0, 0.0), (10.0, 4.0), (6.0, 4.0)])
             .into_iter()
@@ -696,16 +772,21 @@ fn edges_of_one_lump_are_blended_without_disturbing_the_others() {
                 curve
             }),
     );
+
     let blocks = swept(Plane::XY, &curves, 4.0);
     let right = edge_through(&blocks, (10.0, 4.0, 2.0));
     let left = edge_through(&blocks, (0.0, 0.0, 2.0));
 
     let one = run(&blocks, &[right], fillet(1.0));
+
     check("one lump rounded", &one, 128.0 - 4.0 * spandrel(1.0));
+
     assert_eq!(one.shells().count(), 2);
 
     let both = run(&blocks, &[right, left], fillet(1.0));
+
     check("both lumps rounded", &both, 128.0 - 8.0 * spandrel(1.0));
+
     assert_eq!(both.shells().count(), 2);
 }
 
@@ -717,14 +798,19 @@ fn edges_of_a_body_and_of_its_void_are_blended() {
     let inner = edge_through(&hollow, (6.0, 6.0, 5.0));
 
     let rounded = run(&hollow, &[outer], fillet(1.0));
+
     check("outer edge", &rounded, material - 10.0 * spandrel(1.0));
+
     assert_eq!(rounded.shells().count(), 2);
 
     let filled = run(&hollow, &[inner], fillet(0.5));
+
     check("void edge", &filled, material + 2.0 * spandrel(0.5));
+
     assert_eq!(filled.shells().count(), 2);
 
     let bevelled = run(&hollow, &[inner], BlendShape::Chamfer { distance: 0.5 });
+
     check("void edge chamfer", &bevelled, material + 2.0 * 0.125);
 }
 
@@ -766,7 +852,9 @@ fn feet_that_cross_on_a_cylinder_wall_are_refused() {
     for radius in [3.0, 4.0, 4.9] {
         let result = run(&solid, &rims, fillet(radius));
         let ring = 2.0 * PI * (5.0 - radius * SPANDREL_CENTROID) * spandrel(radius);
+
         check("both rims", &result, 250.0 * PI - 2.0 * ring);
+
         assert_eq!(blend_faces(&result).len(), 2);
     }
 }
@@ -809,11 +897,13 @@ fn feet_that_cross_on_the_side_of_a_box_are_refused() {
         })
         .map(|(id, _)| id)
         .collect();
+
     assert_eq!(horizontal.len(), 8);
 
     assert!(is_too_large(blend(&solid, &horizontal, fillet(6.0), 50)));
 
     let result = run(&solid, &horizontal, fillet(4.0));
+
     assert_eq!(result.validate(), Ok(()));
 }
 
@@ -869,6 +959,7 @@ fn a_tangent_chain_runs_along_smooth_joins_and_stops_at_corners() {
 
     let block = cuboid(Vector3::new(4.0, 4.0, 4.0));
     let edge = edge_through(&block, (2.0, 0.0, 4.0));
+
     assert_eq!(tangent_chain(&block, &[edge]), vec![edge]);
 }
 
@@ -889,18 +980,22 @@ fn tools_apart_are_joined_as_lumps_without_a_boolean() {
         panic!("{} groups", groups.len());
     };
     let mut members = group.members.clone();
+
     members.sort_unstable();
 
     assert_eq!(polls, 0);
     assert_eq!(members, vec![0, 1, 2, 3]);
     assert_eq!(group.solid.shells().count(), 4);
+
     check("four cylinders apart", &group.solid, 4.0 * 2.0 * PI);
+
     assert!(matches!(stopped, Err(BooleanError::Cancelled(_))));
 }
 
 pub(super) fn block_at(min: (f64, f64, f64), size: (f64, f64, f64), feature: u64) -> Solid {
     let (x, y, z) = min;
     let (width, depth, height) = size;
+
     let curves = polygon(&[
         (x, y),
         (x + width, y),
@@ -945,6 +1040,7 @@ fn a_chamfer_runs_off_an_acute_end_onto_the_face_it_meets() {
         &result,
         100.0 - (along_the_whole_edge - 3.0 * 1.125 + beyond_where_the_face_narrows),
     );
+
     assert!(blend(&acute, &[edge], fillet(1.5), 50).is_ok());
 }
 
@@ -986,12 +1082,15 @@ fn chosen_edges_meeting_at_a_corner_of_the_other_kind_are_mitred() {
         &bevelled,
         320.0 - 2.0 * 3.0 - mitred_corner,
     );
+
     assert_eq!(bevelled.faces().count(), 10);
+
     check(
         "boss base",
         &skirted,
         1064.0 + 4.0 * 2.0 + 4.0 * mitred_corner,
     );
+
     assert_eq!(skirted.faces().count(), 15);
 }
 
@@ -999,6 +1098,7 @@ fn chosen_edges_meeting_at_a_corner_of_the_other_kind_are_mitred() {
 fn a_convex_edge_rising_from_bevelled_concave_edges_carries_their_bevel_round_its_own() {
     let boss = bossed_block();
     let rising = edge_through(&boss, (3.0, 3.0, 12.0));
+
     let corner = [
         edge_through(&boss, (5.0, 3.0, 10.0)),
         edge_through(&boss, (3.0, 5.0, 10.0)),
@@ -1017,7 +1117,9 @@ fn a_convex_edge_rising_from_bevelled_concave_edges_carries_their_bevel_round_it
         &chamfered,
         1064.0 - upright + section * along_base + 2.0 * mitred_corner,
     );
+
     assert!(!has_edge_through(&chamfered, (3.25, 3.25, 10.0)));
+
     check(
         "round the upright's round",
         &filleted,
@@ -1054,14 +1156,18 @@ fn feet_meeting_exactly_on_a_face_use_it_up() {
     );
 
     assert_eq!(skirt_and_rim.len(), 8);
+
     check(
         "skirt meeting the rim chamfer",
         &touching,
         1064.0 + skirt - rim,
     );
+
     assert!(!has_edge_through(&touching, (0.75, 5.0, 10.0)));
     assert_eq!(long_top_edges.len(), 2);
+
     check("ridge", &ridged, 400.0 - 2.0 * 10.0 * section(2.0));
+
     assert!(has_edge_through(&ridged, (5.0, 2.0, 10.0)));
 }
 
@@ -1145,8 +1251,10 @@ fn a_two_distance_chamfer_measures_the_first_on_the_face_its_edges_share() {
     assert!(has_edge_through(&top_first, (5.0, 0.0, 9.0)));
     assert!(has_edge_through(&side_first, (5.0, 1.0, 10.0)));
     assert!(has_edge_through(&side_first, (5.0, 0.0, 7.0)));
+
     check("one edge", &one, 1000.0 - 15.0);
     check("one edge flipped", &other, 1000.0 - 15.0);
+
     assert_ne!(
         has_edge_through(&one, (5.0, 3.0, 10.0)),
         has_edge_through(&other, (5.0, 3.0, 10.0))
@@ -1172,6 +1280,7 @@ fn the_measured_face_is_the_one_more_of_the_chosen_edges_share() {
     let rim = edges_where(&solid, |middle| (middle.z - 10.0).abs() < 1e-9);
     let edge = edge_through(&solid, (5.0, 0.0, 10.0));
     let at = Point3::new(5.0, 0.0, 10.0);
+
     let normal_of = |face: Option<FaceId>| face_normal(&solid, face.unwrap(), at).unwrap();
 
     let shared = normal_of(measured_face(&solid, &rim, edge, false));
@@ -1235,13 +1344,16 @@ fn a_distance_angle_chamfer_turns_its_cut_from_the_measured_face() {
         &run(&solid, &[edge], angled(45.0)),
         1000.0 - 20.0,
     );
+
     assert!(has_edge_through(&thirty, (5.0, 2.0, 10.0)));
     assert!(has_edge_through(&thirty, (5.0, 0.0, 10.0 - across)));
+
     check(
         "inside",
         &filled,
         320.0 + 5.0 * 0.5 * 30f64.to_radians().tan_libm(),
     );
+
     assert_eq!(
         blend(&solid, &[edge], angled(90.0), 50),
         Err(BlendError::AngleMisses(edge))
@@ -1290,6 +1402,7 @@ fn a_notch_edge_running_out_through_a_round_wall_is_rounded_up_to_the_wall() {
     let length = (40.0_f64.powi(2) - 100.0).sqrt() - 30.0;
 
     check("notch", &rounded, before + added);
+
     assert!(
         (added - spandrel(1.5) * length).abs() < 0.02 * spandrel(1.5) * length,
         "added {added}"
@@ -1304,8 +1417,10 @@ fn a_notch_through_a_rounded_rim_has_its_floor_edges_rounded_up_to_the_wall() {
         15.0,
     );
     let rim = edge_through(&puck, (-40.0, 0.0, 15.0));
+
     let rounded_rim = run(&puck, &[rim], fillet(3.0));
     let notch = block_at((-10.0, 30.0, 11.0), (20.0, 20.0, 10.0), 2);
+
     let notched = boolean(&rounded_rim, &notch, BooleanOperation::Difference).unwrap();
     let before = volume(&notched);
     let sides = [
@@ -1318,6 +1433,7 @@ fn a_notch_through_a_rounded_rim_has_its_floor_edges_rounded_up_to_the_wall() {
     let length = (40.0_f64.powi(2) - 100.0).sqrt() - 30.0;
 
     check("notch through the rim", &rounded, before + added);
+
     assert!(
         (added - 2.0 * spandrel(1.5) * length).abs() < 0.02 * spandrel(1.5) * length,
         "added {added}"
@@ -1351,8 +1467,10 @@ fn a_notch_fillet_climbing_onto_a_rounded_rim_stays_inside_the_puck() {
             15.0,
         );
         let rim = edge_through(&puck, (-40.0, 0.0, 15.0));
+
         let rounded_rim = run(&puck, &[rim], fillet(3.0));
         let notch = block_at((-10.0, 30.0, floor), (20.0, 20.0, 10.0), 2);
+
         let notched = boolean(&rounded_rim, &notch, BooleanOperation::Difference).unwrap();
         let before = volume(&notched);
         let sides = [
@@ -1371,6 +1489,7 @@ fn a_notch_fillet_climbing_onto_a_rounded_rim_stays_inside_the_puck() {
             &rounded,
             before + added,
         );
+
         assert!(
             farthest_from_axis(&rounded) <= 40.0 + 1e-3,
             "radius {radius} floor {floor}: reaches {}",
@@ -1392,8 +1511,10 @@ fn a_notch_chamfer_running_out_under_a_rounded_rim_stays_inside_the_puck() {
             15.0,
         );
         let rim = edge_through(&puck, (-40.0, 0.0, 15.0));
+
         let rounded_rim = run(&puck, &[rim], fillet(3.0));
         let notch = block_at((-10.0, 30.0, floor), (20.0, 20.0, 10.0), 2);
+
         let notched = boolean(&rounded_rim, &notch, BooleanOperation::Difference).unwrap();
         let before = volume(&notched);
         let sides = [
@@ -1412,6 +1533,7 @@ fn a_notch_chamfer_running_out_under_a_rounded_rim_stays_inside_the_puck() {
             &bevelled,
             before + added,
         );
+
         assert!(
             farthest_from_axis(&bevelled) <= 40.0 + 1e-3,
             "size {size} floor {floor}: reaches {}",
@@ -1431,6 +1553,7 @@ fn rimmed_notch(floor: f64) -> Solid {
         15.0,
     );
     let rim = edge_through(&puck, (-40.0, 0.0, 15.0));
+
     let rounded_rim = run(&puck, &[rim], fillet(3.0));
     let notch = block_at((-10.0, 30.0, floor), (20.0, 20.0, 10.0), 2);
     boolean(&rounded_rim, &notch, BooleanOperation::Difference).unwrap()
@@ -1449,13 +1572,17 @@ fn a_notch_s_back_edge_is_rounded_after_or_with_its_rounded_sides() {
         .unwrap_or_else(|error| panic!("all three at once: {error}"));
     let sides_first = run(&notched, &sides, fillet(1.5));
     let back_after = edge_through(&sides_first, (0.0, 30.0, 11.0));
+
     let then_back = blend(&sides_first, &[back_after], fillet(1.5), 60)
         .unwrap_or_else(|error| panic!("the back after the sides: {error}"));
 
     check("all three at once", &all_at_once, volume(&all_at_once));
     check("the back after the sides", &then_back, volume(&then_back));
+
     assert!(volume(&then_back) > volume(&sides_first) + spandrel(1.5) * 15.0);
+
     let added = volume(&then_back) - volume(&sides_first);
+
     assert!(
         added < spandrel(1.5) * (17.0 + 2.0 * 2.5) * 1.5,
         "added {added}"
@@ -1481,6 +1608,7 @@ fn a_tray_whose_rim_fillet_passes_half_its_corner_radius_still_shells() {
     let tray = run(&rounded, &rim, fillet(3.0));
     let top = face_through(&tray, (20.0, 15.0, 20.0));
     let across = (2.0 + 3.0 * FRAC_1_SQRT_2) * FRAC_1_SQRT_2;
+
     let corner = face_through(
         &tray,
         (5.0 - across, 5.0 - across, 3.0 - 3.0 * FRAC_1_SQRT_2),
@@ -1492,6 +1620,7 @@ fn a_tray_whose_rim_fillet_passes_half_its_corner_radius_still_shells() {
         tray.face(corner).map(|face| face.surface()),
         Some(Surface::Torus(_))
     ));
+
     check(
         "the tray",
         &tray,
@@ -1521,8 +1650,11 @@ fn removed_by_corner_chamfer(height: f64, rim: f64, corner: f64) -> f64 {
 
 fn assert_volume(name: &str, solid: &Solid, expected: f64) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
+
     assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
+
     let found = volume(solid);
+
     assert!(
         (found - expected).abs() <= 1e-6 * expected,
         "{name}: volume {found} instead of {expected}"
@@ -1536,6 +1668,7 @@ fn an_edge_ending_where_two_earlier_chamfers_meet_is_chamfered_up_to_them() {
         edge_through(&body, (5.0, 0.0, 6.0)),
         edge_through(&body, (10.0, 4.0, 6.0)),
     ];
+
     let chamfered = run(&body, &top_edges, BlendShape::Chamfer { distance: 1.0 });
     let corner = edge_through(&chamfered, (10.0, 0.0, 3.0));
     let before = volume(&chamfered);
@@ -1549,6 +1682,7 @@ fn an_edge_ending_where_two_earlier_chamfers_meet_is_chamfered_up_to_them() {
             &result,
             before - removed_by_corner_chamfer(6.0, 1.0, distance),
         );
+
         assert_eq!(blend_faces(&result).len(), 3, "{name}");
     }
 }
@@ -1557,6 +1691,7 @@ fn an_edge_ending_where_two_earlier_chamfers_meet_is_chamfered_up_to_them() {
 fn vertical_edges_are_blended_after_the_top_rim_is_chamfered() {
     let body = cuboid(Vector3::new(40.0, 30.0, 20.0));
     let rim = edges_where(&body, |middle| (middle.z - 20.0).abs() < 1e-9);
+
     let chamfered = run(&body, &rim, BlendShape::Chamfer { distance: 1.0 });
     let corners: Vec<EdgeId> = [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)]
         .into_iter()
@@ -1574,6 +1709,7 @@ fn vertical_edges_are_blended_after_the_top_rim_is_chamfered() {
         &bevelled,
         before - 4.0 * removed_by_corner_chamfer(20.0, 1.0, 1.5),
     );
+
     assert_eq!(rounded.validate(), Ok(()));
     assert!(
         rounded_volume < below_rim && rounded_volume > below_rim - 4.0 * spandrel(3.0),
@@ -1592,6 +1728,7 @@ fn an_inside_corner_whose_floor_edges_were_chamfered_is_chamfered_down_to_them()
     let floor = edges_where(&pocketed, |middle| {
         (middle.z - 6.0).abs() < 1e-9 && (3.0..=7.0).contains(&middle.x)
     });
+
     let filled = run(&pocketed, &floor, BlendShape::Chamfer { distance: 0.5 });
     let walls: Vec<EdgeId> = [(3.0, 3.0), (7.0, 3.0), (7.0, 7.0), (3.0, 7.0)]
         .into_iter()
@@ -1602,6 +1739,7 @@ fn an_inside_corner_whose_floor_edges_were_chamfered_is_chamfered_down_to_them()
     let result = run(&filled, &walls, BlendShape::Chamfer { distance: 0.75 });
 
     assert_eq!(floor.len(), 4);
+
     assert_volume(
         "inside corners",
         &result,
@@ -1644,6 +1782,7 @@ fn a_hollow_box_has_twelve_convex_and_twelve_concave_edges() {
         .iter()
         .filter(|found| **found == Some(EdgeConvexity::Concave))
         .count();
+
     assert_eq!(convex, 12);
     assert_eq!(concave, 12);
 }
@@ -1651,8 +1790,10 @@ fn a_hollow_box_has_twelve_convex_and_twelve_concave_edges() {
 #[test]
 fn where_two_bores_touch_the_walls_meet_back_to_back_with_no_convexity() {
     let mut profile = rectangle(1, (-10.0, -30.0), (0.0, -20.0));
+
     profile.push(circle(5, (-5.0, -27.0), 2.0));
     profile.push(circle(6, (-5.0, -23.0), 2.0));
+
     let solid = swept(Plane::XY, &profile, 16.0);
 
     let touching: Vec<EdgeId> = solid
@@ -1665,14 +1806,17 @@ fn where_two_bores_touch_the_walls_meet_back_to_back_with_no_convexity() {
         .collect();
 
     assert_eq!(touching.len(), 2);
+
     for edge in touching {
         assert!(meets_back_to_back(&solid, edge));
         assert_eq!(edge_convexity(&solid, edge), None);
     }
+
     let convex = convexities(&solid)
         .iter()
         .filter(|found| **found == Some(EdgeConvexity::Convex))
         .count();
+
     assert_eq!(convex, 4 + 8 + 4);
 }
 
@@ -1686,6 +1830,7 @@ fn a_cylinder_has_convex_rims_and_a_seam_with_no_convexity() {
         .iter()
         .filter(|found| **found == Some(EdgeConvexity::Convex))
         .count();
+
     assert_eq!(convex, 2);
     assert!(found.contains(&None));
 }
@@ -1696,6 +1841,7 @@ fn a_filleted_edge_meets_its_neighbours_smoothly() {
     let top = edges_where(&solid, |middle| {
         (middle.z - 10.0).abs() < 1e-9 && (middle.x - 5.0).abs() < 1e-9
     });
+
     let rounded = run(&solid, &top, BlendShape::Fillet { radius: 2.0 });
 
     let found = convexities(&rounded);
@@ -1704,6 +1850,7 @@ fn a_filleted_edge_meets_its_neighbours_smoothly() {
         .iter()
         .filter(|found| **found == Some(EdgeConvexity::Smooth))
         .count();
+
     assert!(smooth >= 2);
 }
 
@@ -1716,6 +1863,7 @@ fn every_straight_edge_of_a_boss_fillets_together() {
 
     assert_eq!(every_edge.len(), 24);
     assert_eq!(rounded.validate(), Ok(()));
+
     assert_watertight(
         "every edge",
         &rounded.tessellate(&rounded.default_tolerance()).unwrap(),

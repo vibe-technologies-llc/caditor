@@ -24,7 +24,7 @@ use crate::{
     text::TextSize,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct System {
     pub values: Vec<f64>,
     pub equations: Vec<Equation>,
@@ -49,7 +49,7 @@ pub(crate) struct System {
     pub meshes: Vec<Mesh>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mesh {
     pub driver_centre: EntityId,
     pub partner_centre: EntityId,
@@ -64,6 +64,7 @@ impl System {
         let mut fixed_points = BTreeMap::new();
         let mut radii = BTreeMap::new();
         let mut fixed_radii = BTreeMap::new();
+
         for (id, entity) in sketch.entities() {
             match *entity {
                 Entity::Point(position) if sketch.is_projected(id) => {
@@ -99,6 +100,7 @@ impl System {
                 Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => {}
             }
         }
+
         let mut system = Self {
             radius_variables: radii.values().copied().collect(),
             values,
@@ -128,6 +130,7 @@ impl System {
             gear_values: dimensions.gears().clone(),
             meshes: Vec::new(),
         };
+
         system.add_splines(sketch)?;
         system.entity_variables = sketch
             .entities()
@@ -145,6 +148,7 @@ impl System {
             if let Some((from, to)) = span {
                 let (from, to) = (system.point(from)?, system.point(to)?);
                 let index = system.spans.len();
+
                 for end in [from, to] {
                     if let PointHandle::Variable(x) = end {
                         for variable in [x, x + 1] {
@@ -167,23 +171,29 @@ impl System {
                         point: system.point(point)?,
                         ellipse,
                     };
+
                     system.equations.push(Equation { owner: None, form });
                 }
             }
             if let Entity::Arc { end, .. } = *entity {
                 let circle = system.circle(sketch, id)?;
                 let point = system.point(end)?;
+
                 let form = Form::OnCircle {
                     point,
                     circle,
                     fallback: system.initial_direction(circle.center, point),
                 };
+
                 system.equations.push(Equation { owner: None, form });
             }
         }
+
         let joints = OnceCell::new();
+
         for (id, constraint) in sketch.active_constraints() {
             let mut starts = system.pair_parameter_start(sketch, &joints, constraint)?;
+
             if starts.is_empty() {
                 starts.extend(system.ellipse_parameter_start(sketch, &joints, constraint)?);
             }
@@ -198,19 +208,23 @@ impl System {
                     .into_iter()
                     .map(|(curve, start)| {
                         let index = system.values.len();
+
                         system.values.push(start);
                         system.parameter_variables.insert(index);
+
                         let wraps = sketch.role(curve) == Some(Role::Elliptic)
                             || system
                                 .splines
                                 .get(&curve)
                                 .is_some_and(|handle| handle.periodic);
+
                         if wraps {
                             system.wrapping_parameters.insert(index);
                         }
                         index
                     })
                     .collect();
+
                 system.parameters.insert(id, indices);
             }
         }
@@ -221,15 +235,18 @@ impl System {
                     .into_iter()
                     .map(|start| {
                         let index = system.values.len();
+
                         system.values.extend([start.x, start.y]);
                         index
                     })
                     .collect();
+
                 system.targets.insert(id, indices);
             }
         }
         for (id, constraint) in sketch.active_constraints() {
             let forms = system.forms(sketch, &joints, id, constraint, dimensions)?;
+
             system
                 .equations
                 .extend(forms.into_iter().map(|form| Equation {
@@ -255,7 +272,9 @@ impl System {
             };
             let (from, to) = (self.point(driver.centre)?, self.point(gear.centre)?);
             let (sine, cosine) = placement.direction.to_radians().sin_cos();
+
             let along = Vector2::new(cosine, sine);
+
             for (along, value) in [(along, placement.distance), (along.perp(), 0.0)] {
                 self.equations.push(Equation {
                     owner: None,
@@ -358,11 +377,13 @@ impl System {
             end: PointHandle::Fixed(direction),
             fallback: direction,
         };
+
         match id.reference() {
             Some(Reference::HorizontalAxis) => return Ok(axis(Vector2::X)),
             Some(Reference::VerticalAxis) => return Ok(axis(Vector2::Y)),
             Some(Reference::Origin) | None => {}
         }
+
         let (start, end) = match sketch.entity(id) {
             Some(
                 &Entity::Line { start, end }
@@ -379,6 +400,7 @@ impl System {
             ) => (start, end),
             _ => return Err(SketchError::MissingEntity(id)),
         };
+
         let (start, end) = (self.point(start)?, self.point(end)?);
         Ok(LineHandle {
             start,
@@ -474,7 +496,9 @@ impl System {
         b: EntityId,
     ) -> Result<Vec<Form>, SketchError> {
         let (first, second) = (self.ellipse(sketch, a)?, self.ellipse(sketch, b)?);
+
         let minor = Form::EqualRadius(first.minor_circle(), second.minor_circle());
+
         if first.center == second.center && first.major == second.major {
             return Ok(vec![minor]);
         }
@@ -493,6 +517,7 @@ impl System {
     ) -> Result<Form, SketchError> {
         let joint = joints.joint(sketch, line, ellipse);
         let (line, ellipse) = (self.line(sketch, line)?, self.ellipse(sketch, ellipse)?);
+
         if let Some(point) = joint {
             return Ok(Form::EllipseTouch {
                 line,
@@ -520,6 +545,7 @@ impl System {
     pub(super) fn initial_side(&self, point: PointHandle, line: &LineHandle) -> f64 {
         let start = line.start.at(&self.values);
         let direction = fallback_direction(line.end.at(&self.values) - start);
+
         let side = direction.perp_dot(point.at(&self.values) - start);
         if side < 0.0 { -1.0 } else { 1.0 }
     }
@@ -528,6 +554,7 @@ impl System {
         let values = &self.values;
         let distance = first.center.at(values).distance(second.center.at(values));
         let (first_radius, second_radius) = (first.radius(values), second.radius(values));
+
         let external_error = (distance - (first_radius + second_radius)).abs();
         let internal_error = (distance - (first_radius - second_radius).abs()).abs();
         if external_error <= internal_error {
@@ -618,6 +645,7 @@ impl System {
             }
             Constraint::Collinear(a, b) => {
                 let (anchor, other) = if b.is_reference() { (b, a) } else { (a, b) };
+
                 let (line, other) = (self.line(sketch, anchor)?, self.line(sketch, other)?);
                 vec![
                     Form::OnLine {
@@ -779,6 +807,7 @@ impl System {
                 match (role(from)?, role(to)?) {
                     (Role::Point, Role::Point) => {
                         let (from, to) = (self.point(from)?, self.point(to)?);
+
                         if value.abs() <= self.span_context(from, to, value).degenerate_length {
                             return Ok(vec![Form::SameX(from, to), Form::SameY(from, to)]);
                         }
@@ -885,6 +914,7 @@ impl System {
                 let (first, first_turn) = self.angle_ray(sketch, joints, constraint, (from, to))?;
                 let (second, second_turn) =
                     self.angle_ray(sketch, joints, constraint, (to, from))?;
+
                 let radians = dimension()?.to_radians() - second_turn + first_turn;
                 match (first, second) {
                     (AngleRay::Line(from), AngleRay::Line(to)) => vec![Form::Angle {
@@ -966,6 +996,7 @@ impl System {
                 vec![Form::SameY(from, to)]
             };
         }
+
         let drawn = along.dot(to.at(&self.values) - from.at(&self.values));
         vec![Form::Offset {
             from,
@@ -996,6 +1027,7 @@ impl System {
             self.line(sketch, line)?,
         );
         let start = line.start.at(&self.values);
+
         let direction = fallback_direction(line.end.at(&self.values) - start);
         let reach_sign =
             direction.perp_dot(start - point.at(&self.values)) * direction.perp_dot(along);
@@ -1017,6 +1049,7 @@ impl System {
     ) -> Result<Form, SketchError> {
         let (point, circle) = (self.point(point)?, self.circle(sketch, circle)?);
         let values = &self.values;
+
         let inside = point.at(values).distance(circle.center.at(values)) < circle.radius(values);
         Ok(Form::CircleDistance {
             point,
@@ -1040,6 +1073,7 @@ impl System {
             });
         };
         let center = self.point(center)?;
+
         let (start, end) = (self.point(start)?, self.point(end)?);
         Ok((
             LineHandle {
@@ -1079,10 +1113,13 @@ impl System {
         value: f64,
     ) -> Result<Vec<Form>, SketchError> {
         let (anchor, other) = if b.is_reference() { (b, a) } else { (a, b) };
+
         let (line, other) = (self.line(sketch, anchor)?, self.line(sketch, other)?);
         let values = &self.values;
+
         let middle = (other.start.at(values) + other.end.at(values)) / 2.0;
         let start = line.start.at(values);
+
         let side = fallback_direction(line.end.at(values) - start).perp_dot(middle - start);
         let side = if side < 0.0 { -1.0 } else { 1.0 };
         Ok([other.start, other.end]
@@ -1131,8 +1168,10 @@ impl System {
     ) -> Result<Form, SketchError> {
         let joint = joints.joint(sketch, line, circle);
         let (line, circle) = (self.line(sketch, line)?, self.circle(sketch, circle)?);
+
         if let Some(point) = joint {
             let point = self.point(point)?;
+
             return Ok(Form::Perpendicular(
                 line,
                 self.radius_line(point, circle.center),
@@ -1154,8 +1193,10 @@ impl System {
     ) -> Result<Form, SketchError> {
         let joint = joints.joint(sketch, a, b);
         let (first, second) = (self.circle(sketch, a)?, self.circle(sketch, b)?);
+
         if let Some(point) = joint {
             let point = self.point(point)?;
+
             return Ok(Form::Parallel(
                 self.radius_line(point, first.center),
                 self.radius_line(point, second.center),
@@ -1184,15 +1225,18 @@ impl System {
                     .ok_or_else(|| not_joined(sketch, constraint, entity, other))?;
                 let point = self.point(joint.end)?;
                 let shape = self.ellipse_shape(sketch, entity)?;
+
                 let at = shape.parameter_of(point.at(&self.values));
                 let fallback = fallback_direction(shape.tangent_at(at).perp());
                 let ray = AngleRay::Normal(point, self.ellipse(sketch, entity)?, fallback);
+
                 return Ok((ray, joint.turn()));
             }
             Some(Entity::Spline { .. }) => {
                 let end = joints
                     .spline_end_on(sketch, entity, other)
                     .ok_or_else(|| not_joined(sketch, constraint, entity, other))?;
+
                 return Ok((AngleRay::Line(self.leg(sketch, entity, end)?), 0.0));
             }
             _ => return Ok((AngleRay::Line(self.line(sketch, entity)?), 0.0)),
@@ -1200,7 +1244,9 @@ impl System {
         let joint = joints
             .arc_joint(sketch, entity, other)
             .ok_or_else(|| not_joined(sketch, constraint, entity, other))?;
+
         let (center, end) = (self.point(center)?, self.point(joint.end)?);
+
         let radius = LineHandle {
             start: center,
             end,
@@ -1253,7 +1299,7 @@ enum AngleRay {
     Normal(PointHandle, EllipseHandle, Vector2),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ArcJoint {
     pub end: EntityId,
     pub at_start: bool,
@@ -1280,6 +1326,7 @@ impl Joints {
             parents: BTreeMap::new(),
             on_curve: BTreeMap::new(),
         };
+
         for (_, constraint) in sketch.active_constraints() {
             let Constraint::Coincident(a, b) = *constraint else {
                 continue;
@@ -1334,6 +1381,7 @@ impl Joints {
             )
             | None => BTreeSet::new(),
         };
+
         if let Some(on_curve) = self.on_curve.get(&curve) {
             points.extend(on_curve);
         }
@@ -1366,6 +1414,7 @@ impl Joints {
     pub(super) fn class(&self, point: EntityId) -> EntityId {
         let mut current = point;
         let mut steps = 0;
+
         while let Some(parent) = self.parents.get(&current)
             && *parent != current
             && steps <= self.parents.len()

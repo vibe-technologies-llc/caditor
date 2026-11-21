@@ -56,8 +56,10 @@ fn cube() -> TriangleMesh {
 fn soup(mesh: &TriangleMesh) -> TriangleMesh {
     let mut positions = Vec::new();
     let mut triangles = Vec::new();
+
     for triangle in &mesh.triangles {
         let start = positions.len();
+
         positions.extend(triangle.iter().map(|corner| mesh.positions[*corner]));
         triangles.push([start, start + 1, start + 2]);
     }
@@ -82,6 +84,7 @@ fn a_triangulated_cube_becomes_six_square_faces() {
     let [solid] = built.solids.as_slice() else {
         panic!("expected one solid, found {}", built.solids.len());
     };
+
     assert_eq!(counts(solid), (6, 12, 8));
     assert_eq!(built.faces, 6);
     assert!((volume(solid) - 1000.0).abs() < 1e-6);
@@ -91,6 +94,7 @@ fn a_triangulated_cube_becomes_six_square_faces() {
 #[test]
 fn each_face_lists_the_triangles_it_was_made_of() {
     let mut mesh = soup(&cube());
+
     mesh.triangles.insert(0, [0, 0, 1]);
 
     let built = faceted_solids(&mesh).unwrap();
@@ -101,15 +105,20 @@ fn each_face_lists_the_triangles_it_was_made_of() {
     let [sources] = built.sources.as_slice() else {
         panic!("expected sources for one solid");
     };
+
     assert_eq!(sources.len(), solid.faces().count());
+
     let mut every: Vec<usize> = sources.iter().flatten().copied().collect();
+
     every.sort_unstable();
+
     assert_eq!(every, (1..13).collect::<Vec<_>>());
     for ((_, face), made_of) in solid.faces().zip(sources) {
         assert_eq!(made_of.len(), 2);
         for source in made_of {
             for corner in mesh.triangles[*source] {
                 let point = mesh.positions[corner];
+
                 assert!(face.surface().distance(point) < 1e-9);
             }
         }
@@ -119,6 +128,7 @@ fn each_face_lists_the_triangles_it_was_made_of() {
 #[test]
 fn a_triangle_soup_is_welded_and_an_inside_out_one_turned_around() {
     let mut inverted = soup(&cube());
+
     for triangle in &mut inverted.triangles {
         triangle.swap(1, 2);
     }
@@ -127,9 +137,11 @@ fn a_triangle_soup_is_welded_and_an_inside_out_one_turned_around() {
 
     assert_eq!(built.repairs.welded, 36 - 8);
     assert_eq!(built.repairs.inverted_shells, 1);
+
     let [solid] = built.solids.as_slice() else {
         panic!("expected one solid");
     };
+
     assert!((volume(solid) - 1000.0).abs() < 1e-6);
 }
 
@@ -137,9 +149,11 @@ fn a_triangle_soup_is_welded_and_an_inside_out_one_turned_around() {
 fn copies_of_a_corner_closer_than_the_resolution_are_welded_whatever_the_cells() {
     let mut nudged = soup(&cube());
     let corner = Point3::splat(10.0);
+
     let copies: Vec<usize> = (0..nudged.positions.len())
         .filter(|index| nudged.positions[*index] == corner)
         .collect();
+
     for (step, index) in copies.iter().enumerate() {
         nudged.positions[*index] = corner + Vector3::X * (step as f64 * 2e-7);
     }
@@ -148,15 +162,18 @@ fn copies_of_a_corner_closer_than_the_resolution_are_welded_whatever_the_cells()
 
     assert!(copies.len() > 2);
     assert_eq!(built.repairs.welded, 36 - 8);
+
     let [solid] = built.solids.as_slice() else {
         panic!("expected one solid");
     };
+
     assert!((volume(solid) - 1000.0).abs() < 1e-4);
 }
 
 #[test]
 fn triangles_against_their_neighbours_are_flipped_and_degenerate_ones_dropped() {
     let mut mesh = cube();
+
     mesh.triangles[3].swap(0, 1);
     mesh.triangles.push([0, 0, 1]);
     mesh.triangles.push(mesh.triangles[0]);
@@ -172,6 +189,7 @@ fn triangles_against_their_neighbours_are_flipped_and_degenerate_ones_dropped() 
 #[test]
 fn a_small_hole_is_closed_and_a_mesh_without_any_closed_part_is_refused() {
     let mut holed = cube();
+
     holed.triangles.remove(5);
 
     let built = faceted_solids(&holed).unwrap();
@@ -217,10 +235,13 @@ fn a_mesh_reaching_past_the_largest_size_is_refused_rather_than_welded_into_a_po
 #[test]
 fn a_point_splitting_a_straight_edge_is_left_out_of_the_solid() {
     let mut mesh = cube();
+
     let middle = mesh.positions.len();
+
     mesh.positions.push(Point3::new(5.0, 0.0, 0.0));
     mesh.triangles.retain(|triangle| {
         let mut sorted = *triangle;
+
         sorted.sort_unstable();
         sorted != [0, 2, 3] && sorted != [0, 1, 2] && sorted != [0, 1, 5] && sorted != [0, 4, 5]
     });
@@ -240,17 +261,22 @@ fn a_point_splitting_a_straight_edge_is_left_out_of_the_solid() {
 
 fn prism(sides: usize, radius: f64, height: f64, offset: Vector3) -> TriangleMesh {
     let mut positions = Vec::new();
+
     for level in [0.0, height] {
         for side in 0..sides {
             let angle = TAU * side as f64 / sides as f64;
+
             positions.push(
                 Point3::new(radius * angle.cos_libm(), radius * angle.sin_libm(), level) + offset,
             );
         }
     }
+
     let mut triangles = Vec::new();
+
     for side in 0..sides {
         let next = (side + 1) % sides;
+
         triangles.push([side, next, sides + next]);
         triangles.push([side, sides + next, sides + side]);
     }
@@ -271,6 +297,7 @@ fn a_faceted_cylinder_keeps_one_face_per_flat_side_and_two_caps() {
     let [solid] = built.solids.as_slice() else {
         panic!("expected one solid");
     };
+
     assert_eq!(counts(solid), (34, 96, 64));
     assert!(
         solid
@@ -284,6 +311,7 @@ fn separate_shells_become_separate_solids_and_a_sealed_hollow_is_left_out() {
     let mut two = cube();
     let other = cuboid(Point3::new(20.0, 0.0, 0.0), Point3::new(25.0, 5.0, 5.0));
     let shift = two.positions.len();
+
     two.positions.extend(other.positions);
     two.triangles.extend(
         other
@@ -298,10 +326,13 @@ fn separate_shells_become_separate_solids_and_a_sealed_hollow_is_left_out() {
 
     let mut hollow = cube();
     let mut void = cuboid(Point3::splat(3.0), Point3::splat(6.0));
+
     for triangle in &mut void.triangles {
         triangle.swap(1, 2);
     }
+
     let shift = hollow.positions.len();
+
     hollow.positions.extend(void.positions);
     hollow.triangles.extend(
         void.triangles
@@ -320,6 +351,7 @@ fn a_tilted_block_read_at_single_precision_is_snapped_onto_its_planes() {
     let block = cuboid(Point3::ZERO, Point3::new(37.0, 23.0, 11.0));
     let axis = Vector3::new(1.0, 2.0, 3.0).normalize();
     let turn = caditor_geometry::Rotation3::from_axis_angle(axis, 0.7);
+
     let rounded = TriangleMesh {
         positions: block
             .positions
@@ -337,6 +369,7 @@ fn a_tilted_block_read_at_single_precision_is_snapped_onto_its_planes() {
     let [solid] = built.solids.as_slice() else {
         panic!("expected one solid");
     };
+
     assert_eq!(counts(solid), (6, 12, 8));
     assert!((volume(solid) - 37.0 * 23.0 * 11.0).abs() < 1e-2);
     assert_eq!(built.repairs.kept_triangles, 0);

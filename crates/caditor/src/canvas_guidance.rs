@@ -27,7 +27,7 @@ const PROMPT_MARGIN: f32 = 16.0;
 const PROMPT_MAX_WIDTH: f32 = 720.0;
 const MORE_KEYS_ID: &str = "more keys";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Motion {
     Animated,
     Reduced,
@@ -43,7 +43,7 @@ impl Motion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RefusalNote {
     text: String,
     since: f64,
@@ -61,6 +61,7 @@ impl RefusalNote {
 
     pub fn is_dismissed_by(&mut self, input_arrived: bool) -> bool {
         let dismissed = self.drawn && input_arrived;
+
         self.drawn = true;
         dismissed
     }
@@ -73,13 +74,16 @@ impl RefusalNote {
         if time.stays() {
             return Some(1.0);
         }
+
         let age = now - self.since;
+
         if !(0.0..NOTE_SECONDS).contains(&age) {
             return None;
         }
         if motion == Motion::Reduced {
             return Some(1.0);
         }
+
         let fading_for = NOTE_SECONDS - age;
         Some((fading_for / NOTE_FADE_SECONDS).min(1.0) as f32)
     }
@@ -88,6 +92,7 @@ impl RefusalNote {
         if time.stays() {
             return None;
         }
+
         let age = now - self.since;
         let next = match motion {
             Motion::Reduced => NOTE_SECONDS,
@@ -97,7 +102,7 @@ impl RefusalNote {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct HoverDelay {
     shown: Option<(String, f64)>,
 }
@@ -124,14 +129,14 @@ impl HoverDelay {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Waited {
     Nothing,
     Waiting(f64),
     Shown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OrbitMark {
     pub pivot: Point3,
     pub at: f64,
@@ -148,6 +153,7 @@ pub fn paint_pivot(ui: &Ui, at: Pos2, palette: &ScenePalette) {
     let painter = ui.painter();
     let mark = color32(palette.snap);
     let halo = color32(palette.outline);
+
     painter.circle_stroke(at, PIVOT_RADIUS, Stroke::new(PIVOT_HALO, halo));
     painter.circle_stroke(at, PIVOT_RADIUS, Stroke::new(PIVOT_STROKE, mark));
     painter.circle_filled(at, PIVOT_DOT + PIVOT_STROKE / 2.0, halo);
@@ -231,6 +237,7 @@ pub fn paint_beside_pointer(
         .map(|(_, chip)| chip.size().x)
         .fold(0.0, f32::max);
     let below = pointer.y + POINTER_OFFSET.y;
+
     let top = if below + height <= room.bottom() {
         below
     } else {
@@ -244,11 +251,15 @@ pub fn paint_beside_pointer(
     };
     let mut y = top;
     let mut placed = Vec::new();
+
     for (label, chip) in laid {
         let size = chip.size();
         let mut painter = ui.painter().clone();
+
         painter.multiply_opacity(label.opacity);
+
         let shown = chip.paint(&painter, pos2(left, y));
+
         canvas::announce(ui, shown, label.name, &label.text, label.live);
         placed.push(shown);
         y += size.y + STACK_GAP;
@@ -277,6 +288,7 @@ pub fn show_prompt(
 ) -> Rect {
     let painter = ui.painter();
     let width = band.width().min(PROMPT_MAX_WIDTH);
+
     let title = canvas::Label::new(
         painter,
         prompt.text,
@@ -287,6 +299,7 @@ pub fn show_prompt(
     let hints = (!prompt.keys.is_empty())
         .then(|| Hints::folded(painter, prompt.keys, width, Align::Center, *more_keys));
     let hints_height = hints.as_ref().map_or(0.0, |hints| hints.size().y);
+
     let reach = PROMPT_MARGIN + title.size().y + canvas::MARGIN / 2.0 + hints_height;
     let hints = hints.filter(|_| view.top() + reach <= view.bottom() - bottom_reserved);
     let hints_width = hints.as_ref().map_or(0.0, |hints| hints.size().x);
@@ -302,6 +315,7 @@ pub fn show_prompt(
         Align2::CENTER_TOP,
     );
     let mut area = shown;
+
     if let Some(hints) = hints {
         let min = Align2::CENTER_TOP
             .anchor_size(pos2(x, shown.bottom() + canvas::MARGIN / 2.0), hints.size())
@@ -310,13 +324,16 @@ pub fn show_prompt(
             .chip_rect(min)
             .map(|chip| more_keys_chip(ui, chip, more_keys))
             .unwrap_or_default();
+
         area = area.union(hints.paint_with(painter, min, look));
     }
+
     let spoken = if prompt.keys.is_empty() {
         prompt.text.to_owned()
     } else {
         format!("{}. {}", prompt.text, prompt.keys.spoken_folded(*more_keys))
     };
+
     canvas::announce(ui, area, "prompt", &spoken, Some(Live::Polite));
     area
 }
@@ -325,6 +342,7 @@ fn more_keys_chip(ui: &Ui, chip: Rect, more_keys: &mut bool) -> ChipLook {
     let response = ui.interact(chip, ui.scope_id().with(MORE_KEYS_ID), Sense::click());
     let expanded = *more_keys;
     let name = if expanded { FEWER_KEYS } else { MORE_KEYS };
+
     response.widget_info(|| WidgetInfo::labeled(Role::Button, true, name));
     ui.ctx()
         .accesskit_node_builder(response.id, |node| node.set_expanded(expanded));

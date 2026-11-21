@@ -13,6 +13,7 @@ fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
         Point2::new(max.0, max.1),
         Point2::new(min.0, max.1),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -42,13 +43,17 @@ struct Built {
 
 fn built() -> Built {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
     );
+
     let base = transaction.add_feature("Base", extrude(outline, Expression::Parameter(height)));
+
     document.apply(transaction.finish()).unwrap();
     Built {
         document,
@@ -81,26 +86,33 @@ fn pasted_features_get_fresh_ids_and_follow_each_other_not_the_originals() {
         outline,
         base,
     } = built();
+
     let features = copied(&document, &[outline, base]);
     let parameters = carried(&document, &features);
 
     let paste = document
         .paste_features(&features, &parameters, PasteOrigin::ThisDocument)
         .unwrap();
+
     document.apply(paste.transaction.clone()).unwrap();
 
     let [sketch, solid] = paste.pasted[..] else {
         panic!("two features should be pasted: {:?}", paste.pasted);
     };
+
     assert!(paste.left_out.is_empty());
     assert_eq!(paste.inlined, 0);
     assert!(![outline, base].contains(&sketch) && ![outline, base].contains(&solid));
     assert_eq!(document.feature(sketch).unwrap().name, "Outline copy");
+
     let pasted = document.feature(solid).unwrap();
+
     assert_eq!(pasted.name, "Base copy");
+
     let Some(SolidFeature::Extrude(copy)) = pasted.kind.solid() else {
         panic!("an extrusion");
     };
+
     assert_eq!(copy.sketch, sketch);
     assert!(pasted.kind.uses_parameter(height));
     assert_eq!(document.features().len(), 4);
@@ -114,34 +126,50 @@ fn features_from_another_model_take_parameters_by_name_or_their_values() {
         base,
         ..
     } = built();
+
     let features = copied(&source, &[outline, base]);
     let parameters = carried(&source, &features);
 
     let mut target = Document::default();
+
     let paste = target
         .paste_features(&features, &parameters, PasteOrigin::Elsewhere)
         .unwrap();
+
     assert_eq!(paste.inlined, 1);
+
     target.apply(paste.transaction).unwrap();
+
     let solid = target.feature(paste.pasted[1]).unwrap();
+
     assert!(solid.kind.parameters().is_empty());
+
     let values = ParameterValues::evaluate(&target);
     let mut kind = solid.kind.clone();
+
     let heights: Vec<Quantity> = crate::inlining::expressions_mut(&mut kind)
         .into_iter()
         .map(|expression| values.evaluate_expression(expression).unwrap())
         .collect();
+
     assert_eq!(heights, vec![Quantity::length(4.0)]);
 
     let mut named = Document::default();
+
     let mut transaction = named.transaction("Height");
+
     let own = transaction.add_parameter("height", transaction.parse("9 mm").unwrap());
+
     named.apply(transaction.finish()).unwrap();
+
     let paste = named
         .paste_features(&features, &parameters, PasteOrigin::Elsewhere)
         .unwrap();
+
     assert_eq!(paste.inlined, 0);
+
     named.apply(paste.transaction).unwrap();
+
     assert!(
         named
             .feature(paste.pasted[1])
@@ -159,17 +187,21 @@ fn references_outside_the_copy_are_kept_in_the_same_model_and_refused_elsewhere(
         outline,
         ..
     } = built();
+
     let features = copied(&document, &[base]);
     let parameters = carried(&document, &features);
 
     let paste = document
         .paste_features(&features, &parameters, PasteOrigin::ThisDocument)
         .unwrap();
+
     document.apply(paste.transaction.clone()).unwrap();
+
     let Some(SolidFeature::Extrude(copy)) = document.feature(paste.pasted[0]).unwrap().kind.solid()
     else {
         panic!("an extrusion");
     };
+
     assert_eq!(copy.sketch, outline);
 
     let refused =
@@ -177,6 +209,7 @@ fn references_outside_the_copy_are_kept_in_the_same_model_and_refused_elsewhere(
     let Err(PasteError::NothingPasted { left_out }) = refused else {
         panic!("expected nothing pasted, got {refused:?}");
     };
+
     assert_eq!(left_out[0].name, "Base");
     assert_eq!(left_out[0].reason, PasteRefusal::OutsideFeature);
 }
@@ -198,8 +231,11 @@ fn cutting(sketch: FeatureId, body: FeatureId) -> FeatureKind {
 #[test]
 fn a_reference_to_a_feature_numbered_past_two_to_the_62_is_never_taken_for_a_copy() {
     let mut document = Document::default();
+
     document.reserve_ids_below(0, (1 << 62) - 1);
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
@@ -209,8 +245,11 @@ fn a_reference_to_a_feature_numbered_past_two_to_the_62_is_never_taken_for_a_cop
         "Cutter",
         FeatureKind::from(rectangle((2.0, 2.0), (4.0, 4.0))),
     );
+
     let cut = transaction.add_feature("Cut", cutting(cutter, block));
+
     document.apply(transaction.finish()).unwrap();
+
     let features = copied(&document, &[cutter, cut]);
     let parameters = carried(&document, &features);
 
@@ -220,15 +259,18 @@ fn a_reference_to_a_feature_numbered_past_two_to_the_62_is_never_taken_for_a_cop
     let refused = Document::default()
         .paste_features(&features, &parameters, PasteOrigin::Elsewhere)
         .unwrap();
+
     document.apply(paste.transaction.clone()).unwrap();
 
     assert_eq!(block.raw(), 1 << 62);
+
     let [sketch, solid] = paste.pasted[..] else {
         panic!("two features should be pasted: {:?}", paste.pasted);
     };
     let Some(SolidFeature::Extrude(copy)) = document.feature(solid).unwrap().kind.solid() else {
         panic!("an extrusion");
     };
+
     assert_eq!(copy.sketch, sketch);
     assert_eq!(copy.operation, BodyOperation::Remove(block));
     assert_eq!(refused.pasted.len(), 1);
@@ -261,11 +303,13 @@ fn a_feature_picking_edges_of_a_copied_body_is_left_out_with_its_reason() {
         &CancelToken::never(),
         &|_, _| {},
     );
+
     let edges = vec![edge_at(
         evaluation.body(base).unwrap(),
         Point3::new(5.0, 0.0, 4.0),
     )];
     let mut transaction = document.transaction("Fillet");
+
     let fillet = transaction.add_feature(
         "Fillet 1",
         FeatureKind::Blend(Blend {
@@ -279,7 +323,9 @@ fn a_feature_picking_edges_of_a_copied_body_is_left_out_with_its_reason() {
             sizing: FilletSizing::Radius,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let features = copied(&document, &[outline, base, fillet]);
 
     let paste = document
@@ -300,6 +346,7 @@ fn a_feature_picking_edges_of_a_copied_body_is_left_out_with_its_reason() {
             },
         }]
     );
+
     let alone = document
         .paste_features(
             &features[2..],
@@ -307,6 +354,7 @@ fn a_feature_picking_edges_of_a_copied_body_is_left_out_with_its_reason() {
             PasteOrigin::ThisDocument,
         )
         .unwrap();
+
     assert_eq!(alone.pasted.len(), 1);
 }
 
@@ -318,14 +366,17 @@ fn pasting_features_past_the_records_a_file_opens_is_refused_without_changing_an
         base,
         ..
     } = built();
+
     let features = copied(&document, &[outline, base]);
     let parameters = carried(&document, &features);
 
     let mut filling = document.transaction("Fill");
+
     for index in 0..MAX_RECORDS - 4 {
         filling.add_parameter(format!("filler_{index}"), Expression::Number(1.0));
     }
     document.apply(filling.finish()).unwrap();
+
     let before = document.clone();
 
     let refused = document.paste_features(&features, &parameters, PasteOrigin::ThisDocument);
@@ -342,7 +393,9 @@ fn pasting_features_past_the_records_a_file_opens_is_refused_without_changing_an
         "{refused:?}"
     );
     assert_eq!(document, before);
+
     document.apply(one.transaction).unwrap();
+
     assert_eq!(
         document.parameters().len() + document.features().len(),
         MAX_RECORDS
@@ -351,6 +404,7 @@ fn pasting_features_past_the_records_a_file_opens_is_refused_without_changing_an
 
 fn group(document: &mut Document, features: &[FeatureId], name: &str) {
     let grouping = document.grouping(features, name, "Group").unwrap();
+
     document.apply(grouping).unwrap();
 }
 
@@ -374,37 +428,50 @@ fn pasted_features_keep_their_folder_unless_the_bar_stands_inside_another() {
         ..
     } = built();
     let mut other = document.transaction("Other");
+
     let first = other.add_feature("Other 1", FeatureKind::from(Sketch::new(Plane::XY)));
     let second = other.add_feature("Other 2", FeatureKind::from(Sketch::new(Plane::XY)));
+
     document.apply(other.finish()).unwrap();
     group(&mut document, &[outline, base], "Bracket");
     group(&mut document, &[first, second], "Spares");
+
     let features = copied(&document, &[outline, base]);
     let parameters = carried(&document, &features);
 
     let mut below_its_folder = document.clone();
+
     roll_back_before(&mut below_its_folder, first);
+
     let paste = below_its_folder
         .paste_features(&features, &parameters, PasteOrigin::ThisDocument)
         .unwrap();
+
     below_its_folder.apply(paste.transaction).unwrap();
+
     let joined = below_its_folder.group_run(outline);
 
     let mut at_the_end = document.clone();
+
     let paste = at_the_end
         .paste_features(&features, &parameters, PasteOrigin::ThisDocument)
         .unwrap();
+
     at_the_end.apply(paste.transaction).unwrap();
+
     let apart = at_the_end.group_run(paste.pasted[0]);
     let originals = at_the_end.group_run(outline);
 
     let mut inside_another = document.clone();
+
     roll_back_before(&mut inside_another, second);
+
     let paste = inside_another
         .paste_features(&features, &parameters, PasteOrigin::ThisDocument)
         .unwrap();
     let undo = inside_another.apply(paste.transaction.clone()).unwrap();
     let spares = inside_another.group_run(first);
+
     inside_another.apply(undo).unwrap();
 
     assert_eq!(joined.len(), 4, "the copies join the folder right above");
@@ -432,14 +499,18 @@ fn features_pasted_into_another_model_arrive_in_a_folder_of_the_same_name() {
         base,
         ..
     } = built();
+
     group(&mut source, &[base], "Plate");
+
     let features = copied(&source, &[outline, base]);
     let parameters = carried(&source, &features);
 
     let mut target = Document::default();
+
     let paste = target
         .paste_features(&features, &parameters, PasteOrigin::Elsewhere)
         .unwrap();
+
     target.apply(paste.transaction).unwrap();
 
     assert_eq!(target.group_of(paste.pasted[0]), None);

@@ -18,14 +18,14 @@ use crate::{
 
 const RELATIVE_TOLERANCE: f64 = 1e-7;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WallSide {
     Inside,
     Outside,
     Centred,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum WallError {
     #[error("the sketch has no curves to give a wall")]
     NoCurves,
@@ -77,7 +77,7 @@ struct Element {
     strand: Course,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Link {
     element: usize,
     forward: bool,
@@ -121,6 +121,7 @@ pub fn wall_regions(
     if curves.is_empty() {
         return Err(WallError::NoCurves);
     }
+
     let sources: Vec<Source> = curves
         .iter()
         .map(Source::from_curve)
@@ -140,12 +141,15 @@ pub fn wall_regions(
             bounds.size().length() + bounds.min().abs().max(bounds.max().abs()).max_element()
         });
     let tolerance = (size * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
+
     let chains = chains(&elements, tolerance)?;
     let mut regions = Vec::with_capacity(chains.len());
+
     for chain in &chains {
         interrupt::check()?;
         regions.push(chain_region(&elements, chain, thickness, side, tolerance)?);
     }
+
     let polygons: Vec<Vec<Point2>> = regions
         .iter()
         .flat_map(Region::loops)
@@ -154,6 +158,7 @@ pub fn wall_regions(
             outline_of(&courses)
         })
         .collect();
+
     if polygons_cross(&polygons) {
         return Err(WallError::CrossesItself);
     }
@@ -173,6 +178,7 @@ fn chains(elements: &[Element], tolerance: f64) -> Result<Vec<Chain>, WallError>
         })
         .collect();
     let mut partner: Vec<Option<usize>> = vec![None; ends.len()];
+
     for (position, (element, _, point)) in ends.iter().enumerate() {
         let touching: Vec<usize> = ends
             .iter()
@@ -194,6 +200,7 @@ fn chains(elements: &[Element], tolerance: f64) -> Result<Vec<Chain>, WallError>
                     .filter_map(|(other, _, _)| elements.get(*other))
                     .map(|element| element.entity)
                     .collect();
+
                 entities.extend(elements.get(*element).map(|element| element.entity));
                 return Err(WallError::Branches {
                     entities: entities.into_iter().collect(),
@@ -201,12 +208,14 @@ fn chains(elements: &[Element], tolerance: f64) -> Result<Vec<Chain>, WallError>
             }
         }
     }
+
     let end_of = |element: usize, at_start: bool| {
         ends.iter()
             .position(|(other, start, _)| *other == element && *start == at_start)
     };
     let mut taken = vec![false; elements.len()];
     let mut chains = Vec::new();
+
     for (index, element) in elements.iter().enumerate() {
         if element.strand.is_full_circle() {
             if let Some(slot) = taken.get_mut(index) {
@@ -221,6 +230,7 @@ fn chains(elements: &[Element], tolerance: f64) -> Result<Vec<Chain>, WallError>
             });
         }
     }
+
     let open_starts: Vec<(usize, bool)> = ends
         .iter()
         .zip(&partner)
@@ -231,12 +241,15 @@ fn chains(elements: &[Element], tolerance: f64) -> Result<Vec<Chain>, WallError>
         .into_iter()
         .map(|start| (start, false))
         .chain((0..elements.len()).map(|element| ((element, true), true)));
+
     for ((first, at_start), closed) in starts {
         if taken.get(first).copied().unwrap_or(true) {
             continue;
         }
+
         let mut links = Vec::new();
         let (mut element, mut entering_start) = (first, at_start);
+
         loop {
             if let Some(slot) = taken.get_mut(element) {
                 *slot = true;
@@ -245,6 +258,7 @@ fn chains(elements: &[Element], tolerance: f64) -> Result<Vec<Chain>, WallError>
                 element,
                 forward: entering_start,
             });
+
             let next = end_of(element, !entering_start)
                 .and_then(|exit| partner.get(exit).copied().flatten())
                 .and_then(|other| ends.get(other));
@@ -302,6 +316,7 @@ fn chain_region(
             OffsetFailure::Folds(..) => WallError::Folds { entities: named },
         }
     };
+
     let left_side =
         offset_courses(&strands, chain.closed, left, None, tolerance).map_err(failure)?;
     let right_side =
@@ -337,6 +352,7 @@ fn chain_region(
     let left_loop = ProfileLoop {
         pieces: left_pieces,
     };
+
     let (outer, holes) = if chain.closed {
         if right_loop.signed_area() > 0.0 {
             (right_loop, vec![left_loop])
@@ -357,6 +373,7 @@ fn chain_region(
         ) else {
             return Err(WallError::NoCurves);
         };
+
         let end_cap = Strand::Line {
             start: right_last.end(),
             end: left_last.end(),
@@ -376,15 +393,18 @@ fn chain_region(
             own_end(first.entity)
         })?;
         let mut pieces = right_loop.pieces;
+
         pieces.push(end_cap);
         pieces.extend(left_loop.pieces);
         pieces.push(start_cap);
         (ProfileLoop { pieces }, Vec::new())
     };
     let hole_area: f64 = holes.iter().map(ProfileLoop::signed_area).sum();
+
     if outer.signed_area() <= tolerance * tolerance || hole_area > 0.0 {
         return Err(WallError::CrossesItself);
     }
+
     let key = RegionKey::of_sides(
         outer
             .pieces

@@ -19,7 +19,7 @@ use crate::{
     widgets::{self, FIELD_WIDTH},
 };
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum AppearanceError {
     #[error("The body no longer exists")]
     BodyGone,
@@ -327,6 +327,7 @@ pub fn with_face_colours(
             false => Some(coloured.clone()),
         })
         .collect();
+
     if let Some(colour) = colour {
         let earlier = |face: &FaceReference| {
             appearance
@@ -335,6 +336,7 @@ pub fn with_face_colours(
                 .rev()
                 .find(|coloured| coloured.face.name() == face.name())
         };
+
         faces_coloured.retain(|coloured| !selected(coloured));
         faces_coloured.extend(faces.iter().map(|face| FaceColour {
             face: face.clone(),
@@ -438,6 +440,7 @@ pub fn parse_density(model: &Model, text: &str) -> Result<Option<Expression>, Ap
     if text.trim().is_empty() {
         return Ok(None);
     }
+
     let parameters = model.parameters();
     let expression = field::parse_expression(
         model.document(),
@@ -449,6 +452,7 @@ pub fn parse_density(model: &Model, text: &str) -> Result<Option<Expression>, Ap
         },
         model.units(),
     )?;
+
     density_of(&expression, parameters).map_err(AppearanceError::Density)?;
     Ok(Some(expression))
 }
@@ -465,6 +469,7 @@ impl Panel<'_> {
         let change = change(self.model.document(), self.body, appearance, what);
         let name =
             feature_fields::feature_name(self.model.document(), self.body.maker()).unwrap_or("");
+
         self.actions.push(feature_fields::applied(name, change));
     }
 
@@ -480,6 +485,7 @@ impl Panel<'_> {
         let selector = selector_id(self.body, false);
         let recent = self.model.recent_colours();
         let selecting = colour_selector::is_open(ui, selector);
+
         let (chosen, focused, toggled) = ui
             .horizontal_wrapped(|ui| {
                 let mut chosen = None;
@@ -489,6 +495,7 @@ impl Panel<'_> {
                     DEFAULT_COLOUR_NAME,
                     current.is_none(),
                 );
+
                 if focus {
                     default.request_focus();
                     default.scroll_to_me(Some(egui::Align::Center));
@@ -509,12 +516,14 @@ impl Panel<'_> {
                         chosen = Some(Some(*colour));
                     }
                 }
+
                 let toggled =
                     widgets::icon_swatch(ui, icons::ADD, CUSTOM_COLOUR_NAME, selecting).clicked();
                 (chosen, default.has_focus(), toggled)
             })
             .inner;
         let shown = current.unwrap_or_else(|| canvas::body_colour(ui.ctx()));
+
         if toggled {
             colour_selector::toggle(ui, selector, shown);
         }
@@ -537,7 +546,9 @@ impl Panel<'_> {
                 1 => "Colour the selected face".to_owned(),
                 count => format!("Colour the {count} selected faces"),
             };
+
             ui.label(widgets::muted(caption, ui));
+
             let own_colour = self.appearance.colour.unwrap_or(DEFAULT_COLOUR);
             let current: Vec<Option<Rgb>> = faces
                 .iter()
@@ -558,6 +569,7 @@ impl Panel<'_> {
             let selector = selector_id(self.body, true);
             let recent = self.model.recent_colours();
             let selecting = colour_selector::is_open(ui, selector);
+
             let (chosen, toggled) = ui
                 .horizontal_wrapped(|ui| {
                     let mut chosen = None;
@@ -571,6 +583,7 @@ impl Panel<'_> {
                         &face_swatch_name(BODY_COLOUR_NAME),
                         shared == Some(None),
                     );
+
                     if default.clicked() {
                         chosen = Some(None);
                     }
@@ -588,6 +601,7 @@ impl Panel<'_> {
                             chosen = Some(Some(*colour));
                         }
                     }
+
                     let name = face_swatch_name(CUSTOM_COLOUR_NAME);
                     let toggled = widgets::icon_swatch(ui, icons::ADD, &name, selecting).clicked();
                     (chosen, toggled)
@@ -597,6 +611,7 @@ impl Panel<'_> {
                 .flatten()
                 .or(self.appearance.colour)
                 .unwrap_or(DEFAULT_COLOUR);
+
             if toggled {
                 colour_selector::toggle(ui, selector, shown);
             }
@@ -628,6 +643,7 @@ impl Panel<'_> {
 
     fn name_row(&mut self, ui: &mut Ui, unnamed: &str, focus: bool) -> bool {
         widgets::caption(ui, BODY_NAME_CAPTION);
+
         let stored = self.appearance.name.clone().unwrap_or_default();
         let field = field::commit_field(
             ui,
@@ -637,6 +653,7 @@ impl Panel<'_> {
             focus,
             |text| {
                 let length = text.trim().chars().count();
+
                 if length > MAX_BODY_NAME_CHARS {
                     return Err(AppearanceError::NameTooLong {
                         limit: MAX_BODY_NAME_CHARS,
@@ -647,6 +664,7 @@ impl Panel<'_> {
             },
         );
         let landed = field.response.has_focus();
+
         field.response.on_hover_text(format!(
             "The body's own name, used in the Bodies list and in exports; empty, it is named \
              {unnamed}"
@@ -660,6 +678,7 @@ impl Panel<'_> {
                 name,
                 ..self.appearance.clone()
             };
+
             self.apply(named, "name");
         }
         landed
@@ -667,8 +686,10 @@ impl Panel<'_> {
 
     fn colour_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, COLOUR_CAPTION);
+
         let current = self.appearance.colour;
         let working = colour_selector::working(ui, selector_id(self.body, false));
+
         let stored = working.or(current).map(Rgb::hex).unwrap_or_default();
         let field = field::commit_field(
             ui,
@@ -685,6 +706,7 @@ impl Panel<'_> {
                     .ok_or(AppearanceError::NotAColour)
             },
         );
+
         ui.end_row();
         if let Some(error) = field.error {
             widgets::error_row(ui, &error);
@@ -696,6 +718,7 @@ impl Panel<'_> {
 
     fn opacity_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, OPACITY_CAPTION);
+
         let current = self.appearance.opacity;
         let shown = OPACITIES
             .iter()
@@ -707,6 +730,7 @@ impl Panel<'_> {
         let model = self.model;
         let body = self.body;
         let appearance = self.appearance;
+
         let chosen = feature_fields::combo(ui, Id::unique(("body-opacity", body)), shown, || {
             OPACITIES
                 .iter()
@@ -726,17 +750,20 @@ impl Panel<'_> {
                 })
                 .collect()
         });
+
         ui.end_row();
         self.actions.extend(chosen);
     }
 
     fn finish_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, FINISH_CAPTION);
+
         let current = self.appearance.finish;
         let model = self.model;
         let body = self.body;
         let appearance = self.appearance;
         let shown = finish_name(current);
+
         let chosen = feature_fields::combo(ui, finish_id(body), shown, || {
             FINISHES
                 .iter()
@@ -757,6 +784,7 @@ impl Panel<'_> {
             .iter()
             .find(|(finish, _)| *finish == current)
             .map_or("", |(_, hover)| *hover);
+
         ui.end_row();
         feature_fields::description_row(ui, hover);
         self.actions.extend(chosen);
@@ -764,11 +792,13 @@ impl Panel<'_> {
 
     fn material_rows(&mut self, ui: &mut Ui) {
         widgets::caption(ui, MATERIAL_CAPTION);
+
         let current = self.appearance.material.as_deref();
         let shown = current.unwrap_or(NO_MATERIAL).to_owned();
         let model = self.model;
         let body = self.body;
         let appearance = self.appearance;
+
         let chosen = feature_fields::combo(ui, Id::unique(("body-material", body)), shown, || {
             std::iter::once((NO_MATERIAL, None))
                 .chain(
@@ -796,10 +826,12 @@ impl Panel<'_> {
                 })
                 .collect()
         });
+
         ui.end_row();
         self.actions.extend(chosen);
 
         widgets::caption(ui, MATERIAL_NAME_CAPTION);
+
         let field = field::commit_field(
             ui,
             Id::unique(("body-material-name", self.body)),
@@ -808,6 +840,7 @@ impl Panel<'_> {
             false,
             |text| {
                 let length = text.chars().count();
+
                 if length > MAX_MATERIAL_NAME_CHARS {
                     return Err(AppearanceError::NameTooLong {
                         limit: MAX_MATERIAL_NAME_CHARS,
@@ -817,6 +850,7 @@ impl Panel<'_> {
                 Ok(material_name(text))
             },
         );
+
         ui.end_row();
         if let Some(error) = field.error {
             widgets::error_row(ui, &error);
@@ -826,12 +860,14 @@ impl Panel<'_> {
                 material,
                 ..self.appearance.clone()
             };
+
             self.apply(named, "material");
         }
     }
 
     fn density_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, DENSITY_CAPTION);
+
         let document = self.model.document();
         let stored = self
             .appearance
@@ -840,6 +876,7 @@ impl Panel<'_> {
             .map(|density| document.expression_text(density))
             .unwrap_or_default();
         let model = self.model;
+
         let field = ui
             .horizontal(|ui| {
                 let field = field::value_field(
@@ -850,7 +887,9 @@ impl Panel<'_> {
                     false,
                     |text| parse_density(model, text),
                 );
+
                 ui.label(widgets::muted(DENSITY_UNIT, ui));
+
                 let preview = self
                     .appearance
                     .density
@@ -859,12 +898,14 @@ impl Panel<'_> {
                     .and_then(|density| {
                         field::value_preview(model.parameters(), density, model.units())
                     });
+
                 if let Some(preview) = preview {
                     ui.label(widgets::muted(preview, ui));
                 }
                 field
             })
             .inner;
+
         ui.end_row();
         if let Some(error) = field.error {
             widgets::error_row(ui, &error);
@@ -876,6 +917,7 @@ impl Panel<'_> {
                 density,
                 ..self.appearance.clone()
             };
+
             self.apply(weighed, "density");
         }
         feature_fields::description_row(ui, DENSITY_NOTE);
@@ -901,9 +943,13 @@ pub fn show(
         appearance: &appearance,
         actions,
     };
+
     let swatch_focused = panel.swatches(ui, focus && !naming);
+
     ui.add_space(SPACE_S);
+
     let faces = selected_faces(model, selection, body);
+
     if !faces.is_empty() || !appearance.faces.is_empty() {
         panel.face_swatches(ui, &faces);
         ui.add_space(SPACE_S);
@@ -912,8 +958,10 @@ pub fn show(
         ui.label(widgets::muted(note, ui));
         ui.add_space(SPACE_S);
     }
+
     let name_focused = widgets::properties(ui, ("body-appearance", body), |ui| {
         let landed = panel.name_row(ui, &unnamed, focus && naming);
+
         panel.colour_row(ui);
         panel.opacity_row(ui);
         panel.finish_row(ui);
@@ -956,18 +1004,22 @@ mod tests {
             .collect();
 
         assert_eq!(offered, expected);
+
         for finish in Finish::ALL {
             let surface = surface(finish);
             let metal = matches!(finish, Finish::BrushedMetal | Finish::PolishedMetal);
+
             assert_eq!(surface.metalness >= 1.0, metal, "{finish:?}");
             assert!((0.0..=1.0).contains(&surface.roughness), "{finish:?}");
         }
+
         let finish_of = |name: &str| {
             MATERIALS
                 .iter()
                 .find(|material| material.name == name)
                 .map(|material| material.finish)
         };
+
         assert_eq!(finish_of("Steel"), Some(Finish::BrushedMetal));
         assert_eq!(finish_of("Aluminium"), Some(Finish::BrushedMetal));
         assert_eq!(finish_of("PLA"), Some(Finish::Satin));

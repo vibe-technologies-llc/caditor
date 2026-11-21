@@ -196,7 +196,7 @@ const SCRIPTS: &[Script] = &[
     },
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct FallbackFont {
     pub key: String,
     pub data: Arc<FontData>,
@@ -236,6 +236,7 @@ impl FallbackFonts {
         match receiver.try_recv() {
             Ok(found) => {
                 let arrived = !found.is_empty();
+
                 *self = Self::Found(found.into());
                 arrived
             }
@@ -258,6 +259,7 @@ impl FallbackFonts {
 fn find() -> Vec<FallbackFont> {
     let files = font_files(&font_directories());
     let mut chosen: Vec<&Path> = Vec::new();
+
     for script in SCRIPTS {
         match script.files.iter().find_map(|name| lookup(&files, name)) {
             Some(path) if !chosen.contains(&path) => chosen.push(path),
@@ -270,9 +272,11 @@ fn find() -> Vec<FallbackFont> {
 
 fn lookup<'a>(files: &'a BTreeMap<String, PathBuf>, name: &str) -> Option<&'a Path> {
     let name = name.to_lowercase();
+
     if let Some(path) = files.get(&name) {
         return Some(path);
     }
+
     let stem = name
         .rsplit_once('.')
         .map_or(name.as_str(), |(stem, _)| stem);
@@ -293,24 +297,29 @@ fn font_files(directories: &[PathBuf]) -> BTreeMap<String, PathBuf> {
         .map(|directory| (directory.clone(), 0))
         .collect();
     let mut visited = 0_usize;
+
     while let Some((directory, depth)) = pending.pop() {
         let Ok(entries) = fs::read_dir(&directory) else {
             continue;
         };
         let mut subdirectories = Vec::new();
+
         for entry in entries.flatten() {
             visited = visited.saturating_add(1);
             if visited > MAX_ENTRIES {
                 log::debug!("stopped looking for fonts after {MAX_ENTRIES} entries");
                 return files;
             }
+
             let path = entry.path();
+
             if path.is_dir() {
                 if depth < MAX_DEPTH {
                     subdirectories.push((path, depth.saturating_add(1)));
                 }
                 continue;
             }
+
             let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
                 continue;
             };
@@ -330,10 +339,12 @@ fn font_files(directories: &[PathBuf]) -> BTreeMap<String, PathBuf> {
 
 fn load(path: &Path) -> Option<FallbackFont> {
     let size = fs::metadata(path).ok()?.len();
+
     if size > MAX_FONT_BYTES {
         log::debug!("{} is too large to load as a fallback font", path.display());
         return None;
     }
+
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) => {
@@ -341,11 +352,14 @@ fn load(path: &Path) -> Option<FallbackFont> {
             return None;
         }
     };
+
     if !is_loadable(&bytes) {
         log::debug!("{} is not a font egui can load", path.display());
         return None;
     }
+
     let name = path.file_name()?.to_string_lossy().to_lowercase();
+
     log::info!("{} is used for text in other scripts", path.display());
     Some(FallbackFont {
         key: format!("{KEY_PREFIX}{name}"),
@@ -367,6 +381,7 @@ fn first_table_directory(bytes: &[u8]) -> Option<usize> {
     if bytes.get(0..4) != Some(COLLECTION_TAG.as_slice()) {
         return Some(0);
     }
+
     let major = u16_at(bytes, 4)?;
     let count = usize::try_from(u32_at(bytes, 8)?).ok()?;
     let offsets = count.checked_mul(4)?;
@@ -375,9 +390,11 @@ fn first_table_directory(bytes: &[u8]) -> Option<usize> {
     } else {
         0
     };
+
     let header_end = COLLECTION_HEADER
         .checked_add(offsets)?
         .checked_add(signature)?;
+
     if count == 0 || bytes.len() < header_end {
         return None;
     }
@@ -394,6 +411,7 @@ fn is_loadable(bytes: &[u8]) -> bool {
     let Some(tables) = u16_at(bytes, directory.saturating_add(4)) else {
         return false;
     };
+
     let end = usize::from(tables)
         .checked_mul(TABLE_RECORD)
         .and_then(|records| records.checked_add(TABLE_DIRECTORY_HEADER))
@@ -420,6 +438,7 @@ fn font_directories() -> Vec<PathBuf> {
                 PathBuf::from("/usr/share"),
             ]
         });
+
     let mut directories: Vec<PathBuf> = data_home
         .into_iter()
         .chain(data_dirs)
@@ -428,8 +447,10 @@ fn font_directories() -> Vec<PathBuf> {
         .chain([PathBuf::from("/usr/share/fonts")])
         .collect();
     let mut seen = Vec::new();
+
     directories.retain(|directory| {
         let fresh = !seen.contains(directory);
+
         seen.push(directory.clone());
         fresh
     });
@@ -457,6 +478,7 @@ mod tests {
 
     fn directory(version: &[u8; 4], tables: u16) -> Vec<u8> {
         let mut bytes = version.to_vec();
+
         bytes.extend(tables.to_be_bytes());
         bytes.extend([0; 6]);
         bytes.extend(vec![0; usize::from(tables) * TABLE_RECORD]);
@@ -467,13 +489,18 @@ mod tests {
     fn only_whole_font_headers_are_loaded() {
         let truetype = directory(&[0, 1, 0, 0], 3);
         let mut truncated = truetype.clone();
+
         truncated.pop();
+
         let mut collection = b"ttcf".to_vec();
+
         collection.extend([0, 1, 0, 0]);
         collection.extend(1_u32.to_be_bytes());
         collection.extend(16_u32.to_be_bytes());
         collection.extend(directory(b"OTTO", 2));
+
         let mut out_of_range = b"ttcf".to_vec();
+
         out_of_range.extend([0, 1, 0, 0]);
         out_of_range.extend(1_u32.to_be_bytes());
         out_of_range.extend(4096_u32.to_be_bytes());
@@ -518,9 +545,13 @@ mod tests {
             ("thai", "ภาษาไทย"),
         ];
         let context = egui::Context::default();
+
         context.set_fonts(crate::fonts::definitions_with(&found));
+
         let mut output = context.run_ui(egui::RawInput::default(), |_| {});
+
         output.textures_delta.clear();
+
         let font = egui::FontId::proportional(14.0);
         let latin = context.fonts_mut(|fonts| fonts.has_glyphs(&font, "Ag0"));
         let missing: Vec<&str> = samples

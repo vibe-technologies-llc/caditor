@@ -38,12 +38,14 @@ fn a_box_shelled_outside_keeps_its_own_faces_as_the_cavity() {
     check("outside", &outside, 12.0 * 12.0 * 11.0 - 1000.0);
     check("both sides", &both, 11.0 * 11.0 * 10.5 - 9.0 * 9.0 * 9.5);
     check("closed outside", &closed, 12.0 * 12.0 * 12.0 - 1000.0);
+
     assert_eq!(outside.shells().count(), 1);
     assert_eq!(closed.shells().count(), 2);
 
     let bottom = face_facing(&solid, Vector3::NEG_Z, Point3::ZERO);
     let bottom_name = solid.face(bottom).unwrap().name();
     let names: Vec<FaceName> = outside.faces().map(|(_, face)| face.name()).collect();
+
     assert!(names.contains(&bottom_name));
     assert!(names.contains(&FaceName::shell(70, bottom_name)));
 }
@@ -89,6 +91,7 @@ fn faces_given_their_own_thickness_keep_walls_of_it() {
 
     check("thick floor", &thick_floor, 1000.0 - 8.0 * 8.0 * 7.0);
     check("two walls", &two_walls, 1000.0 - 7.0 * 8.0 * 7.0);
+
     let thick_floor_both = run(
         &solid,
         &[top],
@@ -116,7 +119,9 @@ fn a_void_opened_outside_loses_the_floor_of_its_lining() {
 
     let skin = 12.0 * 12.0 * 12.0 - 1000.0;
     let lining = 4.0 * 4.0 * 4.0 - 2.0 * 2.0 * 2.0 - 4.0 * 4.0;
+
     check("void opened outside", &opened, skin + lining);
+
     assert_eq!(opened.shells().count(), 3);
 }
 
@@ -169,6 +174,7 @@ fn a_curved_face_parted_from_its_walls_by_sharp_edges_opens() {
 
     let section = 30.0 + under_circle(radius, -5.0, 5.0);
     let cavity_section = 16.0 + under_circle(radius, -4.0, 4.0);
+
     check("open roof", &opened, section * 6.0 - cavity_section * 4.0);
 
     let drum = cylinder(5.0, 10.0);
@@ -177,7 +183,9 @@ fn a_curved_face_parted_from_its_walls_by_sharp_edges_opens() {
         .find(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
         .map(|(id, _)| id)
         .unwrap();
+
     let ends = run(&drum, &[side], &walls(1.0, ShellSide::Inside, &[]));
+
     check("drum ends", &ends, 2.0 * 25.0 * PI);
 }
 

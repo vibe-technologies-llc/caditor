@@ -95,7 +95,7 @@ impl SplineKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SketchError {
     #[error("the constraint no longer exists")]
     MissingConstraint(ConstraintId),
@@ -239,7 +239,7 @@ pub enum SketchError {
     },
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct DimensionValues {
     values: BTreeMap<ConstraintId, f64>,
     texts: BTreeMap<EntityId, TextSize>,
@@ -277,7 +277,7 @@ impl DimensionValues {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct DetachedConstraint {
     pub(crate) constraint: Constraint,
     active: bool,
@@ -297,7 +297,7 @@ impl DetachedConstraint {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Sketch {
     plane: Plane,
     entities: BTreeMap<EntityId, Entity>,
@@ -505,6 +505,7 @@ impl Sketch {
             .iter()
             .map(|point| self.point(*point))
             .collect::<Option<Vec<_>>>()?;
+
         if let SplineKind::Fit { closed, spacing } = *kind {
             let handles = self.spline_handles(id);
             if !handles.is_empty()
@@ -816,6 +817,7 @@ impl Sketch {
             (Role::Circular, Role::Circular) => {
                 let ((first, first_radius), (second, second_radius)) =
                     (self.circle(from)?, self.circle(to)?);
+
                 let between = first.distance(second);
                 let apart = between - first_radius - second_radius;
                 let within = (first_radius - second_radius).abs() - between;
@@ -859,13 +861,16 @@ impl Sketch {
             Some(Entity::EllipticalArc { .. }) => {
                 let joint = arc_joint(self, entity, other)?;
                 let shape = self.ellipse(entity)?;
+
                 let tangent = shape.tangent_at(shape.parameter_of(self.point(joint.end)?));
+
                 return Some(if joint.at_start { tangent } else { -tangent });
             }
             Some(Entity::Spline { .. }) => return self.spline_leaving(entity, other),
             _ => return self.line_direction(entity),
         };
         let joint = arc_joint(self, entity, other)?;
+
         let radius = self.point(joint.end)? - self.point(center)?;
         Some(Vector2::from_angle(joint.turn()).rotate(radius))
     }
@@ -873,6 +878,7 @@ impl Sketch {
     fn spline_leaving(&self, spline: EntityId, line: EntityId) -> Option<Vector2> {
         let (joint, _) = joined_ends(self, spline, line)?;
         let (first, _) = self.entity(spline)?.spline_ends()?;
+
         let at_start = joint == first;
         let [tangent, _] = self
             .spline(spline)?
@@ -1040,7 +1046,9 @@ impl Sketch {
 
     pub fn add_parametric_gear(&mut self, gear: Gear) -> Result<EntityId, SketchError> {
         self.check_gear(None, &gear)?;
+
         let id = EntityId::from_raw(self.allocate()?);
+
         self.count_uses(&[gear.centre], true);
         self.gears.insert(id, gear);
         Ok(id)
@@ -1062,10 +1070,12 @@ impl Sketch {
                 label: self.entity_label(id),
             });
         }
+
         let removed = self
             .gears
             .remove(&id)
             .ok_or(SketchError::NoSuchEntity(id))?;
+
         self.gear_values.remove(&id);
         self.count_uses(&[removed.centre], false);
         Ok(removed)
@@ -1073,6 +1083,7 @@ impl Sketch {
 
     pub fn replace_gear(&mut self, id: EntityId, gear: Gear) -> Result<Gear, SketchError> {
         let current = self.gears.get(&id).ok_or(SketchError::NoSuchEntity(id))?;
+
         if current.centre != gear.centre
             || current.driver() != gear.driver()
             || current.is_sprocket() != gear.is_sprocket()
@@ -1100,6 +1111,7 @@ impl Sketch {
                 .gears
                 .get(&driver)
                 .ok_or(SketchError::MissingEntity(driver))?;
+
             if Some(driver) == id {
                 return Err(SketchError::SameEntity {
                     entity: driver,
@@ -1141,7 +1153,9 @@ impl Sketch {
 
     pub fn add_text(&mut self, text: Text) -> Result<EntityId, SketchError> {
         self.check_text(&text)?;
+
         let id = EntityId::from_raw(self.allocate()?);
+
         self.count_uses(&[text.anchor], true);
         self.texts.insert(id, text);
         Ok(id)
@@ -1161,6 +1175,7 @@ impl Sketch {
             .texts
             .remove(&id)
             .ok_or(SketchError::NoSuchEntity(id))?;
+
         self.text_sizes.remove(&id);
         self.count_uses(&[removed.anchor], false);
         Ok(removed)
@@ -1168,6 +1183,7 @@ impl Sketch {
 
     pub fn replace_text(&mut self, id: EntityId, text: Text) -> Result<Text, SketchError> {
         let current = self.texts.get(&id).ok_or(SketchError::NoSuchEntity(id))?;
+
         if current.anchor != text.anchor {
             return Err(SketchError::ChangesStructure {
                 entity: id,
@@ -1224,7 +1240,9 @@ impl Sketch {
         if !self.constraints.contains_key(&id) {
             return Err(SketchError::MissingConstraint(id));
         }
+
         let was = !self.inactive.contains(&id);
+
         if active {
             self.inactive.remove(&id);
         } else {
@@ -1250,6 +1268,7 @@ impl Sketch {
             .constraints
             .get(&id)
             .ok_or(SketchError::MissingConstraint(id))?;
+
         if constraint.dimension().is_none() {
             return Err(SketchError::NotADimension(id));
         }
@@ -1280,6 +1299,7 @@ impl Sketch {
                 label: self.entity_label(id),
             });
         }
+
         let was = if construction {
             !self.construction.insert(id)
         } else {
@@ -1302,6 +1322,7 @@ impl Sketch {
 
     pub fn set_projected(&mut self, id: EntityId, projected: bool) -> Result<bool, SketchError> {
         self.check_editable(id)?;
+
         let was = if projected {
             !self.projected.insert(id)
         } else {
@@ -1443,7 +1464,9 @@ impl Sketch {
     pub fn add_constraint(&mut self, constraint: Constraint) -> Result<ConstraintId, SketchError> {
         self.check_constraint(&constraint)?;
         self.check_literal_dimension(&constraint)?;
+
         let id = ConstraintId::from_raw(self.allocate()?);
+
         self.count_uses(&constraint.entities(), true);
         self.constraints.insert(id, constraint);
         Ok(id)
@@ -1454,9 +1477,11 @@ impl Sketch {
         else {
             return Ok(());
         };
+
         if !expression.parameters().is_empty() {
             return Ok(());
         }
+
         let no_parameters = |_| Err(EvalError::ParameterMissing);
         let Ok(value) = expression.evaluate_as(kind, &no_parameters) else {
             return Ok(());
@@ -1476,10 +1501,13 @@ impl Sketch {
         unmoving: Unmoving,
     ) -> Result<(), SketchError> {
         let entities = constraint.entities();
+
         if let Some(missing) = entities.iter().find(|entity| !self.contains(**entity)) {
             return Err(SketchError::MissingEntity(*missing));
         }
+
         let mut seen = BTreeSet::new();
+
         if let Some(repeated) = entities.iter().find(|entity| !seen.insert(**entity)) {
             return Err(SketchError::SameEntity {
                 entity: *repeated,
@@ -1550,6 +1578,7 @@ impl Sketch {
             }
             Constraint::Angle { from: a, to: b, .. } if self.is_arc(a) || self.is_arc(b) => {
                 let (arc, line) = if self.is_arc(a) { (a, b) } else { (b, a) };
+
                 self.expect(line, &[Role::Line], "a line")?;
                 if arc_joint(self, arc, line).is_none() {
                     return Err(not_joined(self, constraint, a, b));
@@ -1564,6 +1593,7 @@ impl Sketch {
                 } else {
                     (b, a)
                 };
+
                 self.expect(line, &[Role::Line], "a line")?;
                 if joined_ends(self, spline, line).is_none() {
                     return Err(not_joined(self, constraint, a, b));
@@ -1581,6 +1611,7 @@ impl Sketch {
             Constraint::Tangent(a, b) => {
                 let needed = "a line, a circle, an arc, a spline or an ellipse";
                 let kinds = [Role::Line, Role::Circular, Role::Spline, Role::Elliptic];
+
                 let first = self.expect(a, &kinds, needed)?;
                 let second = self.expect(b, &kinds, needed)?;
                 match (first, second) {
@@ -1603,8 +1634,10 @@ impl Sketch {
             Constraint::Curvature(a, b) => {
                 let needed = "a line, a circle, an arc or a spline";
                 let kinds = [Role::Line, Role::Circular, Role::Spline];
+
                 let first = self.expect(a, &kinds, needed)?;
                 let second = self.expect(b, &kinds, needed)?;
+
                 if first != Role::Spline && second != Role::Spline {
                     return Err(self.not_applicable(constraint, a, b));
                 }
@@ -1626,13 +1659,16 @@ impl Sketch {
             Constraint::Equal(a, b) => {
                 let needed = "a line, a circle, an arc, a spline or an ellipse";
                 let kinds = [Role::Line, Role::Circular, Role::Spline, Role::Elliptic];
+
                 let first = self.expect(a, &kinds, needed)?;
                 let second = self.expect(b, &kinds, needed)?;
+
                 let lengths = matches!(
                     (first, second),
                     (Role::Line | Role::Spline, Role::Line | Role::Spline)
                 );
                 let fits = first == second || lengths;
+
                 if !fits || a.is_reference() || b.is_reference() {
                     return Err(self.not_applicable(constraint, a, b));
                 }
@@ -1640,6 +1676,7 @@ impl Sketch {
             }
             Constraint::Midpoint { point, curve } => {
                 let needed = "a line, an arc or an elliptical arc";
+
                 self.expect(point, &[Role::Point], "a point")?;
                 self.expect(curve, &[Role::Line, Role::Circular, Role::Elliptic], needed)?;
                 if let Some(Entity::Circle { .. } | Entity::Ellipse { .. }) = self.entity(curve) {
@@ -1794,11 +1831,13 @@ impl Sketch {
     pub fn layout_points(&self) -> Vec<EntityId> {
         let rays = self.layout_rays();
         let mut users: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
+
         for (curve, entity) in &self.entities {
             for point in entity.points() {
                 users.entry(point).or_default().push(*curve);
             }
         }
+
         let ends_a_ray = |point: EntityId, curve: &EntityId| {
             rays.contains(curve)
                 && matches!(self.entities.get(curve), Some(Entity::Line { end, .. }) if *end == point)
@@ -1882,10 +1921,12 @@ impl Sketch {
                 label: self.entity_label(id),
             });
         }
+
         let removed = self
             .entities
             .remove(&id)
             .ok_or(SketchError::NoSuchEntity(id))?;
+
         self.construction.remove(&id);
         self.projected.remove(&id);
         self.split_from.remove(&id);
@@ -1895,10 +1936,12 @@ impl Sketch {
 
     pub fn replace_entity(&mut self, id: EntityId, entity: Entity) -> Result<Entity, SketchError> {
         self.check_editable(id)?;
+
         let unchanged_structure = self
             .entities
             .get(&id)
             .is_some_and(|current| current.same_structure(&entity));
+
         if !unchanged_structure {
             return Err(SketchError::ChangesStructure {
                 entity: id,
@@ -1913,6 +1956,7 @@ impl Sketch {
 
     pub fn respace_fit_spline(&mut self, id: EntityId) -> Result<bool, SketchError> {
         self.check_editable(id)?;
+
         let label = self.entity_label(id);
         match self.entities.get_mut(&id) {
             Some(Entity::Spline {
@@ -1935,6 +1979,7 @@ impl Sketch {
             .constraints
             .remove(&id)
             .ok_or(SketchError::MissingConstraint(id))?;
+
         self.inactive.remove(&id);
         self.labels.remove(&id);
         self.count_uses(&removed.entities(), false);
@@ -1973,6 +2018,7 @@ impl Sketch {
             active,
             label,
         } = detached;
+
         self.insert_constraint(id, constraint)?;
         self.carry_constraint_state(id, active, label)
     }
@@ -2016,6 +2062,7 @@ impl Sketch {
             .chain(self.texts.values().map(|text| text.anchor))
             .chain(self.gears.values().map(|gear| gear.centre))
             .collect();
+
         fresh.count_uses(&used, true);
         fresh.uses
     }
@@ -2025,6 +2072,7 @@ impl Sketch {
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
         let mut values = BTreeMap::new();
+
         for (id, constraint) in self.active_constraints() {
             let (Some(expression), Some(kind)) =
                 (constraint.dimension(), constraint.dimension_kind())
@@ -2035,28 +2083,36 @@ impl Sketch {
                 constraint: id,
                 reason,
             };
+
             let value = expression
                 .evaluate_as(kind, value_of)
                 .map_err(|error| failed(DimensionError::Evaluation(error)))?;
+
             constraint.check_dimension_value(value).map_err(failed)?;
             values.insert(id, value);
         }
+
         let mut texts = BTreeMap::new();
+
         for (id, text) in &self.texts {
             let size = text.size(value_of).map_err(|reason| SketchError::Text {
                 text: *id,
                 label: self.entity_label(*id),
                 reason,
             })?;
+
             texts.insert(*id, size);
         }
+
         let mut gears = BTreeMap::new();
+
         for (id, gear) in self.gears.iter().filter(|(_, gear)| gear.meshing.is_none()) {
             let failed = |reason| SketchError::Gear {
                 gear: *id,
                 label: self.entity_label(*id),
                 reason,
             };
+
             gears.insert(*id, gear.values(value_of).map_err(failed)?);
         }
         for (id, gear) in self.gears.iter().filter(|(_, gear)| gear.meshing.is_some()) {
@@ -2069,7 +2125,9 @@ impl Sketch {
                 .driver()
                 .and_then(|driver| gears.get(&driver))
                 .ok_or_else(|| failed(GearValueError::DriverUnknown))?;
+
             let values = gear.meshed_values(driver, value_of).map_err(failed)?;
+
             gears.insert(*id, values);
         }
         Ok(DimensionValues {
@@ -2137,10 +2195,12 @@ impl Sketch {
         if raw >= FIRST_UNSTORABLE_ID {
             return Err(SketchError::ReservedId(raw));
         }
+
         let taken = self.entities.contains_key(&EntityId::from_raw(raw))
             || self.texts.contains_key(&EntityId::from_raw(raw))
             || self.gears.contains_key(&EntityId::from_raw(raw))
             || self.constraints.contains_key(&ConstraintId::from_raw(raw));
+
         if taken {
             return Err(SketchError::DuplicateId(raw));
         }
@@ -2257,7 +2317,9 @@ impl Sketch {
             }
             _ => {}
         }
+
         let points = entity.points();
+
         for point in &points {
             match self.entities.get(point) {
                 Some(Entity::Point(_)) => {}
@@ -2265,6 +2327,7 @@ impl Sketch {
                 None => return Err(SketchError::MissingEntity(*point)),
             }
         }
+
         let distinct_points_needed = matches!(
             entity,
             Entity::Line { .. }
@@ -2310,8 +2373,10 @@ impl Sketch {
     ) -> Result<(), SketchError> {
         const MEASURED: [Role; 3] = [Role::Point, Role::Line, Role::Circular];
         const NEEDED: &str = "a point, a line, a circle or an arc";
+
         let first = self.expect(a, &MEASURED, NEEDED)?;
         let second = self.expect(b, &MEASURED, NEEDED)?;
+
         if first == Role::Line && second == Role::Line {
             return Err(SketchError::NotApplicable {
                 constraint: constraint.kind_name(),
@@ -2319,6 +2384,7 @@ impl Sketch {
                 second: self.entity_label(b),
             });
         }
+
         let Some(along) = constraint.measuring_axis() else {
             return Ok(());
         };
@@ -2373,6 +2439,7 @@ impl Sketch {
             (Some(Role::Line | Role::Circular), Some(Role::Point)) => (b, a),
             _ => return Err(self.not_applicable(constraint, a, b)),
         };
+
         self.check_not_only_reference(&[a, b], unmoving)?;
         self.check_not_own_point(point, curve)
     }
@@ -2399,6 +2466,7 @@ impl Sketch {
     ) -> Result<(), SketchError> {
         let needed = "a circle, an arc, an ellipse or a point";
         let kinds = [Role::Circular, Role::Elliptic, Role::Point];
+
         let first = self.expect(a, &kinds, needed)?;
         let second = self.expect(b, &kinds, needed)?;
         match (first, second) {
@@ -2437,6 +2505,7 @@ impl Sketch {
 
     pub(crate) fn insert(&mut self, entity: Entity) -> EntityId {
         let id = EntityId::from_raw(self.allocate_past_the_limit());
+
         self.count_uses(&entity.points(), true);
         self.entities.insert(id, entity);
         id
@@ -2451,12 +2520,13 @@ impl Sketch {
 
     fn allocate_past_the_limit(&mut self) -> u64 {
         let id = self.next_id;
+
         self.next_id = self.next_id.saturating_add(1);
         id
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Unmoving {
     FixedGeometry,
     ReferenceGeometry,
@@ -2479,8 +2549,10 @@ mod tests {
 
     fn distance(value: Expression) -> (Sketch, ConstraintId) {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let (start, end) = endpoints(&sketch, line);
+
         let constraint = sketch
             .add_constraint(Constraint::Distance {
                 from: start,
@@ -2498,11 +2570,15 @@ mod tests {
     #[test]
     fn line_adds_its_endpoints_as_points() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
+
         sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
 
         assert_eq!(sketch.entities().len(), 3);
+
         let (start, end) = endpoints(&sketch, line);
+
         assert_eq!(sketch.entity(start), Some(&Entity::Point(Point2::ZERO)));
         assert_eq!(sketch.entity(end), Some(&Entity::Point(Point2::X)));
         assert_eq!(sketch.line_endpoints(line), Some((Point2::ZERO, Point2::X)));
@@ -2514,10 +2590,12 @@ mod tests {
     #[test]
     fn removal_keeps_other_ids_stable_and_never_reuses_them() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let first = sketch.add_point(Point2::ZERO);
         let second = sketch.add_point(Point2::X);
 
         sketch.remove_unused_entity(first).unwrap();
+
         let third = sketch.add_point(Point2::Y);
 
         assert_eq!(sketch.entity(second), Some(&Entity::Point(Point2::X)));
@@ -2528,10 +2606,12 @@ mod tests {
     #[test]
     fn a_used_entity_is_refused_until_its_users_are_removed_and_counts_stay_exact() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let horizontal = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
         let (start, end) = endpoints(&sketch, line);
         let circle = sketch.add_circle(Point2::ZERO, 2.0);
+
         let tangent = sketch
             .add_constraint(Constraint::Tangent(line, circle))
             .unwrap();
@@ -2544,11 +2624,13 @@ mod tests {
 
         sketch.remove_constraint(horizontal).unwrap();
         sketch.remove_constraint(tangent).unwrap();
+
         assert_eq!(sketch.uses, sketch.counted_from_scratch());
 
         sketch.remove_unused_entity(line).unwrap();
         sketch.remove_unused_entity(start).unwrap();
         sketch.remove_unused_entity(circle).unwrap();
+
         assert_eq!(sketch.uses, sketch.counted_from_scratch());
 
         assert_eq!(sketch.entity(line), None);
@@ -2563,10 +2645,12 @@ mod tests {
     #[test]
     fn inserting_with_explicit_ids_checks_references_and_keeps_ids_unique() {
         let mut original = Sketch::new(Plane::XY);
+
         let line = original.add_line(Point2::ZERO, Point2::X);
         let horizontal = original
             .add_constraint(Constraint::Horizontal(line))
             .unwrap();
+
         original.reserve_ids_below(10);
 
         let mut rebuilt = Sketch::new(Plane::XY);
@@ -2574,17 +2658,22 @@ mod tests {
             .entities()
             .map(|(id, entity)| (id, entity.clone()))
             .collect();
+
         entities.reverse();
+
         let (lines, points): (Vec<_>, Vec<_>) = entities
             .into_iter()
             .partition(|(_, entity)| matches!(entity, Entity::Line { .. }));
+
         assert_eq!(
             rebuilt.insert_entity(lines[0].0, lines[0].1.clone()),
             Err(SketchError::MissingEntity(EntityId::from_raw(0)))
         );
+
         for (id, entity) in points.into_iter().chain(lines) {
             rebuilt.insert_entity(id, entity).unwrap();
         }
+
         assert_eq!(
             rebuilt.insert_constraint(
                 ConstraintId::from_raw(line.raw()),
@@ -2599,6 +2688,7 @@ mod tests {
             ),
             Err(SketchError::MissingEntity(EntityId::from_raw(7)))
         );
+
         rebuilt
             .insert_constraint(horizontal, Constraint::Horizontal(line))
             .unwrap();
@@ -2628,6 +2718,7 @@ mod tests {
     #[test]
     fn new_entity_kinds_check_their_points_and_values() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let a = sketch.add_point(Point2::ZERO);
         let b = sketch.add_point(Point2::X);
         let insert = |sketch: &mut Sketch, raw: u64, entity: Entity| {
@@ -2678,6 +2769,7 @@ mod tests {
             insert(&mut sketch, u64::MAX - 1, Entity::Point(Point2::ZERO)),
             Err(SketchError::ReservedId(u64::MAX - 1))
         );
+
         insert(
             &mut sketch,
             10,
@@ -2690,7 +2782,9 @@ mod tests {
         insert(&mut sketch, 11, Entity::spline(vec![a, b, a])).unwrap();
 
         sketch.reserve_ids_below(u64::MAX);
+
         let next = sketch.add_point(Point2::ZERO);
+
         assert!(!next.is_reference());
         assert!(!sketch.add_point(Point2::ZERO).is_reference());
     }
@@ -2698,8 +2792,10 @@ mod tests {
     #[test]
     fn a_counter_that_reached_the_unstorable_range_names_nothing_more() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let (start, end) = endpoints(&sketch, line);
+
         sketch
             .insert_entity(
                 EntityId::from_raw(FIRST_UNSTORABLE_ID - 1),
@@ -2727,6 +2823,7 @@ mod tests {
     #[test]
     fn reference_geometry_is_built_in_and_named() {
         let mut sketch = Sketch::new(Plane::XY);
+
         assert_eq!(sketch.entity_label(EntityId::ORIGIN), "Origin");
         assert_eq!(
             sketch.entity_label(EntityId::HORIZONTAL_AXIS),
@@ -2748,6 +2845,7 @@ mod tests {
         let coincident = sketch
             .add_constraint(Constraint::Coincident(point, EntityId::HORIZONTAL_AXIS))
             .unwrap();
+
         assert_eq!(
             sketch.describe_constraint(coincident),
             "Coincident Point 0 and Horizontal axis"
@@ -2764,6 +2862,7 @@ mod tests {
     #[test]
     fn constraints_refuse_the_wrong_kinds_of_entity() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let (start, _) = endpoints(&sketch, line);
         let other = sketch.add_line(Point2::Y, Point2::new(1.0, 2.0));
@@ -2808,6 +2907,7 @@ mod tests {
             refused(Constraint::Coincident(spline, EntityId::HORIZONTAL_AXIS)),
             "Coincident does not apply to Spline 14 and Horizontal axis"
         );
+
         let Some(Entity::Spline {
             points: control_points,
             ..
@@ -2815,6 +2915,7 @@ mod tests {
         else {
             panic!("expected a spline");
         };
+
         assert_eq!(
             refused(Constraint::Coincident(control_points[1], spline)),
             "Point 13 is part of Spline 14"
@@ -2823,11 +2924,14 @@ mod tests {
             refused(Constraint::Tangent(spline, spline)),
             "it uses Spline 14 twice"
         );
+
         let other_spline = Entity::spline(vec![start, endpoints(&sketch, other).0]);
         let mut two_splines = sketch.clone();
+
         two_splines
             .insert_entity(EntityId::from_raw(30), other_spline)
             .unwrap();
+
         assert_eq!(
             two_splines.check_constraint(&Constraint::Tangent(spline, EntityId::from_raw(30))),
             Ok(())
@@ -2895,11 +2999,13 @@ mod tests {
     #[test]
     fn every_constraint_kind_has_a_plain_label() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let other = sketch.add_line(Point2::Y, Point2::new(1.0, 2.0));
         let circle = sketch.add_circle(Point2::new(5.0, 5.0), 1.0);
         let arc = sketch.add_arc(Point2::ZERO, Point2::X, Point2::Y);
         let value = Expression::Number(1.0);
+
         let labels = [
             (Constraint::Tangent(line, arc), "Tangent Line 2 and Arc 11"),
             (
@@ -2930,6 +3036,7 @@ mod tests {
         ];
         for (constraint, label) in labels {
             let id = sketch.add_constraint(constraint).unwrap();
+
             assert_eq!(sketch.describe_constraint(id), label);
         }
     }
@@ -2937,6 +3044,7 @@ mod tests {
     #[test]
     fn added_constraint_kinds_check_their_entities_and_have_plain_labels() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let (start, end) = endpoints(&sketch, line);
         let other = sketch.add_line(Point2::Y, Point2::new(1.0, 2.0));
@@ -2975,8 +3083,10 @@ mod tests {
             refused(Constraint::Concentric(lone, start)),
             "Concentric does not apply to Point 12 and Point 0"
         );
+
         let arc_center = sketch.center_of(arc).unwrap();
         let mut shared = sketch.clone();
+
         let shared_arc = shared.insert_entity(
             EntityId::from_raw(40),
             Entity::Arc {
@@ -2985,6 +3095,7 @@ mod tests {
                 end: lone,
             },
         );
+
         assert_eq!(shared_arc, Ok(()));
         assert_eq!(
             shared
@@ -3126,16 +3237,20 @@ mod tests {
                 "Distance between Line 2 and Line 5",
             ),
         ];
+
         for (constraint, label) in labels {
             let id = sketch.add_constraint(constraint).unwrap();
+
             assert_eq!(sketch.describe_constraint(id), label);
         }
+
         assert_eq!(sketch.uses, sketch.counted_from_scratch());
     }
 
     #[test]
     fn dimensions_evaluate_their_expressions_as_lengths() {
         let (sketch, constraint) = distance(Expression::Parameter(WIDTH));
+
         assert!(sketch.uses_parameter(WIDTH));
         assert_eq!(
             sketch.parameters().into_iter().collect::<Vec<_>>(),
@@ -3147,12 +3262,14 @@ mod tests {
         );
 
         let solution = sketch.evaluate(&width_is(Quantity::length(40.0))).unwrap();
+
         assert_eq!(solution.dimension(constraint), Some(40.0));
     }
 
     #[test]
     fn a_disabled_dimension_that_cannot_evaluate_does_not_fail_the_sketch() {
         let (mut sketch, constraint) = distance(Expression::Parameter(WIDTH));
+
         sketch.set_active(constraint, false).unwrap();
 
         let values = sketch.evaluate(&width_is(Quantity::angle(10.0))).unwrap();
@@ -3167,6 +3284,7 @@ mod tests {
         let error = sketch
             .evaluate(&width_is(Quantity::angle(10.0)))
             .unwrap_err();
+
         assert_eq!(
             error,
             SketchError::Dimension {
@@ -3186,12 +3304,14 @@ mod tests {
         let error = sketch
             .evaluate(&width_is(Quantity::length(-1.0)))
             .unwrap_err();
+
         assert_eq!(error.to_string(), "a distance cannot be negative");
     }
 
     #[test]
     fn angles_take_any_value_and_radii_must_be_positive() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let circle = sketch.add_circle(Point2::ZERO, 1.0);
         let angle = sketch
@@ -3202,12 +3322,16 @@ mod tests {
                 value: Expression::Parameter(WIDTH),
             })
             .unwrap();
+
         sketch.remove_unused_entity(circle).unwrap();
+
         let evaluated = sketch.evaluate(&width_is(Quantity::angle(-30.0))).unwrap();
+
         assert_eq!(evaluated.dimension(angle), Some(-30.0));
 
         let circle = sketch.add_circle(Point2::ZERO, 1.0);
         let radius = ConstraintId::from_raw(sketch.next_id());
+
         sketch
             .insert_constraint(
                 radius,
@@ -3217,9 +3341,11 @@ mod tests {
                 },
             )
             .unwrap();
+
         let error = sketch
             .evaluate(&width_is(Quantity::angle(1.0)))
             .unwrap_err();
+
         assert_eq!(
             error,
             SketchError::Dimension {
@@ -3235,23 +3361,28 @@ mod tests {
                 Expression::Measure(2e6, caditor_expression::Unit::Millimetre),
             )
             .unwrap();
+
         let error = sketch
             .evaluate(&width_is(Quantity::angle(1.0)))
             .unwrap_err();
+
         assert_eq!(error.to_string(), "a length cannot be more than 1000 m");
     }
 
     #[test]
     fn setting_a_dimension_returns_the_previous_expression() {
         let (mut sketch, constraint) = distance(Expression::Number(5.0));
+
         let previous = sketch
             .set_dimension(constraint, Expression::Parameter(WIDTH))
             .unwrap();
+
         assert_eq!(previous, Expression::Number(5.0));
         assert!(sketch.uses_parameter(WIDTH));
 
         let line = sketch.add_line(Point2::ZERO, Point2::Y);
         let horizontal = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+
         assert_eq!(
             sketch.set_dimension(horizontal, Expression::Number(1.0)),
             Err(SketchError::NotADimension(horizontal))
@@ -3261,6 +3392,7 @@ mod tests {
     #[test]
     fn curves_turn_into_polylines() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let circle = sketch.add_circle(Point2::new(1.0, 1.0), 2.0);
         let arc = sketch.add_arc(Point2::ZERO, Point2::X, Point2::new(-1.0, 0.0));
@@ -3271,13 +3403,19 @@ mod tests {
             sketch.polyline(line, segment_angle),
             Some(vec![Point2::ZERO, Point2::X])
         );
+
         let circle_points = sketch.polyline(circle, segment_angle).unwrap();
+
         assert_eq!(circle_points.len(), 17);
         assert!(circle_points[0].distance(circle_points[16]) < 1e-12);
+
         let arc_points = sketch.polyline(arc, segment_angle).unwrap();
+
         assert_eq!(arc_points.len(), 9);
         assert!(arc_points[8].distance(Point2::new(-1.0, 0.0)) < 1e-12);
+
         let spline_points = sketch.polyline(spline, segment_angle).unwrap();
+
         assert_eq!(spline_points.first(), Some(&Point2::ZERO));
         assert!(spline_points.last().unwrap().distance(Point2::X) < 1e-12);
         assert_eq!(sketch.circle(arc), Some((Point2::ZERO, 1.0)));
@@ -3290,6 +3428,7 @@ mod tests {
     #[test]
     fn curves_become_construction_geometry_and_points_never_do() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let circle = sketch.add_circle(Point2::Y, 1.0);
         let plain = sketch.clone();
@@ -3317,6 +3456,7 @@ mod tests {
     #[test]
     fn removing_a_construction_curve_forgets_it() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let circle = sketch.add_circle(Point2::Y, 1.0);
 
@@ -3331,8 +3471,10 @@ mod tests {
     #[test]
     fn a_dimension_keeps_its_label_offset_until_it_is_removed() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let (start, end) = endpoints(&sketch, line);
+
         let length = sketch
             .add_constraint(Constraint::Distance {
                 from: start,
@@ -3357,7 +3499,9 @@ mod tests {
             sketch.set_label_offset(length, Some(Vector2::new(f64::NAN, 0.0))),
             Err(SketchError::NotFinite)
         );
+
         sketch.remove_constraint(length).unwrap();
+
         assert_eq!(sketch.label_offsets().len(), 0);
     }
 
@@ -3367,10 +3511,12 @@ mod tests {
         let mut sketch = Sketch::new(Plane::XY);
         let mut lines = Vec::new();
         let mut dimensions = Vec::new();
+
         for index in 0..MANY {
             let y = index as f64;
             let line = sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y));
             let (start, end) = endpoints(&sketch, line);
+
             let dimension = sketch
                 .add_constraint(Constraint::Distance {
                     from: start,
@@ -3378,6 +3524,7 @@ mod tests {
                     value: Expression::number(10.0),
                 })
                 .unwrap();
+
             lines.push(line);
             dimensions.push(dimension);
         }
@@ -3402,23 +3549,31 @@ mod tests {
         let (mut sketch, lines, dimensions) = dimensioned_lines();
 
         let plain = sketch.heap_size();
+
         for line in &lines {
             sketch.set_construction(*line, true).unwrap();
         }
+
         let constructed = sketch.heap_size();
+
         for dimension in &dimensions {
             sketch.set_active(*dimension, false).unwrap();
         }
+
         let inactive = sketch.heap_size();
+
         for dimension in &dimensions {
             sketch
                 .set_label_offset(*dimension, Some(Vector2::X))
                 .unwrap();
         }
+
         let labelled = sketch.heap_size();
+
         for line in &lines {
             sketch.set_projected(*line, true).unwrap();
         }
+
         let projected = sketch.heap_size();
 
         assert!(constructed >= plain + MANY * size_of::<EntityId>());
@@ -3439,6 +3594,7 @@ mod tests {
             value: Expression::Number(4.0),
         };
         let axes = Constraint::Perpendicular(EntityId::HORIZONTAL_AXIS, EntityId::VERTICAL_AXIS);
+
         sketch.set_projected(circle, true).unwrap();
         sketch.set_projected(centre, true).unwrap();
 

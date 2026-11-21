@@ -22,6 +22,7 @@ struct Hollowed {
 
 fn hollowed_boss() -> Hollowed {
     let mut boss = square_boss();
+
     let evaluation = evaluate(&boss.document);
     let top = face_made_by(
         evaluation.body(boss.plate).unwrap(),
@@ -30,6 +31,7 @@ fn hollowed_boss() -> Hollowed {
         },
     );
     let mut transaction = boss.document.transaction("Shell");
+
     let shell = transaction.add_feature(
         "Shell 1",
         FeatureKind::Shell(Shell {
@@ -40,13 +42,16 @@ fn hollowed_boss() -> Hollowed {
             faces: Vec::new(),
         }),
     );
+
     boss.document.apply(transaction.finish()).unwrap();
     Hollowed { boss, shell }
 }
 
 fn add(document: &mut Document, name: &str, kind: FeatureKind) -> FeatureId {
     let mut transaction = document.transaction(name);
+
     let feature = transaction.add_feature(name, kind);
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -76,22 +81,29 @@ fn copies_made(
 #[test]
 fn a_pattern_of_a_hollowed_boss_opens_and_hollows_every_copy() {
     let Hollowed { mut boss, shell } = hollowed_boss();
+
     let pattern = Pattern::new(boss.plate, linear(boss.count)).repeating(vec![boss.boss, shell]);
     let pattern = add(&mut boss.document, "Pattern 1", FeatureKind::from(pattern));
     let evaluation = evaluate(&boss.document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let hollowed = volume_after(&evaluation, shell);
+
     assert!(hollowed < PLATE / 2.0);
+
     assert_close(
         exact_volume(&evaluation, boss.plate),
         hollowed + 2.0 * (BOSS - BOSS_HOLLOW),
     );
+
     let solid = evaluation.body(boss.plate).unwrap();
+
     assert_eq!(
         copies_made(solid, pattern, shell, Made::Shell),
         BTreeSet::from([[1, 0], [2, 0]])
     );
+
     let opened_tops = solid
         .faces()
         .map(|(_, face)| face)
@@ -108,23 +120,28 @@ fn a_pattern_of_a_hollowed_boss_opens_and_hollows_every_copy() {
         })
         .filter(|face| face.loops().len() == 2)
         .count();
+
     assert_eq!(opened_tops, 2);
 }
 
 #[test]
 fn a_mirror_of_a_hollowed_boss_hollows_its_image() {
     let Hollowed { mut boss, shell } = hollowed_boss();
+
     let mirror = Mirror::new(boss.plate, PlaneReference::Principal(PrincipalPlane::Yz))
         .mirroring(vec![boss.boss, shell]);
     let mirror = add(&mut boss.document, "Mirror 1", FeatureKind::Mirror(mirror));
     let evaluation = evaluate(&boss.document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_close(
         exact_volume(&evaluation, boss.plate),
         volume_after(&evaluation, shell) + BOSS - BOSS_HOLLOW,
     );
+
     let solid = evaluation.body(boss.plate).unwrap();
+
     assert_eq!(
         copies_made(solid, mirror, shell, Made::Shell),
         BTreeSet::from([MIRROR_IMAGE])
@@ -135,6 +152,7 @@ fn a_mirror_of_a_hollowed_boss_hollows_its_image() {
 fn a_shell_followed_by_another_change_to_its_body_is_refused_in_words() {
     let Hollowed { mut boss, shell } = hollowed_boss();
     let mm = |value: f64| Expression::measure(value, Unit::Millimetre);
+
     add(
         &mut boss.document,
         "Peg",
@@ -150,11 +168,13 @@ fn a_shell_followed_by_another_change_to_its_body_is_refused_in_words() {
             operation: BodyOperation::Add(boss.plate),
         }),
     );
+
     let pattern = Pattern::new(boss.plate, linear(boss.count)).repeating(vec![boss.boss, shell]);
     let pattern = add(&mut boss.document, "Pattern 1", FeatureKind::from(pattern));
     let evaluation = evaluate(&boss.document);
 
     let error = failure(&evaluation, pattern);
+
     assert_eq!(
         error.reason(),
         "Peg changes the body after Shell 1, so this pattern cannot hollow its copies with Shell 1."

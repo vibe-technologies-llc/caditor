@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum PictureField {
     Read(String),
     Kept(Arc<Picture>),
@@ -60,7 +60,7 @@ impl<'de> Deserialize<'de> for PictureField {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ReferenceImageRecord {
     pub picture: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,14 +79,14 @@ pub(crate) struct ReferenceImageRecord {
     pub locked: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ImagePlaneRecord {
     Plane(PlaneReferenceRecord),
     Sketch(u64),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ImageSizeRecord {
     Width(String),
@@ -121,6 +121,7 @@ impl Pictures {
 
 pub(crate) fn reference_image_record(image: &ReferenceImage) -> ReferenceImageRecord {
     let mut image = image.clone();
+
     image.settle();
 
     let text = Expression::to_stored_text;
@@ -208,13 +209,16 @@ pub(crate) fn restore_reference_image(
             ImageSize::Width(restore_value("100 mm", "width", "100 mm", name, issues))
         }
     };
+
     if record.opacity < MIN_IMAGE_OPACITY_PERCENT {
         issues.push(format!(
             "The opacity of “{name}” was below {MIN_IMAGE_OPACITY_PERCENT}%, so it was raised to \
              it."
         ));
     }
+
     let [along, across] = &record.at;
+
     let mut image = ReferenceImage {
         picture,
         plane,
@@ -229,6 +233,7 @@ pub(crate) fn restore_reference_image(
         in_front: record.in_front,
         locked: record.locked,
     };
+
     image.settle();
     image
 }

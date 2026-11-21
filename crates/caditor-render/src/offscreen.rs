@@ -22,11 +22,13 @@ impl OffscreenRenderer {
         let loss = DeviceLoss::watch(&opened.device, Arc::new(|| {}));
         let offered =
             gpu::offered_msaa(&opened.adapter, &opened.device, IMAGE_FORMAT, DEPTH_FORMAT);
+
         let mut viewport = ViewportRenderer::new(
             &opened.device,
             IMAGE_FORMAT,
             graphics.msaa.closest(&offered).samples(),
         );
+
         viewport.set_shading(graphics.shading);
         viewport.set_linear_resolve(gpu::resolves_linearly(&opened.adapter));
         Ok(Self {

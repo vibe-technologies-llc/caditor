@@ -24,9 +24,11 @@ fn assert_solves_in_place(sketch: &Sketch) {
     for (id, entity) in sketch.entities() {
         if let Entity::Point(position) = entity {
             let moved = solved.geometry.point(id).unwrap().distance(*position);
+
             assert!(moved < 1e-7, "point {id:?} moved by {moved}");
         }
     }
+
     assert!(solved.solution.redundancies().is_empty());
 }
 
@@ -64,6 +66,7 @@ fn distance_from(spline: &BSpline, point: Point2) -> f64 {
 fn assert_lies_on(piece: &BSpline, whole: &BSpline) {
     for point in samples(piece) {
         let off = distance_from(whole, point);
+
         assert!(off < EXACT, "{point} lies {off} off the original spline");
     }
 }
@@ -95,6 +98,7 @@ fn upright(sketch: &mut Sketch, x: f64) -> EntityId {
 #[test]
 fn trimming_the_middle_of_a_spline_leaves_two_splines_on_the_same_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wavy());
     let left = upright(&mut sketch, 12.0);
     let right = upright(&mut sketch, 28.0);
@@ -108,6 +112,7 @@ fn trimming_the_middle_of_a_spline_leaves_two_splines_on_the_same_curve() {
     };
     let (near_start, near_end) = ends(&sketch, spline);
     let (far_start, far_end) = ends(&sketch, piece);
+
     assert_eq!((near_start, far_end), (start, end));
     assert_eq!(kind_of(&sketch, spline), SplineKind::OPEN);
     assert_eq!(kind_of(&sketch, piece), SplineKind::OPEN);
@@ -117,6 +122,7 @@ fn trimming_the_middle_of_a_spline_leaves_two_splines_on_the_same_curve() {
     assert!((sketch.point(far_start).unwrap().x - at(28.0, 0.0).x).abs() < 1e-7);
     assert!(has(&sketch, &Constraint::Coincident(near_end, left)));
     assert!(has(&sketch, &Constraint::Coincident(far_start, right)));
+
     for kept in [spline, piece] {
         assert_lies_on(&sketch.spline(kept).unwrap(), &whole);
     }
@@ -126,6 +132,7 @@ fn trimming_the_middle_of_a_spline_leaves_two_splines_on_the_same_curve() {
 #[test]
 fn trimming_an_end_piece_shortens_the_spline_and_keeps_its_far_end() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wavy());
     let post = upright(&mut sketch, 30.0);
     let whole = sketch.spline(spline).unwrap();
@@ -135,6 +142,7 @@ fn trimming_an_end_piece_shortens_the_spline_and_keeps_its_far_end() {
     assert_eq!(sketch.trim(spline, at(38.0, 0.0)), Ok(Trimmed::Shortened));
 
     let (kept_start, cut_end) = ends(&sketch, spline);
+
     assert_eq!(kept_start, start);
     assert_ne!(cut_end, end);
     assert!(sketch.entity(end).is_none());
@@ -146,6 +154,7 @@ fn trimming_an_end_piece_shortens_the_spline_and_keeps_its_far_end() {
     );
     assert!((sketch.point(cut_end).unwrap().x - at(30.0, 0.0).x).abs() < 1e-7);
     assert!(has(&sketch, &Constraint::Coincident(cut_end, post)));
+
     assert_lies_on(&sketch.spline(spline).unwrap(), &whole);
     assert_solves_in_place(&sketch);
 }
@@ -153,9 +162,12 @@ fn trimming_an_end_piece_shortens_the_spline_and_keeps_its_far_end() {
 #[test]
 fn trimming_both_ends_of_a_long_spline_leaves_its_middle_exactly() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
+
     upright(&mut sketch, 13.0);
     upright(&mut sketch, 47.0);
+
     let whole = sketch.spline(spline).unwrap();
     let inner = points_of(&sketch, spline)[3];
 
@@ -165,11 +177,15 @@ fn trimming_both_ends_of_a_long_spline_leaves_its_middle_exactly() {
     let SplineKind::Piece { lead, trail } = kind_of(&sketch, spline) else {
         panic!("expected a piece, found {:?}", kind_of(&sketch, spline));
     };
+
     assert!(lead > 0.0 && lead < 1.0 && trail > 0.0 && trail < 1.0);
     assert!(points_of(&sketch, spline).contains(&inner));
+
     let piece = sketch.spline(spline).unwrap();
+
     assert!((piece.point_at(0.0).x - at(13.0, 0.0).x).abs() < 1e-7);
     assert!((piece.point_at(1.0).x - at(47.0, 0.0).x).abs() < 1e-7);
+
     assert_lies_on(&piece, &whole);
     assert_solves_in_place(&sketch);
 }
@@ -177,6 +193,7 @@ fn trimming_both_ends_of_a_long_spline_leaves_its_middle_exactly() {
 #[test]
 fn a_conic_is_trimmed_into_a_conic_of_the_same_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let conic = sketch.add_spline_of(
         &[at(0.0, 0.0), at(20.0, 30.0), at(40.0, 0.0)],
         SplineKind::Conic { rho: 0.7 },
@@ -187,7 +204,9 @@ fn a_conic_is_trimmed_into_a_conic_of_the_same_curve() {
             value: Expression::Number(0.7),
         })
         .unwrap();
+
     upright(&mut sketch, 30.0);
+
     let whole = sketch.spline(conic).unwrap();
 
     assert_eq!(sketch.trim(conic, at(39.0, 1.0)), Ok(Trimmed::Shortened));
@@ -195,8 +214,10 @@ fn a_conic_is_trimmed_into_a_conic_of_the_same_curve() {
     let SplineKind::Conic { rho: trimmed } = kind_of(&sketch, conic) else {
         panic!("expected a conic");
     };
+
     assert!(SplineKind::rho_is_valid(trimmed));
     assert!(sketch.constraint(rho).is_none());
+
     assert_lies_on(&sketch.spline(conic).unwrap(), &whole);
     assert_solves_in_place(&sketch);
 }
@@ -204,6 +225,7 @@ fn a_conic_is_trimmed_into_a_conic_of_the_same_curve() {
 #[test]
 fn a_closed_spline_cut_twice_opens_into_the_rest_of_its_loop() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let loop_spline = sketch.add_spline_of(
         &[
             at(-20.0, -20.0),
@@ -219,13 +241,18 @@ fn a_closed_spline_cut_twice_opens_into_the_rest_of_its_loop() {
     assert_eq!(sketch.trim(loop_spline, at(10.0, 0.0)), Ok(Trimmed::Opened));
 
     assert!(!kind_of(&sketch, loop_spline).is_closed());
+
     let (start, end) = ends(&sketch, loop_spline);
+
     for point in [start, end] {
         assert!((sketch.point(point).unwrap().x - at(5.0, 0.0).x).abs() < 1e-7);
         assert!(has(&sketch, &Constraint::Coincident(point, post)));
     }
+
     let opened = sketch.spline(loop_spline).unwrap();
+
     assert!(opened.point_at(0.5).x < AWAY);
+
     assert_lies_on(&opened, &whole);
     assert_solves_in_place(&sketch);
 }
@@ -240,6 +267,7 @@ fn a_fit_spline_is_trimmed_exactly_into_a_control_spline() {
         at(30.0, 6.0),
         at(40.0, 0.0),
     ];
+
     let fit = sketch.add_spline_of(&through, SplineKind::fit(false));
     let kept = points_of(&sketch, fit);
     let post = upright(&mut sketch, 25.0);
@@ -249,14 +277,18 @@ fn a_fit_spline_is_trimmed_exactly_into_a_control_spline() {
 
     let points = points_of(&sketch, fit);
     let trimmed = sketch.spline(fit).unwrap();
+
     assert_eq!(points[0], kept[0]);
     assert!(!kind_of(&sketch, fit).passes_its_points());
+
     assert_lies_on(&trimmed, &whole);
+
     assert!((trimmed.point_at(1.0).x - at(25.0, 0.0).x).abs() < 1e-7);
     assert!(has(
         &sketch,
         &Constraint::Coincident(points[points.len() - 1], post)
     ));
+
     assert_solves_in_place(&sketch);
 }
 
@@ -270,20 +302,24 @@ fn a_fit_spline_with_a_held_point_is_trimmed_through_its_points() {
         at(30.0, 6.0),
         at(40.0, 0.0),
     ];
+
     let fit = sketch.add_spline_of(&through, SplineKind::fit(false));
     let kept = points_of(&sketch, fit);
     let held = sketch.point(kept[1]).unwrap();
+
     sketch
         .add_constraint(Constraint::Fix {
             point: kept[1],
             at: held,
         })
         .unwrap();
+
     let post = upright(&mut sketch, 25.0);
 
     assert_eq!(sketch.trim(fit, at(39.0, 0.0)), Ok(Trimmed::Shortened));
 
     let points = points_of(&sketch, fit);
+
     assert_eq!(&points[..3], &kept[..3]);
     assert_eq!(points.len(), 4);
     assert_eq!(
@@ -293,9 +329,12 @@ fn a_fit_spline_with_a_held_point_is_trimmed_through_its_points() {
             spacing: FitSpacing::Centripetal
         }
     );
+
     let cut = points[3];
+
     assert!((sketch.point(cut).unwrap().x - at(25.0, 0.0).x).abs() < 1e-7);
     assert!(has(&sketch, &Constraint::Coincident(cut, post)));
+
     assert_solves_in_place(&sketch);
 }
 
@@ -309,8 +348,10 @@ fn a_fit_spline_shaped_by_a_handle_in_the_part_cut_away_is_trimmed_exactly() {
         at(30.0, 6.0),
         at(40.0, 0.0),
     ];
+
     let fit = sketch.add_spline_of(&through, SplineKind::fit(false));
     let points = points_of(&sketch, fit);
+
     let (handle, _) = sketch.add_spline_handle(fit, points[4]).unwrap();
     let post = upright(&mut sketch, 25.0);
     let whole = sketch.spline(fit).unwrap();
@@ -318,7 +359,9 @@ fn a_fit_spline_shaped_by_a_handle_in_the_part_cut_away_is_trimmed_exactly() {
     assert_eq!(sketch.trim(fit, at(39.0, 0.0)), Ok(Trimmed::Shortened));
 
     assert!(!kind_of(&sketch, fit).passes_its_points());
+
     assert_lies_on(&sketch.spline(fit).unwrap(), &whole);
+
     assert!(!has(
         &sketch,
         &Constraint::SplineHandle {
@@ -327,32 +370,38 @@ fn a_fit_spline_shaped_by_a_handle_in_the_part_cut_away_is_trimmed_exactly() {
         }
     ));
     assert!(sketch.entity(post).is_some());
+
     assert_solves_in_place(&sketch);
 }
 
 #[test]
 fn a_spline_joined_at_its_trimmed_end_loses_the_tangent_there_and_keeps_the_other() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wavy());
     let (start, end) = ends(&sketch, spline);
     let before = sketch.add_line(at(-10.0, -20.0), at(0.0, 0.0));
     let after = sketch.add_line(at(40.0, 0.0), at(50.0, 20.0));
+
     let (before_end, after_start) = match (sketch.entity(before), sketch.entity(after)) {
         (Some(Entity::Line { end, .. }), Some(Entity::Line { start, .. })) => (*end, *start),
         _ => panic!("expected lines"),
     };
+
     sketch
         .add_constraint(Constraint::Coincident(before_end, start))
         .unwrap();
     sketch
         .add_constraint(Constraint::Coincident(after_start, end))
         .unwrap();
+
     let kept = sketch
         .add_constraint(Constraint::Tangent(before, spline))
         .unwrap();
     let lost = sketch
         .add_constraint(Constraint::Tangent(spline, after))
         .unwrap();
+
     upright(&mut sketch, 30.0);
 
     assert_eq!(sketch.trim(spline, at(38.0, 0.0)), Ok(Trimmed::Shortened));
@@ -364,20 +413,24 @@ fn a_spline_joined_at_its_trimmed_end_loses_the_tangent_there_and_keeps_the_othe
 #[test]
 fn an_angle_to_a_spline_joined_at_its_trimmed_end_goes_and_the_one_at_the_other_end_stays() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wavy());
     let (start, end) = ends(&sketch, spline);
     let before = sketch.add_line(at(-10.0, -20.0), at(0.0, 0.0));
     let after = sketch.add_line(at(40.0, 0.0), at(50.0, 20.0));
+
     let (before_end, after_start) = match (sketch.entity(before), sketch.entity(after)) {
         (Some(Entity::Line { end, .. }), Some(Entity::Line { start, .. })) => (*end, *start),
         _ => panic!("expected lines"),
     };
+
     sketch
         .add_constraint(Constraint::Coincident(before_end, start))
         .unwrap();
     sketch
         .add_constraint(Constraint::Coincident(after_start, end))
         .unwrap();
+
     let angle = |line: EntityId, degrees: f64| Constraint::Angle {
         from: spline,
         to: line,
@@ -386,20 +439,24 @@ fn an_angle_to_a_spline_joined_at_its_trimmed_end_goes_and_the_one_at_the_other_
     };
     let before_value = sketch.measured(&angle(before, 0.0)).unwrap();
     let after_value = sketch.measured(&angle(after, 0.0)).unwrap();
+
     let kept = sketch.add_constraint(angle(before, before_value)).unwrap();
     let lost = sketch.add_constraint(angle(after, after_value)).unwrap();
+
     upright(&mut sketch, 30.0);
 
     assert_eq!(sketch.trim(spline, at(38.0, 0.0)), Ok(Trimmed::Shortened));
 
     assert!(sketch.constraint(kept).is_some());
     assert!(sketch.constraint(lost).is_none());
+
     assert_solves_in_place(&sketch);
 }
 
 #[test]
 fn a_spline_end_extends_along_its_own_curve_to_the_line_in_its_way() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wavy());
     let wall = upright(&mut sketch, 44.0);
     let whole = sketch.spline(spline).unwrap();
@@ -412,15 +469,20 @@ fn a_spline_end_extends_along_its_own_curve_to_the_line_in_its_way() {
     assert_eq!(ends(&sketch, spline), (start, end));
     assert!((sketch.point(end).unwrap().x - at(44.0, 0.0).x).abs() < 1e-7);
     assert!(has(&sketch, &Constraint::Coincident(end, wall)));
+
     let longer = sketch.spline(spline).unwrap();
+
     assert_lies_on(&whole, &longer);
+
     assert_eq!(kind_of(&sketch, spline), SplineKind::OPEN);
+
     assert_solves_in_place(&sketch);
 }
 
 #[test]
 fn a_long_spline_extends_its_last_span_exactly() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
     let wall = upright(&mut sketch, 66.0);
     let whole = sketch.spline(spline).unwrap();
@@ -429,11 +491,14 @@ fn a_long_spline_extends_its_last_span_exactly() {
     let extension = sketch.extend(spline, at(59.0, 0.0)).unwrap();
 
     assert_eq!(extension.target, wall);
+
     let SplineKind::Piece { lead, trail } = kind_of(&sketch, spline) else {
         panic!("expected a piece, found {:?}", kind_of(&sketch, spline));
     };
+
     assert!((lead - 1.0).abs() < 1e-12 && trail > 1.0, "{lead} {trail}");
     assert!(points_of(&sketch, spline).contains(&inner));
+
     assert_lies_on(&whole, &sketch.spline(spline).unwrap());
     assert_solves_in_place(&sketch);
 }
@@ -442,6 +507,7 @@ fn a_long_spline_extends_its_last_span_exactly() {
 fn a_fit_spline_extends_through_its_old_end() {
     let mut sketch = Sketch::new(Plane::XY);
     let through = [at(0.0, 0.0), at(10.0, 8.0), at(20.0, -4.0), at(30.0, 0.0)];
+
     let fit = sketch.add_spline_of(&through, SplineKind::fit(false));
     let wall = upright(&mut sketch, 40.0);
     let (_, end) = ends(&sketch, fit);
@@ -449,19 +515,25 @@ fn a_fit_spline_extends_through_its_old_end() {
     sketch.extend(fit, at(29.0, 0.0)).unwrap();
 
     let points = points_of(&sketch, fit);
+
     assert_eq!(points.len(), 5);
     assert_eq!(points.last(), Some(&end));
+
     let old_end = sketch.point(points[3]).unwrap();
+
     assert!(old_end.distance(at(30.0, 0.0)) < EXACT);
     assert!((sketch.point(end).unwrap().x - at(40.0, 0.0).x).abs() < 1e-7);
     assert!(has(&sketch, &Constraint::Coincident(end, wall)));
+
     assert_solves_in_place(&sketch);
 }
 
 #[test]
 fn an_end_running_on_past_every_curve_is_not_extended() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wavy());
+
     upright(&mut sketch, 50.0);
 
     assert!(matches!(
@@ -473,10 +545,12 @@ fn an_end_running_on_past_every_curve_is_not_extended() {
 #[test]
 fn a_closed_spline_is_not_extended() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let closed = sketch.add_spline_of(
         &[at(0.0, 0.0), at(10.0, 0.0), at(5.0, 10.0)],
         SplineKind::Control { closed: true },
     );
+
     upright(&mut sketch, 30.0);
 
     assert!(matches!(
@@ -488,6 +562,7 @@ fn a_closed_spline_is_not_extended() {
 #[test]
 fn a_spline_crossing_nothing_is_deleted_with_its_points() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wavy());
     let points = points_of(&sketch, spline);
 
@@ -504,14 +579,18 @@ fn a_spline_crossing_nothing_is_deleted_with_its_points() {
 #[test]
 fn a_point_on_a_trimmed_spline_follows_the_piece_it_lies_on() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&wavy());
+
     upright(&mut sketch, 12.0);
     upright(&mut sketch, 28.0);
+
     let whole = sketch.spline(spline).unwrap();
     let [middle, far] = [0.5, 0.9].map(|parameter| sketch.add_point(whole.point_at(parameter)));
     let on_middle = sketch
         .add_constraint(Constraint::Coincident(middle, spline))
         .unwrap();
+
     sketch
         .add_constraint(Constraint::Coincident(far, spline))
         .unwrap();
@@ -523,22 +602,26 @@ fn a_point_on_a_trimmed_spline_follows_the_piece_it_lies_on() {
     assert!(sketch.constraint(on_middle).is_none());
     assert!(has(&sketch, &Constraint::Coincident(far, piece)));
     assert!(!has(&sketch, &Constraint::Coincident(far, spline)));
+
     assert_solves_in_place(&sketch);
 }
 
 #[test]
 fn a_closed_fit_spline_opens_through_the_points_left_on_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let fit = sketch.add_spline_of(
         &[at(-20.0, 0.0), at(0.0, -20.0), at(20.0, 0.0), at(0.0, 20.0)],
         SplineKind::fit(true),
     );
     let points = points_of(&sketch, fit);
+
     upright(&mut sketch, 10.0);
 
     assert_eq!(sketch.trim(fit, at(20.0, 0.0)), Ok(Trimmed::Opened));
 
     let opened = points_of(&sketch, fit);
+
     assert_eq!(
         kind_of(&sketch, fit),
         SplineKind::Fit {
@@ -549,19 +632,23 @@ fn a_closed_fit_spline_opens_through_the_points_left_on_it() {
     assert_eq!(opened.len(), 5);
     assert_eq!(&opened[1..4], &[points[3], points[0], points[1]]);
     assert!(sketch.entity(points[2]).is_none());
+
     assert_solves_in_place(&sketch);
 }
 
 #[test]
 fn opening_a_closed_fit_spline_keeps_the_handles_left_on_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let fit = sketch.add_spline_of(
         &[at(-20.0, 0.0), at(0.0, -20.0), at(20.0, 0.0), at(0.0, 20.0)],
         SplineKind::fit(true),
     );
     let points = points_of(&sketch, fit);
+
     let (kept, _) = sketch.add_spline_handle(fit, points[0]).unwrap();
     let (cut, _) = sketch.add_spline_handle(fit, points[2]).unwrap();
+
     upright(&mut sketch, 10.0);
 
     assert_eq!(sketch.trim(fit, at(20.0, 0.0)), Ok(Trimmed::Opened));
@@ -584,12 +671,14 @@ fn opening_a_closed_fit_spline_keeps_the_handles_left_on_it() {
             line: cut
         }
     ));
+
     assert_solves_in_place(&sketch);
 }
 
 #[test]
 fn a_conic_extends_along_its_own_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let conic = sketch.add_spline_of(
         &[at(0.0, 0.0), at(20.0, 30.0), at(40.0, 0.0)],
         SplineKind::Conic { rho: 0.4 },
@@ -602,10 +691,13 @@ fn a_conic_extends_along_its_own_curve() {
 
     assert_eq!(extension.target, floor);
     assert!((sketch.point(end).unwrap().y - at(0.0, -10.0).y).abs() < 1e-7);
+
     let SplineKind::Conic { rho } = kind_of(&sketch, conic) else {
         panic!("expected a conic");
     };
+
     assert!(SplineKind::rho_is_valid(rho) && rho != 0.4);
+
     assert_lies_on(&whole, &sketch.spline(conic).unwrap());
     assert_solves_in_place(&sketch);
 }

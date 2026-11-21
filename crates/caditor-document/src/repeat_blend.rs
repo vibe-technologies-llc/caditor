@@ -83,6 +83,7 @@ impl CopiedNames {
         let faces = edge.reference.faces();
         let origins = edge.reference.origins();
         let mut copied = [FaceName::NONE; 2];
+
         for ((name, origin), slot) in faces.iter().zip(origins).zip(&mut copied) {
             *slot = match self.follow(copy, *name, origin) {
                 Followed::Copied(renamed) => renamed,
@@ -90,6 +91,7 @@ impl CopiedNames {
                 Followed::Lost => return None,
             };
         }
+
         let [first, second] = copied;
         let [start, end] = &edge.ends;
         Some(EdgeReference::new(
@@ -146,18 +148,23 @@ impl CopiedNames {
             .iter()
             .filter(|edge| self.is_repeated(edge))
             .collect();
+
         if repeated.is_empty() {
             return Err(CopyBlendError::NoRepeatedEdge);
         }
+
         let mut body = body;
         let mut renamed = Vec::new();
+
         for &copy in copies {
             if cancel.is_cancelled() {
                 return Err(CopyBlendError::Cancelled);
             }
+
             let naming = EdgeNaming::new(&body);
             let mut found: Vec<(EdgeName, EdgeId)> = Vec::new();
             let mut missing = 0;
+
             for edge in &repeated {
                 let resolved = self
                     .copied_reference(copy, edge)
@@ -179,9 +186,12 @@ impl CopiedNames {
                     edges: missing,
                 });
             }
+
             let mut edges: Vec<EdgeId> = found.iter().map(|(_, id)| *id).collect();
+
             edges.sort_unstable();
             edges.dedup();
+
             let made = FaceCopy {
                 pattern: self.pattern,
                 index: copy,
@@ -191,6 +201,7 @@ impl CopiedNames {
                     BlendError::Cancelled(_) => CopyBlendError::Cancelled,
                     error => CopyBlendError::Blend { copy, error },
                 })?;
+
             renamed.extend(self.corner_names(copy, recipe.feature, &repeated));
             for (original, id) in found {
                 if let Some(edge) = body.edge(id) {
@@ -208,7 +219,7 @@ impl CopiedNames {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Repeater {
     Pattern,
     Mirror,
@@ -269,21 +280,21 @@ pub(crate) struct Repeat<'a> {
     pub copy: &'a dyn Fn(Instance) -> String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BlendWhy {
     TooLarge,
     Differs,
     Unbuilt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ShellWhy {
     TooThick,
     Overhang,
     Unbuilt,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RepeatCause {
     SeedUnavailable {
         repeater: Repeater,
@@ -604,6 +615,7 @@ pub(crate) fn failure(
     } = *repeat;
     let named = blend.to_owned();
     let kind = kind(recipe.shape);
+
     let cause = match error {
         CopyBlendError::Cancelled => return Failure::Cancelled,
         CopyBlendError::NoRepeatedEdge => RepeatCause::BlendNoEdge {

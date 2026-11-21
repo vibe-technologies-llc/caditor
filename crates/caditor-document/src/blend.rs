@@ -20,7 +20,7 @@ use crate::{
     split_edges::{Followed, SplitEdges},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BlendKind {
     Fillet,
     Chamfer,
@@ -49,7 +49,7 @@ impl BlendKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FilletSizing {
     #[default]
     Radius,
@@ -72,7 +72,7 @@ impl FilletSizing {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum ChamferForm {
     #[default]
     Equal,
@@ -114,7 +114,7 @@ impl ChamferForm {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EdgeRule {
     Convex,
     Concave,
@@ -170,14 +170,14 @@ fn maker_of(solid: &Solid, edge: EdgeId, order: &BTreeMap<FeatureId, usize>) -> 
         .map(|(_, feature)| feature)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum EdgeGroup {
     Face(FaceReference),
     Body,
     Rule(EdgeRule),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GroupResolution {
     Face(Resolution<FaceId>),
     Body,
@@ -226,13 +226,13 @@ fn blendable(solid: &Solid, edges: impl Iterator<Item = EdgeId>) -> Vec<EdgeId> 
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlendedEdge {
     pub reference: EdgeReference,
     pub ends: [BTreeMap<FaceName, Option<FaceOrigin>>; 2],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlendRecipe {
     pub feature: FeatureId,
     pub shape: BlendShape,
@@ -247,6 +247,7 @@ impl BlendRecipe {
             .faces()
             .map(|(_, face)| (face.name(), face.origin()))
             .collect();
+
         let faces_at = |vertex: VertexId| {
             around
                 .get(&vertex)
@@ -274,14 +275,14 @@ impl BlendRecipe {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlendUnresolved {
     Edges(Unresolved),
     Faces(Unresolved),
     PartlyFollowed(usize),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Blend {
     pub kind: BlendKind,
     pub body: FeatureId,
@@ -338,6 +339,7 @@ impl Blend {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         used.extend(self.groups.iter().filter_map(|group| match group {
             EdgeGroup::Rule(rule) => rule.feature(),
             EdgeGroup::Face(_) | EdgeGroup::Body => None,
@@ -430,17 +432,22 @@ impl Blend {
                 GroupResolution::Body | GroupResolution::Rule { .. } => None,
             })
             .collect();
+
         tally(faces).map_err(BlendUnresolved::Faces)?;
+
         let followed = self.followed(document, solid);
         let partly = followed
             .iter()
             .filter(|followed| matches!(followed, Followed::PartlyLost(_)))
             .count();
+
         if partly > 0 {
             return Err(BlendUnresolved::PartlyFollowed(partly));
         }
+
         let resolutions = followed.into_iter().map(Followed::resolution).collect();
         let mut edges = tally(resolutions).map_err(BlendUnresolved::Edges)?;
+
         edges.extend(groups.iter().flat_map(|group| group.edges(solid)));
         edges.sort_unstable();
         edges.dedup();
@@ -448,7 +455,7 @@ impl Blend {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Requested {
     Shape(BlendShape),
     Chord(f64),
@@ -536,6 +543,7 @@ impl Context<'_> {
             }
             (BlendKind::Chamfer, ChamferForm::DistanceAngle { angle }) => {
                 let degrees = self.value(angle, Dimension::ANGLE, "angle")?;
+
                 if degrees >= 180.0 {
                     return Err(self.error(BlendCause::AngleTooWide));
                 }
@@ -665,7 +673,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum BlendCause {
     NotPositive {
         what: String,
@@ -931,6 +939,7 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     let edges = definition
         .resolve(inputs.document, solid)
         .map_err(|unresolved| {
@@ -951,9 +960,11 @@ pub(crate) fn evaluate(
                 .fixing(FixTarget::Feature(feature.id())),
             )
         })?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let shape = context.shape(requested, solid, &edges)?;
     let result = blend(solid, &edges, shape, feature.id().raw())
         .map_err(|error| context.failure(solid, &error))?;

@@ -16,7 +16,7 @@ use crate::{
 pub const MIN_SCALE_FACTOR: f64 = 1e-6;
 pub const MAX_SCALE_FACTOR: f64 = 1e6;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Scale {
     pub body: FeatureId,
     pub factor: Expression,
@@ -65,6 +65,7 @@ impl Context<'_> {
         let factor = self
             .resolver
             .value(&definition.factor, "scale factor", Dimension::NONE)?;
+
         if factor <= 0.0 {
             return Err(self.error(ScaleCause::FactorNotPositive { factor }));
         }
@@ -80,11 +81,13 @@ impl Context<'_> {
             None => None,
         };
         let mut center = frame.as_ref().map_or(Point3::ZERO, Plane::origin);
+
         for axis in MoveAxis::ALL {
             let what = format!("centre {}", axis.name());
             let value =
                 self.resolver
                     .value(axis.of(&definition.center), &what, Dimension::LENGTH)?;
+
             center += axis.direction_in(frame.as_ref()) * value;
         }
         Ok(center)
@@ -106,7 +109,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ScaleCause {
     FactorNotPositive { factor: f64 },
     FactorRange { factor: f64 },
@@ -187,14 +190,17 @@ pub(crate) fn evaluate(
     };
     let factor = context.factor(definition)?;
     let center = context.center(definition)?;
+
     let scaling = Similarity::scaling(center, factor)
         .ok_or_else(|| context.error(ScaleCause::CentreUnusable))?;
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let scaled = solid
         .mapped(&scaling)
         .map_err(|error| context.failure(&error, factor))?;

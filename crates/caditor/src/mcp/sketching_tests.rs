@@ -18,6 +18,7 @@ const HEIGHT: f64 = 5.0;
 
 fn started(folder: &TempDir) -> Client {
     let mut client = Client::start(opening(folder.path().join("part.caditor")));
+
     client.initialize("2025-06-18");
     client
 }
@@ -31,6 +32,7 @@ fn draw(client: &mut Client, sketch: &Value, item: Value) -> Value {
         "add_sketch_geometry",
         json!({ "sketch": sketch, "items": [item] }),
     );
+
     assert_eq!(drawn["failing"], json!([]), "{drawn}");
     drawn["drawn"][0].clone()
 }
@@ -40,13 +42,16 @@ fn volume_of_extrusion(client: &mut Client, sketch: &Value) -> f64 {
         "add_extrusion",
         json!({ "sketch": sketch, "distance": format!("{HEIGHT} mm") }),
     );
+
     assert_eq!(extruded["failing"], json!([]), "{extruded}");
+
     let bodies = client.tool("list_bodies", json!({}));
     bodies["bodies"][0]["volume"].as_f64().unwrap()
 }
 
 fn assert_area(volume: f64, area: f64) {
     let expected = area * HEIGHT;
+
     assert!(
         (volume - expected).abs() < 1e-3 * expected,
         "{volume} != {expected}"
@@ -66,6 +71,7 @@ fn entity_of<'a>(sketch: &'a Value, id: &Value) -> &'a Value {
 fn an_arc_is_drawn_about_a_centre_or_through_three_points() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let counter_clockwise = draw(
@@ -87,6 +93,7 @@ fn an_arc_is_drawn_about_a_centre_or_through_three_points() {
 
     let first = entity_of(&described, &counter_clockwise["id"]);
     let second = entity_of(&described, &clockwise["id"]);
+
     assert_eq!(first["kind"], "arc");
     assert_eq!(first["start"], counter_clockwise["start"]);
     assert_eq!(second["start"], clockwise["start"]);
@@ -96,12 +103,15 @@ fn an_arc_is_drawn_about_a_centre_or_through_three_points() {
         let point = |id: &Value| entity_of(&described, id)["at"].clone();
         (point(&arc["start"]), point(&arc["end"]))
     };
+
     assert_eq!(ends(&counter_clockwise).0, json!([10.0, 0.0]));
     assert_eq!(ends(&clockwise).1, json!([10.0, 0.0]));
+
     let (end_x, end_y) = {
         let end = ends(&counter_clockwise).1;
         (end[0].as_f64().unwrap(), end[1].as_f64().unwrap())
     };
+
     assert!(
         end_x.abs() < 1e-9 && (end_y - 10.0).abs() < 1e-9,
         "{end_x} {end_y}"
@@ -130,6 +140,7 @@ fn an_arc_is_drawn_about_a_centre_or_through_three_points() {
             { "kind": "arc", "center": [0, 0], "start": [1, 0], "end": [5, 0] }
         ] }),
     );
+
     client.finish();
 
     assert!(in_line.contains("lie in a line"), "{in_line}");
@@ -141,6 +152,7 @@ fn an_arc_is_drawn_about_a_centre_or_through_three_points() {
 fn a_slot_is_joined_tangent_and_makes_its_own_region() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let slot = draw(
@@ -161,11 +173,14 @@ fn a_slot_is_joined_tangent_and_makes_its_own_region() {
             { "kind": "slot", "from": [0, 0], "to": [20, 0], "width": 0 }
         ] }),
     );
+
     client.finish();
 
     assert_area(volume, 20.0 * 10.0 + PI * 25.0);
+
     assert_eq!(slot["arcs"].as_array().unwrap().len(), 2);
     assert_eq!(slot["lines"].as_array().unwrap().len(), 2);
+
     let descriptions: Vec<&str> = described["constraints"]
         .as_array()
         .unwrap()
@@ -178,6 +193,7 @@ fn a_slot_is_joined_tangent_and_makes_its_own_region() {
             .filter(|description| description.to_lowercase().contains(word))
             .count()
     };
+
     assert_eq!(counted("tangent"), 4, "{descriptions:?}");
     assert_eq!(counted("horizontal"), 1, "{descriptions:?}");
     assert_eq!(tilted["centers"].as_array().unwrap().len(), 2);
@@ -188,6 +204,7 @@ fn a_slot_is_joined_tangent_and_makes_its_own_region() {
 fn an_arc_slot_follows_an_arc_about_its_centre() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     draw(
@@ -195,6 +212,7 @@ fn an_arc_slot_follows_an_arc_about_its_centre() {
         &sketch,
         json!({ "kind": "arc_slot", "center": [0, 0], "from": [20, 0], "to": [0, 20], "width": 6 }),
     );
+
     let volume = volume_of_extrusion(&mut client, &sketch);
     let too_wide = client.tool_error(
         "add_sketch_geometry",
@@ -202,10 +220,13 @@ fn an_arc_slot_follows_an_arc_about_its_centre() {
             { "kind": "arc_slot", "center": [0, 0], "from": [2, 0], "to": [0, 2], "width": 10 }
         ] }),
     );
+
     client.finish();
 
     let band = FRAC_PI_2 * 20.0 * 6.0;
+
     assert_area(volume, band + PI * 9.0);
+
     assert!(too_wide.contains("narrower"), "{too_wide}");
 }
 
@@ -213,6 +234,7 @@ fn an_arc_slot_follows_an_arc_about_its_centre() {
 fn a_polygon_stands_on_a_construction_circle_with_equal_sides() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let hexagon = draw(
@@ -228,9 +250,11 @@ fn a_polygon_stands_on_a_construction_circle_with_equal_sides() {
             { "kind": "radius", "curve": hexagon["circle"], "value": "12 mm" }
         ] }),
     );
+
     client.finish();
 
     assert_area(volume, 3.0 * 3f64.sqrt() / 2.0 * 100.0);
+
     assert_eq!(hexagon["sides"], 6);
     assert_eq!(hexagon["lines"].as_array().unwrap().len(), 6);
     assert_eq!(hexagon["corners"].as_array().unwrap().len(), 6);
@@ -245,6 +269,7 @@ fn a_polygon_stands_on_a_construction_circle_with_equal_sides() {
 fn a_polygon_around_a_side_middle_has_its_first_side_there() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let square = draw(
@@ -263,9 +288,11 @@ fn a_polygon_around_a_side_middle_has_its_first_side_there() {
             { "kind": "polygon", "center": [0, 0], "corner": [1, 0], "sides": 2 }
         ] }),
     );
+
     client.finish();
 
     assert_area(volume, 100.0);
+
     assert!(square["inscribed_circle"].is_u64(), "{square}");
     assert!(neither.contains("corner"), "{neither}");
     assert!(two_sides.contains("3 to 64 sides"), "{two_sides}");
@@ -275,6 +302,7 @@ fn a_polygon_around_a_side_middle_has_its_first_side_there() {
 fn a_spline_passes_through_its_points_or_is_shaped_by_them() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let ring = draw(
@@ -295,9 +323,11 @@ fn a_spline_passes_through_its_points_or_is_shaped_by_them() {
             { "kind": "spline", "closed": true, "points": [[0, 0], [1, 1]] }
         ] }),
     );
+
     client.finish();
 
     let area = volume / HEIGHT;
+
     assert!(area > 250.0 && area < 330.0, "{area}");
     assert_eq!(ring["form"], "fit");
     assert_eq!(open["form"], "control");
@@ -316,6 +346,7 @@ fn a_spline_passes_through_its_points_or_is_shaped_by_them() {
 fn an_ellipse_has_a_major_end_and_a_minor_radius() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let ellipse = draw(
@@ -331,9 +362,11 @@ fn an_ellipse_has_a_major_end_and_a_minor_radius() {
             { "kind": "ellipse", "center": [0, 0], "major_end": [10, 0], "minor_radius": 0 }
         ] }),
     );
+
     client.finish();
 
     assert_area(volume, PI * 10.0 * 5.0);
+
     assert_eq!(entity_of(&described, &ellipse["id"])["kind"], "ellipse");
     assert!(flat.contains("minor radius"), "{flat}");
 }
@@ -342,6 +375,7 @@ fn an_ellipse_has_a_major_end_and_a_minor_radius() {
 fn shapes_drawn_as_construction_make_no_region() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let drawn = client.tool(
@@ -351,6 +385,7 @@ fn shapes_drawn_as_construction_make_no_region() {
         ] }),
     );
     let described = client.tool("get_sketch", json!({ "sketch": sketch }));
+
     client.finish();
 
     assert_eq!(
@@ -367,6 +402,7 @@ fn dimensioned_rectangle(client: &mut Client) -> (Value, Value, Value) {
         json!({ "kind": "rectangle", "corner": [0, 0], "opposite": [10, 6] }),
     );
     let corners = rectangle["corners"].clone();
+
     let constrained = client.tool(
         "add_sketch_constraints",
         json!({ "sketch": sketch, "constraints": [
@@ -375,6 +411,7 @@ fn dimensioned_rectangle(client: &mut Client) -> (Value, Value, Value) {
             { "kind": "distance", "from": corners[0], "to": corners[3], "value": "6 mm" }
         ] }),
     );
+
     assert_eq!(constrained["sketch_status"], "Fully constrained");
     (sketch, corners, constrained["constraints"].clone())
 }
@@ -383,6 +420,7 @@ fn dimensioned_rectangle(client: &mut Client) -> (Value, Value, Value) {
 fn a_dimension_changes_to_a_value_with_units_or_an_expression() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let (sketch, _, constraints) = dimensioned_rectangle(&mut client);
     let width = constraints[1].clone();
 
@@ -390,6 +428,7 @@ fn a_dimension_changes_to_a_value_with_units_or_an_expression() {
         "set_parameter",
         json!({ "name": "base", "expression": "2 cm" }),
     );
+
     let in_units = client.tool(
         "edit_sketch_constraint",
         json!({ "sketch": sketch, "constraint": width, "value": "3 cm" }),
@@ -417,11 +456,14 @@ fn a_dimension_changes_to_a_value_with_units_or_an_expression() {
         "edit_sketch_constraint",
         json!({ "sketch": sketch, "constraint": width, "value": "3 deg" }),
     );
+
     client.finish();
 
     assert_eq!(in_units["value"], 30.0, "{in_units}");
     assert_eq!(in_units["failing"], json!([]));
+
     assert_area(volume_in_units, 30.0 * 6.0);
+
     assert_eq!(by_parameter["expression"], "base + 5 mm");
     assert_eq!(by_parameter["value"], 25.0);
     assert!(bodies["bodies"][0]["volume"].as_f64().unwrap() > 0.0);
@@ -443,6 +485,7 @@ fn a_dimension_changes_to_a_value_with_units_or_an_expression() {
 fn a_dimension_turned_off_becomes_a_reference_and_on_again_drives() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let (sketch, _, constraints) = dimensioned_rectangle(&mut client);
     let width = constraints[1].clone();
 
@@ -460,6 +503,7 @@ fn a_dimension_turned_off_becomes_a_reference_and_on_again_drives() {
         json!({ "sketch": sketch, "constraint": width, "active": true }),
     );
     let tightened = client.tool("get_sketch", json!({ "sketch": sketch }));
+
     client.finish();
 
     assert_eq!(off["active"], false);
@@ -473,6 +517,7 @@ fn a_dimension_turned_off_becomes_a_reference_and_on_again_drives() {
 fn constraints_and_entities_are_removed_with_what_depends_on_them() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let (sketch, corners, constraints) = dimensioned_rectangle(&mut client);
 
     let released = client.tool(
@@ -495,6 +540,7 @@ fn constraints_and_entities_are_removed_with_what_depends_on_them() {
         json!({ "sketch": sketch, "constraints": [424242] }),
     );
     let nothing = client.tool_error("remove_sketch_items", json!({ "sketch": sketch }));
+
     client.finish();
 
     assert_eq!(released["removed_constraints"], json!([constraints[1]]));
@@ -503,6 +549,7 @@ fn constraints_and_entities_are_removed_with_what_depends_on_them() {
     assert_eq!(released["change"], "Remove constraints from Sketch 1");
 
     let removed_lines = corner_gone["removed_entities"].as_array().unwrap();
+
     assert!(removed_lines.contains(&corners[2]), "{corner_gone}");
     assert!(removed_lines.len() >= 3, "{corner_gone}");
     assert!(
@@ -520,7 +567,9 @@ fn constraints_and_entities_are_removed_with_what_depends_on_them() {
 
 fn model_with_datums(folder: &TempDir) -> PathBuf {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Datums");
+
     transaction.add_feature(
         "Raised plane",
         FeatureKind::Datum(Datum::Plane(DatumPlane {
@@ -529,7 +578,9 @@ fn model_with_datums(folder: &TempDir) -> PathBuf {
             offset: Expression::Measure(15.0, Unit::Millimetre),
         })),
     );
+
     let mut turned = DatumFrame::world();
+
     turned.x_axis = caditor_document::AxisReference::Principal(PrincipalAxis::Y);
     transaction.add_feature(
         "Turned frame",
@@ -542,6 +593,7 @@ fn model_with_datums(folder: &TempDir) -> PathBuf {
     document.apply(transaction.finish()).unwrap();
 
     let path = folder.path().join("datums.caditor");
+
     caditor_file::save(&document, &path, false).unwrap();
     path
 }
@@ -550,6 +602,7 @@ fn model_with_datums(folder: &TempDir) -> PathBuf {
 fn a_sketch_lies_on_a_datum_plane() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(model_with_datums(&folder)));
+
     client.initialize("2025-06-18");
 
     let added = client.tool(
@@ -557,11 +610,13 @@ fn a_sketch_lies_on_a_datum_plane() {
         json!({ "datum": "Raised plane", "name": "On datum" }),
     );
     let sketch = added["sketch"]["id"].clone();
+
     draw(
         &mut client,
         &sketch,
         json!({ "kind": "rectangle", "corner": [0, 0], "opposite": [10, 10] }),
     );
+
     let volume = volume_of_extrusion(&mut client, &sketch);
     let described = client.tool("get_sketch", json!({ "sketch": sketch }));
     let bodies = client.tool("list_bodies", json!({}));
@@ -572,12 +627,15 @@ fn a_sketch_lies_on_a_datum_plane() {
     );
     let not_a_plane = client.tool_error("add_sketch", json!({ "datum": "Turned frame" }));
     let not_a_datum = client.tool_error("add_sketch", json!({ "datum": "Not a datum" }));
+
     client.finish();
 
     assert_eq!(added["sketch"]["plane"]["origin"], json!([0.0, 0.0, 15.0]));
     assert_eq!(added["failing"], json!([]));
     assert_eq!(described["lies_on"], "Raised plane");
+
     assert_area(volume, 100.0);
+
     assert_eq!(bodies["bodies"][0]["bounding_box"]["min"][2], 15.0);
     assert!(both.contains("not both"), "{both}");
     assert!(not_a_plane.contains("not a datum plane"), "{not_a_plane}");
@@ -588,6 +646,7 @@ fn a_sketch_lies_on_a_datum_plane() {
 fn a_sketch_lies_on_a_plane_of_a_coordinate_system() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(model_with_datums(&folder)));
+
     client.initialize("2025-06-18");
 
     let added = client.tool(
@@ -608,6 +667,7 @@ fn a_sketch_lies_on_a_plane_of_a_coordinate_system() {
         "add_sketch",
         json!({ "frame": "Turned frame", "datum": "Raised plane", "plane": "XY" }),
     );
+
     client.finish();
 
     assert_eq!(added["sketch"]["plane"]["x_axis"], json!([0.0, 1.0, 0.0]));

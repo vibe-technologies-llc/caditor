@@ -55,12 +55,14 @@ fn pair(input: &mut Unstructured) -> Option<(Solid, Solid)> {
 #[test]
 fn swept_solids_are_sound() {
     let mut solids = 0;
+
     for_each_case("swept solids", SWEPT_CASES, |_, input| {
         if let Some(solid) = swept_solid(input, MOST_SHAPES, FEATURE) {
             assert_sound(&solid, &MeshQuality::COARSE);
             solids += 1;
         }
     });
+
     assert!(
         solids >= FEWEST_SOLIDS,
         "only {solids} solids were swept, so the generators no longer reach enough"
@@ -71,9 +73,11 @@ fn combines_soundly_with_the_volume_identities(input: &mut Unstructured) -> bool
     let Some((first, second)) = pair(input) else {
         return false;
     };
+
     let (Some(first_volume), Some(second_volume)) = (volume(&first), volume(&second)) else {
         return false;
     };
+
     let scale = first_volume.abs() + second_volume.abs();
 
     let union = combine(&first, &second, BooleanOperation::Union);
@@ -98,6 +102,7 @@ fn combines_soundly_with_the_volume_identities(input: &mut Unstructured) -> bool
     } else {
         false
     };
+
     if let (Some(common), Some(rest)) = (&common, &rest)
         && let (Some(common), Some(rest)) = (volume(common), volume(rest))
     {
@@ -119,11 +124,13 @@ fn combines_soundly_with_the_volume_identities(input: &mut Unstructured) -> bool
 #[test]
 fn booleans_that_succeed_are_sound_and_obey_the_volume_identities() {
     let mut pairs = 0;
+
     for_each_case("boolean volumes", BOOLEAN_CASES, |_, input| {
         if combines_soundly_with_the_volume_identities(input) {
             pairs += 1;
         }
     });
+
     assert!(
         pairs >= FEWEST_PAIRS,
         "only {pairs} pairs combined, so the generators no longer reach enough"

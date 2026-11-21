@@ -31,12 +31,14 @@ impl Cache {
             .position(|entry| entry.digest == *digest)?;
         let entry = self.entries.remove(at)?;
         let solid = Arc::clone(&entry.solid);
+
         self.entries.push_back(entry);
         Some(solid)
     }
 
     fn insert(&mut self, digest: blake3::Hash, solid: &Arc<Solid>, budget: usize) {
         let bytes = solid.approximate_size();
+
         if bytes > budget || self.entries.iter().any(|entry| entry.digest == digest) {
             return;
         }
@@ -50,6 +52,7 @@ impl Cache {
             let Some(oldest) = self.entries.pop_front() else {
                 break;
             };
+
             self.bytes = self.bytes.saturating_sub(oldest.bytes);
         }
     }
@@ -77,19 +80,23 @@ fn first_solid_within(
     if let Some(solid) = cache.lock().get(&digest) {
         return Ok(Some(solid));
     }
+
     let checked = is_checked(&digest);
     let mut model = if checked {
         read_own_step(step)?
     } else {
         read_step(step)?
     };
+
     if !checked {
         mark_checked(digest);
     }
     if model.solids.is_empty() {
         return Ok(None);
     }
+
     let solid = Arc::new(model.solids.swap_remove(0).solid);
+
     cache.lock().insert(digest, &solid, budget);
     Ok(Some(solid))
 }
@@ -157,7 +164,9 @@ pub(crate) mod tests {
         let text = block_text(11.0);
 
         let first = read_within(&cache, &text, BUDGET_BYTES).unwrap().unwrap();
+
         assert_eq!(cache.lock().entries.len(), 1);
+
         let again = read_within(&cache, &text, BUDGET_BYTES).unwrap().unwrap();
 
         assert!(Arc::ptr_eq(&first, &again));
@@ -184,6 +193,7 @@ pub(crate) mod tests {
             .iter()
             .map(|entry| entry.digest)
             .collect();
+
         assert_eq!(
             kept,
             [
@@ -207,7 +217,9 @@ pub(crate) mod tests {
         let text = block_text(13.0);
         let solid = first_solid(&text).unwrap().unwrap();
         let mut document = caditor_document::Document::default();
+
         let mut transaction = document.transaction("Import");
+
         transaction.add_feature(
             "Block",
             caditor_document::FeatureKind::Import(caditor_document::Import::shared(
@@ -217,6 +229,7 @@ pub(crate) mod tests {
             )),
         );
         document.apply(transaction.finish()).unwrap();
+
         let bytes = crate::encode(&document).unwrap();
 
         let loads = [

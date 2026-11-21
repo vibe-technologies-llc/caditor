@@ -9,7 +9,7 @@ use crate::{
 
 const MAX_NAMED_FACES: usize = 3;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Adjust {
     MoveIt,
     MoveThePlane,
@@ -42,7 +42,7 @@ impl Adjust {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TroubleKind {
     Intersection,
     Split,
@@ -67,7 +67,7 @@ impl TroubleKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Trouble {
     kind: TroubleKind,
     ours: Vec<String>,
@@ -160,6 +160,7 @@ pub(crate) fn boolean_trouble(
     let [first, second] = operands;
     let names = |solid: &Solid, faces: &[FaceId]| -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
+
         for face in faces {
             let name = lowercase_first(&describe_origin(
                 document,
@@ -171,6 +172,7 @@ pub(crate) fn boolean_trouble(
         }
         names
     };
+
     let (ours, theirs) = site.map_or((Vec::new(), Vec::new()), |site| {
         (names(first, &site.first), names(second, &site.second))
     });

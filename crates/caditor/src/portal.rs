@@ -10,7 +10,7 @@ pub use self::windows::{choose, desktop_settings, own_dialogs, watch_desktop};
 #[cfg(unix)]
 pub use self::xdg::{ParentWindow, choose, desktop_settings, own_dialogs, watch_desktop};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DesktopSettings {
     pub reduces_motion: bool,
     pub more_contrast: bool,
@@ -90,7 +90,7 @@ impl DialogError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Filter {
     pub name: String,
     pub extensions: Vec<String>,
@@ -112,13 +112,13 @@ impl Filter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Open,
     Save,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileRequest {
     pub mode: Mode,
     pub title: String,

@@ -61,7 +61,7 @@ const CTRL: &str = "Ctrl";
 const ALT: &str = "Alt";
 const SHIFT: &str = "Shift";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Command {
     Palette,
     New,
@@ -451,7 +451,7 @@ impl Command {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RecentSlot(usize);
 
 const RECENT_IDS: [&str; 10] = [
@@ -524,7 +524,7 @@ impl RecentSlot {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StandardView {
     Isometric,
     Front,
@@ -575,7 +575,7 @@ impl StandardView {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CameraMove {
     OrbitLeft,
     OrbitRight,
@@ -639,7 +639,7 @@ impl CameraMove {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WindowStep {
     MoveLeft,
     MoveRight,
@@ -683,6 +683,7 @@ impl WindowStep {
     fn shortcut(self) -> KeyboardShortcut {
         let moving = Modifiers::ALT | Modifiers::SHIFT;
         let sizing = Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT;
+
         let (modifiers, key) = match self {
             Self::MoveLeft => (moving, Key::ArrowLeft),
             Self::MoveRight => (moving, Key::ArrowRight),
@@ -697,7 +698,7 @@ impl WindowStep {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Category {
     File,
     Edit,
@@ -722,7 +723,7 @@ impl Category {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     Anywhere,
     Sketch,
@@ -2859,6 +2860,7 @@ pub fn display(shortcut: &KeyboardShortcut) -> String {
     };
     let modifiers = normalized(shortcut.modifiers);
     let mut text = String::new();
+
     for (pressed, name) in [
         (modifiers.command, CTRL),
         (modifiers.alt, ALT),
@@ -2881,6 +2883,7 @@ pub fn is_named_by(shortcut: &KeyboardShortcut, query: &str) -> bool {
         (modifiers.shift, SHIFT),
     ];
     let key = shortcut.logical_key;
+
     let names_part = |part: &str| {
         part.eq_ignore_ascii_case(key.name())
             || part.eq_ignore_ascii_case(key.symbol_or_name())
@@ -2898,6 +2901,7 @@ fn query_keys(query: &str) -> Vec<&str> {
         .split(|character: char| character == '+' || character.is_whitespace())
         .filter(|part| !part.is_empty())
         .collect();
+
     if query == "+" || query.ends_with("++") {
         parts.push("+");
     }
@@ -2906,11 +2910,15 @@ fn query_keys(query: &str) -> Vec<&str> {
 
 pub fn parse_stored(text: &str) -> Option<KeyboardShortcut> {
     let mut parts: Vec<&str> = text.split('+').map(str::trim).collect();
+
     let key = Key::from_name(parts.pop()?)?;
+
     if is_reserved(key) || is_modifier(key) {
         return None;
     }
+
     let mut modifiers = Modifiers::NONE;
+
     for part in parts {
         modifiers = modifiers.plus(match part {
             CTRL => Modifiers::COMMAND,
@@ -2926,7 +2934,7 @@ fn same(a: &KeyboardShortcut, b: &KeyboardShortcut) -> bool {
     a.logical_key == b.logical_key && normalized(a.modifiers) == normalized(b.modifiers)
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Keymap {
     overrides: BTreeMap<Command, Vec<KeyboardShortcut>>,
     hints: OnceLock<BTreeMap<Command, String>>,
@@ -2941,6 +2949,7 @@ impl PartialEq for Keymap {
 impl Keymap {
     pub fn from_settings(settings: &Settings) -> Self {
         let mut keymap = Self::default();
+
         for key in settings.keys_under(SETTINGS_PREFIX) {
             let Some(command) = key.strip_prefix(SETTINGS_PREFIX).and_then(Command::from_id) else {
                 continue;
@@ -2950,6 +2959,7 @@ impl Keymap {
             };
             let shortcuts: Vec<KeyboardShortcut> =
                 texts.iter().filter_map(|text| parse_stored(text)).collect();
+
             if shortcuts.is_empty() && !texts.is_empty() {
                 continue;
             }
@@ -2961,14 +2971,17 @@ impl Keymap {
     pub fn write(&self, loaded: &Self, settings: &mut Settings) {
         for command in Command::all() {
             let shortcuts = self.shortcuts(command);
+
             if shortcuts == loaded.shortcuts(command) {
                 continue;
             }
+
             let key = format!("{SETTINGS_PREFIX}{}", command.id());
             if self.is_default(command) {
                 settings.remove(&key);
             } else {
                 let texts: Vec<String> = shortcuts.iter().map(stored_text).collect();
+
                 settings.set_texts(&key, &texts);
             }
         }
@@ -3019,7 +3032,9 @@ impl Keymap {
         for other in self.conflicts(command, &shortcut) {
             self.unbind(other, shortcut);
         }
+
         let mut shortcuts = self.shortcuts(command);
+
         if !shortcuts.iter().any(|bound| same(bound, &shortcut)) {
             shortcuts.push(shortcut);
         }
@@ -3028,6 +3043,7 @@ impl Keymap {
 
     pub fn unbind(&mut self, command: Command, shortcut: KeyboardShortcut) {
         let mut shortcuts = self.shortcuts(command);
+
         shortcuts.retain(|bound| !same(bound, &shortcut));
         self.set(command, shortcuts);
     }
@@ -3083,11 +3099,13 @@ impl Keymap {
         let specific_first = |(command, _): &(Command, KeyboardShortcut)| {
             u8::from(command.scope() == Scope::Anywhere)
         };
+
         let mut exact: Vec<_> = candidates
             .iter()
             .filter(|(_, shortcut)| normalized(shortcut.modifiers) == pressed_modifiers)
             .copied()
             .collect();
+
         exact.sort_by_key(specific_first);
         if let Some(found) = exact.first() {
             return Some(*found);
@@ -3105,7 +3123,7 @@ impl Keymap {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Situation {
     pub editing_sketch: bool,
     pub drawing: bool,
@@ -3128,6 +3146,7 @@ impl Situation {
 
     fn accepts(&self, shortcut: &KeyboardShortcut) -> bool {
         let modifiers = normalized(shortcut.modifiers);
+
         if self.drawing && KEPT_WHILE_DRAWING.contains(&shortcut.logical_key) {
             return false;
         }
@@ -3159,12 +3178,14 @@ pub fn pressed_shortcut(event: &Event) -> Option<KeyboardShortcut> {
 pub fn pressed(ctx: &egui::Context, keymap: &Keymap, command: Command, typing: bool) -> bool {
     let shortcuts = keymap.shortcuts(command);
     let mut found = false;
+
     ctx.input_mut(|input| {
         input.events.retain(|event| {
             let Some(pressed) = pressed_shortcut(event) else {
                 return true;
             };
             let chorded = pressed.modifiers.command || pressed.modifiers.alt;
+
             let typed = typing
                 && (!chorded || TEXT_EDITING_KEYS.contains(&pressed.logical_key))
                 && !is_function_key(pressed.logical_key);
@@ -3174,6 +3195,7 @@ pub fn pressed(ctx: &egui::Context, keymap: &Keymap, command: Command, typing: b
                     shortcut.logical_key == pressed.logical_key
                         && normalized(shortcut.modifiers) == pressed.modifiers
                 });
+
             found |= matched;
             !matched
         });
@@ -3202,6 +3224,7 @@ fn is_function_key(key: Key) -> bool {
 pub fn dispatch(ctx: &egui::Context, keymap: &Keymap, situation: &Situation) -> Vec<Command> {
     let mut triggered = Vec::new();
     let mut taken_plain = Vec::new();
+
     ctx.input_mut(|input| {
         input.events.retain(|event| {
             let Some(pressed) = pressed_shortcut(event) else {
@@ -3240,7 +3263,7 @@ fn types_a_taken_key(event: &Event, taken: &[Key]) -> bool {
         .any(|key| text.eq_ignore_ascii_case(key.symbol_or_name()))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Offer {
     pub command: Command,
     pub availability: Result<(), Cow<'static, str>>,
@@ -3256,7 +3279,7 @@ pub trait Reason {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Declined {
     words: Cow<'static, str>,
     pending: Option<Pending>,
@@ -3308,14 +3331,14 @@ impl Offer {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Clipboard {
     #[default]
     Unread,
     Read(Option<String>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pasted<'a> {
     Unread,
     Text(&'a str),
@@ -3408,13 +3431,16 @@ impl<'a> CommandFrame<'a> {
     ) -> bool {
         let declined = availability.as_ref().err().map(Declined::of);
         let triggered = self.take(command);
+
         if triggered && let Some(declined) = &declined {
             self.refused.push((command, declined.clone()));
         }
         if !self.offered.insert(command) {
             self.offers.retain(|offer| offer.command != command);
         }
+
         let ready = declined.is_none();
+
         if triggered && ready {
             self.ran.push(command);
         }
@@ -3467,6 +3493,7 @@ impl<'a> CommandFrame<'a> {
 
     pub fn take(&mut self, command: Command) -> bool {
         let before = self.triggered.len();
+
         self.triggered.retain(|triggered| *triggered != command);
         self.triggered.len() != before
     }
@@ -3504,12 +3531,15 @@ mod tests {
     fn key_hints_follow_the_keymap_as_it_changes() {
         let mut keymap = Keymap::default();
         let line = Command::FitView;
+
         let original = keymap.hint(line).map(str::to_owned);
 
         keymap.set(line, Vec::new());
+
         assert_eq!(keymap.hint(line), None);
 
         keymap.reset(line);
+
         assert_eq!(keymap.hint(line).map(str::to_owned), original);
     }
 
@@ -3552,9 +3582,11 @@ mod tests {
     #[test]
     fn every_command_has_a_distinct_id_and_the_defaults_do_not_collide() {
         let commands: Vec<Command> = Command::all().collect();
+
         for command in &commands {
             assert_eq!(Command::from_id(command.id()), Some(*command));
         }
+
         let keymap = Keymap::default();
         for command in commands {
             for shortcut in keymap.shortcuts(command) {
@@ -3596,6 +3628,7 @@ mod tests {
         };
         let delete = press(Key::Delete, Modifiers::NONE);
         let space = press(Key::Space, Modifiers::NONE);
+
         assert!(button_focused.accepts(&delete));
         assert!(!button_focused.accepts(&space));
         assert!(!text_focused.accepts(&delete));
@@ -3615,7 +3648,9 @@ mod tests {
         assert_eq!(parse_stored("Escape"), None);
         assert_eq!(parse_stored("Hyper+Q"), None);
         assert_eq!(parse_stored("Ctrl+Nothing"), None);
+
         let comma = press(Key::Comma, Modifiers::CTRL | Modifiers::COMMAND);
+
         assert_eq!(stored_text(&comma), "Ctrl+Comma");
         assert_eq!(display(&comma), "Ctrl+,");
         assert_eq!(
@@ -3629,20 +3664,26 @@ mod tests {
         let mut keymap = Keymap::default();
         let f = press(Key::F, Modifiers::NONE);
         let line = Command::SketchTool(Tool::Line);
+
         assert_eq!(keymap.conflicts(line, &f), vec![Command::FitView]);
+
         keymap.bind(line, f);
+
         assert!(keymap.shortcuts(Command::FitView).is_empty());
         assert_eq!(
             keymap.shortcuts(line),
             vec![press(Key::L, Modifiers::NONE), f]
         );
+
         keymap.reset(Command::FitView);
+
         assert_eq!(keymap.shortcuts(Command::FitView), vec![f]);
         assert_eq!(keymap.shortcuts(line), vec![press(Key::L, Modifiers::NONE)]);
         assert!(keymap.is_all_default());
 
         let tool = Command::SketchTool(Tool::Point);
         let horizontal = Command::Constraint(ConstraintTool::Horizontal);
+
         assert_eq!(
             keymap.conflicts(Command::Extrude, &press(Key::H, Modifiers::SHIFT)),
             vec![horizontal]
@@ -3657,19 +3698,27 @@ mod tests {
     #[test]
     fn only_changed_bindings_are_written_and_unknown_ones_are_kept() {
         let mut raw = Settings::default();
+
         raw.set_texts("keys.file.save", &["Ctrl+Nothing".to_owned()]);
         raw.set_texts("keys.future.command", &["Ctrl+K".to_owned()]);
         raw.set_texts("keys.file.open", &[]);
+
         let loaded = Keymap::from_settings(&raw);
+
         assert_eq!(
             loaded.shortcuts(Command::Save),
             Command::Save.default_shortcuts()
         );
         assert!(loaded.shortcuts(Command::Open).is_empty());
+
         let mut keymap = loaded.clone();
+
         keymap.bind(Command::Extrude, press(Key::E, Modifiers::NONE));
+
         let mut settings = raw.clone();
+
         keymap.write(&loaded, &mut settings);
+
         assert_eq!(
             settings.texts("keys.file.save"),
             Some(vec!["Ctrl+Nothing".to_owned()])
@@ -3682,15 +3731,20 @@ mod tests {
             settings.texts("keys.model.extrude"),
             Some(vec!["Alt+E".to_owned(), "E".to_owned()])
         );
+
         keymap.bind(Command::Save, press(Key::F2, Modifiers::COMMAND));
         keymap.write(&loaded, &mut settings);
+
         assert_eq!(
             settings.texts("keys.file.save"),
             Some(vec!["Ctrl+S".to_owned(), "Ctrl+F2".to_owned()])
         );
+
         let rebound = keymap.clone();
+
         keymap.reset(Command::Save);
         keymap.write(&rebound, &mut settings);
+
         assert_eq!(settings.texts("keys.file.save"), None);
         assert_eq!(Keymap::from_settings(&settings), keymap);
     }
@@ -3703,6 +3757,7 @@ mod tests {
             covered: true,
             ..Situation::default()
         };
+
         let found = |pressed| {
             keymap
                 .command_for(&pressed, &covered)
@@ -3734,6 +3789,7 @@ mod tests {
                 .command_for(&pressed, situation)
                 .map(|(command, _)| command)
         };
+
         assert_eq!(
             found(press(Key::P, Modifiers::SHIFT), &sketch),
             Some(Command::Constraint(ConstraintTool::Parallel))
@@ -3766,23 +3822,29 @@ mod tests {
             Some(Command::Preferences)
         );
         assert!(sketch.accepts(&press(Key::Delete, Modifiers::NONE)));
+
         let drawing = Situation {
             drawing: true,
             ..sketch
         };
+
         assert!(!drawing.accepts(&press(Key::Backspace, Modifiers::NONE)));
+
         let typing = Situation {
             text_focused: true,
             ..Situation::default()
         };
+
         assert!(typing.accepts(&press(Key::S, Modifiers::COMMAND)));
         assert!(typing.accepts(&press(Key::Num1, Modifiers::ALT)));
+
         for kept in [Key::C, Key::V, Key::Z, Key::ArrowLeft, Key::Backspace] {
             assert!(
                 !typing.accepts(&press(kept, Modifiers::COMMAND)),
                 "{kept:?}"
             );
         }
+
         assert!(!typing.accepts(&press(Key::S, Modifiers::NONE)));
     }
 }

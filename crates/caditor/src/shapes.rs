@@ -8,7 +8,7 @@ pub const MAX_SIDES: usize = 64;
 pub const DEFAULT_SIDES: usize = 6;
 pub const DEGENERATE_LENGTH: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Circular {
     pub center: Point2,
     pub counter_clockwise: bool,
@@ -32,10 +32,13 @@ fn within_reach(center: Point2, radius: f64) -> bool {
 pub fn through_three(start: Point2, end: Point2, through: Point2) -> Option<Circular> {
     let to_end = end - start;
     let to_through = through - start;
+
     let twice_area = 2.0 * to_end.perp_dot(to_through);
+
     if twice_area == 0.0 {
         return None;
     }
+
     let offset = Vector2::new(
         to_through.y * to_end.length_squared() - to_end.y * to_through.length_squared(),
         to_end.x * to_through.length_squared() - to_through.x * to_end.length_squared(),
@@ -51,10 +54,13 @@ pub fn tangent_from(start: Point2, direction: Vector2, end: Point2) -> Option<Ci
     let direction = direction.try_normalize()?;
     let normal = direction.perp();
     let chord = end - start;
+
     let across = normal.dot(chord);
+
     if across == 0.0 {
         return None;
     }
+
     let signed_radius = chord.length_squared() / (2.0 * across);
     let center = start + normal * signed_radius;
     within_reach(center, signed_radius.abs()).then_some(Circular {
@@ -72,7 +78,7 @@ pub fn leaving(circular: Circular, point: Point2) -> Option<Vector2> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Slot {
     pub centers: [Point2; 2],
     pub radius: f64,
@@ -105,7 +111,9 @@ impl Slot {
     pub fn outline(&self, faceting: Faceting) -> Vec<Point2> {
         let [first, second] = self.centers;
         let [a, b, c, d] = self.corners();
+
         let mut outline = ArcGeometry::from_points(second, a, b).faceted(faceting);
+
         outline.extend(ArcGeometry::from_points(first, c, d).faceted(faceting));
         outline.push(a);
         outline
@@ -115,6 +123,7 @@ impl Slot {
 pub fn ellipse_through(center: Point2, axis_end: Point2, width: Point2) -> Option<EllipseGeometry> {
     let major = axis_end - center;
     let across = major.try_normalize()?.perp_dot(width - center).abs();
+
     let reach = major.length().max(across);
     (major.length() >= DEGENERATE_LENGTH
         && across >= DEGENERATE_LENGTH
@@ -125,8 +134,10 @@ pub fn ellipse_through(center: Point2, axis_end: Point2, width: Point2) -> Optio
 pub fn toward_on_ellipse(ellipse: &EllipseGeometry, toward: Point2) -> Option<Point2> {
     let offset = toward - ellipse.center;
     let axis = ellipse.axis();
+
     let along = offset.dot(axis) / ellipse.major_radius();
     let across = offset.dot(axis.perp()) / ellipse.minor_radius;
+
     let level = along.hypot(across);
     (level > 0.0 && level.is_finite()).then(|| ellipse.center + offset / level)
 }
@@ -142,6 +153,7 @@ pub fn rectangle_on_side(
 ) -> Option<[Point2; 4]> {
     let across = (second - first).try_normalize()?.perp();
     let width = across.dot(width_point - second);
+
     let corners = [
         first,
         second,
@@ -167,7 +179,7 @@ pub fn circle_through_three(first: Point2, second: Point2, third: Point2) -> Opt
     ))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ArcSlot {
     pub center: Point2,
     pub ends: [Point2; 2],
@@ -179,12 +191,14 @@ impl ArcSlot {
         let [first, last] = ends;
         let radius = center.distance(first);
         let half_width = (center.distance(width_point) - radius).abs();
+
         let slot = Self {
             center,
             ends: [first, center + (last - center).try_normalize()? * radius],
             half_width,
         };
         let inside = radius - half_width >= DEGENERATE_LENGTH;
+
         let ends_apart = inside && slot.sweep() + 2.0 * (half_width / radius).asin() < TAU;
         (half_width >= DEGENERATE_LENGTH && ends_apart && within_reach(center, radius + half_width))
             .then_some(slot)
@@ -218,11 +232,15 @@ impl ArcSlot {
     pub fn outline(&self, faceting: Faceting) -> Vec<Point2> {
         let [first, last] = self.ends;
         let [outer_first, outer_last, inner_first, inner_last] = self.corners();
+
         let mut inner =
             ArcGeometry::from_points(self.center, inner_first, inner_last).faceted(faceting);
+
         inner.reverse();
+
         let mut outline =
             ArcGeometry::from_points(self.center, outer_first, outer_last).faceted(faceting);
+
         outline.extend(ArcGeometry::from_points(last, outer_last, inner_last).faceted(faceting));
         outline.extend(inner);
         outline.extend(ArcGeometry::from_points(first, inner_first, outer_first).faceted(faceting));
@@ -249,6 +267,7 @@ fn half_side_angle(sides: usize) -> f64 {
 pub fn polygon_around_side_middle(center: Point2, middle: Point2, sides: usize) -> Vec<Point2> {
     let offset = middle - center;
     let half_side = half_side_angle(sides);
+
     let first = center
         + Vector2::from_angle(offset.y.atan2(offset.x) - half_side)
             * (offset.length() / half_side.cos());
@@ -263,8 +282,10 @@ pub fn polygon_on_side(
     let side = second - first;
     let inward = side.try_normalize()?.perp();
     let inscribed = side.length() / (2.0 * half_side_angle(sides).tan());
+
     let center = first.midpoint(second) + inward * inscribed;
     let mut corners = polygon_corners(center, first, sides);
+
     if let Some(corner) = corners.get_mut(1) {
         *corner = second;
     }
@@ -301,20 +322,27 @@ mod tests {
     #[test]
     fn an_arc_through_three_points_runs_from_start_through_the_third_to_end() {
         let over = through_three(Point2::X, -Point2::X, Point2::Y).unwrap();
+
         assert!(near(over.center, Point2::ZERO));
         assert!(over.counter_clockwise);
+
         let arc = over.arc(Point2::X, -Point2::X);
+
         assert!((arc.sweep - PI).abs() < TOLERANCE);
         assert!(arc.start_angle.abs() < TOLERANCE);
 
         let under = through_three(Point2::X, -Point2::X, Point2::new(0.6, -0.8)).unwrap();
+
         assert!(near(under.center, Point2::ZERO));
         assert!(!under.counter_clockwise);
+
         let arc = under.arc(Point2::X, -Point2::X);
+
         assert!((arc.start_angle.abs() - PI).abs() < TOLERANCE);
         assert!((arc.sweep - PI).abs() < TOLERANCE);
 
         let long_way = through_three(Point2::X, Point2::Y, Point2::new(-0.6, -0.8)).unwrap();
+
         assert!((long_way.arc(Point2::X, Point2::Y).sweep - 3.0 * FRAC_PI_2).abs() < TOLERANCE);
     }
 
@@ -337,12 +365,16 @@ mod tests {
     #[test]
     fn a_tangent_arc_turns_towards_its_end_and_leaves_along_the_circle() {
         let left = tangent_from(Point2::ZERO, Point2::X, Point2::new(1.0, 1.0)).unwrap();
+
         assert!(near(left.center, Point2::Y));
         assert!(left.counter_clockwise);
+
         let direction = leaving(left, Point2::new(1.0, 1.0)).unwrap();
+
         assert!(near(direction, Point2::Y));
 
         let right = tangent_from(Point2::ZERO, Point2::X, Point2::new(1.0, -1.0)).unwrap();
+
         assert!(near(right.center, -Point2::Y));
         assert!(!right.counter_clockwise);
         assert!(near(
@@ -352,6 +384,7 @@ mod tests {
 
         let behind = tangent_from(Point2::ZERO, Point2::X, Point2::new(-1.0, 1.0)).unwrap();
         let arc = behind.arc(Point2::ZERO, Point2::new(-1.0, 1.0));
+
         assert!(arc.sweep > PI);
 
         assert_eq!(
@@ -364,13 +397,18 @@ mod tests {
     #[test]
     fn a_slot_is_as_wide_as_twice_the_distance_of_its_third_point_from_its_axis() {
         let slot = Slot::new(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(4.0, -3.0)).unwrap();
+
         assert!((slot.radius - 3.0).abs() < TOLERANCE);
+
         let [a, b, c, d] = slot.corners();
+
         assert!(near(a, Point2::new(10.0, -3.0)));
         assert!(near(b, Point2::new(10.0, 3.0)));
         assert!(near(c, Point2::new(0.0, 3.0)));
         assert!(near(d, Point2::new(0.0, -3.0)));
+
         let outline = slot.outline(Faceting::within(1e-4));
+
         for bulge in [Point2::new(13.0, 0.0), Point2::new(-3.0, 0.0)] {
             assert!(outline.iter().any(|point| point.distance(bulge) < 0.05));
         }
@@ -391,10 +429,13 @@ mod tests {
             Point2::new(-1.0, 1.0),
             Point2::new(1.0, -1.0),
         ];
+
         assert_eq!(corners.len(), 4);
+
         for (corner, expected) in corners.iter().zip(expected) {
             assert!(near(*corner, expected), "{corner}");
         }
+
         assert_eq!(polygon_name(6), "hexagon");
         assert_eq!(polygon_name(11), "11-sided polygon");
     }
@@ -456,9 +497,11 @@ mod tests {
         let circle = circle_through_three(points[0], points[1], points[2]).unwrap();
 
         assert!(near(circle.center, Point2::ZERO), "{}", circle.center);
+
         for point in points {
             assert!((circle.center.distance(point) - circle.radius).abs() < TOLERANCE);
         }
+
         assert_eq!(
             circle_through_three(Point2::ZERO, Point2::X, Point2::new(2.0, 0.0)),
             None
@@ -484,6 +527,7 @@ mod tests {
         for (index, corner) in hexagon.iter().enumerate() {
             let next = hexagon[(index + 1) % hexagon.len()];
             let middle = corner.midpoint(next);
+
             assert!((middle.distance(Point2::new(1.0, 2.0)) - 5.0).abs() < TOLERANCE);
         }
     }
@@ -506,11 +550,14 @@ mod tests {
         ));
         assert!(hexagon_center.y < 0.0);
         assert_eq!(hexagon[1], Point2::ZERO);
+
         for (index, corner) in hexagon.iter().enumerate() {
             let next = hexagon[(index + 1) % hexagon.len()];
+
             assert!((corner.distance(next) - 10.0).abs() < TOLERANCE);
             assert!((corner.distance(hexagon_center) - 10.0).abs() < TOLERANCE);
         }
+
         assert_eq!(polygon_on_side(Point2::X, Point2::X, 5), None);
     }
 
@@ -537,9 +584,11 @@ mod tests {
                 Point2::new(0.0, 8.0),
             ]
         ));
+
         for bulge in [Point2::new(10.0, -2.0), Point2::new(-2.0, 10.0)] {
             assert!(reaches(bulge), "{bulge}");
         }
+
         assert!(near(outline[0], *outline.last().unwrap()));
     }
 

@@ -55,6 +55,7 @@ pub fn installed(ctx: &egui::Context) -> bool {
 
 pub fn definitions_with(scripts: &[FallbackFont]) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
+
     fonts.font_data.insert(
         ICONS.to_owned(),
         Arc::new(FontData::from_static(
@@ -66,6 +67,7 @@ pub fn definitions_with(scripts: &[FallbackFont]) -> FontDefinitions {
             .font_data
             .insert(script.key.clone(), Arc::clone(&script.data));
     }
+
     let script_keys = scripts.iter().map(|script| script.key.clone());
     let fallbacks: Vec<String> = fonts
         .families
@@ -75,6 +77,7 @@ pub fn definitions_with(scripts: &[FallbackFont]) -> FontDefinitions {
         .cloned()
         .chain(script_keys.clone())
         .collect();
+
     if let Some(monospace) = fonts.families.get_mut(&FontFamily::Monospace) {
         monospace.extend(script_keys);
     }
@@ -83,22 +86,26 @@ pub fn definitions_with(scripts: &[FallbackFont]) -> FontDefinitions {
             coords: VariationCoords::new([(WEIGHT_AXIS, weight.value)]),
             ..FontTweak::default()
         };
+
         fonts.font_data.insert(
             weight.font.to_owned(),
             Arc::new(FontData::from_static(INTER).tweak(tweak)),
         );
+
         let family = weight.family.map_or(FontFamily::Proportional, |name| {
             FontFamily::Name(name.into())
         });
         let keys = std::iter::once(weight.font.to_owned())
             .chain(fallbacks.iter().cloned())
             .collect();
+
         fonts.families.insert(family, keys);
     }
     fonts.font_data.insert(
         icon_font::FONT_NAME.to_owned(),
         Arc::new(FontData::from_owned(icon_font::font())),
     );
+
     let icon_keys = [
         ICONS.to_owned(),
         icon_font::FONT_NAME.to_owned(),
@@ -107,6 +114,7 @@ pub fn definitions_with(scripts: &[FallbackFont]) -> FontDefinitions {
     .into_iter()
     .chain(fallbacks.iter().cloned())
     .collect();
+
     fonts.families.insert(icons(), icon_keys);
     fonts
 }
@@ -118,6 +126,7 @@ mod tests {
     #[test]
     fn text_starts_with_inter_and_icons_with_phosphor() {
         let fonts = definitions_with(&[]);
+
         for (family, font) in [
             (FontFamily::Proportional, "inter"),
             (medium(), "inter-medium"),
@@ -125,24 +134,33 @@ mod tests {
             (icons(), ICONS),
         ] {
             let keys = fonts.families.get(&family).unwrap();
+
             assert_eq!(keys.first().map(String::as_str), Some(font));
         }
+
         let proportional = fonts.families.get(&FontFamily::Proportional).unwrap();
+
         assert!(!proportional.iter().any(|key| key == ICONS));
     }
 
     #[test]
     fn inter_and_icons_render() {
         let context = egui::Context::default();
+
         context.set_fonts(definitions_with(&[]));
+
         let mut output = context.run_ui(egui::RawInput::default(), |_| {});
+
         output.textures_delta.clear();
         context.fonts_mut(|fonts| {
             for family in [FontFamily::Proportional, medium(), semibold()] {
                 let font = egui::FontId::new(14.0, family);
+
                 assert!(fonts.has_glyphs(&font, "Ag0°›…"));
             }
+
             let icons = egui::FontId::new(14.0, icons());
+
             assert!(fonts.has_glyphs(&icons, egui_phosphor::regular::ARROW_U_UP_LEFT));
             for glyph in [
                 icon_font::FILLET,

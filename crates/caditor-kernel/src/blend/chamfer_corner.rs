@@ -21,7 +21,7 @@ type Bound = (Vector3, f64);
 
 pub(super) type Bevelled = BTreeMap<EdgeId, (EdgeGeometry, Blend, f64)>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct ChamferCorner {
     faces: [FaceId; 3],
     normals: [Vector3; 3],
@@ -40,6 +40,7 @@ fn chamfer_plane(geometry: &EdgeGeometry, blend: &Blend) -> Option<Bound> {
     let [first, second] = blend.feet;
     let first = geometry.place(first, 0.0)?;
     let second = geometry.place(second, 0.0)?;
+
     let normal = (second - first)
         .cross(geometry.frame.normal())
         .try_normalize()?;
@@ -69,14 +70,17 @@ pub(super) fn find(
     let [first, second, third] = topology.edges_at(vertex) else {
         return None;
     };
+
     let ids = [*first, *second, *third];
 
     let mut faces: Vec<FaceId> = Vec::with_capacity(3);
     let mut cuts = Vec::with_capacity(3);
     let mut pairs = Vec::with_capacity(3);
     let mut reach: f64 = 0.0;
+
     for edge in ids {
         let (geometry, blend, edge_reach) = bevelled.get(&edge)?;
+
         if !geometry.section.convex || !matches!(geometry.sweep, Sweep::Along { .. }) {
             return None;
         }
@@ -89,9 +93,11 @@ pub(super) fn find(
         pairs.push(geometry.faces);
         reach = reach.max(*edge_reach);
     }
+
     let [f0, f1, f2] = faces[..] else {
         return None;
     };
+
     let faces = [f0, f1, f2];
     let normals = [
         plane_normal(solid, f0)?,
@@ -101,25 +107,31 @@ pub(super) fn find(
     let apex = solid.vertex(vertex)?.point();
     let index = |face: FaceId| faces.iter().position(|candidate| *candidate == face);
     let mut edge_faces = [[0; 2]; 3];
+
     for (slot, [a, b]) in edge_faces.iter_mut().zip(&pairs) {
         *slot = [index(*a)?, index(*b)?];
     }
+
     let [c0, c1, c2] = cuts[..] else {
         return None;
     };
 
     let mut feet_meet = Vec::with_capacity(3);
+
     for (face, normal) in normals.iter().enumerate() {
         let [e1, e2] = edges_of(&edge_faces, face)?;
+
         feet_meet.push(meet([
             through(apex, *normal),
             *cuts.get(e1)?,
             *cuts.get(e2)?,
         ])?);
     }
+
     let [p0, p1, p2] = feet_meet[..] else {
         return None;
     };
+
     let normal = (p1 - p0).cross(p2 - p0).try_normalize()?;
     let toward_apex = if normal.dot(apex - p0) < 0.0 {
         -normal
@@ -128,6 +140,7 @@ pub(super) fn find(
     };
     let apex_depth = toward_apex.dot(apex - p0);
     let tip = meet([c0, c1, c2])?;
+
     if apex_depth <= LINEAR_RESOLUTION || toward_apex.dot(tip - p0) <= LINEAR_RESOLUTION {
         return None;
     }
@@ -162,17 +175,22 @@ impl ChamferCorner {
         let cut = through(self.cut_point, self.toward_apex);
 
         let mut builder = Builder::new();
+
         let top = builder
             .plan
             .vertex(meet([lifted(0)?, lifted(1)?, lifted(2)?]).ok_or_else(failed)?);
         let mut rim = Vec::with_capacity(3);
+
         for [a, b] in self.edge_faces {
             let point = meet([lifted(a)?, lifted(b)?, cut]).ok_or_else(failed)?;
+
             rim.push(builder.plan.vertex(point));
         }
+
         let [r0, r1, r2] = rim[..] else {
             return Err(failed());
         };
+
         for (from, to) in [(r0, r1), (r1, r2), (r2, r0)] {
             builder.line(from, to)?;
         }
@@ -189,13 +207,16 @@ impl ChamferCorner {
                     .map_or((FaceName::NONE, None), |face| (face.name(), face.origin()))
             })
             .collect();
+
         for (face, (normal, (name, origin))) in self.normals.iter().zip(&names).enumerate() {
             let [e1, e2] = edges_of(&self.edge_faces, face).ok_or_else(failed)?;
+
             let (Some(first), Some(second)) = (rim.get(e1), rim.get(e2)) else {
                 return Err(failed());
             };
             let plane =
                 Plane::new(self.apex + *normal * self.clearance, *normal).ok_or_else(failed)?;
+
             builder.face(
                 &[top, *first, *second],
                 *normal,
@@ -205,8 +226,10 @@ impl ChamferCorner {
                 *origin,
             )?;
         }
+
         let outward = -self.toward_apex;
         let plane = Plane::new(self.cut_point, outward).ok_or_else(failed)?;
+
         builder.face(
             &[r0, r1, r2],
             outward,

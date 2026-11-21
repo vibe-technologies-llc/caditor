@@ -19,20 +19,20 @@ use crate::{
 
 const LYING_ALONG_SINE: f64 = 1e-2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Twin {
     Alone,
     Matched,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Class {
     Inside,
     Outside,
     Coincident(Sense),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct KeptFace {
     pub key: FaceKey,
     pub surface: Surface,
@@ -42,7 +42,7 @@ pub(super) struct KeptFace {
     pub fragment: Fragment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Keep {
     No,
     AsIs,
@@ -63,13 +63,13 @@ fn keep(operand: Operand, class: Class, operation: BooleanOperation) -> Keep {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Basis {
     Sampled,
     LyingAlong,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Verdict {
     class: Class,
     basis: Basis,
@@ -113,13 +113,16 @@ fn judge(
     let mut mixed_at = None;
     let mut coincident_at = None;
     let mut first_sample = None;
+
     for uv in interior_points(fragment, surface) {
         let Some(normal) = surface.normal(uv.x, uv.y) else {
             continue;
         };
         let point = surface.point_at(uv);
+
         first_sample.get_or_insert(point);
         sampled += 1;
+
         let ambiguous = || BooleanError::Ambiguous(Box::default()).or_point(|| Some(point));
         let outward = normal * sense.sign();
         let found = classifier.classify_fragment_point(point, outward, surface);
@@ -130,6 +133,7 @@ fn judge(
                 } else {
                     Class::Outside
                 };
+
                 if solid_side.is_some_and(|known| known != class) {
                     return Err(ambiguous().or_faces([key]));
                 }
@@ -137,6 +141,7 @@ fn judge(
             }
             BoundaryClass::Coincident { face, sense } => {
                 let class = Class::Coincident(sense);
+
                 if !exactly_inside(input, other, face, point) {
                     along_boundary.get_or_insert(class);
                     continue;
@@ -155,14 +160,17 @@ fn judge(
             BoundaryClass::Undecided => {}
         }
     }
+
     let ambiguous = |point: Option<Point3>| {
         BooleanError::Ambiguous(Box::default())
             .or_faces([key])
             .or_point(|| point)
     };
+
     if let Some(point) = mixed_at.or(coincident_at.filter(|_| solid_side.is_some())) {
         return Err(ambiguous(Some(point)));
     }
+
     let lying_throughout = (lying.len() == sampled).then(|| agreed(&lying)).flatten();
     let lying_on_twin = lying_throughout.filter(|_| twin == Twin::Matched);
     let sampled = solid_side
@@ -192,6 +200,7 @@ fn lying_along(
     let hint = input
         .bounds(FaceKey { operand, face })
         .map(|bounds| bounds.uv.center());
+
     let uv = touched.surface().project(point, hint);
     let normal = touched.surface().normal(uv.x, uv.y)? * touched.sense().sign();
     let along = normal.cross(outward.try_normalize()?).length() <= LYING_ALONG_SINE;
@@ -229,6 +238,7 @@ fn exactly_inside(input: &Input, operand: Operand, face: FaceId, point: Point3) 
     let hint = input
         .bounds(FaceKey { operand, face })
         .map(|bounds| bounds.uv.center());
+
     let uv = surface.project(point, hint);
     input.classifier(operand).exactly_inside_face(face, uv) == Some(true)
 }
@@ -285,15 +295,18 @@ fn untouched_components(
     let mut components = Components {
         parents: BTreeMap::new(),
     };
+
     for operand in Operand::BOTH {
         let solid = input.solid(operand);
         for (id, edge) in solid.edges() {
             let [piece] = arrangement.edge_pieces(operand, id) else {
                 continue;
             };
+
             if shared.contains(piece) {
                 continue;
             }
+
             let faces: Vec<FaceKey> = edge
                 .coedges()
                 .iter()
@@ -389,8 +402,10 @@ fn settle_across_seams(
         .map(|(fragment, _)| boundary_pieces(fragment))
         .collect();
     let mut verdicts: Vec<Verdict> = judged.iter().map(|(_, verdict)| *verdict).collect();
+
     for _ in 0..verdicts.len() {
         let mut settled_any = false;
+
         for index in 0..verdicts.len() {
             let lying = verdicts
                 .get(index)
@@ -424,18 +439,22 @@ pub(super) fn select(
     let shared = arrangement.shared_pieces();
     let mut shared_classes: BTreeMap<FaceKey, Class> = BTreeMap::new();
     let mut kept = Vec::new();
+
     for face in split {
         interrupt::check()?;
+
         let original = input
             .face(face.key)
             .ok_or_else(|| BooleanError::split().or_faces([face.key]))?;
         let root = components.root(face.key);
         let [first_extent, second_extent] = &extents;
+
         let other_extent = match face.key.operand {
             Operand::First => second_extent.as_ref(),
             Operand::Second => first_extent.as_ref(),
         };
         let mut judged = Vec::with_capacity(face.fragments.len());
+
         for fragment in face.fragments {
             let known = if face.untouched {
                 shared_classes.get(&root).copied()
@@ -470,6 +489,7 @@ pub(super) fn select(
                     )?
                 }
             };
+
             if face.untouched && !matches!(verdict.class, Class::Coincident(_)) {
                 shared_classes.insert(root, verdict.class);
             }
@@ -482,6 +502,7 @@ pub(super) fn select(
                 Keep::AsIs => (original.sense(), fragment),
                 Keep::Reversed => (original.sense().reversed(), fragment.reversed()),
             };
+
             kept.push(KeptFace {
                 key: face.key,
                 surface: original.surface().clone(),

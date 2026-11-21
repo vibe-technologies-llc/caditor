@@ -125,6 +125,7 @@ impl RecordDigest {
 
     fn add_content(&mut self, content: &[u8]) {
         let mut length = Vec::new();
+
         push_varint(&mut length, content.len() as u64);
         self.hasher.update(&length);
         self.hasher.update(content);
@@ -136,17 +137,17 @@ impl RecordDigest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct FileDigest(pub(crate) String);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SavedState {
     pub saved_at: SystemTime,
     pub label: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Version {
     pub index: usize,
     pub digest: VersionDigest,
@@ -155,13 +156,13 @@ pub struct Version {
     pub kept: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct History {
     pub current: Option<SavedState>,
     pub versions: Vec<Version>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 struct StateRecord {
     saved_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -205,13 +206,13 @@ fn digest(snapshot: &[u8]) -> String {
     blake3::hash(snapshot).to_hex().to_string()
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct StoredInfo<'a> {
     record: StateRecord,
     chunk: Chunk<'a>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct StoredVersion<'a> {
     info: Option<StoredInfo<'a>>,
     data: Chunk<'a>,
@@ -230,7 +231,7 @@ impl StoredVersion<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Parsed<'a> {
     version: Option<u32>,
     damaged: usize,
@@ -248,6 +249,7 @@ impl<'a> Parsed<'a> {
             Some(container) => (Some(container.version), container.pieces),
             None => (None, salvage(bytes, ChunkKind::Head)?),
         };
+
         let mut parsed = Self {
             version,
             damaged: damaged(&pieces),
@@ -260,6 +262,7 @@ impl<'a> Parsed<'a> {
         };
         let mut pending_info = None;
         let mut damage_since_data = false;
+
         for piece in &pieces {
             let Piece::Chunk(chunk) = *piece else {
                 pending_info = None;
@@ -311,6 +314,7 @@ impl<'a> Parsed<'a> {
     fn records_digest(&self) -> RecordDigest {
         let mut budget = Budget::default();
         let mut digest = RecordDigest::default();
+
         for chunk in &self.records {
             digest.add(&budget.unpack(chunk, None));
         }
@@ -333,16 +337,21 @@ impl<'a> Parsed<'a> {
             .into_iter()
             .zip(batch)
         });
+
         for (unpacked, chunk) in unpacked {
             let unpacked: Result<(Vec<u8>, RecordKey), UnpackError> = unpacked;
             let Ok((content, exact)) = unpacked else {
                 prior.digest.whole = false;
                 continue;
             };
+
             prior.digest.add_content(&content);
             push_varint(&mut prior.snapshot, content.len() as u64);
+
             let start = prior.snapshot.len();
+
             prior.snapshot.extend_from_slice(&content);
+
             let key = if written.contains(&exact) {
                 Some(exact)
             } else {
@@ -364,8 +373,10 @@ impl<'a> Parsed<'a> {
     fn head_snapshot(&self, budget: &mut Budget) -> Option<Vec<u8>> {
         let head = self.head.as_ref()?;
         let mut snapshot = Vec::new();
+
         for chunk in &self.records {
             let content = budget.unpack(chunk, None).ok()?;
+
             push_varint(&mut snapshot, content.len() as u64);
             snapshot.extend_from_slice(&content);
         }
@@ -387,8 +398,10 @@ impl<'a> Parsed<'a> {
         } else {
             None
         };
+
         for version in self.versions.get(from..=index)? {
             let held = newer.as_ref().map_or(0, Vec::len);
+
             newer = unpack_beside(&version.data, newer.as_deref(), held).ok();
         }
         newer
@@ -415,11 +428,13 @@ impl<'a> Parsed<'a> {
             && self.records_digest().matches(self.head.as_ref());
         let mut newer_in_doubt = false;
         let mut rebuildable = Vec::with_capacity(self.versions.len());
+
         for (index, version) in self.versions.iter().enumerate() {
             let in_doubt = !version.is_keyframe() && (version.after_damage || newer_in_doubt);
             let rebuilds = version.data.codec.is_some()
                 && (version.is_keyframe()
                     || newer_rebuilds && (!in_doubt || self.rebuilds_despite_damage(index)));
+
             rebuildable.push(rebuilds);
             newer_rebuilds = rebuilds;
             newer_in_doubt = rebuilds && in_doubt && version.info.is_none();
@@ -445,6 +460,7 @@ impl<'a> Parsed<'a> {
 
     fn needed_to_rebuild(&self, fresh: &[FreshVersion]) -> Result<Vec<bool>, NotReadBack> {
         let mut needed = vec![false; self.versions.len()];
+
         for version in fresh {
             let start = self.keyframe_at_or_before(version.index);
             let chain = needed
@@ -452,6 +468,7 @@ impl<'a> Parsed<'a> {
                 .ok_or(NotReadBack::Version {
                     index: version.index,
                 })?;
+
             chain.fill(true);
         }
         Ok(needed)
@@ -472,14 +489,17 @@ impl<'a> Parsed<'a> {
         head_snapshot: Option<Vec<u8>>,
     ) -> Result<(), NotReadBack> {
         let mut newer = head_snapshot;
+
         for ((index, version), needed) in self.versions.iter().enumerate().zip(needed) {
             if !needed {
                 newer = None;
                 continue;
             }
+
             let held = newer.as_ref().map_or(0, Vec::len);
             let content = unpack_beside(&version.data, newer.as_deref(), held).ok();
             let expected = fresh.iter().find(|fresh| fresh.index == index);
+
             if let Some(expected) = expected
                 && content
                     .as_deref()
@@ -551,6 +571,7 @@ impl<'a> NewRecords<'a> {
         let mut snapshot = Vec::new();
         let mut fresh = Vec::new();
         let values: Vec<Record> = document_values(document).collect();
+
         for batch in values.chunks(PARALLEL_BATCH) {
             let encoded = each_in_parallel(batch, |value| {
                 let record = value::to_bytes(value)?;
@@ -559,8 +580,11 @@ impl<'a> NewRecords<'a> {
             });
             for encoded in encoded {
                 let (record, key) = encoded?;
+
                 push_varint(&mut snapshot, record.len() as u64);
+
                 let start = snapshot.len();
+
                 snapshot.extend_from_slice(&record);
                 fresh.push(FreshRecord {
                     content: start..snapshot.len(),
@@ -568,6 +592,7 @@ impl<'a> NewRecords<'a> {
                 });
             }
         }
+
         let written: BTreeSet<RecordKey> = fresh.iter().map(|record| record.key).collect();
         let prior = previous.map(|parsed| parsed.prior_records(&written));
         let Some(prior_records) = &prior else {
@@ -575,9 +600,11 @@ impl<'a> NewRecords<'a> {
                 .into_iter()
                 .map(|record| RecordToWrite::Fresh(record.content))
                 .collect();
+
             return Ok((Self { snapshot, records }, prior));
         };
         let mut records = Vec::with_capacity(fresh.len());
+
         for record in fresh {
             let content = snapshot.get(record.content.clone()).unwrap_or_default();
             match prior_records.kept_content(&record.key) {
@@ -588,7 +615,9 @@ impl<'a> NewRecords<'a> {
                 Some(_) => {
                     drop(records);
                     drop(snapshot);
+
                     let rewritten = Self::keeping_understood(document, prior_records)?;
+
                     return Ok((rewritten, prior));
                 }
             }
@@ -604,6 +633,7 @@ impl<'a> NewRecords<'a> {
             snapshot: Vec::new(),
             records: Vec::new(),
         };
+
         for record in document_records(document) {
             let record = record?;
             match prior.kept_content(blake3::hash(&record).as_bytes()) {
@@ -614,7 +644,9 @@ impl<'a> NewRecords<'a> {
                 }
                 None => {
                     push_varint(&mut new.snapshot, record.len() as u64);
+
                     let start = new.snapshot.len();
+
                     new.snapshot.extend_from_slice(&record);
                     new.records
                         .push(RecordToWrite::Fresh(start..new.snapshot.len()));
@@ -635,6 +667,7 @@ impl<'a> NewRecords<'a> {
             });
             for chunk in packed {
                 let chunk: Result<Cow<'_, [u8]>, PackError> = chunk;
+
                 bytes.extend_from_slice(&chunk?);
             }
         }
@@ -644,6 +677,7 @@ impl<'a> NewRecords<'a> {
 
 fn packed_record(content: &[u8]) -> Result<Vec<u8>, PackError> {
     let mut bytes = Vec::new();
+
     push_packed(&mut bytes, ChunkKind::Record, content)?;
     Ok(bytes)
 }
@@ -680,6 +714,7 @@ fn document_values(document: &Document) -> impl Iterator<Item = Record> + '_ {
 #[cfg(test)]
 fn snapshot_of<'r>(records: impl IntoIterator<Item = &'r [u8]>) -> Vec<u8> {
     let mut snapshot = Vec::new();
+
     for record in records {
         push_varint(&mut snapshot, record.len() as u64);
         snapshot.extend_from_slice(record);
@@ -690,9 +725,11 @@ fn snapshot_of<'r>(records: impl IntoIterator<Item = &'r [u8]>) -> Vec<u8> {
 fn split_snapshot(snapshot: &[u8]) -> Option<Vec<&[u8]>> {
     let mut records = Vec::new();
     let mut position = 0;
+
     while position < snapshot.len() {
         let length = usize::try_from(read_varint(snapshot, &mut position)?).ok()?;
         let end = position.checked_add(length)?;
+
         records.push(snapshot.get(position..end)?);
         position = end;
     }
@@ -709,7 +746,7 @@ pub(crate) fn encode(document: &Document) -> Result<Vec<u8>, EncodeError> {
     .bytes)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Encoded {
     pub bytes: Vec<u8>,
     pub shared: Vec<Shared>,
@@ -719,13 +756,13 @@ pub(crate) struct Encoded {
     pub fresh_versions: Vec<FreshVersion>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FreshVersion {
     pub index: usize,
     pub digest: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum NotReadBack {
     #[error("the saved model did not read back intact")]
     Model,
@@ -733,7 +770,7 @@ pub(crate) enum NotReadBack {
     Version { index: usize },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Shared {
     pub at: usize,
     pub from: usize,
@@ -815,6 +852,7 @@ impl<'a> Section<'a> {
             self.fresh.extend_from_slice(stored);
             return;
         };
+
         self.end_fresh();
         if let Some(Part::Kept {
             from: start,
@@ -841,14 +879,17 @@ impl<'a> Section<'a> {
 
     fn place(mut self, bytes: &mut Vec<u8>, shared: &mut Vec<Shared>) -> Result<(), PackError> {
         self.end_fresh();
+
         let worth = worth_sharing();
         let first = self
             .parts
             .iter()
             .enumerate()
             .find_map(|(index, part)| Some((index, part.shareable_from(worth)?)));
+
         if let Some((first, from)) = first {
             let before: usize = self.parts.iter().take(first).map(Part::len).sum();
+
             pad_to(bytes, from.wrapping_sub(before))?;
         }
         for part in self.parts {
@@ -885,7 +926,7 @@ fn offset_within(whole: &[u8], part: &[u8]) -> Option<usize> {
     (offset.checked_add(part.len())? <= whole.len()).then_some(offset)
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub(crate) enum EncodeError {
     #[error("the model could not be converted for saving: {0}")]
     Value(#[from] ValueError),
@@ -897,7 +938,7 @@ pub(crate) enum EncodeError {
     ModelTooLarge { size: usize, largest: usize },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct KeptRecord<'a> {
     content: Range<usize>,
     stored: &'a [u8],
@@ -936,7 +977,7 @@ pub(crate) fn encode_over(
     )
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct EncodeExtras<'a> {
     pub label: Option<&'a str>,
     pub preview: Option<&'a PreviewSlot>,
@@ -951,6 +992,7 @@ pub(crate) fn encode_keeping(
     let EncodeExtras { label, preview } = extras;
     let prior = previous.and_then(Parsed::of);
     let (new, prior_records) = NewRecords::of(document, prior.as_ref())?;
+
     let read_prior = prior.as_ref().zip(prior_records.as_ref());
     let previous_damaged = match (read_prior, previous) {
         (Some((prior, records)), _) => prior.is_damaged(&records.digest),
@@ -958,21 +1000,25 @@ pub(crate) fn encode_keeping(
         (None, None) => false,
     };
     let prior_head = read_prior.and_then(|(prior, records)| records.head(prior));
+
     if new.snapshot.len() > max_decompressed() {
         return Err(EncodeError::ModelTooLarge {
             size: new.snapshot.len(),
             largest: max_decompressed(),
         });
     }
+
     let snapshot = new.snapshot.as_slice();
     let snapshot_digest = digest(snapshot);
     let unchanged = prior_head.is_some_and(|(info, _)| info.digest == snapshot_digest);
+
     let head = match prior_head {
         Some((info, _)) if unchanged => info.clone(),
         _ => StateRecord::new(now, label, snapshot_digest),
     };
 
     let mut bytes = start_file(&MODEL_MAGIC, FORMAT_VERSION);
+
     push_packed(&mut bytes, ChunkKind::Head, &value::to_bytes(&head)?)?;
     if let Some(preview) = preview.and_then(PreviewSlot::wait) {
         push_packed(&mut bytes, ChunkKind::Preview, preview.png())?;
@@ -989,10 +1035,13 @@ pub(crate) fn encode_keeping(
             largest: largest_file(),
         });
     }
+
     let room = room_for_history().saturating_sub(bytes.len());
     let mut cut = 0;
+
     let (versions, written) = loop {
         let mut versions = Section::new(previous.unwrap_or_default());
+
         let written = write_versions(
             &mut versions,
             prior.as_ref(),
@@ -1003,12 +1052,14 @@ pub(crate) fn encode_keeping(
             cut,
         )?;
         let excess = versions.len().saturating_sub(room);
+
         if excess == 0 || written.kept.is_empty() {
             break (versions, written);
         }
         cut += oldest_holding(&written.kept, excess).max(1);
     };
     let mut shared = Vec::new();
+
     versions.place(&mut bytes, &mut shared)?;
     if bytes.len() > largest_file() {
         return Err(EncodeError::ModelTooLarge {
@@ -1029,6 +1080,7 @@ pub(crate) fn encode_keeping(
 fn oldest_holding(kept: &[usize], excess: usize) -> usize {
     let mut freed = 0;
     let mut count = 0;
+
     for size in kept.iter().rev() {
         if freed >= excess {
             break;
@@ -1143,6 +1195,7 @@ fn thinned<'p, 'a>(
             whole: leading_deltas + 1 >= KEYFRAME_SPACING
                 || !fits_beside(snapshot.len(), old.len()),
         });
+
     let candidates: Vec<Candidate<'p, 'a>> = replaced
         .into_iter()
         .chain(
@@ -1167,6 +1220,7 @@ fn thinned<'p, 'a>(
         .rev()
         .filter(|(keep, _)| **keep)
         .take(cut);
+
     for (keep, candidate) in oldest_kept {
         *keep = false;
         cut_listed += usize::from(candidate.saved_at().is_some());
@@ -1180,6 +1234,7 @@ fn needing_content(
 ) -> Vec<bool> {
     let mut needed = vec![false; stored.len()];
     let mut after_thinning = false;
+
     for (candidate, keep) in candidates {
         if !keep {
             after_thinning = true;
@@ -1203,7 +1258,7 @@ fn needing_content(
     needed
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Content<'p> {
     Borrowed(&'p [u8]),
     Decoded(Rc<Vec<u8>>),
@@ -1281,6 +1336,7 @@ impl<'p> Rebuild<'p> {
                 None
             }
         };
+
         self.newer = content;
         self.newer.as_ref()
     }
@@ -1305,10 +1361,12 @@ fn keep_what_cannot_be_rewritten<'p>(
         };
         let keep = *keep;
         let rebuilt = rebuild.advance(candidate).is_some();
+
         if !keep {
             dropped_from.get_or_insert(position);
             continue;
         }
+
         let Some(start) = dropped_from.take() else {
             continue;
         };
@@ -1337,20 +1395,26 @@ fn write_versions<'a>(
         cut_listed,
         fresh: Vec::new(),
     };
+
     keep_what_cannot_be_rewritten(stored, &mut candidates, prior_head, snapshot);
+
     let mut rebuild = Rebuild::new(stored, &candidates, prior_head, snapshot);
     let mut base = Some(Content::Borrowed(snapshot));
     let mut after_thinning = false;
     let mut thinned_keyframe = false;
+
     for (candidate, keep) in &candidates {
         let content = rebuild.advance(candidate).cloned();
+
         if !keep {
             after_thinning = true;
             thinned_keyframe |= candidate.is_keyframe();
             continue;
         }
+
         let before = section.len();
         let index = written.kept.len();
+
         match candidate {
             Candidate::Replaced {
                 info,
@@ -1358,6 +1422,7 @@ fn write_versions<'a>(
                 whole,
             } => {
                 let bytes = section.fresh();
+
                 push_packed(bytes, ChunkKind::VersionInfo, &value::to_bytes(info)?)?;
                 if *whole {
                     push_packed(bytes, ChunkKind::VersionData, old)?;
@@ -1373,6 +1438,7 @@ fn write_versions<'a>(
                 if let Some(info) = &version.info {
                     section.keep(info.chunk.whole);
                 }
+
                 let rewritten = is_rewritten(candidate, after_thinning);
                 match (rewritten, content.as_ref(), base.as_ref()) {
                     (true, Some(content), Some(base))
@@ -1417,6 +1483,7 @@ pub(crate) fn file_from_records(version: u32, records: &[Vec<u8>]) -> Result<Vec
     let snapshot = snapshot_of(records.iter().map(Vec::as_slice));
     let head = StateRecord::new(SystemTime::now(), None, digest(&snapshot));
     let mut bytes = start_file(&MODEL_MAGIC, version);
+
     push_packed(&mut bytes, ChunkKind::Head, &value::to_bytes(&head)?)?;
     for record in records {
         push_packed(&mut bytes, ChunkKind::Record, record)?;
@@ -1435,8 +1502,10 @@ pub(crate) fn decode_cancellable(bytes: &[u8], cancel: &CancelToken) -> Result<L
     if bytes.starts_with(&EARLIER_BUILD_MODEL_MAGIC) {
         return Err(LoadError::FromEarlierBuild);
     }
+
     let parsed = Parsed::of(bytes).ok_or(LoadError::NotAModel)?;
     let mut issues = Vec::new();
+
     match parsed.version {
         Some(version) if version > FORMAT_VERSION => issues.push(newer_version(version)),
         Some(_) => {}
@@ -1463,19 +1532,23 @@ pub(crate) fn decode_cancellable(bytes: &[u8], cancel: &CancelToken) -> Result<L
             ),
         });
     }
+
     let mut budget = Budget::default();
     let mut digest = RecordDigest::default();
     let mut record_issues = Vec::new();
+
     let records = parsed
         .records
         .iter()
         .take_while(|_| !cancel.is_cancelled())
         .map(|chunk| {
             let content = budget.unpack(chunk, None);
+
             digest.add(&content);
             content.map(Cow::Owned)
         });
     let parts = read_records(records, &mut record_issues);
+
     if cancel.is_cancelled() {
         return Err(LoadError::Cancelled);
     }
@@ -1487,6 +1560,7 @@ pub(crate) fn decode_cancellable(bytes: &[u8], cancel: &CancelToken) -> Result<L
         );
     }
     issues.extend(record_issues);
+
     let document = assemble(parts, &mut issues);
     Ok(Loaded {
         document,
@@ -1500,12 +1574,14 @@ fn read_records<'a>(
     issues: &mut Vec<String>,
 ) -> Parts {
     let mut parts = Parts::default();
+
     for (index, content) in records.enumerate() {
         let place = format!("Record {}", index + 1);
         match content.map(|content| value::from_bytes::<Lenient<Record>>(&content)) {
             Ok(Ok(Lenient::Read(record))) => parts.add(record),
             Ok(Ok(Lenient::Unreadable(value))) => {
                 let item = Unreadable(&value);
+
                 parts.remember_lost(&item);
                 issues.push(describe_unreadable_record(&place, &item));
             }
@@ -1542,7 +1618,7 @@ pub(crate) fn history(bytes: &[u8]) -> History {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub(crate) enum KeepError {
     #[error("the file holds no listed version numbered {index}")]
     NoSuchVersion { index: usize },
@@ -1558,7 +1634,7 @@ pub(crate) enum KeepError {
     Pack(#[from] PackError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Rewritten {
     pub bytes: Vec<u8>,
     pub digest: FileDigest,
@@ -1571,6 +1647,7 @@ pub(crate) fn with_version_kept(
     kept: bool,
 ) -> Result<Rewritten, KeepError> {
     let parsed = Parsed::of(bytes).ok_or(KeepError::FileDamaged)?;
+
     match parsed.version {
         Some(version) if version > FORMAT_VERSION => return Err(KeepError::FromNewerVersion),
         Some(_) => {}
@@ -1582,6 +1659,7 @@ pub(crate) fn with_version_kept(
     if parsed.is_damaged(&parsed.records_digest()) {
         return Err(KeepError::FileDamaged);
     }
+
     let (Some(head), Some(head_chunk), Some(version)) =
         (&parsed.head, parsed.head_chunk, parsed.version)
     else {
@@ -1592,12 +1670,15 @@ pub(crate) fn with_version_kept(
         .get(index)
         .and_then(|stored| stored.info.as_ref())
         .ok_or(KeepError::NoSuchVersion { index })?;
+
     if target.record.digest != digest.0 {
         return Err(KeepError::VersionsChanged { index });
     }
+
     let changed_info = info_marked(target, kept)?;
 
     let mut rewritten = start_file(&MODEL_MAGIC, version);
+
     rewritten.extend_from_slice(head_chunk.whole);
     if let Some(preview) = parsed.preview {
         rewritten.extend_from_slice(preview.whole);
@@ -1628,12 +1709,15 @@ fn info_marked(info: &StoredInfo<'_>, kept: bool) -> Result<Vec<u8>, KeepError> 
         .unpack(None)
         .map_err(|_| KeepError::FileDamaged)?;
     let mut fields: serde_json::Map<String, serde_json::Value> = value::from_bytes(&content)?;
+
     if kept {
         fields.insert("kept".to_owned(), serde_json::Value::Bool(true));
     } else {
         fields.remove("kept");
     }
+
     let mut chunk = Vec::new();
+
     push_packed(
         &mut chunk,
         ChunkKind::VersionInfo,
@@ -1648,14 +1732,17 @@ pub(crate) fn load_version(
     digest: &VersionDigest,
 ) -> Result<Loaded, LoadError> {
     let parsed = Parsed::of(bytes).ok_or(LoadError::NotAModel)?;
+
     if !parsed.lists(index, digest) {
         return Err(LoadError::VersionsChanged);
     }
+
     let snapshot = parsed
         .verified(index)
         .ok_or(LoadError::VersionUnavailable)?;
     let records = split_snapshot(&snapshot).ok_or(LoadError::VersionUnavailable)?;
     let mut issues = Vec::new();
+
     let parts = read_records(
         records.into_iter().map(|record| Ok(Cow::Borrowed(record))),
         &mut issues,

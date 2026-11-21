@@ -29,6 +29,7 @@ impl Sketch {
             });
         };
         let mut candidates = Vec::new();
+
         if datum != EntityId::ORIGIN && !self.is_fixed(datum) {
             candidates.extend(offsets(
                 EntityId::ORIGIN,
@@ -39,6 +40,7 @@ impl Sketch {
             ));
         }
         candidates.extend(self.sizes());
+
         let mut points: Vec<(f64, EntityId, Point2)> = self
             .entities()
             .filter_map(|(id, entity)| match *entity {
@@ -48,6 +50,7 @@ impl Sketch {
                 _ => None,
             })
             .collect();
+
         points.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
         for (_, point, at) in points {
             candidates.extend(offsets(datum, origin, point, at, tolerance));

@@ -20,7 +20,9 @@ struct Model {
 
 fn split_plate(plane: PlaneReference, flipped: bool) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let plate = block(
         &mut transaction,
         "Plate",
@@ -36,6 +38,7 @@ fn split_plate(plane: PlaneReference, flipped: bool) -> Model {
             flipped,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -91,6 +94,7 @@ fn a_plane_that_misses_the_body_fails_the_split_alone_in_words() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (failed, error) = evaluation.failures().next().unwrap();
+
     assert_eq!(failed, model.split);
     assert!(
         error
@@ -104,7 +108,9 @@ fn a_plane_that_misses_the_body_fails_the_split_alone_in_words() {
 #[test]
 fn the_split_off_body_takes_later_features_of_its_own() {
     let mut model = split_plate(PlaneReference::Principal(PrincipalPlane::Yz), false);
+
     let mut transaction = model.document.transaction("Move");
+
     let moved = transaction.add_feature(
         "Move 1",
         FeatureKind::Move(Move {
@@ -124,7 +130,9 @@ fn the_split_off_body_takes_later_features_of_its_own() {
             copy: false,
         }),
     );
+
     model.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&model.document, &mut engine);
@@ -142,8 +150,11 @@ fn the_split_off_body_takes_later_features_of_its_own() {
 fn a_failed_split_keeps_its_last_split_off_body_shown_as_stale() {
     let mut model = split_plate(PlaneReference::Principal(PrincipalPlane::Yz), false);
     let mut engine = Recompute::default();
+
     evaluate(&model.document, &mut engine);
+
     let mut transaction = model.document.transaction("Move the plane");
+
     transaction.edit(Edit::SetFeatureKind {
         id: model.split,
         kind: FeatureKind::Split(Split {
@@ -164,7 +175,9 @@ fn a_failed_split_keeps_its_last_split_off_body_shown_as_stale() {
 
 fn split_plate_along(sketch: Sketch, flipped: bool) -> (Model, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let plate = block(
         &mut transaction,
         "Plate",
@@ -173,6 +186,7 @@ fn split_plate_along(sketch: Sketch, flipped: bool) -> (Model, FeatureId) {
         "4 mm",
     );
     let curve = transaction.add_feature("Curve", FeatureKind::from(sketch));
+
     let split = transaction.add_feature(
         "Split 1",
         FeatureKind::Split(Split {
@@ -181,6 +195,7 @@ fn split_plate_along(sketch: Sketch, flipped: bool) -> (Model, FeatureId) {
             flipped,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (
         Model {
@@ -194,6 +209,7 @@ fn split_plate_along(sketch: Sketch, flipped: bool) -> (Model, FeatureId) {
 
 fn line_across() -> Sketch {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(2.0, -3.0), Point2::new(2.0, 3.0));
     sketch
 }
@@ -225,15 +241,18 @@ fn a_flipped_sketch_split_keeps_the_right_side() {
 #[test]
 fn a_chain_of_a_line_and_an_arc_splits_along_the_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_arc(
         Point2::new(0.0, -12.0),
         Point2::new(14.0, -12.0),
         Point2::new(-14.0, -12.0),
     );
     sketch.add_line(Point2::new(-14.0, -12.0), Point2::new(-14.0, -20.0));
+
     let (model, _) = split_plate_along(sketch, false);
     let reach: f64 = 10.0;
     let radius: f64 = 14.0;
+
     let below = reach * (radius * radius - reach * reach).sqrt()
         + radius * radius * (reach / radius).asin()
         - 7.0 * 2.0 * reach;
@@ -241,8 +260,10 @@ fn a_chain_of_a_line_and_an_arc_splits_along_the_curve() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let kept = volume(&evaluation, model.plate);
     let apart = volume(&evaluation, model.split);
+
     assert!((kept - below * 4.0).abs() < 1e-3 * 800.0);
     assert!((kept + apart - 800.0).abs() < 1e-3 * 800.0);
 }
@@ -250,12 +271,15 @@ fn a_chain_of_a_line_and_an_arc_splits_along_the_curve() {
 #[test]
 fn a_sketch_of_two_separate_curves_fails_the_split_in_words_with_the_fix_on_the_sketch() {
     let mut sketch = line_across();
+
     sketch.add_line(Point2::new(-2.0, -3.0), Point2::new(-2.0, 3.0));
+
     let (model, curve) = split_plate_along(sketch, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (failed, error) = evaluation.failures().next().unwrap();
+
     assert_eq!(failed, model.split);
     assert!(
         error
@@ -273,18 +297,22 @@ fn a_closed_sketch_cannot_split_the_body() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (_, error) = evaluation.failures().next().unwrap();
+
     assert!(error.reason().contains("close on themselves"));
 }
 
 #[test]
 fn a_curve_beside_the_body_fails_the_split_alone() {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(-30.0, 20.0), Point2::new(30.0, 20.0));
+
     let (model, _) = split_plate_along(sketch, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (failed, error) = evaluation.failures().next().unwrap();
+
     assert_eq!(failed, model.split);
     assert!(error.reason().contains("does not cross the body of Plate"));
 }
@@ -292,7 +320,9 @@ fn a_curve_beside_the_body_fails_the_split_alone() {
 #[test]
 fn a_body_splits_along_another_body_keeping_what_lies_outside_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let plate = block(
         &mut transaction,
         "Plate",
@@ -301,6 +331,7 @@ fn a_body_splits_along_another_body_keeping_what_lies_outside_it() {
         "4 mm",
     );
     let tool = block(&mut transaction, "Tool", (5.0, -8.0), (15.0, 8.0), "6 mm");
+
     let split = transaction.add_feature(
         "Split 1",
         FeatureKind::Split(Split {
@@ -309,6 +340,7 @@ fn a_body_splits_along_another_body_keeping_what_lies_outside_it() {
             flipped: false,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document, &mut Recompute::default());
@@ -330,7 +362,9 @@ fn a_body_splits_along_another_body_keeping_what_lies_outside_it() {
 #[test]
 fn a_body_cannot_be_split_along_itself() {
     let mut model = split_plate(PlaneReference::Principal(PrincipalPlane::Yz), false);
+
     let mut transaction = model.document.transaction("Along itself");
+
     transaction.edit(Edit::SetFeatureKind {
         id: model.split,
         kind: FeatureKind::Split(Split {
@@ -344,6 +378,7 @@ fn a_body_cannot_be_split_along_itself() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (_, error) = evaluation.failures().next().unwrap();
+
     assert!(error.reason().contains("cannot be split along itself"));
 }
 
@@ -367,7 +402,9 @@ fn split_plate_along_surface(
     flipped: bool,
 ) -> (Document, FeatureId, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let plate = block(
         &mut transaction,
         "Plate",
@@ -376,18 +413,22 @@ fn split_plate_along_surface(
         "4 mm",
     );
     let round = transaction.add_feature("Round", FeatureKind::Primitive(tool));
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut Recompute::default());
     let solid = evaluation.body(round).unwrap();
     let (id, _) = solid
         .faces()
         .find(|(_, face)| curved(face.surface()))
         .unwrap();
+
     let face = FaceAttachment {
         body: round,
         face: FaceReference::capture(solid, id).unwrap(),
     };
     let mut transaction = document.transaction("Split");
+
     let split = transaction.add_feature(
         "Split 1",
         FeatureKind::Split(Split {
@@ -396,6 +437,7 @@ fn split_plate_along_surface(
             flipped,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, plate, split)
 }
@@ -431,10 +473,14 @@ fn a_cylindrical_face_of_another_body_splits_along_its_whole_cylinder_keeping_th
         "{:?}",
         evaluation.failures().next()
     );
+
     let inside = PI * 9.0 * 4.0;
+
     assert!(near_volume(volume(&evaluation, plate), 800.0 - inside));
     assert!(near_volume(volume(&evaluation, split), inside));
+
     let kind = &document.feature(split).unwrap().kind;
+
     assert!(kind.bodies_used().len() == 2);
 
     let (document, plate, split) = split_plate_along_surface(
@@ -469,7 +515,9 @@ fn a_spherical_and_a_conical_face_split_along_their_whole_surfaces() {
         "{:?}",
         evaluation.failures().next()
     );
+
     let cap = 2.0 / 3.0 * PI * 64.0;
+
     assert!(near_volume(volume(&evaluation, plate), cap));
     assert!(near_volume(volume(&evaluation, split), 800.0 - cap));
 
@@ -493,7 +541,9 @@ fn a_spherical_and_a_conical_face_split_along_their_whole_surfaces() {
         "{:?}",
         evaluation.failures().next()
     );
+
     let frustum = PI * 4.0 / 3.0 * (16.0 + 8.0 + 4.0);
+
     assert!(near_volume(volume(&evaluation, plate), 800.0 - frustum));
     assert!(near_volume(volume(&evaluation, split), frustum));
 }
@@ -516,6 +566,7 @@ fn a_surface_that_misses_the_body_fails_the_split_alone_in_words() {
     let evaluation = evaluate(&document, &mut Recompute::default());
 
     let (failed, error) = evaluation.failures().next().unwrap();
+
     assert_eq!(failed, split);
     assert!(
         error.reason().starts_with("The surface of Round wall"),
@@ -528,7 +579,9 @@ fn a_surface_that_misses_the_body_fails_the_split_alone_in_words() {
 #[test]
 fn a_split_face_divides_faces_along_the_surface_of_a_curved_face() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let plate = block(
         &mut transaction,
         "Plate",
@@ -537,7 +590,9 @@ fn a_split_face_divides_faces_along_the_surface_of_a_curved_face() {
         "4 mm",
     );
     let round = transaction.add_feature("Round", FeatureKind::Primitive(rod()));
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut Recompute::default());
     let capture = |body: FeatureId, wanted: &dyn Fn(&Surface, f64) -> bool| {
         let solid = evaluation.body(body).unwrap();
@@ -554,6 +609,7 @@ fn a_split_face_divides_faces_along_the_surface_of_a_curved_face() {
     });
     let faces_before = evaluation.body(plate).unwrap().faces().count();
     let mut transaction = document.transaction("Split face");
+
     let split = transaction.add_feature(
         "Split face 1",
         FeatureKind::SplitFace(SplitFace {
@@ -566,6 +622,7 @@ fn a_split_face_divides_faces_along_the_surface_of_a_curved_face() {
             carry: SplitCarry::Square,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document, &mut Recompute::default());
@@ -595,6 +652,7 @@ fn fillet_on_the_split_off_part(model: &mut Model) -> FeatureId {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
     let solid = evaluation.body(model.split).unwrap();
     let point = caditor_geometry::Point3::new(-5.0, -5.0, 4.0);
+
     let (edge, _) = solid
         .edges()
         .find(|(_, edge)| {
@@ -605,6 +663,7 @@ fn fillet_on_the_split_off_part(model: &mut Model) -> FeatureId {
     let edges = vec![EdgeReference::capture(solid, edge).unwrap()];
 
     let mut transaction = model.document.transaction("Fillet");
+
     let fillet = transaction.add_feature(
         "Fillet 1",
         FeatureKind::Blend(Blend {
@@ -618,6 +677,7 @@ fn fillet_on_the_split_off_part(model: &mut Model) -> FeatureId {
             sizing: FilletSizing::Radius,
         }),
     );
+
     model.document.apply(transaction.finish()).unwrap();
     fillet
 }
@@ -625,6 +685,7 @@ fn fillet_on_the_split_off_part(model: &mut Model) -> FeatureId {
 #[test]
 fn a_split_plane_can_be_edited_under_a_fillet_on_the_split_off_part() {
     let mut model = split_plate(PlaneReference::Principal(PrincipalPlane::Yz), false);
+
     fillet_on_the_split_off_part(&mut model);
 
     let edited = model.document.apply(Transaction::single(
@@ -645,10 +706,12 @@ fn a_split_plane_can_be_edited_under_a_fillet_on_the_split_off_part() {
 #[test]
 fn a_split_with_nothing_to_split_along_waits_instead_of_failing() {
     let mut model = split_plate(PlaneReference::Principal(PrincipalPlane::Yz), false);
+
     let chosen = model.document.feature(model.split).unwrap().kind.clone();
     let FeatureKind::Split(mut split) = chosen else {
         panic!("the feature is a split");
     };
+
     split.along = SplitAlong::Unchosen;
     model
         .document

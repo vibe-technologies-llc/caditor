@@ -7,7 +7,7 @@ const LARGEST_PLAUSIBLE_MILLIMETRES: f64 = 10_000.0;
 const SIGNIFICANT_FIGURES: i32 = 3;
 const MOST_DECIMALS: i32 = 12;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MeshUnit {
     Micrometres,
     Millimetres,
@@ -57,14 +57,14 @@ impl MeshUnit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnitBasis {
     Assumed,
     Guessed,
     Chosen,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnitReading {
     pub unit: MeshUnit,
     pub basis: UnitBasis,
@@ -95,6 +95,7 @@ impl UnitReading {
     pub(super) fn note(&self) -> String {
         const SCALE_ADVICE: &str =
             "if the part comes out the wrong size, scale it with Scale body.";
+
         let unit = self.unit.name();
         match self.basis {
             UnitBasis::Assumed => format!(
@@ -128,6 +129,7 @@ impl UnitReading {
 fn size_of(mesh: &TriangleMesh) -> Vector3 {
     let mut low = Vector3::splat(f64::INFINITY);
     let mut high = Vector3::splat(f64::NEG_INFINITY);
+
     for position in mesh
         .positions
         .iter()
@@ -156,6 +158,7 @@ fn rounded(value: f64) -> String {
     if value == 0.0 || !value.is_finite() {
         return "0".to_owned();
     }
+
     let magnitude = value.abs().log10().floor() as i32;
     let decimals = (SIGNIFICANT_FIGURES - 1 - magnitude).clamp(0, MOST_DECIMALS) as usize;
     let text = format!("{value:.decimals$}");

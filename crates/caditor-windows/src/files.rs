@@ -28,7 +28,7 @@ const NO_ACCESS: u32 = 0;
 const FINAL_PATH_ROOM: usize = 512;
 const DRIVE_COLON_AT: usize = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct FileId {
     volume: u64,
     file: [u8; 16],
@@ -38,6 +38,7 @@ impl FileId {
     pub fn of(file: &File) -> io::Result<Self> {
         let mut info = FILE_ID_INFO::default();
         let size = u32::try_from(size_of::<FILE_ID_INFO>()).map_err(io::Error::other)?;
+
         #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
         let done = unsafe {
             GetFileInformationByHandleEx(
@@ -47,6 +48,7 @@ impl FileId {
                 size,
             )
         };
+
         if done == 0 {
             return Err(io::Error::last_os_error());
         }
@@ -83,6 +85,7 @@ pub fn final_path(path: &Path) -> io::Result<PathBuf> {
             )
         };
         let written = usize::try_from(written).map_err(io::Error::other)?;
+
         if written == 0 {
             return Err(io::Error::last_os_error());
         }
@@ -90,13 +93,16 @@ pub fn final_path(path: &Path) -> io::Result<PathBuf> {
             buffer.resize(written + 1, 0);
             continue;
         }
+
         let units = buffer.get(..written).unwrap_or_default();
+
         return Ok(PathBuf::from(OsString::from_wide(&without_verbatim(units))));
     }
 }
 
 fn without_verbatim(units: &[u16]) -> Vec<u16> {
     let unc = units_of(UNC);
+
     if let Some(share) = units.strip_prefix(units_of(VERBATIM_UNC).as_slice()) {
         return unc.into_iter().chain(share.iter().copied()).collect();
     }
@@ -110,6 +116,7 @@ pub fn replace_file(replacement: &Path, replaced: &Path, backup: &Path) -> io::R
     let replacement = verbatim(replacement)?;
     let replaced = verbatim(replaced)?;
     let backup = verbatim(backup)?;
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let done = unsafe {
         ReplaceFileW(
@@ -131,6 +138,7 @@ pub fn replace_file(replacement: &Path, replaced: &Path, backup: &Path) -> io::R
 pub fn move_file_durably(from: &Path, to: &Path) -> io::Result<()> {
     let from = verbatim(from)?;
     let to = verbatim(to)?;
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let done = unsafe {
         MoveFileExW(
@@ -152,6 +160,7 @@ fn verbatim(path: &Path) -> io::Result<Vec<u16>> {
     let verbatim = units_of(VERBATIM);
     let device = units_of(DEVICE);
     let unc = units_of(UNC);
+
     let mut prefixed = if units.starts_with(&verbatim) || units.starts_with(&device) {
         units
     } else if let Some(share) = units.strip_prefix(unc.as_slice()) {
@@ -162,6 +171,7 @@ fn verbatim(path: &Path) -> io::Result<Vec<u16>> {
     } else {
         verbatim.into_iter().chain(units).collect()
     };
+
     prefixed.push(0);
     Ok(prefixed)
 }
@@ -178,6 +188,7 @@ pub(crate) fn without_verbatim_for_tests(text: &str) -> String {
 #[cfg(test)]
 pub(crate) fn verbatim_for_tests(path: &Path) -> io::Result<String> {
     let mut units = verbatim(path)?;
+
     units.pop();
     String::from_utf16(&units).map_err(io::Error::other)
 }

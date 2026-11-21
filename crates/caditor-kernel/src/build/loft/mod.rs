@@ -34,20 +34,20 @@ const MAX_SEGMENTS: usize = 512;
 const LEAST_RISE: f64 = 1e-2;
 const RELATIVE_TOLERANCE: f64 = 1e-7;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LoftProfile {
     pub plane: Plane,
     pub region: Region,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LoftSkin {
     Ruled,
     #[default]
     Smooth,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LoftEnds {
     pub closed: bool,
     pub start: Option<f64>,
@@ -66,7 +66,7 @@ impl LoftEnds {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum LoftError {
     #[error("a loft needs at least two profiles, or a profile and a point")]
     TooFewProfiles,
@@ -159,6 +159,7 @@ fn check_ends(
 ) -> Result<(), LoftError> {
     let usable =
         |weight: Option<f64>| weight.is_none_or(|weight| weight.is_finite() && weight > 0.0);
+
     if !usable(ends.start) || !usable(ends.end) {
         return Err(LoftError::UnusableWeight);
     }
@@ -189,6 +190,7 @@ pub fn loft_through(
     feature: u64,
 ) -> Result<Solid, LoftError> {
     let rows = profiles.len() + usize::from(apex.is_some());
+
     if profiles.is_empty() || rows < 2 {
         return Err(LoftError::TooFewProfiles);
     }
@@ -196,6 +198,7 @@ pub fn loft_through(
         return Err(LoftError::TooManyProfiles);
     }
     check_ends(profiles, apex, (skin, ends))?;
+
     let size = reach(profiles, apex)?;
     let tolerance = (size * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
     let rings = rings(profiles, apex, ends.closed, tolerance)?;
@@ -203,6 +206,7 @@ pub fn loft_through(
     let (Some(first), Some(last)) = (profiles.first(), profiles.last()) else {
         return Err(LoftError::TooFewProfiles);
     };
+
     let loft = Loft {
         rings,
         apex,
@@ -213,6 +217,7 @@ pub fn loft_through(
         end_cap: FaceName::end_cap(feature, last.region.key()),
     };
     let solid = loft.build(skin)?;
+
     if let CrossingCheck::Crossing(_) = solid.find_crossing()? {
         return Err(LoftError::CrossesItself);
     }
@@ -221,15 +226,19 @@ pub fn loft_through(
 
 fn reach(profiles: &[LoftProfile], apex: Option<Point3>) -> Result<f64, LoftError> {
     let mut points: Vec<Point3> = apex.into_iter().collect();
+
     for profile in profiles {
         let bounds = profile.region.bounds().ok_or(LoftError::TooFewProfiles)?;
+
         points.push(profile.plane.to_world(bounds.min()));
         points.push(profile.plane.to_world(bounds.max()));
     }
+
     let farthest = points
         .iter()
         .map(|point| point.abs().max_element())
         .fold(0.0, larger);
+
     if !farthest.is_finite() || farthest > MAX_SIZE {
         return Err(LoftError::TooLarge);
     }
@@ -273,8 +282,10 @@ impl Loft<'_> {
 
     fn columns(&self) -> Result<Vec<Vec<Beziers>>, LoftError> {
         let mut columns = Vec::with_capacity(self.count);
+
         for column in 0..self.count {
             interrupt::check()?;
+
             let mut curves = self
                 .rings
                 .iter()
@@ -283,6 +294,7 @@ impl Loft<'_> {
                         .and_then(|spline| Beziers::of(&spline))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+
             if let Some(apex) = self.apex {
                 curves.push(Beziers::point(apex, 1));
             }
@@ -291,7 +303,9 @@ impl Loft<'_> {
             {
                 curves.push(first);
             }
+
             let matched = compatible(&curves);
+
             if matched
                 .first()
                 .is_some_and(|curve| curve.breaks().len() > MAX_SEGMENTS)
@@ -318,6 +332,7 @@ impl Loft<'_> {
             .collect();
         let mut travelled = 0.0;
         let mut stations = vec![0.0];
+
         for pair in centres.windows(2) {
             if let [from, to] = pair {
                 travelled += from.distance(*to);
@@ -372,6 +387,7 @@ impl Loft<'_> {
                         .iter()
                         .map(|curves| {
                             interrupt::check()?;
+
                             let (Some(bottom), Some(top)) = (curves.get(row), curves.get(row + 1))
                             else {
                                 return Err(degenerate());
@@ -418,16 +434,19 @@ impl Loft<'_> {
         let rows = self.rows();
         let mut plan = Plan::default();
         let mut vertices: Vec<Vec<usize>> = Vec::with_capacity(rows);
+
         for ring in &self.rings {
             let row = (0..count)
                 .map(|index| ring.vertex(index).map(|point| plan.vertex(point)))
                 .collect::<Option<Vec<_>>>()
                 .ok_or_else(degenerate)?;
+
             vertices.push(row);
         }
         if let Some(apex) = self.apex {
             vertices.push(vec![plan.vertex(apex); count]);
         }
+
         let vertex = |row: usize, index: usize| -> Result<usize, LoftError> {
             vertices
                 .get(self.wrapped(row))
@@ -439,14 +458,18 @@ impl Loft<'_> {
         let leg_of_row_below =
             |row: usize| legs.iter().position(|leg| self.wrapped(leg.last) == row);
         let mut sections: Vec<Option<Vec<usize>>> = Vec::with_capacity(rows);
+
         for (row, ring) in self.rings.iter().enumerate() {
             let above = leg_of_row_above(row);
             let below = leg_of_row_below(row);
+
             if above.is_none() && below.is_none() {
                 sections.push(None);
                 continue;
             }
+
             let mut line = Vec::with_capacity(count);
+
             for index in 0..count {
                 let name = match (below, above) {
                     (None, Some(leg)) => EdgeName::between(self.side(leg, index)?, self.start_cap),
@@ -459,11 +482,14 @@ impl Loft<'_> {
                 let (curve, range) = ring.span_edge(index)?;
                 let (from, to) = (vertex(row, index)?, vertex(row, index + 1)?);
                 let reversed = ring.spans.get(index).is_some_and(|span| span.reversed);
+
                 let ends = if reversed { (to, from) } else { (from, to) };
+
                 line.push(plan.edge(curve, range, ends, name));
             }
             sections.push(Some(line));
         }
+
         let section_edge = |row: usize, index: usize| -> Result<(usize, Sense), LoftError> {
             let row = self.wrapped(row);
             let edge = sections
@@ -486,9 +512,12 @@ impl Loft<'_> {
                 },
             ))
         };
+
         for (number, leg) in legs.iter().enumerate() {
             interrupt::check()?;
+
             let mut alongs = Vec::with_capacity(count);
+
             for index in 0..count {
                 let name = if count == 1 {
                     EdgeName::seam(self.side(number, 0)?)
@@ -499,6 +528,7 @@ impl Loft<'_> {
                     )
                 };
                 let ends = (vertex(leg.first, index)?, vertex(leg.last, index)?);
+
                 let edge = if leg.ruled {
                     plan.line(ends.0, ends.1, name)?
                 } else {
@@ -507,8 +537,10 @@ impl Loft<'_> {
                     let interval = side.domain();
                     plan.edge(Curve::BSpline(side), interval, ends, name)
                 };
+
                 alongs.push(edge);
             }
+
             let along = |index: usize| {
                 alongs
                     .get(index % count.max(1))
@@ -521,14 +553,18 @@ impl Loft<'_> {
                 let surface = Surface::from(spline.clone());
                 let (probe, tangent) = ring.traversal_tangent(index).ok_or_else(degenerate)?;
                 let outward = tangent.cross(ring.oriented_normal());
+
                 let sense = outward_sense(&surface, probe, outward, None);
                 let (bottom, travel) = section_edge(leg.first, index)?;
+
                 let mut coedges = vec![
                     PlanCoedge::new(bottom, travel),
                     PlanCoedge::new(along(index + 1)?, Sense::Same),
                 ];
+
                 if self.ends.closed || leg.last < self.rings.len() {
                     let (top, top_travel) = section_edge(leg.last, index)?;
+
                     coedges.push(PlanCoedge::new(top, top_travel.reversed()));
                 }
                 coedges.push(PlanCoedge::new(along(index)?, Sense::Reversed));
@@ -565,6 +601,7 @@ impl Loft<'_> {
                 section_edge(0, index).map(|(edge, sense)| PlanCoedge::new(edge, sense.reversed()))
             })
             .collect::<Result<Vec<_>, _>>()?;
+
         plan.face(PlanFace {
             surface: PlaneSurface::new(start_plane)?.into(),
             sense: Sense::Same,
@@ -577,6 +614,7 @@ impl Loft<'_> {
         if self.apex.is_some() {
             return Ok(());
         }
+
         let row = self.rings.len() - 1;
         let last = self.rings.last().ok_or_else(degenerate)?;
         let end_plane = Plane::from_frame(
@@ -588,6 +626,7 @@ impl Loft<'_> {
         let end_loop = (0..self.count)
             .map(|index| section_edge(row, index).map(|(edge, sense)| PlanCoedge::new(edge, sense)))
             .collect::<Result<Vec<_>, _>>()?;
+
         plan.face(PlanFace {
             surface: PlaneSurface::new(end_plane)?.into(),
             sense: Sense::Same,

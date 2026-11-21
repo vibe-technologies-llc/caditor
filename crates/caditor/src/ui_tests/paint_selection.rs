@@ -23,6 +23,7 @@ fn on_top(harness: &Harness, points: &[(f64, f64)]) -> Vec<Pos2> {
 
 fn ring_inside(harness: &Harness, share: f32) -> Vec<Pos2> {
     let (low, high) = plate_on_screen(harness);
+
     let middle = low.lerp(high, 0.5);
     let reach = (high - low) * 0.5 * share;
     (0..=48)
@@ -36,7 +37,9 @@ fn ring_inside(harness: &Harness, share: f32) -> Vec<Pos2> {
 #[test]
 fn painting_over_faces_selects_each_face_the_brush_passes_over() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([]);
     run_from_palette(&mut harness, "fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
@@ -45,13 +48,18 @@ fn painting_over_faces_selects_each_face_the_brush_passes_over() {
 
     run_from_palette(&mut harness, "select faces by painting");
     harness.frame();
+
     let painting = harness.workspace.viewport.paint();
     let stroke = on_top(&harness, &[(12.0, 12.0), (20.0, 20.0), (28.0, 28.0)]);
+
     drag_path(&mut harness, &stroke);
+
     let on_the_top: Vec<Pickable> = harness.workspace.viewport.selection().iter().collect();
 
     let ring = ring_inside(&harness, 0.8);
+
     drag_path(&mut harness, &ring);
+
     let around = selected_kinds(&harness);
     let top_kept = harness.workspace.viewport.selection().contains(top);
 
@@ -60,6 +68,7 @@ fn painting_over_faces_selects_each_face_the_brush_passes_over() {
         .viewport
         .set_filter(SelectionFilter::Bodies);
     drag_path(&mut harness, &stroke);
+
     let whole = selected_kinds(&harness);
 
     harness
@@ -67,6 +76,7 @@ fn painting_over_faces_selects_each_face_the_brush_passes_over() {
         .viewport
         .set_filter(SelectionFilter::Edges);
     drag_path(&mut harness, &stroke);
+
     let boxed = selected_kinds(&harness);
 
     assert!(painting);

@@ -12,20 +12,20 @@ use crate::{
     trim::spline::SplineCarrier,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Spliced {
     curves: [EntityId; 2],
     corner: Point2,
     parts: [Part; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Part {
     Plain(Course, Change),
     Spline(SplineChange),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum SplineChange {
     Kept(EntityId),
     Trim {
@@ -100,13 +100,16 @@ impl Sketch {
         if !self.is_spline(curve) {
             return self.course(curve).map(Joined::Plain);
         }
+
         let label = || self.entity_label(curve);
+
         if self.is_projected(curve) {
             return Err(FilletError::Projected {
                 entity: curve,
                 label: label(),
             });
         }
+
         let not_line_or_arc = || FilletError::NotLineOrArc {
             entity: curve,
             label: label(),
@@ -124,16 +127,19 @@ impl Sketch {
             true => 1.0,
             false => self.course(curve).map_or(1.0, |course| course.extent()),
         };
+
         let pair = [
             self.spliced_curve(first, reach(second))?,
             self.spliced_curve(second, reach(first))?,
         ];
+
         for (index, other) in [(0, 1), (1, 0)] {
             if let (Some(Joined::Plain(Course::Circle { .. })), Some(Joined::Spline(_))) =
                 (pair.get(index), pair.get(other))
             {
                 let circle = curves.get(index).copied().unwrap_or(first);
                 let spline = curves.get(other).copied().unwrap_or(second);
+
                 return Err(FilletError::CircleToSpline {
                     circle: self.entity_label(circle),
                     spline: self.entity_label(spline),
@@ -145,6 +151,7 @@ impl Sketch {
 
     fn crossings_of_joined(&self, pair: &[Joined; 2]) -> Vec<Point2> {
         let [one, other] = pair;
+
         let reach = 4.0 * one.extent().max(other.extent()).max(1.0);
         let tolerance = TOLERANCE * reach;
         let (carrier, shape) = match (one, other) {
@@ -160,6 +167,7 @@ impl Sketch {
 
     pub(super) fn spliced_plan(&self, picks: [Pick; 2]) -> Result<CrossingPlan, FilletError> {
         let [first, second] = picks;
+
         let pair = self.joined_pair([first.curve, second.curve])?;
         let crossings = self.crossings_of_joined(&pair);
         let reach = pair.iter().map(Joined::extent).fold(1.0, larger);
@@ -172,13 +180,16 @@ impl Sketch {
                 distance(*a).total_cmp(&distance(*b))
             })
             .ok_or_else(|| self.never_meet(first.curve, second.curve))?;
+
         if let Ok(existing) = self.corner_between(first.curve, second.curve)
             && existing.position.distance(corner) <= tolerance
         {
             return Ok(CrossingPlan(Planned::Existing(existing)));
         }
+
         let others = other_crossings(&crossings, corner, tolerance);
         let mut parts = Vec::with_capacity(2);
+
         for (pick, joined) in picks.iter().zip(&pair) {
             parts.push(match joined {
                 Joined::Plain(course) => {
@@ -190,6 +201,7 @@ impl Sketch {
                 }
             });
         }
+
         let [one, other] = parts[..] else {
             return Err(self.never_meet(first.curve, second.curve));
         };
@@ -212,12 +224,14 @@ impl Sketch {
             self.point(end)
                 .is_some_and(|point| point.distance(corner) <= tolerance)
         };
+
         if at_end(first) {
             return Ok(SplineChange::Kept(first));
         }
         if at_end(last) {
             return Ok(SplineChange::Kept(last));
         }
+
         let share = drawn.carrier.share_at(corner);
         let extend = |replaced: EntityId, at_end: bool| -> Result<SplineChange, FilletError> {
             self.check_free_end(pick.curve, replaced)
@@ -228,12 +242,14 @@ impl Sketch {
                 reached: drawn.carrier.knot_of(share),
             })
         };
+
         if share <= 0.0 {
             return extend(first, false);
         }
         if share >= 1.0 {
             return extend(last, true);
         }
+
         let picked = closest_spline_parameter(&drawn.spline, pick.near);
         Ok(SplineChange::Trim {
             replaced: if picked < share { last } else { first },
@@ -247,6 +263,7 @@ impl Sketch {
     ) -> Result<[Pick; 2], FilletError> {
         let pair = self.joined_pair([first, second])?;
         let crossings = self.crossings_of_joined(&pair);
+
         let corner = crossings
             .iter()
             .copied()
@@ -260,6 +277,7 @@ impl Sketch {
             })
             .ok_or_else(|| self.never_meet(first, second))?;
         let tolerance = TOLERANCE * pair.iter().map(Joined::extent).fold(1.0, larger);
+
         let others = other_crossings(&crossings, corner, tolerance);
         let near = |joined: &Joined| match joined {
             Joined::Plain(course) => course.longer_side(corner, &others),
@@ -287,8 +305,10 @@ impl Sketch {
 
     pub(super) fn join_spliced(&mut self, spliced: &Spliced) -> Result<Corner, FilletError> {
         let mut working = self.clone();
+
         let shared = working.splice(spliced).map_err(FilletError::Edit)?;
         let joined = working.corner_at(shared)?;
+
         *self = working;
         Ok(joined)
     }
@@ -308,12 +328,15 @@ impl Sketch {
             Some(end) => *end,
             None => self.add_point(spliced.corner),
         };
+
         if let [one, other] = kept[..]
             && one != other
         {
             self.add_constraint(Constraint::Coincident(one, other))?;
         }
+
         let mut far_ends = Vec::new();
+
         for (curve, part) in spliced.curves.into_iter().zip(&spliced.parts) {
             match *part {
                 Part::Plain(course, change) => {

@@ -11,6 +11,7 @@ use crate::{
 
 fn new_drawing(document: &mut Document) -> DrawingId {
     let (transaction, id) = document.adding_drawing(Vec::new()).unwrap();
+
     document.apply(transaction).unwrap();
     id
 }
@@ -46,8 +47,11 @@ fn a_new_drawing_is_undoable_content_with_a_numbered_name() {
 
     let (transaction, id) = editor.document().adding_drawing(Vec::new()).unwrap();
     let touched = transaction.touched();
+
     editor.apply(transaction).unwrap();
+
     let with_drawing = editor.document().clone();
+
     editor.undo().unwrap();
 
     assert!(touched.drawings);
@@ -63,7 +67,9 @@ fn drawing_numbers_are_never_reused() {
 
     let first = new_drawing(&mut document);
     let deletion = document.deleting_drawing(first).unwrap();
+
     document.apply(deletion).unwrap();
+
     let second = new_drawing(&mut document);
 
     assert!(second > first);
@@ -77,8 +83,10 @@ fn undoing_a_drawing_keeps_its_number_taken() {
     let mut editor = Editor::new(pair.document.clone());
 
     let (transaction, first) = editor.document().adding_drawing(Vec::new()).unwrap();
+
     editor.apply(transaction).unwrap();
     editor.undo().unwrap();
+
     let (transaction, second) = editor.document().adding_drawing(Vec::new()).unwrap();
 
     assert!(transaction.touched().drawings);
@@ -88,6 +96,7 @@ fn undoing_a_drawing_keeps_its_number_taken() {
 #[test]
 fn names_scales_and_counts_are_checked() {
     let mut document = pair().document;
+
     let id = new_drawing(&mut document);
     let other = new_drawing(&mut document);
 
@@ -102,6 +111,7 @@ fn names_scales_and_counts_are_checked() {
         drawing.scale = DrawingScale::Ratio(ScaleRatio::new(0, 2));
     });
     let mut many = document.drawings().clone();
+
     for number in 0..MAX_DRAWINGS {
         many.drawings.push(Drawing::new(
             DrawingId::from_raw(100 + number as u64),
@@ -132,17 +142,22 @@ fn names_scales_and_counts_are_checked() {
 fn restoring_an_earlier_version_restores_its_drawings() {
     let pair = pair();
     let mut later = pair.document.clone();
+
     let id = new_drawing(&mut later);
     let renamed = later
         .changing_drawing(id, "Rename", |drawing| drawing.name = "Workshop".into())
         .unwrap();
+
     later.apply(renamed).unwrap();
 
     let mut current = later.clone();
+
     current
         .apply(current.transaction_to(&pair.document, "Restore"))
         .unwrap();
+
     let mut back = current.clone();
+
     back.apply(back.transaction_to(&later, "Restore")).unwrap();
 
     assert!(current.drawings().is_empty());
@@ -153,6 +168,7 @@ fn restoring_an_earlier_version_restores_its_drawings() {
 fn a_drawing_shows_every_shown_body_unless_bodies_are_chosen() {
     let pair = pair();
     let mut document = pair.document.clone();
+
     document
         .apply(Transaction::single(
             "Hide",
@@ -162,11 +178,14 @@ fn a_drawing_shows_every_shown_body_unless_bodies_are_chosen() {
             },
         ))
         .unwrap();
+
     let evaluation = evaluate(&document, &mut Recompute::default());
     let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
 
     let every = drawn_bodies(&document, &evaluation, &drawing);
+
     drawing.bodies = vec![pair.peg, FeatureId::from_raw(999)];
+
     let chosen = drawn_bodies(&document, &evaluation, &drawing);
 
     assert_eq!(
@@ -192,6 +211,7 @@ fn a_drawing_shows_every_shown_body_unless_bodies_are_chosen() {
 fn standard_views_project_the_block_along_the_model_axes() {
     let pair = pair();
     let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+
     drawing.bodies = vec![pair.plate];
 
     let front = view_lines(&pair, StandardView::Front, &drawing);
@@ -284,6 +304,7 @@ fn fitting_takes_the_largest_preferred_scale_the_sheet_holds() {
     assert_eq!((layout.width, layout.height), (420.0, 297.0));
     for view in &layout.views {
         let bounds = extents.get(&view.view).unwrap();
+
         assert!(layout.view_area.contains(view.on_sheet(bounds.min())));
         assert!(layout.view_area.contains(view.on_sheet(bounds.max())));
     }
@@ -300,7 +321,9 @@ fn views_line_up_with_the_front_view_by_the_projection_chosen() {
         &extents,
         &BTreeMap::new(),
     );
+
     drawing.projection = Projection::ThirdAngle;
+
     let third = lay_out_sheet(
         &drawing,
         &TitleFields::default(),
@@ -312,9 +335,11 @@ fn views_line_up_with_the_front_view_by_the_projection_chosen() {
         let front = placed(layout, StandardView::Front);
         let top = placed(layout, StandardView::Top);
         let right = placed(layout, StandardView::Right);
+
         assert!(close(front.origin.x, top.origin.x));
         assert!(close(front.origin.y, right.origin.y));
     }
+
     assert!(
         placed(&first, StandardView::Top).origin.y < placed(&first, StandardView::Front).origin.y
     );
@@ -332,7 +357,9 @@ fn views_line_up_with_the_front_view_by_the_projection_chosen() {
 #[test]
 fn a_scale_too_large_for_the_sheet_says_so() {
     let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+
     drawing.scale = DrawingScale::Ratio(ScaleRatio::new(10, 1));
+
     let extents = extents_of_a_box(100.0, 60.0, 40.0);
 
     let layout = lay_out_sheet(
@@ -341,8 +368,10 @@ fn a_scale_too_large_for_the_sheet_says_so() {
         &extents,
         &BTreeMap::new(),
     );
+
     drawing.size = SheetSize::A4;
     drawing.scale = DrawingScale::Fit;
+
     let small = lay_out_sheet(
         &drawing,
         &TitleFields::default(),
@@ -400,6 +429,7 @@ fn section(letter: char, plane: SectionPlane, place: SectionPlace) -> SectionVie
 fn section_lines(pair: &Pair, section: &SectionView) -> Result<ViewLines, DrawingViewError> {
     let drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
     let evaluation = evaluate(&pair.document, &mut Recompute::default());
+
     let bodies = drawn_bodies(&pair.document, &evaluation, &drawing);
     let place = section
         .place
@@ -411,17 +441,24 @@ fn section_lines(pair: &Pair, section: &SectionView) -> Result<ViewLines, Drawin
 fn a_section_view_is_added_undoably_with_the_next_free_letter() {
     let pair = pair();
     let mut editor = Editor::new(pair.document.clone());
+
     let id = {
         let (transaction, id) = editor.document().adding_drawing(Vec::new()).unwrap();
+
         editor.apply(transaction).unwrap();
         id
     };
 
     let (first, a) = editor.document().adding_section_view(id).unwrap();
+
     editor.apply(first).unwrap();
+
     let (second, b) = editor.document().adding_section_view(id).unwrap();
+
     editor.apply(second).unwrap();
+
     let sections = editor.document().drawing(id).unwrap().sections.clone();
+
     editor.undo().unwrap();
 
     assert_eq!((a, b), ('A', 'B'));
@@ -437,6 +474,7 @@ fn a_section_view_is_added_undoably_with_the_next_free_letter() {
 #[test]
 fn section_views_are_checked() {
     let mut document = pair().document;
+
     let id = new_drawing(&mut document);
     let with = |change: SectionView| {
         document.changing_drawing(id, "Section", |drawing| drawing.sections = vec![change])
@@ -563,11 +601,13 @@ fn hatching_fills_the_cut_face_at_one_spacing_on_the_sheet() {
     let more = hatch_lines(&region, &doubled);
 
     let diagonal = 10.0 * std::f64::consts::SQRT_2;
+
     assert!(lines.len() >= (diagonal / HATCH_SPACING) as usize);
     assert!(lines.len() <= (diagonal / HATCH_SPACING) as usize + 1);
     assert!(more.len() >= 2 * lines.len() - 1);
     for (start, end) in &lines {
         let direction = (*end - *start).normalize();
+
         assert!(inside(&full, *start) && inside(&full, *end));
         assert!(close(direction.x.abs(), direction.y.abs()));
     }
@@ -576,6 +616,7 @@ fn hatching_fills_the_cut_face_at_one_spacing_on_the_sheet() {
 #[test]
 fn section_views_stand_beside_the_others_labelled_and_cut_on_their_parent() {
     let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+
     drawing.sections = vec![
         section('A', SectionPlane::Yz, SectionPlace::Centre),
         SectionView {
@@ -583,7 +624,9 @@ fn section_views_stand_beside_the_others_labelled_and_cut_on_their_parent() {
             ..section('B', SectionPlane::Xz, SectionPlace::Centre)
         },
     ];
+
     let mut extents = extents_of_a_box(100.0, 60.0, 40.0);
+
     extents.insert(
         DrawnView::Section('A'),
         Aabb2::from_point(Point2::ZERO).including(Point2::new(60.0, 40.0)),
@@ -592,6 +635,7 @@ fn section_views_stand_beside_the_others_labelled_and_cut_on_their_parent() {
         DrawnView::Section('B'),
         Aabb2::from_point(Point2::ZERO).including(Point2::new(100.0, 40.0)),
     );
+
     let cuts = BTreeMap::from([
         (
             'A',
@@ -626,11 +670,14 @@ fn section_views_stand_beside_the_others_labelled_and_cut_on_their_parent() {
     assert!(layout.fits);
     assert!(first.origin.x > isometric.origin.x);
     assert!(first.origin.y > second.origin.y);
+
     for view in [first, second] {
         let bounds = extents.get(&view.view).unwrap();
+
         assert!(layout.view_area.contains(view.on_sheet(bounds.min())));
         assert!(layout.view_area.contains(view.on_sheet(bounds.max())));
     }
+
     assert!(contents.contains(&"A\u{2013}A"));
     assert!(contents.contains(&"B\u{2013}B"));
     assert_eq!(contents.iter().filter(|text| **text == "A").count(), 2);
@@ -647,7 +694,9 @@ fn section_views_stand_beside_the_others_labelled_and_cut_on_their_parent() {
 fn offset_parameter(document: &mut Document, expression: &str) -> ParameterId {
     let mut transaction = document.transaction("Offset");
     let parsed = document.parse(expression).unwrap();
+
     let id = transaction.add_parameter("cut", parsed);
+
     document.apply(transaction.finish()).unwrap();
     id
 }
@@ -662,15 +711,19 @@ fn cut_with(document: &mut Document, id: DrawingId, parameter: ParameterId) {
             )];
         })
         .unwrap();
+
     document.apply(change).unwrap();
 }
 
 #[test]
 fn a_section_offset_follows_the_parameter_it_names() {
     let mut document = pair().document;
+
     let id = new_drawing(&mut document);
     let cut = offset_parameter(&mut document, "5 mm");
+
     cut_with(&mut document, id, cut);
+
     let place = |document: &Document| {
         let values = ParameterValues::evaluate(document);
         document.drawing(id).unwrap().sections[0]
@@ -686,7 +739,9 @@ fn a_section_offset_follows_the_parameter_it_names() {
             expression: document.parse("1.5 cm").unwrap(),
         },
     );
+
     document.apply(edit).unwrap();
+
     let after = place(&document);
 
     assert_eq!(before, Ok(ResolvedPlace::Offset(5.0)));
@@ -696,13 +751,16 @@ fn a_section_offset_follows_the_parameter_it_names() {
 #[test]
 fn a_parameter_a_section_offset_names_is_in_use_and_inlines_into_it() {
     let mut document = pair().document;
+
     let id = new_drawing(&mut document);
     let cut = offset_parameter(&mut document, "5 mm");
+
     cut_with(&mut document, id, cut);
 
     let users = document.parameter_user_ids(cut);
     let refused = document.can_remove_parameter(cut);
     let inlining = document.inline_parameter(cut).unwrap();
+
     document.apply(inlining).unwrap();
 
     assert_eq!(users, vec![ParameterUser::Drawing(id)]);
@@ -712,7 +770,9 @@ fn a_parameter_a_section_offset_names_is_in_use_and_inlines_into_it() {
         EditError::ParameterInUse { .. }
     ));
     assert!(document.parameter(cut).is_none());
+
     let values = ParameterValues::evaluate(&document);
+
     assert_eq!(
         document.drawing(id).unwrap().sections[0]
             .place
@@ -724,9 +784,12 @@ fn a_parameter_a_section_offset_names_is_in_use_and_inlines_into_it() {
 #[test]
 fn deleting_a_parameter_only_a_section_offset_names_is_refused() {
     let mut document = pair().document;
+
     let id = new_drawing(&mut document);
     let cut = offset_parameter(&mut document, "5 mm");
+
     cut_with(&mut document, id, cut);
+
     let before = document.clone();
 
     let refused = document.apply(Transaction::single(
@@ -746,17 +809,24 @@ fn deleting_a_parameter_only_a_section_offset_names_is_refused() {
 fn restoring_versions_keeps_a_section_offset_and_the_parameter_it_names() {
     let pair = pair();
     let mut later = pair.document.clone();
+
     let id = new_drawing(&mut later);
     let cut = offset_parameter(&mut later, "5 mm");
+
     cut_with(&mut later, id, cut);
 
     let mut current = later.clone();
+
     current
         .apply(current.transaction_to(&pair.document, "Restore"))
         .unwrap();
+
     let mut back = current.clone();
+
     back.apply(back.transaction_to(&later, "Restore")).unwrap();
+
     let mut again = back.clone();
+
     again
         .apply(again.transaction_to(&later, "Restore"))
         .unwrap();
@@ -774,9 +844,12 @@ fn restoring_versions_keeps_a_section_offset_and_the_parameter_it_names() {
 #[test]
 fn an_offset_that_cannot_be_worked_out_is_a_typed_error() {
     let mut document = pair().document;
+
     let id = new_drawing(&mut document);
     let cut = offset_parameter(&mut document, "5 mm");
+
     cut_with(&mut document, id, cut);
+
     let broken = Transaction::single(
         "Break",
         Edit::SetParameterExpression {
@@ -784,7 +857,9 @@ fn an_offset_that_cannot_be_worked_out_is_a_typed_error() {
             expression: document.parse("1 mm / 0").unwrap(),
         },
     );
+
     document.apply(broken).unwrap();
+
     let far = SectionPlace::offset(1e300);
 
     let values = ParameterValues::evaluate(&document);
@@ -803,12 +878,14 @@ fn an_offset_that_cannot_be_worked_out_is_a_typed_error() {
 #[test]
 fn scaling_the_model_moves_a_section_offset_with_it() {
     let mut document = pair().document;
+
     let id = new_drawing(&mut document);
     let change = document
         .changing_drawing(id, "Section", |drawing| {
             drawing.sections = vec![section('A', SectionPlane::Yz, SectionPlace::offset(10.0))];
         })
         .unwrap();
+
     document.apply(change).unwrap();
 
     let scaled = document
@@ -818,7 +895,9 @@ fn scaling_the_model_moves_a_section_offset_with_it() {
             values: ScaledValues::Plain,
         })
         .unwrap();
+
     document.apply(scaled.transaction).unwrap();
+
     let values = ParameterValues::evaluate(&document);
 
     assert_eq!(
@@ -850,6 +929,7 @@ fn front_detail(letter: char, centre: Point2, radius: f64) -> DetailView {
 
 fn plate_front(pair: &Pair) -> ViewLines {
     let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+
     drawing.bodies = vec![pair.plate];
     view_lines(pair, StandardView::Front, &drawing)
 }
@@ -870,23 +950,32 @@ fn endpoints(lines: &ViewLines) -> Vec<Point2> {
 fn a_detail_view_is_added_undoably_with_a_letter_shared_with_the_sections() {
     let pair = pair();
     let mut editor = Editor::new(pair.document.clone());
+
     let id = {
         let (transaction, id) = editor.document().adding_drawing(Vec::new()).unwrap();
+
         editor.apply(transaction).unwrap();
         id
     };
     let parent = DetailParent::Standard(StandardView::Front);
 
     let (section, a) = editor.document().adding_section_view(id).unwrap();
+
     editor.apply(section).unwrap();
+
     let (first, b) = editor
         .document()
         .adding_detail_view(id, parent, Point2::new(3.0, 1.0), 2.0)
         .unwrap();
+
     editor.apply(first).unwrap();
+
     let (next_section, c) = editor.document().adding_section_view(id).unwrap();
+
     editor.apply(next_section).unwrap();
+
     let details = editor.document().drawing(id).unwrap().details.clone();
+
     editor.undo().unwrap();
     editor.undo().unwrap();
 
@@ -903,6 +992,7 @@ fn a_detail_view_is_added_undoably_with_a_letter_shared_with_the_sections() {
 #[test]
 fn detail_views_are_checked() {
     let mut document = pair().document;
+
     let id = new_drawing(&mut document);
     let with = |details: Vec<DetailView>| {
         document.changing_drawing(id, "Detail", |drawing| drawing.details = details)
@@ -913,6 +1003,7 @@ fn detail_views_are_checked() {
         parent: DetailParent::Section('A'),
         ..missing_parent
     };
+
     let sections_and_details = document.changing_drawing(id, "Detail", |drawing| {
         drawing.sections = vec![section('A', SectionPlane::Yz, SectionPlace::Centre)];
         drawing.details = vec![front_detail('A', centre, 1.0)];
@@ -998,16 +1089,21 @@ fn a_detail_keeps_exactly_the_parent_lines_inside_its_circle() {
 
     assert_eq!(lines.view, DrawnView::Detail('B'));
     assert_eq!(lines.drawn_pieces(false).count(), 2);
+
     for piece in lines.drawn_pieces(false) {
         assert!(close(piece.length(), 3.0));
     }
+
     let ends = endpoints(&lines);
+
     assert_eq!(
         ends.iter().filter(|end| close(end.length(), 3.0)).count(),
         2
     );
     assert_eq!(ends.iter().filter(|end| end.length() < 1e-6).count(), 2);
+
     let bounds = lines.bounds.unwrap();
+
     assert!(close(bounds.size().x, 6.0) && close(bounds.size().y, 6.0));
     assert!(close(bounds.center().x, 0.0) && close(bounds.center().y, 0.0));
     assert_eq!(lines.clip.unwrap().radius, 3.0);
@@ -1034,6 +1130,7 @@ fn a_detail_clips_an_arc_at_the_circle_exactly() {
     let parent = plate_front(&pair);
     let template = parent.pieces[0].clone();
     let ring = caditor_kernel::Circle2::new(Point2::new(10.0, 10.0), 5.0).unwrap();
+
     let arcs = ViewLines {
         pieces: vec![ViewPiece {
             curve: Curve2::Circle(ring),
@@ -1053,19 +1150,25 @@ fn a_detail_clips_an_arc_at_the_circle_exactly() {
     let apart = detail_view(&front_detail('D', Point2::new(10.0, 10.0), 2.0), &arcs).unwrap();
 
     let seam = Point2::new(15.0, 10.0);
+
     assert_eq!(lines.pieces.len(), 2);
+
     for end in endpoints(&lines) {
         let on_circle = close((end - disc.centre).length(), 2.0);
+
         assert!(on_circle || (end - seam).length() < 1e-9);
     }
     for piece in &lines.pieces {
         for step in 0..=20 {
             let at = piece.range.at(f64::from(step) / 20.0);
+
             assert!((piece.curve.point(at) - disc.centre).length() <= 2.0 + 1e-9);
         }
     }
+
     let kept: f64 = lines.pieces.iter().map(|piece| piece.range.length()).sum();
     let half_angle = 0.92_f64.acos();
+
     assert!(close(kept, 2.0 * half_angle));
     assert_eq!(whole.pieces.len(), 1);
     assert!(close(
@@ -1094,6 +1197,7 @@ fn a_detail_of_a_section_keeps_its_hatching_inside_the_circle() {
         origin: Point2::new(100.0, 100.0),
         scale: 4.0,
     };
+
     let disc = lines.clip.unwrap().scaled_onto(&placed);
     let whole = hatch_lines(&lines.hatching()[0], &placed);
     let clipped = drawn_hatching(&lines, &placed);
@@ -1102,10 +1206,12 @@ fn a_detail_of_a_section_keeps_its_hatching_inside_the_circle() {
     assert!(lines.section.is_some());
     assert!(!clipped.is_empty());
     assert!(clipped.len() <= whole.len());
+
     for (from, to) in clipped {
         assert!((from - disc.centre).length() <= disc.radius + 1e-9);
         assert!((to - disc.centre).length() <= disc.radius + 1e-9);
     }
+
     assert_eq!(
         drawn_hatching(&cut, &placed).len(),
         hatch_lines(&cut.hatching()[0], &placed).len()
@@ -1114,6 +1220,7 @@ fn a_detail_of_a_section_keeps_its_hatching_inside_the_circle() {
 
 fn extents_with_detail(radius: f64) -> BTreeMap<DrawnView, Aabb2> {
     let mut extents = extents_of_a_box(100.0, 60.0, 40.0);
+
     extents.insert(
         DrawnView::Detail('A'),
         Aabb2::from_point(Point2::new(10.0, 10.0) - Point2::splat(radius))
@@ -1125,7 +1232,9 @@ fn extents_with_detail(radius: f64) -> BTreeMap<DrawnView, Aabb2> {
 #[test]
 fn detail_views_stand_in_the_side_column_labelled_with_their_scale_and_circled_on_their_parent() {
     let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+
     drawing.details = vec![front_detail('A', Point2::new(10.0, 10.0), 8.0)];
+
     let extents = extents_with_detail(8.0);
 
     let layout = lay_out_sheet(
@@ -1179,10 +1288,12 @@ fn detail_views_stand_in_the_side_column_labelled_with_their_scale_and_circled_o
 #[test]
 fn a_chosen_detail_scale_is_kept_and_labelled_and_fitting_leaves_room_for_it() {
     let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+
     drawing.details = vec![DetailView {
         scale: DetailScale::Ratio(ScaleRatio::new(10, 1)),
         ..front_detail('A', Point2::new(10.0, 10.0), 8.0)
     }];
+
     let extents = extents_with_detail(8.0);
 
     let layout = lay_out_sheet(
@@ -1206,6 +1317,7 @@ fn a_chosen_detail_scale_is_kept_and_labelled_and_fitting_leaves_room_for_it() {
 #[test]
 fn deleting_the_section_a_detail_enlarges_is_refused_and_scaling_the_model_moves_a_circle() {
     let mut document = pair().document;
+
     let id = new_drawing(&mut document);
     let change = document
         .changing_drawing(id, "Detail", |drawing| {
@@ -1216,6 +1328,7 @@ fn deleting_the_section_a_detail_enlarges_is_refused_and_scaling_the_model_moves
             ];
         })
         .unwrap();
+
     document.apply(change).unwrap();
 
     let refused = document.changing_drawing(id, "Delete", |drawing| drawing.sections.clear());
@@ -1226,7 +1339,9 @@ fn deleting_the_section_a_detail_enlarges_is_refused_and_scaling_the_model_moves
             values: ScaledValues::Plain,
         })
         .unwrap();
+
     document.apply(scaled.transaction).unwrap();
+
     let details = &document.drawing(id).unwrap().details;
 
     assert_eq!(

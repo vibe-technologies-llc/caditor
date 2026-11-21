@@ -60,6 +60,7 @@ fn notice_text(harness: &Harness) -> String {
 
 fn open_cut_on_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
     let (plate, top) = extruded_plate(harness);
+
     harness.select([top]);
     harness.click("New sketch");
     harness.settle();
@@ -71,6 +72,7 @@ fn open_cut_on_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
     harness.settle();
     harness.click("Extrude");
     harness.settle();
+
     let cut = harness.workspace.editing.solid().expect("the cut is open");
     (plate, cut)
 }
@@ -87,13 +89,17 @@ fn become_one_sided(
     reversed: bool,
 ) {
     let mut changed = extrusion(harness, extrude).clone();
+
     let end = ExtrudeEnd::Distance(distance(&changed).clone());
+
     changed.extent = ExtrudeExtent::OneSide { end, reversed };
+
     let SolidFeature::Extrude(changed) =
         solid_tools::with_operation(&SolidFeature::Extrude(changed), operation)
     else {
         panic!("an extrusion stays an extrusion");
     };
+
     harness.perform(Action::Apply(Transaction::single(
         "Set up the extrusion",
         Edit::SetFeatureKind {
@@ -106,6 +112,7 @@ fn become_one_sided(
 
 fn growing_from_the_top(harness: &mut Harness) -> (FeatureId, FeatureId) {
     let (plate, cut) = open_cut_on_plate(harness);
+
     set_distance(harness, cut, "10 mm");
     become_one_sided(harness, cut, BodyOperation::Add(plate), false);
     (plate, cut)
@@ -113,6 +120,7 @@ fn growing_from_the_top(harness: &mut Harness) -> (FeatureId, FeatureId) {
 
 fn cutting_from_the_top(harness: &mut Harness) -> (FeatureId, FeatureId) {
     let (plate, cut) = open_cut_on_plate(harness);
+
     set_distance(harness, cut, "5 mm");
     (plate, cut)
 }
@@ -130,7 +138,9 @@ fn add_parameter(
     })
     .unwrap();
     let mut transaction = document.transaction(format!("Add {name}"));
+
     let id = transaction.add_parameter(name, expression);
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
     id
@@ -139,12 +149,14 @@ fn add_parameter(
 #[test]
 fn a_negative_distance_on_an_add_reverses_it_and_cuts_into_the_body_in_one_undoable_change() {
     let mut harness = Harness::new();
+
     let (plate, extrude) = growing_from_the_top(&mut harness);
     let setup = harness.model.undo_label().map(str::to_owned);
 
     assert!((harness.body_volume(plate) - (PLATE_VOLUME + 10.0 * FOOTPRINT)).abs() < 1.0);
 
     set_distance(&mut harness, extrude, "-5 mm");
+
     let flipped = extrusion(&harness, extrude).clone();
 
     assert_eq!(flipped.operation, BodyOperation::Remove(plate));
@@ -163,6 +175,7 @@ fn a_negative_distance_on_an_add_reverses_it_and_cuts_into_the_body_in_one_undoa
 
     harness.perform(Action::Undo);
     harness.settle();
+
     let restored = extrusion(&harness, extrude);
 
     assert_eq!(restored.operation, BodyOperation::Add(plate));
@@ -175,6 +188,7 @@ fn a_negative_distance_on_an_add_reverses_it_and_cuts_into_the_body_in_one_undoa
 #[test]
 fn a_negative_distance_on_a_remove_reverses_it_and_adds_to_the_body_it_was_cutting() {
     let mut harness = Harness::new();
+
     let (plate, extrude) = cutting_from_the_top(&mut harness);
     let cutting = extrusion(&harness, extrude);
 
@@ -183,6 +197,7 @@ fn a_negative_distance_on_a_remove_reverses_it_and_adds_to_the_body_it_was_cutti
     assert!((harness.body_volume(plate) - (PLATE_VOLUME - 5.0 * FOOTPRINT)).abs() < 1.0);
 
     set_distance(&mut harness, extrude, "-5 mm");
+
     let flipped = extrusion(&harness, extrude);
 
     assert_eq!(flipped.operation, BodyOperation::Add(plate));
@@ -198,18 +213,23 @@ fn a_negative_distance_on_a_remove_reverses_it_and_adds_to_the_body_it_was_cutti
 #[test]
 fn a_negative_distance_on_a_new_body_only_reverses_it() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Extrude");
     harness.settle();
+
     let extrude = harness
         .workspace
         .editing
         .solid()
         .expect("the extrusion is open");
+
     become_one_sided(&mut harness, extrude, BodyOperation::NewBody, false);
 
     set_distance(&mut harness, extrude, "-5 mm");
+
     let flipped = extrusion(&harness, extrude);
 
     assert_eq!(flipped.operation, BodyOperation::NewBody);
@@ -222,10 +242,13 @@ fn a_negative_distance_on_a_new_body_only_reverses_it() {
 #[test]
 fn a_negative_distance_on_an_intersection_only_reverses_it() {
     let mut harness = Harness::new();
+
     let (plate, extrude) = cutting_from_the_top(&mut harness);
+
     become_one_sided(&mut harness, extrude, BodyOperation::Intersect(plate), true);
 
     set_distance(&mut harness, extrude, "-5 mm");
+
     let flipped = extrusion(&harness, extrude);
 
     assert_eq!(flipped.operation, BodyOperation::Intersect(plate));
@@ -236,14 +259,17 @@ fn a_negative_distance_on_an_intersection_only_reverses_it() {
 #[test]
 fn zero_and_a_negative_side_of_a_symmetric_or_two_sided_extrusion_are_still_refused() {
     let mut harness = Harness::new();
+
     let (_, extrude) = cutting_from_the_top(&mut harness);
 
     set_distance(&mut harness, extrude, "0 mm");
+
     assert!(harness.shows(NOT_ZERO_OR_REVERSE));
     assert_eq!(distance_in_millimetres(&harness, extrude), 5.0);
 
     let ten = Expression::measure(10.0, Unit::Millimetre);
     let mut symmetric = extrusion(&harness, extrude).clone();
+
     symmetric.extent = ExtrudeExtent::Symmetric {
         distance: ten.clone(),
     };
@@ -255,7 +281,9 @@ fn zero_and_a_negative_side_of_a_symmetric_or_two_sided_extrusion_are_still_refu
         },
     )));
     harness.settle();
+
     let before = harness.model.undo_label().map(str::to_owned);
+
     harness.type_into_field(distance_field(extrude), "-5 mm");
 
     assert!(harness.shows(ABOVE_ZERO));
@@ -263,6 +291,7 @@ fn zero_and_a_negative_side_of_a_symmetric_or_two_sided_extrusion_are_still_refu
     assert_eq!(harness.model.undo_label().map(str::to_owned), before);
 
     let mut two_sided = symmetric;
+
     two_sided.extent = ExtrudeExtent::two_sides(ten.clone(), ten);
     harness.perform(Action::Apply(Transaction::single(
         "Make it two-sided",
@@ -281,11 +310,13 @@ fn zero_and_a_negative_side_of_a_symmetric_or_two_sided_extrusion_are_still_refu
 #[test]
 fn a_distance_written_as_a_negative_expression_keeps_its_parameters() {
     let mut harness = Harness::new();
+
     let (plate, extrude) = growing_from_the_top(&mut harness);
     let depth = add_parameter(&mut harness, "depth", "4 mm");
     let stock = add_parameter(&mut harness, "stock", "20 mm");
 
     set_distance(&mut harness, extrude, "-depth");
+
     let by_depth = extrusion(&harness, extrude).clone();
 
     assert_eq!(distance(&by_depth), &Expression::Parameter(depth));
@@ -295,6 +326,7 @@ fn a_distance_written_as_a_negative_expression_keeps_its_parameters() {
 
     become_one_sided(&mut harness, extrude, BodyOperation::Add(plate), false);
     set_distance(&mut harness, extrude, "stock - 30 mm");
+
     let by_stock = extrusion(&harness, extrude).clone();
 
     assert!(matches!(distance(&by_stock), Expression::Negate(inner) if inner.uses(stock)));
@@ -307,9 +339,12 @@ fn a_distance_written_as_a_negative_expression_keeps_its_parameters() {
 #[test]
 fn a_parameter_turning_negative_later_fails_the_feature_instead_of_flipping_it_again() {
     let mut harness = Harness::new();
+
     let (plate, extrude) = growing_from_the_top(&mut harness);
     let depth = add_parameter(&mut harness, "depth", "4 mm");
+
     set_distance(&mut harness, extrude, "-depth");
+
     let flipped = extrusion(&harness, extrude).clone();
 
     harness.perform(Action::Apply(Transaction::single(
@@ -329,12 +364,14 @@ fn a_parameter_turning_negative_later_fails_the_feature_instead_of_flipping_it_a
 #[test]
 fn text_that_does_not_parse_yet_keeps_the_last_valid_preview_until_the_field_is_left() {
     let mut harness = Harness::new();
+
     let (plate, extrude) = growing_from_the_top(&mut harness);
 
     harness.draft_into_field(distance_field(extrude), "3 mm");
     harness.wait_until("the typed distance is previewed", |harness| {
         draft_volume(harness, plate).is_some_and(|volume| volume > PLATE_VOLUME)
     });
+
     let previewed = harness.model.draft_kind(extrude).cloned();
 
     harness.draft_into_field(distance_field(extrude), "3+");
@@ -354,6 +391,7 @@ fn text_that_does_not_parse_yet_keeps_the_last_valid_preview_until_the_field_is_
 #[test]
 fn a_negative_distance_being_typed_is_previewed_flipped_before_it_is_entered() {
     let mut harness = Harness::new();
+
     let (plate, extrude) = growing_from_the_top(&mut harness);
     let before = harness.model.undo_label().map(str::to_owned);
 
@@ -361,6 +399,7 @@ fn a_negative_distance_being_typed_is_previewed_flipped_before_it_is_entered() {
     harness.wait_until("the typed distance is previewed", |harness| {
         draft_volume(harness, plate).is_some_and(|volume| volume < PLATE_VOLUME)
     });
+
     let Some(FeatureKind::Solid(SolidFeature::Extrude(drafted))) =
         harness.model.draft_kind(extrude).cloned()
     else {

@@ -7,8 +7,10 @@ use crate::{
 
 fn parameter(document: &mut Document, name: &str, text: &str) -> ParameterId {
     let mut transaction = document.transaction("Add");
+
     let expression = transaction.parse(text).unwrap();
     let id = transaction.add_parameter(name, expression);
+
     document.apply(transaction.finish()).unwrap();
     id
 }
@@ -27,6 +29,7 @@ fn text(document: &Document, id: ParameterId) -> String {
 
 fn add(editor: &mut Editor, name: &str) -> ConfigurationId {
     let (transaction, id) = editor.document().adding_configuration(Some(name));
+
     editor.apply(transaction).unwrap();
     id
 }
@@ -36,17 +39,20 @@ fn set(editor: &mut Editor, id: ConfigurationId, value: ConfiguredValue, setting
         .document()
         .setting_configuration(id, value, setting)
         .unwrap();
+
     editor.apply(transaction).unwrap();
 }
 
 fn switch(editor: &mut Editor, id: ConfigurationId) {
     let transaction = editor.document().activating(id).unwrap();
+
     editor.apply(transaction).unwrap();
 }
 
 #[test]
 fn switching_configurations_sets_their_values_and_undo_switches_back() {
     let mut document = Document::default();
+
     let size = parameter(&mut document, "size", "4 mm");
     let mut editor = Editor::new(document);
 
@@ -55,9 +61,12 @@ fn switching_configurations_sets_their_values_and_undo_switches_back() {
         .document()
         .configuring(ConfiguredValue::Parameter(size))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let large = add(&mut editor, "M8");
     let eight = expression(editor.document(), "8 mm");
+
     set(
         &mut editor,
         large,
@@ -92,17 +101,22 @@ fn switching_configurations_sets_their_values_and_undo_switches_back() {
 #[test]
 fn editing_a_value_changes_the_active_configuration_only() {
     let mut document = Document::default();
+
     let size = parameter(&mut document, "size", "4 mm");
     let mut editor = Editor::new(document);
+
     let first = add(&mut editor, "First");
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(size))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let second = add(&mut editor, "Second");
 
     let six = expression(editor.document(), "6 mm");
+
     editor
         .apply(Transaction::single(
             "Edit size",
@@ -141,20 +155,25 @@ fn editing_a_value_changes_the_active_configuration_only() {
 #[test]
 fn values_using_each_other_swap_without_a_passing_cycle() {
     let mut document = Document::default();
+
     let a = parameter(&mut document, "a", "5 mm");
     let b = parameter(&mut document, "b", "a * 2");
     let mut editor = Editor::new(document);
+
     add(&mut editor, "Plain");
     for value in [a, b] {
         let configure = editor
             .document()
             .configuring(ConfiguredValue::Parameter(value))
             .unwrap();
+
         editor.apply(configure).unwrap();
     }
+
     let flipped = add(&mut editor, "Flipped");
     let half = expression(editor.document(), "b / 2");
     let ten = expression(editor.document(), "10 mm");
+
     set(
         &mut editor,
         flipped,
@@ -171,6 +190,7 @@ fn values_using_each_other_swap_without_a_passing_cycle() {
     switch(&mut editor, flipped);
 
     let values = ParameterValues::evaluate(editor.document());
+
     assert_eq!(text(editor.document(), a), "b / 2");
     assert_eq!(values.value(a).unwrap().value, 5.0);
     assert_eq!(values.value(b).unwrap().value, 10.0);
@@ -179,17 +199,21 @@ fn values_using_each_other_swap_without_a_passing_cycle() {
 #[test]
 fn a_cell_making_a_parameter_depend_on_itself_in_its_row_is_refused() {
     let mut document = Document::default();
+
     let a = parameter(&mut document, "a", "5 mm");
     let b = parameter(&mut document, "b", "a * 2");
     let mut editor = Editor::new(document);
+
     add(&mut editor, "Plain");
     for value in [a, b] {
         let configure = editor
             .document()
             .configuring(ConfiguredValue::Parameter(value))
             .unwrap();
+
         editor.apply(configure).unwrap();
     }
+
     let other = add(&mut editor, "Other");
 
     let half = expression(editor.document(), "b / 2");
@@ -217,15 +241,20 @@ fn a_cell_making_a_parameter_depend_on_itself_in_its_row_is_refused() {
 
 fn with_a_configured(text: &str) -> (Editor, ParameterId, ParameterId, ConfigurationId) {
     let mut document = Document::default();
+
     let a = parameter(&mut document, "a", "5 mm");
     let c = parameter(&mut document, "c", text);
     let mut editor = Editor::new(document);
+
     add(&mut editor, "Plain");
+
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(a))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let other = add(&mut editor, "Other");
     (editor, a, c, other)
 }
@@ -244,6 +273,7 @@ fn circular_other_row() -> (Editor, ParameterId, ParameterId, ConfigurationId) {
     let (mut editor, a, c, other) = with_a_configured("a");
     let mut table = editor.document().configurations().clone();
     let using_c = expression(editor.document(), "c");
+
     table
         .rows
         .iter_mut()
@@ -266,6 +296,7 @@ fn circular_other_row() -> (Editor, ParameterId, ParameterId, ConfigurationId) {
 fn a_live_expression_making_an_inactive_row_circular_is_refused_naming_the_row() {
     let (mut editor, a, c, other) = with_a_configured("1 mm");
     let using_c = expression(editor.document(), "c");
+
     set(
         &mut editor,
         other,
@@ -293,6 +324,7 @@ fn a_live_expression_making_an_inactive_row_circular_is_refused_naming_the_row()
 #[test]
 fn a_row_cell_making_a_live_expression_circular_is_refused_naming_the_row() {
     let (mut editor, a, c, other) = with_a_configured("1 mm");
+
     editor.apply(live(&editor, c, "a")).unwrap();
 
     let using_c = expression(editor.document(), "c");
@@ -314,12 +346,16 @@ fn a_row_cell_making_a_live_expression_circular_is_refused_naming_the_row() {
 
 fn with_a_and_c_configured() -> (Editor, ParameterId, ParameterId, ConfigurationId) {
     let (mut editor, a, c, other) = with_a_configured("a");
+
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(c))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let one = expression(editor.document(), "1 mm");
+
     set(
         &mut editor,
         other,
@@ -333,6 +369,7 @@ fn with_a_and_c_configured() -> (Editor, ParameterId, ParameterId, Configuration
 fn stopping_configuring_a_parameter_that_would_leave_a_row_circular_is_refused_naming_the_row() {
     let (mut editor, a, c, other) = with_a_and_c_configured();
     let using_c = expression(editor.document(), "c");
+
     set(
         &mut editor,
         other,
@@ -364,6 +401,7 @@ fn stopping_configuring_a_parameter_that_would_leave_a_row_circular_is_refused_n
 fn stopping_configuring_a_parameter_that_leaves_every_row_acyclic_still_works() {
     let (mut editor, a, c, other) = with_a_and_c_configured();
     let five = expression(editor.document(), "5 mm");
+
     set(
         &mut editor,
         other,
@@ -375,6 +413,7 @@ fn stopping_configuring_a_parameter_that_leaves_every_row_acyclic_still_works() 
         .document()
         .unconfiguring(ConfiguredValue::Parameter(c))
         .unwrap();
+
     editor.apply(stopping).unwrap();
 
     assert!(
@@ -395,13 +434,17 @@ fn stopping_configuring_a_parameter_that_leaves_every_row_acyclic_still_works() 
 fn stopping_configuring_another_parameter_leaves_a_row_that_was_already_circular_alone() {
     let (mut editor, _, _, _) = circular_other_row();
     let mut transaction = editor.document().transaction("Add");
+
     let expression = transaction.parse("2 mm").unwrap();
     let d = transaction.add_parameter("d", expression);
+
     editor.apply(transaction.finish()).unwrap();
+
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(d))
         .unwrap();
+
     editor.apply(configure).unwrap();
 
     let stopping = editor
@@ -418,6 +461,7 @@ fn a_circular_row_from_before_the_check_is_refused_when_switched_to_and_skipped_
 
     let switching = editor.document().activating(other);
     let deletion = editor.document().deleting_configuration(plain).unwrap();
+
     editor.apply(deletion).unwrap();
 
     assert_eq!(
@@ -437,6 +481,7 @@ fn a_circular_row_from_before_the_check_is_refused_when_switched_to_and_skipped_
 #[test]
 fn undoing_a_fix_of_a_circular_row_from_before_the_check_restores_it() {
     let (mut editor, _, c, other) = circular_other_row();
+
     editor.apply(live(&editor, c, "1 mm")).unwrap();
 
     switch(&mut editor, other);
@@ -454,17 +499,23 @@ fn undoing_a_fix_of_a_circular_row_from_before_the_check_restores_it() {
 #[test]
 fn deleting_the_active_configuration_in_the_middle_switches_to_the_row_after_it() {
     let mut document = Document::default();
+
     let size = parameter(&mut document, "size", "4 mm");
     let mut editor = Editor::new(document);
+
     add(&mut editor, "M4");
+
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(size))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let middle = add(&mut editor, "M6");
     let last = add(&mut editor, "M8");
     let eight = expression(editor.document(), "8 mm");
+
     set(
         &mut editor,
         last,
@@ -474,12 +525,14 @@ fn deleting_the_active_configuration_in_the_middle_switches_to_the_row_after_it(
     switch(&mut editor, middle);
 
     let deletion = editor.document().deleting_configuration(middle).unwrap();
+
     editor.apply(deletion).unwrap();
 
     assert_eq!(editor.document().configurations().active, Some(last));
     assert_eq!(text(editor.document(), size), "8 mm");
 
     let deletion = editor.document().deleting_configuration(last).unwrap();
+
     editor.apply(deletion).unwrap();
 
     assert_eq!(editor.document().configurations().rows.len(), 1);
@@ -494,16 +547,22 @@ fn a_configuration_added_while_a_configured_colour_makes_no_body_can_be_switched
         peg,
     } = pair();
     let mut editor = Editor::new(document);
+
     let first = add(&mut editor, "First");
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Colour(peg))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let joined = with_operation(editor.document(), peg, BodyOperation::Add(plate));
+
     editor.apply(joined).unwrap();
+
     let later = add(&mut editor, "Later");
     let separate = with_operation(editor.document(), peg, BodyOperation::NewBody);
+
     editor.apply(separate).unwrap();
 
     assert_eq!(
@@ -528,6 +587,7 @@ fn with_operation(document: &Document, id: FeatureId, operation: BodyOperation) 
     else {
         panic!("not an extrusion");
     };
+
     extrude.operation = operation;
     Transaction::single(
         "Change",
@@ -540,6 +600,7 @@ fn with_operation(document: &Document, id: FeatureId, operation: BodyOperation) 
 
 fn restored_reaches(from: &Document, target: &Document) -> bool {
     let mut restored = from.clone();
+
     restored
         .apply(from.transaction_to(target, "Restore"))
         .unwrap();
@@ -562,21 +623,30 @@ fn switching_to_a_row_without_a_live_value_records_it_and_undo_takes_it_back() {
         peg,
     } = pair();
     let mut editor = Editor::new(document);
+
     let first = add(&mut editor, "First");
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Colour(peg))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let joined = with_operation(editor.document(), peg, BodyOperation::Add(plate));
+
     editor.apply(joined).unwrap();
+
     let later = add(&mut editor, "Later");
     let separate = with_operation(editor.document(), peg, BodyOperation::NewBody);
+
     editor.apply(separate).unwrap();
+
     let before = editor.document().clone();
 
     switch(&mut editor, later);
+
     let switched = editor.document().clone();
+
     editor.undo().unwrap();
 
     assert_eq!(held_colour(&before, later, peg), None);
@@ -598,20 +668,28 @@ fn a_feature_starting_or_ending_a_body_writes_or_drops_its_colour_in_the_active_
         peg,
     } = pair();
     let mut editor = Editor::new(document);
+
     let first = add(&mut editor, "First");
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Colour(peg))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let with_body = editor.document().clone();
 
     let joined = with_operation(editor.document(), peg, BodyOperation::Add(plate));
+
     editor.apply(joined).unwrap();
+
     let without_body = editor.document().clone();
     let separate = with_operation(editor.document(), peg, BodyOperation::NewBody);
+
     editor.apply(separate).unwrap();
+
     let separated = editor.document().clone();
+
     editor.undo().unwrap();
 
     assert!(held_colour(&with_body, first, peg).is_some());
@@ -628,16 +706,21 @@ fn a_feature_starting_or_ending_a_body_writes_or_drops_its_colour_in_the_active_
 #[test]
 fn deleting_the_active_configuration_switches_to_the_next() {
     let mut document = Document::default();
+
     let size = parameter(&mut document, "size", "4 mm");
     let mut editor = Editor::new(document);
+
     let first = add(&mut editor, "First");
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(size))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let second = add(&mut editor, "Second");
     let nine = expression(editor.document(), "9 mm");
+
     set(
         &mut editor,
         second,
@@ -646,6 +729,7 @@ fn deleting_the_active_configuration_switches_to_the_next() {
     );
 
     let deletion = editor.document().deleting_configuration(first).unwrap();
+
     editor.apply(deletion).unwrap();
 
     assert_eq!(editor.document().configurations().active, Some(second));
@@ -665,16 +749,20 @@ fn configurations_suppress_features_and_colour_bodies() {
         document, plate, ..
     } = pair();
     let mut editor = Editor::new(document);
+
     add(&mut editor, "Plain");
     for value in [
         ConfiguredValue::Suppressed(plate),
         ConfiguredValue::Colour(plate),
     ] {
         let configure = editor.document().configuring(value).unwrap();
+
         editor.apply(configure).unwrap();
     }
+
     let red = Rgb::new(200, 30, 30);
     let other = add(&mut editor, "Without plate");
+
     set(
         &mut editor,
         other,
@@ -691,6 +779,7 @@ fn configurations_suppress_features_and_colour_bodies() {
     switch(&mut editor, other);
 
     let feature = editor.document().feature(plate).unwrap();
+
     assert!(feature.suppressed);
     assert_eq!(feature.appearance.colour, Some(red));
 }
@@ -698,6 +787,7 @@ fn configurations_suppress_features_and_colour_bodies() {
 #[test]
 fn names_are_unique_and_ids_never_reused() {
     let mut editor = Editor::new(Document::default());
+
     let first = add(&mut editor, "Small");
     let (taken, _) = editor.document().adding_configuration(Some(" small "));
 
@@ -707,7 +797,9 @@ fn names_are_unique_and_ids_never_reused() {
     );
 
     let deletion = editor.document().deleting_configuration(first).unwrap();
+
     editor.apply(deletion).unwrap();
+
     let second = add(&mut editor, "Small");
 
     assert_ne!(first, second);
@@ -717,16 +809,22 @@ fn names_are_unique_and_ids_never_reused() {
 #[test]
 fn restoring_another_document_brings_its_configurations() {
     let mut document = Document::default();
+
     let size = parameter(&mut document, "size", "4 mm");
     let mut editor = Editor::new(document.clone());
+
     add(&mut editor, "First");
+
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(size))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let second = add(&mut editor, "Second");
     let nine = expression(editor.document(), "9 mm");
+
     set(
         &mut editor,
         second,
@@ -734,15 +832,18 @@ fn restoring_another_document_brings_its_configurations() {
         Setting::Expression(nine),
     );
     switch(&mut editor, second);
+
     let configured = editor.document().clone();
 
     let back = configured.transaction_to(&document, "Restore");
     let mut restored = configured.clone();
+
     restored.apply(back).unwrap();
 
     assert!(restored.same_content(&document));
 
     let forward = restored.transaction_to(&configured, "Restore");
+
     restored.apply(forward).unwrap();
 
     assert!(restored.same_content(&configured));
@@ -750,17 +851,23 @@ fn restoring_another_document_brings_its_configurations() {
 
 fn sized_by_another_in_one_configuration() -> (Editor, ParameterId, ParameterId, ConfigurationId) {
     let mut document = Document::default();
+
     let unit = parameter(&mut document, "unit", "3 mm");
     let size = parameter(&mut document, "size", "4 mm");
     let mut editor = Editor::new(document);
+
     add(&mut editor, "Plain");
+
     let configure = editor
         .document()
         .configuring(ConfiguredValue::Parameter(size))
         .unwrap();
+
     editor.apply(configure).unwrap();
+
     let scaled = add(&mut editor, "Scaled");
     let twice = expression(editor.document(), "unit * 2");
+
     set(
         &mut editor,
         scaled,
@@ -777,9 +884,12 @@ fn reverting_a_change_outside_an_unchanged_configuration_table_naming_parameters
     let saved = editor.document().clone();
 
     let mut adding = editor.document().transaction("Add");
+
     let ten = adding.parse("10 mm").unwrap();
+
     adding.add_parameter("extra", ten);
     editor.apply(adding.finish()).unwrap();
+
     let changed = editor.document().clone();
 
     assert!(
@@ -789,6 +899,7 @@ fn reverting_a_change_outside_an_unchanged_configuration_table_naming_parameters
     );
 
     let revert = changed.transaction_to(&saved, "Revert to saved");
+
     editor.apply(revert).unwrap();
 
     assert!(editor.document().same_content(&saved));
@@ -807,6 +918,7 @@ fn reverting_a_change_outside_an_unchanged_configuration_table_naming_parameters
     assert!(editor.document().same_content(&changed));
 
     let restore = editor.document().transaction_to(&changed, "Restore");
+
     editor.apply(restore).unwrap();
 
     assert!(editor.document().same_content(&changed));
@@ -835,10 +947,12 @@ fn deleting_a_parameter_named_by_an_inactive_configuration_writes_its_value_into
     let (mut editor, unit, size, scaled) = sized_by_another_in_one_configuration();
 
     let deletion = editor.document().inline_parameter(unit).unwrap();
+
     editor.apply(deletion).unwrap();
     switch(&mut editor, scaled);
 
     let values = ParameterValues::evaluate(editor.document());
+
     assert!(editor.document().parameter(unit).is_none());
     assert_eq!(values.value(size).unwrap().value, 6.0);
 }
@@ -850,6 +964,7 @@ fn deleting_a_configured_parameter_drops_its_column_so_switching_still_works() {
     let used = editor.document().used_parameters();
 
     let deletion = editor.document().inline_parameter(size).unwrap();
+
     editor.apply(deletion).unwrap();
     switch(&mut editor, scaled);
     switch(&mut editor, plain);

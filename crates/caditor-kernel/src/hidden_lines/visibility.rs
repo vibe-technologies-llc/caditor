@@ -17,7 +17,7 @@ const FLAT_CURVATURE: f64 = 1e-9;
 const SINGULAR_METRIC: f64 = 1e-18;
 const EDGE_ALONG_VIEW: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Verdict {
     Visible,
     Hidden,
@@ -32,11 +32,15 @@ fn bend_along(surface: &Surface, sense: Sense, uv: Point2, direction: Vector3) -
         at.du.dot(at.dv),
         at.dv.length_squared(),
     );
+
     let metric = first * second - shared * shared;
+
     if metric <= SINGULAR_METRIC {
         return None;
     }
+
     let (over_u, over_v) = (direction.dot(at.du), direction.dot(at.dv));
+
     let a = (over_u * second - over_v * shared) / metric;
     let b = (over_v * first - over_u * shared) / metric;
     Some((at.duu * (a * a) + at.duv * (2.0 * a * b) + at.dvv * (b * b)).dot(normal))
@@ -60,6 +64,7 @@ fn side_of<'a>(
     let edge = solid.edge(data.edge())?;
     let face = solid.face(solid.coedge_face(coedge)?)?;
     let surface = face.surface();
+
     let uv = surface.project(point, Some(data.pcurve().uv_at(parameter)));
     let normal = surface.normal(uv.x, uv.y)? * face.sense().sign();
     let tangent = edge.curve().evaluate(parameter).first * data.sense().sign();
@@ -91,9 +96,11 @@ fn edge_hides_itself(
     let two = side_of(solid, *second, parameter, point)?;
     let tangent = data.curve().evaluate(parameter).first.try_normalize()?;
     let square = toward - tangent * toward.dot(tangent);
+
     if square.length() <= EDGE_ALONG_VIEW {
         return None;
     }
+
     let turned = |direction: Vector3| {
         (-direction
             .dot(one.normal)
@@ -102,6 +109,7 @@ fn edge_hides_itself(
     };
     let seen = turned(square);
     let material = turned(two.inward);
+
     if seen <= ALONG_FACE || TAU - seen <= ALONG_FACE {
         return Some(runs_into_material(&one, toward));
     }
@@ -121,6 +129,7 @@ fn contour_hides_itself(
     let definition = solid.face(face)?;
     let surface = definition.surface();
     let foot = surface.project(start, None);
+
     let uv = if sampled {
         on_contour(surface, foot, toward).unwrap_or(foot)
     } else {
@@ -142,6 +151,7 @@ pub(super) fn covered_along(
     let reaching = scene.tree.matching(|bounds| {
         line_window(origin, direction, bounds).is_some_and(|window| window.end() >= 0.0)
     });
+
     for index in reaching {
         let Some(view) = scene.views.get(index) else {
             continue;
@@ -168,10 +178,12 @@ pub(super) fn verdict(
 ) -> Result<Verdict, Interrupted> {
     interrupt::check()?;
     tally::add(1);
+
     let mut point = track.curve.point(parameter);
     let Some(own_solid) = scene.views.get(track.solid) else {
         return Ok(Verdict::Undecided);
     };
+
     let hidden_locally = match track.own {
         Own::Edge(edge) => {
             edge_hides_itself(own_solid.solid, edge, parameter, point, toward).unwrap_or(false)
@@ -186,10 +198,13 @@ pub(super) fn verdict(
             }
         }
     };
+
     if hidden_locally {
         return Ok(Verdict::Hidden);
     }
+
     let seen = covered_along(scene, point, toward, Some(track.solid), &track.faces);
+
     interrupt::check()?;
     Ok(match seen {
         RayView::Covered => Verdict::Hidden,

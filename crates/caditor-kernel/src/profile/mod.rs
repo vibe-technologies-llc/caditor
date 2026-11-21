@@ -52,7 +52,7 @@ const BOUND_CROSSING: u8 = 3;
 const SIDE_LEFT: u8 = 0;
 const SIDE_RIGHT: u8 = 1;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ProfileShape {
     Line {
         start: Point2,
@@ -87,7 +87,7 @@ pub enum ProfileShape {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProfileCurve {
     pub entity: u64,
     pub shape: ProfileShape,
@@ -181,7 +181,7 @@ impl ProfileCurve {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Side {
     Left,
     Right,
@@ -196,7 +196,7 @@ impl Side {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PieceBound {
     Start,
     End,
@@ -218,6 +218,7 @@ impl PieceBound {
                 occurrence,
             } => (BOUND_CROSSING, entities, occurrence),
         };
+
         digest.byte(tag);
         digest.count(entities.len());
         for entity in entities {
@@ -227,7 +228,7 @@ impl PieceBound {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PieceId {
     entity: u64,
     start: PieceBound,
@@ -259,12 +260,13 @@ impl PieceId {
 
     fn digest(&self) -> u128 {
         let mut digest = Digest::new(PIECE_ID);
+
         self.write(&mut digest);
         digest.finish()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RegionKey(u128);
 
 impl RegionKey {
@@ -282,6 +284,7 @@ impl RegionKey {
             .map(|piece| (piece.id.entity, piece.side()))
             .collect();
         let mut digest = Digest::new(REGION_KEY);
+
         digest.count(sides.len());
         for (entity, side) in sides {
             digest.u64(entity);
@@ -296,6 +299,7 @@ impl RegionKey {
             .map(|piece| (piece.id.digest(), piece.side()))
             .collect();
         let mut digest = Digest::new(REGION_TIEBREAK);
+
         digest.u128(self.0);
         digest.count(identities.len());
         for (identity, side) in identities {
@@ -306,7 +310,7 @@ impl RegionKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Piece {
     id: PieceId,
     curve: Curve2,
@@ -386,7 +390,7 @@ impl Piece {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProfileLoop {
     pieces: Vec<Piece>,
 }
@@ -401,7 +405,7 @@ impl ProfileLoop {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Region {
     key: RegionKey,
     depth: usize,
@@ -476,13 +480,13 @@ impl Region {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Selection {
     EvenDepth,
     Regions(Vec<RegionKey>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Profile {
     arrangement: Arrangement,
     regions: Vec<Region>,
@@ -500,12 +504,14 @@ impl Profile {
                         Err(ProfileError::Unresolved { .. })
                     )
                 });
+
                 interrupt::check()?;
                 return Err(ProfileError::Unresolved { entities });
             }
             built => built?,
         };
         let mut drafts = Vec::with_capacity(arrangement.face_count());
+
         for face in 0..arrangement.face_count() {
             interrupt::check()?;
             drafts.extend(
@@ -514,6 +520,7 @@ impl Profile {
                     .next(),
             );
         }
+
         let ambiguous = shared_keys(&base_keys(&drafts));
         let (regions, region_faces) = with_keys(drafts, &ambiguous).into_iter().unzip();
         Ok(Self {
@@ -550,14 +557,18 @@ impl Profile {
                 open_ends: self.arrangement.open_ends(),
             });
         }
+
         let keys = match selection {
             Selection::EvenDepth => self.even_depth(),
             Selection::Regions(keys) => keys.clone(),
         };
+
         if keys.is_empty() {
             return Err(ProfileError::EmptySelection);
         }
+
         let mut faces = BTreeSet::new();
+
         for key in keys {
             let region_faces = self
                 .regions
@@ -565,6 +576,7 @@ impl Profile {
                 .position(|region| region.key == key)
                 .and_then(|index| self.region_faces.get(index))
                 .ok_or(ProfileError::MissingRegion(key))?;
+
             faces.extend(region_faces.iter().copied());
         }
         Ok(with_keys(lumps(&self.arrangement, &faces), &self.ambiguous)

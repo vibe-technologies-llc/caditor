@@ -51,7 +51,7 @@ const GIMBAL_LOCK: f64 = 1e-9;
 
 type Stored = Option<Vec<(Arc<Solid>, StepText)>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ImportedBody {
     pub name: String,
     pub import: Import,
@@ -62,7 +62,7 @@ pub struct ImportedBody {
     pub faces: Vec<ImportedFace>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ImportedFace {
     pub face: u32,
     pub colour: Option<Rgb>,
@@ -70,7 +70,7 @@ pub struct ImportedFace {
     pub finish: Option<Finish>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModelImport {
     pub bodies: Vec<ImportedBody>,
     pub notes: Vec<String>,
@@ -84,7 +84,7 @@ pub struct ReadingProgress {
     total: AtomicUsize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReadingStage {
     Reading,
     Building { built: usize, solids: usize },
@@ -136,7 +136,9 @@ pub fn read_step_file_reporting(
     progress: &ReadingProgress,
 ) -> Result<ModelImport, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
+
     ensure_going(cancel)?;
+
     let bytes = if bytes.starts_with(&GZIP_MAGIC) {
         let limit = usize::try_from(MAX_FILE_SIZE).unwrap_or(usize::MAX);
         unpacked(&bytes, limit).map_err(|error| match error {
@@ -146,7 +148,9 @@ pub fn read_step_file_reporting(
     } else {
         bytes
     };
+
     ensure_going(cancel)?;
+
     let source = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
@@ -159,15 +163,17 @@ pub fn read_step_file_reporting(
                 .map(|byte| char::from(*byte))
                 .collect();
             let mut import = parse_step_reporting(&text, &source, progress)?;
+
             import.notes.push(LATIN_1_NOTE.to_owned());
             Ok(import)
         }
     });
+
     ensure_going(cancel)?;
     imported
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum UnpackError {
     Damaged,
     TooLarge,
@@ -178,11 +184,15 @@ pub(super) fn unpacked(bytes: &[u8], limit: usize) -> Result<Vec<u8>, UnpackErro
     let Some([_, _, method, flags, ..]) = bytes.get(..GZIP_FIXED_HEADER) else {
         return Err(damaged());
     };
+
     let (method, flags) = (*method, *flags);
+
     if method != GZIP_DEFLATE || flags & GZIP_RESERVED != 0 {
         return Err(damaged());
     }
+
     let mut at = GZIP_FIXED_HEADER;
+
     if flags & GZIP_EXTRA != 0 {
         let Some(&[low, high]) = bytes
             .get(at..at + 2)
@@ -190,11 +200,13 @@ pub(super) fn unpacked(bytes: &[u8], limit: usize) -> Result<Vec<u8>, UnpackErro
         else {
             return Err(damaged());
         };
+
         at += 2 + usize::from(u16::from_le_bytes([low, high]));
     }
     for text in [GZIP_NAME, GZIP_COMMENT] {
         if flags & text != 0 {
             let rest = bytes.get(at..).ok_or_else(damaged)?;
+
             at += rest
                 .iter()
                 .position(|byte| *byte == 0)
@@ -205,6 +217,7 @@ pub(super) fn unpacked(bytes: &[u8], limit: usize) -> Result<Vec<u8>, UnpackErro
     if flags & GZIP_HEADER_CRC != 0 {
         at += 2;
     }
+
     let end = bytes.len().checked_sub(GZIP_TRAILER).ok_or_else(damaged)?;
     let packed = bytes.get(at..end).ok_or_else(damaged)?;
     let unpacked =
@@ -220,9 +233,11 @@ pub(super) fn unpacked(bytes: &[u8], limit: usize) -> Result<Vec<u8>, UnpackErro
     else {
         return Err(damaged());
     };
+
     let checksum = u32::from_le_bytes([c0, c1, c2, c3]);
     let size = u32::from_le_bytes([s0, s1, s2, s3]);
     let matches_size = unpacked.len() as u64 & 0xffff_ffff == u64::from(size);
+
     if crc32fast::hash(&unpacked) != checksum || !matches_size {
         return Err(damaged());
     }
@@ -253,11 +268,13 @@ fn parse_step_reporting(
     };
     let mut parts: Vec<&StepCopy> = Vec::new();
     let mut seen: BTreeSet<usize> = BTreeSet::new();
+
     for copy in &model.copies {
         if seen.insert(Arc::as_ptr(&copy.solid).addr()) {
             parts.push(copy);
         }
     }
+
     let stored: BTreeMap<usize, Stored> = parts
         .iter()
         .map(|copy| Arc::as_ptr(&copy.solid).addr())
@@ -265,12 +282,15 @@ fn parse_step_reporting(
             progress.storing(parts.len());
             in_parallel(&parts, |copy| {
                 let stored = shared(canonical(&copy.name, &copy.solid));
+
                 progress.stored();
                 stored
             })
         })
         .collect();
+
     check_interrupt().map_err(|_| ImportError::Cancelled)?;
+
     let stored_of = |copy: &StepCopy| {
         stored
             .get(&Arc::as_ptr(&copy.solid).addr())
@@ -306,15 +326,19 @@ fn parse_step_reporting(
             },
         })
     });
+
     check_interrupt().map_err(|_| ImportError::Cancelled)?;
     persist_checked();
+
     let mut lost = Vec::new();
     let mut unplaceable: Vec<String> = Vec::new();
     let mut dropped_looks: Vec<(String, usize)> = Vec::new();
+
     for (copy, placed) in model.copies.into_iter().zip(placed) {
         match placed {
             Some(Placed::Rigidly(placed) | Placed::Mapped(Some(placed))) => {
                 let known = dropped_looks.iter().any(|(name, _)| *name == copy.name);
+
                 if placed.dropped_looks > 0 && !known {
                     dropped_looks.push((copy.name, placed.dropped_looks));
                 }
@@ -444,14 +468,17 @@ pub(super) fn face_looks<S: std::borrow::Borrow<Solid>>(
     let mut per_lump = vec![Vec::new(); lumps.len()];
     let stored_at = stored_face_positions(read, lumps);
     let mut carried = 0;
+
     for (face, look) in distinct.iter().copied() {
         let Some((lump, position)) = stored_at.get(&face) else {
             continue;
         };
+
         let (Some(faces), Ok(position)) = (per_lump.get_mut(*lump), u32::try_from(*position))
         else {
             continue;
         };
+
         faces.push(ImportedFace {
             face: position,
             ..look
@@ -472,6 +499,7 @@ fn stored_face_positions<S: std::borrow::Borrow<Solid>>(
     let Some(written) = lump_faces(read).filter(|written| written.len() == lumps.len()) else {
         return stored_at;
     };
+
     for (lump, (faces, (stored, _))) in written.iter().zip(lumps).enumerate() {
         if faces.len() != stored.borrow().faces().count() {
             continue;
@@ -504,8 +532,10 @@ fn body_placement(similarity: &Similarity, solid: &Solid) -> Option<BodyPlacemen
     if !similarity.is_rigid() {
         return None;
     }
+
     let [x, y, z] = [Vector3::X, Vector3::Y, Vector3::Z].map(|axis| similarity.apply_vector(axis));
     let tilt = (-x.z).clamp(-1.0, 1.0).asin();
+
     let (about_x, about_z) = if tilt.cos() > GIMBAL_LOCK {
         (y.z.atan2(z.z), x.y.atan2(x.x))
     } else {
@@ -514,6 +544,7 @@ fn body_placement(similarity: &Similarity, solid: &Solid) -> Option<BodyPlacemen
     let shift = similarity.apply_point(Point3::ZERO);
     let degrees = |radians: f64| Expression::measure(rounded(radians.to_degrees()), Unit::Degree);
     let millimetres = |length: f64| Expression::measure(rounded(length), Unit::Millimetre);
+
     let placement = BodyPlacement {
         offset: [shift.x, shift.y, shift.z].map(millimetres),
         turn: [about_x, tilt, about_z].map(degrees),
@@ -521,6 +552,7 @@ fn body_placement(similarity: &Similarity, solid: &Solid) -> Option<BodyPlacemen
     };
     let transform = placement.transform(&ParameterValues::default())?;
     let bounds = solid.bounding_box()?;
+
     let matches = bounds.corners().iter().all(|corner| {
         (transform.apply_point(*corner) - similarity.apply_point(*corner)).length()
             <= PLACEMENT_SLACK
@@ -534,6 +566,7 @@ fn rounded(value: f64) -> f64 {
 
 pub(crate) fn canonical(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)>> {
     let lumps = canonical_lumps(name, solid)?;
+
     for (_, step) in &lumps {
         mark_checked(blake3::hash(step.as_bytes()));
     }
@@ -542,6 +575,7 @@ pub(crate) fn canonical(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)
 
 fn canonical_lumps(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)>> {
     let (step, mut again) = written_and_read(name, solid)?;
+
     match again.len() {
         0 => return None,
         1 => return Some(vec![(again.swap_remove(0), step)]),
@@ -588,11 +622,15 @@ pub fn bodies_transaction(
         .features()
         .map(|feature| feature.name.clone())
         .collect();
+
     for body in by_layer(bodies) {
         let name = unique_name(&body.name, &taken);
+
         taken.push(name.clone());
+
         let id = builder.add_feature(name, FeatureKind::Import(body.import.clone()));
         let faces = coloured_faces(id.raw(), body);
+
         if body.colour.is_some()
             || body.opacity.is_some()
             || body.finish.is_some()
@@ -640,6 +678,7 @@ fn coloured_faces(feature: u64, body: &ImportedBody) -> Vec<FaceColour> {
 
 fn by_layer(bodies: &[ImportedBody]) -> Vec<&ImportedBody> {
     let mut first_of_layer: BTreeMap<&str, usize> = BTreeMap::new();
+
     let mut ordered: Vec<(usize, &ImportedBody)> = bodies
         .iter()
         .enumerate()
@@ -651,6 +690,7 @@ fn by_layer(bodies: &[ImportedBody]) -> Vec<&ImportedBody> {
             (place, body)
         })
         .collect();
+
     ordered.sort_by_key(|(place, _)| *place);
     ordered.into_iter().map(|(_, body)| body).collect()
 }
@@ -663,6 +703,7 @@ fn imported_group(layer: &str) -> Option<String> {
 fn unique_name(wanted: &str, taken: &[String]) -> String {
     let wanted = wanted.trim();
     let base = if wanted.is_empty() { "Import" } else { wanted };
+
     if !taken.iter().any(|name| name == base) {
         return base.to_owned();
     }

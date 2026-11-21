@@ -31,7 +31,7 @@ pub const NAME_CANCEL: &str = "Cancel";
 const NAME_DIALOG_ID: &str = "cloud-send-name";
 const UNSAFE_NAME_CHARACTERS: [char; 9] = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CloudSendRefusal {
     #[error("There are no bodies to send yet. Extrude or revolve a sketch to make one")]
     NoBodies,
@@ -53,7 +53,7 @@ impl Reason for CloudSendRefusal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum NameRefusal {
     #[error("Type a name for the file.")]
     Empty,
@@ -61,14 +61,14 @@ pub enum NameRefusal {
     UnsafeCharacter(char),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CloudNameCommand {
     Edit(String),
     Send,
     Cancel,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CloudNaming {
     destination: Destination,
     session: u64,
@@ -109,6 +109,7 @@ impl CloudNaming {
             })
             .map_or(typed, |(stem, _)| stem)
             .trim();
+
         if stem.is_empty() {
             return Err(NameRefusal::Empty);
         }
@@ -137,10 +138,13 @@ pub fn name_dialog(ctx: &egui::Context, naming: &CloudNaming) -> Option<CloudNam
              the file.",
             naming.destination.folder_name
         );
+
         ui.label(widgets::muted(&explanation, ui));
         ui.add_space(SPACE_S);
+
         let mut text = naming.text.clone();
         let mut command = None;
+
         widgets::dialog_body(ui, |ui| {
             widgets::properties(ui, NAME_DIALOG_ID, |ui| {
                 widgets::property(ui, NAME_LABEL, |ui| {
@@ -151,6 +155,7 @@ pub fn name_dialog(ctx: &egui::Context, naming: &CloudNaming) -> Option<CloudNam
                                 .desired_width(f32::INFINITY),
                         )
                     });
+
                     widgets::tie_to_caption(ui, &field);
                     if field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter)) {
                         command = Some(CloudNameCommand::Send);
@@ -171,6 +176,7 @@ pub fn name_dialog(ctx: &egui::Context, naming: &CloudNaming) -> Option<CloudNam
                 refusal.is_none(),
                 widgets::primary_button(ui, naming.send_label()),
             );
+
             if send.clicked() {
                 command = Some(CloudNameCommand::Send);
             }
@@ -308,6 +314,7 @@ impl Files {
                     return;
                 };
                 let service = naming.destination.service;
+
                 if naming.session != model.session() {
                     model.set_notice(Notice::info(format!(
                         "Nothing was sent to {service}, since another model is open now."
@@ -330,16 +337,20 @@ impl Files {
             model.set_notice(Notice::warning(format!("{refusal}.")));
             return;
         }
+
         let Some(dir) = self.config.state_dir.as_deref().map(cloud::outgoing_dir) else {
             return;
         };
         let session = model.session();
+
         self.cloud_sending.stage = Some(Stage::Preparing {
             destination: destination.clone(),
             name: name.clone(),
         });
+
         let failed = destination.clone();
         let failed_name = name.clone();
+
         self.spawn(
             move || Event::CloudSendPrepared {
                 session,
@@ -365,6 +376,7 @@ impl Files {
         model: &mut Model,
     ) {
         self.cloud_sending.stage = None;
+
         let service = destination.service;
         let folder = match folder {
             Ok(folder) => folder,
@@ -376,6 +388,7 @@ impl Files {
                 return;
             }
         };
+
         if session != model.session() {
             model.set_notice(Notice::info(format!(
                 "Nothing was sent to {service}, since another model is open now."
@@ -386,13 +399,17 @@ impl Files {
             model.set_notice(Notice::warning(format!("{refusal}.")));
             return;
         }
+
         let file_name = name.unwrap_or_else(|| export::named_for(model, ExportFormat::Step));
         let path = folder.join(file_name);
+
         self.cloud_sending.stage = Some(Stage::Exporting {
             path: path.clone(),
             destination,
         });
+
         let finished = self.export_finished();
+
         self.exporter
             .start(path, ExportFormat::Step, Vec::new(), model, finished);
         self.exporter.perform(ExportCommand::Hide, model);
@@ -419,13 +436,16 @@ impl Files {
         exported: Notice,
     ) -> Notice {
         let service = destination.service;
+
         if !wrote {
             return exported;
         }
         if exported.kind != NoticeKind::Success {
             return Notice::failure(format!("{} Nothing was sent to {service}.", exported.text));
         }
+
         let name = display_name(Some(path));
+
         self.cloud_sending.ready = Some(Shipment {
             destination,
             name: name.clone(),

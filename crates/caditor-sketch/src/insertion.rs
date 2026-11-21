@@ -14,7 +14,7 @@ const SPAN_SAMPLES: usize = 8;
 const ELEVATION_SHARE: f64 = 1.0 / 3.0;
 const HALFWAY: f64 = 0.5;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum InsertError {
     #[error("{label} is not a spline")]
     NotASpline { entity: EntityId, label: String },
@@ -41,7 +41,7 @@ pub enum InsertError {
     Edit(SketchError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct KnotSpan {
     low: f64,
     high: f64,
@@ -62,7 +62,7 @@ struct Source {
     shape: BSpline,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Slot {
     Kept(EntityId),
     Moved(EntityId, Point2),
@@ -89,6 +89,7 @@ impl Plan {
             first,
             span,
         } = inserted;
+
         let slots = positions
             .iter()
             .enumerate()
@@ -125,8 +126,10 @@ impl Plan {
         let (&[start, middle, end], &[from, apex, to]) = (points, positions) else {
             return None;
         };
+
         let leading = from.lerp(apex, 1.0 - ELEVATION_SHARE);
         let trailing = apex.lerp(to, ELEVATION_SHARE);
+
         let (inner, outer) = if parameter < HALFWAY {
             (Slot::Added(leading), Slot::Moved(middle, trailing))
         } else {
@@ -149,6 +152,7 @@ impl Plan {
         let knots = looped_knots(degree, spans)?;
         let knot = |index: usize| knots.get(index).copied();
         let start = span + degree;
+
         let blended = |index: usize| {
             let low = knot(index)?;
             let share = (parameter - low) / (knot(index + degree)? - low);
@@ -158,6 +162,7 @@ impl Plan {
         };
         let point = |index: usize| points.get(index % count).copied();
         let mut slots = vec![Slot::Kept(point(span)?)];
+
         for offset in 1..degree {
             slots.push(Slot::Moved(
                 point(span + offset)?,
@@ -168,14 +173,19 @@ impl Plan {
         for index in span + degree..span + count {
             slots.push(Slot::Kept(point(index)?));
         }
+
         let width = |index: usize| Some(knot(index + 1)? - knot(index)?);
         let mut widths = vec![parameter - knot(start)?, knot(start + 1)? - parameter];
+
         for index in span + 1..span + count {
             widths.push(width(index % count + degree)?);
         }
+
         let turn = (count + 1 - span) % (count + 1);
+
         slots.rotate_left(turn);
         widths.rotate_left(turn);
+
         let total: f64 = widths.iter().sum();
         let spans: Vec<f64> = widths.iter().map(|width| width / total).collect();
         Some(Self {
@@ -198,7 +208,9 @@ impl Sketch {
         let source = self.insertion_source(curve)?;
         let plan = self.plan_near(curve, &source, near)?;
         let mut working = self.clone();
+
         let point = working.place_plan(curve, plan).map_err(InsertError::Edit)?;
+
         *self = working;
         Ok(point)
     }
@@ -211,17 +223,20 @@ impl Sketch {
                 label: label(),
             });
         };
+
         if self.is_projected(curve) {
             return Err(InsertError::Projected {
                 entity: curve,
                 label: label(),
             });
         }
+
         let no_length = || InsertError::NoLength {
             entity: curve,
             label: label(),
         };
         let count = points.len();
+
         let form = match kind {
             SplineKind::Fit { .. } => {
                 return Err(InsertError::FitSpline {
@@ -270,6 +285,7 @@ impl Sketch {
             .ok_or_else(no_length)?;
         let shape = self.spline(curve).ok_or_else(no_length)?;
         let spans = knot_spans(&shape);
+
         if spans.is_empty() || shape.length() <= 0.0 {
             return Err(no_length());
         }
@@ -308,6 +324,7 @@ impl Sketch {
             None => spans_longest_first(source),
         };
         let mut blocked = None;
+
         for (index, span, parameter) in candidates {
             let margin = SPAN_MARGIN * (span.high - span.low);
             let parameter = parameter.clamp(span.low + margin, span.high - margin);
@@ -339,6 +356,7 @@ impl Sketch {
     fn place_plan(&mut self, curve: EntityId, plan: Plan) -> Result<EntityId, SketchError> {
         let mut added = None;
         let mut placed = Vec::with_capacity(plan.slots.len());
+
         for slot in plan.slots {
             let point = match slot {
                 Slot::Kept(point) => point,
@@ -348,13 +366,17 @@ impl Sketch {
                 }
                 Slot::Added(position) => {
                     let point = self.add_point(position);
+
                     added = Some(point);
                     point
                 }
             };
+
             placed.push(point);
         }
+
         let added = added.ok_or(SketchError::NoSuchEntity(curve))?;
+
         self.restructure(
             curve,
             Entity::Spline {
@@ -407,12 +429,14 @@ fn spans_longest_first(source: &Source) -> Vec<(usize, KnotSpan, f64)> {
                     .point_at(span.low + (span.high - span.low) * share)
             };
             let share = |step: usize| step as f64 / SPAN_SAMPLES as f64;
+
             let length: f64 = (0..SPAN_SAMPLES)
                 .map(|step| at(share(step)).distance(at(share(step + 1))))
                 .sum();
             (index, *span, middle, length)
         })
         .collect();
+
     spans.sort_by(|a, b| b.3.total_cmp(&a.3));
     spans
         .into_iter()

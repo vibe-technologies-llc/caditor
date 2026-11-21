@@ -20,6 +20,7 @@ fn sketch_on(client: &mut Client, plane: Value, items: Value) -> (Value, Value) 
         "add_sketch_geometry",
         json!({ "sketch": sketch, "items": items }),
     );
+
     assert_eq!(drawn["failing"], json!([]), "{drawn}");
     (sketch, drawn["drawn"].clone())
 }
@@ -35,6 +36,7 @@ fn faces_of(client: &mut Client, body: &Value) -> Vec<Value> {
 fn pipes_sweeps_and_lofts_follow_paths_and_profiles() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let (path, drawn) = sketch_on(
         &mut client,
         json!({ "plane": "XY" }),
@@ -48,13 +50,17 @@ fn pipes_sweeps_and_lofts_follow_paths_and_profiles() {
         json!({ "path": { "sketch": path, "curves": [line] }, "size": 10 }),
     );
     let rod = PI * 25.0 * 50.0;
+
     assert!(near(total_volume(&mut client), rod));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": pipe, "size": 20, "wall": 2 }),
     );
+
     let tube = PI * (100.0 - 64.0) * 50.0;
+
     assert!(near(total_volume(&mut client), tube));
 
     let (profile, _) = sketch_on(
@@ -67,6 +73,7 @@ fn pipes_sweeps_and_lofts_follow_paths_and_profiles() {
         json!({ "plane": "XZ" }),
         json!([{ "kind": "line", "from": [0, 40], "to": [50, 40] }]),
     );
+
     let sweep = client.tool(
         "add_sweep",
         json!({
@@ -75,14 +82,18 @@ fn pipes_sweeps_and_lofts_follow_paths_and_profiles() {
             "operation": "new_body"
         }),
     );
+
     assert_eq!(sweep["failing"], json!([]), "{sweep}");
     assert!(near(total_volume(&mut client), tube + rod));
+
     let shaped = client.tool(
         "edit_feature",
         json!({ "feature": sweep["feature"]["id"], "twist": "90 deg", "scale": 0.5 }),
     );
+
     assert_eq!(shaped["failing"], json!([]), "{shaped}");
     assert!(near(total_volume(&mut client), tube + rod * 7.0 / 12.0));
+
     added(
         &mut client,
         "edit_feature",
@@ -104,20 +115,27 @@ fn pipes_sweeps_and_lofts_follow_paths_and_profiles() {
         json!({ "datum": datum }),
         json!([{ "kind": "rectangle", "corner": [100, 0], "opposite": [110, 10] }]),
     );
+
     let loft = added(
         &mut client,
         "add_loft",
         json!({ "profiles": [bottom, top], "skin": "ruled" }),
     );
+
     assert!(near(total_volume(&mut client), tube + rod + 2000.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": loft, "skin": "smooth", "start_weight": 1, "end_weight": 2 }),
     );
+
     assert!(near(total_volume(&mut client), tube + rod + 2000.0));
+
     let ruled_square = client.tool("edit_feature", json!({ "feature": loft, "skin": "ruled" }));
+
     assert_ne!(ruled_square["failing"], json!([]), "{ruled_square}");
+
     added(
         &mut client,
         "edit_feature",
@@ -128,15 +146,19 @@ fn pipes_sweeps_and_lofts_follow_paths_and_profiles() {
         "add_pipe",
         json!({ "path": { "sketch": path, "curves": ["origin"] } }),
     );
+
     assert!(
         not_a_curve.contains("is not a line, arc or curve"),
         "{not_a_curve}"
     );
+
     let one_profile = client.tool_error("add_loft", json!({ "profiles": [bottom] }));
+
     assert!(
         one_profile.contains("at least two sketches"),
         "{one_profile}"
     );
+
     client.finish();
 }
 
@@ -144,25 +166,33 @@ fn pipes_sweeps_and_lofts_follow_paths_and_profiles() {
 fn coils_threads_and_scales_are_sized_and_edited() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let coil = added(
         &mut client,
         "add_coil",
         json!({ "diameter": 20, "section": 2, "turns": 3, "pitch": 5 }),
     );
     let three_turns = total_volume(&mut client);
+
     assert!(three_turns > 0.0);
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": coil, "turns": 6 }),
     );
+
     let ratio = total_volume(&mut client) / three_turns;
+
     assert!((1.9..2.1).contains(&ratio), "{ratio}");
+
     let three = client.tool_error(
         "edit_feature",
         json!({ "feature": coil, "turns": 2, "pitch": 3, "height": 9 }),
     );
+
     assert!(three.contains("not all three"), "{three}");
+
     client.tool("undo", json!({}));
     client.tool("undo", json!({}));
 
@@ -175,20 +205,24 @@ fn coils_threads_and_scales_are_sized_and_edited() {
         .into_iter()
         .find(|face| face["surface"] == "cylinder")
         .unwrap();
+
     let thread = client.tool(
         "add_thread",
         json!({ "body": shaft, "face": round["face"], "form": "cosmetic" }),
     );
+
     assert_eq!(thread["failing"], json!([]), "{thread}");
     assert!(
         thread["thread"].as_str().unwrap().contains("M8"),
         "{thread}"
     );
     assert!(close(total_volume(&mut client), PI * 16.0 * 20.0));
+
     let unknown = client.tool_error(
         "edit_feature",
         json!({ "feature": thread["feature"]["id"], "size": "M9" }),
     );
+
     assert!(unknown.contains("has no size"), "{unknown}");
 
     let cube = box_of(&mut client, [10.0, 10.0, 10.0], [200.0, 0.0], "Cube");
@@ -198,13 +232,17 @@ fn coils_threads_and_scales_are_sized_and_edited() {
         "add_scale",
         json!({ "body": cube, "factor": 2, "center": [200, 0, 0] }),
     );
+
     assert!(close(total_volume(&mut client) - before, 7000.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": scale, "factor": 3 }),
     );
+
     assert!(close(total_volume(&mut client) - before, 26_000.0));
+
     client.finish();
 }
 
@@ -212,13 +250,16 @@ fn coils_threads_and_scales_are_sized_and_edited() {
 fn bodies_and_faces_are_split_and_faces_deleted() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [10.0, 10.0, 10.0], [-5.0, 0.0], "Block");
     let bodies = body_count(&mut client);
+
     added(
         &mut client,
         "add_split",
         json!({ "body": block, "along": "YZ" }),
     );
+
     assert_eq!(body_count(&mut client), bodies + 1);
     assert!(close(total_volume(&mut client), 1000.0));
 
@@ -227,11 +268,13 @@ fn bodies_and_faces_are_split_and_faces_deleted() {
         .into_iter()
         .find(|face| face["normal"] == json!([0.0, 0.0, 1.0]))
         .unwrap();
+
     added(
         &mut client,
         "add_split_face",
         json!({ "body": slab, "faces": [top["face"]], "along": "YZ" }),
     );
+
     assert_eq!(faces_of(&mut client, &slab).len(), 7);
 
     let rounded = box_of(&mut client, [10.0, 10.0, 10.0], [100.0, 0.0], "Rounded");
@@ -242,24 +285,30 @@ fn bodies_and_faces_are_split_and_faces_deleted() {
         .find(|edge| edge["kind"] == "line" && number(&edge["start"][2]) != number(&edge["end"][2]))
         .unwrap()["edge"]
         .clone();
+
     added(
         &mut client,
         "add_fillet",
         json!({ "body": rounded, "edges": [edge], "radius": 2 }),
     );
+
     let filleted = faces_of(&mut client, &rounded)
         .into_iter()
         .find(|face| face["surface"] == "cylinder")
         .unwrap();
+
     added(
         &mut client,
         "add_delete_face",
         json!({ "body": rounded, "faces": [filleted["face"]] }),
     );
+
     assert!(close(total_volume(&mut client), 3000.0));
 
     let refused = client.tool_error("add_delete_face", json!({ "body": rounded, "faces": [] }));
+
     assert!(refused.contains("faces to delete"), "{refused}");
+
     client.finish();
 }
 
@@ -267,6 +316,7 @@ fn bodies_and_faces_are_split_and_faces_deleted() {
 fn faces_are_moved_along_their_normal_or_an_axis() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [10.0, 10.0, 10.0], [-5.0, 0.0], "Block");
     let top = faces_of(&mut client, &block)
         .into_iter()
@@ -278,6 +328,7 @@ fn faces_are_moved_along_their_normal_or_an_axis() {
         "add_move_face",
         json!({ "body": block, "faces": [top["face"]], "distance": 2 }),
     );
+
     assert!(close(total_volume(&mut client), 1200.0));
 
     added(
@@ -285,10 +336,13 @@ fn faces_are_moved_along_their_normal_or_an_axis() {
         "edit_feature",
         json!({ "feature": moved, "distance": -3, "direction": "Z" }),
     );
+
     assert!(close(total_volume(&mut client), 700.0));
 
     let refused = client.tool_error("add_move_face", json!({ "body": block, "faces": [] }));
+
     assert!(refused.contains("faces to move"), "{refused}");
+
     client.finish();
 }
 
@@ -296,6 +350,7 @@ fn faces_are_moved_along_their_normal_or_an_axis() {
 fn outlines_are_embossed_onto_a_face_and_changed_into_a_recess() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [10.0, 10.0, 10.0], [-5.0, 0.0], "Block");
     let top = faces_of(&mut client, &block)
         .into_iter()
@@ -312,6 +367,7 @@ fn outlines_are_embossed_onto_a_face_and_changed_into_a_recess() {
         "add_emboss",
         json!({ "body": block, "faces": [top["face"]], "sketch": label, "depth": 1 }),
     );
+
     assert!(close(total_volume(&mut client), 1036.0));
 
     added(
@@ -319,6 +375,7 @@ fn outlines_are_embossed_onto_a_face_and_changed_into_a_recess() {
         "edit_feature",
         json!({ "feature": emboss, "form": "recess", "depth": 2 }),
     );
+
     assert!(close(total_volume(&mut client), 928.0));
 
     added(
@@ -326,15 +383,19 @@ fn outlines_are_embossed_onto_a_face_and_changed_into_a_recess() {
         "edit_feature",
         json!({ "feature": emboss, "draft": "10 deg" }),
     );
+
     let lean = 10.0_f64.to_radians().tan();
     let drafted_cut = 72.0 - 48.0 * lean + 32.0 / 3.0 * lean * lean;
+
     assert!(close(total_volume(&mut client), 1000.0 - drafted_cut));
 
     let refused = client.tool_error(
         "add_emboss",
         json!({ "body": block, "faces": [], "sketch": label, "depth": 1 }),
     );
+
     assert!(refused.contains("faces to emboss"), "{refused}");
+
     client.finish();
 }
 
@@ -342,6 +403,7 @@ fn outlines_are_embossed_onto_a_face_and_changed_into_a_recess() {
 fn only_the_regions_chosen_by_a_point_are_embossed_and_an_edit_keeps_them() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [10.0, 10.0, 10.0], [-5.0, 0.0], "Block");
     let top = faces_of(&mut client, &block)
         .into_iter()
@@ -367,6 +429,7 @@ fn only_the_regions_chosen_by_a_point_are_embossed_and_an_edit_keeps_them() {
             "regions": [[2.5, 7]]
         }),
     );
+
     assert!(close(total_volume(&mut client), 1000.0 + 12.0));
 
     added(
@@ -374,6 +437,7 @@ fn only_the_regions_chosen_by_a_point_are_embossed_and_an_edit_keeps_them() {
         "edit_feature",
         json!({ "feature": emboss, "depth": 2 }),
     );
+
     assert!(close(total_volume(&mut client), 1000.0 + 24.0));
 
     added(
@@ -381,6 +445,7 @@ fn only_the_regions_chosen_by_a_point_are_embossed_and_an_edit_keeps_them() {
         "edit_feature",
         json!({ "feature": emboss, "regions": "all" }),
     );
+
     assert!(close(
         total_volume(&mut client),
         1000.0 + 2.0 * (9.0 + 12.0)
@@ -390,12 +455,15 @@ fn only_the_regions_chosen_by_a_point_are_embossed_and_an_edit_keeps_them() {
         "edit_feature",
         json!({ "feature": emboss, "regions": [[-20, -20]] }),
     );
+
     assert!(refused.contains("region"), "{refused}");
+
     client.finish();
 }
 
 fn drafted_block(sides: [f64; 4]) -> f64 {
     let [east, west, north, south] = sides.map(|degrees: f64| degrees.to_radians().tan());
+
     let area = |z: f64| (10.0 - (east + west) * z) * (10.0 - (north + south) * z);
     10.0 / 6.0 * (area(0.0) + 4.0 * area(5.0) + area(10.0))
 }
@@ -404,6 +472,7 @@ fn drafted_block(sides: [f64; 4]) -> f64 {
 fn walls_are_drafted_from_their_floor_and_one_takes_an_angle_of_its_own() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [10.0, 10.0, 10.0], [-5.0, 0.0], "Block");
     let faces = faces_of(&mut client, &block);
     let wall = |normal: [f64; 3]| {
@@ -425,6 +494,7 @@ fn walls_are_drafted_from_their_floor_and_one_takes_an_angle_of_its_own() {
         "add_draft",
         json!({ "body": block, "faces": [east, others[0], others[1], others[2]], "angle": 5 }),
     );
+
     assert!(close(total_volume(&mut client), drafted_block([5.0; 4])));
 
     added(
@@ -436,13 +506,16 @@ fn walls_are_drafted_from_their_floor_and_one_takes_an_angle_of_its_own() {
             "own_angles": [{ "face": east, "angle": "10 deg" }]
         }),
     );
+
     assert!(close(
         total_volume(&mut client),
         drafted_block([10.0, 5.0, 5.0, 5.0])
     ));
 
     let refused = client.tool_error("add_draft", json!({ "body": block, "faces": [] }));
+
     assert!(refused.contains("faces to draft"), "{refused}");
+
     client.finish();
 }
 
@@ -450,6 +523,7 @@ fn walls_are_drafted_from_their_floor_and_one_takes_an_angle_of_its_own() {
 fn a_top_is_replaced_by_the_plane_of_another_body_s_top() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [10.0, 10.0, 10.0], [0.0, 0.0], "Block");
     let tower = box_of(&mut client, [2.0, 2.0, 14.0], [20.0, 0.0], "Tower");
     let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
@@ -464,6 +538,7 @@ fn a_top_is_replaced_by_the_plane_of_another_body_s_top() {
             "target": { "body": tower, "face": tower_top }
         }),
     );
+
     assert!(close(
         total_volume(&mut client),
         10.0 * 10.0 * 14.0 + 2.0 * 2.0 * 14.0
@@ -474,6 +549,7 @@ fn a_top_is_replaced_by_the_plane_of_another_body_s_top() {
         "add_datum_plane",
         json!({ "base": "XY", "offset": "6 mm", "name": "Shelf" }),
     );
+
     client.tool(
         "move_feature",
         json!({ "feature": shelf, "before": replaced }),
@@ -483,6 +559,7 @@ fn a_top_is_replaced_by_the_plane_of_another_body_s_top() {
         "edit_feature",
         json!({ "feature": replaced, "target": { "datum": shelf } }),
     );
+
     assert!(close(
         total_volume(&mut client),
         10.0 * 10.0 * 6.0 + 2.0 * 2.0 * 14.0
@@ -492,7 +569,9 @@ fn a_top_is_replaced_by_the_plane_of_another_body_s_top() {
         "add_replace_face",
         json!({ "body": block, "faces": [], "target": "XY" }),
     );
+
     assert!(refused.contains("faces to replace"), "{refused}");
+
     client.finish();
 }
 
@@ -500,7 +579,9 @@ fn a_top_is_replaced_by_the_plane_of_another_body_s_top() {
 fn a_step_is_levelled_by_replacing_or_deleting_and_a_wall_takes_a_coaxial_radius() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let step = box_of(&mut client, [20.0, 10.0, 5.0], [0.0, 0.0], "Step");
+
     added(
         &mut client,
         "add_primitive",
@@ -509,11 +590,14 @@ fn a_step_is_levelled_by_replacing_or_deleting_and_a_wall_takes_a_coaxial_radius
             "at": [0, 0], "anchor": "corner", "operation": "add", "body": step
         }),
     );
+
     let tops: Vec<Value> = faces_of(&mut client, &step)
         .into_iter()
         .filter(|face| face["normal"] == json!([0.0, 0.0, 1.0]))
         .collect();
+
     assert_eq!(tops.len(), 2);
+
     let (small, large) = if number(&tops[0]["area"]) < number(&tops[1]["area"]) {
         (&tops[0], &tops[1])
     } else {
@@ -523,6 +607,7 @@ fn a_step_is_levelled_by_replacing_or_deleting_and_a_wall_takes_a_coaxial_radius
         .into_iter()
         .find(|face| face["normal"] == json!([1.0, 0.0, 0.0]) && close(number(&face["area"]), 40.0))
         .unwrap();
+
     let replaced = added(
         &mut client,
         "add_replace_face",
@@ -532,8 +617,10 @@ fn a_step_is_levelled_by_replacing_or_deleting_and_a_wall_takes_a_coaxial_radius
             "target": { "body": step, "face": large["face"] }
         }),
     );
+
     assert_eq!(faces_of(&mut client, &step).len(), 6);
     assert!(close(total_volume(&mut client), 20.0 * 10.0 * 5.0));
+
     client.tool("delete_features", json!({ "features": [replaced] }));
 
     added(
@@ -541,6 +628,7 @@ fn a_step_is_levelled_by_replacing_or_deleting_and_a_wall_takes_a_coaxial_radius
         "add_delete_face",
         json!({ "body": step, "faces": [riser["face"]] }),
     );
+
     assert_eq!(faces_of(&mut client, &step).len(), 6);
     assert!(close(total_volume(&mut client), 20.0 * 10.0 * 5.0));
 
@@ -563,8 +651,10 @@ fn a_step_is_levelled_by_replacing_or_deleting_and_a_wall_takes_a_coaxial_radius
             .unwrap()["face"]
             .clone()
     };
+
     let (inner_wall, outer_wall) = (wall(&mut client, &inner), wall(&mut client, &outer));
     let before = total_volume(&mut client);
+
     added(
         &mut client,
         "add_replace_face",
@@ -574,8 +664,11 @@ fn a_step_is_levelled_by_replacing_or_deleting_and_a_wall_takes_a_coaxial_radius
             "target": { "body": outer, "face": outer_wall }
         }),
     );
+
     let grown = PI * (49.0 - 25.0) * 10.0;
+
     assert!(close(total_volume(&mut client), before + grown));
+
     client.finish();
 }
 
@@ -591,7 +684,9 @@ fn rim_sketch(client: &mut Client, body: &Value) -> ([f64; 3], [f64; 3], [f64; 3
         .unwrap_or_else(|| panic!("no rim: {faces:?}"))["face"]
         .clone();
     let added = client.tool("add_sketch", json!({ "body": body, "face": rim }));
+
     assert_eq!(added["failing"], json!([]), "{added}");
+
     let plane = &added["sketch"]["plane"];
     let vector = |value: &Value| [number(&value[0]), number(&value[1]), number(&value[2])];
     (
@@ -606,19 +701,23 @@ fn rim_sketch(client: &mut Client, body: &Value) -> ([f64; 3], [f64; 3], [f64; 3
 fn a_web_takes_a_draft_and_free_ends_and_edits_them() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [100.0, 60.0, 40.0], [0.0, 0.0], "Box");
     let top = faces_of(&mut client, &block)
         .into_iter()
         .find(|face| face["surface"] == "plane" && face["normal"] == json!([0.0, 0.0, 1.0]))
         .unwrap()["face"]
         .clone();
+
     added(
         &mut client,
         "add_shell",
         json!({ "body": block, "open_faces": [top], "thickness": "5 mm" }),
     );
+
     let hollow = 100.0 * 60.0 * 40.0 - 90.0 * 50.0 * 35.0;
     let (origin, x_axis, y_axis, sketch) = rim_sketch(&mut client, &block);
+
     let local = |x: f64, y: f64| {
         let offset = [x - origin[0], y - origin[1], 40.0 - origin[2]];
         let along = |axis: [f64; 3]| offset.iter().zip(axis).map(|(a, b)| a * b).sum::<f64>();
@@ -631,7 +730,9 @@ fn a_web_takes_a_draft_and_free_ends_and_edits_them() {
             "items": [{ "kind": "line", "from": local(50.0, 15.0), "to": local(50.0, 45.0) }]
         }),
     );
+
     assert_eq!(drawn["failing"], json!([]), "{drawn}");
+
     let widening = 35.0 * 35.0 * 2.0_f64.to_radians().tan();
 
     let rib = added(
@@ -646,13 +747,16 @@ fn a_web_takes_a_draft_and_free_ends_and_edits_them() {
         }),
     );
     let drafted = total_volume(&mut client);
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": rib, "draft": "0 deg", "ends": "straight" }),
     );
+
     let plain = total_volume(&mut client);
     let steep = client.tool("edit_feature", json!({ "feature": rib, "draft": "30 deg" }));
+
     client.finish();
 
     assert!(
@@ -667,6 +771,7 @@ fn a_web_takes_a_draft_and_free_ends_and_edits_them() {
 fn lofts_use_a_single_region_of_a_sketch_and_end_in_a_point() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let (bottom, _) = sketch_on(
         &mut client,
         json!({ "plane": "XY" }),
@@ -685,6 +790,7 @@ fn lofts_use_a_single_region_of_a_sketch_and_end_in_a_point() {
         json!({ "datum": datum }),
         json!([{ "kind": "rectangle", "corner": [100, 0], "opposite": [110, 10] }]),
     );
+
     let loft = added(
         &mut client,
         "add_loft",
@@ -693,7 +799,9 @@ fn lofts_use_a_single_region_of_a_sketch_and_end_in_a_point() {
             "skin": "ruled"
         }),
     );
+
     assert!(near(total_volume(&mut client), 2000.0));
+
     added(
         &mut client,
         "edit_feature",
@@ -702,13 +810,16 @@ fn lofts_use_a_single_region_of_a_sketch_and_end_in_a_point() {
             "profiles": [{ "sketch": bottom, "inside": [205, 5] }, top]
         }),
     );
+
     let shifted = total_volume(&mut client);
+
     assert!(near(shifted, 3000.0), "{shifted}");
 
     let missed = client.tool_error(
         "add_loft",
         json!({ "profiles": [{ "sketch": bottom, "inside": [150, 5] }, top] }),
     );
+
     assert!(missed.contains("no region around"), "{missed}");
 
     let apex = added(
@@ -726,7 +837,9 @@ fn lofts_use_a_single_region_of_a_sketch_and_end_in_a_point() {
         }),
     );
     let drawn = total_volume(&mut client) - shifted;
+
     assert!(near(drawn, 100.0 * 40.0 / 3.0), "{drawn}");
+
     added(
         &mut client,
         "edit_feature",
@@ -736,13 +849,16 @@ fn lofts_use_a_single_region_of_a_sketch_and_end_in_a_point() {
             "profiles": [{ "sketch": bottom, "inside": [105, 5] }, top]
         }),
     );
+
     assert!(near(total_volume(&mut client) - shifted, 2000.0));
 
     let closed = client.tool_error(
         "add_loft",
         json!({ "profiles": [bottom, top], "closed": true, "end": { "datum": apex } }),
     );
+
     assert!(closed.contains("one of closed or end"), "{closed}");
+
     client.finish();
 }
 
@@ -761,6 +877,7 @@ fn circle_centre_x(client: &mut Client, body: &Value) -> f64 {
 fn split_faces_carry_their_curves_along_an_axis_or_wrapped() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 40.0, 20.0], [0.0, 0.0], "Block");
     let (circle, _) = sketch_on(
         &mut client,
@@ -781,11 +898,13 @@ fn split_faces_carry_their_curves_along_an_axis_or_wrapped() {
         "add_datum_axis",
         json!({ "through_points": ["origin", { "datum": lean }] }),
     );
+
     let split = added(
         &mut client,
         "add_split_face",
         json!({ "body": block, "faces": [top["face"]], "along": { "sketch": circle }, "carry": "Z" }),
     );
+
     assert_eq!(faces_of(&mut client, &block).len(), 7);
     assert!(close(circle_centre_x(&mut client, &block), 15.0));
 
@@ -794,12 +913,15 @@ fn split_faces_carry_their_curves_along_an_axis_or_wrapped() {
         "edit_feature",
         json!({ "feature": split, "carry": { "datum": slant } }),
     );
+
     assert!(close(circle_centre_x(&mut client, &block), 20.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": split, "carry": "square" }),
     );
+
     assert!(close(circle_centre_x(&mut client, &block), 15.0));
 
     let drum = added(
@@ -825,11 +947,13 @@ fn split_faces_carry_their_curves_along_an_axis_or_wrapped() {
         json!([{ "kind": "circle", "center": [0, 15], "radius": 3 }]),
     );
     let before = faces_of(&mut client, &drum).len();
+
     added(
         &mut client,
         "add_split_face",
         json!({ "body": drum, "faces": [side["face"]], "along": { "sketch": mark }, "carry": "wrapped" }),
     );
+
     assert!(faces_of(&mut client, &drum).len() > before);
 
     let any = faces_of(&mut client, &block)[0]["face"].clone();
@@ -837,7 +961,9 @@ fn split_faces_carry_their_curves_along_an_axis_or_wrapped() {
         "add_split_face",
         json!({ "body": block, "faces": [any], "along": "YZ", "carry": "wrapped" }),
     );
+
     assert!(no_sketch.contains("curves of a sketch"), "{no_sketch}");
+
     client.finish();
 }
 
@@ -845,6 +971,7 @@ fn split_faces_carry_their_curves_along_an_axis_or_wrapped() {
 fn a_sweep_swells_through_a_table_of_twists_and_scales() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let (profile, _) = sketch_on(
         &mut client,
         json!({ "plane": "YZ" }),
@@ -855,6 +982,7 @@ fn a_sweep_swells_through_a_table_of_twists_and_scales() {
         json!({ "plane": "XZ" }),
         json!([{ "kind": "line", "from": [0, 40], "to": [50, 40] }]),
     );
+
     let sweep = client.tool(
         "add_sweep",
         json!({
@@ -879,6 +1007,7 @@ fn a_sweep_swells_through_a_table_of_twists_and_scales() {
             ]
         }),
     );
+
     assert!(
         backwards["failing"]
             .to_string()
@@ -893,5 +1022,6 @@ fn a_sweep_swells_through_a_table_of_twists_and_scales() {
     );
 
     assert!(near(total_volume(&mut client), rod));
+
     client.finish();
 }

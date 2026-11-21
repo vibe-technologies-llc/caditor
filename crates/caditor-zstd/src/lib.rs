@@ -37,7 +37,7 @@ mod code {
 const LONG_MATCHING_ON: c_int = 1;
 const SPARE_ROOM: usize = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Level(i32);
 
 impl Level {
@@ -56,7 +56,7 @@ impl Level {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ZstdError {
     #[error("the compressor could not allocate its working memory")]
     OutOfMemory,
@@ -100,6 +100,7 @@ pub fn compress(data: &[u8], level: Level) -> Result<Vec<u8>, ZstdError> {
 
 pub fn compress_after(data: &[u8], prefix: &[u8], level: Level) -> Result<Vec<u8>, ZstdError> {
     let context = Compressor::new()?;
+
     context.set_level(level)?;
     if !prefix.is_empty() {
         context.reach_back(prefix.len().saturating_add(data.len()))?;
@@ -113,7 +114,9 @@ pub fn decompress(frame: &[u8], limit: usize) -> Result<Vec<u8>, ZstdError> {
 
 pub fn decompress_after(frame: &[u8], prefix: &[u8], limit: usize) -> Result<Vec<u8>, ZstdError> {
     let size = content_size(frame)?;
+
     single_frame(frame)?;
+
     let expected = usize::try_from(size)
         .ok()
         .filter(|size| *size <= limit)
@@ -135,6 +138,7 @@ fn single_frame(data: &[u8]) -> Result<(), ZstdError> {
     #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
     let length = unsafe { ZSTD_findFrameCompressedSize(data.as_ptr().cast(), data.len()) };
     let frame = checked(length)?;
+
     if frame != data.len() {
         return Err(ZstdError::NotOneFrame {
             frame,
@@ -146,6 +150,7 @@ fn single_frame(data: &[u8]) -> Result<(), ZstdError> {
 
 fn zeroed(length: usize) -> Result<Vec<u8>, ZstdError> {
     let mut buffer = Vec::new();
+
     buffer
         .try_reserve_exact(length)
         .map_err(|_| ZstdError::NoMemoryForOutput { needed: length })?;
@@ -224,10 +229,13 @@ impl Compressor {
             let code = unsafe {
                 ZSTD_CCtx_refPrefix(self.0.as_ptr(), prefix.as_ptr().cast(), prefix.len())
             };
+
             checked(code)?;
         }
+
         let capacity = checked(ZSTD_compressBound(data.len()))?;
         let mut frame = zeroed(capacity)?;
+
         #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let written = unsafe {
             ZSTD_compress2(
@@ -238,6 +246,7 @@ impl Compressor {
                 data.len(),
             )
         };
+
         frame.truncate(checked(written)?);
         Ok(frame)
     }
@@ -287,9 +296,12 @@ impl Decompressor {
             let code = unsafe {
                 ZSTD_DCtx_refPrefix(self.0.as_ptr(), prefix.as_ptr().cast(), prefix.len())
             };
+
             checked(code)?;
         }
+
         let mut content = zeroed(expected.saturating_add(SPARE_ROOM))?;
+
         #[expect(unsafe_code, reason = "the zstd port is called through raw pointers")]
         let written = unsafe {
             ZSTD_decompressDCtx(
@@ -301,6 +313,7 @@ impl Decompressor {
             )
         };
         let actual = checked(written)?;
+
         if actual != expected {
             return Err(ZstdError::WrongSize { expected, actual });
         }

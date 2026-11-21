@@ -26,7 +26,7 @@ pub const DESCRIPTION: &str =
 const NO_BODY: &str = "Select a face or edge of the body to scale";
 const DEFAULT_FACTOR: f64 = 1.0;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ScaleError {
     #[error(transparent)]
     Body(#[from] move_tools::BodyChoiceError),
@@ -74,6 +74,7 @@ pub fn selected_body(
 pub fn create(document: &Document, body: FeatureId, unit: LengthUnit) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Scale(Scale {
@@ -132,11 +133,13 @@ fn centred_at(
         None => [point.x, point.y, point.z],
     };
     let unit = model.units().length;
+
     let changed = Scale {
         center: local.map(|value| unit.measured(value)),
         ..scale.clone()
     };
     let document = model.document();
+
     let transaction = edit(document, feature, changed).ok_or(ScaleError::Gone { feature })?;
     field::checked(document, transaction)
 }
@@ -152,6 +155,7 @@ pub fn centre_change(
         .feature_index(feature)
         .ok_or(ScaleError::Gone { feature })?;
     let mut picked = selection.iter();
+
     let point = match (picked.next(), picked.next()) {
         (Some(only), None) => picked_point(model, only, index),
         _ => None,

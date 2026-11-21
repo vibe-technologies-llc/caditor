@@ -82,6 +82,7 @@ fn marked(harness: &Harness, command: Command) -> Option<bool> {
 #[test]
 fn every_ribbon_group_has_a_title_button_named_for_screen_readers() {
     let mut harness = Harness::new();
+
     harness.frame();
     harness.read_screen();
 
@@ -96,6 +97,7 @@ fn every_ribbon_group_has_a_title_button_named_for_screen_readers() {
 #[test]
 fn the_analyse_title_lists_every_analysis_command_and_nothing_else() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     open(&mut harness, "Analyse");
@@ -103,6 +105,7 @@ fn the_analyse_title_lists_every_analysis_command_and_nothing_else() {
     for command in ANALYSE_COMMANDS {
         assert!(harness.shows(&command.title()), "{command:?}");
     }
+
     assert!(!harness.shows(&Command::Thread.title()));
     assert!(!harness.shows(&Command::OffsetFace.title()));
 }
@@ -110,6 +113,7 @@ fn the_analyse_title_lists_every_analysis_command_and_nothing_else() {
 #[test]
 fn the_other_titles_list_the_commands_that_have_no_button_of_their_own() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     open(&mut harness, "Solid");
@@ -140,6 +144,7 @@ fn the_other_titles_list_the_commands_that_have_no_button_of_their_own() {
 #[test]
 fn choosing_a_command_from_a_title_runs_it_as_its_button_does() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     open(&mut harness, "Analyse");
@@ -161,6 +166,7 @@ fn choosing_a_command_from_a_title_runs_it_as_its_button_does() {
 #[test]
 fn a_command_chosen_from_a_title_that_is_not_ready_is_refused_in_words() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     open(&mut harness, "Modify");
@@ -175,6 +181,7 @@ fn a_command_chosen_from_a_title_that_is_not_ready_is_refused_in_words() {
 #[test]
 fn the_title_marks_the_panels_that_are_open() {
     let mut harness = Harness::new();
+
     harness.frame();
     harness.context.enable_accesskit();
     open(&mut harness, "Analyse");
@@ -200,17 +207,22 @@ fn the_title_marks_the_panels_that_are_open() {
 #[test]
 fn escape_closes_a_title_and_enter_runs_the_command_focused_when_it_opened() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     open(&mut harness, "Analyse");
+
     assert!(harness.shows(&Command::Interference.title()));
+
     close(&mut harness);
 
     assert!(!harness.shows(&Command::Interference.title()));
     assert!(!harness.workspace.measure.open);
 
     open(&mut harness, "Analyse");
+
     assert!(harness.focused().is_some());
+
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.frame();
@@ -223,6 +235,7 @@ fn escape_closes_a_title_and_enter_runs_the_command_focused_when_it_opened() {
 #[test]
 fn a_click_outside_a_title_menu_closes_it_without_running_anything() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     open(&mut harness, "Analyse");
@@ -248,13 +261,16 @@ fn the_title_menus_open_and_stay_on_screen_from_75_to_200_percent() {
     ];
     for scale in [0.75, 1.0, 1.5, 2.0] {
         let mut harness = Harness::new();
+
         scaled(&mut harness, scale);
+
         let room = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / scale);
 
         for (group, first, last) in probes {
             open(&mut harness, group);
 
             let first_title = first.title();
+
             assert!(
                 harness.fully_shown(&first_title),
                 "{group} first at {scale}"
@@ -262,11 +278,14 @@ fn the_title_menus_open_and_stay_on_screen_from_75_to_200_percent() {
 
             let over = harness.position_of(&first_title);
             let title = last.title();
+
             harness.wheel_until_shown(over, &title, Wheel::Down);
+
             assert!(
                 room.contains(lowest_in(&harness, room, &title)),
                 "{group} at {scale}"
             );
+
             assert_readable(&harness, &format!("{group} menu at {scale}"));
             close(&mut harness);
         }
@@ -276,6 +295,7 @@ fn the_title_menus_open_and_stay_on_screen_from_75_to_200_percent() {
 #[test]
 fn the_compact_ribbon_opens_each_group_from_a_column_of_at_least_24_points() {
     let mut harness = Harness::new();
+
     scaled(&mut harness, 2.0);
 
     for group in GROUPS {
@@ -289,6 +309,7 @@ fn the_compact_ribbon_opens_each_group_from_a_column_of_at_least_24_points() {
 #[test]
 fn at_75_percent_the_captions_stay_and_choosing_from_a_title_still_runs_the_command() {
     let mut harness = Harness::new();
+
     scaled(&mut harness, 0.75);
 
     for group in GROUPS {
@@ -324,6 +345,7 @@ fn open_sketch_menu(harness: &mut Harness, group: &str) {
     harness.frame();
     for _ in 0..MOST_SETTLING_FRAMES {
         let before = harness.texts.clone();
+
         harness.frame();
         if harness.texts == before {
             return;
@@ -339,8 +361,11 @@ fn choose(harness: &mut Harness, command: Command) {
 
 fn sketch_with_a_lone_point(harness: &mut Harness) -> FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_point(Point2::new(10.0, 10.0));
+
     let feature = edit_free_sketch(harness, sketch);
+
     harness.settle();
     feature
 }
@@ -348,6 +373,7 @@ fn sketch_with_a_lone_point(harness: &mut Harness) -> FeatureId {
 #[test]
 fn every_sketch_ribbon_group_has_a_title_button_named_apart_from_the_main_ribbon() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     harness.read_screen();
 
@@ -368,33 +394,42 @@ fn every_sketch_ribbon_group_has_a_title_button_named_apart_from_the_main_ribbon
 #[test]
 fn each_sketch_group_menu_runs_a_command_that_has_no_button_of_its_own() {
     let mut harness = Harness::new();
+
     let feature = sketch_with_a_lone_point(&mut harness);
 
     open_sketch_menu(&mut harness, "History");
     choose(&mut harness, Command::UndoHistory);
+
     assert!(harness.workspace.undo_history_open);
+
     harness.perform(Action::Preferences(PreferencesCommand::CloseUndoHistory));
     harness.frame();
 
     open_sketch_menu(&mut harness, "Select");
     choose(&mut harness, Command::SelectFree);
+
     assert!(!harness.workspace.viewport.selection().is_empty());
 
     open_sketch_menu(&mut harness, "Draw");
     choose(&mut harness, Command::SketchTool(Tool::EllipticalArc));
+
     assert_eq!(harness.tool(), Some(Tool::EllipticalArc));
 
     open_sketch_menu(&mut harness, "Modify");
     choose(&mut harness, Command::SketchTool(Tool::TangentCircle));
+
     assert_eq!(harness.tool(), Some(Tool::TangentCircle));
 
     open_sketch_menu(&mut harness, "Constrain");
     choose(&mut harness, Command::FindRelations);
+
     assert_eq!(harness.workspace.tidying.feature(), Some(feature));
 
     assert!(!harness.workspace.viewport.first_dimension_scales());
+
     open_sketch_menu(&mut harness, "Dimension");
     choose(&mut harness, Command::ToggleFirstDimensionScales);
+
     assert!(harness.workspace.viewport.first_dimension_scales());
     assert_eq!(harness.editing(), Some(feature));
 }
@@ -402,6 +437,7 @@ fn each_sketch_group_menu_runs_a_command_that_has_no_button_of_its_own() {
 #[test]
 fn the_sketch_menus_list_every_command_of_their_kind_the_buttonless_ones_included() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
 
     let lists = [
@@ -444,34 +480,42 @@ fn the_sketch_menus_list_every_command_of_their_kind_the_buttonless_ones_include
             ],
         ),
     ];
+
     for (group, commands) in lists {
         open_sketch_menu(&mut harness, group);
+
         let over = commands
             .first()
             .map(|first| harness.position_of(&first.title()))
             .expect("every list names a command");
+
         for command in commands {
             harness.wheel_until_shown(over, &command.title(), Wheel::Down);
         }
         close(&mut harness);
     }
+
     assert!(harness.editing().is_some());
 }
 
 #[test]
 fn the_sketch_draw_menu_marks_the_active_tool() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     harness.context.enable_accesskit();
 
     open_sketch_menu(&mut harness, "Draw");
+
     assert_eq!(
         marked(&harness, Command::SketchTool(Tool::Conic)),
         Some(false)
     );
+
     choose(&mut harness, Command::SketchTool(Tool::Conic));
 
     open_sketch_menu(&mut harness, "Draw");
+
     assert_eq!(
         marked(&harness, Command::SketchTool(Tool::Conic)),
         Some(true)
@@ -480,7 +524,9 @@ fn the_sketch_draw_menu_marks_the_active_tool() {
         marked(&harness, Command::SketchTool(Tool::EllipticalArc)),
         Some(false)
     );
+
     let way = |mode| Command::ShapeMode(ShapeMode::Rectangle(mode));
+
     assert_eq!(marked(&harness, way(RectangleMode::Corners)), Some(true));
     assert_eq!(
         marked(&harness, way(RectangleMode::ThreePoints)),
@@ -491,12 +537,15 @@ fn the_sketch_draw_menu_marks_the_active_tool() {
 #[test]
 fn escape_closes_a_sketch_menu_without_leaving_the_sketch_and_opening_focuses_an_entry() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
     let conic = Command::SketchTool(Tool::Conic).title();
 
     open_sketch_menu(&mut harness, "Draw");
+
     assert!(harness.shows(&conic));
     assert!(harness.focused().is_some());
+
     close(&mut harness);
 
     assert!(!harness.shows(&conic));
@@ -531,14 +580,18 @@ fn the_sketch_menus_open_and_stay_on_screen_from_75_to_200_percent() {
     ];
     for scale in [0.75, 1.0, 1.5, 2.0] {
         let mut harness = Harness::new();
+
         scaled(&mut harness, scale);
         harness.draw_on_new_sketch();
+
         let room = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / scale);
 
         for (group, first, last) in probes {
             open_sketch_menu(&mut harness, group);
+
             let over = harness.position_of(&first.title());
             let title = last.title();
+
             harness.wheel_until_shown(over, &title, Wheel::Down);
 
             assert!(harness.fully_shown(&title), "{group} at {scale}");
@@ -546,6 +599,7 @@ fn the_sketch_menus_open_and_stay_on_screen_from_75_to_200_percent() {
                 room.contains(lowest_in(&harness, room, &title)),
                 "{group} at {scale}"
             );
+
             assert_readable(&harness, &format!("sketch {group} menu at {scale}"));
             close(&mut harness);
         }

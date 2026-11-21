@@ -23,7 +23,7 @@ use crate::{
 
 pub const NOT_SETTLED: &str = "Waiting for the sketch to solve…";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TidyError {
     #[error(
         "The sketch has to solve before anything can be found in it. Fix the problem the sketch \
@@ -41,7 +41,7 @@ const TIGHT_DEGREES: f64 = 0.25;
 const LOOSE_SHARE: f64 = 5e-3;
 const LOOSE_DEGREES: f64 = 3.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Task {
     #[default]
     Relations,
@@ -79,7 +79,7 @@ impl Task {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Looseness {
     Tight,
     #[default]
@@ -108,21 +108,21 @@ impl Looseness {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Proposal {
     Relations(Kept),
     Dimensions(Kept),
     Flaws(Vec<(Flaw, Fix)>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Found {
     pub proposal: Proposal,
     pub tolerance: Tolerance,
     pub sketch: Sketch,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Progress<'a> {
     Closed,
     NotSettled,
@@ -132,7 +132,7 @@ pub enum Progress<'a> {
     Failed(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Basis {
     feature: FeatureId,
     revision: u64,
@@ -222,6 +222,7 @@ impl Tidying {
             self.close();
             return;
         }
+
         let Some(feature) = self.feature else {
             return;
         };
@@ -230,9 +231,11 @@ impl Tidying {
             self.cancel();
             return;
         };
+
         if sketch.point(self.datum).is_none() {
             self.datum = EntityId::ORIGIN;
         }
+
         let basis = Basis {
             feature,
             revision: model.revision(),
@@ -242,6 +245,7 @@ impl Tidying {
             kinds: self.kinds.clone(),
             datum: self.datum,
         };
+
         if self
             .answered
             .as_ref()
@@ -285,6 +289,7 @@ impl Tidying {
     pub fn wait(&mut self) {
         if let Some(running) = self.running.take() {
             let answer = running.answer.recv().unwrap_or(Err(TidyError::Failed));
+
             self.answered = Some((running.basis, answer));
         }
     }
@@ -315,6 +320,7 @@ impl Tidying {
             values,
             cancelled: Arc::clone(&cancelled),
         };
+
         let spawned = thread::Builder::new()
             .name("sketch tidying".to_owned())
             .spawn(move || {
@@ -359,6 +365,7 @@ impl Job {
     fn run(self) -> Option<Answer> {
         let value_of = |id| self.values.value(id);
         let cancelled = || self.cancelled.load(Ordering::Relaxed);
+
         let proposal = match self.task {
             Task::Relations => self
                 .sketch
@@ -412,6 +419,7 @@ pub fn relations_transaction(
         count(constraints.len(), "relation", "relations")
     );
     let mut transaction = sketch_tools::settled_transaction(model, feature, label);
+
     for constraint in constraints {
         transaction.add_sketch_constraint(feature, constraint.clone());
     }
@@ -430,6 +438,7 @@ pub fn dimensions_transaction(
         count(constraints.len(), "dimension", "dimensions")
     );
     let mut transaction = sketch_tools::settled_transaction(model, feature, label);
+
     for constraint in sketch_tools::in_unit(constraints.to_vec(), units) {
         transaction.add_sketch_constraint(feature, constraint);
     }
@@ -447,6 +456,7 @@ pub fn fixes_transaction(
         .flat_map(|fix| fix.remove.iter().copied())
         .collect();
     let mut added: Vec<Constraint> = Vec::new();
+
     for constraint in fixes.iter().flat_map(|fix| fix.add.iter()) {
         let touches_removed = constraint
             .entities()
@@ -456,7 +466,9 @@ pub fn fixes_transaction(
             added.push(constraint.clone());
         }
     }
+
     let mut transaction = sketch_tools::settled_transaction(model, feature, label);
+
     transaction.remove_sketch_items(feature, removed, []);
     for constraint in added {
         transaction.add_sketch_constraint(feature, constraint);

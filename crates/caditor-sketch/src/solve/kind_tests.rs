@@ -37,6 +37,7 @@ fn add(sketch: &mut Sketch, constraint: Constraint) -> ConstraintId {
 
 fn add_stored(sketch: &mut Sketch, constraint: Constraint) -> ConstraintId {
     let id = ConstraintId::from_raw(sketch.next_id());
+
     sketch.insert_constraint(id, constraint).unwrap();
     id
 }
@@ -66,6 +67,7 @@ fn fix(sketch: &mut Sketch, point: EntityId) -> ConstraintId {
 
 fn fix_line(sketch: &mut Sketch, line: EntityId) {
     let (start, end) = ends(sketch, line);
+
     fix(sketch, start);
     fix(sketch, end);
 }
@@ -73,8 +75,10 @@ fn fix_line(sketch: &mut Sketch, line: EntityId) {
 #[test]
 fn a_fixed_point_stays_where_it_was_locked_and_is_fully_constrained() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(1.0, 2.0), Point2::new(9.0, 3.0));
     let (start, end) = ends(&sketch, line);
+
     add(
         &mut sketch,
         Constraint::Fix {
@@ -88,6 +92,7 @@ fn a_fixed_point_stays_where_it_was_locked_and_is_fully_constrained() {
 
     assert_near(at(&solved, start), Point2::new(-4.0, 6.5));
     assert_close(at(&solved, end).y, 6.5);
+
     assert_eq!(solved.solution.degrees_of_freedom(), 1);
     assert_eq!(
         solved.solution.entity_state(start),
@@ -102,6 +107,7 @@ fn a_fixed_point_stays_where_it_was_locked_and_is_fully_constrained() {
 #[test]
 fn a_fix_away_from_where_a_coincidence_puts_the_point_is_a_conflict() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::new(1.0, 1.0));
     let coincident = add(&mut sketch, Constraint::Coincident(point, EntityId::ORIGIN));
     let fixed = add(
@@ -120,6 +126,7 @@ fn a_fix_away_from_where_a_coincidence_puts_the_point_is_a_conflict() {
     );
 
     sketch.remove_constraint(fixed).unwrap();
+
     let again = add(
         &mut sketch,
         Constraint::Fix {
@@ -128,6 +135,7 @@ fn a_fix_away_from_where_a_coincidence_puts_the_point_is_a_conflict() {
         },
     );
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(
         solved.solution.redundancies(),
         [Redundancy {
@@ -140,6 +148,7 @@ fn a_fix_away_from_where_a_coincidence_puts_the_point_is_a_conflict() {
 #[test]
 fn a_midpoint_holds_a_point_halfway_round_an_arc_on_the_arc_itself() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let quarter = sketch.add_arc(
         Point2::new(0.0, 0.0),
         Point2::new(10.0, 0.0),
@@ -152,6 +161,7 @@ fn a_midpoint_holds_a_point_halfway_round_an_arc_on_the_arc_itself() {
     );
     let beyond = sketch.add_point(Point2::new(-6.0, -5.0));
     let inside = sketch.add_point(Point2::new(44.0, -3.0));
+
     add(
         &mut sketch,
         Constraint::Midpoint {
@@ -176,8 +186,10 @@ fn a_midpoint_holds_a_point_halfway_round_an_arc_on_the_arc_itself() {
     let solved = solve(&sketch).unwrap();
 
     let diagonal = 10.0 / 2f64.sqrt();
+
     assert_near(at(&solved, beyond), Point2::new(diagonal, diagonal));
     assert_near(at(&solved, inside), Point2::new(40.0 - diagonal, diagonal));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert_eq!(
         solved.solution.entity_state(beyond),
@@ -188,6 +200,7 @@ fn a_midpoint_holds_a_point_halfway_round_an_arc_on_the_arc_itself() {
 #[test]
 fn a_midpoint_on_a_circle_is_refused_as_it_has_no_middle() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(0.0, 0.0), 5.0);
     let point = sketch.add_point(Point2::new(5.0, 0.0));
 
@@ -202,16 +215,22 @@ fn a_midpoint_on_a_circle_is_refused_as_it_has_no_middle() {
 #[test]
 fn a_midpoint_holds_a_point_halfway_along_a_line() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 2.0));
     let point = sketch.add_point(Point2::new(3.0, 4.0));
+
     add(&mut sketch, Constraint::Midpoint { point, curve: line });
+
     let loose = solve(&sketch).unwrap();
+
     assert_eq!(loose.solution.degrees_of_freedom(), 4);
 
     fix_line(&mut sketch, line);
+
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, point), Point2::new(5.0, 1.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert_eq!(
         solved.solution.entity_state(point),
@@ -222,6 +241,7 @@ fn a_midpoint_holds_a_point_halfway_along_a_line() {
 #[test]
 fn concentric_curves_share_a_centre_and_a_point_can_sit_on_one() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(1.0, 1.0), 5.0);
     let arc = sketch.add_arc(
         Point2::new(2.0, 0.5),
@@ -230,6 +250,7 @@ fn concentric_curves_share_a_centre_and_a_point_can_sit_on_one() {
     );
     let lone = sketch.add_point(Point2::new(-3.0, 2.0));
     let middle = center(&sketch, circle);
+
     fix(&mut sketch, middle);
     add(&mut sketch, Constraint::Concentric(arc, circle));
     add(&mut sketch, Constraint::Concentric(lone, circle));
@@ -238,25 +259,32 @@ fn concentric_curves_share_a_centre_and_a_point_can_sit_on_one() {
 
     assert_near(at(&solved, center(&sketch, arc)), Point2::new(1.0, 1.0));
     assert_near(at(&solved, lone), Point2::new(1.0, 1.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 1 + 3);
 }
 
 #[test]
 fn collinear_lines_lie_on_one_line_and_repeat_a_parallel() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let base = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 5.0));
     let other = sketch.add_line(Point2::new(14.0, 8.0), Point2::new(20.0, 9.5));
+
     fix_line(&mut sketch, base);
+
     let collinear = add(&mut sketch, Constraint::Collinear(base, other));
     let parallel = add(&mut sketch, Constraint::Parallel(other, base));
 
     let solved = solve(&sketch).unwrap();
 
     let (start, end) = ends(&sketch, other);
+
     for point in [start, end] {
         let position = at(&solved, point);
+
         assert_close(position.y, position.x / 2.0);
     }
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
     assert_eq!(
         solved.solution.redundancies(),
@@ -267,12 +295,15 @@ fn collinear_lines_lie_on_one_line_and_repeat_a_parallel() {
     );
 
     let axis_line = sketch.add_line(Point2::new(2.0, 1.0), Point2::new(8.0, -1.0));
+
     add(
         &mut sketch,
         Constraint::Collinear(axis_line, EntityId::HORIZONTAL_AXIS),
     );
+
     let solved = solve(&sketch).unwrap();
     let (start, end) = ends(&sketch, axis_line);
+
     assert_close(at(&solved, start).y, 0.0);
     assert_close(at(&solved, end).y, 0.0);
 }
@@ -280,10 +311,14 @@ fn collinear_lines_lie_on_one_line_and_repeat_a_parallel() {
 #[test]
 fn symmetric_points_mirror_about_a_line_or_a_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let mirror = sketch.add_line(Point2::ZERO, Point2::new(10.0, 10.0));
+
     fix_line(&mut sketch, mirror);
+
     let first = sketch.add_point(Point2::new(6.0, 1.0));
     let second = sketch.add_point(Point2::new(1.5, 5.0));
+
     fix(&mut sketch, first);
     add(
         &mut sketch,
@@ -293,9 +328,11 @@ fn symmetric_points_mirror_about_a_line_or_a_point() {
             about: mirror,
         },
     );
+
     let centre = sketch.add_point(Point2::new(20.0, 0.0));
     let left = sketch.add_point(Point2::new(17.0, 1.0));
     let right = sketch.add_point(Point2::new(22.0, 0.5));
+
     fix(&mut sketch, centre);
     fix(&mut sketch, left);
     add(
@@ -311,14 +348,17 @@ fn symmetric_points_mirror_about_a_line_or_a_point() {
 
     assert_near(at(&solved, second), Point2::new(1.0, 6.0));
     assert_near(at(&solved, right), Point2::new(23.0, -1.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
 }
 
 #[test]
 fn symmetry_about_an_axis_holds_from_a_perturbed_start() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(-4.0, 3.0), Point2::new(5.0, 2.5));
     let (start, end) = ends(&sketch, line);
+
     add(
         &mut sketch,
         Constraint::Symmetric {
@@ -327,19 +367,25 @@ fn symmetry_about_an_axis_holds_from_a_perturbed_start() {
             about: EntityId::VERTICAL_AXIS,
         },
     );
+
     let solved = solve(&sketch).unwrap();
     let (a, b) = (at(&solved, start), at(&solved, end));
+
     assert_close(a.x, -b.x);
     assert_close(a.y, b.y);
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
 }
 
 #[test]
 fn horizontal_and_vertical_distances_keep_their_drawn_side() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let from = sketch.add_point(Point2::new(2.0, 3.0));
     let to = sketch.add_point(Point2::new(-5.0, 9.0));
+
     fix(&mut sketch, from);
+
     let across = add(
         &mut sketch,
         Constraint::HorizontalDistance {
@@ -348,6 +394,7 @@ fn horizontal_and_vertical_distances_keep_their_drawn_side() {
             value: mm(12.0),
         },
     );
+
     add(
         &mut sketch,
         Constraint::VerticalDistance {
@@ -360,32 +407,42 @@ fn horizontal_and_vertical_distances_keep_their_drawn_side() {
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, to), Point2::new(-10.0, 7.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert_eq!(solved.solution.dimension(across), Some(12.0));
 
     sketch.set_dimension(across, mm(0.0)).unwrap();
+
     let solved = solve(&sketch).unwrap();
+
     assert_near(at(&solved, to), Point2::new(2.0, 7.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
 }
 
 #[test]
 fn a_horizontal_distance_measures_from_where_a_line_crosses_the_level_through_the_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 10.0));
+
     fix_line(&mut sketch, line);
+
     let point = sketch.add_point(Point2::new(8.0, 3.0));
     let across = Constraint::HorizontalDistance {
         from: point,
         to: line,
         value: mm(2.0),
     };
+
     assert_eq!(sketch.measured(&across), Some(5.0));
     assert_eq!(
         sketch.axis_offset_ends(&across),
         Some((Point2::new(8.0, 3.0), Point2::new(3.0, 3.0), Vector2::X))
     );
+
     let across = add(&mut sketch, across);
+
     add(
         &mut sketch,
         Constraint::VerticalDistance {
@@ -398,6 +455,7 @@ fn a_horizontal_distance_measures_from_where_a_line_crosses_the_level_through_th
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, point), Point2::new(5.0, 3.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert_eq!(solved.solution.dimension(across), Some(2.0));
     assert!(solved.solution.redundancies().is_empty());
@@ -406,10 +464,12 @@ fn a_horizontal_distance_measures_from_where_a_line_crosses_the_level_through_th
 #[test]
 fn circles_are_measured_horizontally_and_vertically_from_their_centres() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_circle(Point2::new(1.0, 1.0), 2.0);
     let second = sketch.add_circle(Point2::new(9.0, 4.0), 1.0);
     let point = sketch.add_point(Point2::new(-4.0, 6.0));
     let anchor = center(&sketch, first);
+
     fix(&mut sketch, anchor);
     add(
         &mut sketch,
@@ -448,12 +508,14 @@ fn circles_are_measured_horizontally_and_vertically_from_their_centres() {
 
     assert_near(at(&solved, center(&sketch, second)), Point2::new(21.0, 6.0));
     assert_near(at(&solved, point), Point2::new(-6.0, 8.0));
+
     assert!(solved.solution.redundancies().is_empty());
 }
 
 #[test]
 fn a_line_running_along_the_measuring_direction_or_two_lines_are_refused() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let level = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let slanted = sketch.add_line(Point2::ZERO, Point2::new(10.0, 4.0));
     let point = sketch.add_point(Point2::new(3.0, 5.0));
@@ -464,6 +526,7 @@ fn a_line_running_along_the_measuring_direction_or_two_lines_are_refused() {
         to: level,
         value: mm(1.0),
     });
+
     assert!(matches!(along, Err(SketchError::RunsAlong { .. })));
     assert_eq!(
         along.unwrap_err().to_string(),
@@ -510,6 +573,7 @@ fn a_line_running_along_the_measuring_direction_or_two_lines_are_refused() {
 #[test]
 fn a_negative_distance_is_refused_when_added() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let from = sketch.add_point(Point2::ZERO);
     let to = sketch.add_point(Point2::X);
 
@@ -527,6 +591,7 @@ fn a_negative_distance_is_refused_when_added() {
     let expected = Err(SketchError::DimensionValue {
         reason: crate::DimensionError::Negative,
     });
+
     assert_eq!(horizontal, expected);
     assert_eq!(vertical, expected);
     assert_eq!(sketch.constraints().len(), 0);
@@ -539,8 +604,10 @@ fn a_negative_distance_is_refused_when_added() {
 #[test]
 fn a_negative_horizontal_distance_is_refused_before_solving() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let from = sketch.add_point(Point2::ZERO);
     let to = sketch.add_point(Point2::X);
+
     add_stored(
         &mut sketch,
         Constraint::HorizontalDistance {
@@ -549,16 +616,20 @@ fn a_negative_horizontal_distance_is_refused_before_solving() {
             value: mm(-1.0),
         },
     );
+
     let error = solve(&sketch).unwrap_err();
+
     assert_eq!(error.to_string(), "a distance cannot be negative");
 }
 
 #[test]
 fn points_made_horizontal_or_vertical_line_up() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::new(1.0, 2.0));
     let level = sketch.add_point(Point2::new(8.0, 3.0));
     let plumb = sketch.add_point(Point2::new(2.0, -6.0));
+
     fix(&mut sketch, anchor);
     add(
         &mut sketch,
@@ -573,13 +644,16 @@ fn points_made_horizontal_or_vertical_line_up() {
 
     assert_close(at(&solved, level).y, 2.0);
     assert_close(at(&solved, plumb).x, 1.0);
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
 
     let line = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(5.0, 10.5));
     let (start, end) = ends(&sketch, line);
     let horizontal = add(&mut sketch, Constraint::Horizontal(line));
+
     let repeated = add(&mut sketch, Constraint::HorizontalPoints(start, end.into()));
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(
         solved.solution.redundancies(),
         [Redundancy {
@@ -592,8 +666,10 @@ fn points_made_horizontal_or_vertical_line_up() {
 #[test]
 fn a_diameter_sets_twice_the_radius() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(3.0, 4.0), 5.0);
     let arc = sketch.add_arc(Point2::ZERO, Point2::new(2.0, 0.0), Point2::new(0.0, 2.0));
+
     add(
         &mut sketch,
         Constraint::Diameter {
@@ -613,6 +689,7 @@ fn a_diameter_sets_twice_the_radius() {
 
     assert_close(solved.geometry.circle(circle).unwrap().1, 9.0);
     assert_close(solved.geometry.circle(arc).unwrap().1, 3.5);
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2 + 4);
 
     let refused = add_stored(
@@ -622,6 +699,7 @@ fn a_diameter_sets_twice_the_radius() {
             value: mm(0.0),
         },
     );
+
     assert_eq!(
         solve(&sketch).unwrap_err(),
         SketchError::Dimension {
@@ -634,8 +712,11 @@ fn a_diameter_sets_twice_the_radius() {
 #[test]
 fn a_diameter_across_an_axis_holds_the_point_at_half_of_it_on_its_side() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let axis = sketch.add_line(Point2::new(0.0, -5.0), Point2::new(0.0, 5.0));
+
     fix_line(&mut sketch, axis);
+
     let right = sketch.add_point(Point2::new(7.0, 2.0));
     let left = sketch.add_point(Point2::new(-3.0, 1.0));
     let across = add(
@@ -646,6 +727,7 @@ fn a_diameter_across_an_axis_holds_the_point_at_half_of_it_on_its_side() {
             value: mm(24.0),
         },
     );
+
     add(
         &mut sketch,
         Constraint::AxisDiameter {
@@ -659,7 +741,9 @@ fn a_diameter_across_an_axis_holds_the_point_at_half_of_it_on_its_side() {
 
     assert_close(at(&solved, right).x, 12.0);
     assert_close(at(&solved, left).x, -5.0);
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
+
     assert_close(
         solved
             .geometry
@@ -667,6 +751,7 @@ fn a_diameter_across_an_axis_holds_the_point_at_half_of_it_on_its_side() {
             .unwrap(),
         24.0,
     );
+
     assert_eq!(
         sketch.restating(&Constraint::Distance {
             from: axis,
@@ -696,8 +781,10 @@ fn a_diameter_across_an_axis_holds_the_point_at_half_of_it_on_its_side() {
 #[test]
 fn a_point_keeps_its_side_of_a_circle_at_a_distance() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::ZERO, 10.0);
     let middle = center(&sketch, circle);
+
     fix(&mut sketch, middle);
     add(
         &mut sketch,
@@ -706,8 +793,10 @@ fn a_point_keeps_its_side_of_a_circle_at_a_distance() {
             value: mm(10.0),
         },
     );
+
     let outside = sketch.add_point(Point2::new(13.0, 0.0));
     let inside = sketch.add_point(Point2::new(0.0, -7.0));
+
     add(
         &mut sketch,
         Constraint::HorizontalPoints(outside, EntityId::ORIGIN.into()),
@@ -737,14 +826,18 @@ fn a_point_keeps_its_side_of_a_circle_at_a_distance() {
 
     assert_near(at(&solved, outside), Point2::new(15.0, 0.0));
     assert_near(at(&solved, inside), Point2::new(0.0, -6.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
 }
 
 #[test]
 fn spaced_lines_become_parallel_at_the_distance_on_their_side() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let base = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
+
     fix_line(&mut sketch, base);
+
     let other = sketch.add_line(Point2::new(2.0, -3.0), Point2::new(18.0, -4.5));
     let spacing = add(
         &mut sketch,
@@ -758,12 +851,15 @@ fn spaced_lines_become_parallel_at_the_distance_on_their_side() {
     let solved = solve(&sketch).unwrap();
 
     let (start, end) = ends(&sketch, other);
+
     assert_close(at(&solved, start).y, -6.0);
     assert_close(at(&solved, end).y, -6.0);
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
 
     let parallel = add(&mut sketch, Constraint::Parallel(other, base));
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(
         solved.solution.redundancies(),
         [Redundancy {
@@ -773,7 +869,9 @@ fn spaced_lines_become_parallel_at_the_distance_on_their_side() {
     );
 
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(1.0, 2.0), Point2::new(9.0, 3.0));
+
     add(
         &mut sketch,
         Constraint::Distance {
@@ -782,8 +880,10 @@ fn spaced_lines_become_parallel_at_the_distance_on_their_side() {
             value: mm(0.0),
         },
     );
+
     let solved = solve(&sketch).unwrap();
     let (start, end) = ends(&sketch, line);
+
     assert_close(at(&solved, start).x, 0.0);
     assert_close(at(&solved, end).x, 0.0);
 }
@@ -791,8 +891,10 @@ fn spaced_lines_become_parallel_at_the_distance_on_their_side() {
 #[test]
 fn circles_keep_their_gap_outside_or_within_each_other() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let fixed = sketch.add_circle(Point2::ZERO, 10.0);
     let middle = center(&sketch, fixed);
+
     fix(&mut sketch, middle);
     add(
         &mut sketch,
@@ -801,10 +903,12 @@ fn circles_keep_their_gap_outside_or_within_each_other() {
             value: mm(10.0),
         },
     );
+
     let outside = sketch.add_circle(Point2::new(17.0, 0.0), 3.0);
     let inside = sketch.add_circle(Point2::new(0.0, -5.0), 2.0);
     let outside_centre = center(&sketch, outside);
     let inside_centre = center(&sketch, inside);
+
     for (circle, radius) in [(outside, 3.0), (inside, 2.0)] {
         add(
             &mut sketch,
@@ -843,14 +947,17 @@ fn circles_keep_their_gap_outside_or_within_each_other() {
 
     assert_near(at(&solved, outside_centre), Point2::new(18.0, 0.0));
     assert_near(at(&solved, inside_centre), Point2::new(0.0, -6.5));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
 }
 
 #[test]
 fn a_circle_keeps_its_gap_from_a_line_on_its_side() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(4.0, -9.0), 2.0);
     let centre = center(&sketch, circle);
+
     add(
         &mut sketch,
         Constraint::Radius {
@@ -862,6 +969,7 @@ fn a_circle_keeps_its_gap_from_a_line_on_its_side() {
         &mut sketch,
         Constraint::VerticalPoints(centre, EntityId::ORIGIN.into()),
     );
+
     let gap = add(
         &mut sketch,
         Constraint::Distance {
@@ -874,7 +982,9 @@ fn a_circle_keeps_its_gap_from_a_line_on_its_side() {
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, centre), Point2::new(0.0, -5.5));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
+
     assert_close(
         solved
             .geometry
@@ -884,19 +994,24 @@ fn a_circle_keeps_its_gap_from_a_line_on_its_side() {
     );
 
     sketch.set_dimension(gap, mm(0.0)).unwrap();
+
     let touching = solve(&sketch).unwrap();
+
     assert_near(at(&touching, centre), Point2::new(0.0, -2.5));
 }
 
 #[test]
 fn an_arc_takes_its_sweep_and_length_the_long_way_round_too() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
     let Some(&Entity::Arc { center, start, end }) = sketch.entity(arc) else {
         panic!("expected an arc");
     };
+
     fix(&mut sketch, center);
     fix(&mut sketch, start);
+
     let sweep = add(
         &mut sketch,
         Constraint::Sweep {
@@ -908,9 +1023,11 @@ fn an_arc_takes_its_sweep_and_length_the_long_way_round_too() {
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, end), Point2::new(0.0, -10.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
 
     sketch.remove_constraint(sweep).unwrap();
+
     let length = add(
         &mut sketch,
         Constraint::ArcLength {
@@ -919,6 +1036,7 @@ fn an_arc_takes_its_sweep_and_length_the_long_way_round_too() {
         },
     );
     let solved = solve(&sketch).unwrap();
+
     assert_near(at(&solved, end), Point2::new(-10.0, 0.0));
     assert_close(
         solved
@@ -932,6 +1050,7 @@ fn an_arc_takes_its_sweep_and_length_the_long_way_round_too() {
 #[test]
 fn a_sweep_outside_one_turn_or_on_a_circle_is_refused() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
     let circle = sketch.add_circle(Point2::ZERO, 3.0);
     let refused = |sketch: &mut Sketch, constraint| {
@@ -973,26 +1092,33 @@ fn a_sweep_outside_one_turn_or_on_a_circle_is_refused() {
 #[test]
 fn a_line_square_to_a_circle_or_arc_runs_through_its_centre() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(10.0, 4.0), 3.0);
     let arc = sketch.add_arc(
         Point2::new(-6.0, 2.0),
         Point2::new(-3.0, 2.0),
         Point2::new(-6.0, 5.0),
     );
+
     let centres = [center(&sketch, circle), center(&sketch, arc)];
+
     for centre in centres {
         fix(&mut sketch, centre);
     }
+
     let line = sketch.add_line(Point2::new(0.0, 1.0), Point2::new(5.0, 2.0));
+
     add(&mut sketch, Constraint::Perpendicular(line, circle));
     add(&mut sketch, Constraint::Perpendicular(arc, line));
 
     let solved = solve(&sketch).unwrap();
 
     let (start, end) = ends(&sketch, line);
+
     let (start, end) = (at(&solved, start), at(&solved, end));
     for centre in [Point2::new(10.0, 4.0), Point2::new(-6.0, 2.0)] {
         let across = (end - start).normalize().perp_dot(centre - start);
+
         assert!(across.abs() < EXACT, "{centre} is {across} off the line");
     }
 }
@@ -1000,11 +1126,13 @@ fn a_line_square_to_a_circle_or_arc_runs_through_its_centre() {
 #[test]
 fn new_kinds_survive_degenerate_starts_without_nan() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(3.0, 3.0), Point2::new(3.0, 3.0 + 1e-13));
     let (start, _) = ends(&sketch, line);
     let point = sketch.add_point(Point2::new(3.0, 3.0));
     let other = sketch.add_point(Point2::new(3.0, 3.0));
     let circle = sketch.add_circle(Point2::new(3.0, 3.0), 1.0);
+
     add(&mut sketch, Constraint::Midpoint { point, curve: line });
     add(
         &mut sketch,
@@ -1064,6 +1192,7 @@ fn arch(sketch: &mut Sketch) -> EntityId {
     else {
         panic!("expected a spline");
     };
+
     for point in control_points {
         fix(sketch, point);
     }
@@ -1077,9 +1206,11 @@ fn arch_height(x: f64) -> f64 {
 #[test]
 fn a_point_on_a_spline_slides_along_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let point = sketch.add_point(Point2::new(5.0, 9.0));
     let guide = sketch.add_point(Point2::new(5.0, -3.0));
+
     fix(&mut sketch, guide);
     add(&mut sketch, Constraint::VerticalPoints(point, guide.into()));
     add(&mut sketch, Constraint::Coincident(point, spline));
@@ -1087,6 +1218,7 @@ fn a_point_on_a_spline_slides_along_it() {
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, point), Point2::new(5.0, arch_height(5.0)));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert_eq!(
         solved.solution.entity_state(point),
@@ -1094,21 +1226,26 @@ fn a_point_on_a_spline_slides_along_it() {
     );
 
     let mut loose = Sketch::new(Plane::XY);
+
     let free = loose.add_spline(&[
         Point2::ZERO,
         Point2::new(10.0, 10.0),
         Point2::new(20.0, 0.0),
     ]);
     let rider = loose.add_point(Point2::new(3.0, 1.0));
+
     add(&mut loose, Constraint::Coincident(free, rider));
+
     assert_eq!(solve(&loose).unwrap().solution.degrees_of_freedom(), 8 - 1);
 }
 
 #[test]
 fn a_point_already_on_a_spline_does_not_move() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let point = sketch.add_point(Point2::new(6.0, arch_height(6.0)));
+
     add(&mut sketch, Constraint::Coincident(point, spline));
 
     let solved = solve(&sketch).unwrap();
@@ -1120,6 +1257,7 @@ fn a_point_already_on_a_spline_does_not_move() {
 #[test]
 fn a_point_held_beyond_the_end_of_a_free_spline_pulls_its_end_along() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&[
         Point2::ZERO,
         Point2::new(10.0, 10.0),
@@ -1132,8 +1270,11 @@ fn a_point_held_beyond_the_end_of_a_free_spline_pulls_its_end_along() {
     else {
         panic!("expected a spline");
     };
+
     fix(&mut sketch, control_points[0]);
+
     let point = sketch.add_point(Point2::new(30.0, -2.0));
+
     fix(&mut sketch, point);
     add(&mut sketch, Constraint::Coincident(point, spline));
 
@@ -1146,10 +1287,13 @@ fn a_point_held_beyond_the_end_of_a_free_spline_pulls_its_end_along() {
 #[test]
 fn a_point_held_beyond_the_end_of_a_pinned_spline_conflicts_with_every_pin() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let point = sketch.add_point(Point2::new(30.0, -2.0));
+
     fix(&mut sketch, point);
     add(&mut sketch, Constraint::Coincident(point, spline));
+
     let every: Vec<ConstraintId> = sketch.constraints().map(|(id, _)| id).collect();
 
     let result = solve(&sketch);
@@ -1161,12 +1305,16 @@ fn a_point_held_beyond_the_end_of_a_pinned_spline_conflicts_with_every_pin() {
 #[test]
 fn a_line_and_a_circle_touch_a_spline_where_it_bulges() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let line = sketch.add_line(Point2::new(4.0, 6.5), Point2::new(15.0, 6.0));
+
     add(&mut sketch, Constraint::Horizontal(line));
     add(&mut sketch, Constraint::Tangent(line, spline));
+
     let circle = sketch.add_circle(Point2::new(10.0, 14.0), 3.0);
     let middle = center(&sketch, circle);
+
     add(
         &mut sketch,
         Constraint::Fix {
@@ -1179,9 +1327,11 @@ fn a_line_and_a_circle_touch_a_spline_where_it_bulges() {
     let solved = solve(&sketch).unwrap();
 
     let (start, end) = ends(&sketch, line);
+
     assert_close(at(&solved, start).y, 5.0);
     assert_close(at(&solved, end).y, 5.0);
     assert_close(solved.geometry.circle(circle).unwrap().1, 9.0);
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
     assert!(solved.solution.redundancies().is_empty());
 }
@@ -1189,6 +1339,7 @@ fn a_line_and_a_circle_touch_a_spline_where_it_bulges() {
 #[test]
 fn a_line_joined_to_a_spline_end_turns_along_its_first_leg() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let line = sketch.add_line(Point2::new(-8.0, -5.0), Point2::new(0.5, 0.2));
     let (start, end) = ends(&sketch, line);
@@ -1199,6 +1350,7 @@ fn a_line_joined_to_a_spline_end_turns_along_its_first_leg() {
     else {
         panic!("expected a spline");
     };
+
     add(&mut sketch, Constraint::Coincident(end, control_points[0]));
     add(
         &mut sketch,
@@ -1213,7 +1365,9 @@ fn a_line_joined_to_a_spline_end_turns_along_its_first_leg() {
     let solved = solve(&sketch).unwrap();
 
     let expected = Point2::new(-10.0, -10.0) / 2.0_f64.sqrt();
+
     assert_near(at(&solved, start), expected);
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert!(solved.solution.redundancies().is_empty());
 }
@@ -1221,13 +1375,16 @@ fn a_line_joined_to_a_spline_end_turns_along_its_first_leg() {
 #[test]
 fn a_settled_spline_tangency_is_remembered_by_the_next_solve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let line = sketch.add_line(Point2::new(4.0, 6.5), Point2::new(15.0, 6.0));
+
     add(&mut sketch, Constraint::Horizontal(line));
     add(&mut sketch, Constraint::Tangent(line, spline));
 
     let fresh = solve(&sketch).unwrap();
     let settled = fresh.geometry.clone();
+
     let again = settled
         .solve_from(&no_parameters, &|| false, &[], Some(&fresh.memo))
         .unwrap();
@@ -1240,6 +1397,7 @@ fn a_settled_spline_tangency_is_remembered_by_the_next_solve() {
 #[test]
 fn a_spline_lying_along_the_axis_it_touches_solves_again_from_where_it_settled() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let start = sketch.add_point(Point2::new(0.0, -4.0));
     let rest = [
         Point2::new(0.0, 8.0),
@@ -1248,7 +1406,9 @@ fn a_spline_lying_along_the_axis_it_touches_solves_again_from_where_it_settled()
     ]
     .map(|position| sketch.add_point(position));
     let spline = EntityId::from_raw(sketch.next_id());
+
     let control_points = [start, start, rest[0], rest[1], rest[2]].to_vec();
+
     sketch
         .insert_entity(spline, Entity::spline(control_points))
         .unwrap();
@@ -1265,6 +1425,7 @@ fn a_spline_lying_along_the_axis_it_touches_solves_again_from_where_it_settled()
 #[test]
 fn a_spline_touching_an_axis_at_a_cusp_solves_again_whenever_it_solves() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let [first, turn, last] = [
         Point2::new(9.49998, -7.00002),
         Point2::new(-7.00002, -7.0),
@@ -1272,7 +1433,9 @@ fn a_spline_touching_an_axis_at_a_cusp_solves_again_whenever_it_solves() {
     ]
     .map(|position| sketch.add_point(position));
     let spline = EntityId::from_raw(sketch.next_id());
+
     let control_points = [first, turn, turn, last, turn].to_vec();
+
     sketch
         .insert_entity(spline, Entity::spline(control_points))
         .unwrap();
@@ -1300,6 +1463,7 @@ fn control_points(sketch: &Sketch, spline: EntityId) -> Vec<EntityId> {
 
 fn guide(sketch: &mut Sketch, position: Point2) -> EntityId {
     let point = sketch.add_point(position);
+
     fix(sketch, point);
     point
 }
@@ -1343,6 +1507,7 @@ fn the_end_factor_gives_the_curvature_at_either_end_of_a_spline() {
             let [tangent, bend] = chord.derivatives(parameter);
             tangent.perp_dot(bend) / tangent.length().powi(3)
         };
+
         let start = signed_curvature(
             control[0],
             control[1],
@@ -1367,19 +1532,24 @@ fn the_end_factor_gives_the_curvature_at_either_end_of_a_spline() {
 #[test]
 fn two_splines_joined_end_to_end_turn_tangent_at_the_joint() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = arch(&mut sketch);
     let second = sketch.add_spline(&[
         Point2::new(20.0, 0.0),
         Point2::new(25.0, 3.0),
         Point2::new(30.0, 0.0),
     ]);
+
     let (ours, theirs) = (
         control_points(&sketch, first),
         control_points(&sketch, second),
     );
+
     add(&mut sketch, Constraint::Coincident(theirs[0], ours[2]));
     fix(&mut sketch, theirs[2]);
+
     let column = guide(&mut sketch, Point2::new(25.0, -20.0));
+
     add(
         &mut sketch,
         Constraint::VerticalPoints(theirs[1], column.into()),
@@ -1389,6 +1559,7 @@ fn two_splines_joined_end_to_end_turn_tangent_at_the_joint() {
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, theirs[1]), Point2::new(25.0, -5.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert!(solved.solution.redundancies().is_empty());
 }
@@ -1396,6 +1567,7 @@ fn two_splines_joined_end_to_end_turn_tangent_at_the_joint() {
 #[test]
 fn curvature_between_splines_needs_them_to_share_an_end() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = arch(&mut sketch);
     let apart = sketch.add_spline(&[
         Point2::new(30.0, 0.0),
@@ -1405,10 +1577,12 @@ fn curvature_between_splines_needs_them_to_share_an_end() {
     let straight = sketch.add_spline(&[Point2::new(20.0, 0.0), Point2::new(30.0, -4.0)]);
     let line = sketch.add_line(Point2::new(0.0, -5.0), Point2::new(10.0, -5.0));
     let circle = sketch.add_circle(Point2::new(0.0, -20.0), 3.0);
+
     let joined = Constraint::Coincident(
         control_points(&sketch, straight)[0],
         control_points(&sketch, first)[2],
     );
+
     add(&mut sketch, joined);
 
     let refused = |constraint: Constraint| {
@@ -1434,23 +1608,31 @@ fn curvature_between_splines_needs_them_to_share_an_end() {
 #[test]
 fn a_spline_joined_to_an_arc_with_curvature_bends_as_the_arc_does() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
     let middle = center(&sketch, arc);
+
     fix(&mut sketch, middle);
+
     let Some(&Entity::Arc { start, end, .. }) = sketch.entity(arc) else {
         panic!("expected an arc");
     };
+
     fix(&mut sketch, start);
     fix(&mut sketch, end);
+
     let spline = sketch.add_spline(&[
         Point2::new(10.0, 0.0),
         Point2::new(10.0, -5.0),
         Point2::new(8.0, -12.0),
     ]);
     let points = control_points(&sketch, spline);
+
     add(&mut sketch, Constraint::Coincident(points[0], start));
     fix(&mut sketch, points[1]);
+
     let row = guide(&mut sketch, Point2::new(-20.0, -12.0));
+
     add(
         &mut sketch,
         Constraint::HorizontalPoints(points[2], row.into()),
@@ -1460,24 +1642,34 @@ fn a_spline_joined_to_an_arc_with_curvature_bends_as_the_arc_does() {
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, points[2]), Point2::new(5.0, -12.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert!(solved.solution.redundancies().is_empty());
+
     let [tangent, bend] = solved.geometry.spline(spline).unwrap().derivatives(0.0);
+
     let curvature = tangent.perp_dot(bend) / tangent.length().powi(3);
+
     assert_close(curvature, -0.1);
 }
 
 #[test]
 fn a_spline_running_on_from_a_line_with_curvature_starts_straight() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(-10.0, 0.0), Point2::ZERO);
+
     fix_line(&mut sketch, line);
+
     let (_, end) = ends(&sketch, line);
     let spline = sketch.add_spline(&[Point2::ZERO, Point2::new(5.0, 0.5), Point2::new(10.0, 3.0)]);
     let points = control_points(&sketch, spline);
+
     add(&mut sketch, Constraint::Coincident(points[0], end));
+
     let near = guide(&mut sketch, Point2::new(5.0, -20.0));
     let far = guide(&mut sketch, Point2::new(10.0, -20.0));
+
     add(
         &mut sketch,
         Constraint::VerticalPoints(points[1], near.into()),
@@ -1493,6 +1685,7 @@ fn a_spline_running_on_from_a_line_with_curvature_starts_straight() {
 
     assert_near(at(&solved, points[1]), Point2::new(5.0, 0.0));
     assert_near(at(&solved, points[2]), Point2::new(10.0, 0.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert!(solved.solution.redundancies().is_empty());
 }
@@ -1500,19 +1693,24 @@ fn a_spline_running_on_from_a_line_with_curvature_starts_straight() {
 #[test]
 fn two_splines_with_curvature_bend_alike_through_their_joint() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = arch(&mut sketch);
     let second = sketch.add_spline(&[
         Point2::new(20.0, 0.0),
         Point2::new(25.0, -2.0),
         Point2::new(30.0, -8.0),
     ]);
+
     let (ours, theirs) = (
         control_points(&sketch, first),
         control_points(&sketch, second),
     );
+
     add(&mut sketch, Constraint::Coincident(theirs[0], ours[2]));
+
     let near = guide(&mut sketch, Point2::new(25.0, 20.0));
     let far = guide(&mut sketch, Point2::new(30.0, 20.0));
+
     add(
         &mut sketch,
         Constraint::VerticalPoints(theirs[1], near.into()),
@@ -1528,6 +1726,7 @@ fn two_splines_with_curvature_bend_alike_through_their_joint() {
 
     assert_near(at(&solved, theirs[1]), Point2::new(25.0, -5.0));
     assert_near(at(&solved, theirs[2]), Point2::new(30.0, -15.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert!(solved.solution.redundancies().is_empty());
 }
@@ -1535,13 +1734,16 @@ fn two_splines_with_curvature_bend_alike_through_their_joint() {
 #[test]
 fn a_point_keeps_its_distance_from_a_spline_measured_square_to_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let point = sketch.add_point(Point2::new(10.0, 9.0));
     let column = guide(&mut sketch, Point2::new(10.0, -20.0));
+
     add(
         &mut sketch,
         Constraint::VerticalPoints(point, column.into()),
     );
+
     let measured = sketch
         .measured(&Constraint::Distance {
             from: point,
@@ -1549,6 +1751,7 @@ fn a_point_keeps_its_distance_from_a_spline_measured_square_to_it() {
             value: mm(0.0),
         })
         .unwrap();
+
     add(
         &mut sketch,
         Constraint::Distance {
@@ -1562,8 +1765,10 @@ fn a_point_keeps_its_distance_from_a_spline_measured_square_to_it() {
 
     assert_close(measured, 4.0);
     assert_near(at(&solved, point), Point2::new(10.0, 8.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert!(solved.solution.redundancies().is_empty());
+
     let distance = solved
         .geometry
         .measured(&Constraint::Distance {
@@ -1572,15 +1777,18 @@ fn a_point_keeps_its_distance_from_a_spline_measured_square_to_it() {
             value: mm(0.0),
         })
         .unwrap();
+
     assert_close(distance, 3.0);
 }
 
 #[test]
 fn a_point_off_the_side_of_a_spline_slides_to_its_distance_along_a_guide() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let point = sketch.add_point(Point2::new(4.0, 1.0));
     let row = guide(&mut sketch, Point2::new(-30.0, 1.0));
+
     add(&mut sketch, Constraint::HorizontalPoints(point, row.into()));
     add(
         &mut sketch,
@@ -1601,8 +1809,10 @@ fn a_point_off_the_side_of_a_spline_slides_to_its_distance_along_a_guide() {
             value: mm(0.0),
         })
         .unwrap();
+
     assert_close(distance, 2.0);
     assert_close(at(&solved, point).y, 1.0);
+
     assert!(at(&solved, point).x > 4.0);
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
 }
@@ -1610,24 +1820,31 @@ fn a_point_off_the_side_of_a_spline_slides_to_its_distance_along_a_guide() {
 #[test]
 fn a_line_and_a_circle_keep_their_distance_from_a_spline_where_it_bulges() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let line = sketch.add_line(Point2::new(4.0, 7.5), Point2::new(15.0, 7.0));
+
     add(&mut sketch, Constraint::Horizontal(line));
+
     let circle = sketch.add_circle(Point2::new(10.0, 14.0), 3.0);
     let middle = center(&sketch, circle);
+
     fix(&mut sketch, middle);
+
     let gap = |from: EntityId, to: EntityId, value: f64| Constraint::Distance {
         from,
         to,
         value: mm(value),
     };
     let measured_circle = sketch.measured(&gap(spline, circle, 0.0)).unwrap();
+
     add(&mut sketch, gap(line, spline, 3.0));
     add(&mut sketch, gap(spline, circle, 2.0));
 
     let solved = solve(&sketch).unwrap();
 
     let (start, end) = ends(&sketch, line);
+
     assert_close(measured_circle, 6.0);
     assert_close(at(&solved, start).y, 8.0);
     assert_close(at(&solved, end).y, 8.0);
@@ -1636,6 +1853,7 @@ fn a_line_and_a_circle_keep_their_distance_from_a_spline_where_it_bulges() {
         solved.geometry.measured(&gap(line, spline, 0.0)).unwrap(),
         3.0,
     );
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
     assert!(solved.solution.redundancies().is_empty());
 }
@@ -1643,8 +1861,10 @@ fn a_line_and_a_circle_keep_their_distance_from_a_spline_where_it_bulges() {
 #[test]
 fn a_spline_below_a_spline_keeps_its_distance_on_the_side_it_was_drawn() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let line = sketch.add_line(Point2::new(0.0, -2.0), Point2::new(20.0, -2.5));
+
     add(&mut sketch, Constraint::Horizontal(line));
     add(
         &mut sketch,
@@ -1658,12 +1878,14 @@ fn a_spline_below_a_spline_keeps_its_distance_on_the_side_it_was_drawn() {
     let solved = solve(&sketch).unwrap();
 
     let (start, _) = ends(&sketch, line);
+
     assert!(at(&solved, start).y < 5.0);
 }
 
 #[test]
 fn two_splines_touch_tangent_away_from_their_ends() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let below = arch(&mut sketch);
     let above = sketch.add_spline(&[
         Point2::new(0.0, 12.0),
@@ -1671,9 +1893,12 @@ fn two_splines_touch_tangent_away_from_their_ends() {
         Point2::new(20.0, 12.0),
     ]);
     let points = control_points(&sketch, above);
+
     fix(&mut sketch, points[0]);
     fix(&mut sketch, points[2]);
+
     let column = guide(&mut sketch, Point2::new(10.0, -20.0));
+
     add(
         &mut sketch,
         Constraint::VerticalPoints(points[1], column.into()),
@@ -1683,6 +1908,7 @@ fn two_splines_touch_tangent_away_from_their_ends() {
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, points[1]), Point2::new(10.0, -2.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert!(solved.solution.redundancies().is_empty());
 }
@@ -1690,6 +1916,7 @@ fn two_splines_touch_tangent_away_from_their_ends() {
 #[test]
 fn equal_splines_and_a_line_take_one_length() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = arch(&mut sketch);
     let other = sketch.add_spline(&[
         Point2::new(0.0, -10.0),
@@ -1697,6 +1924,7 @@ fn equal_splines_and_a_line_take_one_length() {
         Point2::new(16.0, -10.0),
     ]);
     let points = control_points(&sketch, other);
+
     fix(&mut sketch, points[0]);
     fix(&mut sketch, points[1]);
     add(
@@ -1704,8 +1932,10 @@ fn equal_splines_and_a_line_take_one_length() {
         Constraint::HorizontalPoints(points[0], points[2].into()),
     );
     add(&mut sketch, Constraint::Equal(spline, other));
+
     let line = sketch.add_line(Point2::new(0.0, -20.0), Point2::new(5.0, -20.0));
     let (start, end) = ends(&sketch, line);
+
     fix(&mut sketch, start);
     add(&mut sketch, Constraint::Horizontal(line));
     add(&mut sketch, Constraint::Equal(line, spline));
@@ -1720,9 +1950,12 @@ fn equal_splines_and_a_line_take_one_length() {
         .windows(2)
         .map(|pair| pair[0].distance(pair[1]))
         .sum();
+
     assert!((length - fine).abs() < 1e-3, "{length} against {fine}");
+
     assert_near(at(&solved, points[2]), Point2::new(20.0, -10.0));
     assert_near(at(&solved, end), Point2::new(length, -20.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert!(solved.solution.redundancies().is_empty());
 }
@@ -1730,15 +1963,19 @@ fn equal_splines_and_a_line_take_one_length() {
 #[test]
 fn an_angle_to_an_arc_is_measured_along_it_from_their_shared_end() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
     let Some(&Entity::Arc { center, start, end }) = sketch.entity(arc) else {
         panic!("expected an arc");
     };
+
     for point in [center, start, end] {
         fix(&mut sketch, point);
     }
+
     let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 1.0));
     let (from, to) = ends(&sketch, line);
+
     add(&mut sketch, Constraint::Coincident(from, start));
     add(
         &mut sketch,
@@ -1748,6 +1985,7 @@ fn an_angle_to_an_arc_is_measured_along_it_from_their_shared_end() {
             value: mm(10.0),
         },
     );
+
     let angle = |degrees: f64| Constraint::Angle {
         from: line,
         to: arc,
@@ -1755,27 +1993,33 @@ fn an_angle_to_an_arc_is_measured_along_it_from_their_shared_end() {
         value: Expression::Measure(degrees, Unit::Degree),
     };
     let drawn = sketch.measured(&angle(0.0)).unwrap();
+
     add(&mut sketch, angle(60.0));
 
     let solved = solve(&sketch).unwrap();
 
     let turned = 30.0_f64.to_radians();
+
     assert_close(drawn, 90.0 - 0.1_f64.atan().to_degrees());
     assert_near(
         at(&solved, to),
         Point2::new(10.0 + 10.0 * turned.cos(), 10.0 * turned.sin()),
     );
     assert_close(solved.geometry.measured(&angle(0.0)).unwrap(), 60.0);
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
 
     let mut at_end = Sketch::new(Plane::XY);
+
     let arc = at_end.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
     let Some(&Entity::Arc { end, .. }) = at_end.entity(arc) else {
         panic!("expected an arc");
     };
     let line = at_end.add_line(Point2::new(0.0, 10.0), Point2::new(-10.0, 10.0));
     let (joint, _) = ends(&at_end, line);
+
     add(&mut at_end, Constraint::Coincident(joint, end));
+
     let reading = at_end
         .measured(&Constraint::Angle {
             from: arc,
@@ -1784,5 +2028,6 @@ fn an_angle_to_an_arc_is_measured_along_it_from_their_shared_end() {
             value: mm(0.0),
         })
         .unwrap();
+
     assert_close(reading, 180.0);
 }

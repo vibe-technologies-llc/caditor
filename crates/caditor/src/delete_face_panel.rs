@@ -18,7 +18,7 @@ pub const DESCRIPTION: &str =
     "Removes the chosen faces and closes the gap by extending the faces around them";
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 enum DeleteFaceChangeError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -71,12 +71,15 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         opened,
     } = *row;
     let id = feature.id();
+
     widgets::caption(ui, "Faces to delete");
+
     let evaluation = model.evaluation();
     let mut previewed = Vec::new();
     let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
         face_rows(model.document(), bodies::input(evaluation, id), deletion)
     });
+
     ui.vertical(|ui| {
         if deletion.faces.is_empty() {
             ui.label(widgets::muted("None: nothing is deleted", ui));
@@ -86,6 +89,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
             let row = widgets::removable_row_hovered(ui, text, "Keep this face");
+
             if row.hovered && opened {
                 previewed = bodies::input(evaluation, id)
                     .map(|input| {
@@ -99,6 +103,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             }
             if row.removed {
                 let mut changed = deletion.clone();
+
                 changed.faces.remove(index);
                 actions.push(feature_fields::applied(
                     &feature.name,
@@ -106,6 +111,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
+
         let chosen = feature_fields::list_in_view(
             ui,
             opened,
@@ -138,6 +144,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         deletion,
         ..
     } = *row;
+
     widgets::properties(ui, ("delete-face-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         faces_row(ui, row, cache, actions);

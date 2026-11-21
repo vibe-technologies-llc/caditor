@@ -24,14 +24,14 @@ pub const MIXED: &str =
 const ANYTHING: &str =
     "A model opens; DXF and SVG drawings, STEP files and STL, OBJ and 3MF meshes are imported.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Situation {
     pub blocked: bool,
     pub importing: bool,
     pub into_sketch: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verdict {
     pub tone: Tone,
     pub title: String,
@@ -70,6 +70,7 @@ pub fn verdict(paths: &[PathBuf], situation: Situation) -> Verdict {
     if situation.blocked {
         return Verdict::warning("Not now", BLOCKED);
     }
+
     let models = paths.iter().filter(|path| is_model_file(path)).count();
     match (models, paths) {
         (0, _) if situation.importing => Verdict::warning("Not now", IMPORT_RUNNING),
@@ -92,6 +93,7 @@ fn importing(paths: &[PathBuf], situation: Situation) -> Verdict {
             "Dropping it reads it, then imports it or says why it cannot be imported.",
         );
     }
+
     let [path] = paths else {
         return Verdict::info(
             format!("Drop to import {} files", paths.len()),
@@ -111,6 +113,7 @@ pub fn show(ctx: &Context, area: Rect, hovered: &[HoveredFile], situation: Situa
     if hovered.is_empty() {
         return;
     }
+
     let paths: Vec<PathBuf> = hovered
         .iter()
         .filter_map(|file| file.path.clone())
@@ -122,7 +125,9 @@ pub fn show(ctx: &Context, area: Rect, hovered: &[HoveredFile], situation: Situa
     };
     let verdict = verdict(&paths, situation);
     let tokens = appearance::tokens_of(ctx);
+
     let color = verdict.tone.color(&tokens);
+
     ctx.layer_painter(LayerId::new(
         Order::Foreground,
         Id::unique("drop-target-frame"),
@@ -161,7 +166,9 @@ mod tests {
     fn a_hovered_file_is_judged_by_its_extension_without_reading_it() {
         let dir = TempDir::new().unwrap();
         let disguised = dir.path().join("part.txt");
+
         std::fs::write(&disguised, "ISO-10303-21;\nHEADER;\n").unwrap();
+
         let situation = Situation {
             blocked: false,
             importing: false,

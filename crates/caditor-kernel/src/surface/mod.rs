@@ -38,7 +38,7 @@ const HINT_PREFERENCE: f64 = 1e-3 * LINEAR_RESOLUTION;
 const SPAN_SEARCH_SHARE: f64 = 0.5;
 const MAX_OUTSIDE_SPANS: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SurfaceDerivatives {
     pub point: Point3,
     pub du: Vector3,
@@ -54,13 +54,13 @@ impl SurfaceDerivatives {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pole {
     pub v: f64,
     pub point: Point3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Surface {
     Plane(PlaneSurface),
@@ -271,6 +271,7 @@ impl Surface {
 
     pub fn project(&self, point: Point3, hint: Option<Point2>) -> Point2 {
         let hint = hint.filter(|hint| hint.is_finite());
+
         if !point.is_finite() {
             return hint.unwrap_or_else(|| {
                 Point2::new(self.u_domain().clamp(0.0), self.v_domain().clamp(0.0))
@@ -313,15 +314,19 @@ impl Surface {
         let from_hint = hint
             .map(|hint| foot(hint, &[]))
             .filter(|(distance, uv)| distance.is_finite() && uv.is_finite());
+
         if let (Some(hint), Some((distance, refined))) = (hint, from_hint)
             && distance <= LINEAR_RESOLUTION
         {
             return self.at_pole(spline.place(refined, Some(hint)), Some(hint));
         }
+
         let mut known: Vec<Point2> = from_hint.iter().map(|(_, uv)| *uv).collect();
         let mut best = from_hint;
+
         for seed in spline.project_seed(point) {
             let (distance, refined) = foot(seed, &known);
+
             known.push(refined);
             if best.is_none_or(|(closest, _)| distance < closest) {
                 best = Some((distance, refined));
@@ -334,6 +339,7 @@ impl Surface {
             for (hull, span) in spline.spans_near(point, SPAN_SEARCH_SHARE * reach) {
                 let beyond =
                     |closest: f64| hull > LINEAR_RESOLUTION.max(SPAN_SEARCH_SHARE * closest);
+
                 if best.is_some_and(|(closest, _)| beyond(closest)) {
                     break;
                 }
@@ -343,10 +349,12 @@ impl Surface {
                     }
                     outside += 1;
                 }
+
                 let Some(seed) = spline.span_seed(span, point) else {
                     continue;
                 };
                 let (distance, refined) = foot(seed, &known);
+
                 known.push(refined);
                 if best.is_none_or(|(closest, _)| distance < closest) {
                     best = Some((distance, refined));
@@ -356,6 +364,7 @@ impl Surface {
                 }
             }
         }
+
         let chosen = match (from_hint, best) {
             (Some((near, uv)), Some((closest, _))) if near <= closest + HINT_PREFERENCE => uv,
             (_, Some((_, uv))) => uv,
@@ -367,9 +376,11 @@ impl Surface {
     fn project_on_surface(&self, point: Point3, hint: Option<Point2>) -> Option<Point2> {
         let hint = hint?;
         let refined = projection::refine(self, point, hint);
+
         if !refined.is_finite() || self.point_at(refined).distance(point) > LINEAR_RESOLUTION {
             return None;
         }
+
         let u = periodic_near(refined.x, TAU, Some(hint.x));
         let v = match self.v_period() {
             Some(period) => periodic_near(refined.y, period, Some(hint.y)),

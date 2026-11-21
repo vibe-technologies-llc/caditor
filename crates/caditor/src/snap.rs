@@ -41,7 +41,7 @@ pub trait Screen {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
     Right,
     Top,
@@ -84,7 +84,7 @@ impl Side {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AxisEnd {
     FarMajor,
     MinorUpright,
@@ -92,7 +92,7 @@ pub enum AxisEnd {
     MinorSlanted,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Pending(usize),
     Point(EntityId),
@@ -381,19 +381,19 @@ impl Target {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Snapped {
     pub position: Point2,
     pub target: Target,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pointer {
     pub screen: Vector2,
     pub sketch: Point2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Accept {
     Anything,
     Points,
@@ -435,6 +435,7 @@ pub fn resolve_inferring(
         inferred,
         ..
     } = lookup;
+
     let nearest = |candidates: Vec<Snapped>, tolerance: f64| {
         nearest_within(candidates, screen, pointer, ignored, inferred, tolerance)
             .map(|(_, candidate)| candidate)
@@ -474,7 +475,7 @@ pub fn resolve_inferring(
         })
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Lookup<'a> {
     pub pending: &'a [(usize, Point2)],
     pub accept: Accept,
@@ -484,12 +485,12 @@ pub struct Lookup<'a> {
     pub inferred: Inferences,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Hold {
     pub grid: Option<f64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Held {
     Target(Snapped),
     Grid(Point2),
@@ -516,12 +517,16 @@ pub fn held(
         .map(|(_, candidate)| candidate)
     };
     let mut point_like = pending_snaps(lookup.pending);
+
     point_like.extend(accepted_points(sketch, lookup.accept));
+
     let curve_like = match lookup.accept {
         Accept::Anything => {
             point_like.extend(midpoints(sketch));
             point_like.extend(centres(sketch, &|id| lookup.ignored.contains(&id)));
+
             let mut curve_like = curves(sketch, pointer.sketch);
+
             point_like.extend(intersections(sketch, &curve_like, screen, pointer));
             point_like.extend(quadrants(sketch));
             point_like.extend(axis_ends(sketch));
@@ -535,6 +540,7 @@ pub fn held(
         grid.and_then(|spacing| grid_crossing_on(sketch, lookup.bodies, snapped, spacing))
             .unwrap_or(snapped)
     };
+
     let on_curve = || nearest(curve_like, pull(HELD_CURVE_PULL)).map(on_grid);
     let body_point = || {
         lookup.bodies?.point_within(
@@ -578,8 +584,10 @@ fn grid_crossing_on(
         Target::Curve(curve) => closest_on(sketch, curve, sketch.entity(curve)?, crossing)?,
         Target::Extension(line) => {
             let (start, end) = sketch.line_endpoints(line)?;
+
             let along = end - start;
             let length_squared = along.length_squared();
+
             if length_squared == 0.0 {
                 return None;
             }
@@ -596,6 +604,7 @@ fn grid_crossing_on(
         | Target::Centroid(_) => return None,
         Target::Body(target) => bodies?.foot(target, crossing)?,
     };
+
     let on = foot.distance(crossing) <= ON_GRID_TOLERANCE * (1.0 + crossing.abs().max_element());
     on.then_some(Snapped {
         position: crossing,
@@ -688,7 +697,7 @@ fn points_where(sketch: &Sketch, wanted: &impl Fn(Point2) -> bool) -> Vec<Snappe
 const NEAR_CURVE_PIXELS: f64 = 4.0 * POINT_TOLERANCE;
 const MAX_CROSSING_CURVES: usize = 12;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Geometry {
     Infinite(Point2, Vector2),
     Segment(Point2, Point2),
@@ -793,9 +802,12 @@ fn intersections(
             (distance <= NEAR_CURVE_PIXELS).then_some((distance, id, geometry(sketch, id)))
         })
         .collect();
+
     near.sort_by(|a, b| a.0.total_cmp(&b.0));
     near.truncate(MAX_CROSSING_CURVES);
+
     let mut found = Vec::new();
+
     for (index, first) in near.iter().enumerate() {
         for second in near.iter().skip(index + 1) {
             let (low, high) = if first.1 <= second.1 {
@@ -803,6 +815,7 @@ fn intersections(
             } else {
                 (second.1, first.1)
             };
+
             found.extend(
                 crossed(sketch, (first.1, first.2), (second.1, second.2))
                     .into_iter()
@@ -922,6 +935,7 @@ fn axis_end_points(sketch: &Sketch, curve: EntityId) -> Vec<(AxisEnd, Point2)> {
     };
     let across = ellipse.axis().perp() * ellipse.minor_radius;
     let slack = AXIS_TOLERANCE * ellipse.major_radius();
+
     let minor = if ellipse.major.y.abs() <= slack {
         AxisEnd::MinorUpright
     } else if ellipse.major.x.abs() <= slack {
@@ -978,6 +992,7 @@ pub fn position_of(
     if target.touches(ignored) {
         return None;
     }
+
     let nearest = |places: Vec<Point2>| {
         places.into_iter().min_by(|a, b| {
             a.distance_squared(near)
@@ -1012,6 +1027,7 @@ pub fn position_of(
         } => Some(sketch.point(first)?.midpoint(sketch.point(second)?)),
         Target::Centroid(outline) => {
             let (lines, steps) = loop_through(sketch, outline)?;
+
             if moves(&lines, &steps, &|id| ignored.contains(&id)) {
                 return None;
             }
@@ -1082,9 +1098,11 @@ pub fn tangents_from(
 fn touching_ellipse(from: Point2, ellipse: &EllipseGeometry) -> Vec<Point2> {
     let (axis, across) = (ellipse.axis(), ellipse.axis().perp());
     let (major, minor) = (ellipse.major_radius(), ellipse.minor_radius);
+
     if major <= 0.0 || minor <= 0.0 {
         return Vec::new();
     }
+
     let offset = from - ellipse.center;
     let scaled = Point2::new(offset.dot(axis) / major, offset.dot(across) / minor);
     touching(scaled, Point2::ZERO, 1.0)
@@ -1097,9 +1115,11 @@ fn touching_ellipse(from: Point2, ellipse: &EllipseGeometry) -> Vec<Point2> {
 fn touching(from: Point2, centre: Point2, radius: f64) -> Vec<Point2> {
     let away = from - centre;
     let distance = away.length();
+
     if radius <= 0.0 || distance <= radius * (1.0 + TANGENT_CLEARANCE) {
         return Vec::new();
     }
+
     let toward = away / distance;
     let along = radius * radius / distance;
     let across = radius * (1.0 - (radius / distance).powi(2)).sqrt();
@@ -1173,6 +1193,7 @@ fn loop_through(sketch: &Sketch, piece: EntityId) -> Option<(Vec<OutlineLine>, V
     let first = lines.iter().position(|line| line.id == piece)?;
     let partners = corner_partners(&lines, joined_tolerance(&lines));
     let mut visited = vec![false; lines.len()];
+
     let steps = closed_outline(&lines, &partners, first, &mut visited)?;
     Some((lines, steps))
 }
@@ -1186,6 +1207,7 @@ fn minor_end_offset(sketch: &Sketch, ellipse: EntityId, end: EllipseEnd, at: Poi
 
 pub fn centroid_members(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>> {
     let (lines, steps) = loop_through(sketch, piece)?;
+
     let pieces = pieces_of(&lines, &steps)?;
     Some(if is_straight(&pieces) {
         steps.iter().map(|step| step.corner.0).collect()
@@ -1207,19 +1229,23 @@ pub fn outline_through(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>
 fn centres(sketch: &Sketch, moving: &impl Fn(EntityId) -> bool) -> Vec<Snapped> {
     let lines = outline_pieces(sketch);
     let tolerance = joined_tolerance(&lines);
+
     let partners = corner_partners(&lines, tolerance);
     let mut visited = vec![false; lines.len()];
     let mut found = Vec::new();
+
     for first in 0..lines.len() {
         if visited.get(first).copied().unwrap_or(true) {
             continue;
         }
+
         let Some(outline) = closed_outline(&lines, &partners, first, &mut visited) else {
             continue;
         };
         let Some(id) = lines.get(first).map(|line| line.id) else {
             continue;
         };
+
         if moves(&lines, &outline, moving) {
             continue;
         }
@@ -1265,22 +1291,26 @@ pub fn nearest_moved(
     if moved.is_empty() || reach <= 0.0 {
         return None;
     }
+
     let cell = |at: Vector2| {
         let index = (at / reach).floor().as_i64vec2();
         (index.x, index.y)
     };
     let mut cells: BTreeMap<(i64, i64), Vec<(EntityId, Vector2)>> = BTreeMap::new();
     let mut window = (Vector2::INFINITY, Vector2::NEG_INFINITY);
+
     for (point, at) in moved {
         cells.entry(cell(*at)).or_default().push((*point, *at));
         window = (window.0.min(*at - reach), window.1.max(*at + reach));
     }
+
     let is_moving = |id: EntityId| moving.contains(&id);
     let on_screen = |position: Point2| {
         screen
             .to_screen(position)
             .is_some_and(|at| !at.cmplt(window.0).any() && !at.cmpgt(window.1).any())
     };
+
     let targets = points_where(sketch, &on_screen)
         .into_iter()
         .chain(midpoints_where(sketch, &on_screen))
@@ -1289,14 +1319,18 @@ pub fn nearest_moved(
         .chain(axis_ends_where(sketch, &on_screen))
         .filter(|candidate| inferred.allows_target(candidate.target));
     let mut nearest: Option<(f64, EntityId)> = None;
+
     for target in targets {
         let Some(at) = screen.to_screen(target.position) else {
             continue;
         };
+
         if at.cmplt(window.0).any() || at.cmpgt(window.1).any() {
             continue;
         }
+
         let (column, row) = cell(at);
+
         let near = (-1..=1)
             .flat_map(|across| (-1..=1).map(move |down| (column + across, row + down)))
             .filter_map(|key| cells.get(&key))
@@ -1324,6 +1358,7 @@ fn centroid(lines: &[OutlineLine], steps: &[OutlineStep]) -> Option<Point2> {
     if steps.len() < 3 {
         return None;
     }
+
     let pieces = pieces_of(lines, steps)?;
     let boundary: Vec<Point2> = pieces
         .iter()
@@ -1331,6 +1366,7 @@ fn centroid(lines: &[OutlineLine], steps: &[OutlineStep]) -> Option<Point2> {
         .flat_map(|(piece, step)| [piece.middle, step.corner.1])
         .collect();
     let anchor = *boundary.first()?;
+
     let twice_area: f64 = boundary
         .iter()
         .zip(boundary.iter().cycle().skip(1))
@@ -1340,9 +1376,11 @@ fn centroid(lines: &[OutlineLine], steps: &[OutlineStep]) -> Option<Point2> {
         .iter()
         .map(|place| place.distance(anchor))
         .fold(0.0, larger);
+
     if twice_area.abs() <= DEGENERATE_AREA * span * span {
         return None;
     }
+
     let places: Vec<Point2> = if is_straight(&pieces) {
         steps.iter().map(|step| step.corner.1).collect()
     } else {
@@ -1369,8 +1407,11 @@ fn corner_partners(lines: &[OutlineLine], tolerance: f64) -> Vec<Option<(usize, 
             })
         })
         .collect();
+
     corners.sort_by(|a, b| a.position.x.total_cmp(&b.position.x));
+
     let mut meeting: Vec<Vec<usize>> = vec![Vec::new(); corners.len()];
+
     for (index, corner) in corners.iter().enumerate() {
         for (offset, other) in corners.iter().enumerate().skip(index + 1) {
             if other.position.x - corner.position.x > tolerance {
@@ -1386,7 +1427,9 @@ fn corner_partners(lines: &[OutlineLine], tolerance: f64) -> Vec<Option<(usize, 
             }
         }
     }
+
     let mut partners = vec![None; 2 * lines.len()];
+
     for (corner, others) in corners.iter().zip(&meeting) {
         let [other] = others.as_slice() else {
             continue;
@@ -1415,7 +1458,9 @@ fn closed_outline(
         if let Some(seen) = visited.get_mut(line) {
             *seen = true;
         }
+
         let current = lines.get(line)?;
+
         steps.push(OutlineStep {
             corner: if leaving_end {
                 current.end
@@ -1427,7 +1472,9 @@ fn closed_outline(
         if steps.len() > MAX_OUTLINE_LINES {
             return None;
         }
+
         let (next, arriving_end) = (*partners.get(2 * line + usize::from(leaving_end))?)?;
+
         if next == first {
             return (!arriving_end).then_some(steps);
         }
@@ -1449,11 +1496,14 @@ fn symmetric_centre(
     tolerance: f64,
 ) -> Option<(Point2, (EntityId, EntityId))> {
     let count = steps.len();
+
     if count < 4 || !count.is_multiple_of(2) {
         return None;
     }
+
     let half = count / 2;
     let (first, opposite) = (steps.first()?.corner, steps.get(half)?.corner);
+
     let centre = first.1.midpoint(opposite.1);
     let mirrored = |a: Point2, b: Point2| a.midpoint(b).distance(centre) <= tolerance;
     let symmetric = steps
@@ -1500,11 +1550,14 @@ fn extensions(sketch: &Sketch, lines: &[EntityId], at: Point2) -> Vec<Snapped> {
         .iter()
         .filter_map(|line| {
             let (start, end) = sketch.line_endpoints(*line)?;
+
             let along = end - start;
             let length_squared = along.length_squared();
+
             if length_squared == 0.0 {
                 return None;
             }
+
             let fraction = (at - start).dot(along) / length_squared;
             (!(0.0..=1.0).contains(&fraction)).then(|| Snapped {
                 position: start + along * fraction,
@@ -1516,6 +1569,7 @@ fn extensions(sketch: &Sketch, lines: &[EntityId], at: Point2) -> Vec<Snapped> {
 
 pub fn extension_guide(sketch: &Sketch, line: EntityId, to: Point2) -> Option<[Point2; 2]> {
     let (start, end) = sketch.line_endpoints(line)?;
+
     let nearer = if start.distance_squared(to) <= end.distance_squared(to) {
         start
     } else {
@@ -1616,15 +1670,19 @@ fn line_crossings(
     radius: f64,
 ) -> Vec<(f64, Point2)> {
     let length_squared = along.length_squared();
+
     if length_squared == 0.0 {
         return Vec::new();
     }
+
     let foot = (center - through).dot(along) / length_squared;
     let closest = through + along * foot;
     let half_chord_squared = radius * radius - closest.distance_squared(center);
+
     if half_chord_squared < 0.0 {
         return Vec::new();
     }
+
     let half = half_chord_squared.sqrt() / length_squared.sqrt();
     [foot - half, foot + half]
         .into_iter()
@@ -1635,16 +1693,19 @@ fn line_crossings(
 fn circle_crossings(center: Point2, radius: f64, other: Point2, other_radius: f64) -> Vec<Point2> {
     let between = other - center;
     let distance = between.length();
+
     if distance == 0.0
         || distance > radius + other_radius
         || distance < (radius - other_radius).abs()
     {
         return Vec::new();
     }
+
     let along =
         (radius * radius - other_radius * other_radius + distance * distance) / (2.0 * distance);
     let half_chord = (radius * radius - along * along).max(0.0).sqrt();
     let direction = between / distance;
+
     let middle = center + direction * along;
     let across = direction.perp() * half_chord;
     vec![middle + across, middle - across]
@@ -1672,6 +1733,7 @@ pub fn crossing_along(
         | Target::Body(_) => return None,
     };
     let on_part = |fraction: f64| (0.0..=1.0).contains(&fraction) != extended;
+
     let crossings: Vec<Point2> = if curve == EntityId::HORIZONTAL_AXIS {
         straight_crossing(through, along, Point2::ZERO, Vector2::X)
             .map(|(_, position)| position)
@@ -1743,9 +1805,11 @@ fn straight_crossing(
     direction: Vector2,
 ) -> Option<(f64, Point2)> {
     let denominator = along.perp_dot(direction);
+
     if denominator.abs() <= PARALLEL_TOLERANCE * along.length() * direction.length() {
         return None;
     }
+
     let fraction = along.perp_dot(through - origin) / denominator;
     Some((fraction, origin + direction * fraction))
 }
@@ -1759,9 +1823,11 @@ fn within_sweep(arc: &ArcGeometry, position: Point2) -> bool {
 pub fn closest_on_segment(start: Point2, end: Point2, at: Point2) -> Point2 {
     let along = end - start;
     let length_squared = along.length_squared();
+
     if length_squared == 0.0 {
         return start;
     }
+
     let fraction = ((at - start).dot(along) / length_squared).clamp(0.0, 1.0);
     start + along * fraction
 }
@@ -1826,6 +1892,7 @@ pub mod tests {
     #[test]
     fn a_held_snap_pulls_from_further_and_takes_a_grid_crossing_when_it_is_nearer() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let lone = sketch.add_point(Point2::new(21.0, 21.0));
         let line = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(40.0, 30.0));
         let on_point = Held::Target(Snapped {
@@ -1861,6 +1928,7 @@ pub mod tests {
             position: Point2::new(10.0, 30.0),
             target: Target::Curve(line),
         });
+
         assert_eq!(
             held_at(&sketch, Point2::new(12.0, 31.2), Some(5.0)),
             Some(on_line_at_a_crossing)
@@ -1889,6 +1957,7 @@ pub mod tests {
         else {
             panic!("the slanted line should take the point");
         };
+
         assert_eq!(off_the_grid.target, Target::Curve(slanted));
         assert!((off_the_grid.position.y - (50.0 + 0.075 * off_the_grid.position.x)).abs() < 1e-9);
     }
@@ -1896,14 +1965,17 @@ pub mod tests {
     #[test]
     fn points_win_over_curves_within_their_tolerance() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(30.0, 10.0));
         let start = point_of(&sketch, line, 0);
 
         let near_start = resolve_at(&sketch, Point2::new(10.7, 10.1)).unwrap();
+
         assert_eq!(near_start.target, Target::Point(start));
         assert_eq!(near_start.position, Point2::new(10.0, 10.0));
 
         let on_line = resolve_at(&sketch, Point2::new(16.0, 10.5)).unwrap();
+
         assert_eq!(on_line.target, Target::Curve(line));
         assert_eq!(on_line.position, Point2::new(16.0, 10.0));
 
@@ -1914,9 +1986,11 @@ pub mod tests {
     #[test]
     fn the_middle_of_a_line_is_a_snap_target_ahead_of_the_line_but_not_of_points_or_circles() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(30.0, 10.0));
 
         let middle = resolve_at(&sketch, Point2::new(20.4, 10.6)).unwrap();
+
         assert_eq!(middle.target, Target::Midpoint(line));
         assert_eq!(middle.position, Point2::new(20.0, 10.0));
         assert_eq!(middle.target.entity(), Some(line));
@@ -1930,7 +2004,9 @@ pub mod tests {
             &[],
             &[],
         );
+
         assert_eq!(only_points, None);
+
         let on_circle = resolve(
             &sketch,
             &Scaled(10.0),
@@ -1943,12 +2019,14 @@ pub mod tests {
             &[],
             &[],
         );
+
         assert_eq!(on_circle, None);
     }
 
     #[test]
     fn a_kind_turned_off_is_never_a_snap_target_and_the_next_one_takes_over() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(30.0, 10.0));
         let ends = sketch.line_endpoints(line).unwrap();
         let near_middle = Point2::new(20.4, 10.6);
@@ -1966,10 +2044,15 @@ pub mod tests {
                 .map(|snapped| snapped.target)
         };
         let mut without_middles = Inferences::default();
+
         without_middles.set(Inference::Midpoint, false);
+
         let mut without_points = Inferences::default();
+
         without_points.set(Inference::Coincident, false);
+
         let mut without_either = without_points;
+
         without_either.set(Inference::OnCurve, false);
 
         assert_eq!(
@@ -1994,6 +2077,7 @@ pub mod tests {
     #[test]
     fn the_middle_of_an_arc_is_a_snap_target_however_far_it_sweeps() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let quarter = sketch.add_arc(
             Point2::new(0.0, 0.0),
             Point2::new(10.0, 0.0),
@@ -2031,6 +2115,7 @@ pub mod tests {
     #[test]
     fn a_point_like_target_is_found_again_where_it_lies_now() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(-20.0, 0.0), Point2::new(20.0, 0.0));
         let circle = sketch.add_circle(Point2::ZERO, 10.0);
         let triangle = outline(
@@ -2041,6 +2126,7 @@ pub mod tests {
                 Point2::new(30.0, 30.0),
             ],
         );
+
         let crossing = Target::Intersection(line.min(circle), line.max(circle));
         let centroid = Target::Centroid(triangle[0]);
         let corner = point_of(&sketch, triangle[1], 1);
@@ -2071,6 +2157,7 @@ pub mod tests {
     #[test]
     fn the_centre_of_a_closed_outline_symmetric_about_it_is_a_snap_target() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let square = outline(
             &mut sketch,
             &[
@@ -2085,6 +2172,7 @@ pub mod tests {
                 Point2::new(80.0, 20.0) + Vector2::from_angle(f64::from(step) * TAU / 6.0) * 10.0
             })
             .collect();
+
         outline(&mut sketch, &hexagon);
         outline(
             &mut sketch,
@@ -2095,6 +2183,7 @@ pub mod tests {
                 Point2::new(20.0, -20.0),
             ],
         );
+
         let corner = |line: EntityId, index: usize| sketch.entity(line).unwrap().points()[index];
 
         let centre = resolve_at(&sketch, Point2::new(20.4, 19.7)).unwrap();
@@ -2117,6 +2206,7 @@ pub mod tests {
     #[test]
     fn an_outline_of_odd_sides_snaps_to_the_centre_of_its_corners_and_holds_a_point_there() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let triangle = outline(
             &mut sketch,
             &[
@@ -2130,7 +2220,9 @@ pub mod tests {
                 Point2::new(80.0, 20.0) + Vector2::from_angle(f64::from(step) * TAU / 5.0) * 10.0
             })
             .collect();
+
         outline(&mut sketch, &pentagon);
+
         let corner = sketch.entity(triangle[1]).unwrap().points()[0];
 
         let centre = resolve_at(&sketch, Point2::new(10.3, 9.8)).unwrap();
@@ -2147,11 +2239,14 @@ pub mod tests {
 
         let corners = centroid_members(&sketch, triangle[0]).unwrap();
         let mut sorted = corners.clone();
+
         sorted.sort_unstable();
+
         let mut expected: Vec<EntityId> = triangle
             .iter()
             .map(|line| sketch.entity(*line).unwrap().points()[1])
             .collect();
+
         expected.sort_unstable();
 
         assert_eq!(centre.target, Target::Centroid(triangle[0]));
@@ -2173,6 +2268,7 @@ pub mod tests {
     #[test]
     fn an_outline_of_odd_sides_with_an_arc_snaps_to_the_middle_of_its_sides() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let pieces = [
             sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 0.0)),
             sketch.add_arc(
@@ -2190,6 +2286,7 @@ pub mod tests {
         let centre = resolve_at(&sketch, expected + Vector2::new(0.03, -0.02)).unwrap();
         let members = centroid_members(&sketch, pieces[0]).unwrap();
         let mut sorted = members.clone();
+
         sorted.sort_unstable();
 
         assert_eq!(centre.target, Target::Centroid(pieces[0]));
@@ -2221,6 +2318,7 @@ pub mod tests {
     #[test]
     fn the_moving_point_nearest_a_point_target_is_found_without_the_moving_ones() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let [start, end] = sketch.entity(line).unwrap().points()[..] else {
             panic!("a line has two ends");
@@ -2228,6 +2326,7 @@ pub mod tests {
         let lone = sketch.add_point(Point2::new(30.0, 20.0));
         let screen = Scaled(10.0);
         let moved = |at: Point2| screen.to_screen(at).unwrap();
+
         let moving = BTreeSet::from([start, end, line]);
 
         let found = nearest_moved(
@@ -2268,20 +2367,25 @@ pub mod tests {
     {
         let mut sketch = Sketch::new(Plane::XY);
         let mut seed = 99u64;
+
         let mut next = |span: f64| {
             seed = seed
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
             (seed >> 11) as f64 / (1u64 << 53) as f64 * span
         };
+
         for _ in 0..200 {
             let at = Point2::new(next(100.0), next(100.0));
+
             sketch.add_point(at);
         }
         for _ in 0..60 {
             let from = Point2::new(next(100.0), next(100.0));
+
             sketch.add_line(from, from + Vector2::new(next(10.0), next(10.0)));
         }
+
         let screen = Scaled(10.0);
         let moving = BTreeSet::new();
         let mut found = 0;
@@ -2323,6 +2427,7 @@ pub mod tests {
                 .map(|(_, point)| point);
 
             found += usize::from(indexed.is_some());
+
             assert_eq!(indexed, scanned);
         }
 
@@ -2338,31 +2443,37 @@ pub mod tests {
             Point2::new(30.0, 30.0),
             Point2::new(10.0, 30.0),
         ];
+
         let open: Vec<EntityId> = corners
             .windows(2)
             .map(|pair| sketch.add_line(pair[0], pair[1]))
             .collect();
+
         assert_eq!(open.len(), 3);
         assert_eq!(resolve_at(&sketch, Point2::new(20.0, 20.0)), None);
 
         sketch.add_line(corners[3], corners[0]);
         sketch.add_line(corners[0], Point2::new(0.0, 0.0));
+
         assert_eq!(resolve_at(&sketch, Point2::new(20.0, 20.0)), None);
     }
 
     #[test]
     fn where_two_curves_cross_is_a_snap_target_ahead_of_either_curve() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let across = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(40.0, 40.0));
         let level = sketch.add_line(Point2::new(5.0, 20.0), Point2::new(55.0, 20.0));
         let circle = sketch.add_circle(Point2::new(60.0, 20.0), 10.0);
 
         let crossing = resolve_at(&sketch, Point2::new(20.4, 20.6)).unwrap();
+
         assert_eq!(crossing.target, Target::Intersection(across, level));
         assert!(crossing.position.distance(Point2::new(20.0, 20.0)) < 1e-9);
         assert_eq!(crossing.target.second_entity(), Some(level));
 
         let on_rim = resolve_at(&sketch, Point2::new(50.3, 20.4)).unwrap();
+
         assert_eq!(
             on_rim.target,
             Target::Intersection(level, circle).min_ordered()
@@ -2373,7 +2484,9 @@ pub mod tests {
     #[test]
     fn curves_that_do_not_reach_each_other_have_no_crossing_to_snap_to() {
         let mut sketch = Sketch::new(Plane::XY);
+
         sketch.add_line(Point2::new(10.0, 10.0), Point2::new(18.0, 18.0));
+
         let level = sketch.add_line(Point2::new(5.0, 20.0), Point2::new(45.0, 20.0));
 
         let near_the_gap = resolve_at(&sketch, Point2::new(20.0, 20.3)).unwrap();
@@ -2384,6 +2497,7 @@ pub mod tests {
     #[test]
     fn the_axes_cross_other_curves_where_they_are_snapped() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(10.0, -6.0), Point2::new(10.0, 14.0));
 
         let crossing = resolve_at(&sketch, Point2::new(10.3, 0.4)).unwrap();
@@ -2401,14 +2515,19 @@ pub mod tests {
     #[test]
     fn the_origin_and_the_axes_are_snap_targets() {
         let sketch = Sketch::new(Plane::XY);
+
         assert_eq!(
             resolve_at(&sketch, Point2::new(0.3, -0.4)).map(|snapped| snapped.target),
             Some(Target::Point(EntityId::ORIGIN))
         );
+
         let on_axis = resolve_at(&sketch, Point2::new(25.0, 0.4)).unwrap();
+
         assert_eq!(on_axis.target, Target::Curve(EntityId::HORIZONTAL_AXIS));
         assert_eq!(on_axis.position, Point2::new(25.0, 0.0));
+
         let on_axis = resolve_at(&sketch, Point2::new(-0.5, -12.0)).unwrap();
+
         assert_eq!(on_axis.target, Target::Curve(EntityId::VERTICAL_AXIS));
         assert_eq!(on_axis.position, Point2::new(0.0, -12.0));
     }
@@ -2416,6 +2535,7 @@ pub mod tests {
     #[test]
     fn curves_project_the_pointer_onto_themselves() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let circle = sketch.add_circle(Point2::new(40.0, 40.0), 10.0);
         let arc = sketch.add_arc(
             Point2::new(-40.0, 40.0),
@@ -2429,11 +2549,13 @@ pub mod tests {
             Point2::new(40.0, 40.0) + Vector2::from_angle(1.0) * 9.6,
         )
         .unwrap();
+
         assert_eq!(on_circle.target, Target::Curve(circle));
         assert!(on_circle.position.distance(rim) < 1e-12);
 
         let off_middle = Point2::new(-40.0, 40.0) + Vector2::from_angle(0.2) * 10.3;
         let on_arc = resolve_at(&sketch, off_middle).unwrap();
+
         assert_eq!(on_arc.target, Target::Curve(arc));
         assert!((on_arc.position.distance(Point2::new(-40.0, 40.0)) - 10.0).abs() < 1e-12);
 
@@ -2443,10 +2565,13 @@ pub mod tests {
     #[test]
     fn pending_points_come_first_and_the_nearest_point_wins() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let near = sketch.add_point(Point2::new(20.0, 0.3));
+
         sketch.add_point(Point2::new(20.6, 0.0));
 
         let snapped = resolve_at(&sketch, Point2::new(20.0, 0.2)).unwrap();
+
         assert_eq!(snapped.target, Target::Point(near));
 
         let pending = resolve(
@@ -2458,6 +2583,7 @@ pub mod tests {
             &[],
             &[],
         );
+
         assert_eq!(
             pending.map(|snapped| snapped.target),
             Some(Target::Pending(3))
@@ -2466,12 +2592,14 @@ pub mod tests {
     #[test]
     fn a_point_on_a_circle_snaps_where_a_spline_crosses_it() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline(&[
             Point2::new(20.0, 30.0),
             Point2::new(32.0, 52.0),
             Point2::new(60.0, 44.0),
         ]);
         let center = Point2::new(40.0, 40.0);
+
         let [crossing, ..] = sketch.circle_crossings(spline, center, 10.0)[..] else {
             panic!("the spline crosses the circle");
         };
@@ -2498,8 +2626,11 @@ pub mod tests {
     #[test]
     fn a_point_on_a_circle_snaps_only_to_its_points_and_crossings() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let on = sketch.add_point(Point2::new(40.0, 50.0));
+
         sketch.add_point(Point2::new(47.5, 47.0));
+
         let line = sketch.add_line(Point2::new(46.0, 20.0), Point2::new(46.0, 60.0));
         let arc = sketch.add_arc(
             Point2::new(60.0, 40.0),
@@ -2561,8 +2692,11 @@ pub mod tests {
     #[test]
     fn a_rim_snaps_to_points_but_not_to_curves() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let point = sketch.add_point(Point2::new(30.0, 30.0));
+
         sketch.add_line(Point2::new(10.0, 10.0), Point2::new(10.0, 50.0));
+
         let rim = |at| {
             resolve(
                 &sketch,
@@ -2585,6 +2719,7 @@ pub mod tests {
     #[test]
     fn a_ray_crosses_a_curve_nearest_the_pointer() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 10.0));
         let circle = sketch.add_circle(Point2::new(50.0, 0.0), 10.0);
         let arc = sketch.add_arc(
@@ -2629,6 +2764,7 @@ pub mod tests {
     #[test]
     fn an_acquired_line_extends_past_its_ends_for_snapping() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
         let beyond = Point2::new(30.2, 29.8);
 
@@ -2644,6 +2780,7 @@ pub mod tests {
             &[],
         )
         .unwrap();
+
         assert_eq!(extended.target, Target::Extension(line));
         assert!(extended.position.distance(Point2::new(30.0, 30.0)) < 1e-12);
         assert_eq!(
@@ -2661,6 +2798,7 @@ pub mod tests {
             &[],
         )
         .unwrap();
+
         assert_eq!(on_it.target, Target::Curve(line));
 
         let across = crossing_along(
@@ -2670,7 +2808,9 @@ pub mod tests {
             Vector2::Y,
             beyond,
         );
+
         assert_eq!(across, Some(Point2::new(20.0, 20.0)));
+
         let inside = crossing_along(
             &sketch,
             Target::Extension(line),
@@ -2678,15 +2818,18 @@ pub mod tests {
             Vector2::Y,
             beyond,
         );
+
         assert_eq!(inside, None);
     }
 
     #[test]
     fn the_four_sides_of_a_circle_are_snap_targets_and_an_arc_keeps_those_it_sweeps() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let circle = sketch.add_circle(Point2::new(50.0, 0.0), 10.0);
         let centre = point_of(&sketch, circle, 0);
         let arc_centre = Point2::new(-50.0, 30.0);
+
         sketch.add_arc(
             arc_centre,
             arc_centre + Vector2::from_angle(-PI / 4.0) * 10.0,
@@ -2694,6 +2837,7 @@ pub mod tests {
         );
 
         let top = resolve_at(&sketch, Point2::new(50.4, 10.3)).unwrap();
+
         assert_eq!(
             top.target,
             Target::Quadrant {
@@ -2742,6 +2886,7 @@ pub mod tests {
     #[test]
     fn the_other_ends_of_an_ellipse_axes_and_the_middle_of_an_elliptical_arc_are_snap_targets() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let ellipse = sketch.add_ellipse(Point2::new(50.0, 20.0), Point2::new(60.0, 20.0), 4.0);
         let (centre, major) = (point_of(&sketch, ellipse, 0), point_of(&sketch, ellipse, 1));
         let slanted = sketch.add_ellipse(Point2::new(0.0, 50.0), Point2::new(6.0, 58.0), 3.0);
@@ -2814,6 +2959,7 @@ pub mod tests {
     #[test]
     fn a_line_from_outside_a_circle_finds_where_it_would_touch_it() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let circle = sketch.add_circle(Point2::ZERO, 10.0);
         let from = Point2::new(20.0, 0.0);
         let expected = Point2::new(5.0, 75.0_f64.sqrt());
@@ -2825,6 +2971,7 @@ pub mod tests {
             from,
         )
         .unwrap();
+
         assert_eq!(touch.target, Target::Tangent(circle));
         assert!(touch.position.distance(expected) < 1e-12);
         assert!((touch.position - from).dot(touch.position).abs() < 1e-9);
@@ -2835,13 +2982,16 @@ pub mod tests {
             pointer_at(expected),
             Point2::new(1.0, 0.0),
         );
+
         assert_eq!(inside, None);
+
         let far = tangents_from(
             &sketch,
             &Scaled(10.0),
             pointer_at(Point2::new(5.0, 6.0)),
             from,
         );
+
         assert_eq!(far, None);
     }
 
@@ -2858,6 +3008,7 @@ pub mod tests {
                 .collect();
             ids
         };
+
         let slot = joined(
             &mut sketch,
             &[
@@ -2877,10 +3028,12 @@ pub mod tests {
         );
 
         let centre = resolve_at(&sketch, Point2::new(10.2, 0.3)).unwrap();
+
         assert!(matches!(centre.target, Target::Centre { outline, .. } if outline == slot[0]));
         assert!(centre.position.distance(Point2::new(10.0, 0.0)) < 1e-12);
 
         let mut lopsided = Sketch::new(Plane::XY);
+
         joined(
             &mut lopsided,
             &[
@@ -2894,6 +3047,7 @@ pub mod tests {
                 (Point2::new(0.0, 5.0), Point2::new(0.0, -5.0), None),
             ],
         );
+
         assert!(!matches!(
             resolve_at(&lopsided, Point2::new(10.2, 0.3)).map(|snapped| snapped.target),
             Some(Target::Centre { .. })
@@ -2903,6 +3057,7 @@ pub mod tests {
     #[test]
     fn splines_take_points_and_cross_other_curves() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline(&[
             Point2::new(0.0, -20.0),
             Point2::new(10.0, 0.0),
@@ -2914,8 +3069,11 @@ pub mod tests {
             .unwrap();
 
         let snapped = resolve_at(&sketch, on + Vector2::new(0.2, -0.2)).unwrap();
+
         assert_eq!(snapped.target, Target::Curve(spline));
+
         let resnapped = sketch.closest_on_curve(spline, snapped.position).unwrap();
+
         assert!(snapped.position.distance(resnapped) < 1e-9);
         assert!(snapped.position.distance(on) < 0.5);
 
@@ -2924,6 +3082,7 @@ pub mod tests {
             panic!("the line crosses the spline once");
         };
         let at = resolve_at(&sketch, crossing + Vector2::new(0.3, 0.2)).unwrap();
+
         assert_eq!(
             at.target.min_ordered(),
             Target::Intersection(spline, line).min_ordered()
@@ -2938,12 +3097,14 @@ pub mod tests {
             crossing,
         )
         .unwrap();
+
         assert!(upward.distance(crossing) < 1e-6);
     }
 
     #[test]
     fn two_splines_snap_where_they_cross() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let first = sketch.add_spline(&[
             Point2::new(0.0, -20.0),
             Point2::new(10.0, 0.0),
@@ -2954,6 +3115,7 @@ pub mod tests {
             Point2::new(15.0, 20.0),
             Point2::new(30.0, 0.0),
         ]);
+
         let [crossing] = sketch.curve_crossings(first, second)[..] else {
             panic!("the splines cross once");
         };
@@ -2971,6 +3133,7 @@ pub mod tests {
     #[ignore = "a timing benchmark: cargo test --release -p caditor snap_costs -- --ignored --nocapture"]
     fn snap_costs_of_a_drag_of_several_points_on_a_large_sketch() {
         const REPEATS: u32 = 50;
+
         let sketch = crate::viewport::timing::large_sketch();
         let screen = Scaled(1.0);
         let moving = BTreeSet::new();
@@ -2982,6 +3145,7 @@ pub mod tests {
             })
             .take(40)
             .collect();
+
         let moved: Vec<(EntityId, Vector2)> = ends
             .iter()
             .filter_map(|(id, at)| Some((*id, screen.to_screen(*at + Vector2::new(0.2, 0.1))?)))
@@ -2989,6 +3153,7 @@ pub mod tests {
 
         let started = std::time::Instant::now();
         let mut found = 0;
+
         for _ in 0..REPEATS {
             found += usize::from(
                 nearest_moved(
@@ -3010,6 +3175,7 @@ pub mod tests {
 
         let few = &moved[..3];
         let started = std::time::Instant::now();
+
         for _ in 0..REPEATS {
             nearest_moved(
                 &sketch,

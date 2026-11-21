@@ -108,9 +108,11 @@ fn a_body_and_a_mix_of_faces_come_back_with_exactly_their_colours_and_opacities(
         let model = read_step(&text).unwrap();
 
         assert!(model.notes.is_empty(), "{}: {:?}", body.name, model.notes);
+
         let [read] = model.solids.as_slice() else {
             panic!("{}: expected one solid", body.name);
         };
+
         assert_same_look(&body, read);
     }
 }
@@ -119,6 +121,7 @@ fn a_body_and_a_mix_of_faces_come_back_with_exactly_their_colours_and_opacities(
 fn an_assembly_comes_back_with_exactly_the_colours_and_opacities_of_its_parts() {
     let plate = fixtures::plate_with_hole();
     let bodies = bodies(plate.faces().count());
+
     let text = written(&bodies, &plate);
 
     let model = read_step(&text).unwrap();
@@ -133,13 +136,16 @@ fn an_assembly_comes_back_with_exactly_the_colours_and_opacities_of_its_parts() 
             .iter()
             .find(|solid| solid.name == body.name)
             .unwrap();
+
         assert_same_look(body, read);
     }
 }
 
 fn inserted(text: &str, extra: &str) -> String {
     let mut styled = text.to_owned();
+
     let end = styled.rfind("ENDSEC;").unwrap();
+
     styled.insert_str(end, extra);
     styled
 }
@@ -201,6 +207,7 @@ fn styles_on_one_copy_in_an_assembly_colour_that_copy_alone() {
         opacity: None,
         faces: Vec::new(),
     };
+
     let text = written(&[plain("Left"), plain("Right")], &plate);
     let root = id_of(&text, "SHAPE_REPRESENTATION(''");
     let context = text
@@ -290,6 +297,7 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
                  #970001=STYLED_ITEM('color',(#970000),{solid});\n"
             )
         });
+
         assert!(model.notes.is_empty(), "{:?}", model.notes);
         (model.solids[0].colour, model.solids[0].opacity)
     };
@@ -311,6 +319,7 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
         "#980002=DRAUGHTING_PRE_DEFINED_COLOUR('Cyan');\n".to_owned(),
     ]
     .concat();
+
     assert_eq!(
         styled_by(
             &[named, usage(972_000, "BOTH", "#971000")].concat(),
@@ -323,6 +332,7 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
         "{red}#971000=SURFACE_STYLE_RENDERING(.CONSTANT_SHADING.,#980000);\n{}",
         usage(972_000, "BOTH", "#971000")
     );
+
     assert_eq!(styled_by(&rendered, "#972000"), (Some(RED), None));
 
     let colourless = format!(
@@ -330,6 +340,7 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
          #971001=SURFACE_STYLE_RENDERING_WITH_PROPERTIES(.NORMAL_SHADING.,$,(#971000));\n{}",
         usage(972_000, "BOTH", "#971001")
     );
+
     assert_eq!(styled_by(&colourless, "#972000"), (None, Some(70)));
 
     let bytes = [
@@ -338,6 +349,7 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
         usage(972_000, "BOTH", "#971000"),
     ]
     .concat();
+
     assert_eq!(styled_by(&bytes, "#972000"), (Some([255, 128, 0]), None));
 
     let sides = [
@@ -356,6 +368,7 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
         usage(972_100, "POSITIVE", "#971100,#971111"),
     ]
     .concat();
+
     assert_eq!(
         styled_by(&sides, "#973000,#972000,#972100"),
         (Some(RED), Some(50))
@@ -372,6 +385,7 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
         ]
         .concat()
     });
+
     assert_eq!(complex.solids[0].colour, Some([255, 0, 255]));
 
     let overridden = plate_styled(|solid| {
@@ -385,6 +399,7 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
         ]
         .concat()
     });
+
     assert_eq!(overridden.solids[0].colour, Some(RED));
 
     let apart = plate_styled(|solid| {
@@ -400,6 +415,7 @@ fn every_form_exporters_use_for_a_coloured_or_see_through_body_is_read() {
         ]
         .concat()
     });
+
     assert_eq!(
         (apart.solids[0].colour, apart.solids[0].opacity),
         (Some(BLUE), Some(75))
@@ -428,6 +444,7 @@ fn a_colour_named_after_a_clear_appearance_is_see_through_unless_a_transparency_
                 usage(972_000, "POSITIVE", &elements)
             )
         });
+
         assert!(model.notes.is_empty(), "{:?}", model.notes);
         (model.solids[0].colour, model.solids[0].opacity)
     };
@@ -481,6 +498,7 @@ fn a_colour_named_after_an_appearance_gives_the_body_and_a_face_painted_otherwis
             id + 30,
         )
     };
+
     let styles = format!(
         "{}{}",
         painted(960_000, solid, "Steel - Satin", 0.5),
@@ -556,6 +574,7 @@ fn faces_of_a_body_imported_as_facets_keep_their_colours() {
     let model = read_step(&styled).unwrap();
 
     let solid = &model.solids[0];
+
     assert!(
         model
             .notes
@@ -568,10 +587,12 @@ fn faces_of_a_body_imported_as_facets_keep_their_colours() {
     assert!(!solid.faces.is_empty());
     for look in &solid.faces {
         assert_eq!((look.colour, look.opacity), (Some(RED), None));
+
         let (_, face) = solid.solid.faces().nth(look.face).unwrap();
         let caditor_kernel::Surface::Plane(plane) = face.surface() else {
             panic!("a faceted face is flat");
         };
+
         assert!(plane.frame().origin().z.abs() < 1e-6);
         assert!(plane.frame().normal().z.abs() > 0.999);
     }

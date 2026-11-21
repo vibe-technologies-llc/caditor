@@ -28,6 +28,7 @@ pub fn watch_desktop(_changed: impl FnMut(DesktopSettings)) -> Result<(), Settin
 
 pub fn choose(request: &FileRequest) -> Result<Option<PathBuf>, DialogError> {
     let mut dialog = FileDialog::new().set_title(request.title.as_str());
+
     if let Some(directory) = &request.directory {
         dialog = dialog.set_directory(directory);
     }

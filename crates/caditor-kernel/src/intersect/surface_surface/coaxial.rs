@@ -17,7 +17,7 @@ use crate::{
 const TOLERANCE: f64 = LINEAR_RESOLUTION;
 const PROFILE_CHECK_SAMPLES: usize = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum AxisKind {
     Fixed { origin: Point3, direction: Vector3 },
     Center(Point3),
@@ -134,13 +134,16 @@ fn meridian_of_profile(
     let planar = range
         .split(PROFILE_CHECK_SAMPLES)
         .all(|parameter| (profile.point(parameter) - axis.origin).dot(across).abs() <= TOLERANCE);
+
     if !planar {
         return None;
     }
+
     let frame = Plane::from_frame(axis.origin, across, radial)?;
     let to_meridian = |point: Point3| frame.to_local(point);
     let to_direction =
         |vector: Vector3| Vector2::new(vector.dot(radial), vector.dot(axis.direction));
+
     let curve = match profile {
         Curve::Line(line) => Curve2::Line(
             Line2::new(to_meridian(line.origin()), to_direction(line.direction())).ok()?,
@@ -245,23 +248,28 @@ fn reference_of(surface: &Surface, direction: Vector3) -> Option<Vector3> {
 
 pub(crate) fn intersect(first: &SurfacePatch, second: &SurfacePatch, bounds: &Aabb) -> Option<Raw> {
     let (a, b) = (first.surface(), second.surface());
+
     let (origin, direction) = common_axis(axis_kind(a)?, axis_kind(b)?)?;
     let reference = reference_of(a, direction)
         .or_else(|| reference_of(b, direction))
         .unwrap_or_else(|| direction.any_orthonormal_vector());
+
     let axis = Axis {
         origin,
         direction,
         reference,
     };
     let window = window_of(&axis, bounds);
+
     let (first_meridian, first_range) = meridian(a, first, &axis, &window)?;
     let (second_meridian, second_range) = meridian(b, second, &axis, &window)?;
+
     let found =
         intersect_curves2(&first_meridian, first_range, &second_meridian, second_range).ok()?;
     let mut raw = Raw::default();
     let ring = |radius: f64, height: f64, tangent: bool, raw: &mut Raw| {
         let center = axis.origin + axis.direction * height;
+
         if radius <= TOLERANCE {
             raw.points.push(RawPoint {
                 point: center,
@@ -269,6 +277,7 @@ pub(crate) fn intersect(first: &SurfacePatch, second: &SurfacePatch, bounds: &Aa
             });
             return;
         }
+
         let circle = Plane::from_frame(center, axis.direction, axis.reference)
             .and_then(|frame| Circle::new(frame, radius).ok());
         if let Some(circle) = circle {
@@ -279,6 +288,7 @@ pub(crate) fn intersect(first: &SurfacePatch, second: &SurfacePatch, bounds: &Aa
             });
         }
     };
+
     for point in &found.points {
         if point.point.x < -TOLERANCE {
             continue;

@@ -18,7 +18,7 @@ use crate::{
 const MOST_CONSIDERED: usize = 16;
 const OFFSET_STEPS_PER_MILLIMETRE: f64 = 10.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SectionCommand {
     Toggle,
     Add,
@@ -61,7 +61,7 @@ impl SectionCommand {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum Problem {
     #[error(
         "The plane or face this section starts from is gone or no longer flat. Choose another."
@@ -77,7 +77,7 @@ const CLOSED: &str = "Open the section view to change its planes";
 const NO_PLANE: &str =
     "There is no section plane yet. Add a section plane (View › Inspect, or the palette) first.";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum Refusal {
     #[error("{NOTHING_GIVES_A_PLANE}")]
     NothingGivesAPlane,
@@ -106,7 +106,7 @@ impl Reason for Refusal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Cut {
     pub base: Pickable,
     pub offset: Expression,
@@ -150,13 +150,16 @@ impl Cut {
         let offset = value(model, &self.offset, Dimension::LENGTH)?;
         let tilt = value(model, &self.tilt, Dimension::ANGLE)?;
         let turn = value(model, &self.turn, Dimension::ANGLE)?;
+
         let tilted = Rotation3::from_axis_angle(base.x_axis(), tilt.to_radians());
         let x_axis = tilted * base.x_axis();
         let y_axis = tilted * base.y_axis();
         let turned = Rotation3::from_axis_angle(y_axis, turn.to_radians());
+
         let normal = turned * (tilted * base.normal());
         let origin = base.origin() - normal * offset;
         let facing = if self.flipped { -normal } else { normal };
+
         let plane = Plane::with_x_axis(origin, facing, turned * x_axis)
             .or_else(|| Plane::new(origin, facing))
             .ok_or(Problem::BaseGone)?;
@@ -176,6 +179,7 @@ fn value(model: &Model, expression: &Expression, dimension: Dimension) -> Result
         .parameters()
         .evaluate_expression(expression)
         .map_err(|_| Problem::ValueUnreadable)?;
+
     if quantity.dimension != dimension || !quantity.value.is_finite() {
         return Err(Problem::ValueUnreadable);
     }
@@ -220,6 +224,7 @@ pub fn base_from(model: &Model, selection: &Selection) -> Result<Pickable, Refus
     if selection.len() > MOST_CONSIDERED {
         return Err(Refusal::TooManySelected(selection.len()));
     }
+
     let mut giving: Vec<Pickable> = selection
         .in_pick_order()
         .into_iter()
@@ -259,11 +264,13 @@ impl SectionTool {
         if self.can_add().is_err() {
             return;
         }
+
         let unused = [PrincipalPlane::Xz, PrincipalPlane::Yz, PrincipalPlane::Xy]
             .into_iter()
             .map(Pickable::Plane)
             .find(|base| self.cuts.iter().all(|cut| cut.base != *base))
             .unwrap_or(Pickable::Plane(PrincipalPlane::Xz));
+
         self.cuts.push(Cut::centred(model, unused, centre));
         self.current = self.cuts.len() - 1;
         self.open = true;
@@ -296,6 +303,7 @@ impl SectionTool {
 
     pub fn forget(&mut self) {
         let open = self.open;
+
         *self = Self {
             open,
             ..Self::default()
@@ -353,16 +361,24 @@ mod tests {
         let mut cut = Cut::through(Pickable::Plane(PrincipalPlane::Xy));
 
         let level = cut.plane(&model).unwrap().plane;
+
         cut.offset = Expression::measure(5.0, Unit::Millimetre);
+
         let lowered = cut.plane(&model).unwrap().plane;
+
         cut.flipped = true;
+
         let flipped = cut.plane(&model).unwrap().plane;
+
         cut.flipped = false;
         cut.offset = Expression::measure(0.0, Unit::Millimetre);
         cut.tilt = Expression::measure(90.0, Unit::Degree);
+
         let tilted = cut.plane(&model).unwrap().plane;
+
         cut.tilt = Expression::measure(0.0, Unit::Degree);
         cut.turn = Expression::measure(90.0, Unit::Degree);
+
         let turned = cut.plane(&model).unwrap().plane;
 
         assert!(close(level.normal(), Vector3::Z));
@@ -380,25 +396,34 @@ mod tests {
         let mut tool = SectionTool::default();
 
         assert!(tool.planes(&model).is_empty());
+
         tool.toggle(&model, Some(Point3::new(0.0, 12.34, 0.0)));
+
         assert_eq!(tool.cuts.len(), 1);
         assert!(close(
             tool.planes(&model)[0].plane.origin(),
             Point3::new(0.0, 12.3, 0.0)
         ));
+
         for _ in 0..MAX_SECTION_PLANES + 2 {
             tool.add(&model, None);
         }
+
         assert_eq!(tool.cuts.len(), MAX_SECTION_PLANES);
         assert_eq!(tool.can_add(), Err(Refusal::TooManyPlanes));
         assert_eq!(tool.planes(&model).len(), MAX_SECTION_PLANES);
         assert_eq!(tool.current, MAX_SECTION_PLANES - 1);
 
         tool.remove(tool.current);
+
         assert_eq!(tool.current, MAX_SECTION_PLANES - 2);
+
         tool.cuts.clear();
+
         assert_eq!(tool.current_cut(), Err(Refusal::NoPlane));
+
         tool.open = false;
+
         assert_eq!(tool.current_cut(), Err(Refusal::Closed));
     }
 
@@ -406,17 +431,25 @@ mod tests {
     fn removing_a_plane_keeps_the_current_one_current() {
         let model = empty_model();
         let mut tool = SectionTool::default();
+
         for _ in 0..3 {
             tool.add(&model, None);
         }
+
         let bases: Vec<Pickable> = tool.cuts.iter().map(|cut| cut.base).collect();
+
         tool.current = 1;
 
         tool.remove(0);
+
         let after_one_above = tool.current_mut().map(|cut| cut.base);
+
         tool.remove(1);
+
         let after_one_below = tool.current_mut().map(|cut| cut.base);
+
         tool.remove(tool.current);
+
         let after_itself = tool.current_cut();
 
         assert_eq!(after_one_above, bases.get(1).copied());

@@ -17,7 +17,7 @@ const PARALLEL_ANGLE: f64 = 1e-2;
 const MOST_FACES_AT_A_CORNER: usize = 64;
 const MOST_OUTLINE_SAMPLES: usize = 256;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Snapped {
     pub surfaces: BTreeMap<u64, Surface>,
     pub flat: usize,
@@ -44,7 +44,7 @@ enum Centre {
     Point(Point3),
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct Standing {
     tangent: usize,
     neighbours: usize,
@@ -76,15 +76,20 @@ pub(crate) fn snap(body: &LooseBody<'_>) -> Snapped {
     let mut snapper = Snapper::of(body);
 
     let rounds = snapper.round_faces();
+
     snapper.faces.extend(
         rounds
             .iter()
             .map(|(face, (surface, _))| (*face, surface.clone())),
     );
+
     let tangent = snapper.tangent_planes();
     let mut planes: BTreeMap<u64, Plane> = snapper.planes().collect();
+
     planes.extend(tangent.iter().map(|(face, (plane, _))| (*face, *plane)));
+
     let mut moves: BTreeMap<u64, (Plane, f64)> = tangent;
+
     moves.extend(snapper.coplanar_planes(&planes, &moves));
 
     let farthest = moves
@@ -101,7 +106,9 @@ pub(crate) fn snap(body: &LooseBody<'_>) -> Snapped {
                 .map(|surface| (face, Surface::Plane(surface)))
         })
         .collect();
+
     let flat = surfaces.len();
+
     surfaces.extend(
         rounds
             .into_iter()
@@ -119,12 +126,14 @@ impl<'b, 'a> Snapper<'b, 'a> {
     fn of(body: &'b LooseBody<'a>) -> Self {
         let mut outlines: BTreeMap<u64, Vec<Point3>> = BTreeMap::new();
         let mut meetings: BTreeMap<(u64, u64), Meeting> = BTreeMap::new();
+
         for edge in &body.edges {
             let samples: Vec<Point3> = edge
                 .interval
                 .split(EDGE_SAMPLES)
                 .map(|parameter| edge.curve.point(parameter))
                 .collect();
+
             for face in &edge.faces {
                 outlines
                     .entry(*face)
@@ -136,6 +145,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
             }
             for pair in pairs(&edge.faces) {
                 let meeting = meetings.entry(pair).or_default();
+
                 meeting.samples.extend(samples.iter().copied());
                 meeting.along_edge = true;
             }
@@ -144,14 +154,17 @@ impl<'b, 'a> Snapper<'b, 'a> {
             let Some(faces) = body.vertex_faces.get(vertex) else {
                 continue;
             };
+
             if faces.len() > MOST_FACES_AT_A_CORNER {
                 continue;
             }
+
             let faces: Vec<u64> = faces.iter().copied().collect();
             for pair in pairs(&faces) {
                 meetings.entry(pair).or_default().samples.push(*point);
             }
         }
+
         let extents = outlines
             .iter()
             .filter_map(|(face, outline)| {
@@ -181,6 +194,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
 
     fn tangent_planes(&self) -> BTreeMap<u64, (Plane, f64)> {
         let mut snapped = BTreeMap::new();
+
         for ((a, b), meeting) in &self.meetings {
             if !meeting.along_edge {
                 continue;
@@ -189,6 +203,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
                 if snapped.contains_key(&face) {
                     continue;
                 }
+
                 let (Some(plane), Some(master)) = (
                     self.faces.get(&face).and_then(plane_of),
                     self.faces
@@ -197,6 +212,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
                 ) else {
                     continue;
                 };
+
                 let Some(tangent) = tangent_plane(&plane, master, &meeting.samples) else {
                     continue;
                 };
@@ -211,23 +227,28 @@ impl<'b, 'a> Snapper<'b, 'a> {
     fn round_faces(&self) -> BTreeMap<u64, (Surface, f64)> {
         let mut standing: BTreeMap<u64, Standing> = BTreeMap::new();
         let mut pairs = Vec::new();
+
         for ((first, second), meeting) in &self.meetings {
             if !meeting.along_edge {
                 continue;
             }
+
             let (Some(first_surface), Some(second_surface)) =
                 (self.faces.get(first), self.faces.get(second))
             else {
                 continue;
             };
+
             let tangent = is_rigid(first_surface)
                 && is_rigid(second_surface)
                 && meeting
                     .samples
                     .get(meeting.samples.len() / 2)
                     .is_some_and(|middle| tangent_at(first_surface, second_surface, *middle));
+
             for face in [*first, *second] {
                 let face = standing.entry(face).or_default();
+
                 face.neighbours += 1;
                 face.tangent += usize::from(tangent);
             }
@@ -241,6 +262,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
         }
 
         let mut held = BTreeSet::new();
+
         for pair in &pairs {
             if let (Some(first), Some(second)) =
                 (self.faces.get(&pair.first), self.faces.get(&pair.second))
@@ -257,6 +279,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
             )
         };
         let mut moved: BTreeMap<u64, (Surface, f64)> = BTreeMap::new();
+
         for pair in &pairs {
             let current = |face: u64| {
                 moved
@@ -267,9 +290,11 @@ impl<'b, 'a> Snapper<'b, 'a> {
             let (Some(first), Some(second)) = (current(pair.first), current(pair.second)) else {
                 continue;
             };
+
             if misfit(first, second, &pair.meeting.samples) <= CLEAN {
                 continue;
             }
+
             let chosen = [(pair.first, second, first), (pair.second, first, second)]
                 .into_iter()
                 .filter(|(follower, _, _)| {
@@ -290,6 +315,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
                 } else {
                     pair.first
                 };
+
                 moved.insert(follower, (snapped.surface, snapped.moved));
                 held.insert(master);
             }
@@ -335,13 +361,16 @@ impl<'b, 'a> Snapper<'b, 'a> {
     ) -> BTreeMap<u64, (Plane, f64)> {
         let mut groups = Groups::default();
         let mut misfits: BTreeMap<u64, f64> = BTreeMap::new();
+
         for ((a, b), meeting) in &self.meetings {
             let (Some(first), Some(second)) = (planes.get(a), planes.get(b)) else {
                 continue;
             };
+
             if first.normal().dot(second.normal()).abs() < PARALLEL_ANGLE.cos() {
                 continue;
             }
+
             let gap = meeting
                 .samples
                 .iter()
@@ -357,6 +386,7 @@ impl<'b, 'a> Snapper<'b, 'a> {
                 groups.join(*a, *b);
                 for (face, plane) in [(*a, first), (*b, second)] {
                     let misfit = misfits.entry(face).or_default();
+
                     *misfit = meeting
                         .samples
                         .iter()
@@ -365,7 +395,9 @@ impl<'b, 'a> Snapper<'b, 'a> {
                 }
             }
         }
+
         let mut snapped = BTreeMap::new();
+
         for members in groups.all() {
             let Some(master) = master_of(&members, &misfits, fixed) else {
                 continue;
@@ -434,6 +466,7 @@ fn pairs(faces: &[u64]) -> impl Iterator<Item = (u64, u64)> + '_ {
 
 fn extent(plane: &Plane, outline: &[Point3]) -> Option<[Point3; 4]> {
     let mut local = outline.iter().map(|point| plane.to_local(*point));
+
     let first = local.next()?;
     let (low, high) = local.fold((first, first), |(low, high), uv| {
         (low.min(uv), high.max(uv))
@@ -465,6 +498,7 @@ pub(crate) fn seam_through(
     let seam: Curve = match surface {
         Surface::Cylinder(_) | Surface::Cone(_) => {
             let line = Line::through(from, to).ok()?;
+
             if surface.distance(from.lerp(to, 0.5)) > CLEAN {
                 return None;
             }
@@ -473,6 +507,7 @@ pub(crate) fn seam_through(
         Surface::Sphere(sphere) => {
             let middle = samples.get(samples.len() / 2)?;
             let frame = sphere.frame();
+
             let radial = radial_of(frame, surface.project(*middle, None).x);
             let meridian =
                 Plane::from_frame(sphere.center(), radial.cross(frame.normal()), radial)?;
@@ -481,9 +516,11 @@ pub(crate) fn seam_through(
         Surface::Torus(torus) => {
             let frame = torus.frame();
             let at = surface.project(from, None);
+
             let circle = if runs_along_tube(surface, samples) {
                 let radial = radial_of(frame, at.x);
                 let centre = frame.origin() + radial * torus.major_radius();
+
                 let tube = Plane::from_frame(centre, radial.cross(frame.normal()), radial)?;
                 Circle::new(tube, torus.minor_radius())
             } else {
@@ -513,12 +550,15 @@ fn runs_along_tube(surface: &Surface, samples: &[Point3]) -> bool {
     let mut hint = None;
     let mut low = Point2::splat(f64::INFINITY);
     let mut high = Point2::splat(f64::NEG_INFINITY);
+
     for point in samples {
         let uv = surface.project(*point, hint);
+
         hint = Some(uv);
         low = low.min(uv);
         high = high.max(uv);
     }
+
     let spread = high - low;
     spread.y > spread.x
 }
@@ -558,6 +598,7 @@ fn feet_on(surface: &Surface, points: &[Point3]) -> Vec<Point3> {
         .iter()
         .map(|point| {
             let foot = surface.project(*point, hint);
+
             hint = Some(foot);
             surface.point_at(foot)
         })
@@ -578,9 +619,11 @@ fn misfit(follower: &Surface, master: &Surface, shared: &[Point3]) -> f64 {
 fn candidates(written: &Surface, onto: &Surface, touch: Point3) -> Vec<Surface> {
     let aligned = coaxial(written, onto);
     let mut found = Vec::new();
+
     for base in std::iter::once(written).chain(aligned.as_ref()) {
         let uv = base.project(touch, None);
         let gap = touch - base.point_at(uv);
+
         if let Some(normal) = base.normal(uv.x, uv.y)
             && let Ok(grown) = offset(base, gap.dot(normal), &EXACT)
         {
@@ -612,9 +655,11 @@ fn coaxial(written: &Surface, onto: &Surface) -> Option<Surface> {
     let transform = match (centre_of(written)?, centre_of(onto)?) {
         (Centre::Axis(origin, direction), Centre::Axis(onto_origin, onto_direction)) => {
             let alignment = direction.dot(onto_direction);
+
             if alignment.abs() < PARALLEL_ANGLE.cos() {
                 return None;
             }
+
             let rotation =
                 Rotation3::from_rotation_arc(direction, onto_direction * alignment.signum());
             let foot = foot_on_axis(origin, onto_origin, onto_direction);
@@ -643,20 +688,28 @@ fn touches_planes_along_curves(surface: &Surface) -> bool {
 fn tangent_plane(plane: &Plane, master: &Surface, shared: &[Point3]) -> Option<Plane> {
     let middle = shared.get(shared.len() / 2)?;
     let touch = master.project(*middle, None);
+
     if master.pole_at(touch).is_some() {
         return None;
     }
+
     let normal = master.normal(touch.x, touch.y)?;
+
     if normal.dot(plane.normal()).abs() < PARALLEL_ANGLE.cos() {
         return None;
     }
+
     let tangent = reframed(plane, master.point_at(touch), normal)?;
     let mut hint = None;
     let mut gap: f64 = 0.0;
+
     for point in shared {
         let foot = master.project(*point, hint);
+
         hint = Some(foot);
+
         let on_master = master.point_at(foot);
+
         if tangent.signed_distance(on_master).abs() > CLEAN {
             return None;
         }
@@ -691,16 +744,20 @@ impl Groups {
 
     fn join(&mut self, first: u64, second: u64) {
         let (first, second) = (self.root(first), self.root(second));
+
         if first == second {
             return;
         }
+
         let size = |face: u64| self.size.get(&face).copied().unwrap_or(1);
         let (larger, smaller) = if size(first) >= size(second) {
             (first, second)
         } else {
             (second, first)
         };
+
         let joined = size(larger) + size(smaller);
+
         self.parent.entry(larger).or_insert(larger);
         self.parent.insert(smaller, larger);
         self.size.insert(larger, joined);
@@ -708,6 +765,7 @@ impl Groups {
 
     fn all(&self) -> Vec<BTreeSet<u64>> {
         let mut groups: BTreeMap<u64, BTreeSet<u64>> = BTreeMap::new();
+
         for face in self.parent.keys() {
             groups.entry(self.root(*face)).or_default().insert(*face);
         }

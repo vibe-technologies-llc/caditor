@@ -30,7 +30,7 @@ const PROBE_FRACTION: f64 = 0.5;
 const TANGENT_STEP: f64 = 1e-3;
 const LEAST_PIECE: f64 = 0.05;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GrooveParts {
     pub root: u64,
     pub leading_flank: u64,
@@ -55,13 +55,13 @@ impl GrooveParts {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Corner {
     radius: f64,
     offset: f64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Piece {
     start: f64,
     spans: usize,
@@ -116,8 +116,10 @@ impl Sweep<'_> {
         let count = 2 * piece.spans + 1;
         let mut points = Vec::with_capacity(count);
         let mut weights = Vec::with_capacity(count);
+
         for span in 0..piece.spans {
             let start = piece.angle(span as f64);
+
             points.push(self.point(corner, start));
             weights.push(1.0);
             points.push(self.at(corner, start + half, corner.radius / middle_weight));
@@ -142,6 +144,7 @@ impl Sweep<'_> {
         let (mut points, mut weights) = self.control_net(from, piece);
         let (far_points, far_weights) = self.control_net(to, piece);
         let columns = points.len();
+
         points.extend(far_points);
         weights.extend(far_weights);
         Ok(Surface::from(BSplineSurface::new(
@@ -176,6 +179,7 @@ impl Sweep<'_> {
 
 pub(crate) fn helix_knots(spans: usize) -> Vec<f64> {
     let mut knots = vec![0.0; 3];
+
     for span in 1..spans {
         knots.extend([span as f64; 2]);
     }
@@ -211,15 +215,19 @@ fn pieces(groove: &Groove) -> Vec<Piece> {
         .copied()
         .filter(|turn| *turn > LEAST_PIECE && *turn < groove.turns - LEAST_PIECE)
         .collect();
+
     stops.push(0.0);
     stops.push(groove.turns);
     stops.sort_by(f64::total_cmp);
     stops.dedup();
+
     let mut pieces = Vec::new();
+
     for pair in stops.windows(2) {
         let [from, to] = pair else {
             continue;
         };
+
         let count = (to - from).ceil().max(1.0);
         let length = (to - from) / count;
         let spans = ((length * SPANS_PER_TURN as f64).ceil() as usize).max(1);
@@ -255,6 +263,7 @@ pub(super) fn tool(groove: &Groove, feature: u64) -> Result<Solid, ThreadError> 
     let pieces = pieces(groove);
     let parts = GROOVE_PARTS;
     let name = |part: u64| FaceName::thread(feature, part);
+
     let start_name = name(parts.start);
     let end_name = name(parts.end);
     let side_name = |turn: usize, corner: usize| -> Result<FaceName, ThreadError> {
@@ -262,16 +271,21 @@ pub(super) fn tool(groove: &Groove, feature: u64) -> Result<Solid, ThreadError> 
     };
 
     let mut boundaries: Vec<f64> = pieces.iter().map(|piece| piece.start).collect();
+
     boundaries.push(groove.sweep());
+
     let mut plan = Plan::default();
+
     let vertices: Vec<[usize; CORNERS]> = boundaries
         .iter()
         .map(|angle| corners.map(|corner| plan.vertex(sweep.point(corner, *angle))))
         .collect();
 
     let mut lines: Vec<[usize; CORNERS]> = Vec::with_capacity(boundaries.len());
+
     for (index, ring) in vertices.iter().enumerate() {
         let mut ring_lines = [0; CORNERS];
+
         for (corner, slot) in ring_lines.iter_mut().enumerate() {
             let side = |turn: usize| side_name(turn, corner);
             let edge_name = if index == 0 {
@@ -281,19 +295,23 @@ pub(super) fn tool(groove: &Groove, feature: u64) -> Result<Solid, ThreadError> 
             } else {
                 EdgeName::between(side(index - 1)?, side(index)?)
             };
+
             *slot = plan.line(pick(ring, corner)?, pick(ring, next(corner))?, edge_name)?;
         }
         lines.push(ring_lines);
     }
 
     let mut helices: Vec<[usize; CORNERS]> = Vec::with_capacity(pieces.len());
+
     for (turn, piece) in pieces.iter().enumerate() {
         let (from, to) = (ring_of(&vertices, turn)?, ring_of(&vertices, turn + 1)?);
         let interval = Interval::new(0.0, piece.spans as f64).ok_or(ThreadError::NoPitch)?;
         let mut ring_helices = [0; CORNERS];
+
         for (corner, slot) in ring_helices.iter_mut().enumerate() {
             let before = side_name(turn, (corner + CORNERS - 1) % CORNERS)?;
             let after = side_name(turn, corner)?;
+
             *slot = plan.edge(
                 sweep.helix(pick(&corners, corner)?, *piece)?,
                 interval,
@@ -318,11 +336,13 @@ pub(super) fn tool(groove: &Groove, feature: u64) -> Result<Solid, ThreadError> 
                 end: pick(&ends, corner)?,
             };
             let part = parts.side(turn, pick(&parts.sides(), corner)?);
+
             plan.face(side_face(&sweep, *piece, &side, name(part), part, feature)?);
         }
     }
 
     let last = pieces.len();
+
     for (ring, angle, part, outward_along) in [
         (ring_of(&lines, 0)?, 0.0, parts.start, -1.0),
         (ring_of(&lines, last)?, groove.sweep(), parts.end, 1.0),
@@ -376,6 +396,7 @@ fn side_face(
         radius: 0.5 * (side.from.radius + side.to.radius),
         offset: 0.5 * (side.from.offset + side.to.offset),
     };
+
     let on_face = sweep.point(middle, probe_angle);
     let inside = sweep.point(
         Corner {
@@ -385,12 +406,15 @@ fn side_face(
         probe_angle,
     );
     let hint = side.flank.then(|| Point2::new(local, 0.5));
+
     let sense = outward_sense(&surface, on_face, on_face - inside, hint);
     let uv = surface.project(on_face, hint);
+
     let normal = surface.normal(uv.x, uv.y).unwrap_or(Vector3::ZERO) * sense.sign();
     let along = sweep.point(side.from, probe_angle + TANGENT_STEP * piece.step)
         - sweep.point(side.from, probe_angle);
     let across = sweep.point(side.to, probe_angle) - sweep.point(side.from, probe_angle);
+
     let forward = normal.cross(along).dot(across) > 0.0;
 
     let top = piece.spans as f64;
@@ -401,6 +425,7 @@ fn side_face(
             PlanCoedge::new(edge, Sense::Same)
         }
     };
+
     let low = coedge(side.low, Point2::new(0.0, 0.0), Point2::new(top, 0.0));
     let high = coedge(side.high, Point2::new(0.0, 1.0), Point2::new(top, 1.0));
     let start = coedge(side.start, Point2::new(0.0, 0.0), Point2::new(0.0, 1.0));
@@ -409,6 +434,7 @@ fn side_face(
         sense: coedge.sense.reversed(),
         ..coedge
     };
+
     let face_loop = if forward {
         vec![low, end, reversed(high), reversed(start)]
     } else {
@@ -441,6 +467,7 @@ fn cap_face(
         .iter()
         .fold(Vector3::ZERO, |sum, point| sum + (*point - Point3::ZERO));
     let centre = Point3::ZERO + sum / CORNERS as f64;
+
     let sense = outward_sense(
         &surface,
         centre,
@@ -448,12 +475,14 @@ fn cap_face(
         None,
     );
     let uv = surface.project(centre, None);
+
     let normal = surface.normal(uv.x, uv.y).unwrap_or(Vector3::ZERO) * sense.sign();
     let turning = (0..CORNERS)
         .map(|index| -> Result<Vector3, ThreadError> {
             Ok((pick(&points, index)? - centre).cross(pick(&points, next(index))? - centre))
         })
         .sum::<Result<Vector3, ThreadError>>()?;
+
     let coedges = if turning.dot(normal) > 0.0 {
         lines
             .iter()

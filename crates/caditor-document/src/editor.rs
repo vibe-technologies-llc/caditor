@@ -9,21 +9,21 @@ use crate::{
 pub const MAX_UNDO_STEPS: usize = 500;
 pub const MAX_UNDO_BYTES: usize = 256 * 1024 * 1024;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Step {
     transaction: Transaction,
     size: usize,
     serial: u64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct Steps {
     steps: VecDeque<Step>,
     bytes: usize,
     dropped: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UndoMark {
     newest: Option<u64>,
     next: u64,
@@ -56,6 +56,7 @@ impl Steps {
 
     fn push_within(&mut self, transaction: Transaction, serial: u64, budget: usize) {
         let size = transaction.approximate_size();
+
         self.bytes = self.bytes.saturating_add(size);
         self.steps.push_back(Step {
             transaction,
@@ -69,6 +70,7 @@ impl Steps {
 
     fn pop(&mut self) -> Option<(Transaction, u64)> {
         let step = self.steps.pop_back()?;
+
         self.bytes = self.bytes.saturating_sub(step.size);
         Some((step.transaction, step.serial))
     }
@@ -86,7 +88,7 @@ impl Steps {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Editor {
     document: Document,
     undo: Steps,
@@ -95,7 +97,7 @@ pub struct Editor {
     next_serial: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Base {
     document: Document,
     revision: u64,
@@ -108,6 +110,7 @@ impl Base {
 
     pub fn prepare(self, transaction: Transaction) -> Result<Prepared, EditError> {
         let mut document = self.document;
+
         let before = document.clone();
         let inverse = document.apply(transaction.clone())?;
         let changes_content = !document.same_content(&before);
@@ -121,7 +124,7 @@ impl Base {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Prepared {
     document: Document,
     transaction: Transaction,
@@ -136,7 +139,7 @@ impl Prepared {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("the model changed while the change was being prepared")]
 pub struct Stale;
 
@@ -211,6 +214,7 @@ impl Editor {
                 Some((serial, _)) => return (Some(serial) == mark.newest).then_some(since),
                 None => {
                     let whole = mark.newest.is_none() && self.undo.dropped == mark.dropped;
+
                     return whole.then_some(since);
                 }
             }
@@ -219,6 +223,7 @@ impl Editor {
 
     fn push_undo(&mut self, inverse: Transaction) {
         let serial = self.next_serial;
+
         self.next_serial += 1;
         self.undo.push(inverse, serial);
         self.redo.clear();
@@ -229,8 +234,11 @@ impl Editor {
         if transaction.is_empty() {
             return Ok(false);
         }
+
         let mut applied = self.document.clone();
+
         let inverse = applied.apply(transaction)?;
+
         if applied.same_content(&self.document) {
             return Ok(false);
         }
@@ -241,10 +249,13 @@ impl Editor {
 
     pub fn follow_readings(&mut self, evaluation: &Evaluation) -> bool {
         let transaction = self.document.following_readings(evaluation);
+
         if transaction.is_empty() {
             return false;
         }
+
         let mut followed = self.document.clone();
+
         if followed.apply(transaction).is_err() {
             return false;
         }
@@ -299,6 +310,7 @@ impl Editor {
         match document.replay(transaction.clone()) {
             Ok(inverse) => {
                 let label = inverse.label().to_owned();
+
                 to.push(inverse, serial);
                 Ok(Some(label))
             }
@@ -343,12 +355,16 @@ mod tests {
 
     fn import_of(bytes: usize) -> Transaction {
         let mut document = Document::default();
+
         let mut transaction = document.transaction(format!("Import {bytes}"));
+
         transaction.add_feature(
             "Imported",
             FeatureKind::Import(Import::new("part.step", Solid::default(), noise(bytes))),
         );
+
         let transaction = transaction.finish();
+
         document.apply(transaction.clone()).unwrap();
         transaction
     }
@@ -380,6 +396,7 @@ mod tests {
 
     fn sum_of(terms: usize) -> Transaction {
         let mut total = Expression::number(1.0);
+
         for _ in 0..terms {
             total = Expression::binary(BinaryOperator::Add, total, Expression::number(1.0));
         }
@@ -405,9 +422,11 @@ mod tests {
 
     fn sketch_of_construction_lines(lines: usize, construction: bool) -> Transaction {
         let mut sketch = Sketch::new(Plane::XY);
+
         for index in 0..lines {
             let y = index as f64;
             let line = sketch.add_line(Point2::new(0.0, y), Point2::new(1.0, y));
+
             sketch.set_construction(line, construction).unwrap();
         }
         Transaction::single(
@@ -430,8 +449,10 @@ mod tests {
     #[test]
     fn the_editor_lists_its_undo_and_redo_steps_newest_first() {
         let mut editor = Editor::default();
+
         for name in ["one", "two", "three"] {
             let mut transaction = editor.document().transaction(format!("Add {name}"));
+
             transaction.add_parameter(name.to_owned(), Expression::number(1.0));
             editor.apply(transaction.finish()).unwrap();
         }
@@ -460,10 +481,15 @@ mod tests {
 
         steps.push_within(import_of(1 << 20), 0, budget);
         steps.push_within(import_of(2 << 20), 1, budget);
+
         let both = labels(&steps);
+
         steps.push_within(import_of(3 << 20), 2, budget);
+
         let last_two = labels(&steps);
+
         steps.push_within(import_of(8 << 20), 3, budget);
+
         let oversized = labels(&steps);
         let popped = steps.pop().map(|(step, _)| step.label().to_owned());
 
@@ -479,8 +505,11 @@ mod tests {
         let mut document = Document::default();
 
         let mut transaction = document.transaction("Add");
+
         let width = transaction.add_parameter("width", Expression::Number(0.0));
+
         document.apply(transaction.finish()).unwrap();
+
         let mut editor = Editor::new(document);
         let set = |value: usize| {
             Transaction::single(
@@ -491,13 +520,17 @@ mod tests {
                 },
             )
         };
+
         for value in 1..=MAX_UNDO_STEPS + 20 {
             editor.apply(set(value)).unwrap();
         }
+
         let mut undone = 0;
+
         while editor.undo().unwrap().is_some() {
             undone += 1;
         }
+
         let value = editor
             .document()
             .parameter(width)
@@ -512,6 +545,7 @@ mod tests {
 
     fn add_parameter(document: &Document, name: &str) -> Transaction {
         let mut transaction = document.transaction(format!("Add {name}"));
+
         transaction.add_parameter(name, Expression::Number(1.0));
         transaction.finish()
     }
@@ -519,12 +553,14 @@ mod tests {
     #[test]
     fn a_change_prepared_elsewhere_commits_like_one_applied_here_and_undoes() {
         let mut editor = Editor::new(Document::default());
+
         let base = editor.base();
         let transaction = add_parameter(base.document(), "width");
 
         let prepared = base.prepare(transaction.clone()).unwrap();
         let committed = editor.commit(prepared).unwrap();
         let mut applied = Editor::new(Document::default());
+
         applied.apply(transaction.clone()).unwrap();
 
         assert_eq!(committed, transaction);
@@ -540,8 +576,10 @@ mod tests {
     #[test]
     fn a_change_prepared_on_an_older_model_is_refused_as_stale() {
         let mut editor = Editor::new(Document::default());
+
         let base = editor.base();
         let late = add_parameter(base.document(), "width");
+
         editor
             .apply(add_parameter(editor.document(), "height"))
             .unwrap();
@@ -560,8 +598,10 @@ mod tests {
         let editor = Editor::new(Document::default());
         let base = editor.base();
         let mut transaction = base.document().transaction("Twice");
+
         transaction.add_parameter("width", Expression::Number(1.0));
         transaction.add_parameter("width", Expression::Number(2.0));
+
         let twice = transaction.finish();
 
         assert!(base.prepare(twice).is_err());
@@ -569,8 +609,11 @@ mod tests {
 
     fn editor_with_parameter() -> (Editor, caditor_expression::ParameterId) {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add");
+
         let width = transaction.add_parameter("width", Expression::Number(3.0));
+
         document.apply(transaction.finish()).unwrap();
         (Editor::new(document), width)
     }
@@ -588,8 +631,10 @@ mod tests {
     #[test]
     fn an_edit_that_changes_nothing_is_not_an_undo_step_and_keeps_the_redo_history() {
         let (mut editor, width) = editor_with_parameter();
+
         editor.apply(set_width(width, 4.0)).unwrap();
         editor.undo().unwrap();
+
         let revision = editor.revision();
 
         let same = editor.apply(set_width(width, 3.0)).unwrap();
@@ -624,17 +669,24 @@ mod tests {
     #[test]
     fn the_steps_since_a_mark_are_the_newer_ones_kept_through_undo_and_redo() {
         let (mut editor, width) = editor_with_parameter();
+
         editor.apply(set_width(width, 4.0)).unwrap();
+
         let mark = editor.undo_mark();
+
         editor.apply(set_width(width, 5.0)).unwrap();
         editor
             .apply(add_parameter(editor.document(), "height"))
             .unwrap();
 
         let both = labels_since(&editor, mark);
+
         editor.undo().unwrap();
+
         let one = labels_since(&editor, mark);
+
         editor.redo().unwrap();
+
         let again = labels_since(&editor, mark);
 
         assert_eq!(
@@ -648,15 +700,22 @@ mod tests {
     #[test]
     fn undoing_past_a_mark_breaks_it_even_after_redoing_or_new_steps() {
         let (mut editor, width) = editor_with_parameter();
+
         editor.apply(set_width(width, 4.0)).unwrap();
+
         let mark = editor.undo_mark();
 
         editor.undo().unwrap();
+
         let undone_past = labels_since(&editor, mark);
+
         editor.redo().unwrap();
+
         let redone = labels_since(&editor, mark);
+
         editor.undo().unwrap();
         editor.apply(set_width(width, 6.0)).unwrap();
+
         let replaced = labels_since(&editor, mark);
 
         assert_eq!(undone_past, None);
@@ -668,12 +727,15 @@ mod tests {
     fn a_mark_on_an_empty_history_breaks_once_steps_since_it_are_dropped() {
         let (mut editor, width) = editor_with_parameter();
         let mark = editor.undo_mark();
+
         editor.apply(set_width(width, 4.0)).unwrap();
+
         let kept = labels_since(&editor, mark).map(|labels| labels.len());
 
         for value in 0..MAX_UNDO_STEPS {
             editor.apply(set_width(width, value as f64 + 10.0)).unwrap();
         }
+
         let dropped = labels_since(&editor, mark);
 
         assert_eq!(kept, Some(1));
@@ -694,6 +756,7 @@ mod tests {
     #[test]
     fn a_prepared_edit_that_changes_nothing_commits_as_an_empty_change() {
         let (mut editor, width) = editor_with_parameter();
+
         let prepared = editor.base().prepare(set_width(width, 3.0)).unwrap();
 
         let committed = editor.commit(prepared).unwrap();
@@ -706,12 +769,16 @@ mod tests {
     #[test]
     fn a_flag_set_to_its_value_changes_nothing() {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add");
+
         let feature = transaction.add_feature(
             "Imported",
             FeatureKind::Import(Import::new("part.step", Solid::default(), String::new())),
         );
+
         document.apply(transaction.finish()).unwrap();
+
         let mut editor = Editor::new(document);
         let hide = |hidden| {
             Transaction::single(

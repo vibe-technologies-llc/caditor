@@ -79,6 +79,7 @@ fn points_are_apart_by_the_length_between_them() {
     .unwrap();
 
     assert_separation(found, 13.0, Accuracy::Exact, CLOSE);
+
     assert_eq!(found.offset(), Vector3::new(3.0, 4.0, 12.0));
 }
 
@@ -99,8 +100,11 @@ fn a_point_is_measured_square_to_a_straight_edge_or_to_its_nearer_end() {
     .unwrap();
 
     assert_separation(beside, 5.0, Accuracy::Exact, CLOSE);
+
     assert!(beside.to.distance(Point3::new(5.0, 0.0, 0.0)) < CLOSE);
+
     assert_separation(beyond, 5.0, Accuracy::Exact, CLOSE);
+
     assert!(beyond.from.distance(Point3::new(10.0, 0.0, 0.0)) < CLOSE);
 }
 
@@ -121,7 +125,9 @@ fn a_point_is_measured_square_to_a_flat_face_or_to_its_nearest_edge() {
     .unwrap();
 
     assert_separation(above, 10.0, Accuracy::Exact, CLOSE);
+
     assert!(above.to.distance(Point3::new(5.0, 5.0, 30.0)) < CLOSE);
+
     assert_separation(outside, 125f64.sqrt(), Accuracy::Exact, CLOSE);
 }
 
@@ -144,7 +150,9 @@ fn a_point_is_measured_to_round_faces_along_their_normal() {
     .unwrap();
 
     assert_separation(to_side, 5.0, Accuracy::Exact, CLOSE);
+
     assert!(to_side.to.distance(Point3::new(5.0, 0.0, 5.0)) < CLOSE);
+
     assert_separation(to_skin, 5.0, Accuracy::Exact, CLOSE);
 }
 
@@ -203,6 +211,7 @@ fn a_straight_edge_crossing_a_flat_face_touches_it() {
     let found = distance(edge(&pierce, upright), face(&block, bottom)).unwrap();
 
     assert_separation(found, 0.0, Accuracy::Exact, CLOSE);
+
     assert!(found.to.distance(Point3::new(5.0, 5.0, 0.0)) < CLOSE);
 }
 
@@ -252,6 +261,7 @@ fn cylinder_axes_are_apart_by_the_distance_between_their_lines() {
     let parallel = moved(&tube, Vector3::new(12.0, 5.0, 40.0));
     let side = face_where(&tube, |surface| matches!(surface, Surface::Cylinder(_)));
     let other_side = face_where(&parallel, |surface| matches!(surface, Surface::Cylinder(_)));
+
     let first = axis_of(face(&tube, side)).unwrap().unwrap();
     let second = axis_of(face(&parallel, other_side)).unwrap().unwrap();
     let crossing = Axis {
@@ -264,6 +274,7 @@ fn cylinder_axes_are_apart_by_the_distance_between_their_lines() {
 
     assert_separation(apart, 13.0, Accuracy::Exact, CLOSE);
     assert_separation(skew, 7.0, Accuracy::Exact, CLOSE);
+
     assert!(skew.from.distance(Point3::new(0.0, 0.0, 3.0)) < CLOSE);
 }
 
@@ -342,6 +353,7 @@ fn edges_report_their_length_and_circles_their_centre_and_radius() {
 
     assert!((circle.length - TAU * 5.0).abs() < CLOSE);
     assert_eq!(circle.length_accuracy, Accuracy::Exact);
+
     let EdgeForm::Circle {
         center,
         radius,
@@ -351,6 +363,7 @@ fn edges_report_their_length_and_circles_their_centre_and_radius() {
     else {
         panic!("a round edge is a circle");
     };
+
     assert!(center.x.abs() < CLOSE && center.y.abs() < CLOSE);
     assert!((radius - 5.0).abs() < CLOSE);
     assert!((sweep - TAU).abs() < CLOSE);
@@ -438,7 +451,9 @@ fn points_are_measured_square_to_planes_and_axes() {
     let to_axis = distance(Element::Point(point), axis(Point3::ZERO, Vector3::Z)).unwrap();
 
     assert_separation(to_plane, 12.0, Accuracy::Exact, CLOSE);
+
     assert!(to_plane.to.distance(Point3::new(3.0, 4.0, 0.0)) < CLOSE);
+
     assert_separation(to_axis, 5.0, Accuracy::Exact, CLOSE);
 }
 
@@ -460,11 +475,16 @@ fn planes_and_axes_meet_unless_parallel() {
 
     assert_separation(floor_to_shelf, 7.0, Accuracy::Exact, CLOSE);
     assert_separation(floor_to_wall, 0.0, Accuracy::Exact, CLOSE);
+
     assert!((floor_to_wall.from.x - 4.0).abs() < CLOSE && floor_to_wall.from.z.abs() < CLOSE);
+
     assert_separation(level_to_floor, 3.0, Accuracy::Exact, CLOSE);
     assert_separation(upright_to_floor, 0.0, Accuracy::Exact, CLOSE);
+
     assert!(upright_to_floor.from.distance(Point3::new(2.0, 2.0, 0.0)) < CLOSE);
+
     assert_separation(skew_to_upright, 3.0, Accuracy::Exact, CLOSE);
+
     assert_eq!(no_direction, Err(MeasureError::NoDirection));
 }
 
@@ -500,6 +520,7 @@ fn free_curves_are_measured_like_edges() {
     let frame = caditor_geometry::Plane::new(Point3::new(0.0, 0.0, 4.0), Vector3::Z).unwrap();
     let circle = Curve::Circle(crate::curve::Circle::new(frame, 3.0).unwrap());
     let half = crate::interval::Interval::new(0.0, PI).unwrap();
+
     let arc = Element::Curve {
         curve: &circle,
         interval: half,
@@ -515,8 +536,10 @@ fn free_curves_are_measured_like_edges() {
         measured.form,
         EdgeForm::Circle { radius, sweep, .. } if (radius - 3.0).abs() < CLOSE && (sweep - PI).abs() < CLOSE
     ));
+
     assert_separation(to_centre, 3.0, Accuracy::Exact, CLOSE);
     assert_separation(to_floor, 4.0, Accuracy::Approximate, NUMERICAL);
+
     assert!(centre_axis.origin.distance(Point3::new(0.0, 0.0, 4.0)) < CLOSE);
 }
 

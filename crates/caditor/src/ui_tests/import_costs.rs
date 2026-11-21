@@ -59,6 +59,7 @@ fn resident_mib(field: &str) -> Option<f64> {
 fn report(stage: &str, started: Instant, detail: impl std::fmt::Display) {
     let resident = resident_mib("VmRSS:").unwrap_or_default();
     let peak = resident_mib("VmHWM:").unwrap_or_default();
+
     eprintln!(
         "{stage:<44} {:>10.3} s  {resident:>7.0} MiB resident, {peak:>7.0} peak  {detail}",
         started.elapsed().as_secs_f64()
@@ -67,6 +68,7 @@ fn report(stage: &str, started: Instant, detail: impl std::fmt::Display) {
 
 fn synthesised(dir: &Path) -> PathBuf {
     let mut solids: Vec<(String, Solid)> = Vec::new();
+
     for (row, sample) in Sample::ALL.into_iter().enumerate() {
         let document = sample.document().unwrap();
         let evaluation = Recompute::default().run_without_display(
@@ -75,18 +77,22 @@ fn synthesised(dir: &Path) -> PathBuf {
             &CancelToken::never(),
         );
         let (body, _) = evaluation.bodies().next().unwrap();
+
         let solid = &evaluation.body_result(body).unwrap().solid().unwrap().solid;
         for copy in 0..COPIES_PER_SAMPLE {
             let along = (copy % ROW) as f64 * SPACING;
             let across = (row * COPIES_PER_SAMPLE / ROW + copy / ROW) as f64 * SPACING;
+
             let placed = solid
                 .transformed(
                     &RigidTransform::translation(Vector3::new(along, across, 0.0)).unwrap(),
                 )
                 .unwrap();
+
             solids.push((format!("{} {copy}", sample.title()), placed));
         }
     }
+
     let bodies: Vec<ExportBody<'_>> = solids
         .iter()
         .map(|(name, solid)| ExportBody {
@@ -99,6 +105,7 @@ fn synthesised(dir: &Path) -> PathBuf {
         })
         .collect();
     let path = dir.join("assembly.step");
+
     export_bodies(
         &path,
         ExportFormat::Step,
@@ -123,6 +130,7 @@ fn stages(path: &Path) {
     let cancel = CancelToken::never();
     let started = Instant::now();
     let imported = read_step_file(path, &cancel).unwrap();
+
     report(
         "read, healed and stored",
         started,
@@ -131,7 +139,9 @@ fn stages(path: &Path) {
 
     let started = Instant::now();
     let mut document = Document::default();
+
     let transaction = bodies_transaction(&document, &imported.bodies, "Import");
+
     document.apply(transaction).unwrap();
     report("added to the model", started, "");
     drop(imported);
@@ -139,6 +149,7 @@ fn stages(path: &Path) {
     let scratch = TempDir::new().unwrap();
     let saved = scratch.path().join("timed.caditor");
     let started = Instant::now();
+
     caditor_file::save(&document, &saved, false).unwrap();
     report(
         "saved",
@@ -148,8 +159,10 @@ fn stages(path: &Path) {
             std::fs::metadata(&saved).map_or(0, |file| file.len()) as f64 / 1024.0 / 1024.0
         ),
     );
+
     let started = Instant::now();
     let reopened = caditor_file::load(&saved).unwrap();
+
     report(
         "reopened",
         started,
@@ -159,6 +172,7 @@ fn stages(path: &Path) {
 
     let mut recompute = Recompute::default();
     let started = Instant::now();
+
     recompute.run_without_display(&document, &ModelEvaluator, &cancel);
     report("recomputed without display", started, "");
 
@@ -166,6 +180,7 @@ fn stages(path: &Path) {
     let evaluation = recompute.run(&document, &ModelEvaluator, &cancel, &|_, _| {});
     let results = body_results(&evaluation);
     let (mut vertices, mut triangles) = (0, 0);
+
     for result in &results {
         if let Some(mesh) = result.solid().and_then(|solid| solid.mesh()) {
             vertices += mesh.vertices().len();
@@ -180,11 +195,13 @@ fn stages(path: &Path) {
 
     let started = Instant::now();
     let mut meshing = BodyMeshing::default();
+
     for result in &results {
         meshing.request(result, || Box::new(|| {}));
     }
     while meshing.is_pending() {
         assert!(within_timeout(started), "the import did not finish");
+
         meshing.poll();
         thread::sleep(Duration::from_millis(2));
     }
@@ -192,8 +209,11 @@ fn stages(path: &Path) {
 
     let started = Instant::now();
     let mut meshes = crate::bodies::BodyMeshes::default();
+
     meshes.update(&evaluation, &meshing);
+
     let shown = meshes.iter().count();
+
     report(
         "handed to the view (BodyMeshes::update)",
         started,
@@ -205,8 +225,10 @@ fn stages(path: &Path) {
         .iter()
         .filter(|(_, mesh)| mesh.mass().is_none())
         .count();
+
     while meshing.masses_measured() < asked as u64 {
         assert!(within_timeout(started), "the import did not finish");
+
         meshing.poll();
         thread::sleep(Duration::from_millis(2));
     }
@@ -225,6 +247,7 @@ fn stages(path: &Path) {
         Canvas::default(),
         None,
     );
+
     report(
         "scene built twice (fitting, then drawn)",
         started,
@@ -232,11 +255,13 @@ fn stages(path: &Path) {
     );
 
     let bytes = vertices * VERTEX_BYTES + triangles * TRIANGLE_BYTES;
+
     eprintln!(
         "about {:.0} MiB of meshes, {:.0} frames at 8 MiB a frame",
         bytes as f64 / 1024.0 / 1024.0,
         (bytes as f64 / UPLOAD_BYTES_PER_FRAME).ceil()
     );
+
     let Ok(mut renderer) = OffscreenRenderer::new(GraphicsSettings::default()) else {
         eprintln!("no graphics adapter, so the upload is not timed");
         return;
@@ -249,6 +274,7 @@ fn stages(path: &Path) {
         pixels_per_point: 1.0,
         background: Background::Viewport,
     });
+
     report(
         "uploaded and drawn at once (offscreen)",
         started,
@@ -258,22 +284,33 @@ fn stages(path: &Path) {
 
 fn in_app(path: &Path) {
     let mut harness = Harness::starting(None, Document::default(), Workspace::new());
+
     harness.answer_dialog(Some(path.to_path_buf()));
+
     let started = Instant::now();
+
     harness.command(FileCommand::Import { into: None });
+
     let mut added = None;
     let mut first_shown = None;
     let mut slow: Vec<(Duration, Duration, usize)> = Vec::new();
     let mut frames = 0;
     let mut previous_shown = 0;
     let mut steps = 0;
+
     loop {
         assert!(within_timeout(started), "the import did not finish");
+
         let frame = Instant::now();
+
         harness.pass();
+
         let took = frame.elapsed();
+
         frames += 1;
+
         let features = harness.document().features().len();
+
         if added.is_none() && features > 0 {
             added = Some(started.elapsed());
             report(
@@ -282,7 +319,9 @@ fn in_app(path: &Path) {
                 format!("{features} features"),
             );
         }
+
         let shown = harness.workspace.viewport.bodies().iter().count();
+
         if took > STALL {
             slow.push((started.elapsed(), took, shown));
         }
@@ -320,11 +359,13 @@ fn in_app(path: &Path) {
 
 fn after_loading(harness: &mut Harness) {
     let started = Instant::now();
+
     harness.settle();
     report("in the app: settled", started, "");
     harness.command(FileCommand::DismissReport);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.pass();
+
     let centre = super::SCREEN.center();
     let aside = centre + egui::vec2(40.0, 25.0);
 
@@ -334,11 +375,14 @@ fn after_loading(harness: &mut Harness) {
         "loaded, pointer moving over the view",
         |harness, frame| {
             let position = if frame % 2 == 0 { centre } else { aside };
+
             harness.events.push(Event::PointerMoved(position));
         },
     );
+
     let faces = two_faces(harness);
     let before_hovering = harness.built().generation;
+
     timed_frames(
         harness,
         "loaded, pointer moving between two faces",
@@ -348,10 +392,12 @@ fn after_loading(harness: &mut Harness) {
             } else {
                 (aside, faces[1])
             };
+
             harness.events.push(Event::PointerMoved(position));
             harness.forced_hover = Some((position, face));
         },
     );
+
     assert!(
         harness.built().generation > before_hovering,
         "hovering the faces lit them"
@@ -363,10 +409,12 @@ fn after_loading(harness: &mut Harness) {
     timed_change(harness, "loaded, a face clicked to select it", |harness| {
         press_and_release(harness, centre, PointerButton::Primary);
     });
+
     assert!(
         harness.workspace.viewport.selection().contains(faces[0]),
         "the click selected the face under the pointer"
     );
+
     timed_frames(harness, "loaded, a face selected, idle", |_, _| {});
     harness.forced_hover = None;
     timed_change(harness, "loaded, the selection cleared", |harness| {
@@ -382,6 +430,7 @@ fn after_loading(harness: &mut Harness) {
     dragged(harness, "loaded, panning", PointerButton::Middle, centre);
     timed_frames(harness, "loaded, zooming", |harness, frame| {
         let delta = if frame % 2 == 0 { 60.0 } else { -60.0 };
+
         harness.events.push(Event::MouseWheel {
             source: egui::MouseWheelSource::Unknown,
             unit: egui::MouseWheelUnit::Point,
@@ -400,6 +449,7 @@ fn two_faces(harness: &mut Harness) -> [Pickable; 2] {
     let mut faces = picks
         .pickables()
         .filter(|pickable| matches!(pickable, Pickable::Face { .. }));
+
     let first = faces.next().expect("a face is drawn");
     let second = faces
         .find(|face| visibility::owner(*face) != visibility::owner(first))
@@ -431,6 +481,7 @@ fn dragged(harness: &mut Harness, name: &str, button: PointerButton, centre: Pos
     harness.pass();
     timed_frames(harness, name, |harness, frame| {
         let along = (frame % 40) as f32 * 3.0;
+
         harness
             .events
             .push(Event::PointerMoved(centre + egui::vec2(along, along / 3.0)));
@@ -454,8 +505,10 @@ fn in_the_trees(harness: &mut Harness) {
     let hideable = visibility::toggle(harness.document().feature(first.0).unwrap()).unwrap();
 
     harness.frame();
+
     let row = harness.position_of(&first.1);
     let over_the_tree = row + egui::vec2(0.0, 200.0);
+
     timed_change(harness, "loaded, a feature row clicked", |harness| {
         harness.events.push(Event::PointerMoved(row));
         harness.pass();
@@ -481,11 +534,14 @@ fn in_the_trees(harness: &mut Harness) {
         bodies_tree::GROUP_TITLE,
         harness.workspace.viewport.bodies().iter().count()
     );
+
     if !harness.shows(&title) {
         eprintln!("the Bodies group is not on screen, so its rows are not timed");
         return;
     }
+
     let title_at = harness.position_of(&title);
+
     timed_change(harness, "loaded, the Bodies group opened", |harness| {
         harness.events.push(Event::PointerMoved(title_at));
         harness.pass();
@@ -516,6 +572,7 @@ fn scroll(harness: &mut Harness, over: Pos2, frame: u32) {
     } else {
         60.0
     };
+
     harness.events.push(Event::PointerMoved(over));
     harness.events.push(Event::MouseWheel {
         source: egui::MouseWheelSource::Unknown,
@@ -528,11 +585,15 @@ fn scroll(harness: &mut Harness, over: Pos2, frame: u32) {
 
 fn timed_change(harness: &mut Harness, name: &str, change: impl FnOnce(&mut Harness)) {
     let started = Instant::now();
+
     change(harness);
+
     let changed = started.elapsed();
     let mut frames = 0;
+
     while harness.computing() || frames < SETTLING_FRAMES {
         assert!(within_timeout(started), "{name} never settled");
+
         if harness.computing() {
             harness.model.poll();
             thread::sleep(Duration::from_millis(1));
@@ -550,13 +611,18 @@ fn timed_frames(harness: &mut Harness, name: &str, mut change: impl FnMut(&mut H
     let mut took: Vec<Duration> = (0..LOADED_FRAMES)
         .map(|frame| {
             change(harness, frame);
+
             let started = Instant::now();
+
             harness.pass();
             started.elapsed()
         })
         .collect();
+
     took.sort();
+
     let total: Duration = took.iter().sum();
+
     eprintln!(
         "{name:<44} {:?} a frame on average, median {:?}, longest {:?}",
         total / LOADED_FRAMES,
@@ -574,15 +640,18 @@ fn a_large_step_import_is_timed_stage_by_stage() {
         None => {
             let started = Instant::now();
             let path = synthesised(dir.path());
+
             report("synthesised", started, "");
             (path, true)
         }
     };
     let started = Instant::now();
+
     if env::var_os(IN_THE_APP_ONLY).is_none() {
         stages(&path);
     }
     in_app(&path);
+
     let took = started.elapsed();
 
     assert!(

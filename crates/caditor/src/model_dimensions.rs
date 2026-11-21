@@ -46,13 +46,13 @@ pub struct Outside<'a> {
     pub interactive: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct SketchesKey {
     revision: u64,
     subjects: Vec<FeatureId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ValuesKey {
     revision: u64,
     evaluation: u64,
@@ -60,7 +60,7 @@ struct ValuesKey {
     subjects: Vec<FeatureId>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct OpenValue {
     feature: FeatureId,
     slot: ValueSlot,
@@ -68,7 +68,7 @@ struct OpenValue {
     select_all_pending: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct ShownValue {
     value: FeatureValue,
     text: String,
@@ -82,14 +82,14 @@ struct PlacedValue {
     leader: Option<Pos2>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Stack {
     Centre(FeatureId),
     Leader(FeatureId),
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShownShape {
     Stacked,
     Path(usize),
@@ -104,8 +104,10 @@ fn screen_halfway(points: &[Pos2]) -> Option<Pos2> {
     };
     let total: f32 = legs().map(|(from, to)| from.distance(to)).sum();
     let mut left = total / 2.0;
+
     for (from, to) in legs() {
         let length = from.distance(to);
+
         if length >= left && length > 0.0 {
             return Some(from.lerp(to, left / length));
         }
@@ -130,7 +132,7 @@ fn end_ticks(points: &[Pos2]) -> Vec<(Pos2, egui::Vec2)> {
         .collect()
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ModelDimensions {
     sketches_key: Option<SketchesKey>,
     sketches: Vec<FeatureId>,
@@ -164,6 +166,7 @@ fn label_text(model: &Model, value: &FeatureValue) -> String {
     let document = model.document();
     let units = model.units();
     let parameters = model.parameters();
+
     let shown = value
         .expression
         .evaluate_as(value.dimension, &|id| parameters.value(id))
@@ -201,6 +204,7 @@ fn value_change(
     let owner = owner_of(value);
     let parse =
         |text: &str| feature_fields::parse_quantity(model, value.dimension, value.rule, text);
+
     let named = NamedField {
         document,
         parameters,
@@ -230,12 +234,14 @@ fn sketches_of(model: &Model, subjects: &[FeatureId]) -> Vec<FeatureId> {
             .map(|_| *subject)
             .or_else(|| feature_values::sketch_of(&owner.kind))
     });
+
     let mut sketches: Vec<FeatureId> = document
         .active_features()
         .filter(|feature| feature.kind.sketch().is_some() && !feature.hidden)
         .map(caditor_document::Feature::id)
         .chain(subject_sketches.filter(|sketch| active.contains(sketch)))
         .collect();
+
     sketches.sort_unstable();
     sketches.dedup();
     sketches
@@ -324,13 +330,17 @@ impl ModelDimensions {
             revision: model.revision(),
             subjects: subjects.to_vec(),
         };
+
         if self.sketches_key.as_ref() != Some(&sketches_key) {
             self.sketches = sketches_of(model, subjects);
             self.sketches_key = Some(sketches_key);
+
             let kept = &self.sketches;
+
             self.annotations
                 .retain(|feature, _| kept.binary_search(feature).is_ok());
         }
+
         let values_key = ValuesKey {
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
@@ -339,6 +349,7 @@ impl ModelDimensions {
         };
         if self.values_key.as_ref() != Some(&values_key) {
             let document = model.document();
+
             self.values = subjects
                 .iter()
                 .flat_map(|subject| feature_values::of(model, *subject))
@@ -367,6 +378,7 @@ impl ModelDimensions {
         actions: &mut Vec<Action>,
     ) {
         let mut subjects = self.held();
+
         for subject in outside.subjects {
             if !subjects.contains(subject) {
                 subjects.push(*subject);
@@ -380,9 +392,11 @@ impl ModelDimensions {
                 .iter()
                 .any(|shown| shown.value.feature == open.feature && shown.value.slot == open.slot)
         });
+
         let placed = self.place_values(ui, outside);
         let mut taken: Vec<Rect> = placed.iter().map(|target| target.rect).collect();
         let mut shown = Vec::new();
+
         for feature in self.sketches.clone() {
             let Some(plane) = scene::sketch_plane(model.document(), model.evaluation(), feature)
             else {
@@ -401,6 +415,7 @@ impl ModelDimensions {
                 taken: &taken,
             };
             let annotations = self.annotations.entry(feature).or_default();
+
             annotations.show(ui, model, &surface, selection, actions);
             taken.extend(annotations.label_rects());
             self.hovered = self.hovered.or(annotations.hovered());
@@ -436,6 +451,7 @@ impl ModelDimensions {
         let mut labels = annotation_layout::obstacles();
         let mut stacks: BTreeMap<Stack, Pos2> = BTreeMap::new();
         let mut placed = Vec::new();
+
         for (index, shown) in self.values.iter().enumerate() {
             let size = canvas::chip_size(
                 painter
@@ -458,9 +474,11 @@ impl ModelDimensions {
             let mut stacked = |stack: Stack, start: Pos2| {
                 let next = stacks.entry(stack).or_insert(start);
                 let rect = Rect::from_min_size(*next, size);
+
                 *next = rect.left_bottom() + vec2(0.0, STACK_GAP);
                 rect
             };
+
             let rect = if let Some(middle) = screen_halfway(&path) {
                 Rect::from_center_size(middle, size)
             } else if let Some(at) = leader {
@@ -477,10 +495,13 @@ impl ModelDimensions {
                     anchor + vec2(STACK_OFFSET, STACK_OFFSET),
                 )
             };
+
             if !rect.intersects(outside.rect) {
                 continue;
             }
+
             let taken = annotations::footprint(outside.rect, rect);
+
             if Some(feature) != first && annotation_layout::mostly_covered(&labels, &taken) {
                 continue;
             }
@@ -503,10 +524,12 @@ impl ModelDimensions {
                 continue;
             };
             let pickable = value_pickable(&shown.value);
+
             if outside.interactive {
                 let id = Id::unique(("model-value", shown.value.feature, shown.value.slot));
                 let response = ui.interact(target.rect, id, Sense::click());
                 let spoken = format!("{} {}: {}", shown.name, shown.value.caption, shown.text);
+
                 response.widget_info(|| WidgetInfo::labeled(Role::Button, true, &spoken));
                 if response.hovered() {
                     self.hovered = Some(pickable);
@@ -524,6 +547,7 @@ impl ModelDimensions {
                     shown.value.caption, shown.name
                 ));
             }
+
             let open = self.field.is_some_and(|open| {
                 open.feature == shown.value.feature && open.slot == shown.value.slot
             });
@@ -533,6 +557,7 @@ impl ModelDimensions {
                 chrome.dimension
             };
             let stroke = Stroke::new(LINE_WIDTH, color);
+
             if target.path.len() >= 2 {
                 painter.line(target.path.clone(), stroke);
                 for (end, across) in end_ticks(&target.path) {
@@ -577,6 +602,7 @@ impl ModelDimensions {
         let value = &shown.value;
         let id = value_field_id(value.feature, value.slot);
         let stored = field::driven_text(model.document(), &owner_of(value), &value.expression);
+
         let field = egui::Area::new(id.with("area"))
             .order(Order::Foreground)
             .fixed_pos(rect.center() - vec2(0.0, FIELD_LIFT))
@@ -594,6 +620,7 @@ impl ModelDimensions {
                             open.focus_pending,
                             |text| value_change(model, value, text),
                         );
+
                         if let Some(error) = &field.error {
                             widgets::error_text(ui, error);
                         }
@@ -602,8 +629,10 @@ impl ModelDimensions {
                     .inner
             })
             .inner;
+
         if let Some(transaction) = field.committed {
             let announced = reversing::announcement(model.document(), &transaction);
+
             actions.push(Action::Apply(transaction));
             actions.extend(announced.map(Action::Inform));
         }
@@ -614,8 +643,10 @@ impl ModelDimensions {
                 open.select_all_pending = false;
             }
         }
+
         let lost_focus = field.response.lost_focus();
         let entered = ui.input(|input| input.key_pressed(Key::Enter));
+
         if lost_focus && field.error.is_some() && entered {
             open.focus_pending = true;
         }

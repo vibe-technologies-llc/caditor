@@ -10,6 +10,7 @@ pub(crate) fn expand_knots(
     if multiplicities.len() != knots.len() {
         return None;
     }
+
     let counts = multiplicities
         .iter()
         .map(|count| usize::try_from(*count).ok().filter(|count| *count > 0))
@@ -17,10 +18,13 @@ pub(crate) fn expand_knots(
     let total = counts
         .iter()
         .try_fold(0_usize, |total, count| total.checked_add(*count))?;
+
     if total != expected {
         return None;
     }
+
     let mut expanded = Vec::with_capacity(total);
+
     for (count, knot) in counts.into_iter().zip(knots) {
         expanded.extend(std::iter::repeat_n(*knot, count));
     }
@@ -33,9 +37,11 @@ pub(crate) fn knot_count(points: usize, degree: usize) -> Option<usize> {
 
 pub(crate) fn bezier_knots(count: usize, degree: usize) -> Vec<f64> {
     let whole_segments = degree > 0 && count > degree && (count - 1).is_multiple_of(degree);
+
     if !whole_segments {
         return uniform_knots(count, degree, true);
     }
+
     let segments = (count - 1) / degree;
     std::iter::repeat_n(0.0, degree + 1)
         .chain((1..segments).flat_map(|segment| std::iter::repeat_n(segment as f64, degree)))
@@ -63,21 +69,28 @@ pub(crate) fn clamp(
     points: &[Homogeneous],
 ) -> Option<(Vec<f64>, Vec<Homogeneous>)> {
     let count = points.len();
+
     if knots.len() != count + degree + 1 || count <= degree {
         return None;
     }
+
     let start = *knots.get(degree)?;
     let end = *knots.get(count)?;
+
     if end <= start {
         return None;
     }
+
     let mut knots = knots.to_vec();
     let mut points = points.to_vec();
+
     while copies(&knots, start) < degree {
         insert(degree, &mut knots, &mut points, start)?;
     }
+
     let last_start = knots.iter().rposition(|knot| same(*knot, start))?;
     let dropped = last_start.checked_sub(degree)?;
+
     knots.drain(..dropped);
     points.drain(..dropped);
     knots
@@ -87,7 +100,9 @@ pub(crate) fn clamp(
     while copies(&knots, end) < degree {
         insert(degree, &mut knots, &mut points, end)?;
     }
+
     let first_end = knots.iter().position(|knot| same(*knot, end))?;
+
     points.truncate(first_end);
     knots.truncate(first_end + degree + 1);
     knots
@@ -116,6 +131,7 @@ fn insert(
         .rposition(|knot| *knot <= value || same(*knot, value))?
         .min(points.len().checked_sub(1)?);
     let mut inserted = Vec::with_capacity(points.len() + 1);
+
     for index in 0..=points.len() {
         let point = if index + degree <= span {
             *points.get(index)?
@@ -124,6 +140,7 @@ fn insert(
         } else {
             let low = *knots.get(index)?;
             let high = *knots.get(index + degree)?;
+
             let alpha = if high > low {
                 (value - low) / (high - low)
             } else {
@@ -135,6 +152,7 @@ fn insert(
                     + (1.0 - alpha) * previous.get(axis).copied().unwrap_or(0.0)
             })
         };
+
         inserted.push(point);
     }
     knots.insert(span + 1, value);
@@ -156,11 +174,14 @@ pub(crate) fn evaluate(
         }
     })?;
     let first = span.checked_sub(degree)?;
+
     let mut local: Vec<Homogeneous> = points.get(first..=span)?.to_vec();
+
     for level in 1..=degree {
         for index in (level..=degree).rev() {
             let low = *knots.get(first + index)?;
             let high = *knots.get(first + index + degree + 1 - level)?;
+
             let alpha = if high > low {
                 (value - low) / (high - low)
             } else {
@@ -195,14 +216,17 @@ mod tests {
             point(6.0, -1.0),
             point(8.0, 0.0),
         ];
+
         let knots = uniform_knots(points.len(), degree, false);
         let (clamped_knots, clamped_points) = clamp(degree, &knots, &points).unwrap();
         let (start, end) = (knots[degree], knots[points.len()]);
+
         assert_eq!(&clamped_knots[..=degree], &[start; 4]);
         assert_eq!(
             &clamped_knots[clamped_knots.len() - degree - 1..],
             &[end; 4]
         );
+
         for step in 0..=20 {
             let value = start + (end - start) * step as f64 / 20.0;
             let before = evaluate(degree, &knots, &points, value).unwrap();
@@ -214,8 +238,10 @@ mod tests {
                 );
             }
         }
+
         let already = uniform_knots(points.len(), degree, true);
         let (same_knots, same_points) = clamp(degree, &already, &points).unwrap();
+
         assert_eq!(same_knots, already);
         assert_eq!(same_points, points);
     }

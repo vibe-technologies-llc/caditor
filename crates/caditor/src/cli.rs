@@ -21,7 +21,7 @@ pub enum Invocation {
     Refused(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Serving {
     pub model: PathBuf,
     pub folders: Vec<PathBuf>,
@@ -30,6 +30,7 @@ pub struct Serving {
 impl Invocation {
     pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Self {
         let mut arguments = arguments.into_iter().peekable();
+
         if arguments
             .peek()
             .is_some_and(|first| first.as_os_str() == SERVE_COMMAND)
@@ -45,6 +46,7 @@ impl Invocation {
         let mut folders = Vec::new();
         let mut connect: Option<u16> = None;
         let mut options_ended = false;
+
         while let Some(argument) = arguments.next() {
             if options_ended {
                 models.push(argument);
@@ -115,6 +117,7 @@ impl Invocation {
         let mut size = None;
         let mut configuration = None;
         let mut every_configuration = false;
+
         while let Some(argument) = arguments.next() {
             if options_ended {
                 paths.push(argument);
@@ -186,6 +189,7 @@ impl Invocation {
                 about::NAME
             ));
         }
+
         let configurations = match (configuration, every_configuration) {
             (Some(_), true) => {
                 return Self::Refused(

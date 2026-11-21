@@ -32,6 +32,7 @@ pub fn opening(model: PathBuf) -> Opening {
 
 pub fn saved_plate(folder: &Path) -> PathBuf {
     let path = folder.join("plate.caditor");
+
     caditor_file::save(&Sample::Plate.document().unwrap(), &path, false).unwrap();
     path
 }
@@ -56,8 +57,10 @@ impl Write for Gated {
 
     fn flush(&mut self) -> io::Result<()> {
         self.writer.flush()?;
+
         let message = std::mem::take(&mut self.message);
         let progress = String::from_utf8_lossy(&message).contains("notifications/progress");
+
         if let (Some(gate), true) = (&self.gate, progress) {
             let deadline = Instant::now() + PATIENCE;
             while !gate.cancellations.is_cancelled(&gate.request) && Instant::now() < deadline {
@@ -91,6 +94,7 @@ impl Client {
                 gate,
                 message: Vec::new(),
             };
+
             let session =
                 server::serve_watching(BufReader::new(input), output, session, cancellations);
             if let Some(closing) = session.close() {
@@ -108,19 +112,23 @@ impl Client {
 
     pub fn send(&mut self, message: &Value) {
         let requests = self.requests.as_mut().unwrap();
+
         writeln!(requests, "{message}").unwrap();
         requests.flush().unwrap();
     }
 
     pub fn read_message(&mut self) -> Value {
         let mut line = String::new();
+
         let read = self.responses.read_line(&mut line).unwrap();
+
         assert!(read > 0, "the server ended without answering");
         serde_json::from_str(&line).unwrap()
     }
 
     pub fn request(&mut self, method: &str, params: Value) -> Value {
         let id = self.next_id;
+
         self.next_id += 1;
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
         self.response_to(&json!(id))
@@ -129,6 +137,7 @@ impl Client {
     pub fn response_to(&mut self, id: &Value) -> Value {
         loop {
             let message = self.read_message();
+
             if message.get("id") == Some(id) {
                 return message;
             }
@@ -145,6 +154,7 @@ impl Client {
                 "clientInfo": { "name": "test", "version": "1.0.0" }
             }),
         );
+
         self.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
         answer
     }
@@ -162,9 +172,12 @@ impl Client {
 
     pub fn tool(&mut self, tool: &str, arguments: Value) -> Value {
         let result = self.call(tool, arguments);
+
         assert_eq!(result["isError"], json!(false), "{tool}: {result}");
+
         let text = result["content"][0]["text"].as_str().unwrap();
         let data: Value = serde_json::from_str(text).unwrap();
+
         if let Some(structured) = result.get("structuredContent") {
             assert_eq!(structured, &data);
         }
@@ -173,6 +186,7 @@ impl Client {
 
     pub fn tool_error(&mut self, tool: &str, arguments: Value) -> String {
         let result = self.call(tool, arguments);
+
         assert_eq!(result["isError"], json!(true), "{tool}: {result}");
         result["content"][0]["text"].as_str().unwrap().to_owned()
     }
@@ -188,6 +202,7 @@ impl Client {
 fn exchange(session: Session, lines: &[&str]) -> (Vec<Value>, Session) {
     let input = lines.join("\n").into_bytes();
     let mut output = Vec::new();
+
     let session = server::serve(Cursor::new(input), &mut output, session);
     let messages = String::from_utf8(output)
         .unwrap()
@@ -213,6 +228,7 @@ fn initialize_agrees_on_the_clients_version_or_offers_the_newest() {
             r#"{"jsonrpc":"2.0","id":"three","method":"ping"}"#,
         ],
     );
+
     drop(session);
 
     assert_eq!(messages.len(), 3, "{messages:?}");
@@ -241,16 +257,20 @@ fn every_tool_is_listed_with_an_object_schema_and_hints() {
     );
 
     let tools = messages[0]["result"]["tools"].as_array().unwrap();
+
     assert_eq!(tools.len(), Tool::ALL.len());
+
     for tool in tools {
         assert_eq!(tool["inputSchema"]["type"], "object", "{tool}");
         assert!(tool["description"].as_str().unwrap().len() > 20, "{tool}");
         assert_eq!(tool["annotations"]["openWorldHint"], false);
     }
+
     let read_only = |name: &str| {
         tools.iter().find(|tool| tool["name"] == name).unwrap()["annotations"]["readOnlyHint"]
             .clone()
     };
+
     assert_eq!(read_only("list_bodies"), true);
     assert_eq!(read_only("add_hole"), false);
 }
@@ -288,6 +308,7 @@ fn malformed_messages_get_json_rpc_errors_and_the_server_carries_on() {
             )
         })
         .collect();
+
     assert_eq!(
         codes,
         vec![
@@ -325,6 +346,7 @@ fn a_line_too_long_is_refused_and_the_next_is_read() {
 fn tool_mistakes_are_tool_errors_in_words() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(saved_plate(folder.path())));
+
     client.initialize("2025-06-18");
 
     let no_body = client.tool_error("list_faces", json!({ "body": "Nowhere" }));
@@ -336,6 +358,7 @@ fn tool_mistakes_are_tool_errors_in_words() {
         json!({ "name": "length", "expression": "80 mm +" }),
     );
     let not_a_sketch = client.tool_error("get_sketch", json!({ "sketch": "Plate" }));
+
     client.finish();
 
     assert_eq!(
@@ -365,6 +388,7 @@ fn tool_mistakes_are_tool_errors_in_words() {
 fn reading_tools_describe_the_model_in_words_and_numbers() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(saved_plate(folder.path())));
+
     client.initialize("2025-06-18");
 
     let model = client.tool("get_model", json!({}));
@@ -372,6 +396,7 @@ fn reading_tools_describe_the_model_in_words_and_numbers() {
     let parameters = client.tool("list_parameters", json!({}));
     let bodies = client.tool("list_bodies", json!({}));
     let sketch = client.tool("get_sketch", json!({ "sketch": "Plate sketch" }));
+
     client.finish();
 
     assert_eq!(model["name"], "plate.caditor");
@@ -386,8 +411,10 @@ fn reading_tools_describe_the_model_in_words_and_numbers() {
     );
     assert_eq!(parameters["parameters"][0]["name"], "length");
     assert_eq!(parameters["parameters"][0]["value"], "80 mm");
+
     let volume = bodies["bodies"][0]["volume"].as_f64().unwrap();
     let expected = 80.0 * 50.0 * 6.0 - 2.0 * std::f64::consts::PI * 16.0 * 6.0;
+
     assert!((volume - expected).abs() < 1e-6 * expected, "{volume}");
     assert_eq!(
         bodies["bodies"][0]["bounding_box"]["size"],
@@ -410,9 +437,11 @@ fn reading_tools_describe_the_model_in_words_and_numbers() {
 fn structured_content_comes_only_with_protocols_that_know_it() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(saved_plate(folder.path())));
+
     client.initialize("2024-11-05");
 
     let result = client.call("list_parameters", json!({}));
+
     client.finish();
 
     assert!(result.get("structuredContent").is_none());
@@ -432,11 +461,13 @@ fn a_call_reports_progress_and_a_cancelled_one_gets_no_answer() {
         cancellations: cancellations.clone(),
         request: json!("slow"),
     };
+
     let mut client = Client::start_gated(
         opening(saved_plate(folder.path())),
         cancellations,
         Some(gate),
     );
+
     client.initialize("2025-06-18");
 
     client.send(&json!({
@@ -445,15 +476,19 @@ fn a_call_reports_progress_and_a_cancelled_one_gets_no_answer() {
         "method": "tools/call",
         "params": { "name": "list_bodies", "arguments": {}, "_meta": { "progressToken": 5 } }
     }));
+
     let progress = client.read_message();
+
     client.send(&json!({
         "jsonrpc": "2.0",
         "method": "notifications/cancelled",
         "params": { "requestId": "slow", "reason": "changed my mind" }
     }));
+
     let pong = client.request("ping", json!({}));
     let unanswered = std::mem::take(&mut client.notifications);
     let bodies = client.tool("list_bodies", json!({}));
+
     client.finish();
 
     assert_eq!(progress["method"], "notifications/progress");
@@ -477,11 +512,13 @@ fn a_request_id_still_in_flight_is_refused_and_keeps_its_cancel_flag() {
         cancellations: cancellations.clone(),
         request: json!("slow"),
     };
+
     let mut client = Client::start_gated(
         opening(saved_plate(folder.path())),
         cancellations,
         Some(gate),
     );
+
     client.initialize("2025-06-18");
 
     client.send(&json!({
@@ -490,15 +527,19 @@ fn a_request_id_still_in_flight_is_refused_and_keeps_its_cancel_flag() {
         "method": "tools/call",
         "params": { "name": "list_bodies", "arguments": {}, "_meta": { "progressToken": 5 } }
     }));
+
     let progress = client.read_message();
+
     client.send(&json!({ "jsonrpc": "2.0", "id": "slow", "method": "ping" }));
     client.send(&json!({
         "jsonrpc": "2.0",
         "method": "notifications/cancelled",
         "params": { "requestId": "slow" }
     }));
+
     let refused = client.response_to(&json!("slow"));
     let bodies = client.tool("list_bodies", json!({}));
+
     client.finish();
 
     assert_eq!(progress["method"], "notifications/progress");
@@ -518,11 +559,14 @@ fn a_request_id_still_in_flight_is_refused_and_keeps_its_cancel_flag() {
 fn an_id_is_free_again_once_its_request_is_answered() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(saved_plate(folder.path())));
+
     client.initialize("2025-06-18");
 
     for _ in 0..2 {
         client.send(&json!({ "jsonrpc": "2.0", "id": 7, "method": "ping" }));
+
         let pong = client.response_to(&json!(7));
+
         assert_eq!(pong["result"], json!({}));
     }
     client.finish();
@@ -532,6 +576,7 @@ fn an_id_is_free_again_once_its_request_is_answered() {
 fn resources_hold_the_model_and_the_user_guide() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(saved_plate(folder.path())));
+
     client.initialize("2025-06-18");
 
     let listed = client.request("resources/list", json!({}));
@@ -541,9 +586,11 @@ fn resources_hold_the_model_and_the_user_guide() {
         json!({ "uri": "caditor://model/summary" }),
     );
     let missing = client.request("resources/read", json!({ "uri": "caditor://guide/nope" }));
+
     client.finish();
 
     let resources = listed["result"]["resources"].as_array().unwrap();
+
     assert!(
         resources
             .iter()
@@ -554,11 +601,15 @@ fn resources_hold_the_model_and_the_user_guide() {
             .iter()
             .any(|resource| resource["uri"] == "caditor://guide/mcp")
     );
+
     let page = guide["result"]["contents"][0]["text"].as_str().unwrap();
+
     assert!(page.starts_with("# Hole\n"), "{page}");
     assert!(!page.contains("{command:"), "{page}");
+
     let model: Value =
         serde_json::from_str(summary["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
+
     assert_eq!(model["bodies"], 1);
     assert_eq!(missing["error"]["code"], -32002);
 }
@@ -567,6 +618,7 @@ fn resources_hold_the_model_and_the_user_guide() {
 fn a_picture_is_drawn_when_a_graphics_adapter_can() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(saved_plate(folder.path())));
+
     client.initialize("2025-06-18");
 
     let result = client.call(
@@ -574,19 +626,23 @@ fn a_picture_is_drawn_when_a_graphics_adapter_can() {
         json!({ "view": "top", "width": 320, "height": 200 }),
     );
     let too_big = client.tool_error("render_view", json!({ "width": 100_000 }));
+
     client.finish();
 
     assert_eq!(
         too_big,
         "A picture is 64 to 2048 pixels a side, so 100000 pixels cannot be drawn."
     );
+
     if result["isError"] == json!(true) {
         assert!(
             std::env::var_os("CADITOR_REQUIRE_GPU").is_none(),
             "{result}"
         );
+
         return;
     }
+
     assert_eq!(result["content"][1]["type"], "image");
     assert_eq!(result["content"][1]["mimeType"], "image/png");
     assert!(
@@ -601,12 +657,15 @@ fn a_picture_is_drawn_when_a_graphics_adapter_can() {
 fn files_are_written_only_inside_the_allowed_folders() {
     let folder = TempDir::new().unwrap();
     let other = TempDir::new().unwrap();
+
     std::fs::create_dir(folder.path().join("parts")).unwrap();
+
     let model = folder.path().join("plate.caditor");
     let folders = vec![
         dunce::canonicalize(folder.path()).unwrap(),
         dunce::canonicalize(other.path()).unwrap(),
     ];
+
     let allowed = |file: &str| files::allowed(&model, &folders, file);
 
     assert!(allowed("plate.step").is_ok());
@@ -633,6 +692,7 @@ fn a_link_is_never_a_target_and_a_linked_folder_is_judged_by_where_it_leads() {
     let elsewhere = TempDir::new().unwrap();
     let model = folder.path().join("plate.caditor");
     let folders = vec![dunce::canonicalize(folder.path()).unwrap()];
+
     std::fs::write(elsewhere.path().join("secret.step"), b"secret").unwrap();
     std::fs::create_dir(folder.path().join("inside")).unwrap();
     std::fs::write(folder.path().join("real.step"), b"real").unwrap();
@@ -653,6 +713,7 @@ fn a_link_is_never_a_target_and_a_linked_folder_is_judged_by_where_it_leads() {
     .unwrap();
     std::os::unix::fs::symlink(elsewhere.path(), folder.path().join("door")).unwrap();
     std::os::unix::fs::symlink(folder.path().join("inside"), folder.path().join("room")).unwrap();
+
     let allowed = |file: &str| files::allowed(&model, &folders, file);
 
     assert!(matches!(allowed("out.step"), Err(FileError::Link { .. })));
@@ -675,8 +736,10 @@ fn a_link_is_never_a_target_and_a_linked_folder_is_judged_by_where_it_leads() {
 fn a_model_reached_through_a_linked_folder_writes_where_the_link_leads() {
     let folder = TempDir::new().unwrap();
     let real = folder.path().join("real");
+
     std::fs::create_dir(&real).unwrap();
     std::os::unix::fs::symlink(&real, folder.path().join("alias")).unwrap();
+
     let folders = vec![dunce::canonicalize(&real).unwrap()];
     let model = folder.path().join("alias").join("plate.caditor");
 
@@ -692,8 +755,11 @@ fn a_model_reached_through_a_linked_folder_writes_where_the_link_leads() {
 fn an_export_replaces_a_file_only_when_asked_or_when_the_session_wrote_it() {
     let folder = TempDir::new().unwrap();
     let taken = folder.path().join("taken.step");
+
     std::fs::write(&taken, b"the user's own file").unwrap();
+
     let mut client = Client::start(opening(saved_plate(folder.path())));
+
     client.initialize("2025-06-18");
 
     let refused = client.tool_error("export", json!({ "file": "taken.step" }));
@@ -701,10 +767,13 @@ fn an_export_replaces_a_file_only_when_asked_or_when_the_session_wrote_it() {
     let wrongly_typed = client.call("export", json!({ "file": "taken.step", "replace": "yes" }));
     let replaced = client.tool("export", json!({ "file": "taken.step", "replace": true }));
     let replacement = std::fs::read(&taken).unwrap();
+
     std::fs::write(&taken, b"changed since").unwrap();
+
     let again = client.tool("export", json!({ "file": "taken.step" }));
     let fresh = client.tool("export", json!({ "file": "fresh.stl", "replace": false }));
     let fresh_again = client.tool("export", json!({ "file": "fresh.stl" }));
+
     client.finish();
 
     assert!(refused.contains("already exists"), "{refused}");
@@ -737,6 +806,7 @@ fn unsaved_changes_stay_in_the_journal_and_hold_the_model_until_recovered() {
     let folder = TempDir::new().unwrap();
     let model = saved_plate(folder.path());
     let mut client = Client::start(opening(model.clone()));
+
     client.initialize("2025-06-18");
     client.tool(
         "set_parameter",

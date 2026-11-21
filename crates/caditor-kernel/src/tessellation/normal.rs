@@ -4,7 +4,7 @@ const SCALE: f64 = i32::MAX as f64;
 const ABSENT: [i32; 2] = [-i32::MAX, -i32::MAX];
 const DOWN: [i32; 2] = [i32::MAX, i32::MAX];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct MeshNormal([i32; 2]);
 
 impl MeshNormal {
@@ -12,11 +12,14 @@ impl MeshNormal {
 
     pub fn new(direction: Vector3) -> Self {
         let length = direction.abs().element_sum();
+
         if !(length > 0.0 && length.is_finite()) {
             return Self::ABSENT;
         }
+
         let on = direction / length;
         let side = |value: f64| if value >= 0.0 { 1.0 } else { -1.0 };
+
         let folded = if on.z >= 0.0 {
             [on.x, on.y]
         } else {
@@ -37,7 +40,9 @@ impl MeshNormal {
         if self.is_absent() {
             return Vector3::ZERO;
         }
+
         let [x, y] = self.0.map(|value| (f64::from(value) / SCALE).max(-1.0));
+
         let z = 1.0 - x.abs() - y.abs();
         let lift = (-z).max(0.0);
         let unfold = |value: f64| value - lift.copysign(value);
@@ -71,10 +76,12 @@ mod tests {
     fn normals_come_back_finer_than_f32_holds_them() {
         let steps = 96;
         let mut worst = 0.0f64;
+
         for latitude in 0..=steps {
             for longitude in 0..steps * 2 {
                 let polar = std::f64::consts::PI * f64::from(latitude) / f64::from(steps);
                 let azimuth = std::f64::consts::PI * f64::from(longitude) / f64::from(steps);
+
                 let direction = Vector3::new(
                     polar.sin_libm() * azimuth.cos_libm(),
                     polar.sin_libm() * azimuth.sin_libm(),
@@ -87,6 +94,7 @@ mod tests {
                     (back.length() - 1.0).abs() < 1e-12,
                     "{direction} came back {back}"
                 );
+
                 worst = worst.max(angle(back, direction));
             }
         }

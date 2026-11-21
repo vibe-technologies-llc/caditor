@@ -89,7 +89,9 @@ impl Panel<'_, '_> {
             opened,
         } = *self.row;
         let id = feature.id();
+
         widgets::caption(ui, "Faces to draft");
+
         let evaluation = model.evaluation();
         let mut previewed = Vec::new();
         let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
@@ -107,6 +109,7 @@ impl Panel<'_, '_> {
             };
             ReferenceRows { summary, rows }
         });
+
         self.described = listed
             .rows
             .iter()
@@ -122,6 +125,7 @@ impl Panel<'_, '_> {
             for (index, text) in listed.rows.iter().take(draft.faces.len()).enumerate() {
                 let text = widgets::muted(text, ui);
                 let row = widgets::removable_row_hovered(ui, text, "Leave this face out");
+
                 if row.hovered && opened {
                     previewed = bodies::input(evaluation, id)
                         .map(|input| {
@@ -135,11 +139,15 @@ impl Panel<'_, '_> {
                 }
                 if row.removed {
                     let mut changed = draft.clone();
+
                     changed.faces.remove(index);
+
                     let change = self.change(changed);
+
                     self.apply(change);
                 }
             }
+
             let chosen = feature_fields::list_in_view(
                 ui,
                 opened,
@@ -175,6 +183,7 @@ impl Panel<'_, '_> {
             (true, None) => return,
             (false, _) => (ANGLE, &draft.angle),
         };
+
         let quantity = Quantity {
             feature: id,
             id: Id::unique(("draft-angle", caption, id)),
@@ -189,6 +198,7 @@ impl Panel<'_, '_> {
             quantity,
             |value: Expression| {
                 let mut changed = draft.clone();
+
                 if beyond {
                     changed.beyond = Some(value);
                 } else {
@@ -197,17 +207,20 @@ impl Panel<'_, '_> {
                 self.change(changed)
             },
         );
+
         self.actions.extend(drafting.into_actions(id));
     }
 
     fn own_angle_list(&mut self, ui: &mut Ui) {
         let FacesRow { model, draft, .. } = *self.row;
         let id = self.id();
+
         widgets::caption(ui, OWN_ANGLE);
         ui.vertical(|ui| {
             if draft.own.is_empty() {
                 ui.label(widgets::muted(NO_OWN_ANGLE, ui));
             }
+
             let slot = (id, Slot::DraftOwnAngle);
             let stop = feature_fields::STOP_CHOOSING;
             if !feature_fields::choosing_prompt(ui, model, slot, stop, self.actions) {
@@ -243,6 +256,7 @@ impl Panel<'_, '_> {
                 dimension: Dimension::ANGLE,
                 rule: Rule::Any,
             };
+
             let value = feature_fields::expression_row_removable(
                 ui,
                 model,
@@ -250,6 +264,7 @@ impl Panel<'_, '_> {
                 quantity,
                 |angle| {
                     let mut changed = draft.clone();
+
                     if let Some(entry) = changed.own.get_mut(index) {
                         entry.angle = angle;
                     }
@@ -257,6 +272,7 @@ impl Panel<'_, '_> {
                 },
                 DRAFTS_ANGLE,
             );
+
             self.actions.extend(value.drafting.into_actions(id));
             if value.hovered && opened {
                 let previewed = bodies::input(evaluation, id)
@@ -268,15 +284,20 @@ impl Panel<'_, '_> {
                         )
                     })
                     .unwrap_or_default();
+
                 cache.preview(previewed);
             }
             if value.removed {
                 let mut changed = draft.clone();
+
                 if index < changed.own.len() {
                     let entry = changed.own.remove(index);
+
                     changed.faces.push(entry.face);
                 }
+
                 let change = self.change(changed);
+
                 self.apply(change);
             }
         }
@@ -291,7 +312,9 @@ impl Panel<'_, '_> {
         } = *self.row;
         let document = model.document();
         let id = self.id();
+
         widgets::caption(ui, "Neutral plane");
+
         let chosen = plane_selector::combo(
             ui,
             Id::unique(("draft-neutral", id)),
@@ -300,9 +323,11 @@ impl Panel<'_, '_> {
             Some(&draft.neutral),
             |reference| draft_tools::neutral_change(model, id, draft, reference.clone()),
         );
+
         ui.end_row();
         self.actions.extend(chosen.map(Action::Apply));
         ui.label("");
+
         let picker = Picker {
             feature: id,
             slot: Slot::DraftNeutral,
@@ -315,6 +340,7 @@ impl Panel<'_, '_> {
             ),
             hover: PICK_HOVER,
         };
+
         ui.vertical(|ui| {
             feature_fields::reference_picker(ui, model, picker, self.actions);
         });
@@ -323,7 +349,9 @@ impl Panel<'_, '_> {
 
     fn pull_rows(&mut self, ui: &mut Ui) {
         let FacesRow { model, draft, .. } = *self.row;
+
         widgets::caption(ui, "Pull direction");
+
         let pull = displayed_plane(model.evaluation(), self.id(), &draft.neutral).map(|plane| {
             if draft.flipped {
                 -plane.normal()
@@ -340,6 +368,7 @@ impl Panel<'_, '_> {
             },
             None => "Not known until the neutral plane is placed".to_owned(),
         };
+
         ui.label(widgets::muted(&words, ui));
         ui.end_row();
         if let Some(flipped) = feature_fields::reverse_row(ui, FLIP, draft.flipped) {
@@ -347,17 +376,20 @@ impl Panel<'_, '_> {
                 flipped,
                 ..draft.clone()
             });
+
             self.apply(change);
         }
     }
 
     fn option_rows(&mut self, ui: &mut Ui) {
         let draft = self.row.draft;
+
         if let Some(tangent) = feature_fields::reverse_row(ui, TANGENT, draft.tangent) {
             let change = self.change(Draft {
                 tangent,
                 ..draft.clone()
             });
+
             self.apply(change);
         }
         if let Some(split) = feature_fields::reverse_row(ui, SPLIT, draft.beyond.is_some()) {
@@ -366,6 +398,7 @@ impl Panel<'_, '_> {
                 beyond,
                 ..draft.clone()
             });
+
             self.apply(change);
         }
     }
@@ -381,7 +414,9 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         actions,
         described: Vec::new(),
     };
+
     let id = panel.id();
+
     widgets::properties(ui, ("draft-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         panel.faces_row(ui, cache);

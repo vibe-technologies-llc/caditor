@@ -1,12 +1,13 @@
 const OFFSET_BASIS: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
 const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Digest(u128);
 
 impl Digest {
     pub(crate) fn new(tag: u8) -> Self {
         let mut digest = Self(OFFSET_BASIS);
+
         digest.byte(tag);
         digest
     }
@@ -46,6 +47,7 @@ impl Digest {
 #[cfg(test)]
 pub(crate) fn fnv1a(bytes: &[u8]) -> u128 {
     let mut digest = Digest(OFFSET_BASIS);
+
     digest.bytes(bytes);
     digest.finish()
 }
@@ -64,9 +66,12 @@ mod tests {
     #[test]
     fn integers_are_written_little_endian() {
         let mut digest = Digest::new(7);
+
         digest.u32(0x0102_0304);
         digest.u64(5);
+
         let expected = fnv1a(&[7, 4, 3, 2, 1, 5, 0, 0, 0, 0, 0, 0, 0]);
+
         assert_eq!(digest.finish(), expected);
     }
 }

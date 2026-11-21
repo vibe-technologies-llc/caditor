@@ -4,7 +4,7 @@ use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{drawing::Preview, model::Model};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("Select the one line or axis to draw about first, then turn on Draw symmetrically")]
 pub struct NoLineSelected;
 
@@ -19,13 +19,13 @@ pub fn prompt(text: &str, line: &str) -> String {
     format!("{text}, mirrored about {line}")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Symmetry {
     pub feature: FeatureId,
     pub line: EntityId,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Mirror {
     pub line: EntityId,
     pub label: String,
@@ -70,6 +70,7 @@ impl Mirror {
             .iter()
             .map(|point| self.reflect(*point))
             .collect();
+
         preview.curves.extend(curves);
         preview.points.extend(points);
     }
@@ -98,6 +99,7 @@ pub fn mirrored(
         return transaction;
     };
     let (label, mut all) = transaction.into_parts();
+
     all.extend(edits);
     Transaction::new(format!("{label} {SYMMETRICALLY}"), all)
 }
@@ -118,14 +120,18 @@ fn image_edits(
             _ => None,
         })
         .collect();
+
     if added.is_empty() {
         return None;
     }
+
     let mut document = model.document().clone();
+
     if let Err(error) = document.apply(transaction.clone()) {
         log::debug!("the drawn shape cannot be mirrored: {error}");
         return None;
     }
+
     let FeatureKind::Sketch(definition) = &document.feature(feature)?.kind else {
         return None;
     };
@@ -135,10 +141,12 @@ fn image_edits(
         .filter(|item| !drawn.is_projected(*item))
         .collect();
     let mut image = drawn.clone();
+
     if let Err(error) = image.mirror(&items, about) {
         log::debug!("the drawn shape is not mirrored: {error}");
         return None;
     }
+
     let entities = image
         .entities()
         .filter(|(id, _)| drawn.entity(*id).is_none())
@@ -159,6 +167,7 @@ fn image_edits(
             inactive: false,
             label: None,
         });
+
     let edits: Vec<Edit> = entities.chain(constraints).collect();
     (!edits.is_empty()).then_some(edits)
 }
@@ -172,6 +181,7 @@ mod tests {
     #[test]
     fn the_preview_gains_its_image_about_a_slanted_line_and_only_lines_are_chosen() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let slanted = sketch.add_line(Point2::ZERO, Point2::new(10.0, 10.0));
         let circle = sketch.add_circle(Point2::new(5.0, 0.0), 2.0);
         let mirror = Mirror::of(&sketch, slanted).unwrap();

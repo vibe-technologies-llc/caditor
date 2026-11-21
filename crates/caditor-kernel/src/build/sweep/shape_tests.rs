@@ -101,8 +101,10 @@ fn a_twisted_square_prism_keeps_its_area_times_its_length() {
 
     assert_eq!(quarter.validate(), Ok(()));
     assert_eq!(whole.validate(), Ok(()));
+
     assert_close("quarter turn", volume(&quarter), 40.0, 1e-4);
     assert_close("whole turn", volume(&whole), 40.0, 1e-4);
+
     assert_eq!(quarter.faces().count(), 6);
 }
 
@@ -153,6 +155,7 @@ fn a_tapered_sweep_along_a_line_is_a_frustum() {
 
     assert_eq!(square.validate(), Ok(()));
     assert_eq!(cone.validate(), Ok(()));
+
     assert_close("square frustum", volume(&square), frustum(4.0, 1.0), 1e-4);
     assert_close(
         "parallel frustum",
@@ -161,7 +164,9 @@ fn a_tapered_sweep_along_a_line_is_a_frustum() {
         1e-4,
     );
     assert_close("cone frustum", volume(&cone), frustum(PI, 4.0 * PI), 1e-4);
+
     let end = corner_heights(&square, 10.0);
+
     assert!(
         end.iter()
             .all(|point| (point.x.abs() - 0.5).abs() < 1e-9 && (point.z.abs() - 0.5).abs() < 1e-9),
@@ -174,6 +179,7 @@ fn a_twisted_block_along_an_arc_keeps_pappus_volume() {
     let radius = 5.0;
     let block = rectangle(1, (radius - 1.0, -0.5), (radius + 1.0, 0.5));
     let frame = Plane::from_frame(Point3::ZERO, Vector3::Z, Vector3::X).unwrap();
+
     let path = [PathSegment::new(
         Curve::Circle(Circle::new(frame, radius).unwrap()),
         Interval::new(0.0, FRAC_PI_2).unwrap(),
@@ -183,6 +189,7 @@ fn a_twisted_block_along_an_arc_keeps_pappus_volume() {
     let solid = twisted(&block, &path, PI);
 
     assert_eq!(solid.validate(), Ok(()));
+
     assert_close(
         "twisted bend",
         volume(&solid),
@@ -212,6 +219,7 @@ fn a_planar_closed_path_closes_after_a_whole_turn_of_twist_only() {
     );
 
     assert_eq!(ring.validate(), Ok(()));
+
     assert_close("twisted ring", volume(&ring), 2.0 * TAU * radius, 1e-4);
     match quarter {
         Err(PathSweepError::ClosedPathTwists {
@@ -219,6 +227,7 @@ fn a_planar_closed_path_closes_after_a_whole_turn_of_twist_only() {
         }) => assert!((turned - FRAC_PI_2).abs() < 1e-6, "{turned}"),
         other => panic!("{other:?}"),
     }
+
     assert_eq!(scaled.err(), Some(PathSweepError::ClosedPathScales));
 }
 
@@ -290,6 +299,7 @@ fn a_closed_path_out_of_one_plane_closes_once_twist_brings_the_profile_back() {
     assert!(turned.abs() > 1e-3, "{turned}");
     assert_eq!(closed.validate(), Ok(()));
     assert_eq!(wound.validate(), Ok(()));
+
     assert_close("saddle ring", volume(&closed), length, 1e-3);
     assert_close("wound saddle ring", volume(&wound), length, 1e-3);
 }
@@ -380,6 +390,7 @@ fn a_scale_law_bulges_the_section_through_its_rows_and_rows_on_a_line_change_not
     let straight = lawful(&profile, &path, along_the_line).unwrap();
 
     assert_eq!(solid.validate(), Ok(()));
+
     assert_close("bulged", volume(&solid), 1720.0 / 15.0, 1e-3);
     assert_close("frustum", volume(&straight), 280.0 / 3.0, 1e-4);
 }
@@ -397,7 +408,9 @@ fn a_twist_law_turns_and_returns_where_the_rows_say() {
     let end = corner_heights(&solid, 10.0);
 
     assert_eq!(solid.validate(), Ok(()));
+
     assert_close("volume", volume(&solid), 20.0, 1e-3);
+
     assert!(
         end.iter()
             .all(|point| point.x > -1e-9 && point.x < 2.0 + 1e-9 && point.z.abs() <= 0.5 + 1e-9),
@@ -414,6 +427,7 @@ fn a_shape_law_out_of_order_or_outside_the_path_is_refused() {
         twist: 0.0,
         scale: 1.0,
     };
+
     let refused = |law: Vec<ShapeStop>| {
         lawful(
             &profile,

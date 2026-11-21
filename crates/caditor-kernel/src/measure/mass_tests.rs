@@ -51,6 +51,7 @@ fn measured(name: &str, solid: &Solid) -> MassProperties {
         .unwrap();
     let found = mass_properties(solid, &coarse).unwrap();
     let again = mass_properties(solid, &fine).unwrap();
+
     assert!(
         found.meshed_faces.is_empty(),
         "{name}: {:?}",
@@ -69,6 +70,7 @@ fn close(name: &str, what: &str, found: f64, expected: f64, scale: f64) {
 
 fn check(name: &str, solid: &Solid, expected: &Expected) {
     let found = measured(name, solid);
+
     close(
         name,
         "volume",
@@ -77,7 +79,9 @@ fn check(name: &str, solid: &Solid, expected: &Expected) {
         expected.volume,
     );
     close(name, "area", found.area, expected.area, expected.area);
+
     let reach = expected.centroid.length().max(expected.volume.cbrt_libm());
+
     for (found, wanted) in found
         .centroid
         .to_array()
@@ -86,6 +90,7 @@ fn check(name: &str, solid: &Solid, expected: &Expected) {
     {
         close(name, "centroid", found, wanted, reach);
     }
+
     let about = found.second_moment_about(Point3::ZERO);
     let largest = expected
         .about_origin
@@ -102,6 +107,7 @@ fn check(name: &str, solid: &Solid, expected: &Expected) {
 #[test]
 fn a_cylinder_matches_its_closed_form() {
     let (radius, height) = (3.0, 5.0);
+
     let volume = PI * radius * radius * height;
     let centroid = Point3::new(0.0, 0.0, 0.5 * height);
     let across = volume * radius * radius / 4.0;
@@ -125,6 +131,7 @@ fn a_cylinder_matches_its_closed_form() {
 #[test]
 fn a_cone_matches_its_closed_form() {
     let (radius, height) = (3.0, 4.0);
+
     let volume = PI * radius * radius * height / 3.0;
     let centroid = Point3::new(0.0, 0.0, 0.25 * height);
     let across = 3.0 / 20.0 * volume * radius * radius;
@@ -149,6 +156,7 @@ fn a_cone_matches_its_closed_form() {
 fn a_sphere_matches_its_closed_form() {
     let radius: f64 = 4.0;
     let volume = 4.0 / 3.0 * PI * radius.powi(3);
+
     let along = volume * radius * radius / 5.0;
 
     check(
@@ -166,6 +174,7 @@ fn a_sphere_matches_its_closed_form() {
 #[test]
 fn a_torus_matches_its_closed_form() {
     let (major, minor) = (6.0, 2.0);
+
     let volume = 2.0 * PI * PI * major * minor * minor;
     let across = 0.5 * volume * (major * major + 0.75 * minor * minor);
 
@@ -184,8 +193,10 @@ fn a_torus_matches_its_closed_form() {
 #[test]
 fn a_block_with_a_hole_matches_its_closed_form() {
     let (side, height, radius) = (10.0, 4.0, 2.5);
+
     let block = side * side * height;
     let bore = PI * radius * radius * height;
+
     let volume = block - bore;
     let centroid = Point3::new(0.5 * side, 0.5 * side, 0.5 * height);
     let across = block * side * side / 12.0 - bore * radius * radius / 4.0;
@@ -218,6 +229,7 @@ struct Section {
 fn spline_section() -> Section {
     let curve = spline_profile();
     let breaks: Vec<f64> = (0..=32).map(|step| step as f64 / 32.0).collect();
+
     let along = |integrand: &dyn Fn(f64, f64) -> f64| {
         integrate(&breaks, |parameter| {
             let derivatives = curve.evaluate(parameter);
@@ -248,6 +260,7 @@ fn spline_length() -> f64 {
 fn an_extruded_spline_matches_its_section() {
     let height = 5.0;
     let section = spline_section();
+
     let volume = section.area * height;
     let half = 0.5 * height * height;
     let third = height * height * height / 3.0;
@@ -318,6 +331,7 @@ fn a_revolved_spline_matches_its_profile() {
     ]);
     let region = &profile[0];
     let sign = around_region(region, |x, _| x).signum();
+
     let turn = |integrand: &dyn Fn(f64, f64) -> f64| sign * around_region(region, integrand);
     let volume = TAU * turn(&|x, _| 0.5 * x * x);
     let height = TAU * turn(&|x, y| 0.5 * x * x * y);
@@ -345,6 +359,7 @@ fn an_extruded_spline_sketch_matches_its_profile() {
     ]);
     let region = &profile[0];
     let sign = around_region(region, |x, _| x).signum();
+
     let flat = |integrand: &dyn Fn(f64, f64) -> f64| sign * around_region(region, integrand);
     let height = 3.0;
     let area = flat(&|x, _| x);
@@ -401,8 +416,10 @@ fn boolean_results_match_their_closed_forms() {
     let full = 4.0 / 3.0 * PI * radius.powi(3);
     let octant_volume = full / 8.0;
     let octant_centroid = Point3::splat(3.0 * radius / 8.0);
+
     let square = full * radius * radius / 40.0;
     let product = radius.powi(5) / 15.0;
+
     let octant_moment = [
         [square, product, product],
         [product, square, product],
@@ -410,6 +427,7 @@ fn boolean_results_match_their_closed_forms() {
     ];
     let whole =
         diagonal(1.0, 1.0, 1.0).map(|row| row.map(|entry| entry * full * radius * radius / 5.0));
+
     let notched_moment: SecondMoment = std::array::from_fn(|row| {
         std::array::from_fn(|column| whole[row][column] - octant_moment[row][column])
     });
@@ -462,15 +480,18 @@ fn extents_reach_the_curved_extremes() {
 #[test]
 fn a_block_under_a_spline_sheet_matches_a_direct_integral() {
     let (side, height, nodes, bump) = (10.0, 3.0, 12, 1.5);
+
     let sheet = bumped_sheet(side, height, nodes, bump);
     let spans: Vec<f64> = (0..=nodes - 3)
         .map(|knot| knot as f64 / (nodes - 3) as f64)
         .collect();
     let mut breaks: Vec<f64> = Vec::new();
+
     for pair in spans.windows(2) {
         breaks.extend(Interval::new(pair[0], pair[1]).unwrap().split(4));
     }
     breaks.dedup();
+
     let surface = Surface::from(sheet);
     let over_sheet = |integrand: &dyn Fn(Point3, Vector3) -> f64| {
         integrate(&breaks, |u| {
@@ -497,6 +518,7 @@ fn a_block_under_a_spline_sheet_matches_a_direct_integral() {
             };
             integrate(&breaks, |t| {
                 let (u, v) = edge(t);
+
                 let at = surface.evaluate(u, v);
                 let along = if wall % 2 == 0 { at.du } else { at.dv };
                 at.point.z * along.length()
@@ -522,7 +544,9 @@ fn a_block_under_a_spline_sheet_matches_a_direct_integral() {
         top + side * side + walls,
         found.area,
     );
+
     let centroid = first / volume;
+
     assert!(
         found.centroid.distance(centroid) <= RELATIVE * side,
         "{found:?} {centroid}"
@@ -547,6 +571,7 @@ fn extents_find_a_bump_inside_a_spline_face() {
             })
     };
     let (_, coarse) = highest_on(Point2::splat(0.5), 0.5);
+
     let (_, finer) = highest_on(coarse, 0.01);
     let (highest, _) = highest_on(finer, 1e-4);
 

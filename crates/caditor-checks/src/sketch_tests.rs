@@ -85,6 +85,7 @@ fn solve(sketch: &Sketch) -> Option<caditor_sketch::Solved> {
 #[test]
 fn solving_the_same_sketch_twice_gives_the_same_geometry() {
     let mut solved = 0;
+
     for_each_case("deterministic solving", SOLVING_CASES, |_, input| {
         let Ok(drawn) = sketch(input, Plane::XY) else {
             return;
@@ -101,8 +102,10 @@ fn solving_the_same_sketch_twice_gives_the_same_geometry() {
             first.solution.degrees_of_freedom(),
             second.solution.degrees_of_freedom()
         );
+
         solved += 1;
     });
+
     assert!(
         solved >= FEWEST_SOLVED,
         "only {solved} sketches solved, so the generators no longer reach enough"
@@ -150,6 +153,7 @@ fn solved_stays_put(drawn: &Sketch) {
     };
 
     let shift = largest_shift(&first.geometry, &again.geometry);
+
     assert!(
         shift <= LARGEST_SHIFT,
         "a solved sketch moved by {shift} when solved again"
@@ -213,6 +217,7 @@ fn a_crossing_of_a_spline_with_a_line_beyond_its_end_stays_put_when_solved_again
         let drawn = sketch(input, Plane::XY).unwrap();
 
         assert!(has_a_closed_spaced_spline_through_one_point_twice(&drawn));
+
         solved_stays_put(&drawn);
     });
 }
@@ -278,15 +283,18 @@ fn holds_every_spline_distance(input: &mut Unstructured) {
         let Constraint::Distance { from, to, .. } = constraint else {
             continue;
         };
+
         if solved.geometry.spline(*from).is_none() && solved.geometry.spline(*to).is_none() {
             continue;
         }
+
         let (Some(wanted), Some(measured)) = (
             solved.solution.dimension(id),
             solved.geometry.measured(constraint),
         ) else {
             continue;
         };
+
         assert!(
             (measured - wanted).abs() <= LARGEST_SHIFT,
             "{id:?} was solved at {measured} mm instead of {wanted} mm"

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::format::Lenient;
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DrawingsRecord {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drawings: Vec<Lenient<DrawingRecord>>,
@@ -25,7 +25,7 @@ fn shown() -> bool {
     true
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DrawingRecord {
     pub id: u64,
     #[serde(default)]
@@ -50,7 +50,7 @@ pub(crate) struct DrawingRecord {
     pub details: Vec<Lenient<DetailRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DetailRecord {
     pub letter: String,
     pub parent: Lenient<ParentRecord>,
@@ -66,21 +66,21 @@ fn enlarged() -> Lenient<DetailScaleRecord> {
     Lenient::Read(DetailScaleRecord::Enlarged)
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ParentRecord {
     Standard(String),
     Section(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DetailScaleRecord {
     Enlarged,
     Ratio { sheet: u32, model: u32 },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SectionRecord {
     pub letter: String,
     #[serde(default)]
@@ -97,7 +97,7 @@ fn centre() -> Lenient<PlaceRecord> {
     Lenient::Read(PlaceRecord::Centre)
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PlaceRecord {
     Centre,
@@ -153,7 +153,7 @@ fn fit() -> Lenient<ScaleRecord> {
     Lenient::Read(ScaleRecord::Fit)
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ScaleRecord {
     Fit,
@@ -212,8 +212,10 @@ pub(crate) fn drawings_record(document: &Document) -> Option<DrawingsRecord> {
 
 fn fitting_name(name: &str, taken: &Drawings, issues: &mut Vec<String>) -> String {
     let mut name = drawing_name(name);
+
     if name.is_empty() {
         let numbered = taken.unused_name();
+
         issues.push(format!(
             "A drawing had no name, so it is called “{numbered}”."
         ));
@@ -234,12 +236,14 @@ fn fitting_name(name: &str, taken: &Drawings, issues: &mut Vec<String>) -> Strin
     if !taken.is_taken(&name, None) {
         return name;
     }
+
     let room = MAX_DRAWING_NAME_CHARS - 6;
     let base: String = name.chars().take(room).collect();
     let numbered = (2..)
         .map(|number| format!("{base} {number}"))
         .find(|candidate| !taken.is_taken(candidate, None))
         .unwrap_or_else(|| name.clone());
+
     issues.push(format!(
         "Two drawings were called “{name}”, so one is called “{numbered}”."
     ));
@@ -256,6 +260,7 @@ fn understood<T: Copy + Default>(
 ) -> T {
     read(key).unwrap_or_else(|| {
         let fallback = T::default();
+
         issues.push(format!(
             "The {what} of the drawing “{name}” was not understood, so it is {}.",
             shown_as(fallback)
@@ -279,6 +284,7 @@ fn restored_scale(
             return DrawingScale::Fit;
         }
     };
+
     if ratio.is_usable() {
         return DrawingScale::Ratio(ratio);
     }
@@ -298,6 +304,7 @@ fn restored_views(keys: &[String], name: &str, issues: &mut Vec<String>) -> BTre
         .iter()
         .filter(|key| StandardView::from_key(key).is_none())
         .count();
+
     if unknown > 0 {
         issues.push(format!(
             "{unknown} views of the drawing “{name}” were not understood, so they were left out."
@@ -312,6 +319,7 @@ fn restored_bodies(raws: &[u64], name: &str, issues: &mut Vec<String>) -> Vec<Fe
         .map(|raw| FeatureId::from_raw(*raw))
         .filter(|body| body.maker().raw() < FIRST_UNSTORABLE_ID)
         .collect();
+
     if bodies.len() < raws.len() {
         issues.push(format!(
             "Some bodies chosen for the drawing “{name}” could not be read, so they were left out."
@@ -329,6 +337,7 @@ fn restored_bodies(raws: &[u64], name: &str, issues: &mut Vec<String>) -> Vec<Fe
 
 fn view_letter(record: &str, taken: impl Fn(char) -> bool) -> Option<char> {
     let mut characters = record.chars();
+
     let letter = characters
         .next()
         .filter(|_| characters.next().is_none())
@@ -386,11 +395,13 @@ fn restored_section(
         taken.iter().any(|section| section.letter == letter)
     })?;
     let label = format!("{letter}\u{2013}{letter}");
+
     if record.letter != letter.to_string() {
         issues.push(format!(
             "A section view of the drawing “{name}” had no letter of its own, so it is {label}."
         ));
     }
+
     let parent = StandardView::from_key(&record.parent)
         .filter(|view| StandardView::SECTIONED.contains(view))
         .unwrap_or_else(|| {
@@ -403,6 +414,7 @@ fn restored_section(
         .filter(|plane| plane.is_edge_on_in(parent))
         .or_else(|| {
             let fallback = SectionPlane::edge_on_in(parent).next();
+
             if let Some(fallback) = fallback {
                 issues.push(format!(
                     "The plane of section {label} was not understood or cannot be cut on its \
@@ -428,6 +440,7 @@ fn restored_sections(
     issues: &mut Vec<String>,
 ) -> Vec<SectionView> {
     let mut sections = Vec::new();
+
     for record in records {
         let Lenient::Read(record) = record else {
             issues.push(format!(
@@ -435,6 +448,7 @@ fn restored_sections(
             ));
             continue;
         };
+
         if sections.len() >= MAX_SECTION_VIEWS {
             issues.push(format!(
                 "A drawing holds at most {MAX_SECTION_VIEWS} section views, so the rest of \
@@ -465,6 +479,7 @@ fn restored_scale_of_detail(
             return DetailScale::Enlarged;
         }
     };
+
     if ratio.is_usable() {
         return DetailScale::Ratio(ratio);
     }
@@ -486,6 +501,7 @@ fn restored_parent(
         }
         Lenient::Read(ParentRecord::Section(letter)) => {
             let mut characters = letter.chars();
+
             let letter = characters
                 .next()
                 .filter(|_| characters.next().is_none())
@@ -513,11 +529,13 @@ fn restored_detail(
         ));
         return None;
     };
+
     if record.letter != letter.to_string() {
         issues.push(format!(
             "A detail view of the drawing “{name}” had no letter of its own, so it is {letter}."
         ));
     }
+
     let Some(parent) = restored_parent(&record.parent, sections) else {
         issues.push(format!(
             "The view detail {letter} enlarges was not understood or is not in the drawing “{name}”, \
@@ -526,12 +544,14 @@ fn restored_detail(
         return None;
     };
     let [x, y] = record.centre;
+
     let centre = Point2::new(x, y);
     let usable = centre.is_finite()
         && x.abs() <= MAX_DETAIL_EXTENT
         && y.abs() <= MAX_DETAIL_EXTENT
         && record.radius.is_finite()
         && (MIN_DETAIL_RADIUS..=MAX_DETAIL_EXTENT).contains(&record.radius);
+
     if !usable {
         issues.push(format!(
             "The circle of detail view {letter} in the drawing “{name}” cannot be used, so the \
@@ -555,6 +575,7 @@ fn restored_details(
     issues: &mut Vec<String>,
 ) -> Vec<DetailView> {
     let mut details = Vec::new();
+
     for record in records {
         let Lenient::Read(record) = record else {
             issues.push(format!(
@@ -562,6 +583,7 @@ fn restored_details(
             ));
             continue;
         };
+
         if details.len() >= MAX_DETAIL_VIEWS {
             issues.push(format!(
                 "A drawing holds at most {MAX_DETAIL_VIEWS} detail views, so the rest of those of \
@@ -585,18 +607,22 @@ pub(crate) fn restore_drawings(
         drawings: Vec::new(),
         next_id: record.next_id,
     };
+
     for drawing in record.drawings {
         let Lenient::Read(drawing) = drawing else {
             issues.push("A drawing could not be read, so it was left out.".to_owned());
             continue;
         };
+
         if drawings.drawings.len() >= MAX_DRAWINGS {
             issues.push(format!(
                 "A model keeps at most {MAX_DRAWINGS} drawings, so the rest were left out."
             ));
             break;
         }
+
         let id = DrawingId::from_raw(drawing.id);
+
         if drawings.get(id).is_some() {
             issues.push(format!(
                 "Two drawings had the same number, so “{}” was left out.",
@@ -604,8 +630,10 @@ pub(crate) fn restore_drawings(
             ));
             continue;
         }
+
         let name = fitting_name(&drawing.name, &drawings, issues);
         let sections = restored_sections(&drawing.sections, &name, exists, issues);
+
         let details = restored_details(&drawing.details, &sections, &name, issues);
         let restored = Drawing {
             id,
@@ -641,6 +669,7 @@ pub(crate) fn restore_drawings(
             details,
             name,
         };
+
         drawings.drawings.push(restored);
     }
     drawings.next_id = drawings.first_free_id();

@@ -26,6 +26,7 @@ pub fn stream(
             provider: config.provider,
         });
     }
+
     let url = format!(
         "{}/v1beta/models/{}:streamGenerateContent?alt=sse",
         config.effective_base_url(),
@@ -33,6 +34,7 @@ pub fn stream(
     );
     let payload = build_payload(config, messages, tools);
     let body = serde_json::to_string(&payload).map_err(|_| AiError::MalformedStream)?;
+
     let request = HttpRequest::post_json(url, body)
         .with_header("x-goog-api-key", config.api_key.as_str())
         .with_header("Accept", "text/event-stream");
@@ -85,6 +87,7 @@ pub fn stream(
 
 fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefinition]) -> Value {
     let mut contents = Vec::new();
+
     for message in messages {
         match message {
             Message::User { text } => {
@@ -95,6 +98,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
             }
             Message::Assistant { text, tool_calls } => {
                 let mut parts = Vec::new();
+
                 if !text.is_empty() {
                     parts.push(json!({ "text": text }));
                 }
@@ -115,6 +119,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
             }
             Message::ToolResults(results) => {
                 let mut parts = Vec::new();
+
                 for result in results {
                     let parsed_response = serde_json::from_str::<Value>(&result.content)
                         .ok()
@@ -126,6 +131,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
                                 json!({ "output": result.content })
                             }
                         });
+
                     parts.push(json!({
                         "functionResponse": {
                             "name": result.name,
@@ -152,6 +158,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
     }
 
     let mut payload = Map::new();
+
     payload.insert("contents".to_owned(), Value::Array(contents));
     if !config.system_prompt.is_empty() {
         payload.insert(
@@ -168,6 +175,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
             .iter()
             .map(|tool| {
                 let mut declaration = Map::new();
+
                 declaration.insert("name".to_owned(), json!(tool.name));
                 declaration.insert("description".to_owned(), json!(tool.description));
                 declaration.insert(
@@ -177,6 +185,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
                 Value::Object(declaration)
             })
             .collect();
+
         payload.insert(
             "tools".to_owned(),
             json!([{ "functionDeclarations": declarations }]),
@@ -189,6 +198,7 @@ pub fn normalize_schema(schema: &Value) -> Value {
     match schema {
         Value::Object(map) => {
             let mut out = Map::new();
+
             for (key, value) in map {
                 if key == "additionalProperties" {
                     continue;
@@ -201,6 +211,7 @@ pub fn normalize_schema(schema: &Value) -> Value {
                         .filter_map(Value::as_str)
                         .map(|variant| json!({ "type": variant }))
                         .collect();
+
                     if !variants.is_empty() {
                         out.insert("anyOf".to_owned(), Value::Array(variants));
                     }
@@ -224,10 +235,13 @@ fn handle_chunk(
     on_event: &mut dyn FnMut(StreamEvent),
 ) -> Result<(), AiError> {
     let trimmed = data.trim();
+
     if trimmed.is_empty() || trimmed == "[DONE]" {
         return Ok(());
     }
+
     let parsed: Value = serde_json::from_str(trimmed).map_err(|_| AiError::MalformedStream)?;
+
     if let Some(error) = parsed.get("error") {
         let body = error
             .get("message")
@@ -239,14 +253,17 @@ fn handle_chunk(
             .and_then(Value::as_u64)
             .and_then(|code| u16::try_from(code).ok())
             .unwrap_or(500);
+
         return Err(AiError::ApiStatus { status, body });
     }
+
     let Some(candidates) = parsed.get("candidates").and_then(Value::as_array) else {
         return Ok(());
     };
     let Some(candidate) = candidates.first() else {
         return Ok(());
     };
+
     if let Some(parts) = candidate
         .get("content")
         .and_then(|content| content.get("parts"))
@@ -268,6 +285,7 @@ fn handle_chunk(
                     .map(str::to_owned)
                     .unwrap_or_else(|| {
                         let current = *next_call_index;
+
                         *next_call_index += 1;
                         format!("gemini_call_{current}")
                     });
@@ -275,11 +293,13 @@ fn handle_chunk(
                     .get("args")
                     .cloned()
                     .unwrap_or_else(|| Value::Object(Map::new()));
+
                 let ready = ToolCall {
                     id,
                     name: name.to_owned(),
                     arguments,
                 };
+
                 on_event(StreamEvent::ToolCallReady(ready.clone()));
                 tool_calls.push(ready);
             }

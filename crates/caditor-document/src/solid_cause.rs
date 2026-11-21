@@ -8,7 +8,7 @@ use crate::{
     trouble::Trouble,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TargetFor {
     Start { shape: &'static str },
     ExtrusionEnd,
@@ -40,7 +40,7 @@ impl TargetFor {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Unstopped {
     AddsInside,
     RemovesEntering,
@@ -96,7 +96,7 @@ impl Unstopped {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CurveProblem {
     NoLength,
     BeyondModel,
@@ -121,14 +121,14 @@ impl CurveProblem {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Gap {
     pub first: String,
     pub second: String,
     pub distance: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SolidCause {
     WallWithSide,
     OnlyRemovalCutsSeveral,
@@ -943,10 +943,14 @@ impl SolidCause {
                 )
             })
             .collect();
+
         named.first()?;
+
         let mut text = named.join(" and ");
+
         if unnamed > 0 {
             let noun = if unnamed == 1 { "gap" } else { "gaps" };
+
             text.push_str(&format!(", plus {unnamed} more {noun}"));
         }
         Some(text)

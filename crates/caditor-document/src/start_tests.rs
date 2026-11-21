@@ -13,6 +13,7 @@ fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketch {
         Point2::new(max.0, max.1),
         Point2::new(min.0, max.1),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -29,7 +30,9 @@ fn evaluate(document: &Document) -> Evaluation {
 
 fn add(document: &mut Document, name: &str, kind: FeatureKind) -> FeatureId {
     let mut transaction = document.transaction(format!("Add {name}"));
+
     let feature = transaction.add_feature(name, kind);
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -98,12 +101,14 @@ fn top_face(solid: &Solid, height: f64) -> FaceId {
 #[test]
 fn an_extrusion_starts_from_a_datum_plane_wherever_the_plane_lies() {
     let mut document = Document::default();
+
     let shelf = add(&mut document, "Shelf", level(PrincipalPlane::Xy, 5.0));
     let outline = add(
         &mut document,
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
     );
+
     let block = add(
         &mut document,
         "Block",
@@ -116,7 +121,9 @@ fn an_extrusion_starts_from_a_datum_plane_wherever_the_plane_lies() {
     let evaluation = evaluate(&document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let found = bounds(&evaluation, block);
+
     assert!((found.min().z - 5.0).abs() < 1e-9);
     assert!((found.max().z - 9.0).abs() < 1e-9);
     assert!(
@@ -132,12 +139,15 @@ fn an_extrusion_starts_from_a_datum_plane_wherever_the_plane_lies() {
 #[test]
 fn an_extrusion_starting_from_a_face_follows_the_face_when_its_body_changes() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Plate");
+
     let thickness = transaction.add_parameter("thickness", transaction.parse("10 mm").unwrap());
     let plate_outline = transaction.add_feature(
         "Plate outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (40.0, 40.0))),
     );
+
     let plate = transaction.add_feature(
         "Plate",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -152,7 +162,9 @@ fn an_extrusion_starting_from_a_face_follows_the_face_when_its_body_changes() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
     let solid = evaluation.body(plate).unwrap();
     let (attachment, _) = FaceAttachment::capture(plate, solid, top_face(solid, 10.0)).unwrap();
@@ -161,6 +173,7 @@ fn an_extrusion_starting_from_a_face_follows_the_face_when_its_body_changes() {
         "Boss outline",
         FeatureKind::from(rectangle(Plane::XY, (5.0, 5.0), (15.0, 15.0))),
     );
+
     let boss = add(
         &mut document,
         "Boss",
@@ -172,6 +185,7 @@ fn an_extrusion_starting_from_a_face_follows_the_face_when_its_body_changes() {
 
     let first = evaluate(&document);
     let expression = document.parse("15 mm").unwrap();
+
     document
         .apply(Transaction::single(
             "Edit",
@@ -181,6 +195,7 @@ fn an_extrusion_starting_from_a_face_follows_the_face_when_its_body_changes() {
             },
         ))
         .unwrap();
+
     let thicker = evaluate(&document);
 
     assert_eq!(first.failed_count(), 0);
@@ -193,6 +208,7 @@ fn an_extrusion_starting_from_a_face_follows_the_face_when_its_body_changes() {
 #[test]
 fn a_start_plane_that_is_not_parallel_to_the_sketch_fails_the_feature_alone() {
     let mut document = Document::default();
+
     let outline = add(
         &mut document,
         "Outline",
@@ -212,6 +228,7 @@ fn a_start_plane_that_is_not_parallel_to_the_sketch_fails_the_feature_alone() {
     let evaluation = evaluate(&document);
 
     let error = failure(&evaluation, block);
+
     assert_eq!(
         error.reason(),
         "The XZ plane is not parallel to the plane of Outline, so the extrusion cannot start from \
@@ -227,6 +244,7 @@ fn a_start_plane_that_is_not_parallel_to_the_sketch_fails_the_feature_alone() {
 #[test]
 fn a_revolution_starts_off_its_sketch_plane_by_a_distance_or_at_a_plane() {
     let mut document = Document::default();
+
     let section = add(
         &mut document,
         "Section",
@@ -239,6 +257,7 @@ fn a_revolution_starts_off_its_sketch_plane_by_a_distance_or_at_a_plane() {
         "Lifted",
         revolution(section, Some(SolidStart::Distance(millimetres(5.0)))),
     );
+
     let placed = add(
         &mut document,
         "Placed",
@@ -251,15 +270,19 @@ fn a_revolution_starts_off_its_sketch_plane_by_a_distance_or_at_a_plane() {
     let evaluation = evaluate(&document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let middle = |body| {
         let found = bounds(&evaluation, body);
         (found.min().y + found.max().y) / 2.0
     };
     let normal_y = Plane::XZ.normal().y;
+
     assert!(middle(plain).abs() < 1e-9);
     assert!((middle(lifted) - 5.0 * normal_y).abs() < 1e-9);
     assert!((middle(placed).abs() - 6.0).abs() < 1e-9);
+
     let size = |body| bounds(&evaluation, body).max().x - bounds(&evaluation, body).min().x;
+
     assert!((size(lifted) - size(plain)).abs() < 1e-9);
     assert!(
         document
@@ -274,9 +297,13 @@ fn a_revolution_starts_off_its_sketch_plane_by_a_distance_or_at_a_plane() {
 #[test]
 fn a_start_plane_is_reported_by_the_parameters_and_references_it_uses() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Lift");
+
     let lift: ParameterId = transaction.add_parameter("lift", transaction.parse("2 mm").unwrap());
+
     document.apply(transaction.finish()).unwrap();
+
     let solid = SolidFeature::Revolve(Revolve {
         sketch: FeatureId::from_raw(1),
         regions: RegionChoice::All,

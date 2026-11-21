@@ -8,13 +8,13 @@ use crate::{
     target::PointTarget,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Direction {
     Level,
     Plumb,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Subject {
     Direction(Direction, [EntityId; 2]),
     Size(EntityId),
@@ -32,7 +32,7 @@ enum Subject {
     Centre(EntityId, Vec<EntityId>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Opposed {
     Level([EntityId; 2]),
     Plumb([EntityId; 2]),
@@ -67,7 +67,7 @@ impl Opposed {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Relations {
     subjects: BTreeMap<Subject, ConstraintId>,
     opposed: BTreeMap<Opposed, ConstraintId>,
@@ -96,6 +96,7 @@ impl Relations {
 impl Sketch {
     pub fn relations(&self) -> Relations {
         let mut relations = Relations::default();
+
         for (id, constraint) in self.active_constraints() {
             relations.record(self, id, constraint);
         }
@@ -140,6 +141,7 @@ impl Sketch {
             },
             Constraint::Centroid { point, ref corners } => {
                 let mut corners = corners.clone();
+
                 corners.sort_unstable();
                 Subject::Centre(point, corners)
             }
@@ -216,6 +218,7 @@ fn canonical(target: &PointTarget) -> PointTarget {
         }
         PointTarget::Centroid(corners) => {
             let mut corners = corners.clone();
+
             corners.sort_unstable();
             PointTarget::Centroid(corners)
         }
@@ -249,9 +252,11 @@ mod tests {
     #[test]
     fn the_same_relation_on_the_same_items_is_found_in_either_order() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let (line, start, end) = line_with_ends(&mut sketch);
         let other = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 7.0));
         let level = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+
         let parallel = sketch
             .add_constraint(Constraint::Parallel(line, other))
             .unwrap();
@@ -297,6 +302,7 @@ mod tests {
     #[test]
     fn a_radius_and_a_diameter_of_one_circle_restate_each_other() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let circle = sketch.add_circle(Point2::ZERO, 2.0);
         let other = sketch.add_circle(Point2::X, 2.0);
         let radius = sketch
@@ -325,9 +331,11 @@ mod tests {
     #[test]
     fn a_line_cannot_be_level_and_upright_nor_parallel_and_perpendicular() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let (line, ..) = line_with_ends(&mut sketch);
         let other = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 7.0));
         let level = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+
         let parallel = sketch
             .add_constraint(Constraint::Parallel(line, other))
             .unwrap();
@@ -342,7 +350,9 @@ mod tests {
         );
         assert_eq!(sketch.contradicting(&Constraint::Vertical(other)), None);
         assert_eq!(sketch.contradicting(&Constraint::Horizontal(line)), None);
+
         let relations = sketch.relations();
+
         assert_eq!(
             relations.contradicting(&sketch, &Constraint::Vertical(line)),
             Some(level)
@@ -368,8 +378,10 @@ mod tests {
     #[test]
     fn a_line_and_the_points_at_its_ends_oppose_each_other_either_way() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let (line, start, end) = line_with_ends(&mut sketch);
         let level = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+
         let upright_points = Constraint::VerticalPoints(end, start.into());
         let level_points = Constraint::HorizontalPoints(end, start.into());
 
@@ -382,7 +394,9 @@ mod tests {
         assert_eq!(sketch.contradicting(&Constraint::Horizontal(line)), None);
 
         let mut upright = Sketch::new(Plane::XY);
+
         let (line, start, end) = line_with_ends(&mut upright);
+
         let plumb = upright
             .add_constraint(Constraint::VerticalPoints(end, start.into()))
             .unwrap();

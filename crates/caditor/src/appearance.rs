@@ -63,7 +63,7 @@ pub const READABLE: f32 = 4.5;
 pub const HIGHLY_READABLE: f32 = 7.0;
 pub const VISIBLE_OUTLINE: f32 = 3.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
     pub panel: Color32,
     pub raised: Color32,
@@ -97,7 +97,7 @@ pub struct Tokens {
     pub shadow: Color32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Token {
     Panel,
     Raised,
@@ -596,7 +596,7 @@ impl Tokens {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Skin {
     pub tokens: Tokens,
     pub dark: bool,
@@ -617,7 +617,7 @@ impl Skin {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Skins {
     pub dark: Skin,
     pub light: Skin,
@@ -669,6 +669,7 @@ pub fn visuals(skin: &Skin) -> Visuals {
         Visuals::light()
     };
     let border = Stroke::new(BORDER_WIDTH, tokens.border);
+
     visuals.panel_fill = tokens.panel;
     visuals.window_fill = tokens.raised;
     visuals.extreme_bg_color = tokens.sunken;
@@ -707,12 +708,15 @@ pub fn visuals(skin: &Skin) -> Visuals {
 
     let radius = CornerRadius::same(WIDGET_RADIUS);
     let widgets = &mut visuals.widgets;
+
     widgets.noninteractive.bg_fill = tokens.panel;
     widgets.noninteractive.weak_bg_fill = tokens.panel;
     widgets.noninteractive.bg_stroke = border;
     widgets.noninteractive.fg_stroke = Stroke::new(BORDER_WIDTH, tokens.text);
     widgets.noninteractive.corner_radius = radius;
+
     let control_stroke = if high_contrast { border } else { Stroke::NONE };
+
     for (state, fill, stroke) in [
         (&mut widgets.inactive, tokens.button, control_stroke),
         (
@@ -752,8 +756,11 @@ pub fn style(skin: &Skin) -> Style {
         visuals: visuals(skin),
         ..Style::default()
     };
+
     style.text_styles = text_styles();
+
     let spacing = &mut style.spacing;
+
     spacing.item_spacing = ITEM_SPACING;
     spacing.button_padding = BUTTON_PADDING;
     spacing.interact_size = vec2(CONTROL_MIN_WIDTH, CONTROL_HEIGHT);
@@ -831,7 +838,7 @@ fn luminance(color: Color32) -> f32 {
     0.2126 * channel(color.r()) + 0.7152 * channel(color.g()) + 0.0722 * channel(color.b())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContrastFailure {
     pub foreground: Token,
     pub background: Token,
@@ -900,6 +907,7 @@ fn required_pairs(high_contrast: bool) -> Vec<Pair> {
         pair(Danger, Panel, VISIBLE_OUTLINE),
         pair(Danger, Raised, VISIBLE_OUTLINE),
     ];
+
     for background in [Panel, Raised] {
         for foreground in [TextMuted, Error, Warn, AccentText, Success] {
             pairs.push(pair(foreground, background, READABLE));
@@ -947,6 +955,7 @@ pub fn check(tokens: &Tokens, high_contrast: bool) -> Result<(), ContrastFailure
     {
         let foreground_colour = foreground.of(tokens);
         let background_colour = background.of(tokens);
+
         let ratio = contrast_ratio(foreground_colour, background_colour);
         if ratio < minimum {
             return Err(ContrastFailure {
@@ -973,6 +982,7 @@ pub mod tests {
 
     fn every_skin() -> Vec<Skin> {
         let mut skins = Vec::new();
+
         for (dark, high_contrast) in [(true, false), (false, false), (true, true), (false, true)] {
             skins.push(Skin::built_in(dark, high_contrast));
         }
@@ -996,6 +1006,7 @@ pub mod tests {
 
     fn assert_readable(what: &str, foreground: Color32, background: Color32, minimum: f32) {
         let ratio = contrast_ratio(foreground, background);
+
         assert!(
             ratio >= minimum,
             "{what}: {foreground:?} on {background:?} is {ratio:.2}:1, below {minimum}:1"
@@ -1023,6 +1034,7 @@ pub mod tests {
             let panel = visuals.panel_fill;
             let widgets = &visuals.widgets;
             let case = |what: &str| format!("{what} ({skin:?})");
+
             assert_readable(&case("text"), visuals.text_color(), panel, body);
             assert_readable(
                 &case("text in dialogs"),
@@ -1100,6 +1112,7 @@ pub mod tests {
     #[test]
     fn a_failing_pair_is_named_with_its_keys_colours_and_ratio() {
         let mut tokens = DARK;
+
         tokens.text_muted = Color32::from_rgb(60, 62, 70);
 
         let failure = check(&tokens, false).unwrap_err();
@@ -1119,10 +1132,13 @@ pub mod tests {
     #[test]
     fn high_contrast_holds_body_text_to_seven_to_one() {
         let mut tokens = DARK_HIGH_CONTRAST;
+
         tokens.text = Color32::from_gray(170);
 
         assert!(check(&tokens, false).is_ok());
+
         let failure = check(&tokens, true).unwrap_err();
+
         assert_eq!(failure.foreground, Token::Text);
         assert_eq!(failure.minimum, HIGHLY_READABLE);
     }
@@ -1130,13 +1146,16 @@ pub mod tests {
     #[test]
     fn every_token_has_a_key_read_back_and_a_slot_of_its_own() {
         let mut tokens = DARK;
+
         for (index, token) in Token::ALL.into_iter().enumerate() {
             assert_eq!(Token::from_key(token.key()), Some(token));
+
             token.set(&mut tokens, Color32::from_rgb(index as u8, 1, 2));
         }
         for (index, token) in Token::ALL.into_iter().enumerate() {
             assert_eq!(token.of(&tokens), Color32::from_rgb(index as u8, 1, 2));
         }
+
         assert_eq!(Token::from_key("background"), None);
     }
 
@@ -1144,6 +1163,7 @@ pub mod tests {
     fn the_skin_published_for_each_theme_is_what_tokens_reads_back() {
         let ctx = egui::Context::default();
         let mut paper = Skin::built_in(false, false);
+
         paper.tokens = PAPER;
         publish(
             &ctx,
@@ -1158,6 +1178,7 @@ pub mod tests {
 
         let unpublished = egui::Context::default();
         let high = visuals(&Skin::built_in(false, true));
+
         assert!(skin_for(&unpublished, &high).high_contrast);
         assert_eq!(skin_for(&unpublished, &high).tokens, LIGHT_HIGH_CONTRAST);
     }

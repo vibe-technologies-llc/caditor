@@ -20,7 +20,7 @@ use crate::{
     solid::SolidResult,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShellSide {
     #[default]
     Inside,
@@ -58,13 +58,13 @@ impl ShellSide {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceThickness {
     pub face: FaceReference,
     pub thickness: Expression,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Shell {
     pub body: FeatureId,
     pub open: Vec<FaceReference>,
@@ -136,7 +136,7 @@ impl Shell {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NamedFace {
     pub name: FaceName,
     pub origin: Option<FaceOrigin>,
@@ -152,7 +152,7 @@ impl NamedFace {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ShellRecipe {
     pub feature: FeatureId,
     pub before: Arc<FeatureResult>,
@@ -258,6 +258,7 @@ impl Context<'_> {
     fn walls(&self, solid: &Solid, thickness: f64) -> Result<Walls, Failure> {
         let mut faces = BTreeMap::new();
         let resolutions = self.definition.wall_resolutions(solid);
+
         for (entry, resolution) in self.definition.faces.iter().zip(resolutions) {
             let described = describe_origin(self.inputs.document, entry.face.origin());
             let value = self.length(&entry.thickness, Some(&described))?;
@@ -298,6 +299,7 @@ impl Context<'_> {
 
     fn describe_faces(&self, solid: &Solid, faces: &[FaceId]) -> Vec<String> {
         let mut names: Vec<String> = Vec::with_capacity(faces.len());
+
         for face in faces {
             let name = self.describe_face(solid, *face);
             if !names.contains(&name) {
@@ -386,7 +388,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ShellCause {
     NotPositive { face: Option<String> },
     WallTied { face: String, body: String },
@@ -584,6 +586,7 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     let open = definition.resolve(solid).map_err(|unresolved| {
         Failure::from(
             FeatureError::new(Unmatched {
@@ -595,9 +598,11 @@ pub(crate) fn evaluate(
         )
     })?;
     let walls = context.walls(solid, thickness)?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let result = shell_walls(solid, &open, &walls, feature.id().raw())
         .map_err(|error| context.failure(solid, &open, &error))?;
     let recipe = ShellRecipe::of(feature.id(), Arc::clone(before), &open, &walls);

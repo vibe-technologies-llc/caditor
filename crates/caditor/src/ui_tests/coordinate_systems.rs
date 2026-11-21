@@ -40,6 +40,7 @@ fn near(found: Vector3, expected: [f64; 3]) -> bool {
 
 fn coordinate_system_at_far_corner(harness: &mut Harness, body: FeatureId) -> FeatureId {
     let corner = vertex_at(harness, body, Point3::new(40.0, 40.0, 10.0));
+
     harness.select([corner, Pickable::Axis(Axis::Y)]);
     harness.frame();
     run_from_palette(harness, "Coordinate system");
@@ -57,6 +58,7 @@ fn coordinate_system_at_far_corner(harness: &mut Harness, body: FeatureId) -> Fe
 #[test]
 fn a_coordinate_system_takes_the_selection_and_its_axes_and_planes_are_picked_and_used() {
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let corner = vertex_at(&harness, body, Point3::new(40.0, 40.0, 10.0));
     let edge = Pickable::Edge {
@@ -68,6 +70,7 @@ fn a_coordinate_system_takes_the_selection_and_its_axes_and_planes_are_picked_an
     harness.frame();
     run_from_palette(&mut harness, "Coordinate system");
     harness.settle();
+
     let system = harness
         .workspace
         .editing
@@ -87,11 +90,13 @@ fn a_coordinate_system_takes_the_selection_and_its_axes_and_planes_are_picked_an
 
     harness.click(crate::datum_panel::REVERSE_Z);
     harness.settle();
+
     assert!(frame_of(&harness, system).reverse_z);
     assert!(near(placed(&harness, system).normal(), [0.0, 0.0, -1.0]));
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let pickables: Vec<Pickable> = harness.built().picks.pickables().collect();
     let axis = Pickable::FrameAxis {
         feature: system,
@@ -101,6 +106,7 @@ fn a_coordinate_system_takes_the_selection_and_its_axes_and_planes_are_picked_an
         feature: system,
         plane: PrincipalPlane::Yz,
     };
+
     assert!(pickables.contains(&axis));
     assert!(pickables.contains(&plane));
     assert!(pickables.contains(&Pickable::Datum(system)));
@@ -112,6 +118,7 @@ fn a_coordinate_system_takes_the_selection_and_its_axes_and_planes_are_picked_an
     harness.select([corner, plane]);
     harness.click("Mirror body");
     harness.settle();
+
     let mirror = harness
         .workspace
         .editing
@@ -124,6 +131,7 @@ fn a_coordinate_system_takes_the_selection_and_its_axes_and_planes_are_picked_an
     else {
         panic!("a mirror was made");
     };
+
     assert_eq!(
         mirrored.plane,
         caditor_document::PlaneReference::Frame {
@@ -136,21 +144,25 @@ fn a_coordinate_system_takes_the_selection_and_its_axes_and_planes_are_picked_an
 #[test]
 fn a_chosen_coordinate_system_lights_the_corner_it_sits_at() {
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let corner = vertex_at(&harness, body, Point3::new(40.0, 40.0, 10.0));
     let other = vertex_at(&harness, body, Point3::ZERO);
     let system = coordinate_system_at_far_corner(&mut harness, body);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.workspace.panels.selected = None;
     harness.frame();
     harness.frame();
+
     let editing = harness.editing();
     let plain = harness.workspace.viewport.lit_in_scene();
 
     harness.workspace.panels.choose_only(system);
     harness.frame();
     harness.frame();
+
     let lit = harness.workspace.viewport.lit_in_scene();
 
     assert_eq!(editing, None);
@@ -162,6 +174,7 @@ fn a_chosen_coordinate_system_lights_the_corner_it_sits_at() {
 #[test]
 fn a_chosen_mirror_lights_the_plane_of_the_coordinate_system_it_mirrors_across() {
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let system = coordinate_system_at_far_corner(&mut harness, body);
     let plane = Pickable::FramePlane {
@@ -173,14 +186,17 @@ fn a_chosen_mirror_lights_the_plane_of_the_coordinate_system_it_mirrors_across()
         plane: PrincipalPlane::Xy,
     };
     let corner = vertex_at(&harness, body, Point3::ZERO);
+
     harness.select([corner, plane]);
     harness.click("Mirror body");
     harness.settle();
+
     let mirror = harness
         .workspace
         .editing
         .solid()
         .expect("the mirror is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.key(Key::Escape, Modifiers::NONE);
@@ -188,11 +204,13 @@ fn a_chosen_mirror_lights_the_plane_of_the_coordinate_system_it_mirrors_across()
     harness.workspace.panels.selected = None;
     harness.frame();
     harness.frame();
+
     let plain = harness.workspace.viewport.lit_in_scene();
 
     harness.workspace.panels.choose_only(mirror);
     harness.frame();
     harness.frame();
+
     let lit = harness.workspace.viewport.lit_in_scene();
 
     assert!(!plain.contains(&plane));
@@ -203,10 +221,13 @@ fn a_chosen_mirror_lights_the_plane_of_the_coordinate_system_it_mirrors_across()
 #[test]
 fn measure_reads_positions_and_offsets_in_the_chosen_coordinate_system() {
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let system = coordinate_system_at_far_corner(&mut harness, body);
     let frame = placed(&harness, system);
+
     assert!(near(frame.x_axis(), [0.0, 1.0, 0.0]));
+
     let corner = vertex_at(&harness, body, Point3::ZERO);
     let middle = vertex_at(&harness, body, Point3::new(40.0, 0.0, 0.0));
 
@@ -217,6 +238,7 @@ fn measure_reads_positions_and_offsets_in_the_chosen_coordinate_system() {
         harness.shows("0.000, 0.000, 0.000 mm")
     });
     open_combo(&mut harness, crate::measure_panel::RELATIVE_TO);
+
     let rightmost = harness
         .texts
         .iter()
@@ -224,10 +246,12 @@ fn measure_reads_positions_and_offsets_in_the_chosen_coordinate_system() {
         .map(|(_, rect)| rect.center())
         .max_by(|a, b| a.x.total_cmp(&b.x))
         .expect("the coordinate system is offered");
+
     harness.click_screen(rightmost);
     harness.frame();
 
     assert_eq!(harness.workspace.measure.relative_to, Some(system));
+
     harness.wait_until("the corner is read in the coordinate system", |harness| {
         harness.shows("-40.000, 40.000, -10.000 mm")
     });
@@ -235,6 +259,7 @@ fn measure_reads_positions_and_offsets_in_the_chosen_coordinate_system() {
     harness.wait_until("the offsets are read along its axes", |harness| {
         harness.shows("Along Y")
     });
+
     let readout = harness
         .workspace
         .measure
@@ -254,6 +279,7 @@ fn measure_reads_positions_and_offsets_in_the_chosen_coordinate_system() {
             })
             .expect("the offset is read")
     };
+
     assert!(along("Along X").abs() < CLOSE);
     assert!((along("Along Y") - 40.0).abs() < CLOSE);
     assert!(along("Along Z").abs() < CLOSE);
@@ -262,6 +288,7 @@ fn measure_reads_positions_and_offsets_in_the_chosen_coordinate_system() {
 #[test]
 fn a_move_in_a_coordinate_system_shifts_along_its_axes_from_the_panel_and_the_arrows() {
     let mut harness = Harness::new();
+
     let (body, top) = extruded_plate(&mut harness);
     let system = coordinate_system_at_far_corner(&mut harness, body);
     let movement = opened_move(&mut harness, top);
@@ -269,11 +296,13 @@ fn a_move_in_a_coordinate_system_shifts_along_its_axes_from_the_panel_and_the_ar
     open_combo(&mut harness, crate::move_panel::DIRECTIONS);
     harness.click_lowest("Coordinate system 1");
     harness.settle();
+
     assert_eq!(move_of(&harness, movement).frame, Some(system));
     assert!(harness.shows(crate::move_panel::FRAME_DESCRIPTION));
 
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let along_x = Handle::Along(caditor_document::MoveAxis::X);
     let from = harness
         .workspace
@@ -285,12 +314,14 @@ fn a_move_in_a_coordinate_system_shifts_along_its_axes_from_the_panel_and_the_ar
         .viewport
         .handle_position(along_x, 15.0)
         .unwrap();
+
     drag_screen(&mut harness, from, to);
     harness.frame();
     harness.settle();
 
     let moved = move_of(&harness, movement);
     let parameters = harness.model.parameters();
+
     let x = moved.offset[0]
         .evaluate_as(caditor_expression::Dimension::LENGTH, &|id| {
             parameters.value(id)
@@ -303,6 +334,7 @@ fn a_move_in_a_coordinate_system_shifts_along_its_axes_from_the_panel_and_the_ar
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!(x > 0.0, "{x}");
     assert!((bounds.min().y - x).abs() < CLOSE, "{bounds:?} after {x}");
     assert!(bounds.min().x.abs() < CLOSE);
@@ -311,12 +343,14 @@ fn a_move_in_a_coordinate_system_shifts_along_its_axes_from_the_panel_and_the_ar
 #[test]
 fn a_coordinate_system_origin_is_a_point_and_a_scale_centre_can_be_measured_in_it() {
     let mut harness = Harness::new();
+
     let (body, top) = extruded_plate(&mut harness);
     let system = coordinate_system_at_far_corner(&mut harness, body);
 
     harness.select([Pickable::Datum(system)]);
     harness.click("Point");
     harness.settle();
+
     let point = harness
         .workspace
         .editing
@@ -330,19 +364,23 @@ fn a_coordinate_system_origin_is_a_point_and_a_scale_centre_can_be_measured_in_i
         Some(FeatureKind::Datum(Datum::Point(point))) => point.base.clone(),
         other => panic!("a datum point was expected, found {other:?}"),
     };
+
     assert_eq!(based, PointReference::Frame(system));
     assert!(harness.shows_containing("origin of Coordinate system 1"));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
     harness.select([top]);
     harness.click(crate::scale_tools::TITLE);
     harness.settle();
+
     let scale = harness
         .workspace
         .editing
         .solid()
         .expect("the scale is open");
+
     open_combo(&mut harness, crate::scale_panel::CENTRE_IN);
     harness.click_lowest("Coordinate system 1");
     harness.settle();
@@ -352,6 +390,7 @@ fn a_coordinate_system_origin_is_a_point_and_a_scale_centre_can_be_measured_in_i
         .feature(scale)
         .and_then(|feature| feature.kind.scale())
         .and_then(|scale| scale.frame);
+
     assert_eq!(framed, Some(system));
     assert!(harness.shows(crate::scale_panel::FRAME_DESCRIPTION));
 }
@@ -359,6 +398,7 @@ fn a_coordinate_system_origin_is_a_point_and_a_scale_centre_can_be_measured_in_i
 #[test]
 fn measure_reads_a_body_s_centroid_in_the_chosen_coordinate_system_and_keeps_it_there() {
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let system = coordinate_system_at_far_corner(&mut harness, body);
     let corner = vertex_at(&harness, body, Point3::ZERO);
@@ -373,13 +413,16 @@ fn measure_reads_a_body_s_centroid_in_the_chosen_coordinate_system_and_keeps_it_
     harness.wait_until("the centroid is read in the coordinate system", |harness| {
         harness.shows("-20.000, 20.000, -5.000 mm")
     });
+
     let keep_along_x = Keepable::of_mass_row("Centroid", Some(system))[0].menu_label();
     let deadline = Instant::now() + FILE_TIMEOUT;
+
     while !harness.shows(&keep_along_x) {
         assert!(
             Instant::now() < deadline,
             "the centroid's menu did not stay open"
         );
+
         harness.settle();
         harness.click_button("More for Centroid");
     }

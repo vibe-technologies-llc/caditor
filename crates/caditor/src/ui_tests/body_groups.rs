@@ -23,13 +23,16 @@ fn group_and_name(harness: &mut Harness, name: &str) {
 #[test]
 fn bodies_group_nest_hide_together_and_ungroup_from_the_palette() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
+
     harness.settle();
 
     harness.workspace.panels.choose_all(&[plate, peg]);
     harness.frame();
     group_and_name(&mut harness, "Fixtures");
+
     let grouped = (folder(&harness, plate), folder(&harness, peg));
     let renamed_label = harness.model.undo_label().map(str::to_owned);
     let listed = harness.shows("Fixtures");
@@ -37,13 +40,16 @@ fn bodies_group_nest_hide_together_and_ungroup_from_the_palette() {
     harness.workspace.panels.choose_only(peg);
     harness.frame();
     group_and_name(&mut harness, "Pins");
+
     let nested = folder(&harness, peg);
     let nested_listed = harness.shows("Pins");
 
     harness.click_beside(icons::SHOW, "Fixtures");
     harness.settle();
+
     let both_hidden = hidden(&harness, plate) && hidden(&harness, peg);
     let hide_label = harness.model.undo_label().map(str::to_owned);
+
     harness.perform(Action::Undo);
     harness.settle();
 
@@ -51,6 +57,7 @@ fn bodies_group_nest_hide_together_and_ungroup_from_the_palette() {
     harness.frame();
     run_from_palette(&mut harness, "ungroup bodies");
     harness.settle();
+
     let ungrouped = (folder(&harness, plate), folder(&harness, peg));
 
     harness.workspace.panels.choose_only(peg);

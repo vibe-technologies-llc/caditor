@@ -45,7 +45,7 @@ pub const OPEN_PREFERENCES: &str = "Open preferences";
 const LIST_HEIGHT: f32 = 300.0;
 const PROJECT_LIST_WIDTH: f32 = 180.0;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Crumb {
     reference: FolderRef,
     name: String,
@@ -73,7 +73,7 @@ impl Browser {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Choosing {
     #[default]
     Nothing,
@@ -104,6 +104,7 @@ impl CloudDialog {
 
     pub fn at(project: Option<(Service, ProjectId)>) -> Self {
         let mut dialog = Self::default();
+
         if let Some((service, project)) = project {
             dialog.browsers.entry(service).or_default().choose(project);
         }
@@ -111,7 +112,7 @@ impl CloudDialog {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Close,
     Cloud(CloudCommand),
@@ -135,6 +136,7 @@ pub struct DialogView<'a> {
 
 pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialog) -> Vec<Outcome> {
     let mut outcomes = Vec::new();
+
     let response = widgets::dialog(ctx, "cloud", TITLE, DialogWidth::Wide, |ui| {
         widgets::dialog_body(ui, |ui| {
             if view.cloud.is_enabled() {
@@ -143,6 +145,7 @@ pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialo
                     Choosing::ToSend => Some(CHOOSE_A_FOLDER_TO_SEND),
                     Choosing::ToOpen => Some(CHOOSE_A_FOLDER_TO_OPEN),
                 };
+
                 if let Some(instruction) = instruction {
                     widgets::callout(ui, Tone::Info, |ui| {
                         ui.add(Label::new(instruction).wrap());
@@ -153,7 +156,9 @@ pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialo
                 for service in Service::ALL {
                     if let Some(linked) = view.cloud.linked(service) {
                         ui.add_space(SPACE_L);
+
                         let browser = state.browsers.entry(service).or_default();
+
                         projects(
                             ui,
                             view,
@@ -199,6 +204,7 @@ pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialo
         )
     });
     let closing = response.should_close();
+
     outcomes.extend(response.inner);
     if outcomes
         .iter()
@@ -217,11 +223,13 @@ fn accounts(ui: &mut Ui, view: &DialogView<'_>, outcomes: &mut Vec<Outcome>) {
     ui.add_space(SPACE_S);
     for connection in view.cloud.connections() {
         let service = connection.service;
+
         widgets::card(ui, |ui| {
             Sides::new().show(
                 ui,
                 |ui| {
                     let tokens = appearance::tokens(ui);
+
                     widgets::icon_label(ui, icons::command(Command::Cloud), tokens.accent_text);
                     ui.label(widgets::strong(service.name()));
                     cloud_parts::link_pill(ui, &connection.link);
@@ -244,6 +252,7 @@ fn account_buttons(
         Link::SignedOut => {
             let allowed = cloud.can_sign_in(service);
             let button = widgets::primary_button(ui, SIGN_IN);
+
             let response = ui
                 .add_enabled(allowed.is_ok(), button)
                 .on_hover_text(format!(
@@ -267,6 +276,7 @@ fn account_buttons(
             if ui.add(widgets::button(SIGN_OUT)).clicked() {
                 outcomes.push(Outcome::Cloud(CloudCommand::SignOut(service)));
             }
+
             let refresh = widgets::small_button(ui, icons::command(Command::CloudRefresh), REFRESH);
             if ui.add(refresh).clicked() {
                 outcomes.push(Outcome::Cloud(CloudCommand::Refresh(service)));
@@ -330,6 +340,7 @@ fn account_details(
             if let Err(refusal @ Refusal::NoClientId(_)) = cloud.can_sign_in(service) {
                 widgets::callout(ui, Tone::Warning, |ui| {
                     ui.add(Label::new(refusal.to_string()).wrap());
+
                     let open = widgets::small_button(ui, icons::GENERAL, OPEN_PREFERENCES);
                     if ui.add(open).clicked() {
                         outcomes.push(Outcome::Preferences);
@@ -375,6 +386,7 @@ fn projects(
             .cancel(cloud_parts::CANCEL_PREPARING_HOVER)
             .wrapping()
             .show(ui);
+
         if stop {
             outcomes.push(Outcome::File(FileCommand::Export(ExportCommand::Cancel)));
         }
@@ -451,6 +463,7 @@ fn hub_row(ui: &mut Ui, service: Service, linked: &Linked, outcomes: &mut Vec<Ou
         || format!("Choose a {noun}"),
         |workspace| workspace.name.clone(),
     );
+
     ui.horizontal(|ui| {
         ui.label(capitalised(noun));
         widgets::combo(("cloud-hub", service.id()), current)
@@ -513,7 +526,9 @@ fn contents(
         ui.label(widgets::muted(CHOOSE_A_PROJECT, ui));
         return;
     };
+
     breadcrumbs(ui, project, state);
+
     let (load, reload, open) = match state.trail.last() {
         Some(crumb) => (
             linked.folder(&crumb.reference),
@@ -526,6 +541,7 @@ fn contents(
             CloudCommand::LoadProject(service, project.id.clone()),
         ),
     };
+
     if matches!(load, Load::Idle) {
         outcomes.push(Outcome::Cloud(open));
     }
@@ -548,6 +564,7 @@ fn contents(
                 .trail
                 .last()
                 .map_or_else(|| project.name.clone(), |crumb| crumb.name.clone());
+
             send_row(
                 ui,
                 view,
@@ -569,6 +586,7 @@ fn contents(
                     }
                     for entry in &folder.folders {
                         let tokens = appearance::tokens(ui);
+
                         ui.horizontal(|ui| {
                             widgets::icon_label(ui, icons::FEATURE_GROUP, tokens.text_muted);
                             if widgets::link(ui, &entry.name, None).clicked() {
@@ -632,12 +650,14 @@ fn send_row(
     let disabled = reason.unwrap_or_default();
     let mut how = None;
     let mut after = AfterSend::Nothing;
+
     ui.horizontal_wrapped(|ui| {
         let response = if choosing == Choosing::ToSend {
             ui.add_enabled(enabled, widgets::primary_button(ui, SEND_HERE))
         } else {
             ui.add_enabled(enabled, widgets::button(SEND_HERE))
         };
+
         if response
             .on_hover_text(hover)
             .on_disabled_hover_text(&disabled)
@@ -707,13 +727,16 @@ fn send_row(
 fn breadcrumbs(ui: &mut Ui, project: &Project, state: &mut Browser) {
     ui.horizontal_wrapped(|ui| {
         let at_root = state.trail.is_empty();
+
         if at_root {
             ui.label(widgets::strong(&project.name));
         } else if widgets::link(ui, &project.name, None).clicked() {
             state.trail.clear();
         }
+
         let last = state.trail.len();
         let mut jump = None;
+
         for (index, crumb) in state.trail.iter().enumerate() {
             ui.label(widgets::muted(icons::BREADCRUMB, ui));
             if index + 1 == last {
@@ -738,6 +761,7 @@ fn upload_row(
     outcomes: &mut Vec<Outcome>,
 ) {
     let tokens = appearance::tokens(ui);
+
     Sides::new().shrink_left().show(
         ui,
         |ui| {
@@ -755,6 +779,7 @@ fn upload_row(
         |ui| {
             let button = widgets::small_button(ui, icons::command(Command::Import), IMPORT);
             let importing = linked.is_importing();
+
             let response = ui
                 .add_enabled(!importing, button)
                 .on_hover_text(format!(
@@ -784,6 +809,7 @@ fn design_row(
     outcomes: &mut Vec<Outcome>,
 ) {
     let tokens = appearance::tokens(ui);
+
     Sides::new().shrink_left().show(
         ui,
         |ui| {
@@ -797,6 +823,7 @@ fn design_row(
         |ui| {
             let button = widgets::small_button(ui, icons::command(Command::Import), IMPORT);
             let importing = linked.is_importing();
+
             let response = ui
                 .add_enabled(!importing, button)
                 .on_hover_text(format!(
@@ -806,6 +833,7 @@ fn design_row(
                 .on_disabled_hover_text(
                     "Another design is being imported; wait for it or cancel it first",
                 );
+
             if response.clicked() {
                 outcomes.push(Outcome::Cloud(CloudCommand::Import(
                     service,
@@ -992,6 +1020,7 @@ fn version_rows(
 fn downloads(ui: &mut Ui, downloads: &Downloads, outcomes: &mut Vec<Outcome>) {
     ui.label(widgets::section_title("Downloaded designs"));
     ui.add_space(SPACE_S);
+
     let Some(dir) = &downloads.dir else {
         ui.label(widgets::muted(
             "caditor has no folder to keep downloaded designs in, so imports from the cloud are unavailable.",
@@ -999,9 +1028,11 @@ fn downloads(ui: &mut Ui, downloads: &Downloads, outcomes: &mut Vec<Outcome>) {
         ));
         return;
     };
+
     if downloads.usage.is_none() && !downloads.measuring {
         outcomes.push(Outcome::Cloud(CloudCommand::MeasureDownloads));
     }
+
     let summary = match downloads.usage {
         Some(usage) if usage.designs == 0 => "No design is kept yet.".to_owned(),
         Some(usage) => {
@@ -1018,6 +1049,7 @@ fn downloads(ui: &mut Ui, downloads: &Downloads, outcomes: &mut Vec<Outcome>) {
         }
         None => "Counting…".to_owned(),
     };
+
     ui.add(
         Label::new(widgets::muted(
             format!(
@@ -1029,8 +1061,10 @@ fn downloads(ui: &mut Ui, downloads: &Downloads, outcomes: &mut Vec<Outcome>) {
         .wrap(),
     );
     ui.add_space(SPACE_S);
+
     let empty = downloads.usage.is_none_or(|usage| usage.designs == 0);
     let clear = widgets::small_button(ui, icons::DELETE, CLEAR_DOWNLOADS);
+
     let response = ui
         .add_enabled(!empty && !downloads.measuring, clear)
         .on_hover_text("Delete the kept STEP files; models already imported keep their bodies")
@@ -1043,6 +1077,7 @@ fn downloads(ui: &mut Ui, downloads: &Downloads, outcomes: &mut Vec<Outcome>) {
 fn settings(ui: &mut Ui, preferences: &CloudPreferences, outcomes: &mut Vec<Outcome>) {
     ui.label(widgets::section_title("Cloud features"));
     ui.add_space(SPACE_M - SPACE_S);
+
     let mut on_home = preferences.on_home;
     if widgets::checkbox(ui, &mut on_home, SHOW_ON_HOME)
         .on_hover_text("Off keeps cloud projects to this window and the palette")

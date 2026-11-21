@@ -28,14 +28,14 @@ use crate::{
 const ARROW_SHARE: f64 = 0.7;
 const ALONG_EDGE: &str = "Along the edge";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HoleGrip {
     Square(EntityId),
     Distance(ConstraintId),
     Along(EntityId),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Stand {
     grip: HoleGrip,
     number: usize,
@@ -45,13 +45,13 @@ struct Stand {
     driving: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Away {
     direction: Vector2,
     distance: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HoleHandles {
     pub feature: FeatureId,
     plane: Plane,
@@ -89,6 +89,7 @@ fn leaving(solved: &Sketch, held: &HeldEdge, at: Point2) -> Option<Away> {
         return None;
     };
     let from = solved.point(*start)?;
+
     let along = (solved.point(*end)? - from).try_normalize()?;
     let normal = along.perp();
     let offset = (at - from).dot(normal);
@@ -112,11 +113,13 @@ fn along_words(
     point: EntityId,
 ) -> Option<String> {
     let placed = placement.hole(point)?;
+
     if placed.along.iter().all(Option::is_none)
         || hole_placement::drivers(document, placed).is_some()
     {
         return None;
     }
+
     let names = parameter_names(
         document,
         placed
@@ -177,11 +180,13 @@ impl HoleHandles {
     ) -> Option<Self> {
         let document = model.document();
         let hole = committed_hole(document, feature)?;
+
         if hole_on_curve::mount(document, hole).is_some()
             || hole_tools::lone_point(document, hole).is_some()
         {
             return None;
         }
+
         let placement = hole_placement::read(document, hole)?;
         let evaluation = model
             .draft_evaluation_of(feature)
@@ -196,6 +201,7 @@ impl HoleHandles {
                 .then_some(per_point)
         };
         let mut stands = Vec::new();
+
         for (index, placed) in placement.holes.iter().enumerate() {
             let number = index + 1;
             let at = previewed
@@ -317,6 +323,7 @@ impl HoleHandles {
         };
         let document = model.document();
         let hole = committed_hole(document, self.feature)?;
+
         let placement = hole_placement::read(document, hole)?;
         let stand = self.stand(grip)?;
         match grip {
@@ -352,6 +359,7 @@ impl HoleHandles {
 
     pub fn typing(&self, grip: HoleGrip) -> Option<(String, Vec<Rule>)> {
         self.stand(grip)?;
+
         let [x, y] = POSITION_CAPTIONS;
         match grip {
             HoleGrip::Square(_) => Some((format!("{x}, {y}"), vec![Rule::Any; 2])),
@@ -367,6 +375,7 @@ impl HoleHandles {
             .iter()
             .filter_map(|stand| {
                 let (from, to, _) = self.arrow(stand)?;
+
                 let distance = segment_distance(view.project(from)?, view.project(to)?, cursor);
                 Some((distance, Handle::Hole(stand.grip)))
             })
@@ -401,6 +410,7 @@ impl HoleHandles {
             } else {
                 palette.handle
             };
+
             if let Some(corners) = self.square(stand) {
                 place_handles::draw_square(batch, &corners, colour);
             }
@@ -418,7 +428,7 @@ impl HoleHandles {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HoleDrag {
     grip: HoleGrip,
     slide: Slide,
@@ -429,6 +439,7 @@ impl HoleDrag {
         let stand = handles.stand(grip)?;
         let step = stand.step();
         let kept_off_edge = matches!(grip, HoleGrip::Distance(_));
+
         let line = stand.away.map(|away| Line {
             direction: away.direction,
             value: away.distance,
@@ -454,10 +465,13 @@ impl HoleDrag {
             HoleGrip::Square(point) => {
                 let (from, at) = (self.slide.from(), self.slide.at());
                 let placement = hole_placement::read(document, hole)?;
+
                 if placement.hole(point)?.along.iter().any(Option::is_some) {
                     return hole_placement::dragged(model, feature, hole, point, from, at).ok();
                 }
+
                 let (x, y) = (unit.measured(at.x), unit.measured(at.y));
+
                 let typed = [
                     (from.x != at.x).then_some(&x),
                     (from.y != at.y).then_some(&y),
@@ -471,7 +485,9 @@ impl HoleDrag {
                 let keeper = Held::of(document, feature, EDGE_DISTANCE, &distance.value);
                 let mut value = distance.value.clone();
                 let mut named = Vec::new();
+
                 keeper.set(&mut value, unit.measured(self.slide.value()?), &mut named);
+
                 let kept = (value != distance.value).then_some(Edit::SetDimension {
                     feature: hole.sketch,
                     constraint,

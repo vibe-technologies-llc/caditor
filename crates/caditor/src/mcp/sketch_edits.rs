@@ -41,7 +41,7 @@ use crate::{
 
 const SQUARE_BY_DEFAULT: usize = 2;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SketchEditError {
     #[error("that piece cannot be trimmed: {0}")]
     Trim(TrimError),
@@ -196,7 +196,7 @@ pub enum SketchEditError {
     AlreadyProjected { sketch: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum Modification {
     Trim(Trimming),
@@ -228,21 +228,21 @@ pub enum Modification {
     Copy(Copying),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Trimming {
     pub sketch: Named,
     pub pieces: Vec<PieceAt>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PieceAt {
     pub curve: EntityName,
     pub near: [f64; 2],
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Extending {
     pub sketch: Named,
@@ -251,14 +251,14 @@ pub struct Extending {
     pub near: Option<[f64; 2]>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EndCaps {
     Round,
     Flat,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Offsetting {
     pub sketch: Named,
@@ -270,7 +270,7 @@ pub struct Offsetting {
     pub whole_chain: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mirroring {
     pub sketch: Named,
@@ -278,7 +278,7 @@ pub struct Mirroring {
     pub about: EntityName,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Row {
     pub count: usize,
@@ -289,7 +289,7 @@ pub struct Row {
     pub reversed: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RowPatterning {
     pub sketch: Named,
@@ -305,7 +305,7 @@ pub struct RowPatterning {
     pub directions: Option<Vec<Row>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TurnPatterning {
     pub sketch: Named,
@@ -316,14 +316,14 @@ pub struct TurnPatterning {
     pub symmetric: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum CornerName {
     Point(EntityName),
     Between([EntityName; 2]),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CornerRounding {
     pub sketch: Named,
@@ -331,7 +331,7 @@ pub struct CornerRounding {
     pub radius: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CornerCutting {
     pub sketch: Named,
@@ -369,6 +369,7 @@ impl<'s> Target<'s> {
         let document = session.document();
         let evaluation = session.evaluation();
         let (feature, definition) = references::sketch(document, named)?;
+
         let shown = up_to_date_result(evaluation, feature.id())
             .map_or(definition, |result| &result.geometry);
         Ok(Self {
@@ -410,6 +411,7 @@ impl<'s> Target<'s> {
 
     pub(super) fn working(&self) -> Sketch {
         let mut working = self.definition.clone();
+
         for (id, entity) in self.shown.entities() {
             let same = self
                 .definition
@@ -429,8 +431,11 @@ impl<'s> Target<'s> {
     ) -> Result<Transaction, ToolError> {
         let before = self.working();
         let mut after = before.clone();
+
         change(&mut after)?;
+
         let mut transaction = self.document.transaction(label);
+
         writing::settled(&mut transaction, self.evaluation, self.feature);
         transaction.reshape_sketch(self.feature, &before, &after);
         Ok(transaction.finish())
@@ -453,6 +458,7 @@ pub(super) fn amount(
         dimension: Some(dimension),
         non_negative: false,
     };
+
     let parsed = field::parse_expression(
         session.document(),
         &parameters,
@@ -465,6 +471,7 @@ pub(super) fn amount(
         && parameters
             .evaluate_expression(&parsed)
             .is_ok_and(|found| found.dimension.is_plain());
+
     let expression = if plain_angle {
         attach_unit(parsed, Unit::Degree)
     } else {
@@ -496,6 +503,7 @@ pub(super) fn report_stored(data: &mut Map<String, Value>, before: &Sketch, afte
     for (kind, was, now) in changes {
         let added: Vec<u64> = now.difference(&was).copied().collect();
         let removed: Vec<u64> = was.difference(&now).copied().collect();
+
         if !added.is_empty() {
             data.insert(format!("added_{kind}"), listed(added.into_iter()));
         }
@@ -515,6 +523,7 @@ pub fn modify(
     asked: Modification,
 ) -> Result<Answer, ToolError> {
     session.evaluate(work)?;
+
     let (feature, before, planned) = {
         let target = Target::of(session, sketch_of(&asked))?;
         let planned = plan(session, work, &target, &asked)?;
@@ -522,12 +531,14 @@ pub fn modify(
     };
     let answer = writing::apply(session, work, planned.transaction, planned.details)?;
     let mut data = answer.data;
+
     if let Some(after) = session
         .document()
         .feature(feature)
         .and_then(|found| found.kind.sketch())
     {
         let (was, now) = (entity_ids(&before), entity_ids(after));
+
         data.insert(
             "added_entities".to_owned(),
             listed(now.difference(&was).copied()),
@@ -625,6 +636,7 @@ fn trim(target: &Target<'_>, asked: &Trimming) -> Result<Planned, ToolError> {
     if asked.pieces.len() > MOST_ITEMS {
         return Err(SketchingError::TooMany.into());
     }
+
     let working = target.working();
     let pieces = asked
         .pieces
@@ -640,6 +652,7 @@ fn trim(target: &Target<'_>, asked: &Trimming) -> Result<Planned, ToolError> {
         [only] => format!("Trim {}", working.entity_label(only.curve)),
         pieces => format!("Trim {}", count(pieces.len(), "piece", "pieces")),
     };
+
     let transaction = target.reshaped(label, |sketch| {
         for piece in &pieces {
             let middle = piece.middle();
@@ -663,6 +676,7 @@ fn extend(target: &Target<'_>, asked: &Extending) -> Result<Planned, ToolError> 
         _ => return Err(SketchEditError::ExtendEnd.into()),
     };
     let working = target.working();
+
     let extension = working
         .extension(curve, near)
         .map_err(SketchEditError::Extend)?;
@@ -674,6 +688,7 @@ fn extend(target: &Target<'_>, asked: &Extending) -> Result<Planned, ToolError> 
             .map_err(|error| SketchEditError::Extend(error).into())
     })?;
     let mut planned = Planned::of(transaction);
+
     planned.details.insert(
         "extended_to".to_owned(),
         json!(working.entity_label(extension.target)),
@@ -689,6 +704,7 @@ fn offset(
     let picked = target.entities(&asked.curves)?;
     let distance = amount(session, "distance", &asked.distance, Dimension::LENGTH)?;
     let working = target.working();
+
     let curves: Vec<EntityId> = if asked.whole_chain {
         let chained: BTreeSet<EntityId> = picked
             .iter()
@@ -703,6 +719,7 @@ fn offset(
         .map_err(SketchEditError::Offset)?;
     let toward = asked.toward.map(point).transpose()?;
     let flipped = distance.value < 0.0;
+
     let sides: BTreeMap<Vec<EntityId>, Side> = chains
         .iter()
         .map(|chain| {
@@ -730,6 +747,7 @@ fn offset(
         Some(_) => offsetting::BOTH_TRANSACTION,
         None => offsetting::TRANSACTION,
     };
+
     let transaction = target.reshaped(label.to_owned(), |sketch| {
         match caps {
             Some(caps) => sketch.offset_both_sides(&curves, millimetres, expression, caps),
@@ -744,6 +762,7 @@ fn offset(
         .map_err(|error| SketchEditError::Offset(error).into())
     })?;
     let mut planned = Planned::of(transaction);
+
     planned
         .details
         .insert("offset_curves".to_owned(), writing::ids(&curves));
@@ -753,6 +772,7 @@ fn offset(
 fn mirror(target: &Target<'_>, asked: &Mirroring) -> Result<Planned, ToolError> {
     let items = target.entities(&asked.items)?;
     let about = target.entity(&asked.about)?;
+
     let transaction = target.reshaped(mirroring::TRANSACTION.to_owned(), |sketch| {
         sketch
             .mirror(&items, about)
@@ -839,10 +859,13 @@ fn rectangular_pattern(
     };
     let leading = first.heading.clone();
     let mut directions = vec![first];
+
     for row in asked.rows.iter().chain(asked.directions.iter().flatten()) {
         let number = directions.len() + 1;
+
         directions.push(further_row(session, target, row, &leading, number)?);
     }
+
     let distribution = if asked.extent.unwrap_or(false) {
         Distribution::Extent
     } else {
@@ -878,6 +901,7 @@ fn circular_pattern(
         count: asked.count,
         spread,
     };
+
     let transaction = target.reshaped(patterning::TRANSACTION.to_owned(), |sketch| {
         sketch
             .circular_pattern(&items, centre, &pattern)
@@ -898,6 +922,7 @@ fn corners(
     if named.len() > MOST_ITEMS {
         return Err(SketchingError::TooMany.into());
     }
+
     let working = target.working();
     named
         .iter()
@@ -932,11 +957,13 @@ fn fillet(
         filleting::TRANSACTION,
         filleting::CORNERS_TRANSACTION,
     );
+
     let transaction = target.reshaped(label, |sketch| {
         for corner in &corners {
             let current = sketch
                 .corner_at(corner.point)
                 .map_err(SketchEditError::Fillet)?;
+
             sketch
                 .fillet(&current, radius.value, radius.expression.clone())
                 .map_err(SketchEditError::Fillet)?;
@@ -970,11 +997,13 @@ fn chamfer(
         filleting::CHAMFER_TRANSACTION,
         filleting::CHAMFER_CORNERS_TRANSACTION,
     );
+
     let transaction = target.reshaped(label, |sketch| {
         for corner in &corners {
             let current = sketch
                 .corner_at(corner.point)
                 .map_err(SketchEditError::Chamfer)?;
+
             sketch
                 .chamfer(&current, &size)
                 .map_err(SketchEditError::Chamfer)?;

@@ -64,6 +64,7 @@ impl Journal {
 
     pub fn log(&mut self, entry: JournalEntry) {
         let logged = self.mirror.log(entry);
+
         self.entries.push(logged);
     }
 

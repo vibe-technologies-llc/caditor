@@ -43,6 +43,7 @@ const END: Cap = Cap {
 pub(super) fn mline(record: &Record, style: i64) -> Option<Vec<Shape>> {
     let vertices = vertices(record)?;
     let elements = vertices.first()?.offsets.len();
+
     if vertices.len() < 2
         || elements == 0
         || vertices
@@ -51,6 +52,7 @@ pub(super) fn mline(record: &Record, style: i64) -> Option<Vec<Shape>> {
     {
         return None;
     }
+
     let flags = record.flags(71);
     let closed = flags & CLOSED != 0;
     let mut rows: Vec<Vec<Point3>> = vertices
@@ -63,9 +65,11 @@ pub(super) fn mline(record: &Record, style: i64) -> Option<Vec<Shape>> {
                 .collect()
         })
         .collect();
+
     if closed && let Some(first) = rows.first().cloned() {
         rows.push(first);
     }
+
     let mut shapes: Vec<Shape> = rows
         .windows(2)
         .flat_map(|pair| match pair {
@@ -79,6 +83,7 @@ pub(super) fn mline(record: &Record, style: i64) -> Option<Vec<Shape>> {
         .collect();
     let order = ordered_elements(&vertices.first()?.offsets);
     let (bottom, top) = (*order.first()?, *order.last()?);
+
     if style & SHOW_MITERS != 0 {
         let joints = if closed {
             0..vertices.len()
@@ -95,12 +100,15 @@ pub(super) fn mline(record: &Record, style: i64) -> Option<Vec<Shape>> {
         let second = vertices.get(1)?;
         let last = vertices.last()?;
         let before_last = vertices.get(vertices.len() - 2)?;
+
         if flags & NO_START_CAPS == 0 {
             let outward = first.location - second.location;
+
             shapes.extend(cap(rows.first()?, &order, style, &START, outward, normal));
         }
         if flags & NO_END_CAPS == 0 {
             let outward = last.location - before_last.location;
+
             shapes.extend(cap(rows.last()?, &order, style, &END, outward, normal));
         }
     }
@@ -111,6 +119,7 @@ pub(super) fn mline(record: &Record, style: i64) -> Option<Vec<Shape>> {
 fn vertices(record: &Record) -> Option<Vec<Vertex>> {
     let mut vertices: Vec<Vertex> = Vec::new();
     let mut awaiting_offset = false;
+
     for pair in &record.pairs {
         match pair.code {
             11 => {
@@ -142,6 +151,7 @@ fn vertices(record: &Record) -> Option<Vec<Vertex>> {
 
 fn ordered_elements(offsets: &[f64]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..offsets.len()).collect();
+
     order.sort_by(|a, b| {
         let offset = |index: &usize| offsets.get(*index).copied().unwrap_or_default();
         offset(a).total_cmp(&offset(b))
@@ -162,6 +172,7 @@ fn cap(
     let (Some(bottom), Some(top)) = (at(0), at(order.len().saturating_sub(1))) else {
         return shapes;
     };
+
     if style & kind.square != 0 {
         shapes.push(Shape::Line(*top, *bottom));
     }
@@ -181,6 +192,7 @@ fn half_circle(from: Point3, to: Point3, outward: Vector3, normal: Vector3) -> O
     let center = from.midpoint(to);
     let major = from - center;
     let side = normal.cross(major);
+
     let minor = side.try_normalize()? * major.length();
     let minor = if minor.dot(outward) < 0.0 {
         -minor

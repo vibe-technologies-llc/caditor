@@ -10,7 +10,7 @@ use crate::{
 
 const MAX_EXTREMA_PER_AXIS: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Line2 {
     origin: Point2,
     direction: Vector2,
@@ -53,7 +53,7 @@ impl Line2 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Circle2 {
     center: Point2,
     radius: f64,
@@ -116,6 +116,7 @@ impl Circle2 {
 
     pub(crate) fn evaluate(&self, parameter: f64) -> [Point2; 3] {
         let (sin, cos) = parameter.sin_cos_libm();
+
         let radial = (self.x_axis * cos + self.y_axis * sin) * self.radius;
         let tangent = (self.y_axis * cos - self.x_axis * sin) * self.radius;
         [self.center + radial, tangent, -radial]
@@ -124,9 +125,11 @@ impl Circle2 {
     pub(crate) fn closest_parameter(&self, point: Point2, range: Interval) -> f64 {
         let local = point - self.center;
         let (x, y) = (local.dot(self.x_axis), local.dot(self.y_axis));
+
         if x.hypot_libm(y) <= f64::MIN_POSITIVE {
             return range.start();
         }
+
         let unwrapped = range.start() + (y.atan2_libm(x) - range.start()).rem_euclid(TAU);
         let distance = |parameter: f64| {
             let [position, _, _] = self.evaluate(parameter);
@@ -137,6 +140,7 @@ impl Circle2 {
         } else {
             range.end()
         };
+
         if unwrapped <= range.end() && distance(unwrapped) < distance(best) {
             best = unwrapped;
         }
@@ -153,11 +157,13 @@ impl Circle2 {
             (self.x_axis.x, self.y_axis.x),
             (self.x_axis.y, self.y_axis.y),
         ];
+
         for (x_component, y_component) in components {
             let extreme = y_component.atan2_libm(x_component);
             let first = ((range.start() - extreme) / PI).ceil();
             for step in 0..MAX_EXTREMA_PER_AXIS {
                 let parameter = extreme + (first + step as f64) * PI;
+
                 if parameter > range.end() {
                     break;
                 }
@@ -168,7 +174,7 @@ impl Circle2 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ellipse2 {
     center: Point2,
     major_radius: f64,
@@ -245,6 +251,7 @@ impl Ellipse2 {
 
     pub(crate) fn evaluate(&self, parameter: f64) -> [Point2; 3] {
         let (sin, cos) = parameter.sin_cos_libm();
+
         let radial =
             self.x_axis * (self.major_radius * cos) + self.y_axis * (self.minor_radius * sin);
         let tangent =
@@ -266,6 +273,7 @@ impl Ellipse2 {
             position
         };
         let mut bounds = Aabb2::from_point(point(range.start())).including(point(range.end()));
+
         for direction in [Vector2::X, Vector2::Y] {
             let Some(extreme) = self.extreme_along(direction) else {
                 continue;
@@ -273,6 +281,7 @@ impl Ellipse2 {
             let first = ((range.start() - extreme) / PI).ceil();
             for step in 0..MAX_EXTREMA_PER_AXIS {
                 let parameter = extreme + (first + step as f64) * PI;
+
                 if parameter > range.end() {
                     break;
                 }

@@ -40,25 +40,31 @@ fn contrast_follows_the_system_unless_the_user_chose_otherwise() {
     system_settings::pretend_contrast(false);
     harness.frame();
     harness.frame();
+
     assert!(!appearance::skin(&harness.context).high_contrast);
 
     system_settings::pretend_contrast(true);
     harness.frame();
     harness.frame();
+
     assert!(appearance::skin(&harness.context).high_contrast);
 
     choose_contrast(&mut harness, ContrastSetting::Off);
+
     assert!(!appearance::skin(&harness.context).high_contrast);
 
     choose_contrast(&mut harness, ContrastSetting::System);
+
     assert!(appearance::skin(&harness.context).high_contrast);
 
     system_settings::pretend_contrast(false);
     harness.frame();
     harness.frame();
+
     assert!(!appearance::skin(&harness.context).high_contrast);
 
     choose_contrast(&mut harness, ContrastSetting::On);
+
     assert!(appearance::skin(&harness.context).high_contrast);
 }
 
@@ -83,6 +89,7 @@ fn interface_animations_follow_the_motion_preference_and_the_system() {
     let mut harness = Harness::new();
 
     choose_transitions(&mut harness, Transitions::Standard);
+
     assert_eq!(animation_time(&harness), appearance::ANIMATION_SECONDS);
     assert_eq!(
         scroll_animation(&harness),
@@ -90,6 +97,7 @@ fn interface_animations_follow_the_motion_preference_and_the_system() {
     );
 
     choose_transitions(&mut harness, Transitions::Off);
+
     assert_eq!(animation_time(&harness), 0.0);
     assert_eq!(
         scroll_animation(&harness),
@@ -97,12 +105,14 @@ fn interface_animations_follow_the_motion_preference_and_the_system() {
     );
 
     choose_transitions(&mut harness, Transitions::Quick);
+
     assert_eq!(
         scroll_animation(&harness),
         egui::style::ScrollAnimation::default()
     );
 
     choose_transitions(&mut harness, Transitions::Slow);
+
     assert_eq!(
         animation_time(&harness),
         appearance::ANIMATION_SECONDS * 2.0
@@ -110,6 +120,7 @@ fn interface_animations_follow_the_motion_preference_and_the_system() {
 
     system_settings::pretend(true);
     choose_transitions(&mut harness, Transitions::System);
+
     assert_eq!(animation_time(&harness), 0.0);
     assert_eq!(
         scroll_animation(&harness),
@@ -119,6 +130,7 @@ fn interface_animations_follow_the_motion_preference_and_the_system() {
     system_settings::pretend(false);
     harness.frame();
     harness.frame();
+
     assert_eq!(animation_time(&harness), appearance::ANIMATION_SECONDS);
     assert_eq!(
         scroll_animation(&harness),
@@ -129,6 +141,7 @@ fn interface_animations_follow_the_motion_preference_and_the_system() {
 #[test]
 fn the_contrast_setting_is_offered_with_each_of_its_choices_named() {
     let mut harness = Harness::new();
+
     harness.key(Key::Comma, Modifiers::COMMAND);
     harness.show_new_windows();
     harness.click("Appearance");
@@ -168,7 +181,9 @@ fn frame_strokes(harness: &Harness, color: Color32) -> (usize, usize) {
             _ => {}
         }
     }
+
     let mut counts = (0, 0);
+
     for clipped in harness.painted.iter().flat_map(|painted| &painted.shapes) {
         walk(&clipped.shape, color, &mut counts);
     }
@@ -178,32 +193,41 @@ fn frame_strokes(harness: &Harness, color: Color32) -> (usize, usize) {
 #[test]
 fn high_contrast_frames_redundant_constraints_dashed_and_conflicting_ones_solid() {
     let mut harness = Harness::new();
+
     harness.painted = Some(Painted {
         shapes: Vec::new(),
         pixels_per_point: 1.0,
     });
+
     let base = edit_base_sketch(&mut harness);
     let line = entities_of_kind(harness.sketch(base), "Line")[0];
 
     harness.add_stored_constraint(base, Constraint::Horizontal(line));
     harness.frame();
+
     assert!(harness.shows("1 redundant constraint"));
     assert_eq!(frame_strokes(&harness, canvas::DARK_CHROME.warning), (0, 0));
 
     set_high_contrast(&mut harness, true);
+
     let (solid, dashes) = frame_strokes(&harness, canvas::DARK_CHROME.warning);
+
     assert_eq!(solid, 0);
     assert!(dashes >= 8, "{dashes} dashes");
     assert_eq!(frame_strokes(&harness, canvas::DARK_CHROME.error), (0, 0));
 
     harness.add_stored_constraint(base, Constraint::Vertical(line));
     harness.frame();
+
     assert!(harness.shows("Conflicting constraints"));
+
     let (solid, dashes) = frame_strokes(&harness, canvas::DARK_CHROME.error);
+
     assert!(solid >= 2, "{solid} frames");
     assert_eq!(dashes, 0);
 
     set_high_contrast(&mut harness, false);
+
     assert_eq!(frame_strokes(&harness, canvas::DARK_CHROME.error), (0, 0));
 }
 
@@ -211,9 +235,13 @@ fn high_contrast_frames_redundant_constraints_dashed_and_conflicting_ones_solid(
 fn high_contrast_reaches_the_scene_and_draws_free_points_hollow() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 10.0));
+
     let feature = harness.add_sketch(sketch);
+
     harness.edit(feature);
+
     let standard = harness.built();
     let hole = |built: &scene::BuiltScene| {
         built
@@ -230,18 +258,23 @@ fn high_contrast_reaches_the_scene_and_draws_free_points_hollow() {
     assert_eq!(hole(&standard), 0);
 
     set_high_contrast(&mut harness, true);
+
     let high = harness.built();
+
     assert_eq!(grid(&high), Some(scene_palette::HIGH_CONTRAST.grid));
     assert_eq!(hole(&high), 2);
 
     set_high_contrast(&mut harness, false);
+
     assert_eq!(grid(&harness.built()), Some(scene_palette::STANDARD.grid));
 }
 
 #[test]
 fn high_contrast_dashes_the_edges_of_a_failed_body() {
     let mut harness = Harness::new();
+
     combine_nearly_touching_blocks(&mut harness);
+
     let dashed = |harness: &mut Harness| {
         harness
             .built()
@@ -254,7 +287,9 @@ fn high_contrast_dashes_the_edges_of_a_failed_body() {
     };
 
     let standard = dashed(&mut harness);
+
     set_high_contrast(&mut harness, true);
+
     let high = dashed(&mut harness);
 
     assert_eq!(standard, 0);
@@ -264,9 +299,12 @@ fn high_contrast_dashes_the_edges_of_a_failed_body() {
 #[test]
 fn the_3d_view_tells_screen_readers_what_it_shows() {
     let mut harness = Harness::new();
+
     let (_, _) = extruded_plate(&mut harness);
+
     harness.context.enable_accesskit();
     harness.frame();
+
     let shown = harness.view_description().unwrap_or_default();
 
     let sketch = harness
@@ -275,8 +313,10 @@ fn the_3d_view_tells_screen_readers_what_it_shows() {
         .find(|feature| feature.name == "Base sketch")
         .map(caditor_document::Feature::id)
         .unwrap();
+
     harness.edit(sketch);
     harness.frame();
+
     let editing = harness.view_description().unwrap_or_default();
 
     assert!(
@@ -295,14 +335,17 @@ fn the_3d_view_tells_screen_readers_what_it_shows() {
 #[test]
 fn the_3d_view_is_described_again_in_a_changed_unit() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.context.enable_accesskit();
     harness.frame();
+
     let millimetres = harness.view_description().unwrap_or_default();
 
     harness.model.set_length_unit(LengthUnit::Centimetre);
     harness.frame();
     harness.frame();
+
     let centimetres = harness.view_description().unwrap_or_default();
 
     assert!(
@@ -346,14 +389,20 @@ fn run_panel_command(harness: &mut Harness, command: Command) {
 #[test]
 fn the_model_panel_is_widened_and_narrowed_without_dragging() {
     let mut harness = Harness::new();
+
     harness.settle();
+
     let usual = model_panel_width(&harness);
 
     run_panel_command(&mut harness, Command::WiderPanel);
+
     let wider = model_panel_width(&harness);
+
     run_panel_command(&mut harness, Command::NarrowerPanel);
     run_panel_command(&mut harness, Command::NarrowerPanel);
+
     let narrower = model_panel_width(&harness);
+
     run_panel_command(&mut harness, Command::NormalPanel);
 
     assert_eq!(wider, usual + layout::SIDE_WIDTH_STEP);
@@ -364,10 +413,12 @@ fn the_model_panel_is_widened_and_narrowed_without_dragging() {
 #[test]
 fn the_rollback_bar_is_a_slider_screen_readers_can_step() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();
+
     let bar = |harness: &Harness| {
         harness
             .accessible
@@ -386,6 +437,7 @@ fn the_rollback_bar_is_a_slider_screen_readers_can_step() {
 
     act(&mut harness, egui::accesskit::Action::Decrement, id);
     harness.settle();
+
     let (id, slider) = bar(&harness);
 
     assert_eq!(slider.numeric_value(), Some(features - 1.0));
@@ -400,11 +452,13 @@ fn the_rollback_bar_is_a_slider_screen_readers_can_step() {
 #[test]
 fn activating_an_item_of_the_3d_view_selects_what_it_describes() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();
+
     let item = |harness: &Harness, start: &str| {
         harness
             .accessible
@@ -415,14 +469,18 @@ fn activating_an_item_of_the_3d_view_selects_what_it_describes() {
             .map(|(id, _)| *id)
             .unwrap_or_else(|| panic!("no item starts with {start}"))
     };
+
     assert_eq!(harness.workspace.viewport.selection().len(), 0);
 
     let body = item(&harness, "Body Extrude 1");
+
     activate(&mut harness, body);
+
     let whole_body = harness.workspace.viewport.selection().len();
 
     harness.select([]);
     harness.frame();
+
     let face = harness
         .accessible
         .iter()
@@ -431,6 +489,7 @@ fn activating_an_item_of_the_3d_view_selects_what_it_describes() {
         })
         .map(|(id, _)| *id)
         .expect("a face item");
+
     activate(&mut harness, face);
 
     assert_eq!(whole_body, 6);
@@ -440,6 +499,7 @@ fn activating_an_item_of_the_3d_view_selects_what_it_describes() {
 #[test]
 fn the_3d_view_lists_each_body_with_its_faces_each_datum_where_it_lies_and_each_sketch_curve() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.key(Key::P, Modifiers::ALT | Modifiers::SHIFT);
@@ -449,6 +509,7 @@ fn the_3d_view_lists_each_body_with_its_faces_each_datum_where_it_lies_and_each_
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();
+
     let labelled = |harness: &Harness, start: &str| {
         harness
             .accessible
@@ -480,6 +541,7 @@ fn the_3d_view_lists_each_body_with_its_faces_each_datum_where_it_lies_and_each_
         spoken(&datum)
     );
     assert!(shown.contains("(at 0, 0, 0 mm)"), "{shown}");
+
     let (_, view) = harness
         .accessible
         .iter()
@@ -487,8 +549,11 @@ fn the_3d_view_lists_each_body_with_its_faces_each_datum_where_it_lies_and_each_
         .map(|(id, node)| (*id, node.clone()))
         .expect("the view has a node");
     let (_, list) = labelled(&harness, "3D view items").expect("the items are a list");
+
     assert_eq!(list.role(), Role::List);
+
     let listed = descendants(&harness, &view);
+
     assert!(
         listed
             .iter()
@@ -506,9 +571,11 @@ fn the_3d_view_lists_each_body_with_its_faces_each_datum_where_it_lies_and_each_
         .find(|feature| feature.name == "Base sketch")
         .map(caditor_document::Feature::id)
         .unwrap();
+
     harness.edit(sketch);
     harness.frame();
     harness.frame();
+
     let (_, line) = labelled(&harness, "Line ").expect("each curve has a node");
 
     assert!(
@@ -540,23 +607,32 @@ fn descendants(harness: &Harness, node: &Node) -> Vec<String> {
 fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let normal_panel = harness.context.global_style().visuals.panel_fill;
+
     harness.key(Key::Plus, Modifiers::COMMAND);
     harness.show_new_windows();
     harness.frame();
+
     assert_eq!(harness.workspace.preferences.appearance.scale, 1.125);
     assert_eq!(harness.context.zoom_factor(), 1.125);
+
     harness.key(Key::Num0, Modifiers::COMMAND);
     harness.show_new_windows();
     harness.frame();
+
     assert_eq!(harness.context.zoom_factor(), 1.0);
+
     for _ in 0..3 {
         harness.key(Key::Minus, Modifiers::COMMAND);
         harness.frame();
     }
+
     assert_eq!(harness.workspace.preferences.appearance.scale, 0.75);
+
     harness.key(Key::Minus, Modifiers::COMMAND);
     harness.frame();
+
     assert_eq!(
         harness.model.notice().map(|notice| notice.text.as_str()),
         Some("Make the interface smaller: The interface is at its smallest, 75%")
@@ -567,7 +643,9 @@ fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours(
     )));
     harness.frame();
     harness.frame();
+
     let visible = SCREEN.size() / 2.0;
+
     for label in ["File", "Up to date", "Features"] {
         let rect = harness
             .texts
@@ -575,12 +653,15 @@ fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours(
             .find(|(shown, _)| shown == label)
             .unwrap_or_else(|| panic!("{label} is not on screen"))
             .1;
+
         assert!(
             rect.max.x <= visible.x && rect.max.y <= visible.y,
             "{label} at {rect:?}"
         );
     }
+
     let axis = harness.button_rect("Axis");
+
     assert!(
         axis.max.x <= visible.x && axis.max.y <= visible.y,
         "Axis at {axis:?}"
@@ -594,10 +675,14 @@ fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours(
     harness.show_new_windows();
     harness.click("Appearance");
     harness.click("High contrast");
+
     assert!(harness.workspace.preferences.appearance.high_contrast);
+
     let panel = harness.context.global_style().visuals.panel_fill;
+
     assert_ne!(panel, normal_panel);
     assert!(panel == Color32::BLACK || panel == Color32::WHITE);
+
     harness.wait_until("the appearance is saved", |_| {
         caditor_file::Settings::load(&dir.path().join("config")).flag("appearance.high_contrast")
             == Some(true)
@@ -607,6 +692,7 @@ fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours(
 #[test]
 fn the_view_and_the_tool_prompt_are_named_for_screen_readers() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.draw_on_new_sketch();
     harness.use_tool(Key::L);
@@ -619,6 +705,7 @@ fn the_view_and_the_tool_prompt_are_named_for_screen_readers() {
             .iter()
             .any(|(_, node)| node.label() == Some("3D view"))
     );
+
     let prompt = harness.accessible.iter().find(|(_, node)| {
         node.role() == Role::Label
             && node
@@ -626,6 +713,7 @@ fn the_view_and_the_tool_prompt_are_named_for_screen_readers() {
                 .is_some_and(|value| value.starts_with("Click the start of the line"))
     });
     let (_, prompt) = prompt.expect("the prompt is on the accessibility tree");
+
     assert_eq!(prompt.live(), Some(egui::accesskit::Live::Polite));
     assert!(prompt.value().unwrap().contains("Esc: back to Select"));
 }
@@ -643,6 +731,7 @@ fn refusal_note(harness: &Harness, reason: &str) -> Option<Node> {
 #[test]
 fn a_refusal_note_in_the_view_is_announced_politely() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.draw_on_new_sketch();
     harness.use_tool(Key::R);
@@ -659,6 +748,7 @@ fn a_refusal_note_in_the_view_is_announced_politely() {
 #[test]
 fn a_refusal_note_that_stays_waits_for_the_next_key() {
     let mut harness = Harness::new();
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::NoticeTime(NoticeTime::UntilDismissed),
     )));
@@ -668,18 +758,22 @@ fn a_refusal_note_that_stays_waits_for_the_next_key() {
     harness.frame();
     harness.frame();
     harness.frame();
+
     assert!(harness.workspace.viewport.is_refusing());
 
     harness.key(Key::A, Modifiers::NONE);
     harness.frame();
+
     assert!(!harness.workspace.viewport.is_refusing());
 }
 
 #[test]
 fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     let mut harness = Harness::new();
+
     harness.read_screen();
     assert_readable(&harness, "The empty window");
+
     assert!(harness.accessible_named(Role::Button, "More actions for Side sketch"));
     assert!(harness.accessible_named(Role::Button, "Show details of Base sketch"));
     assert!(harness.accessible_named(Role::Button, "Edit Base sketch"));
@@ -689,15 +783,19 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     harness.click("File");
     harness.read_screen();
     assert_readable(&harness, "The File menu");
+
     assert!(harness.accessible_named(Role::Button, "Open sample"));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
 
     let (extrude, _) = extruded_plate(&mut harness);
+
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     harness.settle();
     harness.read_screen();
     assert_readable(&harness, "An open extrusion");
+
     assert!(harness.captioned(Role::TextInput, "Distance"));
     assert!(harness.captioned(Role::ComboBox, "Extent"));
     assert!(harness.captioned(Role::ComboBox, "Result"));
@@ -707,6 +805,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     harness.settle();
     harness.read_screen();
     assert_readable(&harness, "An open datum plane");
+
     assert!(harness.captioned(Role::TextInput, "Offset"));
     assert!(harness.accessible_named(Role::Button, crate::feature_fields::CHOOSE_IN_VIEW));
 
@@ -720,14 +819,19 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     harness.click("Appearance");
     harness.read_screen();
     assert_readable(&harness, "The Appearance preferences");
+
     assert!(harness.accessible_named(Role::Button, "Make the interface smaller"));
     assert!(harness.accessible_named(Role::Button, "Make the interface larger"));
+
     harness.click("Navigation");
     harness.read_screen();
+
     assert!(harness.captioned(Role::Slider, "Orbit speed"));
+
     harness.click("Graphics");
     harness.read_screen();
     assert_readable(&harness, "The Graphics preferences");
+
     assert!(harness.captioned(Role::CheckBox, "Vsync"));
     assert!(harness.accessible_named(Role::Button, crate::graphics::COPY_DETAILS));
 
@@ -735,6 +839,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     harness.show_new_windows();
     harness.read_screen();
     assert_readable(&harness, "The shortcut editor");
+
     assert!(harness.accessible_named(Role::Button, "Record a new shortcut for Undo"));
     assert!(harness.accessible_named(Role::Button, "Record a new shortcut for Redo"));
     assert!(harness.accessible_named(Role::Button, "Remove Ctrl+Z from Undo"));
@@ -744,6 +849,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     ));
     assert!(!harness.accessible_named(Role::Button, "Add…"));
     assert!(!harness.accessible_named(Role::Button, "Reset"));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
     harness.key(Key::Escape, Modifiers::NONE);
@@ -753,13 +859,17 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     harness.show_new_windows();
     harness.read_screen();
     assert_readable(&harness, "The command palette");
+
     assert!(harness.accessible_named(Role::Button, "Fit view"));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
 
     let base = feature_named(&harness, "Base sketch");
+
     harness.edit(base);
     harness.read_screen();
     assert_readable(&harness, "An edited sketch");
+
     assert!(harness.accessible_named(Role::Button, "Horizontal"));
 }

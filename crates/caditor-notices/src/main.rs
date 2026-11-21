@@ -20,6 +20,7 @@ fn parse_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Argume
     let mut target = None;
     let mut output: Option<PathBuf> = None;
     let mut arguments = arguments.into_iter();
+
     while let Some(argument) = arguments.next() {
         if argument == "--target" {
             target = Some(arguments.next().ok_or(NoticesError::TargetMissing)?);
@@ -45,6 +46,7 @@ fn write(path: &Path, notices: &str) -> Result<(), NoticesError> {
         path: path.to_path_buf(),
         source,
     };
+
     if let Some(parent) = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())

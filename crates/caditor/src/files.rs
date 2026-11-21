@@ -163,7 +163,7 @@ const FILE_COMMANDS: [Command; 17] = [
     Command::Quit,
 ];
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FileCommand {
     New,
     NewEmpty,
@@ -234,14 +234,14 @@ pub enum FileCommand {
     ExportSheet(Box<SheetJob>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutsideChangeChoice {
     Replace,
     SaveCopy,
     Cancel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GuardChoice {
     Save,
     DontSave,
@@ -328,12 +328,14 @@ impl Dialogs for NativeDialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond) {
         let filters = vec![Filter::new(MODEL_KIND, &[FILE_EXTENSION]), Filter::any()];
         let request = Self::request(Mode::Open, "Open model", directory, None, filters);
+
         Self::spawn(respond, request);
     }
 
     fn pick_template(&self, directory: Option<PathBuf>, respond: Respond) {
         let filters = vec![Filter::new(MODEL_KIND, &[FILE_EXTENSION]), Filter::any()];
         let request = Self::request(Mode::Open, "New from template", directory, None, filters);
+
         Self::spawn(respond, request);
     }
 
@@ -346,6 +348,7 @@ impl Dialogs for NativeDialogs {
             Some(file_name),
             filters,
         );
+
         Self::spawn(respond, request);
     }
 
@@ -358,6 +361,7 @@ impl Dialogs for NativeDialogs {
             Some(file_name),
             filters,
         );
+
         Self::spawn(respond, request);
     }
 
@@ -376,7 +380,9 @@ impl Dialogs for NativeDialogs {
         };
         let filters = vec![Filter::new(format.name(), extensions)];
         let title = format!("Export {}", format.name());
+
         let request = Self::request(Mode::Save, title, directory, Some(file_name), filters);
+
         Self::spawn(respond, request);
     }
 
@@ -394,6 +400,7 @@ impl Dialogs for NativeDialogs {
             Filter::any(),
         ];
         let request = Self::request(Mode::Open, "Import", directory, None, filters);
+
         Self::spawn(respond, request);
     }
 
@@ -408,6 +415,7 @@ impl Dialogs for NativeDialogs {
             .map(|format| Filter::new(format.name(), &[format.extension()]))
             .to_vec();
         let request = Self::request(Mode::Save, title, directory, Some(file_name), filters);
+
         Self::spawn(respond, request);
     }
 
@@ -416,9 +424,11 @@ impl Dialogs for NativeDialogs {
             sheet_export::KIND,
             &SheetFormat::ALL.map(SheetFormat::extension),
         )];
+
         filters.extend(
             SheetFormat::ALL.map(|format| Filter::new(format.name(), &[format.extension()])),
         );
+
         let request = Self::request(
             Mode::Save,
             "Export drawing sheet",
@@ -426,6 +436,7 @@ impl Dialogs for NativeDialogs {
             Some(file_name),
             filters,
         );
+
         Self::spawn(respond, request);
     }
 
@@ -443,6 +454,7 @@ impl Dialogs for NativeDialogs {
             Some(file_name),
             filters,
         );
+
         Self::spawn(respond, request);
     }
 
@@ -452,6 +464,7 @@ impl Dialogs for NativeDialogs {
             Filter::any(),
         ];
         let request = Self::request(Mode::Open, "Import parameters", directory, None, filters);
+
         Self::spawn(respond, request);
     }
 
@@ -469,6 +482,7 @@ impl Dialogs for NativeDialogs {
             Some(file_name),
             filters,
         );
+
         Self::spawn(respond, request);
     }
 
@@ -484,6 +498,7 @@ impl Dialogs for NativeDialogs {
             None,
             filters,
         );
+
         Self::spawn(respond, request);
     }
 
@@ -500,6 +515,7 @@ impl Dialogs for NativeDialogs {
             None,
             filters,
         );
+
         Self::spawn(respond, request);
     }
 
@@ -509,6 +525,7 @@ impl Dialogs for NativeDialogs {
             Filter::any(),
         ];
         let request = Self::request(Mode::Open, "Choose a sky picture", directory, None, filters);
+
         Self::spawn(respond, request);
     }
 
@@ -521,18 +538,19 @@ impl Dialogs for NativeDialogs {
             Some(file_name),
             filters,
         );
+
         Self::spawn(respond, request);
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FilesConfig {
     pub state_dir: Option<PathBuf>,
     pub recovery_dir: Option<PathBuf>,
     pub config_dir: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Folder {
     Open,
     Import,
@@ -541,7 +559,7 @@ enum Folder {
     Parameters,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Stamp {
     length: u64,
     modified: Option<SystemTime>,
@@ -556,7 +574,7 @@ impl Stamp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("Nothing has been exported since caditor started. Export something first")]
 pub struct NothingToShow;
 
@@ -566,7 +584,7 @@ impl Reason for NothingToShow {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ExportAgainError {
     #[error(
         "Nothing has been exported from this model yet. Export it once and Export again repeats \
@@ -587,7 +605,7 @@ impl Reason for ExportAgainError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct LastExport {
     path: PathBuf,
     choices: ExportChoices,
@@ -595,7 +613,7 @@ struct LastExport {
     written: BTreeMap<PathBuf, Stamp>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Purpose {
     Open,
     SaveAs,
@@ -651,7 +669,7 @@ struct Opened {
     origin: Origin,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Origin {
     File,
     Template,
@@ -666,7 +684,7 @@ enum SaveTarget {
     Failed(PathBuf),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Output {
     Export {
         path: PathBuf,
@@ -741,7 +759,7 @@ impl Output {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Replacement {
     Model(PathBuf),
     Output {
@@ -992,7 +1010,7 @@ impl Event {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 enum DiscardFailure {
     #[error("{0}")]
     Refused(DiscardError),
@@ -1098,7 +1116,7 @@ impl PendingWrite {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Since {
     session: u64,
     revision: u64,
@@ -1333,8 +1351,11 @@ impl Files {
         let state_dir = self.config.state_dir.clone();
         let recovery_dir = self.config.recovery_dir.clone();
         let scanner = Arc::clone(&self.scanner);
+
         self.scanning.store(true, Ordering::SeqCst);
+
         let scanning = Scanning(Arc::clone(&self.scanning));
+
         self.spawn(
             move || {
                 let recent = state_dir
@@ -1342,6 +1363,7 @@ impl Files {
                     .map(RecentFiles::load)
                     .unwrap_or_default();
                 let recovered = scanner(recovery_dir.as_deref(), recent.paths());
+
                 drop(scanning);
                 Event::Started { recent, recovered }
             },
@@ -1436,6 +1458,7 @@ impl Files {
             .as_ref()
             .filter(|last| last.session == model.session())
             .ok_or(ExportAgainError::NothingExported)?;
+
         if self.exporter.is_running() {
             return Err(ExportAgainError::ExportRunning);
         }
@@ -1468,6 +1491,7 @@ impl Files {
     fn show_in_folder(&mut self, path: PathBuf) {
         let revealer = Arc::clone(&self.revealer);
         let failed = path.clone();
+
         self.spawn(
             move || {
                 let result = revealer(&path);
@@ -1570,6 +1594,7 @@ impl Files {
             }
             FileCommand::OutsideChange(choice) => {
                 self.drop_outside_change_of_another_model(model);
+
                 let Some((path, _)) = self.changed_on_disk.take() else {
                     return;
                 };
@@ -1588,7 +1613,9 @@ impl Files {
             FileCommand::KeepRecovered => self.confirm_discard = None,
             FileCommand::Discard(journal) => {
                 self.confirm_discard = None;
+
                 let failed = journal.clone();
+
                 self.spawn(
                     move || Event::Discarded {
                         result: caditor_file::discard(&journal).map_err(DiscardFailure::Refused),
@@ -1773,6 +1800,7 @@ impl Files {
             ));
             return;
         }
+
         let models = paths.iter().filter(|path| is_model_file(path)).count();
         match (models, paths.as_slice()) {
             (0, _) if self.is_importing() => {
@@ -1782,6 +1810,7 @@ impl Files {
             }
             (0, _) => {
                 let session = model.session();
+
                 self.queued_imports
                     .extend(paths.into_iter().map(|path| Queued {
                         path,
@@ -1801,6 +1830,7 @@ impl Files {
             ImportOptionsCommand::Confirm => {
                 if let Some(arranging) = &self.arranging {
                     let placement = arranging.placement();
+
                     self.import_placement = placement;
                     self.placement_to_remember = Some(placement);
                 }
@@ -1834,6 +1864,7 @@ impl Files {
                 let Some(scaling) = self.scaling.take() else {
                     return;
                 };
+
                 if scaling.session != model.session() {
                     return;
                 }
@@ -1869,6 +1900,7 @@ impl Files {
         {
             return;
         }
+
         let session = model.session();
         while let Some(queued) = self.queued_imports.pop_front() {
             if queued.session == session {
@@ -1910,6 +1942,7 @@ impl Files {
                 if let Some((path, version)) = self.history.start_restoring(index) {
                     let state = version.state;
                     let (failed_path, failed_state) = (path.clone(), state.clone());
+
                     self.spawn(
                         move || Event::VersionLoaded {
                             result: load_listed_version(&path, index, &version.digest),
@@ -1936,6 +1969,7 @@ impl Files {
             cancel,
             progress,
         } = started;
+
         self.spawn_own(
             "preview",
             move || Event::PreviewPrepared {
@@ -2002,6 +2036,7 @@ impl Files {
     fn list_versions(&mut self) {
         if let Some(path) = self.history.path().cloned() {
             let failed = path.clone();
+
             self.spawn(
                 move || Event::HistoryListed {
                     result: caditor_file::history(&path),
@@ -2044,6 +2079,7 @@ impl Files {
                     .document()
                     .transaction_to(&loaded.document, "Restore earlier version");
                 let revision = model.revision();
+
                 model.perform(Action::Apply(transaction));
                 if model.revision() == revision {
                     return;
@@ -2085,6 +2121,7 @@ impl Files {
     pub fn image_rendered(&mut self, pixels: Result<ReadPixels, ImageError>, model: &mut Model) {
         let events = self.events.clone();
         let wake = (self.make_waker)();
+
         let refused = self.image.rendered(
             pixels,
             Box::new(move |path, result| {
@@ -2101,7 +2138,9 @@ impl Files {
     pub fn poll(&mut self, model: &mut Model, editing: &mut SketchEditing) -> bool {
         self.exporter.sync(model);
         self.image.sync(model);
+
         let mut changed = false;
+
         if let Some(closed) = self.closing.take_if(|closing| closing.closing.finished()) {
             self.closed(&closed, model);
             changed = true;
@@ -2166,6 +2205,7 @@ impl Files {
         else {
             return false;
         };
+
         self.after_save = None;
         model.set_notice(not_saved_for_another_model(&path));
         true
@@ -2221,10 +2261,12 @@ impl Files {
                     model.set_notice(Notice::failure(error.notice()));
                     None
                 });
+
                 self.picked(purpose, path, since, model);
             }
             Event::Started { recent, recovered } => {
                 let added_meanwhile = std::mem::replace(&mut self.recent, recent);
+
                 for path in added_meanwhile.paths().iter().rev() {
                     self.recent.add(path.clone());
                 }
@@ -2234,6 +2276,7 @@ impl Files {
                     let open_now = model
                         .path()
                         .is_some_and(|path| recovered.file.as_deref() == Some(path));
+
                     if settled || open_now {
                         log::info!(
                             "{} was dealt with while the startup scan ran, so it is not offered",
@@ -2312,6 +2355,7 @@ impl Files {
                 result: Ok(()),
             } => {
                 self.settled_journals.insert(journal.clone());
+
                 let candidate = self
                     .recoverable
                     .iter()
@@ -2332,12 +2376,14 @@ impl Files {
                 if let Some(last) = self.last_export.as_mut().filter(|last| last.path == path) {
                     last.written = written;
                 }
+
                 let slicer = self.sent_to_slicer(&path);
                 let cloud = self.sent_to_cloud(&path);
                 let fusion_app = self.sent_to_fusion_app(&path);
                 let first_written = report.written(&path).first().map(|file| file.to_path_buf());
                 let wrote = first_written.is_some();
                 let notice = self.exporter.reported(&path, report);
+
                 let notice = match (slicer, cloud) {
                     (Some(installation), _) if wrote => {
                         self.open_exported(&installation, &path, notice)
@@ -2351,6 +2397,7 @@ impl Files {
                         None => notice,
                     },
                 };
+
                 model.set_notice(notice);
             }
             Event::FusionAppReady { session, result } => {
@@ -2387,6 +2434,7 @@ impl Files {
             Event::ImageExported { path, result } => {
                 let notice = self.image.finished(&path, result);
                 let notice = self.offering_folder(notice, &path);
+
                 model.set_notice(notice);
             }
             Event::ShownInFolder { path, result } => {
@@ -2405,6 +2453,7 @@ impl Files {
             } => {
                 let notice = drawing_export::finished(&path, &sketch, result);
                 let notice = self.offering_folder(notice, &path);
+
                 model.set_notice(notice);
             }
             Event::FaceExported {
@@ -2415,6 +2464,7 @@ impl Files {
             } => {
                 let notice = drawing_export::face_finished(&path, &face, nested, result);
                 let notice = self.offering_folder(notice, &path);
+
                 model.set_notice(notice);
             }
             Event::BothExported {
@@ -2425,11 +2475,13 @@ impl Files {
             } => {
                 let notice = drawing_export::both_finished(&path, &name, nested, result);
                 let notice = self.offering_folder(notice, &path);
+
                 model.set_notice(notice);
             }
             Event::SheetExported { path, name, result } => {
                 let notice = sheet_export::finished(&path, &name, result);
                 let notice = self.offering_folder(notice, &path);
+
                 model.set_notice(notice);
             }
             Event::HistoryListed { path, result } => self.history.listed(&path, result),
@@ -2490,6 +2542,7 @@ impl Files {
                 self.importing = None;
                 if session == model.session() {
                     let placement = self.import_placement;
+
                     self.arranging = Some(Arranging::new(path, into, *drawing, placement));
                 }
             }
@@ -2520,6 +2573,7 @@ impl Files {
                 if session != model.session() {
                     return;
                 }
+
                 let result = match (replacing, result) {
                     (None, Ok(imported)) => match imported.unit {
                         Some(reading) if reading.is_guess() => {
@@ -2534,6 +2588,7 @@ impl Files {
                     Some(feature) => import::replace_body(model, feature, &path, result),
                     None => import::place_bodies(model, &path, result),
                 };
+
                 self.report_placed(report);
             }
         }
@@ -2543,6 +2598,7 @@ impl Files {
         let session = model.session();
         let reader = Arc::clone(&self.model_reader);
         let failed = path.clone();
+
         self.start_import(
             Importing::reading(path.clone(), into, None),
             move |attempt, cancel, progress| {
@@ -2597,6 +2653,7 @@ impl Files {
         let session = model.session();
         let reader = Arc::clone(&self.model_reader);
         let failed = path.clone();
+
         self.start_import(
             Importing::reading(path.clone(), None, Some(feature)),
             move |attempt, cancel, progress| match source.check(&path) {
@@ -2626,6 +2683,7 @@ impl Files {
     fn read_in(&mut self, path: PathBuf, unit: MeshUnit, model: &Model) {
         let session = model.session();
         let failed = path.clone();
+
         self.start_import(
             Importing::reading(path.clone(), None, None),
             move |attempt, cancel, _| Event::ImportedModel {
@@ -2656,6 +2714,7 @@ impl Files {
         let session = model.session();
         let base = model.base();
         let failed = path.clone();
+
         self.start_import(
             Importing::reading(path.clone(), into, None),
             move |attempt, _, _| Event::Imported {
@@ -2688,9 +2747,11 @@ impl Files {
         failed: impl FnOnce(u64) -> Event + Send + 'static,
     ) {
         self.import_attempt += 1;
+
         let attempt = self.import_attempt;
         let cancel = importing.token();
         let progress = Arc::clone(&importing.progress);
+
         self.importing = Some(importing);
         self.spawn_own(
             "import",
@@ -2708,6 +2769,7 @@ impl Files {
         let events = self.events.clone();
         let wake = (self.make_waker)();
         let running = Arc::clone(&self.own_threads_running);
+
         running.fetch_add(1, Ordering::SeqCst);
         run_on_own_thread(
             name,
@@ -2716,6 +2778,7 @@ impl Files {
                     log::error!("a background {name} panicked");
                     failed()
                 });
+
                 if events.send(event).is_ok() {
                     wake();
                 }
@@ -2729,10 +2792,13 @@ impl Files {
         let Some(importing) = running else {
             return;
         };
+
         importing.stopped.store(true, Ordering::Relaxed);
         self.import_attempt += 1;
+
         let skipped = std::mem::take(&mut self.queued_imports).len();
         let name = display_name(importing.path.as_deref());
+
         model.set_notice(Notice::info(match skipped {
             0 => format!("Stopped importing “{name}”. Nothing was added."),
             1 => format!(
@@ -2756,23 +2822,29 @@ impl Files {
     fn check_output(&mut self, output: Output, session: u64) {
         let picked = output.path().to_path_buf();
         let named = output.named();
+
         let renamed = (named.path() != picked).then(|| named.path().to_path_buf());
+
         self.check_replacing(named, renamed.into_iter().collect(), session);
     }
 
     fn check_export(&mut self, path: PathBuf, chosen: ExportFormat, session: u64, model: &Model) {
         let format = export::format_typed(&path, chosen);
         let named = export::with_format_extension(path.clone(), format);
+
         let configurations = self.exporter.configuration_files(&named, format, model);
+
         if configurations.is_empty() {
             let output = Output::Export {
                 path,
                 format,
                 configurations,
             };
+
             self.check_output(output, session);
             return;
         }
+
         let targets = configurations
             .iter()
             .map(|file| file.path.clone())
@@ -2782,6 +2854,7 @@ impl Files {
             format,
             configurations,
         };
+
         self.check_replacing(output, targets, session);
     }
 
@@ -2792,6 +2865,7 @@ impl Files {
         } else {
             targets.clone()
         };
+
         self.spawn(
             move || Event::OutputChecked {
                 replaced: targets
@@ -2845,6 +2919,7 @@ impl Files {
             return;
         };
         let failed = (path.clone(), job.name.clone());
+
         self.spawn_write(
             WriteKind::Drawing,
             path.clone(),
@@ -2895,6 +2970,7 @@ impl Files {
         let name = drawing_export::sources_name(model, features, choices);
         let failed = (path.clone(), name.clone());
         let nested = matches!(sheet.layout, SheetLayout::Nested(_));
+
         self.spawn_write(
             WriteKind::Drawing,
             path.clone(),
@@ -2904,6 +2980,7 @@ impl Files {
                     .iter()
                     .map(|(name, sketch)| NamedSketch { name, sketch })
                     .collect();
+
                 let result = match named_faces(&found) {
                     Some(faces) => caditor_file::export_drawing(
                         &path,
@@ -2951,6 +3028,7 @@ impl Files {
         };
         let failed = (path.clone(), face.clone());
         let nested = matches!(sheet.layout, SheetLayout::Nested(_));
+
         self.spawn_write(
             WriteKind::Drawing,
             path.clone(),
@@ -2994,6 +3072,7 @@ impl Files {
         };
         let name = drawing_export::quoted_sketches(model, features);
         let failed = (path.clone(), name.clone());
+
         self.spawn_write(
             WriteKind::Drawing,
             path.clone(),
@@ -3003,6 +3082,7 @@ impl Files {
                     .iter()
                     .map(|(name, sketch)| NamedSketch { name, sketch })
                     .collect();
+
                 let result = caditor_file::export_sketches(
                     &path,
                     &named,
@@ -3044,7 +3124,9 @@ impl Files {
             session: model.session(),
             written: BTreeMap::new(),
         });
+
         let finished = self.export_finished();
+
         self.exporter
             .start(path, format, configurations, model, finished);
         self.exporter
@@ -3097,14 +3179,17 @@ impl Files {
             ))),
             OpenOutcome::Failed { error, missing } => {
                 let listed = missing && self.recent.paths().contains(&path);
+
                 if missing {
                     self.forget(&path);
                 }
+
                 let removed = if listed {
                     " It was removed from the recent models."
                 } else {
                     ""
                 };
+
                 model.set_notice(Notice::failure(format!(
                     "Could not open “{name}”: {error}.{removed}"
                 )));
@@ -3115,6 +3200,7 @@ impl Files {
     fn open_last_model(&mut self, model: &mut Model) {
         let wanted = std::mem::take(&mut self.open_last);
         let untouched = model.path().is_none() && !model.is_dirty() && self.opening.is_none();
+
         if !wanted || !untouched || !self.recoverable.is_empty() {
             return;
         }
@@ -3206,6 +3292,7 @@ impl Files {
                     return;
                 };
                 let candidate = self.recoverable.remove(index);
+
                 self.settled_journals
                     .insert(candidate.recovered.journal.clone());
                 self.confirm_discard = None;
@@ -3288,6 +3375,7 @@ impl Files {
     #[cfg(test)]
     pub fn hold_jobs(&mut self) -> Sender<()> {
         let (release, held) = mpsc::channel();
+
         self.run_job(Box::new(move || {
             held.recv().ok();
         }));
@@ -3335,6 +3423,7 @@ impl Files {
             }
             (Purpose::Sheet, Some(path)) => {
                 let format = self.sheet_format;
+
                 self.check_output(Output::Sheet { path, format }, since.session);
             }
             (Purpose::Sheet, None) => self.sheet = None,
@@ -3400,10 +3489,14 @@ impl Files {
             return false;
         }
         self.pick_ticket = self.pick_ticket.wrapping_add(1);
+
         let ticket = self.pick_ticket;
+
         self.picking = Some((ticket, purpose, since));
+
         let events = self.events.clone();
         let wake = (self.make_waker)();
+
         let respond: Respond = Box::new(move |path| {
             let picked = Event::Picked {
                 purpose,
@@ -3424,10 +3517,12 @@ impl Files {
                     .first()
                     .and_then(|recent| recent.parent().map(Path::to_path_buf))
             });
+
         match purpose {
             Purpose::Open => self.dialogs.pick_model(directory, respond),
             Purpose::Template => {
                 let folder = self.templates.folder().map(Path::to_path_buf);
+
                 self.dialogs.pick_template(folder.or(directory), respond);
             }
             Purpose::SaveTemplate => {
@@ -3436,6 +3531,7 @@ impl Files {
                     Some(_) => model.display_name(),
                     None => format!("{}.{FILE_EXTENSION}", model.proposed_stem()),
                 };
+
                 self.dialogs
                     .pick_template_path(folder.or(directory), file_name, respond);
             }
@@ -3444,15 +3540,18 @@ impl Files {
                     Some(_) => model.display_name(),
                     None => format!("{}.{FILE_EXTENSION}", model.proposed_stem()),
                 };
+
                 self.dialogs.pick_save_path(directory, file_name, respond);
             }
             Purpose::Export(format) => {
                 let file_name = self.exporter.file_name(model);
+
                 self.dialogs
                     .pick_export_path(directory, file_name, format, respond);
             }
             Purpose::Image => {
                 let directory = self.image.folder().or(directory);
+
                 self.dialogs
                     .pick_image_path(directory, ImageExporter::file_name(model), respond);
             }
@@ -3461,10 +3560,12 @@ impl Files {
                 let title = source.map_or("Export drawing", DrawingSource::title);
                 let named = drawing_export::source_file_name(model, source);
                 let extension = self.drawing.choices().format.extension();
+
                 let file_name = Path::new(&named)
                     .with_extension(extension)
                     .to_string_lossy()
                     .into_owned();
+
                 self.dialogs
                     .pick_drawing_path(title, directory, file_name, respond);
             }
@@ -3474,6 +3575,7 @@ impl Files {
                     || sheet_export::unnamed_file_name(format),
                     |job| job.file_name(format),
                 );
+
                 self.dialogs.pick_sheet_path(directory, file_name, respond);
             }
             Purpose::Import => self.dialogs.pick_import(directory, respond),
@@ -3498,10 +3600,13 @@ impl Files {
 
     fn open(&mut self, path: PathBuf, since: Since, model: &mut Model) {
         self.abandon_open();
+
         let opening = Opening::new(path.clone(), Origin::File);
         let cancel = opening.token();
+
         self.opening = Some(opening);
         self.open_attempt += 1;
+
         let attempt = self.open_attempt;
         let current = model.path().map(Path::to_path_buf);
         let handover = model.storage_handover();
@@ -3509,10 +3614,12 @@ impl Files {
         let loader = Arc::clone(&self.model_loader);
         let scanning = Arc::clone(&self.scanning);
         let failed = path.clone();
+
         self.spawn_own(
             "open",
             move || {
                 await_handover(handover.as_ref());
+
                 let path = dunce::canonicalize(&path).unwrap_or(path);
                 let journals = Journals {
                     recovery_dir: recovery_dir.as_deref(),
@@ -3547,9 +3654,11 @@ impl Files {
         let recovery_dir = self.config.recovery_dir.clone();
         let scanning = Arc::clone(&self.scanning);
         let failed = picked.clone();
+
         self.spawn(
             move || {
                 await_handover(handover.as_ref());
+
                 let journals = Journals {
                     recovery_dir: recovery_dir.as_deref(),
                     scanning: &scanning,
@@ -3573,6 +3682,7 @@ impl Files {
             model.set_notice(not_written_for_another_model(target.path()));
             return;
         }
+
         let refusal = match &target {
             SaveTarget::Ready(path) => {
                 model.save_to(path.clone());
@@ -3598,6 +3708,7 @@ impl Files {
                 display_name(Some(path))
             ),
         };
+
         self.after_save = None;
         model.set_notice(Notice::failure(refusal));
     }
@@ -3609,6 +3720,7 @@ impl Files {
             notes,
             origin,
         } = opened;
+
         if origin != Origin::File {
             if !loaded.issues.is_empty() {
                 self.report = Some(Report {
@@ -3625,8 +3737,10 @@ impl Files {
             model.replace(loaded.document, None, None, false);
             return;
         }
+
         let damaged = !loaded.issues.is_empty();
         let name = display_name(Some(&path));
+
         if damaged {
             self.report = Some(Report {
                 heading: format!("Parts of “{name}” could not be read"),
@@ -3673,6 +3787,7 @@ impl Files {
 
     fn check_recent(&mut self) {
         let paths = self.recent.paths().to_vec();
+
         if paths.is_empty() {
             self.missing_recent.clear();
             return;
@@ -3691,6 +3806,7 @@ impl Files {
         if self.picking.is_some() {
             return;
         }
+
         let (path, choices, written) = match self.export_again_target(model) {
             Ok(last) => (last.path.clone(), last.choices, last.written.clone()),
             Err(reason) => {
@@ -3698,7 +3814,9 @@ impl Files {
                 return;
             }
         };
+
         self.exporter.restore(choices);
+
         let session = model.session();
 
         let configurations = self
@@ -3804,14 +3922,17 @@ impl Files {
             }
             _ => return,
         };
+
         match purpose {
             Purpose::Sheet => {
                 let format = SheetFormat::of(path).unwrap_or(self.sheet_format);
+
                 self.sheet_format = format;
                 exports.sheet = format;
             }
             Purpose::Drawing => {
                 let format = SketchFormat::of(path).unwrap_or_default();
+
                 self.drawing.chose_format(format);
                 exports.drawing.format = format;
             }
@@ -3830,6 +3951,7 @@ impl Files {
         self.read_default_template(&settings);
         self.read_habits(&settings);
         self.read_slicer_program(&settings);
+
         let Some(config_dir) = self.config.config_dir.clone() else {
             return;
         };
@@ -3839,6 +3961,7 @@ impl Files {
             .unwrap_or_default();
         let events = self.events.clone();
         let wake = (self.make_waker)();
+
         self.run_job(Box::new(move || {
             if let Err(error) = settings.save_changes(&config_dir, &since) {
                 log::warn!("could not save the preferences: {error}");
@@ -3856,7 +3979,9 @@ impl Files {
         if self.jobs.is_none() {
             return true;
         }
+
         let (done, finished) = mpsc::channel();
+
         self.run_job(Box::new(move || {
             done.send(()).ok();
         }));
@@ -3865,12 +3990,16 @@ impl Files {
 
     fn change_recent(&mut self, change: RecentChange, once_saved: Option<Event>) {
         self.recent.apply(&change);
+
         let state_dir = self.config.state_dir.clone();
+
         if state_dir.is_none() && once_saved.is_none() {
             return;
         }
+
         let events = self.events.clone();
         let wake = (self.make_waker)();
+
         self.run_job(Box::new(move || {
             let saved = match &state_dir {
                 Some(state_dir) => RecentFiles::save_changes(state_dir, &[change]),
@@ -3898,6 +4027,7 @@ impl Files {
     ) {
         let events = self.events.clone();
         let wake = (self.make_waker)();
+
         self.run_job(Box::new(move || {
             let event = panic::catch_unwind(AssertUnwindSafe(task)).unwrap_or_else(|_| {
                 log::error!("a background file task panicked");
@@ -3924,6 +4054,7 @@ impl Files {
         if self.jobs.is_none() {
             self.jobs = spawn_worker();
         }
+
         let Some(jobs) = &self.jobs else {
             log::error!("no background worker, so the file task runs on the UI thread");
             run_contained(job);
@@ -3956,6 +4087,7 @@ fn revert_to_saved(model: &mut Model) {
         }
     };
     let revision = model.revision();
+
     model.perform(Action::Apply(transaction));
     if model.revision() == revision {
         return;
@@ -3988,6 +4120,7 @@ impl Journals<'_> {
             let worth_waiting = matches!(journal, FileJournal::InUse)
                 && !self.cancel.is_cancelled()
                 && (self.scanning.load(Ordering::SeqCst) || Instant::now() < giving_up);
+
             if !worth_waiting {
                 return journal;
             }
@@ -4005,6 +4138,7 @@ fn open_file(
     if current == Some(path) {
         return OpenOutcome::AlreadyOpen;
     }
+
     let set_aside = match journals.of(path) {
         FileJournal::InUse => return OpenOutcome::InUse,
         FileJournal::Recoverable(recovered) => return OpenOutcome::Recoverable(recovered),
@@ -4031,6 +4165,7 @@ type FoundFace = (Arc<FeatureResult>, FaceKey, String);
 fn drawn_sketches(features: &[FeatureId], model: &mut Model) -> Option<Vec<(String, Sketch)>> {
     let document = model.document();
     let mut sketches = Vec::with_capacity(features.len());
+
     for feature in features {
         let Some(feature) = document.feature(*feature) else {
             model.set_notice(Notice::failure(
@@ -4044,9 +4179,11 @@ fn drawn_sketches(features: &[FeatureId], model: &mut Model) -> Option<Vec<(Stri
             .map(|displayed| Sketch::clone(&displayed))
         else {
             let reason = format!("“{}” has no solved geometry to export.", feature.name);
+
             model.set_notice(Notice::failure(reason));
             return None;
         };
+
         sketches.push((feature.name.clone(), sketch));
     }
     Some(sketches)
@@ -4062,6 +4199,7 @@ fn found_faces(choices: &[FaceChoice], model: &mut Model) -> Option<Vec<FoundFac
             Some((result, choice.face, name))
         })
         .collect();
+
     if found.is_none() {
         model.set_notice(Notice::failure(MISSING_FACE));
     }
@@ -4155,10 +4293,13 @@ fn with_extension(path: PathBuf) -> PathBuf {
     let is_model = path
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case(FILE_EXTENSION));
+
     if is_model {
         return path;
     }
+
     let mut named = OsString::from(path.as_os_str());
+
     named.push(".");
     named.push(FILE_EXTENSION);
     PathBuf::from(named)
@@ -4167,6 +4308,7 @@ fn with_extension(path: PathBuf) -> PathBuf {
 fn check_save_target(picked: &Path, current: Option<&Path>, journals: &Journals<'_>) -> SaveTarget {
     let named = with_extension(picked.to_path_buf());
     let target = canonical_location(&named);
+
     if current == Some(target.as_path()) {
         return SaveTarget::Ready(target);
     }
@@ -4236,6 +4378,7 @@ pub fn menu(
             menu_bar::submenu(ui, icons::RECENT, OPEN_RECENT, |ui| {
                 for path in files.recent() {
                     let row = recent_item(ui, path, files.is_missing(path));
+
                     if row.chosen {
                         actions.push(Action::File(FileCommand::OpenPath(path.clone())));
                     }
@@ -4253,6 +4396,7 @@ pub fn menu(
             for sample in Sample::ALL {
                 let command = Command::OpenSample(sample);
                 let availability = entries.availability(command);
+
                 entries.entry(
                     ui,
                     command,
@@ -4302,11 +4446,13 @@ pub fn menu(
         }
         menu_bar::submenu(ui, icons::command(Command::Export), EXPORT_MENU, |ui| {
             entries.item(ui, Command::Export);
+
             let title = entries.detail(Command::ExportAgain).map_or_else(
                 || Command::ExportAgain.title(),
                 |name| Command::ExportAgain.title_with(name),
             );
             let availability = entries.availability(Command::ExportAgain);
+
             entries.entry(
                 ui,
                 Command::ExportAgain,
@@ -4330,6 +4476,7 @@ pub fn menu(
                 (Command::ExportFace, NOT_A_FACE, FACE_HINT),
             ] {
                 let availability = entries.availability_or(command, unoffered);
+
                 entries.entry(ui, command, &command.title(), availability, Some(hint));
             }
             entries.hinted(ui, Command::ExportParameters, parameters::EXPORT_HINT);
@@ -4349,6 +4496,7 @@ pub fn menu(
         entries.item(ui, Command::Quit);
     });
     let chosen = entries.take_chosen();
+
     if file_menu.clicked() {
         actions.push(Action::File(FileCommand::ListTemplates));
         actions.push(Action::File(FileCommand::CheckRecent));
@@ -4368,7 +4516,9 @@ pub fn menu(
     {
         actions.push(Action::File(FileCommand::ExportAgain));
     }
+
     let shown = files.export_to_show().map(Path::to_path_buf);
+
     if (commands.invoke(Command::ShowExportInFolder, &shown)
         || chosen.contains(&Command::ShowExportInFolder))
         && let Ok(path) = shown
@@ -4387,21 +4537,25 @@ pub fn menu(
             !files.keeps_drawing_construction(),
         )));
     }
+
     let recoverable = if files.has_recoverable() {
         Ok(())
     } else {
         Err("There is no unsaved work to recover")
     };
+
     if commands.invoke(Command::RecoverUnsaved, &recoverable)
         || chosen.contains(&Command::RecoverUnsaved)
     {
         actions.push(Action::File(FileCommand::ShowRecovery));
     }
+
     let remembered = if files.recent().is_empty() {
         Err(NO_RECENT)
     } else {
         Ok(())
     };
+
     if commands.invoke(Command::ClearRecent, &remembered) || chosen.contains(&Command::ClearRecent)
     {
         actions.push(Action::File(FileCommand::ClearRecent));
@@ -4416,6 +4570,7 @@ pub fn menu(
                             Command::ForgetRecent(_) => FileCommand::ForgetRecent(path.clone()),
                             _ => FileCommand::OpenPath(path.clone()),
                         };
+
                         actions.push(Action::File(file_command));
                     }
                 }
@@ -4444,9 +4599,11 @@ pub fn menu(
             _ => Ok(()),
         };
         let invoked = commands.invoke(command, &availability);
+
         if !invoked && !chosen.contains(&command) {
             continue;
         }
+
         let action = match command {
             Command::New => Action::File(FileCommand::New),
             Command::NewFromTemplate => Action::File(FileCommand::NewFromTemplate(None)),
@@ -4470,6 +4627,7 @@ pub fn menu(
             Command::Preferences => Action::Preferences(PreferencesCommand::Show),
             _ => Action::File(FileCommand::Quit),
         };
+
         actions.push(action);
     }
     for command in [
@@ -4510,6 +4668,7 @@ pub fn activity(
     }
     if files.is_picking() {
         widgets::progress("Waiting for the file dialog…").show(ui);
+
         let stop = ui.add(widgets::button("Stop waiting")).on_hover_text(
             "The file dialog may be behind this window. Stop waiting to use caditor again; what \
              is chosen in that dialog afterwards is ignored. (Esc)",
@@ -4535,11 +4694,13 @@ fn import_activity(
         .and_then(|importing| Some((importing.path.as_deref()?, importing.progress.stage())))
         .ok_or(NOT_IMPORTING);
     let mut cancel = commands.invoke(Command::CancelImport, &running);
+
     if let Ok((path, stage)) = running {
         let hover = commands.with_keys(
             Command::CancelImport,
             "Stop reading the file and add nothing to the model",
         );
+
         cancel |= widgets::progress(import_text(path, stage))
             .cancel(hover)
             .show(ui);
@@ -4622,6 +4783,7 @@ pub fn show(
 ) {
     let ctx = ui.ctx().clone();
     let mut command = None;
+
     if let Some(storage) = &files.closing {
         command = closing(&ctx, storage.since);
     } else if let Some(waiting) = &files.waiting_for_exports {
@@ -4645,6 +4807,7 @@ pub fn show(
         let into_edited_sketch = arranging
             .into
             .is_some_and(|feature| editing::edited_sketch(model.document(), feature).is_some());
+
         command = import_options::dialog(&ctx, model, arranging, into_edited_sketch)
             .map(FileCommand::ImportOptions);
     } else if let Some(scaling) = &files.scaling {
@@ -4711,12 +4874,14 @@ mod tests {
         run_where_possible(
             Box::new(move || {
                 counted.fetch_add(1, Ordering::SeqCst);
+
                 let _ = done.send(thread::current().id());
             }),
             |work| thread::Builder::new().spawn(work).map(drop),
         );
 
         let thread = finished.recv_timeout(Duration::from_secs(10)).unwrap();
+
         assert_ne!(thread, thread::current().id());
         assert_eq!(runs.load(Ordering::SeqCst), 1);
     }

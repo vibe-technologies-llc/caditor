@@ -29,7 +29,7 @@ use crate::{
     untrusted::{UntrustedMap, UntrustedSet},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Loaded {
     pub document: Document,
     pub issues: Vec<String>,
@@ -39,7 +39,7 @@ pub struct Loaded {
 pub(crate) const VERSIONS_CHANGED: &str = "the saved versions changed since the list was read; \
                                           choose the version again from the updated list";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VersionDigest(pub(crate) String);
 
 #[cfg(feature = "test-support")]
@@ -49,7 +49,7 @@ impl VersionDigest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LoadError {
     #[error("{0}")]
     Unreadable(ReadFailure),
@@ -78,6 +78,7 @@ pub fn load(path: &Path) -> Result<Loaded, LoadError> {
 
 pub fn load_cancellable(path: &Path, cancel: &CancelToken) -> Result<Loaded, LoadError> {
     let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
+
     if cancel.is_cancelled() {
         return Err(LoadError::Cancelled);
     }
@@ -119,10 +120,13 @@ pub fn load_listed_version_cancellable(
     cancel: &CancelToken,
 ) -> Result<Loaded, LoadError> {
     let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
+
     if cancel.is_cancelled() {
         return Err(LoadError::Cancelled);
     }
+
     let loaded = binary::load_version(&bytes, index, digest)?;
+
     if cancel.is_cancelled() {
         return Err(LoadError::Cancelled);
     }
@@ -182,7 +186,7 @@ pub(crate) fn describe_unpack_failure(place: &str, error: &UnpackError) -> Strin
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Parts {
     pub parameters: Vec<ParameterRecord>,
     pub features: Vec<FeatureRecord>,
@@ -251,7 +255,9 @@ impl TakenNames {
         let suffix = self.next_suffix.entry(base.to_owned()).or_insert(2);
         loop {
             tally::add(1);
+
             let candidate = format!("{base}{separator}{suffix}");
+
             *suffix = suffix.saturating_add(1);
             if !self.names.contains(&candidate) {
                 self.names.insert(candidate.clone());
@@ -277,6 +283,7 @@ fn apply_each<T>(
     failed: &mut impl FnMut(&mut Document, &T, EditError),
 ) {
     tally::add(items.len());
+
     let edits = items
         .iter()
         .enumerate()
@@ -285,11 +292,14 @@ fn apply_each<T>(
     let Err(error) = document.apply(Transaction::new("Load", edits)) else {
         return;
     };
+
     if let [item] = items {
         failed(document, item, error);
         return;
     }
+
     let (left, right) = items.split_at(items.len() / 2);
+
     apply_each(document, left, edit, failed);
     apply_each(document, right, edit, failed);
 }
@@ -300,6 +310,7 @@ fn insert_parameters(
     issues: &mut Vec<String>,
 ) -> UntrustedSet<ParameterId> {
     let mut failed = UntrustedSet::new();
+
     apply_each(
         document,
         parameters,
@@ -324,6 +335,7 @@ fn insert_parameters(
 
 pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     let mut document = Document::default();
+
     if parts.beyond_limit > 0 {
         issues.push(format!(
             "The model holds more parameters and features than caditor loads ({MAX_RECORDS}), so \
@@ -335,6 +347,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     let mut parameter_names = TakenNames::default();
     let mut seen = UntrustedSet::new();
     let mut read = Vec::new();
+
     for record in &parts.parameters {
         if !seen.insert(record.id) {
             issues.push(format!(
@@ -343,8 +356,10 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
             ));
             continue;
         }
+
         let name = usable_name(&mut parameter_names, &record.name, record.id, issues);
         let note = usable_note(&record.note, &name, issues);
+
         read.push((
             record,
             Parameter::new(
@@ -355,6 +370,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
             .with_note(note),
         ));
     }
+
     let placeholders: Vec<Parameter> = read
         .iter()
         .map(|(_, parameter)| parameter.clone())
@@ -362,6 +378,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     let mut inserted = insert_parameters(&mut document, &placeholders, issues);
 
     let mut expressions = Vec::new();
+
     for (record, parameter) in &read {
         if !inserted.contains(&parameter.id()) {
             continue;
@@ -378,6 +395,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     }
 
     let mut texts = ImportTexts::reading_ahead(&parts.features);
+
     let features: Vec<Feature> = parts
         .features
         .iter()
@@ -404,6 +422,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         })
         .collect();
     let stood_in = insert_parameters(&mut document, &stand_ins, issues);
+
     for stand_in in stand_ins
         .iter()
         .filter(|stand_in| stood_in.contains(&stand_in.id()))
@@ -417,6 +436,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     inserted.extend(stood_in);
 
     let expressions = without_cycles(&document, expressions, issues);
+
     apply_each(
         &mut document,
         &expressions,
@@ -426,6 +446,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         },
         &mut |document, (_, name, expression), error| {
             let text = document.expression_text(expression);
+
             issues.push(format!(
                 "The value of “{name}” could not be restored ({error}), so it was set to 0. Its \
                  value was {text}."
@@ -434,6 +455,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     );
 
     let features = in_use_order(&document, with_unique_names(features, issues), issues);
+
     apply_each(
         &mut document,
         &features,
@@ -453,9 +475,11 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
                 showing,
             })
     };
+
     let showing = set_to(principal.hidden, PrincipalShowing::Hidden)
         .chain(set_to(principal.shown, PrincipalShowing::Shown))
         .collect();
+
     if document.apply(Transaction::new("Show", showing)).is_err() {
         issues.push(
             "Which principal planes and axes were hidden or kept shown could not be restored, so \
@@ -528,6 +552,7 @@ fn restore_named_values(
         return;
     };
     let mut owners = Vec::new();
+
     for value in record.values {
         let Lenient::Read(value) = value else {
             issues.push(
@@ -544,6 +569,7 @@ fn restore_named_values(
         let owner = match restore_owner(value.owner) {
             ParameterOwner::Feature { feature, value } => {
                 let label = value_label(&value);
+
                 if label.chars().count() > MAX_VALUE_LABEL_CHARS {
                     issues.push(format!(
                         "The description of the value “{name}” names was longer than this \
@@ -557,6 +583,7 @@ fn restore_named_values(
             }
             dimension @ ParameterOwner::Dimension { .. } => dimension,
         };
+
         owners.push((id, name, owner));
     }
     apply_each(
@@ -673,6 +700,7 @@ fn with_unique_names(features: Vec<Feature>, issues: &mut Vec<String>) -> Vec<Ar
     let mut names = TakenNames::default();
     let mut seen = UntrustedSet::new();
     let mut unique = Vec::with_capacity(features.len());
+
     for mut feature in features {
         if !seen.insert(feature.id()) {
             issues.push(format!(
@@ -682,12 +710,15 @@ fn with_unique_names(features: Vec<Feature>, issues: &mut Vec<String>) -> Vec<Ar
             ));
             continue;
         }
+
         let trimmed = feature.name.trim();
+
         if !trimmed.is_empty() && trimmed.len() != feature.name.len() {
             feature.name = trimmed.to_owned();
         }
         if names.contains(&feature.name) {
             let renamed = names.numbered(&feature.name, " ");
+
             issues.push(format!(
                 "Two features were named “{}”, so one of them is now “{renamed}”.",
                 feature.name
@@ -707,6 +738,7 @@ fn in_use_order(
     issues: &mut Vec<String>,
 ) -> Vec<Arc<Feature>> {
     let ordered = document.in_use_order(features);
+
     issues.extend(ordered.lowered.iter().map(|lowered| {
         format!(
             "“{}” was stored above “{}”, which it uses, so it now comes after it.",
@@ -728,6 +760,7 @@ fn without_cycles(
         .collect();
     let mut graph = DependencyGraph::of(document);
     let mut acyclic = Vec::with_capacity(expressions.len());
+
     for (id, name, expression) in expressions {
         match graph.cycle(id, &expression) {
             Some(cycle) => {
@@ -736,6 +769,7 @@ fn without_cycles(
                     .map(|step| names.get(step).copied().unwrap_or("?"))
                     .collect();
                 let text = document.expression_text(&expression);
+
                 issues.push(format!(
                     "“{name}” depended on itself ({}), so it was set to 0. Its value was {text}.",
                     path.join(" → ")
@@ -764,6 +798,7 @@ fn insert_alone(
                 feature: Arc::new(repair),
             };
             let retried = document.apply(Transaction::single("Load", edit));
+
             if retried.is_ok() {
                 issues.push(note);
             }
@@ -786,6 +821,7 @@ fn insert_alone(
 fn repaired(feature: &Feature) -> Option<(Feature, String)> {
     let (kind, reason) = repaired_kind(feature)?;
     let mut repaired = feature.clone();
+
     repaired.kind = kind;
     Some((repaired, reason))
 }
@@ -828,6 +864,7 @@ fn repaired_kind(feature: &Feature) -> Option<(FeatureKind, String)> {
 
 fn usable_note(note: &str, name: &str, issues: &mut Vec<String>) -> String {
     let note = note.trim();
+
     if note.chars().count() <= MAX_PARAMETER_NOTE_CHARS {
         return note.to_owned();
     }
@@ -848,6 +885,7 @@ fn usable_name(names: &mut TakenNames, name: &str, id: u64, issues: &mut Vec<Str
         return name.to_owned();
     };
     let renamed = names.unique_parameter(&format!("parameter_{id}"));
+
     issues.push(format!(
         "A parameter was renamed to “{renamed}” because {problem}."
     ));

@@ -52,7 +52,9 @@ struct TwoBodies {
 
 fn two_bodies() -> TwoBodies {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let left = transaction.add_feature(
         "Left outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
@@ -74,10 +76,12 @@ fn two_bodies() -> TwoBodies {
         "Hole outline",
         FeatureKind::from(rectangle(top, (22.0, 2.0), (24.0, 4.0))),
     );
+
     let pocket = transaction.add_feature(
         SLOW,
         extrude(hole, "2 mm", true, BodyOperation::Remove(second)),
     );
+
     document.apply(transaction.finish()).unwrap();
     TwoBodies {
         document,
@@ -148,7 +152,9 @@ fn a_body_no_later_feature_changes_is_meshed_and_shown_while_a_slow_feature_runs
     let shown = shown_once(&received, |shown| {
         meshed(shown, model.first) && !shown.is_pending(model.second)
     });
+
     release.store(true, Ordering::SeqCst);
+
     let evaluation = running.join().unwrap();
 
     assert!(!shown.is_complete());
@@ -173,15 +179,20 @@ fn features_not_reached_yet_keep_what_they_last_showed() {
     let model = two_bodies();
     let (evaluator, release) = slow_pocket();
     let mut recompute = Recompute::default();
+
     release.store(true, Ordering::SeqCst);
+
     let before = recompute.run(
         &model.document,
         &evaluator,
         &CancelToken::never(),
         &|_, _| {},
     );
+
     release.store(false, Ordering::SeqCst);
+
     let mut document = model.document.clone();
+
     document
         .apply(Transaction::single(
             "Taller",
@@ -194,7 +205,9 @@ fn features_not_reached_yet_keep_what_they_last_showed() {
 
     let (received, running) = run_shown_at_once(recompute, document, evaluator);
     let shown = shown_once(&received, |shown| shown.is_pending(model.pocket));
+
     release.store(true, Ordering::SeqCst);
+
     let after = running.join().unwrap();
 
     assert_eq!(shown.feature(model.pocket), before.feature(model.pocket));
@@ -216,6 +229,7 @@ fn a_run_that_changes_nothing_before_a_slow_feature_shows_nothing_until_it_ends(
     let model = two_bodies();
     let (evaluator, release) = slow_pocket();
     let mut recompute = Recompute::default();
+
     release.store(true, Ordering::SeqCst);
     recompute.run(
         &model.document,
@@ -224,7 +238,9 @@ fn a_run_that_changes_nothing_before_a_slow_feature_shows_nothing_until_it_ends(
         &|_, _| {},
     );
     release.store(false, Ordering::SeqCst);
+
     let mut document = model.document.clone();
+
     document
         .apply(Transaction::single(
             "Deeper",
@@ -241,8 +257,10 @@ fn a_run_that_changes_nothing_before_a_slow_feature_shows_nothing_until_it_ends(
         .unwrap();
 
     let (received, running) = run_shown_at_once(recompute, document, evaluator);
+
     release.store(true, Ordering::SeqCst);
     running.join().unwrap();
+
     let early: Vec<Evaluation> = received
         .try_iter()
         .filter(|shown| shown.is_pending(model.pocket))
@@ -290,7 +308,9 @@ fn a_changed_body_meshes_again_only_the_faces_that_changed() {
 
     let before = run(&mut recompute, &model.document);
     let mut document = model.document.clone();
+
     document.apply(deeper).unwrap();
+
     let after = run(&mut recompute, &document);
     let fresh = run(&mut Recompute::default(), &document);
 
@@ -306,9 +326,11 @@ fn glimpses_stop_being_built_once_they_cost_more_than_their_share_of_the_run() {
     assert!(budget.allows_after(Duration::ZERO));
 
     budget.spend(Duration::from_millis(40));
+
     assert!(budget.allows_after(Duration::from_millis(1)));
 
     budget.spend(Duration::from_millis(40));
+
     assert!(!budget.allows_after(Duration::from_millis(100)));
     assert!(!budget.allows_after(Duration::from_millis(600)));
     assert!(budget.allows_after(Duration::from_millis(640)));
@@ -323,6 +345,7 @@ fn a_glimpse_without_an_evaluation_still_meshes_its_bodies_and_reports_nothing()
         &CancelToken::never(),
         &|_, _| {},
     );
+
     let settled = vec![SettledBody {
         name: "First".to_owned(),
         result: Arc::clone(evaluation.body_result(model.first).unwrap()),

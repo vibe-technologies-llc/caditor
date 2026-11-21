@@ -17,7 +17,7 @@ use crate::{
 
 const JOINED_END_TOLERANCE: f64 = LINEAR_RESOLUTION;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum Pieces {
     #[default]
     OneBody,
@@ -35,7 +35,7 @@ impl Pieces {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PieceKey(u32);
 
 impl PieceKey {
@@ -56,7 +56,7 @@ impl PieceKey {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PieceLooks {
     looks: BTreeMap<PieceKey, BodyAppearance>,
     hidden: BTreeSet<PieceKey>,
@@ -141,6 +141,7 @@ impl PieceLooks {
         inherited: &BodyAppearance,
     ) -> BodyAppearance {
         let previous = self.looks.remove(&key);
+
         if appearance != *inherited {
             self.looks.insert(key, appearance);
         }
@@ -156,7 +157,7 @@ impl PieceLooks {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PieceStandIns {
     carriers: BTreeMap<EntityId, EntityId>,
 }
@@ -199,10 +200,13 @@ impl PieceStandIns {
     #[must_use]
     pub fn after_removing(&self, sketch: &Sketch, removed: &BTreeSet<EntityId>) -> Self {
         let mut kept = self.clone();
+
         for curve in removed {
             let stood_for = kept.standing_for(*curve);
+
             kept.carriers
                 .retain(|deleted, carrier| carrier != curve && deleted != curve);
+
             let carrier = joined_curves(sketch, *curve)
                 .into_iter()
                 .filter(|joined| !removed.contains(joined))
@@ -233,6 +237,7 @@ fn joined_curves(sketch: &Sketch, curve: EntityId) -> BTreeSet<EntityId> {
             .collect()
     };
     let own = ends_of(curve);
+
     if own.is_empty() || sketch.is_construction(curve) {
         return BTreeSet::new();
     }
@@ -330,11 +335,13 @@ pub(crate) fn separated(
         })
         .collect();
     let mut pieces = Vec::with_capacity(lumps.len());
+
     for (index, lump) in lumps.into_iter().enumerate() {
         let entity = own_curve(index, &drawn).ok_or_else(|| untold(feature))?;
         let body = PieceKey::of_entity(EntityId::from_raw(entity))
             .and_then(|key| feature.id().piece(key))
             .ok_or_else(|| too_large(feature))?;
+
         pieces.push((body, lump));
     }
     pieces.sort_by_key(|(body, _)| *body);
@@ -363,6 +370,7 @@ fn own_curve(index: usize, drawn: &[BTreeSet<u64>]) -> Option<u64> {
             .map(|(_, entities)| entities)
     };
     let lowest = *entities.first()?;
+
     if others().all(|other| other.first() != Some(&lowest)) {
         return Some(lowest);
     }
@@ -410,7 +418,7 @@ fn apart_failure(feature: &Feature, error: &ValidationError) -> Failure {
     )
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PiecesCause {
     Untold { feature: String },
     TooLarge { feature: String },

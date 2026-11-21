@@ -36,7 +36,7 @@ struct Cut<'f> {
     outlines: BTreeMap<(u16, GlyphId), Arc<[Segment]>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Instance {
     weight: u16,
     italic: bool,
@@ -172,6 +172,7 @@ impl<'f> Cut<'f> {
             return 0.0;
         };
         let mut total = 0.0;
+
         for index in &self.kerning {
             let Ok(lookup) = lookups.lookups().get(usize::from(*index)) else {
                 continue;
@@ -183,6 +184,7 @@ impl<'f> Cut<'f> {
                 .iter()
                 .flatten()
                 .find_map(|pair| pair_adjustment(&pair, first, second));
+
             total += adjusted.map_or(0.0, f64::from);
         }
         total
@@ -200,8 +202,10 @@ impl<'f> Cut<'f> {
         if let Some(outline) = self.outlines.get(&(weight, glyph)) {
             return Arc::clone(outline);
         }
+
         let segments = self.segments(weight, glyph);
         let outline: Arc<[Segment]> = merged(&segments).unwrap_or(segments).into();
+
         self.outlines.insert((weight, glyph), Arc::clone(&outline));
         outline
     }
@@ -235,6 +239,7 @@ impl<'f> Cut<'f> {
     fn line_height(&mut self, weight: u16) -> Option<f64> {
         let font = self.font.clone();
         let location = self.location(weight);
+
         let metrics = Metrics::new(&font, Size::unscaled(), location);
         let height =
             f64::from(metrics.ascent) - f64::from(metrics.descent) + f64::from(metrics.leading);
@@ -245,6 +250,7 @@ impl<'f> Cut<'f> {
         let mut pen = Pen::default();
         let glyphs = self.glyphs.clone();
         let location = self.location(weight);
+
         if let Some(outline) = glyphs.get(glyph) {
             let settings = DrawSettings::unhinted(Size::unscaled(), location);
             let _ = outline.draw(settings, &mut pen);
@@ -284,6 +290,7 @@ fn kerning_lookups(positioning: &Gpos<'_>) -> Vec<u16> {
     let Some(language) = language else {
         return Vec::new();
     };
+
     let mut lookups: Vec<u16> = language
         .feature_indices()
         .iter()
@@ -297,6 +304,7 @@ fn kerning_lookups(positioning: &Gpos<'_>) -> Vec<u16> {
                 .collect::<Vec<_>>()
         })
         .collect();
+
     lookups.sort_unstable();
     lookups.dedup();
     lookups
@@ -316,12 +324,14 @@ fn pair_adjustment(pair: &PairPos<'_>, first: GlyphId, second: GlyphId) -> Optio
         }
         PairPos::Format2(table) => {
             table.coverage().ok()?.get(first)?;
+
             let first_class = table.class_def1().ok()?.get(first);
             let second_class = table.class_def2().ok()?.get(second);
             let class1 = table
                 .class1_records()
                 .get(usize::try_from(first_class).ok()?)
                 .ok()?;
+
             let class2 = class1
                 .class2_records()
                 .get(usize::try_from(second_class).ok()?)
@@ -345,6 +355,7 @@ impl Pen {
             Segment::Line(from, to) => from != to,
             Segment::Bezier(points) => points.iter().any(|point| *point != self.at),
         };
+
         if drawn {
             self.segments.push(segment);
         }
@@ -364,22 +375,26 @@ impl OutlinePen for Pen {
 
     fn line_to(&mut self, x: f32, y: f32) {
         let to = point(x, y);
+
         self.reach(Segment::Line(self.at, to), to);
     }
 
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
         let to = point(x, y);
+
         self.reach(Segment::Bezier(vec![self.at, point(x1, y1), to]), to);
     }
 
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
         let to = point(x, y);
         let points = vec![self.at, point(x1, y1), point(x2, y2), to];
+
         self.reach(Segment::Bezier(points), to);
     }
 
     fn close(&mut self) {
         let start = self.start;
+
         self.reach(Segment::Line(self.at, start), start);
     }
 }

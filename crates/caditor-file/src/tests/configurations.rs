@@ -6,7 +6,9 @@ pub(super) fn configured_model() -> (Document, Transaction, Transaction) {
     let (document, base, _) = solid_model();
     let depth = document.parameter_named("depth").unwrap().id();
     let mut editor = Editor::new(document);
+
     let (add, small) = editor.document().adding_configuration(Some("Short"));
+
     editor.apply(add).unwrap();
     for value in [
         ConfiguredValue::Parameter(depth),
@@ -14,10 +16,14 @@ pub(super) fn configured_model() -> (Document, Transaction, Transaction) {
         ConfiguredValue::Colour(base),
     ] {
         let configure = editor.document().configuring(value).unwrap();
+
         editor.apply(configure).unwrap();
     }
+
     let (add, tall) = editor.document().adding_configuration(Some("Tall"));
+
     editor.apply(add).unwrap();
+
     let nine = editor
         .document()
         .transaction("Parse")
@@ -30,16 +36,21 @@ pub(super) fn configured_model() -> (Document, Transaction, Transaction) {
             Setting::Colour(Some(Rgb::new(10, 20, 30))),
         ),
     ];
+
     for (value, setting) in settings {
         let change = editor
             .document()
             .setting_configuration(tall, value, setting)
             .unwrap();
+
         editor.apply(change).unwrap();
     }
+
     let change = editor.document().activating(tall).unwrap();
     let mut document = editor.document().clone();
+
     let undo = document.apply(change.clone()).unwrap();
+
     assert_eq!(document.configurations().active, Some(tall));
     assert_ne!(small, tall);
     (document, change, undo)
@@ -105,6 +116,7 @@ fn configurations_that_cannot_be_read_are_repaired_and_reported() {
         .iter()
         .map(|row| row.name.as_str())
         .collect();
+
     assert_eq!(names, ["Small", "small 2"]);
     assert_eq!(configurations.active, None);
     assert_eq!(configurations.next_id, 5);
@@ -142,6 +154,7 @@ fn the_configurations_table_exports_to_csv_and_imports_back_through_every_kind_o
         .unwrap();
 
     let header = text.lines().next().unwrap();
+
     assert!(header.starts_with("Configuration,Parameter: depth,Suppressed: "));
     assert!(header.contains(",Colour: "));
     assert!(text.contains(",#0a141e\r\n"));

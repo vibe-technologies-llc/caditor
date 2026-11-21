@@ -27,7 +27,7 @@ const NO_SPELLINGS: [&str; 5] = [NO, "n", "false", "0", "off"];
 const DEFAULT_COLOUR_SPELLINGS: [&str; 2] = [DEFAULT_COLOUR, "none"];
 const UNKNOWN_PATH_NAME: &str = "?";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColumnKind {
     Parameter,
     Suppressed,
@@ -61,7 +61,7 @@ impl ColumnKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportedColumn {
     pub header: String,
     pub kind: Option<ColumnKind>,
@@ -93,19 +93,19 @@ impl ImportedColumn {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ImportedConfiguration {
     pub name: String,
     pub cells: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ImportedConfigurations {
     pub columns: Vec<ImportedColumn>,
     pub rows: Vec<ImportedConfiguration>,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ColumnRefusal {
     #[error("its heading does not start with “Parameter:”, “Suppressed:” or “Colour:”")]
     UnknownKind,
@@ -125,20 +125,20 @@ pub enum ColumnRefusal {
     TooManyValues,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ColumnOutcome {
     Known,
     Added,
     Refused(ColumnRefusal),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ImportColumn {
     pub header: String,
     pub outcome: ColumnOutcome,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum CellProblem {
     #[error("“{text}” cannot be read as an expression: {error}")]
     Expression { text: String, error: ParseError },
@@ -148,7 +148,7 @@ pub enum CellProblem {
     NotColour { text: String },
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum RowRefusal {
     #[error("it has no configuration name")]
     NameMissing,
@@ -172,14 +172,14 @@ pub enum RowRefusal {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CellChange {
     pub column: String,
     pub before: String,
     pub after: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RowOutcome {
     Added { values: usize },
     Changed { changes: Vec<CellChange> },
@@ -188,13 +188,13 @@ pub enum RowOutcome {
     Refused(RowRefusal),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ImportRowPlan {
     pub name: String,
     pub outcome: RowOutcome,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ConfigurationImport {
     pub columns: Vec<ImportColumn>,
     pub rows: Vec<ImportRowPlan>,
@@ -326,6 +326,7 @@ impl Document {
             .iter()
             .map(|column| {
                 let value = self.resolve_import_column(column, evaluation)?;
+
                 if resolved.contains(&value) {
                     return Err(ColumnRefusal::Repeated);
                 }
@@ -415,6 +416,7 @@ impl Document {
         let existing = table.position(&name).and_then(|at| table.rows.get(at));
         let mut cells = Vec::new();
         let mut changes = Vec::new();
+
         for (position, resolved) in resolved.iter().enumerate() {
             let Ok(value) = resolved else {
                 continue;
@@ -422,9 +424,11 @@ impl Document {
             let Some(text) = row.cells.get(position).map(|text| text.trim()) else {
                 continue;
             };
+
             if text.is_empty() {
                 continue;
             }
+
             let header = columns
                 .get(position)
                 .map(|column| column.header.clone())
@@ -438,6 +442,7 @@ impl Document {
             let before = existing
                 .and_then(|row| self.configuration_setting(row.id, *value))
                 .or_else(|| self.live_setting(*value));
+
             if existing.is_some() && before.as_ref() != Some(&setting) {
                 changes.push(CellChange {
                     column: header.clone(),
@@ -490,6 +495,7 @@ impl Document {
             .filter_map(|(value, setting)| Some((value.parameter()?, setting.expression()?)))
             .collect();
         let mut graph = DependencyGraph::of(self);
+
         for (id, expression) in &cells {
             graph.set(*id, expression);
         }
@@ -510,21 +516,26 @@ impl Document {
         written: &[&Prepared],
     ) -> Result<Transaction, EditError> {
         let mut table = crate::configurations::Configurations::clone(self.configurations());
+
         for value in new_values {
             let Some(live) = self.live_setting(*value) else {
                 continue;
             };
+
             table.values.push(*value);
             for row in &mut table.rows {
                 row.settings.insert(*value, live.clone());
             }
         }
+
         let mut active_wanted: Option<Configuration> = None;
+
         for prepared in written {
             let id = match prepared.existing {
                 Some(id) => id,
                 None => {
                     let id = table.fresh_id();
+
                     table.rows.push(Configuration {
                         id,
                         name: prepared.name.clone(),
@@ -546,12 +557,15 @@ impl Document {
                 }
             }
         }
+
         let table_edit = Edit::SetConfigurations {
             configurations: Box::new(table),
         };
         let mut edits = vec![table_edit.clone()];
+
         if let Some(wanted) = active_wanted {
             let mut trial = self.clone();
+
             trial.apply(Transaction::single(label, table_edit))?;
             edits.extend(trial.applying(&wanted)?);
         }
@@ -564,15 +578,18 @@ impl Document {
         prepared: &[&Prepared],
     ) -> Vec<(usize, RowRefusal)> {
         let mut refused = Vec::new();
+
         for row in prepared {
             let parameters: Vec<_> = row
                 .cells
                 .iter()
                 .filter_map(|cell| Some((cell.value.parameter()?, &cell.column)))
                 .collect();
+
             if parameters.is_empty() {
                 continue;
             }
+
             let Some(id) = trial
                 .configurations()
                 .position(&row.name)
@@ -582,6 +599,7 @@ impl Document {
                 continue;
             };
             let mut probe = trial.clone();
+
             if !trial.configurations().is_active(id) {
                 let switched = trial
                     .activating(id)
@@ -590,6 +608,7 @@ impl Document {
                     continue;
                 }
             }
+
             let values = ParameterValues::evaluate(&probe);
             let failed =
                 parameters
@@ -640,9 +659,11 @@ impl Document {
         let mut prepared: Vec<Prepared> = Vec::new();
         let mut seen: Vec<String> = Vec::new();
         let mut new_rows = 0;
+
         for (index, row) in file.rows.iter().enumerate() {
             let name = configuration_name(&row.name);
             let length = name.chars().count();
+
             let refusal = if length == 0 {
                 Some(RowRefusal::NameMissing)
             } else if length > MAX_CONFIGURATION_NAME_CHARS {
@@ -657,6 +678,7 @@ impl Document {
             } else {
                 None
             };
+
             if let Some(refusal) = refusal {
                 set_outcome(&mut outcomes, index, RowOutcome::Refused(refusal));
                 continue;
@@ -670,6 +692,7 @@ impl Document {
                 Err(refusal) => set_outcome(&mut outcomes, index, RowOutcome::Refused(refusal)),
             }
         }
+
         let new_values: Vec<ConfiguredValue> = resolved
             .iter()
             .flatten()
@@ -682,6 +705,7 @@ impl Document {
             .copied()
             .chain(new_values.iter().copied())
             .collect();
+
         for ready in &prepared {
             let settings = self.final_import_settings(ready, &all_values);
             if let Some(path) = self.import_cycle(&settings) {
@@ -693,6 +717,7 @@ impl Document {
             }
         }
         prepared.retain(|ready| !is_refused(&outcomes, ready.index));
+
         let (transaction, changes_the_model) = loop {
             let written: Vec<&Prepared> = prepared
                 .iter()
@@ -703,12 +728,17 @@ impl Document {
             } else {
                 &new_values
             };
+
             let transaction = self.configuration_import_transaction(&label, effective, &written)?;
             let mut trial = self.clone();
+
             trial.apply(transaction.clone())?;
+
             let refused = self.refused_by_value(&trial, &written);
+
             if refused.is_empty() {
                 let changes = !self.same_content(&trial);
+
                 break (transaction, changes);
             }
             for (index, refusal) in refused {
@@ -716,6 +746,7 @@ impl Document {
             }
             prepared.retain(|ready| !is_refused(&outcomes, ready.index));
         };
+
         for ready in &prepared {
             let outcome = match ready.existing {
                 None => RowOutcome::Added {
@@ -729,8 +760,10 @@ impl Document {
                     changes: ready.changes.clone(),
                 },
             };
+
             set_outcome(&mut outcomes, ready.index, outcome);
         }
+
         let columns = file
             .columns
             .iter()

@@ -27,7 +27,7 @@ pub const DESCRIPTION: &str =
 const NO_BODY: &str = "Select a face or edge of the body to move";
 const SEVERAL_BODIES: &str = "Select faces or edges of one body only, or one body in the tree";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum BodyChoiceError {
     #[error("{instruction}")]
     Nothing { instruction: &'static str },
@@ -54,7 +54,7 @@ impl Reason for BodyChoiceError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum MoveError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -141,6 +141,7 @@ pub fn chosen_bodies_beside(
     } else {
         rest
     };
+
     if chosen.is_empty() {
         return Err(BodyChoiceError::Nothing { instruction: none });
     }
@@ -163,6 +164,7 @@ pub fn create(
     let title = if copy { COPY_NAME } else { TITLE };
     let name = editing::next_feature_name(document, title);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Move(Move {
@@ -241,6 +243,7 @@ pub fn axis_change(
     let axis = datum_tools::only_axis(model, selection, index)
         .map_err(MoveError::AxisSelection)?
         .ok_or(MoveError::NoAxis)?;
+
     if movement.about.axis() == Some(&axis) {
         return Err(MoveError::AlreadyAbout);
     }

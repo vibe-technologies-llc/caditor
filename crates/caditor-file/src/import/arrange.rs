@@ -11,7 +11,7 @@ use crate::import::{Drawing, DrawingCurve, MAX_DRAWING_CURVES};
 pub const MIN_SCALE: f64 = 1e-6;
 pub const MAX_SCALE: f64 = 1e6;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DrawingUnit {
     #[default]
     AsInFile,
@@ -51,7 +51,7 @@ impl DrawingUnit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DrawingOptions {
     pub unit: DrawingUnit,
     pub scale: f64,
@@ -131,6 +131,7 @@ impl Drawing {
         };
         let mut on_left_out_layers = 0;
         let mut past_the_limit = 0;
+
         for (index, curve) in self.curves.iter().enumerate() {
             if !self.is_chosen(index, left_out) {
                 on_left_out_layers += usize::from(!matches!(curve, DrawingCurve::Point(_)));
@@ -163,6 +164,7 @@ impl Drawing {
             past_the_limit,
         } = self.on_chosen_layers(&options.left_out_layers);
         let mut notes = Vec::new();
+
         match on_left_out_layers {
             0 => {}
             1 => notes.push("1 curve on a layer you left out was not imported.".to_owned()),
@@ -191,6 +193,7 @@ impl Drawing {
             && let Some((low, high)) = arranged.bounds()
         {
             let centre = (low + high) / 2.0;
+
             for curve in &mut arranged.curves {
                 curve.map_points(|point| point - centre);
             }
@@ -230,6 +233,7 @@ impl DrawingCurve {
             }
             Self::Circle { center, radius } => {
                 let moved = change(*center + Point2::X * *radius) - change(*center);
+
                 *center = change(*center);
                 *radius = moved.length();
             }
@@ -255,6 +259,7 @@ impl DrawingCurve {
                 ends,
             } => {
                 let scale = (change(*center + Point2::X) - change(*center)).length();
+
                 *major = change(*center + *major) - change(*center);
                 *minor_radius *= scale;
                 *center = change(*center);
@@ -272,6 +277,7 @@ fn curve_extremes(curve: &DrawingCurve) -> Vec<Point2> {
         DrawingCurve::Arc { center, start, end } => {
             let arc = ArcGeometry::from_points(*center, *start, *end);
             let mut points = vec![*start, *end];
+
             points.extend(
                 (0..4)
                     .map(|quarter| FRAC_PI_2 * f64::from(quarter))

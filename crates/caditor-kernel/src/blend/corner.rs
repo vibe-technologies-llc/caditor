@@ -24,7 +24,7 @@ const SINGULAR: f64 = 1e-9;
 const SAME_RADIUS: f64 = LINEAR_RESOLUTION;
 const ON_AXIS: f64 = 10.0 * LINEAR_RESOLUTION;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Corner {
     pub vertex: VertexId,
     pub setbacks: BTreeMap<EdgeId, f64>,
@@ -39,7 +39,9 @@ pub(super) struct Corner {
 
 pub(super) fn meet(planes: [(Vector3, f64); 3]) -> Option<Point3> {
     let [(a, da), (b, db), (c, dc)] = planes;
+
     let determinant = a.dot(b.cross(c));
+
     if determinant.abs() <= SINGULAR {
         return None;
     }
@@ -65,24 +67,30 @@ pub(super) fn find(
     let [first, second, third] = around else {
         return None;
     };
+
     let ids = [*first, *second, *third];
     let kind = *convex.get(first)?;
+
     let usable = ids.iter().all(|edge| {
         convex.get(edge) == Some(&kind)
             && solid
                 .edge(*edge)
                 .is_some_and(|definition| matches!(definition.curve(), Curve::Line(_)))
     });
+
     if !usable {
         return None;
     }
+
     let mut faces: Vec<FaceId> = Vec::with_capacity(3);
     let mut edge_faces: Vec<[FaceId; 2]> = Vec::with_capacity(3);
+
     for edge in ids {
         let pair = super::face_set(solid, edge);
         let [a, b] = pair.iter().copied().collect::<Vec<_>>()[..] else {
             return None;
         };
+
         for face in [a, b] {
             if !faces.contains(&face) {
                 faces.push(face);
@@ -90,9 +98,11 @@ pub(super) fn find(
         }
         edge_faces.push([a, b]);
     }
+
     let [f0, f1, f2] = faces[..] else {
         return None;
     };
+
     let faces = [f0, f1, f2];
     let facing = away_from_tool(kind);
     let normals = [
@@ -106,20 +116,24 @@ pub(super) fn find(
         (normals[1], -radius),
         (normals[2], -radius),
     ])?;
+
     let center = apex + offset;
     let mut edges = Vec::with_capacity(3);
     let mut setbacks = BTreeMap::new();
+
     for (edge, pair) in ids.iter().zip(edge_faces) {
         let direction = -leaving(solid, *edge, vertex)?;
         let index = |face: FaceId| faces.iter().position(|candidate| *candidate == face);
         let pair = [index(pair[0])?, index(pair[1])?];
         let setback = offset.dot(direction);
+
         if setback <= 0.0 {
             return None;
         }
         setbacks.insert(*edge, setback);
         edges.push((Some(*edge), pair, direction));
     }
+
     let [e0, e1, e2] = edges[..] else {
         return None;
     };
@@ -172,6 +186,7 @@ fn plane_of(solid: &Solid, face: FaceId) -> Option<(Vector3, f64)> {
     let Surface::Plane(plane) = definition.surface() else {
         return None;
     };
+
     let normal = plane.frame().normal() * definition.sense().sign();
     Some((normal, normal.dot(plane.frame().origin())))
 }
@@ -196,9 +211,11 @@ pub(super) fn after_blends(
         .edge(edge)
         .is_some_and(|definition| matches!(definition.curve(), Curve::Line(_)));
     let kind = *convex.get(&edge)?;
+
     if !straight {
         return None;
     }
+
     let facing = away_from_tool(kind);
     let carved = |(normal, offset): (Vector3, f64)| (normal * facing, offset * facing);
     let own = face_set(solid, edge);
@@ -213,12 +230,14 @@ pub(super) fn after_blends(
     let [one, other] = others[..] else {
         return None;
     };
+
     let outward = [plane_of(solid, first)?, plane_of(solid, second)?];
     let planes = outward.map(carved);
     let (one, other) = (rounded(solid, one, radius)?, rounded(solid, other, radius)?);
     let rises_from = |round: &Rounded, plane: (Vector3, f64)| {
         face_normal(solid, round.face, point).is_some_and(|normal| smooth_within(normal, plane.0))
     };
+
     let (over_first, over_second) =
         if rises_from(&one, outward[0]) && rises_from(&other, outward[1]) {
             (one, other)
@@ -227,6 +246,7 @@ pub(super) fn after_blends(
         } else {
             return None;
         };
+
     let tops: Vec<(FaceId, (Vector3, f64))> = neighbours(solid, over_first.face)
         .intersection(&neighbours(solid, over_second.face))
         .filter(|face| !own.contains(face))
@@ -245,16 +265,20 @@ pub(super) fn after_blends(
         (normals[1], -radius),
         (normals[2], -radius),
     ])?;
+
     let center = apex + offset;
+
     if over_first.distance_to(center) > ON_AXIS || over_second.distance_to(center) > ON_AXIS {
         return None;
     }
+
     let direction = -leaving(solid, edge, vertex)?;
     let along = |face: usize| -> Option<Vector3> {
         let line = normals.get(face)?.cross(top_plane.0).try_normalize()?;
         Some(if line.dot(offset) < 0.0 { -line } else { line })
     };
     let setback = (center - point).dot(direction);
+
     if setback.abs() > ON_AXIS {
         return None;
     }
@@ -282,6 +306,7 @@ fn away_from_tool(convex: bool) -> f64 {
 fn oriented(points: &[Point3], outward: Vector3) -> bool {
     let count = points.len();
     let mut normal = Vector3::ZERO;
+
     for index in 0..count {
         if let (Some(a), Some(b)) = (points.get(index), points.get((index + 1) % count)) {
             normal += a.cross(*b);
@@ -305,6 +330,7 @@ impl Builder {
 
     pub fn line(&mut self, from: usize, to: usize) -> Result<(), BlendError> {
         let edge = self.plan.line(from, to, EdgeName::NONE)?;
+
         self.edges.insert((from, to), (edge, true));
         self.edges.insert((to, from), (edge, false));
         Ok(())
@@ -322,14 +348,17 @@ impl Builder {
         };
         let x_axis = (start - center).normalize_or_zero();
         let toward = (end - center).normalize_or_zero();
+
         let normal = x_axis.cross(toward).normalize_or_zero();
         let frame = Plane::from_frame(center, normal, x_axis).ok_or(SweepError::Unassembled)?;
         let angle = x_axis.dot(toward).clamp(-1.0, 1.0).acos_libm();
         let interval = Interval::new(0.0, angle).ok_or(SweepError::Unassembled)?;
         let circle = Circle::new(frame, radius).map_err(SweepError::from)?;
+
         let edge = self
             .plan
             .edge(circle.into(), interval, (from, to), EdgeName::NONE);
+
         self.edges.insert((from, to), (edge, true));
         self.edges.insert((to, from), (edge, false));
         Ok(())
@@ -349,15 +378,19 @@ impl Builder {
             .filter_map(|vertex| self.plan.point(*vertex))
             .collect();
         let mut cycle = cycle.to_vec();
+
         if !oriented(&points, outward) {
             cycle.reverse();
         }
+
         let count = cycle.len();
         let mut coedges = Vec::with_capacity(count);
+
         for index in 0..count {
             let (Some(from), Some(to)) = (cycle.get(index), cycle.get((index + 1) % count)) else {
                 return Err(SweepError::Unassembled.into());
             };
+
             let (edge, forward) = self
                 .edges
                 .get(&(*from, *to))
@@ -368,6 +401,7 @@ impl Builder {
             } else {
                 Sense::Reversed
             };
+
             coedges.push(PlanCoedge::new(edge, sense));
         }
         self.plan.face(PlanFace {
@@ -408,6 +442,7 @@ impl Corner {
                 .collect()
         };
         let mut builder = Builder::new();
+
         let top = builder.plan.vertex(
             meet([
                 lifted(0).ok_or_else(failed)?,
@@ -418,6 +453,7 @@ impl Corner {
         );
         let at = |list: &[usize], index: usize| list.get(index).copied().ok_or_else(failed);
         let mut along = Vec::with_capacity(3);
+
         for (edge, (_, [a, b], _)) in self.edges.iter().enumerate() {
             let point = meet([
                 lifted(*a).ok_or_else(failed)?,
@@ -425,25 +461,31 @@ impl Corner {
                 setback(edge).ok_or_else(failed)?,
             ])
             .ok_or_else(failed)?;
+
             along.push(builder.plan.vertex(point));
         }
+
         let mut outer = Vec::with_capacity(3);
         let mut touch = Vec::with_capacity(3);
+
         for (face, normal) in self.normals.iter().enumerate() {
             let [e1, e2] = edges_of(face)[..] else {
                 return Err(failed());
             };
+
             let point = meet([
                 lifted(face).ok_or_else(failed)?,
                 setback(e1).ok_or_else(failed)?,
                 setback(e2).ok_or_else(failed)?,
             ])
             .ok_or_else(failed)?;
+
             outer.push(builder.plan.vertex(point));
             touch.push(builder.plan.vertex(self.center + *normal * self.radius));
         }
         for (edge, (_, [a, b], _)) in self.edges.iter().enumerate() {
             let corner = at(&along, edge)?;
+
             builder.line(top, corner)?;
             builder.line(corner, at(&outer, *a)?)?;
             builder.line(corner, at(&outer, *b)?)?;
@@ -452,6 +494,7 @@ impl Corner {
         for (outside, contact) in outer.iter().zip(&touch) {
             builder.line(*outside, *contact)?;
         }
+
         let names: Vec<(FaceName, Option<FaceOrigin>)> = self
             .faces
             .iter()
@@ -461,11 +504,13 @@ impl Corner {
                     .map_or((FaceName::NONE, None), |face| (face.name(), face.origin()))
             })
             .collect();
+
         for (face, (normal, (name, origin))) in self.normals.iter().zip(&names).enumerate() {
             let [e1, e2] = edges_of(face)[..] else {
                 return Err(failed());
             };
             let plane = Plane::new(self.apex + *normal * clearance, *normal).ok_or_else(failed)?;
+
             builder.face(
                 &[top, at(&along, e1)?, at(&outer, face)?, at(&along, e2)?],
                 *normal,
@@ -481,6 +526,7 @@ impl Corner {
                 .and_then(|id| blend_names.get(&id))
                 .copied()
                 .unwrap_or_default();
+
             builder.face(
                 &[
                     at(&along, edge)?,
@@ -496,6 +542,7 @@ impl Corner {
                 Some(FaceOrigin::Fillet { feature }),
             )?;
         }
+
         let frame = Plane::new(self.center, Vector3::Z).ok_or_else(failed)?;
         let face_names = names.iter().map(|(name, _)| *name);
         let points: Vec<Point3> = touch
@@ -503,6 +550,7 @@ impl Corner {
             .filter_map(|vertex| builder.plan.point(*vertex))
             .collect();
         let middle = points.iter().fold(Vector3::ZERO, |sum, point| sum + *point) / 3.0;
+
         builder.face(
             &touch,
             self.center - middle,
@@ -513,6 +561,7 @@ impl Corner {
             FaceName::corner(feature, VertexName::of_faces(face_names)),
             Some(FaceOrigin::Fillet { feature }),
         )?;
+
         let built = builder.plan.build().map_err(SweepError::from)?;
         Ok(built.renamed(|name, origin| (name, origin)))
     }

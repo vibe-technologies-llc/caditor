@@ -35,7 +35,7 @@ use crate::{
 
 const FULL_TURN_DEGREES: f64 = 360.0;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum Amount {
     Number(f64),
@@ -51,14 +51,14 @@ impl fmt::Display for Amount {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum RevolveAxisChoice {
     Model(AxisChoice),
     Line(EntityName),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Revolution {
     pub sketch: Option<Named>,
@@ -78,26 +78,26 @@ pub struct Revolution {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AllName {
     All,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum RegionsAsk {
     All(AllName),
     Inside(Vec<[f64; 2]>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OffName {
     Off,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum WallAsk {
     Off(OffName),
@@ -117,7 +117,7 @@ impl WallAsk {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filleting {
     pub body: Option<Named>,
@@ -132,7 +132,7 @@ pub struct Filleting {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Chamfering {
     pub body: Option<Named>,
@@ -149,7 +149,7 @@ pub struct Chamfering {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SideName {
     Inside,
@@ -167,14 +167,14 @@ impl SideName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceWall {
     pub face: String,
     pub thickness: Amount,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Shelling {
     pub body: Option<Named>,
@@ -185,7 +185,7 @@ pub struct Shelling {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceOffset {
     pub body: Option<Named>,
@@ -195,7 +195,7 @@ pub struct FaceOffset {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PrimitiveName {
     Box,
@@ -233,7 +233,7 @@ fn sizes_of(kind: PrimitiveKind) -> &'static [&'static str] {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnchorName {
     Corner,
@@ -241,7 +241,7 @@ pub enum AnchorName {
     Centre,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NewPrimitive {
     pub kind: Option<PrimitiveName>,
@@ -282,7 +282,7 @@ impl NewPrimitive {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mirroring {
     pub body: Option<Named>,
@@ -294,7 +294,7 @@ pub struct Mirroring {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MirrorResult {
     NewBody,
@@ -312,14 +312,14 @@ impl MirrorResult {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum CopyName {
     InRow(u32),
     InGrid([u32; 2]),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Direction {
     pub axis: Option<AxisChoice>,
@@ -329,7 +329,7 @@ pub struct Direction {
     pub reversed: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LinearPatterning {
     pub body: Option<Named>,
@@ -345,7 +345,7 @@ pub struct LinearPatterning {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CircularPatterning {
     pub body: Option<Named>,
@@ -359,7 +359,7 @@ pub struct CircularPatterning {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PatternResult {
     AddToBody,
@@ -385,7 +385,7 @@ pub(super) fn pattern_outcome(
         .unwrap_or_default()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CombineName {
     Join,
@@ -393,7 +393,7 @@ pub enum CombineName {
     Intersect,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Combining {
     pub body: Option<Named>,
@@ -403,7 +403,7 @@ pub struct Combining {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Moving {
     pub body: Option<Named>,
@@ -415,7 +415,7 @@ pub struct Moving {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum FeatureError {
     #[error("give {field}")]
     Missing { field: &'static str },
@@ -627,6 +627,7 @@ pub(super) fn regions_chosen(
         Some(RegionsAsk::Inside(points)) => points,
     };
     let regions = sketch_regions_of(evaluation, (sketch, name))?;
+
     let keys = points
         .iter()
         .map(|at| region_at(regions, name, *at).map(|region| region.region.key()))
@@ -670,7 +671,9 @@ pub(super) fn added(
         .name
         .unwrap_or_else(|| editing::next_feature_name(document, built.title));
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(name, built.kind);
+
     for sketch in built.hide {
         if visibility::is_shown(document, sketch) {
             transaction.edit(Edit::SetFeatureHidden {
@@ -679,6 +682,7 @@ pub(super) fn added(
             });
         }
     }
+
     let transaction = transaction.finish();
     let answer = apply(session, work, transaction, built.details)?;
     Ok(with_feature(session, answer, feature))
@@ -808,7 +812,9 @@ pub fn revolve_built(
         asked.thin_wall.as_ref().and_then(WallAsk::thickness),
         |session, wall| length(session, "thin_wall", wall),
     )?;
+
     session.evaluate(work)?;
+
     let values = session.parameters();
     let document = session.document();
     let evaluation = session.evaluation();
@@ -817,6 +823,7 @@ pub fn revolve_built(
         asked.sketch.as_ref(),
         base.map(|base| base.sketch),
     )?;
+
     let axis = match (&asked.axis, base) {
         (None, Some(base)) => base.axis.clone(),
         (None, None) => RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
@@ -828,16 +835,19 @@ pub fn revolve_built(
         }
     };
     let turns = angle.is_some() || second.is_some() || asked.symmetric.is_some();
+
     if (asked.up_to.is_some() || asked.up_to_surface.is_some()) && turns {
         return Err(FeatureError::UpToWithAngle.into());
     }
     if asked.up_to.is_some() && asked.up_to_surface.is_some() {
         return Err(ModellingError::TwoEnds.into());
     }
+
     let reversed = asked
         .reversed
         .unwrap_or(base.is_some_and(|base| base.extent.reversed_up_to()));
     let kept_offset = base.and_then(|base| base.extent.offset().cloned());
+
     let extent = match (&asked.up_to, &asked.up_to_surface, base) {
         (Some(UpTo::Next(NextFace::Next)), _, _) => {
             RevolveExtent::up_to_next(reversed).with_offset(kept_offset)
@@ -907,6 +917,7 @@ pub fn revolve_built(
         base.and_then(|base| base.wall.as_deref()),
         asked.thin_wall.as_ref().is_some_and(WallAsk::is_off),
     )?;
+
     let revolve = match base {
         Some(base) => Revolve {
             sketch,
@@ -934,6 +945,7 @@ pub fn revolve_built(
         base.map(|base| base.operation),
     )?;
     let solid = SolidFeature::Revolve(revolve);
+
     let operation = asked_operation.unwrap_or_else(|| {
         solid_tools::default_operation(
             document,
@@ -985,6 +997,7 @@ impl AskedRules<'_> {
 
     fn resolved(&self, session: &Session) -> Result<Vec<EdgeRule>, ToolError> {
         let mut rules = Vec::new();
+
         if self.convex == Some(true) {
             rules.push(EdgeRule::Convex);
         }
@@ -993,6 +1006,7 @@ impl AskedRules<'_> {
         }
         for named in self.made_by.unwrap_or_default() {
             let made = references::feature(session.document(), named)?;
+
             rules.push(EdgeRule::MadeBy(made.id()));
         }
         Ok(rules)
@@ -1026,17 +1040,20 @@ fn captured_edges(
     let face_keys = choice.faces.unwrap_or_default();
     let all_edges = choice.all_edges.unwrap_or(false);
     let rules = choice.rules.resolved(session)?;
+
     if all_edges && !(edge_keys.is_empty() && face_keys.is_empty() && rules.is_empty()) {
         return Err(FeatureError::AllEdgesAndMore.into());
     }
     if !all_edges && edge_keys.is_empty() && face_keys.is_empty() && rules.is_empty() {
         return Err(FeatureError::NoEdges { verb }.into());
     }
+
     let edges = edge_references(session, body, edge_keys)?;
     let mut groups: Vec<EdgeGroup> = face_references(session, body, face_keys)?
         .into_iter()
         .map(EdgeGroup::Face)
         .collect();
+
     if all_edges {
         groups.push(EdgeGroup::Body);
     }
@@ -1074,15 +1091,18 @@ fn blend(
     (name, base): (Option<String>, Option<&Blend>),
 ) -> Result<Built, ToolError> {
     let verb = kind.noun();
+
     if base.is_none() && !choice.is_given() {
         return Err(FeatureError::NoEdges { verb }.into());
     }
     session.evaluate(work)?;
+
     let body = body_of(session, choice.body, base.map(|base| base.body))?;
     let (edges, groups) = match base {
         Some(base) if !choice.is_given() => (base.edges.clone(), base.groups.clone()),
         Some(_) | None => captured_edges(session, body, &choice, verb)?,
     };
+
     let blend = Blend {
         kind,
         body,
@@ -1121,6 +1141,7 @@ pub fn fillet_built(
     if asked.radius.is_some() && asked.chord_length.is_some() {
         return Err(FeatureError::RadiusAndChord.into());
     }
+
     let radius = parsed(session, asked.radius.as_ref(), |session, radius| {
         length(session, "radius", radius)
     })?;
@@ -1264,7 +1285,9 @@ pub fn shell_built(
                 .collect::<Result<Vec<_>, ToolError>>()
         })
         .transpose()?;
+
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let open = match (&asked.open_faces, base) {
         (Some(keys), _) => face_references(session, body, keys)?,
@@ -1290,6 +1313,7 @@ pub fn shell_built(
             .collect::<Result<Vec<_>, ToolError>>()?,
         _ => base.map(|base| base.faces.clone()).unwrap_or_default(),
     };
+
     let shell = Shell {
         body,
         open,
@@ -1326,16 +1350,20 @@ pub fn offset_face_built(
     {
         return Err(FeatureError::NoFacesToOffset.into());
     }
+
     let distance = parsed(session, asked.distance.as_ref(), |session, distance| {
         signed_length(session, "distance", distance)
     })?;
+
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let faces = match (&asked.faces, base) {
         (Some(keys), _) => face_references(session, body, keys)?,
         (None, Some(base)) => base.faces.clone(),
         (None, None) => Vec::new(),
     };
+
     let offset = OffsetFace {
         body,
         faces,
@@ -1382,6 +1410,7 @@ pub fn primitive_built(
         Some(_) | None => primitive_tools::default_shape(kind, LengthUnit::Millimetre),
     };
     let names = sizes_of(kind);
+
     for (size, given) in asked.given_sizes() {
         let Some(position) = names.iter().position(|name| *name == size) else {
             return Err(FeatureError::SizeNotTaken {
@@ -1400,6 +1429,7 @@ pub fn primitive_built(
             *slot = value;
         }
     }
+
     let at = match &asked.at {
         Some([x, y]) => Some([
             signed_length(session, "at", x)?,
@@ -1407,9 +1437,12 @@ pub fn primitive_built(
         ]),
         None => None,
     };
+
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
+
     let (plane, middle) = match (&asked.plane, base) {
         (None, Some(base)) => (base.plane.clone(), None),
         (None, None) => (
@@ -1435,6 +1468,7 @@ pub fn primitive_built(
             LengthUnit::Millimetre.measured(spot.y),
         ]
     };
+
     let at = match (at, middle, base) {
         (Some(at), _, _) => at,
         (None, Some(spot), _) => middle_at(spot),
@@ -1476,6 +1510,7 @@ pub fn primitive_built(
         (None, Some(base)) if base.shape.kind() == kind => base.anchor,
         (None, Some(_) | None) => primitive_tools::default_anchor(kind),
     };
+
     let primitive = Primitive {
         shape,
         plane,
@@ -1513,8 +1548,10 @@ fn subject(
         (Some(body), []) => Ok((references::body(document, evaluation, body)?, Vec::new())),
         (None, features) => {
             let mut found = Vec::with_capacity(features.len());
+
             for named in features {
                 let feature = references::feature(document, named)?;
+
                 if repeatable_on(&feature.kind).is_none() {
                     return Err(FeatureError::NotRepeatable {
                         name: feature.name.clone(),
@@ -1560,6 +1597,7 @@ pub fn mirror_built(
     base: Option<&Mirror>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let faced = asked.faces.as_ref().is_some_and(|faces| !faces.is_empty());
     let (body, mirrored) = if faced {
         if asked
@@ -1581,6 +1619,7 @@ pub fn mirror_built(
             "mirror",
         )?
     };
+
     let faces = match (&asked.faces, base) {
         (Some(keys), _) => face_references(session, body, keys)?,
         (None, Some(base)) if base.body == body && base.mirrored == mirrored => base.faces.clone(),
@@ -1602,6 +1641,7 @@ pub fn mirror_built(
         },
         None => Mirror::new(body, plane).mirroring(mirrored.clone()),
     };
+
     mirror.faces = faces;
     if let Some(keep) = asked.keep_original {
         mirror.outcome = if keep {
@@ -1613,6 +1653,7 @@ pub fn mirror_built(
     if let Some(result) = asked.result {
         mirror.outcome = result.outcome();
     }
+
     let title = if !mirrored.is_empty() {
         mirror_tools::FEATURES_TITLE
     } else if mirror.faces.is_empty() {
@@ -1715,6 +1756,7 @@ pub(super) fn pattern_built(
     let mut pattern = Pattern::new(body, kind)
         .repeating(repeated)
         .with_outcome(outcome);
+
     pattern.skipped = skipped;
     Built::new(FeatureKind::from(pattern), title, name).telling("repeats", repeats)
 }
@@ -1726,6 +1768,7 @@ pub fn linear_pattern_built(
     base: Option<&Pattern>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let chosen = kept_subject(
         session,
         (asked.body.as_ref(), asked.features.as_deref()),
@@ -1781,6 +1824,7 @@ pub fn circular_pattern_built(
     base: Option<&Pattern>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let chosen = kept_subject(
         session,
         (asked.body.as_ref(), asked.features.as_deref()),
@@ -1808,6 +1852,7 @@ pub fn circular_pattern_built(
         Some(given) => count(session, "count", given)?,
         None => needed(kept.map(|kept| kept.count.clone()), "count")?,
     };
+
     let kind = PatternKind::Circular(CircularPattern {
         axis,
         count: copies,
@@ -1846,10 +1891,12 @@ pub fn combine_built(
     base: Option<&Combine>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let document = session.document();
     let evaluation = session.evaluation();
     let mut tools = Vec::new();
+
     match (&asked.tools, base) {
         (Some(named), _) => {
             for named in named {
@@ -1871,6 +1918,7 @@ pub fn combine_built(
         }
         .into());
     }
+
     let Some((&tool, more_tools)) = tools.split_first() else {
         return Err(FeatureError::NoTools {
             body: body_label(document, body),
@@ -1884,6 +1932,7 @@ pub fn combine_built(
         (None, Some(base)) => base.operation,
         (None, None) => return Err(FeatureError::Missing { field: "operation" }.into()),
     };
+
     let mut combine = match base {
         Some(base) => Combine {
             body,
@@ -1893,6 +1942,7 @@ pub fn combine_built(
         },
         None => Combine::new(body, tool, operation),
     };
+
     combine.more_tools = more_tools.to_vec();
     if let Some(keep) = asked.keep_tools {
         combine.keep_tool = keep;
@@ -1941,13 +1991,17 @@ pub fn move_built(
     let offset = triple(session, "offset", asked.offset.as_ref(), signed_length)?;
     let turned = triple(session, "turn", asked.turn.as_ref(), turn)?;
     let turns_about_axis = asked.turn_axis.is_some() || asked.turn_angle.is_some();
+
     if turned.is_some() && turns_about_axis {
         return Err(FeatureError::TwoTurns.into());
     }
+
     let angle = parsed(session, asked.turn_angle.as_ref(), |session, angle| {
         turn(session, "turn_angle", angle)
     })?;
+
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let document = session.document();
     let kept_axis = match base.map(|base| &base.about) {
@@ -1955,6 +2009,7 @@ pub fn move_built(
         Some(_) | None => None,
     };
     let zero_turns = || [zero_turn(), zero_turn(), zero_turn()];
+
     let (turned, about) = match (turned, turns_about_axis, base) {
         (Some(turned), _, _) => (turned, TurnCentre::Body),
         (None, true, _) => {
@@ -1963,6 +2018,7 @@ pub fn move_built(
                 None => kept_axis.map(|kept| kept.axis.clone()),
             };
             let angle = angle.or_else(|| kept_axis.map(|kept| kept.angle.clone()));
+
             let (Some(axis), Some(angle)) = (axis, angle) else {
                 return Err(FeatureError::HalfAnAxisTurn.into());
             };
@@ -1978,6 +2034,7 @@ pub fn move_built(
         .copy
         .or_else(|| base.map(|base| base.copy))
         .unwrap_or(false);
+
     let movement = Move {
         body,
         offset: offset

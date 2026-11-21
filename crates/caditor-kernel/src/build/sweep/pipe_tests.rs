@@ -88,6 +88,7 @@ fn a_straight_round_pipe_is_a_cylinder_and_a_hollow_one_a_tube() {
 
     assert_eq!(solid.validate(), Ok(()));
     assert_eq!(hollow.validate(), Ok(()));
+
     assert_close("solid", volume(&solid), PI * 25.0 * 40.0, 1e-4);
     assert_close("hollow", volume(&hollow), PI * (25.0 - 16.0) * 40.0, 1e-4);
 }
@@ -144,6 +145,7 @@ fn a_bend_radius_rounds_a_sharp_corner_between_lines() {
     let mitred = pipe(&elbow(), &round(4.0, None), 0.0, Vector3::Z, FEATURE).unwrap();
 
     assert_eq!(rounded.validate(), Ok(()));
+
     assert_close(
         "rounded",
         volume(&rounded),
@@ -151,6 +153,7 @@ fn a_bend_radius_rounds_a_sharp_corner_between_lines() {
         1e-3,
     );
     assert_close("mitred", volume(&mitred), area * 50.0, 1e-3);
+
     assert_eq!(names(&rounded).len(), rounded.faces().count());
     assert!(names(&mitred).is_subset(&names(&rounded)));
 }
@@ -172,6 +175,7 @@ fn a_closed_path_of_lines_rounds_every_corner() {
     let ring = pipe(&path, &round(4.0, Some(1.0)), bend, Vector3::Z, FEATURE).unwrap();
 
     assert_eq!(ring.validate(), Ok(()));
+
     assert_close("ring", volume(&ring), PI * (4.0 - 1.0) * centreline, 1e-3);
 }
 
@@ -268,6 +272,7 @@ fn a_corner_between_two_lines_has_its_bend_middles_along_the_bisector() {
 #[test]
 fn a_sharp_corner_touching_an_arc_has_bend_middles_sampled_from_the_corner_outward() {
     let (bend, arc_radius): (f64, f64) = (4.0, 10.0);
+
     let reach = ((arc_radius + bend).powi(2) - bend * bend).sqrt();
     let bend_centre = Point3::new(30.0 - reach, bend, 0.0);
 
@@ -325,8 +330,10 @@ fn line_into_arc() -> [PathSegment; 2] {
 #[test]
 fn a_bend_radius_rounds_a_sharp_corner_between_a_line_and_an_arc() {
     let (bend, arc_radius): (f64, f64) = (4.0, 10.0);
+
     let reach = ((arc_radius + bend).powi(2) - bend * bend).sqrt();
     let touch = bend.atan2_libm(reach);
+
     let centreline = (30.0 - reach) + bend * (FRAC_PI_2 - touch) + arc_radius * (FRAC_PI_2 - touch);
 
     let rounded = pipe(
@@ -346,7 +353,9 @@ fn a_bend_radius_rounds_a_sharp_corner_between_a_line_and_an_arc() {
     );
 
     assert_eq!(rounded.validate(), Ok(()));
+
     assert_close("rounded", volume(&rounded), PI * centreline, 1e-3);
+
     assert_eq!(tori(&rounded), 2);
     assert_eq!(names(&rounded).len(), rounded.faces().count());
     assert_eq!(
@@ -359,6 +368,7 @@ fn a_bend_radius_rounds_a_sharp_corner_between_a_line_and_an_arc() {
 fn a_bend_radius_rounds_the_point_where_two_arcs_meet() {
     let (bend, arc_radius): (f64, f64) = (3.0, 10.0);
     let sweep = 0.6f64.acos_libm();
+
     let path = [
         arc(
             10,
@@ -381,12 +391,14 @@ fn a_bend_radius_rounds_the_point_where_two_arcs_meet() {
     let rounded = pipe(&path, &round(2.0, Some(0.5)), bend, Vector3::Z, FEATURE).unwrap();
 
     assert_eq!(rounded.validate(), Ok(()));
+
     assert_close(
         "rounded",
         volume(&rounded),
         PI * (1.0 - 0.25) * centreline,
         1e-3,
     );
+
     assert_eq!(tori(&rounded), 6);
 }
 

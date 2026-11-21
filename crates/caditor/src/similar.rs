@@ -22,7 +22,7 @@ fn near(first: f64, second: f64, slack: f64) -> bool {
     (first - second).abs() <= slack * first.abs().max(second.abs()).max(1.0)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Shape {
     Plane { area: f64, slack: f64 },
     Cylinder { radius: f64, hole: bool },
@@ -190,6 +190,7 @@ impl Shape {
 
 pub fn distinct(shapes: impl IntoIterator<Item = Shape>) -> Vec<Shape> {
     let mut distinct: Vec<Shape> = Vec::new();
+
     for shape in shapes {
         if !distinct.iter().any(|known| known.matches(&shape)) {
             distinct.push(shape);

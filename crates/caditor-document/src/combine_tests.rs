@@ -13,6 +13,7 @@ pub(crate) fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
         Point2::new(max.0, max.1),
         Point2::new(min.0, max.1),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -54,9 +55,12 @@ pub(crate) struct Pair {
 
 pub(crate) fn pair() -> Pair {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let plate = block(&mut transaction, "Plate", (0.0, 0.0), (20.0, 10.0), "4 mm");
     let peg = block(&mut transaction, "Peg", (15.0, 2.0), (25.0, 8.0), "6 mm");
+
     document.apply(transaction.finish()).unwrap();
     Pair {
         document,
@@ -68,10 +72,12 @@ pub(crate) fn pair() -> Pair {
 fn combine(pair: &mut Pair, operation: CombineOperation) -> FeatureId {
     let (plate, peg) = (pair.plate, pair.peg);
     let mut transaction = pair.document.transaction("Combine");
+
     let combined = transaction.add_feature(
         "Combine 1",
         FeatureKind::Combine(Combine::new(plate, peg, operation)),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
     combined
 }
@@ -118,16 +124,21 @@ fn joining_cutting_and_intersecting_make_one_body_of_the_target_and_consume_the_
         (CombineOperation::Intersect, OVERLAP),
     ] {
         let mut pair = pair();
+
         let combined = combine(&mut pair, operation);
         let mut engine = Recompute::default();
 
         let evaluation = evaluate(&pair.document, &mut engine);
 
         assert_eq!(evaluation.failed_count(), 0, "{operation:?}");
+
         let bodies: Vec<FeatureId> = evaluation.bodies().map(|(body, _)| body).collect();
+
         assert_eq!(bodies, vec![pair.plate], "{operation:?}");
         assert!(evaluation.body(pair.peg).is_none());
+
         let found = volume(&evaluation, pair.plate);
+
         assert!(
             (found - expected).abs() < 0.01 * expected,
             "{operation:?}: {found} instead of {expected}"
@@ -142,15 +153,22 @@ fn joining_cutting_and_intersecting_make_one_body_of_the_target_and_consume_the_
 #[test]
 fn a_combine_that_fails_leaves_both_bodies_as_they_were() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Far away");
+
     let far = block(&mut transaction, "Far", (100.0, 0.0), (110.0, 10.0), "4 mm");
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut transaction = pair.document.transaction("Combine");
+
     let combined = transaction.add_feature(
         "Combine 1",
         FeatureKind::Combine(Combine::new(pair.plate, far, CombineOperation::Intersect)),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -158,25 +176,32 @@ fn a_combine_that_fails_leaves_both_bodies_as_they_were() {
     let FeatureState::Failed(error) = &evaluation.feature(combined).unwrap().state else {
         panic!("the combine should fail");
     };
+
     assert!(
         error.reason().contains("do not overlap"),
         "{}",
         error.reason()
     );
     assert_eq!(evaluation.failed_count(), 1);
+
     let bodies: Vec<FeatureId> = evaluation.bodies().map(|(body, _)| body).collect();
+
     assert_eq!(bodies, vec![pair.plate, pair.peg, far]);
 }
 
 #[test]
 fn a_body_cannot_be_combined_with_itself() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Combine");
+
     let combined = transaction.add_feature(
         "Combine 1",
         FeatureKind::Combine(Combine::new(pair.plate, pair.plate, CombineOperation::Join)),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -184,17 +209,21 @@ fn a_body_cannot_be_combined_with_itself() {
     let FeatureState::Failed(error) = &evaluation.feature(combined).unwrap().state else {
         panic!("the combine should fail");
     };
+
     assert_eq!(error.reason(), "A body cannot be combined with itself.");
 }
 
 #[test]
 fn suppressing_a_combine_brings_the_tool_body_back() {
     let mut pair = pair();
+
     let combined = combine(&mut pair, CombineOperation::Join);
     let mut engine = Recompute::default();
+
     assert_eq!(evaluate(&pair.document, &mut engine).bodies().count(), 1);
 
     let mut transaction = pair.document.transaction("Suppress");
+
     transaction.edit(Edit::SetFeatureSuppressed {
         id: combined,
         suppressed: true,
@@ -202,6 +231,7 @@ fn suppressing_a_combine_brings_the_tool_body_back() {
     pair.document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&pair.document, &mut engine);
+
     assert_eq!(evaluation.bodies().count(), 2);
     assert!((volume(&evaluation, pair.peg) - PEG).abs() < 0.01 * PEG);
 }
@@ -209,6 +239,7 @@ fn suppressing_a_combine_brings_the_tool_body_back() {
 #[test]
 fn deleting_the_tool_body_is_a_deletion_the_combine_depends_on() {
     let mut pair = pair();
+
     let combined = combine(&mut pair, CombineOperation::Join);
 
     assert_eq!(pair.document.dependents_of(&[pair.peg]), vec![combined]);
@@ -218,6 +249,7 @@ fn deleting_the_tool_body_is_a_deletion_the_combine_depends_on() {
 #[test]
 fn a_combine_depends_on_both_bodies_and_follows_the_tree_order() {
     let mut pair = pair();
+
     let combined = combine(&mut pair, CombineOperation::Cut);
     let feature = pair.document.feature(combined).unwrap();
 
@@ -232,15 +264,21 @@ fn a_combine_depends_on_both_bodies_and_follows_the_tree_order() {
 #[test]
 fn the_bodies_before_a_combine_leave_out_those_an_earlier_combine_consumed() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Third");
+
     let third = block(&mut transaction, "Third", (0.0, 20.0), (5.0, 25.0), "2 mm");
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let first = combine(&mut pair, CombineOperation::Join);
     let mut transaction = pair.document.transaction("Second combine");
+
     let second = transaction.add_feature(
         "Combine 2",
         FeatureKind::Combine(Combine::new(pair.plate, third, CombineOperation::Join)),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
 
     assert_eq!(
@@ -253,7 +291,9 @@ fn the_bodies_before_a_combine_leave_out_those_an_earlier_combine_consumed() {
 #[test]
 fn a_peg_a_few_micrometres_past_the_edge_of_a_plate_joins_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let plate = block(&mut transaction, "Plate", (0.0, 0.0), (20.0, 10.0), "4 mm");
     let peg = block(
         &mut transaction,
@@ -262,11 +302,14 @@ fn a_peg_a_few_micrometres_past_the_edge_of_a_plate_joins_it() {
         (20.000005, 8.0),
         "4 mm",
     );
+
     let combined = transaction.add_feature(
         "Combine 1",
         FeatureKind::Combine(Combine::new(plate, peg, CombineOperation::Join)),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&document, &mut engine);
@@ -280,9 +323,12 @@ fn a_peg_a_few_micrometres_past_the_edge_of_a_plate_joins_it() {
 #[test]
 fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut holed = rectangle((0.0, 0.0), (20.0, 10.0));
+
     holed.add_circle(Point2::new(10.0, 5.0), 2.5);
+
     let outline = transaction.add_feature("Plate outline", FeatureKind::from(holed));
     let plate = transaction.add_feature(
         "Plate",
@@ -299,7 +345,9 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
         })),
     );
     let mut round = Sketch::new(Plane::XY);
+
     round.add_circle(Point2::new(9.99999942597485, 5.000001385819298), 2.500001);
+
     let outline = transaction.add_feature("Peg outline", FeatureKind::from(round));
     let peg = transaction.add_feature(
         "Peg",
@@ -319,7 +367,9 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
         "Combine 1",
         FeatureKind::Combine(Combine::new(plate, peg, CombineOperation::Cut)),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&document, &mut engine);
@@ -328,6 +378,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
         panic!("the near contact should not combine");
     };
     let place = error.place.unwrap();
+
     assert_eq!(
         error.reason(),
         "The bodies of Plate and Peg could not be combined. Plate start face could not be \
@@ -345,13 +396,16 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
         "{}",
         error.remedy()
     );
+
     let from_axis = (place.x - 10.0).hypot(place.y - 5.0);
+
     assert!((from_axis - 2.5).abs() < 1e-4, "{place:?}");
     assert!(place.z.abs() < 1e-6, "{place:?}");
 }
 
 fn boss_on_peg(pair: &mut Pair) -> FeatureId {
     let mut transaction = pair.document.transaction("Boss");
+
     let outline = transaction.add_feature(
         "Boss outline",
         FeatureKind::from(rectangle((20.0, 3.0), (22.0, 5.0))),
@@ -370,12 +424,14 @@ fn boss_on_peg(pair: &mut Pair) -> FeatureId {
             direction: None,
         })),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
     boss
 }
 
 fn moved(document: &Document, id: FeatureId, index: usize) -> Result<(), EditError> {
     let mut transaction = document.transaction("Move");
+
     transaction.edit(Edit::MoveFeature { id, index });
     document.check_moves(&transaction.finish())
 }
@@ -383,6 +439,7 @@ fn moved(document: &Document, id: FeatureId, index: usize) -> Result<(), EditErr
 #[test]
 fn nothing_using_the_tool_body_moves_below_the_combine_that_consumes_it() {
     let mut pair = pair();
+
     let boss = boss_on_peg(&mut pair);
     let combined = combine(&mut pair, CombineOperation::Join);
     let boss_index = pair.document.feature_index(boss).unwrap();
@@ -414,6 +471,7 @@ fn nothing_using_the_tool_body_moves_below_the_combine_that_consumes_it() {
 #[test]
 fn a_feature_using_a_consumed_body_blames_the_combine_that_took_it() {
     let mut pair = pair();
+
     let combined = combine(&mut pair, CombineOperation::Join);
     let boss = boss_on_peg(&mut pair);
     let mut engine = Recompute::default();
@@ -423,6 +481,7 @@ fn a_feature_using_a_consumed_body_blames_the_combine_that_took_it() {
     let FeatureState::Failed(error) = &evaluation.feature(boss).unwrap().state else {
         panic!("the boss should fail");
     };
+
     assert_eq!(
         error.reason(),
         "Combine 1 combined the body made by Peg into the body of Plate, so it no longer stands on its own."
@@ -438,8 +497,11 @@ const POST: f64 = 5.0 * 10.0 * 4.0;
 
 fn pair_with_post() -> (Pair, FeatureId) {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Post");
+
     let post = block(&mut transaction, "Post", (0.0, 0.0), (5.0, 10.0), "6 mm");
+
     pair.document.apply(transaction.finish()).unwrap();
     (pair, post)
 }
@@ -451,6 +513,7 @@ fn combine_with(
     keep_tool: bool,
 ) -> FeatureId {
     let mut transaction = pair.document.transaction("Combine");
+
     let combined = transaction.add_feature(
         "Combine 1",
         FeatureKind::Combine(Combine {
@@ -459,6 +522,7 @@ fn combine_with(
             ..Combine::new(pair.plate, pair.peg, operation)
         }),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
     combined
 }
@@ -466,17 +530,24 @@ fn combine_with(
 #[test]
 fn several_tools_are_cut_from_one_target_and_all_consumed() {
     let (mut pair, post) = pair_with_post();
+
     let combined = combine_with(&mut pair, post, CombineOperation::Cut, false);
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let bodies: Vec<FeatureId> = evaluation.bodies().map(|(body, _)| body).collect();
+
     assert_eq!(bodies, vec![pair.plate]);
+
     let expected = PLATE - OVERLAP - POST;
+
     assert!((volume(&evaluation, pair.plate) - expected).abs() < 0.01 * expected);
+
     let feature = pair.document.feature(combined).unwrap();
+
     assert_eq!(feature.kind.consumed_bodies(), vec![pair.peg, post]);
     assert!(feature.kind.dependencies().contains(&post));
     assert_eq!(pair.document.dependents_of(&[post]), vec![combined]);
@@ -485,27 +556,35 @@ fn several_tools_are_cut_from_one_target_and_all_consumed() {
 #[test]
 fn several_bodies_join_the_target_in_one_combine() {
     let (mut pair, post) = pair_with_post();
+
     combine_with(&mut pair, post, CombineOperation::Join, false);
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let expected = PLATE + (PEG - OVERLAP) + (6.0 * 50.0 - POST);
+
     assert!((volume(&evaluation, pair.plate) - expected).abs() < 0.01 * expected);
 }
 
 #[test]
 fn a_kept_tool_stays_standing_and_can_cut_again() {
     let (mut pair, post) = pair_with_post();
+
     let combined = combine_with(&mut pair, post, CombineOperation::Cut, true);
     let mut transaction = pair.document.transaction("Second target");
+
     let other = block(&mut transaction, "Other", (14.0, 0.0), (30.0, 10.0), "4 mm");
     let again = transaction.add_feature(
         "Combine 2",
         FeatureKind::Combine(Combine::new(other, pair.peg, CombineOperation::Cut)),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -523,9 +602,13 @@ fn a_kept_tool_stays_standing_and_can_cut_again() {
         pair.document.bodies_before(again),
         vec![pair.plate, pair.peg, post, other]
     );
+
     let bodies: Vec<FeatureId> = evaluation.bodies().map(|(body, _)| body).collect();
+
     assert_eq!(bodies, vec![pair.plate, post, other]);
+
     let expected = PLATE - OVERLAP - POST;
+
     assert!((volume(&evaluation, pair.plate) - expected).abs() < 0.01 * expected);
 }
 
@@ -533,6 +616,7 @@ fn a_kept_tool_stays_standing_and_can_cut_again() {
 fn a_tool_chosen_twice_or_equal_to_the_target_fails_the_combine() {
     let (mut pair, post) = pair_with_post();
     let mut transaction = pair.document.transaction("Combine");
+
     let twice = transaction.add_feature(
         "Twice",
         FeatureKind::Combine(Combine {
@@ -547,7 +631,9 @@ fn a_tool_chosen_twice_or_equal_to_the_target_fails_the_combine() {
             ..Combine::new(pair.plate, post, CombineOperation::Cut)
         }),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -555,20 +641,24 @@ fn a_tool_chosen_twice_or_equal_to_the_target_fails_the_combine() {
     let FeatureState::Failed(error) = &evaluation.feature(twice).unwrap().state else {
         panic!("the combine should fail");
     };
+
     assert!(
         error.reason().contains("more than once"),
         "{}",
         error.reason()
     );
+
     let FeatureState::Failed(error) = &evaluation.feature(itself).unwrap().state else {
         panic!("the combine should fail");
     };
+
     assert_eq!(error.reason(), "A body cannot be combined with itself.");
 }
 
 #[test]
 fn every_mirrored_or_repeated_feature_is_held_once() {
     let mut pair = pair();
+
     let (plate, peg) = (pair.plate, pair.peg);
 
     let mirror =
@@ -582,11 +672,16 @@ fn every_mirrored_or_repeated_feature_is_held_once() {
             reversed: false,
         }),
     );
+
     pattern.repeated = vec![peg, peg];
+
     let mut transaction = pair.document.transaction("Several");
+
     let mirrored = transaction.add_feature("Mirror 1", FeatureKind::Mirror(mirror));
     let patterned = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let kind = |id| pair.document.feature(id).unwrap().kind.clone();
 
     assert_eq!(kind(mirrored).mirror().unwrap().mirrored, [peg]);

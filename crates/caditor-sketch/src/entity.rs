@@ -5,7 +5,7 @@ use crate::{
     id::EntityId,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Entity {
     Point(Point2),
     Line {
@@ -197,7 +197,7 @@ impl Entity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Role {
     Point,
     Line,
@@ -213,13 +213,13 @@ pub const MIN_DEGREE: usize = 1;
 pub const MAX_DEGREE: usize = 25;
 pub const CUBIC_DEGREE: usize = 3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FitSpacing {
     Even,
     Centripetal,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SplineKind {
     Control {
         closed: bool,
@@ -355,6 +355,7 @@ impl SplineKind {
 
     pub fn graded(degree: usize, points: usize) -> Option<Self> {
         let spans = points.checked_sub(degree).filter(|spans| *spans >= 1)?;
+
         if !Self::degree_is_valid(degree) {
             return None;
         }

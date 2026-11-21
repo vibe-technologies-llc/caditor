@@ -14,13 +14,13 @@ use crate::{
 const PARALLEL_SINE: f64 = 1e-12;
 const SHARED_CORNER: f64 = 10.0 * LINEAR_RESOLUTION;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Axis {
     pub origin: Point3,
     pub direction: Vector3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EdgeForm {
     Line {
         start: Point3,
@@ -40,14 +40,14 @@ pub enum EdgeForm {
     Curve,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EdgeMeasure {
     pub length: f64,
     pub length_accuracy: Accuracy,
     pub form: EdgeForm,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FaceForm {
     Plane {
         origin: Point3,
@@ -74,7 +74,7 @@ pub enum FaceForm {
     Surface,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AngleKind {
     Corner,
     Lines,
@@ -82,7 +82,7 @@ pub enum AngleKind {
     LineAndPlane,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Angle {
     pub radians: f64,
     pub kind: AngleKind,
@@ -184,6 +184,7 @@ pub fn axis_separation(first: Axis, second: Axis) -> Separation {
     let squared_sine = across.length_squared()
         / (first.direction.length_squared() * second.direction.length_squared())
             .max(f64::MIN_POSITIVE);
+
     let (from, to) = if squared_sine <= PARALLEL_SINE * PARALLEL_SINE {
         let along = first.direction.dot(offset) / first.direction.length_squared();
         (first.origin + first.direction * along, second.origin)

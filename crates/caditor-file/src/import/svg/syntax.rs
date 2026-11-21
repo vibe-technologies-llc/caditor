@@ -52,12 +52,17 @@ impl<'a> Scanner<'a> {
     pub fn number(&mut self) -> Option<f64> {
         let start = self.at;
         let mut end = start;
+
         if matches!(self.byte(end), Some(b'+' | b'-')) {
             end += 1;
         }
+
         let whole = self.digits(end);
+
         end += whole;
+
         let mut fraction = 0;
+
         if self.byte(end) == Some(b'.') {
             fraction = self.digits(end + 1);
             if fraction > 0 || whole > 0 {
@@ -69,19 +74,23 @@ impl<'a> Scanner<'a> {
         }
         if matches!(self.byte(end), Some(b'e' | b'E')) {
             let mut exponent = end + 1;
+
             if matches!(self.byte(exponent), Some(b'+' | b'-')) {
                 exponent += 1;
             }
+
             let digits = self.digits(exponent);
             if digits > 0 {
                 end = exponent + digits;
             }
         }
+
         let value = std::str::from_utf8(self.text.get(start..end)?)
             .ok()?
             .parse::<f64>()
             .ok()
             .filter(|value| value.is_finite())?;
+
         self.at = end;
         Some(value)
     }
@@ -92,6 +101,7 @@ impl<'a> Scanner<'a> {
             b'1' => true,
             _ => return None,
         };
+
         self.advance();
         Some(flag)
     }
@@ -113,18 +123,20 @@ impl<'a> Scanner<'a> {
 pub(super) fn numbers(text: &str) -> (Vec<f64>, bool) {
     let mut scanner = Scanner::new(text);
     let mut values = Vec::new();
+
     scanner.skip_space();
     while !scanner.at_end() {
         let Some(value) = scanner.number() else {
             return (values, false);
         };
+
         values.push(value);
         scanner.skip_separator();
     }
     (values, true)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Unit {
     Plain,
     Pixels,
@@ -165,7 +177,7 @@ impl Unit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Length {
     pub value: f64,
     pub unit: Unit,
@@ -174,6 +186,7 @@ pub(super) struct Length {
 impl Length {
     pub fn parse(text: &str) -> Option<Self> {
         let mut scanner = Scanner::new(text.trim());
+
         let value = scanner.number()?;
         let unit = Unit::named(scanner.rest())?;
         Some(Self { value, unit })
@@ -187,7 +200,7 @@ impl Length {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Matrix {
     pub a: f64,
     pub b: f64,
@@ -270,12 +283,14 @@ pub(super) fn transform_list(text: &str) -> Option<Matrix> {
         if scanner.at_end() {
             return Some(matrix);
         }
+
         let name: Vec<u8> = scanner
             .rest()
             .iter()
             .take_while(|byte| byte.is_ascii_alphabetic())
             .copied()
             .collect();
+
         for _ in 0..name.len() {
             scanner.advance();
         }
@@ -284,7 +299,9 @@ pub(super) fn transform_list(text: &str) -> Option<Matrix> {
             return None;
         }
         scanner.advance();
+
         let mut values = Vec::new();
+
         loop {
             scanner.skip_space();
             if scanner.peek() == Some(b')') {

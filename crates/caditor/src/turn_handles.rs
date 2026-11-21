@@ -34,7 +34,7 @@ const EQUALLY_NEAR: f64 = 1e-6;
 const ARC_STEP_DEGREES: f64 = 5.0;
 const MAX_ARC_STEPS: f64 = 72.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TurnEnd {
     Only,
     Symmetric,
@@ -79,7 +79,7 @@ impl TurnEnd {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Swing {
     pub foot: Point3,
     pub radial: Vector3,
@@ -104,9 +104,11 @@ impl Swing {
 
     pub fn degrees_near(&self, ray: Ray, near: Option<f64>) -> Option<f64> {
         let axis = self.radial.cross(self.normal);
+
         if ray.direction().dot(axis).abs() < EDGE_ON_FACING {
             return self.nearest_to_ray(ray, near);
         }
+
         let plane = caditor_geometry::Plane::new(self.foot, axis)?;
         self.degrees_at(ray.at(ray.intersect_plane(&plane)?))
     }
@@ -124,6 +126,7 @@ impl Swing {
         if self.radius <= SMALLEST_RADIUS {
             return None;
         }
+
         let step = FULL_TURN_DEGREES / NEAREST_SAMPLES as f64;
         let gaps: Vec<f64> = (0..NEAREST_SAMPLES)
             .map(|index| self.gap_to_ray(ray, index as f64 * step).0)
@@ -131,6 +134,7 @@ impl Swing {
         let refined = |index: usize| {
             let centre = index as f64 * step;
             let (mut low, mut high) = (centre - step, centre + step);
+
             for _ in 0..NEAREST_REFINEMENTS {
                 let third = (high - low) / 3.0;
                 let (left, right) = (low + third, high - third);
@@ -144,6 +148,7 @@ impl Swing {
         };
         let before = gaps.iter().cycle().skip(NEAREST_SAMPLES - 1);
         let after = gaps.iter().cycle().skip(1);
+
         let minima: Vec<f64> = gaps
             .iter()
             .zip(before.zip(after))
@@ -156,6 +161,7 @@ impl Swing {
             .map(|degrees| self.gap_to_ray(ray, *degrees).0)
             .fold(f64::INFINITY, f64::min);
         let scale = self.radius * self.radius;
+
         let contenders = minima
             .into_iter()
             .filter(|degrees| self.gap_to_ray(ray, *degrees).0 <= nearest + EQUALLY_NEAR * scale);
@@ -186,14 +192,14 @@ impl Swing {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Grip {
     end: TurnEnd,
     degrees: f64,
     sign: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TurnHandles {
     pub feature: FeatureId,
     swing: Swing,
@@ -237,11 +243,14 @@ fn axis_line(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<(Po
                     Reference::VerticalAxis => plane.y_axis(),
                     Reference::Origin => return None,
                 };
+
                 return Some((plane.origin(), along));
             }
+
             let sketch = document.feature(revolve.sketch)?;
             let displayed = model.displayed_sketch(sketch)?;
             let (start, end) = displayed.line_endpoints(*line)?;
+
             let (start, end) = (plane.to_world(start), plane.to_world(end));
             Some((start, (end - start).try_normalize()?))
         }
@@ -256,8 +265,10 @@ fn swing(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<Swing> 
     let document = model.document();
     let plane = scene::sketch_plane(document, model.evaluation(), revolve.sketch)?;
     let bounds = model.sketch_bounds(document.feature(revolve.sketch)?)?;
+
     let middle = plane.to_world(plane.to_local(bounds.center()));
     let (origin, along) = axis_line(model, feature, revolve)?;
+
     let foot = origin + along * (middle - origin).dot(along);
     let offset = middle - foot;
     let radius = offset.length();
@@ -308,6 +319,7 @@ pub fn primary(model: &Model, feature: FeatureId) -> Option<TurnEnd> {
         .next()?
         .end;
     let mut extent = revolve.extent.clone();
+
     let slot = end.slot(&mut extent)?;
     let free = Held::of(model.document(), feature, end.caption(), slot)
         .driven()
@@ -334,6 +346,7 @@ pub fn turn_arcs(model: &Model, feature: FeatureId) -> Vec<(TurnEnd, Vec<Point3>
             let steps = (span.abs() / ARC_STEP_DEGREES)
                 .ceil()
                 .clamp(1.0, MAX_ARC_STEPS);
+
             let points = (0..=steps as usize)
                 .map(|step| swing.at(from + span * step as f64 / steps))
                 .collect();
@@ -354,6 +367,7 @@ impl TurnHandles {
         let grips = grips(model, feature, &revolve.extent);
         let depth = view.view_depth(swing.foot + swing.radial * swing.radius);
         let per_point = pixels_per_point * view.units_per_pixel_at(depth);
+
         let shown = view.is_drawn_at(depth)
             && per_point.is_finite()
             && per_point > 0.0
@@ -396,6 +410,7 @@ impl TurnHandles {
         };
         let revolve = committed_revolve(model, self.feature)?;
         let mut extent = revolve.extent.clone();
+
         let slot = end.slot(&mut extent)?;
         Held::of(model.document(), self.feature, end.caption(), slot).driven()
     }
@@ -418,6 +433,7 @@ impl TurnHandles {
             .flatten()
             .filter_map(|grip| {
                 let (from, to, _) = self.segment(*grip);
+
                 let distance = segment_distance(view.project(from)?, view.project(to)?, cursor);
                 Some((distance, Handle::Revolve(grip.end)))
             })
@@ -433,8 +449,10 @@ impl TurnHandles {
         };
         let grip = self.grip(end)?;
         let (from, tip, _) = self.segment(grip);
+
         let offset = from.lerp(tip, 0.6) - self.swing.foot;
         let axis = self.swing.radial.cross(self.swing.normal);
+
         let (x, y, z) = (
             offset.dot(self.swing.radial),
             offset.dot(self.swing.normal),
@@ -465,6 +483,7 @@ impl TurnHandles {
             } else {
                 palette.handle
             };
+
             Arrow {
                 from,
                 tip,
@@ -477,7 +496,7 @@ impl TurnHandles {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TurnDrag {
     start: Revolve,
     end: TurnEnd,
@@ -497,6 +516,7 @@ impl TurnDrag {
         let start = committed_revolve(model, handles.feature)?.clone();
         let grip = handles.grip(end)?;
         let mut extent = start.extent.clone();
+
         let from = degrees(model, handles.feature, end.slot(&mut extent)?)?;
         let other = match (&start.extent, end) {
             (RevolveExtent::TwoSides { backward, .. }, TurnEnd::Forward) => {
@@ -528,8 +548,10 @@ impl TurnDrag {
             return false;
         };
         let turned = (now - self.last + 180.0).rem_euclid(360.0) - 180.0;
+
         self.last = now;
         self.swept += turned;
+
         let wanted = self.from + self.sign * self.share * self.swept;
         let snapped = snap
             .filter(|_| !free)
@@ -539,6 +561,7 @@ impl TurnDrag {
                 Some((self.sign * self.share * degrees, snap))
             })
             .filter(|(value, _)| self.limited(*value) == *value);
+
         let (value, snapped) = match snapped {
             Some((value, snap)) => (value, Some(snap)),
             None if free => (self.limited(wanted), None),
@@ -547,7 +570,9 @@ impl TurnDrag {
                 None,
             ),
         };
+
         let changed = value != self.value || snapped != self.snapped;
+
         self.value = value;
         self.snapped = snapped;
         changed
@@ -555,9 +580,11 @@ impl TurnDrag {
 
     fn limited(&self, value: f64) -> f64 {
         let least = STEP_DEGREES.min(self.limit);
+
         if self.end != TurnEnd::Only {
             return value.clamp(least, self.limit);
         }
+
         let size = value.abs().clamp(least, self.limit);
         if value < 0.0 { -size } else { size }
     }
@@ -573,6 +600,7 @@ impl TurnDrag {
     pub fn transaction(&self, model: &Model, feature: FeatureId) -> Option<Transaction> {
         let document = model.document();
         let mut probe = self.start.extent.clone();
+
         let held = Held::of(
             document,
             feature,
@@ -581,6 +609,7 @@ impl TurnDrag {
         );
         let mut revolve = self.start.clone();
         let mut named = Vec::new();
+
         held.set(
             self.end.slot(&mut revolve.extent)?,
             model.units().angle.measured(self.value.abs()),
@@ -646,9 +675,11 @@ pub fn typed(
     let document = model.document();
     let start = committed_revolve(model, feature)?;
     let mut probe = start.extent.clone();
+
     let held = Held::of(document, feature, end.caption(), end.slot(&mut probe)?);
     let mut revolve = start.clone();
     let mut named = Vec::new();
+
     held.set(end.slot(&mut revolve.extent)?, value, &mut named);
     manipulator::keeping_names(
         document,
@@ -707,6 +738,7 @@ mod tests {
         for degrees in [25.0, 30.0, 35.0, 40.0] {
             let ray = grazing_through(&swing, degrees, 2.0);
             let now = swing.degrees_near(ray, Some(last)).unwrap();
+
             swept += (now - last + 180.0).rem_euclid(360.0) - 180.0;
             last = now;
         }

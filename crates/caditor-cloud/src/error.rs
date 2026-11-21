@@ -2,7 +2,7 @@ use std::io;
 
 use crate::{service::Service, transport::TransportError};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Subject {
     Token,
     Account,

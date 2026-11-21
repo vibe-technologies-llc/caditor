@@ -63,6 +63,7 @@ impl Threads {
         let Some(threads) = self.pool() else {
             return body(&Pool { scope: None, work });
         };
+
         work.queue.lock().limit = threads.current_num_threads();
         threads.in_place_scope(|scope| {
             body(&Pool {
@@ -159,7 +160,9 @@ impl Queue {
             self.running.insert(index);
             return Some(Task::Evaluate(index, job));
         }
+
         let meshing = self.meshes.iter_mut().find(|meshing| !meshing.running)?;
+
         meshing.running = true;
         Some(Task::Mesh(meshing.body.clone()))
     }
@@ -192,6 +195,7 @@ impl<'a> Work<'a> {
 
     fn serve(&self) {
         let mut queue = self.queue.lock();
+
         queue.starting -= 1;
         loop {
             if queue.closed {
@@ -234,6 +238,7 @@ impl<'a> Work<'a> {
             None => Landed::Lost,
         };
         let mut queue = self.queue.lock();
+
         queue.running.remove(&index);
         queue.landed.push((index, landed));
         if let Some(computed) = computed {
@@ -247,6 +252,7 @@ impl<'a> Work<'a> {
         let meshed = !self.context.cancel.is_cancelled() && self.tessellate(body);
         let callbacks = {
             let mut queue = self.queue.lock();
+
             let at = queue
                 .meshes
                 .iter()
@@ -263,10 +269,13 @@ impl<'a> Work<'a> {
         let Some(solid) = body.result.solid() else {
             return false;
         };
+
         if solid.is_meshed() {
             return false;
         }
+
         let earlier = self.last_meshes.of(solid.body);
+
         interruptible(self.context.cancel.interrupt(), || {
             solid.tessellate(
                 &body.name,
@@ -297,6 +306,7 @@ impl<'scope> Pool<'_, 'scope> {
 
     pub(crate) fn queue(&self, index: usize, job: Job) {
         let mut queue = self.work.queue.lock();
+
         if queue.limit == 0 || queue.closed {
             return;
         }
@@ -306,6 +316,7 @@ impl<'scope> Pool<'_, 'scope> {
 
     pub(crate) fn mesh(&self, body: SettledBody, meshed: Meshed) {
         let mut queue = self.work.queue.lock();
+
         if queue.closed {
             return;
         }
@@ -335,6 +346,7 @@ impl<'scope> Pool<'_, 'scope> {
 
     pub(crate) fn claim(&self, index: usize) -> Claim {
         let mut queue = self.work.queue.lock();
+
         if queue.queued.contains_key(&index) {
             if queue.has_idle_worker() {
                 return Claim::Pending;
@@ -363,12 +375,14 @@ impl<'scope> Pool<'_, 'scope> {
         let Some(task) = task else {
             return false;
         };
+
         self.work.run(task);
         true
     }
 
     pub(crate) fn forget_features(&self) {
         let mut queue = self.work.queue.lock();
+
         queue.queued.clear();
         queue.finished.clear();
         queue.landed.clear();
@@ -376,6 +390,7 @@ impl<'scope> Pool<'_, 'scope> {
 
     fn wake(&self, mut queue: MutexGuard<'_, Queue>) {
         let spawn = queue.waiting() > queue.idle && queue.started < queue.limit;
+
         if spawn {
             queue.started += 1;
             queue.starting += 1;
@@ -387,6 +402,7 @@ impl<'scope> Pool<'_, 'scope> {
         }
         if let Some(scope) = self.scope.filter(|_| spawn) {
             let work = self.work;
+
             scope.spawn(move |_| work.serve());
         }
     }
@@ -397,6 +413,7 @@ pub(crate) struct Closing<'a>(&'a Work<'a>);
 impl Drop for Closing<'_> {
     fn drop(&mut self) {
         let mut queue = self.0.queue.lock();
+
         queue.closed = true;
         queue.queued.clear();
         queue.finished.clear();

@@ -13,6 +13,7 @@ pub fn cluster_size(file: &File) -> io::Result<u64> {
     let mut returned = 0u32;
     let size = u32::try_from(size_of::<FSCTL_GET_INTEGRITY_INFORMATION_BUFFER>())
         .map_err(io::Error::other)?;
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let done = unsafe {
         DeviceIoControl(
@@ -26,6 +27,7 @@ pub fn cluster_size(file: &File) -> io::Result<u64> {
             ptr::null_mut(),
         )
     };
+
     if done == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -50,6 +52,7 @@ pub fn duplicate_extents(
     };
     let size = u32::try_from(size_of::<DUPLICATE_EXTENTS_DATA>()).map_err(io::Error::other)?;
     let mut returned = 0u32;
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let done = unsafe {
         DeviceIoControl(

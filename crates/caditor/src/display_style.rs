@@ -1,6 +1,6 @@
 use crate::variants::all_variants;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DisplayStyle {
     #[default]
     ShadedWithEdges,

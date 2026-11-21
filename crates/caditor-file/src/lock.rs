@@ -42,6 +42,7 @@ pub(crate) fn holds(file: &File, path: &Path) -> bool {
 
 pub(crate) fn lock_existing(path: &Path) -> io::Result<Option<File>> {
     ensure_regular(&fs::metadata(path)?)?;
+
     let writable = OpenOptions::new().read(true).write(true).open(path);
     let (file, exclusive) = match writable {
         Ok(file) => (file, true),
@@ -55,6 +56,7 @@ pub(crate) fn lock_existing(path: &Path) -> io::Result<Option<File>> {
         }
         Err(error) => return Err(error),
     };
+
     let locked = if exclusive {
         file.try_lock()
     } else {
@@ -97,7 +99,9 @@ pub(crate) fn install(temporary: &Path, path: &Path, own: Option<&File>) -> io::
             }
         }
     }
+
     let existing = lock_existing(path)?.ok_or_else(in_use)?;
+
     if !holds(&existing, path) {
         return Err(in_use());
     }
@@ -134,6 +138,7 @@ pub(crate) fn locked_update<T>(
     update: impl FnOnce() -> Result<T, UpdateFailure>,
 ) -> Result<T, UpdateFailure> {
     fs::create_dir_all(dir).map_err(|error| folder_failure(dir, &error))?;
+
     let lock_path = dir.join(lock_name);
     let _held = hold_update_lock(&lock_path);
     update()

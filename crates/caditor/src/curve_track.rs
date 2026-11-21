@@ -7,13 +7,13 @@ const SAME_POINT: f64 = 1e-12;
 const PARALLEL: f64 = 1e-18;
 const ON_THE_CURVE: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TrackPoint {
     pub position: f64,
     pub point: Point3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Reach {
     Within,
     Before,
@@ -32,7 +32,7 @@ impl Reach {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Piece {
     from: TrackPoint,
     to: TrackPoint,
@@ -58,7 +58,9 @@ impl Piece {
     fn nearest_to_point(&self, point: Point3) -> Option<(f64, f64)> {
         let run = self.run();
         let length = run.length_squared();
+
         (length > PARALLEL).then_some(())?;
+
         let share = self
             .reach
             .clamp((point - self.from.point).dot(run) / length);
@@ -70,13 +72,16 @@ impl Piece {
         let run = self.run();
         let toward = ray.direction();
         let offset = self.from.point - ray.origin();
+
         let (a, b, d, e) = (
             run.length_squared(),
             run.dot(toward),
             run.dot(offset),
             toward.dot(offset),
         );
+
         (a > PARALLEL).then_some(())?;
+
         let apart = a - b * b;
         let free = if apart > PARALLEL * a {
             (b * e - d) / apart
@@ -92,17 +97,20 @@ impl Piece {
         let run = self.run();
         let normal = direction.cross(run);
         let across = normal.length_squared();
+
         (across > PARALLEL).then_some(())?;
+
         let offset = self.from.point - from;
         let along = offset.cross(run).dot(normal) / across;
         let share = offset.cross(direction).dot(normal) / across;
+
         let gap = (from + direction * along).distance(self.from.point + run * share);
         let inside = self.reach.clamp(share) == share;
         (inside && gap <= ON_THE_CURVE * run.length().max(1.0)).then_some(along)
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CurveTrack {
     points: Arc<[TrackPoint]>,
     first: Piece,
@@ -114,11 +122,13 @@ impl CurveTrack {
             .into_iter()
             .filter(|point| point.position.is_finite() && point.point.is_finite())
             .collect();
+
         kept.sort_by(|a, b| a.position.total_cmp(&b.position));
         kept.dedup_by(|later, earlier| {
             later.position - earlier.position <= SAME_POSITION
                 || later.point.distance(earlier.point) <= SAME_POINT
         });
+
         let (from, to) = match kept.as_slice() {
             [from, to, ..] => (*from, *to),
             _ => return None,

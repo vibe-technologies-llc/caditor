@@ -19,6 +19,7 @@ pub(crate) fn style_texel_bytes(
 ) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(layout.texels() * STYLE_TEXEL_BYTES as usize);
     let padded = texels.chain(iter::repeat([0; 4])).take(layout.texels());
+
     for texel in padded.flatten() {
         bytes.extend_from_slice(&texel.to_le_bytes());
     }
@@ -50,6 +51,7 @@ impl StyleTable {
         let table = kept
             .filter(|kept| kept.layout == layout)
             .unwrap_or_else(|| Self::new(device, bind_group_layout, label, layout));
+
         queue.write_texture(
             table.texture.as_image_copy(),
             bytes,

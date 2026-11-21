@@ -64,6 +64,7 @@ fn a_face_moved_along_its_normal_takes_its_neighbours_with_it() {
 
     check("taller", &taller, 1300.0);
     check("lower", &lower, 600.0);
+
     assert_eq!(names(&taller), names(&block));
     assert_eq!(taller.faces().count(), 6);
 }
@@ -88,8 +89,10 @@ fn a_wall_tilted_about_its_bottom_edge_leans_out_and_the_top_follows() {
     let inward = carried(&block, &[side], turned(hinge, Vector3::Y, -10.0));
 
     let wedge = 500.0 * 10f64.to_radians().tan_libm();
+
     check("outward", &outward, 1000.0 + wedge);
     check("inward", &inward, 1000.0 - wedge);
+
     assert_eq!(names(&outward), names(&block));
 }
 
@@ -105,6 +108,7 @@ fn a_top_tilted_about_its_middle_cuts_an_ellipse_from_a_round_post() {
     );
 
     check("slanted", &slanted, 250.0 * PI);
+
     assert_eq!(names(&slanted), names(&post));
 }
 
@@ -116,6 +120,7 @@ fn a_bore_moves_sideways_through_the_plate() {
     let moved = carried(&plate, &bore, shifted(Vector3::new(4.0, -2.5, 0.0)));
 
     check("moved", &moved, 20.0 * 20.0 * 6.0 - 9.0 * PI * 6.0);
+
     assert_eq!(names(&moved), names(&plate));
 }
 
@@ -129,6 +134,7 @@ fn a_boss_moves_across_its_base_with_its_walls() {
         &polygon(&[(5.0, 5.0), (10.0, 5.0), (10.0, 10.0), (5.0, 10.0)]),
         8.0,
     );
+
     let body = boolean(&base, &boss, BooleanOperation::Union).unwrap();
     let raised: Vec<FaceId> = [
         (Vector3::Z, Point3::new(7.0, 7.0, 8.0)),
@@ -222,6 +228,7 @@ fn a_bore_tilted_about_a_line_across_its_middle_slants_through_the_plate() {
 fn a_top_moves_up_with_the_fillet_along_its_rim() {
     let block = cuboid(Vector3::splat(10.0));
     let rim = edge_through(&block, Point3::new(5.0, 0.0, 10.0));
+
     let rounded = blend(&block, &[rim], BlendShape::Fillet { radius: 2.0 }, 5).unwrap();
     let top = face_facing(&rounded, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
     let fillet = round_faces(&rounded);
@@ -232,6 +239,8 @@ fn a_top_moves_up_with_the_fillet_along_its_rim() {
     let together = carried(&rounded, &[&[top], &fillet[..]].concat(), lift);
 
     assert!(alone.is_err(), "{alone:?}");
+
     check("together", &together, rounded_volume + 300.0);
+
     assert_eq!(names(&together), names(&rounded));
 }

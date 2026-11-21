@@ -37,7 +37,7 @@ pub const APPROXIMATELY: &str = "≈ ";
 const FULL_TURN_SLACK: f64 = 1e-9;
 const PARALLEL_SINE: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Value {
     Length(f64),
     Area(f64),
@@ -49,7 +49,7 @@ pub enum Value {
     Mass(f64),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Reading {
     pub label: &'static str,
     pub value: Value,
@@ -74,21 +74,21 @@ impl Reading {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Group {
     pub title: String,
     pub readings: Vec<Reading>,
     pub problem: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MeasuredLine {
     pub from: Point3,
     pub to: Point3,
     pub accuracy: Accuracy,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Readout {
     pub groups: Vec<Group>,
     pub line: Option<MeasuredLine>,
@@ -96,7 +96,7 @@ pub struct Readout {
     pub kept: Vec<MeasuredItem>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Subject {
     Point(Point3),
     Edge {
@@ -125,7 +125,7 @@ enum Subject {
     Unmeasurable,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Item {
     name: String,
     subject: Subject,
@@ -311,6 +311,7 @@ pub fn direction_of(model: &Model, pickable: Pickable) -> Option<Vector3> {
         Element::Curve { curve, interval } => Some(curve_measure(curve, interval)),
         Element::Point(_) | Element::Face { .. } | Element::Axis(_) | Element::Plane { .. } => None,
     };
+
     if let Some(EdgeMeasure {
         form: EdgeForm::Line { start, end },
         ..
@@ -327,6 +328,7 @@ pub fn direction_of(model: &Model, pickable: Pickable) -> Option<Vector3> {
 pub fn size_text(model: &Model, pickable: Pickable) -> Option<String> {
     let subject = subject_of(model, pickable)?;
     let unit = model.units();
+
     let parts = match &subject {
         Subject::Face { result, face } => {
             let solid = &result.solid()?.solid;
@@ -373,7 +375,7 @@ pub fn size_text(model: &Model, pickable: Pickable) -> Option<String> {
 pub const SIZE_SEPARATOR: &str = "  ·  ";
 const RIGHT_ANGLE_SLACK: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum OutlineSide {
     Line { start: Point3, end: Point3 },
     Arc { radius: f64, sweep: f64 },
@@ -557,6 +559,7 @@ fn face_parts(model: &Model, solid: &Solid, face: FaceId, area: &Reading) -> Vec
         }
         Ok(FaceForm::Surface) | Err(_) => Vec::new(),
     };
+
     parts.extend(area_text);
     parts
 }
@@ -594,6 +597,7 @@ pub fn body_size_text(model: &Model, body: FeatureId) -> Option<String> {
 fn items_of(model: &Model, selection: &Selection) -> Vec<Item> {
     let document = model.document();
     let mut items: Vec<Item> = Vec::new();
+
     for pickable in selection.iter() {
         let name = || pickable.describe(document, model.evaluation());
         match subject_of(model, pickable).unwrap_or(Subject::Unmeasurable) {
@@ -627,6 +631,7 @@ fn items_of(model: &Model, selection: &Selection) -> Vec<Item> {
             let sketch = document
                 .feature(*sketch)
                 .map_or("the sketch", |feature| feature.name.as_str());
+
             item.name = format!("{sketch} › {} regions", regions.len());
         }
     }
@@ -667,7 +672,7 @@ fn item_count(selection: &Selection) -> usize {
         .count()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Relative {
     to_local: RigidTransform,
 }
@@ -710,11 +715,13 @@ fn read(items: &[Item], relative: Relative) -> Readout {
     if items.len() > 2 {
         return too_many();
     }
+
     let mut readout = Readout {
         groups: items
             .iter()
             .map(|item| {
                 let mut group = describe(item);
+
                 group.readings = group
                     .readings
                     .into_iter()
@@ -725,6 +732,7 @@ fn read(items: &[Item], relative: Relative) -> Readout {
             .collect(),
         ..Readout::default()
     };
+
     if let [first, second] = items
         && let (Some(first), Some(second)) = (first.element(), second.element())
     {
@@ -789,6 +797,7 @@ fn readings_of(item: &Item, element: Element<'_>) -> Result<Vec<Reading>, Measur
         ],
         Element::Face { solid, face } => {
             let mut readings = Vec::new();
+
             match face_area(solid, face)? {
                 Some(area) => readings.push(Reading::exact("Area", Value::Area(area))),
                 None => {
@@ -840,6 +849,7 @@ fn section_readings(plane: &Plane, regions: &[Region]) -> Option<Vec<Reading>> {
     let moments = section.moments;
     let principal = moments.principal();
     let reading = |label, value| Reading::with(label, value, accuracy);
+
     let mut readings = vec![
         reading("Area", Value::Area(section.area)),
         reading("Perimeter", Value::Length(section.perimeter)),
@@ -863,8 +873,10 @@ fn section_readings(plane: &Plane, regions: &[Region]) -> Option<Vec<Reading>> {
         reading("Principal moment I1", Value::SecondMoment(principal.major)),
         reading("Principal moment I2", Value::SecondMoment(principal.minor)),
     ];
+
     if let Some(turn) = principal.angle {
         let (sin, cos) = turn.sin_cos();
+
         readings.extend([
             reading("Principal angle from x", Value::Angle(turn)),
             reading(
@@ -882,6 +894,7 @@ fn curve_readings(measured: EdgeMeasure) -> Vec<Reading> {
         Value::Length(measured.length),
         measured.length_accuracy,
     )];
+
     match measured.form {
         EdgeForm::Circle {
             center,
@@ -933,6 +946,7 @@ fn between(
         closest.accuracy,
     )];
     let offset = relative.direction(closest.offset());
+
     readings.extend([
         Reading::with("Along X", Value::Length(offset.x.abs()), closest.accuracy),
         Reading::with("Along Y", Value::Length(offset.y.abs()), closest.accuracy),
@@ -947,8 +961,10 @@ fn between(
             AngleKind::Planes => "Angle between the planes",
             AngleKind::LineAndPlane => "Angle to the plane",
         };
+
         readings.push(Reading::exact(label, Value::Angle(found.radians)));
     }
+
     let line = (closest.distance > LINEAR_RESOLUTION).then_some(MeasuredLine {
         from: closest.from,
         to: closest.to,
@@ -985,9 +1001,11 @@ fn centres_and_axes(first: Element<'_>, second: Element<'_>) -> Result<Vec<Readi
             Value::Length(from.distance(to)),
         )]);
     }
+
     let (Some(first), Some(second)) = (axis_of(first)?, axis_of(second)?) else {
         return Ok(Vec::new());
     };
+
     let apart: Separation = axis_separation(first, second);
     let mut readings = vec![Reading::exact(
         "Axis to axis",
@@ -998,6 +1016,7 @@ fn centres_and_axes(first: Element<'_>, second: Element<'_>) -> Result<Vec<Readi
         .cross(second.direction)
         .length()
         .atan2(first.direction.dot(second.direction).abs());
+
     if turn > PARALLEL_SINE {
         readings.push(Reading::exact("Angle between the axes", Value::Angle(turn)));
     }
@@ -1021,6 +1040,7 @@ fn plane_gap(first: Element<'_>, second: Element<'_>) -> Result<Option<Reading>,
     else {
         return Ok(None);
     };
+
     let parallel = normal.cross(other_normal).length() <= PARALLEL_SINE;
     Ok(parallel.then(|| {
         Reading::exact(
@@ -1040,7 +1060,7 @@ fn measure(items: &[Item], relative: Relative) -> Readout {
     })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Basis {
     selection: u64,
     revision: u64,
@@ -1075,6 +1095,7 @@ impl Worker {
     fn spawn(wake: Waker) -> Option<Self> {
         let (jobs, queue) = mpsc::channel::<Job>();
         let (sender, done) = mpsc::channel();
+
         let spawned = thread::Builder::new()
             .name("measure".to_owned())
             .spawn(move || {
@@ -1098,7 +1119,7 @@ impl Worker {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Freshness {
     Current,
     Stale,
@@ -1122,6 +1143,7 @@ impl Measurements {
             relative,
             masses: model.masses_measured(),
         };
+
         if self.basis.as_ref() != Some(&basis) {
             self.basis = Some(basis);
             self.restart();
@@ -1161,6 +1183,7 @@ impl Measurements {
         if self.worker.is_none() {
             self.worker = Worker::spawn(model.waker());
         }
+
         let job = Job {
             ticket: self.ticket,
             items,
@@ -1174,7 +1197,9 @@ impl Measurements {
         if let Some(job) = refused {
             log::error!("no measure worker, so the selection is measured on the UI thread");
             self.worker = None;
+
             let (ticket, readout) = job.run();
+
             self.arrive(ticket, readout);
         }
     }
@@ -1257,6 +1282,7 @@ mod tests {
         );
 
         let between = readout.groups.last().unwrap();
+
         assert_eq!(between.title, "Between them");
         assert_eq!(
             between.readings.first(),
@@ -1303,17 +1329,24 @@ mod tests {
             Relative::WORLD,
         );
         let mut measurements = Measurements::default();
+
         measurements.restart();
+
         let started = measurements.ticket;
+
         measurements.arrive(started, first.clone());
 
         measurements.restart();
+
         let stale = measurements
             .shown()
             .map(|(readout, freshness)| (readout.clone(), freshness));
         let line_while_stale = measurements.readout().cloned();
+
         measurements.arrive(started, Readout::default());
+
         let after_outdated = measurements.shown().map(|(_, freshness)| freshness);
+
         measurements.arrive(measurements.ticket, second.clone());
 
         assert_eq!(stale, Some((first, Freshness::Stale)));

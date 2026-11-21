@@ -26,7 +26,7 @@ pub const DEFAULT_SECTION: f64 = 2.0;
 pub const DEFAULT_AXIS: AxisReference = AxisReference::Principal(PrincipalAxis::Z);
 const SHOWN_PLACES: f64 = 1e6;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum CoilError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -48,7 +48,7 @@ impl Reason for CoilError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CoilStart {
     pub axis: Option<AxisReference>,
 }
@@ -77,16 +77,19 @@ pub fn create(
         )
     };
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(name, FeatureKind::Coil(coil));
     (transaction.finish(), feature)
 }
 
 pub fn create_actions(model: &Model, start: &CoilStart) -> Vec<Action> {
     let (transaction, feature) = create(model.document(), start, model.length_unit());
+
     let mut actions = vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
     ];
+
     if start.axis.is_none() {
         actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
             feature,
@@ -134,6 +137,7 @@ pub fn axis_change(
     let axis = datum_tools::only_axis(model, selection, index)
         .map_err(CoilError::AxisSelection)?
         .ok_or(CoilError::NoAxis)?;
+
     if axis == coil.axis {
         return Err(CoilError::AlreadyAround);
     }

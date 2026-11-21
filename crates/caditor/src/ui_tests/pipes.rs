@@ -20,6 +20,7 @@ const SECOND: f64 = 30.0;
 
 fn add_elbow(harness: &mut Harness) -> (FeatureId, [EntityId; 2]) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::ZERO, Point2::new(FIRST, 0.0));
     let second = sketch.add_line(Point2::new(FIRST, 0.0), Point2::new(FIRST, SECOND));
     (harness.add_sketch(sketch), [first, second])
@@ -45,7 +46,9 @@ fn bent_length(bend: f64) -> f64 {
 #[test]
 fn pipe_runs_along_the_selected_lines_bending_their_corner_and_sizes_from_its_panel() {
     let mut harness = Harness::new();
+
     let (path, [first, second]) = add_elbow(&mut harness);
+
     harness.select([
         Pickable::SketchEntity {
             feature: path,
@@ -61,8 +64,11 @@ fn pipe_runs_along_the_selected_lines_bending_their_corner_and_sizes_from_its_pa
     harness.settle();
 
     let pipe = harness.workspace.editing.solid().expect("the pipe is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Pipe 1"));
+
     let made = pipe_of(&harness, pipe);
+
     assert_eq!(
         made.path,
         SweepPath::Curves {
@@ -82,17 +88,20 @@ fn pipe_runs_along_the_selected_lines_bending_their_corner_and_sizes_from_its_pa
 
     harness.type_into_field(Id::unique(("pipe-field", pipe, "bend")), "0 mm");
     harness.settle();
+
     assert!(near(
         harness.body_volume(pipe),
         PI * 25.0 * (FIRST + SECOND)
     ));
 
     choose(&mut harness, "Round", "Square");
+
     assert_eq!(pipe_of(&harness, pipe).shape, PipeShape::Square);
     assert!(harness.shows("Width"));
     assert!(near(harness.body_volume(pipe), 100.0 * (FIRST + SECOND)));
 
     choose(&mut harness, pipe_panel::SOLID, pipe_panel::HOLLOW);
+
     assert!(harness.shows(pipe_panel::WALL_THICKNESS));
     assert!(near(
         harness.body_volume(pipe),
@@ -101,6 +110,7 @@ fn pipe_runs_along_the_selected_lines_bending_their_corner_and_sizes_from_its_pa
 
     harness.type_into_field(Id::unique(("pipe-field", pipe, "wall")), "5 mm");
     harness.settle();
+
     let reason = match harness
         .model
         .evaluation()
@@ -110,11 +120,13 @@ fn pipe_runs_along_the_selected_lines_bending_their_corner_and_sizes_from_its_pa
         Some(FeatureState::Failed(error)) => error.reason(),
         other => panic!("a wall as thick as the pipe fails, found {other:?}"),
     };
+
     assert!(reason.contains("half its width"), "{reason}");
     assert!(harness.shows(&reason));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert!(near(
         harness.body_volume(pipe),
         (100.0 - 64.0) * (FIRST + SECOND)
@@ -124,13 +136,16 @@ fn pipe_runs_along_the_selected_lines_bending_their_corner_and_sizes_from_its_pa
 #[test]
 fn pipe_with_nothing_selected_starts_choosing_its_path_in_the_view() {
     let mut harness = Harness::new();
+
     let (path, [first, _]) = add_elbow(&mut harness);
+
     harness.select([]);
 
     run_from_palette(&mut harness, "pipe");
     harness.settle();
 
     let pipe = harness.workspace.editing.solid().expect("the pipe is open");
+
     assert_eq!(pipe_of(&harness, pipe).path, SweepPath::Unchosen);
     assert_eq!(
         harness
@@ -180,6 +195,7 @@ fn pipe_with_nothing_selected_starts_choosing_its_path_in_the_view() {
 
 fn open_elbow_pipe(harness: &mut Harness) -> FeatureId {
     let (path, [first, second]) = add_elbow(harness);
+
     harness.select([
         Pickable::SketchEntity {
             feature: path,
@@ -207,6 +223,7 @@ pub(super) fn undone_and_redone(
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     let restored = value(harness);
 
     harness.key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT);
@@ -219,6 +236,7 @@ pub(super) fn undone_and_redone(
 #[test]
 fn dragging_a_pipe_s_size_arrow_changes_its_diameter_in_one_undoable_change() {
     let mut harness = Harness::new();
+
     let pipe = open_elbow_pipe(&mut harness);
     let size = |harness: &Harness| length_value(harness, &pipe_of(harness, pipe).size);
     let before = size(&harness);
@@ -239,8 +257,11 @@ fn dragging_a_pipe_s_size_arrow_changes_its_diameter_in_one_undoable_change() {
 #[test]
 fn dragging_a_hollow_pipe_s_wall_arrow_changes_its_wall_thickness() {
     let mut harness = Harness::new();
+
     let pipe = open_elbow_pipe(&mut harness);
+
     choose(&mut harness, pipe_panel::SOLID, pipe_panel::HOLLOW);
+
     let wall = |harness: &Harness| {
         length_value(
             harness,
@@ -264,6 +285,7 @@ fn dragging_a_hollow_pipe_s_wall_arrow_changes_its_wall_thickness() {
 #[test]
 fn a_solid_pipe_has_no_wall_arrow() {
     let mut harness = Harness::new();
+
     open_elbow_pipe(&mut harness);
 
     assert!(
@@ -285,6 +307,7 @@ fn a_solid_pipe_has_no_wall_arrow() {
 #[test]
 fn dragging_a_pipe_s_bend_arrow_changes_the_radius_of_the_first_corner() {
     let mut harness = Harness::new();
+
     let pipe = open_elbow_pipe(&mut harness);
     let bend = |harness: &Harness| length_value(harness, &pipe_of(harness, pipe).bend);
     let before = bend(&harness);
@@ -307,8 +330,10 @@ fn dragging_a_pipe_s_bend_arrow_changes_the_radius_of_the_first_corner() {
 fn a_straight_pipe_has_no_bend_arrow() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(FIRST, 0.0));
     let path = harness.add_sketch(sketch);
+
     harness.select([Pickable::SketchEntity {
         feature: path,
         entity: line,
@@ -346,11 +371,15 @@ fn foot_of(harness: &Harness, measured: Measured) -> Point3 {
 #[test]
 fn a_pipe_s_size_and_wall_arrows_stand_on_the_rims_of_its_start_section_in_every_shape() {
     let mut harness = Harness::new();
+
     let pipe = open_elbow_pipe(&mut harness);
+
     choose(&mut harness, pipe_panel::SOLID, pipe_panel::HOLLOW);
+
     let size = pipe_tools::DEFAULT_SIZE;
     let wall = pipe_tools::DEFAULT_WALL;
     let triangle_wall = wall * 2.0 / 3.0_f64.sqrt();
+
     let shapes = [
         ("Round", "Round", size / 2.0, wall),
         ("Round", "Square", size / 2.0, wall),
@@ -374,13 +403,16 @@ fn a_pipe_s_size_and_wall_arrows_stand_on_the_rims_of_its_start_section_in_every
             "{to} wall foot {inner_foot:?}"
         );
     }
+
     assert_eq!(pipe_of(&harness, pipe).shape, PipeShape::Triangle);
 }
 
 #[test]
 fn a_pipe_s_bend_arrow_stands_at_the_middle_of_the_first_rounded_corner() {
     let mut harness = Harness::new();
+
     open_elbow_pipe(&mut harness);
+
     let centre = Point3::new(FIRST - 10.0, 10.0, 0.0);
     let towards_corner = Vector3::new(1.0, -1.0, 0.0).normalize();
 
@@ -395,8 +427,10 @@ fn a_pipe_s_bend_arrow_stands_at_the_middle_of_the_first_rounded_corner() {
 #[test]
 fn a_pipe_along_a_body_edge_has_its_size_arrow_at_the_start_of_the_edge() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let edge = top_edge_along_x(&harness, plate, 0.0);
+
     harness.select([Pickable::Edge { body: plate, edge }]);
     harness.key(Key::I, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
@@ -419,6 +453,7 @@ const ARC_CENTRE: Point2 = Point2::new(FIRST + ARC_RADIUS, 0.0);
 
 fn open_line_into_arc_pipe(harness: &mut Harness) -> FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(FIRST, 0.0));
     let arc = sketch.add_arc(
         ARC_CENTRE,
@@ -426,6 +461,7 @@ fn open_line_into_arc_pipe(harness: &mut Harness) -> FeatureId {
         Point2::new(FIRST, 0.0),
     );
     let path = harness.add_sketch(sketch);
+
     harness.select([line, arc].map(|entity| Pickable::SketchEntity {
         feature: path,
         entity,
@@ -446,6 +482,7 @@ fn bend_centre(bend: f64) -> Point3 {
 #[test]
 fn a_pipe_s_bend_arrow_stands_on_the_bend_where_a_line_meets_an_arc_sharply() {
     let mut harness = Harness::new();
+
     let pipe = open_line_into_arc_pipe(&mut harness);
     let bend = length_value(&harness, &pipe_of(&harness, pipe).bend);
 
@@ -462,13 +499,16 @@ fn a_pipe_s_bend_arrow_stands_on_the_bend_where_a_line_meets_an_arc_sharply() {
 #[test]
 fn dragging_a_pipe_s_bend_arrow_where_a_line_meets_an_arc_changes_its_bend_radius() {
     let mut harness = Harness::new();
+
     let pipe = open_line_into_arc_pipe(&mut harness);
     let bend = |harness: &Harness| length_value(harness, &pipe_of(harness, pipe).bend);
     let before = bend(&harness);
 
     let step = drag_value_arrow(&mut harness, Measured::PipeBend, 4.0);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let after = bend(&harness);
     let foot = foot_of(&harness, Measured::PipeBend);
 

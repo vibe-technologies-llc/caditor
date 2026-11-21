@@ -167,6 +167,7 @@ impl<'a> ColorAttachment<'a> {
         let Some((samples, target)) = self.linear_resolve else {
             return;
         };
+
         drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("linear resolve"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -224,6 +225,7 @@ impl Uniform {
 
     fn write(&mut self, queue: &wgpu::Queue, bytes: &Bytes) -> bool {
         let changed = self.written != bytes.as_slice();
+
         if changed {
             queue.write_buffer(&self.buffer, 0, bytes.as_slice());
             self.written.clear();
@@ -340,6 +342,7 @@ impl ImageTargets {
             })
         };
         let view = |texture: &wgpu::Texture| texture.create_view(&Default::default());
+
         let resolved = texture(
             "image tile",
             format,
@@ -413,7 +416,7 @@ impl ImageTargets {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TargetSize {
     width: u32,
     height: u32,
@@ -500,7 +503,7 @@ impl SceneTargets {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Faults {
     pub targets: bool,
     pub meshes: u32,
@@ -523,7 +526,7 @@ impl Faults {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct FillSpan {
     slot: usize,
     vertices: Range<u32>,
@@ -532,7 +535,7 @@ struct FillSpan {
     behind_faces: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Facing {
     eye: Point3,
     forward: Vector3,
@@ -558,7 +561,7 @@ struct FillOrder {
     draws: Vec<FillDraw>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct FillDraw {
     slot: usize,
     vertices: Range<u32>,
@@ -637,8 +640,11 @@ impl GpuBatch {
         } = uploaded;
         let largest_side = device.limits().max_texture_dimension_2d;
         let lines = batch_lines(batch);
+
         let strips = LineStrips::of(&lines, largest_side);
+
         self.bounds = BatchBounds::of(batch, &lines);
+
         let coarser = coarser_lines(&strips, self.bounds.map_or(0.0, |bounds| bounds.size));
         let coarser_strips: Vec<(f64, LineStrips<'_>)> = coarser
             .iter()
@@ -649,6 +655,7 @@ impl GpuBatch {
         } else {
             strips.point_count()
         };
+
         let uploaded_points = upload_into(
             &mut self.lines,
             (device, queue),
@@ -667,25 +674,32 @@ impl GpuBatch {
                 ),
             },
         );
+
         self.line_count = line_instances(uploaded_points.min(full_points));
         #[cfg(test)]
         {
             self.line_segments = strips.segments();
         }
         self.levels = vec![LineLevel::of(&strips, (0, self.line_count), 0.0)];
+
         let mut first = full_points;
+
         for (share, coarse) in &coarser_strips {
             let end = first + coarse.point_count();
+
             if end <= uploaded_points {
                 let instances = line_instances(coarse.point_count());
+
                 self.levels
                     .push(LineLevel::of(coarse, (count(first), instances), *share));
             }
             first = end;
         }
         self.level = 0;
+
         let line_layout = strips.style_layout(largest_side);
         let kept_line_styles = self.line_styles.take();
+
         self.line_styles = (self.line_count > 0).then(|| {
             StyleTable::written(
                 kept_line_styles,
@@ -698,6 +712,7 @@ impl GpuBatch {
         });
 
         let (shown_markers, markers) = shown_first(&batch.markers, |marker| marker.color);
+
         self.marker_count = count(upload_into(
             &mut self.markers,
             (device, queue),
@@ -720,6 +735,7 @@ impl GpuBatch {
                     .filter(move |fill| FillGroup::of(fill) == group)
             })
             .collect();
+
         self.fill_vertices = count(upload_into(
             &mut self.fills,
             (device, queue),
@@ -733,8 +749,10 @@ impl GpuBatch {
                     .flat_map(|(index, fill)| fill_vertices(fill, anchor, index_word(index))),
             },
         ));
+
         let fill_layout = StyleLayout::new(ordered.len(), device.limits().max_texture_dimension_2d);
         let kept_fill_styles = self.fill_styles.take();
+
         self.fill_styles = (self.fill_vertices > 0).then(|| {
             StyleTable::written(
                 kept_fill_styles,
@@ -745,7 +763,9 @@ impl GpuBatch {
                 &style_texel_bytes(ordered.iter().map(|fill| fill_texel(fill)), fill_layout),
             )
         });
+
         let uploaded = self.fill_vertices;
+
         self.fill_spans = spans
             .into_iter()
             .map(|span| FillSpan {
@@ -803,6 +823,7 @@ impl GpuBatch {
         let (Some(styles), Some(lines)) = (self.line_styles.as_ref(), self.lines.as_ref()) else {
             return false;
         };
+
         if instances == 0 {
             return false;
         }
@@ -811,6 +832,7 @@ impl GpuBatch {
         for slot in 0..LINE_POINT_SLOTS {
             let start = u64::from(first + slot) * LINE_POINT_STRIDE;
             let end = u64::from(first + slot + instances) * LINE_POINT_STRIDE;
+
             pass.set_vertex_buffer(slot, lines.slice_between(start, end));
         }
         true
@@ -843,6 +865,7 @@ impl GpuBatch {
         let Some(markers) = self.markers.as_ref().filter(|_| instances > 0) else {
             return;
         };
+
         pipeline.set(pass);
         pass.set_vertex_buffer(0, markers.slice(u64::from(instances) * MARKER_STRIDE));
         pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..instances);
@@ -852,6 +875,7 @@ impl GpuBatch {
         let (Some(styles), Some(fills)) = (&self.fill_styles, &self.fills) else {
             return false;
         };
+
         pass.set_bind_group(1, &styles.bind_group, &[]);
         pass.set_vertex_buffer(0, fills.slice(u64::from(vertices) * FILL_VERTEX_STRIDE));
         true
@@ -944,7 +968,7 @@ fn upload_into<const N: usize>(
         .upload(device, queue, records)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FillGroup {
     ReferencePicked,
     NearerPicked,
@@ -963,7 +987,7 @@ impl FillGroup {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct FillGroups {
     reference_picked: u32,
     nearer_picked: u32,
@@ -973,8 +997,10 @@ struct FillGroups {
 impl FillGroups {
     fn of(fills: &[Fill]) -> Self {
         let mut groups = Self::default();
+
         for fill in fills {
             let vertices = groups.vertices_mut(FillGroup::of(fill));
+
             *vertices = vertices.saturating_add(fill_vertex_count(fill));
         }
         groups
@@ -1000,6 +1026,7 @@ impl FillGroups {
     fn take(&mut self, group: FillGroup, vertices: u32) -> u32 {
         let next = self.vertices_mut(group);
         let start = *next;
+
         *next = start.saturating_add(vertices);
         start
     }
@@ -1012,6 +1039,7 @@ impl FillGroups {
 fn grouped_fill_spans(fills: &[Fill], slot: usize) -> (FillGroups, Vec<FillSpan>) {
     let groups = FillGroups::of(fills);
     let mut next = groups.starts();
+
     let spans = fills
         .iter()
         .map(|fill| {
@@ -1029,7 +1057,7 @@ fn grouped_fill_spans(fills: &[Fill], slot: usize) -> (FillGroups, Vec<FillSpan>
     (groups, spans)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct BatchBounds {
     corners: [Point3; 8],
     size: f64,
@@ -1077,7 +1105,7 @@ impl BatchBounds {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct LineLevel {
     first: u32,
     shown: u32,
@@ -1104,11 +1132,13 @@ impl LineLevel {
 fn coarser_lines(strips: &LineStrips<'_>, size: f64) -> Vec<(f64, Vec<Line>)> {
     let mut segments = strips.shown_segments();
     let mut coarser = Vec::new();
+
     if segments < FEWEST_SEGMENTS_MADE_COARSER || size.is_nan() || size <= 0.0 {
         return coarser;
     }
     for share in COARSER_LINE_SHARES {
         let lines = strips.simplified(size * share);
+
         if lines.len() as f64 > segments as f64 * COARSER_LINES_MOST_KEPT {
             continue;
         }
@@ -1215,6 +1245,7 @@ impl ViewportRenderer {
         let pictures = PictureCache::new(device);
         let light_pass = LightPass::new(device);
         let occlusion = Occlusion::new(device);
+
         let layouts = Layouts {
             view: &view_layout,
             grid: &grid_layout,
@@ -1295,6 +1326,7 @@ impl ViewportRenderer {
         if sample_count == self.sample_count {
             return;
         }
+
         let kept = self
             .set_aside
             .iter()
@@ -1305,6 +1337,7 @@ impl ViewportRenderer {
             {
                 self.work.pipeline_builds += 1;
             }
+
             let layouts = Layouts {
                 view: &self.view_layout,
                 grid: &self.grid_layout,
@@ -1325,6 +1358,7 @@ impl ViewportRenderer {
             )
         });
         let replaced = std::mem::replace(&mut self.pipelines, pipelines);
+
         self.set_aside.push((self.sample_count, replaced));
         self.sample_count = sample_count;
         self.targets = None;
@@ -1422,11 +1456,13 @@ impl ViewportRenderer {
                     false => UploadBudget::of(self.mesh_upload_bytes),
                 };
                 let prepared = self.upload(device, queue, viewport, (budget, occlusion_size));
+
                 self.upload_stopped &= self.left_out_of_upload() > 0;
                 prepared
             }
             None => Prepared::default(),
         };
+
         let faults = Faults {
             targets: refused_targets,
             ..prepared.faults
@@ -1444,10 +1480,13 @@ impl ViewportRenderer {
         let drawn = viewport.filter(|viewport| {
             scissor_rect(viewport.rect, surface.width, surface.height).is_some()
         });
+
         let fresh = prepared.changed || !targets.kept.holding.holds(shown);
+
         if fresh {
             if let Some(viewport) = drawn {
                 self.draw_light_pass(encoder);
+
                 let area = scissor_rect(viewport.rect, surface.width, surface.height).map(
                     |(left, top, across, down)| PassArea {
                         viewport: [
@@ -1459,6 +1498,7 @@ impl ViewportRenderer {
                         scissor: [left, top, across, down],
                     },
                 );
+
                 self.draw_occlusion(encoder, &self.view_uniform.bind_group, area);
             }
             self.draw_view(encoder, targets, drawn, surface);
@@ -1509,6 +1549,7 @@ impl ViewportRenderer {
             }),
             ..Default::default()
         });
+
         if let Some(viewport) = viewport
             && let Some(scissor) = scissor_rect(viewport.rect, surface.width, surface.height)
         {
@@ -1655,6 +1696,7 @@ impl ViewportRenderer {
             false => tile_side,
         };
         let margined = |side: u32| margined_side(tile_side.min(side));
+
         let occlusion_size = (margined(size.width), margined(size.height));
         let faults = self
             .upload(
@@ -1664,6 +1706,7 @@ impl ViewportRenderer {
                 (UploadBudget::UNLIMITED, Some(occlusion_size)),
             )
             .faults;
+
         if (Faults {
             occlusion: false,
             ..faults
@@ -1677,6 +1720,7 @@ impl ViewportRenderer {
                 "the graphics device refused the exported image's ambient occlusion, so the image is drawn without it"
             );
         }
+
         let targets = ImageTargets::new(
             device,
             (self.format, self.sample_count),
@@ -1729,6 +1773,7 @@ impl ViewportRenderer {
             &plan.light,
             &plan.occluded,
         );
+
         view_uniform(
             &mut self.staging,
             &anchored,
@@ -1769,6 +1814,7 @@ impl ViewportRenderer {
         }
         if plan.occluded.occludes() {
             let margined = image::margined_tile_transform(tile, plan.size, MOST_PIXELS);
+
             view_uniform(
                 &mut self.staging,
                 &anchored,
@@ -1782,20 +1828,25 @@ impl ViewportRenderer {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("image tile"),
         });
+
         self.draw_light_pass(&mut encoder);
         if plan.occluded.occludes() {
             let (across, down) = (margined_side(tile.width), margined_side(tile.height));
+
             let area = PassArea {
                 viewport: [0.0, 0.0, across as f32, down as f32],
                 scissor: [0, 0, across, down],
             };
+
             self.draw_occlusion(
                 &mut encoder,
                 &self.occlusion_view_uniform.bind_group,
                 Some(area),
             );
         }
+
         let mut pass = plan.targets.begin_pass(&mut encoder, plan.clear);
+
         pass.set_viewport(0.0, 0.0, tile.width as f32, tile.height as f32, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, tile.width, tile.height);
         self.draw_scene(
@@ -1828,9 +1879,11 @@ impl ViewportRenderer {
         if !self.light.needs_light_pass() {
             return;
         }
+
         let Some(mut pass) = self.light_pass.begin_pass(encoder) else {
             return;
         };
+
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
         self.meshes.draw_all(&mut pass, &self.pipelines.shadows);
         drop(pass);
@@ -1841,19 +1894,24 @@ impl ViewportRenderer {
             let Some((mut pass, previous)) = self.light_pass.begin_peel_pass(encoder, layer) else {
                 return;
             };
+
             pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
             pass.set_bind_group(2, previous, &[]);
             self.meshes.draw_all(&mut pass, &self.pipelines.peels);
         }
+
         let Some(mut pass) = self.light_pass.begin_cross_pass(encoder) else {
             return;
         };
+
         pass.set_bind_group(0, &self.cross_view_uniform.bind_group, &[]);
         self.meshes.draw_all(&mut pass, &self.pipelines.depths);
         drop(pass);
+
         let Some(mut pass) = self.light_pass.begin_slope_pass(encoder) else {
             return;
         };
+
         pass.set_bind_group(0, &self.slope_view_uniform.bind_group, &[]);
         self.meshes.draw_all(&mut pass, &self.pipelines.depths);
     }
@@ -1867,12 +1925,14 @@ impl ViewportRenderer {
         if !self.occluded.occludes() {
             return;
         }
+
         let passes = OcclusionPasses {
             view,
             occlusion: &self.pipelines.occlusion,
             blur: &self.pipelines.occlusion_blur,
             area,
         };
+
         self.occlusion.draw(encoder, &passes, |pass| {
             self.meshes.draw_all(pass, &self.pipelines.surfaces);
             if self.light.shows_floor() {
@@ -1895,6 +1955,7 @@ impl ViewportRenderer {
             pass.set_pipeline(&self.pipelines.sky);
             pass.draw(0..3, 0..1);
         }
+
         let pipelines = &self.pipelines;
         let (meshes, flat, reflective) = if self.sectioned {
             (
@@ -1909,6 +1970,7 @@ impl ViewportRenderer {
                 &pipelines.reflective_meshes,
             )
         };
+
         self.meshes.draw(pass, meshes, window);
         self.flat.draw(pass, flat, window);
         self.reflective.draw(pass, reflective, window);
@@ -1923,22 +1985,28 @@ impl ViewportRenderer {
         self.quad_indices.bind(pass);
         self.silhouettes
             .draw(pass, &self.pipelines.silhouettes, window);
+
         let seen: Vec<&GpuBatch> = self
             .batches
             .iter()
             .filter(|batch| batch.seen_in(window))
             .collect();
         let mut lines = Once::of(&self.pipelines.lines);
+
         for batch in &seen {
             batch.draw_shown_lines(pass, &mut lines);
         }
+
         let mut hidden_lines = Once::of(&self.pipelines.hidden_lines);
+
         for batch in &seen {
             batch.draw_hidden_lines(pass, &mut hidden_lines);
         }
         self.silhouettes
             .draw_hidden(pass, &self.pipelines.hidden_silhouettes, window);
+
         let mut markers = Once::of(&self.pipelines.markers);
+
         for batch in &seen {
             batch.draw_markers(pass, &mut markers, batch.shown_markers);
         }
@@ -1961,6 +2029,7 @@ impl ViewportRenderer {
             else {
                 continue;
             };
+
             if behind != Some(draw.behind_faces) {
                 pass.set_pipeline(if draw.behind_faces {
                     &self.pipelines.reference_fills
@@ -1989,8 +2058,11 @@ impl ViewportRenderer {
             .filter(|batch| batch.seen_in(&window))
             .collect();
         let mut behind = begin_pick_pass(encoder, targets, "pick reference fills", true);
+
         behind.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
+
         let mut reference_fills = Once::of(&self.pipelines.pick.reference_fills);
+
         for batch in &seen {
             batch.draw_pick_fills(
                 &mut behind,
@@ -2001,28 +2073,38 @@ impl ViewportRenderer {
         self.pictures
             .draw_pick(&mut behind, &self.pipelines.pick.pictures);
         drop(behind);
+
         let mut pass = begin_pick_pass(encoder, targets, "pick", false);
+
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
+
         let meshes = if self.sectioned {
             &self.pipelines.pick.sectioned_meshes
         } else {
             &self.pipelines.pick.meshes
         };
+
         self.meshes.draw(&mut pass, meshes, &window);
         self.flat.draw(&mut pass, meshes, &window);
         self.reflective.draw(&mut pass, meshes, &window);
         self.translucent
             .draw(&mut pass, &self.pipelines.pick.translucent_meshes, &window);
+
         let mut fills = Once::of(&self.pipelines.pick.fills);
+
         for batch in &seen {
             batch.draw_pick_fills(&mut pass, &mut fills, batch.nearer_pick_fills());
         }
         self.quad_indices.bind(&mut pass);
+
         let mut lines = Once::of(&self.pipelines.pick.lines);
+
         for batch in &seen {
             batch.draw_all_lines(&mut pass, &mut lines);
         }
+
         let mut markers = Once::of(&self.pipelines.pick.markers);
+
         for batch in &seen {
             batch.draw_markers(&mut pass, &mut markers, batch.marker_count);
         }
@@ -2038,9 +2120,11 @@ impl ViewportRenderer {
             .targets
             .as_ref()
             .is_some_and(|targets| targets.size.holds(needed, largest_side));
+
         if current || self.targets_refused == Some(size) {
             return false;
         }
+
         let (targets, error) = gpu::scoped(device, || {
             SceneTargets::new(device, (self.format, self.sample_count), size, &self.copy)
         });
@@ -2078,8 +2162,11 @@ impl ViewportRenderer {
         };
 
         let pixels_per_point = valid_scale(viewport.pixels_per_point);
+
         self.sectioned = !scene.section.is_empty();
+
         let mut changed = false;
+
         if let Some(grid) = &scene.grid {
             grid_uniform(&mut self.staging, grid, view);
             changed |= self.grid_uniform.write(queue, &self.staging);
@@ -2087,6 +2174,7 @@ impl ViewportRenderer {
 
         let anchor = anchored.anchor;
         let batch_budget = budget;
+
         faults.meshes = [
             (&mut self.meshes, &scene.meshes),
             (&mut self.translucent, &scene.translucent_meshes),
@@ -2107,9 +2195,11 @@ impl ViewportRenderer {
             &mut budget,
         ));
         self.mesh_pool.sweep(budget.is_stopped());
+
         let pictures = self
             .pictures
             .prepare(device, queue, &scene.pictures, anchor);
+
         faults.meshes = faults.meshes.saturating_add(pictures.refused);
         changed |= pictures.changed;
         changed |= [
@@ -2122,7 +2212,9 @@ impl ViewportRenderer {
         .into_iter()
         .any(MeshCache::changed)
             || self.silhouettes.changed();
+
         let environment = self.bind_environment((device, queue), scene);
+
         faults.environment = environment.newly_refused;
         changed |= environment.rebound;
         faults.light = self.light_scene(device, scene, view);
@@ -2171,6 +2263,7 @@ impl ViewportRenderer {
             );
             self.slope_view_uniform.write(queue, &self.staging);
         }
+
         let prepared = viewport.pick_at.map(|cursor| {
             (
                 cursor,
@@ -2179,11 +2272,13 @@ impl ViewportRenderer {
             )
         });
         let refused = matches!(prepared, Some((_, PickPrepared::Refused)));
+
         faults.picking = refused && !self.pick_refused;
         self.pick_refused = refused;
         self.pick_window = None;
         if let Some((cursor, PickPrepared::Ready(window))) = prepared {
             let transform = picking::pick_transform(cursor, view.size(), window);
+
             self.pick_window = Some(ClipWindow::new(view, transform, pixels_per_point));
             view_uniform(
                 &mut self.staging,
@@ -2200,12 +2295,15 @@ impl ViewportRenderer {
             );
             self.pick_view_uniform.write(queue, &self.staging);
         }
+
         let (batches_changed, refused_batches) =
             self.upload_batches(device, queue, &scene.batches, (anchor, batch_budget));
+
         faults.batches = refused_batches;
         for batch in &mut self.batches {
             batch.choose_level(view);
         }
+
         let reordered = self.order_fills(Facing::of(view), batches_changed);
         Prepared {
             faults,
@@ -2238,6 +2336,7 @@ impl ViewportRenderer {
         };
         let casters: Vec<[Point3; 8]> = self.meshes.placed_corners().collect();
         let ground = Ground::under(&casters);
+
         let (frame, cross, slope) = match ready {
             LightPassReady::Ready => {
                 let shadows = ground
@@ -2259,6 +2358,7 @@ impl ViewportRenderer {
             self.light_pass
                 .environment_uniform(backdrop.turn, backdrop.stops)
         });
+
         self.light = LightUniform::of(
             (lighting, view),
             toward_light,
@@ -2284,10 +2384,12 @@ impl ViewportRenderer {
             Some(size) => self.occlusion.ensure(device, size),
             None => OcclusionReady::Refused,
         };
+
         let applied = match ready {
             OcclusionReady::Ready => strength,
             OcclusionReady::Refused | OcclusionReady::NewlyRefused => 0.0,
         };
+
         self.occluded = OcclusionUniform::of(applied, view, self.meshes.placed_corners());
         matches!(ready, OcclusionReady::NewlyRefused)
     }
@@ -2295,10 +2397,12 @@ impl ViewportRenderer {
     fn anchor_for(&mut self, view: &View) -> Point3 {
         let eye = view.eye();
         let reach = reanchor_reach(view);
+
         let anchor = self
             .anchor
             .filter(|anchor| anchor.distance(eye) <= reach)
             .unwrap_or(eye);
+
         self.anchor = Some(anchor);
         anchor
     }
@@ -2317,6 +2421,7 @@ impl ViewportRenderer {
                 .iter()
                 .zip(batches)
                 .all(|(gpu, batch)| gpu.holds(batch, anchor));
+
         if unchanged {
             return (false, 0);
         }
@@ -2327,11 +2432,13 @@ impl ViewportRenderer {
         {
             budget = UploadBudget::UNLIMITED;
         }
+
         let stopped = budget.is_stopped();
         let before = (stopped || self.batches_left_out > 0).then(|| self.shown_keys());
         let wanted: AHashSet<usize> = batches.iter().map(batch_key).collect();
         let mut kept: AHashMap<usize, GpuBatch> = AHashMap::new();
         let mut spare: Vec<GpuBatch> = Vec::new();
+
         for gpu in self.batches.drain(..) {
             let key = gpu.shown.as_ref().map(batch_key);
             match key {
@@ -2343,8 +2450,10 @@ impl ViewportRenderer {
                 Some(_) | None => spare.push(gpu),
             }
         }
+
         let mut refused = 0;
         let mut uploaded_any = false;
+
         self.batches_waiting = 0;
         self.batches_left_out = 0;
         for batch in batches {
@@ -2356,7 +2465,9 @@ impl ViewportRenderer {
                 self.batches_left_out += 1;
                 continue;
             }
+
             let affordable = budget.grant(1, GpuBatch::upload_bytes(batch)) == 1;
+
             if !affordable && uploaded_any {
                 self.batches_waiting += 1;
                 continue;
@@ -2365,8 +2476,10 @@ impl ViewportRenderer {
                 budget = UploadBudget::of(0);
             }
             uploaded_any = true;
+
             let mut gpu = spare.pop().unwrap_or_else(GpuBatch::empty);
             let slot = self.batches.len();
+
             let ((), error) = gpu::scoped(device, || {
                 gpu.upload(
                     device,
@@ -2379,6 +2492,7 @@ impl ViewportRenderer {
                     },
                 );
             });
+
             if let Some(error) = error {
                 log::warn!(
                     "the graphics device refused a batch of {} lines, {} markers and {} fills, so it is not drawn: {error}",
@@ -2395,6 +2509,7 @@ impl ViewportRenderer {
                 self.work.uploads += 1;
             }
         }
+
         let changed = match before {
             Some(before) => uploaded_any || before != self.shown_keys(),
             None => true,
@@ -2411,6 +2526,7 @@ impl ViewportRenderer {
 
     fn order_fills(&mut self, facing: Facing, changed: bool) -> bool {
         let order = &mut self.fill_order;
+
         if !changed && order.sorted_for == Some(facing) {
             return false;
         }
@@ -2498,7 +2614,7 @@ impl ViewportRenderer {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Work {
     pub uploads: usize,
     pub sorts: usize,
@@ -2512,7 +2628,7 @@ struct Prepared {
     changed: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Strokes {
     Finished,
     Bare,
@@ -2557,6 +2673,7 @@ fn sort_back_to_front(spans: &mut [FillSpan], facing: Facing) {
         span.centroid
             .map_or(f64::NEG_INFINITY, |centroid| facing.depth(centroid))
     };
+
     spans.sort_by(|a, b| {
         a.in_front
             .cmp(&b.in_front)
@@ -2722,6 +2839,7 @@ impl Pipelines {
             }
             _ => wgpu::DepthBiasState::default(),
         };
+
         let color = |label, layout, vertex, buffers, fragment, depth_write| {
             build_pipeline(
                 device,
@@ -3196,6 +3314,7 @@ fn view_uniform(
     let [across, along] = reflection.uniform();
     let view = anchored.view;
     let size = view.size();
+
     bytes.clear();
     bytes
         .mat4(view.rotation_projection().as_mat4())
@@ -3229,6 +3348,7 @@ fn section_uniform(
     let spacing = hatch_spacing(
         view.units_per_pixel_at(distance) * f64::from(pixels_per_point) * HATCH_SPACING_POINTS,
     );
+
     bytes.floats(&[
         planes.len() as f32,
         section_slack(distance) as f32,
@@ -3239,6 +3359,7 @@ fn section_uniform(
         match planes.get(index) {
             Some(section) => {
                 let normal = section.plane.normal();
+
                 bytes.vec4(
                     normal.as_vec3(),
                     normal.dot(section.plane.origin() - eye) as f32,
@@ -3258,7 +3379,9 @@ fn section_uniform(
                 let plane = section.plane;
                 let across =
                     (plane.x_axis() + plane.y_axis()).normalize_or(plane.x_axis()) / spacing;
+
                 let phase = across.dot(eye - plane.origin()).rem_euclid(1.0);
+
                 bytes.vec4(across.as_vec3(), phase as f32);
             }
             None => {
@@ -3315,6 +3438,7 @@ fn grid_cell_points(
 ) -> Option<f64> {
     let foot = plane.to_local(view.viewpoint().target);
     let origin = view.project(plane.to_world(foot))?;
+
     let across = |step: Point2| {
         view.project(plane.to_world(foot + step))
             .map(|pixel| pixel.distance(origin))
@@ -3343,6 +3467,7 @@ fn grid_uniform(bytes: &mut Bytes, grid: &Grid, view: &View) {
     let scale = grid_scale(&plane, view);
     let spacing = grid_spacing(scale);
     let snap = spacing * 100.0;
+
     let foot = plane.to_local(eye);
     let snapped = Point2::new(
         (foot.x / snap).round() * snap,
@@ -3421,6 +3546,7 @@ mod tests {
         let b = a + Vector3::new(1e-3, 0.0, 0.0);
 
         let separation = relative_to_eye(b, eye) - relative_to_eye(a, eye);
+
         assert!((separation.x - 1e-3).abs() < 1e-6);
         assert_eq!(a.as_vec3(), b.as_vec3());
     }
@@ -3511,6 +3637,7 @@ mod tests {
     #[test]
     fn shader_parses_and_validates() {
         let module = naga::front::wgsl::parse_str(include_str!("viewport.wgsl")).unwrap();
+
         naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
             naga::valid::Capabilities::default(),
@@ -3611,6 +3738,7 @@ mod tests {
     fn grid_snapping_takes_the_finest_level_drawn_in_full_and_never_a_finer_one() {
         for distance in [3.0, 30.0, 300.0, 3000.0, 30000.0] {
             let (grid, view) = facing_grid(distance);
+
             let minor = grid_minor_spacing(&grid, &view);
             let cell = grid_cell_points(&grid.plane, &view, minor, 1.0).unwrap();
 
@@ -3749,6 +3877,7 @@ mod tests {
 
         let coalesced = |spans: Vec<FillSpan>| {
             let mut draws = Vec::new();
+
             coalesce(&spans, &mut draws);
             draws
         };
@@ -3758,13 +3887,16 @@ mod tests {
                 .map(|draw| (draw.slot, draw.vertices))
                 .collect::<Vec<_>>()
         };
+
         assert_eq!(draws(in_order), vec![(0, 0..6), (1, 0..6)]);
         assert_eq!(draws(interleaved), vec![(0, 0..3), (1, 0..3), (0, 3..6)]);
         assert_eq!(draws(reversed), vec![(0, 3..6), (0, 0..3)]);
+
         let mixed = vec![
             span(0, 0, 0.0, Layer::Reference),
             span(0, 3, 1.0, Layer::Model),
         ];
+
         assert_eq!(
             coalesced(mixed)
                 .into_iter()
@@ -3782,8 +3914,11 @@ mod tests {
             width: 300.0,
             height: 50.0,
         };
+
         assert_eq!(scissor_rect(rect, 200, 100), Some((0, 10, 200, 51)));
+
         let outside = ViewportRect { x: 250.0, ..rect };
+
         assert_eq!(scissor_rect(outside, 200, 100), None);
     }
 }

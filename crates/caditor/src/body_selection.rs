@@ -28,7 +28,7 @@ pub const NO_LOOP: &str = "The selected edge is on no loop of the selected faces
 pub const NO_SIMILAR: &str =
     "No other shown face or edge is the same kind and size as the selected ones";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SelectionRefusal {
     #[error("{}", IN_SKETCH)]
     InSketch,
@@ -108,7 +108,7 @@ pub fn outside_sketch<T>(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Faces,
     Edges,
@@ -133,6 +133,7 @@ impl Kind {
             SelectionFilter::SketchGeometry => None,
             SelectionFilter::Everything => {
                 let mut kinds = selection.iter().map(Self::of);
+
                 let first = kinds.next()??;
                 kinds.all(|kind| kind == Some(first)).then_some(first)
             }
@@ -142,7 +143,7 @@ impl Kind {
 
 pub const NO_BODY_SHOWN: &str = "Make a body first, or show a hidden one";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Standing {
     None,
     Only(FeatureId),
@@ -152,6 +153,7 @@ pub enum Standing {
 pub fn standing_bodies(model: &Model) -> Standing {
     let document = model.document();
     let standing = document.bodies_standing_in(model.evaluation());
+
     let mut shown = standing
         .into_iter()
         .filter(|body| visibility::is_shown(document, *body));
@@ -194,6 +196,7 @@ pub fn offer_select_all(
     filter: SelectionFilter,
 ) -> Result<Kind, SelectionRefusal> {
     let kind = Kind::chosen(filter, selection).ok_or(SelectionRefusal::NoKindToSelect)?;
+
     if shown_bodies(model).next().is_none() {
         return Err(SelectionRefusal::NoShapes);
     }
@@ -208,6 +211,7 @@ pub fn select_all(model: &Model, kind: Kind) -> Vec<Pickable> {
 
 fn unique(bodies: impl IntoIterator<Item = FeatureId>) -> Vec<FeatureId> {
     let mut unique: Vec<FeatureId> = Vec::new();
+
     for body in bodies {
         if !unique.contains(&body) {
             unique.push(body);
@@ -233,6 +237,7 @@ pub fn tree_bodies(document: &Document, chosen: &[FeatureId]) -> Vec<FeatureId> 
                 if id.is_piece() {
                     return Some(*id);
                 }
+
                 let feature = document.feature(*id)?;
                 if feature.separates_pieces() {
                     None
@@ -248,6 +253,7 @@ pub fn tree_bodies(document: &Document, chosen: &[FeatureId]) -> Vec<FeatureId> 
 
 pub fn offer_whole_bodies(selection: &Selection) -> Result<Vec<FeatureId>, SelectionRefusal> {
     let bodies = bodies_in(selection);
+
     if bodies.is_empty() {
         return Err(SelectionRefusal::NoBodySelected);
     }
@@ -423,6 +429,7 @@ pub fn invert(
 ) -> Vec<Pickable> {
     if filter == SelectionFilter::Bodies {
         let chosen = bodies_in(selection);
+
         return shown_bodies(model)
             .filter(|(body, _)| !chosen.contains(body))
             .flat_map(|(body, result)| everything_of(body, result, Kind::Faces))
@@ -541,6 +548,7 @@ fn matched_words(
     shapes: &[Shape],
 ) -> Option<String> {
     let [one, several] = kinds;
+
     let counted = counted(count, one, several)?;
     Some(match shapes {
         [only] => format!("{counted} of {}", only.words(model)),
@@ -565,6 +573,7 @@ pub fn similar_to(model: &Model, selection: &Selection) -> Similar {
     let mut matching: Vec<Pickable> = Vec::new();
     let mut faces = 0;
     let mut edges = 0;
+
     for (body, result) in shown_bodies(model) {
         if !face_shapes.is_empty() {
             for (face, key) in bodies::face_keys(&result.solid) {
@@ -582,6 +591,7 @@ pub fn similar_to(model: &Model, selection: &Selection) -> Similar {
                     .is_some_and(|shape| similar::any_matches(&edge_shapes, &shape));
                 if like {
                     let named = pickable_edges(body, result, [edge]);
+
                     edges += named.len();
                     matching.extend(named);
                 }

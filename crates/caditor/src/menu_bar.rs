@@ -196,13 +196,17 @@ pub fn show(
             if let Some(drag) = window_frame::drag_region(ui, context.chrome) {
                 window_frame::drags_window(&drag, context.chrome, commands, actions);
             }
+
             let mut wrapped = false;
+
             egui::MenuBar::new().ui(ui, |ui| {
                 if context.chrome.built_in() {
                     logo::show(ui, ui.spacing().interact_size.y);
                 }
+
                 let mut entries =
                     MenuEntries::new(context.offers, context.toggles, commands.keymap());
+
                 files::menu(
                     ui,
                     model,
@@ -212,6 +216,7 @@ pub fn show(
                     commands,
                     actions,
                 );
+
                 let mut menus = Menus {
                     undo: model.undo_label(),
                     redo: model.redo_label(),
@@ -221,14 +226,17 @@ pub fn show(
                     picked_sets: Vec::new(),
                     entries,
                 };
+
                 menus.edit(ui);
                 menus.view(ui);
                 menus.model(ui);
                 menus.sketch(ui);
                 menus.help(ui);
+
                 let chosen = menus.entries.take_chosen();
                 let visited = std::mem::take(&mut menus.visited);
                 let picked_sets = std::mem::take(&mut menus.picked_sets);
+
                 for command in chosen {
                     commands.trigger_showing_state(command);
                 }
@@ -244,6 +252,7 @@ pub fn show(
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let built_in = context.chrome.built_in();
+
                     window_frame::remember_controls_row(ui.ctx(), built_in.then(|| ui.max_rect()));
                     if built_in {
                         window_frame::controls(ui, context.chrome.state, commands, actions);
@@ -264,6 +273,7 @@ pub fn show(
                 });
             }
         });
+
     window_frame::remember_bar(ui.ctx(), panel.response.rect);
 }
 
@@ -280,11 +290,14 @@ fn trailing(
         icons::command(Command::Preferences),
         &commands.with_keys(Command::Preferences, &Command::Preferences.title()),
     );
+
     if settings.clicked() {
         actions.push(Action::Preferences(PreferencesCommand::Show));
     }
+
     let search = search(ui, commands);
     let spacing = ui.spacing().item_spacing.x;
+
     widgets::remember_width(
         ui,
         id,
@@ -302,8 +315,10 @@ fn title(
 ) {
     let rest = ui.available_rect_before_wrap();
     let width_id = Id::unique("model-title-width");
+
     let wanted = widgets::remembered_width(ui, width_id).min(rest.width());
     let centred = ui.ctx().content_rect().center().x - wanted / 2.0;
+
     let left = centred.min(rest.right() - wanted).max(rest.left());
     let area = Rect::from_min_max(pos2(left, rest.top()), rest.max);
     let shown = ui.scope_builder(
@@ -312,6 +327,7 @@ fn title(
             .layout(Layout::left_to_right(Align::Center)),
         |ui| model_title(ui, model, context, commands, actions),
     );
+
     widgets::remember_width(ui, width_id, shown.inner.rect.width());
 }
 
@@ -330,6 +346,7 @@ fn model_title(
     };
     let background = ui.painter().add(Shape::Noop);
     let name = model.display_name();
+
     let group = ui
         .horizontal(|ui| {
             ui.add_space(TITLE_PADDING);
@@ -369,6 +386,7 @@ fn model_title(
     );
     let response = widgets::named(response, &format!("{name}, {MODEL_DETAILS}"));
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response));
+
     let fill = if response.is_pointer_button_down_on() {
         Some(tokens.pressed)
     } else if response.hovered() || open {
@@ -376,6 +394,7 @@ fn model_title(
     } else {
         None
     };
+
     if let Some(fill) = fill {
         ui.painter().set(
             background,
@@ -388,11 +407,13 @@ fn model_title(
     if context.chrome.built_in() && response.drag_started_by(egui::PointerButton::Primary) {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
+
     let hover = match model.path() {
         Some(path) => path.display().to_string(),
         None => "Not saved to a file yet".to_owned(),
     };
     let response = response.on_hover_text(hover);
+
     Popup::menu(&response)
         .width(DETAILS_WIDTH)
         .show(|ui| model_details(ui, model, commands, actions));
@@ -425,6 +446,7 @@ fn model_details(
         (false, None) => widgets::status_pill(ui, Tone::Neutral, "Nothing to save yet"),
     });
     ui.separator();
+
     let item = |ui: &mut Ui, command: Command| {
         widgets::menu_item(
             ui,
@@ -433,17 +455,20 @@ fn model_details(
             commands.keys(command),
         )
     };
+
     if item(ui, Command::Save).clicked() {
         actions.push(Action::File(FileCommand::Save));
     }
     if item(ui, Command::SaveAs).clicked() {
         actions.push(Action::File(FileCommand::SaveAs));
     }
+
     let saved = model.path().is_some();
     let history = ui
         .add_enabled_ui(saved, |ui| item(ui, Command::VersionHistory))
         .inner
         .on_disabled_hover_text(NOT_SAVED);
+
     if history.clicked() {
         actions.push(Action::File(FileCommand::History(HistoryCommand::Show)));
     }
@@ -526,6 +551,7 @@ impl<'a> MenuEntries<'a> {
 
     pub fn titled_item(&mut self, ui: &mut Ui, command: Command, title: &str) {
         let availability = self.availability(command);
+
         self.titled_item_with(ui, command, title, availability);
     }
 
@@ -541,6 +567,7 @@ impl<'a> MenuEntries<'a> {
 
     pub fn hinted(&mut self, ui: &mut Ui, command: Command, hint: &str) {
         let availability = self.availability(command);
+
         self.entry(ui, command, &command.title(), availability, Some(hint));
     }
 
@@ -569,15 +596,18 @@ impl<'a> MenuEntries<'a> {
         let response = ui.add_enabled_ui(self.clickable(command, &availability), |ui| {
             widgets::menu_item(ui, icons::command(command), title, keys)
         });
+
         self.respond(command, response.inner, &availability, hint);
     }
 
     pub fn choice_with(&mut self, ui: &mut Ui, command: Command, chosen: bool, hint: &str) {
         let availability = self.availability(command);
         let keys = self.keys(command);
+
         let response = ui.add_enabled_ui(self.clickable(command, &availability), |ui| {
             widgets::menu_choice(ui, icons::command(command), &command.title(), keys, chosen)
         });
+
         self.respond(command, response.inner, &availability, Some(hint));
     }
 
@@ -589,15 +619,18 @@ impl<'a> MenuEntries<'a> {
 
     pub fn choice(&mut self, ui: &mut Ui, command: Command) {
         let chosen = self.toggles.is_on(command);
+
         self.marked(ui, command, chosen);
     }
 
     pub fn marked(&mut self, ui: &mut Ui, command: Command, chosen: bool) {
         let availability = self.availability(command);
         let keys = self.keys(command);
+
         let response = ui.add_enabled_ui(self.clickable(command, &availability), |ui| {
             widgets::menu_choice(ui, icons::command(command), &command.title(), keys, chosen)
         });
+
         self.respond(command, response.inner, &availability, None);
     }
 
@@ -618,6 +651,7 @@ impl<'a> MenuEntries<'a> {
             (None, Some(last)) if command == Command::RepeatLast => command.title_with(last),
             (None, _) => return false,
         };
+
         self.titled_item(ui, command, &title);
         true
     }
@@ -639,6 +673,7 @@ impl<'a> MenuEntries<'a> {
             response.request_focus();
             self.focus_first = false;
         }
+
         let waits = self.waits(command);
         let response = match (availability, hint) {
             (Err(reason), _) if waits => {
@@ -689,12 +724,15 @@ impl Menus<'_> {
         top_menu(ui, "Edit", |ui| {
             for (command, step) in [(Command::Undo, self.undo), (Command::Redo, self.redo)] {
                 let title = step_title(command, step, self.availability(command).is_ok());
+
                 self.titled_item(ui, command, &title);
             }
+
             let repeat = match self.entries.detail(Command::RepeatLast) {
                 Some(last) => Command::RepeatLast.title_with(last),
                 None => Command::RepeatLast.title(),
             };
+
             self.titled_item(ui, Command::RepeatLast, &repeat);
             self.item(ui, Command::UndoHistory);
             ui.separator();
@@ -1007,12 +1045,14 @@ impl Menus<'_> {
             self.item(ui, Command::FinishSketch);
             self.item(ui, Command::CancelSketch);
             ui.separator();
+
             let (drawing, modifying): (Vec<Tool>, Vec<Tool>) = Tool::ALL
                 .into_iter()
                 .filter(|tool| !tool.dimensions())
                 .partition(|tool| {
                     matches!(tool, Tool::Select | Tool::Gear | Tool::Text) || tool.draws()
                 });
+
             submenu(ui, icons::tool(Tool::Line), "Drawing tools", |ui| {
                 self.items(ui, drawing.into_iter().map(Command::SketchTool));
                 ui.separator();
@@ -1123,10 +1163,12 @@ impl Menus<'_> {
                 },
             );
             ui.separator();
+
             let (dimensions, geometric): (Vec<ConstraintTool>, Vec<ConstraintTool>) =
                 ConstraintTool::ALL
                     .into_iter()
                     .partition(|tool| tool.is_dimension());
+
             submenu(
                 ui,
                 icons::constraint(ConstraintTool::Coincident),
@@ -1196,6 +1238,7 @@ pub fn submenu(ui: &mut Ui, glyph: &str, title: &str, add: impl FnOnce(&mut Ui))
         (widgets::icon(glyph).color(muted), title.to_owned()),
         |ui| widgets::fitted_menu(ui, add),
     );
+
     widgets::named(submenu.response, title);
 }
 
@@ -1206,6 +1249,7 @@ fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> Response {
     let size = vec2(SEARCH_WIDTH.max(content + 2.0 * SPACE_M), CONTROL_HEIGHT);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let hover = commands.with_keys(Command::Palette, "Search every command by name");
+
     let response = widgets::named(response, SEARCH_LABEL).on_hover_text(hover);
     let active = response.hovered() || response.is_pointer_button_down_on();
     let outline = if active {
@@ -1213,6 +1257,7 @@ fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> Response {
     } else {
         tokens.field_border
     };
+
     ui.painter().rect(
         rect,
         CornerRadius::same(WIDGET_RADIUS),
@@ -1223,12 +1268,14 @@ fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> Response {
     if response.has_focus() {
         widgets::paint_focus_ring(ui, rect);
     }
+
     let inside = rect.shrink2(vec2(SPACE_M, 0.0));
     let mut leading = ui.new_child(
         UiBuilder::new()
             .max_rect(inside)
             .layout(Layout::left_to_right(Align::Center)),
     );
+
     leading.spacing_mut().item_spacing.x = SPACE_S;
     widgets::icon_label(&mut leading, icons::SEARCH, tokens.text_muted);
     leading.add(
@@ -1236,12 +1283,15 @@ fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> Response {
             .selectable(false)
             .wrap_mode(TextWrapMode::Extend),
     );
+
     let mut needed = leading.min_rect().width();
+
     if let Some(keys) = commands.keys(Command::Palette) {
         let (width_id, height_id) = (
             Id::unique("search-keys-width"),
             Id::unique("search-keys-height"),
         );
+
         let size = vec2(
             widgets::remembered_width(ui, width_id),
             widgets::remembered_width(ui, height_id),
@@ -1253,8 +1303,11 @@ fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> Response {
                 .max_rect(place)
                 .layout(Layout::left_to_right(Align::Min)),
         );
+
         trailing.spacing_mut().interact_size.y = 0.0;
+
         let caps = widgets::key_cap(&mut trailing, &keys);
+
         widgets::remember_width(ui, width_id, caps.rect.width());
         widgets::remember_width(ui, height_id, caps.rect.height());
         needed += SPACE_M + caps.rect.width();

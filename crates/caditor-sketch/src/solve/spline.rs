@@ -28,7 +28,7 @@ const REFINEMENTS: usize = 32;
 const TIE: f64 = 1e-9;
 const SETTLED_AT_END: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Wanted {
     Closest,
     Touching,
@@ -74,7 +74,9 @@ impl System {
                         if joints.spline_joint(sketch, a, b).is_some() {
                             return Ok(Vec::new());
                         }
+
                         let (first, second) = (self.curve(sketch, a)?, self.curve(sketch, b)?);
+
                         let (one, other) =
                             closest_pair(&Course::Spline(first), &Course::Spline(second));
                         Ok(vec![(a, one), (b, other)])
@@ -140,10 +142,13 @@ impl System {
     ) -> Result<f64, SketchError> {
         let curve = self.curve(sketch, spline)?;
         let values = &self.values;
+
         if sketch.role(other) == Some(Role::Line) {
             let line = self.line(sketch, other)?;
             let anchor = line.start.at(values);
+
             let normal = fallback_direction(line.end.at(values) - anchor).perp();
+
             return Ok(start_on(
                 &curve,
                 Wanted::Touching,
@@ -151,6 +156,7 @@ impl System {
                 |_, tangent, bend| (normal.dot(tangent), normal.dot(bend)),
             ));
         }
+
         let circle = self.circle(sketch, other)?;
         let (center, radius) = (circle.center.at(values), circle.radius(values));
         Ok(start_on(
@@ -191,14 +197,18 @@ impl System {
         value: f64,
     ) -> Result<Vec<Form>, SketchError> {
         let handle = self.point(point)?;
+
         if value.abs() <= self.span_context(handle, handle, value).degenerate_length {
             return self.on_spline(sketch, point, spline, parameter);
         }
+
         let curve = self.curve(sketch, spline)?;
         let start = self.values.get(parameter).copied().unwrap_or(0.0);
+
         let offset = handle.at(&self.values) - curve.point_at(start);
         let fallback = start_tangent(&curve, start, fallback_direction(offset.perp()));
         let normal = fallback.perp();
+
         let side = if normal.dot(offset) < 0.0 { -1.0 } else { 1.0 };
         let spline = self.spline_handle(sketch, spline)?;
         Ok(vec![
@@ -227,14 +237,17 @@ impl System {
         parameter: Option<usize>,
     ) -> Result<Vec<Form>, SketchError> {
         let is_line = sketch.role(other) == Some(Role::Line);
+
         if let Some(found) = joints.spline_end_on(sketch, spline, other) {
             let legs = self.end_legs(sketch, spline, found)?;
             let (end, neighbour) = (legs.end, legs.next);
+
             let leg = LineHandle {
                 start: end,
                 end: neighbour,
                 fallback: self.initial_direction(end, neighbour),
             };
+
             return Ok(vec![if is_line {
                 Form::Parallel(self.line(sketch, other)?, leg)
             } else {
@@ -242,6 +255,7 @@ impl System {
                 Form::Perpendicular(self.radius_line(end, circle.center), leg)
             }]);
         }
+
         let parameter = parameter.ok_or(SketchError::MissingEntity(spline))?;
         self.spline_contact(sketch, (spline, other), parameter, Contact::Touching)
     }
@@ -277,13 +291,17 @@ impl System {
         let curve = self.curve(sketch, spline)?;
         let values = &self.values;
         let start = values.get(parameter).copied().unwrap_or(0.0);
+
         let at = curve.point_at(start);
+
         if sketch.role(other) == Some(Role::Line) {
             let line = self.line(sketch, other)?;
             let along = fallback_direction(line.end.at(values) - line.start.at(values));
             let tangent_fallback = start_tangent(&curve, start, along);
             let normal = along.perp();
+
             let (side, value) = contact.side_and_value(normal.dot(at - line.start.at(values)));
+
             return Ok(vec![
                 Form::SplineOnLine {
                     spline: Arc::clone(&handle),
@@ -300,10 +318,12 @@ impl System {
                 },
             ]);
         }
+
         let circle: CircleHandle = self.circle(sketch, other)?;
         let center = circle.center.at(values);
         let radial_fallback = fallback_direction(at - center);
         let tangent_fallback = start_tangent(&curve, start, radial_fallback.perp());
+
         let (side, value) = contact.side_and_value(at.distance(center) - circle.radius(values));
         Ok(vec![
             Form::SplineOnCircle {
@@ -377,6 +397,7 @@ impl System {
                 .iter()
                 .map(|point| self.point(*point))
                 .collect::<Result<Vec<_>, _>>()?;
+
             let handle = match kind {
                 SplineKind::Control { closed: false } => clamped_handle(handles),
                 SplineKind::Control { closed: true } => {
@@ -420,6 +441,7 @@ impl System {
                     closed: true,
                 } => looped_handle(&handles, *degree, spans),
             };
+
             self.splines.insert(id, Arc::new(handle));
         }
         Ok(())
@@ -446,6 +468,7 @@ impl System {
         let Some((layout, spacing)) = layout else {
             return clamped_handle(fits.to_vec());
         };
+
         let starts =
             fit_controls(&positions, closed, spacing, &layout).unwrap_or_else(|| positions.clone());
         let hidden_range = if closed {
@@ -455,9 +478,11 @@ impl System {
         };
         let mut hidden = Vec::with_capacity(hidden_range.len());
         let mut controls = fits.to_vec();
+
         for index in hidden_range {
             let variable = self.values.len();
             let start = starts.get(index).copied().unwrap_or(Point2::ZERO);
+
             self.values.extend([start.x, start.y]);
             hidden.push(variable);
             if let Some(slot) = controls.get_mut(index) {
@@ -465,6 +490,7 @@ impl System {
             }
         }
         self.hidden.insert(id, hidden);
+
         let handle = if closed {
             periodic_handle(&controls, MAX_SPLINE_DEGREE, layout.knots)
         } else {
@@ -476,11 +502,14 @@ impl System {
                 periodic: false,
             }
         };
+
         for (index, (fit, parameter)) in fits.iter().zip(&layout.parameters).enumerate() {
             if !closed && (index == 0 || index + 1 == fits.len()) {
                 continue;
             }
+
             let [(first, weights), _, _] = handle.basis(*parameter);
+
             let terms: Arc<[(PointHandle, f64)]> = weights
                 .iter()
                 .zip(handle.points.iter().skip(first))
@@ -493,6 +522,7 @@ impl System {
                     terms: Arc::clone(&terms),
                     along,
                 };
+
                 self.equations.push(Equation { owner: None, form });
             }
         }
@@ -525,11 +555,13 @@ impl System {
             })
             .collect();
         let handled: Vec<usize> = handles.iter().map(|handle| handle.index).collect();
+
         let layout = HandledLayout::of(&positions, closed, spacing, &handled)?;
         let starts = layout.controls(&positions, &reaches)?;
         let last = starts.len().checked_sub(1)?;
         let mut hidden = Vec::with_capacity(starts.len());
         let mut controls = Vec::with_capacity(starts.len());
+
         for (index, start) in starts.iter().enumerate() {
             let fixed_end = match index {
                 _ if closed => None,
@@ -537,16 +569,20 @@ impl System {
                 _ if index == last => fits.last(),
                 _ => None,
             };
+
             if let Some(end) = fixed_end {
                 controls.push(*end);
                 continue;
             }
+
             let variable = self.values.len();
+
             self.values.extend([start.x, start.y]);
             hidden.push(variable);
             controls.push(PointHandle::Variable(variable));
         }
         self.hidden.insert(id, hidden);
+
         let handle = SplineHandle {
             points: layout.wrapped(&controls)?,
             degree: layout.degree,
@@ -565,6 +601,7 @@ impl System {
                     .collect(),
             )
         };
+
         for row in &layout.rows {
             match *row {
                 Row::Point(index) if !closed && (index == 0 || index + 1 == fits.len()) => {}
@@ -577,6 +614,7 @@ impl System {
                             terms: Arc::clone(&terms),
                             along,
                         };
+
                         self.equations.push(Equation { owner: None, form });
                     }
                 }
@@ -587,7 +625,9 @@ impl System {
                         continue;
                     };
                     let mut terms = terms_of(*row)?;
+
                     terms.push((*anchor, 1.0));
+
                     let terms: Arc<[(PointHandle, f64)]> = terms.into();
                     let forms = [Vector2::X, Vector2::Y]
                         .map(|along| Form::Through {
@@ -596,6 +636,7 @@ impl System {
                             along,
                         })
                         .to_vec();
+
                     self.handle_forms.insert(handle.constraint, forms);
                 }
             }
@@ -687,7 +728,7 @@ fn periodic_handle(points: &[PointHandle], degree: usize, knots: Vec<f64>) -> Sp
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Contact {
     Touching,
     Apart(f64),
@@ -703,7 +744,7 @@ impl Contact {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct SplineEnd {
     pub end: EntityId,
     pub from_start: bool,
@@ -736,6 +777,7 @@ pub(super) fn end_factor(degree: usize, knots: &[f64], from_start: bool) -> f64 
     if degree < 2 {
         return 0.0;
     }
+
     let last = knots.len().saturating_sub(1);
     let knot = |index: usize| {
         if from_start {
@@ -747,6 +789,7 @@ pub(super) fn end_factor(degree: usize, knots: &[f64], from_start: bool) -> f64 
         }
     };
     let order = degree as f64;
+
     let first = order / (knot(degree + 1) - knot(1));
     let second = order / (knot(degree + 2) - knot(2));
     let bend = (order - 1.0) / (knot(degree + 1) - knot(2));
@@ -843,6 +886,7 @@ impl System {
     ) -> Result<EndLegs, SketchError> {
         let handle = self.spline_handle(sketch, spline)?;
         let count = handle.points.len();
+
         let at = |step: usize| {
             let index = if end.from_start {
                 Some(step)
@@ -852,6 +896,7 @@ impl System {
             index.and_then(|index| Some((*handle.points.get(index)?, index)))
         };
         let missing = || SketchError::MissingEntity(spline);
+
         let (own, own_index) = at(0).ok_or_else(missing)?;
         let (next, next_index) = at(1).ok_or_else(missing)?;
         let after = at(2);
@@ -863,6 +908,7 @@ impl System {
                 .copied()
                 .unwrap_or(1.0)
         };
+
         let factor = after.map_or(0.0, |(_, after_index)| {
             end_factor(handle.degree, &handle.knots, end.from_start)
                 * weight(own_index)
@@ -945,6 +991,7 @@ impl System {
             .spline_end_on(sketch, spline, other)
             .ok_or_else(|| not_joined(sketch, constraint, spline, other))?;
         let handle = self.end_handle(sketch, spline, end)?;
+
         if sketch.role(other) == Some(Role::Line) {
             return Ok(vec![Form::Parallel(
                 LineHandle {
@@ -959,9 +1006,11 @@ impl System {
                 },
             )]);
         }
+
         let circle = self.circle(sketch, other)?;
         let at = handle.end.at(&self.values);
         let leg = handle.next.at(&self.values) - at;
+
         let side = if leg.perp_dot(circle.center.at(&self.values) - at) < 0.0 {
             -1.0
         } else {
@@ -1010,6 +1059,7 @@ fn start_on(
         })
         .collect();
     let size = polygon_size(curve);
+
     let candidates: Vec<Candidate> = samples
         .iter()
         .enumerate()
@@ -1041,6 +1091,7 @@ fn start_on(
         })
         .collect();
     let touching = wanted == Wanted::Touching && candidates.iter().any(|found| found.stationary);
+
     let eligible: Vec<Candidate> = candidates
         .into_iter()
         .filter(|found| !touching || found.stationary)
@@ -1086,18 +1137,25 @@ fn refine(
     slope: impl Fn(Point2, Vector2, Vector2) -> (f64, f64),
 ) -> (f64, bool) {
     let mut parameter = start;
+
     for _ in 0..REFINEMENTS {
         let [tangent, bend] = curve.derivatives(parameter);
+
         let (value, derivative) = slope(curve.point_at(parameter), tangent, bend);
+
         let step = value / derivative;
+
         if !step.is_finite() {
             break;
         }
+
         let next = (parameter - step).clamp(0.0, 1.0);
         let moved = (next - parameter).abs();
+
         parameter = next;
         if moved <= f64::EPSILON {
             let inside = parameter > 0.0 && parameter < 1.0;
+
             return (parameter, inside || step.abs() <= SETTLED_AT_END);
         }
     }
@@ -1112,6 +1170,7 @@ pub(crate) fn spline_gap(
     if is_elliptic_pair(sketch, spline, other) {
         return curve_pair_gap(sketch, spline, other);
     }
+
     let curve = sketch.spline(spline)?;
     let slope_from = |center: Point2| {
         move |at: Point2, tangent: Vector2, bend: Vector2| {
@@ -1119,11 +1178,13 @@ pub(crate) fn spline_gap(
             (offset.dot(tangent), tangent.dot(tangent) + offset.dot(bend))
         }
     };
+
     if let Some(direction) = sketch.line_direction(other) {
         let normal = direction.try_normalize()?.perp();
         let anchor = sketch
             .line_endpoints(other)
             .map_or(Point2::ZERO, |(start, _)| start);
+
         let parameter = start_on(
             &curve,
             Wanted::Touching,
@@ -1131,9 +1192,12 @@ pub(crate) fn spline_gap(
             |_, tangent, bend| (normal.dot(tangent), normal.dot(bend)),
         );
         let at = curve.point_at(parameter);
+
         return Some((at, at - normal * normal.dot(at - anchor)));
     }
+
     let (center, radius) = sketch.circle(other)?;
+
     let parameter = start_on(
         &curve,
         Wanted::Touching,

@@ -13,7 +13,7 @@ const IDLE_SECONDS: f64 = 0.4;
 const SAME_PLACE_SHARE: f64 = 1e-9;
 const SAME_TURN_COSINE: f64 = 1.0 - 1e-12;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum BackError {
     #[error("{NO_EARLIER_VIEW}")]
     NoEarlierView,
@@ -25,7 +25,7 @@ impl Reason for BackError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ForwardError {
     #[error("{NO_LATER_VIEW}")]
     NoLaterView,
@@ -37,7 +37,7 @@ impl Reason for ForwardError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Gesture {
     Drag,
     Wheel,
@@ -53,7 +53,7 @@ impl Gesture {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Moving {
     start: Viewpoint,
     gesture: Gesture,
@@ -194,6 +194,7 @@ mod tests {
     #[test]
     fn going_back_returns_the_views_left_newest_first_and_skips_the_current_one() {
         let mut history = ViewHistory::default();
+
         history.leave(from(1.0));
         history.leave(from(2.0));
         history.leave(from(2.0));
@@ -212,6 +213,7 @@ mod tests {
     #[test]
     fn a_gesture_is_kept_once_from_where_it_started() {
         let mut history = ViewHistory::default();
+
         history.moving(Gesture::Drag, from(1.0), 0.0);
         history.moving(Gesture::Drag, from(1.5), 5.0);
         history.stop_dragging();
@@ -231,22 +233,26 @@ mod tests {
     #[test]
     fn only_the_newest_views_are_kept_and_a_new_session_forgets_them() {
         let mut history = ViewHistory::default();
+
         for step in 0..KEPT_VIEWS + 8 {
             history.leave(from(step as f64));
         }
 
         let mut count = 0;
         let mut current = from(-1.0);
+
         while let Some(view) = history.back(current) {
             current = view;
             count += 1;
         }
+
         assert_eq!(count, KEPT_VIEWS);
         assert_eq!(current, from(8.0));
 
         history.leave(from(1.0));
         history.moving(Gesture::Drag, from(2.0), 0.0);
         history.clear();
+
         assert_eq!(
             history.availability(from(3.0)),
             Err(BackError::NoEarlierView)
@@ -256,6 +262,7 @@ mod tests {
     #[test]
     fn going_forward_returns_the_views_stepped_back_from_until_something_new_is_done() {
         let mut history = ViewHistory::default();
+
         history.leave(from(1.0));
         history.leave(from(2.0));
 
@@ -273,6 +280,7 @@ mod tests {
         assert_eq!(history.back(from(3.0)), Some(from(2.0)));
 
         history.moving(Gesture::Keys, from(2.0), 0.0);
+
         assert_eq!(
             history.forward_availability(from(2.5)),
             Err(ForwardError::NoLaterView)
@@ -283,18 +291,24 @@ mod tests {
     #[test]
     fn a_view_left_for_a_new_place_forgets_the_views_ahead_and_clearing_forgets_them_too() {
         let mut history = ViewHistory::default();
+
         history.leave(from(1.0));
+
         assert_eq!(history.back(from(2.0)), Some(from(1.0)));
 
         history.leave(from(1.0));
+
         assert_eq!(
             history.forward_availability(from(5.0)),
             Err(ForwardError::NoLaterView)
         );
 
         history.leave(from(6.0));
+
         assert_eq!(history.back(from(7.0)), Some(from(6.0)));
+
         history.clear();
+
         assert_eq!(
             history.forward_availability(from(8.0)),
             Err(ForwardError::NoLaterView)

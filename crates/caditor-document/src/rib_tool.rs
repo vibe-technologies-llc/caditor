@@ -39,7 +39,7 @@ const FLANK_TOLERANCE: f64 = 1e-5;
 const FLANK_SAFETY: f64 = 1.1;
 const FLANK_SLACK: f64 = 1.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RibSide {
     OneSide,
     OtherSide,
@@ -47,14 +47,14 @@ pub enum RibSide {
     Symmetric,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RibDirection {
     #[default]
     Parallel,
     Square,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RibEnds {
     #[default]
     Straight,
@@ -144,6 +144,7 @@ pub(crate) fn rib_tools(input: &RibInput<'_>) -> Result<Vec<Solid>, RibError> {
     let chains = chains(&input.curves)?;
     let heights =
         heights(input.body, &input.plane, input.plane.normal()).ok_or(RibError::NoExtent)?;
+
     let bounds = chains.iter().fold(heights.across, |bounds, chain| {
         bounds.union(chain.bounds.expanded(heights.margin))
     });
@@ -161,6 +162,7 @@ pub(crate) fn rib_tools(input: &RibInput<'_>) -> Result<Vec<Solid>, RibError> {
     };
     let attached = attachments(&chains);
     let mut built: Vec<Option<Vec<Solid>>> = vec![None; chains.len()];
+
     for index in build_order(&attached) {
         let Some(chain) = chains.get(index) else {
             continue;
@@ -173,6 +175,7 @@ pub(crate) fn rib_tools(input: &RibInput<'_>) -> Result<Vec<Solid>, RibError> {
             .flatten()
             .flatten()
             .collect();
+
         let tools = chain_tools(input, &frame, chain, &obstacles)?;
         if let Some(slot) = built.get_mut(index) {
             *slot = Some(tools);
@@ -231,6 +234,7 @@ pub(crate) struct RibChain {
 impl RibChain {
     fn entities(&self) -> Vec<u64> {
         let mut entities: Vec<u64> = self.curves.iter().map(|curve| curve.entity).collect();
+
         entities.sort_unstable();
         entities
     }
@@ -249,6 +253,7 @@ pub(crate) fn chains(curves: &[ProfileCurve]) -> Result<Vec<RibChain>, RibError>
     if curves.is_empty() {
         return Err(RibError::NoCurves);
     }
+
     let links = curve_links(curves);
     let closed: Vec<u64> = curves
         .iter()
@@ -256,24 +261,29 @@ pub(crate) fn chains(curves: &[ProfileCurve]) -> Result<Vec<RibChain>, RibError>
         .filter(|(_, link)| link.is_none())
         .map(|(curve, _)| curve.entity)
         .collect();
+
     if !closed.is_empty() {
         return Err(RibError::Closed { entities: closed });
     }
+
     let outward = end_directions(curves)?;
     let partners = paired(&links, &outward);
     let mut taken = vec![false; curves.len()];
     let mut walks = Vec::new();
+
     for (slot, partner) in partners.iter().enumerate() {
         if partner.is_none() && taken.get(slot / 2) == Some(&false) {
             walks.push(walked(&partners, slot, &mut taken));
         }
     }
+
     let looped: Vec<u64> = curves
         .iter()
         .zip(&taken)
         .filter(|(_, taken)| !**taken)
         .map(|(curve, _)| curve.entity)
         .collect();
+
     if !looped.is_empty() {
         return Err(RibError::Closed { entities: looped });
     }
@@ -291,13 +301,16 @@ pub(crate) fn chains(curves: &[ProfileCurve]) -> Result<Vec<RibChain>, RibError>
 
 fn end_directions(curves: &[ProfileCurve]) -> Result<Vec<Vector2>, RibError> {
     let mut directions = Vec::with_capacity(2 * curves.len());
+
     for curve in curves {
         let degenerate = || RibError::Degenerate {
             entities: vec![curve.entity],
         };
         let (path, range) = curve.curve().map_err(RibError::Profile)?;
+
         let first = path.evaluate(range.start()).first.try_normalize();
         let last = path.evaluate(range.end()).first.try_normalize();
+
         directions.push(-first.ok_or_else(degenerate)?);
         directions.push(last.ok_or_else(degenerate)?);
     }
@@ -306,13 +319,16 @@ fn end_directions(curves: &[ProfileCurve]) -> Result<Vec<Vector2>, RibError> {
 
 fn paired(links: &[Option<[usize; 2]>], outward: &[Vector2]) -> Vec<Option<usize>> {
     let mut at_nodes: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+
     for (index, link) in links.iter().enumerate() {
         if let Some([first, last]) = link {
             at_nodes.entry(*first).or_default().push(2 * index);
             at_nodes.entry(*last).or_default().push(2 * index + 1);
         }
     }
+
     let mut partners = vec![None; 2 * links.len()];
+
     for mut open in at_nodes.into_values() {
         while let Some((one, other)) = straightest(&open, outward) {
             for (slot, partner) in [(one, other), (other, one)] {
@@ -344,6 +360,7 @@ fn straightest(open: &[usize], outward: &[Vector2]) -> Option<(usize, usize)> {
 fn walked(partners: &[Option<usize>], from: usize, taken: &mut [bool]) -> Vec<usize> {
     let mut order = Vec::new();
     let mut at = from;
+
     while let Some(slot) = taken.get_mut(at / 2).filter(|taken| !**taken) {
         *slot = true;
         order.push(at / 2);
@@ -401,6 +418,7 @@ fn build_order(attached: &[BTreeSet<usize>]) -> Vec<usize> {
     let mut done = vec![false; attached.len()];
     let mut order = Vec::with_capacity(attached.len());
     let waiting = |done: &[bool], index: usize| done.get(index) == Some(&false);
+
     while order.len() < attached.len() {
         let ready = (0..attached.len()).find(|index| {
             waiting(&done, *index)
@@ -412,6 +430,7 @@ fn build_order(attached: &[BTreeSet<usize>]) -> Vec<usize> {
         else {
             break;
         };
+
         if let Some(slot) = done.get_mut(next) {
             *slot = true;
         }
@@ -429,7 +448,7 @@ fn in_plane(plane: &Plane, direction: Vector2) -> Vector3 {
     plane.x_axis() * direction.x + plane.y_axis() * direction.y
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThicknessStand {
     pub base: Point3,
     pub direction: Vector3,
@@ -529,6 +548,7 @@ fn chain_tools(
         .chain(obstacles.iter().copied())
         .collect();
     let classifiers: Vec<_> = blocking.iter().map(|solid| solid.classifier()).collect();
+
     let seeds: Vec<Point3> = seeds
         .into_iter()
         .filter(|seed| {
@@ -537,10 +557,13 @@ fn chain_tools(
                 .all(|classifier| classifier.classify(*seed) == PointClass::Outside)
         })
         .collect();
+
     if seeds.is_empty() {
         return Err(RibError::Inside { entities });
     }
+
     let mut pieces = slab;
+
     for solid in blocking {
         pieces = match boolean(&pieces, solid, BooleanOperation::Difference) {
             Ok(pieces) => pieces,
@@ -548,6 +571,7 @@ fn chain_tools(
             Err(error) => return Err(RibError::Boolean(error)),
         };
     }
+
     let kept: Vec<Solid> = pieces
         .lumps()
         .map_err(RibError::Lumps)?
@@ -559,6 +583,7 @@ fn chain_tools(
                 .any(|seed| classifier.classify(*seed) == PointClass::Inside)
         })
         .collect();
+
     if kept.is_empty() {
         return Err(RibError::Inside { entities });
     }
@@ -582,6 +607,7 @@ fn chain_tools(
             .faces()
             .map(|(_, face)| (face.name(), face.origin()))
             .collect();
+
         if origins
             .iter()
             .all(|(_, origin)| origin.is_some_and(|origin| origin.feature() == input.feature))
@@ -623,6 +649,7 @@ fn escaped(
             let past = origins.iter().any(|(_, origin)| {
                 matches!(origin, Some(FaceOrigin::Side { entity, .. }) if PERIMETER_ENTITIES.contains(entity))
             });
+
             if past {
                 return Err(RibError::RunsPast {
                     entities: entities.to_vec(),
@@ -637,20 +664,25 @@ type Slab = (Solid, Vec<Point3>, Vec<Escape>);
 
 fn carried_to(curves: &mut Vec<ProfileCurve>, end: &End, run: u64, to: Point2) -> u64 {
     let (entity, at_end) = end.order;
+
     if end.point.distance(to) <= LINEAR_RESOLUTION {
         return entity;
     }
+
     let lengthened = curves.iter_mut().find_map(|curve| match &mut curve.shape {
         ProfileShape::Line { start, end } if curve.entity == entity => {
             Some(if at_end { end } else { start })
         }
         _ => None,
     });
+
     if let Some(point) = lengthened {
         *point = to;
         return entity;
     }
+
     let carried = run | entity;
+
     curves.push(if at_end {
         ProfileCurve::line(carried, end.point, to)
     } else {
@@ -661,6 +693,7 @@ fn carried_to(curves: &mut Vec<ProfileCurve>, end: &End, run: u64, to: Point2) -
 
 fn carried_on(chain: &RibChain, start: Point2, finish: Point2) -> (Vec<ProfileCurve>, [u64; 2]) {
     let mut curves = chain.curves.clone();
+
     let first = carried_to(&mut curves, &chain.start, START_RUN, start);
     let last = carried_to(&mut curves, &chain.finish, END_RUN, finish);
     (curves, [first, last])
@@ -675,12 +708,14 @@ fn arc_of(drawn: &[ProfileCurve], entity: u64) -> Option<(Point2, Point2, Point2
 
 fn arc_end_moved(curves: &mut [ProfileCurve], end: &End, point: Point2) -> Option<u64> {
     let (entity, at_end) = end.order;
+
     let moved = curves.iter_mut().find_map(|curve| match &mut curve.shape {
         ProfileShape::Arc { start, end, .. } if curve.entity == entity => {
             Some(if at_end { end } else { start })
         }
         _ => None,
     })?;
+
     *moved = point;
     Some(entity)
 }
@@ -688,6 +723,7 @@ fn arc_end_moved(curves: &mut [ProfileCurve], end: &End, point: Point2) -> Optio
 fn bent_round(curves: &mut [ProfileCurve], drawn: &[ProfileCurve], end: &End) -> Option<u64> {
     let (center, start, finish) = arc_of(drawn, end.order.0)?;
     let angle = |point: Point2| (point.y - center.y).atan2(point.x - center.x);
+
     let sweep = (angle(finish) - angle(start)).rem_euclid(TAU);
     let reach = (0.5 * (TAU - sweep - ARC_GAP_DEGREES.to_radians())).max(0.0);
     let turned = if end.order.1 {
@@ -709,9 +745,11 @@ fn rolled_to_body(
     let Some((center, start, finish)) = arc_of(drawn, entity) else {
         return Ok(*end);
     };
+
     if !outside(end.point) {
         return Ok(*end);
     }
+
     let radius = start.distance(center);
     let angle = |point: Point2| (point.y - center.y).atan2(point.x - center.x);
     let sweep = (angle(finish) - angle(start)).rem_euclid(TAU);
@@ -722,8 +760,10 @@ fn rolled_to_body(
         (angle(start), -1.0)
     };
     let step = ROUND_STEP_DEGREES.to_radians();
+
     let steps = (reach / step).floor() as usize;
     let on = |turned: f64| center + Vector2::new(turned.cos(), turned.sin()) * radius;
+
     let found = (1..=steps).find_map(|count| {
         let turned = from + turn * step * count as f64;
         (!outside(on(turned))).then_some(turned)
@@ -731,6 +771,7 @@ fn rolled_to_body(
     let Some(turned) = found else {
         return Err(RibError::RunsPastEnd { entity });
     };
+
     arc_end_moved(curves, end, on(turned));
     Ok(End {
         point: on(turned),
@@ -746,6 +787,7 @@ fn rolled_chain(input: &RibInput<'_>, chain: &RibChain, level: f64) -> Result<Ri
             == PointClass::Outside
     };
     let mut curves = chain.curves.clone();
+
     let start = rolled_to_body(&mut curves, &chain.curves, &chain.start, &outside)?;
     let finish = rolled_to_body(&mut curves, &chain.curves, &chain.finish, &outside)?;
     let bounds = rib_chain(curves.clone())?.bounds;
@@ -759,6 +801,7 @@ fn rolled_chain(input: &RibInput<'_>, chain: &RibChain, level: f64) -> Result<Ri
 
 fn carried_by(chain: &RibChain, frame: &Frame, ends: RibEnds) -> (Vec<ProfileCurve>, [u64; 2]) {
     let mut curves = chain.curves.clone();
+
     let mut carry = |end: &End, run: u64| {
         let round = match ends {
             RibEnds::RoundArcs => bent_round(&mut curves, &chain.curves, end),
@@ -768,6 +811,7 @@ fn carried_by(chain: &RibChain, frame: &Frame, ends: RibEnds) -> (Vec<ProfileCur
             carried_to(&mut curves, end, run, end.point + end.outward * frame.reach)
         })
     };
+
     let first = carry(&chain.start, START_RUN);
     let last = carry(&chain.finish, END_RUN);
     (curves, [first, last])
@@ -776,6 +820,7 @@ fn carried_by(chain: &RibChain, frame: &Frame, ends: RibEnds) -> (Vec<ProfileCur
 fn web_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Slab, RibError> {
     let thickness = input.thickness;
     let (extended, far_ends) = carried_by(chain, frame, input.ends);
+
     let regions = match input.side {
         RibSide::Symmetric => {
             wall_regions(&extended, thickness, WallSide::Centred).map_err(RibError::Wall)?
@@ -817,6 +862,7 @@ fn web_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Sla
             input.plane.normal(),
         )
     };
+
     let slab = extrude_tapered(
         &input.plane,
         &regions,
@@ -831,6 +877,7 @@ fn web_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Sla
         RibSide::OneSide | RibSide::OtherSide => vec![half, -half],
     };
     let depth = seed_depth(thickness);
+
     let seeds = seeds_in(&regions, &chain.curves, &reaches)
         .into_iter()
         .map(|point| input.plane.to_world(point) + ahead * depth)
@@ -880,6 +927,7 @@ fn rim_closed(
         other => RibError::Profile(other),
     })?;
     let regions = profile.regions();
+
     if regions.len() != 1 {
         return Err(crosses());
     }
@@ -894,6 +942,7 @@ fn rectangular_rim(
     let perimeter = Perimeter::new(bounds);
     let start = perimeter.exit(bounds, &chain.start)?;
     let finish = perimeter.exit(bounds, &chain.finish)?;
+
     let corners = perimeter.walk(finish, start, !input.reversed);
     let rim = PERIMETER_ENTITIES
         .iter()
@@ -915,14 +964,17 @@ fn circular_rim(
     chain: &RibChain,
 ) -> Option<(Point2, Point2, Vec<ProfileCurve>)> {
     let (centre, radius) = frame.circle;
+
     let exit = |end: &End| -> Option<Point2> {
         let gap = end.point - centre;
         let along = gap.dot(end.outward);
         let beyond = gap.length_squared() - radius * radius;
+
         let discriminant = along * along - beyond;
         (discriminant >= 0.0).then(|| end.point + end.outward * (discriminant.sqrt() - along))
     };
     let (start, finish) = (exit(&chain.start)?, exit(&chain.finish)?);
+
     let arc = if input.reversed {
         ProfileCurve::arc(PERIMETER_ENTITIES[0], centre, start, finish)
     } else {
@@ -983,10 +1035,12 @@ fn rib_slab(
     } else {
         rectangular_rim(input, bounds, chain).ok_or_else(degenerate)?
     };
+
     let (curves, _) = carried_on(chain, start, finish);
     let crosses = || RibError::CrossesItself {
         entities: entities.clone(),
     };
+
     let regions = rim_closed(&curves, &rim, 0, crosses)?;
     let middle = slab_middle(input);
     let (low, high) = match input.side {
@@ -994,9 +1048,11 @@ fn rib_slab(
         RibSide::OtherSide => (-thickness, 0.0),
         RibSide::Symmetric => (-0.5 * thickness, 0.5 * thickness),
     };
+
     let extent = LinearExtent::new(low, high).map_err(RibError::Sweep)?;
     let mut slab =
         extrude(&input.plane, &regions, extent, input.feature).map_err(RibError::Sweep)?;
+
     if input.draft > 0.0 {
         let depth = flank_depth(frame, chain) * scale;
         let rise = depth * input.draft.tan();
@@ -1014,18 +1070,23 @@ fn rib_slab(
                 input.feature,
             )
             .map_err(RibError::Sweep)?;
+
             slab = boolean(&slab, &flank, BooleanOperation::Union).map_err(RibError::Boolean)?;
         }
     }
+
     let seed_depth = seed_depth(thickness);
     let normal = input.plane.normal();
+
     let seeds = seeds_in(&regions, &chain.curves, &[seed_depth, -seed_depth])
         .into_iter()
         .map(|point| input.plane.to_world(point) + normal * middle)
         .collect();
     let mut escapes = vec![Escape::Perimeter];
+
     if input.draft > 0.0 {
         let rise = flank_depth(frame, chain) * scale * input.draft.tan();
+
         escapes.push(Escape::Flank {
             low: if input.side == RibSide::OneSide {
                 f64::NEG_INFINITY
@@ -1051,6 +1112,7 @@ pub(crate) fn facing_body(
     let chains = chains(curves).ok()?;
     let chain = chains.first()?;
     let middle = chain.start.point + (chain.finish.point - chain.start.point) * 0.5;
+
     let (from, ahead) = match direction {
         RibDirection::Square => {
             let sample = samples(&chain.curves).into_iter().next()?;
@@ -1063,6 +1125,7 @@ pub(crate) fn facing_body(
         }
     };
     let classifier = body.classifier();
+
     let reach = |toward: Vector3| match classifier.first_crossing(from, toward, 0.0) {
         RayCrossing::Crossing { distance, .. } => Some(distance),
         RayCrossing::Nothing | RayCrossing::Undecided => None,

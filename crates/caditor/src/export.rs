@@ -52,7 +52,7 @@ const NOT_EXPORTING: &str = "No export is running";
 const NO_BODIES: &str =
     "There are no bodies to export yet. Extrude or revolve a sketch to make one.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportCommand {
     Show,
     Hide,
@@ -98,7 +98,7 @@ impl ExportReport {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExportChoices {
     pub format: ExportFormat,
     pub resolution: MeshResolution,
@@ -107,7 +107,7 @@ pub struct ExportChoices {
     pub threads: ExportThreads,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ExportThreads {
     #[default]
     Modelled,
@@ -190,7 +190,7 @@ struct Waiting {
     rendering: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThumbnailJob {
     pub size: SurfaceSize,
     pub bodies: Vec<FeatureId>,
@@ -215,7 +215,7 @@ struct Body {
     source: ExportSource,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OwnedLook {
     pub colour: Rgb,
     pub opacity: Option<u8>,
@@ -245,7 +245,7 @@ impl OwnedLook {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ExportSource {
     pub name: String,
     pub result: Arc<FeatureResult>,
@@ -259,6 +259,7 @@ fn face_looks(appearance: &BodyAppearance, solid: &Solid, splits: &FaceSplits) -
     if appearance.faces.is_empty() {
         return Vec::new();
     }
+
     let colours = appearance.face_colours(solid, splits);
     let opacities = appearance.face_opacities(solid, splits);
     solid
@@ -294,7 +295,9 @@ impl ExportSource {
         threads: &[PlacedThread],
     ) -> Option<Self> {
         let result = evaluation.body_result(body)?;
+
         result.solid()?;
+
         let feature = document.body_maker(body);
         let appearance = document.body_appearance(body);
         Some(Self {
@@ -467,6 +470,7 @@ impl Exporter {
         if !self.every_configuration {
             return Vec::new();
         }
+
         let configurations = configuration_export::exportable(model.document());
         configuration_export::files_for(path, configurations, format)
     }
@@ -495,12 +499,14 @@ impl Exporter {
             self.start_configurations(path, format, model, configurations, finished);
             return;
         }
+
         let (chosen, bodies): (Vec<FeatureId>, Vec<ExportSource>) = self
             .chosen_among(model, only)
             .map(|body| (body.id, body.source))
             .unzip();
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&cancelled);
+
         let job = Job {
             path: path.clone(),
             format,
@@ -515,6 +521,7 @@ impl Exporter {
             cancel: CancelToken::new(move || flag.load(Ordering::SeqCst)),
             finished,
         };
+
         self.running = Some(Running {
             path,
             cancelled,
@@ -532,6 +539,7 @@ impl Exporter {
 
     pub fn thumbnail_job(&mut self) -> Option<ThumbnailJob> {
         let waiting = self.waiting.as_mut().filter(|waiting| !waiting.rendering)?;
+
         waiting.rendering = true;
         Some(ThumbnailJob {
             size: THUMBNAIL_SIZE,
@@ -546,6 +554,7 @@ impl Exporter {
             }
             return;
         }
+
         let pixels = match rows {
             Ok(rows) => Some(rows),
             Err(error) => {
@@ -575,6 +584,7 @@ impl Exporter {
         let target = path.clone();
         let slot = Arc::new(Mutex::new(Some(finished)));
         let worker_slot = Arc::clone(&slot);
+
         let spawned = thread::Builder::new()
             .name("export".to_owned())
             .spawn(move || {
@@ -653,14 +663,17 @@ impl Exporter {
         };
         let properties = model.document().properties().clone();
         let (resolution, stl) = (self.resolution, self.stl);
+
         self.running = Some(Running {
             path: path.clone(),
             cancelled,
             progress: Some(Progress { done, total }),
         });
+
         let slot = Arc::new(Mutex::new(Some(finished)));
         let worker_slot = Arc::clone(&slot);
         let target = path.clone();
+
         let spawned = thread::Builder::new()
             .name("export".to_owned())
             .spawn(move || {
@@ -690,6 +703,7 @@ impl Exporter {
             ExportReport::Bodies(result) => self.finished(path, result),
             ExportReport::Modelled { result, failed } => {
                 let notice = self.finished(path, result);
+
                 if failed == 0 || notice.kind != NoticeKind::Success {
                     return notice;
                 }
@@ -720,6 +734,7 @@ impl Exporter {
 
     pub fn finished(&mut self, path: &Path, result: Result<Exported, ExportError>) -> Notice {
         self.forget_running(path);
+
         let name = display_name(Some(path));
         match result {
             Ok(exported) => {
@@ -735,12 +750,14 @@ impl Exporter {
                     Some(moved) => format!("{summary} {}", moved_note(moved)),
                     None => summary,
                 };
+
                 if exported.left_out.is_empty() {
                     return Notice {
                         outlasts_edits: exported.moved.is_some(),
                         ..Notice::success(summary)
                     };
                 }
+
                 let reasons: Vec<String> =
                     exported.left_out.iter().map(ToString::to_string).collect();
                 Notice::failure(format!(
@@ -804,6 +821,7 @@ pub fn read_thumbnail(mut rows: ReadPixels) -> Option<(SurfaceSize, Vec<u8>)> {
     };
     let read = panic::catch_unwind(AssertUnwindSafe(move || {
         let mut pixels = Vec::new();
+
         while let Some(band) = rows.next_rows() {
             pixels.extend_from_slice(band?);
         }
@@ -848,7 +866,9 @@ pub fn with_format_extension(path: PathBuf, format: ExportFormat) -> PathBuf {
     if format.matches(&path) {
         return path;
     }
+
     let mut named = OsString::from(path.as_os_str());
+
     named.push(".");
     named.push(format.extension());
     PathBuf::from(named)
@@ -862,11 +882,13 @@ pub fn activity(
 ) {
     let running = exporter.running.as_ref().ok_or(NOT_EXPORTING);
     let mut cancel = commands.invoke(Command::CancelExport, &running);
+
     if let Ok(running) = running {
         let hover = commands.with_keys(
             Command::CancelExport,
             "Stop the export without writing the file",
         );
+
         cancel |= widgets::progress(running.description())
             .cancel(hover)
             .show(ui);
@@ -891,11 +913,14 @@ pub fn dialog(
         Page::Exporting,
         |ui| {
             let bodies = Exporter::bodies(model);
+
             if bodies.is_empty() {
                 widgets::empty_state(ui, icons::command(Command::Export), NO_BODIES, |_| {});
                 return None;
             }
+
             let mut command = None;
+
             widgets::dialog_body(ui, |ui| {
                 format_choice(ui, exporter, &mut command);
                 if exporter.format == ExportFormat::Stl {
@@ -908,6 +933,7 @@ pub fn dialog(
                 configuration_choice(ui, model, exporter, &mut command);
                 body_choice(ui, exporter, &bodies, &mut command);
             });
+
             let blocker = if exporter.is_running() {
                 Some("An export is already running.")
             } else if matches!(model.status(), RecomputeStatus::Running { .. }) {
@@ -920,6 +946,7 @@ pub fn dialog(
             } else {
                 None
             };
+
             warnings(ui, model, FAILED_OUTCOME, blocker);
             widgets::footer(ui, |ui| {
                 ui.with_layout(
@@ -931,6 +958,7 @@ pub fn dialog(
                             Some(blocker) => response.on_disabled_hover_text(blocker),
                             None => response,
                         };
+
                         if response.clicked() {
                             command = Some(ExportCommand::Choose);
                         }
@@ -1011,6 +1039,7 @@ pub fn heading(ui: &mut Ui, title: &str) {
 
 pub fn warnings(ui: &mut Ui, model: &Model, outcome: &str, blocker: Option<&str>) {
     let failed = model.evaluation().failed_count();
+
     if failed > 0 {
         ui.add_space(SPACE_M);
         widgets::callout(ui, Tone::Warning, |ui| {
@@ -1043,7 +1072,9 @@ fn outdated(status: RecomputeStatus) -> Option<&'static str> {
 
 fn format_choice(ui: &mut Ui, exporter: &Exporter, command: &mut Option<ExportCommand>) {
     heading(ui, "Format");
+
     let options = ExportFormat::ALL.map(|format| (format, format.name(), format_hint(format)));
+
     if let Some(format) = preferences::choice(ui, &options, exporter.format) {
         *command = Some(ExportCommand::SetFormat(format));
     }
@@ -1081,7 +1112,9 @@ fn threads_choice(
         return;
     }
     heading(ui, "Threads");
+
     let options = ExportThreads::ALL.map(|threads| (threads, threads.name(), threads.hint()));
+
     if let Some(threads) = preferences::choice(ui, &options, exporter.threads) {
         *command = Some(ExportCommand::SetThreads(threads));
     }
@@ -1095,10 +1128,12 @@ fn configuration_choice(
     command: &mut Option<ExportCommand>,
 ) {
     let configurations = configuration_export::exportable(model.document());
+
     if configurations.is_empty() {
         return;
     }
     heading(ui, "Configurations");
+
     let active = model.document().active_configuration().map_or_else(
         || "the model as it stands".to_owned(),
         |row| format!("“{}”", row.name),
@@ -1109,24 +1144,30 @@ fn configuration_choice(
          named after it, recomputing each in the background.",
         configurations.len()
     );
+
     let options = [
         (false, "This configuration", this_hint.as_str()),
         (true, "Every configuration", every_hint.as_str()),
     ];
+
     if let Some(every) = preferences::choice(ui, &options, exporter.every_configuration) {
         *command = Some(ExportCommand::SetEveryConfiguration(every));
     }
+
     let shown = if exporter.every_configuration {
         every_hint
     } else {
         this_hint
     };
+
     ui.label(widgets::muted(shown, ui));
 }
 
 fn stl_choice(ui: &mut Ui, exporter: &Exporter, command: &mut Option<ExportCommand>) {
     heading(ui, "Encoding");
+
     let options = StlEncoding::ALL.map(|stl| (stl, stl.name(), stl_hint(stl)));
+
     if let Some(stl) = preferences::choice(ui, &options, exporter.stl) {
         *command = Some(ExportCommand::SetStlEncoding(stl));
     }
@@ -1154,6 +1195,7 @@ fn resolution_choice(
     command: &mut Option<ExportCommand>,
 ) {
     heading(ui, "Resolution");
+
     let bounds: Vec<_> = bodies
         .iter()
         .filter(|body| !exporter.left_out.contains(&body.id))
@@ -1174,6 +1216,7 @@ fn resolution_choice(
         .zip(&hovers)
         .map(|(resolution, hover)| (*resolution, resolution.name(), hover.as_str()))
         .collect();
+
     if let Some(resolution) = preferences::choice(ui, &options, exporter.resolution) {
         *command = Some(ExportCommand::SetResolution(resolution));
     }
@@ -1190,6 +1233,7 @@ fn body_choice(
         .iter()
         .map(|body| (body.id, body.source.name.as_str()))
         .collect();
+
     *command = match body_list(ui, &named, &exporter.left_out) {
         Some(BodyPick::All(included)) => Some(ExportCommand::IncludeAll(included)),
         Some(BodyPick::One { body, included }) => Some(ExportCommand::Include { body, included }),
@@ -1197,7 +1241,7 @@ fn body_choice(
     };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BodyPick {
     All(bool),
     One { body: FeatureId, included: bool },
@@ -1217,8 +1261,10 @@ pub fn body_list(
     left_out: &BTreeSet<FeatureId>,
 ) -> Option<BodyPick> {
     ui.add_space(SPACE_M);
+
     let all = bodies.iter().all(|(id, _)| !left_out.contains(id));
     let none = bodies.iter().all(|(id, _)| left_out.contains(id));
+
     let mut pick = Sides::new()
         .show(
             ui,
@@ -1237,6 +1283,7 @@ pub fn body_list(
         )
         .1
         .map(BodyPick::All);
+
     widgets::card(ui, |ui| {
         ScrollArea::vertical()
             .max_height(widgets::list_height(ui.ctx(), BODY_LIST_HEIGHT))

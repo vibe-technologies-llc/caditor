@@ -53,6 +53,7 @@ impl CliBackend for FakeCli {
                         tool: request.tool,
                         error_kind: error.kind(),
                     })?;
+
             writeln!(stream, "{}", request.bridge_token).unwrap();
             writeln!(
                 stream,
@@ -65,21 +66,26 @@ impl CliBackend for FakeCli {
             )
             .unwrap();
             stream.flush().unwrap();
+
             let _ = stream.shutdown(std::net::Shutdown::Write);
             let mut reader = BufReader::new(stream);
             let mut replies = Vec::new();
             let mut line = String::new();
+
             while reader.read_line(&mut line).unwrap() > 0 {
                 replies.push(serde_json::from_str::<Value>(&line).unwrap());
                 line.clear();
             }
+
             assert_eq!(replies.len(), 2);
             assert!(
                 replies[1]["result"]["isError"].is_null()
                     || replies[1]["result"]["isError"] == Value::Bool(false)
             );
         }
+
         let reply = "Set cli_width to 42 mm via live MCP bridge.".to_owned();
+
         on_text(reply.clone());
         Ok(CliTurnResult {
             session_id: Some("cli-session-1".to_owned()),
@@ -90,11 +96,13 @@ impl CliBackend for FakeCli {
 
 fn wait_for_assistant(harness: &mut Harness) {
     let deadline = Instant::now() + Duration::from_secs(10);
+
     while harness.workspace.assistant.is_busy() {
         assert!(
             Instant::now() < deadline,
             "assistant turn did not finish within deadline"
         );
+
         harness.frame();
         harness.settle();
         thread::sleep(Duration::from_millis(10));
@@ -149,7 +157,9 @@ fn api_assistant_calls_live_mcp_tools_updates_model_and_lands_in_undo_history() 
         calls_bridge: false,
     });
     let mut harness = Harness::starting(None, Document::default(), Workspace::new());
+
     let prefs = harness.workspace.preferences.assistant.clone();
+
     harness.workspace.assistant.set_services(
         AssistantServices::for_tests(Arc::clone(&transport) as _, cli, Arc::clone(&keyring), None),
         &prefs,
@@ -158,7 +168,9 @@ fn api_assistant_calls_live_mcp_tools_updates_model_and_lands_in_undo_history() 
         ApiProvider::Claude,
         "sk-ant-live-test".to_owned(),
     )));
+
     let deadline = Instant::now() + Duration::from_secs(5);
+
     while !harness
         .workspace
         .assistant
@@ -166,12 +178,14 @@ fn api_assistant_calls_live_mcp_tools_updates_model_and_lands_in_undo_history() 
         .is_available()
     {
         assert!(Instant::now() < deadline, "key save did not arrive");
+
         harness.frame();
         thread::sleep(Duration::from_millis(5));
     }
 
     harness.workspace.queue_command(Command::Assistant);
     harness.frame();
+
     assert!(harness.workspace.assistant.open);
 
     harness.perform(Action::Assistant(AssistantCommand::SendPrompt(
@@ -192,6 +206,7 @@ fn api_assistant_calls_live_mcp_tools_updates_model_and_lands_in_undo_history() 
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert_eq!(harness.model.document().features().len(), 0);
 }
 
@@ -201,15 +216,20 @@ fn cli_wrapper_connects_to_live_loopback_mcp_bridge_and_edits_open_model() {
     let keyring: Arc<dyn AiKeyring> = FakeAiKeyring::reachable();
     let cli = Arc::new(FakeCli { calls_bridge: true });
     let mut harness = Harness::starting(None, Document::default(), Workspace::new());
+
     harness.perform(Action::Assistant(AssistantCommand::SelectBackend(
         Backend::Cli(CliTool::ClaudeCode),
     )));
+
     let prefs = harness.workspace.preferences.assistant.clone();
+
     harness.workspace.assistant.set_services(
         AssistantServices::for_tests(transport, cli, keyring, None),
         &prefs,
     );
+
     let deadline = Instant::now() + Duration::from_secs(5);
+
     while !harness
         .workspace
         .assistant
@@ -217,6 +237,7 @@ fn cli_wrapper_connects_to_live_loopback_mcp_bridge_and_edits_open_model() {
         .is_available()
     {
         assert!(Instant::now() < deadline, "cli discovery did not arrive");
+
         harness.frame();
         thread::sleep(Duration::from_millis(5));
     }
@@ -263,6 +284,7 @@ fn every_caditor_mcp_tool_schema_normalizes_cleanly_for_gemini() {
 
     for tool in Tool::ALL {
         let normalized = normalize_schema(&tool.input_schema());
+
         assert!(
             !has_disallowed(&normalized),
             "{} still has unsupported Gemini schema keys: {normalized}",

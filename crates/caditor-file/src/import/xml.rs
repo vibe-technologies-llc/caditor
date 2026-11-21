@@ -14,7 +14,7 @@ const ELEMENTS_BETWEEN_INTERRUPT_POLLS: usize = 4096;
 const TEXT_KEPT_IN: &str = "style";
 const CONTENT_KEPT_IN: [&str; 4] = ["text", "tspan", "textPath", "a"];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct NamespaceKey<'t>(Cow<'t, str>);
 
 impl PartialOrd for NamespaceKey<'_> {
@@ -30,7 +30,7 @@ impl Ord for NamespaceKey<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum XmlError {
     TooManyElements,
     TooManyAttributesInAll,
@@ -66,7 +66,7 @@ struct Piece<'t> {
     text: Cow<'t, str>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) enum Content<'a, 't> {
     Text(&'a str),
     Element(Node<'a, 't>),
@@ -79,7 +79,7 @@ struct Attribute<'t> {
     value: Cow<'t, str>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) struct Node<'a, 't> {
     tree: &'a Tree<'t>,
     index: usize,
@@ -144,6 +144,7 @@ impl<'a, 't> Node<'a, 't> {
         let tree = self.tree;
         let mut pieces = element.pieces.iter().peekable();
         let mut content = Vec::with_capacity(element.children.len() + element.pieces.len());
+
         for (position, index) in element.children.iter().enumerate() {
             while let Some(piece) = pieces.next_if(|piece| piece.before_child <= position) {
                 content.push(Content::Text(piece.text.as_ref()));
@@ -195,7 +196,7 @@ impl<'t> Tree<'t> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Budget {
     pub elements: usize,
     pub attributes: usize,
@@ -228,13 +229,17 @@ pub(super) fn parse(text: &str, budget: Budget) -> Result<Tree<'_>, XmlError> {
         },
         budget,
     };
+
     let ended = parser.run()?;
+
     parser.close_open();
+
     let damage = match ended {
         Ended::Whole => None,
         Ended::DamagedAt(at) => Some(at),
     };
     let damaged_at = damage.map(|at| line_of(text, at));
+
     if parser.tree.elements.is_empty() {
         return match damaged_at {
             Some(line) => Err(XmlError::Damaged { line }),
@@ -286,6 +291,7 @@ impl<'t> Parser<'t> {
     fn run(&mut self) -> Result<Ended, XmlError> {
         loop {
             let rest = self.rest();
+
             if rest.is_empty() {
                 return Ok(if self.open.is_empty() && !self.tree.elements.is_empty() {
                     Ended::Whole
@@ -293,11 +299,13 @@ impl<'t> Parser<'t> {
                     Ended::DamagedAt(self.at)
                 });
             }
+
             let start = self.at;
             let step = if rest.starts_with('<') {
                 self.markup(rest)?
             } else {
                 let length = rest.find('<').unwrap_or(rest.len());
+
                 self.keep_text(rest.get(..length).unwrap_or_default(), true);
                 Some(Step::Skip(length))
             };
@@ -320,6 +328,7 @@ impl<'t> Parser<'t> {
                 .and_then(|body| body.find(end))
                 .map(|found| Step::Skip(marker.len() + found + end.len()))
         };
+
         if rest.starts_with("<!--") {
             return Ok(through("<!--", "-->"));
         }
@@ -348,11 +357,14 @@ impl<'t> Parser<'t> {
         let close = body.find('>')?;
         let name = body.get(..close)?.trim_end();
         let (_, open) = self.open.last()?;
+
         if *open != name {
             return None;
         }
+
         let (element, _) = self.open.pop()?;
         let last = self.tree.elements.len().saturating_sub(1);
+
         if let Some(closed) = self.tree.elements.get_mut(element) {
             closed.last = last;
         }
@@ -366,20 +378,25 @@ impl<'t> Parser<'t> {
             Err(TagFault::Damaged) => return Ok(None),
             Err(TagFault::TooManyAttributes) => return Err(XmlError::TooManyAttributes),
         };
+
         if self.open.len() >= MAX_DEPTH {
             return Err(XmlError::TooDeep);
         }
         if self.open.is_empty() && !self.tree.elements.is_empty() {
             return Ok(None);
         }
+
         let index = self.tree.elements.len();
+
         if index >= self.budget.elements {
             return Err(XmlError::TooManyElements);
         }
+
         let attribute_count = self
             .tree
             .attribute_count
             .saturating_add(tag.attributes.len());
+
         if attribute_count > self.budget.attributes {
             return Err(XmlError::TooManyAttributesInAll);
         }
@@ -387,8 +404,10 @@ impl<'t> Parser<'t> {
         if index.is_multiple_of(ELEMENTS_BETWEEN_INTERRUPT_POLLS) && check_interrupt().is_err() {
             return Err(XmlError::Cancelled);
         }
+
         let mut prefixes = Vec::new();
         let mut plain = Vec::new();
+
         for (name, raw) in tag.attributes {
             let Some(value) = self.decoded(raw) else {
                 return Ok(None);
@@ -410,21 +429,26 @@ impl<'t> Parser<'t> {
                 prefixes,
             });
         }
+
         let Some((namespace, name)) = self.resolved(tag.name, true) else {
             return Ok(None);
         };
         let mut attributes = Vec::with_capacity(plain.len());
+
         for (qualified, value) in plain {
             let Some((namespace, name)) = self.resolved(qualified, false) else {
                 return Ok(None);
             };
+
             attributes.push(Attribute {
                 namespace,
                 name,
                 value,
             });
         }
+
         let parent = self.open.last().map(|(parent, _)| *parent);
+
         if let Some(parent) = parent.and_then(|parent| self.tree.elements.get_mut(parent)) {
             parent.children.push(index);
         }
@@ -455,9 +479,11 @@ impl<'t> Parser<'t> {
         };
         let local = name.rsplit(':').next().unwrap_or(name);
         let is_style = local == TEXT_KEPT_IN;
+
         if !is_style && !CONTENT_KEPT_IN.contains(&local) {
             return;
         }
+
         let text = if escaped {
             self.decoded(raw).unwrap_or(Cow::Borrowed(raw))
         } else {
@@ -466,6 +492,7 @@ impl<'t> Parser<'t> {
         let Some(element) = self.tree.elements.get_mut(element) else {
             return;
         };
+
         if is_style {
             if element.text.is_empty() {
                 element.text = text;
@@ -474,6 +501,7 @@ impl<'t> Parser<'t> {
             }
             return;
         }
+
         let before_child = element.children.len();
         match element.pieces.last_mut() {
             Some(last) if last.before_child == before_child => last.text.to_mut().push_str(&text),
@@ -483,11 +511,14 @@ impl<'t> Parser<'t> {
 
     fn intern(&mut self, value: Cow<'t, str>) -> usize {
         let key = NamespaceKey(value);
+
         if let Some(index) = self.interned.get(&key) {
             return *index;
         }
+
         let index = self.tree.namespaces.len();
         let NamespaceKey(value) = key;
+
         self.interned.insert(NamespaceKey(value.clone()), index);
         self.tree.namespaces.push(value);
         index
@@ -501,6 +532,7 @@ impl<'t> Parser<'t> {
         {
             return;
         }
+
         let Some(scope) = self.scopes.pop() else {
             return;
         };
@@ -526,9 +558,11 @@ impl<'t> Parser<'t> {
             None if element => ("", qualified),
             None => return Some((None, qualified)),
         };
+
         if prefix == "xml" {
             return Some((Some(self.intern(Cow::Borrowed(XML_NAMESPACE))), name));
         }
+
         let bound = self
             .bindings
             .get(prefix)
@@ -553,13 +587,16 @@ impl<'t> Parser<'t> {
         if !raw.contains(['&', '\t', '\n', '\r']) {
             return Some(Cow::Borrowed(raw));
         }
+
         let mut value = String::with_capacity(raw.len());
+
         expand(raw, &self.entities, &mut self.entity_work, 0, &mut value)?;
         Some(Cow::Owned(value))
     }
 
     fn doctype(&mut self, rest: &'t str) -> Option<usize> {
         let mut at = "<!DOCTYPE".len();
+
         loop {
             let byte = *rest.as_bytes().get(at)?;
             match byte {
@@ -573,9 +610,11 @@ impl<'t> Parser<'t> {
         loop {
             let subset = rest.get(at..)?;
             let trimmed = subset.trim_start();
+
             at += subset.len() - trimmed.len();
             if let Some(after) = trimmed.strip_prefix(']') {
                 let closing = after.find('>')?;
+
                 return Some(at + 1 + closing + 1);
             }
             if trimmed.starts_with("<!--") {
@@ -597,9 +636,11 @@ impl<'t> Parser<'t> {
 
     fn entity(&mut self, declaration: &'t str) {
         let declaration = declaration.trim_start();
+
         if declaration.starts_with('%') {
             return;
         }
+
         let name_end = declaration
             .find(|character: char| character.is_whitespace())
             .unwrap_or(declaration.len());
@@ -615,12 +656,14 @@ impl<'t> Parser<'t> {
         else {
             return;
         };
+
         let Some(value) = after
             .get(1..)
             .and_then(|body| body.find(quote).and_then(|end| body.get(..end)))
         else {
             return;
         };
+
         self.entities.entry(name).or_insert(value);
     }
 }
@@ -645,13 +688,18 @@ struct Tag<'t> {
 impl<'t> Tag<'t> {
     fn read(rest: &'t str) -> Result<Self, TagFault> {
         let mut at = 1;
+
         let name = name_at(rest, at).ok_or(TagFault::Damaged)?;
+
         at += name.len();
+
         let mut attributes = Vec::new();
         loop {
             let after = rest.get(at..).ok_or(TagFault::Damaged)?;
             let trimmed = after.trim_start();
+
             let spaced = trimmed.len() < after.len();
+
             at += after.len() - trimmed.len();
             if trimmed.starts_with("/>") {
                 return Ok(Self {
@@ -675,17 +723,23 @@ impl<'t> Tag<'t> {
             if attributes.len() >= MAX_ATTRIBUTES {
                 return Err(TagFault::TooManyAttributes);
             }
+
             let attribute = name_at(rest, at).ok_or(TagFault::Damaged)?;
+
             at += attribute.len();
+
             let after = rest.get(at..).ok_or(TagFault::Damaged)?;
             let trimmed = after
                 .trim_start()
                 .strip_prefix('=')
                 .ok_or(TagFault::Damaged)?
                 .trim_start();
+
             at += after.len() - trimmed.len();
+
             let length = quoted_length(trimmed).ok_or(TagFault::Damaged)?;
             let value = trimmed.get(1..length - 1).ok_or(TagFault::Damaged)?;
+
             attributes.push((attribute, value));
             at += length;
         }
@@ -730,16 +784,21 @@ fn expand(
     value: &mut String,
 ) -> Option<()> {
     let mut rest = raw;
+
     while let Some(at) = rest.find(['&', '\t', '\n', '\r']) {
         value.push_str(rest.get(..at)?);
+
         let marker = rest.get(at..)?;
+
         if !marker.starts_with('&') {
             value.push(' ');
             rest = marker.get(1..)?;
             continue;
         }
+
         let end = marker.find(';')?;
         let name = marker.get(1..end)?;
+
         rest = marker.get(end + 1..)?;
         *work = work.saturating_add(name.len() + 1);
         match name {
@@ -754,9 +813,11 @@ fn expand(
                         Some(hex) => u32::from_str_radix(hex, 16).ok()?,
                         None => code.parse::<u32>().ok()?,
                     };
+
                     value.push(char::from_u32(number)?);
                 } else {
                     let replacement = entities.get(name)?;
+
                     if depth >= MAX_ENTITY_DEPTH || replacement.contains('<') {
                         return None;
                     }

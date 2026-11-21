@@ -8,7 +8,7 @@ use crate::{
 pub const MAX_SPLINE_DEGREE: usize = 25;
 const MIN_PRUNED_SPANS: usize = 8;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BSpline<P> {
     degree: usize,
     knots: Arc<[f64]>,
@@ -73,7 +73,9 @@ impl<P: Coordinates> BSpline<P> {
         if degree == 0 || degree > MAX_SPLINE_DEGREE {
             return Err(GeometryError::SplineDegree(degree));
         }
+
         let points = control_points.len();
+
         if points <= degree {
             return Err(GeometryError::TooFewControlPoints { degree, points });
         }
@@ -87,6 +89,7 @@ impl<P: Coordinates> BSpline<P> {
         if !control_points.iter().all(|point| point.all_finite()) {
             return Err(GeometryError::NonFinite);
         }
+
         let domain = clamped_domain(&knots, degree).ok_or(GeometryError::Knots)?;
         Ok(Self {
             degree,
@@ -130,6 +133,7 @@ impl<P: Coordinates> BSpline<P> {
             .copied()
             .filter(|knot| self.domain.contains(*knot))
             .collect();
+
         breaks.dedup();
         breaks
     }
@@ -152,8 +156,10 @@ impl<P: Coordinates> BSpline<P> {
     fn derivatives_within<const WIDTH: usize>(&self, parameter: f64) -> [P; 3] {
         let parameter = self.domain.clamp(parameter);
         let span = self.span(parameter);
+
         let table = self.basis_table::<WIDTH>(span, parameter);
         let degree = self.degree;
+
         let values = table.get(degree).copied().unwrap_or([0.0; WIDTH]);
         let first = table.get(degree - 1).map_or([0.0; WIDTH], |lower| {
             self.derivative_row(lower, degree, span)
@@ -168,11 +174,14 @@ impl<P: Coordinates> BSpline<P> {
         let (a0, w0) = self.combine(span, &values);
         let (a1, w1) = self.combine(span, &first);
         let (a2, w2) = self.combine(span, &second);
+
         if w0 <= 0.0 {
             return [P::ORIGIN; 3];
         }
+
         let point = a0 * (1.0 / w0);
         let tangent = (a1 - point * w1) * (1.0 / w0);
+
         let curvature = (a2 - tangent * (2.0 * w1) - point * w2) * (1.0 / w0);
         [point, tangent, curvature]
     }
@@ -201,6 +210,7 @@ impl<P: Coordinates> BSpline<P> {
             .iter()
             .map(|point| map(*point))
             .collect();
+
         if !control_points.iter().all(|point| point.all_finite()) {
             return Err(GeometryError::NonFinite);
         }
@@ -216,12 +226,14 @@ impl<P: Coordinates> BSpline<P> {
     pub fn restricted(&self, range: Interval) -> Option<Self> {
         let low = self.domain.clamp(range.start());
         let high = self.domain.clamp(range.end());
+
         if low >= high {
             return None;
         }
         if low == self.domain.start() && high == self.domain.end() {
             return Some(self.clone());
         }
+
         let degree = self.degree;
         let mut knots = self.knots.to_vec();
         let mut points: Vec<Homogeneous<P>> = self
@@ -236,16 +248,20 @@ impl<P: Coordinates> BSpline<P> {
                 }
             })
             .collect();
+
         for parameter in [low, high] {
             let present = knots.iter().filter(|knot| **knot == parameter).count();
             for _ in present..degree {
                 insert_knot(&mut knots, &mut points, degree, parameter)?;
             }
         }
+
         let starts = knots.partition_point(|knot| *knot < low);
         let multiplicity = knots.iter().filter(|knot| **knot == low).count();
+
         let first = (starts + multiplicity).checked_sub(degree + 1)?;
         let last = knots.partition_point(|knot| *knot < high).checked_sub(1)?;
+
         let kept = points.get(first..=last)?;
         let interior = knots.iter().filter(|knot| **knot > low && **knot < high);
         let knots: Vec<f64> = std::iter::repeat_n(low, degree + 1)
@@ -256,6 +272,7 @@ impl<P: Coordinates> BSpline<P> {
             .iter()
             .map(|homogeneous| homogeneous.point * (1.0 / homogeneous.weight))
             .collect();
+
         let restricted = match self.weights {
             Some(_) => Self::rational(
                 degree,
@@ -273,12 +290,14 @@ impl<P: Coordinates> BSpline<P> {
         let closing_gap = self
             .point(domain.start())
             .distance_to(self.point(domain.end()));
+
         if closing_gap > LINEAR_RESOLUTION {
             return None;
         }
         if parameter <= domain.start() || parameter >= domain.end() {
             return Some(self.clone());
         }
+
         let after = self.restricted(Interval::new(parameter, domain.end())?)?;
         let before = self.restricted(Interval::new(domain.start(), parameter)?)?;
 
@@ -286,6 +305,7 @@ impl<P: Coordinates> BSpline<P> {
         let shift = domain.length();
         let after_knots = after.knots.get(..after.knots.len().checked_sub(1)?)?;
         let before_knots = before.knots.get(degree + 1..)?;
+
         let knots: Vec<f64> = after_knots
             .iter()
             .copied()
@@ -297,6 +317,7 @@ impl<P: Coordinates> BSpline<P> {
             .chain(before.control_points.get(1..)?)
             .copied()
             .collect();
+
         let restarted = match (&after.weights, &before.weights) {
             (Some(after_weights), Some(before_weights)) => {
                 let scale = after_weights.last()? / before_weights.first()?;
@@ -315,9 +336,11 @@ impl<P: Coordinates> BSpline<P> {
     pub fn interpolating(degree: usize, points: &[P]) -> Result<Self, GeometryError> {
         let mut parameters = Vec::with_capacity(points.len());
         let mut travelled = 0.0;
+
         for (index, point) in points.iter().enumerate() {
             if let Some(previous) = index.checked_sub(1).and_then(|before| points.get(before)) {
                 let step = point.distance_to(*previous);
+
                 if step.is_nan() || step <= 0.0 {
                     return Err(GeometryError::ZeroDirection);
                 }
@@ -334,6 +357,7 @@ impl<P: Coordinates> BSpline<P> {
         points: &[P],
     ) -> Result<Self, GeometryError> {
         let count = points.len();
+
         if degree == 0 || degree > MAX_SPLINE_DEGREE {
             return Err(GeometryError::SplineDegree(degree));
         }
@@ -350,29 +374,38 @@ impl<P: Coordinates> BSpline<P> {
                 knots: parameters.len(),
             });
         }
+
         let increasing = parameters
             .windows(2)
             .all(|pair| matches!(pair, [a, b] if a.is_finite() && b.is_finite() && a < b));
+
         if !increasing {
             return Err(GeometryError::Knots);
         }
+
         let (Some(first), Some(last)) = (parameters.first(), parameters.last()) else {
             return Err(GeometryError::Knots);
         };
         let mut knots = vec![*first; degree + 1];
+
         for start in 1..count - degree {
             let window = parameters.get(start..start + degree).unwrap_or_default();
+
             knots.push(window.iter().sum::<f64>() / degree as f64);
         }
         knots.extend(std::iter::repeat_n(*last, degree + 1));
+
         let shape = Self::new(degree, knots.clone(), vec![P::ORIGIN; count])?;
         let mut band = Vec::with_capacity(count);
         let mut firsts = Vec::with_capacity(count);
+
         for parameter in parameters {
             let span = shape.span(*parameter);
+
             band.push(shape.basis_values(span, *parameter));
             firsts.push(span - degree);
         }
+
         let solved =
             solve_collocation(&band, &firsts, points, degree).ok_or(GeometryError::NonFinite)?;
         Self::new(degree, knots, solved)
@@ -390,6 +423,7 @@ impl<P: Coordinates> BSpline<P> {
         let degree = self.degree;
         let mut knots = self.knots.to_vec();
         let mut points = self.homogeneous_points();
+
         for parameter in parameters {
             let inside = self.domain.start() < *parameter && *parameter < self.domain.end();
             let present = knots.iter().filter(|knot| **knot == *parameter).count();
@@ -424,8 +458,10 @@ impl<P: Coordinates> BSpline<P> {
         let parameter = self.domain.clamp(parameter);
         let span = self.span(parameter);
         let first = span - self.degree;
+
         let mut values = self.basis_values(span, parameter);
         let mut total = 0.0;
+
         for (offset, value) in values.iter_mut().enumerate() {
             *value *= self.weight(first + offset);
             total += *value;
@@ -502,7 +538,9 @@ impl<P: Coordinates> BSpline<P> {
         let end = self.domain.clamp(range.end());
         let first = self.knots.partition_point(|knot| *knot <= start);
         let last = self.knots.partition_point(|knot| *knot < end);
+
         let mut knots: Vec<f64> = self.knots.get(first..last).unwrap_or_default().to_vec();
+
         knots.dedup();
         knots
     }
@@ -521,6 +559,7 @@ impl<P: Coordinates> BSpline<P> {
             .into_iter()
             .filter(|knot| *knot > range.start() && *knot < range.end())
             .collect();
+
         breaks.push(range.end());
         for end in breaks {
             let start = seeds.last().copied().unwrap_or(range.start());
@@ -534,6 +573,7 @@ impl<P: Coordinates> BSpline<P> {
 
     pub(crate) fn spans_within(&self, range: Interval) -> Vec<Interval> {
         let mut ends: Vec<f64> = vec![range.start()];
+
         ends.extend(
             self.breakpoints()
                 .into_iter()
@@ -550,9 +590,11 @@ impl<P: Coordinates> BSpline<P> {
 
     pub(crate) fn nearby_runs(&self, point: P, range: Interval) -> Vec<Interval> {
         let spans = self.spans_within(range);
+
         if spans.len() < MIN_PRUNED_SPANS {
             return vec![range];
         }
+
         let reaches: Vec<(Interval, f64, f64)> = spans
             .into_iter()
             .map(|span| {
@@ -567,6 +609,7 @@ impl<P: Coordinates> BSpline<P> {
                     .copied()
                     .reduce(P::component_max)
                     .unwrap_or(point);
+
                 let outside = (low - point)
                     .component_max(point - high)
                     .component_max(P::ORIGIN);
@@ -583,6 +626,7 @@ impl<P: Coordinates> BSpline<P> {
         let reach = farthest.max(0.0).sqrt() + LINEAR_RESOLUTION;
         let reach = reach * reach;
         let mut runs: Vec<Interval> = Vec::new();
+
         for (span, _, _) in reaches
             .into_iter()
             .filter(|(_, nearest, _)| *nearest <= reach)
@@ -618,6 +662,7 @@ impl<P: Coordinates> BSpline<P> {
         parameter: f64,
     ) -> [[f64; WIDTH]; WIDTH] {
         let mut table = [[0.0; WIDTH]; WIDTH];
+
         if let Some(first) = table.first_mut().and_then(|row| row.first_mut()) {
             *first = 1.0;
         }
@@ -642,6 +687,7 @@ impl<P: Coordinates> BSpline<P> {
                     self.knot(index + degree + 1) - parameter,
                     self.knot(index + degree + 1) - self.knot(index + 1),
                 );
+
                 *slot = left * rising + right * falling;
             }
         }
@@ -655,6 +701,7 @@ impl<P: Coordinates> BSpline<P> {
         span: usize,
     ) -> [f64; WIDTH] {
         let mut row = [0.0; WIDTH];
+
         for (offset, slot) in row.iter_mut().enumerate().take(degree + 1) {
             let index = span + offset - degree;
             let left = offset
@@ -667,6 +714,7 @@ impl<P: Coordinates> BSpline<P> {
             } else {
                 0.0
             };
+
             *slot = degree as f64
                 * (ratio(left, self.knot(index + degree) - self.knot(index))
                     - ratio(right, self.knot(index + degree + 1) - self.knot(index + 1)));
@@ -696,7 +744,7 @@ impl<P: Coordinates> BSpline<P> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Homogeneous<P> {
     point: P,
     weight: f64,
@@ -714,6 +762,7 @@ fn insert_knot<P: Coordinates>(
         .checked_sub(1)?
         .clamp(degree, count.checked_sub(1)?);
     let mut inserted = Vec::with_capacity(count + 1);
+
     for index in 0..=count {
         let point = if index + degree <= span {
             *points.get(index)?
@@ -721,6 +770,7 @@ fn insert_knot<P: Coordinates>(
             *points.get(index - 1)?
         } else {
             let (start, end) = (*knots.get(index)?, *knots.get(index + degree)?);
+
             let along = if end > start {
                 (parameter - start) / (end - start)
             } else {
@@ -732,6 +782,7 @@ fn insert_knot<P: Coordinates>(
                 weight: before.weight + (after.weight - before.weight) * along,
             }
         };
+
         inserted.push(point);
     }
     knots.insert(span + 1, parameter);
@@ -747,36 +798,47 @@ fn solve_collocation<P: Coordinates>(
 ) -> Option<Vec<P>> {
     let count = points.len();
     let width = 2 * degree + 1;
+
     let mut matrix = vec![0.0; count * width];
     let at = |row: usize, column: usize| (row * width + column + degree).checked_sub(row);
+
     for (row, (values, first)) in band.iter().zip(firsts).enumerate() {
         for (offset, value) in values.iter().take(degree + 1).enumerate() {
             let slot = at(row, first + offset)?;
+
             *matrix.get_mut(slot)? = *value;
         }
     }
+
     let mut right = points.to_vec();
+
     for pivot in 0..count {
         let diagonal = *matrix.get(at(pivot, pivot)?)?;
+
         if diagonal.abs() <= f64::MIN_POSITIVE {
             return None;
         }
         for row in pivot + 1..(pivot + degree + 1).min(count) {
             let factor = *matrix.get(at(row, pivot)?)? / diagonal;
+
             if factor == 0.0 {
                 continue;
             }
             for column in pivot..(pivot + degree + 1).min(count) {
                 let source = *matrix.get(at(pivot, column)?)?;
+
                 *matrix.get_mut(at(row, column)?)? -= factor * source;
             }
+
             let source = *right.get(pivot)?;
             let target = right.get_mut(row)?;
+
             *target = *target - source * factor;
         }
     }
     for row in (0..count).rev() {
         let mut sum = *right.get(row)?;
+
         for column in row + 1..(row + degree + 1).min(count) {
             sum = sum - *right.get(column)? * *matrix.get(at(row, column)?)?;
         }
@@ -807,6 +869,7 @@ pub(crate) fn clamped_domain(knots: &[f64], degree: usize) -> Option<Interval> {
     if knots.windows(2).any(|pair| matches!(pair, [a, b] if b < a)) {
         return None;
     }
+
     let start = *knots.first()?;
     let end = *knots.last()?;
     let clamped_start = knots.get(..=degree)?.iter().all(|knot| *knot == start);
@@ -815,6 +878,7 @@ pub(crate) fn clamped_domain(knots: &[f64], degree: usize) -> Option<Interval> {
         .iter()
         .all(|knot| *knot == end);
     let interior = knots.get(degree + 1..knots.len() - degree - 1)?;
+
     let limited = interior.chunk_by(|a, b| a == b).all(|run| {
         run.len() <= degree && run.first().is_some_and(|knot| *knot > start && *knot < end)
     });
@@ -872,6 +936,7 @@ mod tests {
 
     fn casteljau(points: &[Point3], parameter: f64) -> Point3 {
         let mut points = points.to_vec();
+
         while points.len() > 1 {
             points = points
                 .windows(2)
@@ -905,6 +970,7 @@ mod tests {
                 .windows(2)
                 .map(|pair| (pair[1] - pair[0]) * degree as f64)
                 .collect();
+
             let curve = BSpline::new(degree, knots.clone(), points.clone()).unwrap();
             let rows = 5;
             let net: Vec<Point3> = (0..rows)
@@ -913,6 +979,7 @@ mod tests {
             let row_knots: Vec<f64> = std::iter::repeat_n(0.0, rows)
                 .chain(std::iter::repeat_n(1.0, rows))
                 .collect();
+
             let surface = crate::BSplineSurface::new(
                 degree,
                 rows - 1,
@@ -931,12 +998,14 @@ mod tests {
                     .chunks(degree + 1)
                     .map(|row| casteljau(row, t))
                     .collect();
+
                 let expected = casteljau(&along_rows, 1.0 - t);
                 let derivative = if degree == 1 {
                     differences[0]
                 } else {
                     casteljau(&differences, t)
                 };
+
                 assert!(point.distance(casteljau(&points, t)) < 1e-9, "{degree} {t}");
                 assert!(tangent.distance(derivative) < 1e-7, "{degree} {t}");
                 assert!(
@@ -957,6 +1026,7 @@ mod tests {
         for index in 0..=20 {
             let parameter = index as f64 / 20.0;
             let [point, tangent, _] = arc.derivatives(parameter);
+
             assert!((point.length() - 1.0).abs() < 1e-14);
             assert!(point.dot(tangent).abs() < 1e-12);
         }
@@ -994,8 +1064,10 @@ mod tests {
                 let [_, first, second] = curve.derivatives(parameter);
                 let [ahead, ahead_first, _] = curve.derivatives(parameter + step);
                 let [behind, behind_first, _] = curve.derivatives(parameter - step);
+
                 let numeric_first = (ahead - behind) / (2.0 * step);
                 let numeric_second = (ahead_first - behind_first) / (2.0 * step);
+
                 assert!((numeric_first - first).length() < 1e-5 * (1.0 + first.length()));
                 assert!((numeric_second - second).length() < 1e-4 * (1.0 + second.length()));
             }
@@ -1018,6 +1090,7 @@ mod tests {
             corners.clone(),
         )
         .unwrap();
+
         let weighted = BSpline::rational(
             3,
             plain.knots().to_vec(),
@@ -1042,9 +1115,11 @@ mod tests {
                 let distance = restarted
                     .point(0.55 + along)
                     .distance(spline.point(original));
+
                 assert!(distance < 1e-9, "{along}: {distance}");
             }
         }
+
         assert!(open.restarted_at(0.5).is_none());
     }
 
@@ -1075,6 +1150,7 @@ mod tests {
             assert!(restricted.is_rational());
             for index in 0..=20 {
                 let parameter = range.at(index as f64 / 20.0);
+
                 assert!(
                     restricted
                         .point(parameter)
@@ -1098,6 +1174,7 @@ mod tests {
         for index in 0..=10 {
             let parameter = index as f64 / 10.0;
             let pivot = arc.domain().start() + arc.domain().end();
+
             assert!(
                 reversed
                     .point(pivot - parameter)
@@ -1110,6 +1187,7 @@ mod tests {
     #[test]
     fn construction_rejects_malformed_input() {
         let points = vec![Point2::ZERO, Point2::X, Point2::ONE];
+
         assert!(matches!(
             BSpline::new(0, vec![0.0, 1.0], vec![Point2::ZERO]),
             Err(GeometryError::SplineDegree(0))
@@ -1168,6 +1246,7 @@ mod tests {
             Point2::new(6.0, 1.0),
         ];
         let spline = BSpline::clamped_uniform(3, points.clone()).unwrap();
+
         assert_eq!(spline.breakpoints(), vec![0.0, 0.5, 1.0]);
         assert!(spline.point(0.0).distance(points[0]) < 1e-15);
         assert!(spline.point(1.0).distance(points[4]) < 1e-15);
@@ -1179,7 +1258,9 @@ mod tests {
             4
         );
         assert_eq!(spline.control_points_over(spline.domain()).len(), 5);
+
         let seeds = spline.seeds(spline.domain());
+
         assert_eq!(seeds.first(), Some(&0.0));
         assert_eq!(seeds.last(), Some(&1.0));
         assert!(seeds.windows(2).all(|pair| pair[0] < pair[1]));
@@ -1195,6 +1276,7 @@ mod tests {
         let spline = BSpline::interpolating(3, &points).unwrap();
         let domain = spline.domain();
         let curve = crate::curve::Curve::BSpline(spline.clone());
+
         let off = |point: Point3| {
             curve
                 .point(curve.closest_parameter(point, domain))
@@ -1219,14 +1301,17 @@ mod tests {
     fn a_spline_interpolating_at_given_parameters_meets_each_point_there() {
         let on_helix = |angle: f64| Point3::new(angle.cos_libm(), angle.sin_libm(), 0.2 * angle);
         let parameters: Vec<f64> = (0..=12).map(|index| 1.0 + index as f64 * 0.5).collect();
+
         let points: Vec<Point3> = parameters.iter().map(|angle| on_helix(*angle)).collect();
 
         let spline = BSpline::interpolating_at(3, &parameters, &points).unwrap();
 
         assert_eq!(spline.domain(), Interval::new(1.0, 7.0).unwrap());
+
         for (parameter, point) in parameters.iter().zip(&points) {
             assert!(spline.point(*parameter).distance(*point) < 1e-12);
         }
+
         assert!(spline.point(2.25).distance(on_helix(2.25)) < 1e-3);
         assert!(matches!(
             BSpline::interpolating_at(3, &[0.0, 1.0, 1.0, 2.0, 3.0], &points[..5]),

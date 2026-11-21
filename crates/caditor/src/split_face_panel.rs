@@ -80,12 +80,15 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         opened,
     } = *row;
     let id = feature.id();
+
     widgets::caption(ui, "Faces to split");
+
     let evaluation = model.evaluation();
     let mut previewed = Vec::new();
     let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
         face_rows(model.document(), bodies::input(evaluation, id), split)
     });
+
     ui.vertical(|ui| {
         if split.faces.is_empty() {
             ui.label(widgets::muted("None: nothing is split", ui));
@@ -95,6 +98,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
             let row = widgets::removable_row_hovered(ui, text, "Leave this face out");
+
             if row.hovered && opened {
                 previewed = bodies::input(evaluation, id)
                     .map(|input| {
@@ -108,6 +112,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             }
             if row.removed {
                 let mut changed = split.clone();
+
                 changed.faces.remove(index);
                 actions.push(feature_fields::applied(
                     &feature.name,
@@ -115,6 +120,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
+
         let chosen = feature_fields::list_in_view(
             ui,
             opened,
@@ -150,8 +156,11 @@ fn along_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
     } = *row;
     let id = feature.id();
     let document = model.document();
+
     let current = split_tools::describe(document, &split.along);
+
     widgets::caption(ui, "Split along");
+
     let chosen = feature_fields::combo(ui, Id::unique(("split-face-along", id)), current, || {
         split_face_tools::choices(model, id, split)
             .into_iter()
@@ -163,14 +172,18 @@ fn along_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
             })
             .collect()
     });
+
     ui.end_row();
+
     let choosing = reference_picking::current(ui.ctx())
         .is_some_and(|picking| picking.is_for(id, Slot::SplitPlane));
+
     if chosen.is_some() && choosing {
         actions.push(Action::Editing(EditingCommand::StopPicking));
     }
     actions.extend(chosen);
     ui.label("");
+
     let picker = Picker {
         feature: id,
         slot: Slot::SplitPlane,
@@ -183,6 +196,7 @@ fn along_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
         ),
         hover: PICK_HOVER,
     };
+
     ui.vertical(|ui| {
         feature_fields::reference_picker(ui, model, picker, actions);
     });
@@ -197,16 +211,20 @@ fn direction_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
         split,
         ..
     } = *row;
+
     if split.along.sketch().is_none() {
         return;
     }
+
     let id = feature.id();
     let along = split.direction();
     let square = SplitFace {
         carry: SplitCarry::Square,
         ..split.clone()
     };
+
     widgets::caption(ui, CARRIED);
+
     let shown = match split.carry {
         SplitCarry::Square => SQUARE,
         SplitCarry::Along(_) => ALONG,
@@ -239,8 +257,10 @@ fn direction_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
             },
         ]
     });
+
     ui.end_row();
     actions.extend(chosen);
+
     let picking = reference_picking::current(ui.ctx())
         .is_some_and(|picking| picking.is_for(id, Slot::SplitDirection));
     let shown = match along {
@@ -260,6 +280,7 @@ fn direction_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
         ),
         hover: DIRECTION_HOVER,
     };
+
     let removed = feature_fields::reference_row(
         ui,
         model,
@@ -284,6 +305,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         split,
         ..
     } = *row;
+
     widgets::properties(ui, ("split-face-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         faces_row(ui, row, cache, actions);

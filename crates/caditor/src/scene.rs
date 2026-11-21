@@ -93,7 +93,7 @@ const MEASURED_END_DIAMETER: f32 = 8.0;
 const CALIBRATION_START_DIAMETER: f32 = 13.0;
 const PROBLEM_DIAMETER: f32 = 11.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PickPriority {
     Point,
     Curve,
@@ -110,7 +110,7 @@ impl PickPriority {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PickBlock {
     first: usize,
     end: usize,
@@ -134,10 +134,13 @@ impl PickBlock {
 
     fn register(&mut self, pickable: Pickable, priority: PickPriority) -> Option<PickId> {
         let index = self.first + self.entries.len();
+
         if index >= self.end {
             return None;
         }
+
         let id = PickId::from_index(index)?;
+
         self.entries.push((pickable, priority));
         Some(id)
     }
@@ -160,7 +163,7 @@ impl PickBlock {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PickTable {
     own: PickBlock,
     parts_after: usize,
@@ -189,6 +192,7 @@ impl PickTable {
             .enumerate()
             .map(|(at, block)| (block.first, at))
             .collect();
+
         by_first.sort_unstable();
         Self {
             own,
@@ -201,9 +205,11 @@ impl PickTable {
 
     fn resolve(&self, id: PickId) -> Option<(Pickable, PickPriority)> {
         let index = id.index();
+
         if index < PART_PICKS_FROM {
             return self.own.get(index);
         }
+
         let at = self
             .by_first
             .partition_point(|(first, _)| *first <= index)
@@ -264,6 +270,7 @@ impl PickTable {
 
     pub fn listed(&self, hits: &[PickHit], filter: SelectionFilter) -> Vec<Pickable> {
         let mut listed: Vec<Pickable> = Vec::new();
+
         for hit in hits {
             let Some((pickable, priority)) = self.resolve(hit.id) else {
                 continue;
@@ -336,14 +343,14 @@ impl Highlight<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EditedSketch {
     pub feature: FeatureId,
     pub plane: Plane,
     pub bounds: Aabb,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct BuiltScene {
     pub scene: Scene,
     pub picks: Arc<PickTable>,
@@ -448,7 +455,7 @@ struct KeptLooks {
     looks: SameLooks,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct SameLooks(Arc<FaceLooks>);
 
 impl PartialEq for SameLooks {
@@ -460,6 +467,7 @@ impl PartialEq for SameLooks {
 impl Parts {
     fn picks_for(&mut self, room: usize) -> PickBlock {
         let first = self.next_pick.max(PART_PICKS_FROM);
+
         self.next_pick = first.saturating_add(room.max(1));
         PickBlock::spanning(first, room)
     }
@@ -480,13 +488,16 @@ impl Parts {
                 (palette, finishes),
             )
         };
+
         if appearance.faces.is_empty() {
             return SameLooks(Arc::new(made()));
         }
+
         let result = evaluation
             .body_result(body)
             .map(|result| Shared(Arc::clone(result)));
         let palette_key = std::ptr::from_ref(palette).addr();
+
         let kept = match previous.remove(&body) {
             Some(kept)
                 if kept.appearance == *appearance
@@ -507,6 +518,7 @@ impl Parts {
             },
         };
         let looks = kept.looks.clone();
+
         self.looks.insert(body, kept);
         looks
     }
@@ -554,7 +566,7 @@ impl<T> PartialEq for Shared<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct BodyLook {
     mesh: Shared<ShadedMesh>,
     analysed: Option<Shared<Analysed>>,
@@ -570,14 +582,14 @@ struct BodyLook {
     edges: EdgeLook,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct PartLit {
     chosen: bool,
     selected: Vec<Pickable>,
     hovered: Vec<Pickable>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum PartKey {
     Body(FeatureId),
     Sketch(FeatureId),
@@ -615,6 +627,7 @@ struct LitParts {
 impl LitParts {
     fn of(highlight: &Highlight<'_>) -> Self {
         let mut lit = Self::default();
+
         for pickable in highlight.selection.iter() {
             if let Some(part) = PartKey::of(pickable) {
                 lit.selected.entry(part).or_default().push(pickable);
@@ -685,7 +698,7 @@ impl Parts {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct SketchLook {
     shapes: Shared<Vec<SketchShape>>,
     presence: Presence,
@@ -730,20 +743,20 @@ impl SketchSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Outline {
     Point(Point3),
     Curve(Vec<Segment>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Segment {
     start: Point3,
     end: Point3,
     stroke: Stroke,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct SketchShape {
     entity: EntityId,
     state: SketchState,
@@ -795,6 +808,7 @@ impl SketchShapes {
         wanted: Faceting,
     ) -> Faceting {
         let mut previous = std::mem::take(&mut self.counted);
+
         let mut drawn: Vec<(&Feature, CountedSketch)> =
             drawn_sketches(sources.document, context.sketch, context.projecting)
                 .filter_map(|(feature, _)| {
@@ -810,6 +824,7 @@ impl SketchShapes {
                 })
                 .collect();
         let mut faceting = wanted;
+
         for _ in 0..MAX_COARSENINGS {
             let within = drawn
                 .iter_mut()
@@ -819,6 +834,7 @@ impl SketchShapes {
                         .filter(|total| *total <= SKETCH_SEGMENT_BUDGET)
                 })
                 .is_some();
+
             if within {
                 break;
             }
@@ -833,6 +849,7 @@ impl SketchShapes {
 
     pub fn faceted_at(&self, faceting: Faceting) -> Self {
         let mut shapes = self.clone();
+
         shapes.facet_at(faceting);
         shapes
     }
@@ -869,6 +886,7 @@ impl SketchShapes {
             }
         };
         let shapes = kept.shapes.clone();
+
         self.sketches.insert(feature.id(), kept);
         shapes
     }
@@ -878,6 +896,7 @@ fn previewed_bodies(evaluation: &Evaluation, context: Context) -> Vec<FeatureId>
     if context.choosing_in_view || context.sketch.is_some() {
         return Vec::new();
     }
+
     let Some(result) = context
         .solid
         .and_then(|feature| evaluation.feature(feature)?.result.as_ref())
@@ -889,7 +908,7 @@ fn previewed_bodies(evaluation: &Evaluation, context: Context) -> Vec<FeatureId>
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OpenView {
     Before,
     Result,
@@ -1059,8 +1078,10 @@ pub fn build_keeping(
         draft,
         pictures,
     } = *sources;
+
     let palette = contrast.palette(canvas);
     let editing = context.sketch;
+
     let rendered = Finishes::of(style, palette, editing.is_none(), &aids) == Finishes::Rendered;
     let bare = rendered && !context.choosing_plane && context.solid.is_none();
     let model = model_bounds(sources);
@@ -1108,6 +1129,7 @@ pub fn build_keeping(
                         builder.principal_plane(plane, reference_size, presence.seen_edge_on());
                     }
                 }
+
                 let earlier = document
                     .active_features()
                     .take_while(|earlier| earlier.id() != feature.id());
@@ -1162,23 +1184,30 @@ pub fn build_keeping(
             continue;
         };
         let opened = context.solid == Some(feature.id());
+
         if !opened && feature.hidden {
             continue;
         }
+
         let shown = match drafted(draft, feature.id()) {
             Some(drafted) if opened => drafted,
             Some(_) | None => evaluation,
         };
         let pickable = !image.locked && editing.is_none();
         let texture = pictures.and_then(|pictures| pictures.texture(image.picture.digest()));
+
         builder.reference_image(shown, (feature.id(), image), (opened, pickable), texture);
     }
+
     let lit_parts = LitParts::of(highlight);
+
     parts.restart_when_exhausted();
     builder.parts_after = builder.picks.entries.len();
+
     let palette_key = std::ptr::from_ref(palette).addr();
     let mut previous_shapes = std::mem::take(&mut shapes.sketches);
     let mut previous_sketches = std::mem::take(&mut parts.sketches);
+
     for (feature, presence) in drawn_sketches(document, editing, context.projecting)
         .filter(|_| !bare && !context.bodies_only)
     {
@@ -1198,15 +1227,18 @@ pub fn build_keeping(
             }
         };
         let drawn = look.shapes.clone();
+
         let part = parts.keep(
             previous_sketches.remove(&feature.id()),
             (look, lit),
             drawn.0.len(),
             |picks| builder.sketch_part(feature.id(), (&drawn.0, presence), picks),
         );
+
         builder.add_drawn(&part, PartListing::Amid);
         parts.sketches.insert(feature.id(), part);
     }
+
     let cutting = cutting_feature(evaluation, context).filter(|_| editing.is_none());
     let open = bodies.body_before().filter(|open| {
         context.solid == Some(open.feature) && editing.is_none() && cutting.is_none()
@@ -1222,13 +1254,16 @@ pub fn build_keeping(
     let mut previous = std::mem::take(&mut parts.bodies);
     let mut previous_looks = std::mem::take(&mut parts.looks);
     let finishes = Finishes::of(builder.style, palette, editing.is_none(), &aids);
+
     for (body, mesh) in bodies.iter() {
         if document.body_hidden(body) {
             continue;
         }
+
         let Some(appearance) = document.body_appearance(body) else {
             continue;
         };
+
         match open_view {
             Some((open, OpenView::Before)) if open.body == body => {
                 split_preview =
@@ -1237,11 +1272,13 @@ pub fn build_keeping(
             }
             Some((open, OpenView::Result)) if open.body == body => {
                 let shown = bodies.draft().map_or(mesh, |draft| &draft.mesh);
+
                 builder.open_result(document, evaluation, open, shown);
                 continue;
             }
             Some(_) | None => {}
         }
+
         let drafted_body = bodies
             .draft()
             .filter(|shown| shown.body == body && editing.is_none());
@@ -1274,6 +1311,7 @@ pub fn build_keeping(
         let placement = moved
             .filter(|(moved, _)| *moved == body)
             .map(|(_, placement)| placement);
+
         let look = BodyLook {
             mesh: Shared(Arc::clone(&mesh.mesh)),
             analysed: builder.analysed(mesh).map(Shared),
@@ -1289,12 +1327,14 @@ pub fn build_keeping(
             edges: builder.edges,
         };
         let lit = lit_parts.of_part(highlight, PartKey::Body(body));
+
         let part = match previous.remove(&body) {
             Some(part) if part.look == look && part.lit == lit => part,
             Some(part) if part.look == look => {
                 let picks =
                     PickBlock::spanning(part.picks.first, part.picks.end - part.picks.first);
                 let mut restyled = builder.body_part(body, mesh, (look, lit), picks);
+
                 if restyled.drawn.batch == part.drawn.batch {
                     restyled.drawn.batch = part.drawn.batch;
                 }
@@ -1305,6 +1345,7 @@ pub fn build_keeping(
                 builder.body_part(body, mesh, (look, lit), parts.picks_for(room))
             }
         };
+
         builder.add_part(&part);
         parts.bodies.insert(body, part);
         if aids.centres_of_mass
@@ -1318,6 +1359,7 @@ pub fn build_keeping(
         let open_draft = context
             .solid
             .and_then(|open| Some((open, drafted(draft, open)?)));
+
         builder.threads(document, evaluation, context.solid, open_draft);
     }
     match open_view {
@@ -1346,6 +1388,7 @@ pub fn build_keeping(
     if let Some(feature) = context.solid {
         builder.swept(sources, feature, reference_size);
     }
+
     let shown_regions = edited
         .iter()
         .map(|(feature, _)| (*feature, context.selecting, Layer::Front))
@@ -1357,6 +1400,7 @@ pub fn build_keeping(
                 .map(|(feature, _)| (feature, true, Layer::Model)),
         );
     let mut previous_regions = std::mem::take(&mut parts.regions);
+
     for (feature, pickable, layer) in shown_regions {
         let Some(source) = SketchSource::of(sources, feature.id()) else {
             continue;
@@ -1366,6 +1410,7 @@ pub fn build_keeping(
             true => regions.map_or(0, <[SketchRegion]>::len),
             false => 0,
         };
+
         let look = RegionsLook {
             source,
             found: regions.is_some(),
@@ -1374,12 +1419,14 @@ pub fn build_keeping(
             palette: palette_key,
         };
         let lit = lit_parts.of_part(highlight, PartKey::Regions(feature.id()));
+
         let part = parts.keep(
             previous_regions.remove(&feature.id()),
             (look, lit),
             room,
             |picks| builder.regions_part(sources, feature, (pickable, layer), picks),
         );
+
         builder.add_drawn(&part, PartListing::Last);
         parts.regions.insert(feature.id(), part);
     }
@@ -1483,10 +1530,12 @@ impl CountedSketch {
         if let Some((_, count)) = self.counts.iter().find(|(counted, _)| *counted == faceting) {
             return *count;
         }
+
         let count = sources
             .sketches
             .get(sources.evaluation, feature)
             .map_or(0, |sketch| segments_within_budget(&sketch, faceting));
+
         self.counts.push((faceting, count));
         count
     }
@@ -1504,7 +1553,7 @@ fn segments_within_budget(sketch: &Sketch, faceting: Faceting) -> usize {
         .unwrap_or(SKETCH_SEGMENT_BUDGET + 1)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Presence {
     Normal,
     Edited,
@@ -1542,6 +1591,7 @@ impl<'a> ConstraintStates<'a> {
         let Some(status) = evaluation.feature(feature.id()) else {
             return Some(states);
         };
+
         match &status.state {
             FeatureState::Failed(error) if !error.constraints.is_empty() => {
                 states.conflicting = entities_of(definition, &error.constraints);
@@ -1557,6 +1607,7 @@ impl<'a> ConstraintStates<'a> {
                     .as_deref()
                     .and_then(FeatureResult::sketch)
                     .map(|result| &result.solution);
+
                 let redundant: Vec<ConstraintId> = states
                     .solution
                     .into_iter()
@@ -1566,6 +1617,7 @@ impl<'a> ConstraintStates<'a> {
                             .chain(redundancy.duplicates.iter().copied())
                     })
                     .collect();
+
                 states.redundant = entities_of(definition, &redundant);
             }
         }
@@ -1624,13 +1676,13 @@ struct Builder<'a> {
     body: Color,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PartListing {
     Amid,
     Last,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct PrincipalPresence {
     opacity: f32,
     picked: bool,
@@ -1716,6 +1768,7 @@ impl<'a> Builder<'a> {
         picks: PickBlock,
     ) -> Drawing {
         let mut part = self.part_builder(picks);
+
         part.sketch(feature, shapes, presence);
         Drawing {
             picks: part.picks,
@@ -1731,6 +1784,7 @@ impl<'a> Builder<'a> {
         picks: PickBlock,
     ) -> Drawing {
         let mut part = self.part_builder(picks);
+
         if let Some(displayed) = sources.sketches.get(sources.evaluation, feature) {
             part.closed_regions(
                 sources.evaluation,
@@ -1748,6 +1802,7 @@ impl<'a> Builder<'a> {
 
     fn add_drawn<Look>(&mut self, part: &DrawnPart<Look>, listing: PartListing) {
         self.part_batches.extend(part.batch.iter().cloned());
+
         let picks = Arc::clone(&part.picks);
         match listing {
             PartListing::Amid => self.parts.amid.push(picks),
@@ -1763,6 +1818,7 @@ impl<'a> Builder<'a> {
         picks: PickBlock,
     ) -> BodyPart {
         let mut part = self.part_builder(picks);
+
         part.body(
             body,
             mesh,
@@ -1788,6 +1844,7 @@ impl<'a> Builder<'a> {
 
     fn add_part(&mut self, part: &BodyPart) {
         let drawn = &part.drawn;
+
         self.meshes.extend(drawn.meshes.iter().cloned());
         self.translucent_meshes
             .extend(drawn.translucent_meshes.iter().cloned());
@@ -1809,6 +1866,7 @@ impl<'a> Builder<'a> {
         let Some(presence) = presence.seen_unless(self.emphasis(pickable) > 0.0) else {
             return;
         };
+
         let pick = presence.register(&mut self.picks, pickable, PickPriority::Surface);
         let corners = plane_corners(plane.plane(), size);
         let edge = presence.faded(self.highlight.color(
@@ -1817,10 +1875,12 @@ impl<'a> Builder<'a> {
             self.palette.plane_edge,
         ));
         let width = PLANE_EDGE_WIDTH + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+
         for (index, start) in corners.iter().enumerate() {
             let Some(end) = corners.get((index + 1) % corners.len()) else {
                 continue;
             };
+
             self.scene.lines.push(Line {
                 start: *start,
                 end: *end,
@@ -1859,6 +1919,7 @@ impl<'a> Builder<'a> {
             .flatten();
         let corners = placed.corners();
         let lit = self.emphasis(item) > 0.0;
+
         if opened || lit || texture.is_none() {
             let color = self
                 .highlight
@@ -1918,9 +1979,11 @@ impl<'a> Builder<'a> {
         } else {
             0.0
         };
+
         let width = PLANE_EDGE_WIDTH + extra + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
         let color = self.highlight.color(&self.palette.lines, pickable, edge);
         let pick = self.picks.register(pickable, PickPriority::Curve);
+
         let line = |start: Point3, end: Point3, width: f32| Line {
             start,
             end,
@@ -1935,11 +1998,13 @@ impl<'a> Builder<'a> {
                 let middle = datum_tools::plane_middle(document, evaluation, feature, &plane);
                 let corners = datum_plane_corners(plane, middle, size);
                 let next = corners.iter().cycle().skip(1);
+
                 let outline: Vec<Line> = corners
                     .iter()
                     .zip(next)
                     .map(|(start, end)| line(*start, *end, width))
                     .collect();
+
                 self.scene.lines.extend(outline);
                 self.scene.fills.push(Fill::convex(
                     &corners,
@@ -1951,7 +2016,9 @@ impl<'a> Builder<'a> {
             }
             Some(DatumResult::Axis(ray)) => {
                 let [start, end] = axis_ends(ray, Point3::ZERO, size);
+
                 let axis = line(start, end, width + AXIS_WIDTH - PLANE_EDGE_WIDTH);
+
                 self.scene.lines.push(axis);
             }
             Some(DatumResult::Point(position)) => {
@@ -1960,6 +2027,7 @@ impl<'a> Builder<'a> {
                 } else {
                     0.0
                 };
+
                 self.scene.markers.push(Marker {
                     position,
                     color,
@@ -2002,10 +2070,12 @@ impl<'a> Builder<'a> {
         } else {
             0.0
         };
+
         let width = AXIS_WIDTH + extra + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
         let color = self.highlight.color(&self.palette.lines, pickable, edge);
         let pick = self.picks.register(pickable, PickPriority::Curve);
         let points = helix_tools::points(evaluation, feature);
+
         let lines = points.windows(2).filter_map(|pair| match pair {
             [start, end] => Some(Line {
                 start: *start,
@@ -2018,6 +2088,7 @@ impl<'a> Builder<'a> {
             }),
             _ => None,
         });
+
         self.scene.lines.extend(lines);
     }
 
@@ -2029,6 +2100,7 @@ impl<'a> Builder<'a> {
         size: f64,
     ) {
         let length = size * FRAME_AXIS_SCALE;
+
         for plane in PrincipalPlane::ALL {
             let Some(corners) = frame_square(frame, plane, length) else {
                 continue;
@@ -2042,10 +2114,12 @@ impl<'a> Builder<'a> {
             } else {
                 (self.palette.datum_edge, self.palette.datum_fill)
             };
+
             let color = self.highlight.color(&self.palette.lines, pickable, edge);
             let width = PLANE_EDGE_WIDTH + extra + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
             let pick = self.picks.register(pickable, PickPriority::Surface);
             let next = corners.iter().cycle().skip(1);
+
             let outline: Vec<Line> = corners
                 .iter()
                 .zip(next)
@@ -2059,6 +2133,7 @@ impl<'a> Builder<'a> {
                     stroke: Stroke::Solid,
                 })
                 .collect();
+
             self.scene.lines.extend(outline);
             self.scene.fills.push(Fill::convex(
                 &corners,
@@ -2078,6 +2153,7 @@ impl<'a> Builder<'a> {
             } else {
                 self.palette.axis(Axis::of(axis))
             };
+
             self.scene.lines.push(Line {
                 start: ray.origin(),
                 end: ray.at(length),
@@ -2122,6 +2198,7 @@ impl<'a> Builder<'a> {
             (false, opacity) if style.shows_faces() => opacity,
             (false, _) => None,
         };
+
         if let (Some(alpha), Some(base)) = (see_through, color) {
             let picked = pickable && !style.is_translucent();
             let faces = mesh
@@ -2155,6 +2232,7 @@ impl<'a> Builder<'a> {
                     }
                 })
                 .collect();
+
             self.translucent_meshes.push(MeshInstance {
                 mesh: Arc::clone(&mesh.mesh),
                 faces,
@@ -2251,6 +2329,7 @@ impl<'a> Builder<'a> {
                                 }
                             })
                             .unzip();
+
                         self.translucent_meshes.push(MeshInstance {
                             faces: clear.into(),
                             ..instance.clone()
@@ -2261,6 +2340,7 @@ impl<'a> Builder<'a> {
                 self.meshes.push(instance);
             }
         }
+
         let edge_color = if style.shows_edges() {
             self.palette.body_edge
         } else {
@@ -2269,6 +2349,7 @@ impl<'a> Builder<'a> {
         let edge_width = self.edge_width();
         let pickable_edges = pickable;
         let shows_hidden_edges = style.shows_hidden_edges() && color.is_some();
+
         if style.shows_edges() && !self.edges.outlines_hidden {
             let silhouette_color = match color {
                 Some(_) => self.palette.body_edge,
@@ -2282,9 +2363,12 @@ impl<'a> Builder<'a> {
                 dashed_where_hidden: shows_hidden_edges,
                 placement,
             };
+
             self.silhouettes.push(silhouette);
         }
+
         let mut polylines = Vec::with_capacity(mesh.edges.len());
+
         for edge in &mesh.edges {
             let pickable = Pickable::Edge {
                 body,
@@ -2308,6 +2392,7 @@ impl<'a> Builder<'a> {
                 ),
                 None => (self.palette.background_body_edge, edge_width, None),
             };
+
             let drawn = EdgeStroke {
                 color,
                 width,
@@ -2341,6 +2426,7 @@ impl<'a> Builder<'a> {
                 body,
                 vertex: vertex.key,
             };
+
             self.scene.markers.push(Marker {
                 position: placed(vertex.position),
                 color: self
@@ -2440,9 +2526,11 @@ impl<'a> Builder<'a> {
         placement: Option<RigidTransform>,
     ) {
         let centroid = mass.properties.centroid;
+
         if !(mass.properties.volume > 0.0 && centroid.is_finite()) {
             return;
         }
+
         let position = placement.map_or(centroid, |placement| placement.apply_point(centroid));
         let pickable = Pickable::CentreOfMass(body);
         let color =
@@ -2458,6 +2546,7 @@ impl<'a> Builder<'a> {
             pick,
         };
         let pick = self.picks.register(pickable, PickPriority::Point);
+
         self.scene.markers.extend([
             marker(
                 self.palette.outline,
@@ -2484,6 +2573,7 @@ impl<'a> Builder<'a> {
             .into(),
             placement: None,
         });
+
         let width = self.edge_width();
         for edge in &cut.edges {
             let segments = cut.points(edge).segments().map(|(start, end)| Line {
@@ -2495,6 +2585,7 @@ impl<'a> Builder<'a> {
                 pick: None,
                 stroke: Stroke::Solid,
             });
+
             self.scene.lines.extend(segments);
         }
     }
@@ -2543,13 +2634,16 @@ impl<'a> Builder<'a> {
                 })
                 .collect(),
         };
+
         self.meshes.push(MeshInstance {
             mesh: Arc::clone(&mesh.mesh),
             faces: faces.into(),
             placement: None,
         });
         self.plain_silhouette(&mesh.mesh);
+
         let width = self.edge_width();
+
         for edge in &mesh.edges {
             self.scene
                 .lines
@@ -2591,6 +2685,7 @@ impl<'a> Builder<'a> {
                 pick: None,
                 stroke: Stroke::Solid,
             });
+
             self.scene.lines.extend(segments);
         }
     }
@@ -2609,6 +2704,7 @@ impl<'a> Builder<'a> {
                 if !opened.contains(&face.key) {
                     return left;
                 }
+
                 let pickable = Pickable::ShellFace {
                     feature: open.feature,
                     face: face.key,
@@ -2625,6 +2721,7 @@ impl<'a> Builder<'a> {
                 }
             })
             .collect();
+
         self.translucent_meshes.push(MeshInstance {
             mesh: Arc::clone(&open.before.mesh),
             faces,
@@ -2635,6 +2732,7 @@ impl<'a> Builder<'a> {
     fn ghost(&mut self, document: &Document, evaluation: &Evaluation, open: &BodyBefore) {
         let color = body_color((self.palette, self.body), document, evaluation, open.body)
             .with_alpha(GHOST_ALPHA);
+
         self.translucent_meshes.push(MeshInstance {
             mesh: Arc::clone(&open.before.mesh),
             faces: open
@@ -2661,6 +2759,7 @@ impl<'a> Builder<'a> {
         let colour = body_color((self.palette, self.body), document, evaluation, before.body)
             .with_alpha(GHOST_ALPHA);
         let lit = self.palette.faces.hovered.with_alpha(PREVIEW_ALPHA);
+
         let faces = before
             .before
             .faces
@@ -2675,6 +2774,7 @@ impl<'a> Builder<'a> {
                 finish: None,
             })
             .collect();
+
         self.translucent_meshes.push(MeshInstance {
             mesh: Arc::clone(&before.before.mesh),
             faces,
@@ -2696,6 +2796,7 @@ impl<'a> Builder<'a> {
                     true => Stroke::Dashed { along },
                     false => Stroke::Solid,
                 };
+
                 along += start.distance(end) as f32;
                 self.scene.lines.push(Line {
                     start,
@@ -2728,6 +2829,7 @@ impl<'a> Builder<'a> {
                         finish: None,
                     };
                 }
+
                 let pickable = Pickable::ShellFace {
                     feature,
                     face: face.key,
@@ -2737,6 +2839,7 @@ impl<'a> Builder<'a> {
                 } else {
                     color
                 };
+
                 let color = if self.highlight.is_hovered(pickable) {
                     self.palette.faces.hovered
                 } else {
@@ -2763,6 +2866,7 @@ impl<'a> Builder<'a> {
             OpenChoice::Faces { opened, choice, .. } => (None, Some((opened, *choice))),
             OpenChoice::Nothing => (None, None),
         };
+
         if with_faces {
             let color = body_color((self.palette, self.body), document, evaluation, open.body);
             let faces = match opened {
@@ -2782,6 +2886,7 @@ impl<'a> Builder<'a> {
                     })
                     .collect(),
             };
+
             self.meshes.push(MeshInstance {
                 mesh: Arc::clone(&open.before.mesh),
                 faces: faces.into(),
@@ -2803,6 +2908,7 @@ impl<'a> Builder<'a> {
                     } else {
                         (self.palette.body_edge, 0.0)
                     };
+
                     let color = if self.highlight.is_hovered(pickable) {
                         self.palette.lines.hovered
                     } else {
@@ -2818,6 +2924,7 @@ impl<'a> Builder<'a> {
                 }
                 None => (self.palette.body_edge, self.edge_width(), None),
             };
+
             let segments = open
                 .before
                 .points(edge)
@@ -2831,6 +2938,7 @@ impl<'a> Builder<'a> {
                     pick,
                     stroke: Stroke::Solid,
                 });
+
             self.scene.lines.extend(segments);
         }
     }
@@ -2847,6 +2955,7 @@ impl<'a> Builder<'a> {
         else {
             return;
         };
+
         let near = evaluation
             .body_result(pattern.body)
             .and_then(|result| result.solid())
@@ -2857,6 +2966,7 @@ impl<'a> Builder<'a> {
                 continue;
             };
             let [start, end] = axis_ends(ray, near, reference_size);
+
             self.scene.lines.push(Line {
                 start,
                 end,
@@ -2871,12 +2981,14 @@ impl<'a> Builder<'a> {
 
     fn swept(&mut self, sources: &Sources<'_>, feature: FeatureId, reference_size: f64) {
         self.pattern_axes(sources, feature, reference_size);
+
         let Sources {
             document,
             evaluation,
             sketches,
             ..
         } = *sources;
+
         if let Some(emboss) = document
             .feature(feature)
             .and_then(|owner| owner.kind.emboss())
@@ -2884,6 +2996,7 @@ impl<'a> Builder<'a> {
             self.emboss_regions(sources, feature, emboss);
             return;
         }
+
         let Some(solid) = document
             .feature(feature)
             .and_then(|owner| owner.kind.solid())
@@ -2893,6 +3006,7 @@ impl<'a> Builder<'a> {
         let Some(plane) = sketch_plane(document, evaluation, solid.sketch()) else {
             return;
         };
+
         if let SolidFeature::Revolve(revolve) = solid {
             let displayed = document
                 .feature(solid.sketch())
@@ -2920,10 +3034,12 @@ impl<'a> Builder<'a> {
                 });
             }
         }
+
         let Some((_, regions)) = selection::swept_regions(document, evaluation, feature) else {
             return;
         };
         let chosen = chosen_regions(solid.regions(), regions);
+
         self.region_fills(feature, regions, &chosen, &plane);
     }
 
@@ -2936,6 +3052,7 @@ impl<'a> Builder<'a> {
         let RegionChoice::Chosen(_) = &emboss.regions else {
             return;
         };
+
         let Some((sketch, regions)) = selection::swept_regions(document, evaluation, feature)
         else {
             return;
@@ -2944,6 +3061,7 @@ impl<'a> Builder<'a> {
             return;
         };
         let chosen = chosen_regions(&emboss.regions, regions);
+
         self.region_fills(feature, regions, &chosen, &plane);
     }
 
@@ -2968,6 +3086,7 @@ impl<'a> Builder<'a> {
             } else {
                 self.palette.open_region
             };
+
             self.scene.fills.push(Fill {
                 triangles: region_triangles(mesh, plane),
                 color: self.region_color(pickable, base),
@@ -3001,9 +3120,11 @@ impl<'a> Builder<'a> {
         let Some(Ok(regions)) = result.regions() else {
             return;
         };
+
         if !result.geometry.same_geometry(displayed) {
             return;
         }
+
         let plane = displayed.plane();
         for region in regions {
             let Some(mesh) = &region.mesh else {
@@ -3017,6 +3138,7 @@ impl<'a> Builder<'a> {
                 true => self.picks.register(region, PickPriority::Surface),
                 false => None,
             };
+
             self.scene.fills.push(Fill {
                 triangles: region_triangles(mesh, &plane),
                 color: self.region_color(region, self.palette.closed_region),
@@ -3050,9 +3172,11 @@ impl<'a> Builder<'a> {
             let hidden = document
                 .feature(thread.feature)
                 .is_some_and(|feature| feature.hidden && feature.kind.thread().is_some());
+
             if !visibility::is_shown(document, thread.body) || (hidden && !opened) {
                 continue;
             }
+
             let (color, width) = if opened {
                 (
                     self.palette.lines.selected,
@@ -3064,8 +3188,10 @@ impl<'a> Builder<'a> {
             let placement = thread.placement;
             let direction = placement.direction;
             let across = direction.any_orthonormal_vector();
+
             let beside = direction.cross(across);
             let radius = placement.thread_radius;
+
             let circle = |centre: Point3| -> Vec<Point3> {
                 (0..=THREAD_SEGMENTS)
                     .map(|step| {
@@ -3077,6 +3203,7 @@ impl<'a> Builder<'a> {
             let end = placement.end();
             let sides = [across, -across, beside, -beside]
                 .map(|offset| vec![placement.start + offset * radius, end + offset * radius]);
+
             let drawn = std::iter::once((circle(placement.start), false))
                 .chain(std::iter::once((circle(end), true)))
                 .chain(sides.into_iter().map(|side| (side, true)));
@@ -3088,6 +3215,7 @@ impl<'a> Builder<'a> {
                     dashed,
                     dashed_where_hidden: true,
                 };
+
                 self.scene.lines.extend(edge_lines(
                     points.iter().copied().zip(points.iter().copied().skip(1)),
                     &|point| point,
@@ -3100,6 +3228,7 @@ impl<'a> Builder<'a> {
     fn axis(&mut self, axis: Axis, size: f64, presence: PrincipalPresence) {
         let pickable = Pickable::Axis(axis);
         let base = self.palette.axis(axis);
+
         self.scene.lines.push(Line {
             start: Point3::ZERO,
             end: axis.direction() * size,
@@ -3140,6 +3269,7 @@ impl<'a> Builder<'a> {
         size: f64,
     ) {
         self.principal_axes_and_origin((document, principal), size);
+
         let earlier = document
             .active_features()
             .take_while(|earlier| earlier.id() != sketch);
@@ -3156,6 +3286,7 @@ impl<'a> Builder<'a> {
 
     fn origin(&mut self, presence: PrincipalPresence) {
         let pickable = Pickable::Origin;
+
         self.scene.markers.push(Marker {
             position: Point3::ZERO,
             color: presence.faded(self.highlight.color(
@@ -3182,6 +3313,7 @@ impl<'a> Builder<'a> {
                 entity: reference.id(),
             };
             let [start, end] = reference_points(plane, reference, size);
+
             self.scene.lines.push(Line {
                 start,
                 end,
@@ -3192,10 +3324,12 @@ impl<'a> Builder<'a> {
                 stroke: Stroke::Solid,
             });
         }
+
         let pickable = Pickable::SketchEntity {
             feature,
             entity: EntityId::ORIGIN,
         };
+
         self.scene.markers.push(Marker {
             position: plane.origin(),
             color: self
@@ -3233,6 +3367,7 @@ impl<'a> Builder<'a> {
             match &shape.outline {
                 Outline::Point(position) => {
                     let color = color(look.point);
+
                     self.scene.markers.push(Marker {
                         position: *position,
                         color,
@@ -3266,11 +3401,13 @@ impl<'a> Builder<'a> {
                                 stroke: segment.stroke,
                             }));
                     }
+
                     let color = color(look.curve);
                     let width =
                         self.palette.curve_width(look.weight) + emphasis * HIGHLIGHT_EXTRA_WIDTH;
                     let pick = pickable
                         .and_then(|pickable| self.picks.register(pickable, PickPriority::Curve));
+
                     self.scene.lines.extend(segments.iter().map(|segment| Line {
                         start: segment.start,
                         end: segment.end,
@@ -3321,6 +3458,7 @@ fn edge_lines<'a>(
     let mut along = 0.0;
     segments.map(move |(start, end)| {
         let line_stroke = stroke.kind().at(along as f32);
+
         along += start.distance(end);
         Line {
             start: placed(start),
@@ -3345,6 +3483,7 @@ fn curve_segments(plane: Plane, points: &[Point2], dashed: bool) -> impl Iterato
             } else {
                 Stroke::Solid
             };
+
             along += start.distance(end);
             Some(Segment {
                 start: plane.to_world(start),
@@ -3377,6 +3516,7 @@ pub fn add_preview(scene: &mut Batch, palette: &ScenePalette, plane: Plane, prev
             pick: None,
             dashed: preview.construction,
         };
+
         scene.lines.extend(curve_lines(plane, curve, style));
     }
     for curve in &preview.removed {
@@ -3387,6 +3527,7 @@ pub fn add_preview(scene: &mut Batch, palette: &ScenePalette, plane: Plane, prev
             pick: None,
             dashed: false,
         };
+
         scene.lines.extend(curve_lines(plane, curve, style));
     }
     for guide in &preview.guides {
@@ -3397,8 +3538,10 @@ pub fn add_preview(scene: &mut Batch, palette: &ScenePalette, plane: Plane, prev
             pick: None,
             dashed: true,
         };
+
         scene.lines.extend(curve_lines(plane, guide, style));
     }
+
     let snap = preview.snap.map(|position| Marker {
         position: plane.to_world(position),
         color: palette.snap,
@@ -3413,6 +3556,7 @@ pub fn add_preview(scene: &mut Batch, palette: &ScenePalette, plane: Plane, prev
         layer: Layer::Front,
         pick: None,
     });
+
     scene.markers.extend(snap.into_iter().chain(points));
 }
 
@@ -3471,6 +3615,7 @@ pub fn add_interference(scene: &mut Batch, palette: &ScenePalette, mark: &Mark) 
         MarkKind::Touch => palette.measured,
         MarkKind::Unchecked => palette.unchecked,
     };
+
     scene.markers.push(Marker {
         position: mark.place,
         color,
@@ -3478,6 +3623,7 @@ pub fn add_interference(scene: &mut Batch, palette: &ScenePalette, mark: &Mark) 
         layer: Layer::Front,
         pick: None,
     });
+
     let segments = mark
         .outline
         .iter()
@@ -3527,7 +3673,7 @@ pub fn region_references(
         .collect()
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct FaceLooks {
     colours: BTreeMap<FaceKey, Color>,
     opacities: BTreeMap<FaceKey, f32>,
@@ -3542,7 +3688,7 @@ impl FaceLooks {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Finishes {
     Hidden,
     Own,
@@ -3579,20 +3725,25 @@ fn face_looks(
     }
     .map(body_appearance::surface);
     let lit_when_highlighted = finishes == Finishes::Rendered && palette.shows_finishes;
+
     let plain = FaceLooks {
         finish,
         lit_when_highlighted,
         ..FaceLooks::default()
     };
+
     if appearance.faces.is_empty() {
         return plain;
     }
+
     let Some(shown) = bodies::shown(evaluation, body) else {
         return plain;
     };
     let splits = document.face_splits(body);
+
     let own = appearance.face_appearances(&shown.solid, &splits);
     let keys = bodies::face_keys(&shown.solid);
+
     let looked = || {
         keys.iter()
             .filter_map(|(id, key)| Some((*key, *own.get(id)?)))
@@ -3627,7 +3778,7 @@ fn painted_by(appearance: &BodyAppearance, default: Color) -> Color {
     appearance.colour.map_or(default, rgb_color)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Health {
     Sound,
     Outdated,
@@ -3636,6 +3787,7 @@ enum Health {
 
 fn body_health(document: &Document, evaluation: &Evaluation, body: FeatureId) -> Health {
     let mut health = Health::Sound;
+
     for feature in document.features_on_body(body) {
         match evaluation.feature(feature.id()).map(|status| &status.state) {
             Some(FeatureState::Failed(_)) => return Health::Failed,
@@ -3652,6 +3804,7 @@ struct Healths(BTreeMap<FeatureId, Health>);
 impl Healths {
     fn of(document: &Document, evaluation: &Evaluation) -> Self {
         let mut healths = BTreeMap::new();
+
         for feature in document.features() {
             let Some(body) = feature.body() else {
                 continue;
@@ -3721,6 +3874,7 @@ fn reference_points(plane: Plane, reference: Reference, size: f64) -> [Point3; 2
 
 fn sketch_entity_points(sketch: &Sketch, entity: EntityId, reference_size: f64) -> Vec<Point3> {
     let plane = sketch.plane();
+
     if let Some(reference) = entity.reference() {
         return reference_points(plane, reference, reference_size).to_vec();
     }
@@ -3879,6 +4033,7 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         sketches,
         ..
     } = *sources;
+
     let sketches = document
         .active_features()
         .filter(|feature| !feature.hidden)
@@ -3982,9 +4137,12 @@ mod tests {
     fn document() -> (Document, FeatureId, EntityId) {
         let mut document = Document::default();
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Base sketch", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
         (document, feature, line)
     }
@@ -4074,6 +4232,7 @@ mod tests {
     fn every_pickable_gets_a_unique_id_and_sketch_geometry_is_on_its_plane() {
         let (document, feature, line) = document();
         let selection = Selection::default();
+
         let built = build_for(
             &document,
             &Evaluation::default(),
@@ -4087,6 +4246,7 @@ mod tests {
         );
 
         assert_eq!(built.picks.pickables().count(), 3 + 3 + 1 + 3);
+
         let line_pick = built.picks.id_of(Pickable::SketchEntity {
             feature,
             entity: line,
@@ -4096,6 +4256,7 @@ mod tests {
             .lines()
             .find(|drawn| drawn.pick == line_pick)
             .unwrap();
+
         assert_eq!(drawn.end, Point3::new(40.0, 0.0, 0.0));
         assert_eq!(built.everything.max().x, 48.0);
         assert_eq!(built.fit_all().max().x, 40.0);
@@ -4111,6 +4272,7 @@ mod tests {
             },
             None,
         );
+
         assert_eq!(empty.model, None);
         assert_eq!(empty.fit_all(), empty.everything);
     }
@@ -4143,13 +4305,18 @@ mod tests {
             Point2::new(10.0, 5.0),
             Point2::new(0.0, 5.0),
         ];
+
         for index in 0..4 {
             sketch.add_line(corners[index], corners[(index + 1) % 4]);
         }
         sketch.add_line(Point2::new(20.0, 0.0), Point2::new(30.0, 0.0));
+
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Outline", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let evaluation = evaluate(&document);
         let selection = Selection::default();
         let highlight = Highlight {
@@ -4167,19 +4334,24 @@ mod tests {
             .fills()
             .filter(|fill| fill.color == STANDARD.closed_region)
             .collect();
+
         assert_eq!(tinted.len(), 1);
+
         let area: f64 = tinted[0]
             .triangles
             .iter()
             .map(|[a, b, c]| (*b - *a).cross(*c - *a).length() / 2.0)
             .sum();
+
         assert!((area - 50.0).abs() < 1e-9, "{area}");
         assert!(tinted.iter().all(|fill| fill.pick.is_none()));
+
         let shown: Vec<&Fill> = looking
             .scene
             .fills()
             .filter(|fill| fill.color == STANDARD.closed_region)
             .collect();
+
         assert_eq!(shown.len(), 1);
         assert_eq!(shown[0].layer, Layer::Model);
         assert!(shown[0].pick.is_some());
@@ -4190,9 +4362,13 @@ mod tests {
         let (mut document, base, line) = document();
         let mut transaction = document.transaction("Add sketch");
         let mut other = Sketch::new(Plane::XZ);
+
         other.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
+
         let side = transaction.add_feature("Side", FeatureKind::from(other));
+
         document.apply(transaction.finish()).unwrap();
+
         let selection = Selection::default();
         let highlight = Highlight {
             selection: &selection,
@@ -4215,6 +4391,7 @@ mod tests {
         })
         .collect();
         let picks = picks_of(&built);
+
         assert_eq!(picks.len(), 3 + 3);
         assert_eq!(picks[..3], references[..]);
         assert!(picks.iter().all(|pickable| matches!(
@@ -4223,14 +4400,18 @@ mod tests {
         )));
         assert_eq!(built.scene.fills().count(), 0);
         assert_eq!(built.scene.grid.as_ref().unwrap().plane, Plane::XZ);
+
         let background = built
             .scene
             .lines()
             .find(|drawn| drawn.end == Point3::new(40.0, 0.0, 0.0))
             .unwrap();
+
         assert_eq!(background.pick, None);
         assert_eq!(background.color, STANDARD.background.curve);
+
         let edited = built.edited.unwrap();
+
         assert_eq!(edited.feature, side);
         assert_eq!(edited.bounds.max(), Point3::new(0.0, 0.0, 10.0));
         assert_eq!(built.fit_all(), edited.bounds);
@@ -4257,14 +4438,19 @@ mod tests {
         let (mut document, base, line) = document();
         let mut transaction = document.transaction("Add sketch");
         let mut other = Sketch::new(Plane::XZ);
+
         other.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
+
         let side = transaction.add_feature("Side", FeatureKind::from(other));
+
         document.apply(transaction.finish()).unwrap();
+
         let selection = Selection::default();
         let hovered = [Pickable::SketchEntity {
             feature: side,
             entity: EntityId::ORIGIN,
         }];
+
         let highlight = Highlight {
             selection: &selection,
             hovered: &hovered,
@@ -4276,8 +4462,10 @@ mod tests {
         let viewing = build_for(&document, &Evaluation::default(), &highlight, None);
 
         let in_front = |layer: Layer| layer == Layer::Front;
+
         assert!(editing.scene.lines().any(|drawn| !in_front(drawn.layer)));
         assert!(editing.scene.markers().any(|drawn| !in_front(drawn.layer)));
+
         for drawn in editing.scene.lines() {
             assert_eq!(
                 in_front(drawn.layer),
@@ -4292,24 +4480,29 @@ mod tests {
                 "{drawn:?}"
             );
         }
+
         let origin = editing.picks.id_of(hovered[0]);
         let highlighted = editing
             .scene
             .markers()
             .find(|drawn| drawn.pick == origin)
             .unwrap();
+
         assert_eq!(highlighted.color, STANDARD.lines.hovered);
         assert_eq!(highlighted.layer, Layer::Front);
+
         let base_line = viewing.picks.id_of(Pickable::SketchEntity {
             feature: base,
             entity: line,
         });
+
         assert!(viewing.scene.lines().any(|drawn| drawn.pick == base_line));
         assert!(viewing.scene.lines().all(|drawn| !in_front(drawn.layer)));
         assert!(viewing.scene.markers().all(|drawn| !in_front(drawn.layer)));
         assert!(viewing.scene.fills().all(|drawn| !in_front(drawn.layer)));
 
         let mut preview = Batch::default();
+
         add_preview(
             &mut preview,
             &STANDARD,
@@ -4323,6 +4516,7 @@ mod tests {
                 construction: false,
             },
         );
+
         assert_eq!((preview.lines.len(), preview.markers.len()), (3, 2));
         assert!(matches!(
             preview.lines.last().map(|drawn| drawn.stroke),
@@ -4336,10 +4530,12 @@ mod tests {
     fn sketch_geometry_is_colored_by_its_constraint_state() {
         let mut document = Document::default();
         let mut sketch = Sketch::new(Plane::XY);
+
         let fixed = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
         let Some(&Entity::Line { start, end }) = sketch.entity(fixed) else {
             panic!("expected a line");
         };
+
         sketch
             .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
             .unwrap();
@@ -4353,17 +4549,23 @@ mod tests {
                 value: Expression::Measure(40.0, Unit::Millimetre),
             })
             .unwrap();
+
         let free = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(5.0, 20.0));
         let doubled = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(5.0, -10.0));
+
         sketch
             .add_constraint(Constraint::Horizontal(doubled))
             .unwrap();
         sketch
             .add_constraint(Constraint::Horizontal(doubled))
             .unwrap();
+
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("States", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let selection = Selection::default();
         let highlight = Highlight {
             selection: &selection,
@@ -4374,6 +4576,7 @@ mod tests {
         let entity = |entity| Pickable::SketchEntity { feature, entity };
 
         let built = build_for(&document, &evaluate(&document), &highlight, Some(feature));
+
         assert_eq!(
             line_color(&built, entity(fixed)),
             STANDARD.fully_constrained.curve
@@ -4388,9 +4591,12 @@ mod tests {
         );
 
         let mut transaction = document.transaction("Conflict");
+
         transaction.add_sketch_constraint(feature, Constraint::Vertical(fixed));
         document.apply(transaction.finish()).unwrap();
+
         let built = build_for(&document, &evaluate(&document), &highlight, Some(feature));
+
         assert_eq!(
             line_color(&built, entity(fixed)),
             STANDARD.conflicting.curve
@@ -4408,6 +4614,7 @@ mod tests {
             ghosts: &[],
         };
         let built = build_for(&document, &evaluate(&document), &hovered, Some(feature));
+
         assert_eq!(line_color(&built, entity(fixed)), STANDARD.lines.hovered);
     }
 
@@ -4440,10 +4647,12 @@ mod tests {
     fn high_contrast_draws_constrained_geometry_heavier_and_free_points_hollow() {
         let mut document = Document::default();
         let mut sketch = Sketch::new(Plane::XY);
+
         let fixed = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
         let Some(&Entity::Line { start, end }) = sketch.entity(fixed) else {
             panic!("expected a line");
         };
+
         sketch
             .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
             .unwrap();
@@ -4457,6 +4666,7 @@ mod tests {
                 value: Expression::Measure(40.0, Unit::Millimetre),
             })
             .unwrap();
+
         let free = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(5.0, 20.0));
         let Some(&Entity::Line {
             start: loose_start,
@@ -4466,8 +4676,11 @@ mod tests {
             panic!("expected a line");
         };
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("States", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let evaluation = evaluate(&document);
         let selection = Selection::default();
         let highlight = Highlight {
@@ -4492,12 +4705,14 @@ mod tests {
             line_color(&high, entity(fixed)),
             HIGH_CONTRAST.fully_constrained.curve
         );
+
         for point in [loose_start, loose_end] {
             assert!(hollow(&high, entity(point)), "{point:?}");
         }
         for point in [start, end] {
             assert!(!hollow(&high, entity(point)), "{point:?}");
         }
+
         assert_eq!(
             line_width(&standard, entity(fixed)),
             line_width(&standard, entity(free))
@@ -4508,6 +4723,7 @@ mod tests {
     #[test]
     fn points_win_over_curves_and_surfaces_within_tolerance() {
         let mut picks = PickTable::default();
+
         let plane = picks
             .register(Pickable::Plane(PrincipalPlane::Xy), PickPriority::Surface)
             .unwrap();
@@ -4526,12 +4742,14 @@ mod tests {
             &result(vec![hit(plane, 0.0), hit(axis, 1.0), hit(origin, 6.0)]),
             SelectionFilter::Everything,
         );
+
         assert_eq!(best.map(|(pickable, _)| pickable), Some(Pickable::Origin));
 
         let best = picks.best_hit(
             &result(vec![hit(plane, 0.0), hit(axis, 6.0)]),
             SelectionFilter::Everything,
         );
+
         assert_eq!(
             best.map(|(pickable, _)| pickable),
             Some(Pickable::Plane(PrincipalPlane::Xy))
@@ -4554,14 +4772,20 @@ mod tests {
     fn high_contrast_widens_selected_geometry_more_than_hovered_geometry() {
         let mut document = Document::default();
         let mut sketch = Sketch::new(Plane::XY);
+
         let chosen = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
         let pointed = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(40.0, 10.0));
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Lines", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let entity = |entity| Pickable::SketchEntity { feature, entity };
         let mut selection = Selection::default();
+
         selection.replace_with(entity(chosen));
+
         let hovered = [entity(pointed)];
         let highlight = Highlight {
             selection: &selection,
@@ -4593,13 +4817,16 @@ mod tests {
     #[test]
     fn highlight_prefers_selection_colors() {
         let mut selection = Selection::default();
+
         selection.replace_with(Pickable::Origin);
+
         let highlight = Highlight {
             selection: &selection,
             hovered: &[Pickable::Origin],
             chosen_rows: &[],
             ghosts: &[],
         };
+
         assert_eq!(
             highlight.color(&STANDARD.lines, Pickable::Origin, STANDARD.origin),
             STANDARD.lines.hovered_selected
@@ -4614,6 +4841,7 @@ mod tests {
     fn selection_bounds_cover_the_selected_line() {
         let (document, feature, line) = document();
         let selection = Selection::default();
+
         let built = build_for(
             &document,
             &Evaluation::default(),
@@ -4635,6 +4863,7 @@ mod tests {
                 }],
             )
             .unwrap();
+
         assert_eq!(bounds.min(), Point3::ZERO);
         assert_eq!(bounds.max(), Point3::new(40.0, 0.0, 0.0));
     }
@@ -4643,13 +4872,17 @@ mod tests {
     fn curves_are_drawn_as_polylines_that_share_one_pick() {
         let mut document = Document::default();
         let mut sketch = Sketch::new(Plane::XY);
+
         let circle = sketch.add_circle(Point2::new(10.0, 0.0), 30.0);
         let arc = sketch.add_arc(Point2::ZERO, Point2::new(5.0, 0.0), Point2::new(0.0, 5.0));
         let spline =
             sketch.add_spline(&[Point2::ZERO, Point2::new(3.0, 6.0), Point2::new(8.0, 1.0)]);
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Curves", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let selection = Selection::default();
         let built = build_for(
             &document,
@@ -4670,15 +4903,22 @@ mod tests {
                 .pickables()
                 .filter(|candidate| *candidate == pickable)
                 .count();
+
             assert_eq!(registered, 1);
+
             let pick = built.picks.id_of(pickable);
             let (_, priority) = pick.and_then(|id| built.picks.resolve(id)).unwrap();
+
             assert_eq!(priority, PickPriority::Curve);
+
             let segments = built.scene.lines().filter(|line| line.pick == pick).count();
+
             assert!(segments > 4, "only {segments} segments");
         }
+
         assert_eq!(built.everything.max().x, 48.0);
         assert_eq!(built.everything.min().x, -48.0);
+
         let bounds = built
             .bounds_with(
                 &document,
@@ -4689,20 +4929,25 @@ mod tests {
                 }],
             )
             .unwrap();
+
         assert!((bounds.max().x - 40.0).abs() < 1e-9);
         assert!((bounds.min().y + 30.0).abs() < 1e-9);
     }
 
     fn circles(radii: impl IntoIterator<Item = f64>) -> (Document, FeatureId, Vec<EntityId>) {
         let mut sketch = Sketch::new(Plane::XY);
+
         let circles = radii
             .into_iter()
             .enumerate()
             .map(|(index, radius)| sketch.add_circle(Point2::new(index as f64 * 5.0, 0.0), radius))
             .collect();
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Circles", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
         (document, feature, circles)
     }
@@ -4725,12 +4970,18 @@ mod tests {
             Point2::new(30.0, 6.0),
         ];
         let mut sketch = Sketch::new(Plane::XY);
+
         sketch.add_spline(&corners);
         sketch.add_spline_of(&corners, SplineKind::fit(false));
+
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Splines", FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
+
         let selection = Selection::default();
         let highlight = Highlight {
             selection: &selection,
@@ -4797,6 +5048,7 @@ mod tests {
             draft: None,
             pictures: None,
         };
+
         let built_at = |chord: f64| {
             build(
                 &sources,
@@ -4833,6 +5085,7 @@ mod tests {
         let bodies = BodyMeshes::default();
         let sketches = DisplayedSketches::default();
         let analyses = Analyses::default();
+
         let sources = |document| Sources {
             document,
             evaluation: &evaluation,
@@ -4862,12 +5115,14 @@ mod tests {
     #[ignore = "a timing benchmark: cargo test --release -p caditor snap_costs -- --ignored --nocapture"]
     fn snap_costs_of_choosing_the_faceting_beside_a_large_sketch() {
         const REPEATS: u32 = 50;
+
         let (document, _) =
             crate::viewport::timing::sketch_document(crate::viewport::timing::large_sketch());
         let evaluation = Evaluation::default();
         let bodies = BodyMeshes::default();
         let sketches = DisplayedSketches::default();
         let analyses = Analyses::default();
+
         let sources = Sources {
             document: &document,
             evaluation: &evaluation,
@@ -4884,6 +5139,7 @@ mod tests {
         let mut shapes = SketchShapes::new(Faceting::within(0.1));
 
         let started = std::time::Instant::now();
+
         for _ in 0..REPEATS {
             shapes.drawn_faceting(&sources, Context::default(), Faceting::within(0.1));
         }
@@ -4898,6 +5154,7 @@ mod tests {
         let bodies = BodyMeshes::default();
         let sketches = DisplayedSketches::default();
         let analyses = Analyses::default();
+
         let sources = |document| Sources {
             document,
             evaluation: &evaluation,
@@ -4916,6 +5173,7 @@ mod tests {
         let crowded = drawn_faceting(&sources(&document), Context::default(), wanted);
         let alone = drawn_faceting(&sources(&few), Context::default(), wanted);
         let selection = Selection::default();
+
         let built = build(
             &sources(&document),
             &Highlight {

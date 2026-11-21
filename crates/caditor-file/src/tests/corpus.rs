@@ -415,7 +415,7 @@ const KEPT: [(&str, &str); 88] = [
     ),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Format {
     Model,
     Journal,
@@ -448,6 +448,7 @@ impl Format {
     fn of(name: &str) -> Self {
         let dir = name.split('/').next().unwrap();
         let (prefix, version) = dir.rsplit_once('-').unwrap();
+
         assert!(version.parse::<u32>().is_ok(), "{name} names no version");
         Self::ALL
             .into_iter()
@@ -462,6 +463,7 @@ fn corpus_dir() -> PathBuf {
 
 fn lexically_normal(path: &Path) -> PathBuf {
     let mut normal = PathBuf::new();
+
     for component in path.components() {
         match component {
             Component::ParentDir => {
@@ -497,6 +499,7 @@ fn describe(name: &str, bytes: &[u8]) -> String {
 fn describe_model(bytes: &[u8]) -> String {
     let loaded = decode(bytes).unwrap();
     let mut text = String::from("model\n");
+
     for issue in &loaded.issues {
         text.push_str(&format!("issue {issue}\n"));
     }
@@ -510,11 +513,14 @@ fn describe_model(bytes: &[u8]) -> String {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
+
         text.push_str(&format!(
             "version {} saved {seconds} label {:?} kept {} available {}\n",
             version.index, version.state.label, version.kept, version.available
         ));
+
         let restored = binary::load_version(bytes, version.index, &version.digest).unwrap();
+
         for issue in &restored.issues {
             text.push_str(&format!("issue {issue}\n"));
         }
@@ -549,6 +555,7 @@ fn describe_journal(bytes: &[u8]) -> String {
         contents.folded,
         contents.unreadable_entries,
     );
+
     for issue in &contents.issues {
         text.push_str(&format!("issue {issue}\n"));
     }
@@ -570,9 +577,12 @@ fn describe_journal(bytes: &[u8]) -> String {
             Logged::UndoLast => "undo last".to_owned(),
             Logged::RedoNext => "redo next".to_owned(),
         };
+
         text.push_str(&format!("{line}\n"));
     }
+
     let replayed = replay(contents.base, contents.entries);
+
     text.push_str(&format!(
         "replayed {} stopped early {}\n",
         replayed.entries.len(),
@@ -587,6 +597,7 @@ fn describe_journal(bytes: &[u8]) -> String {
 fn describe_parameters(bytes: &[u8]) -> String {
     let text = std::str::from_utf8(bytes).unwrap();
     let mut description = String::from("parameters\n");
+
     for row in parse_parameters(text).unwrap() {
         description.push_str(&format!(
             "{:?} {:?} {:?}\n",
@@ -613,7 +624,9 @@ fn kept_files() -> BTreeSet<String> {
             }
         }
     }
+
     let mut found = BTreeSet::new();
+
     walk(&corpus_dir(), "", &mut found);
     found
 }
@@ -635,6 +648,7 @@ fn the_format_corpus_reads_as_it_did_when_written() {
     for (name, recorded) in KEPT {
         let description = describe(name, &read_kept(name));
         let digest = digest_of(&description);
+
         assert!(
             digest == recorded,
             "{name} no longer reads as it did when written: its description hashes to {digest}, \
@@ -657,22 +671,28 @@ fn every_corpus_file_loads_without_a_problem() {
                 );
                 for version in binary::history(&bytes).versions {
                     assert!(version.available, "{name}");
+
                     let restored =
                         binary::load_version(&bytes, version.index, &version.digest).unwrap();
+
                     assert_eq!(restored.issues, Vec::<String>::new(), "{name}");
                 }
             }
             Format::Journal => {
                 let contents = decode_journal(&bytes).unwrap();
+
                 assert_eq!(contents.issues, Vec::<String>::new(), "{name}");
                 assert_eq!(contents.unreadable_entries, 0, "{name}");
+
                 let count = contents.entries.len();
                 let replayed = replay(contents.base, contents.entries);
+
                 assert!(!replayed.stopped_early, "{name}");
                 assert_eq!(replayed.entries.len(), count, "{name}");
             }
             Format::Parameters => {
                 let text = String::from_utf8(bytes).unwrap();
+
                 assert!(!parse_parameters(&text).unwrap().is_empty(), "{name}");
             }
         }
@@ -683,6 +703,7 @@ fn every_corpus_file_loads_without_a_problem() {
 fn the_format_corpus_holds_files_of_every_current_version() {
     for format in Format::ALL {
         let dir = format!("{}/", format.current_dir());
+
         assert!(
             KEPT.iter().any(|(name, _)| name.starts_with(&dir)),
             "the format corpus holds no {} file of version {}: run the corpus writer \
@@ -696,6 +717,7 @@ fn the_format_corpus_holds_files_of_every_current_version() {
 #[test]
 fn the_format_corpus_holds_every_kind_this_version_writes() {
     let mut covered = Covered::default();
+
     for (name, _) in KEPT {
         let bytes = read_kept(name);
         match Format::of(name) {
@@ -731,19 +753,25 @@ fn the_format_corpus_holds_every_kind_this_version_writes() {
         &variants_of::<EditRecord>(),
         &covered.edits,
     );
+
     let chunks: BTreeSet<String> = ChunkKind::ALL
         .iter()
         .map(|kind| format!("{kind:?}"))
         .collect();
+
     require_every("chunk", &chunks, &covered.chunks);
+
     let codecs: BTreeSet<String> = Codec::ALL
         .iter()
         .map(|codec| format!("{codec:?}"))
         .collect();
+
     require_every("codec", &codecs, &covered.codecs);
+
     let containers: BTreeSet<String> = [Format::Model, Format::Journal]
         .map(|format| format.prefix().to_owned())
         .into();
+
     require_every("sliced content", &containers, &covered.sliced);
 }
 
@@ -756,7 +784,9 @@ fn write_format_corpus() {
     }
     for (name, bytes) in corpus_of_this_version() {
         let path = corpus_dir().join(&name);
+
         fs::create_dir_all(path.parent().unwrap()).unwrap();
+
         let created = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -764,7 +794,9 @@ fn write_format_corpus() {
         match created {
             Ok(mut file) => {
                 file.write_all(&bytes).unwrap();
+
                 let digest = digest_of(&describe(&name, &bytes));
+
                 println!("(\"{name}\", \"{digest}\"),");
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -815,6 +847,7 @@ impl<'de> Deserializer<'de> for VariantNames<'_> {
 
 fn variants_of<T: DeserializeOwned>() -> BTreeSet<String> {
     let mut variants: &'static [&'static str] = &[];
+
     assert!(T::deserialize(VariantNames(&mut variants)).is_err());
     assert!(!variants.is_empty());
     variants
@@ -851,6 +884,7 @@ fn keys_without(value: &Value, fields: &[&str]) -> Vec<String> {
 
 fn require_every(what: &str, every: &BTreeSet<String>, held: &BTreeSet<String>) {
     let missing: Vec<&String> = every.difference(held).collect();
+
     assert!(
         missing.is_empty(),
         "no file of the format corpus holds the {what} kinds {missing:?}: add a corpus file \
@@ -873,6 +907,7 @@ impl Covered {
         self.container(bytes, Format::Model, &MODEL_MAGIC);
         for line in records_as_json(bytes) {
             let record: Value = serde_json::from_str(&line).unwrap();
+
             self.records.extend(keys_without(&record, &[]));
             if let Some(feature) = record.get("feature") {
                 let fields: Vec<&str> = ["id", "name"].into_iter().chain(FEATURE_FIELDS).collect();
@@ -885,6 +920,7 @@ impl Covered {
 
     fn feature(&mut self, kind: &str, value: &Value) {
         self.features.insert(kind.to_owned());
+
         let items = |field: &str| {
             value
                 .get(field)
@@ -892,8 +928,10 @@ impl Covered {
                 .cloned()
                 .unwrap_or_default()
         };
+
         for entity in items("entities") {
             let fields: Vec<&str> = ["id"].into_iter().chain(ENTITY_FLAGS).collect();
+
             self.entities.extend(keys_without(&entity, &fields));
             self.entity_flags.extend(
                 ENTITY_FLAGS
@@ -922,6 +960,7 @@ impl Covered {
             ) {
                 continue;
             }
+
             let content = chunk.unpack(None).unwrap();
             let transaction: Value = binary::value::from_bytes(&content).unwrap();
             for edit in transaction["edits"].as_array().unwrap() {
@@ -938,6 +977,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
     let saved = |document: &Document, label: &str| {
         save_bytes(document, None, at(1_700_000_000), Some(label)).unwrap()
     };
+
     let mut files = vec![
         (model("sketches"), saved(&sketches(), "Sketches")),
         (model("pieces"), saved(&pieces(), "Pieces")),
@@ -1151,6 +1191,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
+
     files.sort();
     files
 }
@@ -1165,7 +1206,9 @@ fn edge(digest: u128) -> EdgeReference {
 
 fn body_outlines() -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Outlines");
+
     let side = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
     let body = FeatureId::from_raw(90);
     let projections = [
@@ -1197,12 +1240,14 @@ fn body_outlines() -> Document {
             },
         ),
     ];
+
     for (origin, occurrence, of, outline) in projections {
         let part = Box::new(OutlinePart {
             origin,
             occurrence,
             of,
         });
+
         transaction.add_projection(side, ProjectionSource::BodyOutline { body, part }, &outline);
     }
     document.apply(transaction.finish()).unwrap();
@@ -1219,23 +1264,30 @@ fn end_cap(digest: u128) -> FaceReference {
 
 fn pieces() -> Document {
     let mut drawn = Sketch::new(Plane::XY);
+
     let line = drawn.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
     let arc = drawn.add_arc(Point2::new(20.0, 0.0), Point2::new(40.0, 0.0), Point2::ZERO);
+
     for x in [10.0, 15.0, 25.0, 30.0] {
         drawn.add_line(Point2::new(x, -5.0), Point2::new(x, 25.0));
     }
     drawn.trim(line, Point2::new(20.0, 0.0)).unwrap();
     drawn.trim(arc, Point2::new(20.0, 20.0)).unwrap();
+
     let pieces: Vec<EntityId> = drawn
         .entities()
         .map(|(id, _)| id)
         .filter(|id| drawn.split_from(*id).is_some())
         .collect();
+
     for piece in pieces {
         drawn.break_curve(piece).unwrap();
     }
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Pieces");
+
     transaction.add_feature("Trimmed", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
@@ -1252,14 +1304,19 @@ fn spline_pieces() -> Document {
         Point2::new(150.0, 108.0),
         Point2::new(160.0, 100.0),
     ];
+
     let spline = drawn.add_spline(&wave);
+
     for x in [113.0, 147.0] {
         drawn.add_line(Point2::new(x, 60.0), Point2::new(x, 140.0));
     }
     drawn.trim(spline, Point2::new(101.0, 101.0)).unwrap();
     drawn.trim(spline, Point2::new(159.0, 101.0)).unwrap();
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Spline pieces");
+
     transaction.add_feature("Trimmed spline", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
@@ -1276,14 +1333,19 @@ fn spline_knots() -> Document {
         Point2::new(150.0, 108.0),
         Point2::new(160.0, 100.0),
     ];
+
     let spline = drawn.add_spline(&wave);
+
     for at in [115.0, 135.0] {
         drawn
             .insert_control_point(spline, Some(Point2::new(at, 100.0)))
             .unwrap();
     }
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Spline knots");
+
     transaction.add_feature("Refined spline", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
@@ -1300,15 +1362,22 @@ fn spline_degrees() -> Document {
         Point2::new(150.0, 108.0),
         Point2::new(160.0, 100.0),
     ];
+
     let even = drawn.add_spline(&wave);
+
     drawn.set_spline_degree(even, 5).unwrap();
+
     let uneven = drawn.add_spline(&wave);
+
     drawn.set_spline_degree(uneven, 4).unwrap();
     drawn
         .insert_control_point(uneven, Some(Point2::new(125.0, 100.0)))
         .unwrap();
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Spline degrees");
+
     transaction.add_feature("Chosen degrees", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
@@ -1326,17 +1395,26 @@ fn closed_spline_degrees() -> Document {
         Point2::new(96.0, 142.0),
         Point2::new(88.0, 118.0),
     ];
+
     let even = drawn.add_spline_of(&ring, SplineKind::Control { closed: true });
+
     drawn.set_spline_degree(even, 5).unwrap();
+
     let uneven = drawn.add_spline_of(&ring, SplineKind::Control { closed: true });
+
     drawn.set_spline_degree(uneven, 4).unwrap();
     drawn
         .insert_control_point(uneven, Some(Point2::new(160.0, 125.0)))
         .unwrap();
+
     let polygon = drawn.add_spline_of(&ring[..5], SplineKind::Control { closed: true });
+
     drawn.set_spline_degree(polygon, 1).unwrap();
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Closed spline degrees");
+
     transaction.add_feature("Closed degrees", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
@@ -1350,15 +1428,21 @@ fn spline_handles() -> Document {
         Point2::new(45.0, -5.0),
         Point2::new(70.0, 10.0),
     ];
+
     let spline = drawn.add_spline_of(&wave, SplineKind::fit(false));
     let Some(Entity::Spline { points, .. }) = drawn.entity(spline).cloned() else {
         panic!("the spline was just added");
     };
+
     let (line, _) = drawn.add_spline_handle(spline, points[1]).unwrap();
+
     drawn.add_constraint(Constraint::Horizontal(line)).unwrap();
     drawn.add_spline_handle(spline, points[3]).unwrap();
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Spline handles");
+
     transaction.add_feature("Handled wave", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
@@ -1373,12 +1457,17 @@ fn closed_spline_knots() -> Document {
         Point2::new(140.0, 140.0),
         Point2::new(105.0, 130.0),
     ];
+
     let spline = drawn.add_spline_of(&loop_points, SplineKind::Control { closed: true });
+
     for near in [Point2::new(130.0, 95.0), Point2::new(115.0, 133.0)] {
         drawn.insert_control_point(spline, Some(near)).unwrap();
     }
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Closed spline knots");
+
     transaction.add_feature("Refined loop", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
@@ -1387,6 +1476,7 @@ fn closed_spline_knots() -> Document {
 fn blocks_sketch() -> (Sketch, [EntityId; 3]) {
     let mut drawn = Sketch::new(Plane::XY);
     let mut first_lines = [EntityId::from_raw(0); 3];
+
     for (index, x) in [0.0, 20.0, 40.0].into_iter().enumerate() {
         let corners = [
             Point2::new(x, 0.0),
@@ -1427,9 +1517,12 @@ fn piece_key(line: EntityId) -> PieceKey {
 pub(super) fn separate_pieces() -> Document {
     let (drawn, lines) = blocks_sketch();
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Separate pieces");
+
     let sketch = transaction.add_feature("Blocks sketch", FeatureKind::from(drawn));
     let mut extruded = Feature::new(FeatureId::from_raw(0), "Blocks".to_owned(), blocks(sketch));
+
     extruded.pieces = Pieces::BodyEach;
     extruded.piece_looks = PieceLooks::default()
         .with_appearance(
@@ -1445,7 +1538,9 @@ pub(super) fn separate_pieces() -> Document {
             },
         )
         .with_hidden(piece_key(lines[2]));
+
     let extruded = transaction.add_copied_feature(extruded);
+
     transaction.add_feature(
         "Rounded middle",
         FeatureKind::Blend(Blend {
@@ -1466,9 +1561,12 @@ pub(super) fn separate_pieces() -> Document {
 fn separated_blocks() -> (Document, FeatureId, [EntityId; 3]) {
     let (drawn, lines) = blocks_sketch();
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Blocks");
+
     let sketch = transaction.add_feature("Blocks sketch", FeatureKind::from(drawn));
     let mut extruded = Feature::new(FeatureId::from_raw(0), "Blocks".to_owned(), blocks(sketch));
+
     extruded.pieces = Pieces::BodyEach;
     transaction.add_copied_feature(extruded);
     document.apply(transaction.finish()).unwrap();
@@ -1478,11 +1576,15 @@ fn separated_blocks() -> (Document, FeatureId, [EntityId; 3]) {
 pub(super) fn piece_stand_ins() -> Document {
     let (mut document, sketch, lines) = separated_blocks();
     let mut removal = document.transaction("Delete a side");
+
     removal.remove_sketch_items(sketch, [lines[1]], []);
     document.apply(removal.finish()).unwrap();
+
     let mut redraw = document.transaction("Draw the side again");
+
     let start = redraw.add_sketch_entity(sketch, Entity::Point(Point2::new(20.0, 0.0)));
     let end = redraw.add_sketch_entity(sketch, Entity::Point(Point2::new(30.0, 0.0)));
+
     redraw.add_sketch_entity(sketch, Entity::Line { start, end });
     document.apply(redraw.finish()).unwrap();
     document
@@ -1490,11 +1592,14 @@ pub(super) fn piece_stand_ins() -> Document {
 
 fn texts() -> (Document, FeatureId, EntityId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Texts");
+
     let size = transaction.add_parameter("size", transaction.parse("6 mm").unwrap());
     let sketch = transaction.add_feature("Lettering", FeatureKind::from(Sketch::new(Plane::XY)));
     let first = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(2.0, 3.0)));
     let second = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(2.0, 20.0)));
+
     transaction.add_sketch_constraint(
         sketch,
         Constraint::Fix {
@@ -1502,6 +1607,7 @@ fn texts() -> (Document, FeatureId, EntityId) {
             at: Point2::new(2.0, 3.0),
         },
     );
+
     let plain = transaction.add_sketch_text(
         sketch,
         Text {
@@ -1514,6 +1620,7 @@ fn texts() -> (Document, FeatureId, EntityId) {
             align: TextAlign::Left,
         },
     );
+
     transaction.add_sketch_text(
         sketch,
         Text {
@@ -1546,10 +1653,13 @@ fn texts() -> (Document, FeatureId, EntityId) {
 
 fn text_layouts() -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Text layouts");
+
     let sketch = transaction.add_feature("Plaque", FeatureKind::from(Sketch::new(Plane::XY)));
     let middle = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(30.0, 20.0)));
     let end = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(60.0, 4.0)));
+
     for (anchor, content, align) in [
         (middle, "Caditor\nPlaque 7", TextAlign::Centre),
         (end, "Rev A\n\nRight", TextAlign::Right),
@@ -1598,17 +1708,22 @@ fn partner_of(centre: EntityId, driver: EntityId, teeth: Expression) -> Gear {
 
 fn gear_pairs() -> (Document, FeatureId, EntityId, EntityId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Gear pairs");
+
     let count = transaction.add_parameter("partner_teeth", transaction.parse("30").unwrap());
     let sketch = transaction.add_feature("Pair", FeatureKind::from(Sketch::new(Plane::XY)));
     let first = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 0.0)));
     let second = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(43.3, 25.0)));
+
     transaction.add_sketch_constraint(sketch, Constraint::Coincident(first, EntityId::ORIGIN));
+
     let driver = transaction.add_sketch_gear(sketch, gear_of(first, Expression::Number(20.0)));
     let partner = transaction.add_sketch_gear(
         sketch,
         partner_of(second, driver, Expression::Parameter(count)),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, sketch, driver, partner)
 }
@@ -1620,11 +1735,14 @@ fn gear_pairs_journal() -> Vec<u8> {
         entries: Vec::new(),
     };
     let mut addition = base.transaction("Draw gear pair");
+
     let first = addition.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 80.0)));
     let second = addition.add_sketch_entity(sketch, Entity::Point(Point2::new(50.0, 80.0)));
     let other = addition.add_sketch_gear(sketch, gear_of(first, Expression::Number(24.0)));
+
     addition.add_sketch_gear(sketch, partner_of(second, other, Expression::Number(26.0)));
     session.apply(addition.finish());
+
     let edited = session.editor.document().clone();
     let held = edited
         .feature(sketch)
@@ -1633,6 +1751,7 @@ fn gear_pairs_journal() -> Vec<u8> {
         .cloned()
         .unwrap();
     let mut change = edited.transaction("Edit spur gear");
+
     change.set_sketch_gear(
         sketch,
         partner,
@@ -1642,10 +1761,13 @@ fn gear_pairs_journal() -> Vec<u8> {
         },
     );
     session.apply(change.finish());
+
     let changed = session.editor.document().clone();
     let mut removal = changed.transaction("Delete gear");
+
     removal.remove_sketch_items(sketch, [driver], []);
     session.apply(removal.finish());
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Gear pairs")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -1669,13 +1791,18 @@ fn sprocket_of(centre: EntityId, teeth: Expression) -> Gear {
 
 fn sprockets() -> (Document, FeatureId, EntityId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Sprockets");
+
     let count = transaction.add_parameter("sprocket_teeth", transaction.parse("19").unwrap());
     let sketch = transaction.add_feature("Sprockets", FeatureKind::from(Sketch::new(Plane::XY)));
     let first = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 0.0)));
     let second = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(120.0, 0.0)));
+
     transaction.add_sketch_constraint(sketch, Constraint::Coincident(first, EntityId::ORIGIN));
+
     let plain = transaction.add_sketch_gear(sketch, sprocket_of(first, Expression::Number(17.0)));
+
     transaction.add_sketch_gear(
         sketch,
         Gear {
@@ -1695,9 +1822,12 @@ fn sprockets_journal() -> Vec<u8> {
         entries: Vec::new(),
     };
     let mut addition = base.transaction("Draw sprocket");
+
     let centre = addition.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 90.0)));
+
     addition.add_sketch_gear(sketch, sprocket_of(centre, Expression::Number(25.0)));
     session.apply(addition.finish());
+
     let edited = session.editor.document().clone();
     let held = edited
         .feature(sketch)
@@ -1706,6 +1836,7 @@ fn sprockets_journal() -> Vec<u8> {
         .cloned()
         .unwrap();
     let mut change = edited.transaction("Edit sprocket");
+
     change.set_sketch_gear(
         sketch,
         plain,
@@ -1716,10 +1847,13 @@ fn sprockets_journal() -> Vec<u8> {
         },
     );
     session.apply(change.finish());
+
     let changed = session.editor.document().clone();
     let mut removal = changed.transaction("Delete sprocket");
+
     removal.remove_sketch_items(sketch, [plain], []);
     session.apply(removal.finish());
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Sprockets")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -1733,13 +1867,18 @@ fn sprockets_journal() -> Vec<u8> {
 
 fn gears() -> (Document, FeatureId, EntityId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Gears");
+
     let count = transaction.add_parameter("teeth", transaction.parse("24").unwrap());
     let sketch = transaction.add_feature("Wheels", FeatureKind::from(Sketch::new(Plane::XY)));
     let first = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 0.0)));
     let second = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(60.0, 0.0)));
+
     transaction.add_sketch_constraint(sketch, Constraint::Coincident(first, EntityId::ORIGIN));
+
     let plain = transaction.add_sketch_gear(sketch, gear_of(first, Expression::Number(20.0)));
+
     transaction.add_sketch_gear(
         sketch,
         Gear {
@@ -1775,9 +1914,12 @@ fn gears_journal() -> Vec<u8> {
         entries: Vec::new(),
     };
     let mut addition = base.transaction("Draw spur gear");
+
     let centre = addition.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 50.0)));
+
     addition.add_sketch_gear(sketch, gear_of(centre, Expression::Number(30.0)));
     session.apply(addition.finish());
+
     let edited = session.editor.document().clone();
     let held = edited
         .feature(sketch)
@@ -1786,6 +1928,7 @@ fn gears_journal() -> Vec<u8> {
         .cloned()
         .unwrap();
     let mut change = edited.transaction("Edit spur gear");
+
     change.set_sketch_gear(
         sketch,
         plain,
@@ -1795,10 +1938,13 @@ fn gears_journal() -> Vec<u8> {
         },
     );
     session.apply(change.finish());
+
     let changed = session.editor.document().clone();
     let mut removal = changed.transaction("Delete gear");
+
     removal.remove_sketch_items(sketch, [plain], []);
     session.apply(removal.finish());
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Gears")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -1817,7 +1963,9 @@ fn texts_journal() -> Vec<u8> {
         entries: Vec::new(),
     };
     let mut addition = base.transaction("Draw text");
+
     let anchor = addition.add_sketch_entity(sketch, Entity::Point(Point2::new(30.0, 3.0)));
+
     addition.add_sketch_text(
         sketch,
         Text {
@@ -1831,6 +1979,7 @@ fn texts_journal() -> Vec<u8> {
         },
     );
     session.apply(addition.finish());
+
     let edited = session.editor.document().clone();
     let held = edited
         .feature(sketch)
@@ -1839,6 +1988,7 @@ fn texts_journal() -> Vec<u8> {
         .cloned()
         .unwrap();
     let mut change = edited.transaction("Edit text");
+
     change.set_sketch_text(
         sketch,
         plain,
@@ -1849,10 +1999,13 @@ fn texts_journal() -> Vec<u8> {
         },
     );
     session.apply(change.finish());
+
     let changed = session.editor.document().clone();
     let mut removal = changed.transaction("Delete text");
+
     removal.remove_sketch_items(sketch, [plain], []);
     session.apply(removal.finish());
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Texts")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -1876,6 +2029,7 @@ fn principal_showing_set(showing: [(PrincipalGeometry, PrincipalShowing); 3]) ->
 
 fn principal_showing() -> (Document, Transaction) {
     let (mut document, _, _) = solid_model();
+
     document
         .apply(principal_showing_set([
             (
@@ -1889,6 +2043,7 @@ fn principal_showing() -> (Document, Transaction) {
             ),
         ]))
         .unwrap();
+
     let change = principal_showing_set([
         (
             PrincipalGeometry::Plane(PrincipalPlane::Xz),
@@ -1909,7 +2064,9 @@ fn principal_showing_journal() -> Vec<u8> {
         editor: Editor::new(base.clone()),
         entries: Vec::new(),
     };
+
     session.apply(change);
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Principal showing")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -1923,6 +2080,7 @@ fn principal_showing_journal() -> Vec<u8> {
 
 fn drawn_model() -> Document {
     let (mut document, change) = with_drawings();
+
     document.apply(change).unwrap();
     document
 }
@@ -1933,7 +2091,9 @@ fn drawings_journal() -> Vec<u8> {
         editor: Editor::new(base.clone()),
         entries: Vec::new(),
     };
+
     session.apply(change);
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Drawings")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -1947,12 +2107,14 @@ fn drawings_journal() -> Vec<u8> {
 
 fn sectioned_model() -> Document {
     let (mut document, change) = with_section_views();
+
     document.apply(change).unwrap();
     document
 }
 
 fn detailed_model() -> Document {
     let (mut document, change) = with_detail_views();
+
     document.apply(change).unwrap();
     document
 }
@@ -1963,7 +2125,9 @@ fn detail_views_journal() -> Vec<u8> {
         editor: Editor::new(base.clone()),
         entries: Vec::new(),
     };
+
     session.apply(change);
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Detail views")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -1977,6 +2141,7 @@ fn detail_views_journal() -> Vec<u8> {
 
 fn parameter_offset_sections() -> Document {
     let (mut document, change) = parameter_offset_document();
+
     document.apply(change).unwrap();
     document
 }
@@ -1987,7 +2152,9 @@ fn section_views_journal() -> Vec<u8> {
         editor: Editor::new(base.clone()),
         entries: Vec::new(),
     };
+
     session.apply(change);
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Section views")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -2006,8 +2173,10 @@ fn piece_stand_ins_journal() -> Vec<u8> {
         entries: Vec::new(),
     };
     let mut removal = base.transaction("Delete a side");
+
     removal.remove_sketch_items(sketch, [lines[1]], []);
     session.apply(removal.finish());
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Blocks")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -2022,15 +2191,20 @@ fn piece_stand_ins_journal() -> Vec<u8> {
 fn separate_pieces_journal() -> Vec<u8> {
     let (drawn, lines) = blocks_sketch();
     let mut base = Document::default();
+
     let mut transaction = base.transaction("Blocks");
+
     let sketch = transaction.add_feature("Blocks sketch", FeatureKind::from(drawn));
     let extruded = transaction.add_feature("Blocks", blocks(sketch));
+
     base.apply(transaction.finish()).unwrap();
+
     let middle = extruded.piece(piece_key(lines[1])).unwrap();
     let mut session = Session {
         editor: Editor::new(base.clone()),
         entries: Vec::new(),
     };
+
     session.apply(Transaction::single(
         "A body each",
         Edit::SetFeaturePieces {
@@ -2054,6 +2228,7 @@ fn separate_pieces_journal() -> Vec<u8> {
             },
         ],
     ));
+
     let model = save_bytes(&base, None, at(1_700_000_000), Some("Blocks")).unwrap();
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
@@ -2068,8 +2243,10 @@ fn separate_pieces_journal() -> Vec<u8> {
 fn sketches() -> Document {
     let (mut document, _) = with_added_kinds(every_kind().document);
     let mut transaction = document.transaction("Curves");
+
     let bore = transaction.add_parameter("bore", transaction.parse("30 mm").unwrap());
     let mut curves = Sketch::new(Plane::XZ);
+
     let ellipse = curves.add_ellipse(Point2::new(1.0, 2.0), Point2::new(11.0, 2.0), 4.0);
     let elliptical = curves.add_elliptical_arc(
         Point2::new(30.0, 0.0),
@@ -2084,6 +2261,7 @@ fn sketches() -> Document {
         Point2::new(10.0, 24.0),
         Point2::new(20.0, 18.0),
     ];
+
     curves.add_spline_of(&through, SplineKind::Control { closed: true });
     for closed in [false, true] {
         curves.add_spline_of(
@@ -2095,6 +2273,7 @@ fn sketches() -> Document {
         );
         curves.add_spline_of(&through, SplineKind::fit(closed));
     }
+
     let conic = curves.add_spline_of(&through, SplineKind::Conic { rho: 0.3 });
     let first = curves.add_spline(&[
         Point2::new(0.0, 40.0),
@@ -2106,6 +2285,7 @@ fn sketches() -> Document {
         Point2::new(25.0, 35.0),
         Point2::new(30.0, 25.0),
     ]);
+
     let ends = [first, second].map(|spline| match curves.entity(spline) {
         Some(Entity::Spline { points, .. }) => points.clone(),
         other => panic!("expected a spline, found {other:?}"),
@@ -2116,13 +2296,16 @@ fn sketches() -> Document {
         Point2::new(50.0, 13.0),
     );
     let axis = curves.add_line(Point2::new(70.0, -10.0), Point2::new(70.0, 10.0));
+
     curves.set_construction(axis, true).unwrap();
+
     let rim = curves.add_point(Point2::new(82.0, 0.0));
     let line = curves.add_line(Point2::new(-5.0, 6.0), Point2::new(15.0, 6.0));
     let Some(Entity::Line { start, end }) = curves.entity(line).cloned() else {
         panic!("expected a line");
     };
     let mut add = |constraint| curves.add_constraint(constraint).unwrap();
+
     add(Constraint::Tangent(line, ellipse));
     add(Constraint::MajorRadius {
         ellipse,
@@ -2156,17 +2339,20 @@ fn sketches() -> Document {
         axis,
         value: Expression::Parameter(bore),
     });
+
     let level = add(Constraint::Horizontal(line));
     let measured = add(Constraint::Distance {
         from: start,
         to: end,
         value: Expression::Measure(20.0, Unit::Millimetre),
     });
+
     curves.set_active(level, false).unwrap();
     curves
         .set_label_offset(measured, Some(Vector2::new(5.0, -12.5)))
         .unwrap();
     curves.set_construction(elliptical, true).unwrap();
+
     let projected = transaction.add_feature("Curves", FeatureKind::from(curves));
     let body = FeatureId::from_raw(90);
     let projections = [
@@ -2229,9 +2415,11 @@ fn sketches() -> Document {
             },
         ),
     ];
+
     document.apply(transaction.finish()).unwrap();
 
     let mut transaction = document.transaction("Project");
+
     for (source, outline) in projections {
         transaction.add_projection(projected, source, &outline);
     }
@@ -2241,7 +2429,9 @@ fn sketches() -> Document {
 
 fn projected_datums() -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Datums");
+
     let spot = transaction.add_feature(
         "Spot",
         FeatureKind::Datum(Datum::Point(DatumPoint {
@@ -2257,6 +2447,7 @@ fn projected_datums() -> Document {
         ))),
     );
     let side = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
+
     let projections = [
         (
             ProjectionSource::DatumAxis {
@@ -2291,6 +2482,7 @@ fn projected_datums() -> Document {
         ),
         (ProjectionSource::Origin, Outline::Point(Point2::ZERO)),
     ];
+
     for (source, outline) in projections {
         transaction.add_projection(side, source, &outline);
     }
@@ -2331,6 +2523,7 @@ fn path_sweeps() -> Document {
     let sketch = named(&document, "Outline");
     let mut transaction = document.transaction("Path sweeps");
     let mut path = Sketch::new(Plane::YZ);
+
     let first = path.add_line(Point2::ZERO, Point2::new(0.0, 5.0));
     let second = path.add_arc(
         Point2::new(3.0, 5.0),
@@ -2338,6 +2531,7 @@ fn path_sweeps() -> Document {
         Point2::new(0.0, 5.0),
     );
     let path = transaction.add_feature("Path", FeatureKind::from(path));
+
     transaction.add_feature(
         "Along the path",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep::new(
@@ -2376,12 +2570,15 @@ fn sweep_shapes() -> Document {
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Sweep shapes");
     let mut path = Sketch::new(Plane::YZ);
+
     let line = path.add_line(Point2::ZERO, Point2::new(0.0, 20.0));
     let path = transaction.add_feature("Path", FeatureKind::from(path));
+
     let along = SweepPath::Curves {
         sketch: path,
         curves: vec![line],
     };
+
     transaction.add_feature(
         "Twisted",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep {
@@ -2407,8 +2604,10 @@ fn sweep_laws() -> Document {
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Sweep laws");
     let mut path = Sketch::new(Plane::YZ);
+
     let line = path.add_line(Point2::ZERO, Point2::new(0.0, 20.0));
     let path = transaction.add_feature("Path", FeatureKind::from(path));
+
     transaction.add_feature(
         "Bulged",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep {
@@ -2433,7 +2632,9 @@ fn sweep_laws() -> Document {
 
 fn point_targets() -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Point targets");
+
     transaction.add_feature("Tracked", FeatureKind::from(tracked_sketch()));
     document.apply(transaction.finish()).unwrap();
     document
@@ -2444,13 +2645,16 @@ fn pipes() -> Document {
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Pipes");
     let mut path = Sketch::new(Plane::XY);
+
     let first = path.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
     let second = path.add_line(Point2::new(20.0, 0.0), Point2::new(20.0, 30.0));
     let path = transaction.add_feature("Pipe path", FeatureKind::from(path));
+
     let curves = SweepPath::Curves {
         sketch: path,
         curves: vec![first, second],
     };
+
     transaction.add_feature(
         "Round",
         FeatureKind::Pipe(Pipe::new(curves.clone(), parse("4 mm"), parse("6 mm"))),
@@ -2491,6 +2695,7 @@ fn coils() -> Document {
     let outline = named(&document, "Outline");
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Coils");
+
     transaction.add_feature(
         "Spring",
         FeatureKind::Coil(Coil::new(
@@ -2549,6 +2754,7 @@ fn helices() -> Document {
     let outline = named(&document, "Outline");
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Helices");
+
     let helix = transaction.add_feature(
         "Helix",
         FeatureKind::Helix(Helix::new(
@@ -2556,6 +2762,7 @@ fn helices() -> Document {
             parse("20 mm"),
         )),
     );
+
     transaction.add_feature(
         "Tapered helix",
         FeatureKind::Helix(Helix {
@@ -2600,8 +2807,10 @@ fn helix_points() -> Document {
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Helix points");
     let mut marks = Sketch::new(Plane::XY);
+
     let mark = marks.add_point(Point2::new(6.0, 4.0));
     let marks = transaction.add_feature("Start mark", FeatureKind::from(marks));
+
     let helix = transaction.add_feature(
         "Pointed helix",
         FeatureKind::Helix(Helix {
@@ -2613,6 +2822,7 @@ fn helix_points() -> Document {
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
         }),
     );
+
     transaction.add_feature(
         "Wire",
         FeatureKind::Pipe(Pipe::new(
@@ -2629,6 +2839,7 @@ fn helix_starts() -> Document {
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Helix starts");
+
     let helix = transaction.add_feature(
         "Started helix",
         FeatureKind::Helix(Helix {
@@ -2637,6 +2848,7 @@ fn helix_starts() -> Document {
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
         }),
     );
+
     transaction.add_feature(
         "Wire",
         FeatureKind::Pipe(Pipe::new(
@@ -2653,6 +2865,7 @@ fn flat_spirals() -> Document {
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Flat spirals");
+
     let spiral = transaction.add_feature(
         "Clock spring",
         FeatureKind::Helix(Helix {
@@ -2664,6 +2877,7 @@ fn flat_spirals() -> Document {
             ..Helix::flat_spiral(AxisReference::Principal(PrincipalAxis::Z), parse("10 mm"))
         }),
     );
+
     transaction.add_feature(
         "Spring",
         FeatureKind::Pipe(Pipe::new(
@@ -2690,6 +2904,7 @@ fn revolve_stops() -> Document {
             [FaceName::from_digest(7)],
         ),
     };
+
     let revolutions = [
         (
             "Up to next",
@@ -2707,6 +2922,7 @@ fn revolve_stops() -> Document {
             },
         ),
     ];
+
     for (name, revolve) in revolutions {
         transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Revolve(revolve)));
     }
@@ -2729,6 +2945,7 @@ pub(super) fn stop_offsets() -> Document {
             [FaceName::from_digest(7)],
         ),
     };
+
     let extrusions = [(
         "Short of the face",
         plain_extrude(
@@ -2740,9 +2957,11 @@ pub(super) fn stop_offsets() -> Document {
             BodyOperation::Add(base),
         ),
     )];
+
     for (name, extrude) in extrusions {
         transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Extrude(extrude)));
     }
+
     let revolutions = [
         (
             "Past the next face",
@@ -2768,6 +2987,7 @@ pub(super) fn stop_offsets() -> Document {
             },
         ),
     ];
+
     for (name, revolve) in revolutions {
         transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Revolve(revolve)));
     }
@@ -2779,6 +2999,7 @@ fn helix_ends() -> Document {
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Closed helix ends");
+
     let helix = transaction.add_feature(
         "Spring path",
         FeatureKind::Helix(Helix {
@@ -2795,6 +3016,7 @@ fn helix_ends() -> Document {
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
         }),
     );
+
     transaction.add_feature(
         "Spring",
         FeatureKind::Pipe(Pipe::new(
@@ -2811,6 +3033,7 @@ fn helix_laws() -> Document {
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Helix pitch laws");
+
     let progressive = transaction.add_feature(
         "Progressive path",
         FeatureKind::Helix(Helix {
@@ -2838,6 +3061,7 @@ fn helix_laws() -> Document {
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("16 mm"))
         }),
     );
+
     for (name, helix) in [("Progressive", progressive), ("Spring", closed)] {
         transaction.add_feature(
             name,
@@ -2856,6 +3080,7 @@ fn pitched_spirals() -> Document {
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Pitched flat spirals");
+
     let progressive = transaction.add_feature(
         "Progressive spring",
         FeatureKind::Helix(Helix {
@@ -2881,6 +3106,7 @@ fn pitched_spirals() -> Document {
             ..Helix::flat_spiral(AxisReference::Principal(PrincipalAxis::Z), parse("10 mm"))
         }),
     );
+
     for (name, helix) in [("Progressive wire", progressive), ("Tabled wire", tabled)] {
         transaction.add_feature(
             name,
@@ -2899,6 +3125,7 @@ fn helix_table() -> Document {
     let (mut document, _, _) = solid_model();
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Helix pitch table");
+
     let tabled = transaction.add_feature(
         "Tabled path",
         FeatureKind::Helix(Helix {
@@ -2914,6 +3141,7 @@ fn helix_table() -> Document {
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
         }),
     );
+
     transaction.add_feature(
         "Tabled",
         FeatureKind::Pipe(Pipe::new(
@@ -2931,6 +3159,7 @@ fn loft_ends() -> Document {
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Loft ends");
     let mut profiles = Vec::new();
+
     for (index, angle) in [0.0_f64, 120.0, 240.0].into_iter().enumerate() {
         let radial = Vector3::new(angle.to_radians().cos(), angle.to_radians().sin(), 0.0);
         let plane = Plane::from_frame(
@@ -2940,13 +3169,16 @@ fn loft_ends() -> Document {
         )
         .unwrap();
         let mut sketch = Sketch::new(plane);
+
         sketch.add_circle(Point2::ZERO, 2.0);
         profiles.push(LoftSection::whole(transaction.add_feature(
             format!("Ring section {}", index + 1),
             FeatureKind::from(sketch),
         )));
     }
+
     let open = profiles.get(..2).unwrap().to_vec();
+
     transaction.add_feature(
         "Ring",
         FeatureKind::Loft(Loft {
@@ -2972,17 +3204,25 @@ fn lofts() -> Document {
     let level = |height: f64| Plane::new(Point3::new(0.0, 0.0, height), Vector3::Z).unwrap();
     let mut low = Sketch::new(level(0.0));
     let corners = [(0.0, 0.0), (6.0, 0.0), (6.0, 4.0), (0.0, 4.0)];
+
     for index in 0..4 {
         let (a, b) = (corners[index], corners[(index + 1) % 4]);
+
         low.add_line(Point2::new(a.0, a.1), Point2::new(b.0, b.1));
     }
+
     let low = transaction.add_feature("Loft bottom", FeatureKind::from(low));
     let mut middle = Sketch::new(level(4.0));
+
     middle.add_circle(Point2::new(3.0, 2.0), 1.5);
+
     let middle = transaction.add_feature("Loft middle", FeatureKind::from(middle));
     let mut high = Sketch::new(level(8.0));
+
     let disc = high.add_circle(Point2::new(3.0, 2.0), 1.0);
+
     high.add_circle(Point2::new(9.0, 2.0), 1.0);
+
     let tip = high.add_point(Point2::new(3.0, 2.0));
     let high = transaction.add_feature("Loft top", FeatureKind::from(high));
     let chosen = RegionReference::new(
@@ -2994,6 +3234,7 @@ fn lofts() -> Document {
         }]),
         Some(Point2::new(3.0, 2.0)),
     );
+
     transaction.add_feature(
         "Smooth loft",
         FeatureKind::Loft(Loft::new(vec![
@@ -3026,8 +3267,11 @@ fn ribs() -> Document {
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Ribs");
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(2.0, 2.0), Point2::new(8.0, 6.0));
+
     let sketch = transaction.add_feature("Rib line", FeatureKind::from(sketch));
+
     transaction.add_feature(
         "Rib",
         FeatureKind::Rib(Rib::new(sketch, base, parse("2 mm"))),
@@ -3057,6 +3301,7 @@ fn shaped_ribs() -> Document {
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Shaped ribs");
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(2.0, 2.0), Point2::new(8.0, 2.0));
     sketch.add_line(Point2::new(5.0, 2.0), Point2::new(5.0, 6.0));
     sketch.add_arc(
@@ -3064,7 +3309,9 @@ fn shaped_ribs() -> Document {
         Point2::new(7.0, 5.0),
         Point2::new(5.0, 7.0),
     );
+
     let sketch = transaction.add_feature("Web lines", FeatureKind::from(sketch));
+
     transaction.add_feature(
         "Drafted web",
         FeatureKind::Rib(Rib {
@@ -3093,6 +3340,7 @@ fn sweeps() -> Document {
     let mut transaction = document.transaction("Sweeps");
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let one_side = |text: &str| ExtrudeExtent::one_side(parse(text), false);
+
     let level = transaction.add_feature(
         "Level",
         FeatureKind::Datum(Datum::Plane(DatumPlane {
@@ -3108,6 +3356,7 @@ fn sweeps() -> Document {
             ..plain_extrude(sketch, one_side("10 mm"), BodyOperation::NewBody)
         })),
     );
+
     let extrusions = [
         (
             "Tapered",
@@ -3160,9 +3409,11 @@ fn sweeps() -> Document {
             ),
         ),
     ];
+
     for (name, extrude) in extrusions {
         transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Extrude(extrude)));
     }
+
     let revolutions = [
         (
             "Up to the plane",
@@ -3191,6 +3442,7 @@ fn sweeps() -> Document {
             },
         ),
     ];
+
     for (name, revolve) in revolutions {
         transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Revolve(revolve)));
     }
@@ -3202,6 +3454,7 @@ fn holes() -> Document {
     let (mut document, base, _) = solid_model();
     let sketch = named(&document, "Outline");
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
+
     let plain = Hole {
         sketch,
         body: base,
@@ -3216,6 +3469,7 @@ fn holes() -> Document {
         thread: TappedThread::default(),
     };
     let mut transaction = document.transaction("Holes");
+
     let level = transaction.add_feature(
         "Level",
         FeatureKind::Datum(Datum::Plane(DatumPlane {
@@ -3234,6 +3488,7 @@ fn holes() -> Document {
             depth: parse("$0 / 2"),
         },
     ]);
+
     let holes = [
         ("Plain", plain.clone()),
         (
@@ -3339,6 +3594,7 @@ fn holes() -> Document {
             },
         ),
     ];
+
     for (name, hole) in holes {
         transaction.add_feature(name, FeatureKind::Hole(hole));
     }
@@ -3362,6 +3618,7 @@ fn shell_walls() -> Document {
         ),
         ("Shell both sides", ShellSide::BothSides, Vec::new()),
     ];
+
     for (name, side, faces) in shells {
         transaction.add_feature(
             name,
@@ -3381,6 +3638,7 @@ fn shell_walls() -> Document {
 fn edge_rules() -> Document {
     let (mut document, fillet, _) = blended_model();
     let base = named(&document, "Base");
+
     let FeatureKind::Blend(rounded) = document.feature(fillet).unwrap().kind.clone() else {
         panic!("a blend");
     };
@@ -3390,6 +3648,7 @@ fn edge_rules() -> Document {
         ("Concave edges", EdgeRule::Concave),
         ("Edges of Base", EdgeRule::MadeBy(base)),
     ];
+
     for (name, rule) in rules {
         transaction.add_feature(
             name,
@@ -3405,6 +3664,7 @@ fn edge_rules() -> Document {
 
 fn chord_fillets() -> Document {
     let (mut document, fillet, _) = blended_model();
+
     let FeatureKind::Blend(rounded) = document.feature(fillet).unwrap().kind.clone() else {
         panic!("a blend");
     };
@@ -3416,6 +3676,7 @@ fn chord_fillets() -> Document {
             vec![EdgeGroup::Rule(EdgeRule::Convex)],
         ),
     ];
+
     for (name, groups) in sizings {
         transaction.add_feature(
             name,
@@ -3436,6 +3697,7 @@ fn faces() -> Document {
     let base = named(&document, "Base");
     let outline = named(&document, "Outline");
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
+
     let FeatureKind::Blend(rounded) = document.feature(fillet).unwrap().kind.clone() else {
         panic!("a blend");
     };
@@ -3457,6 +3719,7 @@ fn faces() -> Document {
         })
     };
     let mut transaction = document.transaction("Faces");
+
     let kinds = [
         (
             "Two distances",
@@ -3535,6 +3798,7 @@ fn faces() -> Document {
         ),
         ("Thread", thread_kind(ThreadForm::Cosmetic)),
     ];
+
     for (name, kind) in kinds {
         transaction.add_feature(name, kind);
     }
@@ -3546,6 +3810,7 @@ fn deleted_faces() -> Document {
     let (mut document, _, _) = blended_model();
     let base = named(&document, "Base");
     let mut transaction = document.transaction("Delete face");
+
     transaction.add_feature(
         "Delete face",
         FeatureKind::DeleteFace(DeleteFace {
@@ -3566,6 +3831,7 @@ fn embossed_faces() -> Document {
         .map(|feature| feature.id())
         .unwrap();
     let mut transaction = document.transaction("Emboss");
+
     transaction.add_feature(
         "Raised text",
         FeatureKind::Emboss(Emboss {
@@ -3615,6 +3881,7 @@ fn drafted_emboss() -> Document {
         .map(|feature| feature.id())
         .unwrap();
     let mut transaction = document.transaction("Emboss");
+
     transaction.add_feature(
         "Drafted text",
         FeatureKind::Emboss(Emboss {
@@ -3651,6 +3918,7 @@ fn embossed_regions() -> Document {
         )
     };
     let mut transaction = document.transaction("Emboss");
+
     transaction.add_feature(
         "Some letters",
         FeatureKind::Emboss(Emboss {
@@ -3684,9 +3952,11 @@ fn embossed_regions() -> Document {
 
 fn drafts() -> Document {
     use caditor_document::{Draft, FaceAngle, FaceAttachment, PlaneReference, PrincipalPlane};
+
     let (mut document, _, _) = blended_model();
     let base = named(&document, "Base");
     let mut transaction = document.transaction("Draft");
+
     transaction.add_feature(
         "Draft",
         FeatureKind::Draft(Draft {
@@ -3725,9 +3995,11 @@ fn drafts() -> Document {
 
 fn replaced_faces() -> Document {
     use caditor_document::{FaceAttachment, PlaneReference, PrincipalPlane, ReplaceFace};
+
     let (mut document, _, _) = blended_model();
     let base = named(&document, "Base");
     let mut transaction = document.transaction("Replace face");
+
     let plane = transaction.add_feature(
         "Plane 1",
         FeatureKind::Datum(Datum::Plane(DatumPlane {
@@ -3736,6 +4008,7 @@ fn replaced_faces() -> Document {
             offset: Expression::parse_stored("12 mm").unwrap(),
         })),
     );
+
     transaction.add_feature(
         "Replace face",
         FeatureKind::ReplaceFace(ReplaceFace {
@@ -3771,6 +4044,7 @@ fn moved_faces() -> Document {
     let (mut document, _, _) = blended_model();
     let base = named(&document, "Base");
     let mut transaction = document.transaction("Move face");
+
     transaction.add_feature(
         "Move face",
         FeatureKind::MoveFace(MoveFace {
@@ -3811,6 +4085,7 @@ fn thread_kind(form: ThreadForm) -> FeatureKind {
 
 fn modelled_threads() -> Document {
     let (mut document, hole) = holed_model(HoleStyle::Plain, false);
+
     let FeatureKind::Hole(drilled) = document.feature(hole).unwrap().kind.clone() else {
         panic!("a hole");
     };
@@ -3826,6 +4101,7 @@ fn modelled_threads() -> Document {
         ..drilled
     };
     let mut transaction = document.transaction("Modelled threads");
+
     transaction.edit(Edit::SetFeatureKind {
         id: hole,
         kind: FeatureKind::Hole(tapped),
@@ -3848,6 +4124,7 @@ fn datums() -> Document {
         edge: Box::new(edge(0xed)),
     };
     let face = || FaceReference::new(FaceName::from_digest(0xfa), None, Vec::new());
+
     let tangent = || {
         Box::new(FaceTangent {
             body: base,
@@ -3856,6 +4133,7 @@ fn datums() -> Document {
         })
     };
     let mut transaction = document.transaction("Datums");
+
     let point = transaction.add_feature(
         "Corner point",
         FeatureKind::Datum(Datum::Point(DatumPoint {
@@ -3915,9 +4193,11 @@ fn datums() -> Document {
             PlaneReference::Principal(PrincipalPlane::Yz),
         )),
     ];
+
     for (index, datum) in through.into_iter().enumerate() {
         transaction.add_feature(format!("Through {index}"), FeatureKind::Datum(datum));
     }
+
     let frame = transaction.add_feature(
         "Coordinate system 1",
         FeatureKind::Datum(Datum::Frame(Box::new(DatumFrame {
@@ -3986,6 +4266,7 @@ fn datums() -> Document {
             }),
         ),
     ];
+
     for (name, kind) in in_frame {
         transaction.add_feature(name, kind);
     }
@@ -4008,6 +4289,7 @@ fn moved(body: FeatureId, copy: bool, about: TurnCentre) -> FeatureKind {
 fn mirrored_bodies() -> Document {
     let (mut document, base, turned) = solid_model();
     let mut transaction = document.transaction("Mirrored bodies");
+
     let image = transaction.add_feature(
         "Mirror as a new body",
         FeatureKind::Mirror(
@@ -4015,6 +4297,7 @@ fn mirrored_bodies() -> Document {
                 .with_outcome(MirrorOutcome::NewBody),
         ),
     );
+
     transaction.add_feature("Move the image", moved(image, false, TurnCentre::Body));
     transaction.add_feature(
         "Mirror features as a new body",
@@ -4039,7 +4322,9 @@ fn mirrored_bodies() -> Document {
 fn mirrored_several_bodies() -> Document {
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Mirrored several bodies");
+
     let copy = transaction.add_feature("Copy", moved(base, true, TurnCentre::Origin));
+
     transaction.add_feature(
         "Mirror both as new bodies",
         FeatureKind::Mirror(
@@ -4064,6 +4349,7 @@ fn bodies() -> Document {
     let sketch = named(&document, "Outline");
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Bodies");
+
     let tools = ["2 mm", "3 mm"].map(|depth| {
         transaction.add_feature(
             format!("Tool {depth}"),
@@ -4084,11 +4370,13 @@ fn bodies() -> Document {
             true,
         ),
     ];
+
     mates.extend(
         every_new_mate()
             .into_iter()
             .map(|(pair, _, flipped)| (pair, flipped)),
     );
+
     let kinds = [
         ("Move", moved(base, false, TurnCentre::Origin)),
         ("Copy", moved(base, true, TurnCentre::Origin)),
@@ -4180,6 +4468,7 @@ fn bodies() -> Document {
         ),
         ("Remove", FeatureKind::Remove(Remove { body: tools[1] })),
     ];
+
     for (name, kind) in kinds {
         transaction.add_feature(name, kind);
     }
@@ -4199,8 +4488,11 @@ fn bodies() -> Document {
 
 fn patterns() -> Document {
     let (mut document, linear, circular) = patterned_model();
+
     let grids = [linear, circular].map(|id| document.feature(id).unwrap().kind.clone());
+
     spread_and_skipping(&mut document, linear, circular);
+
     let base = named(&document, "Base");
     let outline = named(&document, "Outline");
     let turned = named(&document, "Turned");
@@ -4213,9 +4505,11 @@ fn patterns() -> Document {
         .clone();
     let mut transaction = document.transaction("Patterns");
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
+
     for (name, kind) in ["Linear grid", "Circular grid"].into_iter().zip(grids) {
         transaction.add_feature(name, kind);
     }
+
     let mut along = Pattern::new(
         base,
         PatternKind::Curve(CurvePattern {
@@ -4227,8 +4521,10 @@ fn patterns() -> Document {
             reversed: true,
         }),
     );
+
     along.skipped.insert([2, 0]);
     transaction.add_feature("Curve pattern", FeatureKind::from(along));
+
     let mut at_points = Pattern::new(
         base,
         PatternKind::Points(PointsPattern {
@@ -4239,6 +4535,7 @@ fn patterns() -> Document {
             },
         }),
     );
+
     at_points
         .skipped
         .insert(point_instance(EntityId::from_raw(1 << 40)).unwrap());
@@ -4256,6 +4553,7 @@ fn edge_patterns() -> Document {
     let base = named(&document, "Base");
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut transaction = document.transaction("Edge patterns");
+
     let mut along = Pattern::new(
         base,
         PatternKind::Curve(CurvePattern {
@@ -4270,6 +4568,7 @@ fn edge_patterns() -> Document {
             reversed: true,
         }),
     );
+
     along.skipped.insert([1, 0]);
     transaction.add_feature("Along edges", FeatureKind::from(along));
     transaction.add_feature(
@@ -4298,6 +4597,7 @@ fn edge_patterns() -> Document {
 
 fn patterned_bodies() -> Document {
     let (mut document, linear, circular) = patterned_model();
+
     let apart = [linear, circular].map(|id| {
         document
             .feature(id)
@@ -4311,6 +4611,7 @@ fn patterned_bodies() -> Document {
     let turned = named(&document, "Turned");
     let mut transaction = document.transaction("Patterned bodies");
     let [linear_apart, circular_apart] = apart;
+
     transaction.add_feature("Linear bodies", FeatureKind::from(linear_apart.clone()));
     transaction.add_feature("Circular bodies", FeatureKind::from(circular_apart));
     transaction.add_feature(
@@ -4323,7 +4624,9 @@ fn patterned_bodies() -> Document {
 
 fn imports() -> Document {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Imports");
+
     let shift = transaction.add_parameter("shift", transaction.parse("4 mm").unwrap());
     let frame = transaction.add_feature(
         "Coordinate system 1",
@@ -4337,8 +4640,10 @@ fn imports() -> Document {
     );
     let part = Import::new("horn.step", Solid::default(), STEP_PART);
     let mut placed = BodyPlacement::default();
+
     placed.offset[2] = Expression::Parameter(shift);
     placed.turn[0] = Expression::Measure(30.0, Unit::Degree);
+
     let placements = [
         (
             "From a file",
@@ -4364,6 +4669,7 @@ fn imports() -> Document {
             Import::new("old.step", Solid::default(), STEP_PART),
         ),
     ];
+
     for (name, import) in placements {
         transaction.add_feature(name, FeatureKind::Import(import));
     }
@@ -4376,6 +4682,7 @@ fn document_edits(document: &Document) -> Vec<Transaction> {
     let turned = named(document, "Turned");
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     let mut steel = steel_appearance(document);
+
     steel.faces = vec![
         FaceColour {
             face: FaceReference::new(FaceName::from_digest(0xface), None, []),
@@ -4390,8 +4697,10 @@ fn document_edits(document: &Document) -> Vec<Transaction> {
             finish: None,
         },
     ];
+
     let depth = document.parameter_named("depth").unwrap().id();
     let mut owned = document.transaction("Keep a reading");
+
     owned.add_owned_parameter(
         "clearance",
         parse("3 mm"),
@@ -4471,8 +4780,10 @@ fn document_with_history() -> Vec<u8> {
     let path = dir.path().join("document.caditor");
     let (configured, _, _) = configured_model();
     let mut edits = document_edits(&configured);
+
     let last = edits.pop().unwrap();
     let mut editor = Editor::new(configured);
+
     sharing_from(1, || {
         save(&solid_model().0, &path, false).unwrap();
         save(editor.document(), &path, false).unwrap();
@@ -4480,7 +4791,9 @@ fn document_with_history() -> Vec<u8> {
             editor.apply(transaction).unwrap();
             save(editor.document(), &path, false).unwrap();
         }
+
         let oldest = crate::history(&path).unwrap().versions.pop().unwrap();
+
         set_version_kept(&path, oldest.index, &oldest.digest, true, None).unwrap();
         editor.apply(last).unwrap();
         save(editor.document(), &path, false).unwrap();
@@ -4514,13 +4827,17 @@ fn every_edit_journal() -> Vec<u8> {
     };
 
     let mut inserting = session.editor.document().transaction("Insert");
+
     let gap = inserting.add_parameter("gap", parse("2 mm"));
     let plate = inserting.add_feature("Plate", FeatureKind::from(Sketch::new(Plane::XY)));
+
     session.apply(inserting.finish());
 
     let mut drawing = session.editor.document().transaction("Draw");
+
     let start = drawing.add_sketch_entity(plate, Entity::Point(Point2::ZERO));
     let end = drawing.add_sketch_entity(plate, Entity::Point(Point2::new(10.0, 0.0)));
+
     let line = drawing.add_sketch_entity_as(plate, Entity::Line { start, end }, true);
     let spare = drawing.add_sketch_entity(plate, Entity::Point(Point2::new(5.0, 5.0)));
     let scrap = drawing.add_sketch_entity(plate, Entity::Point(Point2::new(-5.0, 5.0)));
@@ -4533,6 +4850,7 @@ fn every_edit_journal() -> Vec<u8> {
         },
     );
     let level = drawing.add_sketch_constraint(plate, Constraint::Horizontal(line));
+
     session.apply(drawing.finish());
 
     let FeatureKind::Solid(SolidFeature::Revolve(turning)) =
@@ -4542,6 +4860,7 @@ fn every_edit_journal() -> Vec<u8> {
     };
     let configured = configured_model().0.configurations().clone();
     let tall = configured.rows.last().unwrap().id;
+
     let edits = [
         Transaction::new(
             "Edit the parameters",
@@ -4698,6 +5017,7 @@ fn every_edit_journal() -> Vec<u8> {
             ],
         ),
     ];
+
     for transaction in edits {
         session.apply(transaction);
     }
@@ -4707,9 +5027,12 @@ fn every_edit_journal() -> Vec<u8> {
         mut entries,
     } = session;
     let undone = editor.next_undo().cloned().unwrap();
+
     editor.undo().unwrap();
     entries.push(Logged::Entry(JournalEntry::Undo(undone)));
+
     let redone = editor.next_redo().cloned().unwrap();
+
     editor.redo().unwrap();
     entries.push(Logged::Entry(JournalEntry::Redo(redone)));
 
@@ -4730,10 +5053,13 @@ fn saved_with_preview(document: &Document, label: &str) -> Vec<u8> {
         image::Rgba([shade, 255 - shade, 160, 255])
     });
     let mut png = io::Cursor::new(Vec::new());
+
     image::DynamicImage::ImageRgba8(pixels)
         .write_to(&mut png, image::ImageFormat::Png)
         .unwrap();
+
     let (slot, drawing) = PreviewSlot::new();
+
     drawing.fill(Preview::from_png(png.into_inner()).unwrap());
     encode_keeping(
         document,
@@ -4754,6 +5080,7 @@ fn corpus_picture(width: u32, height: u32) -> std::sync::Arc<caditor_document::P
         image::Rgba([shade, 255 - shade, 128, 255])
     });
     let mut bytes = io::Cursor::new(Vec::new());
+
     image::DynamicImage::ImageRgba8(pixels)
         .write_to(&mut bytes, image::ImageFormat::Png)
         .unwrap();
@@ -4782,9 +5109,12 @@ fn reference_images() -> Document {
     let photo = corpus_picture(6, 4);
     let scan = corpus_picture(3, 5);
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Reference images");
+
     let width = transaction.add_parameter("width", transaction.parse("80 mm").unwrap());
     let sketch = transaction.add_feature("Tracing", FeatureKind::from(Sketch::new(Plane::YZ)));
+
     transaction.add_feature(
         "Photo",
         FeatureKind::ReferenceImage(Box::new(reference_image(
@@ -4829,7 +5159,9 @@ fn reference_image_journal() -> Vec<u8> {
         editor: Editor::new(base.clone()),
         entries: Vec::new(),
     };
+
     let mut inserting = session.editor.document().transaction("Insert");
+
     let drawing = inserting.add_feature(
         "Drawing",
         FeatureKind::ReferenceImage(Box::new(reference_image(
@@ -4837,6 +5169,7 @@ fn reference_image_journal() -> Vec<u8> {
             caditor_document::ImagePlane::Reference(PlaneReference::Principal(PrincipalPlane::Xy)),
         ))),
     );
+
     session.apply(inserting.finish());
     for (feature, opacity) in [(drawing, 40), (photo, 80), (drawing, 100)] {
         let FeatureKind::ReferenceImage(image) = session
@@ -4849,6 +5182,7 @@ fn reference_image_journal() -> Vec<u8> {
         else {
             panic!("a reference image");
         };
+
         session.apply(Transaction::single(
             "Edit",
             Edit::SetFeatureKind {
@@ -4860,6 +5194,7 @@ fn reference_image_journal() -> Vec<u8> {
             },
         ));
     }
+
     let head = JournalHead {
         file: None,
         on_disk: None,
@@ -4871,10 +5206,14 @@ fn reference_image_journal() -> Vec<u8> {
 
 fn exported_parameters() -> String {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Parameters");
+
     transaction.add_parameter("width", transaction.parse("40 mm").unwrap());
+
     let height = transaction.add_parameter("height", transaction.parse("width / 2").unwrap());
     let tilt = transaction.add_parameter("tilt", transaction.parse("-15 deg").unwrap());
+
     transaction.add_parameter("undefined", transaction.parse("width / 0").unwrap());
     transaction.edit(Edit::SetParameterNote {
         id: height,

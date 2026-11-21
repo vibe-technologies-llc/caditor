@@ -19,7 +19,7 @@ use crate::{
 
 pub const TITLE: &str = "Thread";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ThreadToolError {
     #[error("Select the round face of a bore, shaft or boss to thread")]
     ChooseFace,
@@ -53,7 +53,7 @@ impl Reason for ThreadToolError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThreadSource {
     pub body: FeatureId,
     pub face: FaceKey,
@@ -67,16 +67,21 @@ pub fn selected_face(
         Pickable::Face { body, face } => Some((body, face)),
         _ => None,
     });
+
     let (body, face) = faces.next().ok_or(ThreadToolError::ChooseFace)?;
+
     if faces.next().is_some() || selection.iter().count() > 1 {
         return Err(ThreadToolError::OneFaceOnly);
     }
+
     let shown = bodies::shown(model.evaluation(), body).ok_or(ThreadToolError::ChooseFace)?;
     let id = bodies::find_face(shown, face).ok_or(ThreadToolError::ChooseFace)?;
+
     let round = shown
         .solid
         .face(id)
         .is_some_and(|face| matches!(face.surface(), Surface::Cylinder(_)));
+
     if !round {
         return Err(ThreadToolError::NotRound);
     }
@@ -85,6 +90,7 @@ pub fn selected_face(
 
 pub fn unique_name(document: &Document, base: &str) -> String {
     let taken = |name: &str| document.features().any(|feature| feature.name == name);
+
     if !taken(base) {
         return base.to_owned();
     }
@@ -101,13 +107,16 @@ pub fn create(
 ) -> Result<(Transaction, FeatureId), ThreadToolError> {
     let shown = bodies::shown(evaluation, source.body).ok_or(ThreadToolError::NoShape)?;
     let face = bodies::find_face(shown, source.face).ok_or(ThreadToolError::FaceGone)?;
+
     let reference = FaceReference::capture(&shown.solid, face).ok_or(ThreadToolError::FaceGone)?;
     let bore = Bore::of(&shown.solid, &[face]).map_err(|_| ThreadToolError::NotRound)?;
     let family = ThreadFamily::MetricCoarse;
+
     let size = family.nearest(bore.diameter, bore.side);
     let described = bodies::describe_face_id(document, shown, face);
     let name = unique_name(document, &format!("{TITLE} on {described}"));
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Thread(Thread {
@@ -161,15 +170,18 @@ pub fn face_change(
         .feature_index(feature)
         .ok_or(ThreadToolError::FeatureGone)?;
     let shown = bodies::shown(model.evaluation(), source.body).ok_or(ThreadToolError::NoShape)?;
+
     let face = bodies::find_face(shown, source.face).ok_or(ThreadToolError::FaceGone)?;
     let reference = FaceReference::capture(&shown.solid, face).ok_or(ThreadToolError::FaceGone)?;
     let state = sketch_placement::body_state_before(model, source.body, index)
         .map_err(|_| ThreadToolError::MadeLater)?;
+
     let found = reference
         .resolve(state)
         .map_err(|_| ThreadToolError::MadeLater)?;
     let bore = Bore::of(state, &[found]).map_err(|_| ThreadToolError::NotRound)?;
     let family = thread.size.family();
+
     let size = if thread.size.fits(bore.diameter, bore.side) {
         thread.size
     } else {
@@ -180,6 +192,7 @@ pub fn face_change(
     } else {
         family.default_class(bore.side)
     };
+
     let changed = Thread {
         body: source.body,
         face: reference,
@@ -187,9 +200,11 @@ pub fn face_change(
         class,
         ..thread.clone()
     };
+
     if changed == *thread {
         return Err(ThreadToolError::SameFace);
     }
+
     let transaction = edit(document, feature, changed).ok_or(ThreadToolError::FeatureGone)?;
     field::checked(document, transaction)
 }

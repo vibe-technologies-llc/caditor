@@ -48,8 +48,11 @@ fn spring() -> Coil {
 
 fn single(coil: Coil) -> (Document, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let feature = transaction.add_feature("Coil 1", FeatureKind::Coil(coil));
+
     document.apply(transaction.finish()).unwrap();
     (document, feature)
 }
@@ -68,11 +71,16 @@ fn a_coil_on_an_axis_makes_a_body_the_volume_of_its_wire() {
     let evaluation = evaluate(&document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_near(volume(&evaluation, coil), PI * TAU * 10.0 * 3.0);
+
     let feature = document.feature(coil).unwrap();
+
     assert!(feature.makes_body());
     assert!(feature.kind.parameters().is_empty());
+
     let bounds = evaluation.body(coil).unwrap().bounding_box().unwrap();
+
     assert!(bounds.min().z > -1e-6, "{bounds:?}");
 }
 
@@ -126,7 +134,9 @@ fn a_tapered_clockwise_coil_keeps_its_volume_formula() {
 #[test]
 fn a_coil_cut_round_a_cylinder_s_axis_grooves_it_and_repeats_as_a_cut() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Shaft");
+
     let shaft = transaction.add_feature(
         "Shaft",
         FeatureKind::Primitive(Primitive {
@@ -141,15 +151,19 @@ fn a_coil_cut_round_a_cylinder_s_axis_grooves_it_and_repeats_as_a_cut() {
             operation: BodyOperation::NewBody,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
     let solid = evaluation.body(shaft).unwrap();
     let (wall, _) = solid
         .faces()
         .find(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
         .unwrap();
+
     let axis = AxisReference::capture_face(shaft, solid, wall).unwrap();
     let mut transaction = document.transaction("Groove");
+
     let groove = transaction.add_feature(
         "Groove",
         FeatureKind::Coil(Coil {
@@ -158,6 +172,7 @@ fn a_coil_cut_round_a_cylinder_s_axis_grooves_it_and_repeats_as_a_cut() {
             ..spring()
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -168,9 +183,13 @@ fn a_coil_cut_round_a_cylinder_s_axis_grooves_it_and_repeats_as_a_cut() {
         "{:?}",
         evaluation.feature(groove)
     );
+
     let removed = 0.5 * PI * TAU * 3.0 * (10.0 - 4.0 / (3.0 * PI));
+
     assert_near(volume(&evaluation, shaft), PI * 100.0 * 20.0 - removed);
+
     let kind = &document.feature(groove).unwrap().kind;
+
     assert_eq!(repeatable_on(kind), Some(shaft));
     assert!(kind.bodies_used().contains(&shaft));
     assert!(kind.origin_features().contains(&shaft));
@@ -180,10 +199,13 @@ fn a_coil_cut_round_a_cylinder_s_axis_grooves_it_and_repeats_as_a_cut() {
 #[test]
 fn a_coil_round_a_sketch_line_uses_the_sketch() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut sketch = Sketch::new(Plane::XZ);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(0.0, 30.0));
     let sketch = transaction.add_feature("Axis sketch", FeatureKind::from(sketch));
+
     let coil = transaction.add_feature(
         "Coil 1",
         FeatureKind::Coil(Coil {
@@ -194,14 +216,18 @@ fn a_coil_round_a_sketch_line_uses_the_sketch() {
             ..spring()
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let kind = &document.feature(coil).unwrap().kind;
+
     assert!(kind.reference_sketches().contains(&sketch));
     assert!(kind.features().contains(&sketch));
+
     assert_near(volume(&evaluation, coil), PI * TAU * 10.0 * 3.0);
 }
 
@@ -257,6 +283,7 @@ fn a_square_coil_s_faces_are_worded_by_side() {
         ..spring()
     });
     let evaluation = evaluate(&document);
+
     let solid = evaluation.body(coil).unwrap();
 
     let words: Vec<String> = solid
@@ -266,6 +293,7 @@ fn a_square_coil_s_faces_are_worded_by_side() {
 
     for side in ["inside", "outside", "top", "underside", "start", "end"] {
         let word = format!("Coil 1 {side}");
+
         assert!(words.contains(&word), "{word} not in {words:?}");
     }
 }
@@ -273,7 +301,9 @@ fn a_square_coil_s_faces_are_worded_by_side() {
 #[test]
 fn a_coil_s_values_may_be_parameters() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let pitch = transaction.add_parameter("pitch", mm(5.0));
     let coil = transaction.add_feature(
         "Coil 1",
@@ -285,6 +315,7 @@ fn a_coil_s_values_may_be_parameters() {
             ..spring()
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let kind = &document.feature(coil).unwrap().kind;

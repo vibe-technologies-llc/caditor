@@ -27,7 +27,7 @@ const MERIDIAN_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
 const UNBOUNDED_REACH: f64 = 1.0;
 const MIN_LINE_SWEEP_SINE: f64 = 1e-6;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Extrusion {
     profile: Curve,
     direction: Vector3,
@@ -37,19 +37,23 @@ pub struct Extrusion {
 impl Extrusion {
     pub fn new(profile: Curve, direction: Vector3) -> Result<Self, GeometryError> {
         let direction = unit(direction)?;
+
         if let Curve::Line(line) = &profile
             && line.direction().cross(direction).length() < MIN_LINE_SWEEP_SINE
         {
             return Err(GeometryError::DegenerateSurface);
         }
+
         let range = profile.domain().clipped(UNBOUNDED_REACH);
         let sweeps = range.split(DEGENERACY_SAMPLES).any(|parameter| {
             let tangent = profile.evaluate(parameter).first;
             tangent.length() > 0.0 && !parallel(tangent, direction)
         });
+
         if !sweeps {
             return Err(GeometryError::DegenerateSurface);
         }
+
         let spans = ProfileSpans::of(&profile, Some(direction)).map(Arc::new);
         Ok(Self {
             profile,
@@ -112,6 +116,7 @@ impl Extrusion {
                         curvature: 2.0 * (first.dot(first) + second.dot(offset)),
                     }
                 };
+
                 let found = range.clamp(
                     minimize_near(samples, objective, range, hint.map(|hint| hint.x))
                         .unwrap_or(range.start()),
@@ -127,7 +132,7 @@ impl Extrusion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Revolution {
     profile: Curve,
     axis: Plane,
@@ -144,6 +149,7 @@ impl Revolution {
         let axis = Plane::new(finite_point(axis_origin)?, unit(axis_direction)?)
             .ok_or(GeometryError::ZeroDirection)?;
         let range = profile.domain().clipped(UNBOUNDED_REACH);
+
         let farthest = range
             .split(DEGENERACY_SAMPLES)
             .map(|parameter| profile.point(parameter) - axis.origin())
@@ -161,9 +167,11 @@ impl Revolution {
                 .abs()
                 > MERIDIAN_TOLERANCE
         });
+
         if skew {
             return Err(GeometryError::ProfileOutsideMeridian);
         }
+
         let spans = ProfileSpans::of(&profile, None).map(Arc::new);
         Ok(Self {
             profile,
@@ -202,6 +210,7 @@ impl Revolution {
         let axis = self.axis.normal();
         let curve = self.profile.evaluate(v);
         let offset = curve.point - self.axis.origin();
+
         let around = axis.cross(offset);
         SurfaceDerivatives {
             point: self.axis.origin() + self.rotate(offset, u),
@@ -229,6 +238,7 @@ impl Revolution {
             offset.dot(self.axis.x_axis()),
             offset.dot(self.axis.y_axis()),
         );
+
         let turn = if x.hypot_libm(y) > AXIS_EPSILON * (1.0 + offset.length()) {
             y.atan2_libm(x) - self.meridian_angle
         } else {
@@ -244,6 +254,7 @@ impl Revolution {
                     unrotated,
                     hint.map(|hint| hint.y),
                 );
+
                 let distance = self.profile.point(v).distance_squared(unrotated);
                 (Point2::new(angle.rem_euclid(TAU), v), distance)
             })

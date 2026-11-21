@@ -18,7 +18,7 @@ const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
 const OPAQUE_PERCENT: u8 = 100;
 const SECONDS_PER_DAY: u64 = 86_400;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct StepBody<'a> {
     pub name: &'a str,
     pub solid: &'a Solid,
@@ -29,7 +29,7 @@ pub struct StepBody<'a> {
     pub faces: &'a [FaceLook],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StepThread<'a> {
     pub designation: &'a str,
     pub start: Point3,
@@ -37,7 +37,7 @@ pub struct StepThread<'a> {
     pub length: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Style {
     colour: Option<[u8; 3]>,
     opacity: Option<u8>,
@@ -73,7 +73,7 @@ pub fn lump_faces(solid: &Solid) -> Option<Vec<Vec<usize>>> {
     shape::lump_faces(solid).ok()
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StepDetails<'a> {
     pub title: &'a str,
     pub part_number: &'a str,
@@ -83,7 +83,7 @@ pub struct StepDetails<'a> {
     pub organisation: &'a str,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum WriteError {
     #[error("there are no bodies to write")]
     Empty,
@@ -93,7 +93,7 @@ pub enum WriteError {
     Shells(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Ref(usize);
 
 impl fmt::Display for Ref {
@@ -126,6 +126,7 @@ impl Data {
 
     pub fn add(&mut self, entity: impl fmt::Display) -> Ref {
         self.entities += 1;
+
         let _ = writeln!(self.text, "#{}={entity};", self.entities);
         Ref(self.entities)
     }
@@ -150,11 +151,14 @@ impl Data {
 
     pub fn point(&mut self, point: Point3) -> Ref {
         let key = coordinate_key([point.x, point.y, point.z]);
+
         if let Some(existing) = self.points.get(&key) {
             return *existing;
         }
+
         let coordinates = self.reals([point.x, point.y, point.z]);
         let written = self.add(format!("CARTESIAN_POINT('',{coordinates})"));
+
         self.points.insert(key, written);
         written
     }
@@ -162,11 +166,14 @@ impl Data {
     pub fn direction(&mut self, direction: Vector3) -> Ref {
         let unit = direction.normalize_or_zero();
         let key = coordinate_key([unit.x, unit.y, unit.z]);
+
         if let Some(existing) = self.directions.get(&key) {
             return *existing;
         }
+
         let coordinates = self.reals([unit.x, unit.y, unit.z]);
         let written = self.add(format!("DIRECTION('',{coordinates})"));
+
         self.directions.insert(key, written);
         written
     }
@@ -177,13 +184,16 @@ impl Data {
             self.direction(axis),
             self.direction(reference),
         ];
+
         if let Some(existing) = self.placements.get(&parts) {
             return *existing;
         }
+
         let [origin, axis, reference] = parts;
         let written = self.add(format!(
             "AXIS2_PLACEMENT_3D('',{origin},{axis},{reference})"
         ));
+
         self.placements.insert(parts, written);
         written
     }
@@ -198,7 +208,9 @@ impl Data {
     fn roll_back(&mut self, Checkpoint { entities, length }: Checkpoint) {
         self.text.truncate(length);
         self.entities = entities;
+
         let checkpoint = entities;
+
         self.unwritable = false;
         self.points.retain(|_, written| written.0 <= checkpoint);
         self.directions.retain(|_, written| written.0 <= checkpoint);
@@ -210,7 +222,7 @@ impl Data {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Checkpoint {
     entities: usize,
     length: usize,
@@ -234,6 +246,7 @@ pub(crate) fn real(value: f64) -> String {
 
 pub(crate) fn text(value: &str) -> String {
     let mut quoted = String::from("'");
+
     for character in value.chars() {
         match character {
             '\'' => quoted.push_str("''"),
@@ -258,7 +271,7 @@ pub(crate) fn logical(value: bool) -> &'static str {
     if value { ".T." } else { ".F." }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepWritten {
     pub text: String,
     pub left_out: Vec<(usize, WriteError)>,
@@ -294,12 +307,16 @@ pub fn write_step_detailed(
     if bodies.is_empty() {
         return Err(WriteError::Empty);
     }
+
     let mut data = Data::after(header(model_name, details, written));
+
     let application =
         data.add("APPLICATION_CONTEXT('core data for automotive mechanical design processes')");
+
     data.add(format!(
         "APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,{application})"
     ));
+
     let contexts = Contexts {
         product: data.add(format!("PRODUCT_CONTEXT('',{application},'mechanical')")),
         definition: data.add(format!(
@@ -317,6 +334,7 @@ pub fn write_step_detailed(
     } else {
         details.part_number
     };
+
     let root = product(
         &mut data,
         &contexts,
@@ -337,6 +355,7 @@ pub fn write_step_detailed(
     let mut styled = Vec::new();
     let mut layered: BTreeMap<&str, Vec<Ref>> = BTreeMap::new();
     let mut threaded: Vec<(Ref, &StepThread<'_>)> = Vec::new();
+
     for (index, body) in bodies.iter().enumerate() {
         let checkpoint = shapes.data().checkpoint();
         let solids = shapes.body(body.solid, body.name);
@@ -358,16 +377,19 @@ pub fn write_step_detailed(
                         .or_default()
                         .extend(solids.iter().copied());
                 }
+
                 let definition = if assembly {
                     let id = ids.unique(body.name);
                     let part = part(shapes.data(), &contexts, (&id, body.name), origin, &solids);
                     let definition = part.product.definition;
+
                     parts.push(part);
                     definition
                 } else {
                     items.extend(solids);
                     root.definition
                 };
+
                 threaded.extend(body.threads.iter().map(|thread| (definition, thread)));
             }
             Err(error) => {
@@ -379,12 +401,15 @@ pub fn write_step_detailed(
     if left_out.len() == bodies.len() {
         return Err(left_out.remove(0).1);
     }
+
     let context = contexts.representation.context;
+
     if assembly {
         let representation = data.add(format!(
             "SHAPE_REPRESENTATION('',{},{context})",
             list(std::iter::repeat_n(origin, parts.len() + 1))
         ));
+
         data.add(format!(
             "SHAPE_DEFINITION_REPRESENTATION({},{representation})",
             root.shape
@@ -397,6 +422,7 @@ pub fn write_step_detailed(
             "ADVANCED_BREP_SHAPE_REPRESENTATION('',{},{context})",
             list(items)
         ));
+
         data.add(format!(
             "SHAPE_DEFINITION_REPRESENTATION({},{representation})",
             root.shape
@@ -419,7 +445,7 @@ struct Contexts {
     representation: RepresentationContext,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct RepresentationContext {
     context: Ref,
     length: Ref,
@@ -451,9 +477,11 @@ fn product(data: &mut Data, contexts: &Contexts, product: &ProductText<'_>) -> P
         text(product.name),
         text(product.description)
     ));
+
     data.add(format!(
         "PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,({entity}))"
     ));
+
     let formation = data.add(format!(
         "PRODUCT_DEFINITION_FORMATION({},'',{entity})",
         text(product.revision)
@@ -481,6 +509,7 @@ impl ProductIds {
             })
             .find(|id| !self.0.contains(id))
             .unwrap_or_else(|| name.to_owned());
+
         self.0.insert(id.clone());
         id
     }
@@ -509,6 +538,7 @@ fn part(
         list(std::iter::once(origin).chain(solids.iter().copied())),
         contexts.representation.context
     ));
+
     data.add(format!(
         "SHAPE_DEFINITION_REPRESENTATION({},{representation})",
         product.shape
@@ -545,6 +575,7 @@ fn place_part(
         "(REPRESENTATION_RELATIONSHIP('','',{},{parent}) REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION({transformation}) SHAPE_REPRESENTATION_RELATIONSHIP())",
         part.representation
     ));
+
     data.add(format!(
         "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION({relationship},{placement_shape})"
     ));
@@ -554,8 +585,10 @@ fn face_styles(shapes: &Shapes<'_>, body: &StepBody<'_>, style: Style) -> Vec<(R
     if body.faces.is_empty() {
         return Vec::new();
     }
+
     let ids: Vec<FaceId> = body.solid.faces().map(|(id, _)| id).collect();
     let mut looks: BTreeMap<usize, &FaceLook> = BTreeMap::new();
+
     for look in body.faces {
         looks.insert(look.face, look);
     }
@@ -573,12 +606,15 @@ fn styles(data: &mut Data, items: &[(Ref, Style)], context: Ref) {
     if items.is_empty() {
         return;
     }
+
     let mut assignments = BTreeMap::new();
     let mut styled = Vec::new();
+
     for (solid, style) in items {
         let assignment = *assignments
             .entry(*style)
             .or_insert_with(|| style_assignment(data, *style));
+
         styled.push(data.add(format!("STYLED_ITEM('color',({assignment}),{solid})")));
     }
     data.add(format!(
@@ -625,6 +661,7 @@ fn thread_property(
         "REPRESENTATION('thread',({designation},{start},{measured}),{})",
         context.context
     ));
+
     data.add(format!(
         "PROPERTY_DEFINITION_REPRESENTATION({property},{representation})"
     ));
@@ -634,7 +671,9 @@ fn style_assignment(data: &mut Data, Style { colour, opacity }: Style) -> Ref {
     if colour.is_none() && opacity.is_none() {
         return data.add("PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)))");
     }
+
     let mut elements = Vec::new();
+
     let rgb = match colour {
         Some([red, green, blue]) => {
             let channel = |value: u8| real(f64::from(value) / 255.0);
@@ -646,20 +685,24 @@ fn style_assignment(data: &mut Data, Style { colour, opacity }: Style) -> Ref {
             ));
             let fill_colour = data.add(format!("FILL_AREA_STYLE_COLOUR('',{rgb})"));
             let fill = data.add(format!("FILL_AREA_STYLE('',({fill_colour}))"));
+
             elements.push(data.add(format!("SURFACE_STYLE_FILL_AREA({fill})")));
             rgb.to_string()
         }
         None => "$".to_owned(),
     };
+
     if let Some(opacity) = opacity {
         let transparency = data.add(format!(
             "SURFACE_STYLE_TRANSPARENT({})",
             real(f64::from(OPAQUE_PERCENT - opacity) / 100.0)
         ));
+
         elements.push(data.add(format!(
             "SURFACE_STYLE_RENDERING_WITH_PROPERTIES(.NORMAL_SHADING.,{rgb},({transparency}))"
         )));
     }
+
     let side = data.add(format!(
         "SURFACE_SIDE_STYLE('',{})",
         list(elements.iter().copied())
@@ -689,6 +732,7 @@ fn header(model_name: &str, details: &StepDetails<'_>, written: SystemTime) -> S
         details.description
     };
     let mut out = String::new();
+
     out.push_str("ISO-10303-21;\nHEADER;\n");
     out.push_str(&format!(
         "FILE_DESCRIPTION(({}),'2;1');\n",
@@ -731,8 +775,10 @@ fn civil_date(days: i64) -> (i64, i64, i64) {
     let day_of_era = shifted.rem_euclid(146_097);
     let year_of_era =
         (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_index = (5 * day_of_year + 2) / 153;
+
     let day = day_of_year - (153 * month_index + 2) / 5 + 1;
     let month = if month_index < 10 {
         month_index + 3

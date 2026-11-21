@@ -20,19 +20,19 @@ use crate::{
 
 const SAMPLES_PER_EDGE: usize = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bounds {
     Cavity,
     Material,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Enclosure {
     pub solid: Solid,
     pub bounds: Bounds,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum EnclosureError {
     #[error("no face is chosen")]
     NoFaces,
@@ -66,20 +66,20 @@ impl EnclosureError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Support {
     Flat(Plane),
     Curved { surface: Surface, sense: Sense },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Opening {
     coedges: Vec<(EdgeId, Sense)>,
     support: Support,
     points: Vec<Point3>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Cap {
     surface: Surface,
     sense: Sense,
@@ -94,12 +94,14 @@ pub fn enclose_faces(
     feature: u64,
 ) -> Result<Enclosure, EnclosureError> {
     let chosen: BTreeSet<FaceId> = faces.iter().copied().collect();
+
     if chosen.is_empty() {
         return Err(EnclosureError::NoFaces);
     }
     if let Some(unknown) = chosen.iter().find(|face| solid.face(**face).is_none()) {
         return Err(EnclosureError::UnknownFace(*unknown));
     }
+
     let open = open_coedges(solid, &chosen);
     let openings = chained(solid, &open)?
         .into_iter()
@@ -107,11 +109,13 @@ pub fn enclose_faces(
         .collect::<Result<Vec<_>, _>>()?;
     let caps = caps(solid, &chosen, openings, feature)?;
     let outward = assemble(solid, &chosen, &caps, Sense::Same)?;
+
     if outward
         .inside_out()
         .map_err(|error| EnclosureError::built(BuildError::Invalid(error.into())))?
     {
         let inward = assemble(solid, &chosen, &caps, Sense::Reversed)?;
+
         return Ok(Enclosure {
             solid: inward.build().map_err(EnclosureError::built)?,
             bounds: Bounds::Cavity,
@@ -155,35 +159,45 @@ fn open_coedges(solid: &Solid, chosen: &BTreeSet<FaceId>) -> Vec<CoedgeId> {
 
 fn chained(solid: &Solid, open: &[CoedgeId]) -> Result<Vec<Vec<CoedgeId>>, EnclosureError> {
     let mut starting: BTreeMap<VertexId, Vec<CoedgeId>> = BTreeMap::new();
+
     for coedge in open {
         if let Some((start, _)) = solid.coedge_vertices(*coedge) {
             starting.entry(start).or_default().push(*coedge);
         }
     }
+
     let edges_of = |coedges: &[CoedgeId]| -> Vec<EdgeId> {
         coedges
             .iter()
             .filter_map(|coedge| solid.coedge(*coedge).map(|data| data.edge()))
             .collect()
     };
+
     if let Some(crowded) = starting.values().find(|coedges| coedges.len() > 1) {
         return Err(EnclosureError::OpenBoundary {
             edges: edges_of(crowded),
         });
     }
+
     let mut used = BTreeSet::new();
     let mut chains = Vec::new();
+
     for first in open {
         if used.contains(first) {
             continue;
         }
+
         let Some((start, mut at)) = solid.coedge_vertices(*first) else {
             continue;
         };
+
         used.insert(*first);
+
         let mut chain = vec![*first];
+
         while at != start {
             interrupt::check()?;
+
             let next = starting
                 .get(&at)
                 .and_then(|coedges| coedges.first())
@@ -194,6 +208,7 @@ fn chained(solid: &Solid, open: &[CoedgeId]) -> Result<Vec<Vec<CoedgeId>>, Enclo
                     edges: edges_of(&chain),
                 });
             };
+
             used.insert(next);
             chain.push(next);
             at = solid.coedge_vertices(next).map_or(start, |(_, end)| end);
@@ -224,6 +239,7 @@ fn opening(
         .iter()
         .filter_map(|face| solid.face(*face))
         .collect();
+
     let flat = neighbour_faces
         .iter()
         .filter_map(|face| match face.surface() {
@@ -231,6 +247,7 @@ fn opening(
             _ => None,
         })
         .find(|plane| holds(plane, &points));
+
     if let Some(plane) = flat {
         return Ok(Opening {
             coedges,
@@ -238,9 +255,11 @@ fn opening(
             points,
         });
     }
+
     let curved = neighbour_faces.iter().find(|face| {
         !matches!(face.surface(), Surface::Plane(_)) && lies_on(face.surface(), &points)
     });
+
     if let Some(face) = curved {
         return match face.surface() {
             Surface::Cylinder(_) | Surface::Cone(_) | Surface::Sphere(_) | Surface::Torus(_) => {
@@ -256,6 +275,7 @@ fn opening(
             _ => Err(EnclosureError::NotElementary { edges }),
         };
     }
+
     let plane = fitted_plane(&points)
         .filter(|plane| holds(plane, &points))
         .ok_or(EnclosureError::NotFlat { edges })?;
@@ -276,6 +296,7 @@ fn neighbour_face(solid: &Solid, chosen: &BTreeSet<FaceId>, coedge: CoedgeId) ->
 
 fn loop_points(solid: &Solid, coedges: &[(EdgeId, Sense)]) -> Vec<Point3> {
     let mut points = Vec::with_capacity(coedges.len() * SAMPLES_PER_EDGE);
+
     for (edge, sense) in coedges {
         let Some(edge) = solid.edge(*edge) else {
             continue;
@@ -287,6 +308,7 @@ fn loop_points(solid: &Solid, coedges: &[(EdgeId, Sense)]) -> Vec<Point3> {
         };
         for step in 0..SAMPLES_PER_EDGE {
             let fraction = step as f64 / SAMPLES_PER_EDGE as f64;
+
             points.push(edge.curve().point(from + (to - from) * fraction));
         }
     }
@@ -322,6 +344,7 @@ fn lies_on(surface: &Surface, points: &[Point3]) -> bool {
     !points.is_empty()
         && points.iter().all(|point| {
             let uv = surface.project(*point, hint);
+
             hint = Some(uv);
             surface.point_at(uv).distance(*point) <= LINEAR_RESOLUTION
         })
@@ -334,6 +357,7 @@ fn caps(
     feature: u64,
 ) -> Result<Vec<Cap>, EnclosureError> {
     let mut groups: Vec<Vec<Opening>> = Vec::new();
+
     for opening in openings {
         match groups.iter_mut().find(|group| {
             group
@@ -344,7 +368,9 @@ fn caps(
             None => groups.push(vec![opening]),
         }
     }
+
     let mut caps = Vec::new();
+
     for group in groups {
         caps.extend(group_caps(solid, chosen, group, feature)?);
     }
@@ -391,6 +417,7 @@ impl Outline {
 fn uv_outlines(surface: &Surface, group: Vec<Opening>) -> Result<Vec<Outline>, EnclosureError> {
     let mut reference: Option<Point2> = None;
     let mut outlines = Vec::with_capacity(group.len());
+
     for opening in group {
         let unwrapped =
             uv_polygon(surface, &opening.points).ok_or_else(|| EnclosureError::AroundSurface {
@@ -399,11 +426,13 @@ fn uv_outlines(surface: &Surface, group: Vec<Opening>) -> Result<Vec<Outline>, E
         let centre = unwrapped.iter().fold(Point2::ZERO, |sum, uv| sum + *uv)
             / unwrapped.len().max(1) as f64;
         let target = *reference.get_or_insert(centre);
+
         let shift = Vector2::new(
             period_shift(surface.u_period(), centre.x, target.x),
             period_shift(surface.v_period(), centre.y, target.y),
         );
         let polygon = unwrapped.into_iter().map(|uv| uv + shift).collect();
+
         outlines.push(Outline::new(opening, polygon));
     }
     Ok(outlines)
@@ -411,10 +440,12 @@ fn uv_outlines(surface: &Surface, group: Vec<Opening>) -> Result<Vec<Outline>, E
 
 fn uv_polygon(surface: &Surface, points: &[Point3]) -> Option<Vec<Point2>> {
     let mut hint = None;
+
     let polygon: Vec<Point2> = points
         .iter()
         .map(|point| {
             let uv = surface.project(*point, hint);
+
             hint = Some(uv);
             uv
         })
@@ -436,6 +467,7 @@ fn period_shift(period: Option<f64>, value: f64, target: f64) -> f64 {
 fn nest(outlines: &[Outline]) -> Result<Vec<(f64, Vec<usize>)>, EnclosureError> {
     let mut placed: Vec<(usize, Option<usize>)> = Vec::new();
     let mut faces: Vec<(f64, Vec<usize>)> = Vec::new();
+
     for (index, outline) in outlines.iter().enumerate() {
         let probe = outline.polygon.first().copied().unwrap_or_default();
         let containers: Vec<usize> = placed
@@ -448,6 +480,7 @@ fn nest(outlines: &[Outline]) -> Result<Vec<(f64, Vec<usize>)>, EnclosureError> 
             })
             .collect();
         let innermost = containers.last().copied();
+
         let owner = if containers.len() % 2 == 1 {
             innermost.and_then(|container| {
                 placed
@@ -463,6 +496,7 @@ fn nest(outlines: &[Outline]) -> Result<Vec<(f64, Vec<usize>)>, EnclosureError> 
                 let Some((sign, members)) = faces.get_mut(face) else {
                     continue;
                 };
+
                 if outline.area * *sign >= 0.0 {
                     return Err(EnclosureError::Openings {
                         edges: outline.edges(),
@@ -503,9 +537,12 @@ fn group_caps(
             .collect(),
         Support::Curved { surface, .. } => uv_outlines(surface, group)?,
     };
+
     outlines.sort_by(|a, b| b.area.abs().total_cmp(&a.area.abs()));
+
     let faces = nest(&outlines)?;
     let mut caps = Vec::with_capacity(faces.len());
+
     for (sign, members) in faces {
         let members: Vec<&Outline> = members
             .iter()
@@ -521,6 +558,7 @@ fn group_caps(
             }
             Support::Curved { surface, sense } => {
                 let closing = sense.reversed();
+
                 if (sign > 0.0) != closing.is_same() {
                     return Err(EnclosureError::Openings {
                         edges: members.iter().flat_map(|outline| outline.edges()).collect(),
@@ -550,6 +588,7 @@ fn group_caps(
             })
             .and_then(|face| solid.face(face))
             .and_then(|face| face.origin());
+
         caps.push(Cap {
             surface,
             sense,
@@ -568,14 +607,17 @@ fn assemble(
     sense: Sense,
 ) -> Result<SolidBuilder, EnclosureError> {
     let mut builder = SolidBuilder::new();
+
     let shell = builder.shell().map_err(EnclosureError::built)?;
     let mut vertices: BTreeMap<VertexId, VertexId> = BTreeMap::new();
     let mut edges: BTreeMap<EdgeId, EdgeId> = BTreeMap::new();
     let used_edges: BTreeSet<EdgeId> = chosen_coedges(solid, chosen)
         .filter_map(|coedge| solid.coedge(coedge).map(|data| data.edge()))
         .collect();
+
     for edge_id in used_edges {
         interrupt::check()?;
+
         let Some(edge) = solid.edge(edge_id) else {
             continue;
         };
@@ -583,19 +625,24 @@ fn assemble(
             if let Some(known) = vertices.get(&vertex) {
                 return Ok(*known);
             }
+
             let point = solid
                 .vertex(vertex)
                 .map(|vertex| vertex.point())
                 .ok_or(EnclosureError::Build(BuildError::UnknownVertex(vertex)))?;
             let made = builder.vertex(point).map_err(EnclosureError::built)?;
+
             vertices.insert(vertex, made);
             Ok(made)
         };
+
         let start = copied(edge.start())?;
         let end = copied(edge.end())?;
+
         let made = builder
             .edge(edge.curve().clone(), edge.interval(), start, end)
             .map_err(EnclosureError::built)?;
+
         builder
             .set_edge_name(made, edge.name())
             .map_err(EnclosureError::built)?;
@@ -625,6 +672,7 @@ fn copy_face(
     let made = builder
         .face(shell, face.surface().clone(), face.sense().combined(sense))
         .map_err(EnclosureError::built)?;
+
     builder
         .set_face_name(made, face.name())
         .map_err(EnclosureError::built)?;
@@ -638,6 +686,7 @@ fn copy_face(
             continue;
         };
         let mut coedges = Vec::with_capacity(face_loop.coedges().len());
+
         for coedge in face_loop.coedges() {
             let Some(coedge) = solid.coedge(*coedge) else {
                 continue;
@@ -648,6 +697,7 @@ fn copy_face(
                 .ok_or(EnclosureError::Build(BuildError::UnknownEdge(
                     coedge.edge(),
                 )))?;
+
             coedges.push(match sense {
                 Sense::Same => (edge, coedge.sense(), coedge.pcurve().clone()),
                 Sense::Reversed => (edge, coedge.sense().reversed(), coedge.pcurve().reversed()),
@@ -656,6 +706,7 @@ fn copy_face(
         if sense == Sense::Reversed {
             coedges.reverse();
         }
+
         let count = coedges.len();
         let made_loop = builder
             .add_loop_with_pcurves(made, coedges)
@@ -676,6 +727,7 @@ fn add_cap(
     let made = builder
         .face(shell, cap.surface.clone(), cap.sense.combined(sense))
         .map_err(EnclosureError::built)?;
+
     builder
         .set_face_name(made, cap.name)
         .map_err(EnclosureError::built)?;
@@ -698,6 +750,7 @@ fn add_cap(
                 })
             })
             .collect::<Result<Vec<_>, EnclosureError>>()?;
+
         if sense == Sense::Reversed {
             coedges.reverse();
         }

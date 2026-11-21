@@ -90,9 +90,11 @@ fn met(case: &Touching) -> SurfaceIntersection {
 
 fn assert_one_touch(name: &str, result: &SurfaceIntersection, expected: Point3) {
     assert!(result.branches().is_empty(), "{name}: {result:?}");
+
     let [point] = result.points() else {
         panic!("{name}: {result:?}");
     };
+
     assert!(point.tangent, "{name}");
     assert!(
         point.point.distance(expected) <= 1e-9,
@@ -128,10 +130,13 @@ fn surfaces_overlapping_beyond_the_resolution_still_meet_in_a_loop() {
         let result = met(&case);
 
         check_all(&result, &case.first, &case.second);
+
         assert!(result.points().is_empty(), "{}: {result:?}", case.name);
+
         let [branch] = result.branches() else {
             panic!("{}: {result:?}", case.name);
         };
+
         assert!(branch.closed, "{}", case.name);
     }
 }

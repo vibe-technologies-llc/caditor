@@ -31,27 +31,27 @@ use crate::{
     units::LengthUnit,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SketchPath {
     pub sketch: Named,
     pub curves: Vec<EntityName>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EdgePath {
     pub body: Named,
     pub edges: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HelixPath {
     pub helix: Named,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum PathChoice {
     Curves(SketchPath),
@@ -59,14 +59,14 @@ pub enum PathChoice {
     Helix(HelixPath),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OrientationName {
     Square,
     Parallel,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sweeping {
     pub sketch: Option<Named>,
@@ -80,7 +80,7 @@ pub struct Sweeping {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ShapeRowAsked {
     pub fraction: Amount,
@@ -88,7 +88,7 @@ pub struct ShapeRowAsked {
     pub scale: Amount,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PipeShapeName {
     Round,
@@ -96,7 +96,7 @@ pub enum PipeShapeName {
     Triangle,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Piping {
     pub path: Option<PathChoice>,
@@ -110,35 +110,35 @@ pub struct Piping {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkinName {
     Smooth,
     Ruled,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileRegion {
     pub sketch: Named,
     pub inside: [f64; 2],
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum ProfileAsk {
     Whole(Named),
     Region(ProfileRegion),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum LoftEnd {
     Off(OffName),
     Point(PointChoice),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Lofting {
     pub profiles: Option<Vec<ProfileAsk>>,
@@ -152,14 +152,14 @@ pub struct Lofting {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CoilShapeName {
     Round,
     Square,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlacementName {
     Inside,
@@ -167,7 +167,7 @@ pub enum PlacementName {
     Outside,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Coiling {
     pub axis: Option<AxisChoice>,
@@ -186,7 +186,7 @@ pub struct Coiling {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RibSideName {
     Symmetric,
@@ -194,21 +194,21 @@ pub enum RibSideName {
     OtherSide,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RibDirectionName {
     Parallel,
     Square,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RibEndsName {
     Straight,
     RoundArcs,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ribbing {
     pub sketch: Option<Named>,
@@ -222,7 +222,7 @@ pub struct Ribbing {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 pub enum FamilyName {
     #[serde(rename = "metric_coarse")]
     MetricCoarse,
@@ -248,7 +248,7 @@ impl FamilyName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Threading {
     pub body: Option<Named>,
@@ -264,7 +264,7 @@ pub struct Threading {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SweepToolError {
     #[error("a shape_table takes at most {MAX_SHAPE_ROWS} rows, not {rows}")]
     ShapeTableLong { rows: usize },
@@ -309,12 +309,16 @@ pub(super) fn path(session: &Session, choice: &PathChoice) -> Result<SweepPath, 
     match choice {
         PathChoice::Curves(asked) => {
             let (feature, sketch) = references::sketch(document, &asked.sketch)?;
+
             if asked.curves.is_empty() {
                 return Err(SweepToolError::NoPathCurves.into());
             }
+
             let mut curves = Vec::with_capacity(asked.curves.len());
+
             for named in &asked.curves {
                 let curve = references::entity(&feature.name, sketch, named)?;
+
                 if !sweep_tools::is_path_curve(document, feature.id(), curve) {
                     return Err(SweepToolError::NotAPathCurve {
                         sketch: feature.name.clone(),
@@ -333,6 +337,7 @@ pub(super) fn path(session: &Session, choice: &PathChoice) -> Result<SweepPath, 
             if asked.edges.is_empty() {
                 return Err(SweepToolError::NoPathEdges.into());
             }
+
             let body = references::body(document, session.evaluation(), &asked.body)?;
             Ok(SweepPath::Edges {
                 body,
@@ -341,6 +346,7 @@ pub(super) fn path(session: &Session, choice: &PathChoice) -> Result<SweepPath, 
         }
         PathChoice::Helix(asked) => {
             let feature = references::feature(document, &asked.helix)?;
+
             if !matches!(feature.kind, FeatureKind::Helix(_)) {
                 return Err(SweepToolError::NotAHelix {
                     name: feature.name.clone(),
@@ -372,6 +378,7 @@ fn shape_rows(
     let Some(asked) = asked else {
         return Ok(None);
     };
+
     if asked.len() > MAX_SHAPE_ROWS {
         return Err(SweepToolError::ShapeTableLong { rows: asked.len() }.into());
     }
@@ -413,7 +420,9 @@ pub fn sweep_built(
         amount(session, "scale", scale, Dimension::NONE, true)
     })?;
     let law = shape_rows(session, asked.shape_table.as_deref())?;
+
     session.evaluate(work)?;
+
     let values = session.parameters();
     let document = session.document();
     let evaluation = session.evaluation();
@@ -423,6 +432,7 @@ pub fn sweep_built(
         base.map(|base| base.sketch),
     )?;
     let path = kept_path(session, asked.path.as_ref(), base.map(|base| &base.path))?;
+
     let mut sweep = match base {
         Some(base) => Sweep {
             sketch,
@@ -436,6 +446,7 @@ pub fn sweep_built(
         },
         None => Sweep::new(sketch, path),
     };
+
     if let Some(orientation) = asked.orientation {
         sweep.orientation = match orientation {
             OrientationName::Square => SweepOrientation::Square,
@@ -451,12 +462,14 @@ pub fn sweep_built(
     if let Some(law) = law {
         sweep.shape_law = law;
     }
+
     let asked_operation = operation_asked(
         session,
         (asked.operation, asked.body.as_ref()),
         base.map(|base| base.operation),
     )?;
     let solid = SolidFeature::Sweep(sweep);
+
     let operation = asked_operation.unwrap_or_else(|| {
         solid_tools::default_operation(
             document,
@@ -495,13 +508,16 @@ pub fn pipe_built(
     let bend = parsed(session, asked.bend.as_ref(), |session, bend| {
         length(session, "bend", bend)
     })?;
+
     if wall.is_some() && asked.hollow == Some(false) {
         return Err(SweepToolError::WallAndSolid.into());
     }
     session.evaluate(work)?;
+
     let unit = LengthUnit::Millimetre;
     let path = kept_path(session, asked.path.as_ref(), base.map(|base| &base.path))?;
     let path_body = path.body();
+
     let mut pipe = match base {
         Some(base) => Pipe {
             path,
@@ -513,6 +529,7 @@ pub fn pipe_built(
             unit.default_length(pipe_tools::DEFAULT_BEND),
         ),
     };
+
     if let Some(shape) = asked.shape {
         pipe.shape = match shape {
             PipeShapeName::Round => PipeShape::Round,
@@ -540,6 +557,7 @@ pub fn pipe_built(
         base.map(|base| base.operation),
     )?
     .unwrap_or_else(|| path_body.map_or(BodyOperation::NewBody, BodyOperation::Add));
+
     let document = session.document();
     let operation = pipe.operation;
     Ok(
@@ -566,12 +584,16 @@ pub fn loft_built(
     };
     let start_weight = weight(session, "start_weight", asked.start_weight.as_ref())?;
     let end_weight = weight(session, "end_weight", asked.end_weight.as_ref())?;
+
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
+
     if asked.closed == Some(true) && matches!(asked.end, Some(LoftEnd::Point(_))) {
         return Err(SweepToolError::EndAndClosed.into());
     }
+
     let end = match &asked.end {
         Some(LoftEnd::Off(_)) => None,
         Some(LoftEnd::Point(choice)) => Some(places::point(document, evaluation, choice)?),
@@ -580,12 +602,14 @@ pub fn loft_built(
     let profiles = match (&asked.profiles, base) {
         (Some(asked_profiles), _) => {
             let mut profiles = Vec::with_capacity(asked_profiles.len());
+
             for profile in asked_profiles {
                 let (named, inside) = match profile {
                     ProfileAsk::Whole(named) => (named, None),
                     ProfileAsk::Region(region) => (&region.sketch, Some(region.inside)),
                 };
                 let (feature, _) = references::sketch(document, named)?;
+
                 let region = match inside {
                     None => None,
                     Some(at) => {
@@ -593,12 +617,15 @@ pub fn loft_built(
                         Some(region_at(regions, &feature.name, at)?.reference())
                     }
                 };
+
                 profiles.push(LoftSection {
                     sketch: feature.id(),
                     region,
                 });
             }
+
             let least = if end.is_some() { 1 } else { 2 };
+
             if profiles.len() < least {
                 return Err(SweepToolError::TooFewProfiles.into());
             }
@@ -615,6 +642,7 @@ pub fn loft_built(
         },
         None => Loft::new(profiles),
     };
+
     if let Some(skin) = asked.skin {
         loft.skin = match skin {
             SkinName::Smooth => LoftSkin::Smooth,
@@ -632,7 +660,9 @@ pub fn loft_built(
         loft.closed = false;
         loft.square_end = None;
     }
+
     let squared = |weight: Expression| (!solid_panel::is_zero(&weight)).then_some(weight);
+
     if let Some(weight) = start_weight {
         loft.square_start = squared(weight);
     }
@@ -645,6 +675,7 @@ pub fn loft_built(
         base.map(|base| base.operation),
     )?
     .unwrap_or(BodyOperation::NewBody);
+
     let operation = loft.operation;
     let built = Built::new(FeatureKind::Loft(loft), loft_tools::TITLE, asked.name)
         .telling("operation", json!(operation_words(document, operation)));
@@ -663,6 +694,7 @@ pub(super) fn coil_length(
     if turns.is_some() && pitch.is_some() && height.is_some() {
         return Err(SweepToolError::ThreeCoilSizes.into());
     }
+
     let (kept_turns, kept_pitch, kept_height) = match kept {
         CoilLength::TurnsAndPitch { turns, pitch } => {
             (Some(turns.clone()), Some(pitch.clone()), None)
@@ -679,6 +711,7 @@ pub(super) fn coil_length(
     let mut turns = turns.or(kept_turns);
     let mut pitch = pitch.or(kept_pitch);
     let mut height = height.or(kept_height);
+
     if turns.is_some() && pitch.is_some() && height.is_some() {
         if !pitch_given {
             pitch = None;
@@ -720,7 +753,9 @@ pub fn coil_built(
     let taper = parsed(session, asked.taper.as_ref(), |session, taper| {
         turn(session, "taper", taper)
     })?;
+
     session.evaluate(work)?;
+
     let unit = LengthUnit::Millimetre;
     let mut coil = match base {
         Some(base) => base.clone(),
@@ -736,6 +771,7 @@ pub fn coil_built(
             )
         },
     };
+
     if let Some(choice) = &asked.axis {
         coil.axis = places::axis(session.document(), session.evaluation(), choice)?;
     }
@@ -778,6 +814,7 @@ pub fn coil_built(
         base.map(|base| base.operation),
     )?
     .unwrap_or(BodyOperation::NewBody);
+
     let operation = coil.operation;
     Ok(
         Built::new(FeatureKind::Coil(coil), coil_tools::TITLE, asked.name).telling(
@@ -804,7 +841,9 @@ pub fn rib_built(
     let draft = parsed(session, asked.draft.as_ref(), |session, draft| {
         turn(session, "draft", draft)
     })?;
+
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
     let (sketch, _, _) = sketch_of(
@@ -812,6 +851,7 @@ pub fn rib_built(
         asked.sketch.as_ref(),
         base.map(|base| base.sketch),
     )?;
+
     let attached = document
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
@@ -827,6 +867,7 @@ pub fn rib_built(
                 .ok_or(SweepToolError::NoBodyForRib)?
         }
     };
+
     let mut rib = match base {
         Some(base) => Rib {
             sketch,
@@ -846,6 +887,7 @@ pub fn rib_built(
             )
         },
     };
+
     if let Some(thickness) = thickness {
         rib.thickness = thickness;
     }
@@ -871,6 +913,7 @@ pub fn rib_built(
             RibEndsName::RoundArcs => RibEnds::RoundArcs,
         };
     }
+
     let rib = match (asked.reversed, base) {
         (Some(reversed), _) => Rib { reversed, ..rib },
         (None, Some(_)) => rib,
@@ -904,6 +947,7 @@ fn thread_face(
         body: body_label(document, body),
         face: key.to_owned(),
     };
+
     let reference = FaceReference::capture(&shown.solid, face).ok_or_else(not_round)?;
     let bore = Bore::of(&shown.solid, &[face]).map_err(|_| not_round())?;
     Ok(ThreadFace {
@@ -938,10 +982,13 @@ pub fn thread_built(
     if asked.length.is_some() && asked.full.is_some() {
         return Err(SweepToolError::LengthAndFull.into());
     }
+
     let depth = parsed(session, asked.length.as_ref(), |session, depth| {
         amount(session, "length", depth, Dimension::LENGTH, true)
     })?;
+
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let face = match (&asked.face, base) {
         (Some(key), _) => Some(thread_face(session, body, key)?),
@@ -959,6 +1006,7 @@ pub fn thread_built(
         .map(FamilyName::family)
         .or_else(|| base.map(|base| base.size.family()))
         .unwrap_or(ThreadFamily::MetricCoarse);
+
     let size = match (&asked.size, base) {
         (Some(id), _) => {
             ThreadSize::from_id(family, id.trim()).ok_or_else(|| SweepToolError::UnknownSize {
@@ -998,6 +1046,7 @@ pub fn thread_built(
         (None, Some(_), _) | (None, None, None) => ThreadLength::Full,
         (None, None, Some(base)) => base.length.clone(),
     };
+
     let thread = Thread {
         body,
         face: match (&face, base) {

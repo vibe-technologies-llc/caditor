@@ -46,16 +46,23 @@ fn the_title_bar_buttons_minimize_maximize_restore_and_close_the_window() {
     let mut harness = Harness::new();
 
     assert_eq!(rightmost_in_bar(&harness), icons::CLOSE);
+
     click_window_button(&mut harness, icons::MINIMIZE);
+
     assert!(asked_window(&harness, &ViewportCommand::Minimized(true)));
+
     click_window_button(&mut harness, icons::MAXIMIZE);
+
     assert!(asked_window(&harness, &ViewportCommand::Maximized(true)));
 
     harness.window.maximized = Some(true);
     harness.frame();
+
     assert!(in_bar(&harness, icons::RESTORE));
     assert!(!in_bar(&harness, icons::MAXIMIZE));
+
     click_window_button(&mut harness, icons::RESTORE);
+
     assert!(asked_window(&harness, &ViewportCommand::Maximized(false)));
 
     click_window_button(&mut harness, icons::CLOSE);
@@ -65,6 +72,7 @@ fn the_title_bar_buttons_minimize_maximize_restore_and_close_the_window() {
 #[test]
 fn the_window_buttons_are_wide_targets_a_control_tall_and_close_turns_red() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     for name in [
@@ -73,6 +81,7 @@ fn the_window_buttons_are_wide_targets_a_control_tall_and_close_turns_red() {
         window_frame::CLOSE,
     ] {
         let rect = harness.button_rect(name);
+
         assert_eq!(
             rect.size(),
             egui::vec2(40.0, appearance::CONTROL_HEIGHT),
@@ -80,22 +89,28 @@ fn the_window_buttons_are_wide_targets_a_control_tall_and_close_turns_red() {
         );
     }
     harness.hover_button(window_frame::CLOSE);
+
     let tokens = appearance::tokens_of(&harness.context);
+
     assert_eq!(harness.color_of(icons::CLOSE), tokens.text_on_accent);
 }
 
 #[test]
 fn the_top_right_corner_of_a_maximized_window_closes_it() {
     let mut harness = Harness::new();
+
     harness.window.maximized = Some(true);
     harness.frame();
+
     let close = harness.button_rect(window_frame::CLOSE);
     let corner = Pos2::new(SCREEN.max.x - 0.5, SCREEN.min.y + 0.5);
 
     harness.events.push(Event::PointerMoved(corner));
     harness.frame();
+
     let tokens = appearance::tokens_of(&harness.context);
     let highlighted = harness.color_of(icons::CLOSE) == tokens.text_on_accent;
+
     harness.click_screen(corner);
 
     assert!(
@@ -103,23 +118,27 @@ fn the_top_right_corner_of_a_maximized_window_closes_it() {
         "{close:?}"
     );
     assert!(highlighted);
+
     harness.wait_until("caditor quits", |harness| harness.files.should_quit());
 }
 
 #[test]
 fn dragging_the_title_bar_moves_the_window_and_double_clicking_it_maximizes() {
     let mut harness = Harness::new();
+
     let spot = empty_bar_spot(&harness);
 
     harness.click_screen(spot);
     harness.press(spot);
     harness.frame();
+
     assert!(asked_window(&harness, &ViewportCommand::Maximized(true)));
     assert!(!asked_window(&harness, &ViewportCommand::StartDrag));
 
     harness.window_commands.clear();
     harness.let_animations_finish();
     drag_screen(&mut harness, spot, spot + egui::vec2(80.0, 0.0));
+
     assert!(asked_window(&harness, &ViewportCommand::StartDrag));
     assert!(harness.workspace.viewport.selection().is_empty());
 }
@@ -127,6 +146,7 @@ fn dragging_the_title_bar_moves_the_window_and_double_clicking_it_maximizes() {
 #[test]
 fn the_window_menu_switches_to_the_system_title_bar_and_back() {
     let mut harness = Harness::new();
+
     let spot = empty_bar_spot(&harness);
 
     harness.events.push(Event::PointerMoved(spot));
@@ -141,8 +161,11 @@ fn the_window_menu_switches_to_the_system_title_bar_and_back() {
         harness.frame();
     }
     harness.show_new_windows();
+
     assert!(harness.shows(window_frame::MINIMIZE));
+
     harness.click(window_frame::SYSTEM_TITLE_BAR);
+
     assert_eq!(harness.workspace.preferences.title_bar, TitleBar::System);
     assert!(asked_window(&harness, &ViewportCommand::Decorations(true)));
     assert!(!in_bar(&harness, icons::CLOSE));
@@ -151,6 +174,7 @@ fn the_window_menu_switches_to_the_system_title_bar_and_back() {
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::TitleBar(TitleBar::BuiltIn),
     )));
+
     assert!(asked_window(&harness, &ViewportCommand::Decorations(false)));
     assert_eq!(rightmost_in_bar(&harness), icons::CLOSE);
 }
@@ -161,21 +185,27 @@ fn full_screen_toggles_from_the_keyboard_and_its_button_leaves_it() {
 
     harness.key(Key::F11, Modifiers::NONE);
     harness.frame();
+
     assert!(asked_window(&harness, &ViewportCommand::Fullscreen(true)));
 
     harness.window.fullscreen = Some(true);
     harness.window_commands.clear();
     harness.frame();
+
     assert!(!in_bar(&harness, icons::MAXIMIZE));
     assert!(!in_bar(&harness, icons::MINIMIZE));
+
     let maximize = harness
         .workspace
         .last_offers
         .iter()
         .find(|offer| offer.command == Command::MaximizeWindow)
         .unwrap();
+
     assert!(maximize.availability.is_err());
+
     click_window_button(&mut harness, icons::LEAVE_FULL_SCREEN);
+
     assert!(asked_window(&harness, &ViewportCommand::Fullscreen(false)));
 }
 
@@ -187,6 +217,7 @@ fn the_window_border_resizes_the_window_unless_it_is_maximized() {
 
     harness.click_screen(right);
     harness.click_screen(corner);
+
     assert!(asked_window(
         &harness,
         &ViewportCommand::BeginResize(ResizeDirection::East)
@@ -200,6 +231,7 @@ fn the_window_border_resizes_the_window_unless_it_is_maximized() {
     harness.window_commands.clear();
     harness.frame();
     harness.click_screen(right);
+
     assert!(
         !harness
             .window_commands
@@ -213,11 +245,17 @@ fn the_window_buttons_and_title_bar_still_work_while_a_dialog_is_open() {
     let mut harness = Harness::new();
 
     harness.perform(Action::Preferences(PreferencesCommand::Show));
+
     assert!(harness.workspace.preferences_open);
+
     click_window_button(&mut harness, icons::MAXIMIZE);
+
     assert!(asked_window(&harness, &ViewportCommand::Maximized(true)));
+
     let spot = empty_bar_spot(&harness);
+
     drag_screen(&mut harness, spot, spot + egui::vec2(80.0, 0.0));
+
     assert!(asked_window(&harness, &ViewportCommand::StartDrag));
     assert!(harness.workspace.preferences_open);
 }
@@ -229,27 +267,35 @@ fn the_model_title_shows_the_edited_sketch_and_saves_from_its_details() {
 
     harness.edit_width("45 mm");
     harness.frame();
+
     assert!(in_bar(&harness, "Untitled"));
     assert!(in_bar(&harness, "Unsaved"));
+
     harness.click("Untitled");
+
     assert!(harness.shows("Unsaved changes"));
     assert!(!harness.shows(menu_bar::COPY_PATH));
+
     harness.answer_dialog(Some(dir.path().join("plate")));
     harness.click(&Command::Save.title());
     harness.wait_until("the model is saved", |harness| {
         harness.model.path().is_some() && !harness.model.is_saving()
     });
+
     assert!(in_bar(&harness, "plate.caditor"));
     assert!(!in_bar(&harness, "Unsaved"));
 
     harness.click("plate.caditor");
+
     assert!(harness.shows("All changes saved"));
     assert!(harness.shows(menu_bar::COPY_PATH));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
     let feature = harness.draw_on_new_sketch();
     let name = harness.document().feature(feature).unwrap().name.clone();
+
     assert!(in_bar(&harness, &name));
 }
 
@@ -281,6 +327,7 @@ fn placed_window(harness: &mut Harness, outer: Rect, inner: Rect) {
 
 fn window_at_rest() -> Harness {
     let mut harness = Harness::new();
+
     placed_window(
         &mut harness,
         Rect::from_min_size(Pos2::new(100.0, 80.0), vec2(1000.0, 700.0)),
@@ -305,6 +352,7 @@ fn the_window_moves_and_resizes_by_steps_from_the_palette_and_the_keyboard() {
         .workspace
         .queue_command(Command::Window(WindowStep::MoveRight));
     harness.frame();
+
     assert!(asked_window(
         &harness,
         &ViewportCommand::OuterPosition(Pos2::new(100.0 + step, 80.0))
@@ -313,6 +361,7 @@ fn the_window_moves_and_resizes_by_steps_from_the_palette_and_the_keyboard() {
     harness.window_commands.clear();
     harness.key(Key::ArrowUp, Modifiers::ALT | Modifiers::SHIFT);
     harness.frame();
+
     assert!(asked_window(
         &harness,
         &ViewportCommand::OuterPosition(Pos2::new(100.0, 80.0 - step))
@@ -324,6 +373,7 @@ fn the_window_moves_and_resizes_by_steps_from_the_palette_and_the_keyboard() {
         Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT,
     );
     harness.frame();
+
     assert!(asked_window(
         &harness,
         &ViewportCommand::InnerSize(vec2(1000.0 + step, 670.0))
@@ -334,6 +384,7 @@ fn the_window_moves_and_resizes_by_steps_from_the_palette_and_the_keyboard() {
         .workspace
         .queue_command(Command::Window(WindowStep::Shorter));
     harness.frame();
+
     assert!(asked_window(
         &harness,
         &ViewportCommand::InnerSize(vec2(1000.0, 670.0 - step))
@@ -343,6 +394,7 @@ fn the_window_moves_and_resizes_by_steps_from_the_palette_and_the_keyboard() {
 #[test]
 fn the_window_stops_shrinking_at_its_least_size_and_growing_at_the_screen() {
     let mut harness = Harness::new();
+
     placed_window(
         &mut harness,
         Rect::from_min_size(Pos2::new(0.0, 0.0), vec2(500.0, 400.0)),
@@ -353,6 +405,7 @@ fn the_window_stops_shrinking_at_its_least_size_and_growing_at_the_screen() {
         .workspace
         .queue_command(Command::Window(WindowStep::Narrower));
     harness.frame();
+
     assert!(asked_window(
         &harness,
         &ViewportCommand::InnerSize(vec2(480.0, 370.0))
@@ -363,6 +416,7 @@ fn the_window_stops_shrinking_at_its_least_size_and_growing_at_the_screen() {
         Rect::from_min_size(Pos2::new(0.0, 0.0), vec2(500.0, 400.0)),
         Rect::from_min_size(Pos2::new(0.0, 30.0), vec2(480.0, 360.0)),
     );
+
     assert_eq!(
         refusal(&harness, Command::Window(WindowStep::Narrower)).as_deref(),
         Some(Unarrangeable::AsSmallAsItGets.to_string().as_str())
@@ -377,6 +431,7 @@ fn the_window_stops_shrinking_at_its_least_size_and_growing_at_the_screen() {
         Rect::from_min_size(Pos2::new(0.0, 0.0), vec2(1920.0, 1080.0)),
         Rect::from_min_size(Pos2::new(0.0, 30.0), vec2(1920.0, 1050.0)),
     );
+
     assert_eq!(
         refusal(&harness, Command::Window(WindowStep::Wider)).as_deref(),
         Some(Unarrangeable::AsLargeAsTheScreen.to_string().as_str())
@@ -386,6 +441,7 @@ fn the_window_stops_shrinking_at_its_least_size_and_growing_at_the_screen() {
 #[test]
 fn a_maximized_or_full_screen_window_is_not_moved_and_a_system_that_places_windows_says_so() {
     let mut harness = window_at_rest();
+
     harness.window.maximized = Some(true);
     harness.frame();
     for step in WindowStep::ALL {
@@ -398,21 +454,25 @@ fn a_maximized_or_full_screen_window_is_not_moved_and_a_system_that_places_windo
     harness.window.maximized = Some(false);
     harness.window.fullscreen = Some(true);
     harness.frame();
+
     assert!(refusal(&harness, Command::Window(WindowStep::MoveLeft)).is_some());
 
     harness.window.fullscreen = Some(false);
     harness.window.outer_rect = None;
     harness.window_commands.clear();
     harness.frame();
+
     assert_eq!(
         refusal(&harness, Command::Window(WindowStep::MoveLeft)).as_deref(),
         Some(Unarrangeable::PlacedBySystem.to_string().as_str())
     );
     assert!(refusal(&harness, Command::Window(WindowStep::Wider)).is_none());
+
     harness
         .workspace
         .queue_command(Command::Window(WindowStep::MoveLeft));
     harness.frame();
+
     assert!(
         !harness
             .window_commands

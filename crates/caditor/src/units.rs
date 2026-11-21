@@ -21,7 +21,7 @@ pub const MOST_DECIMALS: u8 = 6;
 const MODEL_LENGTH_STEP_IN_MILLIMETRES: f64 = 0.001;
 const MODEL_ANGLE_STEP_IN_DEGREES: f64 = 0.001;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LengthUnit {
     Micrometre,
     #[default]
@@ -99,15 +99,18 @@ impl LengthUnit {
     fn measured_power_expression(self, millimetres_to_the_power: f64, power: i8) -> Expression {
         let scale = self.millimetres().powi(i32::from(power));
         let step = MODEL_LENGTH_STEP_IN_MILLIMETRES.powi(i32::from(power)) / scale;
+
         let value = rounded_to_decimals(millimetres_to_the_power / scale, decimals_for(step));
         Expression::WithUnit(Box::new(Expression::number(value)), self.unit(), power)
     }
 
     pub fn default_length(self, millimetres: f64) -> Expression {
         let value = millimetres / self.millimetres();
+
         if self == Self::Millimetre || value == 0.0 || !value.is_finite() {
             return Expression::measure(value, self.unit());
         }
+
         let magnitude = 10f64.powf(value.abs().log10().floor());
         let rounded = (value / magnitude).round() * magnitude;
         Expression::measure(
@@ -121,7 +124,7 @@ impl LengthUnit {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AngleUnit {
     #[default]
     Degree,
@@ -173,7 +176,7 @@ fn decimals_for(step: f64) -> f64 {
     (-step.log10()).ceil().max(0.0)
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Decimals {
     #[default]
     Automatic,
@@ -189,14 +192,14 @@ impl Decimals {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TrailingZeros {
     #[default]
     Shown,
     Hidden,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NumberFormat {
     pub lengths: Decimals,
     pub angles: Decimals,
@@ -241,7 +244,7 @@ impl NumberFormat {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Units {
     pub length: LengthUnit,
     pub angle: AngleUnit,
@@ -268,25 +271,30 @@ impl From<LengthUnit> for Units {
 impl Units {
     pub fn show(self, quantity: Quantity) -> String {
         let dimension = quantity.dimension;
+
         if dimension == Dimension::ANGLE {
             return self.angle_value(quantity.value);
         }
+
         let power = dimension.length_power();
         let decimals = if dimension.angle_power() == 0 {
             self.numbers.lengths
         } else {
             self.numbers.angles
         };
+
         if self.length == LengthUnit::Millimetre || dimension.angle_power() != 0 || power == 0 {
             let number = match dimension {
                 Dimension::NONE => format_number(quantity.value),
                 _ => self.numbers.value(quantity.value, decimals),
             };
+
             return match dimension {
                 Dimension::NONE => number,
                 dimension => format!("{number} {}", dimension.unit_symbol()),
             };
         }
+
         let value = quantity.value / self.length.millimetres().powi(i32::from(power));
         let number = self.numbers.value(value, decimals);
         let symbol = self.length.symbol();
@@ -321,6 +329,7 @@ impl Units {
             .round()
             .max(0.0) as usize;
         let value = millimetres / self.length.millimetres();
+
         let number = self.numbers.readout(value, self.numbers.lengths, automatic);
         format!("{number} {}", self.length.symbol())
     }
@@ -730,17 +739,21 @@ mod tests {
             LengthUnit::Centimetre.attach(Expression::Number(2.0)),
             Expression::Measure(2.0, Unit::Centimetre)
         );
+
         let sum = Expression::binary(
             caditor_expression::BinaryOperator::Add,
             Expression::Number(1.0),
             Expression::Number(2.0),
         );
         let attached = LengthUnit::Metre.attach(sum.clone());
+
         assert_eq!(
             attached,
             Expression::WithUnit(Box::new(sum), Unit::Metre, 1)
         );
+
         let metres = Units::from(LengthUnit::Metre);
+
         assert_eq!(
             metres.attach_plain(Some(Dimension::LENGTH), Dimension::NONE),
             Some(Unit::Metre)

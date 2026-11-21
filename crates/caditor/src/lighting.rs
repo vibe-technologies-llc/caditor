@@ -33,7 +33,7 @@ pub const BACKDROP_TURN: RangeInclusive<f64> = -180.0..=180.0;
 pub const BACKDROP_EXPOSURE: RangeInclusive<f64> = -4.0..=4.0;
 const LUMINANCE: [f64; 3] = [0.2126, 0.7152, 0.0722];
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LightFrame {
     View,
     #[default]
@@ -69,7 +69,7 @@ impl Choice for LightFrame {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Lighting {
     pub frame: LightFrame,
     pub azimuth: f64,
@@ -220,6 +220,7 @@ pub fn light_colour(kelvin: f64) -> [f64; 3] {
     } else {
         0.543_206_789_1 * (hundreds - 10.0).ln() - 1.196_254_089
     };
+
     let linear = [red, green, blue].map(|channel| decoded(channel.clamp(0.0, 1.0)));
     let luminance: f64 = linear
         .iter()
@@ -270,9 +271,11 @@ mod tests {
             floor: true,
         };
         let mut settings = Settings::default();
+
         lighting.write(&mut settings);
 
         let mut odd = Settings::default();
+
         odd.set_text(FRAME_KEY, "sideways");
         odd.set_number(ELEVATION_KEY, 400.0);
         odd.set_text(STRENGTH_KEY, "bright");
@@ -282,10 +285,13 @@ mod tests {
             Lighting::from_settings(&Settings::default()),
             Lighting::default()
         );
+
         odd.set_number(BACKDROP_TURN_KEY, 900.0);
         odd.set_text(BACKDROP_COLOUR_KEY, "blue");
         odd.set_text(FLOOR_KEY, "yes");
+
         let read = Lighting::from_settings(&odd);
+
         assert_eq!(read.backdrop_turn, *BACKDROP_TURN.end());
         assert_eq!(read.frame, LightFrame::Model);
         assert_eq!(read.backdrop_colour, None);
@@ -302,6 +308,7 @@ mod tests {
             ..Lighting::default()
         };
         let mut settings = Settings::default();
+
         lighting.write(&mut settings);
         Lighting::default().write(&mut settings);
 
@@ -335,6 +342,7 @@ mod tests {
 
         assert!(warm[0] > warm[2] * 3.0, "{warm:?}");
         assert!(cool[2] > cool[0], "{cool:?}");
+
         for channel in daylight {
             assert!((channel - 1.0).abs() < 0.1, "{daylight:?}");
         }

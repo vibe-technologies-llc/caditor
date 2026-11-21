@@ -61,6 +61,7 @@ pub fn dialog(ctx: &egui::Context) -> bool {
             ui,
             |ui| {
                 let copy = widgets::small_button(ui, icons::COPY, COPY_VERSION);
+
                 if ui
                     .add(copy)
                     .on_hover_text("Copy the name and version, for a bug report")
@@ -112,6 +113,7 @@ mod tests {
     #[test]
     fn the_desktop_entry_opens_the_packaged_mime_type() {
         let mime_type = "application/x-caditor";
+
         assert!(DESKTOP_ENTRY.contains(&format!("\nMimeType={mime_type};")));
         assert!(DESKTOP_ENTRY.contains(";model/step;image/vnd.dxf;\n"));
         assert!(MIME_TYPE.contains(&format!("<mime-type type=\"{mime_type}\">")));

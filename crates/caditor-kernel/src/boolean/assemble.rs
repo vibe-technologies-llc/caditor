@@ -32,9 +32,11 @@ fn unchanged_coedge(
     let Some((operand, edge)) = source.edge else {
         return false;
     };
+
     if operand != key.operand || arrangement.edge_pieces(operand, edge) != [piece] {
         return false;
     }
+
     let solid = input.solid(operand);
     solid
         .edge(edge)
@@ -56,11 +58,14 @@ pub(super) fn assemble(
     let mut plan = Plan::default();
     let mut vertices: BTreeMap<usize, usize> = BTreeMap::new();
     let mut edges: BTreeMap<usize, usize> = BTreeMap::new();
+
     for face in faces {
         let unchanged = unchanged_face(input, &face);
         let mut loops = Vec::with_capacity(face.fragment.loops.len());
+
         for traced in face.fragment.loops {
             let mut coedges = Vec::with_capacity(traced.coedges.len());
+
             for coedge in traced.coedges {
                 let settled = unchanged && unchanged_coedge(input, arrangement, face.key, &coedge);
                 let piece = coedge.half_edge.piece;
@@ -80,20 +85,25 @@ pub(super) fn assemble(
                             if let Some(vertex) = vertices.get(&index) {
                                 return Ok(*vertex);
                             }
+
                             let point = arrangement
                                 .point(index)
                                 .ok_or_else(|| BooleanError::Open(Box::default()))?;
                             let vertex = plan.vertex(point);
+
                             vertices.insert(index, vertex);
                             Ok(vertex)
                         };
+
                         let ends = (vertex(data.start)?, vertex(data.end)?);
                         let edge = plan.edge(curve.clone(), data.interval, ends, name);
+
                         edges.insert(piece, edge);
                         edge
                     }
                 };
                 let sense = coedge.half_edge.sense;
+
                 coedges.push(if settled {
                     PlanCoedge::settled(edge, sense, coedge.pcurve)
                 } else {

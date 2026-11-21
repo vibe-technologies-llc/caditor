@@ -30,11 +30,14 @@ struct Around {
 
 fn inner_faces(solid: &Solid, cluster: &Cluster<'_>, around: &[FaceId]) -> BTreeSet<FaceId> {
     let mut inner = BTreeSet::new();
+
     for (_, face_loop) in solid.loops() {
         let face = face_loop.face();
+
         if cluster.dropped.contains(&face) || around.contains(&face) {
             continue;
         }
+
         let within = face_loop.coedges().iter().all(|coedge| {
             solid
                 .coedge(*coedge)
@@ -60,18 +63,22 @@ pub(super) struct Cluster<'a> {
 impl Around {
     fn of(solid: &Solid, cluster: &Cluster<'_>) -> Option<Self> {
         let mut leaving: BTreeMap<Spoke, (FaceId, Spoke)> = BTreeMap::new();
+
         for (_, face_loop) in solid.loops() {
             let coedges = face_loop.coedges();
             let count = coedges.len();
             let mut ends = Vec::with_capacity(count);
+
             for coedge in coedges {
                 let (start, end) = solid.coedge_vertices(*coedge)?;
+
                 ends.push((solid.coedge(*coedge)?.edge(), start, end));
             }
             for (index, (arriving, _, end)) in ends.iter().enumerate() {
                 if !cluster.members.contains(end) || cluster.vanishing.contains(arriving) {
                     continue;
                 }
+
                 let (departing, start, _) = (1..=count)
                     .filter_map(|step| ends.get((index + step) % count))
                     .find(|(edge, _, _)| !cluster.vanishing.contains(edge))?;
@@ -84,11 +91,14 @@ impl Around {
                 }
             }
         }
+
         let (first, _) = leaving.first_key_value()?;
         let mut cycle: Vec<(FaceId, Spoke)> = Vec::new();
         let mut arriving = *first;
+
         loop {
             let (face, departing) = leaving.get(&arriving)?;
+
             cycle.push((*face, *departing));
             arriving = *departing;
             if arriving == *first || cycle.len() > leaving.len() {
@@ -98,15 +108,19 @@ impl Around {
         if arriving != *first || cycle.len() != leaving.len() {
             return None;
         }
+
         let kept = cycle
             .iter()
             .position(|(face, _)| !cluster.dropped.contains(face))?;
+
         cycle.rotate_left(kept);
+
         let mut around = Self {
             faces: Vec::new(),
             spokes: Vec::new(),
             inner: None,
         };
+
         for (face, departing) in cycle {
             if cluster.dropped.contains(&face) {
                 around.spokes.last_mut()?.push(departing);
@@ -115,7 +129,9 @@ impl Around {
                 around.spokes.push(vec![departing]);
             }
         }
+
         let inner = inner_faces(solid, cluster, &around.faces);
+
         if inner.len() > 1 {
             return None;
         }
@@ -140,6 +156,7 @@ impl Around {
 
     fn normalized(&self, triangle: &Triangle) -> Option<Triangle> {
         let mut normal = [0; 3];
+
         for (slot, index) in normal.iter_mut().zip(triangle) {
             *slot = if *index == INNER {
                 INNER
@@ -158,12 +175,15 @@ impl Around {
 
     fn convexities(&self, solid: &Solid) -> Option<Vec<bool>> {
         let mut convex = Vec::with_capacity(self.spokes.len());
+
         for (index, spokes) in self.spokes.iter().enumerate() {
             let (edge_id, vertex) = spokes.first()?;
             let edge = solid.edge(*edge_id)?;
+
             if edge.is_closed() {
                 return None;
             }
+
             let at = solid.vertex(*vertex)?.point();
             let interval = edge.interval();
             let leaving = if edge.start() == *vertex {
@@ -173,6 +193,7 @@ impl Around {
             };
             let left = outward_normal(solid, self.face(index)?, at)?;
             let right = outward_normal(solid, self.face(index + 1)?, at)?;
+
             convex.push(left.cross(right).dot(leaving) > 0.0);
         }
         Some(convex)
@@ -194,7 +215,7 @@ impl Around {
 
 type Triangle = [usize; 3];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shape {
     Convex,
     Concave,
@@ -218,6 +239,7 @@ impl Shape {
                     .iter()
                     .filter(|(index, _)| folded(index))
                     .map(|(_, residual)| *residual);
+
                 let exposed = if corner.iter().any(folded) {
                     across_fold.all(outside)
                 } else {
@@ -252,12 +274,14 @@ impl Candidate {
 
     fn diagonals(&self, count: usize, inner: bool) -> Vec<(usize, usize, usize, usize)> {
         let mut diagonals = Vec::new();
+
         for a in 0..count {
             let spoke = inner.then_some(INNER);
             for b in (a + 2..count).chain(spoke) {
                 if a == 0 && b == count - 1 {
                     continue;
                 }
+
                 let triangles: Vec<usize> = self.holding(a, b).collect();
                 if let [first, second] = triangles.as_slice() {
                     diagonals.push((a, b, *first, *second));
@@ -282,11 +306,14 @@ impl Corners<'_> {
             .iter()
             .filter_map(|index| self.around.face(*index))
             .collect();
+
         if faces.len() != triangle.len() {
             return None;
         }
+
         let point = offset_vertex(self.offsets, &faces, &[], self.start)?;
         let mut others = BTreeMap::new();
+
         for index in self
             .around
             .slots()
@@ -295,6 +322,7 @@ impl Corners<'_> {
             let (residual, _) = self
                 .offsets
                 .residual(self.around.face(index)?, point, None)?;
+
             others.insert(index, residual);
         }
         self.shape.keeps(triangle, &others).then_some(point)
@@ -302,10 +330,13 @@ impl Corners<'_> {
 
     fn point(&mut self, triangle: &Triangle) -> Option<Point3> {
         let triangle = self.around.normalized(triangle)?;
+
         if let Some(known) = self.solved.get(&triangle) {
             return *known;
         }
+
         let point = self.solve(&triangle);
+
         self.solved.insert(triangle, point);
         point
     }
@@ -313,6 +344,7 @@ impl Corners<'_> {
 
 fn straight(offsets: &Offsets<'_>, around: &Around, sides: [usize; 2], ends: [Point3; 2]) -> bool {
     let [from, to] = ends;
+
     let Ok(line) = Line::through(from, to) else {
         return false;
     };
@@ -326,13 +358,13 @@ fn straight(offsets: &Offsets<'_>, around: &Around, sides: [usize; 2], ends: [Po
     follows(offsets, &faces, &line.into(), interval)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Join {
     Edge,
     Merged,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Under {
     apex: usize,
     merges: usize,
@@ -351,7 +383,9 @@ impl Search<'_, '_> {
             return *known;
         }
         interrupt::check().ok()?;
+
         let [first, apex, last] = triangle;
+
         let merges = match self.corners.point(&triangle) {
             Some(_) => self
                 .closes(first, apex, triangle)
@@ -359,6 +393,7 @@ impl Search<'_, '_> {
                 .map(|(before, after)| before + after),
             None => None,
         };
+
         self.fans.insert(triangle, merges);
         merges
     }
@@ -374,7 +409,9 @@ impl Search<'_, '_> {
         if let Some(known) = self.unders.get(&(first, last, above)) {
             return *known;
         }
+
         let mut best: Option<Under> = None;
+
         for apex in first + 1..last {
             let below = [first, apex, last];
             let Some(inside) = self.fan(below) else {
@@ -383,6 +420,7 @@ impl Search<'_, '_> {
             let Some(join) = self.join(below, above) else {
                 continue;
             };
+
             let merges = inside + usize::from(join == Join::Merged);
             if best.is_none_or(|known| merges < known.merges) {
                 best = Some(Under { apex, merges });
@@ -401,14 +439,17 @@ impl Search<'_, '_> {
         if let Some(known) = self.joins.get(&(below, above)) {
             return *known;
         }
+
         let around = self.corners.around;
         let faces = |triangle: &Triangle| -> BTreeSet<Option<FaceId>> {
             triangle.iter().map(|index| around.face(*index)).collect()
         };
+
         if faces(&below) == faces(&above) {
             self.joins.insert((below, above), None);
             return None;
         }
+
         let ends = self.corners.point(&below).zip(self.corners.point(&above));
         let join = ends.and_then(|(from, to)| {
             if coincide(from, to) {
@@ -417,6 +458,7 @@ impl Search<'_, '_> {
             straight(self.corners.offsets, self.corners.around, sides, [from, to])
                 .then_some(Join::Edge)
         });
+
         self.joins.insert((below, above), join);
         join
     }
@@ -442,9 +484,11 @@ impl Search<'_, '_> {
             return *known;
         }
         interrupt::check().ok()?;
+
         let count = self.corners.around.count();
         let end = start + count;
         let mut best: Option<(usize, usize)> = None;
+
         for next in (at + 1..count).chain([end]) {
             if next == end && before == start {
                 continue;
@@ -452,6 +496,7 @@ impl Search<'_, '_> {
             if self.corners.point(&[at, next, INNER]).is_none() {
                 continue;
             }
+
             let Some(pocket) = self.pocket(at, next) else {
                 continue;
             };
@@ -467,6 +512,7 @@ impl Search<'_, '_> {
             let Some(rest) = rest else {
                 continue;
             };
+
             let merges = pocket + turn + rest;
             if best.is_none_or(|(known, _)| merges < known) {
                 best = Some((merges, next));
@@ -478,43 +524,55 @@ impl Search<'_, '_> {
 
     fn star(&mut self, count: usize) -> Option<Candidate> {
         let mut best: Option<(usize, Vec<usize>)> = None;
+
         for start in 0..count {
             for second in start + 1..count {
                 if self.corners.point(&[start, second, INNER]).is_none() {
                     continue;
                 }
+
                 let Some(pocket) = self.pocket(start, second) else {
                     continue;
                 };
                 let mut memo = BTreeMap::new();
+
                 let Some((rest, _)) = self.rest_of_star(start, second, start, second, &mut memo)
                 else {
                     continue;
                 };
                 let merges = pocket + rest;
+
                 if best.as_ref().is_some_and(|(known, _)| *known <= merges) {
                     continue;
                 }
+
                 let mut chain = vec![start, second];
                 let (mut before, mut at) = (start, second);
+
                 while at < start + count {
                     let (_, next) = memo.get(&(before, at)).copied().flatten()?;
+
                     chain.push(next);
                     (before, at) = (at, next);
                 }
                 best = Some((merges, chain));
             }
         }
+
         let (_, chain) = best?;
         let mut triangles = Vec::with_capacity(count);
+
         for pair in chain.windows(2) {
             let [first, last] = pair else {
                 return None;
             };
+
             let above = [*first, *last, INNER];
+
             self.collect(*first, *last, above, &mut triangles)?;
             triangles.push(above);
         }
+
         let around = self.corners.around;
         let triangles = triangles
             .iter()
@@ -537,8 +595,10 @@ impl Search<'_, '_> {
         if last == first + 1 {
             return Some(());
         }
+
         let apex = self.under(first, last, above)?.apex;
         let below = [first, apex, last];
+
         self.collect(first, apex, below, triangles)?;
         self.collect(apex, last, below, triangles)?;
         triangles.push(below);
@@ -548,6 +608,7 @@ impl Search<'_, '_> {
     fn fewest_merges(&mut self, count: usize) -> Option<Candidate> {
         let last = count.checked_sub(1)?;
         let mut best: Option<Under> = None;
+
         for apex in 1..last {
             let Some(merges) = self.fan([0, apex, last]) else {
                 continue;
@@ -556,11 +617,14 @@ impl Search<'_, '_> {
                 best = Some(Under { apex, merges });
             }
         }
+
         let top = [0, best?.apex, last];
         let mut triangles = Vec::with_capacity(count - 2);
+
         self.collect(0, top[1], top, &mut triangles)?;
         self.collect(top[1], last, top, &mut triangles)?;
         triangles.push(top);
+
         let points = triangles
             .iter()
             .map(|triangle| self.corners.point(triangle))
@@ -588,12 +652,15 @@ pub(super) fn stranded(offsets: &Offsets<'_>, cluster: &Cluster<'_>) -> BTreeSet
         return BTreeSet::new();
     };
     let count = around.count();
+
     let Some(shape) = around.shape(solid) else {
         return BTreeSet::new();
     };
+
     if !(4..=MAX_SPLIT_FACES).contains(&count) {
         return BTreeSet::new();
     }
+
     let mut corners = Corners {
         offsets,
         around: &around,
@@ -602,6 +669,7 @@ pub(super) fn stranded(offsets: &Offsets<'_>, cluster: &Cluster<'_>) -> BTreeSet
         solved: BTreeMap::new(),
     };
     let mut reached = BTreeSet::new();
+
     for first in 0..count {
         if interrupt::check().is_err() {
             return BTreeSet::new();
@@ -632,9 +700,11 @@ pub(super) fn split_vertex(
     let start = centre(solid, cluster);
     let around = Around::of(solid, cluster)?;
     let count = around.count();
+
     if !(4..=MAX_SPLIT_FACES).contains(&count) {
         return None;
     }
+
     let mut corners = Corners {
         offsets,
         around: &around,
@@ -642,6 +712,7 @@ pub(super) fn split_vertex(
         start,
         solved: BTreeMap::new(),
     };
+
     let mut search = Search {
         corners: &mut corners,
         fans: BTreeMap::new(),
@@ -649,12 +720,14 @@ pub(super) fn split_vertex(
         joins: BTreeMap::new(),
     };
     let inner = around.inner.is_some();
+
     let chosen = if inner {
         search.star(count)?
     } else {
         search.fewest_merges(count)?
     };
     let mut merged: Vec<usize> = (0..chosen.points.len()).collect();
+
     for (_, _, first, second) in chosen.diagonals(count, inner) {
         let (Some(from), Some(to)) = (chosen.points.get(first), chosen.points.get(second)) else {
             return None;
@@ -668,27 +741,34 @@ pub(super) fn split_vertex(
             }
         }
     }
+
     let mut placed: BTreeMap<usize, usize> = BTreeMap::new();
     let mut corners = Vec::with_capacity(merged.len());
+
     for keep in &merged {
         let vertex = match placed.get(keep) {
             Some(vertex) => *vertex,
             None => {
                 let vertex = plan.vertex(*chosen.points.get(*keep)?);
+
                 placed.insert(*keep, vertex);
                 vertex
             }
         };
+
         corners.push(vertex);
     }
+
     let side = |index: usize| chosen.holding(index % count, (index + 1) % count).next();
     let mut ends = BTreeMap::new();
+
     for (index, spokes) in around.spokes.iter().enumerate() {
         let corner = *corners.get(side(index)?)?;
         for spoke in spokes {
             ends.insert(*spoke, corner);
         }
     }
+
     let name = |index: usize| {
         around
             .face(index)
@@ -696,11 +776,13 @@ pub(super) fn split_vertex(
             .map_or(FaceName::NONE, |face| face.name())
     };
     let mut diagonals: BTreeMap<(usize, usize), Option<(usize, usize)>> = BTreeMap::new();
+
     for (a, b, first, second) in chosen.diagonals(count, inner) {
         if corners.get(first)? == corners.get(second)? {
             diagonals.insert((a, b), None);
             continue;
         }
+
         let edge = plan
             .line(
                 *corners.get(first)?,
@@ -708,15 +790,19 @@ pub(super) fn split_vertex(
                 EdgeName::between(name(a), name(b)),
             )
             .ok()?;
+
         diagonals.insert((a, b), Some((edge, first)));
     }
+
     let walk = |corner: usize, from: (usize, usize), until: Option<usize>| {
         let (mut triangle, mut came_from) = from;
         let mut coedges = Vec::new();
+
         for _ in 0..=count + 1 {
             if until == Some(triangle) {
                 return Some(coedges);
             }
+
             let next_corner = chosen
                 .triangles
                 .get(triangle)?
@@ -724,12 +810,14 @@ pub(super) fn split_vertex(
                 .copied()
                 .find(|index| *index != corner && *index != came_from)?;
             let key = (corner.min(next_corner), corner.max(next_corner));
+
             if let Some((edge, starts_at)) = diagonals.get(&key)? {
                 let sense = if *starts_at == triangle {
                     Sense::Same
                 } else {
                     Sense::Reversed
                 };
+
                 coedges.push(PlanCoedge::new(*edge, sense));
             }
             triangle = chosen
@@ -743,12 +831,15 @@ pub(super) fn split_vertex(
         None
     };
     let mut detours = BTreeMap::new();
+
     for corner in 0..count {
         let from = (side(corner + count - 1)?, (corner + count - 1) % count);
         let detour = walk(corner, from, Some(side(corner)?))?;
         let arrival = around.arrival(corner + count - 1)?;
+
         detours.insert((around.face(corner)?, arrival), detour);
     }
+
     let inner = match around.inner {
         Some(face) => {
             let spokes: BTreeSet<usize> = chosen
@@ -764,6 +855,7 @@ pub(super) fn split_vertex(
                 .iter()
                 .enumerate()
                 .find(|(_, triangle)| triangle.contains(&INNER))?;
+
             let wraps = spokes.range(low + 1..*high).next().is_some();
             let came_from = if wraps { *low } else { *high };
             let coedges = walk(INNER, (first, came_from), None)?;

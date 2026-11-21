@@ -24,7 +24,7 @@ use crate::{
 pub const DEFAULT_DISTANCE: f64 = 1.0;
 pub const TITLE: &str = "Offset face";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FacePurpose {
     Move,
     Delete,
@@ -52,7 +52,7 @@ impl Display for FacePurpose {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FaceToolError {
     #[error("Select faces of one body only")]
     SeveralBodies,
@@ -107,6 +107,7 @@ pub fn faces_of_one_body(
     let mut body = None;
     let mut faces = Vec::new();
     let mut left_out = Vec::new();
+
     for pickable in selection.iter() {
         if let Pickable::Face { body: owner, face } = pickable {
             match body {
@@ -118,6 +119,7 @@ pub fn faces_of_one_body(
             left_out.push(pickable);
         }
     }
+
     let body = match body {
         Some(body) => {
             bodies::shown(model.evaluation(), body).ok_or(FaceToolError::NoFaces { purpose })?;
@@ -144,11 +146,14 @@ pub fn create(
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
+
     if faces.len() < source.faces.len() {
         return Err(FaceToolError::FacesGone);
     }
+
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::OffsetFace(OffsetFace {
@@ -222,6 +227,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let clicked = bodies::find_face(input, face)?;
     let solid = &input.solid;
     let mut changed = offset.clone();
+
     changed.faces = offset
         .faces
         .iter()
@@ -229,6 +235,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
         .filter(|(_, resolution)| !resolution.found().contains(&clicked))
         .map(|(reference, _)| reference.clone())
         .collect();
+
     let label = if changed.faces.len() == offset.faces.len() {
         changed.faces.push(FaceReference::capture(solid, clicked)?);
         format!("Move a face with {}", owner.name)
@@ -253,16 +260,19 @@ pub fn with_selected_faces(
     let offset = owner.kind.offset_face()?;
     let input = bodies::input(model.evaluation(), feature)?;
     let solid = &input.solid;
+
     let mut taken: BTreeSet<FaceId> = offset
         .resolutions(solid)
         .iter()
         .flat_map(|resolution| resolution.found().iter().copied())
         .collect();
     let mut changed = offset.clone();
+
     for pickable in selection.iter() {
         let Pickable::Face { body, face } = pickable else {
             continue;
         };
+
         let Some(found) = (body == offset.body)
             .then(|| bodies::find_face(input, face))
             .flatten()
@@ -270,6 +280,7 @@ pub fn with_selected_faces(
         else {
             continue;
         };
+
         changed.faces.push(FaceReference::capture(solid, found)?);
         taken.insert(found);
     }

@@ -47,6 +47,7 @@ struct Track {
 
 fn tracks(loops: &[TracedLoop]) -> Vec<Track> {
     let mut found = Vec::new();
+
     for (loop_index, traced) in loops.iter().enumerate() {
         for (coedge_index, coedge) in traced.coedges.iter().enumerate() {
             let segments: Vec<[Point2; 2]> = coedge
@@ -65,6 +66,7 @@ fn tracks(loops: &[TracedLoop]) -> Vec<Track> {
             else {
                 continue;
             };
+
             found.push(Track {
                 at: (loop_index, coedge_index),
                 segments,
@@ -78,9 +80,11 @@ fn tracks(loops: &[TracedLoop]) -> Vec<Track> {
 fn tracks_cross(first: &Track, second: &Track) -> bool {
     let low = first.bounds.min().max(second.bounds.min());
     let high = first.bounds.max().min(second.bounds.max());
+
     if low.cmpgt(high).any() {
         return false;
     }
+
     let shared = Aabb::from_point(low).including(high);
     let near = |track: &Track| -> Vec<[Point2; 2]> {
         track
@@ -104,6 +108,7 @@ fn crossed_coedges(loops: &[TracedLoop]) -> Result<BTreeSet<CoedgeAt>, BooleanEr
     let tracks = tracks(loops);
     let tree = BoxTree::new(tracks.iter().map(|track| track.bounds));
     let mut crossed = BTreeSet::new();
+
     for (index, track) in tracks.iter().enumerate() {
         interrupt::check()?;
         for other in tree.overlapping(&track.bounds, 0.0) {
@@ -130,6 +135,7 @@ fn halve(
     let Some((curve, _)) = arrangement.curve(coedge.half_edge.piece) else {
         return Ok(false);
     };
+
     if tolerance < FINEST_TOLERANCE {
         return Ok(false);
     }
@@ -160,6 +166,7 @@ pub(super) fn untangle(
     for _ in 0..MAX_ROUNDS {
         let crossed = crossed_coedges(loops)?;
         let mut refined_any = false;
+
         for (loop_index, coedge_index) in crossed {
             if let Some(coedge) = loops
                 .get_mut(loop_index)
@@ -186,7 +193,9 @@ pub(super) fn open_flat(
         if traced.area.is_finite() && traced.area != 0.0 {
             break;
         }
+
         let mut refined_any = false;
+
         for coedge in &mut traced.coedges {
             refined_any |= halve(arrangement, chart, coedge)?;
         }
@@ -206,17 +215,21 @@ pub(super) fn sharpen(
     for fragment in fragments {
         for _ in 0..MAX_ROUNDS {
             interrupt::check()?;
+
             let coarsest = fragment
                 .loops
                 .iter()
                 .flat_map(|traced| traced.coedges.iter())
                 .map(|coedge| coedge.pcurve.tolerance())
                 .fold(0.0, larger);
+
             if surely_deep(fragment, chart.surface, coarsest) {
                 break;
             }
+
             let reliable = depth(fragment, chart.surface) / RELIABLE_DEPTH;
             let mut refined_any = false;
+
             for coedge in fragment
                 .loops
                 .iter_mut()
@@ -254,6 +267,7 @@ fn surely_deep(fragment: &Fragment, surface: &Surface, tolerance: f64) -> bool {
     let center = bounds.center();
     let derivatives = surface.evaluate(center.x, center.y);
     let speed = derivatives.du.length().min(derivatives.dv.length());
+
     let thickness = area.abs() / perimeter * speed;
     thickness.is_finite() && thickness >= DEEP_GATE * tolerance
 }

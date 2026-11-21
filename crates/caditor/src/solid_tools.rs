@@ -46,7 +46,7 @@ pub const SEVERAL_BODIES: &str =
     "Faces of several bodies are selected; select faces of the one body to add to";
 pub const NOTHING_TO_REVOLVE: &str = "Select the curves of a sketch or flat faces of a body to revolve, with the axis to turn them about";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SweepSourceError {
     #[error("{}", SEVERAL_SKETCHES)]
     SeveralSketches,
@@ -60,7 +60,7 @@ impl Reason for SweepSourceError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum FaceSweepError {
     #[error("The selected face is curved; only a flat face can be {}", .sweep.passive())]
     NotFlat { sweep: Sweep },
@@ -101,7 +101,7 @@ impl Reason for FaceSweepError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum RegionError {
     #[error("{name} is not an extrusion, a revolve or an emboss")]
     NotASweep { name: String },
@@ -119,7 +119,7 @@ pub enum RegionError {
     Checked(#[from] CheckError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sweep {
     Extrude,
     Revolve,
@@ -143,7 +143,7 @@ impl Sweep {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SweepSource {
     pub sketch: FeatureId,
     pub axis: Option<RevolveAxis>,
@@ -151,7 +151,7 @@ pub struct SweepSource {
     pub body: Option<FeatureId>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Guess {
     Never,
     Sweep,
@@ -173,6 +173,7 @@ pub fn sweep_source(
 ) -> Result<Option<SweepSource>, SweepSourceError> {
     let picked = selection.in_pick_order();
     let mut selected: Vec<FeatureId> = Vec::new();
+
     for pickable in &picked {
         if let Pickable::SketchEntity { feature, .. } | Pickable::SketchRegion { feature, .. } =
             *pickable
@@ -181,6 +182,7 @@ pub fn sweep_source(
             selected.push(feature);
         }
     }
+
     let (sketch, regions) = match (editing.feature(), selected.as_slice()) {
         (Some(edited), _) => (edited, RegionChoice::All),
         (None, [sketch]) => (*sketch, RegionChoice::All),
@@ -193,6 +195,7 @@ pub fn sweep_source(
     let Some(definition) = editing::edited_sketch(document, sketch) else {
         return Ok(None);
     };
+
     let axis = picked.iter().rev().find_map(|pickable| match *pickable {
         Pickable::SketchEntity { feature, entity } if feature == sketch => {
             let is_axis = match entity.reference() {
@@ -290,6 +293,7 @@ fn swept_regions(
     regions: &[SketchRegion],
 ) -> Option<BTreeSet<RegionKey>> {
     let mut swept = BTreeSet::new();
+
     for feature in document.active_features() {
         match &feature.kind {
             FeatureKind::Solid(solid) if solid.sketch() == sketch => {
@@ -324,7 +328,7 @@ pub fn may_guess_sketch(sweep: Sweep, selection: &Selection, lone_axis: bool) ->
     selection.is_empty() || (sweep == Sweep::Revolve && lone_axis && selection.len() == 1)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceProfile {
     pub body: FeatureId,
     pub faces: Vec<FaceKey>,
@@ -353,9 +357,11 @@ pub fn faces_to_sweep(
             Pickable::SketchEntity { .. } | Pickable::SketchRegion { .. }
         )
     });
+
     if editing.feature().is_some() || sketch_chosen {
         return None;
     }
+
     let picked = selection.in_pick_order();
     let axis = match sweep {
         Sweep::Extrude => None,
@@ -368,11 +374,13 @@ pub fn faces_to_sweep(
                 })
         }),
     };
+
     let faces: Vec<FaceChoice> = picked
         .iter()
         .filter(|pickable| axis.is_none_or(|(candidate, _)| candidate != *pickable))
         .filter_map(|pickable| FaceChoice::of(*pickable))
         .collect();
+
     if faces.is_empty() {
         return None;
     }
@@ -410,9 +418,11 @@ fn face_profile(
         .first()
         .map(|face| face.body)
         .ok_or(FaceSweepError::NoOutline)?;
+
     if faces.iter().any(|face| face.body != body) {
         return Err(FaceSweepError::SeveralBodies);
     }
+
     let shown = bodies::shown(model.evaluation(), body).ok_or(FaceSweepError::NoOutline)?;
     let planes = faces
         .iter()
@@ -429,6 +439,7 @@ fn face_profile(
             })
         })
         .collect::<Result<Vec<Plane>, _>>()?;
+
     if let Some((first, rest)) = planes.split_first()
         && !rest.iter().all(|plane| same_plane(first, plane))
     {
@@ -457,6 +468,7 @@ pub fn create_on_faces(
 ) -> Result<(Transaction, FeatureId, String), FaceSweepError> {
     let document = model.document();
     let first = profile.first().ok_or(FaceSweepError::NoOutline)?;
+
     let (attachment, plane) = sketch_placement::attachment_at(model, first, document.bar_index())
         .map_err(FaceSweepError::Attachment)?;
     let shown = bodies::shown(model.evaluation(), profile.body).ok_or(FaceSweepError::NoOutline)?;
@@ -465,17 +477,22 @@ pub fn create_on_faces(
         .iter()
         .map(|face| bodies::find_face(shown, *face).ok_or(FaceSweepError::NoOutline))
         .collect::<Result<Vec<_>, _>>()?;
+
     let outline = projecting::face_projections(shown, profile.body, &ids, &plane);
+
     if outline.is_empty() {
         return Err(FaceSweepError::NoOutline);
     }
+
     let sketch_name = editing::next_sketch_name(document);
     let name = editing::next_feature_name(document, sweep.label());
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let sketch = transaction.add_feature(
         sketch_name.clone(),
         FeatureKind::Sketch(SketchFeature::on_face(Sketch::new(plane), attachment)),
     );
+
     transaction.edit(Edit::SetFeatureHidden {
         id: sketch,
         hidden: true,
@@ -483,8 +500,10 @@ pub fn create_on_faces(
     for (source, edges) in &outline {
         transaction.add_projection(sketch, source.clone(), edges);
     }
+
     let operation = BodyOperation::Add(profile.body);
     let starts = Starts::of(model);
+
     let solid = match (sweep, &profile.axis) {
         (Sweep::Extrude, _) => SolidFeature::Extrude(Extrude {
             sketch,
@@ -562,6 +581,7 @@ pub fn with_model_axis(
             if sketch_line(pickable) {
                 return source.axis.clone();
             }
+
             let in_sketch = matches!(
                 pickable,
                 Pickable::SketchEntity { feature, .. } if feature == source.sketch
@@ -586,6 +606,7 @@ pub fn with_selected_outline(
         return source;
     };
     let mut chosen = selected_regions(selection, source.sketch);
+
     chosen.extend(enclosed_regions(model, sweep, &source, selection, regions));
     if chosen.is_empty() {
         return source;
@@ -623,6 +644,7 @@ fn enclosed_regions(
         (Sweep::Revolve, Some(RevolveAxis::Sketch(axis))) => Some(*axis),
         _ => None,
     };
+
     let outline: Vec<Vec<Point2>> = selection
         .iter()
         .filter_map(|pickable| match pickable {
@@ -634,6 +656,7 @@ fn enclosed_regions(
             _ => None,
         })
         .collect();
+
     if outline.is_empty() || !closed(&outline) {
         return BTreeSet::new();
     }
@@ -751,6 +774,7 @@ pub fn create(
         Sweep::Revolve => None,
     };
     let mut told = None;
+
     let solid = match sweep {
         Sweep::Extrude => {
             let template = Extrude {
@@ -775,6 +799,7 @@ pub fn create(
                 source.body,
                 None,
             );
+
             told = detected.told;
             SolidFeature::Extrude(Extrude {
                 extent: detected.extent,
@@ -804,7 +829,9 @@ pub fn create(
         }
     };
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(name, FeatureKind::Solid(solid));
+
     if starts.pieces() == Pieces::BodyEach {
         transaction.edit(Edit::SetFeaturePieces {
             id: feature,
@@ -820,7 +847,7 @@ pub fn create(
     (transaction.finish(), feature, told)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Reach<'a> {
     pub evaluation: &'a Evaluation,
     pub parameters: &'a ParameterValues,
@@ -852,10 +879,12 @@ pub fn create_actions(
 ) -> Vec<Action> {
     let (transaction, feature, told) =
         create(model.document(), Reach::of(model), sweep, source, starts);
+
     let mut actions = vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
     ];
+
     actions.extend(told.map(|words| Action::Inform(Notice::info(words))));
     actions
 }
@@ -882,6 +911,7 @@ pub fn edit(document: &Document, feature: FeatureId, solid: SolidFeature) -> Opt
 
 pub fn with_regions(solid: &SolidFeature, regions: RegionChoice) -> SolidFeature {
     let mut changed = solid.clone();
+
     match &mut changed {
         SolidFeature::Extrude(extrude) => extrude.regions = regions,
         SolidFeature::Revolve(revolve) => revolve.regions = regions,
@@ -892,6 +922,7 @@ pub fn with_regions(solid: &SolidFeature, regions: RegionChoice) -> SolidFeature
 
 pub fn with_start(solid: &SolidFeature, start: Option<SolidStart>) -> SolidFeature {
     let mut changed = solid.clone();
+
     match &mut changed {
         SolidFeature::Extrude(extrude) => extrude.start = start,
         SolidFeature::Revolve(revolve) => revolve.start = start,
@@ -903,6 +934,7 @@ pub fn with_start(solid: &SolidFeature, start: Option<SolidStart>) -> SolidFeatu
 pub fn with_wall(solid: &SolidFeature, wall: Option<Wall>) -> SolidFeature {
     let wall = wall.map(Box::new);
     let mut changed = solid.clone();
+
     match &mut changed {
         SolidFeature::Extrude(extrude) => extrude.wall = wall,
         SolidFeature::Revolve(revolve) => {
@@ -918,13 +950,16 @@ pub fn with_wall(solid: &SolidFeature, wall: Option<Wall>) -> SolidFeature {
 
 pub fn with_operation(solid: &SolidFeature, operation: BodyOperation) -> SolidFeature {
     let mut changed = solid.clone();
+
     match &mut changed {
         SolidFeature::Extrude(extrude) => extrude.operation = operation,
         SolidFeature::Revolve(revolve) => revolve.operation = operation,
         SolidFeature::Sweep(sweep) => sweep.operation = operation,
     }
+
     let target = operation.target();
     let others = changed.other_bodies_mut();
+
     match operation {
         BodyOperation::Remove(_) => others.retain(|other| Some(*other) != target),
         BodyOperation::NewBody | BodyOperation::Add(_) | BodyOperation::Intersect(_) => {
@@ -936,6 +971,7 @@ pub fn with_operation(solid: &SolidFeature, operation: BodyOperation) -> SolidFe
 
 pub fn with_other_bodies(solid: &SolidFeature, other_bodies: Vec<FeatureId>) -> SolidFeature {
     let mut changed = solid.clone();
+
     *changed.other_bodies_mut() = other_bodies;
     changed
 }
@@ -945,10 +981,13 @@ pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Op
     let owner = document.feature(feature)?;
     let solid = owner.kind.solid()?;
     let (_, regions) = selection::swept_regions(document, model.evaluation(), feature)?;
+
     let mut chosen = scene::chosen_regions(solid.regions(), regions);
+
     if !chosen.remove(&region) {
         chosen.insert(region);
     }
+
     let choice = RegionChoice::Chosen(scene::region_references(&chosen, regions));
     Some(Transaction::single(
         format!("Choose regions of {}", owner.name),
@@ -963,14 +1002,17 @@ pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, Re
     if feature.kind.emboss().is_some() {
         return emboss_tools::clear_regions(model, feature);
     }
+
     let Some(solid) = feature.kind.solid() else {
         return Err(RegionError::NotASweep {
             name: feature.name.clone(),
         });
     };
     let id = feature.id();
+
     let nothing_chosen = selection::swept_regions(model.document(), model.evaluation(), id)
         .is_some_and(|(_, regions)| scene::chosen_regions(solid.regions(), regions).is_empty());
+
     if nothing_chosen {
         return Err(RegionError::NoneChosen {
             name: feature.name.clone(),
@@ -1010,11 +1052,13 @@ pub fn select_all_regions(model: &Model, feature: &Feature) -> Result<Transactio
     if feature.kind.emboss().is_some() {
         return emboss_tools::select_all_regions(model, feature);
     }
+
     let Some(solid) = feature.kind.solid() else {
         return Err(RegionError::TakesNoRegions {
             name: feature.name.clone(),
         });
     };
+
     if solid.wall().is_some() {
         return Err(RegionError::ThinWall {
             name: feature.name.clone(),
@@ -1025,6 +1069,7 @@ pub fn select_all_regions(model: &Model, feature: &Feature) -> Result<Transactio
             name: feature.name.clone(),
         });
     }
+
     let sketch = model
         .document()
         .feature(solid.sketch())
@@ -1046,14 +1091,17 @@ pub fn take_sketch_regions(
     if feature.kind.emboss().is_some() {
         return emboss_tools::take_sketch_regions(model, feature, sketch);
     }
+
     let Some(solid) = feature.kind.solid() else {
         return Err(RegionError::TakesNoRegions {
             name: feature.name.clone(),
         });
     };
+
     if solid.sketch() == sketch {
         return select_all_regions(model, feature);
     }
+
     let document = model.document();
     let name = document
         .feature(sketch)
@@ -1082,12 +1130,17 @@ mod tests {
     fn document_with_sketches() -> (Document, FeatureId, FeatureId, EntityId) {
         let mut document = Document::default();
         let mut first = Sketch::new(Plane::XY);
+
         first.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+
         let mut second = Sketch::new(Plane::XZ);
+
         let line = second.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
         let mut transaction = document.transaction("Sketches");
+
         let base = transaction.add_feature("Base", FeatureKind::from(first));
         let side = transaction.add_feature("Side", FeatureKind::from(second));
+
         document.apply(transaction.finish()).unwrap();
         (document, base, side, line)
     }
@@ -1127,10 +1180,12 @@ mod tests {
             source(&document, &selection, &SketchEditing::editing(base), false).map(|s| s.sketch),
             Some(base)
         );
+
         selection.replace_with(Pickable::SketchEntity {
             feature: side,
             entity: line,
         });
+
         assert_eq!(
             source(&document, &selection, &SketchEditing::editing(side), false),
             Some(SweepSource {
@@ -1151,6 +1206,7 @@ mod tests {
         let (document, _, side, _) = document_with_sketches();
         let idle = SketchEditing::default();
         let mut selection = Selection::default();
+
         selection.replace_with(Pickable::Axis(crate::selection::Axis::X));
 
         assert_eq!(source(&document, &selection, &idle, false), None);
@@ -1164,14 +1220,19 @@ mod tests {
     fn curves_of_two_sketches_are_refused_and_the_last_picked_line_is_the_axis() {
         let (mut document, base, side, line) = document_with_sketches();
         let mut lines = Sketch::new(Plane::XZ);
+
         let first = lines.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
         let second = lines.add_line(Point2::new(5.0, 0.0), Point2::new(5.0, 10.0));
         let mut transaction = document.transaction("Lines");
+
         let both = transaction.add_feature("Lines", FeatureKind::from(lines));
+
         document.apply(transaction.finish()).unwrap();
+
         let idle = SketchEditing::default();
         let evaluation = Evaluation::default();
         let mut selection = Selection::default();
+
         selection.toggle(Pickable::SketchEntity {
             feature: side,
             entity: line,
@@ -1210,6 +1271,7 @@ mod tests {
             max,
             Point2::new(min.x, max.y),
         ];
+
         for (index, corner) in corners.iter().enumerate() {
             sketch.add_line(*corner, corners[(index + 1) % corners.len()]);
         }
@@ -1218,7 +1280,9 @@ mod tests {
 
     fn sketched(document: &mut Document, name: &str, sketch: Sketch) -> FeatureId {
         let mut transaction = document.transaction(name);
+
         let feature = transaction.add_feature(name, FeatureKind::from(sketch));
+
         document.apply(transaction.finish()).unwrap();
         feature
     }
@@ -1239,6 +1303,7 @@ mod tests {
     ) -> FeatureId {
         let evaluation = evaluated(document);
         let parameters = ParameterValues::evaluate(document);
+
         let reach = Reach {
             evaluation: &evaluation,
             parameters: &parameters,
@@ -1249,6 +1314,7 @@ mod tests {
             regions: RegionChoice::All,
             body: None,
         };
+
         let (transaction, feature, _) = create(
             document,
             reach,
@@ -1256,6 +1322,7 @@ mod tests {
             source,
             &Starts::defaults(LengthUnit::Millimetre),
         );
+
         document.apply(transaction).unwrap();
         feature
     }
@@ -1294,6 +1361,7 @@ mod tests {
     #[test]
     fn a_new_extrusion_overlapping_or_touching_a_body_adds_to_it() {
         let mut document = Document::default();
+
         let base = block(&mut document, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
 
         let overlapping = block(
@@ -1332,6 +1400,7 @@ mod tests {
     fn a_new_extrusion_reaching_two_bodies_adds_to_the_one_it_overlaps_most() {
         let reaching_both = |from: f64, to: f64| {
             let mut document = Document::default();
+
             let left = block(&mut document, "Left", Point2::ZERO, Point2::new(20.0, 20.0));
             let right = block(
                 &mut document,
@@ -1368,6 +1437,7 @@ mod tests {
     ) -> FeatureId {
         let evaluation = evaluated(document);
         let parameters = ParameterValues::evaluate(document);
+
         let reach = Reach {
             evaluation: &evaluation,
             parameters: &parameters,
@@ -1378,6 +1448,7 @@ mod tests {
             regions: RegionChoice::All,
             body,
         };
+
         let (transaction, feature, _) = create(
             document,
             reach,
@@ -1385,6 +1456,7 @@ mod tests {
             source,
             &Starts::defaults(LengthUnit::Millimetre),
         );
+
         document.apply(transaction).unwrap();
         feature
     }
@@ -1417,6 +1489,7 @@ mod tests {
     #[test]
     fn an_extrusion_pointing_away_from_a_body_it_would_reach_the_other_way_turns_toward_it() {
         let mut document = Document::default();
+
         let base = block(&mut document, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
         let above = at_height(&mut document, "Above", 15.0);
         let far = at_height(&mut document, "Far", 40.0);
@@ -1425,8 +1498,10 @@ mod tests {
         let apart = extruded_toward(&mut document, far, None);
 
         let mut other = Document::default();
+
         let target = block(&mut other, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
         let chosen = at_height(&mut other, "Chosen", 15.0);
+
         let asked_for = extruded_toward(&mut other, chosen, Some(target));
 
         assert_eq!(operation(&document, turned), BodyOperation::Add(base));
@@ -1440,6 +1515,7 @@ mod tests {
     #[test]
     fn an_extrusion_reaching_a_body_forward_is_never_turned() {
         let mut document = Document::default();
+
         let base = block(&mut document, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
         let on_top = at_height(&mut document, "On top", 10.0);
         let inside = at_height(&mut document, "Inside", 5.0);
@@ -1456,6 +1532,7 @@ mod tests {
     #[test]
     fn a_new_revolve_adds_to_the_body_it_passes_through_and_otherwise_makes_a_new_one() {
         let mut document = Document::default();
+
         let base = block(&mut document, "Base", Point2::ZERO, Point2::new(20.0, 20.0));
         let ring = sketched(
             &mut document,
@@ -1484,6 +1561,7 @@ mod tests {
     #[test]
     fn new_features_skip_a_body_a_combine_consumed() {
         let mut document = Document::default();
+
         let target = block(
             &mut document,
             "Block",
@@ -1497,6 +1575,7 @@ mod tests {
             Point2::new(40.0, 10.0),
         );
         let mut transaction = document.transaction("Two bodies joined");
+
         transaction.add_feature(
             "Combine 1",
             FeatureKind::Combine(caditor_document::Combine::new(

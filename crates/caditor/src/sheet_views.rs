@@ -21,7 +21,7 @@ use crate::model::{Model, Waker};
 
 pub type ViewOutcome = Arc<Result<ViewLines, DrawingViewError>>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum ParentLines {
     Done(ViewOutcome),
     NotDrawn,
@@ -37,7 +37,7 @@ impl PartialEq for ParentLines {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum ViewJob {
     Standard(StandardView),
     Section {
@@ -74,7 +74,7 @@ fn enlarged(detail: &DetailView, parent: &ParentLines) -> Result<ViewLines, Draw
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct ViewKey {
     job: ViewJob,
     bodies: Vec<(FeatureId, Arc<FeatureResult>)>,
@@ -132,6 +132,7 @@ impl Worker {
     fn spawn(wake: Waker, current: Arc<AtomicU64>) -> Option<Self> {
         let (jobs, queue) = mpsc::channel::<Job>();
         let (sender, done) = mpsc::channel();
+
         let spawned = thread::Builder::new()
             .name("drawing views".to_owned())
             .spawn(move || {
@@ -139,10 +140,13 @@ impl Worker {
                     if current.load(Ordering::SeqCst) != job.ticket {
                         continue;
                     }
+
                     let watched = Arc::clone(&current);
                     let ticket = job.ticket;
+
                     let interrupt = Arc::new(move || watched.load(Ordering::SeqCst) != ticket);
                     let outcome = interruptible(interrupt, || work_out(&job.key));
+
                     if sender
                         .send(Finished {
                             key: job.key,
@@ -165,13 +169,13 @@ impl Worker {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum ViewState {
     Working,
     Done(ViewOutcome),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SheetViews {
     pub drawing: Option<DrawingId>,
     pub views: BTreeMap<DrawnView, ViewState>,
@@ -250,15 +254,19 @@ fn keys_of(drawing: &Drawing, bodies: &DrawnBodies, values: &ParameterValues) ->
 impl DrawingViews {
     pub fn refresh(&mut self, model: &Model, drawing: &Drawing) -> SheetViews {
         self.poll();
+
         let bodies = drawn_bodies(model.document(), model.evaluation(), drawing);
         let mut wanted = keys_of(drawing, &bodies, model.parameters());
+
         let waiting = self.add_details(drawing, &bodies, &mut wanted);
+
         if wanted != self.wanted {
             if self.in_flight.iter().any(|key| !wanted.contains(key)) {
                 self.ticket = self.ticket.wrapping_add(1);
                 self.current.store(self.ticket, Ordering::SeqCst);
                 self.in_flight.clear();
             }
+
             let same_bodies = |key: &ViewKey| {
                 wanted.iter().any(|kept| {
                     ViewKey {
@@ -267,11 +275,13 @@ impl DrawingViews {
                     } == *key
                 })
             };
+
             self.done.retain(|(key, _)| {
                 same_bodies(key) && (!key.job.is_detail() || wanted.contains(key))
             });
             self.wanted = wanted;
         }
+
         let missing: Vec<ViewKey> = self
             .wanted
             .iter()
@@ -279,9 +289,11 @@ impl DrawingViews {
             .filter(|key| !self.in_flight.contains(key))
             .cloned()
             .collect();
+
         for key in missing {
             self.submit(model, key);
         }
+
         let views = self
             .wanted
             .iter()
@@ -312,6 +324,7 @@ impl DrawingViews {
     ) -> Vec<DrawnView> {
         let mut waiting = Vec::new();
         let mut details = Vec::new();
+
         for detail in &drawing.details {
             let parent = detail.parent.drawn();
             let Some(parent_key) = wanted.iter().find(|key| key.job.view() == parent) else {
@@ -339,6 +352,7 @@ impl DrawingViews {
         if self.worker.is_none() {
             self.worker = Worker::spawn(model.waker(), Arc::clone(&self.current));
         }
+
         let job = Job {
             ticket: self.ticket,
             key: key.clone(),
@@ -352,7 +366,9 @@ impl DrawingViews {
             Some(job) => {
                 log::error!("no drawing views worker, so a view is worked out on the UI thread");
                 self.worker = None;
+
                 let outcome = work_out(&job.key);
+
                 self.arrive(Finished {
                     key: job.key,
                     outcome,

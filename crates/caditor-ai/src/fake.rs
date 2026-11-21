@@ -73,11 +73,13 @@ impl Transport for ScriptedTransport {
             return Err(AiError::Cancelled);
         }
         self.recorded.lock().push(request.clone());
+
         let reply = self
             .replies
             .lock()
             .pop_front()
             .ok_or(AiError::Unreachable)??;
+
         if !(200..300).contains(&reply.status.status) {
             return Ok(reply.status);
         }

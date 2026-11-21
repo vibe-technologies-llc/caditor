@@ -38,6 +38,7 @@ fn every_finish_reads_back_from_its_key_and_no_two_share_one() {
 
     let keys: std::collections::BTreeSet<&str> =
         Finish::ALL.iter().map(|finish| finish.key()).collect();
+
     assert_eq!(keys.len(), Finish::ALL.len());
     assert_eq!(Finish::from_key("velvet"), None);
 }
@@ -58,15 +59,19 @@ fn hex_colours_read_back_as_written() {
 #[test]
 fn setting_an_appearance_is_undone_by_its_inverse() {
     let mut pair = pair();
+
     let before = pair.document.clone();
     let appearance = steel(&pair, "7.85");
 
     let inverse = pair.document.apply(set(&pair, appearance.clone())).unwrap();
 
     let plate = pair.document.feature(pair.plate).unwrap();
+
     assert_eq!(plate.appearance, appearance);
     assert!(!pair.document.same_content(&before));
+
     pair.document.apply(inverse).unwrap();
+
     assert!(pair.document.same_content(&before));
 }
 
@@ -75,8 +80,10 @@ fn a_material_name_is_trimmed_and_a_blank_one_dropped() {
     let mut pair = pair();
 
     let mut padded = steel(&pair, "7.85");
+
     padded.material = Some("  Brass ".to_owned());
     pair.document.apply(set(&pair, padded)).unwrap();
+
     let named = pair
         .document
         .feature(pair.plate)
@@ -84,8 +91,10 @@ fn a_material_name_is_trimmed_and_a_blank_one_dropped() {
         .appearance
         .clone();
     let mut blank = named.clone();
+
     blank.material = Some("   ".to_owned());
     pair.document.apply(set(&pair, blank)).unwrap();
+
     let unnamed = pair
         .document
         .feature(pair.plate)
@@ -100,7 +109,9 @@ fn a_material_name_is_trimmed_and_a_blank_one_dropped() {
 #[test]
 fn an_overlong_material_name_is_refused() {
     let mut pair = pair();
+
     let mut appearance = steel(&pair, "7.85");
+
     appearance.material = Some("x".repeat(MAX_MATERIAL_NAME_CHARS + 1));
 
     let refused = pair.document.apply(set(&pair, appearance));
@@ -114,6 +125,7 @@ fn an_overlong_material_name_is_refused() {
 #[test]
 fn only_a_feature_making_a_body_takes_an_appearance() {
     let mut pair = pair();
+
     let outline = pair
         .document
         .features()
@@ -138,10 +150,15 @@ fn only_a_feature_making_a_body_takes_an_appearance() {
 #[test]
 fn a_density_parameter_counts_as_used_and_cannot_be_deleted() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Add density");
+
     let density = transaction.add_parameter("rho", Expression::Number(2.7));
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let appearance = steel(&pair, "rho");
+
     pair.document.apply(set(&pair, appearance)).unwrap();
 
     let users = pair.document.parameter_users(density);
@@ -162,10 +179,14 @@ fn a_density_parameter_counts_as_used_and_cannot_be_deleted() {
 #[test]
 fn an_appearance_naming_a_missing_parameter_is_refused() {
     let mut pair = pair();
+
     let mut other = pair.document.clone();
+
     let mut transaction = other.transaction("Add density");
+
     transaction.add_parameter("rho", Expression::Number(2.7));
     other.apply(transaction.finish()).unwrap();
+
     let appearance = BodyAppearance {
         density: Some(other.parse("rho").unwrap()),
         ..BodyAppearance::default()
@@ -179,11 +200,15 @@ fn an_appearance_naming_a_missing_parameter_is_refused() {
 #[test]
 fn deleting_and_restoring_a_body_keeps_its_appearance() {
     let mut pair = pair();
+
     let appearance = steel(&pair, "7.85");
+
     pair.document.apply(set(&pair, appearance.clone())).unwrap();
+
     let deletion = pair.document.deletion(&[pair.plate], "Delete");
 
     let inverse = pair.document.apply(deletion).unwrap();
+
     pair.document.apply(inverse).unwrap();
 
     assert_eq!(
@@ -212,6 +237,7 @@ fn mass_is_the_volume_times_the_density_in_grams() {
 fn a_density_that_is_not_a_plain_positive_number_says_why() {
     let pair = pair();
     let values = ParameterValues::evaluate(&pair.document);
+
     let density = |text: &str| steel(&pair, text).density_value(&values).unwrap();
 
     assert_eq!(density("0"), Err(DensityError::NotAboveZero(0.0)));
@@ -224,9 +250,12 @@ fn a_density_that_is_not_a_plain_positive_number_says_why() {
 #[test]
 fn a_density_follows_its_parameter() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Add density");
+
     transaction.add_parameter("rho", Expression::Number(2.7));
     pair.document.apply(transaction.finish()).unwrap();
+
     let appearance = steel(&pair, "rho * 2");
     let values = ParameterValues::evaluate(&pair.document);
 
@@ -244,13 +273,16 @@ fn a_body_may_be_see_through_down_to_a_tenth_and_full_opacity_is_stored_as_none(
     };
 
     pair.document.apply(set(&pair, faded(40))).unwrap();
+
     let kept = pair
         .document
         .feature(pair.plate)
         .unwrap()
         .appearance
         .opacity;
+
     pair.document.apply(set(&pair, faded(100))).unwrap();
+
     let solid = pair
         .document
         .feature(pair.plate)
@@ -300,6 +332,7 @@ fn a_face_more_than_opaque_is_held_opaque_and_an_inserted_body_settles_its_appea
     pair.document
         .apply(set(&pair, past_opaque.clone()))
         .unwrap();
+
     let set_appearance = pair
         .document
         .feature(pair.plate)
@@ -307,11 +340,16 @@ fn a_face_more_than_opaque_is_held_opaque_and_an_inserted_body_settles_its_appea
         .appearance
         .clone();
     let mut copy = pair.document.feature(pair.plate).unwrap().clone();
+
     copy.appearance = past_opaque;
     copy.name = "Plate copy".to_owned();
+
     let mut transaction = pair.document.transaction("Copy");
+
     let copied = transaction.add_copied_feature(copy);
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let inserted = &pair.document.feature(copied).unwrap().appearance;
 
     assert_eq!(set_appearance.opacity, None);
@@ -352,6 +390,7 @@ fn a_face_colour_opacity_and_finish_follow_the_face_into_every_fragment_a_later_
 
     let mut pair = pair();
     let mut engine = Recompute::default();
+
     let before = evaluate(&pair.document, &mut engine);
     let solid = before.body(pair.plate).unwrap();
     let top = solid
@@ -365,6 +404,7 @@ fn a_face_colour_opacity_and_finish_follow_the_face_into_every_fragment_a_later_
         .map(|(id, _)| id)
         .unwrap();
     let red = Rgb::new(200, 64, 52);
+
     let appearance = BodyAppearance {
         faces: vec![FaceColour {
             face: FaceReference::capture(solid, top).unwrap(),
@@ -374,12 +414,16 @@ fn a_face_colour_opacity_and_finish_follow_the_face_into_every_fragment_a_later_
         }],
         ..BodyAppearance::default()
     };
+
     pair.document.apply(set(&pair, appearance)).unwrap();
+
     let mut transaction = pair.document.transaction("Slot");
+
     let slot = transaction.add_feature(
         "Slot sketch",
         FeatureKind::from(rectangle((8.0, -1.0), (12.0, 11.0))),
     );
+
     transaction.add_feature(
         "Slot",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -398,6 +442,7 @@ fn a_face_colour_opacity_and_finish_follow_the_face_into_every_fragment_a_later_
 
     let after = evaluate(&pair.document, &mut engine);
     let appearance = &pair.document.feature(pair.plate).unwrap().appearance;
+
     let coloured = appearance.face_colours(after.body(pair.plate).unwrap(), &FaceSplits::default());
     let see_through =
         appearance.face_opacities(after.body(pair.plate).unwrap(), &FaceSplits::default());

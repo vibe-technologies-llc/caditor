@@ -2,7 +2,7 @@ use thiserror::Error;
 
 use crate::tolerance::{LINEAR_RESOLUTION, MAX_SIZE};
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum GeometryError {
     #[error("a coordinate or parameter is not finite")]
     NonFinite,

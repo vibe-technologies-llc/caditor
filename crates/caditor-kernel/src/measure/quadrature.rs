@@ -39,7 +39,7 @@ const MAX_DEPTH: usize = 30;
 const KRONROD_EVALUATIONS: usize = 15;
 const MAX_STEPS: usize = 4096;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Tolerance {
     pub(crate) relative: f64,
     pub(crate) scales: Values,
@@ -74,12 +74,13 @@ impl Budget {
 
     fn spend(&self, evaluations: usize) -> bool {
         let left = self.0.get();
+
         self.0.set(left.saturating_sub(evaluations));
         left >= evaluations
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Quadrature {
     pub(crate) values: Values,
     pub(crate) converged: bool,
@@ -107,6 +108,7 @@ fn estimate(piece: Interval, integrand: &mut impl FnMut(f64) -> Values) -> Estim
     let mut kronrod = [0.0; COMPONENTS];
     let mut gauss = [0.0; COMPONENTS];
     let mut magnitude = [0.0; COMPONENTS];
+
     for ((node, kronrod_weight), gauss_weight) in
         KRONROD_NODES.iter().zip(KRONROD_WEIGHTS).zip(GAUSS_WEIGHTS)
     {
@@ -115,11 +117,13 @@ fn estimate(piece: Interval, integrand: &mut impl FnMut(f64) -> Values) -> Estim
             add(&mut gauss, &values, gauss_weight);
             add(&mut magnitude, &values.map(f64::abs), kronrod_weight);
         };
+
         take(integrand(middle + half * node));
         if *node != 0.0 {
             take(integrand(middle - half * node));
         }
     }
+
     let error = std::array::from_fn(|index| {
         let kronrod = kronrod.get(index).copied().unwrap_or(0.0);
         let gauss = gauss.get(index).copied().unwrap_or(0.0);
@@ -145,8 +149,10 @@ pub(crate) fn integrate(
         .filter(|piece| piece.length() > 0.0)
         .map(|piece| (piece, 0))
         .collect();
+
     let width: f64 = pending.iter().map(|(piece, _)| piece.length()).sum();
     let mut peak_density: Values = [0.0; COMPONENTS];
+
     while let Some((piece, depth)) = pending.pop() {
         if !budget.spend(KRONROD_EVALUATIONS) {
             return Quadrature {
@@ -154,8 +160,10 @@ pub(crate) fn integrate(
                 converged: false,
             };
         }
+
         let found = estimate(piece, &mut integrand);
         let finite = found.kronrod.iter().all(|value| value.is_finite());
+
         if !finite {
             return Quadrature {
                 values,
@@ -165,6 +173,7 @@ pub(crate) fn integrate(
         for (peak, magnitude) in peak_density.iter_mut().zip(&found.magnitude) {
             *peak = peak.max(magnitude / piece.length());
         }
+
         let noise = peak_density.map(|density| density * piece.length());
         let accepted = tolerance.accepts(
             &found.error,
@@ -197,6 +206,7 @@ pub(crate) fn pieces(range: Interval, breaks: impl IntoIterator<Item = f64>) -> 
         .into_iter()
         .filter(|parameter| *parameter > range.start() && *parameter < range.end())
         .collect();
+
     ends.sort_by(f64::total_cmp);
     ends.insert(0, range.start());
     ends.push(range.end());
@@ -211,6 +221,7 @@ pub(crate) fn pieces(range: Interval, breaks: impl IntoIterator<Item = f64>) -> 
 pub(crate) fn steps(range: Interval, step: f64) -> impl Iterator<Item = f64> {
     let first = (range.start() / step).ceil();
     let last = (range.end() / step).floor();
+
     let count = if last >= first {
         (last - first) as usize + 1
     } else {

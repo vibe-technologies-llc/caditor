@@ -15,7 +15,7 @@ use crate::{
 pub const NOTHING_TO_REVERSE: &str = "Only an extrusion, revolve, hole, primitive, pattern, \
                                       mate, split, coil, helix or rib has a direction to reverse";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ReverseError {
     #[error("{}", NOTHING_TO_REVERSE)]
     NothingToReverse,
@@ -57,6 +57,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, ReverseError> {
     match &feature.kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
             let mut extrude = extrude.clone();
+
             match &mut extrude.extent {
                 ExtrudeExtent::OneSide { reversed, .. } => *reversed = !*reversed,
                 ExtrudeExtent::Symmetric { .. } | ExtrudeExtent::TwoSides { .. } => {
@@ -67,6 +68,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, ReverseError> {
         }
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
             let mut revolve = revolve.clone();
+
             match &mut revolve.extent {
                 RevolveExtent::OneSide { reversed, .. }
                 | RevolveExtent::UpTo { reversed, .. }
@@ -93,6 +95,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, ReverseError> {
         FeatureKind::Loft(_) => Err(ReverseError::LoftInOrder { name: name() }),
         FeatureKind::Hole(hole) => {
             let mut hole = hole.clone();
+
             hole.reversed = !hole.reversed;
             Ok(FeatureKind::Hole(hole))
         }
@@ -100,12 +103,15 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, ReverseError> {
             if primitive.anchor == PrimitiveAnchor::Centre {
                 return Err(ReverseError::PrimitiveCentred { name: name() });
             }
+
             let mut primitive = primitive.clone();
+
             primitive.reversed = !primitive.reversed;
             Ok(FeatureKind::Primitive(primitive))
         }
         FeatureKind::Pattern(pattern) => {
             let mut pattern = pattern.clone();
+
             match &mut pattern.kind {
                 PatternKind::Linear { first, .. } => first.reversed = !first.reversed,
                 PatternKind::Circular(circular) => circular.reversed = !circular.reversed,
@@ -121,11 +127,13 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, ReverseError> {
         }
         FeatureKind::Mate(mate) => {
             let mut mate = mate.clone();
+
             mate.flipped = !mate.flipped;
             Ok(FeatureKind::Mate(mate))
         }
         FeatureKind::Split(split) => {
             let mut split = split.clone();
+
             split.flipped = !split.flipped;
             Ok(FeatureKind::Split(split))
         }
@@ -166,7 +174,7 @@ pub fn reverse_change(document: &Document, feature: &Feature) -> Result<Transact
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Flip {
     Reversed,
     ToRemove,
@@ -182,6 +190,7 @@ impl Flip {
         let (Some(was), Some(is)) = (direction(before), direction(after)) else {
             return None;
         };
+
         if was == is {
             return None;
         }
@@ -231,10 +240,13 @@ pub fn unsigned(parameters: &ParameterValues, distance: Expression) -> (Expressi
 
 pub fn flipped_extrude(extrude: &Extrude) -> Extrude {
     let mut flipped = extrude.clone();
+
     let ExtrudeExtent::OneSide { reversed, .. } = &mut flipped.extent else {
         return flipped;
     };
+
     *reversed = !*reversed;
+
     let operation = match extrude.operation {
         BodyOperation::Add(body) => BodyOperation::Remove(body),
         BodyOperation::Remove(body) => BodyOperation::Add(body),
@@ -275,6 +287,7 @@ pub fn announcement(document: &Document, transaction: &Transaction) -> Option<No
         let Some(SolidFeature::Extrude(before)) = owner.kind.solid() else {
             return None;
         };
+
         let flip = Flip::between(before, after)?;
         Some(Notice::info(format!(
             "{}: {}; a negative distance {}",
@@ -397,6 +410,7 @@ mod tests {
     fn a_symmetric_or_two_sided_extrusion_is_never_flipped() {
         let body = FeatureId::from_raw(2);
         let five = Expression::measure(5.0, Unit::Millimetre);
+
         let symmetric = extrude(
             ExtrudeExtent::Symmetric {
                 distance: five.clone(),

@@ -66,6 +66,7 @@ fn appended(features: &[Arc<Feature>]) -> Document {
             feature: Arc::clone(feature),
         })
         .collect();
+
     document.apply(Transaction::new("Load", inserts)).unwrap();
     document
 }

@@ -24,6 +24,7 @@ fn button_in(harness: &mut Harness, area: Rect, name: &str) -> Rect {
 #[test]
 fn sweep_has_a_button_in_the_solid_group_and_a_row_in_the_model_menu() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     let revolve = harness.button_rect("Revolve");
@@ -34,10 +35,13 @@ fn sweep_has_a_button_in_the_solid_group_and_a_row_in_the_model_menu() {
     assert!(ribbon(&harness).contains_rect(sweep));
 
     harness.hover(sweep_tools::TITLE);
+
     assert!(harness.shows_containing(toolbar::SWEEP_HOVER));
 
     harness.click("Model");
+
     let row = |label: &str| lowest_in(&harness, Rect::EVERYTHING, label).y;
+
     assert_eq!(harness.count_shown(sweep_tools::TITLE), 2);
     assert!(row("Revolve") < row(sweep_tools::TITLE));
     assert!(row(sweep_tools::TITLE) < row("Hole"));
@@ -46,23 +50,30 @@ fn sweep_has_a_button_in_the_solid_group_and_a_row_in_the_model_menu() {
 #[test]
 fn the_sketch_bar_undoes_and_redoes_the_last_change() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::P);
     harness.click_at(Point2::new(10.0, 10.0));
     harness.settle();
+
     let points = |harness: &Harness| entities_of_kind(harness.sketch(feature), "Point").len();
     let bar = sketch_bar(&harness);
 
     assert_eq!(points(&harness), 1);
 
     let undo = button_in(&mut harness, bar, "Undo");
+
     harness.click_screen(undo.center());
     harness.settle();
+
     assert_eq!(points(&harness), 0);
 
     let redo = button_in(&mut harness, bar, "Redo");
+
     harness.click_screen(redo.center());
     harness.settle();
+
     assert_eq!(points(&harness), 1);
     assert_eq!(harness.editing(), Some(feature));
 }
@@ -70,7 +81,9 @@ fn the_sketch_bar_undoes_and_redoes_the_last_change() {
 #[test]
 fn sketch_chamfer_has_its_own_button_beside_sketch_fillet() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
+
     let bar = sketch_bar(&harness);
 
     let fillet = button_in(&mut harness, bar, Tool::Fillet.label());
@@ -81,19 +94,24 @@ fn sketch_chamfer_has_its_own_button_beside_sketch_fillet() {
 
     harness.click_screen(chamfer.center());
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::Chamfer));
 }
 
 #[test]
 fn a_corner_menu_lists_the_tools_it_holds_on_hover() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
 
     let partners = &sketch_toolbar::CURVE_FROM_GEOMETRY_TOOLS;
+
     harness.hover_button(partners.name);
+
     let contents = partners.contents();
 
     assert!(harness.shows(&contents), "{contents}");
+
     for tool in partners.tools() {
         assert!(contents.contains(tool.label()), "{contents}");
     }
@@ -146,9 +164,11 @@ fn ribbon_layout(harness: &Harness) -> Vec<Pos2> {
 #[test]
 fn every_ribbon_group_is_captioned_under_its_buttons() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     let bar = ribbon(&harness);
+
     for (caption, buttons) in RIBBON_GROUPS {
         let below = lowest_in(&harness, bar, caption);
         let rects: Vec<Rect> = buttons
@@ -171,6 +191,7 @@ fn every_ribbon_group_is_captioned_under_its_buttons() {
         );
     }
     harness.hover("Undo");
+
     assert_eq!(harness.count_shown("Undo"), 2);
     assert!(harness.shows("Nothing to undo (Ctrl+Z)"));
 }
@@ -178,6 +199,7 @@ fn every_ribbon_group_is_captioned_under_its_buttons() {
 #[test]
 fn a_tool_that_cannot_run_still_names_its_keys_beside_the_reason() {
     let mut harness = Harness::new();
+
     harness.frame();
 
     harness.hover("Fillet");
@@ -189,18 +211,22 @@ fn a_tool_that_cannot_run_still_names_its_keys_beside_the_reason() {
 #[test]
 fn the_ribbon_keeps_its_height_and_groups_while_choosing_a_plane() {
     let mut harness = Harness::new();
+
     harness.frame();
+
     let bar = ribbon(&harness);
     let layout = ribbon_layout(&harness);
 
     harness.click(toolbar::NEW_SKETCH_LABEL);
     harness.frame();
+
     assert!(harness.workspace.editing.is_choosing_plane());
     assert_eq!(ribbon(&harness), bar);
     assert_eq!(ribbon_layout(&harness), layout);
 
     harness.click(toolbar::NEW_SKETCH_LABEL);
     harness.frame();
+
     assert!(!harness.workspace.editing.is_choosing_plane());
     assert_eq!(ribbon(&harness), bar);
 }
@@ -208,7 +234,9 @@ fn the_ribbon_keeps_its_height_and_groups_while_choosing_a_plane() {
 #[test]
 fn the_arc_button_offers_each_way_to_draw_an_arc_and_keeps_the_last_chosen() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
+
     let bar = sketch_bar(&harness);
 
     harness.click_button(sketch_toolbar::ARC_WAYS_LABEL);
@@ -217,20 +245,29 @@ fn the_arc_button_offers_each_way_to_draw_an_arc_and_keeps_the_last_chosen() {
     }
     harness.click("Tangent arc");
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::TangentArc));
 
     harness.use_tool(Key::L);
+
     assert_eq!(harness.tool(), Some(Tool::Line));
+
     harness.click_button(sketch_toolbar::ARC_LABEL);
     harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::TangentArc));
     assert!(!harness.shows("3-point arc"));
 
     harness.use_tool_with(Key::A, Modifiers::ALT);
+
     assert_eq!(harness.tool(), Some(Tool::ThreePointArc));
+
     harness.use_tool(Key::A);
+
     assert_eq!(harness.tool(), Some(Tool::Arc));
+
     harness.use_tool(Key::T);
+
     assert_eq!(harness.tool(), Some(Tool::TangentArc));
     assert_eq!(sketch_bar(&harness), bar);
 }

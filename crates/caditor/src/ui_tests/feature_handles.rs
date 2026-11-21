@@ -58,6 +58,7 @@ fn hold_at(harness: &mut Harness, from: Pos2, to: Pos2) {
     harness.frame();
     for step in 1..=4 {
         let position = from + (to - from) * (step as f32 / 4.0);
+
         harness.events.push(Event::PointerMoved(position));
         harness.frame();
     }
@@ -78,6 +79,7 @@ fn release_at(harness: &mut Harness, to: Pos2) {
 fn filleted_plate(harness: &mut Harness) -> FeatureId {
     let (plate, _) = extruded_plate(harness);
     let front = top_edge_along_x(harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
@@ -91,20 +93,25 @@ fn filleted_plate(harness: &mut Harness) -> FeatureId {
 #[test]
 fn dragging_a_fillet_s_arrow_changes_its_radius_and_its_field_follows_the_drag() {
     let mut harness = Harness::new();
+
     let fillet = filleted_plate(&mut harness);
     let before = value_of(&harness, &blend_of(&harness, fillet).size);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let handle = Handle::Value(Measured::BlendSize);
     let from = grip(&mut harness, handle, 0.0);
     let to = grip(&mut harness, handle, 2.0);
     let step = harness.workspace.viewport.manipulator_step().unwrap();
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
 
     assert!(harness.shows("Drag to change the fillet's radius"));
 
     hold_at(&mut harness, from, to);
+
     let FeatureKind::Blend(drafted) = harness.model.draft_kind(fillet).unwrap().clone() else {
         panic!("the draft stays a fillet");
     };
@@ -112,12 +119,14 @@ fn dragging_a_fillet_s_arrow_changes_its_radius_and_its_field_follows_the_drag()
         feature: fillet,
         value: "Radius".to_owned(),
     };
+
     let shown = field::value_text(harness.document(), &owner, &drafted.size);
 
     assert!(harness.shows(&shown), "the Radius field shows {shown}");
     assert!(harness.shows_containing("Radius "));
 
     release_at(&mut harness, to);
+
     let after = value_of(&harness, &blend_of(&harness, fillet).size);
     let per_radius = std::f64::consts::SQRT_2 - 1.0;
 
@@ -131,11 +140,14 @@ fn dragging_a_fillet_s_arrow_changes_its_radius_and_its_field_follows_the_drag()
 #[test]
 fn dragging_a_shell_s_arrow_changes_its_thickness() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Shell");
     harness.settle();
     harness.select([]);
+
     let shell = open_feature(&harness);
     let thickness = |harness: &Harness| {
         let FeatureKind::Shell(shell) = kind_of(harness, shell) else {
@@ -159,14 +171,18 @@ fn dragging_a_shell_s_arrow_changes_its_thickness() {
 fn dragging_a_thin_wall_s_arrow_changes_its_thickness() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = open_feature(&harness);
+
     harness.click("Thin wall");
     harness.settle();
+
     let thickness = |harness: &Harness| {
         let FeatureKind::Solid(solid) = kind_of(harness, extrude) else {
             panic!("the extrusion stays an extrusion");
@@ -189,11 +205,13 @@ fn dragging_a_thin_wall_s_arrow_changes_its_thickness() {
 fn dragging_an_extrusion_s_taper_arrow_sets_a_taper_from_none() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = open_feature(&harness);
     let taper = |harness: &Harness| {
         let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = kind_of(harness, extrude) else {
@@ -212,6 +230,7 @@ fn dragging_an_extrusion_s_taper_arrow_sets_a_taper_from_none() {
     assert_eq!(taper(&harness), None);
 
     drag_value_arrow(&mut harness, Measured::Taper, 2.0);
+
     let found = taper(&harness).expect("the drag set a taper");
 
     assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
@@ -221,11 +240,14 @@ fn dragging_an_extrusion_s_taper_arrow_sets_a_taper_from_none() {
 #[test]
 fn dragging_a_hole_s_diameter_arrow_makes_it_a_custom_size() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
     harness.select([]);
+
     let hole = open_feature(&harness);
     let diameter = |harness: &Harness| {
         let hole = kind_of(harness, hole).hole().unwrap();
@@ -247,13 +269,16 @@ fn dragging_a_hole_s_diameter_arrow_makes_it_a_custom_size() {
 #[test]
 fn a_hole_zoomed_out_leaves_out_the_value_arrows_its_place_arrows_would_cover() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
     harness.select([]);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let diameter = Handle::Value(Measured::HoleDiameter);
     let along_x = Handle::Place(PlaceGrip::AlongX);
     let shown = |harness: &Harness, handle: Handle| {
@@ -280,11 +305,13 @@ fn a_hole_zoomed_out_leaves_out_the_value_arrows_its_place_arrows_would_cover() 
 #[test]
 fn dragging_a_box_s_arrows_changes_its_length_and_height() {
     let mut harness = Harness::new();
+
     harness.select([]);
     harness.use_tool_with(Key::B, Modifiers::ALT);
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let feature = open_feature(&harness);
     let sizes = |harness: &Harness| -> Vec<f64> {
         primitive_of(harness, feature)
@@ -298,7 +325,9 @@ fn dragging_a_box_s_arrows_changes_its_length_and_height() {
 
     let step = drag_value_arrow(&mut harness, Measured::PrimitiveSize(2), 5.0);
     let taller = sizes(&harness);
+
     drag_value_arrow(&mut harness, Measured::PrimitiveSize(0), 3.0);
+
     let longer = sizes(&harness);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Box 1"));
@@ -316,12 +345,16 @@ fn dragging_a_box_s_arrows_changes_its_length_and_height() {
 #[test]
 fn dragging_a_linear_pattern_s_one_arrow_changes_its_spacing_and_keeps_its_count() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.click("Linear pattern");
     harness.settle();
+
     let pattern = open_feature(&harness);
+
     run_from_palette(&mut harness, "Fit view");
+
     let first = |harness: &Harness| {
         let FeatureKind::Pattern(pattern) = kind_of(harness, pattern) else {
             panic!("the pattern stays a pattern");
@@ -360,16 +393,21 @@ fn dragging_a_linear_pattern_s_one_arrow_changes_its_spacing_and_keeps_its_count
 fn hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = open_feature(&harness);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let only = Handle::Reach(Reach::Only);
     let at = grip(&mut harness, only, 0.0);
+
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     harness.frame();
@@ -377,6 +415,7 @@ fn hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first() {
     harness.type_text("25");
 
     assert!(harness.shows("Distance"));
+
     let Some(FeatureKind::Solid(SolidFeature::Extrude(drafted))) =
         harness.model.draft_kind(extrude).cloned()
     else {
@@ -389,11 +428,13 @@ fn hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first() {
     else {
         panic!("the preview keeps one distance");
     };
+
     assert_eq!(value_of(&harness, previewed), 25.0);
 
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     let FeatureKind::Solid(SolidFeature::Extrude(entered)) = kind_of(&harness, extrude) else {
         panic!("the extrusion stays an extrusion");
     };
@@ -411,12 +452,15 @@ fn hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first() {
 
 fn open_new_extrusion(harness: &mut Harness) -> FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = open_feature(harness);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     extrude
@@ -439,13 +483,16 @@ fn one_sided(harness: &Harness, extrude: FeatureId) -> (bool, f64) {
 #[test]
 fn a_value_typed_with_no_arrow_under_the_pointer_sets_the_open_feature_s_main_value() {
     let mut harness = Harness::new();
+
     let extrude = open_new_extrusion(&mut harness);
     let hinted = harness.shows("an arrow to change its value")
         && harness.shows("set Distance")
         && harness.shows("done");
 
     harness.type_text("25");
+
     let previewed = harness.model.draft_kind(extrude).is_some();
+
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
@@ -458,7 +505,9 @@ fn a_value_typed_with_no_arrow_under_the_pointer_sets_the_open_feature_s_main_va
 #[test]
 fn a_value_typed_while_a_fillet_is_open_sets_its_radius() {
     let mut harness = Harness::new();
+
     let fillet = filleted_plate(&mut harness);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
 
@@ -476,8 +525,10 @@ fn a_value_typed_while_a_fillet_is_open_sets_its_radius() {
 #[test]
 fn a_digit_bound_to_a_command_runs_it_and_types_nothing_into_the_open_feature() {
     let mut harness = Harness::new();
+
     let extrude = open_new_extrusion(&mut harness);
     let bound = egui::KeyboardShortcut::new(Modifiers::NONE, Key::Num5);
+
     harness
         .workspace
         .preferences
@@ -488,7 +539,9 @@ fn a_digit_bound_to_a_command_runs_it_and_types_nothing_into_the_open_feature() 
     harness.events.push(Event::Text("5".to_owned()));
     harness.frame();
     harness.frame();
+
     let typed = harness.model.draft_kind(extrude).is_some();
+
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
@@ -500,13 +553,16 @@ fn a_digit_bound_to_a_command_runs_it_and_types_nothing_into_the_open_feature() 
 #[test]
 fn a_negative_value_typed_over_an_arrow_reverses_the_extrusion_and_is_previewed_first() {
     let mut harness = Harness::new();
+
     let extrude = open_new_extrusion(&mut harness);
     let at = grip(&mut harness, Handle::Reach(Reach::Only), 0.0);
+
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     harness.frame();
 
     harness.type_text("-5");
+
     let Some(FeatureKind::Solid(SolidFeature::Extrude(drafted))) =
         harness.model.draft_kind(extrude).cloned()
     else {
@@ -541,14 +597,17 @@ fn a_negative_value_typed_over_an_arrow_reverses_the_extrusion_and_is_previewed_
 #[test]
 fn dragging_an_arrow_back_through_the_start_reverses_the_extrusion() {
     let mut harness = Harness::new();
+
     let extrude = open_new_extrusion(&mut harness);
     let only = Handle::Reach(Reach::Only);
     let from = grip(&mut harness, only, 0.0);
     let to = grip(&mut harness, only, -30.0);
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
 
     hold_at(&mut harness, from, to);
+
     let Some(FeatureKind::Solid(SolidFeature::Extrude(drafted))) =
         harness.model.draft_kind(extrude).cloned()
     else {
@@ -562,6 +621,7 @@ fn dragging_an_arrow_back_through_the_start_reverses_the_extrusion() {
     assert!(harness.shows_containing("reversed"));
 
     release_at(&mut harness, to);
+
     let (reversed, distance) = one_sided(&harness, extrude);
 
     assert!(reversed);
@@ -579,16 +639,21 @@ fn dragging_an_arrow_back_through_the_start_reverses_the_extrusion() {
 fn a_value_typed_over_a_handle_is_refused_where_its_panel_field_would_refuse_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = open_feature(&harness);
     let before = harness.model.undo_label().map(str::to_owned);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let at = grip(&mut harness, Handle::Reach(Reach::Only), 0.0);
+
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     harness.frame();
@@ -597,6 +662,7 @@ fn a_value_typed_over_a_handle_is_refused_where_its_panel_field_would_refuse_it(
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     let FeatureKind::Solid(SolidFeature::Extrude(kept)) = kind_of(&harness, extrude) else {
         panic!("the extrusion stays an extrusion");
     };
@@ -614,13 +680,18 @@ fn a_value_typed_over_a_handle_is_refused_where_its_panel_field_would_refuse_it(
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 
     let mut harness = Harness::new();
+
     let fillet = filleted_plate(&mut harness);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let at = grip(&mut harness, Handle::Value(Measured::BlendSize), 0.0);
+
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     harness.frame();
+
     let radius = value_of(&harness, &blend_of(&harness, fillet).size);
 
     harness.type_text("0");
@@ -637,14 +708,18 @@ fn a_value_typed_over_a_handle_is_refused_where_its_panel_field_would_refuse_it(
 fn a_dragged_extrusion_keeps_its_last_preview_drawn_while_the_next_one_computes() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = open_feature(&harness);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let only = Handle::Reach(Reach::Only);
     let from = grip(&mut harness, only, 0.0);
     let pulled = grip(&mut harness, only, 5.0);
@@ -654,7 +729,9 @@ fn a_dragged_extrusion_keeps_its_last_preview_drawn_while_the_next_one_computes(
     harness.wait_until("the first preview is drawn", |harness| {
         harness.model.draft_body_result().is_some()
     });
+
     let first = harness.model.draft_kind(extrude).cloned();
+
     harness.events.push(Event::PointerMoved(further));
     harness.frame();
 
@@ -669,19 +746,27 @@ fn a_dragged_extrusion_keeps_its_last_preview_drawn_while_the_next_one_computes(
 #[test]
 fn an_extrusion_arrow_dropped_on_a_corner_of_another_body_stops_level_with_it() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
+
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(60.0, 0.0), Point2::new(80.0, 20.0));
+
     let second = harness.add_sketch(sketch);
+
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = open_feature(&harness);
+
     harness.type_into_field(Id::unique(("solid-field", "distance", extrude)), "25");
     harness.settle();
     run_from_palette(&mut harness, "Fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let only = Handle::Reach(Reach::Only);
     let from = grip(&mut harness, only, 0.0);
     let corner = harness
@@ -695,6 +780,7 @@ fn an_extrusion_arrow_dropped_on_a_corner_of_another_body_stops_level_with_it() 
     assert!(harness.shows_containing("to a corner"));
 
     release_at(&mut harness, corner);
+
     let FeatureKind::Solid(SolidFeature::Extrude(dragged)) = kind_of(&harness, extrude) else {
         panic!("the extrusion stays an extrusion");
     };
@@ -713,9 +799,11 @@ fn an_extrusion_arrow_dropped_on_a_corner_of_another_body_stops_level_with_it() 
 #[test]
 fn dragging_a_rotated_plane_s_turn_arrow_changes_its_angle() {
     let mut harness = Harness::new();
+
     harness.select([Pickable::Plane(PrincipalPlane::Xy), Pickable::Axis(Axis::X)]);
     harness.click("Plane");
     harness.settle();
+
     let plane = open_feature(&harness);
     let angle = |harness: &Harness| {
         let Some(Datum::Plane(definition)) = kind_of(harness, plane).datum() else {
@@ -733,6 +821,7 @@ fn dragging_a_rotated_plane_s_turn_arrow_changes_its_angle() {
     let before = angle(&harness).expect("the plane turns about X");
 
     drag_value_arrow(&mut harness, Measured::PlaneAngle, 20.0);
+
     let after = angle(&harness).unwrap();
 
     assert_eq!(harness.model.undo_label(), Some("Edit Plane 1"));
@@ -742,11 +831,13 @@ fn dragging_a_rotated_plane_s_turn_arrow_changes_its_angle() {
 #[test]
 fn a_cylinder_s_arrow_drags_its_diameter_and_keeps_its_height() {
     let mut harness = Harness::new();
+
     harness.select([]);
     harness.use_tool_with(Key::Y, Modifiers::ALT);
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let feature = open_feature(&harness);
     let sizes = |harness: &Harness| {
         let PrimitiveShape::Cylinder { diameter, height } = &primitive_of(harness, feature).shape
@@ -770,6 +861,7 @@ fn a_cylinder_s_arrow_drags_its_diameter_and_keeps_its_height() {
 #[test]
 fn dragging_a_circular_pattern_s_turn_arrows_adds_copies_and_changes_its_angle() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.click("Circular pattern");
@@ -778,6 +870,7 @@ fn dragging_a_circular_pattern_s_turn_arrows_adds_copies_and_changes_its_angle()
     harness.frame();
     harness.click_pickable(Plane::XY, Point2::new(0.0, 0.0), Pickable::Axis(Axis::Z));
     harness.settle();
+
     let pattern = open_feature(&harness);
     let read = |harness: &Harness| {
         let FeatureKind::Pattern(pattern) = kind_of(harness, pattern) else {
@@ -801,6 +894,7 @@ fn dragging_a_circular_pattern_s_turn_arrows_adds_copies_and_changes_its_angle()
     let (count, angle) = read(&harness);
 
     drag_value_arrow(&mut harness, Measured::CircularCount, 0.7 * angle / count);
+
     let (more, same) = read(&harness);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Circular pattern 1"));
@@ -808,6 +902,7 @@ fn dragging_a_circular_pattern_s_turn_arrows_adds_copies_and_changes_its_angle()
     assert_eq!(same, angle);
 
     drag_value_arrow(&mut harness, Measured::CircularAngle, -30.0);
+
     let (_, narrower) = read(&harness);
 
     assert!((narrower - 330.0).abs() <= 5.0, "{angle} to {narrower}");
@@ -816,24 +911,31 @@ fn dragging_a_circular_pattern_s_turn_arrows_adds_copies_and_changes_its_angle()
 #[test]
 fn dragging_the_arrow_past_an_up_to_face_end_sets_its_offset() {
     let mut harness = Harness::new();
+
     harness.select([]);
     harness.click("Plane");
     harness.settle();
+
     let plane = open_feature(&harness);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = open_feature(&harness);
     let FeatureKind::Solid(SolidFeature::Extrude(mut definition)) =
         kind_of(&harness, extrude).clone()
     else {
         panic!("an extrusion is open");
     };
+
     definition.extent = ExtrudeExtent::OneSide {
         end: ExtrudeEnd::up_to_face(PlaneReference::Datum(plane)),
         reversed: false,
@@ -846,6 +948,7 @@ fn dragging_the_arrow_past_an_up_to_face_end_sets_its_offset() {
         },
     )));
     harness.settle();
+
     let offset = |harness: &Harness| {
         let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = kind_of(harness, extrude) else {
             panic!("the extrusion stays an extrusion");
@@ -872,6 +975,7 @@ fn dragging_the_arrow_past_an_up_to_face_end_sets_its_offset() {
 fn drag_back_through(harness: &mut Harness, measured: Measured, along: f64, words: &str) -> f64 {
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let handle = Handle::Value(measured);
     let from = grip(harness, handle, 0.0);
     let to = grip(harness, handle, along);
@@ -888,12 +992,16 @@ fn drag_back_through(harness: &mut Harness, measured: Measured, along: f64, word
 #[test]
 fn dragging_a_linear_pattern_s_arrow_back_past_the_original_reverses_its_direction() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.click("Linear pattern");
     harness.settle();
+
     let pattern = open_feature(&harness);
+
     run_from_palette(&mut harness, "Fit view");
+
     let first = |harness: &Harness| {
         let FeatureKind::Pattern(pattern) = kind_of(harness, pattern) else {
             panic!("the pattern stays a pattern");
@@ -941,6 +1049,7 @@ fn dragging_a_linear_pattern_s_arrow_back_past_the_original_reverses_its_directi
 #[test]
 fn dragging_a_circular_pattern_s_angle_back_past_the_original_turns_it_the_other_way() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     harness.click("Circular pattern");
@@ -949,6 +1058,7 @@ fn dragging_a_circular_pattern_s_angle_back_past_the_original_turns_it_the_other
     harness.frame();
     harness.click_pickable(Plane::XY, Point2::new(0.0, 0.0), Pickable::Axis(Axis::Z));
     harness.settle();
+
     let pattern = open_feature(&harness);
     let read = |harness: &Harness| {
         let FeatureKind::Pattern(pattern) = kind_of(harness, pattern) else {
@@ -967,10 +1077,12 @@ fn dragging_a_circular_pattern_s_angle_back_past_the_original_turns_it_the_other
                 .value,
         )
     };
+
     run_from_palette(&mut harness, "Fit view");
     for _ in 0..5 {
         drag_value_arrow(&mut harness, Measured::CircularAngle, -60.0);
     }
+
     let (reversed, angle) = read(&harness);
 
     drag_back_through(
@@ -979,6 +1091,7 @@ fn dragging_a_circular_pattern_s_angle_back_past_the_original_turns_it_the_other
         -(angle + 20.0),
         "reversed",
     );
+
     let (flipped, turned) = read(&harness);
 
     assert!(!reversed);
@@ -991,11 +1104,13 @@ fn dragging_a_circular_pattern_s_angle_back_past_the_original_turns_it_the_other
 #[test]
 fn dragging_a_box_s_height_arrow_down_through_its_base_reverses_it() {
     let mut harness = Harness::new();
+
     harness.select([]);
     harness.use_tool_with(Key::B, Modifiers::ALT);
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let feature = open_feature(&harness);
     let read = |harness: &Harness| {
         let primitive = primitive_of(harness, feature);
@@ -1021,11 +1136,14 @@ fn dragging_a_box_s_height_arrow_down_through_its_base_reverses_it() {
 #[test]
 fn dragging_a_shell_s_arrow_back_through_its_face_moves_the_walls_outside() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Shell");
     harness.settle();
     harness.select([]);
+
     let shell = open_feature(&harness);
     let read = |harness: &Harness| {
         let FeatureKind::Shell(shell) = kind_of(harness, shell) else {
@@ -1056,7 +1174,9 @@ fn dragging_a_shell_s_arrow_back_through_its_face_moves_the_walls_outside() {
 fn an_extrusion_of_one_region_has_its_arrow_over_that_region_and_not_the_whole_sketch() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(200.0, 40.0));
+
     let circle = sketch.add_circle(Point2::new(20.0, 20.0), 8.0);
     let sketch = harness.add_sketch(sketch);
 
@@ -1066,6 +1186,7 @@ fn an_extrusion_of_one_region_has_its_arrow_over_that_region_and_not_the_whole_s
     }]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = open_feature(&harness);
 
     let lines = crate::reach_handles::reach_lines(&harness.model, extrude);

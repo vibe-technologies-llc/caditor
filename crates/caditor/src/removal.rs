@@ -14,7 +14,7 @@ pub const DESCRIPTION: &str =
     "Takes a body out of the model from here on; suppress or delete this to bring it back";
 const NOT_A_BODY: &str = "A body that is no longer there";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum RemovalError {
     #[error("The feature no longer exists")]
     FeatureGone,
@@ -26,6 +26,7 @@ pub fn create(document: &Document, body: FeatureId) -> Option<(Transaction, Stri
     let removed = document.body_name(body)?.into_owned();
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Remove {removed}"));
+
     transaction.add_feature(name.clone(), FeatureKind::Remove(Remove { body }));
     Some((transaction.finish(), name))
 }
@@ -36,11 +37,13 @@ pub fn create_actions(document: &Document, body: FeatureId) -> Vec<Action> {
             "That body no longer exists.",
         ))];
     };
+
     if let Err(error) = document.check(&transaction) {
         return vec![Action::Inform(Notice::warning(format!(
             "The body could not be removed: {error}."
         )))];
     }
+
     let removed = document.body_name(body).unwrap_or_default();
     vec![Action::ApplyTold {
         transaction,
@@ -77,9 +80,11 @@ pub fn show(
 ) {
     let document = model.document();
     let id = feature.id();
+
     widgets::properties(ui, ("remove-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         widgets::caption(ui, "Body");
+
         let current = document.body_label(remove.body);
         let selected = feature_fields::combo_text(ui, current.as_deref(), NOT_A_BODY);
         let chosen = feature_fields::combo(ui, Id::unique(("remove-body", id)), selected, || {
@@ -100,6 +105,7 @@ pub fn show(
                 })
                 .collect()
         });
+
         actions.extend(chosen);
         ui.end_row();
     });

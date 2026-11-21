@@ -5,13 +5,13 @@ use caditor_sketch::{EntityId, Faceting, Sketch, Text, TextAlign, TextSize, lett
 
 const MAX_BEZIER_STEPS: f64 = 64.0;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PlacedLetter {
     pub position: usize,
     pub segments: Vec<Segment>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PlacedText {
     pub letters: Vec<PlacedLetter>,
     pub missing: Vec<char>,
@@ -49,8 +49,10 @@ pub fn lettered_at(text: &Text, anchor: Point2, size: TextSize) -> Option<Placed
         TextAlign::Centre => Alignment::Centre,
         TextAlign::Right => Alignment::Right,
     };
+
     let lettered = lettered(&text.content, style, alignment).ok()?;
     let (sin, cos) = size.angle.to_radians().sin_cos();
+
     let place = |point: Point2| {
         anchor
             + Vector2::new(cos * point.x - sin * point.y, sin * point.x + cos * point.y)
@@ -98,6 +100,7 @@ fn faceted(segment: &Segment, faceting: Faceting) -> Vec<Point2> {
                     _ => 0.0,
                 })
                 .fold(0.0, larger);
+
             let deviation = bend * degree * (degree - 1.0).max(0.0) / 8.0;
             (deviation / faceting.chord())
                 .sqrt()

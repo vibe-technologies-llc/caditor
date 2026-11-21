@@ -25,6 +25,7 @@ pub(super) type Uses = BTreeMap<usize, Vec<(usize, Sense)>>;
 
 pub(super) fn uses(faces: &[KeptFace]) -> Uses {
     let mut uses: Uses = BTreeMap::new();
+
     for (index, face) in faces.iter().enumerate() {
         for coedge in face
             .fragment
@@ -47,6 +48,7 @@ pub(super) fn check_closed(
     for (piece, list) in uses(faces) {
         let forward = list.iter().filter(|(_, sense)| sense.is_same()).count();
         let backward = list.len() - forward;
+
         let failure = if forward != backward {
             BooleanError::Open(Box::default())
         } else if forward > 1 {
@@ -58,6 +60,7 @@ pub(super) fn check_closed(
             .iter()
             .filter_map(|(index, _)| faces.get(*index))
             .map(|face| face.key);
+
         return Err(failure.or_faces(keys).or_point(|| {
             let (curve, data) = arrangement.curve(piece)?;
             Some(curve.point(data.interval.middle()))
@@ -94,6 +97,7 @@ fn moved_onto_own_piece(
     (own, relation): (usize, Sense),
 ) -> Result<(), BooleanError> {
     let (curve, piece) = arrangement.curve(own).ok_or_else(BooleanError::split)?;
+
     for coedge in face
         .fragment
         .loops
@@ -111,6 +115,7 @@ fn moved_onto_own_piece(
         )
         .and_then(|pcurve| sharpened_to(pcurve, &face.surface, curve, coedge.pcurve.tolerance()))
         .map_err(BooleanError::unfitted)?;
+
         *coedge = Coedge {
             half_edge: HalfEdge::new(own, sense, Some(pcurve.start())),
             pcurve,
@@ -153,7 +158,9 @@ pub(super) fn heal(
 ) -> Result<Vec<KeptFace>, BooleanError> {
     part_seams(arrangement, &mut kept)?;
     check_closed(arrangement, &kept)?;
+
     let mut faces = merge_faces(arrangement, kept)?;
+
     heal_edges(arrangement, &mut faces)?;
     Ok(faces)
 }
@@ -183,13 +190,16 @@ fn merge_faces(
     faces: Vec<KeptFace>,
 ) -> Result<Vec<KeptFace>, Interrupted> {
     let mut parents: Vec<usize> = (0..faces.len()).collect();
+
     for list in uses(&faces).values() {
         let [(first, _), (second, _)] = list.as_slice() else {
             continue;
         };
+
         if first == second {
             continue;
         }
+
         let (Some(a), Some(b)) = (faces.get(*first), faces.get(*second)) else {
             continue;
         };
@@ -203,13 +213,18 @@ fn merge_faces(
             }
         }
     }
+
     let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+
     for index in 0..faces.len() {
         groups.entry(root(&parents, index)).or_default().push(index);
     }
+
     let mut merged = Vec::with_capacity(faces.len());
+
     for members in groups.values() {
         interrupt::check()?;
+
         let combined = if members.len() > 1 {
             merge_group(arrangement, &faces, members)
         } else {
@@ -235,6 +250,7 @@ fn merge_group(
 ) -> Option<Vec<KeptFace>> {
     let lead = faces.get(*members.first()?)?;
     let mut owners: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+
     for member in members {
         for coedge in faces
             .get(*member)?
@@ -249,18 +265,23 @@ fn merge_group(
                 .insert(*member);
         }
     }
+
     let mut half_edges = Vec::new();
     let lead_index = *members.first()?;
+
     for member in members {
         let face = faces.get(*member)?;
         for coedge in face.fragment.loops.iter().flat_map(|l| &l.coedges) {
             let internal = owners
                 .get(&coedge.half_edge.piece)
                 .is_some_and(|set| set.len() > 1);
+
             if internal {
                 continue;
             }
+
             let hint = (*member == lead_index).then(|| coedge.pcurve.start());
+
             half_edges.push(HalfEdge::new(
                 coedge.half_edge.piece,
                 coedge.half_edge.sense,
@@ -268,6 +289,7 @@ fn merge_group(
             ));
         }
     }
+
     let center = Aabb2::from_points(
         lead.fragment
             .loops
@@ -286,8 +308,11 @@ fn merge_group(
         .map(|members| fit_loop(arrangement, &chart, members))
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
+
     untangle(arrangement, &chart, &mut loops).ok()?;
+
     let mut fragments = group(&chart, loops).ok()?;
+
     sharpen(arrangement, &chart, &mut fragments).ok()?;
     Some(
         fragments
@@ -302,6 +327,7 @@ fn merge_group(
 
 fn incidence(arrangement: &Arrangement, faces: &[KeptFace]) -> BTreeMap<usize, BTreeSet<usize>> {
     let mut around: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+
     for coedge in faces
         .iter()
         .flat_map(|face| face.fragment.loops.iter())
@@ -326,6 +352,7 @@ fn face_users(uses: &Uses, piece: usize) -> Vec<usize> {
         .get(&piece)
         .map(|list| list.iter().map(|(face, _)| *face).collect())
         .unwrap_or_default();
+
     users.sort_unstable();
     users.dedup();
     users
@@ -360,6 +387,7 @@ impl Joints {
 
     fn joined(&mut self, arrangement: &Arrangement, joint: &Joint) {
         self.around.remove(&joint.vertex);
+
         let replaced: Vec<usize> = joint
             .pieces
             .iter()
@@ -367,10 +395,12 @@ impl Joints {
             .flat_map(|piece| [piece.start, piece.end])
             .filter(|vertex| *vertex != joint.vertex)
             .collect();
+
         for vertex in replaced {
             let Some(pieces) = self.around.get_mut(&vertex) else {
                 continue;
             };
+
             for piece in joint.pieces {
                 pieces.remove(&piece);
             }
@@ -381,8 +411,10 @@ impl Joints {
                 self.candidates.remove(&vertex);
             }
         }
+
         let [first, second] = joint.pieces;
         let inherited = self.uses.remove(&first).unwrap_or_default();
+
         self.uses.remove(&second);
         self.uses.insert(joint.merged, inherited);
     }
@@ -390,8 +422,10 @@ impl Joints {
 
 fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(), BooleanError> {
     let mut joints = Joints::new(arrangement, faces);
+
     while let Some((vertex, first, second)) = joints.next() {
         interrupt::check()?;
+
         let users = face_users(&joints.uses, first);
         let joinable = users == face_users(&joints.uses, second)
             && !at_pole(arrangement, faces, &users, vertex);
@@ -407,6 +441,7 @@ fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(
             pieces: [first, second],
             merged,
         };
+
         for index in &users {
             let Some(face) = faces.get_mut(*index) else {
                 continue;
@@ -414,6 +449,7 @@ fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(
             let key = face.key;
             for traced in &mut face.fragment.loops {
                 let mut replaced = false;
+
                 while replace_pair(arrangement, &face.surface, traced, &joint).map_err(|error| {
                     error
                         .or_faces([key])
@@ -462,6 +498,7 @@ fn replace_pair(
     } = *joint;
     let (curve, piece) = arrangement.curve(merged).ok_or_else(BooleanError::split)?;
     let count = traced.coedges.len();
+
     let position = (0..count).find(|index| {
         let (Some(current), Some(next)) = (
             traced.coedges.get(*index),
@@ -486,13 +523,16 @@ fn replace_pair(
     ) else {
         return Ok(false);
     };
+
     let finest = current.pcurve.tolerance().min(next.pcurve.tolerance());
     let (old_curve, old_piece) = arrangement
         .curve(current.half_edge.piece)
         .ok_or_else(BooleanError::split)?;
     let probe = old_piece.interval.middle();
+
     let travel = old_curve.evaluate(probe).first * current.half_edge.sense.sign();
     let on_merged = curve.closest_parameter(old_curve.point(probe), piece.interval);
+
     let sense = Sense::from_sign(travel.dot(curve.evaluate(on_merged).first));
     let pcurve = fit_pcurve(
         surface,
@@ -503,11 +543,13 @@ fn replace_pair(
     )
     .and_then(|pcurve| sharpened_to(pcurve, surface, curve, finest))
     .map_err(BooleanError::unfitted)?;
+
     let coedge = Coedge {
         half_edge: HalfEdge::new(merged, sense, Some(pcurve.start())),
         pcurve,
     };
     let following = (position + 1) % count;
+
     if following == 0 {
         traced.coedges.remove(position);
         if let Some(slot) = traced.coedges.first_mut() {
@@ -545,6 +587,7 @@ fn far_end(piece: &Piece, vertex: usize) -> usize {
 fn join(arrangement: &Arrangement, vertex: usize, first: usize, second: usize) -> Option<Piece> {
     let a = *arrangement.piece(first)?;
     let b = *arrangement.piece(second)?;
+
     if a.is_closed() || b.is_closed() {
         return None;
     }
@@ -557,16 +600,20 @@ fn same_source(arrangement: &Arrangement, vertex: usize, a: &Piece, b: &Piece) -
     if a.source != b.source || a.end != vertex || b.start != vertex {
         return None;
     }
+
     let curve = &arrangement.source(a.source)?.curve;
     let gap = b.interval.start() - a.interval.end();
+
     let shift = match curve.period() {
         Some(period) => -(gap / period).round() * period,
         None => 0.0,
     };
     let residual = gap + shift;
+
     if residual.abs() > PARAMETER_MATCH * (1.0 + a.interval.end().abs()) {
         return None;
     }
+
     let interval = Interval::new(a.interval.start(), a.interval.end() + b.interval.length())?;
     fits_period(curve, interval).then_some(Piece {
         source: a.source,
@@ -585,14 +632,17 @@ fn fits_period(curve: &Curve, interval: Interval) -> bool {
 fn extended(arrangement: &Arrangement, vertex: usize, a: &Piece, b: &Piece) -> Option<Piece> {
     let curve = &arrangement.source(a.source)?.curve;
     let other = &arrangement.source(b.source)?.curve;
+
     let scale = match (curve, other) {
         (Curve::Line(_), Curve::Line(_)) => 1.0,
         (Curve::Circle(circle), Curve::Circle(_)) => circle.radius(),
         _ => return None,
     };
+
     if on_curve(curve, other.point(b.interval.middle())) > TOLERANCE {
         return None;
     }
+
     let step = other.length(b.interval) / scale;
     let target = arrangement.point(far_end(b, vertex))?;
     let (interval, start, end) = if a.end == vertex {

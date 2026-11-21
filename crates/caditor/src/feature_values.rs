@@ -17,7 +17,7 @@ use crate::{
     value_shapes::{self, Drawn},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ValueSlot {
     Extrude(Reach),
     RevolveAngle,
@@ -41,7 +41,7 @@ pub enum ValueSlot {
     ThreadDepth,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrimitiveSize {
     Length,
     Width,
@@ -119,7 +119,7 @@ impl ValueSlot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeatureValue {
     pub feature: FeatureId,
     pub slot: ValueSlot,
@@ -313,6 +313,7 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
                 )
                 .into_iter()
                 .collect();
+
                 if let Some(second) = second {
                     values.extend(direction_values(
                         second,
@@ -493,9 +494,11 @@ pub fn of(model: &Model, feature: FeatureId) -> Vec<FeatureValue> {
         return Vec::new();
     };
     let values = values_of(model.parameters(), &owner.kind);
+
     if values.is_empty() {
         return Vec::new();
     }
+
     let shapes = value_shapes::of(model, feature);
     let drawn_of = |slot: ValueSlot| {
         shapes
@@ -565,6 +568,7 @@ fn set_revolve(extent: &mut RevolveExtent, slot: ValueSlot, value: Expression) -
         ) => angle,
         _ => return false,
     };
+
     *target = value;
     true
 }
@@ -591,6 +595,7 @@ fn set_pattern(kind: &mut PatternKind, slot: ValueSlot, value: Expression) -> bo
         (PatternKind::Circular(circular), ValueSlot::PatternAngle) => &mut circular.angle,
         _ => return false,
     };
+
     *target = value;
     true
 }
@@ -628,6 +633,7 @@ fn set_primitive(shape: &mut PrimitiveShape, size: PrimitiveSize, value: Express
 
 fn rebuilt(kind: &FeatureKind, slot: ValueSlot, value: Expression) -> Option<FeatureKind> {
     let mut changed = kind.clone();
+
     let set = match (&mut changed, slot) {
         (FeatureKind::Solid(SolidFeature::Extrude(extrude)), ValueSlot::Extrude(reach)) => {
             set_extrude(&mut extrude.extent, reach, value)
@@ -684,7 +690,7 @@ fn rebuilt(kind: &FeatureKind, slot: ValueSlot, value: Expression) -> Option<Fea
 
 pub const GONE: &str = "The value is no longer there";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ChangeError {
     #[error("{}", GONE)]
     Gone { feature: FeatureId, slot: ValueSlot },
@@ -700,11 +706,13 @@ pub fn change(
 ) -> Result<Transaction, ChangeError> {
     let document = model.document();
     let gone = ChangeError::Gone { feature, slot };
+
     let owner = document.feature(feature).ok_or_else(|| gone.clone())?;
     let (value, negative) = match slot {
         ValueSlot::Extrude(Reach::Only) => reversing::unsigned(model.parameters(), value),
         _ => (value, false),
     };
+
     let kind = rebuilt(&owner.kind, slot, value).ok_or(gone)?;
     let kind = reversing::flipping(kind, negative);
     Ok(field::checked::<CheckError>(

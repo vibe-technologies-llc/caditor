@@ -124,7 +124,7 @@ fn wording(service: Service) -> &'static Wording {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Basis {
     session: u64,
     revision: u64,
@@ -168,6 +168,7 @@ impl Home {
             self.basis = Some(Basis::of(model));
             return;
         }
+
         let moved_on = self.basis.is_some_and(|basis| basis != Basis::of(model));
         if moved_on || editing.active().is_some() || editing.is_choosing_plane() {
             self.basis = None;
@@ -175,7 +176,7 @@ impl Home {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Choice {
     Close,
     Start(Command),
@@ -201,6 +202,7 @@ pub struct HomeView<'a> {
 pub fn show(ctx: &egui::Context, area: Rect, view: &HomeView<'_>) -> Vec<Choice> {
     let mut choices = Vec::new();
     let tokens = appearance::tokens_of(ctx);
+
     Area::new(Id::unique("home page"))
         .order(Order::Middle)
         .fixed_pos(area.min)
@@ -213,18 +215,22 @@ pub fn show(ctx: &egui::Context, area: Rect, view: &HomeView<'_>) -> Vec<Choice>
                 Id::unique("home page backdrop"),
                 Sense::click_and_drag(),
             );
+
             let mut page = ui.new_child(
                 UiBuilder::new()
                     .max_rect(area)
                     .layout(Layout::top_down(Align::Min)),
             );
+
             ScrollArea::vertical()
                 .id_salt("home scroll")
                 .auto_shrink([false, false])
                 .show(&mut page, |ui| {
                     let total = ui.available_width();
                     let width = (total - 2.0 * PAGE_MARGIN).clamp(0.0, MAX_WIDTH);
+
                     let side = ((total - width) / 2.0).max(0.0);
+
                     ui.horizontal_top(|ui| {
                         ui.add_space(side);
                         ui.vertical(|ui| {
@@ -281,12 +287,14 @@ fn header(ui: &mut Ui, choices: &mut Vec<Choice>) {
 fn starts(ui: &mut Ui, choices: &mut Vec<Choice>) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = SPACE_M;
+
         let sketch = widgets::primary_icon_button(
             ui,
             icons::command(Command::NewSketch),
             crate::start_card::START_WITH_SKETCH,
         )
         .min_size(vec2(0.0, START_BUTTON_HEIGHT));
+
         if ui.add(sketch).on_hover_text(START_HOVER).clicked() {
             choices.push(Choice::Start(Command::NewSketch));
         }
@@ -307,6 +315,7 @@ fn starts(ui: &mut Ui, choices: &mut Vec<Choice>) {
                 choices.push(Choice::Start(command));
             }
         }
+
         let open = widgets::small_button(ui, icons::command(Command::Open), &Command::Open.title());
         if ui.add(open).on_hover_text(OPEN_HOVER).clicked() {
             choices.push(Choice::Open);
@@ -316,6 +325,7 @@ fn starts(ui: &mut Ui, choices: &mut Vec<Choice>) {
 
 fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
     let recent = files.recent();
+
     Sides::new().show(
         ui,
         |ui| ui.label(widgets::section_title(RECENT_TITLE)),
@@ -323,6 +333,7 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
             if recent.is_empty() {
                 return;
             }
+
             let clear = widgets::small_button(
                 ui,
                 icons::command(Command::ClearRecent),
@@ -342,7 +353,9 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
         ui.label(widgets::muted(NO_RECENT, ui));
         return;
     }
+
     let mut wanted = Vec::new();
+
     let chosen = cloud_parts::tiles(ui, recent.len(), TILE_WIDTH, |ui, at, width| {
         let Some(path) = recent.get(at) else {
             return false;
@@ -350,6 +363,7 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
         let name = display_name(Some(path));
         let missing = files.is_missing(path);
         let folder = folder_name(path);
+
         let detail = if missing {
             format!("{folder} (not found)")
         } else {
@@ -362,12 +376,14 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
         let picture = files
             .recent_picture(path)
             .map(|picture| picture.texture(ui.ctx(), &format!("picture of {}", path.display())));
+
         if files.wants_recent_picture(path)
             && files.has_room_for_recent_picture()
             && ui.is_rect_visible(place)
         {
             wanted.push(Choice::LoadRecentPicture(path.clone()));
         }
+
         let tile = Tile {
             glyph: icons::FILE,
             title: &name,
@@ -396,6 +412,7 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
             }
         })
     });
+
     choices.append(&mut wanted);
     if let Some(path) = chosen.and_then(|at| recent.get(at)) {
         choices.push(Choice::OpenRecent(path.clone()));
@@ -405,6 +422,7 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
 fn samples(ui: &mut Ui, choices: &mut Vec<Choice>) {
     ui.label(widgets::section_title(SAMPLES_TITLE));
     ui.add_space(SPACE_S);
+
     let chosen = cloud_parts::tiles(ui, Sample::ALL.len(), TILE_WIDTH, |ui, at, width| {
         let Some(sample) = Sample::ALL.get(at).copied() else {
             return false;
@@ -434,6 +452,7 @@ fn footer(ui: &mut Ui, choices: &mut Vec<Choice>) {
             "Home opens when caditor starts and from File › Home.",
             ui,
         ));
+
         let hide = widgets::small_button(ui, icons::HIDE, HIDE_AT_START);
         if ui
             .add(hide)
@@ -452,12 +471,14 @@ fn cloud(ui: &mut Ui, view: &HomeView<'_>, choices: &mut Vec<Choice>) {
         let Some(connection) = view.cloud.connection(service) else {
             continue;
         };
+
         if matches!(connection.link, Link::Off) {
             continue;
         }
         if !std::mem::take(&mut first) {
             ui.add_space(SPACE_XL);
         }
+
         let words = wording(service);
         match &connection.link {
             Link::Off => {}
@@ -468,6 +489,7 @@ fn cloud(ui: &mut Ui, view: &HomeView<'_>, choices: &mut Vec<Choice>) {
             }
             Link::SignedOut => {
                 let with_options = !std::mem::replace(&mut options_offered, true);
+
                 advert(ui, view.cloud, service, with_options, choices);
             }
             Link::SigningIn(signing) => signing_in(ui, service, signing, choices),
@@ -485,6 +507,7 @@ fn advert(
 ) {
     let tokens = appearance::tokens(ui);
     let words = wording(service);
+
     cloud_parts::page_card(ui, |ui| {
         ui.horizontal(|ui| {
             widgets::icon_label(ui, icons::command(Command::Cloud), tokens.accent_text);
@@ -503,6 +526,7 @@ fn advert(
         if let Err(refusal @ Refusal::NoClientId(_)) = cloud.can_sign_in(service) {
             widgets::callout(ui, Tone::Warning, |ui| {
                 ui.add(Label::new(refusal.to_string()).wrap());
+
                 let open = widgets::small_button(ui, icons::GENERAL, OPEN_PREFERENCES);
                 if ui.add(open).clicked() {
                     choices.push(Choice::Preferences);
@@ -511,6 +535,7 @@ fn advert(
         }
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = SPACE_M;
+
             let can_sign_in = cloud.can_sign_in(service).is_ok();
             let sign_in = widgets::primary_icon_button(
                 ui,
@@ -518,7 +543,9 @@ fn advert(
                 words.sign_in,
             )
             .min_size(vec2(0.0, START_BUTTON_HEIGHT));
+
             let response = ui.add_enabled(can_sign_in, sign_in);
+
             if response
                 .on_hover_text(format!(
                     "Opens {}'s sign-in page in your browser",
@@ -535,10 +562,13 @@ fn advert(
             if !with_options {
                 return;
             }
+
             let manage = widgets::small_button(ui, icons::command(Command::Cloud), MANAGE);
+
             if ui.add(manage).clicked() {
                 choices.push(Choice::ManageCloud(None));
             }
+
             let off = widgets::small_button(ui, icons::HIDE, TURN_OFF);
             if ui.add(off).on_hover_text(TURN_OFF_HOVER).clicked() {
                 choices.push(Choice::TurnOffCloud);
@@ -563,6 +593,7 @@ fn sign_out_command(service: Service) -> Command {
 
 fn signing_in(ui: &mut Ui, service: Service, signing: &SigningIn, choices: &mut Vec<Choice>) {
     let words = wording(service);
+
     ui.label(widgets::section_title(words.title));
     ui.add_space(SPACE_S);
     cloud_parts::page_card(ui, |ui| {
@@ -570,6 +601,7 @@ fn signing_in(ui: &mut Ui, service: Service, signing: &SigningIn, choices: &mut 
             .cancel("Stop waiting for the browser")
             .wrapping()
             .show(ui);
+
         if cancelled {
             choices.push(Choice::Cloud(CloudCommand::CancelSignIn(service)));
         }
@@ -645,11 +677,13 @@ fn linked_section(
 
 fn cloud_header(ui: &mut Ui, service: Service, linked: &Linked, choices: &mut Vec<Choice>) {
     let tokens = appearance::tokens(ui);
+
     Sides::new().show(
         ui,
         |ui| {
             widgets::icon_label(ui, icons::command(Command::Cloud), tokens.accent_text);
             ui.label(widgets::section_title(wording(service).title));
+
             let hub = linked
                 .chosen_workspace()
                 .filter(|_| service.has_workspaces())
@@ -660,15 +694,19 @@ fn cloud_header(ui: &mut Ui, service: Service, linked: &Linked, choices: &mut Ve
                 (Some(text), None) | (None, Some(text)) => text.to_owned(),
                 (None, None) => String::new(),
             };
+
             ui.label(widgets::muted(detail, ui));
         },
         |ui| {
             let out =
                 widgets::small_button(ui, icons::command(sign_out_command(service)), SIGN_OUT);
+
             if ui.add(out).clicked() {
                 choices.push(Choice::Cloud(CloudCommand::SignOut(service)));
             }
+
             let manage = widgets::small_button(ui, icons::command(Command::Cloud), MANAGE);
+
             if ui.add(manage).clicked() {
                 choices.push(Choice::ManageCloud(None));
             }
@@ -688,6 +726,7 @@ fn project_line(
     choices: &mut Vec<Choice>,
 ) {
     let root = linked.root(&project.id);
+
     if matches!(root, Load::Idle) {
         choices.push(Choice::Cloud(CloudCommand::LoadProject(
             service,
@@ -699,6 +738,7 @@ fn project_line(
         if let Some(folder) = root.ready() {
             let count = folder.designs.len();
             let plural = if count == 1 { "design" } else { "designs" };
+
             ui.label(widgets::muted(format!("{count} {plural}"), ui));
         }
     });
@@ -726,6 +766,7 @@ fn project_line(
             } else {
                 format!("The designs are inside this project's {folders} folders.")
             };
+
             ui.horizontal(|ui| {
                 ui.label(widgets::muted(text, ui));
                 if folders > 0 && widgets::link(ui, "Browse them…", None).clicked() {
@@ -751,6 +792,7 @@ fn design_tiles(
     let shown = designs.get(..DESIGNS_PER_PROJECT).unwrap_or(designs);
     let importing = linked.is_importing();
     let mut wanted = Vec::new();
+
     let chosen = cloud_parts::tiles(ui, shown.len(), TILE_WIDTH, |ui, at, width| {
         let Some(design) = shown.get(at) else {
             return false;
@@ -774,6 +816,7 @@ fn design_tiles(
                 &format!("{service} design {}", design.id.as_str()),
             )
         });
+
         if linked.wants_picture(&design.id) && ui.is_rect_visible(place) {
             wanted.push(Choice::Cloud(CloudCommand::LoadThumbnail(
                 service,
@@ -794,10 +837,12 @@ fn design_tiles(
             },
         )
     });
+
     choices.append(&mut wanted);
     if let Some(design) = chosen.and_then(|at| shown.get(at)) {
         choices.push(Choice::Cloud(CloudCommand::Import(service, design.clone())));
     }
+
     let hidden = designs.len().saturating_sub(shown.len());
     if hidden > 0 {
         let text = format!("{hidden} more in {}…", project.name);

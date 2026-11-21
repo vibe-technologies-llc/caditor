@@ -119,6 +119,7 @@ fn a_cylinder_through_a_block_overlaps_it_by_the_part_inside() {
     };
 
     let expected = 16.0 * std::f64::consts::PI;
+
     assert!((volume(&overlap) - expected).abs() < 1e-2 * expected);
 }
 

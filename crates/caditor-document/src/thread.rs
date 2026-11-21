@@ -30,7 +30,7 @@ const EDGE_SAMPLES: usize = 16;
 const END_TOLERANCE: f64 = 1e-6;
 const FACING_OUT: f64 = 1e-3;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum ThreadForm {
     Modelled,
     #[default]
@@ -48,13 +48,13 @@ impl ThreadForm {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ThreadLength {
     Full,
     Depth(Expression),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Thread {
     pub body: FeatureId,
     pub face: FaceReference,
@@ -123,7 +123,7 @@ impl Thread {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThreadPlacement {
     pub start: Point3,
     pub direction: Vector3,
@@ -138,7 +138,7 @@ impl ThreadPlacement {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ThreadResult {
     pub side: ThreadSide,
     pub designation: String,
@@ -146,7 +146,7 @@ pub struct ThreadResult {
     pub placement: ThreadPlacement,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PlacedThread {
     pub feature: FeatureId,
     pub body: FeatureId,
@@ -157,7 +157,7 @@ pub struct PlacedThread {
     pub modelled: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bore {
     pub side: ThreadSide,
     pub diameter: f64,
@@ -169,7 +169,7 @@ pub struct Bore {
     open_high: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoreError {
     NotCylinder(FaceId),
     NoExtent,
@@ -185,12 +185,14 @@ impl Bore {
         let frame = cylinder.frame();
         let origin = frame.origin();
         let axis = frame.normal().normalize_or_zero();
+
         for other in faces {
             let shape = solid.face(*other).map(|face| face.surface());
             if !matches!(shape, Some(Surface::Cylinder(_))) {
                 return Err(BoreError::NotCylinder(*other));
             }
         }
+
         let side = if face.sense().is_same() {
             ThreadSide::External
         } else {
@@ -198,6 +200,7 @@ impl Bore {
         };
         let along = |point: Point3| (point - origin).dot(axis);
         let edges = face_edges(solid, faces);
+
         let samples: Vec<(usize, f64)> = edges
             .iter()
             .enumerate()
@@ -211,23 +214,29 @@ impl Bore {
             .iter()
             .map(|(_, at)| *at)
             .fold(f64::NEG_INFINITY, larger);
+
         if !low.is_finite() || !high.is_finite() || high - low <= END_TOLERANCE {
             return Err(BoreError::NoExtent);
         }
+
         let reach = END_TOLERANCE.max((high - low) * 1e-6);
         let mut open_low = false;
         let mut open_high = false;
+
         for (edge, points) in &edges {
             let ats: Vec<f64> = points.iter().map(|point| along(*point)).collect();
             let at_low = ats.iter().all(|at| (at - low).abs() <= reach);
             let at_high = ats.iter().all(|at| (at - high).abs() <= reach);
+
             if !at_low && !at_high {
                 continue;
             }
+
             let outward = if at_high { axis } else { -axis };
             let Some(middle) = points.get(points.len() / 2).copied() else {
                 continue;
             };
+
             let facing_out = edge_faces(solid, *edge)
                 .into_iter()
                 .filter(|neighbour| !faces.contains(neighbour))
@@ -337,6 +346,7 @@ impl Bore {
 fn face_edges(solid: &Solid, faces: &[FaceId]) -> Vec<(caditor_kernel::EdgeId, Vec<Point3>)> {
     let mut seen = BTreeSet::new();
     let mut edges = Vec::new();
+
     for face in faces {
         let Some(definition) = solid.face(*face) else {
             continue;
@@ -349,19 +359,23 @@ fn face_edges(solid: &Solid, faces: &[FaceId]) -> Vec<(caditor_kernel::EdgeId, V
                 let Some(edge_id) = solid.coedge(*coedge).map(|coedge| coedge.edge()) else {
                     continue;
                 };
+
                 if !seen.insert(edge_id) {
                     continue;
                 }
+
                 let Some(edge) = solid.edge(edge_id) else {
                     continue;
                 };
                 let interval = edge.interval();
+
                 let points = (0..=EDGE_SAMPLES)
                     .map(|step| {
                         let fraction = step as f64 / EDGE_SAMPLES as f64;
                         edge.curve().point(interval.at(fraction))
                     })
                     .collect();
+
                 edges.push((edge_id, points));
             }
         }
@@ -373,6 +387,7 @@ fn face_normal(solid: &Solid, face: FaceId, point: Point3) -> Option<Vector3> {
     let face = solid.face(face)?;
     let surface = face.surface();
     let foot = surface.project(point, None);
+
     let normal = surface.normal(foot.x, foot.y)?;
     Some(normal * face.sense().sign())
 }
@@ -448,7 +463,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ThreadCause {
     DepthUnevaluable {
         error: EvalError,
@@ -496,6 +511,7 @@ impl ThreadCause {
         if matches!(error, ThreadError::Cancelled(_)) {
             return Failure::Cancelled;
         }
+
         let place = match &error {
             ThreadError::Cut(boolean) => trouble::place(boolean),
             _ => None,
@@ -739,6 +755,7 @@ pub(crate) fn cut_thread(
         None => thread_tools(spec, feature)?,
     };
     let mut threaded = body.clone();
+
     for tool in &tools {
         threaded = boolean(&threaded, tool, BooleanOperation::Difference)?;
     }
@@ -749,6 +766,7 @@ pub(crate) fn part_name(part: u64) -> &'static str {
     if part >= RING_ENTITY {
         return "thread crest";
     }
+
     let (_, side) = GROOVE_PARTS.turn_of(part);
     match side {
         side if side == GROOVE_PARTS.root => "thread root",
@@ -764,6 +782,7 @@ fn root_turn(part: u64) -> Option<u64> {
     if part >= RING_ENTITY {
         return None;
     }
+
     let (turn, side) = GROOVE_PARTS.turn_of(part);
     (side == GROOVE_PARTS.root).then_some(turn)
 }
@@ -799,8 +818,10 @@ fn modelled_placement(
     let frame = cylinder.frame();
     let origin = frame.origin();
     let axis = frame.normal().normalize_or_zero();
+
     let along = |point: Point3| (point - origin).dot(axis);
     let ids: Vec<FaceId> = faces.iter().map(|(face, _)| *face).collect();
+
     let extent: Vec<f64> = face_edges(solid, &ids)
         .into_iter()
         .flat_map(|(_, points)| points)
@@ -808,9 +829,11 @@ fn modelled_placement(
         .collect();
     let low = extent.iter().copied().fold(f64::INFINITY, f64::min);
     let high = extent.iter().copied().fold(f64::NEG_INFINITY, larger);
+
     if !low.is_finite() || !high.is_finite() || high - low <= END_TOLERANCE {
         return None;
     }
+
     let turns = roots.iter().map(|(_, turn)| *turn);
     let first_turn = turns.clone().min()?;
     let last_turn = turns.max()?;
@@ -821,6 +844,7 @@ fn modelled_placement(
             .map(|(face, _)| *face)
             .collect()
     };
+
     let starts_low = first_turn == last_turn
         || mean_along(solid, &at_turn(first_turn), &along)
             <= mean_along(solid, &at_turn(last_turn), &along);
@@ -845,6 +869,7 @@ type ThreadFaces = BTreeMap<(Option<FaceCopy>, u64), Vec<(FaceId, u64)>>;
 
 fn thread_faces(solid: &Solid, part: &dyn Fn(FaceOrigin) -> Option<(u64, u64)>) -> ThreadFaces {
     let mut grouped = ThreadFaces::new();
+
     for (id, face) in solid.faces() {
         let Some(origin) = face.origin() else {
             continue;
@@ -883,19 +908,23 @@ pub(crate) fn evaluate(
         return Err(inputs.missing_body(definition.body));
     };
     let resolution = definition.resolution(solid);
+
     let faces = match &resolution {
         Resolution::One(face) => vec![*face],
         Resolution::Pieces(pieces) => pieces.clone(),
         Resolution::Tied(_) | Resolution::Missing => return Err(context.unresolved(&resolution)),
     };
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let bore = Bore::of(solid, &faces).map_err(|error| match error {
         BoreError::NotCylinder(face) => context.not_round(solid, face),
         BoreError::NoExtent => context.unresolved(&Resolution::Missing),
     })?;
     let side = bore.side;
+
     if !definition
         .size
         .family()
@@ -920,10 +949,12 @@ pub(crate) fn evaluate(
                 face,
             }));
         };
+
         let (threaded, tools) =
             cut_thread(solid, &spec, feature.id().raw(), None).map_err(|error| {
                 ThreadCause::cutting(feature.id(), definition.size, side, &face, error)
             })?;
+
         return Ok(FeatureResult::Solid(
             SolidResult::new(definition.body, threaded).cutting(tools),
         ));
@@ -950,13 +981,16 @@ pub fn placed_threads(document: &Document, evaluation: &Evaluation) -> Vec<Place
         .filter_map(|(body, _)| Some((body, evaluation.body(body)?)))
         .collect();
     let mut placed = Vec::new();
+
     for feature in document.active_features() {
         let Some(status) = evaluation.feature(feature.id()) else {
             continue;
         };
+
         if !placeable(&status.state) {
             continue;
         }
+
         let result = status.result.as_deref();
         if let (Some(thread), Some(FeatureResult::Thread(evaluated))) =
             (feature.kind.thread(), result)
@@ -993,6 +1027,7 @@ fn place_modelled(
     };
     let designation = thread.designation().text();
     let mut placed = Vec::new();
+
     for (body, solid) in standing {
         for faces in thread_faces(solid, &own).values() {
             if let Some((side, placement)) = modelled_placement(solid, faces, thread.size) {
@@ -1046,6 +1081,7 @@ pub fn hole_thread(hole: &Hole) -> Option<ThreadDesignation> {
     if !matches!(hole.shape, HoleShape::Round) {
         return None;
     }
+
     let size = ThreadSize::of_hole(hole.standard?)?;
     Some(ThreadDesignation {
         size,
@@ -1094,9 +1130,11 @@ fn hole_threads(
         _ => None,
     };
     let mut placed = Vec::new();
+
     for (body, solid) in standing {
         let modelled = thread_faces(solid, &own);
         let mut walls: BTreeMap<(Option<FaceCopy>, u64), Vec<FaceId>> = BTreeMap::new();
+
         for (id, face) in solid.faces() {
             if let Some(wall) = face.origin().and_then(|origin| hole_wall(feature, origin)) {
                 walls.entry(wall).or_default().push(id);
@@ -1106,6 +1144,7 @@ fn hole_threads(
             let Some((side, placement)) = modelled_placement(solid, faces, designation.size) else {
                 continue;
             };
+
             placed.push(PlacedThread {
                 feature,
                 body: *body,
@@ -1120,9 +1159,11 @@ fn hole_threads(
             if modelled.contains_key(wall) {
                 continue;
             }
+
             let Ok(bore) = Bore::of(solid, faces) else {
                 continue;
             };
+
             placed.push(PlacedThread {
                 feature,
                 body: *body,

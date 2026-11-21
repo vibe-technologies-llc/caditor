@@ -40,7 +40,7 @@ pub struct ConfigurationExported {
     pub result: Result<Exported, ConfigurationFailure>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfigurationFile {
     pub id: ConfigurationId,
     pub name: String,
@@ -57,6 +57,7 @@ pub struct ConfigurationJob {
 
 pub fn exportable(document: &Document) -> Vec<(ConfigurationId, String)> {
     let configurations = document.configurations();
+
     if configurations.rows.len() < 2 {
         return Vec::new();
     }
@@ -92,6 +93,7 @@ fn label(name: &str, position: usize) -> String {
 
 fn file_for(path: &Path, label: &str, finish: &impl Fn(PathBuf) -> PathBuf) -> PathBuf {
     let mut file = path.file_stem().map(OsString::from).unwrap_or_default();
+
     if !file.is_empty() {
         file.push(" ");
     }
@@ -104,10 +106,13 @@ fn with_extension_of(file: PathBuf, extension: &OsStr) -> PathBuf {
         own.to_string_lossy()
             .eq_ignore_ascii_case(&extension.to_string_lossy())
     });
+
     if kept || extension.is_empty() {
         return file;
     }
+
     let mut named = file.into_os_string();
+
     named.push(".");
     named.push(extension);
     PathBuf::from(named)
@@ -162,6 +167,7 @@ fn planned(
         .map(|((id, name), label)| {
             let mut file = file_for(path, &label, finish);
             let mut copy = 1;
+
             while taken.contains(&folded(&file)) || (copy > 1 && natural.contains(&folded(&file))) {
                 copy += 1;
                 file = file_for(path, &format!("{label} ({copy})"), finish);
@@ -185,14 +191,18 @@ impl ConfigurationJob {
     ) -> Result<Vec<ConfigurationExported>, ExportError> {
         let mut engine = Recompute::default();
         let mut outcomes = Vec::with_capacity(self.files.len());
+
         for ConfigurationFile { id, name, path } in self.files {
             if cancel.is_cancelled() {
                 return Err(ExportError::Cancelled);
             }
+
             let mut document = self.document.clone();
+
             let switched = document
                 .activating(id)
                 .and_then(|transaction| document.apply(transaction));
+
             if let Err(error) = switched {
                 outcomes.push(ConfigurationExported {
                     name,
@@ -203,10 +213,13 @@ impl ConfigurationJob {
                 self.done.fetch_add(1, Ordering::SeqCst);
                 continue;
             }
+
             let evaluation = engine.run_without_display(&document, &ModelEvaluator, cancel);
+
             if cancel.is_cancelled() {
                 return Err(ExportError::Cancelled);
             }
+
             let sources = ExportSource::all(
                 &document,
                 &evaluation,
@@ -225,6 +238,7 @@ impl ConfigurationJob {
                 properties,
                 cancel,
             );
+
             if matches!(exported, Err(ExportError::Cancelled)) {
                 return Err(ExportError::Cancelled);
             }
@@ -270,6 +284,7 @@ pub fn finished(result: Result<Vec<ConfigurationExported>, ExportError>) -> Noti
         .map(|outcome| quoted(&outcome.path))
         .collect();
     let mut problems: Vec<String> = Vec::new();
+
     for outcome in &outcomes {
         match &outcome.result {
             Ok(exported) => {
@@ -283,6 +298,7 @@ pub fn finished(result: Result<Vec<ConfigurationExported>, ExportError>) -> Noti
                 if !exported.left_out.is_empty() {
                     let reasons: Vec<String> =
                         exported.left_out.iter().map(ToString::to_string).collect();
+
                     problems.push(format!(
                         "in “{}” {} left out: {}",
                         outcome.name,
@@ -294,6 +310,7 @@ pub fn finished(result: Result<Vec<ConfigurationExported>, ExportError>) -> Noti
             Err(error) => problems.push(format!("“{}” was not exported: {error}", outcome.name)),
         }
     }
+
     let summary = if written.is_empty() {
         "No configuration was exported.".to_owned()
     } else {
@@ -303,6 +320,7 @@ pub fn finished(result: Result<Vec<ConfigurationExported>, ExportError>) -> Noti
             listed(&written)
         )
     };
+
     if problems.is_empty() {
         return Notice::success(summary);
     }

@@ -18,20 +18,20 @@ use crate::{
 
 pub type BSplineCurve2 = BSpline<Point2>;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Curve2Derivatives {
     pub point: Point2,
     pub first: Vector2,
     pub second: Vector2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Curve2Sample {
     pub parameter: f64,
     pub point: Point2,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Curve2 {
     Line(Line2),
@@ -207,6 +207,7 @@ impl Curve2 {
             Self::Circle(circle) => {
                 let x_axis = lift(circle.x_axis());
                 let normal = x_axis.cross(lift(circle.y_axis()));
+
                 let frame = Plane::from_frame(plane.to_world(circle.center()), normal, x_axis)
                     .ok_or(GeometryError::ZeroDirection)?;
                 Curve::Circle(Circle::new(frame, circle.radius())?)
@@ -217,6 +218,7 @@ impl Curve2 {
             Self::Ellipse(ellipse) => {
                 let x_axis = lift(ellipse.x_axis());
                 let normal = x_axis.cross(lift(ellipse.y_axis()));
+
                 let frame = Plane::from_frame(plane.to_world(ellipse.center()), normal, x_axis)
                     .ok_or(GeometryError::ZeroDirection)?;
                 Curve::Ellipse(Ellipse::new(

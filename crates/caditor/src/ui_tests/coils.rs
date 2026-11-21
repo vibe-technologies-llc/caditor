@@ -56,8 +56,11 @@ fn coil_with_nothing_selected_winds_round_z_and_takes_the_axis_clicked_next() {
     harness.settle();
 
     let coil = harness.workspace.editing.solid().expect("the coil is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Coil 1"));
+
     let made = coil_of(&harness, coil);
+
     assert_eq!(made.axis, AxisReference::Principal(PrincipalAxis::Z));
     assert_eq!(made.shape, CoilShape::Round);
     assert_eq!(picking_slot(&harness), Some(Slot::CoilAxis));
@@ -81,12 +84,14 @@ fn coil_with_nothing_selected_winds_round_z_and_takes_the_axis_clicked_next() {
 #[test]
 fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turning() {
     let mut harness = Harness::new();
+
     harness.select([Pickable::Axis(Axis::Y)]);
 
     run_from_palette(&mut harness, "coil");
     harness.settle();
 
     let coil = harness.workspace.editing.solid().expect("the coil is open");
+
     assert_eq!(
         coil_of(&harness, coil).axis,
         AxisReference::Principal(PrincipalAxis::Y)
@@ -95,12 +100,15 @@ fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turni
 
     harness.type_into_field(Id::unique(("coil-field", coil, "turns")), "3");
     harness.settle();
+
     assert!(near(harness.body_volume(coil), wire_volume(3.0)));
 
     choose(&mut harness, "Turns and pitch", "Height and pitch");
     harness.select([]);
     harness.settle();
+
     let switched = coil_of(&harness, coil).length;
+
     assert!(
         matches!(
             &switched,
@@ -111,9 +119,11 @@ fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turni
 
     harness.type_into_field(Id::unique(("coil-field", coil, "height")), "20 mm");
     harness.settle();
+
     assert!(near(harness.body_volume(coil), wire_volume(4.0)));
 
     choose(&mut harness, "Round", "Square");
+
     assert_eq!(coil_of(&harness, coil).shape, CoilShape::Square);
     assert!(harness.shows("Section width"));
     assert!(near(
@@ -122,10 +132,12 @@ fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turni
     ));
 
     choose(&mut harness, "Counter-clockwise", "Clockwise");
+
     assert_eq!(coil_of(&harness, coil).turning, CoilTurning::Clockwise);
 
     harness.type_into_field(Id::unique(("coil-field", coil, "pitch")), "1 mm");
     harness.settle();
+
     let reason = match harness
         .model
         .evaluation()
@@ -135,11 +147,13 @@ fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turni
         Some(FeatureState::Failed(error)) => error.reason(),
         other => panic!("turns closer than the section fail, found {other:?}"),
     };
+
     assert!(reason.contains("would touch"), "{reason}");
     assert!(harness.shows(&reason));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert!(near(
         harness.body_volume(coil),
         4.0 * WIRE * WIRE * TAU * RADIUS * 4.0
@@ -159,6 +173,7 @@ fn open_vertical_coil(harness: &mut Harness) -> FeatureId {
 #[test]
 fn dragging_a_coil_s_diameter_arrow_changes_its_diameter_and_a_typed_value_still_works() {
     let mut harness = Harness::new();
+
     let coil = open_vertical_coil(&mut harness);
     let diameter = |harness: &Harness| length_value(harness, &coil_of(harness, coil).diameter);
     let before = diameter(&harness);
@@ -172,10 +187,12 @@ fn dragging_a_coil_s_diameter_arrow_changes_its_diameter_and_a_typed_value_still
         (after - before - 6.0).abs() <= 2.0 * step,
         "{before} to {after} with steps of {step}"
     );
+
     undone_and_redone(&mut harness, "the diameter drag", diameter);
 
     harness.type_into_field(Id::unique(("coil-field", coil, "diameter")), "30 mm");
     harness.settle();
+
     assert_eq!(diameter(&harness), 30.0);
     assert!(near(
         harness.body_volume(coil),
@@ -186,6 +203,7 @@ fn dragging_a_coil_s_diameter_arrow_changes_its_diameter_and_a_typed_value_still
 #[test]
 fn dragging_a_coil_s_section_arrow_changes_the_size_of_its_wire() {
     let mut harness = Harness::new();
+
     let coil = open_vertical_coil(&mut harness);
     let size = |harness: &Harness| length_value(harness, &coil_of(harness, coil).size);
     let before = size(&harness);
@@ -199,12 +217,14 @@ fn dragging_a_coil_s_section_arrow_changes_the_size_of_its_wire() {
         (after - before - 1.0).abs() <= 2.0 * step,
         "{before} to {after} with steps of {step}"
     );
+
     undone_and_redone(&mut harness, "the section drag", size);
 }
 
 #[test]
 fn dragging_a_coil_s_pitch_arrow_spreads_its_turns() {
     let mut harness = Harness::new();
+
     let coil = open_vertical_coil(&mut harness);
     let pitch = |harness: &Harness| {
         let length = coil_of(harness, coil).length;
@@ -221,12 +241,14 @@ fn dragging_a_coil_s_pitch_arrow_spreads_its_turns() {
         (after - before - 2.0).abs() <= step,
         "{before} to {after} with steps of {step}"
     );
+
     undone_and_redone(&mut harness, "the pitch drag", pitch);
 }
 
 #[test]
 fn a_coil_sized_by_height_has_a_height_arrow_and_no_pitch_arrow_when_sized_by_height_and_turns() {
     let mut harness = Harness::new();
+
     let coil = open_vertical_coil(&mut harness);
     let shown = |harness: &Harness, measured: Measured| {
         harness
@@ -235,6 +257,7 @@ fn a_coil_sized_by_height_has_a_height_arrow_and_no_pitch_arrow_when_sized_by_he
             .handle_position(Handle::Value(measured), 0.0)
             .is_some()
     };
+
     assert!(shown(&harness, Measured::CoilPitch));
     assert!(!shown(&harness, Measured::CoilHeight));
 
@@ -243,6 +266,7 @@ fn a_coil_sized_by_height_has_a_height_arrow_and_no_pitch_arrow_when_sized_by_he
     run_from_palette(&mut harness, "Fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     assert!(!shown(&harness, Measured::CoilPitch));
     assert!(shown(&harness, Measured::CoilHeight));
 
@@ -258,5 +282,6 @@ fn a_coil_sized_by_height_has_a_height_arrow_and_no_pitch_arrow_when_sized_by_he
         (after - before - 5.0).abs() <= step,
         "{before} to {after} with steps of {step}"
     );
+
     undone_and_redone(&mut harness, "the height drag", height);
 }

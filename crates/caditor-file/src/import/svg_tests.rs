@@ -87,6 +87,7 @@ fn assert_curves_close(actual: &[DrawingCurve], expected: &[DrawingCurve]) {
             }
             _ => false,
         };
+
         assert!(matches, "{actual:?} is not {expected:?}");
     }
 }
@@ -109,6 +110,7 @@ fn path_lines_read_absolute_and_relative_commands_with_y_pointing_up() {
             line((40.0, 0.0), (60.0, 0.0)),
         ],
     );
+
     assert_eq!(drawing.unit_scale, 1.0);
     assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
 }
@@ -122,6 +124,7 @@ fn beziers_become_exact_splines_with_reflected_controls() {
     let flipped = |points: &[(f64, f64)]| DrawingCurve::Spline {
         control_points: points.iter().map(|(x, y)| Point2::new(*x, -*y)).collect(),
     };
+
     assert_eq!(
         drawing.curves,
         vec![
@@ -133,6 +136,7 @@ fn beziers_become_exact_splines_with_reflected_controls() {
             flipped(&[(95.0, 0.0), (100.0, -5.0), (105.0, 0.0)]),
         ]
     );
+
     let DrawingCurve::Spline { control_points } = &drawing.curves[0] else {
         panic!("not a spline");
     };
@@ -144,10 +148,13 @@ fn beziers_become_exact_splines_with_reflected_controls() {
             + control_points[2] * (3.0 * u * t * t)
             + control_points[3] * t.powi(3)
     };
+
     for step in 0..=10 {
         let t = f64::from(step) / 10.0;
+
         assert!(spline.point_at(t).distance(bezier(t)) < 1e-12);
     }
+
     assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
 }
 
@@ -165,6 +172,7 @@ fn circular_arcs_stay_arcs_and_elliptical_ones_stay_elliptical() {
     let [upper, lower, scaled, large, elliptical, flat] = drawing.curves.as_slice() else {
         panic!("{:?}", drawing.curves);
     };
+
     assert_curves_close(
         &[upper.clone(), lower.clone(), scaled.clone(), flat.clone()],
         &[
@@ -186,12 +194,16 @@ fn circular_arcs_stay_arcs_and_elliptical_ones_stay_elliptical() {
             line((0.0, 0.0), (40.0, 0.0)),
         ],
     );
+
     let DrawingCurve::Arc { center, start, end } = large else {
         panic!("{large:?}");
     };
+
     let geometry = ArcGeometry::from_points(*center, *start, *end);
+
     assert!((geometry.radius - 10.0).abs() < 1e-9);
     assert!(geometry.sweep > std::f64::consts::PI);
+
     let DrawingCurve::Ellipse {
         center,
         major,
@@ -201,6 +213,7 @@ fn circular_arcs_stay_arcs_and_elliptical_ones_stay_elliptical() {
     else {
         panic!("{elliptical:?}");
     };
+
     assert!(center.distance(Point2::new(20.0, 0.0)) < 1e-9);
     assert!((major.length() - 20.0).abs() < 1e-9 && major.y.abs() < 1e-9);
     assert!((minor_radius - 10.0).abs() < 1e-9);
@@ -232,7 +245,9 @@ fn basic_shapes_become_lines_arcs_circles_and_ellipses() {
     );
 
     let curves = &drawing.curves;
+
     assert_eq!(curves.len(), 4 + 8 + 1 + 1 + 1 + 1 + 2 + 3, "{curves:?}");
+
     assert_curves_close(
         &curves[..4],
         &[
@@ -242,7 +257,9 @@ fn basic_shapes_become_lines_arcs_circles_and_ellipses() {
             line((10.0, -20.0), (10.0, -10.0)),
         ],
     );
+
     let rounded = &curves[4..12];
+
     assert_eq!(
         rounded
             .iter()
@@ -250,6 +267,7 @@ fn basic_shapes_become_lines_arcs_circles_and_ellipses() {
             .count(),
         4
     );
+
     assert_curves_close(
         &rounded[..2],
         &[
@@ -268,6 +286,7 @@ fn basic_shapes_become_lines_arcs_circles_and_ellipses() {
             radius: 5.0,
         }],
     );
+
     assert_eq!(
         curves[13],
         DrawingCurve::Ellipse {
@@ -277,6 +296,7 @@ fn basic_shapes_become_lines_arcs_circles_and_ellipses() {
             ends: None,
         }
     );
+
     assert_curves_close(
         &curves[14..],
         &[
@@ -335,6 +355,7 @@ fn circles_stay_circles_under_similarity_and_become_ellipses_when_squashed() {
             radius: 10.0,
         }],
     );
+
     let DrawingCurve::Ellipse {
         center,
         major,
@@ -344,9 +365,11 @@ fn circles_stay_circles_under_similarity_and_become_ellipses_when_squashed() {
     else {
         panic!("{:?}", drawing.curves[1]);
     };
+
     assert!(center.distance(Point2::new(20.0, -10.0)) < 1e-9);
     assert!((major.length() - 10.0).abs() < 1e-9 && major.y.abs() < 1e-9);
     assert!((minor_radius - 5.0).abs() < 1e-9);
+
     assert_curves_close(
         &drawing.curves[2..],
         &[DrawingCurve::Arc {
@@ -427,9 +450,11 @@ fn the_size_and_view_box_set_the_scale_in_millimetres() {
             None,
         ),
     ];
+
     for (attributes, millimetres, note) in cases {
         let text = format!("<svg {ns} {attributes}>{segment}</svg>");
         let (length, drawing) = first_line_length(&text);
+
         assert!(
             (length - millimetres).abs() < 1e-12,
             "{attributes}: {length}"
@@ -451,14 +476,18 @@ fn the_size_and_view_box_set_the_scale_in_millimetres() {
             ),
         }
     }
+
     let stretched = format!(
         r#"<svg {ns} width="20mm" height="10mm" viewBox="0 0 10 10" preserveAspectRatio="none"><line x1="0" y1="0" x2="1" y2="1"/></svg>"#
     );
     let drawing = parse_svg(stretched.as_bytes()).unwrap();
+
     assert_curves_close(&drawing.curves, &[line((0.0, 0.0), (2.0, -1.0))]);
+
     let pixels =
         format!(r#"<svg {ns} width="96px" height="96px" viewBox="0 0 96 96">{segment}</svg>"#);
     let drawing = parse_svg(pixels.as_bytes()).unwrap();
+
     assert!(
         drawing
             .notes
@@ -536,10 +565,12 @@ fn top_groups_and_inkscape_layers_are_offered_as_layers() {
         "{:?}",
         drawing.notes
     );
+
     let options = DrawingOptions {
         left_out_layers: BTreeSet::from([0, 2]),
         ..DrawingOptions::default()
     };
+
     assert_eq!(drawing.arranged(&options).curves.len(), 2);
 }
 
@@ -605,6 +636,7 @@ fn reused_elements_are_placed_and_symbols_drawn() {
             },
         ],
     );
+
     assert!(
         drawing
             .notes
@@ -618,6 +650,7 @@ fn reused_elements_are_placed_and_symbols_drawn() {
 fn thousands_of_uses_deep_inside_the_group_they_reuse_are_each_left_out_as_a_loop() {
     let levels = 90;
     let uses = 20_000;
+
     let body = format!(
         r#"<line x1="0" y1="0" x2="1" y2="0"/>{}{}{}"#,
         "<g id=\"outer\">".to_string() + &"<g>".repeat(levels),
@@ -692,6 +725,7 @@ fn a_sketch_exported_as_svg_reads_back_in_place() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("plate.svg");
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 0.0));
     sketch.add_circle(Point2::new(20.0, 10.0), 4.0);
     sketch.add_arc(
@@ -699,7 +733,9 @@ fn a_sketch_exported_as_svg_reads_back_in_place() {
         Point2::new(10.0, 0.0),
         Point2::new(0.0, 10.0),
     );
+
     let guide = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(40.0, -10.0));
+
     sketch.set_construction(guide, true).unwrap();
 
     export_sketch(
@@ -710,6 +746,7 @@ fn a_sketch_exported_as_svg_reads_back_in_place() {
         &CancelToken::never(),
     )
     .unwrap();
+
     let drawing = read_drawing(&path, TextOutlines::LeftOut, &CancelToken::never()).unwrap();
 
     assert_curves_close(
@@ -728,6 +765,7 @@ fn a_sketch_exported_as_svg_reads_back_in_place() {
             line((0.0, -10.0), (40.0, -10.0)),
         ],
     );
+
     assert_eq!(drawing.construction, BTreeSet::from([3]));
     assert!(drawing.notes.iter().all(|note| !note.contains("unit")));
 }
@@ -740,6 +778,7 @@ fn drawings_are_told_apart_by_extension_and_content() {
     let packed = dir.path().join("logo.svgz");
     let wrong = dir.path().join("photo.svg");
     let text = svg(r#"<line x1="0" y1="0" x2="1" y2="0"/>"#);
+
     std::fs::write(&named, &text).unwrap();
     std::fs::write(&unnamed, &text).unwrap();
     std::fs::write(&packed, gzip(&text)).unwrap();
@@ -747,8 +786,10 @@ fn drawings_are_told_apart_by_extension_and_content() {
 
     for path in [&named, &unnamed, &packed] {
         let drawing = read_drawing(path, TextOutlines::LeftOut, &CancelToken::never()).unwrap();
+
         assert_eq!(drawing.curves.len(), 1, "{}", path.display());
     }
+
     assert_eq!(
         read_drawing(&wrong, TextOutlines::LeftOut, &CancelToken::never()),
         Err(ImportError::NotSvg)
@@ -757,6 +798,7 @@ fn drawings_are_told_apart_by_extension_and_content() {
 
 fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut packed = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+
     packed.extend(miniz_oxide::deflate::compress_to_vec(bytes, 6));
     packed
         .write_all(&crc32fast::hash(bytes).to_le_bytes())
@@ -798,7 +840,9 @@ fn a_truncated_drawing_keeps_what_comes_before_the_damage() {
         "{:?}",
         drawing.notes
     );
+
     let damaged_attribute = svg(r#"<line x1="0" y1="0" x2="1" y2="0"/><line x1="0 y1="1"/>"#);
+
     assert_eq!(parse_svg(&damaged_attribute).unwrap().curves.len(), 1);
 }
 
@@ -810,6 +854,7 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
         "<g>".repeat(depth),
         "</g>".repeat(depth)
     );
+
     assert_eq!(
         parse_svg(deep.as_bytes()).map(|_| ()),
         Err(ImportError::NestedTooDeep)
@@ -821,6 +866,7 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
         "</g>".repeat(500)
     );
     let drawing = parse_svg(deep_enough_to_be_cut_short.as_bytes()).unwrap();
+
     assert_eq!(drawing.curves.len(), 1);
     assert!(
         drawing
@@ -837,6 +883,7 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
            <path d="M0 0 A1e200 1e200 0 0 1 1e-200 0 L 1e400 0"/>
            <line x1="0" y1="0" x2="1" y2="0"/>"#,
     );
+
     assert!(huge.curves.iter().all(|curve| match curve {
         DrawingCurve::Line { start, end } => start.is_finite() && end.is_finite(),
         _ => true,
@@ -850,6 +897,7 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
     );
 
     let mut copies = String::from(r#"<defs><g id="g0"><line x1="0" y1="0" x2="1" y2="0"/></g>"#);
+
     for level in 1..15 {
         copies.push_str(&format!(
             r##"<g id="g{level}">{}</g>"##,
@@ -857,6 +905,7 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
         ));
     }
     copies.push_str(r##"</defs><use href="#g14"/>"##);
+
     assert_eq!(parse_svg(&svg(&copies)), Err(ImportError::TooManyCopies));
 
     let laughs = br#"<?xml version="1.0"?>
@@ -868,18 +917,23 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
 <!ENTITY e "&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;">
 ]>
 <svg xmlns="http://www.w3.org/2000/svg"><text>&e;&e;&e;&e;&e;</text></svg>"#;
+
     assert!(parse_svg(laughs).is_err());
+
     let mut entities = String::from(r#"<!ENTITY a "1111111111111111111111111111111111111111">"#);
+
     for (name, inner) in "bcdefghij".chars().zip("abcdefghi".chars()) {
         entities.push_str(&format!(
             r#"<!ENTITY {name} "{}">"#,
             format!("&{inner};").repeat(16)
         ));
     }
+
     let bomb = format!(
         r#"<!DOCTYPE svg [{entities}]><svg xmlns="http://www.w3.org/2000/svg"><line x1="0" y1="0" x2="1" y2="0"/><line x2="&j;"/></svg>"#
     );
     let drawing = parse_svg(bomb.as_bytes()).unwrap();
+
     assert_eq!(drawing.curves.len(), 1);
     assert!(
         drawing
@@ -895,6 +949,7 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
         " l1 0 l0 1".repeat(crate::import::MAX_READ_CURVES)
     );
     let drawing = read(&long_path);
+
     assert_eq!(drawing.curves.len(), crate::import::MAX_READ_CURVES);
     assert!(
         drawing
@@ -910,6 +965,7 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
             <path d="M0 0{}" marker-mid="url(#m)"/>"##,
         " l1 0".repeat(250_000)
     );
+
     assert_eq!(parse_svg(&svg(&marked)), Err(ImportError::TooManyCopies));
 
     let unclosed = read(
@@ -918,11 +974,13 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
            <line class="b" x1="0" y1="1" x2="1" y2="1"/>
            <line x1="0" y1="2" x2="1" y2="2"/>"#,
     );
+
     assert_eq!(unclosed.curves.len(), 1);
 
     for cut in (0..deep.len().min(4_000)).step_by(37) {
         let _ = parse_svg(deep.as_bytes().get(..cut).unwrap());
     }
+
     let _ = parse_svg(&[0xff, 0xfe, b'<', 0, b's', 0]);
     let _ = parse_svg(b"<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M 0 0 A\"/></svg>");
 }
@@ -952,6 +1010,7 @@ fn latin_1_names_are_read_with_a_note() {
     let mut bytes =
         br#"<svg xmlns="http://www.w3.org/2000/svg" width="1mm" viewBox="0 0 1 1"><g id="Ma"#
             .to_vec();
+
     bytes.push(0xdf);
     bytes.extend(
         br#"e"><line x1="0" y1="0" x2="1" y2="0"/></g><line x1="0" y1="0" x2="0" y2="1"/></svg>"#,
@@ -997,6 +1056,7 @@ fn style_sheets_hide_dash_and_unpaint_by_class_id_and_element() {
             line((0.0, -8.0), (1.0, -8.0)),
         ],
     );
+
     assert_eq!(drawing.construction, BTreeSet::from([0, 3]));
     for expected in [
         "2 hidden elements were left out.",
@@ -1109,6 +1169,7 @@ fn a_packed_drawing_unpacking_past_its_limit_is_refused_in_words() {
     let gzip_header = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
     let unread_trailer = [0; 8];
     let mut packed = gzip_header.to_vec();
+
     packed.extend(deflated_zeros(MAX_UNPACKED_DRAWING + 1));
     packed.extend(unread_trailer);
 

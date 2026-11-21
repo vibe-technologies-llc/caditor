@@ -13,7 +13,7 @@ pub use crate::{
     },
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ParameterId(u64);
 
 impl ParameterId {
@@ -45,7 +45,7 @@ impl Expression {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum NameError {
     #[error("A name cannot be empty")]
     Empty,
@@ -63,7 +63,9 @@ pub enum NameError {
 
 pub fn check_name(name: &str) -> Result<(), NameError> {
     let mut characters = name.chars();
+
     let first = characters.next().ok_or(NameError::Empty)?;
+
     if !(first.is_alphabetic() || first == '_') {
         return Err(NameError::InvalidStart);
     }
@@ -84,7 +86,7 @@ pub fn check_name(name: &str) -> Result<(), NameError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Naming<'a> {
     pub name: &'a str,
     pub expression: &'a str,
@@ -94,6 +96,7 @@ impl<'a> Naming<'a> {
     pub fn split(text: &'a str) -> Option<Self> {
         let (left, right) = text.split_once('=')?;
         let name = left.trim();
+
         let comparison = right.starts_with('=')
             || left.ends_with(['<', '>', '!'])
             || name.is_empty()
@@ -225,6 +228,7 @@ mod tests {
 
         for expression in built {
             let stored = expression.to_stored_text();
+
             assert_eq!(
                 Expression::parse_stored(&stored),
                 Ok(expression),
@@ -262,6 +266,7 @@ mod tests {
     fn imperial_units_spelled_out_are_refused_without_suggesting_one() {
         for text in ["2 inches", "2 inch", "3 feet", "3 foot", "1 Inches"] {
             let error = parse(text).unwrap_err();
+
             assert!(
                 matches!(error.kind, ParseErrorKind::ImperialUnit { .. }),
                 "{text}"
@@ -274,6 +279,7 @@ mod tests {
                 "{text}"
             );
         }
+
         assert_eq!(
             error_kind("10 foo"),
             ParseErrorKind::Unexpected {
@@ -288,9 +294,11 @@ mod tests {
         let tan = EvalError::OutOfDomain {
             function: Function::Tan,
         };
+
         for text in ["tan(90 deg)", "tan(-90 deg)", "tan(270 deg)", "tan(pi / 2)"] {
             assert_eq!(evaluate(text), Err(tan.clone()), "{text}");
         }
+
         assert!(evaluate("tan(89.9999 deg)").is_ok());
         assert!(evaluate("tan(45 deg)").is_ok());
         assert_eq!(
@@ -307,9 +315,11 @@ mod tests {
     fn displayed_numbers_are_never_longer_than_stored_ones_may_be() {
         for value in [1e-300, 1e300, 1.5e-30, 1e21] {
             let displayed = Expression::Number(value).to_text(&name_of);
+
             assert!(displayed.len() < 30, "{displayed}");
             assert_eq!(parse(&displayed), Ok(Expression::Number(value)));
         }
+
         assert_eq!(Expression::Number(100000.0).to_text(&name_of), "100000");
         assert_eq!(Expression::Number(0.0001).to_text(&name_of), "0.0001");
     }
@@ -363,14 +373,17 @@ mod tests {
     fn angles_work_in_degrees_and_plain_numbers_in_radians() {
         let close = |text: &str, expected: f64| {
             let value = evaluate(text).unwrap().value;
+
             assert!((value - expected).abs() < 1e-12, "{text} gave {value}");
         };
+
         close("sin(30 deg)", 0.5);
         close("cos(pi / 3)", 0.5);
         close("sin(pi / 2)", 1.0);
         close("tan(0.25 rad) - tan(0.25)", 0.0);
         close("atan2(height, height)", 45.0);
         close("asin(1)", 90.0);
+
         assert_eq!(evaluate("asin(1)").unwrap().dimension, Dimension::ANGLE);
     }
 
@@ -385,6 +398,7 @@ mod tests {
     fn roots_logarithms_truncation_and_logic_evaluate() {
         let near = |text: &str, expected: Quantity| {
             let found = evaluate(text).unwrap();
+
             assert_eq!(found.dimension, expected.dimension, "{text}");
             assert!(
                 (found.value - expected.value).abs() < 1e-12,
@@ -521,6 +535,7 @@ mod tests {
                 .evaluate_as(Dimension::LENGTH, &value_of)
         };
         let message = length("1 / 2 mm").unwrap_err().to_string();
+
         assert!(message.starts_with("it gives a quantity in mm^-1, but a length is needed;"));
         assert!(message.contains("(1 / 2) mm"));
         assert_eq!(length("(1 / 2) mm"), Ok(0.5));
@@ -572,6 +587,7 @@ mod tests {
                 .unwrap()
                 .evaluate_as(Dimension::LENGTH, &value_of)
         };
+
         assert_eq!(length("width / 2"), Ok(20.0));
         assert_eq!(length("12"), Ok(12.0));
         assert_eq!(
@@ -626,7 +642,9 @@ mod tests {
                 expected: Arity::Exactly(2)
             }
         );
+
         let error = parse("2 width").unwrap_err();
+
         assert_eq!(error.span, 2..7);
         assert_eq!(
             error.to_string(),
@@ -647,6 +665,7 @@ mod tests {
     #[test]
     fn the_deepest_stored_expressions_are_used_on_a_worker_with_the_default_stack() {
         const DEFAULT_WORKER_STACK: usize = 2 * 1024 * 1024;
+
         let terms = [
             "$0",
             "if($1 > $2, $0, $1)",
@@ -666,10 +685,12 @@ mod tests {
                         text.push_str(" + ");
                         text
                     });
+
             text.truncate(text.len() - " + ".len());
             text
         };
         let deeper_than_its_terms = crate::parse::MAX_TREE_DEPTH - 2;
+
         let deepest = chain(deeper_than_its_terms);
         let too_deep = chain(deeper_than_its_terms + 1);
 
@@ -684,11 +705,14 @@ mod tests {
                 let printed = expression.to_text(&name_of);
                 let stored = expression.to_stored_text();
                 let reparsed = Expression::parse_stored(&stored).unwrap();
+
                 let same = reparsed == expression;
                 let copy = expression.clone();
+
                 drop(expression);
                 drop(reparsed);
                 drop(copy);
+
                 let refused = Expression::parse_stored(&too_deep).unwrap_err().kind;
                 (depth, value, printed, same, refused)
             })
@@ -736,6 +760,7 @@ mod tests {
         for (input, printed) in cases {
             let expression = parse(input).unwrap();
             let text = expression.to_text(&name_of);
+
             assert_eq!(text, printed);
             assert_eq!(parse(&text).unwrap(), expression, "{input}");
         }
@@ -752,9 +777,11 @@ mod tests {
             "if(width != gap, round(width, 5 mm), 0 mm)",
             "30 deg + atan2(height, gap) - pi",
         ];
+
         for input in cases {
             let expression = parse(input).unwrap();
             let stored = expression.to_stored_text();
+
             assert!(!stored.contains("width"), "{stored}");
             assert_eq!(
                 Expression::parse_stored(&stored).unwrap(),
@@ -762,6 +789,7 @@ mod tests {
                 "{stored}"
             );
         }
+
         assert_eq!(parse("width / 2").unwrap().to_stored_text(), "$0 / 2");
         assert_eq!(Expression::Number(1e-300).to_stored_text(), "1e-300");
         assert_eq!(Expression::Number(0.25).to_stored_text(), "0.25");
@@ -770,6 +798,7 @@ mod tests {
     #[test]
     fn stored_text_rejects_names_and_malformed_references() {
         let kind = |text: &str| Expression::parse_stored(text).unwrap_err().kind;
+
         assert_eq!(
             kind("width"),
             ParseErrorKind::UnknownParameter("width".to_owned())
@@ -780,10 +809,14 @@ mod tests {
             ParseErrorKind::InvalidReference("$99999999999999999999999".to_owned())
         );
         assert_eq!(error_kind("$0"), ParseErrorKind::UnexpectedCharacter('$'));
+
         let deep = vec!["$0"; MAX_LENGTH + 2].join("+");
+
         assert_eq!(kind(&deep), ParseErrorKind::TooDeep);
+
         let longest = vec!["$0"; MAX_LENGTH * 16].join("*");
         let error = Expression::parse_stored(&longest).unwrap_err();
+
         assert_eq!(error.kind, ParseErrorKind::TooDeep);
         assert!(error.span.start < MAX_LENGTH * 4, "{:?}", error.span);
     }
@@ -791,13 +824,16 @@ mod tests {
     #[test]
     fn references_are_by_id_so_renaming_changes_the_text() {
         let expression = parse("width / 2 + gap").unwrap();
+
         assert!(expression.uses(GAP));
         assert!(!expression.uses(HEIGHT));
         assert_eq!(
             expression.parameters().into_iter().collect::<Vec<_>>(),
             vec![WIDTH, GAP]
         );
+
         let renamed = expression.to_text(&|id| (id == WIDTH).then_some("span").or(name_of(id)));
+
         assert_eq!(renamed, "span / 2 + gap");
         assert!(!parse("12 mm").unwrap().uses(WIDTH));
         assert!(parse("-12 mm").unwrap().is_literal());
@@ -933,6 +969,7 @@ mod tests {
     #[test]
     fn misspelled_and_imperial_units_say_which_units_exist() {
         let hint = |text: &str| parse(text).unwrap_err().to_string();
+
         assert_eq!(
             hint("10 MM"),
             "'MM' is not a unit; write mm, as units are um, mm, cm, m, deg and rad, and mm² or \
@@ -1028,14 +1065,17 @@ mod tests {
                 .unwrap()
                 .evaluate_as(Dimension::ANGLE, &value_of)
         };
+
         assert_eq!(angle("90"), Ok(90.0));
         assert!((angle("(pi / 2) rad").unwrap() - 90.0).abs() < 1e-12);
         assert!((angle("pi rad / 2").unwrap() - 90.0).abs() < 1e-12);
         assert_eq!(angle("pi / 2"), Err(EvalError::PlainAngle));
         assert_eq!(angle("width / height"), Err(EvalError::PlainAngle));
+
         let length = parse("width / height")
             .unwrap()
             .evaluate_as(Dimension::LENGTH, &value_of);
+
         assert_eq!(length, Ok(2.0));
     }
 }

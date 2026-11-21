@@ -135,17 +135,22 @@ pub fn show(
             panels.request_focus(Focus::Feature(feature));
         }
     }
+
     let dismissible = model.notice().map(|_| ()).ok_or(NO_NOTICE);
+
     if commands.invoke(Command::DismissNotice, &dismissible) {
         actions.push(Action::DismissNotice);
     }
+
     let trailing_id = Id::unique("status-trailing");
     let hovers = Hovers::of(commands);
     let frame = ribbon::bar_frame(ui.style());
+
     let shown = egui::Panel::bottom("status").frame(frame).show(ui, |ui| {
         let notice_width = notice_width(ui, model);
         let mut trailing_wrapped = false;
         let mut notice_wrapped = false;
+
         ui.horizontal(|ui| {
             recompute_status(ui, model, panels, &hovers, actions);
             divided(ui, |ui| {
@@ -155,12 +160,16 @@ pub fn show(
                 queued::note(ui, model, actions);
                 upload_note(ui, context, actions);
             });
+
             let fixed = widgets::remembered_width(ui, trailing_id) + selection_icon_room(ui);
             let available = ui.available_width();
+
             trailing_wrapped = available < fixed + MIN_SELECTION_WIDTH;
+
             let inline_notice = notice_width.filter(|width| {
                 !trailing_wrapped && available >= fixed + MIN_SELECTION_WIDTH + width
             });
+
             notice_wrapped = notice_width.is_some() && inline_notice.is_none();
             if !trailing_wrapped {
                 let room = TrailingRoom {
@@ -168,6 +177,7 @@ pub fn show(
                     selection: available - fixed - inline_notice.unwrap_or(0.0),
                     with_notice: inline_notice.is_some(),
                 };
+
                 trailing(ui, model, context, &room, &hovers, actions);
             }
         });
@@ -179,6 +189,7 @@ pub fn show(
                     selection: ui.available_width() - fixed,
                     with_notice: false,
                 };
+
                 trailing(ui, model, context, &room, &hovers, actions);
             });
         }
@@ -186,6 +197,7 @@ pub fn show(
             ui.horizontal(|ui| notice(ui, model, &hovers, actions, true));
         }
     });
+
     widgets::remember_height(
         ui,
         Id::unique("status-height"),
@@ -235,6 +247,7 @@ fn divider(ui: &mut Ui) {
     let height = ui.text_style_height(&TextStyle::Body);
     let (rect, _) = ui.allocate_exact_size(vec2(DIVIDER_WIDTH, height), Sense::hover());
     let stroke = Stroke::new(BORDER_WIDTH, appearance::tokens(ui).border_strong);
+
     ui.painter().vline(rect.center().x, rect.y_range(), stroke);
 }
 
@@ -247,13 +260,16 @@ fn divided(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     let lead = DIVIDER_WIDTH + spacing;
     let row = ui.spacing().interact_size.y;
     let origin = ui.cursor().min + vec2(lead, 0.0);
+
     let room = Rect::from_min_size(origin, vec2((ui.available_width() - lead).max(0.0), row));
     let mut segment = ui.new_child(
         UiBuilder::new()
             .max_rect(room)
             .layout(Layout::left_to_right(Align::Center)),
     );
+
     add(&mut segment);
+
     let drawn = segment.min_rect();
     if drawn.width() > 0.0 {
         divider(ui);
@@ -274,12 +290,14 @@ fn recompute_commands(model: &Model, commands: &mut CommandFrame<'_>, actions: &
             !model.threads_shown_cosmetic(),
         ));
     }
+
     let running = match model.status() {
         RecomputeStatus::Running { .. } => Ok(()),
         RecomputeStatus::UpToDate | RecomputeStatus::Cancelled | RecomputeStatus::Stopped => {
             Err(NOT_RECOMPUTING)
         }
     };
+
     if commands.invoke(Command::CancelRecompute, &running) {
         actions.push(Action::CancelRecompute);
     }
@@ -292,9 +310,11 @@ fn upload_commands(
     actions: &mut Vec<Action>,
 ) {
     let loading = context.uploading.then_some(()).ok_or(NOT_UPLOADING);
+
     if commands.invoke(Command::CancelUploading, &loading) {
         actions.push(Action::StopUploading);
     }
+
     let stopped = (context.upload_stopped && !context.uploading)
         .then_some(())
         .ok_or(NOT_STOPPED_UPLOADING);
@@ -326,9 +346,11 @@ fn upload_note(ui: &mut Ui, context: &StatusContext<'_>, actions: &mut Vec<Actio
 
 fn body_commands(model: &Model, commands: &mut CommandFrame<'_>, actions: &mut Vec<Action>) {
     let preparing = model.bodies_preparing().map(|_| ()).ok_or(NOT_PREPARING);
+
     if commands.invoke(Command::CancelPreparingBodies, &preparing) {
         actions.push(Action::StopPreparingBodies);
     }
+
     let stopped = model
         .bodies_stopped()
         .map(|_| ())
@@ -348,6 +370,7 @@ fn recomputing_text(progress: &Progress) -> String {
         return format!("{position}…");
     };
     let running_for = progress.running_for();
+
     if running_for < SHOW_FEATURE_TIME_AFTER {
         return format!("{position}: {name}…");
     }
@@ -367,6 +390,7 @@ fn recompute_status(
                 Some(progress) if progress.total > 0 => recomputing_text(&progress),
                 Some(_) | None => "Recomputing…".to_owned(),
             };
+
             if widgets::progress(text).cancel(&hovers.cancel).show(ui) {
                 actions.push(Action::CancelRecompute);
             }
@@ -381,6 +405,7 @@ fn recompute_status(
         RecomputeStatus::Cancelled => {
             widgets::announced_status_pill(ui, Tone::Warning, CANCELLED)
                 .on_hover_text("Some features are outdated until the model is recomputed");
+
             let recompute = ui
                 .add(widgets::button("Recompute"))
                 .on_hover_text(&hovers.recompute);
@@ -391,6 +416,7 @@ fn recompute_status(
         RecomputeStatus::Stopped => {
             widgets::announced_status_pill(ui, Tone::Error, STOPPED)
                 .on_hover_text("Recompute stopped unexpectedly. Your model is safe.");
+
             let restart = ui
                 .add(widgets::button("Restart"))
                 .on_hover_text(&hovers.restart);
@@ -432,9 +458,11 @@ fn summary(
             actions.push(Action::PrepareStoppedBodies);
         }
     }
+
     let tokens = appearance::tokens(ui);
     let failed = model.evaluation().failed_count();
     let waiting = model.evaluation().waiting_count();
+
     if failed == 0 && waiting == 0 {
         widgets::icon_label(ui, icons::UP_TO_DATE, tokens.success);
         ui.label(widgets::muted(UP_TO_DATE, ui));
@@ -463,11 +491,15 @@ fn feature_pill(ui: &mut Ui, tone: Tone, text: &str, hover: &str) -> Response {
     let response = widgets::named(pill.interact(Sense::click()), text)
         .on_hover_cursor(CursorIcon::PointingHand)
         .on_hover_text(hover);
+
     widgets::announced(ui, &response, tone == Tone::Error);
+
     let pressed = response.is_pointer_button_down_on();
+
     if pressed || response.hovered() {
         let width = if pressed { FOCUS_WIDTH } else { BORDER_WIDTH };
         let radius = CornerRadius::from(response.rect.height() / 2.0);
+
         ui.painter().rect_stroke(
             response.rect,
             radius,
@@ -481,7 +513,7 @@ fn feature_pill(ui: &mut Ui, tone: Tone, text: &str, hover: &str) -> Response {
     response
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     Next,
     Previous,
@@ -507,7 +539,9 @@ fn in_tree_order(
     let mut ordered: Vec<(usize, FeatureId)> = features
         .filter_map(|id| Some((document.feature_index(id)?, id)))
         .collect();
+
     ordered.sort_unstable();
+
     let at = current.and_then(|id| document.feature_index(id));
     match (way, at) {
         (Step::Next, Some(at)) => ordered
@@ -558,16 +592,21 @@ fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>
         return;
     };
     let tone = notice.kind.tone();
+
     widgets::icon_label(ui, tone.icon(), tone.color(&appearance::tokens(ui)));
+
     let text = notice_text(ui, notice);
     let buttons_id = Id::unique("status-notice-buttons");
     let buttons = widgets::remembered_width(ui, buttons_id)
         .max(2.0 * ui.spacing().interact_size.y + ui.spacing().item_spacing.x);
     let buttons_width = buttons + ui.spacing().item_spacing.x;
+
     ui.scope(|ui| {
         ui.set_max_width((ui.available_width() - buttons_width).max(0.0));
+
         let label = Label::new(text);
         let response = ui.add(if wrap { label.wrap() } else { label.truncate() });
+
         widgets::announced(ui, &response, notice.kind.is_urgent());
     });
     if let Some(offered) = notice.action.as_ref().filter(|action| model.offers(action)) {
@@ -584,14 +623,18 @@ fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>
                 Action::File(FileCommand::ShowInFolder(path.clone())),
             ),
         };
+
         let button = ui.add(widgets::button(label)).on_hover_text(hover);
+
         widgets::remember_width(ui, Id::unique(NOTICE_ACTION_ID), button.rect.width());
         if button.clicked() {
             actions.push(taken);
         }
     }
+
     let messages = widgets::icon_button(ui, icons::command(Command::Messages), &hovers.messages);
     let dismiss = widgets::icon_button(ui, icons::CLOSE, "Dismiss");
+
     widgets::remember_width(ui, buttons_id, dismiss.rect.right() - messages.rect.left());
     if messages.clicked() {
         actions.push(Action::Preferences(PreferencesCommand::ShowMessages));
@@ -610,6 +653,7 @@ fn selection(ui: &mut Ui, described: &[String], selected: usize, room: f32) {
             .color(tokens.text),
     };
     let icon_room = selection_icon_room(ui);
+
     let response = ui
         .scope(|ui| {
             ui.set_max_width(room.max(MIN_SELECTION_WIDTH) - icon_room);
@@ -617,6 +661,7 @@ fn selection(ui: &mut Ui, described: &[String], selected: usize, room: f32) {
         })
         .inner;
     let more = selected.saturating_sub(described.len());
+
     match (described, more) {
         ([], _) => {}
         ([only], 0) => {
@@ -647,6 +692,7 @@ fn unit(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {
     let unit = model.length_unit();
     let button = widgets::small_button(ui, icons::UNIT, unit.symbol());
     let name = format!("Length unit: {}", unit.label().to_lowercase());
+
     let response = ui.add(Named::new(button, name)).on_hover_text(format!(
         "Lengths are shown in {}. Click to change it in Preferences.",
         unit.label().to_lowercase()
@@ -660,11 +706,13 @@ fn interface_size(ui: &mut Ui, appearance: &Appearance, actions: &mut Vec<Action
     if (appearance.scale - 1.0).abs() < f32::EPSILON {
         return false;
     }
+
     let text = format!("{:.0}%", appearance.scale * 100.0);
     let button = widgets::small_button(ui, icons::command(Command::NormalInterface), &text);
     let response = ui
         .add(Named::new(button, format!("Interface size: {text}")))
         .on_hover_text("Interface size. Click to go back to normal size.");
+
     if response.clicked() {
         actions.push(Action::Preferences(PreferencesCommand::Change(
             PreferenceChange::Scale(1.0),

@@ -11,7 +11,7 @@ pub const MAX_LENGTH: f64 = 1e6;
 
 const FULL_TURN_DEGREES: f64 = 360.0;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Constraint {
     Coincident(EntityId, EntityId),
     Horizontal(EntityId),
@@ -358,6 +358,7 @@ impl Constraint {
 
     pub(crate) fn with_entities_mapped(&self, swap: impl Fn(EntityId) -> EntityId) -> Self {
         let mut replaced = self.clone();
+
         match &mut replaced {
             Self::Horizontal(entity)
             | Self::Vertical(entity)
@@ -433,6 +434,7 @@ impl Constraint {
 
 fn distinct(entities: impl Iterator<Item = EntityId>) -> Vec<EntityId> {
     let mut found = Vec::new();
+
     for entity in entities {
         if !found.contains(&entity) {
             found.push(entity);
@@ -441,7 +443,7 @@ fn distinct(entities: impl Iterator<Item = EntityId>) -> Vec<EntityId> {
     found
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DimensionError {
     #[error(transparent)]
     Evaluation(#[from] EvalError),

@@ -208,6 +208,7 @@ impl Client {
 
     fn renew(&self, stale: &Session) -> Result<Session, Error> {
         let renewed = self.renewed(stale)?;
+
         if let (Some(saved), Some(renewed)) = (&self.saved, &renewed.fresh) {
             saved(renewed);
         }
@@ -218,6 +219,7 @@ impl Client {
         let _only_one = self.renewing.lock();
         let now = (self.clock)();
         let current = self.session();
+
         if current != *stale && !current.is_expiring(now) {
             return Ok(Renewal {
                 session: current,
@@ -227,7 +229,9 @@ impl Client {
         if !current.can_refresh() {
             return Err(Error::SignedOut);
         }
+
         let renewed = self.provider.refresh(&*self.transport, &current, now)?;
+
         *self.session.lock() = renewed.clone();
         Ok(Renewal {
             session: renewed.clone(),
@@ -297,6 +301,7 @@ mod tests {
         let provider = Arc::new(FakeProvider::new());
         let kept = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let sink = Arc::clone(&kept);
+
         let client = client(&provider, session(clock() + 30, true))
             .saving_with(Arc::new(move |session| sink.lock().push(session.clone())));
 
@@ -314,6 +319,7 @@ mod tests {
         let free = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let saver_slot = Arc::clone(&slot);
         let saver_free = Arc::clone(&free);
+
         let client = Arc::new(client(&provider, session(clock() + 30, true)).saving_with(
             Arc::new(move |_| {
                 if let Some(client) = saver_slot.get() {
@@ -321,6 +327,7 @@ mod tests {
                 }
             }),
         ));
+
         assert!(slot.set(Arc::clone(&client)).is_ok());
 
         client.account().unwrap();

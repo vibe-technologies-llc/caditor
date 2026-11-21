@@ -26,45 +26,45 @@ identifier!(VersionId);
 identifier!(PartId);
 identifier!(ItemId);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Account {
     pub name: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkspaceKind {
     Team,
     Personal,
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Workspace {
     pub id: WorkspaceId,
     pub name: String,
     pub kind: WorkspaceKind,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Project {
     pub id: ProjectId,
     pub workspace: WorkspaceId,
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FolderRef {
     pub project: ProjectId,
     pub folder: FolderId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FolderEntry {
     pub reference: FolderRef,
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Design {
     pub id: DesignId,
     pub project: ProjectId,
@@ -73,13 +73,13 @@ pub struct Design {
     pub has_parts: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Part {
     pub id: PartId,
     pub name: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum UploadFormat {
     Step,
     Stl,
@@ -123,7 +123,7 @@ impl UploadFormat {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Upload {
     pub id: UploadId,
     pub project: ProjectId,
@@ -142,7 +142,7 @@ impl Upload {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Folder {
     pub place: Option<FolderRef>,
     pub folders: Vec<FolderEntry>,
@@ -175,58 +175,58 @@ impl Folder {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Version {
     pub id: VersionId,
     pub number: u32,
     pub modified: Option<Timestamp>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Translation {
     pub source: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Download {
     pub source: String,
     pub artifact: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Conversion {
     Working { percent: Option<u8> },
     Ready(Download),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Outgoing<'a> {
     pub folder: &'a FolderRef,
     pub name: &'a str,
     pub bytes: &'a [u8],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SendAs {
     #[default]
     File,
     PartStudio,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Placement {
     Working,
     Done,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SendOutcome {
     Created,
     PartStudio,
     NewVersion { number: Option<u32> },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sent {
     pub name: String,
     pub outcome: SendOutcome,

@@ -27,7 +27,7 @@ const NO_PAIR: &str = "Select a flat face, axis, round face or corner of the bod
                        the face, plane, axis, round face or point to mate it onto; or a flat face \
                        and an axis of the body, then a face and an axis to mate them onto";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum MateError {
     #[error("{NO_PAIR}")]
     NoPair,
@@ -98,13 +98,13 @@ impl Reason for MateError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum MatePart {
     Main,
     Axis,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MateSource {
     pub body: FeatureId,
     pub pair: MatePair,
@@ -141,9 +141,12 @@ fn moving_round(
         return None;
     };
     let shown = bodies::shown(model.evaluation(), body)?;
+
     let seen = FaceReference::capture(&shown.solid, bodies::find_face(shown, face)?)?;
     let state = sketch_placement::body_state_before(model, body, index).ok()?;
+
     let reference = FaceReference::capture(state, seen.resolve(state).ok()?)?;
+
     round_face(state, &reference).ok()?;
     Some((body, reference))
 }
@@ -184,6 +187,7 @@ fn one_pair(
             target,
             distance,
         };
+
         return Some((body, MatePair::Faces(Box::new(faces))));
     }
     if let (Some((body, axis)), Some(target)) = (
@@ -203,8 +207,10 @@ fn one_pair(
         round_target(model, second, index),
     ) {
         let resting = FaceOnRound { face, round };
+
         return Some((body, MatePair::FaceOnRound(Box::new(resting))));
     }
+
     let (body, point) = moving_point(model, first, index)?;
     let target = point_target(model, second, index)?;
     Some((body, MatePair::Point(Box::new(PointMate { point, target }))))
@@ -248,6 +254,7 @@ fn flush_and_concentric(
     let (on, off): (Vec<Pickable>, Vec<Pickable>) = picked
         .iter()
         .partition(|pickable| pickable.body() == Some(body));
+
     let (Ok(on), Ok(off)) = (
         <[Pickable; 2]>::try_from(on),
         <[Pickable; 2]>::try_from(off),
@@ -256,6 +263,7 @@ fn flush_and_concentric(
     };
     let (body, face, axis) = face_and_axis(model, on, index)?;
     let (target, axis_target) = plane_and_axis(model, off, index)?;
+
     let faces = FaceMate {
         face,
         target,
@@ -278,9 +286,11 @@ fn shown(model: &Model, body: FeatureId) -> Result<FeatureId, BodyChoiceError> {
 pub fn source(model: &Model, selection: &Selection) -> Result<MateSource, MateError> {
     let index = model.document().bar_index();
     let picked = selection.in_pick_order();
+
     let found = match picked.as_slice() {
         [first, second] => {
             let body = first.body().ok_or(MateError::NoPair)?;
+
             if second.body() == Some(body) {
                 return Err(MateError::SameBody);
             }
@@ -306,9 +316,11 @@ pub fn angle_source(model: &Model, selection: &Selection) -> Result<MateSource, 
         return Err(MateError::NoAnglePair);
     };
     let body = first.body().ok_or(MateError::NoAnglePair)?;
+
     if second.body() == Some(body) {
         return Err(MateError::SameBody);
     }
+
     let sides = match one_pair(model, *first, *second, index) {
         Some((_, MatePair::Faces(faces))) => AngleSides::Faces(FacePair {
             face: faces.face,
@@ -330,6 +342,7 @@ pub fn angle_source(model: &Model, selection: &Selection) -> Result<MateSource, 
 pub fn create(document: &Document, source: &MateSource) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, NAME);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Mate(Mate {
@@ -441,16 +454,19 @@ fn moved_pair(picks: &Picks<'_>, pair: &MatePair, part: MatePart) -> Result<Mate
         })),
         (MatePair::FaceAxis(both), MatePart::Main) => {
             let mut both = both.as_ref().clone();
+
             both.faces.face = picks.face()?;
             MatePair::FaceAxis(Box::new(both))
         }
         (MatePair::FaceAxis(both), MatePart::Axis) => {
             let mut both = both.as_ref().clone();
+
             both.axes.axis = picks.axis()?;
             MatePair::FaceAxis(Box::new(both))
         }
         (MatePair::Angle(angle), MatePart::Main) => {
             let mut angle = angle.as_ref().clone();
+
             match &mut angle.sides {
                 AngleSides::Faces(faces) => faces.face = picks.face()?,
                 AngleSides::Axes(axes) => axes.axis = picks.axis()?,
@@ -495,16 +511,19 @@ fn target_pair(picks: &Picks<'_>, pair: &MatePair, part: MatePart) -> Result<Mat
         })),
         (MatePair::FaceAxis(both), MatePart::Main) => {
             let mut both = both.as_ref().clone();
+
             both.faces.target = picks.plane()?;
             MatePair::FaceAxis(Box::new(both))
         }
         (MatePair::FaceAxis(both), MatePart::Axis) => {
             let mut both = both.as_ref().clone();
+
             both.axes.target = picks.target_axis()?;
             MatePair::FaceAxis(Box::new(both))
         }
         (MatePair::Angle(angle), MatePart::Main) => {
             let mut angle = angle.as_ref().clone();
+
             match &mut angle.sides {
                 AngleSides::Faces(faces) => faces.target = picks.plane()?,
                 AngleSides::Axes(axes) => axes.target = picks.target_axis()?,
@@ -551,14 +570,17 @@ pub fn target_axis_change(
         })),
         (MatePair::FaceAxis(both), MatePart::Axis) => {
             let mut both = both.as_ref().clone();
+
             both.axes.target = axis;
             MatePair::FaceAxis(Box::new(both))
         }
         (MatePair::Angle(angle), MatePart::Main) => {
             let mut angle = angle.as_ref().clone();
+
             let AngleSides::Axes(axes) = &mut angle.sides else {
                 return Err(MateError::NotOnAxes);
             };
+
             axes.target = axis;
             MatePair::Angle(Box::new(angle))
         }
@@ -580,14 +602,17 @@ pub fn target_plane_change(
         })),
         MatePair::FaceAxis(both) => {
             let mut both = both.as_ref().clone();
+
             both.faces.target = plane;
             MatePair::FaceAxis(Box::new(both))
         }
         MatePair::Angle(angle) => {
             let mut angle = angle.as_ref().clone();
+
             let AngleSides::Faces(faces) = &mut angle.sides else {
                 return Err(MateError::NotOnPlanes);
             };
+
             faces.target = plane;
             MatePair::Angle(Box::new(angle))
         }

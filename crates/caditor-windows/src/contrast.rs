@@ -12,6 +12,7 @@ pub fn high_contrast() -> io::Result<bool> {
         dwFlags: 0,
         lpszDefaultScheme: ptr::null_mut(),
     };
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let read = unsafe {
         SystemParametersInfoW(

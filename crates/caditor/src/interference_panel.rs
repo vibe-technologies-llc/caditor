@@ -48,14 +48,14 @@ const HEADER: PanelTitle<'static> = PanelTitle {
 };
 const APPROXIMATELY: &str = "≈ ";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MarkKind {
     Overlap,
     Touch,
     Unchecked,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Mark {
     pub place: Point3,
     pub label: String,
@@ -106,6 +106,7 @@ pub fn summary(report: &Report) -> Option<(Tone, String)> {
     if report.stopped {
         return Some((Tone::Info, stopped_text(report)));
     }
+
     let count = |wanted: fn(&Finding) -> bool| {
         report
             .contacts()
@@ -115,6 +116,7 @@ pub fn summary(report: &Report) -> Option<(Tone, String)> {
     let overlaps = count(|finding| matches!(finding, Finding::Overlapping(_)));
     let touches = count(|finding| matches!(finding, Finding::Touching(_)));
     let unchecked = count(|finding| matches!(finding, Finding::Unchecked(_)));
+
     let parts: Vec<String> = [
         (overlaps > 0).then(|| counted(overlaps, "overlaps", "overlap")),
         (touches > 0).then(|| counted(touches, "touches", "touch")),
@@ -174,6 +176,7 @@ fn rank(finding: &Finding) -> (u8, u64) {
 
 fn ranked(report: &Report) -> Vec<&(Pair, Finding)> {
     let mut contacts: Vec<&(Pair, Finding)> = report.contacts().collect();
+
     contacts.sort_by_key(|(pair, finding)| (rank(finding), *pair));
     contacts
 }
@@ -206,6 +209,7 @@ fn card_of(document: &Document, pair: Pair, finding: &Finding, unit: Units) -> C
                     label: "Shared volume".to_owned(),
                     text: approximately(unit.measured_volume(mass.properties.volume), approximate),
                 }];
+
                 if let Some(size) = mass.size {
                     rows.push(Row {
                         label: "Size".to_owned(),
@@ -310,6 +314,7 @@ pub fn show(
     let report = tool.report.as_ref()?;
     let document = model.document();
     let unit = model.units();
+
     let cards = cards(document, report, unit);
     let unlisted = unlisted(report);
     let summary = summary(report);
@@ -317,6 +322,7 @@ pub fn show(
     let mut shown = None;
     let mut stop = false;
     let mut again = false;
+
     let actions = |ui: &mut Ui| {
         let everything = summary
             .iter()
@@ -338,6 +344,7 @@ pub fn show(
         ui.add_space(SPACE_S);
         if report.is_checking() {
             let total = report.checked() + report.pending;
+
             stop = widgets::progress(CHECKING)
                 .count(report.checked(), total)
                 .wrapping()
@@ -347,6 +354,7 @@ pub fn show(
         }
         if let Some((tone, text)) = &summary {
             let response = widgets::callout(ui, *tone, |ui| ui.label(text));
+
             widgets::announced(ui, &response, *tone == Tone::Error);
             ui.add_space(SPACE_S);
             if report.stopped {
@@ -373,6 +381,7 @@ pub fn show(
     });
     let checking = report.is_checking().then_some(()).ok_or(NOT_CHECKING);
     let stopped = report.stopped.then_some(()).ok_or(NOT_STOPPED);
+
     stop |= commands.invoke(Command::CancelInterference, &checking);
     again |= commands.invoke(Command::CheckInterferenceAgain, &stopped);
     if stop {

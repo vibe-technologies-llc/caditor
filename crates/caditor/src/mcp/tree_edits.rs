@@ -9,14 +9,14 @@ use crate::mcp::{
     writing::apply,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Renaming {
     pub feature: Named,
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Suppressing {
     pub features: Vec<Named>,
@@ -28,7 +28,7 @@ fn suppressed_by_default() -> bool {
     true
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Reordering {
     pub feature: Named,
@@ -36,21 +36,21 @@ pub struct Reordering {
     pub after: Option<Named>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Dependents {
     Delete,
     Keep,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Deleting {
     pub features: Vec<Named>,
     pub dependents: Option<Dependents>,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TreeError {
     #[error("give at least one feature")]
     NoFeatures,
@@ -88,7 +88,9 @@ fn chosen(document: &Document, features: &[Named]) -> Result<Vec<FeatureId>, Too
     if features.is_empty() {
         return Err(TreeError::NoFeatures.into());
     }
+
     let mut ids = Vec::with_capacity(features.len());
+
     for named in features {
         let id = references::feature(document, named)?.id();
         if !ids.contains(&id) {
@@ -122,6 +124,7 @@ pub fn rename(
         },
     );
     let mut details = Map::new();
+
     details.insert("feature".to_owned(), json!(feature.id().raw()));
     details.insert("name".to_owned(), json!(asked.name));
     apply(session, work, transaction, details)
@@ -139,12 +142,14 @@ pub fn suppress(
     } else {
         "Unsuppress"
     };
+
     let transaction = document.suppression(
         &ids,
         asked.suppressed,
         format!("{verb} {}", names(document, &ids)),
     );
     let mut details = Map::new();
+
     details.insert("features".to_owned(), listed(document, &ids));
     details.insert("suppressed".to_owned(), json!(asked.suppressed));
     apply(session, work, transaction, details)
@@ -162,6 +167,7 @@ pub fn reorder(
     let document = session.document();
     let moved: &Feature = references::feature(document, &asked.feature)?;
     let rows = document.tree_rows();
+
     let gap = match (&asked.before, &asked.after) {
         (Some(_), Some(_)) => return Err(TreeError::BothPlaces.into()),
         (None, None) => {
@@ -191,7 +197,9 @@ pub fn reorder(
             source: Box::new(source),
         })?;
     let mut details = Map::new();
+
     details.insert("feature".to_owned(), json!(moved.id().raw()));
+
     let answer = apply(session, work, transaction, details)?;
     let mut data = answer.data;
     let document = session.document();
@@ -199,6 +207,7 @@ pub fn reorder(
         .features()
         .map(|feature| json!({ "id": feature.id().raw(), "name": feature.name }))
         .collect();
+
     data.insert("tree".to_owned(), Value::Array(order));
     Ok(Answer::of(data))
 }
@@ -210,8 +219,10 @@ pub fn delete(
 ) -> Result<Answer, ToolError> {
     let document = session.document();
     let ids = chosen(document, &asked.features)?;
+
     let dependents = document.dependents_of(&ids);
     let subject = names(document, &ids);
+
     let (doomed, label) = match (asked.dependents, dependents.is_empty()) {
         (_, true) | (Some(Dependents::Keep), false) => (ids.clone(), format!("Delete {subject}")),
         (Some(Dependents::Delete), false) => {
@@ -229,8 +240,10 @@ pub fn delete(
             .into());
         }
     };
+
     let transaction = document.deletion(&doomed, label);
     let mut details = Map::new();
+
     details.insert("deleted".to_owned(), listed(document, &doomed));
     apply(session, work, transaction, details)
 }

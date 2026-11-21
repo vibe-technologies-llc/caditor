@@ -16,20 +16,20 @@ const LEAST_ARC_STEPS: usize = 4;
 const MAX_TRACK_POINTS: usize = 200_000;
 const STRAIGHT: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Side {
     Left,
     Right,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum Method {
     #[default]
     Align,
     Stretch,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum Spacing {
     #[default]
     Exact,
@@ -42,7 +42,7 @@ struct Line {
     distances: Vec<f64>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Track {
     line: Rc<Line>,
     pub start: f64,
@@ -54,14 +54,17 @@ impl Track {
     pub fn of(outline: &Outline, matrix: &Matrix, side: Side) -> Self {
         let mut pieces: Vec<Vec<Point2>> = Vec::new();
         let mut budget = MAX_TRACK_POINTS;
+
         for shape in &outline.shapes {
             if budget == 0 {
                 break;
             }
+
             let piece: Vec<Point2> = samples(shape)
                 .take(budget)
                 .map(|point| matrix.apply(point))
                 .collect();
+
             tally::add(piece.len());
             budget = budget.saturating_sub(piece.len());
             pieces.push(piece);
@@ -72,9 +75,12 @@ impl Track {
                 piece.reverse();
             }
         }
+
         let mut line = Line::default();
+
         for piece in pieces {
             let mut points = piece.into_iter();
+
             if let Some(first) = points.next() {
                 line.jump(first);
             }
@@ -102,7 +108,9 @@ impl Line {
         if self.points.last() == Some(&point) {
             return;
         }
+
         let distance = self.length();
+
         self.points.push(point);
         self.distances.push(distance);
     }
@@ -113,6 +121,7 @@ impl Line {
             return;
         };
         let step = (point - last).length();
+
         if !step.is_finite() || step == 0.0 {
             return;
         }
@@ -162,21 +171,25 @@ impl Track {
         if !(0.0..=self.length()).contains(&distance) {
             return None;
         }
+
         let mut index = self
             .line
             .distances
             .partition_point(|reached| *reached < distance)
             .max(1);
+
         loop {
             let (from, to) = (
                 self.line.distances.get(index - 1)?,
                 self.line.distances.get(index)?,
             );
+
             if to > from {
                 break;
             }
             index += 1;
         }
+
         let (from, to) = (
             self.line.points.get(index - 1)?,
             self.line.points.get(index)?,
@@ -185,6 +198,7 @@ impl Track {
             self.line.distances.get(index - 1)?,
             self.line.distances.get(index)?,
         );
+
         let share = (distance - near) / (far - near);
         let tangent = (*to - *from).try_normalize()?;
         Some((*from + (*to - *from) * share, tangent))

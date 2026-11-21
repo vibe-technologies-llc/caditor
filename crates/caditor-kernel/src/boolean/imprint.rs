@@ -37,14 +37,14 @@ const END_REACH: f64 = 8.0 * TOLERANCE;
 
 type Mark = (f64, Option<usize>);
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct Source {
     pub curve: Curve,
     pub name: EdgeName,
     pub edge: Option<(Operand, EdgeId)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Piece {
     pub source: usize,
     pub interval: Interval,
@@ -70,7 +70,7 @@ impl Piece {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct Arrangement {
     points: Vec<Point3>,
     sources: Vec<Source>,
@@ -165,6 +165,7 @@ impl Arrangement {
                 if piece.source != pinched.source {
                     continue;
                 }
+
                 let interval = if piece.interval.end() == pinched.interval.start() {
                     Interval::new(piece.interval.start(), pinch.meeting)
                 } else if piece.interval.start() == pinched.interval.end() {
@@ -177,6 +178,7 @@ impl Arrangement {
                 }
             }
         }
+
         let dropped: BTreeSet<usize> = pinches.iter().map(|pinch| pinch.piece).collect();
         for pieces in self.edge_pieces.values_mut().chain(self.cuts.values_mut()) {
             pieces.retain(|piece| !dropped.contains(piece));
@@ -185,7 +187,9 @@ impl Arrangement {
 
     fn bring_ends_to_vertices(&mut self) {
         self.bring_ends_nearer();
+
         let strays = self.vertices_off_their_ends();
+
         if strays.is_empty() {
             return;
         }
@@ -201,6 +205,7 @@ impl Arrangement {
     fn vertices_off_their_ends(&self) -> BTreeMap<usize, Vec<Point3>> {
         let mut ends: BTreeMap<usize, Vec<Point3>> = BTreeMap::new();
         let mut strays = BTreeSet::new();
+
         for index in 0..self.pieces.len() {
             let Some((curve, piece)) = self.curve(index) else {
                 continue;
@@ -210,6 +215,7 @@ impl Arrangement {
                 (piece.end, piece.interval.end()),
             ] {
                 let end = curve.point(parameter);
+
                 ends.entry(vertex).or_default().push(end);
                 if self
                     .point(vertex)
@@ -227,6 +233,7 @@ impl Arrangement {
         let settled: Vec<(usize, Interval)> = (0..self.pieces.len())
             .filter_map(|index| {
                 let (curve, piece) = self.curve(index)?;
+
                 let start = nearest_end(curve, piece.interval.start(), self.point(piece.start)?);
                 let end = nearest_end(curve, piece.interval.end(), self.point(piece.end)?);
                 (start != piece.interval.start() || end != piece.interval.end())
@@ -253,6 +260,7 @@ fn nearest_end(curve: &Curve, parameter: f64, vertex: Point3) -> f64 {
     if curve.point(parameter).distance(vertex) <= TOLERANCE {
         return parameter;
     }
+
     let reach = END_REACH
         / curve
             .evaluate(parameter)
@@ -260,6 +268,7 @@ fn nearest_end(curve: &Curve, parameter: f64, vertex: Point3) -> f64 {
             .length()
             .max(f64::MIN_POSITIVE);
     let domain = curve.domain();
+
     let window = Interval::new(
         domain.clamp(parameter - reach),
         domain.clamp(parameter + reach),
@@ -276,7 +285,7 @@ fn nearest_end(curve: &Curve, parameter: f64, vertex: Point3) -> f64 {
 
 type Cell = (i64, i64, i64);
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Pool {
     points: Vec<Point3>,
     owners: Vec<[bool; 2]>,
@@ -309,12 +318,14 @@ impl Pool {
     fn in_box(&self, bounds: &Aabb) -> Vec<usize> {
         let (low, high) = (self.cell_of(bounds.min()), self.cell_of(bounds.max()));
         let span = |from: i64, to: i64| u128::from(to.abs_diff(from)) + 1;
+
         let cells = span(low.0, high.0) * span(low.1, high.1) * span(low.2, high.2);
         let inside = |cell: &Cell| {
             (low.0..=high.0).contains(&cell.0)
                 && (low.1..=high.1).contains(&cell.1)
                 && (low.2..=high.2).contains(&cell.2)
         };
+
         let mut found: Vec<usize> = if cells > self.cells.len() as u128 {
             self.cells
                 .iter()
@@ -323,6 +334,7 @@ impl Pool {
                 .collect()
         } else {
             let mut found = Vec::new();
+
             for x in low.0..=high.0 {
                 for y in low.1..=high.1 {
                     for (_, members) in self.cells.range((x, y, low.2)..=(x, y, high.2)) {
@@ -332,6 +344,7 @@ impl Pool {
             }
             found
         };
+
         found.retain(|index| {
             self.points.get(*index).is_some_and(|point| {
                 point.cmpge(bounds.min()).all() && point.cmple(bounds.max()).all()
@@ -354,13 +367,16 @@ impl Pool {
         let index = existing.unwrap_or_else(|| {
             self.points.push(point);
             self.owners.push([false; 2]);
+
             let index = self.points.len() - 1;
+
             self.cells
                 .entry(self.cell_of(point))
                 .or_default()
                 .push(index);
             index
         });
+
         if let Some(owner) = owner
             && let Some(flags) = self.owners.get_mut(index)
             && let Some(flag) = flags.get_mut(owner_index(owner))
@@ -390,6 +406,7 @@ impl Pool {
             .filter_map(|pair| Interval::new(*pair.first()?, *pair.get(1)?))
             .flat_map(|piece| self.in_box(&curve.bounding_box(piece).expanded(TOLERANCE)))
             .collect();
+
         found.sort_unstable();
         found.dedup();
         found
@@ -399,14 +416,14 @@ impl Pool {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Overlap {
     edge: (Operand, EdgeId),
     face: FaceKey,
     range: Interval,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Branch {
     faces: [FaceKey; 2],
     branch: IntersectionBranch,
@@ -428,6 +445,7 @@ fn boundary_edges(solid: &Solid, face: FaceId) -> Vec<EdgeId> {
         .flat_map(|face_loop| face_loop.coedges().iter())
         .filter_map(|coedge| solid.coedge(*coedge).map(|coedge| coedge.edge()))
         .collect();
+
     edges.sort_unstable();
     edges.dedup();
     edges
@@ -441,6 +459,7 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
         .reduce(Aabb::union)
         .map_or(1.0, |bounds| bounds.diagonal());
     let mut pool = Pool::new(extent);
+
     let vertex_ids = Operand::BOTH.map(|operand| {
         input
             .solid(operand)
@@ -449,13 +468,18 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
             .collect::<Vec<usize>>()
     });
     let mut overlaps = Vec::new();
+
     for operand in Operand::BOTH {
         edge_hits(input, operand, &mut pool, &mut overlaps)?;
     }
+
     let branches = face_branches(input, &mut pool)?;
+
     overlaps_crossing_branches(input, &overlaps, &branches, &mut pool)?;
+
     let mut arrangement = Arrangement::default();
     let mut merged = Merged::default();
+
     for (operand, ids) in Operand::BOTH.into_iter().zip(&vertex_ids) {
         split_edges(input, operand, ids, &pool, &mut arrangement, &mut merged)?;
     }
@@ -466,7 +490,9 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
         interrupt::check()?;
         clip_branch(input, branch, &mut pool, &mut arrangement, &merged)?;
     }
+
     let pinched = pinched_pieces(&arrangement, &merged);
+
     for piece in &mut arrangement.pieces {
         piece.start = merged.find(piece.start);
         piece.end = merged.find(piece.end);
@@ -488,11 +514,13 @@ fn edge_hits(
     let solid = input.solid(operand);
     let target = input.solid(other);
     let classifier = input.classifier(other);
+
     for (edge_id, edge) in solid.edges() {
         interrupt::check()?;
         if operand == Operand::First && !input.splits_edge(operand, edge_id) {
             continue;
         }
+
         let curve = edge.curve();
         let bounds = curve.bounding_box(edge.interval());
         for face in input.faces_near(other, &bounds) {
@@ -500,9 +528,11 @@ fn edge_hits(
                 operand: other,
                 face: face.id,
             };
+
             if other == Operand::First && !input.imprints_on(target_key) {
                 continue;
             }
+
             let Some(surface) = target.face(face.id).map(|face| face.surface()) else {
                 continue;
             };
@@ -519,8 +549,10 @@ fn edge_hits(
                         Some(curve.point(nearest))
                     })
             };
+
             let found = intersect_curve_surface(curve, edge.interval(), surface, Some(face.uv))
                 .map_err(located)?;
+
             for hit in &found.points {
                 if touches(classifier.point_in_face(face.id, hit.uv)) {
                     pool.insert(hit.point, None);
@@ -530,6 +562,7 @@ fn edge_hits(
                 if let Some(parameter) = shallow_crossing(curve, overlap, surface) {
                     let point = curve.point(parameter);
                     let uv = surface.project(point, Some(overlap.start_uv));
+
                     if touches(classifier.point_in_face(face.id, uv)) {
                         pool.insert(point, None);
                     }
@@ -590,14 +623,18 @@ fn shallow_crossing(
         .windows(2)
         .filter(|pair| matches!(pair, [a, b] if a.signum() != b.signum()))
         .count();
+
     let crosses = first.signum() != last.signum()
         && first.abs().max(last.abs()) >= CROSSING_SIDE
         && first.abs().min(last.abs()) >= CROSSING_FLOOR
         && sides == 1;
+
     if !crosses {
         return None;
     }
+
     let (mut low, mut high) = (range.start(), range.end());
+
     for _ in 0..CROSSING_BISECTIONS {
         let middle = 0.5 * (low + high);
         let offset = signed_offset(surface, curve.point(middle), overlap.start_uv)?;
@@ -625,17 +662,21 @@ fn meeting_point(first: &FaceBounds, second: &FaceBounds, surface: &Surface) -> 
         first.bounds.min().max(second.bounds.min()),
         first.bounds.max().min(second.bounds.max()),
     );
+
     let middle = (low + high) * 0.5;
     surface.point_at(surface.project(middle, Some(first.uv.center())))
 }
 
 fn shared_points(pool: &Pool, faces: [&FaceBounds; 2], surfaces: [&Surface; 2]) -> Vec<Point3> {
     let [first, second] = faces;
+
     let low = first.bounds.min().max(second.bounds.min());
     let high = first.bounds.max().min(second.bounds.max());
+
     if low.cmpgt(high).any() {
         return Vec::new();
     }
+
     let shared = Aabb::from_point(low).including(high);
     pool.in_box(&shared)
         .into_iter()
@@ -650,16 +691,19 @@ fn shared_points(pool: &Pool, faces: [&FaceBounds; 2], surfaces: [&Surface; 2]) 
 
 fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanError> {
     let mut branches = Vec::new();
+
     for first in input.faces(Operand::First) {
         let key = FaceKey {
             operand: Operand::First,
             face: first.id,
         };
+
         if !input.imprints_on(key) {
             continue;
         }
         for second in input.faces_near(Operand::Second, &first.bounds) {
             interrupt::check()?;
+
             let (Some(first_face), Some(second_face)) =
                 (input.first.face(first.id), input.second.face(second.id))
             else {
@@ -672,6 +716,7 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
                     face: second.id,
                 },
             ];
+
             let hints = shared_points(
                 pool,
                 [first, second],
@@ -703,6 +748,7 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
                     (point, uv)
                 });
             let isolated = points.iter().map(|point| (point.point, point.uv));
+
             for (point, [first_uv, second_uv]) in isolated.chain(crossings) {
                 let inside = touches(
                     input
@@ -731,8 +777,10 @@ fn overlaps_crossing_branches(
 ) -> Result<(), BooleanError> {
     for overlap in overlaps {
         interrupt::check()?;
+
         let (operand, edge_id) = overlap.edge;
         let solid = input.solid(operand);
+
         let (Some(edge), Some(face)) = (solid.edge(edge_id), input.face(overlap.face)) else {
             continue;
         };
@@ -765,16 +813,18 @@ fn overlaps_crossing_branches(
 
 fn branch_crossings(branches: &[IntersectionBranch]) -> Result<Vec<Point3>, IntersectionError> {
     let mut crossings = Vec::new();
+
     for (index, first) in branches.iter().enumerate() {
         for second in branches.iter().skip(index + 1) {
             let found = intersect_curves(&first.curve, first.range, &second.curve, second.range)?;
+
             crossings.extend(found.points.into_iter().map(|crossing| crossing.point));
         }
     }
     Ok(crossings)
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct Merged {
     parents: BTreeMap<usize, usize>,
 }
@@ -783,6 +833,7 @@ impl Merged {
     fn find(&self, vertex: usize) -> usize {
         let mut current = vertex;
         let mut steps = 0;
+
         while let Some(parent) = self.parents.get(&current)
             && *parent != current
             && steps <= self.parents.len()
@@ -801,7 +852,7 @@ impl Merged {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Pinch {
     piece: usize,
     meeting: f64,
@@ -846,8 +897,10 @@ fn split_edges(
     merged: &mut Merged,
 ) -> Result<(), BooleanError> {
     let solid = input.solid(operand);
+
     for (edge_id, edge) in solid.edges() {
         interrupt::check()?;
+
         let curve = edge.curve();
         let interval = edge.interval();
         let (Some(start), Some(end)) = (
@@ -858,16 +911,19 @@ fn split_edges(
                 .or_faces(edge_face_keys(solid, operand, edge_id))
                 .or_point(|| Some(curve.point(interval.middle()))));
         };
+
         let mut stops = vec![(interval.start(), start), (interval.end(), end)];
         let near = if input.splits_edge(operand, edge_id) {
             pool.near(curve, interval)
         } else {
             Vec::new()
         };
+
         for (vertex, point) in near {
             if pool.owned_by(vertex, operand) {
                 continue;
             }
+
             let parameter = curve.closest_parameter(point, interval);
             let inside = parameter > interval.start() && parameter < interval.end();
             if inside && curve.point(parameter).distance(point) <= TOLERANCE {
@@ -875,20 +931,24 @@ fn split_edges(
             }
         }
         stops.sort_by(|a, b| a.0.total_cmp(&b.0));
+
         let source = arrangement.add_source(Source {
             curve: curve.clone(),
             name: edge.name(),
             edge: Some((operand, edge_id)),
         });
         let mut pieces = Vec::with_capacity(stops.len());
+
         for pair in stops.windows(2) {
             let [(from, start), (to, end)] = pair else {
                 continue;
             };
+
             let Some(range) = Interval::new(*from, *to) else {
                 merged.join(*start, *end);
                 continue;
             };
+
             if !curve.is_longer_than(range, TOLERANCE) {
                 merged.join(*start, *end);
                 continue;
@@ -924,20 +984,25 @@ fn add_overlap_cuts(
     let classifier = input.classifier(overlap.face.operand);
     let slack = RANGE_SLACK * (1.0 + overlap.range.end().abs());
     let mut cuts = Vec::new();
+
     for piece in arrangement.edge_pieces(overlap.edge.0, overlap.edge.1) {
         let Some((curve, data)) = arrangement.curve(*piece) else {
             continue;
         };
         let middle = data.interval.middle();
+
         if middle < overlap.range.start() - slack || middle > overlap.range.end() + slack {
             continue;
         }
+
         let ends = [data.interval.start(), data.interval.end()].map(|end| curve.point(end));
+
         if !lies_on(surface, curve, data.interval)
             || met_elsewhere(input, overlap, branches, curve.point(middle), ends)
         {
             continue;
         }
+
         let containment = |fraction: f64| {
             let point = curve.point(data.interval.at(fraction));
             let uv = surface.project(point, Some(bounds.uv.center()));
@@ -947,6 +1012,7 @@ fn add_overlap_cuts(
             OverlapCuts::AtMiddle => &[MIDDLE],
             OverlapCuts::WhereverInside => &INSIDE_SAMPLES,
         };
+
         let found: Vec<Option<FaceContainment>> =
             samples.iter().copied().map(containment).collect();
         let outside = found
@@ -974,17 +1040,20 @@ fn met_elsewhere(
     let Some(surface) = input.face(overlap.face).map(|face| face.surface()) else {
         return false;
     };
+
     let faces = edge_face_keys(input.solid(operand), operand, edge);
     !faces.is_empty()
         && faces.iter().all(|key| {
             let Some(own) = input.face(*key) else {
                 return false;
             };
+
             if own.surface().same_surface(surface).is_some()
                 || !along_each_other(own.surface(), surface, middle)
             {
                 return false;
             }
+
             let meeting: Vec<&Branch> = branches
                 .iter()
                 .filter(|branch| branch.faces.contains(key) && branch.faces.contains(&overlap.face))
@@ -1026,15 +1095,17 @@ fn face_uvs(
         _ => [None, None],
     };
     let mut located = [(branch.faces[0], Point2::ZERO); 2];
+
     for ((slot, key), hint) in located.iter_mut().zip(branch.faces).zip(hints) {
         let surface = input.face(key)?.surface();
         let hint = hint.or_else(|| input.bounds(key).map(|bounds| bounds.uv.center()));
+
         *slot = (key, surface.project(point, hint));
     }
     Some(located)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Placement {
     Inside,
     Touching,
@@ -1043,12 +1114,15 @@ enum Placement {
 
 fn placement(input: &Input, branch: &Branch, interval: Interval) -> Placement {
     let mut inside = [false; 2];
+
     for fraction in INSIDE_SAMPLES {
         let parameter = interval.at(fraction);
         let point = branch.branch.curve.point(parameter);
+
         let Some(located) = face_uvs(input, branch, parameter, point) else {
             return Placement::Outside;
         };
+
         for (seen, (key, uv)) in inside.iter_mut().zip(located) {
             match input.classifier(key.operand).point_in_face(key.face, uv) {
                 Some(FaceContainment::Inside) => *seen = true,
@@ -1151,13 +1225,16 @@ fn cuts_within(input: &Input, branch: &Branch, key: FaceKey, interval: Interval)
     let hint = input.bounds(key).map(|bounds| bounds.uv.center());
     let curve = &branch.branch.curve;
     let points = INSIDE_SAMPLES.map(|fraction| curve.point(interval.at(fraction)));
+
     let containment = points.map(|point| {
         let uv = surface.project(point, hint);
         classifier.point_in_face(key.face, uv)
     });
+
     if containment.contains(&Some(FaceContainment::Inside)) {
         return true;
     }
+
     let along_one_edge = boundary_edges(input.solid(key.operand), key.face)
         .into_iter()
         .filter_map(|edge| input.solid(key.operand).edge(edge))
@@ -1178,17 +1255,22 @@ fn branch_stops(
     pool: &Pool,
 ) -> Result<Vec<(f64, usize)>, Interrupted> {
     let mut stops: Vec<(f64, usize)> = Vec::new();
+
     for (vertex, point) in pool.near(curve, range) {
         interrupt::check()?;
+
         let parameter = curve.closest_parameter(point, range);
+
         if curve.point(parameter).distance(point) > TOLERANCE {
             continue;
         }
+
         let parameter = if closed && curve.point(range.start()).distance(point) <= TOLERANCE {
             range.start()
         } else {
             parameter
         };
+
         stops.push((parameter, vertex));
     }
     stops.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -1206,12 +1288,16 @@ fn clip_branch(
     let curve = &branch.branch.curve;
     let range = branch.branch.range;
     let closed = branch.branch.closed;
+
     let mut stops = branch_stops(curve, range, closed, pool)?;
+
     let segments: Vec<(Mark, Mark)> = if closed {
         if stops.is_empty() {
             let vertex = pool.insert(curve.point(range.start()), None);
+
             stops.push((range.start(), vertex));
         }
+
         let period = range.length();
         let wrap = stops
             .first()
@@ -1237,6 +1323,7 @@ fn clip_branch(
                     .is_some_and(|known| known.distance(point) <= TOLERANCE)
             })
         };
+
         if !covered(range.start()) {
             marks.push((range.start(), None));
         }
@@ -1257,16 +1344,20 @@ fn clip_branch(
             .collect()
     };
     let mut source = None;
+
     for ((from, start), (to, end)) in segments {
         interrupt::check()?;
+
         let Some(interval) = Interval::new(from, to) else {
             continue;
         };
+
         if !curve.is_longer_than(interval, TOLERANCE)
             || !kept_piece(input, branch, arrangement, merged, interval, [start, end])
         {
             continue;
         }
+
         let start = start.unwrap_or_else(|| pool.insert(curve.point(from), None));
         let end = end.unwrap_or_else(|| pool.insert(curve.point(to), None));
         let source = *source.get_or_insert_with(|| {
@@ -1279,6 +1370,7 @@ fn clip_branch(
                 edge: None,
             })
         });
+
         let piece = arrangement.add_piece(Piece {
             source,
             interval,
@@ -1296,10 +1388,12 @@ fn same_piece(arrangement: &Arrangement, first: usize, second: usize) -> Option<
     let (first_curve, first_piece) = arrangement.curve(first)?;
     let (second_curve, second_piece) = arrangement.curve(second)?;
     let mut relation = None;
+
     for fraction in EDGE_SAMPLES {
         let parameter = first_piece.interval.at(fraction);
         let point = first_curve.point(parameter);
         let on_second = second_curve.closest_parameter(point, second_piece.interval);
+
         if second_curve.point(on_second).distance(point) > SAME_EDGE {
             return None;
         }
@@ -1308,13 +1402,17 @@ fn same_piece(arrangement: &Arrangement, first: usize, second: usize) -> Option<
                 .evaluate(parameter)
                 .first
                 .dot(second_curve.evaluate(on_second).first);
+
             relation = Some(Sense::from_sign(along));
         }
     }
+
     let relation = relation?;
+
     if first_piece.is_closed() {
         return Some(relation);
     }
+
     let expected = if relation.is_same() {
         (second_piece.start, second_piece.end)
     } else {
@@ -1343,8 +1441,10 @@ fn deduplicate(arrangement: &Arrangement) -> Result<Vec<(usize, Sense)>, Interru
     let mut representatives: Vec<(usize, Sense)> =
         (0..count).map(|index| (index, Sense::Same)).collect();
     let mut groups: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
+
     for (index, piece) in arrangement.pieces.iter().enumerate() {
         let key = (piece.start.min(piece.end), piece.start.max(piece.end));
+
         groups.entry(key).or_default().push(index);
     }
     for members in groups.values() {

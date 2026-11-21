@@ -19,13 +19,13 @@ const MAGNET_STEPS: f64 = 2.0;
 const OFF_TRACK_STEPS: f64 = 6.0;
 const LINE_MARGIN: f64 = 1.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Guide {
     Line { base: Point3, direction: Vector3 },
     Points,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapKind {
     Corner,
     EdgeMiddle,
@@ -52,7 +52,7 @@ impl SnapKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Snap {
     pub kind: SnapKind,
     pub point: Point3,
@@ -121,6 +121,7 @@ impl Probe<'_> {
             .hits_through(self.view, self.cursor, self.pixels_per_point);
         let reached = self.built.picks.within_reach(&hits);
         let depth = |at: Point3| (at - ray.origin()).dot(ray.direction());
+
         let front = reached
             .iter()
             .filter(|(pickable, _)| self.hides_behind(*pickable))
@@ -169,6 +170,7 @@ impl Probe<'_> {
     fn body(&self, body: FeatureId) -> Option<&SolidResult> {
         let owner = self.model.document().feature(self.feature)?;
         let evaluation = self.model.evaluation();
+
         if owner.body() != Some(body) {
             return bodies::shown(evaluation, body);
         }
@@ -181,6 +183,7 @@ impl Probe<'_> {
     fn edge(&self, source: &SolidResult, name: EdgeName) -> Option<Snap> {
         let id = bodies::find_edge(source, name)?;
         let edge = source.solid.edge(id)?;
+
         if let Curve::Circle(circle) = edge.curve() {
             return Some(Snap {
                 kind: SnapKind::RoundCentre,
@@ -188,6 +191,7 @@ impl Probe<'_> {
                 normal: None,
             });
         }
+
         let middle = edge.curve().point(edge.interval().middle());
         let seen = self.view.project(middle)?;
         let reach = MIDDLE_REACH_POINTS * f64::from(self.pixels_per_point);
@@ -241,8 +245,10 @@ fn meeting_curved(
         .map(|corner| (corner - base).dot(line.direction()));
     let low = along.iter().copied().fold(f64::INFINITY, f64::min);
     let high = along.iter().copied().fold(f64::NEG_INFINITY, larger);
+
     let range = Interval::new(low - LINE_MARGIN, high + LINE_MARGIN)?;
     let surface = source.solid.face(face)?.surface();
+
     let found = intersect_curve_surface(&Curve::Line(line), range, surface, None).ok()?;
     found
         .points

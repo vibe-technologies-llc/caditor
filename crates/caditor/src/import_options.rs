@@ -19,7 +19,7 @@ const LAYER_LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
 const RECENTRE_KEY: &str = "import.drawing.recentre";
 const PLANE_KEY: &str = "import.drawing.plane";
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PlaneChoice {
     #[default]
     Xy,
@@ -63,13 +63,13 @@ impl PlaneChoice {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Arrangement {
     pub options: DrawingOptions,
     pub plane: PlaneChoice,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StartingPlacement {
     pub recentre: bool,
     pub plane: PlaneChoice,
@@ -110,7 +110,7 @@ impl StartingPlacement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ImportOptionsCommand {
     Unit(DrawingUnit),
     Scale(f64),
@@ -200,7 +200,7 @@ fn unit_hover(unit: DrawingUnit) -> String {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 enum ImportBlocked {
     #[error("Enter a number from 0.000001 to 1000000")]
     NotAScale,
@@ -224,11 +224,13 @@ pub fn dialog(
     let title = format!("Import “{}”", display_name(Some(&arranging.path)));
     let response = widgets::dialog(ctx, "import-drawing", &title, DialogWidth::Medium, |ui| {
         let mut command = None;
+
         let blocker = widgets::dialog_body(ui, |ui| {
             let Arrangement { options, plane } = &arranging.arrangement;
             let arranged = arranging.drawing.arranged(options);
 
             export::heading(ui, "Units");
+
             let units: Vec<(DrawingUnit, &str, String)> = DrawingUnit::ALL
                 .iter()
                 .map(|unit| (*unit, unit_label(*unit), unit_hover(*unit)))
@@ -237,11 +239,13 @@ pub fn dialog(
                 .iter()
                 .map(|(unit, label, hover)| (*unit, *label, hover.as_str()))
                 .collect();
+
             if let Some(unit) = preferences::choice(ui, &choices, options.unit) {
                 command = Some(ImportOptionsCommand::Unit(unit));
             }
 
             export::heading(ui, "Scale");
+
             let field = field::commit_field(
                 ui,
                 Id::unique("import-scale"),
@@ -250,6 +254,7 @@ pub fn dialog(
                 false,
                 parse_scale,
             );
+
             if let Some(scale) = field.committed {
                 command = Some(ImportOptionsCommand::Scale(scale));
             }
@@ -258,7 +263,9 @@ pub fn dialog(
             }
 
             export::heading(ui, "Position");
+
             let mut recentre = options.recentre;
+
             if widgets::checkbox(ui, &mut recentre, "Centre the drawing on the origin")
                 .on_hover_text("Move the middle of the drawing's outline to the sketch's origin")
                 .changed()
@@ -268,6 +275,7 @@ pub fn dialog(
 
             if !into_edited_sketch {
                 export::heading(ui, "Sketch plane");
+
                 let planes: Vec<(PlaneChoice, &str, &str)> = PlaneChoice::ALL
                     .iter()
                     .map(|choice| (*choice, choice.label(), choice.hover()))
@@ -282,6 +290,7 @@ pub fn dialog(
             }
 
             ui.add_space(SPACE_M);
+
             let units = model.units();
             let summary = match arranged.bounds() {
                 Some((low, high)) => format!(
@@ -292,10 +301,13 @@ pub fn dialog(
                 ),
                 None => "The drawing is empty.".to_owned(),
             };
+
             ui.label(widgets::muted(summary, ui));
+
             let chosen = arranging
                 .drawing
                 .chosen_curve_count(&options.left_out_layers);
+
             if chosen > MAX_DRAWING_CURVES {
                 widgets::callout(ui, Tone::Warning, |ui| {
                     ui.add(Label::new(too_many_curves(chosen)).wrap());
@@ -310,12 +322,14 @@ pub fn dialog(
                 None
             }
         });
+
         widgets::footer(ui, |ui| {
             let import = ui.add_enabled(blocker.is_none(), widgets::primary_button(ui, "Import"));
             let import = match blocker {
                 Some(blocked) => import.on_disabled_hover_text(blocked.to_string()),
                 None => import,
             };
+
             if import.clicked() {
                 command = Some(ImportOptionsCommand::Confirm);
             }
@@ -341,7 +355,9 @@ pub fn too_many_curves(chosen: usize) -> String {
 
 fn layers(ui: &mut Ui, arranging: &Arranging, command: &mut Option<ImportOptionsCommand>) {
     export::heading(ui, "Layers");
+
     let left_out = &arranging.arrangement.options.left_out_layers;
+
     ui.horizontal(|ui| {
         if ui.add(widgets::button("Select all")).clicked() {
             *command = Some(ImportOptionsCommand::AllLayers(true));
@@ -350,7 +366,9 @@ fn layers(ui: &mut Ui, arranging: &Arranging, command: &mut Option<ImportOptions
             *command = Some(ImportOptionsCommand::AllLayers(false));
         }
     });
+
     let height = widgets::list_height(ui.ctx(), LAYER_LIST_HEIGHT);
+
     widgets::card(ui, |ui| {
         ScrollArea::vertical().max_height(height).show(ui, |ui| {
             for (layer, name) in arranging.drawing.layers.iter().enumerate() {

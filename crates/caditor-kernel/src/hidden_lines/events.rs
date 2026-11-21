@@ -14,7 +14,7 @@ const CHUNKS_PER_THREAD: usize = 2;
 const TRACKS_PER_CHUNK: usize = 16;
 const SINGULAR: f64 = 1e-18;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Segment {
     track: usize,
     index: usize,
@@ -43,11 +43,13 @@ impl Segment {
 
 fn segments_of(tracks: &[Track]) -> Vec<Segment> {
     let mut segments = Vec::new();
+
     for (track, data) in tracks.iter().enumerate() {
         for (index, pair) in data.samples.windows(2).enumerate() {
             let [start, end] = pair else {
                 continue;
             };
+
             segments.push(Segment {
                 track,
                 index,
@@ -71,6 +73,7 @@ fn refined_crossing(
 ) -> (f64, f64) {
     let (track_a, segment_a, start_a) = first;
     let (track_b, segment_b, start_b) = second;
+
     let (Some(range_a), Some(range_b)) = (segment_a.range(), segment_b.range()) else {
         return (start_a, start_b);
     };
@@ -80,11 +83,14 @@ fn refined_crossing(
             .distance(flat_at(track_b, b, view).0)
     };
     let (mut a, mut b) = (start_a, start_b);
+
     for _ in 0..NEWTON_STEPS {
         let (point_a, along_a) = flat_at(track_a, a, view);
         let (point_b, along_b) = flat_at(track_b, b, view);
+
         let gap = point_b - point_a;
         let determinant = along_a.perp_dot(along_b);
+
         if determinant.abs() <= SINGULAR {
             break;
         }
@@ -127,25 +133,32 @@ fn add_crossing(
     view: &Plane,
 ) {
     let (along_a, along_b) = (first.direction(), second.direction());
+
     let denominator = along_a.perp_dot(along_b);
+
     if denominator.abs() <= PARALLEL_SINE * along_a.length() * along_b.length() {
         return;
     }
+
     let gap = second.start.1 - first.start.1;
     let at_a = gap.perp_dot(along_b) / denominator;
     let at_b = gap.perp_dot(along_a) / denominator;
     let within = -CROSSING_SLACK..=1.0 + CROSSING_SLACK;
+
     if !within.contains(&at_a) || !within.contains(&at_b) {
         return;
     }
+
     let (Some(track_a), Some(track_b)) = (tracks.get(first.track), tracks.get(second.track)) else {
         return;
     };
+
     let (a, b) = refined_crossing(
         (track_a, first, first.parameter_at(at_a.clamp(0.0, 1.0))),
         (track_b, second, second.parameter_at(at_b.clamp(0.0, 1.0))),
         view,
     );
+
     splits.push(first.track, a);
     splits.push(second.track, b);
 }
@@ -153,6 +166,7 @@ fn add_crossing(
 fn nearest_on(track: &Track, segment: &Segment, end: Point2, view: &Plane) -> Option<(f64, f64)> {
     let along = segment.direction();
     let length_squared = along.length_squared();
+
     let fraction = if length_squared > 0.0 {
         ((end - segment.start.1).dot(along) / length_squared).clamp(0.0, 1.0)
     } else {
@@ -160,14 +174,17 @@ fn nearest_on(track: &Track, segment: &Segment, end: Point2, view: &Plane) -> Op
     };
     let range = segment.range()?;
     let mut parameter = segment.parameter_at(fraction);
+
     for _ in 0..NEWTON_STEPS {
         let (point, along) = flat_at(track, parameter, view);
         let speed_squared = along.length_squared();
+
         if speed_squared <= SINGULAR {
             break;
         }
         parameter = range.clamp(parameter + (end - point).dot(along) / speed_squared);
     }
+
     let distance = flat_at(track, parameter, view).0.distance(end);
     Some((parameter, distance))
 }
@@ -183,10 +200,12 @@ struct Reach<'a> {
 impl Reach<'_> {
     fn crossings_from(&self, indices: Range<usize>) -> Result<Splits, HiddenLineError> {
         let mut splits = Splits::default();
+
         for index in indices {
             if index % POLL_EVERY == 0 {
                 interrupt::check()?;
             }
+
             let Some(segment) = self.segments.get(index) else {
                 continue;
             };
@@ -195,9 +214,11 @@ impl Reach<'_> {
                     continue;
                 }
                 tally::add(1);
+
                 let Some(other) = self.segments.get(found) else {
                     continue;
                 };
+
                 if other.track == segment.track && other.index <= segment.index + 1 {
                     continue;
                 }
@@ -209,11 +230,14 @@ impl Reach<'_> {
 
     fn track_ends_of(&self, indices: Range<usize>) -> Result<Splits, HiddenLineError> {
         let mut splits = Splits::default();
+
         for index in indices {
             interrupt::check()?;
+
             let Some(track) = self.tracks.get(index) else {
                 continue;
             };
+
             if track.closed {
                 continue;
             }
@@ -224,14 +248,17 @@ impl Reach<'_> {
                 let lifted = Aabb::from_point(Point3::new(end.x, end.y, 0.0));
                 for found in self.tree.overlapping(&lifted, self.reach) {
                     tally::add(1);
+
                     let Some(segment) = self.segments.get(found) else {
                         continue;
                     };
                     let holds_this_end = segment.track == index
                         && (segment.start.0 == *parameter || segment.end.0 == *parameter);
+
                     if holds_this_end {
                         continue;
                     }
+
                     let Some(other) = self.tracks.get(segment.track) else {
                         continue;
                     };
@@ -260,6 +287,7 @@ fn chunked(
         work(at * chunk..((at + 1) * chunk).min(count))
     });
     let mut splits = Splits::default();
+
     for found in made {
         splits.extend(found?);
     }
@@ -287,6 +315,7 @@ pub(super) fn add_crossings(
 ) -> Result<(), HiddenLineError> {
     let segments = segments_of(tracks);
     let tree = BoxTree::new(segments.iter().map(Segment::bounds));
+
     let reaching = Reach {
         tracks,
         segments: &segments,
@@ -297,6 +326,7 @@ pub(super) fn add_crossings(
     let mut splits = chunked(segments.len(), SEGMENTS_PER_CHUNK, threads, |indices| {
         reaching.crossings_from(indices)
     })?;
+
     splits.extend(chunked(
         tracks.len(),
         TRACKS_PER_CHUNK,

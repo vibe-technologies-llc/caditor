@@ -8,7 +8,7 @@ thread_local! {
     static CURRENT: Cell<Option<Interrupt>> = const { Cell::new(None) };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 #[error("the operation was cancelled")]
 pub struct Interrupted;
 
@@ -68,6 +68,7 @@ struct Restore(Option<Interrupt>);
 impl Drop for Restore {
     fn drop(&mut self) {
         let previous = self.0.take();
+
         CURRENT.with(|current| current.replace(previous));
     }
 }
@@ -81,21 +82,29 @@ mod tests {
     #[test]
     fn checks_see_the_innermost_interrupt_until_its_work_ends() {
         assert_eq!(check(), Ok(()));
+
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
+
         interruptible(Arc::new(move || flag.load(Ordering::SeqCst)), || {
             assert_eq!(check(), Ok(()));
+
             stop.store(true, Ordering::SeqCst);
+
             assert_eq!(check(), Err(Interrupted));
+
             interruptible(Arc::new(|| false), || assert_eq!(check(), Ok(())));
+
             assert_eq!(check(), Err(Interrupted));
         });
+
         assert_eq!(check(), Ok(()));
     }
 
     #[test]
     fn the_current_interrupt_carries_to_another_thread() {
         assert!(current().is_none());
+
         let stop = Arc::new(AtomicBool::new(true));
         let flag = Arc::clone(&stop);
         let carried = interruptible(Arc::new(move || flag.load(Ordering::SeqCst)), || {
@@ -115,6 +124,7 @@ mod tests {
         let nested = interruptible(Arc::new(|| check().is_err()), || {
             (check(), interruptible(Arc::new(|| true), check))
         });
+
         assert_eq!(nested, (Ok(()), Err(Interrupted)));
         assert_eq!(check(), Ok(()));
     }
@@ -127,6 +137,7 @@ mod tests {
             assert!(seen.swap(true, Ordering::SeqCst), "the first poll panics");
             true
         });
+
         interruptible(interrupt, || {
             assert!(std::panic::catch_unwind(check).is_err());
             assert_eq!(check(), Err(Interrupted));

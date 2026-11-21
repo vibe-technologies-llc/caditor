@@ -25,17 +25,22 @@ const STEP_EPSILON: f64 = 1e-14;
 
 pub fn extent(solid: &Solid) -> Result<Option<Aabb>, MeasureError> {
     let mut points: Vec<Point3> = solid.vertices().map(|(_, vertex)| vertex.point()).collect();
+
     for (_, edge) in solid.edges() {
         interrupt::check()?;
         edge_extremes(edge.curve(), edge.interval(), &mut points);
     }
+
     let Some(outline) = Aabb::from_points(points.iter().copied()) else {
         return Ok(None);
     };
     let classifier = solid.classifier();
+
     for (id, face) in solid.faces() {
         interrupt::check()?;
+
         let surface = face.surface();
+
         for point in axis_extremes(surface) {
             let uv = surface.project(point, None);
             if inside(&classifier, id, uv) {
@@ -70,6 +75,7 @@ fn edge_extremes(curve: &Curve, range: Interval, points: &mut Vec<Point3>) {
         Curve::Line(_) => {}
         Curve::Circle(_) | Curve::Ellipse(_) => {
             let bounds = curve.bounding_box(range);
+
             points.extend([bounds.min(), bounds.max()]);
         }
         Curve::BSpline(_) | Curve::Intersection(_) => {
@@ -83,11 +89,13 @@ fn edge_extremes(curve: &Curve, range: Interval, points: &mut Vec<Point3>) {
                     let [start, end] = pair else {
                         continue;
                     };
+
                     let (low, high) = (slope(*start), slope(*end));
                     if low == 0.0 {
                         points.push(curve.point(*start));
                     } else if low * high < 0.0 {
                         let root = slope_root(curve, axis, *start, *end, low);
+
                         points.push(curve.point(root));
                     }
                 }
@@ -98,10 +106,13 @@ fn edge_extremes(curve: &Curve, range: Interval, points: &mut Vec<Point3>) {
 
 fn slope_root(curve: &Curve, axis: Vector3, start: f64, end: f64, start_slope: f64) -> f64 {
     let (mut low, mut high) = (start, end);
+
     let mut parameter = 0.5 * (low + high);
+
     for _ in 0..MAX_ITERATIONS {
         let derivatives = curve.evaluate(parameter);
         let slope = derivatives.first.dot(axis);
+
         if slope == 0.0 {
             return parameter;
         }
@@ -110,13 +121,16 @@ fn slope_root(curve: &Curve, axis: Vector3, start: f64, end: f64, start_slope: f
         } else {
             high = parameter;
         }
+
         let bend = derivatives.second.dot(axis);
         let newton = parameter - slope / bend;
+
         let next = if bend != 0.0 && newton > low && newton < high {
             newton
         } else {
             0.5 * (low + high)
         };
+
         if (next - parameter).abs() <= STEP_EPSILON * (1.0 + parameter.abs()) {
             return next;
         }
@@ -136,19 +150,23 @@ fn interior_extremes(
     uv_box: Aabb2,
 ) -> Vec<Point3> {
     let (min, max) = (uv_box.min(), uv_box.max());
+
     let (Some(u_range), Some(v_range)) = (Interval::new(min.x, max.x), Interval::new(min.y, max.y))
     else {
         return Vec::new();
     };
     let columns = seed_count(surface_u_breaks(surface, u_range), u_range);
     let rows = seed_count(surface_v_breaks(surface, v_range), v_range);
+
     let us: Vec<f64> = u_range.split(columns).collect();
     let vs: Vec<f64> = v_range.split(rows).collect();
+
     let grid: Vec<Vec<Point3>> = vs
         .iter()
         .map(|v| us.iter().map(|u| surface.point(*u, *v)).collect())
         .collect();
     let mut found = Vec::new();
+
     for axis in AXES {
         for direction in [axis, -axis] {
             let height = |row: usize, column: usize| {
@@ -157,6 +175,7 @@ fn interior_extremes(
                     .map(|point| point.dot(direction))
             };
             let mut peaks: Vec<(f64, usize, usize)> = Vec::new();
+
             for (row, points) in grid.iter().enumerate() {
                 for (column, point) in points.iter().enumerate() {
                     let value = point.dot(direction);
@@ -166,6 +185,7 @@ fn interior_extremes(
                         (row, column.wrapping_sub(1)),
                         (row, column + 1),
                     ];
+
                     let peak = neighbours.iter().all(|(other_row, other_column)| {
                         height(*other_row, *other_column).is_none_or(|other| other <= value)
                     });
@@ -179,6 +199,7 @@ fn interior_extremes(
                 let (Some(u), Some(v)) = (us.get(column), vs.get(row)) else {
                     continue;
                 };
+
                 let seed = Point2::new(*u, *v);
                 for uv in [seed, highest_near(surface, direction, seed, uv_box)] {
                     if inside(classifier, face, uv) {
@@ -201,7 +222,9 @@ fn highest_near(surface: &Surface, direction: Vector3, seed: Point2, uv_box: Aab
             && uv.y <= uv_box.max().y
     };
     let mut uv = seed;
+
     let mut best = height(uv);
+
     for _ in 0..MAX_ITERATIONS {
         let at = surface.evaluate(uv.x, uv.y);
         let gradient = Point2::new(at.du.dot(direction), at.dv.dot(direction));
@@ -210,18 +233,23 @@ fn highest_near(surface: &Surface, direction: Vector3, seed: Point2, uv_box: Aab
             at.duv.dot(direction),
             at.dvv.dot(direction),
         );
+
         let determinant = a * c - b * b;
+
         if determinant == 0.0 || !determinant.is_finite() {
             break;
         }
+
         let step = Point2::new(
             (c * gradient.x - b * gradient.y) / determinant,
             (a * gradient.y - b * gradient.x) / determinant,
         );
         let mut scale = 1.0;
         let mut accepted = None;
+
         for _ in 0..MAX_HALVINGS {
             let candidate = uv - step * scale;
+
             if within_box(candidate) {
                 let value = height(candidate);
                 if value >= best {
@@ -231,10 +259,12 @@ fn highest_near(surface: &Surface, direction: Vector3, seed: Point2, uv_box: Aab
             }
             scale *= 0.5;
         }
+
         let Some((next, value)) = accepted else {
             break;
         };
         let moved = (next - uv).length();
+
         uv = next;
         best = value;
         if moved <= STEP_EPSILON * (1.0 + uv.length()) {

@@ -10,10 +10,12 @@ use crate::{bodies::Hold, editing::Tool, model::Action, outlining, selection::Pi
 #[test]
 fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboard() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let sketch = harness.draw_on_new_sketch();
 
     harness.use_tool_with(Key::P, Modifiers::ALT);
+
     let top = harness
         .built()
         .picks
@@ -33,8 +35,10 @@ fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboa
 
     harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
     harness.settle();
+
     let projected: Vec<EntityId> = harness.sketch(sketch).projected().collect();
     let shown = harness.shown(sketch);
+
     let lines: Vec<EntityId> = projected
         .iter()
         .copied()
@@ -48,6 +52,7 @@ fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboa
             .undo_label()
             .is_some_and(|label| label.starts_with("Project the edges of"))
     );
+
     for line in &lines {
         let (start, end) = shown.line_endpoints(*line).unwrap();
         for end in [start, end] {
@@ -74,8 +79,10 @@ fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboa
 #[test]
 fn the_intersect_tool_draws_where_the_sketch_cuts_a_face_the_whole_body_or_a_datum_plane() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
     let mut transaction = harness.document().transaction("Datum");
+
     let datum = transaction.add_feature(
         "Plane 1",
         FeatureKind::Datum(caditor_document::Datum::Plane(
@@ -88,13 +95,17 @@ fn the_intersect_tool_draws_where_the_sketch_cuts_a_face_the_whole_body_or_a_dat
             },
         )),
     );
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
+
     let across = Plane::from_frame(Point3::new(0.0, 20.0, 0.0), -Vector3::Y, Vector3::X).unwrap();
     let sketch = harness.add_sketch(Sketch::new(across));
+
     harness.edit(sketch);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let lines = |harness: &Harness| {
         let shown = harness.shown(sketch);
         harness
@@ -137,7 +148,9 @@ fn the_intersect_tool_draws_where_the_sketch_cuts_a_face_the_whole_body_or_a_dat
         harness.key(Key::N, Modifiers::NONE);
         harness.frame();
     }
+
     assert_eq!(harness.workspace.viewport.keyboard_highlight(), Some(top));
+
     harness.key(Key::Space, Modifiers::SHIFT);
     harness.frame();
     harness.settle();
@@ -147,6 +160,7 @@ fn the_intersect_tool_draws_where_the_sketch_cuts_a_face_the_whole_body_or_a_dat
 
     harness.click_pickable(across, Point2::new(10.0, 5.0), Pickable::Datum(datum));
     harness.settle();
+
     let along = harness
         .sketch(sketch)
         .projected()
@@ -163,10 +177,13 @@ fn the_intersect_tool_draws_where_the_sketch_cuts_a_face_the_whole_body_or_a_dat
 fn the_intersect_tool_draws_where_a_principal_plane_crosses_the_sketch() {
     let mut harness = Harness::new();
     let across = Plane::from_frame(Point3::new(0.0, 20.0, 0.0), -Vector3::Y, Vector3::X).unwrap();
+
     let sketch = harness.add_sketch(Sketch::new(across));
+
     harness.edit(sketch);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let principal = |harness: &mut Harness, plane: caditor_document::PrincipalPlane| {
         harness
             .built()
@@ -196,8 +213,10 @@ fn the_intersect_tool_draws_where_a_principal_plane_crosses_the_sketch() {
     ));
 
     let level = Pickable::Plane(caditor_document::PrincipalPlane::Xy);
+
     harness.click_pickable(across, Point2::new(5.0, 0.0), level);
     harness.settle();
+
     let along = harness
         .sketch(sketch)
         .projected()
@@ -217,8 +236,10 @@ fn the_intersect_tool_draws_where_a_principal_plane_crosses_the_sketch() {
 #[test]
 fn the_project_tool_brings_in_the_principal_axes_the_origin_and_datum_points() {
     let mut harness = Harness::new();
+
     let mut transaction = harness.document().transaction("Spot");
     let offset = ["7 mm", "3 mm", "4 mm"].map(|text| harness.document().parse(text).unwrap());
+
     let spot = transaction.add_feature(
         "Spot",
         FeatureKind::Datum(caditor_document::Datum::Point(
@@ -228,13 +249,17 @@ fn the_project_tool_brings_in_the_principal_axes_the_origin_and_datum_points() {
             },
         )),
     );
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
+
     let across = Plane::from_frame(Point3::new(0.0, 20.0, 0.0), -Vector3::Y, Vector3::X).unwrap();
     let sketch = harness.add_sketch(Sketch::new(across));
+
     harness.edit(sketch);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let offered = |harness: &mut Harness, wanted: Pickable| {
         harness
             .built()
@@ -254,6 +279,7 @@ fn the_project_tool_brings_in_the_principal_axes_the_origin_and_datum_points() {
 
     harness.click_pickable(across, Point2::new(5.0, 0.0), x_axis);
     harness.settle();
+
     let line = harness
         .sketch(sketch)
         .projected()
@@ -272,6 +298,7 @@ fn the_project_tool_brings_in_the_principal_axes_the_origin_and_datum_points() {
 
     harness.click_pickable(across, Point2::new(7.0, 4.0), Pickable::Datum(spot));
     harness.settle();
+
     let shown = harness.shown(sketch);
     let points: Vec<Point3> = harness
         .sketch(sketch)
@@ -309,23 +336,29 @@ fn shift_click_or_the_palette_projects_a_whole_earlier_sketch_in_one_step() {
         Point2::new(40.0, 40.0),
         Point2::new(0.0, 40.0),
     ];
+
     let first_side = outline.add_line(corners[0], corners[1]);
+
     for (start, end) in corners.iter().zip(corners.iter().cycle().skip(1)).skip(1) {
         outline.add_line(*start, *end);
     }
     outline.add_point(Point2::new(20.0, 20.0));
+
     let source = harness.add_sketch(outline);
     let above = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
     let sketch = harness.add_sketch(Sketch::new(above));
+
     harness.edit(sketch);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let side = Pickable::SketchEntity {
         feature: source,
         entity: first_side,
     };
     let shift_click = |harness: &mut Harness| {
         let position = harness.hover_pickable(above, Point2::new(20.0, 0.0), side);
+
         harness
             .events
             .push(egui::Event::ModifiersChanged(Modifiers::SHIFT));
@@ -348,6 +381,7 @@ fn shift_click_or_the_palette_projects_a_whole_earlier_sketch_in_one_step() {
     let counts = |harness: &Harness| {
         let shown = harness.shown(sketch);
         let projected: Vec<EntityId> = harness.sketch(sketch).projected().collect();
+
         let lines = projected
             .iter()
             .filter(|id| matches!(shown.entity(**id), Some(Entity::Line { .. })))
@@ -429,6 +463,7 @@ fn shift_click_or_the_palette_projects_a_whole_earlier_sketch_in_one_step() {
 #[test]
 fn an_unlinked_projection_stays_where_it_is_while_the_rest_follow_the_face() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
     let plate = harness
         .document()
@@ -437,9 +472,11 @@ fn an_unlinked_projection_stays_where_it_is_while_the_rest_follow_the_face() {
         .map(caditor_document::Feature::id)
         .expect("the plate's sketch");
     let sketch = harness.draw_on_new_sketch();
+
     harness.use_tool_with(Key::P, Modifiers::ALT);
     harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
     harness.settle();
+
     let side_at = |harness: &Harness, level: f64| {
         let shown = harness.shown(sketch);
         shown
@@ -485,6 +522,7 @@ fn an_unlinked_projection_stays_where_it_is_while_the_rest_follow_the_face() {
         })
         .collect();
     let mut transaction = harness.document().transaction("Widen the plate");
+
     for (id, entity) in widened {
         transaction.edit(caditor_document::Edit::SetSketchEntity {
             feature: plate,
@@ -494,6 +532,7 @@ fn an_unlinked_projection_stays_where_it_is_while_the_rest_follow_the_face() {
     }
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
+
     let top_side = side_at(&harness, 40.0);
 
     assert!((reach(&harness, top_side) - 60.0).abs() < 1e-9);
@@ -509,10 +548,13 @@ fn an_unlinked_projection_stays_where_it_is_while_the_rest_follow_the_face() {
 #[test]
 fn the_palette_projects_the_outline_of_the_highlighted_body_as_one_undoable_step() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let sketch = harness.draw_on_new_sketch();
+
     harness.use_tool_with(Key::P, Modifiers::ALT);
     harness.settle();
+
     let projected = |harness: &Harness| harness.sketch(sketch).projected().count();
 
     highlight_body(&mut harness, extrude);
@@ -525,6 +567,7 @@ fn the_palette_projects_the_outline_of_the_highlighted_body_as_one_undoable_step
         .projected()
         .filter(|id| matches!(shown.entity(*id), Some(Entity::Line { .. })))
         .count();
+
     assert_eq!(lines, 4, "the plate seen square is a rectangle");
     assert!(
         harness
@@ -570,18 +613,24 @@ fn outline_lines(harness: &Harness, sketch: FeatureId) -> usize {
 #[test]
 fn the_outline_of_a_body_is_worked_out_off_the_window_thread_and_projected_when_it_arrives() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let sketch = harness.draw_on_new_sketch();
+
     harness.use_tool_with(Key::P, Modifiers::ALT);
     harness.settle();
     highlight_body(&mut harness, extrude);
+
     let hold = Hold::holding();
+
     harness.model.hold_outlines(hold.clone());
+
     let label = harness.model.undo_label().map(str::to_owned);
 
     run_from_palette(&mut harness, "project the outline of a body");
     harness.frame();
     harness.frame();
+
     let working = harness.model.is_outlining();
     let progress = harness.shows_containing("Working out the outline of");
     let waiting = harness.sketch(sketch).projected().count();
@@ -589,6 +638,7 @@ fn the_outline_of_a_body_is_worked_out_off_the_window_thread_and_projected_when_
 
     run_from_palette(&mut harness, "project the outline of a body");
     harness.frame();
+
     let refused = harness.shows_containing(outlining::STILL_OUTLINING);
 
     hold.release();
@@ -617,28 +667,39 @@ fn the_outline_of_a_body_is_worked_out_off_the_window_thread_and_projected_when_
 #[test]
 fn cancelling_the_outline_from_the_palette_or_with_escape_leaves_the_sketch_unchanged() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let sketch = harness.draw_on_new_sketch();
+
     harness.use_tool_with(Key::P, Modifiers::ALT);
     harness.settle();
     highlight_body(&mut harness, extrude);
+
     let hold = Hold::holding();
+
     harness.model.hold_outlines(hold.clone());
+
     let revision = harness.model.revision();
 
     run_from_palette(&mut harness, "project the outline of a body");
     harness.frame();
+
     let working = harness.model.is_outlining();
+
     run_from_palette(&mut harness, "cancel projecting the outline");
     harness.frame();
+
     let stopped = harness.shows(outlining::STOPPED);
     let idle = !harness.model.is_outlining();
 
     run_from_palette(&mut harness, "project the outline of a body");
     harness.frame();
+
     let working_again = harness.model.is_outlining();
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let escaped = !harness.model.is_outlining();
 
     hold.release();

@@ -9,7 +9,7 @@ use crate::bodies::{self, FaceKey};
 
 const FACE_KEY_DIGITS: usize = 32;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum Named {
     Id(u64),
@@ -41,7 +41,7 @@ impl Named {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ReferenceError {
     #[error("there is no feature {0}; list_features names every feature")]
     NoFeature(Named),
@@ -64,7 +64,7 @@ pub enum ReferenceError {
     NoText { sketch: String, text: EntityName },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum EntityName {
     Id(u64),
@@ -142,13 +142,16 @@ pub fn face_key_text(key: FaceKey) -> String {
 pub fn face_key(text: &str) -> Result<FaceKey, ReferenceError> {
     let unreadable = || ReferenceError::UnreadableFaceKey(text.to_owned());
     let trimmed = text.trim();
+
     let (digits, occurrence) = match trimmed.split_once(':') {
         Some((digits, occurrence)) => (digits, occurrence.parse().map_err(|_| unreadable())?),
         None => (trimmed, 0),
     };
+
     if digits.is_empty() || digits.len() > FACE_KEY_DIGITS {
         return Err(unreadable());
     }
+
     let digest = u128::from_str_radix(digits, 16).map_err(|_| unreadable())?;
     Ok(FaceKey {
         name: FaceName::from_digest(digest),
@@ -168,6 +171,7 @@ pub fn face<'e>(
         face: text.to_owned(),
     };
     let shown = bodies::shown(evaluation, body).ok_or_else(missing)?;
+
     let face = bodies::find_face(shown, key).ok_or_else(missing)?;
     Ok((key, face, shown))
 }

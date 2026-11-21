@@ -12,7 +12,7 @@ use crate::{
 
 const TOLERANCE: f64 = 1e-7;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum MirrorError {
     #[error("select the geometry to mirror")]
     NothingSelected,
@@ -26,13 +26,13 @@ pub enum MirrorError {
     Edit(SketchError),
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MirrorImage {
     pub curves: Vec<Vec<Point2>>,
     pub points: Vec<Point2>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Reflection {
     anchor: Point2,
     direction: Vector2,
@@ -50,7 +50,7 @@ impl Reflection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Plan {
     reflection: Reflection,
     curves: Vec<EntityId>,
@@ -67,6 +67,7 @@ impl Sketch {
     ) -> Result<MirrorImage, MirrorError> {
         let plan = self.mirror_plan(items, about)?;
         let reflect = |point: Point2| plan.reflection.of(point);
+
         let curves = plan
             .curves
             .iter()
@@ -96,9 +97,11 @@ impl Sketch {
     ) -> Result<Vec<EntityId>, MirrorError> {
         let plan = self.mirror_plan(items, about)?;
         let mut working = self.clone();
+
         let copies = working
             .add_mirror_image(&plan, about)
             .map_err(MirrorError::Edit)?;
+
         *self = working;
         Ok(copies)
     }
@@ -125,6 +128,7 @@ impl Sketch {
                             entity: about,
                             label: label(),
                         })?;
+
                 let direction =
                     (end - start)
                         .try_normalize()
@@ -147,9 +151,11 @@ impl Sketch {
             .copied()
             .filter(|item| *item != about && !item.is_reference() && self.entity(*item).is_some())
             .collect();
+
         if chosen.is_empty() {
             return Err(MirrorError::NothingSelected);
         }
+
         let scale = chosen
             .iter()
             .filter_map(|item| self.entity(*item))
@@ -173,18 +179,21 @@ impl Sketch {
             .copied()
             .filter(|item| matches!(self.entity(*item), Some(Entity::Point(_))))
             .filter(|point| !on_line(*point));
+
         let points: BTreeSet<EntityId> = curves
             .iter()
             .filter_map(|curve| self.entity(*curve))
             .flat_map(Entity::points)
             .chain(lone)
             .collect();
+
         if points.is_empty() {
             return Err(MirrorError::NothingToMirror {
                 entity: about,
                 label: self.entity_label(about),
             });
         }
+
         let on_mirror = points
             .iter()
             .copied()
@@ -272,6 +281,7 @@ impl Sketch {
         let mut images: BTreeMap<EntityId, EntityId> = BTreeMap::new();
         let mut symmetric = Vec::new();
         let mut held = Vec::new();
+
         for point in &plan.points {
             if plan.on_mirror.contains(point) {
                 images.insert(*point, *point);
@@ -284,15 +294,19 @@ impl Sketch {
                 images.insert(*point, partner);
                 continue;
             }
+
             let position = self.point(*point).ok_or(SketchError::NotAPoint(*point))?;
             let image = self.add_point(plan.reflection.of(position));
+
             images.insert(*point, image);
             symmetric.push((*point, image));
         }
+
         let image_of = |point: EntityId| images.get(&point).copied().unwrap_or(point);
         let mut copies = Vec::with_capacity(plan.curves.len());
         let mut curve_images = BTreeMap::new();
         let mut equal = Vec::new();
+
         for curve in &plan.curves {
             let entity = self
                 .entity(*curve)
@@ -342,6 +356,7 @@ impl Sketch {
             };
             let needs_equal = self.copy_needs_equal(*curve);
             let copy = EntityId::from_raw(self.next_id());
+
             self.insert_entity(copy, image)?;
             if self.is_construction(*curve) {
                 self.set_construction(copy, true)?;
@@ -406,9 +421,11 @@ impl Sketch {
 
     pub(crate) fn held_on(&self, point: EntityId, about: EntityId) -> bool {
         let ends = self.entity(about).map(Entity::points).unwrap_or_default();
+
         if ends.contains(&point) {
             return true;
         }
+
         let axis = about.is_reference();
         self.active_constraints_using(point)
             .into_iter()

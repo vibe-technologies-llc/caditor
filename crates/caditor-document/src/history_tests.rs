@@ -17,12 +17,15 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let depth = transaction.add_parameter("depth", transaction.parse("4 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
     );
+
     let base = transaction.add_feature(
         "Base",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -37,6 +40,7 @@ fn model() -> Model {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -67,14 +71,17 @@ fn set_depth(model: &mut Model, text: &str) -> Transaction {
 fn undoing_a_change_takes_the_earlier_result_back_without_recomputing() {
     let mut model = model();
     let mut engine = Recompute::default();
+
     let first = evaluate(&model.document, &mut engine);
     let undo = set_depth(&mut model, "6 mm");
     let changed = evaluate(&model.document, &mut engine);
 
     model.document.apply(undo).unwrap();
+
     let undone = evaluate(&model.document, &mut engine);
 
     let result = |evaluation: &Evaluation| evaluation.body_result(model.base).cloned().unwrap();
+
     assert!(changed.recomputed().contains(&model.base));
     assert!(!undone.recomputed().contains(&model.base));
     assert!(Arc::ptr_eq(&result(&first), &result(&undone)));
@@ -86,6 +93,7 @@ fn results_kept_per_feature_are_bounded_by_count_and_earlier_ones_by_size() {
     let mut model = model();
     let mut engine = Recompute::default();
     let mut tight = Recompute::default().keeping_earlier_results_within(0);
+
     for depth in 1..=8 {
         set_depth(&mut model, &format!("{depth} mm"));
         evaluate(&model.document, &mut engine);
@@ -103,8 +111,10 @@ fn results_kept_per_feature_are_bounded_by_count_and_earlier_ones_by_size() {
 fn earlier_results_are_held_at_the_size_of_their_solids_and_meshes() {
     let mut model = model();
     let mut engine = Recompute::default();
+
     let first = evaluate(&model.document, &mut engine);
     let undo = set_depth(&mut model, "6 mm");
+
     evaluate(&model.document, &mut engine);
     model.document.apply(undo).unwrap();
     evaluate(&model.document, &mut engine);
@@ -114,13 +124,16 @@ fn earlier_results_are_held_at_the_size_of_their_solids_and_meshes() {
     let base = first.body_result(model.base).unwrap().solid().unwrap();
     let mesh = base.mesh().unwrap().approximate_size();
     let (held, measured) = engine.earlier_results_held();
+
     assert_eq!(held, measured);
     assert!(held >= 2 * (base.solid.approximate_size() + mesh), "{held}");
 
     let mut cleared = Recompute::default().keeping_earlier_results_within(0);
+
     evaluate(&model.document, &mut cleared);
     set_depth(&mut model, "8 mm");
     evaluate(&model.document, &mut cleared);
+
     assert_eq!(cleared.earlier_results_held(), (0, 0));
 }
 
@@ -128,11 +141,15 @@ fn earlier_results_are_held_at_the_size_of_their_solids_and_meshes() {
 fn a_draft_copy_shares_every_cache_entry_and_changes_none_of_the_originals() {
     let mut model = model();
     let mut engine = Recompute::default();
+
     evaluate(&model.document, &mut engine);
 
     let mut draft = engine.draft_copy();
+
     let copied = draft.entries_shared_with(&engine);
+
     set_depth(&mut model, "6 mm");
+
     let drafted = evaluate(&model.document, &mut draft);
     let original = evaluate(&model.document, &mut engine);
 
@@ -147,11 +164,14 @@ fn a_draft_copy_shares_every_cache_entry_and_changes_none_of_the_originals() {
 fn retrying_failures_in_a_draft_copy_leaves_the_original_cache_alone() {
     let mut model = model();
     let mut engine = Recompute::default();
+
     set_depth(&mut model, "0 mm");
+
     let failed = evaluate(&model.document, &mut engine);
     let mut draft = engine.draft_copy();
 
     draft.retry_failures();
+
     let retried = evaluate(&model.document, &mut draft);
     let again = evaluate(&model.document, &mut engine);
 
@@ -165,12 +185,15 @@ fn retrying_failures_in_a_draft_copy_leaves_the_original_cache_alone() {
 
 fn drilled_plate(holes: usize) -> (Document, ParameterId, Vec<FeatureId>) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let depth = transaction.add_parameter("depth", transaction.parse("6 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (40.0, 40.0))),
     );
+
     let plate = transaction.add_feature(
         "Plate",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -186,12 +209,16 @@ fn drilled_plate(holes: usize) -> (Document, ParameterId, Vec<FeatureId>) {
         })),
     );
     let mut states = vec![plate];
+
     for index in 0..holes {
         let mut sketch = Sketch::new(Plane::XY);
         let column = (index % 6) as f64;
         let row = (index / 6) as f64;
+
         sketch.add_circle(Point2::new(5.0 + 6.0 * column, 5.0 + 6.0 * row), 1.5);
+
         let circle = transaction.add_feature(format!("Circle {index}"), FeatureKind::from(sketch));
+
         states.push(transaction.add_feature(
             format!("Hole {index}"),
             extrude(circle, "20 mm", false, BodyOperation::Remove(plate)),
@@ -205,6 +232,7 @@ fn drilled_plate(holes: usize) -> (Document, ParameterId, Vec<FeatureId>) {
 fn earlier_results_count_the_geometry_their_solids_share_once() {
     let (mut document, depth, states) = drilled_plate(12);
     let mut engine = Recompute::default();
+
     let first = evaluate(&document, &mut engine);
     let deeper = document.parse("7 mm").unwrap();
     let undo = document
@@ -220,6 +248,7 @@ fn earlier_results_count_the_geometry_their_solids_share_once() {
 
     let (held, measured) = engine.earlier_results_held();
     let in_full = engine.earlier_results_in_full();
+
     assert_eq!(changed.failed_count(), 0);
     assert!(
         states
@@ -230,9 +259,11 @@ fn earlier_results_count_the_geometry_their_solids_share_once() {
     assert!(2 * held < in_full, "{held} of {in_full}");
 
     document.apply(undo).unwrap();
+
     let undone = evaluate(&document, &mut engine);
     let body = |evaluation: &Evaluation| evaluation.body_result(states[0]).cloned().unwrap();
     let (held, measured) = engine.earlier_results_held();
+
     assert!(Arc::ptr_eq(&body(&first), &body(&undone)));
     assert_eq!(held, measured);
     assert!(2 * held < engine.earlier_results_in_full());

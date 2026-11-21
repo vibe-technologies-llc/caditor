@@ -112,7 +112,7 @@ const CLIPBOARD: [(Command, &str); 3] = [
     (Command::PasteGeometry, "Paste"),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Place {
     Model {
         on_item: bool,
@@ -131,14 +131,14 @@ impl Place {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MadeBy {
     feature: FeatureId,
     name: String,
     asks: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Held {
     faces: bool,
     edges: bool,
@@ -161,6 +161,7 @@ impl Held {
                 _ => None,
             })
             .collect();
+
         let whole_bodies = !bodies.is_empty()
             && items
                 .iter()
@@ -210,14 +211,17 @@ impl Held {
 
     fn tools(&self) -> Vec<Command> {
         let mut tools = Vec::new();
+
         if self.plane {
             tools.push(Command::NewSketch);
         }
+
         let kinds = [
             (self.edges, EDGE_TOOLS.as_slice()),
             (self.faces, FACE_TOOLS.as_slice()),
             (self.sketch, SKETCH_TOOLS.as_slice()),
         ];
+
         for command in kinds
             .into_iter()
             .filter(|(held, _)| *held)
@@ -235,27 +239,28 @@ fn sole_feature(model: &Model, items: &[Pickable]) -> Option<FeatureId> {
     let mut features = items
         .iter()
         .map(|pickable| viewport::feature_of(*pickable, model));
+
     let first = features.next()??;
     features
         .all(|feature| feature == Some(first))
         .then_some(first)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Open,
     Closed,
     Chosen(Vec<Command>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Showing {
     Waiting,
     First,
     Shown,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ViewMenu {
     anchor: Pos2,
     cursor: Vector2,
@@ -318,11 +323,14 @@ impl ViewMenu {
             Showing::First => entries.focusing_first(),
             Showing::Shown => entries,
         };
+
         self.showing = Showing::Shown;
+
         let id = Id::unique(MENU_ID).with(self.serial);
         let place = self.place;
         let held = &self.held;
         let opening = widgets::menu_opening_down(ctx, self.anchor, self.size);
+
         let shown = Popup::new(
             id,
             ctx.clone(),
@@ -336,11 +344,15 @@ impl ViewMenu {
         .style(menu_style)
         .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| widgets::measured_menu(ui, |ui| contents(ui, place, held, &mut entries)));
+
         if let Some(shown) = &shown {
             let (_, height) = shown.inner;
+
             self.size = Some(vec2(shown.response.rect.width(), height));
         }
+
         let chosen = entries.take_chosen();
+
         if !chosen.is_empty() {
             return Outcome::Chosen(chosen);
         }
@@ -380,10 +392,12 @@ fn repeat(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
     if !entries.is_available(Command::RepeatLast) {
         return;
     }
+
     let title = match entries.detail(Command::RepeatLast) {
         Some(last) => Command::RepeatLast.title_with(last),
         None => Command::RepeatLast.title(),
     };
+
     entries.titled_item(ui, Command::RepeatLast, &title);
     ui.separator();
 }
@@ -404,6 +418,7 @@ fn model_item(ui: &mut Ui, entries: &mut MenuEntries<'_>, held: &Held) {
         Some(name) => format!("Edit {name}"),
         None => Command::EditFeature.title(),
     };
+
     entries.titled_item(ui, Command::EditFeature, &edit);
     entries.offered(ui, Command::EditSketch, &Command::EditSketch.title());
     ui.separator();
@@ -422,14 +437,17 @@ fn model_item(ui: &mut Ui, entries: &mut MenuEntries<'_>, held: &Held) {
     entries.titled_item(ui, Command::FitView, FIT_SELECTION);
     entries.item(ui, Command::Measure);
     ui.separator();
+
     let growing: Vec<(Command, &str)> = GROWING
         .into_iter()
         .filter(|(command, _)| entries.is_available(*command))
         .collect();
+
     if !growing.is_empty() {
         titled_submenu(ui, entries, Command::SelectBody, SELECT, &growing);
     }
     entries.item(ui, Command::ListUnderPointer);
+
     let more = [Command::BodyAppearance, Command::CopyFeatures];
     if more.iter().any(|command| entries.is_available(*command)) {
         ui.separator();
@@ -449,6 +467,7 @@ fn fitting_tools(ui: &mut Ui, entries: &mut MenuEntries<'_>, held: &Held) -> boo
         .into_iter()
         .filter(|command| held.bodies && entries.is_available(*command))
         .collect();
+
     entries.items(ui, tools.iter().copied());
     match body.first() {
         Some(_) if tools.is_empty() || held.whole_bodies => {
@@ -477,6 +496,7 @@ fn made_by_entries(ui: &mut Ui, entries: &mut MenuEntries<'_>, made_by: &MadeBy)
 
 fn model_space(ui: &mut Ui, entries: &mut MenuEntries<'_>, selected: bool) {
     let fit = if selected { FIT_SELECTION } else { FIT_ALL };
+
     entries.titled_item(ui, Command::FitView, fit);
     entries.item(ui, Command::PreviousView);
     entries.item(ui, Command::NextView);
@@ -554,6 +574,7 @@ fn constraints(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
         .map(Command::Constraint)
         .filter(|command| entries.is_available(*command))
         .collect();
+
     if offered.is_empty() {
         return;
     }

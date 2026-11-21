@@ -32,14 +32,14 @@ use crate::{
 
 pub const MOST_ITEMS: usize = 200;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParameterValue {
     pub name: String,
     pub expression: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 pub enum PlaneName {
     #[serde(rename = "XY")]
     Xy,
@@ -49,7 +49,7 @@ pub enum PlaneName {
     Yz,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NewSketch {
     pub plane: Option<PlaneName>,
@@ -60,7 +60,7 @@ pub struct NewSketch {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Drawing {
     pub sketch: Named,
@@ -69,7 +69,7 @@ pub struct Drawing {
     pub construction: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Item {
     Point {
@@ -103,14 +103,14 @@ pub enum Item {
     TangentArc(sketching::TangentArcShape),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Constraining {
     pub sketch: Named,
     pub constraints: Vec<ConstraintItem>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConstraintItem {
     Coincident {
@@ -193,7 +193,7 @@ pub enum ConstraintItem {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationName {
     NewBody,
@@ -202,7 +202,7 @@ pub enum OperationName {
     Intersect,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SketchingError {
     #[error("say where the sketch goes: a plane (XY, XZ or YZ), or a body and one of its faces")]
     NoPlace,
@@ -240,7 +240,7 @@ pub enum SketchingError {
     DirectionWithoutHeading { number: usize },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ModellingError {
     #[error("give the extrusion a distance, or through_all for a cut, or up_to")]
     NoDistance,
@@ -343,10 +343,12 @@ fn report(
     mut details: Map<String, Value>,
 ) -> Result<Answer, ToolError> {
     session.evaluate(work)?;
+
     let failing: Vec<Value> = problems(session.document(), session.evaluation())
         .into_iter()
         .map(|(id, name, words)| {
             let mut entry = Map::new();
+
             entry.insert("id".to_owned(), json!(id));
             entry.insert("name".to_owned(), json!(name));
             words.into_json(&mut entry);
@@ -356,6 +358,7 @@ fn report(
             Value::Object(entry)
         })
         .collect();
+
     details.insert("change".to_owned(), json!(performed.label));
     if !performed.changed {
         details.insert(
@@ -386,6 +389,7 @@ pub fn set_parameter(
     let name = asked.name.trim();
     let values = session.parameters();
     let document = session.document();
+
     let existing = document.parameter_named(name);
     let current = existing
         .and_then(|parameter| values.get(parameter.id()))
@@ -403,6 +407,7 @@ pub fn set_parameter(
         text: asked.expression.clone(),
         reason: Box::new(reason.into()),
     })?;
+
     let transaction = match existing {
         Some(parameter) => Transaction::single(
             format!("Edit {}", parameter.name),
@@ -417,22 +422,28 @@ pub fn set_parameter(
                 text: name.to_owned(),
                 reason: Box::new(error.into()),
             })?;
+
             let mut transaction = document.transaction(format!("Add {name}"));
+
             transaction.add_parameter(name, expression);
             transaction.finish()
         }
     };
     let mut details = Map::new();
+
     details.insert("parameter".to_owned(), json!(name));
+
     let answer = apply(session, work, transaction, details)?;
     let mut data = answer.data;
     let values = session.parameters();
+
     if let Some(parameter) = session.document().parameter_named(name) {
         let shown = match values.get(parameter.id()) {
             Some(Ok(value)) => value.to_string(),
             Some(Err(error)) => format!("cannot be worked out: {error}"),
             None => String::new(),
         };
+
         data.insert("value".to_owned(), json!(shown));
     }
     Ok(Answer::of(data))
@@ -446,6 +457,7 @@ pub fn add_sketch(
     if asked.datum.is_some() || asked.frame.is_some() {
         return sketching::add_sketch_on_datum(session, work, asked);
     }
+
     let (feature, transaction) = match (asked.plane, asked.body, asked.face) {
         (Some(_), _, Some(_)) => return Err(SketchingError::BothPlaces.into()),
         (None, _, None) => return Err(SketchingError::NoPlace.into()),
@@ -461,6 +473,7 @@ pub fn add_sketch(
                 .name
                 .unwrap_or_else(|| editing::next_sketch_name(document));
             let mut transaction = document.transaction(format!("Create {sketch_name}"));
+
             let feature = transaction.add_feature(
                 sketch_name,
                 FeatureKind::from(Sketch::new(principal.plane())),
@@ -469,10 +482,13 @@ pub fn add_sketch(
         }
         (None, Some(body), Some(face)) => {
             session.evaluate(work)?;
+
             let document = session.document();
             let evaluation = session.evaluation();
+
             let body = references::body(document, evaluation, &body)?;
             let (key, _, _) = references::face(document, evaluation, body, &face)?;
+
             let (attachment, on) = sketch_placement::attachment_in(
                 document,
                 evaluation,
@@ -484,6 +500,7 @@ pub fn add_sketch(
                 .name
                 .unwrap_or_else(|| editing::next_sketch_name(document));
             let mut transaction = document.transaction(format!("Create {sketch_name}"));
+
             let feature = transaction.add_feature(
                 sketch_name,
                 FeatureKind::Sketch(SketchFeature::on_face(Sketch::new(on), attachment)),
@@ -502,13 +519,17 @@ pub(super) fn sketch_added(
 ) -> Result<Answer, ToolError> {
     let answer = apply(session, work, transaction, Map::new())?;
     let mut data = answer.data;
+
     if let Some(added) = session.document().feature(feature) {
         let mut sketch = Map::new();
+
         sketch.insert("id".to_owned(), json!(added.id().raw()));
         sketch.insert("name".to_owned(), json!(added.name));
+
         let shown = up_to_date_result(session.evaluation(), feature)
             .map(|result| result.geometry.plane())
             .or_else(|| added.kind.sketch().map(Sketch::plane));
+
         if let Some(shown) = shown {
             sketch.insert("plane".to_owned(), plane(&shown));
         }
@@ -551,6 +572,7 @@ impl Pen<'_, '_> {
         let id = self
             .transaction
             .add_sketch_entity(self.sketch, entity.clone());
+
         self.placed.insert(id, entity);
         id
     }
@@ -559,6 +581,7 @@ impl Pen<'_, '_> {
         let id = self
             .transaction
             .add_sketch_entity_as(self.sketch, entity.clone(), construction);
+
         self.placed.insert(id, entity);
         id
     }
@@ -573,6 +596,7 @@ impl Pen<'_, '_> {
             .placed
             .iter()
             .filter(|(_, entity)| !matches!(entity, Entity::Point(_)));
+
         for (id, entity) in points.chain(curves) {
             let _ = sketch.insert_entity(*id, entity.clone());
         }
@@ -605,11 +629,14 @@ impl Pen<'_, '_> {
             }
             Item::Line { from, to } => {
                 let (from, to) = (point(*from)?, point(*to)?);
+
                 if from == to {
                     return Err(SketchingError::ZeroLine.into());
                 }
+
                 let start = self.point(from);
                 let end = self.point(to);
+
                 let line = self.line(start, end);
                 json!({ "kind": "line", "id": line.raw(), "start": start.raw(), "end": end.raw() })
             }
@@ -617,12 +644,14 @@ impl Pen<'_, '_> {
                 if points.len() < 2 {
                     return Err(SketchingError::ShortPolyline.into());
                 }
+
                 let placed: Vec<Point2> = points
                     .iter()
                     .map(|at| point(*at))
                     .collect::<Result<_, _>>()?;
                 let corners: Vec<EntityId> = placed.iter().map(|at| self.point(*at)).collect();
                 let mut lines = Vec::new();
+
                 for pair in corners.windows(2) {
                     if let [start, end] = pair {
                         lines.push(self.line(*start, *end));
@@ -638,10 +667,13 @@ impl Pen<'_, '_> {
             }
             Item::Rectangle { corner, opposite } => {
                 let (corner, opposite) = (point(*corner)?, point(*opposite)?);
+
                 if corner.x == opposite.x || corner.y == opposite.y {
                     return Err(SketchingError::FlatRectangle.into());
                 }
+
                 let (low, high) = (corner.min(opposite), corner.max(opposite));
+
                 let corners = [
                     self.point(low),
                     self.point(Point2::new(high.x, low.y)),
@@ -649,6 +681,7 @@ impl Pen<'_, '_> {
                     self.point(Point2::new(low.x, high.y)),
                 ];
                 let [lower_left, lower_right, upper_right, upper_left] = corners;
+
                 let sides = [
                     self.line(lower_left, lower_right),
                     self.line(lower_right, upper_right),
@@ -656,6 +689,7 @@ impl Pen<'_, '_> {
                     self.line(upper_left, lower_left),
                 ];
                 let [bottom, right, top, left] = sides;
+
                 for horizontal in [bottom, top] {
                     self.constrain(Constraint::Horizontal(horizontal));
                 }
@@ -674,6 +708,7 @@ impl Pen<'_, '_> {
                 if !radius.is_finite() || *radius <= 0.0 || *radius > MAX_SIZE {
                     return Err(SketchingError::Radius(*radius).into());
                 }
+
                 let centre = self.point(point(*center)?);
                 let circle = self.place(
                     Entity::Circle {
@@ -696,13 +731,17 @@ pub fn draw(session: &mut Session, work: &Work<'_>, asked: Drawing) -> Result<An
         return Err(SketchingError::TooMany.into());
     }
     session.evaluate(work)?;
+
     let document = session.document();
     let (feature, definition) = references::sketch(document, &asked.sketch)?;
     let sketch = feature.id();
+
     let shown = up_to_date_result(session.evaluation(), sketch)
         .map_or(definition, |result| &result.geometry);
     let mut transaction = document.transaction(format!("Draw in {}", feature.name));
+
     settled(&mut transaction, session.evaluation(), sketch);
+
     let mut pen = Pen {
         transaction: &mut transaction,
         sketch,
@@ -713,13 +752,17 @@ pub fn draw(session: &mut Session, work: &Work<'_>, asked: Drawing) -> Result<An
         placed: BTreeMap::new(),
         results: Vec::new(),
     };
+
     for item in &asked.items {
         let drawn = pen.draw(item)?;
+
         pen.results.push(drawn);
     }
+
     let drawn = pen.results;
     let transaction = transaction.finish();
     let mut details = Map::new();
+
     details.insert("drawn".to_owned(), Value::Array(drawn));
     apply(session, work, transaction, details)
 }
@@ -861,9 +904,11 @@ pub fn constrain(
         return Err(SketchingError::TooMany.into());
     }
     session.evaluate(work)?;
+
     let document = session.document();
     let (feature, definition) = references::sketch(document, &asked.sketch)?;
     let sketch = feature.id();
+
     let shown = up_to_date_result(session.evaluation(), sketch)
         .map_or(definition, |result| &result.geometry);
     let resolver = Resolver {
@@ -876,12 +921,15 @@ pub fn constrain(
         .map(|item| constraint_of(session, &resolver, item))
         .collect::<Result<_, _>>()?;
     let mut transaction = document.transaction(format!("Constrain {}", feature.name));
+
     settled(&mut transaction, session.evaluation(), sketch);
+
     let added: Vec<ConstraintId> = constraints
         .into_iter()
         .map(|constraint| transaction.add_sketch_constraint(sketch, constraint))
         .collect();
     let transaction = transaction.finish();
+
     let trial = ConstraintTrial {
         feature: sketch,
         transaction,
@@ -890,17 +938,22 @@ pub fn constrain(
     };
     let started = Instant::now();
     let given_up = || work.is_cancelled() || started.elapsed() >= PATIENCE;
+
     if let Some(reason) = constraint_trial::conflict(document, &trial, &given_up) {
         return Err(SketchingError::Conflicting(reason).into());
     }
+
     let mut details = Map::new();
+
     details.insert(
         "constraints".to_owned(),
         Value::Array(added.iter().map(|id| json!(id.raw())).collect()),
     );
+
     let answer = apply(session, work, trial.transaction, details)?;
     let mut data = answer.data;
     let summary = crate::sketch_status::SketchSummary::of(session.evaluation(), sketch);
+
     data.insert("sketch_status".to_owned(), json!(summary.status_text()));
     Ok(Answer::of(data))
 }
@@ -918,6 +971,7 @@ pub(super) fn operation_words(document: &Document, operation: BodyOperation) -> 
 
 pub(super) fn with_feature(session: &Session, answer: Answer, feature: FeatureId) -> Answer {
     let mut data = answer.data;
+
     if let Some(added) = session.document().feature(feature) {
         data.insert("feature".to_owned(), feature_brief(added));
     }
@@ -928,6 +982,7 @@ pub fn undo(session: &mut Session, work: &Work<'_>) -> Result<Answer, ToolError>
     let before = failing_ids(session);
     let performed = session.perform(Change::Undo)?;
     let mut details = Map::new();
+
     details.insert("undone".to_owned(), json!(performed.label));
     report(session, work, &performed, before.as_ref(), details)
 }
@@ -936,6 +991,7 @@ pub fn redo(session: &mut Session, work: &Work<'_>) -> Result<Answer, ToolError>
     let before = failing_ids(session);
     let performed = session.perform(Change::Redo)?;
     let mut details = Map::new();
+
     details.insert("redone".to_owned(), json!(performed.label));
     report(session, work, &performed, before.as_ref(), details)
 }

@@ -16,7 +16,7 @@ use crate::{
 
 const TRAVEL_SAMPLES: usize = 8;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum MoveError {
     #[error("the faces would not move by more than 0.000001 mm")]
     Unmoved,
@@ -117,6 +117,7 @@ fn travel(solid: &Solid, faces: &[FaceId], motion: &Motion) -> f64 {
 fn carried(solid: &Solid, groups: Vec<Carried<'_>>) -> Result<Solid, MoveError> {
     let offsets = carrying(solid, groups)?;
     let inner = inner_solid(&offsets, Naming::Kept)?;
+
     if let Some(face) = inner.dropped.iter().next() {
         return Err(MoveError::Vanishes(*face));
     }
@@ -133,10 +134,12 @@ pub(super) fn carrying<'a>(
     for face in groups.iter().flat_map(|group| group.faces) {
         solid.face(*face).ok_or(MoveError::MissingFace(*face))?;
     }
+
     let reach = groups
         .iter()
         .map(|group| travel(solid, group.faces, &group.motion))
         .fold(0.0, larger);
+
     if !reach.is_finite() || reach <= LINEAR_RESOLUTION {
         return Err(MoveError::Unmoved);
     }
@@ -150,6 +153,7 @@ pub(super) fn carrying<'a>(
 pub(super) fn uncrossed(solid: Solid) -> Result<Solid, MoveError> {
     if let CrossingCheck::Crossing(crossing) = solid.find_crossing()? {
         let [first, second] = crossing.faces;
+
         return Err(MoveError::Crosses { first, second });
     }
     Ok(solid)

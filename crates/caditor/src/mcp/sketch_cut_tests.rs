@@ -17,6 +17,7 @@ use super::{
 fn curves_switch_to_construction_and_back() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
     let drawn = draw(
         &mut client,
@@ -66,8 +67,11 @@ fn curves_switch_to_construction_and_back() {
         &sketch,
         json!({ "operation": "construction", "items": [lone] }),
     );
+
     client.tool("undo", json!({}));
+
     let undone = described(&mut client, &sketch);
+
     client.finish();
 
     assert_eq!(made["construction"], true, "{made}");
@@ -95,6 +99,7 @@ fn curves_switch_to_construction_and_back() {
 fn a_curve_is_split_at_a_point_and_crossing_curves_are_broken() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
     let drawn = draw(
         &mut client,
@@ -136,18 +141,23 @@ fn a_curve_is_split_at_a_point_and_crossing_curves_are_broken() {
         &sketch,
         json!({ "operation": "break", "curves": [upright] }),
     );
+
     client.tool("undo", json!({}));
+
     let unbroken = described(&mut client, &sketch);
+
     client.finish();
 
     assert!(off.contains("does not lie on"), "{off}");
     assert!(not_a_point.contains("not a point"), "{not_a_point}");
     assert_eq!(split["change"], "Split curve");
     assert_eq!(count_of(&split, "added_entities"), 1, "{split}");
+
     let spans: Vec<([f64; 2], [f64; 2])> = of_kind(&halves, "line")
         .iter()
         .map(|line| ends(&halves, &line["id"]))
         .collect();
+
     assert_eq!(spans.len(), 3, "{spans:?}");
     assert!(
         spans.iter().any(
@@ -164,6 +174,7 @@ fn a_curve_is_split_at_a_point_and_crossing_curves_are_broken() {
 
 fn model_with_an_evenly_spaced_spline(folder: &TempDir) -> std::path::PathBuf {
     let mut sketch = Sketch::new(PrincipalPlane::Xy.plane());
+
     sketch.add_spline_of(
         &[
             Point2::new(0.0, 0.0),
@@ -176,11 +187,16 @@ fn model_with_an_evenly_spaced_spline(folder: &TempDir) -> std::path::PathBuf {
             spacing: FitSpacing::Even,
         },
     );
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Old spline");
+
     transaction.add_feature("Old spline", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
+
     let path = folder.path().join("old.caditor");
+
     caditor_file::save(&document, &path, false).unwrap();
     path
 }
@@ -189,6 +205,7 @@ fn model_with_an_evenly_spaced_spline(folder: &TempDir) -> std::path::PathBuf {
 fn old_evenly_spaced_splines_are_respaced() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(model_with_an_evenly_spaced_spline(&folder)));
+
     client.initialize("2025-06-18");
 
     let before = described(&mut client, &json!("Old spline"));
@@ -204,6 +221,7 @@ fn old_evenly_spaced_splines_are_respaced() {
         &json!("Old spline"),
         json!({ "operation": "respace", "splines": [spline] }),
     );
+
     client.finish();
 
     assert_eq!(
@@ -225,6 +243,7 @@ fn entity_count(sketch: &serde_json::Value) -> usize {
 
 fn model_with_a_control_spline(folder: &TempDir) -> std::path::PathBuf {
     let mut sketch = Sketch::new(PrincipalPlane::Xy.plane());
+
     sketch.add_spline(&[
         Point2::new(0.0, 0.0),
         Point2::new(10.0, 8.0),
@@ -240,11 +259,16 @@ fn model_with_a_control_spline(folder: &TempDir) -> std::path::PathBuf {
         ],
         SplineKind::fit(false),
     );
+
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Splines");
+
     transaction.add_feature("Splines", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
+
     let path = folder.path().join("splines.caditor");
+
     caditor_file::save(&document, &path, false).unwrap();
     path
 }
@@ -253,6 +277,7 @@ fn model_with_a_control_spline(folder: &TempDir) -> std::path::PathBuf {
 fn a_control_point_is_added_to_a_control_spline_and_refused_for_a_fit_spline() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(model_with_a_control_spline(&folder)));
+
     client.initialize("2025-06-18");
 
     let before = described(&mut client, &json!("Splines"));
@@ -278,6 +303,7 @@ fn a_control_point_is_added_to_a_control_spline_and_refused_for_a_fit_spline() {
         &json!("Splines"),
         json!({ "operation": "insert_control_point", "splines": [fit] }),
     );
+
     client.finish();
 
     assert_eq!(added["change"], "Add control point");
@@ -294,6 +320,7 @@ fn a_control_point_is_added_to_a_control_spline_and_refused_for_a_fit_spline() {
 fn a_fit_point_takes_a_tangent_handle_that_constraints_turn() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(model_with_a_control_spline(&folder)));
+
     client.initialize("2025-06-18");
 
     let before = described(&mut client, &json!("Splines"));
@@ -302,22 +329,26 @@ fn a_fit_point_takes_a_tangent_handle_that_constraints_turn() {
         .find(|spline| spline["form"] == "fit")
         .unwrap();
     let (spline, middle) = (fit["id"].clone(), fit["points"][1].clone());
+
     let added = modify(
         &mut client,
         &json!("Splines"),
         json!({ "operation": "tangent_handle", "curve": spline, "point": middle }),
     );
     let handle = added["handle"].clone();
+
     client.tool(
         "add_sketch_constraints",
         json!({ "sketch": "Splines", "constraints": [{ "kind": "horizontal", "line": handle }] }),
     );
+
     let after = described(&mut client, &json!("Splines"));
     let again = refused(
         &mut client,
         &json!("Splines"),
         json!({ "operation": "tangent_handle", "curve": spline, "point": middle }),
     );
+
     client.finish();
 
     assert_eq!(added["change"], "Add tangent handle");

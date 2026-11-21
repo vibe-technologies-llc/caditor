@@ -54,7 +54,7 @@ const TOUCH_SLACK: f64 = 0.1;
 const FIELD_CURVATURE_REACH: f64 = 0.5;
 const FOOT_ALONG_NORMAL: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Seed {
     contact: Contact,
     sine: f64,
@@ -81,6 +81,7 @@ fn surface_curvature(surface: &Surface, uv: Point2) -> f64 {
 fn leaf_size(patch: &SurfacePatch) -> f64 {
     let diagonal = patch.bounding_box().diagonal();
     let (u, v) = (patch.u_range(), patch.v_range());
+
     let curvature = CURVATURE_SAMPLES
         .iter()
         .flat_map(|a| {
@@ -124,9 +125,11 @@ pub(super) fn curvature_bound(surface: &Surface, uv: Point2) -> Option<f64> {
     let derivatives = surface.evaluate(uv.x, uv.y);
     let normal = surface.normal(uv.x, uv.y)?;
     let (su, sv) = (derivatives.du.length(), derivatives.dv.length());
+
     if su <= LINEAR_RESOLUTION || sv <= LINEAR_RESOLUTION {
         return None;
     }
+
     let curvature = (derivatives.duu.dot(normal).abs() / (su * su))
         .max(derivatives.dvv.dot(normal).abs() / (sv * sv))
         .max(derivatives.duv.dot(normal).abs() / (su * sv));
@@ -144,8 +147,10 @@ fn largest_curvature(surface: &Surface, uvs: &[Point2]) -> Option<f64> {
 fn apart_to_second_order(other: &Surface, patch: &SurfacePatch) -> bool {
     let surface = patch.surface();
     let uv = patch.bounds().center();
+
     let point = surface.point_at(uv);
     let foot = other.project(point, None);
+
     let offset = point - other.point_at(foot);
     let distance = offset.length();
 
@@ -154,11 +159,13 @@ fn apart_to_second_order(other: &Surface, patch: &SurfacePatch) -> bool {
     else {
         return false;
     };
+
     if offset.cross(other_normal).length() > FOOT_ALONG_NORMAL * distance + TOLERANCE {
         return false;
     }
 
     let (u, v) = (patch.u_range(), patch.v_range());
+
     let corners = [
         Point2::new(u.start(), v.start()),
         Point2::new(u.end(), v.start()),
@@ -178,10 +185,13 @@ fn apart_to_second_order(other: &Surface, patch: &SurfacePatch) -> bool {
 
     let derivatives = other.evaluate(foot.x, foot.y);
     let (su, sv) = (derivatives.du.length(), derivatives.dv.length());
+
     if su <= LINEAR_RESOLUTION || sv <= LINEAR_RESOLUTION {
         return false;
     }
+
     let (du, dv) = (reach / su, reach / sv);
+
     let Some(field) = largest_curvature(
         other,
         &[
@@ -194,6 +204,7 @@ fn apart_to_second_order(other: &Surface, patch: &SurfacePatch) -> bool {
     ) else {
         return false;
     };
+
     if field * (distance + reach) >= FIELD_CURVATURE_REACH {
         return false;
     }
@@ -223,6 +234,7 @@ impl<'a> Arena<'a> {
             other,
             leaf: leaf_size(&patch),
         };
+
         arena.push(patch);
         arena
     }
@@ -230,6 +242,7 @@ impl<'a> Arena<'a> {
     fn push(&mut self, patch: SurfacePatch<'a>) -> usize {
         let bounds = patch.bounding_box();
         let apart = apart(self.other, &patch, &bounds);
+
         self.nodes.push(Node {
             patch,
             bounds,
@@ -243,11 +256,14 @@ impl<'a> Arena<'a> {
         if let Some(children) = self.nodes.get(index).and_then(|node| node.children) {
             return children;
         }
+
         let Some(patch) = self.nodes.get(index).map(|node| node.patch) else {
             return [index, index];
         };
         let [low, high] = patch.halves();
+
         let children = [self.push(low), self.push(high)];
+
         if let Some(node) = self.nodes.get_mut(index) {
             node.children = Some(children);
         }
@@ -308,14 +324,17 @@ impl<'a> Tracer<'a> {
         if !self.inside(&contact) {
             return None;
         }
+
         let sine = contact_direction(self.surfaces(), &contact).map_or(0.0, |(_, sine)| sine);
         Some(Seed { contact, sine })
     }
 
     fn hint_seed(&self, point: Point3) -> Option<Seed> {
         let [first, second] = self.patches;
+
         let guess = [first.place(point), second.place(point)];
         let contact = refine_contact(self.surfaces(), guess, Constraint::Free)?;
+
         if contact.point.distance(point) > HINT_REACH {
             return None;
         }
@@ -325,9 +344,12 @@ impl<'a> Tracer<'a> {
     fn leaf_seeds(&self, a: &SurfacePatch, b: &SurfacePatch) -> Option<Seed> {
         let surfaces = self.surfaces();
         let start = [a.bounds().center(), b.bounds().center()];
+
         let (uv, gap) = closest_approach(surfaces, start);
+
         if gap <= TOLERANCE {
             let [first, second] = uv;
+
             let fallback = Contact {
                 uv,
                 point: a
@@ -352,6 +374,7 @@ impl<'a> Tracer<'a> {
         let (u, v) = (a.u_range(), a.v_range());
         let other = b.surface();
         let value = |uv: Point2| signed_distance(other, a.surface().point_at(uv));
+
         let nodes: Vec<Vec<(Point2, f64)>> = (0..=GRID)
             .map(|row| {
                 (0..=GRID)
@@ -367,6 +390,7 @@ impl<'a> Tracer<'a> {
             .collect();
         let node = |row: usize, column: usize| nodes.get(row).and_then(|row| row.get(column));
         let mut pairs = Vec::new();
+
         for row in 0..=GRID {
             for column in 0..=GRID {
                 if column < GRID {
@@ -381,11 +405,13 @@ impl<'a> Tracer<'a> {
             if (low < 0.0) == (high < 0.0) {
                 continue;
             }
+
             let along = |fraction: f64| value(start.lerp(end, fraction));
             let fraction =
                 crate::intersect::solve::bracket_root(along, 0.0, 1.0, low, high).clamp(0.0, 1.0);
             let uv = start.lerp(end, fraction);
             let point = a.surface().point_at(uv);
+
             let guess = [uv, other.project(point, Some(b.bounds().center()))];
             if let Some(seed) = refine_contact(self.surfaces(), guess, Constraint::Free)
                 .and_then(|contact| self.seed_at(contact))
@@ -398,6 +424,7 @@ impl<'a> Tracer<'a> {
 
     fn seeds(&self) -> Result<Vec<Seed>, IntersectionError> {
         let [first, second] = self.patches;
+
         let mut arenas = [
             Arena::new(first, second.surface()),
             Arena::new(second, first.surface()),
@@ -405,33 +432,41 @@ impl<'a> Tracer<'a> {
         let mut pending = vec![(0usize, 0usize, 0usize)];
         let mut seeds: Vec<Seed> = Vec::new();
         let mut visited = 0usize;
+
         while let Some((a, b, depth)) = pending.pop() {
             interrupt::check()?;
             visited += 1;
             if visited > MAX_SEED_PAIRS {
                 return Err(IntersectionError::TooComplex(MAX_SEED_PAIRS));
             }
+
             let [first_arena, second_arena] = &arenas;
+
             let (Some(a_node), Some(b_node)) =
                 (first_arena.nodes.get(a), second_arena.nodes.get(b))
             else {
                 continue;
             };
+
             if a_node.apart
                 || b_node.apart
                 || !boxes_overlap(&a_node.bounds, &b_node.bounds, TOLERANCE)
             {
                 continue;
             }
+
             let a_ratio = a_node.bounds.diagonal() / first_arena.leaf;
             let b_ratio = b_node.bounds.diagonal() / second_arena.leaf;
+
             if (a_ratio <= 1.0 && b_ratio <= 1.0) || depth >= MAX_SEED_DEPTH {
                 let (a_box, b_box) = (a_node.bounds, b_node.bounds);
+
                 let covered = seeds.iter().any(|known| {
                     known.sine > COVERED_SINE
                         && boxes_overlap(&a_box, &Aabb::from_point(known.contact.point), TOLERANCE)
                         && boxes_overlap(&b_box, &Aabb::from_point(known.contact.point), TOLERANCE)
                 });
+
                 if covered {
                     continue;
                 }
@@ -444,13 +479,16 @@ impl<'a> Tracer<'a> {
                 }
                 continue;
             }
+
             let [first_arena, second_arena] = &mut arenas;
             if a_ratio >= b_ratio {
                 let [low, high] = first_arena.children(a);
+
                 pending.push((high, b, depth + 1));
                 pending.push((low, b, depth + 1));
             } else {
                 let [low, high] = second_arena.children(b);
+
                 pending.push((a, high, depth + 1));
                 pending.push((a, low, depth + 1));
             }
@@ -467,6 +505,7 @@ impl<'a> Tracer<'a> {
 
     fn isolated_touches(&self, seeds: &[Seed]) -> Result<Vec<IsolatedTouch>, IntersectionError> {
         let mut found: Vec<IsolatedTouch> = Vec::new();
+
         for seed in seeds {
             if seed.sine > TOUCH_SEARCH_SINE || set_aside(&found, seed.contact.point) {
                 continue;
@@ -501,19 +540,24 @@ impl<'a> Tracer<'a> {
             return None;
         };
         let touch = parallel_normals(self.surfaces(), current.uv)?;
+
         if touch.gap > TOLERANCE {
             return None;
         }
+
         let contact = self.touch_contact(current, touch.point);
         let ahead = touch.point - current.point;
         let reach = ahead.length();
+
         if reach > TOLERANCE && reach <= self.max_step && angle_between(tangent, ahead) <= MAX_TURN
         {
             return Some(StallTouch::Ahead(contact));
         }
+
         let chord = current.point - previous.point;
         let length = chord.length();
         let along = (touch.point - previous.point).dot(chord) / chord.length_squared();
+
         let nearest = previous.point + chord * along.clamp(0.0, 1.0);
         let passed = along > 0.0
             && along < 1.0
@@ -542,6 +586,7 @@ impl<'a> Tracer<'a> {
     ) -> Option<Contact> {
         let chord = to - from.point;
         let length = chord.length_squared();
+
         if length <= 0.0 {
             return None;
         }
@@ -556,15 +601,18 @@ impl<'a> Tracer<'a> {
 
     fn distance_to_branches(&self, point: Point3) -> f64 {
         let mut best = f64::INFINITY;
+
         for (curve, bounds) in &self.curves {
             if !boxes_overlap(bounds, &Aabb::from_point(point), ON_BRANCH) {
                 continue;
             }
+
             let Curve::Intersection(intersection) = curve else {
                 continue;
             };
             let nodes = intersection.nodes();
             let mut order: [(usize, f64); 2] = [(0, f64::INFINITY); 2];
+
             for (index, node) in nodes.iter().enumerate() {
                 let distance = node.point.distance_squared(point);
                 let [best, second] = order;
@@ -581,10 +629,12 @@ impl<'a> Tracer<'a> {
                 let high = nodes
                     .get((nearest + 2).min(nodes.len().saturating_sub(1)))
                     .map_or(low, |node| node.parameter);
+
                 let Some(range) = Interval::new(low, high) else {
                     continue;
                 };
                 let parameter = curve.closest_parameter(point, range);
+
                 best = best.min(curve.point(parameter).distance(point));
             }
         }
@@ -600,9 +650,11 @@ impl<'a> Tracer<'a> {
     ) -> Result<Step, Stalled> {
         let surfaces = self.surfaces();
         let (direction, sine) = contact_direction(surfaces, current).ok_or(Stalled::Tangent)?;
+
         if sine < stop_sine {
             return Err(Stalled::Tangent);
         }
+
         let orientation = if direction.dot(tangent) < 0.0 {
             -1.0
         } else {
@@ -611,11 +663,13 @@ impl<'a> Tracer<'a> {
         let direction = direction * orientation;
         let [first, second] = surfaces;
         let [uv_first, uv_second] = current.uv;
+
         let (first_derivatives, second_derivatives) = (
             first.evaluate(uv_first.x, uv_first.y),
             second.evaluate(uv_second.x, uv_second.y),
         );
         let mut boundary_tried = false;
+
         while *step >= MIN_STEP {
             let h = *step;
             let predicted = current.point + direction * h;
@@ -623,6 +677,7 @@ impl<'a> Tracer<'a> {
                 uv_first + within_a_turn(first, uv_direction(&first_derivatives, direction * h)),
                 uv_second + within_a_turn(second, uv_direction(&second_derivatives, direction * h)),
             ];
+
             let check = |contact: Contact| {
                 let (next, _) = contact_direction(surfaces, &contact)?;
                 let next = next * orientation;
@@ -635,6 +690,7 @@ impl<'a> Tracer<'a> {
                 let turn = angle_between(direction, next);
                 let correction = contact.point.distance(predicted);
                 let moved = contact.point.distance(current.point);
+
                 let follows = correction <= MAX_CORRECTION * h
                     && moved >= 0.5 * h
                     && turn <= MAX_TURN
@@ -658,6 +714,7 @@ impl<'a> Tracer<'a> {
                 uv: guess,
                 point: predicted,
             };
+
             let accepted = match on_plane {
                 Some(contact) => check(contact),
                 None if !boundary_tried && !self.inside(&ahead) => {
@@ -669,8 +726,10 @@ impl<'a> Tracer<'a> {
                 }
                 None => carried_on_plane(surfaces, guess, predicted, direction).and_then(check),
             };
+
             if let Some(found) = accepted {
                 let growth = (TARGET_TURN / found.turn.max(1e-6)).clamp(0.5, 2.0);
+
                 *step = (h * growth).min(self.max_step);
                 return Ok(found);
             }
@@ -694,12 +753,14 @@ impl<'a> Tracer<'a> {
         };
         let moved = contact.point - current.point;
         let reach = moved.length();
+
         if reach <= TOLERANCE {
             return Err(Stalled::Collapsed);
         }
         if moved.dot(direction) <= TOLERANCE {
             return Ok(None);
         }
+
         let Some((next, _)) = contact_direction(self.surfaces(), &contact) else {
             return Ok(None);
         };
@@ -768,6 +829,7 @@ impl<'a> Tracer<'a> {
         let [inside_first, inside_second] = inside.uv;
         let [outside_first, outside_second] = outside.uv;
         let [first, second] = self.patches;
+
         let checks = [
             (
                 first,
@@ -798,17 +860,21 @@ impl<'a> Tracer<'a> {
                 Coordinate::SecondV,
             ),
         ];
+
         for (patch, along_u, from, to, coordinate) in checks {
             let (range, period) = if along_u {
                 (patch.u_range(), patch.surface().u_period())
             } else {
                 (patch.v_range(), patch.surface().v_period())
             };
+
             if period.is_some_and(|period| range.length() >= period * (1.0 - PERIOD_SLACK)) {
                 continue;
             }
+
             let shift = from - wrap_into(from, range, period);
             let (low, high) = (range.start() + shift, range.end() + shift);
+
             let bound = if to > high {
                 high
             } else if to < low {
@@ -825,6 +891,7 @@ impl<'a> Tracer<'a> {
                 best = Some((fraction, coordinate, bound));
             }
         }
+
         let (fraction, coordinate, bound) = best?;
         let guess = [
             inside_first.lerp(outside_first, fraction),
@@ -847,9 +914,11 @@ impl<'a> Tracer<'a> {
         let [first, second] = self.patches;
         let [uv_first, uv_second] = current.uv;
         let [surface_first, surface_second] = surfaces;
+
         let velocity_first = uv_direction(&surface_first.evaluate(uv_first.x, uv_first.y), tangent);
         let velocity_second =
             uv_direction(&surface_second.evaluate(uv_second.x, uv_second.y), tangent);
+
         let checks = [
             (
                 first,
@@ -881,18 +950,21 @@ impl<'a> Tracer<'a> {
             ),
         ];
         let mut nearest: Option<(f64, Coordinate, f64)> = None;
+
         for (patch, along_u, value, velocity, coordinate) in checks {
             let (range, period) = if along_u {
                 (patch.u_range(), patch.surface().u_period())
             } else {
                 (patch.v_range(), patch.surface().v_period())
             };
+
             if period.is_some_and(|period| range.length() >= period * (1.0 - PERIOD_SLACK))
                 || velocity == 0.0
                 || !velocity.is_finite()
             {
                 continue;
             }
+
             let shift = value - wrap_into(value, range, period);
             let bound = if velocity > 0.0 {
                 range.end() + shift
@@ -900,6 +972,7 @@ impl<'a> Tracer<'a> {
                 range.start() + shift
             };
             let overshoot = (value - bound) * velocity.signum();
+
             let reach = if overshoot > 0.0 && overshoot <= parameter_slack(range) {
                 0.0
             } else {
@@ -909,7 +982,9 @@ impl<'a> Tracer<'a> {
                 nearest = Some((reach, coordinate, bound));
             }
         }
+
         let (reach, coordinate, bound) = nearest?;
+
         if reach > self.max_step {
             return None;
         }
@@ -927,9 +1002,11 @@ impl<'a> Tracer<'a> {
     fn bisect_exit(&self, inside: &Contact, outside: &Contact) -> Option<Contact> {
         let normal = (outside.point - inside.point).try_normalize()?;
         let (mut low, mut high) = (*inside, *outside);
+
         for _ in 0..EXIT_BISECTIONS {
             let [a0, a1] = low.uv;
             let [b0, b1] = high.uv;
+
             let guess = [a0.lerp(b0, 0.5), a1.lerp(b1, 0.5)];
             let middle = refine_on_plane(
                 self.surfaces(),
@@ -960,9 +1037,11 @@ impl<'a> Tracer<'a> {
         let mut step = self.max_step * 0.25;
         let mut steps = 0usize;
         let mut stop_sine = STOP_SINE;
+
         while steps < MAX_STEPS {
             interrupt::check()?;
             steps += 1;
+
             let Some(current) = contacts.last().copied() else {
                 break;
             };
@@ -975,7 +1054,9 @@ impl<'a> Tracer<'a> {
                         if let StallTouch::Passed(_) = touch {
                             contacts.pop();
                         }
+
                         let (StallTouch::Ahead(touch) | StallTouch::Passed(touch)) = touch;
+
                         end_at_touch(&mut contacts, touch);
                     } else if stop_sine > FAR_STOP_SINE {
                         stop_sine = FAR_STOP_SINE;
@@ -998,6 +1079,7 @@ impl<'a> Tracer<'a> {
                     let boundary = self
                         .boundary_ahead(&current, tangent)
                         .ok_or(IntersectionError::Unfollowable)?;
+
                     end_on_boundary(&mut contacts, boundary, tangent);
                     return Ok(Marched {
                         contacts,
@@ -1006,6 +1088,7 @@ impl<'a> Tracer<'a> {
                     });
                 }
             };
+
             if let Some(touch) = self.touch_between(&current, next.contact.point) {
                 end_at_touch(&mut contacts, touch);
                 return Ok(Marched {
@@ -1027,6 +1110,7 @@ impl<'a> Tracer<'a> {
                     .exit(&current, &next.contact)
                     .filter(|boundary| boundary.point.distance(current.point) > TOLERANCE);
                 let jumped = next.contact.point.distance(current.point);
+
                 if boundary
                     .is_some_and(|boundary| (boundary.point - current.point).dot(tangent) <= 0.0)
                     && jumped > MIN_STEP
@@ -1051,7 +1135,9 @@ impl<'a> Tracer<'a> {
                     tangent_end: false,
                 });
             }
+
             let merged = self.distance_to_branches(next.contact.point) <= ON_BRANCH;
+
             if merged && let Some(touch) = self.tangent_end_between(&current, next.contact.point) {
                 end_at_touch(&mut contacts, touch);
                 return Ok(Marched {
@@ -1089,6 +1175,7 @@ impl<'a> Tracer<'a> {
                 joined(backward, forward)
             }
         };
+
         self.points.extend(ends.into_iter().map(|point| RawPoint {
             point,
             tangent: true,
@@ -1104,6 +1191,7 @@ impl<'a> Tracer<'a> {
 
     fn add_curve(&mut self, contacts: &[Contact], closed: bool) -> Result<(), IntersectionError> {
         let [first, second] = self.surfaces();
+
         let curve = match IntersectionCurve::from_contacts(
             [first.clone(), second.clone()],
             contacts,
@@ -1115,6 +1203,7 @@ impl<'a> Tracer<'a> {
         };
         let curve = Curve::Intersection(curve);
         let bounds = curve.bounding_box(curve.domain().clipped(1.0));
+
         self.curves.push((curve, bounds));
         Ok(())
     }
@@ -1133,6 +1222,7 @@ fn within_a_turn(surface: &Surface, step: Vector2) -> Vector2 {
 
 fn joined(backward: Marched, forward: Marched) -> (Vec<Contact>, bool, Vec<Point3>) {
     let mut ends = Vec::new();
+
     if backward.tangent_end
         && let Some(first) = backward.contacts.last()
     {
@@ -1143,7 +1233,9 @@ fn joined(backward: Marched, forward: Marched) -> (Vec<Contact>, bool, Vec<Point
     {
         ends.push(last.point);
     }
+
     let mut contacts: Vec<Contact> = backward.contacts.into_iter().rev().collect();
+
     contacts.extend(forward.contacts.into_iter().skip(1));
     (contacts, false, ends)
 }
@@ -1175,9 +1267,11 @@ fn end_at_touch(contacts: &mut Vec<Contact>, touch: Contact) {
 
 fn end_on_boundary(contacts: &mut Vec<Contact>, boundary: Contact, tangent: Vector3) {
     let behind = |contact: &Contact| (boundary.point - contact.point).dot(tangent) <= 0.0;
+
     if contacts.len() > 1 && contacts.last().is_some_and(behind) {
         contacts.pop();
     }
+
     let ahead_of_last = contacts
         .last()
         .is_none_or(|last| !behind(last) && boundary.point.distance(last.point) > TOLERANCE);
@@ -1188,13 +1282,16 @@ fn end_on_boundary(contacts: &mut Vec<Contact>, boundary: Contact, tangent: Vect
 
 fn closes(seed: &Contact, seed_tangent: Vector3, current: &Contact, next: &Step) -> bool {
     let (from, to) = (current.point, next.contact.point);
+
     let (before, after) = (
         (from - seed.point).dot(seed_tangent),
         (to - seed.point).dot(seed_tangent),
     );
+
     if before >= 0.0 || after < 0.0 {
         return false;
     }
+
     let fraction = -before / (after - before);
     let crossing = from.lerp(to, fraction);
     let chord = from.distance(to);
@@ -1218,12 +1315,15 @@ pub(crate) fn intersect(
         points: Vec::new(),
         touches,
     };
+
     let seeds = tracer.seeds()?;
     let mut isolated = tracer.isolated_touches(&seeds)?;
+
     for hint in hints {
         let Some(seed) = tracer.hint_seed(*hint) else {
             continue;
         };
+
         if set_aside(&isolated, seed.contact.point) {
             continue;
         }
@@ -1238,8 +1338,10 @@ pub(crate) fn intersect(
             return Err(IntersectionError::Cancelled(interrupted));
         }
     }
+
     let touch_merge = 0.5 * leaf_size(first).min(leaf_size(second));
     let mut touches: Vec<Seed> = Vec::new();
+
     for seed in &seeds {
         if set_aside(&isolated, seed.contact.point) {
             continue;
@@ -1253,7 +1355,9 @@ pub(crate) fn intersect(
         }
         tracer.trace(seed)?;
     }
+
     let mut raw = Raw::default();
+
     raw.points.extend(
         isolated
             .iter()
@@ -1270,6 +1374,7 @@ pub(crate) fn intersect(
             .iter()
             .chain(&raw.points)
             .any(|existing| existing.point.distance(point) <= touch_merge);
+
         if known || tracer.distance_to_branches(point) <= ON_BRANCH {
             continue;
         }
@@ -1287,6 +1392,7 @@ pub(crate) fn intersect(
             let range = intersection.domain();
             (curve.clone(), range)
         });
+
         raw.curves.push(RawCurve {
             curve,
             range,
@@ -1318,6 +1424,7 @@ mod tests {
         )
         .unwrap()
         .into();
+
         let tracer = Tracer {
             patches: [
                 patch(&post, (0.0, TAU), (0.0, 4.0)),
@@ -1331,6 +1438,7 @@ mod tests {
 
         let just_off_the_pole = Point2::new(0.7, -FRAC_PI_2 + 1e-14);
         let point = ball.point_at(just_off_the_pole);
+
         let seed = Contact {
             uv: [post.project(point, None), just_off_the_pole],
             point,
@@ -1359,6 +1467,7 @@ mod tests {
         let wall = plane(Point3::new(0.5, 0.0, 0.0), Vector3::X);
         let floor_patch = patch(&floor, (0.0, 1.0), (0.0, 1.0));
         let wall_patch = patch(&wall, (-2.0, 2.0), (-2.0, 2.0));
+
         let tracer = Tracer {
             patches: [floor_patch, wall_patch],
             max_step: 0.1,
@@ -1371,6 +1480,7 @@ mod tests {
         let floor_uv = floor.project(corner, None);
         let past = Point2::new(floor_uv.x, floor_uv.y + 1e-13);
         let point = floor.point_at(past);
+
         let current = Contact {
             uv: [past, wall.project(point, None)],
             point,
@@ -1401,9 +1511,11 @@ mod tests {
             .unwrap();
 
             assert!(raw.curves.is_empty(), "{raw:?}");
+
             let [touch] = raw.points.as_slice() else {
                 panic!("{raw:?}");
             };
+
             assert!(touch.tangent);
             assert!(touch.point.distance(expected) <= 1e-9, "{touch:?}");
         }

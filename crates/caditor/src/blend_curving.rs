@@ -18,7 +18,7 @@ pub const PROMPT: &str = "Click near the end of a line, arc or spline to blend f
 pub const SECOND_PROMPT: &str = "Click near the end of another curve to blend to";
 const PICK_KEYS: &str = "Esc: back to Select";
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum BlendCurvingError {
     #[error(transparent)]
     SketchGone(#[from] SketchGone),
@@ -26,7 +26,7 @@ pub enum BlendCurvingError {
     Refused { source: BlendError },
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BlendCurving {
     continuity: Continuity,
     first: Option<BlendEnd>,
@@ -80,6 +80,7 @@ impl BlendCurving {
             (&self.blend, pair),
             (Some((first, second, _)), Some((from, to))) if *first == from && *second == to
         );
+
         if fresh {
             return;
         }
@@ -91,6 +92,7 @@ impl BlendCurving {
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
         let mut preview = Preview::default();
+
         if let Some((_, _, Ok(curve))) = &self.blend {
             preview.curves.push(curve.faceted(faceting));
             preview.points = curve.control_points.clone();
@@ -184,6 +186,7 @@ impl BlendCurving {
                 .map(|_| ())
                 .map_err(|source| BlendCurvingError::Refused { source })
         })?;
+
         self.first = None;
         self.highlight = None;
         self.blend = None;
@@ -204,9 +207,11 @@ impl BlendCurving {
             .filter(|end| Some(*end) != self.first)
             .collect();
         let count = ends.len() as isize;
+
         if count == 0 {
             return;
         }
+
         let current = self
             .highlight
             .and_then(|aim| ends.iter().position(|end| *end == aim));
@@ -215,6 +220,7 @@ impl BlendCurving {
             None if step < 0 => count - 1,
             None => 0,
         };
+
         self.highlight = usize::try_from(next)
             .ok()
             .and_then(|next| ends.get(next).copied());
@@ -310,6 +316,7 @@ fn end_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Option<
             .point(point)
             .map_or(f64::INFINITY, |p| p.distance(at))
     };
+
     let point = if distance(start) <= distance(end) {
         start
     } else {
@@ -342,12 +349,17 @@ mod tests {
     #[test]
     fn the_end_nearest_the_pointer_is_aimed_at_and_a_second_end_previews_the_blend() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let left = sketch.add_line(Point2::new(-100.0, 0.0), Point2::new(-20.0, 0.0));
+
         sketch.add_line(Point2::new(20.0, 40.0), Point2::new(20.0, 120.0));
+
         let mut curving = BlendCurving::default();
 
         curving.hover(&sketch, &Flat, pointer(-30.0, 1.0));
+
         let [_, left_end] = sketch.ends_of_curve(left).unwrap();
+
         assert_eq!(
             curving.hover,
             Some(BlendEnd {
@@ -362,6 +374,7 @@ mod tests {
 
         curving.first = curving.hover;
         curving.hover(&sketch, &Flat, pointer(21.0, 50.0));
+
         let preview = curving.preview(Faceting::within(0.1));
 
         assert_eq!(preview.points.len(), 4);
@@ -373,12 +386,14 @@ mod tests {
         assert_eq!(curving.highlighted_entities().len(), 4);
 
         curving.sync(&sketch, Continuity::Curvature);
+
         assert_eq!(curving.preview(Faceting::within(0.1)).points.len(), 6);
     }
 
     #[test]
     fn stepping_goes_through_every_curve_end_but_the_one_chosen() {
         let mut sketch = Sketch::new(Plane::XY);
+
         sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         sketch.add_circle(Point2::new(30.0, 0.0), 5.0);
         sketch.add_arc(
@@ -386,14 +401,20 @@ mod tests {
             Point2::new(10.0, 30.0),
             Point2::new(0.0, 40.0),
         );
+
         let mut curving = BlendCurving::default();
 
         assert!(curving.steppable(&sketch).is_ok());
+
         curving.step(&sketch, 1);
+
         let first = curving.highlight;
+
         curving.first = first;
         curving.highlight = None;
+
         let mut seen = Vec::new();
+
         for _ in 0..4 {
             curving.step(&sketch, 1);
             seen.push(curving.highlight.unwrap());

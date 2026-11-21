@@ -34,9 +34,11 @@ pub fn stream(
             provider: config.provider,
         });
     }
+
     let url = format!("{}/v1/messages", config.effective_base_url());
     let payload = build_payload(config, messages, tools);
     let body = serde_json::to_string(&payload).map_err(|_| AiError::MalformedStream)?;
+
     let request = HttpRequest::post_json(url, body)
         .with_header("x-api-key", config.api_key.as_str())
         .with_header("anthropic-version", ANTHROPIC_VERSION)
@@ -95,6 +97,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
             }),
             Message::Assistant { text, tool_calls } => {
                 let mut blocks = Vec::new();
+
                 if !text.is_empty() {
                     blocks.push(json!({
                         "type": "text",
@@ -139,6 +142,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
                             None => Value::String(result.content.clone()),
                         };
                         let mut item = Map::new();
+
                         item.insert("type".to_owned(), json!("tool_result"));
                         item.insert("tool_use_id".to_owned(), json!(result.call_id));
                         item.insert("content".to_owned(), content);
@@ -168,6 +172,7 @@ fn build_payload(config: &RequestConfig, messages: &[Message], tools: &[ToolDefi
         .collect();
 
     let mut payload = Map::new();
+
     payload.insert("model".to_owned(), json!(config.effective_model()));
     payload.insert("max_tokens".to_owned(), json!(config.max_tokens));
     payload.insert("stream".to_owned(), json!(true));
@@ -190,11 +195,14 @@ fn handle_event(
     on_event: &mut dyn FnMut(StreamEvent),
 ) -> Result<(), AiError> {
     let trimmed = data.trim();
+
     if trimmed.is_empty() || trimmed == "[DONE]" {
         return Ok(());
     }
+
     let parsed: Value = serde_json::from_str(trimmed).map_err(|_| AiError::MalformedStream)?;
     let kind = parsed.get("type").and_then(Value::as_str).unwrap_or("");
+
     match kind {
         "content_block_start" => {
             if let Some(block) = parsed.get("content_block")
@@ -210,6 +218,7 @@ fn handle_event(
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_owned();
+
                 *active_tool = Some(ActiveTool {
                     id,
                     name,
@@ -263,6 +272,7 @@ fn handle_event(
                 .and_then(Value::as_str)
                 .unwrap_or("the provider reported a stream error")
                 .to_owned();
+
             return Err(AiError::ApiStatus {
                 status: 500,
                 body: detail,
@@ -286,11 +296,13 @@ fn finish_tool(
     } else {
         serde_json::from_str(&tool.json_chunks).unwrap_or_else(|_| Value::Object(Map::new()))
     };
+
     let call = ToolCall {
         id: tool.id,
         name: tool.name,
         arguments,
     };
+
     on_event(StreamEvent::ToolCallReady(call.clone()));
     tool_calls.push(call);
 }

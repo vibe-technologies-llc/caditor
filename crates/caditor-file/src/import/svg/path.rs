@@ -13,7 +13,7 @@ use crate::{
 
 const STRAIGHTNESS: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Vertex {
     pub at: Point2,
     pub incoming: Option<Vector2>,
@@ -22,6 +22,7 @@ pub(super) struct Vertex {
 
 pub(super) fn traced(segments: &[Segment]) -> Outline {
     let mut outline = Outline::default();
+
     for segment in segments {
         match segment {
             Segment::Line(start, end) => outline.line(*start, *end),
@@ -31,7 +32,7 @@ pub(super) fn traced(segments: &[Segment]) -> Outline {
     outline
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Outline {
     pub shapes: Vec<Shape>,
     pub vertices: Vec<Vertex>,
@@ -67,6 +68,7 @@ impl Outline {
 
     fn bezier_through(&mut self, points: &[Point2]) {
         self.bezier(points);
+
         let (Some(first), Some(last)) = (points.first(), points.last()) else {
             return;
         };
@@ -81,6 +83,7 @@ impl Outline {
             .map(|point| *last - *point)
             .find(|direction| *direction != Vector2::ZERO)
             .unwrap_or(Vector2::ZERO);
+
         self.reach(leaving, *last, arriving);
     }
 
@@ -94,6 +97,7 @@ impl Outline {
         let (Some(first), Some(last)) = (points.first(), points.last()) else {
             return;
         };
+
         if points.iter().all(|point| point == first) {
             return;
         }
@@ -101,6 +105,7 @@ impl Outline {
             self.line(*first, *last);
             return;
         }
+
         let count = points.len();
         let knots = [vec![0.0; count], vec![1.0; count]].concat();
         let control_points = points.iter().copied().map(flat).collect();
@@ -132,12 +137,15 @@ impl Outline {
 
     fn arc(&mut self, from: Point2, to: Point2, arc: Arc) {
         let (rx, ry) = (arc.radii.x.abs(), arc.radii.y.abs());
+
         if from == to || rx == 0.0 || ry == 0.0 {
             self.line_through(from, to);
             return;
         }
+
         let (sin, cos) = arc.rotation.to_radians().sin_cos();
         let half = (from - to) / 2.0;
+
         let local = Vector2::new(cos * half.x + sin * half.y, -sin * half.x + cos * half.y);
         let reach = (local.x / rx).powi(2) + (local.y / ry).powi(2);
         let (rx, ry) = if reach > 1.0 {
@@ -145,16 +153,20 @@ impl Outline {
         } else {
             (rx, ry)
         };
+
         let numerator = (rx * ry).powi(2) - (rx * local.y).powi(2) - (ry * local.x).powi(2);
         let denominator = (rx * local.y).powi(2) + (ry * local.x).powi(2);
+
         let root = if denominator > 0.0 {
             (numerator / denominator).max(0.0).sqrt()
         } else {
             0.0
         };
         let sign = if arc.large == arc.sweep { -1.0 } else { 1.0 };
+
         let centre_local = Vector2::new(rx * local.y / ry, -ry * local.x / rx) * (sign * root);
         let middle = (from + to) / 2.0;
+
         let center = middle
             + Vector2::new(
                 cos * centre_local.x - sin * centre_local.y,
@@ -163,10 +175,13 @@ impl Outline {
         let angle = |vector: Vector2| (vector.y / ry).atan2(vector.x / rx);
         let start = angle(local - centre_local);
         let end = angle(-local - centre_local);
+
         let mut turn = (end - start).rem_euclid(TAU);
+
         if !arc.sweep && turn > 0.0 {
             turn -= TAU;
         }
+
         let major = Vector2::new(cos, sin) * rx;
         let minor = Vector2::new(-sin, cos) * ry;
         let (minor, start, turn) = if turn < 0.0 {
@@ -174,13 +189,16 @@ impl Outline {
         } else {
             (minor, start, turn)
         };
+
         self.ellipse(center, major, minor, start, turn);
+
         let tangent = |angle: f64| minor * angle.cos() - major * angle.sin();
+
         self.reach(tangent(start), to, tangent(start + turn));
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Arc {
     radii: Vector2,
     rotation: f64,
@@ -195,9 +213,11 @@ fn flat(point: Point2) -> Point3 {
 fn is_straight(points: &[Point2], first: Point2, last: Point2) -> bool {
     let chord = last - first;
     let length_squared = chord.length_squared();
+
     if length_squared == 0.0 || !length_squared.is_finite() {
         return false;
     }
+
     let length = length_squared.sqrt();
     points.iter().all(|point| {
         let offset = *point - first;
@@ -208,7 +228,7 @@ fn is_straight(points: &[Point2], first: Point2, last: Point2) -> bool {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Previous {
     Cubic,
     Quadratic,
@@ -238,9 +258,11 @@ pub(super) fn path_outline(data: &str) -> Outline {
             return outline;
         }
         tally::add(1);
+
         let given = scanner
             .peek()
             .filter(|byte| b"MmZzLlHhVvCcSsQqTtAa".contains(byte));
+
         if let Some(letter) = given {
             scanner.advance();
             command = Some(letter);
@@ -248,10 +270,12 @@ pub(super) fn path_outline(data: &str) -> Outline {
             outline.damaged = true;
             return outline;
         }
+
         let Some(letter) = command else {
             outline.damaged = true;
             return outline;
         };
+
         if !started && !letter.eq_ignore_ascii_case(&b'm') {
             outline.damaged = true;
             return outline;
@@ -275,16 +299,20 @@ fn segment(scanner: &mut Scanner<'_>, letter: u8, pen: &mut Pen, outline: &mut O
     let origin = if relative { pen.current } else { Point2::ZERO };
     let read = |scanner: &mut Scanner<'_>| -> Option<f64> {
         scanner.skip_space();
+
         let value = scanner.number();
+
         scanner.skip_separator();
         value
     };
+
     let point = |scanner: &mut Scanner<'_>| -> Option<Point2> {
         let x = read(scanner)?;
         let y = read(scanner)?;
         Some(origin + Vector2::new(x, y))
     };
     let from = pen.current;
+
     let (next, control, kind) = match letter.to_ascii_uppercase() {
         b'Z' => {
             outline.line_through(from, pen.start);
@@ -296,6 +324,7 @@ fn segment(scanner: &mut Scanner<'_>, letter: u8, pen: &mut Pen, outline: &mut O
             let Some(to) = point(scanner) else {
                 return false;
             };
+
             pen.start = to;
             outline.move_to(to);
             (to, to, Previous::Other)
@@ -304,6 +333,7 @@ fn segment(scanner: &mut Scanner<'_>, letter: u8, pen: &mut Pen, outline: &mut O
             let Some(to) = point(scanner) else {
                 return false;
             };
+
             outline.line_through(from, to);
             (to, to, Previous::Other)
         }
@@ -317,6 +347,7 @@ fn segment(scanner: &mut Scanner<'_>, letter: u8, pen: &mut Pen, outline: &mut O
                 (false, true) => Point2::new(from.x, from.y + value),
                 (false, false) => Point2::new(from.x, value),
             };
+
             outline.line_through(from, to);
             (to, to, Previous::Other)
         }
@@ -330,6 +361,7 @@ fn segment(scanner: &mut Scanner<'_>, letter: u8, pen: &mut Pen, outline: &mut O
             else {
                 return false;
             };
+
             outline.bezier_through(&[from, first, second, to]);
             (to, second, Previous::Cubic)
         }
@@ -342,6 +374,7 @@ fn segment(scanner: &mut Scanner<'_>, letter: u8, pen: &mut Pen, outline: &mut O
             let (Some(control), Some(to)) = (control, point(scanner)) else {
                 return false;
             };
+
             outline.bezier_through(&[from, control, to]);
             (to, control, Previous::Quadratic)
         }
@@ -352,10 +385,12 @@ fn segment(scanner: &mut Scanner<'_>, letter: u8, pen: &mut Pen, outline: &mut O
             let Some(to) = point(scanner) else {
                 return false;
             };
+
             outline.arc(from, to, arc);
             (to, to, Previous::Other)
         }
     };
+
     pen.current = next;
     pen.control = control;
     pen.previous = kind;
@@ -373,15 +408,23 @@ fn reflected(pen: &Pen, kind: Previous) -> Point2 {
 fn arc_parameters(scanner: &mut Scanner<'_>) -> Option<Arc> {
     let mut number = || {
         scanner.skip_space();
+
         let value = scanner.number();
+
         scanner.skip_separator();
         value
     };
+
     let (rx, ry, rotation) = (number()?, number()?, number()?);
+
     scanner.skip_space();
+
     let large = scanner.flag()?;
+
     scanner.skip_separator();
+
     let sweep = scanner.flag()?;
+
     scanner.skip_separator();
     Some(Arc {
         radii: Vector2::new(rx, ry),

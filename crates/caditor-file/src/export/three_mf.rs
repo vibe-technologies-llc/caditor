@@ -64,6 +64,7 @@ pub(super) fn write(
         None => format!("{start}{end}"),
     };
     let mut zip = ZipWriter::new(out);
+
     zip.add(
         CONTENT_TYPES_PATH,
         with_thumbnail(CONTENT_TYPES_START, PNG_CONTENT_TYPE, CONTENT_TYPES_END).as_bytes(),
@@ -95,6 +96,7 @@ pub(super) fn encode(
     properties: &ModelProperties,
 ) -> Result<Vec<u8>, ExportError> {
     let mut bytes = std::io::Cursor::new(Vec::new());
+
     write(&mut bytes, bodies, properties, None, &CancelToken::never())?;
     Ok(bytes.into_inner())
 }
@@ -178,21 +180,28 @@ fn write_model<W: Write + Seek>(
     cancel: &CancelToken,
 ) -> Result<(), ExportError> {
     let written = write_resources_start(xml, bodies, properties);
+
     xml.checked(written)?;
+
     let materials = bodies.len() + 1;
     let mut next_look = 0;
+
     for (object, body) in object_ids(bodies) {
         if cancel.is_cancelled() {
             return Err(ExportError::Cancelled);
         }
+
         let look = body.look.map(|_| {
             let index = next_look;
+
             next_look += 1;
             index
         });
         let written = write_object(xml, object, body, materials, look);
+
         xml.checked(written)?;
     }
+
     let written = write_build(xml, bodies, properties);
     xml.checked(written)
 }
@@ -223,11 +232,13 @@ fn write_resources_start(
         }
     }
     xml.write_str("<resources>")?;
+
     let materials = bodies.len() + 1;
     let looks: Vec<(&MeshBody<'_>, Look<'_>)> = bodies
         .iter()
         .filter_map(|body| Some((body, body.look?)))
         .collect();
+
     if !looks.is_empty() {
         write!(xml, r#"<basematerials id="{materials}">"#)?;
         for (body, look) in &looks {
@@ -312,10 +323,12 @@ fn write_build(
     properties: &ModelProperties,
 ) -> fmt::Result {
     xml.write_str("</resources><build>")?;
+
     let part_number = match bodies {
         [_] if !properties.part_number.is_empty() => Some(&properties.part_number),
         _ => None,
     };
+
     for (object, _) in object_ids(bodies) {
         write!(xml, r#"<item objectid="{object}""#)?;
         if let Some(part_number) = part_number {

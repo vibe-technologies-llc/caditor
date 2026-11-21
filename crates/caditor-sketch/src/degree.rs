@@ -5,7 +5,7 @@ use crate::{
     sketch::{Sketch, SketchError},
 };
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DegreeError {
     #[error("{label} is not a spline")]
     NotASpline { entity: EntityId, label: String },
@@ -58,6 +58,7 @@ impl Sketch {
             });
         };
         let mut working = self.clone();
+
         working
             .restructure(curve, Entity::Spline { points, kind }, &[], |constraint| {
                 degree > MIN_DEGREE || !matches!(constraint, Constraint::Curvature(..))
@@ -75,6 +76,7 @@ impl Sketch {
                 label: label(),
             });
         };
+
         if self.is_projected(curve) {
             return Err(DegreeError::Projected {
                 entity: curve,
@@ -102,12 +104,14 @@ impl Sketch {
         if !SplineKind::degree_is_valid(degree) {
             return Err(DegreeError::OutOfRange { degree });
         }
+
         let closed = kind.is_closed();
         let most = if closed {
             SplineKind::most_looped_degree(points.len())
         } else {
             points.len().saturating_sub(1).min(MAX_DEGREE)
         };
+
         if degree > most {
             return Err(DegreeError::TooFewPoints {
                 entity: curve,
@@ -123,6 +127,7 @@ impl Sketch {
                 degree,
             });
         }
+
         let chosen = if closed {
             SplineKind::graded_loop(degree, points.len())
         } else {

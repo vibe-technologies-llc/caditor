@@ -21,7 +21,7 @@ const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
 const SMALLEST_SNAPPED_RADIUS: f64 = 1e-3;
 pub const NOTHING_FREE: &str = "Everything in the sketch is fully constrained";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum SelectionError {
     #[error("The sketch has no geometry to select")]
     NothingToSelect,
@@ -39,7 +39,7 @@ impl Reason for SelectionError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum MoveError {
     #[error("Switch to the Select tool to move geometry")]
     WhileDrawing,
@@ -53,7 +53,7 @@ impl Reason for MoveError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum TransformError {
     #[error("Switch to the Select tool to {} geometry", .transform.verb().to_lowercase())]
     WhileDrawing { transform: Transform },
@@ -77,7 +77,7 @@ impl Reason for TransformError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Handles {
     Points(Vec<(EntityId, Point2)>),
     Radius {
@@ -87,7 +87,7 @@ enum Handles {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Grab {
     feature: FeatureId,
     label: String,
@@ -105,7 +105,7 @@ pub struct Grab {
     inferred: Inferences,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct SharedSnaps(Arc<BodySnaps>);
 
 impl PartialEq for SharedSnaps {
@@ -125,6 +125,7 @@ impl Grab {
         if grabbed.is_reference() || sketch.entity(grabbed).is_none() {
             return None;
         }
+
         let together: Vec<EntityId> = if selected.contains(&grabbed) {
             selected
                 .iter()
@@ -149,6 +150,7 @@ impl Grab {
             }),
             Handles::Radius { .. } => None,
         };
+
         let mut grab = Self {
             feature,
             label: format!("Drag {}", subject(sketch, &together)),
@@ -165,6 +167,7 @@ impl Grab {
             bodies: SharedSnaps::default(),
             inferred: Inferences::default(),
         };
+
         grab.acquire_neighbours(sketch);
         Some(grab)
     }
@@ -174,6 +177,7 @@ impl Grab {
             return;
         };
         let moving = self.moving_points();
+
         let neighbours: Vec<EntityId> = sketch
             .entities()
             .map(|(_, entity)| entity.points())
@@ -223,6 +227,7 @@ impl Grab {
         };
         let moving = self.moving_with(sketch);
         let mut shown = Vec::new();
+
         for target in landing.target.into_iter().chain(landing.tracks.anchors()) {
             match target {
                 Target::Centre { .. } | Target::Centroid(_) => {
@@ -258,10 +263,12 @@ impl Grab {
         if let Handles::Radius { circle, centre, .. } = &self.handles {
             return self.follow_rim(*circle, *centre, cursor, snapping, hold);
         }
+
         let offset = cursor - self.from;
         let landed = snapping.and_then(|(sketch, screen)| {
             Some((sketch, self.snapper_landing(sketch, screen, offset, hold)?))
         });
+
         if let Some((sketch, (_, _, landing))) = landed
             && let Some(target) = landing.target
         {
@@ -282,6 +289,7 @@ impl Grab {
         }
         self.landing = landed.map(|(_, (_, _, landing))| landing);
         self.landed = landed.map(|(_, (point, original, _))| (point, original));
+
         let target = match (self.landing, self.landed) {
             (Some(landing), Some((_, original))) => self.from + (landing.position - original),
             _ => cursor,
@@ -315,6 +323,7 @@ impl Grab {
             )?;
             Some((pointer, landing))
         };
+
         let by_handle = land_from(from, &self.acquired, Some(&self.bodies.0));
         let handle_reach = by_handle
             .filter(|(_, landing)| {
@@ -337,6 +346,7 @@ impl Grab {
             .filter_map(|(point, original)| Some((*point, screen.to_screen(*original + offset)?)))
             .collect();
         let moving: BTreeSet<EntityId> = ignored.iter().copied().collect();
+
         let by_other = snap::nearest_moved(sketch, screen, &moved, &moving, reach, self.inferred)
             .and_then(|point| {
                 let (_, original) = points.iter().find(|(each, _)| *each == point)?;
@@ -367,6 +377,7 @@ impl Grab {
                 screen: screen.to_screen(cursor)?,
                 sketch: cursor,
             };
+
             let landing = tracking::land(
                 sketch,
                 screen,
@@ -443,6 +454,7 @@ impl Grab {
         let Handles::Radius { circle, radius, .. } = &self.handles else {
             return None;
         };
+
         let drags = vec![Drag::Radius {
             circle: *circle,
             to: wanted.max(radius * SMALLEST_DRAGGED_RADIUS),
@@ -467,7 +479,7 @@ impl Grab {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Moving {
     pub feature: FeatureId,
     pub label: String,
@@ -529,7 +541,7 @@ impl Moving {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transform {
     Rotate,
     Scale,
@@ -551,7 +563,7 @@ impl Transform {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Transforming {
     pub feature: FeatureId,
     pub transform: Transform,
@@ -593,6 +605,7 @@ impl Transforming {
             .filter_map(|entity| sketch.entity(*entity))
             .flat_map(Entity::points)
             .collect();
+
         let lone_points: Vec<EntityId> = present
             .iter()
             .copied()
@@ -612,9 +625,11 @@ impl Transforming {
             .filter(|entity| !entity.is_reference() && Some(*entity) != pivot_point)
             .collect();
         let points = points_of(sketch, &moved);
+
         if points.is_empty() {
             return Err(TransformError::NothingSelected { transform });
         }
+
         let circles: Vec<(EntityId, f64)> = moved
             .iter()
             .filter_map(|entity| match sketch.entity(*entity) {
@@ -671,6 +686,7 @@ impl Transforming {
         if !(factor.is_finite() && factor > 0.0) {
             return Err(TransformError::FactorNotPositive);
         }
+
         let points = self.points.iter().map(|(point, at)| Drag::Point {
             point: *point,
             to: self.pivot + (*at - self.pivot) * factor,
@@ -687,6 +703,7 @@ impl Transforming {
             Drag::Point { to, .. } => to.abs().max_element() > MAX_LENGTH,
             Drag::Radius { to, .. } => *to > MAX_LENGTH,
         });
+
         if beyond {
             return Err(TransformError::TooFar);
         }
@@ -774,13 +791,13 @@ fn translated(points: &[(EntityId, Point2)], offset: Vector2) -> Vec<Drag> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoxMode {
     Window,
     Crossing,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScreenBox {
     pub from: Vector2,
     pub to: Vector2,
@@ -812,7 +829,9 @@ impl ScreenBox {
         if self.contains(from) || self.contains(to) {
             return true;
         }
+
         let (min, max) = (self.min(), self.max());
+
         let corners = [
             min,
             Vector2::new(max.x, min.y),
@@ -829,7 +848,7 @@ impl ScreenBox {
 
 const LASSO_STEP: f64 = 2.0;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ScreenArea {
     Box(ScreenBox),
     Lasso(Vec<Vector2>),
@@ -891,6 +910,7 @@ impl ScreenArea {
             Self::Box(area) => area.contains(point),
             Self::Lasso(points) => {
                 let mut inside = false;
+
                 for (index, current) in points.iter().enumerate() {
                     let previous = points
                         .get(index.checked_sub(1).unwrap_or(points.len() - 1))
@@ -929,6 +949,7 @@ fn segments_cross(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
     let side = |p: Vector2, q: Vector2, r: Vector2| (q - p).perp_dot(r - p);
     let (first, second) = (side(a, b, c), side(a, b, d));
     let (third, fourth) = (side(c, d, a), side(c, d, b));
+
     if first == 0.0 && second == 0.0 && third == 0.0 && fourth == 0.0 {
         return collinear_segments_overlap(a, b, c, d);
     }
@@ -1102,8 +1123,11 @@ mod tests {
 
     fn feature() -> FeatureId {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
+
         document.apply(transaction.finish()).unwrap();
         feature
     }
@@ -1197,6 +1221,7 @@ mod tests {
     #[test]
     fn a_grabbed_curve_moves_all_its_points_by_the_pointer_offset() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let (start, end) = ends(&sketch, line);
         let mut grab = Grab::of(&sketch, feature(), line, &[], Point2::new(5.0, 0.0)).unwrap();
@@ -1204,6 +1229,7 @@ mod tests {
         let Some(DragCommand::Move { drags, label, .. }) = grab.to(Point2::new(7.0, 3.0)) else {
             panic!("the first move is sent");
         };
+
         assert_eq!(label, format!("Drag {}", sketch.entity_label(line)));
         assert_eq!(
             drags,
@@ -1225,6 +1251,7 @@ mod tests {
     #[test]
     fn a_grabbed_circle_lands_its_rim_on_a_point_and_is_held_there() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let circle = sketch.add_circle(Point2::ZERO, 5.0);
         let corner = sketch.add_point(Point2::new(30.0, 40.0));
         let mut grab = Grab::of(&sketch, feature(), circle, &[], Point2::new(5.0, 0.0)).unwrap();
@@ -1264,6 +1291,7 @@ mod tests {
     #[test]
     fn a_grabbed_circle_changes_its_radius_and_a_selected_one_moves_with_the_rest() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let circle = sketch.add_circle(Point2::ZERO, 5.0);
         let point = sketch.add_point(Point2::new(20.0, 0.0));
         let centre = sketch.center_of(circle).unwrap();
@@ -1271,9 +1299,11 @@ mod tests {
 
         let mut alone =
             Grab::of(&sketch, feature, circle, &[point], Point2::new(5.0, 0.0)).unwrap();
+
         let Some(DragCommand::Move { drags, .. }) = alone.to(Point2::new(0.0, 8.0)) else {
             panic!("the radius is dragged");
         };
+
         assert_eq!(drags, vec![Drag::Radius { circle, to: 8.0 }]);
 
         let mut together = Grab::of(
@@ -1284,10 +1314,12 @@ mod tests {
             Point2::new(5.0, 0.0),
         )
         .unwrap();
+
         let Some(DragCommand::Move { drags, label, .. }) = together.to(Point2::new(6.0, 1.0))
         else {
             panic!("the selection is dragged");
         };
+
         assert_eq!(label, "Drag 2 items");
         assert_eq!(
             drags,
@@ -1308,9 +1340,11 @@ mod tests {
     #[test]
     fn a_lasso_takes_what_lies_inside_its_outline_even_where_it_bends_in() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let inside = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(2.0, 1.0));
         let in_the_notch = sketch.add_line(Point2::new(5.0, 6.0), Point2::new(6.0, 6.0));
         let mut lasso = ScreenArea::starting_at(Vector2::new(0.0, 0.0), true);
+
         for (x, y) in [(10.0, 0.0), (10.0, -10.0), (5.0, -3.0), (0.0, -10.0)] {
             lasso.reach(Vector2::new(x, y));
         }
@@ -1329,6 +1363,7 @@ mod tests {
     #[test]
     fn a_window_takes_what_lies_inside_and_a_crossing_box_what_it_touches() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let inside = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(4.0, 1.0));
         let across = sketch.add_line(Point2::new(3.0, 3.0), Point2::new(30.0, 3.0));
         let lone = sketch.add_point(Point2::new(2.0, 4.0));
@@ -1362,7 +1397,9 @@ mod tests {
             ),
             vec![inside, across, lone]
         );
+
         let all = everything(&sketch);
+
         assert_eq!(all, vec![inside, across, lone, circle]);
         assert!(!all.contains(&across_end));
     }
@@ -1370,6 +1407,7 @@ mod tests {
     #[test]
     fn a_selection_turns_about_a_lone_selected_point_or_else_about_its_centre() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(2.0, 0.0), Point2::new(6.0, 0.0));
         let (start, end) = ends(&sketch, line);
         let pivot = sketch.add_point(Point2::new(0.0, 0.0));
@@ -1385,6 +1423,7 @@ mod tests {
 
         assert_eq!(about_point.pivot, Point2::ZERO);
         assert_eq!(about_centre.pivot, Point2::new(7.0, 0.0));
+
         let Some(DragCommand::Move { drags, .. }) = commands.first() else {
             panic!("a rotation moves the points");
         };
@@ -1394,12 +1433,15 @@ mod tests {
                 _ => None,
             })
         };
+
         assert!(at(start).unwrap().distance(Point2::new(0.0, 2.0)) < 1e-12);
         assert!(at(end).unwrap().distance(Point2::new(0.0, 6.0)) < 1e-12);
         assert!(at(pivot).is_none());
+
         let Some(DragCommand::Move { drags, .. }) = scaled.first() else {
             panic!("a scale moves the points");
         };
+
         assert!(drags.contains(&Drag::Radius { circle, to: 1.0 }));
         assert!(drags.contains(&Drag::Point {
             point: start,
@@ -1414,6 +1456,7 @@ mod tests {
     #[test]
     fn a_lone_ellipse_turns_and_scales_about_its_centre_not_its_major_end() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let level = sketch.add_ellipse(Point2::ZERO, Point2::new(10.0, 0.0), 4.0);
         let slanted = sketch.add_ellipse(Point2::new(20.0, 5.0), Point2::new(23.0, 9.0), 2.0);
         let feature = feature();
@@ -1431,14 +1474,19 @@ mod tests {
     #[test]
     fn moving_the_selection_puts_its_first_point_on_the_target() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(1.0, 2.0), Point2::new(5.0, 2.0));
         let (start, end) = ends(&sketch, line);
         let feature = feature();
 
         assert!(Moving::of(&sketch, feature, &[EntityId::ORIGIN]).is_err());
+
         let moving = Moving::of(&sketch, feature, &[line]).unwrap();
+
         assert_eq!(moving.anchor, Point2::new(1.0, 2.0));
+
         let commands = moving.to(Point2::new(0.0, 0.0));
+
         assert_eq!(
             commands,
             vec![
@@ -1464,6 +1512,7 @@ mod tests {
     #[test]
     fn a_lone_grabbed_point_lands_on_its_snap_and_joins_it_when_released() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
         let (_, end) = ends(&sketch, line);
         let lone = sketch.add_point(Point2::new(10.0, 10.0));
@@ -1504,6 +1553,7 @@ mod tests {
     #[test]
     fn a_grabbed_line_lands_its_nearer_end_on_a_snap_and_moves_the_rest_with_it() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let (start, end) = ends(&sketch, line);
         let lone = sketch.add_point(Point2::new(30.0, 20.0));
@@ -1547,6 +1597,7 @@ mod tests {
     #[test]
     fn a_grabbed_line_lands_whichever_end_comes_near_a_point_not_only_its_handle() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let (start, end) = ends(&sketch, line);
         let lone = sketch.add_point(Point2::new(30.0, 20.0));
@@ -1590,6 +1641,7 @@ mod tests {
     #[test]
     fn the_moving_point_nearest_its_snap_wins_over_a_handle_further_from_its_own() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let (_, end) = ends(&sketch, line);
         let near_handle = sketch.add_point(Point2::new(20.3, 20.0));
@@ -1598,6 +1650,7 @@ mod tests {
         let screen = Scaled(10.0);
 
         grab.follow(Point2::new(21.0, 20.0), Some((&sketch, &screen)), None);
+
         let DragCommand::Finish { join: Some(join) } = grab.finish() else {
             panic!("the drag lands on a point");
         };
@@ -1615,6 +1668,7 @@ mod tests {
     #[test]
     fn a_grabbed_point_tracks_the_other_end_of_its_line_and_keeps_it_level() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(10.0, 15.0));
         let (start, end) = ends(&sketch, line);
         let mut grab = Grab::of(&sketch, feature(), end, &[], Point2::new(10.0, 15.0)).unwrap();
@@ -1624,6 +1678,7 @@ mod tests {
             Some((&sketch, &Scaled(10.0))),
             None,
         );
+
         let landing = grab.landing().unwrap();
 
         assert_eq!(landing.position, Point2::new(20.0, 10.0));
@@ -1647,7 +1702,9 @@ mod tests {
         );
 
         let mut free = Grab::of(&sketch, feature(), end, &[], Point2::new(10.0, 15.0)).unwrap();
+
         free.follow(Point2::new(20.0, 10.2), None::<(&Sketch, &Scaled)>, None);
+
         assert_eq!(free.landing(), None);
         assert_eq!(free.finish(), DragCommand::Finish { join: None });
     }
@@ -1655,6 +1712,7 @@ mod tests {
     #[test]
     fn a_point_grabbed_while_the_snap_is_held_lands_on_the_nearest_grid_crossing() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
         let (_, end) = ends(&sketch, line);
         let mut grab = Grab::of(&sketch, feature(), end, &[], Point2::new(4.0, 0.0)).unwrap();
@@ -1665,6 +1723,7 @@ mod tests {
             Some((&sketch, &Scaled(10.0))),
             Some(hold),
         );
+
         let landing = grab.landing().unwrap();
 
         assert_eq!(landing.position, Point2::new(10.0, 10.0));

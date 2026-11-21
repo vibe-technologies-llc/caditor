@@ -23,11 +23,13 @@ impl Sketch {
         else {
             return Ok(false);
         };
+
         let Ok(value) = expression.evaluate_as(kind, &parameters) else {
             return Ok(false);
         };
 
         let mut probed = self.clone();
+
         let added = probed.add_constraint(dimension.clone())?;
         let dimensions = dimensions.clone().with_dimension(added, value);
         let system = System::build(&probed, &dimensions)?;
@@ -35,6 +37,7 @@ impl Sketch {
 
         let never = || false;
         let held = BTreeSet::new();
+
         let solver = Solver {
             system: &system,
             cancelled: &never,
@@ -47,6 +50,7 @@ impl Sketch {
             .iter()
             .filter(|component| owns_an_equation(&system, component, added))
             .collect();
+
         if measuring.is_empty() {
             return Ok(false);
         }

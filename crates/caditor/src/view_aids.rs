@@ -3,7 +3,7 @@ use caditor_render::Reflection;
 
 use crate::{analysis::FaceAnalysis, body_appearance::DEFAULT_COLOUR};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ViewAids {
     pub centres_of_mass: bool,
     pub control_polygons_hidden: bool,
@@ -13,7 +13,7 @@ pub struct ViewAids {
     pub body: DefaultBody,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DefaultBody(pub Rgb);
 
 impl Default for DefaultBody {
@@ -22,13 +22,13 @@ impl Default for DefaultBody {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EdgeLook {
     pub weight: EdgeWeight,
     pub outlines_hidden: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EdgeWeight {
     Thin,
     #[default]

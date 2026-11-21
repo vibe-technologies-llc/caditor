@@ -44,7 +44,7 @@ fn lookup<T: Copy>(items: &[T], index: usize) -> Found<T> {
         .ok_or_else(ProfileError::unresolved)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum EventKind {
     Start,
     Cut,
@@ -52,7 +52,7 @@ enum EventKind {
     End,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Event {
     source: usize,
     parameter: f64,
@@ -60,7 +60,7 @@ struct Event {
     kind: EventKind,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct GraphPiece {
     pub id: PieceId,
     pub curve: Curve2,
@@ -92,14 +92,14 @@ impl GraphPiece {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct GraphFace {
     pub cycle: Vec<usize>,
     pub area: f64,
     pub depth: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Arrangement {
     pub tolerance: f64,
     pub loose_ends: Vec<LooseEnd>,
@@ -112,7 +112,7 @@ pub(super) struct Arrangement {
     pub face_half_edges: Vec<Vec<usize>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct LooseEnd {
     pub entity: u64,
     pub point: Point2,
@@ -127,17 +127,22 @@ pub(super) fn piece_of(half_edge: usize) -> (usize, bool) {
 impl Arrangement {
     pub fn new(curves: &[ProfileCurve]) -> Found<Self> {
         let (sources, scale) = sources(curves)?;
+
         if sources.is_empty() {
             return Ok(Self::default());
         }
+
         let events = events(&sources, scale)?;
         let alive = vec![true; events.len()];
+
         let (mut vertices, vertex_of, mut pieces, mut loose_ends) =
             settled(&sources, &events, &alive, scale.tolerance)?;
+
         if let Some((events, alive)) = without_idle_cuts(&sources, &events, &vertex_of, &pieces)? {
             (vertices, _, pieces, loose_ends) =
                 settled(&sources, &events, &alive, scale.tolerance)?;
         }
+
         let mut arrangement = Self {
             tolerance: scale.tolerance,
             loose_ends,
@@ -145,8 +150,11 @@ impl Arrangement {
             pieces,
             ..Self::default()
         };
+
         arrangement.connect()?;
+
         let cycles = arrangement.cycles(|_| true)?;
+
         arrangement.find_faces(&cycles)?;
         Ok(arrangement)
     }
@@ -205,6 +213,7 @@ impl Arrangement {
 
     pub fn contains(&self, cycle: &[usize], point: Point2) -> bool {
         tally::add(cycle.len());
+
         let segments = cycle.iter().filter_map(|half_edge| {
             let (piece, forward) = piece_of(*half_edge);
             self.pieces
@@ -222,6 +231,7 @@ impl Arrangement {
             .ok_or_else(ProfileError::unresolved)?;
         let at = lookup(&self.position, half_edge ^ 1)?;
         let count = list.len();
+
         for step in 1..=count {
             let candidate = lookup(list, (at + count * 2 - step) % count)?;
             if kept(candidate) {
@@ -243,12 +253,15 @@ impl Arrangement {
         let count = self.pieces.len() * 2;
         let mut visited = BTreeSet::new();
         let mut cycles = Vec::new();
+
         for start in starts {
             if start >= count || !kept(start) || visited.contains(&start) {
                 continue;
             }
+
             let mut cycle = Vec::new();
             let mut current = start;
+
             while visited.insert(current) {
                 cycle.push(current);
                 current = self.next_where(current, &kept)?;
@@ -276,6 +289,7 @@ impl Arrangement {
 
     fn connect(&mut self) -> Found<()> {
         let (order, position) = angular_order_positions(&self.pieces, self.vertices.len())?;
+
         self.order = order;
         self.position = position;
         Ok(())
@@ -298,12 +312,14 @@ impl Arrangement {
 
     fn perimeter_reaches(&self, cycle: &[usize], bound: f64) -> bool {
         let mut travelled = 0.0;
+
         for piece in cycle
             .iter()
             .filter_map(|half_edge| self.pieces.get(piece_of(*half_edge).0))
         {
             let remaining = bound - travelled;
             let length = piece.length_up_to(remaining);
+
             if length >= remaining {
                 return true;
             }
@@ -323,9 +339,11 @@ impl Arrangement {
         let mut faces: Vec<(usize, f64, usize)> = Vec::new();
         let mut outer: BTreeMap<usize, usize> = BTreeMap::new();
         let mut face_of_cycle: Vec<Option<usize>> = vec![None; cycles.len()];
+
         for (index, cycle) in cycles.iter().enumerate() {
             let area = self.cycle_area(cycle);
             let component = component_of(cycle)?;
+
             if area > threshold && self.perimeter_reaches(cycle, 2.0 * area / thinnest) {
                 continue;
             }
@@ -338,6 +356,7 @@ impl Arrangement {
                 outer.entry(component).or_insert(index);
             }
         }
+
         let face_bounds: Vec<Aabb> = faces
             .iter()
             .map(|(cycle, _, _)| {
@@ -349,6 +368,7 @@ impl Arrangement {
             .collect();
         let tree = BoxTree::new(face_bounds);
         let mut parent: BTreeMap<usize, usize> = BTreeMap::new();
+
         for (component, cycle) in &outer {
             let cycle = cycles.get(*cycle).ok_or_else(ProfileError::unresolved)?;
             let first = *cycle.first().ok_or_else(ProfileError::unresolved)?;
@@ -369,7 +389,9 @@ impl Arrangement {
                 parent.insert(*component, face);
             }
         }
+
         let mut cycle_of = vec![usize::MAX; self.pieces.len() * 2];
+
         for (index, cycle) in cycles.iter().enumerate() {
             for half_edge in cycle {
                 if let Some(slot) = cycle_of.get_mut(*half_edge) {
@@ -377,6 +399,7 @@ impl Arrangement {
                 }
             }
         }
+
         let side_of = |half_edge: usize| -> Found<Option<usize>> {
             let cycle = lookup(&cycle_of, half_edge)?;
             match face_of_cycle.get(cycle).copied().flatten() {
@@ -387,15 +410,18 @@ impl Arrangement {
                 }
             }
         };
+
         self.sides = (0..self.pieces.len())
             .map(|piece| Ok([side_of(piece * 2)?, side_of(piece * 2 + 1)?]))
             .collect::<Found<_>>()?;
+
         let enclosing = |face: usize| -> Option<usize> {
             let (cycle, _, _) = faces.get(face)?;
             let mut beyond = cycles
                 .get(*cycle)?
                 .iter()
                 .map(|half_edge| self.face_of(half_edge ^ 1));
+
             let first = beyond.next()??;
             (first != face && beyond.all(|other| other == Some(first))).then_some(first)
         };
@@ -408,6 +434,7 @@ impl Arrangement {
             .collect();
         let depths = nesting_depths(&up);
         let mut face_half_edges = vec![Vec::new(); faces.len()];
+
         for half_edge in 0..self.pieces.len() * 2 {
             if let Some(list) = self
                 .face_of(half_edge)
@@ -437,10 +464,12 @@ impl Arrangement {
 
 fn nesting_depths(up: &[Option<usize>]) -> Vec<usize> {
     let mut depths: Vec<Option<usize>> = vec![None; up.len()];
+
     for start in 0..up.len() {
         let mut chain = Vec::new();
         let mut current = Some(start);
         let mut depth = 0;
+
         while let Some(face) = current {
             if let Some(known) = depths.get(face).copied().flatten() {
                 depth = known + 1;
@@ -464,6 +493,7 @@ fn nesting_depths(up: &[Option<usize>]) -> Vec<usize> {
 
 fn sources(curves: &[ProfileCurve]) -> Found<(Vec<Source>, Scale)> {
     let mut sorted: Vec<&ProfileCurve> = curves.iter().collect();
+
     sorted.sort_by_key(|curve| curve.entity);
     for pair in sorted.windows(2) {
         if let [first, second] = pair
@@ -474,6 +504,7 @@ fn sources(curves: &[ProfileCurve]) -> Found<(Vec<Source>, Scale)> {
             });
         }
     }
+
     let sources = sorted
         .into_iter()
         .map(Source::from_curve)
@@ -484,6 +515,7 @@ fn sources(curves: &[ProfileCurve]) -> Found<(Vec<Source>, Scale)> {
         .reduce(Aabb2::union)
         .map_or(0.0, |bounds| bounds.size().length());
     let tolerance = (size * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
+
     for source in &sources {
         if !source.curve.is_longer_than(source.range, tolerance) {
             return Err(ProfileError::Degenerate {
@@ -508,6 +540,7 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
         .map(|source| source.bounds().expanded(tolerance))
         .collect();
     let mut events = Vec::new();
+
     for (index, source) in sources.iter().enumerate() {
         if !source.closed {
             for (parameter, kind) in [
@@ -523,6 +556,7 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
             }
         }
     }
+
     let cut = |source: usize, parameter: f64, point: Point2| Event {
         source,
         parameter,
@@ -530,8 +564,10 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
         kind: EventKind::Cut,
     };
     let tree = BoxTree::new(bounds.iter().map(flat));
+
     for (first, first_source) in sources.iter().enumerate() {
         interrupt::check()?;
+
         let Some(first_bounds) = bounds.get(first) else {
             continue;
         };
@@ -539,6 +575,7 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
             .overlapping(&flat(first_bounds), 0.0)
             .into_iter()
             .filter(|second| *second > first);
+
         for second in later {
             let Some(second_source) = sources.get(second) else {
                 continue;
@@ -602,6 +639,7 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
                 if other == owner {
                     continue;
                 }
+
                 let parameter = target.curve.closest_parameter(point, target.range);
                 if target.point(parameter).distance(point) <= tolerance {
                     events.push(cut(other, parameter, point));
@@ -609,7 +647,9 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
             }
         }
     }
+
     let mut has_events = vec![false; sources.len()];
+
     for event in &events {
         if let Some(flag) = has_events.get_mut(event.source) {
             *flag = true;
@@ -645,7 +685,9 @@ impl UnionFind {
             if parent == item {
                 break;
             }
+
             let grandparent = self.0.get(parent).copied().unwrap_or(parent);
+
             if let Some(slot) = self.0.get_mut(item) {
                 *slot = grandparent;
             }
@@ -656,6 +698,7 @@ impl UnionFind {
 
     pub fn union(&mut self, a: usize, b: usize) {
         let (a, b) = (self.find(a), self.find(b));
+
         let (low, high) = if a <= b { (a, b) } else { (b, a) };
         if let Some(slot) = self.0.get_mut(high) {
             *slot = low;
@@ -674,8 +717,10 @@ fn cluster(
         (index(point.x), index(point.y))
     };
     let mut cells: BTreeMap<(i64, i64), Vec<usize>> = BTreeMap::new();
+
     for (index, event) in events.iter().enumerate() {
         let (x, y) = cell_of(event.point);
+
         for column in [x.saturating_sub(1), x, x.saturating_add(1)] {
             for (_, members) in
                 cells.range((column, y.saturating_sub(1))..=(column, y.saturating_add(1)))
@@ -689,19 +734,25 @@ fn cluster(
         }
         cells.entry((x, y)).or_default().push(index);
     }
+
     let mut dense: BTreeMap<usize, usize> = BTreeMap::new();
     let mut vertex_of = Vec::with_capacity(events.len());
+
     for index in 0..events.len() {
         let root = sets.find(index);
         let next = dense.len();
+
         vertex_of.push(*dense.entry(root).or_insert(next));
     }
+
     let mut members: Vec<Vec<Event>> = vec![Vec::new(); dense.len()];
+
     for (event, vertex) in events.iter().zip(&vertex_of) {
         if let Some(list) = members.get_mut(*vertex) {
             list.push(*event);
         }
     }
+
     let vertices = members
         .iter()
         .map(|list| {
@@ -725,7 +776,7 @@ fn cluster(
     Ok((vertices, vertex_of))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct RawPiece {
     source: usize,
     piece: GraphPiece,
@@ -735,6 +786,7 @@ type Settled = (Vec<Point2>, Vec<usize>, Vec<GraphPiece>, Vec<LooseEnd>);
 
 fn settled(sources: &[Source], events: &[Event], alive: &[bool], tolerance: f64) -> Found<Settled> {
     let (vertices, vertex_of) = cluster(events, sources, tolerance)?;
+
     let raw = split(sources, events, &vertex_of, &vertices, tolerance, alive)?;
     let merged = merge_overlaps(raw, sources, tolerance)?;
     let loose_ends = loose_ends(&merged, &vertices);
@@ -744,6 +796,7 @@ fn settled(sources: &[Source], events: &[Event], alive: &[bool], tolerance: f64)
 
 fn loose_ends(pieces: &[GraphPiece], vertices: &[Point2]) -> Vec<LooseEnd> {
     let mut degree = vec![0usize; vertices.len()];
+
     for piece in pieces {
         for vertex in [piece.start, piece.end] {
             if let Some(count) = degree.get_mut(vertex) {
@@ -772,6 +825,7 @@ fn without_idle_cuts(
     pieces: &[GraphPiece],
 ) -> Found<Option<(Vec<Event>, Vec<bool>)>> {
     let mut ends: BTreeMap<usize, BTreeMap<u64, usize>> = BTreeMap::new();
+
     for piece in pieces {
         for vertex in [piece.start, piece.end] {
             *ends
@@ -785,6 +839,7 @@ fn without_idle_cuts(
     let mut kept = Vec::with_capacity(events.len());
     let mut alive = Vec::with_capacity(events.len());
     let mut changed = false;
+
     for (event, vertex) in events.iter().zip(vertex_of) {
         let entity = sources
             .get(event.source)
@@ -797,7 +852,9 @@ fn without_idle_cuts(
             .unwrap_or(0);
         let others = around.is_some_and(|around| around.keys().any(|other| *other != entity));
         let survives = own_ends > 0;
+
         let idle = event.kind == EventKind::Cut && !(survives && (others || own_ends > 2));
+
         changed |= idle || (!survives && others);
         if !idle {
             kept.push(*event);
@@ -809,6 +866,7 @@ fn without_idle_cuts(
     }
 
     let mut has_events = vec![false; sources.len()];
+
     for event in &kept {
         if let Some(flag) = has_events.get_mut(event.source) {
             *flag = true;
@@ -838,18 +896,23 @@ fn split(
 ) -> Found<Vec<RawPiece>> {
     let merge_length = MERGE_TOLERANCES * tolerance;
     let mut at_vertex: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+
     for ((index, vertex), alive) in vertex_of.iter().enumerate().zip(alive) {
         if *alive {
             at_vertex.entry(*vertex).or_default().push(index);
         }
     }
+
     let mut by_source: Vec<Vec<usize>> = vec![Vec::new(); sources.len()];
+
     for (index, event) in events.iter().enumerate() {
         if let Some(list) = by_source.get_mut(event.source) {
             list.push(index);
         }
     }
+
     let mut pieces = Vec::new();
+
     for ((index, source), mut own) in sources.iter().enumerate().zip(by_source) {
         interrupt::check()?;
         own.sort_by(|a, b| {
@@ -860,10 +923,13 @@ fn split(
                 .total_cmp(&b.parameter)
                 .then(a.kind.cmp(&b.kind))
         });
+
         let mut kept: Vec<usize> = Vec::new();
+
         for event in own {
             let current = lookup(events, event)?;
             let vertex = lookup(vertex_of, event)?;
+
             let merge = match kept.last() {
                 Some(last) => {
                     let previous = lookup(events, *last)?;
@@ -901,8 +967,10 @@ fn split(
                 kept.pop();
             }
         }
+
         let bounds = bounds_of(index, sources, events, vertex_of, &at_vertex, &kept)?;
         let mut pairs: Vec<(usize, usize, f64, f64)> = Vec::new();
+
         for (position, event) in kept.iter().enumerate() {
             let start = lookup(events, *event)?;
             match kept.get(position + 1) {
@@ -918,6 +986,7 @@ fn split(
                     if let Some(period) = source.period() {
                         let first = kept.first().ok_or_else(ProfileError::unresolved)?;
                         let end = lookup(events, *first)?.parameter + period;
+
                         pairs.push((position, 0, start.parameter, end));
                     }
                 }
@@ -927,6 +996,7 @@ fn split(
             let (Some(from_event), Some(to_event)) = (kept.get(from), kept.get(to)) else {
                 continue;
             };
+
             let (start, end) = (
                 lookup(vertex_of, *from_event)?,
                 lookup(vertex_of, *to_event)?,
@@ -934,11 +1004,13 @@ fn split(
             let Some(range) = Interval::new(low, high) else {
                 continue;
             };
+
             if range.length() <= 0.0
                 || (start == end && !source.curve.is_longer_than(range, merge_length))
             {
                 continue;
             }
+
             let start_bound = bounds
                 .get(from)
                 .cloned()
@@ -947,6 +1019,7 @@ fn split(
                 .get(to)
                 .cloned()
                 .ok_or_else(ProfileError::unresolved)?;
+
             let id = PieceId::new(
                 source.entity,
                 match start_bound {
@@ -960,6 +1033,7 @@ fn split(
             );
             let (curve, range) = if source.is_line() {
                 let (from_point, to_point) = (lookup(vertices, start)?, lookup(vertices, end)?);
+
                 let Ok(line) = Line2::through(from_point, to_point) else {
                     continue;
                 };
@@ -970,6 +1044,7 @@ fn split(
             } else {
                 (source.curve.clone(), range)
             };
+
             pieces.push(RawPiece {
                 source: index,
                 piece: GraphPiece {
@@ -996,12 +1071,15 @@ fn bounds_of(
     let entity = |source: usize| sources.get(source).map(|source| source.entity);
     let own = sources.get(index).ok_or_else(ProfileError::unresolved)?;
     let mut cutters: Vec<Option<Vec<u64>>> = Vec::with_capacity(kept.len());
+
     for event in kept {
         let current = lookup(events, *event)?;
+
         if current.kind != EventKind::Cut {
             cutters.push(None);
             continue;
         }
+
         let vertex = lookup(vertex_of, *event)?;
         let mut set: BTreeSet<u64> = at_vertex
             .get(&vertex)
@@ -1014,6 +1092,7 @@ fn bounds_of(
         let revisited = kept
             .iter()
             .any(|other| other != event && vertex_of.get(*other).copied() == Some(vertex));
+
         if revisited {
             set.insert(own.entity);
         }
@@ -1040,6 +1119,7 @@ fn bounds_of(
                 None => {
                     let counter = seen.entry(entities.clone()).or_insert(0);
                     let occurrence = *counter;
+
                     *counter += 1;
                     PieceBound::Cut {
                         entities,
@@ -1055,7 +1135,7 @@ fn bounds_of(
         .collect())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Heading {
     Right,
     Along,
@@ -1092,21 +1172,26 @@ impl Crossing {
     ) -> Found<Self> {
         let current = lookup(events, event)?;
         let own = sources.get(index).ok_or_else(ProfileError::unresolved)?;
+
         let own_tangent = own.curve.evaluate(current.parameter).first;
         let vertex = lookup(vertex_of, event)?;
 
         let mut headings = Vec::new();
         let mut open_cutter: Option<(u64, f64)> = None;
         let mut visited = BTreeSet::new();
+
         for other in at_vertex.get(&vertex).into_iter().flatten() {
             let other = lookup(events, *other)?;
+
             if other.source == index || !visited.insert(other.source) {
                 continue;
             }
+
             let cutter = sources
                 .get(other.source)
                 .ok_or_else(ProfileError::unresolved)?;
             let tangent = cutter.curve.evaluate(other.parameter).first;
+
             headings.push((cutter.entity, Heading::of(own_tangent, tangent)));
             if !cutter.closed && open_cutter.is_none_or(|(lowest, _)| cutter.entity < lowest) {
                 open_cutter = Some((cutter.entity, other.parameter));
@@ -1137,6 +1222,7 @@ fn crossing_ranks(
     cutters: &[Option<Vec<u64>>],
 ) -> Found<BTreeMap<usize, u32>> {
     let mut groups: BTreeMap<&[u64], Vec<usize>> = BTreeMap::new();
+
     for (position, entities) in cutters.iter().enumerate() {
         if let Some(entities) = entities {
             groups.entry(entities).or_default().push(position);
@@ -1144,11 +1230,14 @@ fn crossing_ranks(
     }
 
     let mut ranks = BTreeMap::new();
+
     for positions in groups.into_values().filter(|positions| positions.len() > 1) {
         let mut ordered = Vec::with_capacity(positions.len());
+
         for position in positions {
             let event = lookup(kept, position)?;
             let crossing = Crossing::at(index, sources, events, vertex_of, at_vertex, event)?;
+
             ordered.push((position, crossing));
         }
         ordered.sort_by(|(_, first), (_, second)| first.order(second));
@@ -1176,11 +1265,15 @@ fn merge_overlaps(
     tolerance: f64,
 ) -> Found<Vec<GraphPiece>> {
     let mut groups: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
+
     for (index, raw) in pieces.iter().enumerate() {
         let (a, b) = (raw.piece.start, raw.piece.end);
+
         groups.entry((a.min(b), a.max(b))).or_default().push(index);
     }
+
     let mut dropped = vec![false; pieces.len()];
+
     for members in groups.values() {
         for (rank, first) in members.iter().enumerate() {
             for second in members.iter().skip(rank + 1) {
@@ -1189,16 +1282,20 @@ fn merge_overlaps(
                 {
                     continue;
                 }
+
                 let (Some(a), Some(b)) = (pieces.get(*first), pieces.get(*second)) else {
                     continue;
                 };
+
                 if !same_path(&a.piece, &b.piece, tolerance) {
                     continue;
                 }
                 if a.source == b.source {
                     let entity = sources.get(a.source).map_or(0, |source| source.entity);
+
                     return Err(ProfileError::SelfOverlap { entity });
                 }
+
                 let loser = if a.piece.id.entity() <= b.piece.id.entity() {
                     *second
                 } else {
@@ -1220,15 +1317,18 @@ fn merge_overlaps(
 
 fn settle(mut pieces: Vec<GraphPiece>, vertex_count: usize) -> Found<Vec<GraphPiece>> {
     let limit = pieces.len() + 1;
+
     for _ in 0..limit {
         interrupt::check()?;
         pieces = pruned(pieces, vertex_count);
+
         let probe = Arrangement {
             vertices: Vec::new(),
             pieces: pieces.clone(),
             ..Arrangement::default()
         };
         let (order, position) = angular_order_positions(&probe.pieces, vertex_count)?;
+
         let probe = Arrangement {
             order,
             position,
@@ -1236,6 +1336,7 @@ fn settle(mut pieces: Vec<GraphPiece>, vertex_count: usize) -> Found<Vec<GraphPi
         };
         let cycles = probe.cycles(|_| true)?;
         let mut cycle_of = vec![usize::MAX; pieces.len() * 2];
+
         for (index, cycle) in cycles.iter().enumerate() {
             for half_edge in cycle {
                 if let Some(slot) = cycle_of.get_mut(*half_edge) {
@@ -1243,9 +1344,11 @@ fn settle(mut pieces: Vec<GraphPiece>, vertex_count: usize) -> Found<Vec<GraphPi
                 }
             }
         }
+
         let bridges: BTreeSet<usize> = (0..pieces.len())
             .filter(|piece| cycle_of.get(piece * 2) == cycle_of.get(piece * 2 + 1))
             .collect();
+
         if bridges.is_empty() {
             return Ok(pieces);
         }
@@ -1262,6 +1365,7 @@ fn settle(mut pieces: Vec<GraphPiece>, vertex_count: usize) -> Found<Vec<GraphPi
 fn pruned(pieces: Vec<GraphPiece>, vertex_count: usize) -> Vec<GraphPiece> {
     let mut degree = vec![0usize; vertex_count];
     let mut incident: Vec<Vec<usize>> = vec![Vec::new(); vertex_count];
+
     for (index, piece) in pieces.iter().enumerate() {
         for vertex in [piece.start, piece.end] {
             if let (Some(count), Some(list)) = (degree.get_mut(vertex), incident.get_mut(vertex)) {
@@ -1270,20 +1374,24 @@ fn pruned(pieces: Vec<GraphPiece>, vertex_count: usize) -> Vec<GraphPiece> {
             }
         }
     }
+
     let mut removed = vec![false; pieces.len()];
     let mut pending: Vec<usize> = (0..vertex_count)
         .filter(|vertex| degree.get(*vertex).is_some_and(|count| *count <= 1))
         .collect();
+
     while let Some(vertex) = pending.pop() {
         let around = incident.get(vertex).cloned().unwrap_or_default();
         for index in around {
             let Some(flag) = removed.get_mut(index) else {
                 continue;
             };
+
             if *flag {
                 continue;
             }
             *flag = true;
+
             let Some(piece) = pieces.get(index) else {
                 continue;
             };
@@ -1307,6 +1415,7 @@ fn pruned(pieces: Vec<GraphPiece>, vertex_count: usize) -> Vec<GraphPiece> {
 
 fn components(pieces: &[GraphPiece], vertex_count: usize) -> Vec<usize> {
     let mut sets = UnionFind::new(vertex_count);
+
     for piece in pieces {
         sets.union(piece.start, piece.end);
     }
@@ -1328,9 +1437,12 @@ fn leaving(piece: &GraphPiece, half_edge: usize, forward: bool) -> Leaving {
     };
     let sign = if forward { 1.0 } else { -1.0 };
     let derivatives = piece.curve.evaluate(parameter);
+
     let mut tangent: Vector2 = derivatives.first * sign;
+
     if tangent.length().is_nan() || tangent.length() <= 0.0 {
         let nudged = parameter + sign * TANGENT_NUDGE * piece.range.length();
+
         tangent = piece.curve.point(nudged) - derivatives.point;
     }
     Leaving {
@@ -1346,6 +1458,7 @@ fn shortest_piece(pieces: &[GraphPiece], half_edges: impl Iterator<Item = usize>
         .filter_map(|half_edge| pieces.get(piece_of(half_edge).0))
         .map(|piece| (piece.chord(), piece))
         .collect();
+
     by_chord.sort_by(|a, b| a.0.total_cmp(&b.0));
     by_chord
         .into_iter()
@@ -1385,23 +1498,28 @@ fn angular_order_positions(
     vertex_count: usize,
 ) -> Found<(Vec<Vec<usize>>, Vec<usize>)> {
     let mut outgoing: Vec<Vec<Leaving>> = (0..vertex_count).map(|_| Vec::new()).collect();
+
     for (index, piece) in pieces.iter().enumerate() {
         for forward in [true, false] {
             let half_edge = index * 2 + usize::from(!forward);
             let list = outgoing
                 .get_mut(piece.origin(forward))
                 .ok_or_else(ProfileError::unresolved)?;
+
             list.push(leaving(piece, half_edge, forward));
         }
     }
+
     let mut order = Vec::with_capacity(vertex_count);
     let mut position = vec![0usize; pieces.len() * 2];
+
     for mut list in outgoing {
         list.sort_by(|a, b| {
             a.angle
                 .total_cmp(&b.angle)
                 .then(a.half_edge.cmp(&b.half_edge))
         });
+
         let count = list.len();
         let widest = (0..count)
             .max_by(|a, b| {
@@ -1415,18 +1533,25 @@ fn angular_order_positions(
                 gap(*a).total_cmp(&gap(*b))
             })
             .unwrap_or(0);
+
         list.rotate_left((widest + 1) % count.max(1));
+
         let mut unwrapped: Vec<(Leaving, f64)> = Vec::with_capacity(count);
         let mut base = None;
+
         for entry in list {
             let first = *base.get_or_insert(entry.angle);
             let angle = first + (entry.angle - first).rem_euclid(TAU);
+
             unwrapped.push((entry, angle));
         }
+
         let mut keyed: Vec<(usize, f64, f64)> = Vec::with_capacity(count);
         let mut run_start = 0;
+
         while run_start < unwrapped.len() {
             let mut run_end = run_start + 1;
+
             while let (Some(previous), Some(next)) =
                 (unwrapped.get(run_end - 1), unwrapped.get(run_end))
             {
@@ -1435,6 +1560,7 @@ fn angular_order_positions(
                 }
                 run_end += 1;
             }
+
             let run = unwrapped.get(run_start..run_end).unwrap_or_default();
             let base_angle = run.first().map_or(0.0, |entry| entry.1);
             let shortest = if run.len() > 1 {
@@ -1442,6 +1568,7 @@ fn angular_order_positions(
             } else {
                 f64::INFINITY
             };
+
             for (entry, _) in run {
                 let (piece, forward) = piece_of(entry.half_edge);
                 let deviation = if run.len() > 1 {
@@ -1450,12 +1577,15 @@ fn angular_order_positions(
                 } else {
                     0.0
                 };
+
                 keyed.push((entry.half_edge, base_angle, deviation));
             }
             run_start = run_end;
         }
         keyed.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.2.total_cmp(&b.2)));
+
         let half_edges: Vec<usize> = keyed.iter().map(|(half_edge, _, _)| *half_edge).collect();
+
         for (rank, half_edge) in half_edges.iter().enumerate() {
             if let Some(slot) = position.get_mut(*half_edge) {
                 *slot = rank;

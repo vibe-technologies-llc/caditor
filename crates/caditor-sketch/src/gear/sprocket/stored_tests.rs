@@ -42,6 +42,7 @@ fn teeth_of(count: f64) -> impl Fn(ParameterId) -> Result<Quantity, EvalError> {
 #[test]
 fn a_stored_sprocket_stands_on_a_point_and_lists_only_its_own_values() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(3.0, 4.0));
 
     let id = sketch.add_parametric_gear(stored(centre, 17.0)).unwrap();
@@ -56,19 +57,23 @@ fn a_stored_sprocket_stands_on_a_point_and_lists_only_its_own_values() {
     assert_eq!(sketch.entity_label(id), format!("Sprocket {id}"));
 
     sketch.remove_gear(id).unwrap();
+
     assert!(sketch.remove_unused_entity(centre).is_ok());
 }
 
 #[test]
 fn solving_works_out_a_sprocket_from_its_parameters_and_the_centre_from_its_constraints() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(1.0, 2.0));
+
     sketch
         .add_constraint(Constraint::Fix {
             point: centre,
             at: Point2::new(10.0, 5.0),
         })
         .unwrap();
+
     let id = sketch
         .add_parametric_gear(Gear {
             teeth: Expression::Parameter(TEETH),
@@ -94,6 +99,7 @@ fn solving_works_out_a_sprocket_from_its_parameters_and_the_centre_from_its_cons
 #[test]
 fn the_turn_carries_the_first_gap_about_the_centre() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let id = sketch
         .add_parametric_gear(Gear {
@@ -123,6 +129,7 @@ fn the_turn_carries_the_first_gap_about_the_centre() {
 #[test]
 fn a_bore_is_drawn_and_named_apart_from_the_gaps() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let id = sketch
         .add_parametric_gear(Gear {
@@ -142,7 +149,9 @@ fn a_bore_is_drawn_and_named_apart_from_the_gaps() {
 #[test]
 fn values_that_cannot_make_a_sprocket_are_refused_at_solve_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
+
     sketch
         .add_parametric_gear(Gear {
             teeth: Expression::Parameter(TEETH),
@@ -188,7 +197,9 @@ fn values_that_cannot_make_a_sprocket_are_refused_at_solve_in_words() {
 #[test]
 fn a_bore_larger_than_the_roots_allow_is_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
+
     sketch
         .add_parametric_gear(Gear {
             bore: Expression::measure(500.0, Unit::Millimetre),
@@ -210,6 +221,7 @@ fn a_bore_larger_than_the_roots_allow_is_refused_in_words() {
 #[test]
 fn the_chain_can_change_but_a_sprocket_never_becomes_a_spur_gear() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let id = sketch.add_parametric_gear(stored(centre, 17.0)).unwrap();
     let wider = ChainSize::find("12B").unwrap();
@@ -237,6 +249,7 @@ fn the_chain_can_change_but_a_sprocket_never_becomes_a_spur_gear() {
 #[test]
 fn a_sprocket_cannot_be_the_gear_another_meshes_with() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let other = sketch.add_point(Point2::new(50.0, 0.0));
     let id = sketch.add_parametric_gear(stored(centre, 17.0)).unwrap();
@@ -255,6 +268,7 @@ fn a_sprocket_cannot_be_the_gear_another_meshes_with() {
 #[test]
 fn changing_a_sprocket_changes_the_geometry() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let id = sketch.add_parametric_gear(stored(centre, 17.0)).unwrap();
     let before = sketch.clone();
@@ -275,6 +289,7 @@ fn changing_a_sprocket_changes_the_geometry() {
 #[test]
 fn curves_are_named_by_gap_and_segment_and_more_teeth_keep_the_old_names() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let id = sketch.add_parametric_gear(stored(centre, 17.0)).unwrap();
     let names = |teeth: u32| -> BTreeSet<(usize, usize)> {
@@ -308,6 +323,7 @@ fn curves_are_named_by_gap_and_segment_and_more_teeth_keep_the_old_names() {
 #[test]
 fn a_copied_sprocket_is_pasted_on_a_copy_of_its_centre_with_its_chain() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(1.0, 2.0));
     let id = sketch.add_parametric_gear(stored(centre, 17.0)).unwrap();
 

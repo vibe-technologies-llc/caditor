@@ -8,7 +8,7 @@ use crate::{
 const MAX_UNIT_DEPTH: usize = 8;
 const COARSEST_PRECISION: f64 = 0.01;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Units {
     pub length: f64,
     pub angle: f64,
@@ -33,7 +33,7 @@ impl Units {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Measure {
     Length(f64),
     Angle(f64),
@@ -45,6 +45,7 @@ pub(crate) fn context_units(graph: &Graph<'_>, context: u64) -> Units {
         return Units::default();
     };
     let mut units = assigned_units(graph, entity);
+
     units.precision = declared_precision(graph, entity, units.length);
     units
 }
@@ -54,6 +55,7 @@ fn assigned_units(graph: &Graph<'_>, context: Entity<'_>) -> Units {
         return Units::default();
     };
     let mut units = Units::default();
+
     for unit in assigned
         .references(0)
         .unwrap_or_default()
@@ -125,6 +127,7 @@ fn measure(graph: &Graph<'_>, unit: Entity<'_>, depth: usize) -> Measure {
             .and_then(|index| si.get(index).ok())
             .and_then(Parameter::enumeration);
         let factor = prefix_factor(prefix);
+
         return match name {
             Some("METRE") => Measure::Length(1000.0 * factor),
             Some("RADIAN") => Measure::Angle(factor),
@@ -153,6 +156,7 @@ fn measure(graph: &Graph<'_>, unit: Entity<'_>, depth: usize) -> Measure {
         ) else {
             return Measure::Other;
         };
+
         let converted = match measure(graph, base, depth + 1) {
             Measure::Length(scale) => Measure::Length(value * scale),
             Measure::Angle(scale) => Measure::Angle(value * scale),
@@ -160,6 +164,7 @@ fn measure(graph: &Graph<'_>, unit: Entity<'_>, depth: usize) -> Measure {
             Measure::Other if unit.is("PLANE_ANGLE_UNIT") => Measure::Angle(value),
             Measure::Other => Measure::Other,
         };
+
         return match converted {
             Measure::Length(scale) | Measure::Angle(scale) if !usable_factor(scale) => {
                 Measure::Other
@@ -279,6 +284,7 @@ mod tests {
         let near = |value: Option<f64>, expected: f64| {
             value.is_some_and(|value| (value - expected).abs() <= 1e-12 * expected)
         };
+
         assert!(near(metres, 2e-3), "{metres:?}");
         assert!(near(millimetres, 5e-4), "{millimetres:?}");
         assert!(near(coarsest_length, 3e-3), "{coarsest_length:?}");

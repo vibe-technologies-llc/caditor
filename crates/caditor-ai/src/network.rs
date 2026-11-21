@@ -73,18 +73,23 @@ impl Transport for Network {
         if !validate_endpoint(&request.url) {
             return Err(AiError::InvalidEndpoint);
         }
+
         let agent = if endpoint_allows_http(&request.url) {
             &self.loopback
         } else {
             &self.https
         };
         let mut builder = agent.post(&request.url);
+
         for (name, value) in &request.headers {
             builder = builder.header(name.as_str(), value.as_str());
         }
+
         let mut response = builder.send(request.body.as_str()).map_err(classify)?;
+
         let status = response.status().as_u16();
         let retry_after_seconds = retry_after(&response);
+
         if !(200..300).contains(&status) {
             let bytes = response
                 .body_mut()
@@ -93,25 +98,32 @@ impl Transport for Network {
                 .read_to_vec()
                 .unwrap_or_default();
             let text = String::from_utf8_lossy(&bytes).trim().to_owned();
+
             return Ok(StreamStatus {
                 status,
                 retry_after_seconds,
                 error_body: (!text.is_empty()).then_some(text),
             });
         }
+
         let mut reader = BufReader::new(response.into_body().into_reader());
         let mut buffer = Vec::new();
+
         loop {
             if cancel.load(Ordering::Acquire) {
                 return Err(AiError::Cancelled);
             }
             buffer.clear();
+
             let read = read_bounded_line(&mut reader, &mut buffer, MAX_LINE_BYTES)
                 .map_err(|error| AiError::Io(error.kind()))?;
+
             if read == 0 {
                 break;
             }
+
             let line = String::from_utf8_lossy(&buffer);
+
             on_line(&line)?;
         }
         Ok(StreamStatus {

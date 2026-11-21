@@ -29,7 +29,7 @@ use crate::{
     model::display_name,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResolutionName {
     Coarse,
@@ -37,7 +37,7 @@ pub enum ResolutionName {
     Fine,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Exporting {
     pub file: String,
@@ -47,7 +47,7 @@ pub struct Exporting {
     pub replace: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnitName {
     AsInFile,
@@ -69,7 +69,7 @@ impl UnitName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Importing {
     pub file: String,
@@ -90,7 +90,7 @@ impl Importing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SavingAs {
     pub file: String,
@@ -193,24 +193,29 @@ pub fn allowed(model: &Path, folders: &[PathBuf], file: &str) -> Result<PathBuf,
     let not_a_file = || FileError::NotAFile {
         file: file.to_owned(),
     };
+
     let name = path.file_name().ok_or_else(not_a_file)?;
     let folder = path.parent().ok_or_else(not_a_file)?;
     let folder = dunce::canonicalize(folder).map_err(|_| FileError::NoFolder {
         file: file.to_owned(),
     })?;
+
     if !folders.iter().any(|allowed| folder.starts_with(allowed)) {
         let listed: Vec<String> = folders
             .iter()
             .map(|folder| format!("“{}”", folder.display()))
             .collect();
+
         return Err(FileError::OutsideFolders {
             file: file.to_owned(),
             folders: listed.join(", "),
         });
     }
+
     let target = folder.join(name);
     let is_link =
         fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.file_type().is_symlink());
+
     if is_link {
         return Err(FileError::Link {
             file: file.to_owned(),
@@ -221,6 +226,7 @@ pub fn allowed(model: &Path, folders: &[PathBuf], file: &str) -> Result<PathBuf,
 
 fn answer_saved(session: &Session, stored: Stored) -> Map<String, Value> {
     let mut answer = Map::new();
+
     answer.insert(
         "saved".to_owned(),
         json!(session.model().display().to_string()),
@@ -248,12 +254,14 @@ pub fn save(session: &mut Session) -> Result<Map<String, Value>, ToolError> {
 pub fn save_as(session: &mut Session, asked: &SavingAs) -> Result<Map<String, Value>, ToolError> {
     let target = allowed(session.model(), session.folders(), &asked.file)?;
     let shown = display_name(Some(&target));
+
     if !has_model_extension(&target) {
         return Err(FileError::NotAModelFile { file: shown }.into());
     }
     if target != session.model() && target.exists() {
         return Err(FileError::Exists { file: shown }.into());
     }
+
     let stored = session.save_to(target)?;
     Ok(answer_saved(session, stored))
 }
@@ -265,13 +273,16 @@ pub fn export(
 ) -> Result<Map<String, Value>, ToolError> {
     let output = allowed(session.model(), session.folders(), &asked.file)?;
     let shown = display_name(Some(&output));
+
     let target = Target::of(&output).ok_or(FileError::UnknownFormat {
         file: shown.clone(),
     })?;
     let replaces = asked.replace.unwrap_or(false) || session.has_exported(&output);
+
     if output.exists() && !replaces {
         return Err(FileError::ExportExists { file: shown }.into());
     }
+
     let size = match target {
         Target::Image => Some(picture_size(asked.width, asked.height).map_err(FileError::Size)?),
         Target::Mesh(_) if asked.width.is_some() || asked.height.is_some() => {
@@ -284,10 +295,14 @@ pub fn export(
         Some(ResolutionName::Standard) | None => MeshResolution::Standard,
         Some(ResolutionName::Fine) => MeshResolution::Fine,
     };
+
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
+
     let bodies = headless::bodies(document, evaluation);
+
     if bodies.is_empty() {
         let failing: Vec<String> = crate::mcp::reading::problems(document, evaluation)
             .into_iter()
@@ -298,9 +313,11 @@ pub fn export(
         } else {
             format!(": {}", failing.join("; "))
         };
+
         return Err(FileError::NoBodies { failing }.into());
     }
     work.progress(&format!("Exporting to {shown}"));
+
     let delivered = headless::deliver(
         document,
         evaluation,
@@ -314,11 +331,14 @@ pub fn export(
         &work.cancel_token(),
     )
     .map_err(FileError::Export)?;
+
     session.exported(output.clone());
     if work.is_cancelled() {
         return Err(Cancelled.into());
     }
+
     let mut answer = Map::new();
+
     answer.insert("exported".to_owned(), json!(output.display().to_string()));
     answer.insert("bodies".to_owned(), json!(delivered.bodies));
     if !delivered.warnings.is_empty() {
@@ -351,8 +371,10 @@ fn import_model(
     shown: String,
 ) -> Result<Answer, ToolError> {
     work.progress(&format!("Reading {shown}"));
+
     let imported = import::read_model(path, &work.cancel_token(), &ReadingProgress::default())
         .map_err(|source| import_failure(&shown, source))?;
+
     if work.is_cancelled() {
         return Err(Cancelled.into());
     }
@@ -363,15 +385,19 @@ fn import_model(
         }
         .into());
     }
+
     let document = session.document();
     let transaction = bodies_transaction(document, &imported.bodies, format!("Import {shown}"));
+
     if import::outgrows(document, &transaction, MAX_MODEL_RECORDS) {
         return Err(FileError::OutgrowsTheFile { file: shown }.into());
     }
     if import::outnumbers(document, &transaction, MAX_RECORDS) {
         return Err(FileError::TooManyRecords { file: shown }.into());
     }
+
     let mut details = Map::new();
+
     details.insert("bodies".to_owned(), json!(imported.bodies.len()));
     notes_into(&mut details, imported.notes);
     apply(session, work, transaction, details)
@@ -384,6 +410,7 @@ fn drawing_options(
 ) -> Result<DrawingOptions, FileError> {
     let defaults = DrawingOptions::default();
     let mut left_out_layers = BTreeSet::new();
+
     for layer in asked.left_out_layers.iter().flatten() {
         let index = drawing
             .layers
@@ -394,14 +421,17 @@ fn drawing_options(
                 layer: layer.clone(),
                 layers: drawing.layers.join(", "),
             })?;
+
         left_out_layers.insert(index);
     }
+
     let options = DrawingOptions {
         unit: asked.unit.map_or(defaults.unit, UnitName::unit),
         scale: asked.scale.unwrap_or(defaults.scale),
         recentre: asked.recentre.unwrap_or(defaults.recentre),
         left_out_layers,
     };
+
     if !options.is_valid() {
         return Err(FileError::ScaleOutOfRange {
             given: options.scale,
@@ -429,7 +459,9 @@ fn import_drawing(
             plane: principal_plane(plane.unwrap_or(PlaneName::Xy)).plane(),
         },
     };
+
     work.progress(&format!("Reading {shown}"));
+
     let text_outlines = TextOutlines::InFont {
         upright: fonts::INTER,
         italic: Some(fonts::INTER_ITALIC),
@@ -437,6 +469,7 @@ fn import_drawing(
     let drawing = read_drawing(path, text_outlines, &work.cancel_token())
         .map_err(|source| import_failure(&shown, source))?;
     let options = drawing_options(asked, &drawing, &shown)?;
+
     let arranged = drawing.arranged(&options);
     let imported = drawing_transaction(
         session.document(),
@@ -444,6 +477,7 @@ fn import_drawing(
         target,
         format!("Import {shown}"),
     );
+
     if imported.curves == 0 {
         return Err(FileError::NothingImported {
             file: shown,
@@ -451,10 +485,13 @@ fn import_drawing(
         }
         .into());
     }
+
     let mut details = Map::new();
+
     details.insert("curves".to_owned(), json!(imported.curves));
     details.insert("layers".to_owned(), json!(drawing.layers));
     notes_into(&mut details, arranged.notes);
+
     let answer = apply(session, work, imported.transaction, details)?;
     Ok(with_feature(session, answer, imported.sketch))
 }
@@ -466,6 +503,7 @@ pub fn import_file(
 ) -> Result<Answer, ToolError> {
     let path = allowed(session.model(), session.folders(), &asked.file)?;
     let shown = display_name(Some(&path));
+
     if !path.is_file() {
         return Err(FileError::Missing { file: shown }.into());
     }

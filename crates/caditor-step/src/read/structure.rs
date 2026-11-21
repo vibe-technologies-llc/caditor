@@ -17,7 +17,7 @@ pub(crate) const MAX_DEPTH: usize = 32;
 pub(crate) const MAX_WALKED_PLACEMENTS: usize = 20 * MAX_INSTANCES;
 const OPERATOR_FIELDS: usize = 8;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Parent {
     representation: u64,
     transform: Option<Similarity>,
@@ -56,18 +56,24 @@ impl Structure {
             walked_placements: 0,
             truncated: false,
         };
+
         for entity in graph.entities() {
             structure.representation(entity);
         }
+
         let definitions = definition_representations(graph);
+
         structure.names = product_names(graph, &definitions);
+
         let children = assembly_children(graph, &definitions);
         let occurrences = occurrences(graph);
+
         let context = Context {
             children: &children,
             definitions: &definitions,
             occurrences: &occurrences,
         };
+
         for entity in graph.entities() {
             structure.relationship(graph, entity, &context);
             structure.mapped_items(graph, entity);
@@ -80,12 +86,15 @@ impl Structure {
             return;
         };
         let kind = entity.kind();
+
         if !kind.ends_with("REPRESENTATION") || kind.contains("DEFINITION") {
             return;
         }
+
         let (Ok(items), Ok(context)) = (fields.references(1), fields.reference(2)) else {
             return;
         };
+
         self.contexts.insert(entity.id, context);
         for item in items {
             self.item_representation.entry(item).or_insert(entity.id);
@@ -96,11 +105,13 @@ impl Structure {
         if let Some(units) = self.units.get(&representation) {
             return *units;
         }
+
         let units = self
             .contexts
             .get(&representation)
             .map(|context| context_units(graph, *context))
             .unwrap_or_default();
+
         self.units.insert(representation, units);
         units
     }
@@ -145,6 +156,7 @@ impl Structure {
                         .any(|owned| self.classes.same(*owned, representation))
                 })
         };
+
         let child_is_first = match occurrence {
             Some(occurrence) if owned_by(first, occurrence.child) => true,
             Some(occurrence) if owned_by(second, occurrence.child) => false,
@@ -156,6 +168,7 @@ impl Structure {
             (second, first)
         };
         let transform = self.item_transform(graph, transformation, (first, second), child_is_first);
+
         self.parents.entry(child).or_default().push(Parent {
             representation: parent,
             transform,
@@ -170,6 +183,7 @@ impl Structure {
         if entity.kind() != "MAPPED_ITEM" {
             return;
         }
+
         let Some(parent) = self.representation_of(entity.id) else {
             return;
         };
@@ -190,10 +204,12 @@ impl Structure {
         };
         let units = self.units_of(graph, parent);
         let geometry = Geometry::new(*graph, units, Work::new(MAX_WORK));
+
         let to = frame(&geometry, target).or_else(|| operator(&geometry, target));
         let transform = frame(&geometry, origin)
             .zip(to)
             .map(|(from, to)| from.inverse().then(&to));
+
         self.parents.entry(child).or_default().push(Parent {
             representation: parent,
             transform,
@@ -210,15 +226,18 @@ impl Structure {
         child_is_first: bool,
     ) -> Option<Similarity> {
         let entity = graph.entity(transformation).ok()?;
+
         if entity.is("CARTESIAN_TRANSFORMATION_OPERATOR_3D") {
             let geometry = Geometry::new(*graph, self.units_of(graph, second), Work::new(MAX_WORK));
             let carried = operator(&geometry, transformation)?;
+
             return Some(if child_is_first {
                 carried
             } else {
                 carried.inverse()
             });
         }
+
         let fields = entity.find("ITEM_DEFINED_TRANSFORMATION")?;
         let mut item = |representation: u64, index: usize| {
             let geometry = Geometry::new(
@@ -228,6 +247,7 @@ impl Structure {
             );
             frame(&geometry, fields.reference(index).ok()?)
         };
+
         let in_first = item(first, 2)?;
         let in_second = item(second, 3)?;
         Some(if child_is_first {
@@ -243,6 +263,7 @@ impl Structure {
 
     fn walk(&mut self, representation: u64, depth: usize) -> Arc<Placements> {
         let key = self.classes.key(representation);
+
         match self.walked.get(&key) {
             Some(Walk::Done(placements)) => return Arc::clone(placements),
             Some(Walk::InProgress) => {
@@ -250,6 +271,7 @@ impl Structure {
             }
             None => {}
         }
+
         let class = self.classes.of(representation).into_owned();
         let parents: Vec<Parent> = class
             .iter()
@@ -257,6 +279,7 @@ impl Structure {
             .filter(|parent| !class.contains(&parent.representation))
             .cloned()
             .collect();
+
         let placements = if parents.is_empty() {
             Placements {
                 paths: vec![class.iter().copied().collect()],
@@ -266,6 +289,7 @@ impl Structure {
             Placements::unplaced(Unplaced::TooDeep)
         } else {
             self.walked.insert(key, Walk::InProgress);
+
             let mut placed = Placements {
                 transforms: Vec::new(),
                 occurrences: Vec::new(),
@@ -283,15 +307,18 @@ impl Structure {
                     (parent, outer)
                 })
                 .collect();
+
             for (parent, outer) in walked_parents {
                 let (Some(transform), Some(outer)) = (parent.transform, outer) else {
                     placed.left_out = true;
                     continue;
                 };
+
                 placed.left_out |= outer.left_out;
                 if outer.transforms.is_empty() {
                     placed.unplaced = placed.unplaced.or(outer.unplaced);
                 }
+
                 let unwalked: &[u64] = &[];
                 let outer_paths = outer
                     .paths
@@ -303,6 +330,7 @@ impl Structure {
                 {
                     let walked = self.walked_placements + placed.transforms.len();
                     let budget_spent = walked >= MAX_WALKED_PLACEMENTS && taken > 0;
+
                     if placed.transforms.len() >= MAX_INSTANCES || budget_spent {
                         self.truncated = true;
                         break;
@@ -328,6 +356,7 @@ impl Structure {
             placed
         };
         let placements = Arc::new(placements);
+
         self.walked.insert(key, Walk::Done(Arc::clone(&placements)));
         placements
     }
@@ -344,7 +373,9 @@ impl Classes {
         if let Some(label) = self.labels.get(&representation) {
             return *label;
         }
+
         let label = self.members.len();
+
         self.members.push(BTreeSet::from([representation]));
         self.labels.insert(representation, label);
         label
@@ -352,9 +383,11 @@ impl Classes {
 
     fn join(&mut self, first: u64, second: u64) {
         let (first, second) = (self.label(first), self.label(second));
+
         if first == second {
             return;
         }
+
         let size = |label: usize| self.members.get(label).map_or(0, BTreeSet::len);
         let (kept, absorbed) = if size(first) >= size(second) {
             (first, second)
@@ -366,6 +399,7 @@ impl Classes {
             .get_mut(absorbed)
             .map(std::mem::take)
             .unwrap_or_default();
+
         for representation in &moved {
             self.labels.insert(*representation, kept);
         }
@@ -403,14 +437,14 @@ impl Classes {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Unplaced {
     InsideItself,
     TooDeep,
     Unreadable,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Placements {
     pub transforms: Vec<Similarity>,
     pub occurrences: Vec<Option<Arc<str>>>,
@@ -449,10 +483,12 @@ struct Context<'a> {
 
 fn occurrences(graph: &Graph<'_>) -> BTreeMap<u64, Occurrence> {
     let mut found = BTreeMap::new();
+
     for entity in graph.entities() {
         if entity.kind() != "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION" {
             continue;
         }
+
         let Ok(fields) = entity.fields() else {
             continue;
         };
@@ -477,6 +513,7 @@ fn occurrences(graph: &Graph<'_>) -> BTreeMap<u64, Occurrence> {
             .name(1)
             .or_else(|| usage_fields.name(5))
             .map(Arc::from);
+
         found.insert(
             relationship,
             Occurrence {
@@ -489,7 +526,7 @@ fn occurrences(graph: &Graph<'_>) -> BTreeMap<u64, Occurrence> {
     found
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Walk {
     InProgress,
     Done(Arc<Placements>),
@@ -510,6 +547,7 @@ struct Operator {
 
 fn operator_fields(graph: &Graph<'_>, entity: Entity<'_>) -> Option<Operator> {
     let scale = |fields: &Fields<'_>, index: usize| fields.get(index).ok()?.real();
+
     if let (Some(base), Some(spatial)) = (
         entity.find("CARTESIAN_TRANSFORMATION_OPERATOR"),
         entity.find("CARTESIAN_TRANSFORMATION_OPERATOR_3D"),
@@ -522,6 +560,7 @@ fn operator_fields(graph: &Graph<'_>, entity: Entity<'_>) -> Option<Operator> {
             axis3: spatial.optional_reference(0),
         });
     }
+
     let fields = entity.find("CARTESIAN_TRANSFORMATION_OPERATOR_3D")?;
     let is_point = |index: usize| {
         fields
@@ -547,12 +586,14 @@ pub(crate) fn operator(geometry: &Geometry<'_>, id: u64) -> Option<Similarity> {
         Some(id) => geometry.direction(id).ok().map(Some),
         None => Some(None),
     };
+
     let z = direction(fields.axis3)?.unwrap_or(Vector3::Z);
     let x = direction(fields.axis1)?
         .unwrap_or(Vector3::X)
         .reject_from_normalized(z)
         .try_normalize()
         .or_else(|| Vector3::Y.reject_from_normalized(z).try_normalize())?;
+
     let right_handed = z.cross(x);
     let y = match direction(fields.axis2)? {
         Some(y) => {
@@ -571,10 +612,12 @@ pub(crate) fn operator(geometry: &Geometry<'_>, id: u64) -> Option<Similarity> {
 
 fn definition_representations(graph: &Graph<'_>) -> BTreeMap<u64, Vec<u64>> {
     let mut by_definition: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
+
     for entity in graph.entities() {
         if entity.kind() != "SHAPE_DEFINITION_REPRESENTATION" {
             continue;
         }
+
         let Ok(fields) = entity.fields() else {
             continue;
         };
@@ -610,6 +653,7 @@ fn product_names(
     definitions: &BTreeMap<u64, Vec<u64>>,
 ) -> BTreeMap<u64, Arc<str>> {
     let mut names = BTreeMap::new();
+
     for (definition, representations) in definitions {
         let name = graph
             .entity(*definition)
@@ -703,6 +747,7 @@ mod tests {
     fn thousands_of_identical_relationships_are_read_and_named_without_searching() {
         let links = 20_000_u64;
         let mut data = String::new();
+
         for link in 0..=links {
             data.push_str(&representation(100 + link));
         }
@@ -716,6 +761,7 @@ mod tests {
             )
             .unwrap();
         }
+
         let text = file(&data);
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
@@ -733,6 +779,7 @@ mod tests {
         let layers = 30_u64;
         let mut data = String::new();
         let mut relation = 10_000;
+
         for layer in 0..=layers {
             for side in 0..2 {
                 data.push_str(&representation(100 + layer * 2 + side));
@@ -742,7 +789,9 @@ mod tests {
             for side in 0..2 {
                 for parent in 0..2 {
                     relation += 1;
+
                     let child = 100 + layer * 2 + side;
+
                     write!(
                         data,
                         "{}",
@@ -752,15 +801,20 @@ mod tests {
                 }
             }
         }
+
         let text = file(&data);
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
+
         let placements = structure.placements(100);
+
         assert!(!placements.transforms.is_empty());
         assert!(placements.transforms.len() <= MAX_INSTANCES);
         assert!(structure.truncated);
+
         let links = usize::try_from(relation - 10_000).unwrap();
+
         assert!(structure.walked_placements <= MAX_WALKED_PLACEMENTS + links);
     }
 
@@ -778,6 +832,7 @@ mod tests {
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
+
         assert_eq!(
             structure.placements(100).unplaced,
             Some(Unplaced::InsideItself)
@@ -788,7 +843,9 @@ mod tests {
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
+
         let placements = structure.placements(100);
+
         assert_eq!(placements.transforms, [Similarity::IDENTITY]);
         assert_eq!(placements.unplaced, None);
     }
@@ -831,11 +888,16 @@ mod tests {
             )
         };
         let frame = structure.placements(101);
+
         assert_eq!(frame.transforms, [moved(10.0, 0.0)]);
         assert_eq!(frame.occurrences, [Some(Arc::from("Frame:1"))]);
+
         let bolt = structure.placements(102);
+
         assert_eq!(bolt.transforms.len(), 1);
+
         let origin = bolt.transforms[0].apply_point(caditor_geometry::Point3::ZERO);
+
         assert!(
             origin.distance(caditor_geometry::Point3::new(10.0, 5.0, 0.0)) < 1e-12,
             "{origin}"
@@ -875,10 +937,12 @@ mod tests {
         for placements in [simple, complex] {
             assert_eq!(placements.unplaced, None);
             assert!(!placements.left_out);
+
             let [transform] = placements.transforms.as_slice() else {
                 panic!("expected one placement, found {placements:?}");
             };
             let moved = transform.apply_point(Point3::X);
+
             assert!(
                 moved.distance(Point3::new(5.0, 1.0, 0.0)) < 1e-12,
                 "{moved}"
@@ -897,9 +961,12 @@ mod tests {
         let [scaled] = scaled.transforms.as_slice() else {
             panic!("expected one scaled placement, found {scaled:?}");
         };
+
         assert!(!scaled.is_mirrored());
         assert!((scaled.scale() - 2.0).abs() < 1e-12);
+
         let moved = scaled.apply_point(Point3::X);
+
         assert!(
             moved.distance(Point3::new(5.0, 2.0, 0.0)) < 1e-12,
             "{moved}"
@@ -908,8 +975,11 @@ mod tests {
         let [mirrored] = mirrored.transforms.as_slice() else {
             panic!("expected one mirrored placement, found {mirrored:?}");
         };
+
         assert!(mirrored.is_mirrored());
+
         let moved = mirrored.apply_point(Point3::new(1.0, 2.0, 0.0));
+
         assert!(
             moved.distance(Point3::new(7.0, 1.0, 0.0)) < 1e-12,
             "{moved}"

@@ -9,7 +9,9 @@ use crate::{
 
 fn block() -> (Document, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Block");
+
     let sketch = transaction.add_feature(
         "Sketch 1",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 10.0))),
@@ -18,6 +20,7 @@ fn block() -> (Document, FeatureId) {
         "Extrude 1",
         extrude(sketch, "10 mm", false, BodyOperation::NewBody),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, extrusion)
 }
@@ -51,6 +54,7 @@ fn with_distance(document: &Document, feature: FeatureId, value: Expression) -> 
     else {
         panic!("expected an extrusion");
     };
+
     changed.extent = ExtrudeExtent::one_side(value, false);
     Transaction::single(
         "Distance",
@@ -66,9 +70,12 @@ fn named(document: &Document, feature: FeatureId, name: &str, text: &str) -> Tra
     let marker = Expression::Negate(Box::new(Expression::Negate(Box::new(value.clone()))));
     let holding = with_distance(document, feature, marker.clone());
     let mut transaction = document.transaction(format!("Name {name}"));
+
     let id = transaction.add_owned_parameter(name, value, distance_owner(feature));
     let (holding, count) = holding.substituting(&marker, &Expression::Parameter(id));
+
     assert_eq!(count, 1);
+
     for edit in holding.edits() {
         transaction.edit(edit.clone());
     }
@@ -87,11 +94,15 @@ fn a_named_value_is_a_parameter_its_feature_holds_and_other_expressions_use() {
     editor
         .apply(named(editor.document(), extrusion, "depth", "12 mm"))
         .unwrap();
+
     let depth = id_of(editor.document(), "depth");
     let mut transaction = editor.document().transaction("Double");
+
     let double = transaction.parse("depth * 2").unwrap();
+
     transaction.add_parameter("double", double);
     editor.apply(transaction.finish()).unwrap();
+
     let document = editor.document();
     let values = ParameterValues::evaluate(document);
     let held = document.owned_parameter(&distance_owner(extrusion), &distance(document, extrusion));
@@ -122,6 +133,7 @@ fn a_named_value_is_a_parameter_its_feature_holds_and_other_expressions_use() {
             },
         ))
         .unwrap();
+
     let document = editor.document();
     let double = document.parameter_named("double").unwrap();
 
@@ -156,6 +168,7 @@ fn a_named_value_is_a_parameter_its_feature_holds_and_other_expressions_use() {
 fn deleting_the_feature_takes_its_unused_named_values_and_keeps_used_ones_as_parameters() {
     let (document, extrusion) = block();
     let mut editor = Editor::new(document);
+
     editor
         .apply(named(editor.document(), extrusion, "depth", "12 mm"))
         .unwrap();
@@ -167,13 +180,17 @@ fn deleting_the_feature_takes_its_unused_named_values_and_keeps_used_ones_as_par
     assert!(editor.document().parameters().is_empty());
 
     editor.undo().unwrap();
+
     let mut transaction = editor.document().transaction("Use");
+
     let used = transaction.parse("depth + 1 mm").unwrap();
+
     transaction.add_parameter("taller", used);
     editor.apply(transaction.finish()).unwrap();
     editor
         .apply(editor.document().deletion(&[extrusion], "Delete"))
         .unwrap();
+
     let depth = editor.document().parameter_named("depth").unwrap();
 
     assert_eq!(depth.owner, None);
@@ -183,6 +200,7 @@ fn deleting_the_feature_takes_its_unused_named_values_and_keeps_used_ones_as_par
     );
 
     editor.undo().unwrap();
+
     let document = editor.document();
 
     assert_eq!(
@@ -199,10 +217,13 @@ fn deleting_the_feature_takes_its_unused_named_values_and_keeps_used_ones_as_par
 fn a_named_value_the_configurations_name_loses_its_owner_when_its_feature_lets_go() {
     let (document, extrusion) = block();
     let mut editor = Editor::new(document);
+
     editor
         .apply(named(editor.document(), extrusion, "depth", "12 mm"))
         .unwrap();
+
     let depth = id_of(editor.document(), "depth");
+
     editor
         .apply(
             editor
@@ -228,6 +249,7 @@ fn a_named_value_the_configurations_name_loses_its_owner_when_its_feature_lets_g
         extrusion,
         editor.document().parse("20 mm").unwrap(),
     );
+
     editor
         .apply(editor.document().releasing(plain, [depth]))
         .unwrap();
@@ -250,18 +272,22 @@ fn removing_a_named_dimension_takes_its_parameter_with_it() {
         constraint: ids.base_distance,
     };
     let mut transaction = document.transaction("Name");
+
     let length = transaction.add_owned_parameter(
         "length",
         Expression::parse_stored("30 mm").unwrap(),
         owner.clone(),
     );
+
     transaction.edit(Edit::SetDimension {
         feature: ids.base,
         constraint: ids.base_distance,
         value: Expression::Parameter(length),
     });
+
     let naming = transaction.finish();
     let mut editor = Editor::new(document);
+
     editor.apply(naming).unwrap();
 
     assert_eq!(
@@ -270,6 +296,7 @@ fn removing_a_named_dimension_takes_its_parameter_with_it() {
     );
 
     let mut removal = editor.document().transaction("Remove");
+
     removal.remove_sketch_items(ids.base, [], [ids.base_distance]);
     editor.apply(removal.finish()).unwrap();
 
@@ -291,18 +318,22 @@ fn reshaping_a_sketch_without_a_named_dimension_takes_its_parameter_with_it() {
         constraint: ids.base_distance,
     };
     let mut transaction = document.transaction("Name");
+
     let length = transaction.add_owned_parameter(
         "length",
         Expression::parse_stored("30 mm").unwrap(),
         owner.clone(),
     );
+
     transaction.edit(Edit::SetDimension {
         feature: ids.base,
         constraint: ids.base_distance,
         value: Expression::Parameter(length),
     });
+
     let naming = transaction.finish();
     let mut editor = Editor::new(document);
+
     editor.apply(naming).unwrap();
 
     let before = editor
@@ -314,8 +345,11 @@ fn reshaping_a_sketch_without_a_named_dimension_takes_its_parameter_with_it() {
         .unwrap()
         .clone();
     let mut after = before.clone();
+
     after.remove_constraint(ids.base_distance).unwrap();
+
     let mut reshaping = editor.document().transaction("Reshape");
+
     reshaping.reshape_sketch(ids.base, &before, &after);
     editor.apply(reshaping.finish()).unwrap();
 
@@ -337,6 +371,7 @@ fn a_value_description_is_kept_on_one_line_and_bounded() {
         value: value.to_owned(),
     };
     let mut transaction = document.transaction("Name");
+
     let id = transaction.add_owned_parameter(
         "depth",
         Expression::parse_stored("1 mm").unwrap(),
@@ -344,6 +379,7 @@ fn a_value_description_is_kept_on_one_line_and_bounded() {
     );
     let naming = transaction.finish();
     let mut document = document;
+
     document.apply(naming).unwrap();
 
     assert_eq!(

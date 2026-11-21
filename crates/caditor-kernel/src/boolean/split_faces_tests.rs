@@ -66,6 +66,7 @@ fn names(solid: &Solid) -> BTreeSet<FaceName> {
 fn split_top(height: f64, tool: &Solid) -> (Solid, FaceName) {
     let body = block(height);
     let top = top_face(&body, height);
+
     let original = body.face(top).unwrap().name();
     let split = split_faces(&body, &[top], tool, SPLIT).unwrap();
     (split, original)
@@ -84,6 +85,7 @@ fn a_line_divides_the_top_of_a_box_and_nothing_else() {
     let inside = FaceName::split(SPLIT, top, SplitPiece::Inside);
     let outside = FaceName::split(SPLIT, top, SplitPiece::Outside);
     let found = names(&split);
+
     assert!(found.contains(&inside) && found.contains(&outside));
     assert!(!found.contains(&top));
     assert_eq!(
@@ -113,6 +115,7 @@ fn a_circle_cuts_an_island_out_of_the_top_of_a_box() {
         .find(|(_, face)| face.name() == FaceName::split(SPLIT, top, SplitPiece::Outside))
         .map(|(_, face)| face)
         .unwrap();
+
     assert_eq!(island.loops().len(), 1);
     assert_eq!(ring.loops().len(), 2);
 }
@@ -130,6 +133,7 @@ fn pieces_keep_their_names_and_references_through_an_upstream_edit() {
 
     for (id, _) in before.faces() {
         let reference = FaceReference::capture(&before, id).unwrap();
+
         assert!(reference.resolve(&after).is_ok());
         assert!(reference.resolve(&moved).is_ok());
     }

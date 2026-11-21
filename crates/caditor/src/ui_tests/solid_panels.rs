@@ -15,9 +15,12 @@ use crate::{editing::EditingCommand, model::Action, selection::Pickable};
 #[test]
 fn an_extrusion_takes_a_start_offset_from_its_panel_and_zero_clears_it() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
+
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
     harness.settle();
+
     let start_of = |harness: &Harness| harness.solid(extrude).clone();
     let start = |solid: SolidFeature| match solid {
         SolidFeature::Extrude(extrude) => extrude.start,
@@ -33,12 +36,14 @@ fn an_extrusion_takes_a_start_offset_from_its_panel_and_zero_clears_it() {
             .map(|bounds| bounds.min().z)
             .unwrap()
     };
+
     assert!(harness.shows("Start offset"));
     assert_eq!(start(start_of(&harness)), None);
     assert!(lowest(&harness).abs() < 1e-9);
 
     harness.type_into_field(Id::unique(("solid-field", "start", extrude)), "6 mm");
     harness.settle();
+
     assert_eq!(
         start(start_of(&harness)).and_then(|start| start
             .distance()
@@ -49,6 +54,7 @@ fn an_extrusion_takes_a_start_offset_from_its_panel_and_zero_clears_it() {
 
     harness.type_into_field(Id::unique(("solid-field", "start", extrude)), "0 mm");
     harness.settle();
+
     assert_eq!(start(start_of(&harness)), None);
     assert!(lowest(&harness).abs() < 1e-9);
 }
@@ -68,16 +74,20 @@ fn extrude_extent(harness: &Harness, feature: FeatureId) -> &'static str {
 #[test]
 fn a_second_sketch_extrudes_as_a_new_body_unless_it_reaches_the_first() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let extruded_rectangle = |harness: &mut Harness, min: Point2, max: Point2| {
         let mut sketch = Sketch::new(Plane::XY);
+
         rectangle(&mut sketch, min, max);
         harness.add_sketch(sketch);
         harness.select([]);
         harness.click("Extrude");
         harness.settle();
+
         let feature = open_solid(harness);
         let reads_new_body = harness.shows("New body");
+
         harness.key(Key::Escape, Modifiers::NONE);
         harness.frame();
         (feature, reads_new_body)
@@ -107,47 +117,71 @@ fn a_second_sketch_extrudes_as_a_new_body_unless_it_reaches_the_first() {
 #[test]
 fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let mut boss = Sketch::new(Plane::XY);
+
     rectangle(&mut boss, Point2::new(10.0, 10.0), Point2::new(20.0, 20.0));
+
     let boss = harness.add_sketch(boss);
+
     harness.select([]);
     harness.click("Extrude");
     harness.settle();
+
     let second = open_solid(&harness);
     let starts_adding = harness.solid(second).operation() == BodyOperation::Add(plate);
 
     choose(&mut harness, "One side", "Symmetric");
+
     let symmetric = extrude_extent(&harness, second);
+
     choose(&mut harness, "Symmetric", "Two sides");
+
     let two_sides = extrude_extent(&harness, second);
+
     choose(&mut harness, "Add to body", "Remove from body");
+
     let removing = harness.solid(second).operation();
+
     choose(&mut harness, "Remove from body", "New body");
+
     let separate = harness.solid(second).operation();
+
     choose(&mut harness, "Plate 1", "Plate");
+
     let sketch = harness.solid(second).sketch();
+
     choose(&mut harness, "Plate", "Plate 1");
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let mut post = Sketch::new(Plane::XY);
+
     rectangle(&mut post, Point2::new(25.0, 25.0), Point2::new(30.0, 30.0));
     harness.add_sketch(post);
     harness.select([]);
     harness.click("Extrude");
     harness.settle();
+
     let third = open_solid(&harness);
     let adds_to_the_plate_it_stands_on =
         harness.solid(third).operation() == BodyOperation::Add(plate);
+
     harness.hold_still();
+
     let third_card_in_view = harness.shows("Body");
+
     choose(&mut harness, "Extrude 1", "Extrude 2");
+
     let retargeted = harness.solid(third).operation();
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(
         &mut section,
         Point2::new(50.0, 0.0),
@@ -157,10 +191,15 @@ fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
+
     choose(&mut harness, "Vertical axis", "Horizontal axis");
+
     let axis = harness.solid(revolve).axis().cloned();
+
     choose(&mut harness, "Full turn", "Symmetric");
+
     let turn = match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.extent.clone(),
         SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
@@ -193,20 +232,25 @@ fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel
 fn a_revolve_turns_up_to_a_plane_through_its_axis_chosen_in_its_panel() {
     let mut harness = Harness::new();
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(&mut section, Point2::new(2.0, 0.0), Point2::new(4.0, 3.0));
     harness.add_sketch(section);
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
 
     choose(&mut harness, "Full turn", crate::solid_panel::TURN_UP_TO);
+
     let asks_for_a_plane =
         harness.shows("Click a face, or a plane through the axis, to turn up to.");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.select([Pickable::Plane(caditor_document::PrincipalPlane::Yz)]);
     choose(&mut harness, "Full turn", crate::solid_panel::TURN_UP_TO);
+
     let turned = match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.extent.clone(),
         SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
@@ -221,7 +265,9 @@ fn a_revolve_turns_up_to_a_plane_through_its_axis_chosen_in_its_panel() {
             false
         )
     );
+
     let quarter = std::f64::consts::PI * (16.0 - 4.0) * 3.0 / 4.0;
+
     assert!((volume - quarter).abs() < 0.01 * quarter, "{volume}");
     assert!(harness.shows("Up to"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
@@ -231,21 +277,28 @@ fn a_revolve_turns_up_to_a_plane_through_its_axis_chosen_in_its_panel() {
 fn a_revolve_turns_up_to_the_next_face_of_its_body_chosen_in_its_panel() {
     let mut harness = Harness::new();
     let mut wall = Sketch::new(Plane::XY);
+
     rectangle(&mut wall, Point2::new(-0.5, 0.0), Point2::new(0.5, 10.0));
     harness.add_sketch(wall);
     harness.select([]);
     harness.click("Extrude");
     harness.settle();
+
     let wall = open_solid(&harness);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(&mut section, Point2::new(2.0, 0.5), Point2::new(4.0, 3.0));
     harness.add_sketch(section);
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
+
     if harness.solid(revolve).operation() == BodyOperation::NewBody {
         choose(&mut harness, "New body", "Add to body");
     }
@@ -255,6 +308,7 @@ fn a_revolve_turns_up_to_the_next_face_of_its_body_chosen_in_its_panel() {
         "Full turn",
         crate::solid_panel::TURN_UP_TO_NEXT,
     );
+
     let turned = match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.extent.clone(),
         SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
@@ -269,6 +323,7 @@ fn a_revolve_turns_up_to_the_next_face_of_its_body_chosen_in_its_panel() {
 fn a_revolve_turns_short_of_the_next_face_by_the_angle_typed_in_its_panel() {
     let mut harness = Harness::new();
     let mut wall = Sketch::new(Plane::XY);
+
     rectangle(&mut wall, Point2::new(-0.5, 0.0), Point2::new(0.5, 10.0));
     harness.add_sketch(wall);
     harness.select([]);
@@ -277,13 +332,17 @@ fn a_revolve_turns_short_of_the_next_face_by_the_angle_typed_in_its_panel() {
     open_solid(&harness);
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(&mut section, Point2::new(2.0, 0.5), Point2::new(4.0, 3.0));
     harness.add_sketch(section);
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
+
     if harness.solid(revolve).operation() == BodyOperation::NewBody {
         choose(&mut harness, "New body", "Add to body");
     }
@@ -294,11 +353,13 @@ fn a_revolve_turns_short_of_the_next_face_by_the_angle_typed_in_its_panel() {
     );
 
     let offered = harness.shows(crate::solid_panel::END_OFFSET);
+
     harness.type_into_field(
         Id::unique(("solid-field", "turn-offset", revolve)),
         "-10 deg",
     );
     harness.settle();
+
     let turned = match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.extent.clone(),
         SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
@@ -320,14 +381,17 @@ fn a_revolve_turns_short_of_the_next_face_by_the_angle_typed_in_its_panel() {
 fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
     let mut harness = Harness::new();
     let mut guide = Sketch::new(Plane::XZ);
+
     let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
     let guide = harness.add_sketch(guide);
     let mut square = Sketch::new(Plane::XY);
+
     rectangle(&mut square, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
     harness.add_sketch(square);
     harness.select([]);
     harness.click("Extrude");
     harness.settle();
+
     let leaning = open_solid(&harness);
 
     harness.select([Pickable::SketchEntity {
@@ -339,6 +403,7 @@ fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
         crate::solid_panel::SQUARE,
         crate::solid_panel::ALONG,
     );
+
     let direction = match harness.solid(leaning) {
         SolidFeature::Extrude(extrude) => extrude.direction.clone(),
         SolidFeature::Revolve(_) | SolidFeature::Sweep(_) => panic!("expected an extrusion"),
@@ -353,18 +418,23 @@ fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
             entity: slant
         })
     );
+
     let rise = 10.0 * std::f64::consts::FRAC_1_SQRT_2;
+
     assert!((volume - 100.0 * rise).abs() < 0.01 * volume, "{volume}");
     assert!(named);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 
     assert!(harness.shows("Taper"));
+
     harness.type_into_field(Id::unique(("solid-field", "taper", leaning)), "5 deg");
     harness.settle();
+
     let tapered = harness.body_volume(leaning);
 
     let top = 10.0 - 20.0 * 5.0_f64.to_radians().tan();
     let frustum = rise / 3.0 * (100.0 + top * top + 10.0 * top);
+
     assert!(
         (tapered - frustum).abs() < 0.01 * frustum,
         "{tapered} {frustum}"
@@ -375,8 +445,10 @@ fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
 #[test]
 fn an_extrusion_along_a_line_runs_up_to_the_next_face_chosen_in_its_panel() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let mut guide = Sketch::new(Plane::XZ);
+
     let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(-10.0, 10.0));
     let guide = harness.add_sketch(guide);
     let boss = extrusion_above_plate(&mut harness, 30.0);
@@ -396,6 +468,7 @@ fn an_extrusion_along_a_line_runs_up_to_the_next_face_chosen_in_its_panel() {
     open_combo(&mut harness, "End");
     harness.click_lowest("Up to next");
     harness.settle();
+
     let reaching = extent_of(&harness, boss);
     let operation = harness.solid(boss).operation();
     let volume = harness.body_volume(plate);
@@ -432,31 +505,41 @@ fn target_origin(extent: &ExtrudeExtent) -> Option<caditor_kernel::FaceOrigin> {
 #[test]
 fn an_extrusion_cuts_through_all_or_up_to_the_next_face_chosen_in_its_panel() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let cut = extrusion_above_plate(&mut harness, 10.0);
 
     open_combo(&mut harness, "End");
     harness.hover("Through all");
+
     let explained = harness.shows(
         "Through all cuts into a body or intersects with it; choose Remove from body or Intersect \
          with body first",
     );
+
     open_combo(&mut harness, "End");
     harness.settle();
+
     let while_adding = extent_of(&harness, cut);
+
     choose(&mut harness, "Add to body", "Remove from body");
     harness.click_lowest(crate::feature_fields::REVERSE_DIRECTION);
     harness.settle();
     open_combo(&mut harness, "End");
     harness.click_lowest("Through all");
     harness.settle();
+
     let through = extent_of(&harness, cut);
     let through_volume = harness.body_volume(plate);
+
     choose(&mut harness, "Through all", "Up to next");
+
     let next = extent_of(&harness, cut);
     let next_volume = harness.body_volume(plate);
+
     harness.perform(Action::Undo);
     harness.settle();
+
     let undone = extent_of(&harness, cut);
 
     assert!(explained);
@@ -490,8 +573,10 @@ fn an_extrusion_cuts_through_all_or_up_to_the_next_face_chosen_in_its_panel() {
 #[test]
 fn an_end_up_to_the_next_face_stops_short_of_it_by_the_offset_typed_in_its_panel() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let cut = extrusion_above_plate(&mut harness, 10.0);
+
     choose(&mut harness, "Add to body", "Remove from body");
     harness.click_lowest(crate::feature_fields::REVERSE_DIRECTION);
     harness.settle();
@@ -501,12 +586,16 @@ fn an_end_up_to_the_next_face_stops_short_of_it_by_the_offset_typed_in_its_panel
 
     let offered = harness.shows(crate::solid_panel::END_OFFSET);
     let field = Id::unique(("solid-field", "distance-offset", cut));
+
     harness.type_into_field(field, "-4 mm");
     harness.settle();
+
     let short = extent_of(&harness, cut);
     let volume = harness.body_volume(plate);
+
     harness.type_into_field(field, "0 mm");
     harness.settle();
+
     let cleared = extent_of(&harness, cut);
 
     assert!(offered);
@@ -545,22 +634,29 @@ fn an_extrusion_runs_up_to_a_selected_curved_face() {
     )
     .unwrap();
     let mut rod = Sketch::new(across);
+
     rod.add_circle(Point2::new(0.0, 0.0), 5.0);
     harness.add_sketch(rod);
     harness.select([]);
     harness.click("Extrude");
     harness.settle();
+
     let rod_body = harness.workspace.editing.solid().expect("the rod is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let mut strip = Sketch::new(Plane::XY);
+
     rectangle(&mut strip, Point2::new(-6.0, -1.0), Point2::new(-5.0, 1.0));
     harness.add_sketch(strip);
     harness.select([]);
     harness.click("Extrude");
     harness.settle();
+
     let stand = open_solid(&harness);
+
     choose(&mut harness, "New body", "Add to body");
     harness.frame();
 
@@ -575,9 +671,11 @@ fn an_extrusion_runs_up_to_a_selected_curved_face() {
                     .starts_with("Extrude 1 › Extrude 1 side")
         })
         .expect("the side of the rod is pickable");
+
     harness.select([curved]);
     run_from_palette(&mut harness, "extrude up to selected");
     harness.settle();
+
     let reached = extent_of(&harness, stand);
 
     assert!(
@@ -600,10 +698,12 @@ fn an_extrusion_runs_up_to_a_selected_curved_face() {
             .feature(stand)
             .map(|found| &found.state)
     );
+
     let half = 1.0_f64;
     let under = 2.0 * (half / 2.0 * (25.0 - half * half).sqrt() + 12.5 * (half / 5.0).asin());
     let expected = 250.0 * std::f64::consts::PI + 40.0 - under;
     let found = harness.body_volume(rod_body);
+
     assert!(
         (found - expected).abs() < 0.01 * expected,
         "{found} {expected}"
@@ -613,8 +713,10 @@ fn an_extrusion_runs_up_to_a_selected_curved_face() {
 #[test]
 fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let tower = extrusion_above_plate(&mut harness, 30.0);
+
     choose(&mut harness, "New body", "Add to body");
     harness.click_lowest(crate::feature_fields::REVERSE_DIRECTION);
     harness.settle();
@@ -622,12 +724,15 @@ fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
     open_combo(&mut harness, "End");
     harness.click_lowest("Up to face");
     harness.settle();
+
     let asks_for_a_face = harness.shows("Click a face or plane to extrude up to.");
     let still_a_distance = extent_of(&harness, tower);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
     harness.settle();
+
     let picking_ended = harness.workspace.editing.picking().is_none();
     let reached = extent_of(&harness, tower);
     let volume = harness.body_volume(plate);
@@ -642,16 +747,21 @@ fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
                 == "Extrude 1 › Extrude 1 start face"
         })
         .expect("the bottom face is pickable");
+
     harness.select([bottom]);
     harness.click_button("Use selected");
     harness.settle();
+
     let chosen_again = extent_of(&harness, tower);
+
     harness.select([top]);
     run_from_palette(&mut harness, "extrude up to selected");
     harness.settle();
+
     let from_palette = extent_of(&harness, tower);
 
     let plate_feature = plate.raw();
+
     assert!(asks_for_a_face);
     assert!(matches!(
         still_a_distance,
@@ -687,9 +797,12 @@ fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
 #[test]
 fn an_extrusion_starts_at_a_face_chosen_in_the_view_and_goes_back_to_its_sketch_plane() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let tower = extrusion_above_plate(&mut harness, 30.0);
+
     choose(&mut harness, "New body", "Add to body");
+
     let highest = |harness: &Harness| {
         harness
             .model
@@ -704,13 +817,16 @@ fn an_extrusion_starts_at_a_face_chosen_in_the_view_and_goes_back_to_its_sketch_
     open_combo(&mut harness, "Start");
     harness.click_lowest("Face or plane");
     harness.settle();
+
     let asks_for_a_face =
         harness.shows("Click a flat face or plane parallel to the sketch to start from.");
     let still_at_the_sketch = start_of_solid(&harness, tower);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
     harness.settle();
+
     let picking_ended = harness.workspace.editing.picking().is_none();
     let started = start_of_solid(&harness, tower);
     let from_the_face = highest(&harness);
@@ -718,6 +834,7 @@ fn an_extrusion_starts_at_a_face_chosen_in_the_view_and_goes_back_to_its_sketch_
 
     harness.click_button("Start at the sketch plane again");
     harness.settle();
+
     let cleared = start_of_solid(&harness, tower);
     let back_at_the_sketch = highest(&harness);
 
@@ -743,6 +860,7 @@ fn an_extrusion_starts_at_a_face_chosen_in_the_view_and_goes_back_to_its_sketch_
 fn a_revolve_turns_by_two_angles_set_in_its_panel() {
     let mut harness = Harness::new();
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(
         &mut section,
         Point2::new(10.0, 0.0),
@@ -752,18 +870,24 @@ fn a_revolve_turns_by_two_angles_set_in_its_panel() {
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
     let full = PI * (400.0 - 100.0) * 10.0;
 
     choose(&mut harness, "Full turn", "Two angles");
+
     let both_ways = harness.body_volume(revolve);
     let field = Id::unique(("solid-field", "forward-angle", revolve));
+
     harness.type_into_field(field, "350 deg");
+
     let refused = harness.shows(crate::feature_fields::TURNS_TOGETHER);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.type_into_field(field, "90 deg");
     harness.settle();
+
     let turned = match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.extent.clone(),
         SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
@@ -785,6 +909,7 @@ fn a_revolve_turns_by_two_angles_set_in_its_panel() {
 fn a_revolve_crossing_its_axis_keeps_the_larger_side_and_then_the_other() {
     let mut harness = Harness::new();
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(
         &mut section,
         Point2::new(-5.0, 0.0),
@@ -794,6 +919,7 @@ fn a_revolve_crossing_its_axis_keeps_the_larger_side_and_then_the_other() {
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
     let side = |harness: &Harness| match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => revolve.side,
@@ -810,12 +936,16 @@ fn a_revolve_crossing_its_axis_keeps_the_larger_side_and_then_the_other() {
 
     harness.click("One side");
     harness.settle();
+
     let larger = side(&harness);
     let larger_volume = harness.body_volume(revolve);
+
     harness.click(crate::solid_panel::KEEP_OTHER_SIDE);
     harness.settle();
+
     let other = side(&harness);
     let other_volume = harness.body_volume(revolve);
+
     harness.click("Whole");
     harness.settle();
 
@@ -831,15 +961,19 @@ fn a_revolve_crossing_its_axis_keeps_the_larger_side_and_then_the_other() {
 fn a_revolve_lists_the_model_axes_beside_its_sketch_lines_and_turns_about_one_chosen() {
     let mut harness = Harness::new();
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(&mut section, Point2::new(2.0, 0.0), Point2::new(4.0, 3.0));
     harness.add_sketch(section);
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
 
     open_combo(&mut harness, crate::solid_panel::AXIS);
+
     let listed = harness.shows("The X axis") && harness.shows("Vertical axis");
+
     harness.click_lowest("The X axis");
     harness.settle();
 

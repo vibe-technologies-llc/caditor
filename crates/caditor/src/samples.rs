@@ -8,7 +8,7 @@ use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 
 use crate::variants::all_variants;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Sample {
     Plate,
     Spool,
@@ -45,7 +45,9 @@ impl Sample {
 
     pub fn document(self) -> Result<Document> {
         let mut document = Document::default();
+
         let mut transaction = document.transaction(format!("Open the {} sample", self.title()));
+
         match self {
             Self::Plate => plate(&mut transaction)?,
             Self::Spool => spool(&mut transaction)?,
@@ -77,11 +79,13 @@ impl<'t, 'd> Builder<'t, 'd> {
             .map(|corner| self.sketch.add_point(*corner))
             .collect();
         let mut lines = Vec::with_capacity(points.len());
+
         for (index, start) in points.iter().enumerate() {
             let end = points
                 .get((index + 1) % points.len())
                 .context("an outline needs corners")?;
             let id = EntityId::from_raw(self.sketch.next_id());
+
             self.sketch.insert_entity(
                 id,
                 Entity::Line {
@@ -101,6 +105,7 @@ impl<'t, 'd> Builder<'t, 'd> {
             } else {
                 Constraint::Vertical(*line)
             };
+
             self.sketch.add_constraint(constraint)?;
         }
         Ok(())
@@ -108,6 +113,7 @@ impl<'t, 'd> Builder<'t, 'd> {
 
     fn distance(&mut self, from: EntityId, to: EntityId, value: &str) -> Result<()> {
         let value = self.transaction.parse(value)?;
+
         self.sketch
             .add_constraint(Constraint::Distance { from, to, value })?;
         Ok(())
@@ -115,6 +121,7 @@ impl<'t, 'd> Builder<'t, 'd> {
 
     fn radius(&mut self, entity: EntityId, value: &str) -> Result<()> {
         let value = self.transaction.parse(value)?;
+
         self.sketch
             .add_constraint(Constraint::Radius { entity, value })?;
         Ok(())
@@ -136,6 +143,7 @@ impl<'t, 'd> Builder<'t, 'd> {
 fn parameters(transaction: &mut TransactionBuilder<'_>, values: &[(&str, &str)]) -> Result<()> {
     for (name, text) in values {
         let expression = transaction.parse(text)?;
+
         transaction.add_parameter(*name, expression);
     }
     Ok(())
@@ -166,18 +174,22 @@ fn plate(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
             ("margin", "10 mm"),
         ],
     )?;
+
     let mut builder = Builder::new(transaction, Plane::XY);
+
     let (corners, sides) = builder.outline(&[
         Point2::new(0.0, 0.0),
         Point2::new(80.0, 0.0),
         Point2::new(80.0, 50.0),
         Point2::new(0.0, 50.0),
     ])?;
+
     let (&[first, second, _, fourth], &[bottom, right, top, left]) =
         (corners.as_slice(), sides.as_slice())
     else {
         anyhow::bail!("the plate outline has four sides");
     };
+
     builder.level(&sides)?;
     builder
         .sketch
@@ -190,12 +202,15 @@ fn plate(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
     ] {
         let hole = builder.sketch.add_circle(at, 4.0);
         let center = builder.center(hole)?;
+
         builder.distance(center, across, "margin")?;
         builder.distance(center, along, "margin")?;
         builder.radius(hole, "hole / 2")?;
     }
+
     let sketch = builder.add("Plate sketch");
     let distance = transaction.parse("thickness")?;
+
     transaction.add_feature(
         "Plate",
         extrude(sketch, ExtrudeExtent::one_side(distance, false)),
@@ -214,7 +229,9 @@ fn spool(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
             ("flange_thickness", "5 mm"),
         ],
     )?;
+
     let mut builder = Builder::new(transaction, Plane::XZ);
+
     let (points, sides) = builder.outline(&[
         Point2::new(6.0, 0.0),
         Point2::new(30.0, 0.0),
@@ -238,6 +255,7 @@ fn spool(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
     else {
         anyhow::bail!("the spool profile has eight corners");
     };
+
     builder.level(&sides)?;
     builder
         .sketch
@@ -253,7 +271,9 @@ fn spool(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
     builder.distance(flange_bottom, lower_step, "flange_thickness")?;
     builder.distance(core_bottom, core_top, "height - 2 * flange_thickness")?;
     builder.distance(upper_step, flange_top, "flange_thickness")?;
+
     let sketch = builder.add("Spool profile");
+
     transaction.add_feature(
         "Spool",
         FeatureKind::Solid(SolidFeature::Revolve(Revolve {
@@ -281,7 +301,9 @@ fn bracket(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
             ("hole", "8 mm"),
         ],
     )?;
+
     let mut builder = Builder::new(transaction, Plane::XZ);
+
     let (points, sides) = builder.outline(&[
         Point2::new(0.0, 0.0),
         Point2::new(50.0, 0.0),
@@ -293,6 +315,7 @@ fn bracket(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
     let &[corner, toe, toe_top, _, top_inner, top_outer] = points.as_slice() else {
         anyhow::bail!("the bracket profile has six corners");
     };
+
     builder.level(&sides)?;
     builder
         .sketch
@@ -301,23 +324,29 @@ fn bracket(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
     builder.distance(toe, toe_top, "thickness")?;
     builder.distance(top_outer, corner, "leg")?;
     builder.distance(top_inner, top_outer, "thickness")?;
+
     let profile = builder.add("Bracket profile");
     let width = transaction.parse("width")?;
+
     let body = transaction.add_feature(
         "Bracket",
         extrude(profile, ExtrudeExtent::Symmetric { distance: width }),
     );
 
     let mut builder = Builder::new(transaction, Plane::XY);
+
     let hole = builder.sketch.add_circle(Point2::new(30.0, 0.0), 4.0);
     let center = builder.center(hole)?;
+
     builder
         .sketch
         .add_constraint(Constraint::Coincident(center, EntityId::HORIZONTAL_AXIS))?;
     builder.distance(center, EntityId::VERTICAL_AXIS, "leg - 20 mm")?;
     builder.radius(hole, "hole / 2")?;
+
     let hole_sketch = builder.add("Hole sketch");
     let depth = transaction.parse("2 * thickness + 2 mm")?;
+
     transaction.add_feature(
         "Hole",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -351,8 +380,10 @@ mod tests {
             &CancelToken::never(),
             &|_, _| {},
         );
+
         for feature in document.features() {
             let status = evaluation.feature(feature.id()).unwrap();
+
             assert!(
                 matches!(status.state, FeatureState::UpToDate),
                 "{} in {}: {:?}",
@@ -370,6 +401,7 @@ mod tests {
                 );
             }
         }
+
         let body = document
             .features()
             .find(|feature| feature.name == body)
@@ -388,10 +420,15 @@ mod tests {
     fn every_sample_recomputes_fully_constrained_into_the_shape_it_describes() {
         let hole = PI * 4.0 * 4.0;
         let plate = 80.0 * 50.0 * 6.0 - 2.0 * hole * 6.0;
+
         assert!((volume(Sample::Plate, "Plate") - plate).abs() / plate < 1e-3);
+
         let spool = PI * (30.0 * 30.0 - 6.0 * 6.0) * 10.0 + PI * (18.0 * 18.0 - 6.0 * 6.0) * 40.0;
+
         assert!((volume(Sample::Spool, "Spool") - spool).abs() / spool < 1e-2);
+
         let bracket = (50.0 * 5.0 + 45.0 * 5.0) * 40.0 - hole * 5.0;
+
         assert!((volume(Sample::Bracket, "Bracket") - bracket).abs() / bracket < 1e-3);
     }
 }

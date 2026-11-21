@@ -19,7 +19,7 @@ const DESCRIPTION: &str = "Choose the plane to sketch on here, or click a plane 
                            in the view";
 const CANCEL_HOVER: &str = "Stop choosing a plane (Esc)";
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 enum PlaneChoiceError {
     #[error("Click a flat face in the view to sketch on it")]
     FaceInTheView,
@@ -50,11 +50,13 @@ fn on_datum(model: &Model, target: DatumTarget) -> Result<EditingCommand, NewSke
 
 pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {
     let document = model.document();
+
     widgets::card(ui, |ui| {
         ui.label(widgets::section_title(TITLE));
         widgets::properties(ui, "new-sketch-properties", |ui| {
             feature_fields::description_row(ui, DESCRIPTION);
             widgets::caption(ui, PLANE);
+
             let chosen = plane_selector::combo(
                 ui,
                 Id::unique("new-sketch-plane"),
@@ -63,6 +65,7 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {
                 None,
                 |plane| command(model, plane),
             );
+
             ui.end_row();
             actions.extend(chosen);
         });

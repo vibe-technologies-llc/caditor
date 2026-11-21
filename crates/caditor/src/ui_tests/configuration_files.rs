@@ -24,11 +24,17 @@ fn notice_says(harness: &Harness, text: &str) -> bool {
 fn configured_widths(harness: &mut Harness) {
     let width = ConfiguredValue::Parameter(harness.parameter("width"));
     let (first, _) = harness.document().adding_configuration(Some("M4"));
+
     harness.perform(Action::Apply(first));
+
     let configure = harness.document().configuring(width).unwrap();
+
     harness.perform(Action::Apply(configure));
+
     let (second, large) = harness.document().adding_configuration(Some("M8"));
+
     harness.perform(Action::Apply(second));
+
     let wide = harness
         .document()
         .transaction("Parse")
@@ -38,6 +44,7 @@ fn configured_widths(harness: &mut Harness) {
         .document()
         .setting_configuration(large, width, caditor_document::Setting::Expression(wide))
         .unwrap();
+
     harness.perform(Action::Apply(change));
     harness.settle();
 }
@@ -46,6 +53,7 @@ fn configured_widths(harness: &mut Harness) {
 fn configurations_export_to_csv_and_import_back_after_a_preview_as_one_change() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::new();
+
     configured_widths(&mut harness);
 
     harness.answer_dialog(Some(dir.path().join("variants")));
@@ -53,13 +61,16 @@ fn configurations_export_to_csv_and_import_back_after_a_preview_as_one_change() 
     harness.wait_until("the configurations are exported", |harness| {
         notice_says(harness, "Exported 2 configurations")
     });
+
     let written = fs::read_to_string(dir.path().join("variants.csv")).unwrap();
+
     assert_eq!(
         written,
         "Configuration,Parameter: width\r\nM4,40 mm\r\nM8,60 mm\r\n"
     );
 
     let edited = dir.path().join("edited.csv");
+
     fs::write(
         &edited,
         "Configuration,Parameter: width,Parameter: depth\nM8,70 mm,1\nM12,90 mm,\nM16,1 mm +,\n",
@@ -70,6 +81,7 @@ fn configurations_export_to_csv_and_import_back_after_a_preview_as_one_change() 
     harness.wait_until("the preview opens", |harness| {
         harness.shows("Import configurations from “edited.csv”")
     });
+
     assert!(harness.shows("1 configuration is already in the model with other values."));
     assert!(harness.shows(
         "1 column name something the model does not have and will be left out; the reason is \
@@ -93,6 +105,7 @@ fn configurations_export_to_csv_and_import_back_after_a_preview_as_one_change() 
         .iter()
         .map(|row| row.name.as_str())
         .collect();
+
     assert_eq!(names, ["M4", "M8", "M12"]);
     assert_eq!(
         harness.model.undo_label(),
@@ -107,6 +120,7 @@ fn configurations_export_to_csv_and_import_back_after_a_preview_as_one_change() 
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert_eq!(harness.document().configurations().rows.len(), 2);
 }
 
@@ -114,6 +128,7 @@ fn configurations_export_to_csv_and_import_back_after_a_preview_as_one_change() 
 fn the_configurations_dialog_exports_and_imports_through_its_buttons() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::new();
+
     configured_widths(&mut harness);
     run_from_palette(&mut harness, "configurations");
     harness.frame();
@@ -130,15 +145,19 @@ fn the_configurations_dialog_exports_and_imports_through_its_buttons() {
     });
 
     assert!(harness.shows("2 rows and 1 column in the file. Nothing changes until you import."));
+
     harness.command(FileCommand::ConfigurationImport(
         ConfigurationFileCommand::Apply,
     ));
     harness.settle();
+
     assert!(notice_says(
         &harness,
         "match the model's, so nothing changed."
     ));
+
     harness.perform(Action::Preferences(PreferencesCommand::CloseConfigurations));
+
     assert_eq!(harness.document().configurations().rows.len(), 2);
 }
 
@@ -149,12 +168,14 @@ fn exporting_without_configurations_and_importing_a_file_without_the_column_say_
 
     harness.command(FileCommand::ExportConfigurations);
     harness.settle();
+
     assert!(notice_says(
         &harness,
         "The model has no configurations to export."
     ));
 
     let file = dir.path().join("list.csv");
+
     fs::write(&file, "a,b\n1,2\n").unwrap();
     harness.answer_dialog(Some(file));
     harness.command(FileCommand::ImportConfigurations);
@@ -172,6 +193,7 @@ fn a_file_naming_a_new_value_configures_it_and_the_add_button_is_still_offered()
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::new();
     let file = dir.path().join("sizes.csv");
+
     fs::write(
         &file,
         "Configuration;Parameter: width\nSmall;20 mm\nBig;80 mm\n",
@@ -183,18 +205,23 @@ fn a_file_naming_a_new_value_configures_it_and_the_add_button_is_still_offered()
     harness.wait_until("the preview opens", |harness| {
         harness.shows("Import configurations from “sizes.csv”")
     });
+
     assert!(harness.shows("New value"));
+
     harness.command(FileCommand::ConfigurationImport(
         ConfigurationFileCommand::Apply,
     ));
     harness.settle();
 
     let document = harness.document();
+
     assert_eq!(document.configurations().rows.len(), 2);
     assert_eq!(document.configurations().values.len(), 1);
     assert_eq!(document.configurations().active, None);
     assert_eq!(harness.expression_text("width"), "40 mm");
+
     run_from_palette(&mut harness, "configurations");
     harness.frame();
+
     assert!(harness.shows(ADD_LABEL));
 }

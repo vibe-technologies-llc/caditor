@@ -7,7 +7,7 @@ use crate::{
 
 const MIN_INDEXED_SPANS: usize = 16;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ProfileSpans {
     flattened: Option<Vector3>,
     tree: BoxTree,
@@ -27,9 +27,11 @@ impl ProfileSpans {
                 _ => None,
             })
             .collect();
+
         if spans.len() < MIN_INDEXED_SPANS {
             return None;
         }
+
         let hulls: Vec<Aabb> = spans
             .iter()
             .map(|span| hull(spline, *span, flattened))
@@ -48,6 +50,7 @@ impl ProfileSpans {
     pub(crate) fn runs(&self, point: Point3) -> Vec<Interval> {
         let point = flatten(point, self.flattened);
         let mut runs: Vec<Interval> = Vec::new();
+
         for span in self
             .tree
             .possibly_nearest(point, LINEAR_RESOLUTION)

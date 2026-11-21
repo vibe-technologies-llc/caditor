@@ -5,7 +5,7 @@ use crate::{
     read::fault::Fault,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Problem {
     pub entity: u64,
     pub fault: Fault,

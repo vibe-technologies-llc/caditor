@@ -13,8 +13,11 @@ const CLOSE: f64 = 1e-6;
 pub(crate) fn shaft() -> (Document, FeatureId) {
     let mut document = Document::default();
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_circle(Point2::new(0.0, 0.0), 4.0);
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature("Shaft outline", FeatureKind::from(sketch));
     let shaft = transaction.add_feature(
         "Shaft",
@@ -30,6 +33,7 @@ pub(crate) fn shaft() -> (Document, FeatureId) {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, shaft)
 }
@@ -66,7 +70,9 @@ pub(crate) fn threaded(
     let thread = thread(document);
     let name = format!("Thread {}", document.features().len());
     let mut transaction = document.transaction("Thread");
+
     let feature = transaction.add_feature(name, FeatureKind::Thread(Thread { body, ..thread }));
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -86,6 +92,7 @@ pub(crate) fn plain_thread(face: FaceReference, body: FeatureId) -> Thread {
 
 pub(crate) fn result(evaluation: &Evaluation, feature: FeatureId) -> ThreadResult {
     let status = evaluation.feature(feature).unwrap();
+
     assert_eq!(status.state, FeatureState::UpToDate, "{:?}", status.state);
     status.result.as_deref().unwrap().thread().unwrap().clone()
 }
@@ -105,6 +112,7 @@ pub(crate) fn near(first: Point3, second: Point3) -> bool {
 fn a_shaft_takes_an_external_thread_drawn_at_its_minor_diameter_from_its_free_end() {
     let (mut document, shaft) = shaft();
     let mut engine = Recompute::default();
+
     let face = round_face(evaluate(&document, &mut engine).body(shaft).unwrap());
     let thread = threaded(&mut document, shaft, |_| plain_thread(face, shaft));
 
@@ -128,6 +136,7 @@ fn a_shaft_takes_an_external_thread_drawn_at_its_minor_diameter_from_its_free_en
 fn a_depth_runs_from_the_chosen_end_and_stops_at_the_face_s_end() {
     let (mut document, shaft) = shaft();
     let mut engine = Recompute::default();
+
     let face = round_face(evaluate(&document, &mut engine).body(shaft).unwrap());
     let thread = threaded(&mut document, shaft, |document| Thread {
         length: ThreadLength::Depth(document.parse("12 mm").unwrap()),
@@ -136,11 +145,13 @@ fn a_depth_runs_from_the_chosen_end_and_stops_at_the_face_s_end() {
     });
 
     let placement = result(&evaluate(&document, &mut engine), thread).placement;
+
     assert!((placement.length - 12.0).abs() < CLOSE);
     assert!(near(placement.start, Point3::ZERO));
     assert!(near(placement.end(), Point3::new(0.0, 0.0, 12.0)));
 
     let mut longer = document.feature(thread).unwrap().kind.clone();
+
     if let FeatureKind::Thread(thread) = &mut longer {
         thread.length = ThreadLength::Depth(document.parse("50 mm").unwrap());
     }
@@ -153,7 +164,9 @@ fn a_depth_runs_from_the_chosen_end_and_stops_at_the_face_s_end() {
             },
         ))
         .unwrap();
+
     let placement = result(&evaluate(&document, &mut engine), thread).placement;
+
     assert!((placement.length - 20.0).abs() < CLOSE);
 }
 
@@ -161,6 +174,7 @@ fn a_depth_runs_from_the_chosen_end_and_stops_at_the_face_s_end() {
 fn a_wrong_class_size_or_face_fails_the_thread_alone_in_words() {
     let (mut document, shaft) = shaft();
     let mut engine = Recompute::default();
+
     let solid = evaluate(&document, &mut engine)
         .body(shaft)
         .unwrap()
@@ -187,6 +201,7 @@ fn a_wrong_class_size_or_face_fails_the_thread_alone_in_words() {
     let evaluation = evaluate(&document, &mut engine);
 
     let error = failure(&evaluation, inside);
+
     assert_eq!(
         error.reason(),
         "The threaded face is a shaft, but the class 6H is not one ISO metric coarse offers for \
@@ -196,7 +211,9 @@ fn a_wrong_class_size_or_face_fails_the_thread_alone_in_words() {
         error.remedy(),
         "Choose a class for an external thread, such as 6g."
     );
+
     let error = failure(&evaluation, large);
+
     assert_eq!(
         error.reason(),
         "The shaft is 8 mm across, too narrow for the M12 thread, whose minor diameter is 9.85 mm."
@@ -220,8 +237,11 @@ fn a_wrong_class_size_or_face_fails_the_thread_alone_in_words() {
 pub(crate) fn tapped(pair: &mut Pair) -> FeatureId {
     let mut sketch =
         Sketch::new(Plane::from_frame(Point3::new(0.0, 0.0, 4.0), Vector3::Z, Vector3::X).unwrap());
+
     sketch.add_point(Point2::new(5.0, 5.0));
+
     let mut transaction = pair.document.transaction("Drill");
+
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
     let hole = transaction.add_feature(
         "Hole 1",
@@ -242,6 +262,7 @@ pub(crate) fn tapped(pair: &mut Pair) -> FeatureId {
             thread: TappedThread::default(),
         }),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
     hole
 }
@@ -249,6 +270,7 @@ pub(crate) fn tapped(pair: &mut Pair) -> FeatureId {
 #[test]
 fn a_tapped_hole_threads_its_bore_from_the_mouth_and_a_clearance_hole_does_not() {
     let mut pair = pair();
+
     let hole = tapped(&mut pair);
     let mut engine = Recompute::default();
 
@@ -256,7 +278,9 @@ fn a_tapped_hole_threads_its_bore_from_the_mouth_and_a_clearance_hole_does_not()
     let placed = placed_threads(&pair.document, &evaluation);
 
     assert_eq!(placed.len(), 1);
+
     let thread = &placed[0];
+
     assert_eq!((thread.feature, thread.body), (hole, pair.plate));
     assert_eq!(thread.designation, "M6-6H");
     assert_eq!(thread.side, ThreadSide::Internal);
@@ -265,6 +289,7 @@ fn a_tapped_hole_threads_its_bore_from_the_mouth_and_a_clearance_hole_does_not()
     assert!((thread.placement.thread_radius - 3.0).abs() < CLOSE);
 
     let mut kind = pair.document.feature(hole).unwrap().kind.clone();
+
     if let FeatureKind::Hole(hole) = &mut kind {
         hole.standard = Some(HoleStandard {
             size: MetricSize::M6,
@@ -277,15 +302,19 @@ fn a_tapped_hole_threads_its_bore_from_the_mouth_and_a_clearance_hole_does_not()
             Edit::SetFeatureKind { id: hole, kind },
         ))
         .unwrap();
+
     let evaluation = evaluate(&pair.document, &mut engine);
+
     assert!(placed_threads(&pair.document, &evaluation).is_empty());
 }
 
 #[test]
 fn a_thread_follows_its_face_when_a_later_feature_moves_the_body() {
     let mut pair = pair();
+
     let hole = tapped(&mut pair);
     let mut engine = Recompute::default();
+
     let solid = evaluate(&pair.document, &mut engine)
         .body(pair.plate)
         .unwrap()
@@ -299,6 +328,7 @@ fn a_thread_follows_its_face_when_a_later_feature_moves_the_body() {
         .map(|(id, _)| FaceReference::capture(&solid, id).unwrap())
         .unwrap();
     let plate = pair.plate;
+
     let thread = threaded(&mut pair.document, plate, |_| Thread {
         size: metric("M6"),
         class: class(ThreadFamily::MetricCoarse, "6H"),
@@ -315,6 +345,7 @@ fn a_thread_follows_its_face_when_a_later_feature_moves_the_body() {
         about: TurnCentre::Origin,
         frame: None,
     };
+
     transaction.add_feature("Move 1", FeatureKind::Move(movement));
     pair.document.apply(transaction.finish()).unwrap();
 
@@ -393,6 +424,7 @@ fn designations_follow_each_standard_s_notation() {
 
 pub(crate) fn set_hole(pair: &mut Pair, hole: FeatureId, change: impl FnOnce(&mut Hole)) {
     let mut kind = pair.document.feature(hole).unwrap().kind.clone();
+
     if let FeatureKind::Hole(hole) = &mut kind {
         change(hole);
     }
@@ -407,8 +439,10 @@ pub(crate) fn set_hole(pair: &mut Pair, hole: FeatureId, change: impl FnOnce(&mu
 #[test]
 fn a_tapped_hole_takes_its_class_hand_and_depth_from_the_hole() {
     let mut pair = pair();
+
     let hole = tapped(&mut pair);
     let depth = pair.document.parse("2 mm").unwrap();
+
     set_hole(&mut pair, hole, |hole| {
         hole.thread = TappedThread {
             class: Some(class(ThreadFamily::MetricCoarse, "5H")),
@@ -417,6 +451,7 @@ fn a_tapped_hole_takes_its_class_hand_and_depth_from_the_hole() {
             form: ThreadForm::Cosmetic,
         };
     });
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&pair.document, &mut engine);
@@ -429,7 +464,9 @@ fn a_tapped_hole_takes_its_class_hand_and_depth_from_the_hole() {
     assert!(near(placed[0].placement.end(), Point3::new(5.0, 5.0, 2.0)));
 
     let external = class(ThreadFamily::MetricCoarse, "6g");
+
     set_hole(&mut pair, hole, |hole| hole.thread.class = Some(external));
+
     let evaluation = evaluate(&pair.document, &mut engine);
     let error = failure(&evaluation, hole);
 
@@ -443,12 +480,14 @@ fn a_tapped_hole_takes_its_class_hand_and_depth_from_the_hole() {
     );
 
     let zero = pair.document.parse("0 mm").unwrap();
+
     set_hole(&mut pair, hole, |hole| {
         hole.thread = TappedThread {
             depth: Some(zero),
             ..TappedThread::default()
         };
     });
+
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(
@@ -460,6 +499,7 @@ fn a_tapped_hole_takes_its_class_hand_and_depth_from_the_hole() {
 #[test]
 fn a_pattern_threads_the_copies_of_a_tapped_hole() {
     let mut pair = pair();
+
     let hole = tapped(&mut pair);
     let pattern = Pattern::new(
         pair.plate,
@@ -476,7 +516,9 @@ fn a_pattern_threads_the_copies_of_a_tapped_hole() {
     )
     .repeating(vec![hole]);
     let mut transaction = pair.document.transaction("Pattern");
+
     let pattern = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+
     pair.document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&pair.document, &mut Recompute::default());
@@ -484,6 +526,7 @@ fn a_pattern_threads_the_copies_of_a_tapped_hole() {
         .into_iter()
         .map(|thread| thread.placement.start)
         .collect();
+
     starts.sort_by(|first, second| first.x.total_cmp(&second.x));
 
     assert_eq!(evaluation.failed_count(), 0, "{pattern:?}");

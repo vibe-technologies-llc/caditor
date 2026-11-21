@@ -27,17 +27,21 @@ fn style_the_widgets_shown_anew(harness: &mut Harness) {
 #[test]
 fn the_graphics_card_indicator_shows_while_meshes_upload_and_not_otherwise() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     for _ in 0..SETTLING_FRAMES {
         harness.frame();
     }
+
     let idle = harness.shows(upload_badge::TEXT);
 
     uploading(&mut harness, true);
+
     let during = harness.shows(upload_badge::TEXT);
     let spoken = nodes_reading(&harness, upload_badge::TEXT);
 
     uploading(&mut harness, false);
+
     let after = harness.shows(upload_badge::TEXT);
     let still_spoken = nodes_reading(&harness, upload_badge::TEXT);
 
@@ -52,17 +56,21 @@ fn the_graphics_card_indicator_shows_while_meshes_upload_and_not_otherwise() {
 #[test]
 fn the_graphics_card_indicator_asks_for_no_repaint_once_the_uploads_end() {
     let mut harness = Harness::new();
+
     harness.frame();
     for _ in 0..SETTLING_FRAMES {
         harness.frame();
     }
+
     let idle = harness.repaint_after;
 
     uploading(&mut harness, true);
+
     let during = harness.repaint_after;
 
     uploading(&mut harness, false);
     style_the_widgets_shown_anew(&mut harness);
+
     let after = harness.repaint_after;
 
     assert_eq!(idle, Duration::MAX);
@@ -78,26 +86,34 @@ fn upload_stopped(harness: &mut Harness, stopped: bool) {
 #[test]
 fn the_graphics_card_indicator_cancels_and_a_pill_offers_to_continue() {
     let mut harness = Harness::new();
+
     for _ in 0..SETTLING_FRAMES {
         harness.frame();
     }
     uploading(&mut harness, true);
 
     harness.hover("Cancel");
+
     let explained = harness.shows_containing("stay hidden until Continue loading");
+
     harness.click("Cancel");
     harness.frame();
+
     let stopping = harness.workspace.viewport.take_upload_request();
 
     harness.workspace.viewport.set_uploading(false);
     upload_stopped(&mut harness, true);
+
     let during_pill = harness.shows(upload_badge::STOPPED);
     let during_progress = harness.shows(upload_badge::TEXT);
+
     harness.click(upload_badge::CONTINUE);
     harness.frame();
+
     let resuming = harness.workspace.viewport.take_upload_request();
 
     upload_stopped(&mut harness, false);
+
     let after_pill = harness.shows(upload_badge::STOPPED);
     let after_button = harness.shows(upload_badge::CONTINUE);
 
@@ -113,22 +129,30 @@ fn the_graphics_card_indicator_cancels_and_a_pill_offers_to_continue() {
 #[test]
 fn loading_to_the_graphics_card_is_cancelled_and_continued_from_the_palette() {
     let mut harness = Harness::new();
+
     for _ in 0..SETTLING_FRAMES {
         harness.frame();
     }
+
     let idle = offer(&harness, Command::CancelUploading).availability;
+
     uploading(&mut harness, true);
+
     let cancelling = offer(&harness, Command::CancelUploading).availability;
     let continuing_early = offer(&harness, Command::ContinueUploading).availability;
 
     run_from_palette(&mut harness, "cancel loading to the graphics card");
+
     let stopping = harness.workspace.viewport.take_upload_request();
+
     harness.workspace.viewport.set_uploading(false);
     upload_stopped(&mut harness, true);
+
     let continuing = offer(&harness, Command::ContinueUploading).availability;
     let cancelled = offer(&harness, Command::CancelUploading).availability;
 
     run_from_palette(&mut harness, "continue loading to the graphics card");
+
     let resuming = harness.workspace.viewport.take_upload_request();
 
     assert!(idle.is_err());

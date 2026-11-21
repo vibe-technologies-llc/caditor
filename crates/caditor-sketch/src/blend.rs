@@ -13,20 +13,20 @@ const TOLERANCE: f64 = 1e-9;
 const TANGENT_LEG: f64 = 1.0 / 3.0;
 const CURVATURE_LEG: f64 = 1.0 / 5.0;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Continuity {
     #[default]
     Tangent,
     Curvature,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BlendEnd {
     pub curve: EntityId,
     pub point: EntityId,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlendCurve {
     pub control_points: Vec<Point2>,
 }
@@ -39,7 +39,7 @@ impl BlendCurve {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum BlendError {
     #[error("{label} has no end to blend from; choose the end of a line, arc or spline")]
     NoEnds { entity: EntityId, label: String },
@@ -61,7 +61,7 @@ pub enum BlendError {
     Edit(SketchError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Leaving {
     at: Point2,
     direction: Vector2,
@@ -95,15 +95,19 @@ impl Sketch {
                 label: self.entity_label(first.curve),
             });
         }
+
         let (from, to) = (self.leaving(first)?, self.leaving(second)?);
+
         let span = from.at.distance(to.at);
         let extent = from.at.abs().max(to.at.abs()).max_element().max(1.0);
+
         if span <= TOLERANCE * extent {
             return Err(BlendError::EndsMeet {
                 first: self.entity_label(first.curve),
                 second: self.entity_label(second.curve),
             });
         }
+
         let control_points = match continuity {
             Continuity::Tangent => {
                 let leg = span * TANGENT_LEG;
@@ -121,6 +125,7 @@ impl Sketch {
                 vec![start, after, bent, turned, before, end]
             }
         };
+
         if control_points
             .iter()
             .any(|point| !point.is_finite() || point.abs().max_element() > MAX_LENGTH)
@@ -138,11 +143,13 @@ impl Sketch {
     ) -> Result<EntityId, BlendError> {
         let curve = self.blend_curve(first, second, continuity)?;
         let mut working = self.clone();
+
         let made = working.add_spline(&curve.control_points);
         let [start, end] = working
             .ends_of_curve(made)
             .ok_or(BlendError::Edit(SketchError::TooFewControlPoints))?;
         let edit = |result: Result<_, SketchError>| result.map_err(BlendError::Edit);
+
         edit(working.add_constraint(Constraint::Coincident(start, first.point)))?;
         edit(working.add_constraint(Constraint::Coincident(end, second.point)))?;
         for (own, picked) in [(start, first), (end, second)] {
@@ -177,6 +184,7 @@ impl Sketch {
                 label: label(),
             });
         };
+
         let at_start = if end.point == start {
             true
         } else if end.point == finish {
@@ -188,6 +196,7 @@ impl Sketch {
             });
         };
         let missing = || BlendError::Edit(SketchError::MissingEntity(end.curve));
+
         let (at, along, curvature) = match self.entity(end.curve) {
             Some(Entity::Line { .. }) => {
                 let (first, last) = self.line_endpoints(end.curve).ok_or_else(missing)?;
@@ -215,8 +224,10 @@ impl Sketch {
             Some(Entity::Spline { .. }) => {
                 let spline = self.spline(end.curve).ok_or_else(missing)?;
                 let parameter = if at_start { 0.0 } else { 1.0 };
+
                 let [tangent, bend] = spline.derivatives(parameter);
                 let speed = tangent.length();
+
                 let curvature = tangent.perp_dot(bend) / (speed * speed * speed);
                 let at = spline.point_at(parameter);
                 if at_start {
@@ -235,6 +246,7 @@ impl Sketch {
         };
         let length = along.length();
         let scale = at.abs().max_element().max(1.0);
+
         if !(length.is_finite() && length > TOLERANCE * scale) {
             return Err(BlendError::NoDirection {
                 curve: end.curve,

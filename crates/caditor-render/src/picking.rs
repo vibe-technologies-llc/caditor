@@ -27,7 +27,7 @@ const WAIT_SLICE: Duration = Duration::from_millis(50);
 const WAIT_LIMIT: Duration = Duration::from_secs(5);
 const IDLE_RECHECK: Duration = Duration::from_millis(1);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PickWindow {
     radius: u32,
     pixels_per_point: f64,
@@ -94,6 +94,7 @@ impl Waiter {
         let (jobs, receiver) = mpsc::channel::<Awaited>();
         let retired = Arc::new(AtomicBool::new(false));
         let stop = Arc::clone(&retired);
+
         let thread = thread::Builder::new()
             .name("pick-readback".into())
             .spawn(move || {
@@ -167,7 +168,7 @@ struct InFlight {
     stage: Stage,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PickPoll {
     Pending,
     Ready(PickResult),
@@ -203,6 +204,7 @@ impl WindowResources {
             window,
             false,
         );
+
         let targets = PickTargets {
             ids: id_texture.create_view(&wgpu::TextureViewDescriptor::default()),
             depths: depth_texture.create_view(&wgpu::TextureViewDescriptor::default()),
@@ -224,7 +226,7 @@ impl WindowResources {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PickPrepared {
     Ready(PickWindow),
     Busy,
@@ -265,9 +267,11 @@ impl Picking {
             self.resources.window = window;
             return PickPrepared::Ready(window);
         }
+
         let (resources, error) = gpu::scoped(device, || {
             WindowResources::new(device, self.depth_buffer_format, window)
         });
+
         self.resources = resources;
         self.readback_failed = false;
         self.refused = error.is_some();
@@ -290,6 +294,7 @@ impl Picking {
     ) {
         let resources = &self.resources;
         let window = resources.window;
+
         for (texture, offset) in [
             (&resources.id_texture, 0),
             (&resources.depth_texture, window.plane_bytes()),
@@ -336,13 +341,16 @@ impl Picking {
         let Some(in_flight) = self.in_flight.as_mut() else {
             return;
         };
+
         if !matches!(in_flight.stage, Stage::Encoded) {
             return;
         }
+
         let outcome = MapOutcome::default();
         let sink = Arc::clone(&outcome);
         let settled = Arc::new(AtomicBool::new(false));
         let signal = Arc::clone(&settled);
+
         self.resources
             .readback
             .map_async(wgpu::MapMode::Read, .., move |result| {
@@ -350,11 +358,13 @@ impl Picking {
                 signal.store(true, Ordering::Release);
             });
         in_flight.stage = Stage::Mapping(outcome);
+
         let awaited = Awaited {
             device: device.clone(),
             submission,
             settled,
         };
+
         self.watch(awaited, wake);
     }
 
@@ -380,6 +390,7 @@ impl Picking {
         let Stage::Mapping(outcome) = &in_flight.stage else {
             return true;
         };
+
         if outcome.lock().is_some() {
             return true;
         }
@@ -409,9 +420,11 @@ impl Picking {
             })
             | None => return PickPoll::Pending,
         };
+
         if let Err(error) = device.poll(wgpu::PollType::Poll) {
             log::warn!("could not poll the graphics device for picking: {error}");
         }
+
         let Some(outcome) = outcome.lock().take() else {
             return PickPoll::Pending;
         };
@@ -431,6 +444,7 @@ impl Picking {
             self.readback_failed = true;
             return PickPoll::Failed;
         }
+
         let readback = &self.resources.readback;
         let hits = match readback.get_mapped_range(..) {
             Ok(bytes) => decode_hits(
@@ -446,6 +460,7 @@ impl Picking {
                 return PickPoll::Failed;
             }
         };
+
         readback.unmap();
         PickPoll::Ready(PickResult {
             cursor: in_flight.cursor,
@@ -462,6 +477,7 @@ fn pick_texture(
     copied: bool,
 ) -> wgpu::Texture {
     let mut usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
+
     if copied {
         usage |= wgpu::TextureUsages::COPY_SRC;
     }
@@ -508,6 +524,7 @@ fn decode_hits(bytes: &[u8], window: PickWindow, view: &View, cursor: DVec2) -> 
     let center = window_center(cursor);
     let radius = i64::from(window.radius);
     let mut nearest: AHashMap<PickId, PickHit> = AHashMap::new();
+
     for row in 0..window.side() {
         for column in 0..window.side() {
             let offset = u64::from(row * window.row_pitch() + column * TEXEL_BYTES);
@@ -524,6 +541,7 @@ fn decode_hits(bytes: &[u8], window: PickWindow, view: &View, cursor: DVec2) -> 
                 (i64::from(column) - radius) as f64,
                 (i64::from(row) - radius) as f64,
             );
+
             let Some(position) = view.unproject(center + delta, f64::from(depth)) else {
                 continue;
             };
@@ -532,6 +550,7 @@ fn decode_hits(bytes: &[u8], window: PickWindow, view: &View, cursor: DVec2) -> 
                 offset_points: (delta.length() / window.pixels_per_point) as f32,
                 position,
             };
+
             nearest
                 .entry(id)
                 .and_modify(|best| {
@@ -542,7 +561,9 @@ fn decode_hits(bytes: &[u8], window: PickWindow, view: &View, cursor: DVec2) -> 
                 .or_insert(hit);
         }
     }
+
     let mut hits: Vec<PickHit> = nearest.into_values().collect();
+
     hits.sort_by(|a, b| {
         a.offset_points
             .total_cmp(&b.offset_points)
@@ -565,6 +586,7 @@ mod tests {
 
     fn write(bytes: &mut [u8], offset: u64, value: [u8; 4]) {
         let start = offset as usize;
+
         bytes[start..start + 4].copy_from_slice(&value);
     }
 

@@ -16,6 +16,7 @@ const FACES_UNDO: &str = "Change the face colours of Extrude 1";
 
 fn open_card(harness: &mut Harness) -> (FeatureId, crate::selection::Pickable) {
     let (plate, top) = extruded_plate(harness);
+
     harness.select([top]);
     run_from_palette(harness, "body colour and material");
     harness.settle();
@@ -28,6 +29,7 @@ fn open_card(harness: &mut Harness) -> (FeatureId, crate::selection::Pickable) {
 
 fn open_selector(harness: &mut Harness) -> FeatureId {
     let (plate, _) = open_card(harness);
+
     harness.select([]);
     harness.click_button(CUSTOM_COLOUR_NAME);
     harness.settle();
@@ -40,6 +42,7 @@ fn node_rect(harness: &mut Harness, role: Role, label: &str) -> Rect {
         harness.frame();
         harness.frame();
     }
+
     let bounds = harness
         .accessible
         .iter()
@@ -75,15 +78,19 @@ fn brightest_of_default() -> Rgb {
 #[test]
 fn a_custom_colour_applies_once_when_the_pointer_is_released() {
     let mut harness = Harness::new();
+
     let plate = open_selector(&mut harness);
     let before = harness.model.undo_label().map(str::to_owned);
 
     let square = node_rect(&mut harness, Role::Unknown, SQUARE_NAME);
     let corner = square.right_top() + egui::vec2(8.0, -8.0);
+
     hold_drag(&mut harness, square.center(), corner);
+
     let during = harness.model.undo_label().map(str::to_owned);
     let unchanged = body_colour(&harness, plate);
     let previewed = harness.shows(&brightest_of_default().hex());
+
     release_drag(&mut harness, corner);
 
     assert_eq!(during, before);
@@ -101,13 +108,17 @@ fn a_custom_colour_applies_once_when_the_pointer_is_released() {
 #[test]
 fn the_hue_strip_turns_the_colour_and_applies_when_released() {
     let mut harness = Harness::new();
+
     let plate = open_selector(&mut harness);
 
     let strip = node_rect(&mut harness, Role::Slider, HUE_NAME);
     let start = strip.left_center() + egui::vec2(2.0, 0.0);
     let end = strip.left_center() + egui::vec2(-8.0, 0.0);
+
     hold_drag(&mut harness, start, end);
+
     let during = body_colour(&harness, plate);
+
     release_drag(&mut harness, end);
 
     let default = Hsv::of(DEFAULT_COLOUR);
@@ -125,13 +136,17 @@ fn the_hue_strip_turns_the_colour_and_applies_when_released() {
 #[test]
 fn the_hex_field_follows_the_selector_and_a_typed_colour_applies() {
     let mut harness = Harness::new();
+
     let plate = open_selector(&mut harness);
     let hex = colour_selector::hex_id(selector_id(plate, false));
 
     let square = node_rect(&mut harness, Role::Unknown, SQUARE_NAME);
     let corner = square.right_top() + egui::vec2(8.0, -8.0);
+
     hold_drag(&mut harness, square.center(), corner);
+
     let follows = harness.shows(&brightest_of_default().hex());
+
     release_drag(&mut harness, corner);
 
     assert!(follows);
@@ -152,12 +167,15 @@ fn the_hex_field_follows_the_selector_and_a_typed_colour_applies() {
 #[test]
 fn the_arrow_keys_move_the_square_and_the_strip_and_apply_once_when_done() {
     let mut harness = Harness::new();
+
     let plate = open_selector(&mut harness);
     let before = harness.model.undo_label().map(str::to_owned);
 
     press_repeatedly(&mut harness, Key::ArrowLeft, 3);
     press_repeatedly(&mut harness, Key::ArrowDown, 2);
+
     let during = harness.model.undo_label().map(str::to_owned);
+
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
@@ -199,6 +217,7 @@ fn the_arrow_keys_move_the_square_and_the_strip_and_apply_once_when_done() {
 #[test]
 fn the_selector_names_its_colours_for_screen_readers() {
     let mut harness = Harness::new();
+
     open_selector(&mut harness);
     harness.context.enable_accesskit();
     harness.frame();
@@ -216,6 +235,7 @@ fn the_selector_names_its_colours_for_screen_readers() {
 #[test]
 fn custom_colours_join_the_recent_row_kept_in_preferences() {
     let mut harness = Harness::new();
+
     let plate = open_selector(&mut harness);
     let hex = colour_selector::hex_id(selector_id(plate, false));
     let first = Rgb::new(51, 102, 153);
@@ -249,6 +269,7 @@ fn custom_colours_join_the_recent_row_kept_in_preferences() {
 #[test]
 fn selected_faces_take_a_custom_colour_from_the_same_swatch() {
     let mut harness = Harness::new();
+
     let (plate, _) = open_card(&mut harness);
     let hex = colour_selector::hex_id(selector_id(plate, true));
     let purple = Rgb::new(153, 51, 102);
@@ -271,6 +292,7 @@ fn selected_faces_take_a_custom_colour_from_the_same_swatch() {
         [purple]
     );
     assert_eq!(harness.workspace.preferences.recent_colours, [purple]);
+
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();

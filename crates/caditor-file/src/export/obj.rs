@@ -12,7 +12,7 @@ use super::{APPLICATION, ExportError, Look, MeshBody, exported_properties, three
 const LIBRARY_EXTENSION: &str = "mtl";
 const OWN_HEADER: &str = "# caditor ";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Library {
     pub path: PathBuf,
     file_name: String,
@@ -23,6 +23,7 @@ impl Library {
         if bodies.iter().all(|body| body.look.is_none()) {
             return None;
         }
+
         let path = path.with_extension(LIBRARY_EXTENSION);
         let file_name = path.file_name()?.to_str()?.to_owned();
         replaceable(&path).then_some(Self { path, file_name })
@@ -31,12 +32,14 @@ impl Library {
 
 fn replaceable(path: &Path) -> bool {
     let is_link = fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_symlink());
+
     if is_link {
         return false;
     }
     match File::open(path) {
         Ok(file) => {
             let mut start = Vec::with_capacity(OWN_HEADER.len());
+
             let read = file.take(OWN_HEADER.len() as u64).read_to_end(&mut start);
             read.is_ok() && start == OWN_HEADER.as_bytes()
         }
@@ -50,12 +53,14 @@ pub(super) fn encode(
     properties: &ModelProperties,
 ) -> Result<Vec<u8>, ExportError> {
     let mut text = String::new();
+
     write_objects(&mut text, bodies, library, properties).map_err(|_| ExportError::Encoding)?;
     Ok(text.into_bytes())
 }
 
 pub(super) fn encode_library(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
     let mut text = String::new();
+
     write_library(&mut text, bodies).map_err(|_| ExportError::Encoding)?;
     Ok(text.into_bytes())
 }
@@ -78,12 +83,15 @@ fn write_objects(
                 }
             })
             .collect();
+
         writeln!(text, "# {}: {line}", property.label())?;
     }
     if let Some(library) = library {
         writeln!(text, "mtllib {}", library.file_name)?;
     }
+
     let mut first_vertex = 1_usize;
+
     for (index, body) in bodies
         .iter()
         .enumerate()
@@ -109,6 +117,7 @@ fn write_objects(
         }
         for triangle in &body.triangles {
             let [a, b, c] = triangle.map(|index| first_vertex + index as usize);
+
             writeln!(text, "f {a} {b} {c}")?;
         }
         first_vertex += body.positions.len();
@@ -123,6 +132,7 @@ fn write_library(text: &mut String, bodies: &[MeshBody<'_>]) -> fmt::Result {
             continue;
         };
         let channel = |value: u8| f64::from(value) / 255.0;
+
         writeln!(text, "newmtl {}", MaterialName { index, body, look })?;
         writeln!(
             text,

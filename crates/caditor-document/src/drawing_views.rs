@@ -19,7 +19,7 @@ use crate::{
     split::HalfSpaceError,
 };
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum DrawingViewError {
     #[error("there is no body to draw")]
     NoBodies,
@@ -74,7 +74,7 @@ impl StandardView {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Disc {
     pub centre: Point2,
     pub radius: f64,
@@ -94,12 +94,16 @@ impl Disc {
         let along = to - from;
         let offset = from - self.centre;
         let a = along.dot(along);
+
         let b = 2.0 * along.dot(offset);
         let c = offset.dot(offset) - self.radius * self.radius;
+
         let discriminant = b * b - 4.0 * a * c;
+
         if a <= 0.0 || discriminant <= 0.0 {
             return None;
         }
+
         let root = discriminant.sqrt();
         let entering = ((-b - root) / (2.0 * a)).max(0.0);
         let leaving = ((-b + root) / (2.0 * a)).min(1.0);
@@ -114,19 +118,19 @@ impl Disc {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HatchRegion {
     pub edges: Vec<(Point2, Point2)>,
     pub angle: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SectionLines {
     pub cutting: Plane,
     pub hatching: Vec<HatchRegion>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ViewLines {
     pub view: DrawnView,
     pub pieces: Vec<ViewPiece>,
@@ -197,11 +201,12 @@ pub fn drawing_view(view: StandardView, solids: &[&Solid]) -> Result<ViewLines, 
     if solids.is_empty() {
         return Err(DrawingViewError::NoBodies);
     }
+
     let looking = view.hidden_line_view()?;
     lines_seen(DrawnView::Standard(view), &looking, solids)
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct DrawnBodies {
     pub results: Vec<(FeatureId, Arc<FeatureResult>)>,
     pub missing: Vec<FeatureId>,
@@ -219,6 +224,7 @@ impl DrawnBodies {
 
 fn solid_result(evaluation: &Evaluation, body: FeatureId) -> Option<Arc<FeatureResult>> {
     let result = evaluation.body_result(body)?;
+
     result.solid()?;
     Some(Arc::clone(result))
 }
@@ -229,6 +235,7 @@ pub fn drawn_bodies(
     drawing: &Drawing,
 ) -> DrawnBodies {
     let mut drawn = DrawnBodies::default();
+
     if drawing.bodies.is_empty() {
         drawn.results = evaluation
             .bodies()

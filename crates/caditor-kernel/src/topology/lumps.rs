@@ -23,7 +23,7 @@ const MAX_PROBES: usize = 1024;
 const HOLDING_PROBES: usize = 64;
 const DEVIATION_ALLOWANCE: f64 = 2.0;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct ShellMesh {
     pub(super) triangles: Vec<[Point3; 3]>,
     pub(super) faces: Vec<FaceId>,
@@ -40,7 +40,7 @@ pub(super) struct Lump<'a> {
     feet: Vec<OnceCell<Option<Point3>>>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Probe {
     At(Point3),
     Within(usize),
@@ -121,6 +121,7 @@ impl<'a> Lump<'a> {
         if !boxes_overlap(&self.bounds, &Aabb::from_point(point), LINEAR_RESOLUTION) {
             return Placement::Outside;
         }
+
         let indexed = self
             .index
             .get_or_init(|| TriangleIndex::new(&self.mesh.triangles));
@@ -136,6 +137,7 @@ impl<'a> Lump<'a> {
             return Placement::Outside;
         };
         let band = LINEAR_RESOLUTION + DEVIATION_ALLOWANCE * self.deviation(solid, index);
+
         if distance.is_nan() || distance <= band {
             return Placement::Touching;
         }
@@ -190,6 +192,7 @@ impl<'a> Lump<'a> {
     fn depth_at(&self, solid: &Solid, others: &[&Lump], probe: Point3) -> Depth {
         let mut depth = 0;
         let (mut lump, mut void) = (None, None);
+
         for other in others {
             match other.place(solid, probe) {
                 Placement::Inside => {
@@ -230,9 +233,11 @@ impl<'a> Lump<'a> {
                     })
                 })
             });
+
         if !apart.is_empty() && self.sense == Sense::Reversed {
             return Err(ValidationError::VoidOutside(self.id));
         }
+
         let mut decided = !apart.is_empty();
         let mut contact = Contact::Untested;
         let stride = near.len().div_ceil(MAX_PROBES).max(1);
@@ -240,6 +245,7 @@ impl<'a> Lump<'a> {
             .into_iter()
             .step_by(stride)
             .filter_map(|probe| self.exact(solid, probe));
+
         for probe in exact {
             interrupt::check()?;
             match self.depth_at(solid, others, probe) {
@@ -279,6 +285,7 @@ pub(super) fn check(solid: &Solid, lumps: &[Lump]) -> Result<(), ValidationError
         .iter()
         .filter(|lump| lump.sense == Sense::Reversed)
         .chain(lumps.iter().filter(|lump| lump.sense == Sense::Same));
+
     for lump in voids_first {
         let others: Vec<&Lump> = tree
             .overlapping(&lump.bounds, LINEAR_RESOLUTION)
@@ -286,6 +293,7 @@ pub(super) fn check(solid: &Solid, lumps: &[Lump]) -> Result<(), ValidationError
             .filter_map(|index| lumps.get(index))
             .filter(|other| other.id != lump.id)
             .collect();
+
         if others.is_empty() && lump.sense == Sense::Same {
             continue;
         }
@@ -327,9 +335,11 @@ pub(super) fn apart(solid: &Solid) -> Result<Vec<Solid>, ValidationError> {
         .iter()
         .map(|outer| (outer.id, BTreeSet::from([outer.id])))
         .collect();
+
     for void in voids {
         let holder =
             holder_of(&alone(void)?, &outers)?.ok_or(ValidationError::VoidOutside(void))?;
+
         held.entry(holder).or_default().insert(void);
     }
 
@@ -338,6 +348,7 @@ pub(super) fn apart(solid: &Solid) -> Result<Vec<Solid>, ValidationError> {
             let lump = solid
                 .keeping_shells(shells)
                 .ok_or(ValidationError::MissingEntity)?;
+
             lump.validate()?;
             Ok(lump)
         })
@@ -351,13 +362,16 @@ fn holder_of(void: &Solid, outers: &[Outer]) -> Result<Option<ShellId>, Interrup
     let points = shell_points(void);
 
     let mut holder: Option<(ShellId, f64)> = None;
+
     for outer in outers {
         let Some(bounds) = outer.bounds.filter(|bounds| encloses(bounds, &inner)) else {
             continue;
         };
+
         if !holds(&outer.classifier, &points)? {
             continue;
         }
+
         let size = bounds.diagonal();
         if holder.is_none_or(|(_, least)| size < least) {
             holder = Some((outer.id, size));
@@ -374,6 +388,7 @@ fn shell_points(shell: &Solid) -> Vec<Point3> {
         })
     });
     let corners = shell.vertices().map(|(_, vertex)| vertex.point());
+
     let points: Vec<Point3> = along_edges.chain(corners).collect();
 
     let stride = points.len().div_ceil(HOLDING_PROBES).max(1);
@@ -407,32 +422,45 @@ fn encloses(outer: &Aabb, inner: &Aabb) -> bool {
 
 fn closest_on_triangle(point: Point3, [a, b, c]: &[Point3; 3]) -> Point3 {
     let (ab, ac, ap) = (*b - *a, *c - *a, point - *a);
+
     let (d1, d2) = (ab.dot(ap), ac.dot(ap));
+
     if d1 <= 0.0 && d2 <= 0.0 {
         return *a;
     }
+
     let bp = point - *b;
     let (d3, d4) = (ab.dot(bp), ac.dot(bp));
+
     if d3 >= 0.0 && d4 <= d3 {
         return *b;
     }
+
     let cp = point - *c;
     let (d5, d6) = (ab.dot(cp), ac.dot(cp));
+
     if d6 >= 0.0 && d5 <= d6 {
         return *c;
     }
+
     let toward_c = d1 * d4 - d3 * d2;
+
     if toward_c <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
         return *a + ab * (d1 / (d1 - d3));
     }
+
     let toward_b = d5 * d2 - d1 * d6;
+
     if toward_b <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
         return *a + ac * (d2 / (d2 - d6));
     }
+
     let toward_a = d3 * d6 - d5 * d4;
+
     if toward_a <= 0.0 && d4 >= d3 && d5 >= d6 {
         return *b + (*c - *b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
     }
+
     let total = toward_a + toward_b + toward_c;
     let inside = *a + ab * (toward_b / total) + ac * (toward_c / total);
     if inside.is_finite() { inside } else { *a }

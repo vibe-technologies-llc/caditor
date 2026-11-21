@@ -13,12 +13,14 @@ use crate::{
 impl Document {
     pub fn inline_parameter(&self, id: ParameterId) -> Result<Transaction, EditError> {
         let parameter = self.parameter(id).ok_or(EditError::MissingParameter)?;
+
         if let Some(measurement) = self.measurement_of(id) {
             return Err(EditError::MeasuredParameterInlined {
                 name: parameter.name.clone(),
                 measurement: measurement.name.clone(),
             });
         }
+
         let inline = |expression: &Expression, user: &str| {
             expression
                 .inlining(id, &parameter.expression)
@@ -29,6 +31,7 @@ impl Document {
         };
 
         let mut edits = Vec::new();
+
         for other in self.parameters() {
             if other.expression.uses(id) {
                 edits.push(Edit::SetParameterExpression {
@@ -51,6 +54,7 @@ impl Document {
                 for (text, held) in sketch.sketch.texts() {
                     if held.uses(id) {
                         let mut inlined = held.clone();
+
                         for expression in [&mut inlined.height, &mut inlined.angle] {
                             if expression.uses(id) {
                                 *expression = inline(expression, &feature.name)?;
@@ -66,6 +70,7 @@ impl Document {
                 for (gear, held) in sketch.sketch.gears() {
                     if held.uses(id) {
                         let mut inlined = held.clone();
+
                         for expression in inlined.expressions_mut() {
                             if expression.uses(id) {
                                 *expression = inline(expression, &feature.name)?;
@@ -80,6 +85,7 @@ impl Document {
                 }
             } else if feature.kind.uses_parameter(id) {
                 let mut kind = feature.kind.clone();
+
                 for expression in expressions_mut(&mut kind) {
                     if expression.uses(id) {
                         *expression = inline(expression, &feature.name)?;
@@ -92,6 +98,7 @@ impl Document {
             }
             if feature.appearance.uses_parameter(id) {
                 let mut appearance = feature.appearance.clone();
+
                 if let Some(density) = &mut appearance.density {
                     *density = inline(density, &feature.name)?;
                 }
@@ -109,6 +116,7 @@ impl Document {
                         density: Some(inline(density, &feature.name)?),
                         ..look.clone()
                     };
+
                     edits.push(Edit::SetBodyAppearance {
                         id: piece,
                         appearance,
@@ -129,11 +137,13 @@ impl Document {
         let id = parameter.id();
         let mut drawings = self.drawings().clone();
         let mut changed = false;
+
         for drawing in &mut drawings.drawings {
             for section in &mut drawing.sections {
                 let SectionPlace::Offset(offset) = &mut section.place else {
                     continue;
                 };
+
                 if !offset.uses(id) {
                     continue;
                 }
@@ -155,15 +165,20 @@ impl Document {
         let id = parameter.id();
         let mut table = Configurations::clone(self.configurations());
         let column = ConfiguredValue::Parameter(id);
+
         let named = table.configures(column) || !self.configuration_users(id).is_empty();
+
         if !named {
             return Ok(None);
         }
+
         let active = table.active;
+
         for row in &mut table.rows {
             if active == Some(row.id) {
                 continue;
             }
+
             let own = match row.settings.get(&column) {
                 Some(Setting::Expression(expression)) => expression.clone(),
                 _ => parameter.expression.clone(),
@@ -200,10 +215,12 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
                 ExtrudeExtent::OneSide { end, .. } => end.expressions_mut(),
                 ExtrudeExtent::TwoSides { forward, backward } => {
                     let mut ends = forward.expressions_mut();
+
                     ends.extend(backward.expressions_mut());
                     ends
                 }
             };
+
             expressions.extend(start_distance(&mut extrude.start));
             expressions.extend(extrude.taper.as_deref_mut());
             expressions.extend(extrude.wall.as_deref_mut().map(|wall| &mut wall.thickness));
@@ -211,6 +228,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         }
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
             let mut expressions = revolve.extent.expressions_mut();
+
             expressions.extend(start_distance(&mut revolve.start));
             expressions.extend(revolve.wall.as_deref_mut().map(|wall| &mut wall.thickness));
             expressions

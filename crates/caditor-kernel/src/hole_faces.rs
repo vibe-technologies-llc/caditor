@@ -11,7 +11,7 @@ use crate::{
 
 const AXIS_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Axis {
     origin: Point3,
     direction: Vector3,
@@ -51,6 +51,7 @@ impl Axis {
 
 pub fn hole_faces(solid: &Solid, faces: &[FaceId]) -> Vec<FaceId> {
     let mut chosen = BTreeSet::new();
+
     for seed in faces {
         let Some(axis) = solid
             .face(*seed)
@@ -60,6 +61,7 @@ pub fn hole_faces(solid: &Solid, faces: &[FaceId]) -> Vec<FaceId> {
             continue;
         };
         let mut queue = vec![*seed];
+
         chosen.insert(*seed);
         while let Some(face) = queue.pop() {
             for neighbour in neighbours(solid, face) {
@@ -195,6 +197,7 @@ mod tests {
             line(16, (0.0, 12.0), (0.0, 2.0)),
         ]);
         let axis = Axis2::new(Point2::ZERO, Vector2::Y).unwrap();
+
         let drill = revolve(&Plane::XZ, &section, axis, AngularExtent::full(), 2).unwrap();
         boolean(&plate, &drill, BooleanOperation::Difference).unwrap()
     }
@@ -218,6 +221,7 @@ mod tests {
         for cylinder in &cylinders {
             assert!(hole.contains(cylinder));
         }
+
         assert_eq!(hole.len(), cylinders.len() + 2, "{hole:?}");
         assert_eq!(planes.len(), 8);
         assert!(hole_faces(&plate, &planes).is_empty());

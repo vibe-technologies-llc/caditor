@@ -45,13 +45,16 @@ fn a_flat_spiral_lies_on_its_archimedean_spiral_in_the_frame_s_plane() {
         let pieces = spiral(&spec).unwrap();
 
         assert_eq!(pieces.len(), turns.ceil() as usize);
+
         let mut previous = 0.0;
+
         for turn in &pieces {
             let range = turn.range();
             for step in 0..=400 {
                 let point = turn.curve().point(range.at(f64::from(step) / 400.0));
                 let turned = (point.y.atan2_libm(point.x) - previous + PI).rem_euclid(TAU) - PI;
                 let angle = previous + turned;
+
                 previous = angle;
 
                 assert!(point.z.abs() < 1e-12, "{point}");
@@ -63,6 +66,7 @@ fn a_flat_spiral_lies_on_its_archimedean_spiral_in_the_frame_s_plane() {
                 );
             }
         }
+
         let (start, end) = start_and_end(&pieces);
 
         assert!((previous - spec.sweep()).abs() < 1e-9, "{previous}");
@@ -192,6 +196,7 @@ fn a_pipe_follows_a_flat_spiral_into_a_valid_watertight_clock_spring() {
     let reach = spec.radius.hypot_libm(growth);
     let sweep = spec.sweep();
     let area = PI * 0.25 * size * size;
+
     let expected = area / reach
         * ((spec.radius.powi(2) + growth.powi(2)) * sweep
             + growth * spec.radius * sweep * sweep / 2.0);
@@ -202,10 +207,12 @@ fn a_pipe_follows_a_flat_spiral_into_a_valid_watertight_clock_spring() {
         .volume;
 
     assert_eq!(solid.validate(), Ok(()));
+
     assert_watertight(
         "pipe along a flat spiral",
         &solid.tessellate(&solid.default_tolerance()).unwrap(),
     );
+
     assert!(
         (measured - expected).abs() < 1e-3 * expected,
         "{measured} against {expected}"
@@ -233,16 +240,20 @@ fn assert_lies_on_its_law(spec: &SpiralSpec) {
     let pieces = spiral(spec).unwrap();
     let mut previous = 0.0;
     let mut joined: Option<Point3> = None;
+
     for turn in &pieces {
         let range = turn.range();
+
         if let Some(end) = joined {
             let start = turn.curve().point(range.start());
+
             assert!(start.distance(end) < 1e-9, "{start} then {end}");
         }
         for step in 0..=200 {
             let point = turn.curve().point(range.at(f64::from(step) / 200.0));
             let turned = (point.y.atan2_libm(point.x) - previous + PI).rem_euclid(TAU) - PI;
             let angle = previous + turned;
+
             previous = angle;
 
             assert!(point.z.abs() < 1e-12, "{point}");
@@ -254,6 +265,7 @@ fn assert_lies_on_its_law(spec: &SpiralSpec) {
         }
         joined = Some(turn.curve().point(range.end()));
     }
+
     assert!((previous - spec.sweep()).abs() < 1e-9, "{previous}");
 }
 
@@ -329,6 +341,7 @@ fn a_flat_spiral_of_changing_pitch_is_judged_by_its_narrowest_pitch() {
     let across = 2.5;
     let narrow = progressive_spiral(6.0, 3.0, 6.0, 4.0);
     let narrow_end = progressive_spiral(6.0, 6.0, 2.0, 4.0);
+
     let least = narrow.least_pitch_for(across);
 
     assert_eq!(narrow_end.narrowest_pitch(), 2.0);
@@ -379,10 +392,12 @@ fn a_pipe_follows_a_flat_spiral_of_changing_pitch_into_a_valid_watertight_solid(
         .volume;
 
     assert_eq!(solid.validate(), Ok(()));
+
     assert_watertight(
         "pipe along a changing flat spiral",
         &solid.tessellate(&solid.default_tolerance()).unwrap(),
     );
+
     assert!(
         (measured - expected).abs() < 2e-2 * expected,
         "{measured} against {expected}"

@@ -26,13 +26,16 @@ fn parameters_export_to_csv_and_import_back_after_a_preview_as_one_change() {
     harness.wait_until("the parameters are exported", |harness| {
         notice_says(harness, "Exported 2 parameters")
     });
+
     let written = fs::read_to_string(dir.path().join("dimensions.csv")).unwrap();
+
     assert_eq!(
         written,
         "caditor-parameter-file,1\r\nname,expression,value,note\r\nwidth,40 mm,40 mm,\r\nheight,width / 2,20 mm,\r\n"
     );
 
     let edited = dir.path().join("edited.csv");
+
     fs::write(
         &edited,
         "name,expression,note\nwidth,60 mm,\ndepth,height + 5 mm,how deep\n2bad,1 mm,\nloop,loop,\n",
@@ -43,6 +46,7 @@ fn parameters_export_to_csv_and_import_back_after_a_preview_as_one_change() {
     harness.wait_until("the preview opens", |harness| {
         harness.shows("Import parameters from “edited.csv”")
     });
+
     assert!(harness.shows("1 parameter is already in the model with another value."));
     assert!(
         harness.shows("2 rows cannot be imported and will be left out; the reason is beside each.")
@@ -54,6 +58,7 @@ fn parameters_export_to_csv_and_import_back_after_a_preview_as_one_change() {
     harness.settle();
 
     let document = harness.document();
+
     assert_eq!(
         document.parameter_named("width").unwrap().expression,
         document.parse("60 mm").unwrap()
@@ -76,6 +81,7 @@ fn a_file_without_the_columns_is_refused_in_words() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::new();
     let file = dir.path().join("list.csv");
+
     fs::write(&file, "a,b\n1,2\n").unwrap();
 
     harness.answer_dialog(Some(file));
@@ -91,6 +97,7 @@ fn a_file_without_the_columns_is_refused_in_words() {
 
 fn import_file(harness: &mut Harness, dir: &TempDir, contents: &str) {
     let file = dir.path().join("rows.csv");
+
     fs::write(&file, contents).unwrap();
 
     harness.answer_dialog(Some(file));
@@ -115,6 +122,7 @@ fn an_import_that_left_a_row_out_is_a_warning_counting_both() {
     );
 
     let notice = harness.model.notice().unwrap();
+
     assert_eq!(notice.kind, NoticeKind::Warning);
     assert!(
         notice
@@ -138,6 +146,7 @@ fn an_import_that_left_nothing_out_stays_a_success() {
     );
 
     let notice = harness.model.notice().unwrap();
+
     assert_eq!(notice.kind, NoticeKind::Success);
     assert!(notice.text.contains("added 1 parameter"), "{}", notice.text);
 }
@@ -150,7 +159,9 @@ fn an_import_taking_the_model_past_what_a_file_opens_is_refused_in_words() {
     let rows: String = (0..MAX_PARAMETER_ROWS)
         .map(|index| format!("filler_{index},1 mm\n"))
         .collect();
+
     fs::write(&file, format!("name,expression\n{rows}")).unwrap();
+
     let parameters = harness.document().parameters().len();
 
     harness.answer_dialog(Some(file));

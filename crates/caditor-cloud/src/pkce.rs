@@ -46,6 +46,7 @@ pub fn boundary() -> Result<String, Error> {
 
 fn random_text<const BYTES: usize>() -> Result<String, Error> {
     let mut bytes = [0_u8; BYTES];
+
     random::fill(&mut bytes).map_err(|_| Error::RandomUnavailable)?;
     Ok(base64_url(&bytes))
 }

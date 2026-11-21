@@ -33,7 +33,7 @@ const MOVE_ITERATIONS: usize = 32;
 const SETTLED_STEP: f64 = 1e-3 * LINEAR_RESOLUTION;
 const ON_ROW: f64 = 1e-2 * LINEAR_RESOLUTION;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum RoundingError {
     #[error("a rounded face could not be shaped: {0}")]
     Geometry(#[from] GeometryError),
@@ -90,6 +90,7 @@ fn fillet_surface(stations: &Stations) -> Result<Surface, GeometryError> {
         .iter()
         .map(|point| point.x)
         .collect();
+
     if !middle_weights
         .iter()
         .all(|weight| weight.is_finite() && *weight > 0.0)
@@ -98,6 +99,7 @@ fn fillet_surface(stations: &Stations) -> Result<Surface, GeometryError> {
             middle_weights.iter().copied().fold(f64::INFINITY, f64::min),
         ));
     }
+
     let middle: Vec<Point3> = scaled
         .control_points()
         .iter()
@@ -168,9 +170,11 @@ fn targets(
 ) -> Result<(Vec<Target>, Vec<Joint>), GeometryError> {
     let mut targets = Vec::new();
     let mut joints = Vec::new();
+
     for chain in rounded {
         for (stations, chord) in chain.runs.iter().zip(&chain.chords) {
             let [first, second] = foot_rows(stations)?;
+
             targets.push(Target {
                 name: stations.name.name,
                 chord: chord_surface(chord)?,
@@ -181,6 +185,7 @@ fn targets(
                     side_names(original, &stations.sides.candidates[1]),
                 ],
             });
+
             let ends = [
                 (stations.crosses.first(), chord.outlines.first()),
                 (stations.crosses.last(), chord.outlines.last()),
@@ -189,6 +194,7 @@ fn targets(
                 let (Some(cross), Some(shape)) = (cross, shape) else {
                     return Err(GeometryError::ZeroDirection);
                 };
+
                 joints.push(Joint {
                     chord: shape.chord,
                     arc: arc_curve(cross)?.into(),
@@ -253,9 +259,11 @@ fn faces_of(solid: &Solid, edge: EdgeId) -> Vec<FaceId> {
 fn segment_distance(point: Point3, ends: [Point3; 2]) -> f64 {
     let along = ends[1] - ends[0];
     let length = along.length_squared();
+
     if length <= 0.0 {
         return point.distance(ends[0]);
     }
+
     let fraction = ((point - ends[0]).dot(along) / length).clamp(0.0, 1.0);
     point.distance(ends[0] + along * fraction)
 }
@@ -264,6 +272,7 @@ fn restricted(curve: &Curve, from: Point3, to: Point3) -> Option<(Curve, Interva
     let domain = curve.domain().clipped(MAX_SIZE);
     let start = curve.closest_parameter(from, domain);
     let end = curve.closest_parameter(to, domain);
+
     if curve.point(start).distance(from) > LINEAR_RESOLUTION
         || curve.point(end).distance(to) > LINEAR_RESOLUTION
     {
@@ -272,6 +281,7 @@ fn restricted(curve: &Curve, from: Point3, to: Point3) -> Option<(Curve, Interva
     if start < end {
         return Some((curve.clone(), Interval::new(start, end)?));
     }
+
     let reversed = curve.reversed();
     Interval::new(
         curve.reversed_parameter(start),
@@ -305,6 +315,7 @@ fn traced(
     let interval = definition.interval();
     let count = TRACE_SAMPLES;
     let mut points = Vec::with_capacity(count + 1);
+
     points.push(start);
     for index in 1..count {
         let parameter = interval.start() + interval.length() * index as f64 / count as f64;
@@ -313,9 +324,11 @@ fn traced(
             .first
             .try_normalize()
             .ok_or(RoundingError::Untraced)?;
+
         points.push(on_both(surfaces, derivatives.point, across).ok_or(RoundingError::Untraced)?);
     }
     points.push(end);
+
     let curve = IntersectionCurve::through(
         [surfaces[0].clone(), surfaces[1].clone()],
         &points,
@@ -323,8 +336,10 @@ fn traced(
     )
     .ok_or(RoundingError::Untraced)?;
     let domain = curve.domain();
+
     let fits = curve.point(domain.start()).distance(start) <= LINEAR_RESOLUTION
         && curve.point(domain.end()).distance(end) <= LINEAR_RESOLUTION;
+
     if !fits {
         return Err(RoundingError::Untraced);
     }
@@ -353,6 +368,7 @@ fn foot_of<'a>(
     let [first, second] = faces.as_slice() else {
         return None;
     };
+
     let (index, face) = match (swapped.get(first), swapped.get(second)) {
         (Some(index), None) => (index, *second),
         (None, Some(index)) => (index, *first),
@@ -400,6 +416,7 @@ fn new_curve(
     let [first, second] = faces.as_slice() else {
         return Err(RoundingError::Untraced);
     };
+
     let surface_of = |face: FaceId| -> Option<&Surface> {
         match swapped.get(&face) {
             Some(index) => targets.get(*index).map(|target| &target.fillet),
@@ -416,6 +433,7 @@ fn new_curve(
             {
                 return Ok(found);
             }
+
             let (Some(a), Some(b)) = (surface_of(*first), surface_of(*second)) else {
                 return Err(RoundingError::Untraced);
             };
@@ -428,6 +446,7 @@ fn new_curve(
                 *first
             };
             let target = targets.get(*index).ok_or(RoundingError::Unmatched)?;
+
             if let Some(foot) = feet.get(&edge)
                 && let Some(found) = restricted(foot.row, start, end)
             {
@@ -443,6 +462,7 @@ fn new_curve(
             {
                 return Ok(found);
             }
+
             let other_surface = solid
                 .face(other)
                 .map(|face| face.surface())
@@ -455,6 +475,7 @@ fn new_curve(
 
 fn edges_at_vertices(solid: &Solid) -> BTreeMap<VertexId, Vec<EdgeId>> {
     let mut found: BTreeMap<VertexId, Vec<EdgeId>> = BTreeMap::new();
+
     for (id, edge) in solid.edges() {
         found.entry(edge.start()).or_default().push(id);
         if edge.end() != edge.start() {
@@ -466,13 +487,17 @@ fn edges_at_vertices(solid: &Solid) -> BTreeMap<VertexId, Vec<EdgeId>> {
 
 fn foot_parameter(curve: &Curve, point: Point3, from: f64) -> f64 {
     let mut parameter = from;
+
     for _ in 0..MOVE_ITERATIONS {
         let derivatives = curve.evaluate(parameter);
         let speed = derivatives.first.length_squared();
+
         if !speed.is_finite() || speed <= f64::MIN_POSITIVE {
             break;
         }
+
         let step = (point - derivatives.point).dot(derivatives.first) / speed;
+
         parameter += step;
         if step.abs() * speed.sqrt() <= SETTLED_STEP {
             break;
@@ -484,28 +509,39 @@ fn foot_parameter(curve: &Curve, point: Point3, from: f64) -> f64 {
 fn crossing(row: &Curve, guide: &Curve, starts: [f64; 2], face: &Surface) -> Option<[f64; 2]> {
     let [mut along, mut on_guide_at] = starts;
     let mut hint: Option<Point2> = None;
+
     for _ in 0..MOVE_ITERATIONS {
         let on_row = row.evaluate(along);
+
         on_guide_at = foot_parameter(guide, on_row.point, on_guide_at);
+
         let on_guide = guide.evaluate(on_guide_at);
         let uv = face.project(on_guide.point, hint);
+
         hint = Some(uv);
+
         let across = face
             .normal(uv.x, uv.y)?
             .cross(on_guide.first)
             .try_normalize()?;
         let rate = on_row.first.dot(across);
+
         if !rate.is_finite() || rate.abs() <= f64::MIN_POSITIVE {
             return None;
         }
+
         let step = (on_row.point - on_guide.point).dot(across) / rate;
+
         along -= step;
         if step.abs() * on_row.first.length() <= SETTLED_STEP {
             break;
         }
     }
+
     let on_row = row.point(along);
+
     on_guide_at = foot_parameter(guide, on_row, on_guide_at);
+
     let within = row.domain().clipped(MAX_SIZE).contains(along);
     let met = on_row.distance(guide.point(on_guide_at)) <= LINEAR_RESOLUTION;
     (within && met).then_some([along, on_guide_at])
@@ -534,11 +570,13 @@ fn guide_at<'a>(
     match untouched.as_slice() {
         [edge] => {
             let definition = solid.edge(*edge)?;
+
             if definition.start() == definition.end()
                 || !faces_of(solid, *edge).contains(&foot.face)
             {
                 return None;
             }
+
             let at_start = definition.start() == vertex;
             let interval = definition.interval();
             Some(Guide {
@@ -579,6 +617,7 @@ fn onto_rows(
 ) -> Moves {
     let around = edges_at_vertices(solid);
     let mut moves = Moves::default();
+
     for (edge, foot) in feet {
         let Some(definition) = solid.edge(*edge) else {
             continue;
@@ -587,20 +626,25 @@ fn onto_rows(
             if moves.vertices.contains_key(&vertex) {
                 continue;
             }
+
             let Some(point) = solid.vertex(vertex).map(|vertex| vertex.point()) else {
                 continue;
             };
             let domain = foot.row.domain().clipped(MAX_SIZE);
+
             let along = foot.row.closest_parameter(point, domain);
+
             if foot.row.point(along).distance(point) <= ON_ROW {
                 continue;
             }
+
             let (Some(edges), Some(face)) = (around.get(&vertex), solid.face(foot.face)) else {
                 continue;
             };
             let Some(guide) = guide_at(solid, vertex, point, foot, edges, touched, feet) else {
                 continue;
             };
+
             let Some([along, on_guide]) = crossing(
                 foot.row,
                 guide.curve,
@@ -609,6 +653,7 @@ fn onto_rows(
             ) else {
                 continue;
             };
+
             if let Some((guided, at_start)) = guide.edge {
                 let Some(guided_definition) = solid.edge(guided) else {
                     continue;
@@ -627,6 +672,7 @@ fn onto_rows(
                 let Some(reached) = reached else {
                     continue;
                 };
+
                 moves.edges.insert(guided, (curve, reached));
             }
             moves.vertices.insert(vertex, foot.row.point(along));
@@ -639,6 +685,7 @@ fn new_sense(solid: &Solid, face: FaceId, fillet: &Surface) -> Option<Sense> {
     let definition = solid.face(face)?;
     let old = definition.surface();
     let sign = definition.sense().sign();
+
     let votes: f64 = face_edges(solid, face)
         .into_iter()
         .filter_map(|edge| edge_samples(solid, edge, 2).get(1).copied())
@@ -673,12 +720,14 @@ fn carried(solid: &Solid, edge: EdgeId, changes: &Changes) -> bool {
 
 fn rebuilt(solid: &Solid, changes: &Changes) -> Result<Solid, RoundingError> {
     let mut builder = SolidBuilder::new();
+
     for (id, vertex) in solid.vertices() {
         let point = changes
             .vertices
             .get(&id)
             .copied()
             .unwrap_or_else(|| vertex.point());
+
         builder.vertex(point)?;
     }
     for (id, edge) in solid.edges() {
@@ -687,10 +736,14 @@ fn rebuilt(solid: &Solid, changes: &Changes) -> Result<Solid, RoundingError> {
             .get(&id)
             .cloned()
             .unwrap_or_else(|| (edge.curve().clone(), edge.interval()));
+
         let built = builder.edge(curve, interval, edge.start(), edge.end())?;
+
         builder.set_edge_name(built, edge.name())?;
     }
+
     let mut shells = BTreeMap::new();
+
     for (id, _) in solid.shells() {
         shells.insert(id, builder.shell()?);
     }
@@ -701,11 +754,14 @@ fn rebuilt(solid: &Solid, changes: &Changes) -> Result<Solid, RoundingError> {
             .get(&id)
             .cloned()
             .unwrap_or_else(|| (face.surface().clone(), face.sense()));
+
         let built = builder.face(shell, surface.clone(), sense)?;
+
         builder.set_face_name(built, face.name())?;
         if let Some(origin) = face.origin() {
             builder.set_face_origin(built, origin)?;
         }
+
         let refit_all = changes.faces.contains_key(&id);
         for loop_id in face.loops() {
             let Some(face_loop) = solid.face_loop(*loop_id) else {
@@ -719,19 +775,25 @@ fn rebuilt(solid: &Solid, changes: &Changes) -> Result<Solid, RoundingError> {
                     Some((*coedge, data.edge(), data.sense()))
                 })
                 .collect();
+
             if refit_all {
                 let uses: Vec<(EdgeId, Sense)> = coedges
                     .iter()
                     .map(|(_, edge, sense)| (*edge, *sense))
                     .collect();
+
                 builder.add_loop(built, &uses)?;
                 continue;
             }
+
             let mut with_pcurves = Vec::with_capacity(coedges.len());
             let mut settled = Vec::with_capacity(coedges.len());
+
             for (coedge, edge, sense) in coedges {
                 let data = solid.coedge(coedge).ok_or(RoundingError::Unmatched)?;
+
                 settled.push(carried(solid, edge, changes));
+
                 let pcurve = match changes.edges.get(&edge) {
                     Some((curve, interval)) => fit_pcurve(
                         &surface,
@@ -743,9 +805,12 @@ fn rebuilt(solid: &Solid, changes: &Changes) -> Result<Solid, RoundingError> {
                     .map_err(|error| BuildError::pcurve(edge, error))?,
                     None => data.pcurve().clone(),
                 };
+
                 with_pcurves.push((edge, sense, pcurve));
             }
+
             let built_loop = builder.add_loop_with_pcurves(built, with_pcurves)?;
+
             builder.settle(built_loop, &settled);
         }
     }
@@ -760,22 +825,27 @@ pub(super) fn round(
     if rounded.is_empty() {
         return Ok(solid.clone());
     }
+
     let (targets, joints) = targets(original, rounded)?;
     let names: BTreeSet<FaceName> = targets.iter().map(|target| target.name).collect();
     let mut swapped = BTreeMap::new();
     let mut faces = BTreeMap::new();
+
     for (id, face) in solid.faces() {
         if !names.contains(&face.name()) {
             continue;
         }
+
         let Some(index) = matching_target(solid, id, &targets) else {
             continue;
         };
         let target = targets.get(index).ok_or(RoundingError::Unmatched)?;
         let sense = new_sense(solid, id, &target.fillet).ok_or(RoundingError::Unmatched)?;
+
         swapped.insert(id, index);
         faces.insert(id, (target.fillet.clone(), sense));
     }
+
     let touched: BTreeSet<EdgeId> = swapped
         .keys()
         .flat_map(|face| face_edges(solid, *face))
@@ -784,6 +854,7 @@ pub(super) fn round(
         .iter()
         .filter_map(|edge| Some((*edge, foot_of(solid, *edge, &swapped, &targets)?)))
         .collect();
+
     let Moves {
         vertices,
         edges: mut changed,
@@ -794,6 +865,7 @@ pub(super) fn round(
         joints: &joints,
         feet,
     };
+
     for edge in touched {
         crate::interrupt::check()?;
         changed.insert(edge, new_curve(solid, edge, &rounding, &vertices)?);

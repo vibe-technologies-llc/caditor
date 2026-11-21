@@ -81,6 +81,7 @@ impl Panel<'_> {
 
     fn apply(&mut self, image: ReferenceImage) {
         let change = self.change(image);
+
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
@@ -88,13 +89,16 @@ impl Panel<'_> {
     fn description(&mut self, ui: &mut Ui) {
         let picture = &self.image.picture;
         let size = picture.size();
+
         let text = format!(
             "A {} picture, {} by {} pixels, to trace over",
             picture.format().name(),
             size.width,
             size.height
         );
+
         feature_fields::description_row(ui, &text);
+
         let digest = picture.digest();
         let textures = self.model.pictures();
         if let Some(reason) = textures.failure(digest) {
@@ -117,8 +121,10 @@ impl Panel<'_> {
         if let ImagePlane::Sketch(sketch) = &self.image.plane {
             let name = feature_fields::feature_name(self.model.document(), *sketch)
                 .unwrap_or(feature_fields::MISSING_SKETCH);
+
             feature_fields::description_row(ui, &format!("It lies on the plane of “{name}”."));
         }
+
         let picker = Picker {
             feature: self.id(),
             slot: Slot::ImagePlace,
@@ -140,6 +146,7 @@ impl Panel<'_> {
             remove: None,
         };
         let mut actions = Vec::new();
+
         plane_selector::row(
             ui,
             self.model,
@@ -169,11 +176,13 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, self.model, caption, quantity, |value| {
                 image_tools::change(self.model, self.id(), changed(value))
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
     fn position_rows(&mut self, ui: &mut Ui) {
         let keys = ["along", "across"];
+
         for (index, (caption, key)) in feature_fields::POSITION_CAPTIONS
             .into_iter()
             .zip(keys)
@@ -183,6 +192,7 @@ impl Panel<'_> {
                 continue;
             };
             let image = self.image.clone();
+
             self.value_row(
                 ui,
                 caption,
@@ -190,6 +200,7 @@ impl Panel<'_> {
                 (Dimension::LENGTH, Rule::Any),
                 move |value| {
                     let mut changed = image.clone();
+
                     if let Some(slot) = changed.at.get_mut(index) {
                         *slot = value;
                     }
@@ -197,7 +208,9 @@ impl Panel<'_> {
                 },
             );
         }
+
         let image = self.image.clone();
+
         self.value_row(
             ui,
             ANGLE,
@@ -218,6 +231,7 @@ impl Panel<'_> {
 
     fn size_rows(&mut self, ui: &mut Ui) {
         let image = self.image.clone();
+
         match &self.image.size {
             ImageSize::Width(width) => self.value_row(
                 ui,
@@ -231,6 +245,7 @@ impl Panel<'_> {
             ),
             ImageSize::Calibrated(calibration) => {
                 let kept = calibration.clone();
+
                 self.value_row(
                     ui,
                     DISTANCE,
@@ -247,7 +262,9 @@ impl Panel<'_> {
             }
         }
         ui.label("");
+
         let mut actions = Vec::new();
+
         ui.vertical(|ui| {
             if feature_fields::choosing_prompt(
                 ui,
@@ -264,6 +281,7 @@ impl Panel<'_> {
                     ImageSize::Calibrated(_) => CALIBRATE_AGAIN,
                 };
                 let button = widgets::small_button(ui, icons::MEASURE, label);
+
                 if ui.add(button).on_hover_text(CALIBRATE_HOVER).clicked() {
                     actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
                         self.id(),
@@ -275,6 +293,7 @@ impl Panel<'_> {
                     if ui.add(button).on_hover_text(USE_WIDTH_HOVER).clicked() {
                         let width = image_tools::placed(self.model.evaluation(), self.id())
                             .map_or(image_tools::DEFAULT_WIDTH, |placed| placed.width);
+
                         actions.push(feature_fields::applied(
                             &self.feature.name,
                             self.change(ReferenceImage {
@@ -306,6 +325,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Opacity", &self.feature.name, segments);
+
         self.actions.extend(chosen);
 
         let in_front = self.image.in_front;
@@ -326,13 +346,17 @@ impl Panel<'_> {
         })
         .collect();
         let chosen = feature_fields::segmented_row(ui, "Shows", &self.feature.name, shows);
+
         self.actions.extend(chosen);
 
         ui.label("");
+
         let mut locked = self.image.locked;
+
         let changed = widgets::checkbox(ui, &mut locked, LOCKED)
             .on_hover_text(LOCKED_HOVER)
             .changed();
+
         ui.end_row();
         if changed {
             self.apply(ReferenceImage {
@@ -358,6 +382,7 @@ pub fn show(
         image,
         actions,
     };
+
     widgets::properties(ui, ("image-properties", feature.id()), |ui| {
         panel.description(ui);
         panel.plane_rows(ui);

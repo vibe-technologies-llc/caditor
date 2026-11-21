@@ -60,15 +60,19 @@ impl Placed<'_> {
         ) else {
             return false;
         };
+
         if !self.within_extent(point) {
             return false;
         }
+
         let corner = self.geometry.section.corner;
         let at = self.section_point(point);
+
         let (travelled, total) = match section_side.curve {
             SectionCurve::Line => {
                 let reach = *foot - corner;
                 let length = reach.length();
+
                 if length <= CLEARANCE {
                     return false;
                 }
@@ -78,6 +82,7 @@ impl Placed<'_> {
                 let angle_to = |target: Point2| (corner - center).angle_to(target - center);
                 let total = angle_to(*foot);
                 let travelled = angle_to(at);
+
                 if total * travelled <= 0.0 || travelled.abs() > PI {
                     return false;
                 }
@@ -104,6 +109,7 @@ pub(super) fn crossing(solid: &Solid, planned: &[(EdgeGeometry, Blend)]) -> Opti
             if other == index || share_a_vertex(solid, geometry.edge, other_geometry.edge) {
                 continue;
             }
+
             let neighbour = Placed {
                 geometry: other_geometry,
                 blend: other_blend,
@@ -119,6 +125,7 @@ pub(super) fn crossing(solid: &Solid, planned: &[(EdgeGeometry, Blend)]) -> Opti
                 let Some(foot) = blend.feet.get(side) else {
                     continue;
                 };
+
                 let crosses = (1..FOOT_SAMPLES)
                     .filter_map(|step| geometry.place(*foot, step as f64 / FOOT_SAMPLES as f64))
                     .any(|point| neighbour.covers(other_side, point));

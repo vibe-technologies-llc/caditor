@@ -14,7 +14,7 @@ const SAGITTA_SAFETY: f64 = 1.5;
 const TINY_RADIUS: f64 = 1e-300;
 const PATH_MARGIN: f64 = 0.25;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SurfacePatch<'a> {
     surface: &'a Surface,
     bounds: Aabb2,
@@ -42,9 +42,11 @@ fn clamp_range(
 impl<'a> SurfacePatch<'a> {
     pub fn new(surface: &'a Surface, bounds: Aabb2) -> Result<Self, IntersectionError> {
         let (min, max) = (bounds.min(), bounds.max());
+
         if !min.is_finite() || !max.is_finite() || max.x < min.x || max.y < min.y {
             return Err(IntersectionError::InvalidBounds);
         }
+
         let (u_start, u_end) = clamp_range(min.x, max.x, surface.u_period(), surface.u_domain())?;
         let (v_start, v_end) = clamp_range(min.y, max.y, surface.v_period(), surface.v_domain())?;
         Ok(Self {
@@ -83,7 +85,9 @@ impl<'a> SurfacePatch<'a> {
             let slack = parameter_slack(range);
             value >= range.start() - slack && value <= range.end() + slack
         };
+
         let v_inside = within(wrapped.y, self.v_range());
+
         if !v_inside {
             return false;
         }
@@ -123,9 +127,11 @@ impl<'a> SurfacePatch<'a> {
 
     pub(crate) fn halves(&self) -> [Self; 2] {
         let (min, max) = (self.bounds.min(), self.bounds.max());
+
         let du = (max.x - min.x) * self.u_scale();
         let dv = (max.y - min.y) * self.v_scale();
         let middle = self.bounds.center();
+
         let (first, second) = if du >= dv {
             (
                 Aabb2::from_point(min).including(Point2::new(middle.x, max.y)),
@@ -175,12 +181,16 @@ fn path_bound_in_range(coordinates: [f64; 3], range: Interval, period: Option<f6
         None => to,
     };
     let [start, middle, end] = coordinates;
+
     let middle = follow(start, middle);
     let end = follow(middle, end);
+
     let (low, high) = parabola_extent(start, middle, end);
     let slack = parameter_slack(range);
+
     let margin = PATH_MARGIN * (high - low) + slack;
     let (low, high) = (low - margin, high + margin);
+
     let misses = match period {
         Some(period) => {
             let shift = ((high - range.start()) / period).floor() * period;
@@ -205,6 +215,7 @@ fn path_bound_in_range(coordinates: [f64; 3], range: Interval, period: Option<f6
 fn parabola_turns(start: f64, middle: f64, end: f64) -> bool {
     let linear = 4.0 * middle - 3.0 * start - end;
     let quadratic = 2.0 * (start + end) - 4.0 * middle;
+
     let turn = -linear / (2.0 * quadratic);
     turn.is_finite() && turn > -PATH_MARGIN && turn < 1.0 + PATH_MARGIN
 }
@@ -213,9 +224,12 @@ fn parabola_extent(start: f64, middle: f64, end: f64) -> (f64, f64) {
     let linear = 4.0 * middle - 3.0 * start - end;
     let quadratic = 2.0 * (start + end) - 4.0 * middle;
     let (mut low, mut high) = (start.min(middle).min(end), start.max(middle).max(end));
+
     let turn = -linear / (2.0 * quadratic);
+
     if turn > 0.0 && turn < 1.0 {
         let value = start + turn * (linear + turn * quadratic);
+
         low = low.min(value);
         high = high.max(value);
     }
@@ -278,12 +292,16 @@ fn rotational_bounds(
     let step = v_range.length() / pieces as f64;
     let mut bounds: Option<Aabb> = None;
     let mut curvature: f64 = 0.0;
+
     for v in v_range.split(pieces) {
         let (center, axis, x_axis, radius) = ring(v);
+
         let arc = arc_bounds(center, axis, x_axis, radius, u_range);
+
         bounds = Some(bounds.map_or(arc, |bounds| bounds.union(arc)));
         curvature = curvature.max(second_derivative(v));
     }
+
     let margin = SAGITTA_SAFETY * step * step * curvature / 8.0;
     bounds
         .unwrap_or_else(|| Aabb::from_point(Point3::ZERO))
@@ -292,6 +310,7 @@ fn rotational_bounds(
 
 pub(crate) fn patch_bounds(surface: &Surface, bounds: Aabb2) -> Aabb {
     let (min, max) = (bounds.min(), bounds.max());
+
     let u_range = Interval::new(min.x, max.x).unwrap_or(Interval::UNIT);
     let v_range = Interval::new(min.y, max.y).unwrap_or(Interval::UNIT);
     match surface {
@@ -362,9 +381,11 @@ pub(crate) fn rotational_ring(surface: &Surface, v: f64) -> (Point3, Vector3, Ve
         Surface::Extrusion(extrusion) => (at_zero.point, extrusion.direction()),
         Surface::BSpline(_) => (at_zero.point, at_zero.normal().unwrap_or(Vector3::Z)),
     };
+
     let center = axis_origin + axis * (at_zero.point - axis_origin).dot(axis);
     let radial = at_zero.point - center;
     let radius = radial.length();
+
     let x_axis = radial
         .try_normalize()
         .or_else(|| (turned.point - center).try_normalize())

@@ -46,6 +46,7 @@ fn square(side: f64) -> Sketch {
         Point2::new(side, side),
         Point2::new(0.0, side),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -73,9 +74,12 @@ fn shaped(
 
 fn model(sketch: Sketch, kind: impl FnOnce(FeatureId) -> FeatureKind) -> (Document, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(sketch));
     let solid = transaction.add_feature("Spike", kind(outline));
+
     document.apply(transaction.finish()).unwrap();
     (document, solid)
 }
@@ -90,14 +94,19 @@ fn assert_near(actual: f64, expected: f64) {
 #[test]
 fn a_tapered_extrusion_follows_a_model_parameter_and_undoes() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let draft = transaction.add_parameter("draft", degrees(5.0));
     let outline = transaction.add_feature("Outline", FeatureKind::from(square(10.0)));
+
     let block = transaction.add_feature(
         "Block",
         shaped(outline, 4.0, Some(Expression::Parameter(draft)), None),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
     let at = |angle: f64| {
         let top = 10.0 - 2.0 * 4.0 * angle.to_radians().tan();
@@ -115,12 +124,15 @@ fn a_tapered_extrusion_follows_a_model_parameter_and_undoes() {
         ))
         .unwrap();
     let steeper = evaluate(&document, &mut engine);
+
     document.apply(undo).unwrap();
+
     let undone = evaluate(&document, &mut engine);
 
     assert_near(volume(&first, block), at(5.0));
     assert_near(volume(&steeper, block), at(12.0));
     assert_near(volume(&undone, block), at(5.0));
+
     assert!(
         SolidFeature::Extrude(Extrude {
             sketch: outline,
@@ -146,6 +158,7 @@ fn an_extrusion_whose_taper_closes_the_profile_fails_naming_it() {
     let evaluation = evaluate(&document, &mut Recompute::default());
 
     let error = failure(&evaluation, spike);
+
     assert!(
         error.reason().contains("The taper of Spike"),
         "{}",
@@ -160,15 +173,19 @@ fn an_extrusion_whose_taper_closes_the_profile_fails_naming_it() {
     let (steep, spike) = model(square(10.0), |outline| {
         shaped(outline, 1.0, Some(degrees(-89.5)), None)
     });
+
     let error = failure(&evaluate(&steep, &mut Recompute::default()), spike);
+
     assert!(error.reason().contains("89"), "{}", error.reason());
 }
 
 #[test]
 fn a_thin_walled_extrusion_follows_an_open_sketch() {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(0.0, 10.0), Point2::new(0.0, 0.0));
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0));
+
     let wall = |side| {
         Some(Wall {
             thickness: millimetres(2.0),
@@ -196,7 +213,9 @@ fn a_thin_walled_extrusion_follows_an_open_sketch() {
 #[test]
 fn a_thin_wall_too_thick_for_its_extrusion_curves_fails_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_circle(Point2::new(0.0, 0.0), 1.0);
+
     let (document, tube) = model(sketch, |outline| {
         shaped(
             outline,

@@ -58,7 +58,7 @@ pub const CURVE_TOOLS: [Tool; 4] = [
     Tool::Conic,
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GroupChoice {
     Tool(Tool),
     Way(ShapeMode),
@@ -326,7 +326,7 @@ fn constraint_commands(dimensions: bool) -> impl Iterator<Item = Command> {
 
 type Offer = (ConstraintTool, Result<Vec<Constraint>, Unavailable>);
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 enum Unavailable {
     #[error(transparent)]
     Constraint(#[from] ConstraintOfferError),
@@ -352,7 +352,7 @@ impl Reason for Unavailable {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct OfferBasis {
     feature: FeatureId,
     selected: Vec<EntityId>,
@@ -364,7 +364,7 @@ struct OfferBasis {
     units: Units,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ConstraintOffers {
     current: Option<(OfferBasis, Arc<Vec<Offer>>)>,
     #[cfg(test)]
@@ -415,6 +415,7 @@ impl ConstraintOffers {
                 {
                     self.computations += 1;
                 }
+
                 let offers = if bodies.is_empty() {
                     offers_among(definition, shown, selected, basis.units)
                 } else {
@@ -472,8 +473,10 @@ pub fn show(
     else {
         return Vec::new();
     };
+
     let selected = sketch_tools::selected_entities(selection, feature.id());
     let bodies = body_picks::selected(selection, feature.id());
+
     let offers = panels.constraint_offers.refresh(
         model,
         (feature, definition, &shown),
@@ -580,15 +583,18 @@ pub fn show(
     let frame = ribbon::bar_frame(ui.style())
         .fill(tokens.accent_surface)
         .inner_margin(BAR_MARGIN);
+
     let panel = egui::Panel::top("sketch-toolbar")
         .frame(frame)
         .show(ui, |ui| bar.show(ui));
     let top = panel.response.rect.top() + ACCENT_LINE_WIDTH / 2.0;
+
     ui.painter().hline(
         panel.response.rect.x_range(),
         top,
         Stroke::new(ACCENT_LINE_WIDTH, tokens.accent_text),
     );
+
     let request = bar.request;
 
     if let Some(focus) = request.focus {
@@ -605,6 +611,7 @@ pub fn show(
         && model.is_checking_constraints()
     {
         let command = Command::Constraint(tool);
+
         actions.push(queued::refused(
             command,
             &command.title(),
@@ -620,6 +627,7 @@ pub fn show(
         };
         let added =
             sketch_tools::add_constraints(model, feature.id(), tool, constraints, &projections);
+
         if tool.is_dimension()
             && let Some(constraint) = added.constraints.first()
             && !added.references.contains(constraint)
@@ -658,6 +666,7 @@ pub fn show(
         && let Some(change) = &activity
     {
         let transaction = change.transaction(model, feature.id(), definition);
+
         actions.push(match change.active {
             true => Action::Trial(ConstraintTrial {
                 feature: feature.id(),
@@ -739,6 +748,7 @@ pub fn show(
     }
     if request.delete && !deletable.is_empty() {
         let label = deletable.label(definition);
+
         actions.push(Action::Apply(sketch_tools::remove_items(
             model,
             feature.id(),
@@ -779,7 +789,7 @@ impl Deletable {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Beside {
     InRow,
     Stacked,
@@ -808,7 +818,7 @@ struct Request {
     chosen: Vec<Command>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum Group {
     Header,
     History,
@@ -843,7 +853,7 @@ impl Group {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Packing {
     header: f32,
     captions: bool,
@@ -893,6 +903,7 @@ impl Bar<'_, '_> {
     fn arrange(&self, ui: &Ui, compact: bool, full: f32, finish: f32) -> Arrangement {
         let ribbon = if compact { COMPACT_RIBBON } else { RIBBON };
         let header = self.header_width(ui, compact).min(full);
+
         let widths: Vec<(Group, f32)> = ribbon::remembered_widths(ui, ribbon, &Group::ALL)
             .into_iter()
             .map(|(group, width)| match group {
@@ -902,8 +913,10 @@ impl Bar<'_, '_> {
             .collect();
         let beside_finish = full - finish - ribbon::GROUP_SPACE;
         let finish_apart = beside_finish < header;
+
         let first = if finish_apart { full } else { beside_finish };
         let single = ribbon::rows(&widths, first, full);
+
         let rows = if !compact && !finish_apart && single.len() == 1 {
             single
         } else {
@@ -920,11 +933,15 @@ impl Bar<'_, '_> {
 
     fn show(&mut self, ui: &mut Ui) {
         ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
+
         let full = ui.available_width();
         let finish_id = Id::unique("sketch-bar-finish");
         let finish = widgets::remembered_width(ui, finish_id);
+
         let labelled = self.arrange(ui, false, full, finish);
+
         self.compact = ribbon::labelled_too_tall(ui, labelled.bands());
+
         let Arrangement {
             ribbon: name,
             header,
@@ -935,6 +952,7 @@ impl Bar<'_, '_> {
         } else {
             labelled
         };
+
         if finish_apart {
             ui.allocate_ui_with_layout(
                 vec2(full, FINISH_HEIGHT),
@@ -943,6 +961,7 @@ impl Bar<'_, '_> {
             );
             ui.add_space(ribbon::ROW_GAP);
         }
+
         let packing = Packing {
             header,
             captions: !self.compact && rows.len() == 1 && !finish_apart,
@@ -974,6 +993,7 @@ impl Bar<'_, '_> {
         let name = group_menu_name(caption);
         let contents =
             format!("Every {caption} command of the sketch, the ones without a button included");
+
         let menu = GroupMenu {
             id: Id::unique(("sketch-ribbon-group-menu", group)),
             name: &name,
@@ -982,12 +1002,14 @@ impl Bar<'_, '_> {
         let (shown, trigger) = ribbon::menu_group(ui, title, packing.captions, &menu, |ui| {
             self.tools(ui, group, packing)
         });
+
         if let Some(trigger) = trigger {
             let entries = MenuEntries::new(self.last_offers, self.toggles, self.commands.keymap());
             let chosen = ribbon::group_menu(&trigger, entries, |ui, entries| {
                 self.group_menu(ui, entries, group);
             });
             let active = Command::SketchTool(self.active.tool);
+
             self.request
                 .chosen
                 .extend(chosen.into_iter().filter(|command| *command != active));
@@ -1025,6 +1047,7 @@ impl Bar<'_, '_> {
         if entries.history_item(ui, command, self.model) {
             return;
         }
+
         let chosen = match command {
             Command::SketchTool(tool) => Some(self.active.tool == tool),
             Command::ShapeMode(mode) => Some(self.modes.of(mode.tool()) == Some(mode)),
@@ -1065,7 +1088,9 @@ impl Bar<'_, '_> {
                     None => Err(self.commands.with_keys(command, idle)),
                 };
                 let button = ToolButton::new(icons::command(command), &verb).compact();
+
                 let response = explained(ui.add_enabled(help.is_ok(), button), &verb, &help);
+
                 if response.clicked() {
                     self.request.history = Some(action);
                 }
@@ -1101,6 +1126,7 @@ impl Bar<'_, '_> {
         let title = self.title();
         let summary = SketchSummary::of(self.model.evaluation(), self.feature.id());
         let mut requested = None;
+
         ui.horizontal_top(|ui| {
             ui.set_min_size(vec2(width, height));
             ui.set_max_width(width);
@@ -1111,12 +1137,14 @@ impl Bar<'_, '_> {
                     badge(ui, &tokens);
                 });
             }
+
             let height_id = Id::unique("sketch-bar-header-height");
             let known = widgets::remembered_width(ui, height_id);
             let content = ui
                 .vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = HEADER_LINE_GAP;
                     ui.add_space(((height - known) / 2.0).max(0.0));
+
                     let top = ui.cursor().min.y;
                     let line = widgets::count_pill_height(ui)
                         .max(ui.text_style_height(&TextStyle::Button));
@@ -1127,8 +1155,10 @@ impl Bar<'_, '_> {
                             |ui| {
                                 ui.set_min_height(line);
                                 ui.spacing_mut().item_spacing.x = HEADER_COUNT_GAP;
+
                                 let counted =
                                     sketch_status::counts_from_the_right(ui, &summary, true);
+
                                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                                     ui.add(
                                         Label::new(
@@ -1145,10 +1175,12 @@ impl Bar<'_, '_> {
                         )
                         .inner;
                     let status = sketch_status::status_pill(ui, &summary, true);
+
                     requested = status.or(counts);
                     ui.min_rect().bottom() - top
                 })
                 .inner;
+
             widgets::remember_width(ui, height_id, content);
         });
         match requested {
@@ -1179,6 +1211,7 @@ impl Bar<'_, '_> {
         };
         let active = self.active.tool == tool;
         let button = ToolButton::new(icons::tool(tool), label).selected(active);
+
         let response = if self.compact {
             explained(
                 ui.add(button.compact()),
@@ -1188,6 +1221,7 @@ impl Bar<'_, '_> {
         } else {
             ui.add(button).on_hover_text(hover)
         };
+
         match mode.filter(|_| invoked && active) {
             Some(mode) => self.request.mode = Some(mode.next()),
             None if response.clicked() || invoked => self.request.tool = Some(tool),
@@ -1198,11 +1232,13 @@ impl Bar<'_, '_> {
 
     fn off_ribbon_tool(&mut self, tool: Tool) {
         let invoked = self.commands.available(Command::SketchTool(tool));
+
         for mode in ShapeMode::of_tool(tool) {
             if self.commands.available(Command::ShapeMode(mode)) {
                 self.request.mode = Some(mode);
             }
         }
+
         let active = self.active.tool == tool;
         match self.modes.of(tool).filter(|_| invoked && active) {
             Some(mode) => self.request.mode = Some(mode.next()),
@@ -1213,13 +1249,16 @@ impl Bar<'_, '_> {
 
     fn mode_menu(&mut self, ui: &mut Ui, current: ShapeMode, button: Rect) -> Rect {
         let tool = current.tool();
+
         for mode in ShapeMode::of_tool(tool) {
             if self.commands.available(Command::ShapeMode(mode)) {
                 self.request.mode = Some(mode);
             }
         }
+
         let name = modes_label(tool);
         let contents = ways_listed(tool);
+
         let menu = ArrowMenu {
             id: Id::unique(("sketch-bar-modes", tool)),
             name: &name,
@@ -1228,12 +1267,14 @@ impl Bar<'_, '_> {
         };
         let response = widgets::arrow_button(ui, button.height(), &menu);
         let commands = &*self.commands;
+
         let shown = Popup::menu(&response)
             .align(RectAlign::BOTTOM_START)
             .align_alternatives(&[])
             .show(|ui| {
                 widgets::fitted_menu(ui, |ui| {
                     let mut chosen = None;
+
                     for mode in ShapeMode::of_tool(tool) {
                         let keys = commands.keys(Command::ShapeMode(mode));
                         let glyph = icons::shape_mode(mode);
@@ -1246,6 +1287,7 @@ impl Bar<'_, '_> {
                     chosen
                 })
             });
+
         if let Some(mode) = shown.and_then(|shown| shown.inner) {
             self.request.mode = Some(mode);
         }
@@ -1261,8 +1303,10 @@ impl Bar<'_, '_> {
             .selected(active);
         let mode = self.modes.of(tool);
         let description = mode.map_or(tool.description(), ShapeMode::description);
+
         let help = Ok::<_, std::convert::Infallible>(self.commands.with_keys(command, description));
         let response = explained(ui.add(button), tool.label(), &help);
+
         for way in ShapeMode::of_tool(tool) {
             if self.commands.available(Command::ShapeMode(way)) {
                 self.request.mode = Some(way);
@@ -1280,6 +1324,7 @@ impl Bar<'_, '_> {
         let button = self.compact_tool_button(ui, partners.host);
         let tools = partners.tools();
         let contents = partners.contents();
+
         let menu = ArrowMenu {
             id: Id::unique(("sketch-bar-partners", partners.host)),
             name: partners.name,
@@ -1290,12 +1335,14 @@ impl Bar<'_, '_> {
         let commands = &*self.commands;
         let active = self.active.tool;
         let host_mode = self.modes.of(partners.host);
+
         let shown = Popup::menu(&response)
             .align(RectAlign::BOTTOM_START)
             .align_alternatives(&[])
             .show(|ui| {
                 widgets::fitted_menu(ui, |ui| {
                     let mut chosen = None;
+
                     for tool in tools.iter().copied() {
                         let keys = commands.keys(Command::SketchTool(tool));
                         if widgets::menu_choice(
@@ -1340,6 +1387,7 @@ impl Bar<'_, '_> {
             })
             .collect();
         let rows = if self.compact { COMPACT_DRAW_ROWS } else { 1 };
+
         let per_row = shown.len().div_ceil(rows).max(1);
         shown
             .chunks(per_row)
@@ -1359,6 +1407,7 @@ impl Bar<'_, '_> {
         if let Some(group) = ToolGroup::of(tool) {
             return self.group_button(ui, group);
         }
+
         let button = self.tool_button(ui, tool, tool.label()).rect;
         match self.modes.of(tool) {
             Some(mode) => button.union(self.mode_menu(ui, mode, button)),
@@ -1369,6 +1418,7 @@ impl Bar<'_, '_> {
     fn group_button(&mut self, ui: &mut Ui, group: &ToolGroup) -> Rect {
         let remembered = Id::unique(group.id);
         let first = group.tools.first().copied().unwrap_or(Tool::Arc);
+
         let current = if group.tools.contains(&self.active.tool) {
             ui.data_mut(|data| data.insert_temp(remembered, self.active.tool));
             self.active.tool
@@ -1376,6 +1426,7 @@ impl Bar<'_, '_> {
             ui.data(|data| data.get_temp::<Tool>(remembered))
                 .unwrap_or(first)
         };
+
         for tool in group.tools.iter().copied() {
             if tool != current && self.commands.available(Command::SketchTool(tool)) {
                 self.request.tool = Some(tool);
@@ -1386,6 +1437,7 @@ impl Bar<'_, '_> {
                 }
             }
         }
+
         let button = self.tool_button(ui, current, group.label).rect;
         let current_mode = self.modes.of(current);
         let contents = menu_contents(group.tools, Some(current));
@@ -1395,14 +1447,17 @@ impl Bar<'_, '_> {
             contents: &contents,
             on_selected: group.tools.contains(&self.active.tool),
         };
+
         let response = widgets::arrow_button(ui, button.height(), &menu);
         let commands = &*self.commands;
+
         let shown = Popup::menu(&response)
             .align(RectAlign::BOTTOM_START)
             .align_alternatives(&[])
             .show(|ui| {
                 widgets::fitted_menu(ui, |ui| {
                     let mut chosen = None;
+
                     for tool in group.tools.iter().copied() {
                         let keys = commands.keys(Command::SketchTool(tool));
                         let glyph = icons::tool(tool);
@@ -1433,6 +1488,7 @@ impl Bar<'_, '_> {
                     chosen
                 })
             });
+
         match shown.and_then(|shown| shown.inner) {
             Some(GroupChoice::Tool(tool)) => {
                 ui.data_mut(|data| data.insert_temp(remembered, tool));
@@ -1490,6 +1546,7 @@ impl Bar<'_, '_> {
         for tool in OFF_RIBBON {
             self.off_ribbon_tool(tool);
         }
+
         let first = ui.horizontal_top(|ui| {
             self.construction_button(ui);
             self.compact_tool_button(ui, Tool::Trim);
@@ -1501,11 +1558,15 @@ impl Bar<'_, '_> {
         let second = ui.horizontal_top(|ui| {
             self.partnered_tool_button(ui, &COPYING_TOOLS);
             self.partnered_tool_button(ui, &MODEL_GEOMETRY_TOOLS);
+
             let moving = self.moving.clone();
+
             if self.command_button(ui, Command::MoveGeometry, MOVE_LABEL, MOVE_HELP, &moving) {
                 self.commands.trigger(Command::MoveGeometry);
             }
+
             let everything = self.select_all.clone();
+
             if self.command_button(
                 ui,
                 Command::SelectAll,
@@ -1540,6 +1601,7 @@ impl Bar<'_, '_> {
         };
         let button =
             ToolButton::new(icons::command(Command::ToggleConstraintActive), label).compact();
+
         let response = ui.add_enabled(availability.is_ok(), button);
         let described = match &availability {
             Ok(()) => Ok(self
@@ -1550,6 +1612,7 @@ impl Bar<'_, '_> {
                 &format!("{help}. {reason}"),
             )),
         };
+
         let response = explained(response, label, &described);
         if response.clicked() || invoked {
             self.request.activity = true;
@@ -1570,6 +1633,7 @@ impl Bar<'_, '_> {
         let help = Ok::<_, std::convert::Infallible>(
             self.commands.with_keys(Command::Construction, description),
         );
+
         let response = explained(ui.add(button), CONSTRUCTION_LABEL, &help);
         if response.clicked() || invoked {
             self.request.construction = true;
@@ -1601,6 +1665,7 @@ impl Bar<'_, '_> {
             .invoke(Command::DeleteSelection, &self.deletable);
         let enabled = self.deletable.is_ok();
         let button = ToolButton::new(icons::DELETE, DELETE_LABEL).compact();
+
         let response = ui.add_enabled(enabled, button);
         let help = if enabled {
             Ok(self
@@ -1612,6 +1677,7 @@ impl Bar<'_, '_> {
                 &Unavailable::NothingToDelete.to_string(),
             ))
         };
+
         let response = explained(response, DELETE_LABEL, &help);
         if response.clicked() || invoked {
             self.request.delete = true;
@@ -1624,6 +1690,7 @@ impl Bar<'_, '_> {
             .iter()
             .filter(|(tool, _)| tool.is_dimension() == dimensions)
             .partition(|(tool, _)| OFF_RIBBON_CONSTRAINTS.contains(tool));
+
         for (tool, offer) in off_ribbon {
             if self.commands.invoke(Command::Constraint(*tool), offer)
                 && let Ok(constraints) = offer
@@ -1684,7 +1751,9 @@ impl Bar<'_, '_> {
                 .commands
                 .with_keys(command, &format!("{}. {reason}", tool.description()))),
         };
+
         let response = explained(response, tool.label(), &help);
+
         if (response.clicked() || invoked)
             && let Ok(constraints) = offer
         {
@@ -1695,6 +1764,7 @@ impl Bar<'_, '_> {
 
     fn finish(&mut self, ui: &mut Ui, width_id: Id, beside: Beside) {
         ui.add_space(FINISH_MARGIN);
+
         let invoked = self.commands.available(Command::FinishSketch);
         let keys = self
             .commands
@@ -1720,7 +1790,9 @@ impl Bar<'_, '_> {
                 .inner
             }
         };
+
         let all = response.rect.union(beside);
+
         widgets::remember_width(ui, width_id, all.width() + FINISH_MARGIN);
         if response.clicked() || invoked {
             self.request.finish = true;
@@ -1730,7 +1802,9 @@ impl Bar<'_, '_> {
     fn look_button(&mut self, ui: &mut Ui) -> Response {
         let look = Command::LookAtSketch;
         let look_help = self.commands.with_keys(look, &look.title());
+
         let looking = widgets::framed_icon_button(ui, icons::command(look), &look_help);
+
         if looking.clicked() {
             self.commands.trigger(look);
         }
@@ -1746,7 +1820,9 @@ impl Bar<'_, '_> {
             Ok(()) => Ok(self.commands.with_keys(command, CANCEL_HELP)),
             Err(reason) => Err(format!("{CANCEL_HELP}. Not now: {reason}")),
         };
+
         let response = explained(response, CANCEL_LABEL, &help);
+
         if response.clicked() || invoked {
             self.request.cancel = true;
         }
@@ -1761,6 +1837,7 @@ pub fn modes_label(tool: Tool) -> String {
 fn badge(ui: &mut Ui, tokens: &Tokens) {
     let (_, rect) = ui.allocate_space(Vec2::splat(BADGE_SIDE));
     let painter = ui.painter();
+
     painter.rect_filled(
         rect,
         CornerRadius::same(WIDGET_RADIUS),

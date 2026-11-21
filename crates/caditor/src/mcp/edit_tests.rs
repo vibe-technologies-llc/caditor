@@ -11,6 +11,7 @@ use super::{
 fn square_sketch(client: &mut Client, corner: [f64; 2], side: f64) -> Value {
     let sketch = client.tool("add_sketch", json!({ "plane": "XY" }))["sketch"]["id"].clone();
     let [x, y] = corner;
+
     let drawn = client.tool(
         "add_sketch_geometry",
         json!({
@@ -18,12 +19,14 @@ fn square_sketch(client: &mut Client, corner: [f64; 2], side: f64) -> Value {
             "items": [{ "kind": "rectangle", "corner": [x, y], "opposite": [x + side, y + side] }]
         }),
     );
+
     assert_eq!(drawn["failing"], json!([]), "{drawn}");
     sketch
 }
 
 fn extruded_y_range(client: &mut Client, arguments: Value) -> (f64, f64) {
     let sketch = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -31,9 +34,12 @@ fn extruded_y_range(client: &mut Client, arguments: Value) -> (f64, f64) {
             "items": [{ "kind": "rectangle", "corner": [0, 0], "opposite": [10, 10] }]
         }),
     );
+
     let mut arguments = arguments;
+
     arguments["sketch"] = sketch;
     added(client, "add_extrusion", arguments);
+
     let bodies = client.tool("list_bodies", json!({}));
     let bounds = &bodies["bodies"][0]["bounding_box"];
     (number(&bounds["min"][1]), number(&bounds["max"][1]))
@@ -44,20 +50,29 @@ fn an_extrusion_without_an_operation_keeps_the_side_it_was_asked_for() {
     let folder = TempDir::new().unwrap();
 
     let mut client = started(&folder);
+
     let (low, high) = extruded_y_range(&mut client, json!({ "distance": 5, "reversed": true }));
+
     assert!(close(low, 0.0) && close(high, 5.0), "{low} {high}");
+
     client.finish();
 
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let (low, high) = extruded_y_range(&mut client, json!({ "distance": 5, "reversed": false }));
+
     assert!(close(low, -5.0) && close(high, 0.0), "{low} {high}");
+
     client.finish();
 
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let (low, high) = extruded_y_range(&mut client, json!({ "distance": 5 }));
+
     assert!(close(low, -5.0) && close(high, 0.0), "{low} {high}");
+
     client.finish();
 }
 
@@ -65,44 +80,58 @@ fn an_extrusion_without_an_operation_keeps_the_side_it_was_asked_for() {
 fn features_are_edited_in_place_as_one_undo_step() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
 
     let edited = client.tool(
         "edit_feature",
         json!({ "feature": "Block", "length": 60, "name": "Long block" }),
     );
+
     assert_eq!(edited["change"], "Edit Block", "{edited}");
     assert_eq!(edited["feature"]["name"], "Long block");
     assert!(close(total_volume(&mut client), 36_000.0));
+
     client.tool("undo", json!({}));
+
     assert!(close(total_volume(&mut client), 24_000.0));
+
     let features = client.tool("list_features", json!({}));
+
     assert_eq!(features["features"][0]["name"], "Block", "{features}");
 
     let sketch = square_sketch(&mut client, [100.0, 0.0], 10.0);
+
     added(
         &mut client,
         "add_extrusion",
         json!({ "sketch": sketch, "distance": 10, "operation": "new_body", "name": "Post" }),
     );
+
     assert!(close(total_volume(&mut client), 25_000.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": "Post", "distance": "20 mm" }),
     );
+
     assert!(close(total_volume(&mut client), 26_000.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": "Post", "second_distance": 5 }),
     );
+
     assert!(close(total_volume(&mut client), 26_500.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": "Post", "symmetric": true }),
     );
+
     assert!(close(total_volume(&mut client), 26_000.0));
 
     let pattern = added(
@@ -110,29 +139,40 @@ fn features_are_edited_in_place_as_one_undo_step() {
         "add_linear_pattern",
         json!({ "body": block, "axis": "Y", "count": 3, "spacing": 50 }),
     );
+
     assert!(close(total_volume(&mut client), 74_000.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": pattern, "count": 4, "skipped": [2] }),
     );
+
     assert!(close(total_volume(&mut client), 74_000.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": pattern, "skipped": [] }),
     );
+
     assert!(close(total_volume(&mut client), 98_000.0));
 
     let sketch_refused = client.tool_error("edit_feature", json!({ "feature": sketch }));
+
     assert!(sketch_refused.contains("is a sketch"), "{sketch_refused}");
+
     let unfit = client.tool_error("edit_feature", json!({ "feature": "Post", "radius": 2 }));
+
     assert!(unfit.contains("do not fit add_extrusion"), "{unfit}");
+
     let empty = client.tool_error("edit_feature", json!({ "feature": "Post" }));
+
     assert!(
         empty.contains("with the arguments add_extrusion takes"),
         "{empty}"
     );
+
     client.finish();
 }
 
@@ -140,7 +180,9 @@ fn features_are_edited_in_place_as_one_undo_step() {
 fn revolves_and_fillets_keep_what_an_edit_leaves_out() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -148,23 +190,29 @@ fn revolves_and_fillets_keep_what_an_edit_leaves_out() {
             "items": [{ "kind": "rectangle", "corner": [10, 0], "opposite": [20, 30] }]
         }),
     );
+
     let ring = added(
         &mut client,
         "add_revolve",
         json!({ "sketch": sketch, "axis": "Z", "angle": "90 deg" }),
     );
     let quarter = PI * 300.0 * 30.0 / 4.0;
+
     assert!(close(total_volume(&mut client), quarter));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": ring, "second_angle": "90 deg" }),
     );
+
     assert!(close(total_volume(&mut client), 2.0 * quarter));
+
     let symmetric_refused = client.tool_error(
         "edit_feature",
         json!({ "feature": ring, "symmetric": true, "second_angle": 10 }),
     );
+
     assert!(
         symmetric_refused.contains("takes no second_angle"),
         "{symmetric_refused}"
@@ -172,19 +220,24 @@ fn revolves_and_fillets_keep_what_an_edit_leaves_out() {
 
     let block = box_of(&mut client, [20.0, 20.0, 20.0], [100.0, 0.0], "Block");
     let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
+
     let fillet = added(
         &mut client,
         "add_fillet",
         json!({ "body": block, "faces": [top], "radius": 2 }),
     );
     let small = total_volume(&mut client);
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": fillet, "radius": "4 mm" }),
     );
+
     let large = total_volume(&mut client);
+
     assert!(large < small, "{large} {small}");
+
     client.finish();
 }
 
@@ -192,40 +245,50 @@ fn revolves_and_fillets_keep_what_an_edit_leaves_out() {
 fn extrusions_end_up_to_a_face_and_take_walls_tapers_and_offsets() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
     let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
 
     let pocket = square_sketch(&mut client, [5.0, 5.0], 10.0);
+
     added(
         &mut client,
         "add_extrusion",
         json!({ "sketch": pocket, "up_to": { "body": block, "face": top }, "operation": "remove" }),
     );
+
     assert!(close(total_volume(&mut client), 22_000.0));
 
     let tube = square_sketch(&mut client, [100.0, 0.0], 10.0);
+
     added(
         &mut client,
         "add_extrusion",
         json!({ "sketch": tube, "distance": 10, "thin_wall": 1, "operation": "new_body" }),
     );
+
     assert!(close(total_volume(&mut client), 22_400.0));
 
     let lifted = square_sketch(&mut client, [200.0, 0.0], 10.0);
+
     added(
         &mut client,
         "add_extrusion",
         json!({ "sketch": lifted, "distance": 10, "start_offset": 5, "operation": "new_body" }),
     );
+
     assert!(close(total_volume(&mut client), 23_400.0));
 
     let tapered = square_sketch(&mut client, [300.0, 0.0], 10.0);
+
     added(
         &mut client,
         "add_extrusion",
         json!({ "sketch": tapered, "distance": 10, "taper": "5 deg", "operation": "new_body" }),
     );
+
     let with_taper = total_volume(&mut client) - 23_400.0;
+
     assert!(
         with_taper > 0.0 && !close(with_taper, 1000.0),
         "{with_taper}"
@@ -235,12 +298,16 @@ fn extrusions_end_up_to_a_face_and_take_walls_tapers_and_offsets() {
         "add_extrusion",
         json!({ "sketch": tapered, "distance": 10, "up_to": "next" }),
     );
+
     assert!(refused.contains("one end: a distance"), "{refused}");
+
     let no_wall = client.tool_error(
         "add_extrusion",
         json!({ "sketch": tapered, "distance": 10, "wall_side": "inside" }),
     );
+
     assert!(no_wall.contains("goes with thin_wall"), "{no_wall}");
+
     client.finish();
 }
 
@@ -248,6 +315,7 @@ fn extrusions_end_up_to_a_face_and_take_walls_tapers_and_offsets() {
 fn holes_take_standard_sizes_heads_and_threads() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
     let datum = added(
         &mut client,
@@ -255,6 +323,7 @@ fn holes_take_standard_sizes_heads_and_threads() {
         json!({ "base": "XY", "offset": 20 }),
     );
     let sketch = client.tool("add_sketch", json!({ "datum": datum }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({ "sketch": sketch, "items": [{ "kind": "point", "at": [20, 15] }] }),
@@ -266,38 +335,49 @@ fn holes_take_standard_sizes_heads_and_threads() {
         json!({ "sketch": sketch, "standard": "M6", "depth": "through all", "body": block }),
     );
     let plain = total_volume(&mut client);
+
     assert!(
         plain < 24_000.0 - PI * 9.0 * 20.0 && plain > 24_000.0 - PI * 16.0 * 20.0,
         "{plain}"
     );
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": hole, "style": "counterbore", "head_depth": 3 }),
     );
+
     assert!(total_volume(&mut client) < plain);
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": hole, "style": "plain", "fit": "tapped", "thread_form": "cosmetic" }),
     );
+
     assert!(total_volume(&mut client) > plain);
 
     let both = client.tool_error(
         "edit_feature",
         json!({ "feature": hole, "diameter": 5, "standard": "M5" }),
     );
+
     assert!(both.contains("not both"), "{both}");
+
     let untapped = client.tool_error(
         "add_hole",
         json!({ "sketch": sketch, "diameter": 5, "depth": 5, "thread_hand": "left" }),
     );
+
     assert!(untapped.contains("tapped hole"), "{untapped}");
+
     let unknown = client.tool_error(
         "add_hole",
         json!({ "sketch": sketch, "standard": "M7", "depth": 5 }),
     );
+
     assert!(unknown.contains("M6"), "{unknown}");
+
     client.finish();
 }
 
@@ -313,6 +393,7 @@ fn two_squares(client: &mut Client) -> Value {
             ]
         }),
     );
+
     assert_eq!(drawn["failing"], json!([]), "{drawn}");
     sketch
 }
@@ -321,10 +402,12 @@ fn two_squares(client: &mut Client) -> Value {
 fn extrusions_and_revolves_use_the_regions_chosen_by_a_point_inside() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = two_squares(&mut client);
 
     let described = client.tool("get_sketch", json!({ "sketch": sketch }));
     let listed = described["regions"].as_array().unwrap();
+
     assert_eq!(listed.len(), 2, "{described}");
     assert!(listed.iter().all(|region| region["inside"].is_array()));
 
@@ -333,40 +416,53 @@ fn extrusions_and_revolves_use_the_regions_chosen_by_a_point_inside() {
         "add_extrusion",
         json!({ "sketch": sketch, "distance": 5, "regions": [[25, 5]], "operation": "new_body" }),
     );
+
     assert!(close(total_volume(&mut client), 500.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": post, "regions": [[5, 5], [25, 5]] }),
     );
+
     assert!(close(total_volume(&mut client), 1000.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": post, "regions": [[5, 5]] }),
     );
+
     assert!(close(total_volume(&mut client), 500.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": post, "regions": "all" }),
     );
+
     assert!(close(total_volume(&mut client), 1000.0));
+
     client.tool("undo", json!({}));
+
     assert!(close(total_volume(&mut client), 500.0));
 
     let missed = client.tool_error(
         "add_extrusion",
         json!({ "sketch": sketch, "distance": 5, "regions": [[15, 5]] }),
     );
+
     assert!(missed.contains("no region around"), "{missed}");
+
     let nothing = client.tool_error(
         "add_extrusion",
         json!({ "sketch": sketch, "distance": 5, "regions": [] }),
     );
+
     assert!(nothing.contains("a point inside each region"), "{nothing}");
 
     let profile = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -377,13 +473,17 @@ fn extrusions_and_revolves_use_the_regions_chosen_by_a_point_inside() {
             ]
         }),
     );
+
     let before = total_volume(&mut client);
+
     added(
         &mut client,
         "add_revolve",
         json!({ "sketch": profile, "axis": "Z", "regions": [[15, 15]], "operation": "new_body" }),
     );
+
     assert!(close(total_volume(&mut client) - before, PI * 300.0 * 30.0));
+
     client.finish();
 }
 
@@ -391,35 +491,44 @@ fn extrusions_and_revolves_use_the_regions_chosen_by_a_point_inside() {
 fn a_thin_wall_is_taken_off_again_by_extrusions_and_revolves() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = square_sketch(&mut client, [0.0, 0.0], 10.0);
     let tube = added(
         &mut client,
         "add_extrusion",
         json!({ "sketch": sketch, "distance": 10, "thin_wall": 1, "operation": "new_body" }),
     );
+
     assert!(close(total_volume(&mut client), 400.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": tube, "thin_wall": "off" }),
     );
+
     assert!(close(total_volume(&mut client), 1000.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": tube, "thin_wall": "1 mm", "wall_side": "inside" }),
     );
+
     assert!(close(total_volume(&mut client), 360.0));
+
     let side_without_wall = client.tool_error(
         "edit_feature",
         json!({ "feature": tube, "thin_wall": "off", "wall_side": "inside" }),
     );
+
     assert!(
         side_without_wall.contains("goes with thin_wall"),
         "{side_without_wall}"
     );
 
     let profile = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -427,6 +536,7 @@ fn a_thin_wall_is_taken_off_again_by_extrusions_and_revolves() {
             "items": [{ "kind": "rectangle", "corner": [100, 0], "opposite": [120, 30] }]
         }),
     );
+
     let before = total_volume(&mut client);
     let ring = added(
         &mut client,
@@ -438,13 +548,17 @@ fn a_thin_wall_is_taken_off_again_by_extrusions_and_revolves() {
     );
     let walled = total_volume(&mut client) - before;
     let solid = PI * (120.0 * 120.0 - 100.0 * 100.0) * 30.0;
+
     assert!(walled > 0.0 && walled < solid * 0.5, "{walled}");
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": ring, "thin_wall": "off" }),
     );
+
     assert!(close(total_volume(&mut client) - before, solid));
+
     client.finish();
 }
 
@@ -452,6 +566,7 @@ fn a_thin_wall_is_taken_off_again_by_extrusions_and_revolves() {
 fn extrusions_end_up_to_a_curved_face() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let dome = added(
         &mut client,
         "add_primitive",
@@ -474,6 +589,7 @@ fn extrusions_end_up_to_a_curved_face() {
         json!({ "base": "XY", "offset": -30 }),
     );
     let sketch = client.tool("add_sketch", json!({ "datum": low }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -481,6 +597,7 @@ fn extrusions_end_up_to_a_curved_face() {
             "items": [{ "kind": "rectangle", "corner": [-2, -2], "opposite": [2, 2] }]
         }),
     );
+
     let before = total_volume(&mut client);
     let column = added(
         &mut client,
@@ -492,12 +609,15 @@ fn extrusions_end_up_to_a_curved_face() {
         }),
     );
     let reached = total_volume(&mut client) - before;
+
     assert!(reached > 315.0 && reached < 330.0, "{reached}");
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": column, "distance": 5 }),
     );
+
     assert!(close(total_volume(&mut client) - before, 80.0), "{reached}");
 
     added(
@@ -509,7 +629,9 @@ fn extrusions_end_up_to_a_curved_face() {
             "end_offset": -1
         }),
     );
+
     let short = total_volume(&mut client) - before;
+
     assert!(
         (reached - 16.0 - short).abs() < 3.0 && short < reached - 10.0,
         "{short} {reached}"
@@ -522,7 +644,9 @@ fn extrusions_end_up_to_a_curved_face() {
             "up_to_surface": { "body": dome, "face": round }
         }),
     );
+
     assert!(twice.contains("one end"), "{twice}");
+
     client.finish();
 }
 
@@ -530,6 +654,7 @@ fn extrusions_end_up_to_a_curved_face() {
 fn the_second_side_of_an_extrusion_ends_at_a_plane_or_through_all() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
     let middle = added(
         &mut client,
@@ -537,6 +662,7 @@ fn the_second_side_of_an_extrusion_ends_at_a_plane_or_through_all() {
         json!({ "base": "XY", "offset": 10 }),
     );
     let sketch = client.tool("add_sketch", json!({ "datum": middle }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -544,6 +670,7 @@ fn the_second_side_of_an_extrusion_ends_at_a_plane_or_through_all() {
             "items": [{ "kind": "rectangle", "corner": [5, 5], "opposite": [15, 15] }]
         }),
     );
+
     let pocket = added(
         &mut client,
         "add_extrusion",
@@ -552,36 +679,47 @@ fn the_second_side_of_an_extrusion_ends_at_a_plane_or_through_all() {
             "operation": "remove", "body": block
         }),
     );
+
     assert!(close(total_volume(&mut client), 24_000.0 - 1500.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": pocket, "second_end": { "through_all": true } }),
     );
+
     assert!(close(total_volume(&mut client), 24_000.0 - 1500.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": pocket, "second_end": { "distance": 2 } }),
     );
+
     assert!(close(total_volume(&mut client), 24_000.0 - 700.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": pocket, "second_distance": 3 }),
     );
+
     assert!(close(total_volume(&mut client), 24_000.0 - 800.0));
 
     let both = client.tool_error(
         "edit_feature",
         json!({ "feature": pocket, "second_distance": 3, "second_end": { "through_all": true } }),
     );
+
     assert!(both.contains("not both"), "{both}");
+
     let offset = client.tool_error(
         "edit_feature",
         json!({ "feature": pocket, "second_end": { "distance": 3, "end_offset": 1 } }),
     );
+
     assert!(offset.contains("nd_offset goes with"), "{offset}");
+
     client.finish();
 }
 
@@ -589,6 +727,7 @@ fn the_second_side_of_an_extrusion_ends_at_a_plane_or_through_all() {
 fn extrusions_run_along_an_axis_and_go_square_again() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
     let slant = added(
         &mut client,
@@ -601,25 +740,32 @@ fn extrusions_run_along_an_axis_and_go_square_again() {
         }),
     );
     let sketch = square_sketch(&mut client, [100.0, 0.0], 10.0);
+
     let post = added(
         &mut client,
         "add_extrusion",
         json!({ "sketch": sketch, "distance": 10, "direction": { "datum": slant }, "operation": "new_body" }),
     );
     let slanted = total_volume(&mut client) - 24_000.0;
+
     assert!(slanted > 0.0 && !close(slanted, 1000.0), "{slanted}");
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": post, "direction": "square" }),
     );
+
     assert!(close(total_volume(&mut client) - 24_000.0, 1000.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": post, "direction": { "datum": slant } }),
     );
+
     assert!(close(total_volume(&mut client) - 24_000.0, slanted));
+
     client.finish();
 }
 
@@ -627,7 +773,9 @@ fn extrusions_run_along_an_axis_and_go_square_again() {
 fn a_revolve_turns_up_to_a_plane() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -635,37 +783,47 @@ fn a_revolve_turns_up_to_a_plane() {
             "items": [{ "kind": "rectangle", "corner": [10, 0], "opposite": [20, 30] }]
         }),
     );
+
     let quarter = PI * 300.0 * 30.0 / 4.0;
     let ring = added(
         &mut client,
         "add_revolve",
         json!({ "sketch": sketch, "axis": "Z", "up_to": "YZ" }),
     );
+
     assert!(close(total_volume(&mut client), quarter));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": ring, "reversed": true }),
     );
+
     assert!(close(total_volume(&mut client), quarter));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": ring, "angle": "180 deg" }),
     );
+
     assert!(close(total_volume(&mut client), 2.0 * quarter));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": ring, "up_to": "YZ" }),
     );
+
     assert!(close(total_volume(&mut client), quarter));
 
     let both = client.tool_error(
         "add_revolve",
         json!({ "sketch": sketch, "axis": "Z", "up_to": "YZ", "angle": "90 deg" }),
     );
+
     assert!(both.contains("not both"), "{both}");
+
     client.finish();
 }
 
@@ -673,7 +831,9 @@ fn a_revolve_turns_up_to_a_plane() {
 fn a_revolve_stop_takes_an_end_offset_in_degrees_kept_across_edits() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -681,6 +841,7 @@ fn a_revolve_stop_takes_an_end_offset_in_degrees_kept_across_edits() {
             "items": [{ "kind": "rectangle", "corner": [10, 0], "opposite": [20, 30] }]
         }),
     );
+
     let quarter = PI * 300.0 * 30.0 / 4.0;
     let tenth = PI * 300.0 * 30.0 / 36.0;
     let ring = added(
@@ -688,25 +849,32 @@ fn a_revolve_stop_takes_an_end_offset_in_degrees_kept_across_edits() {
         "add_revolve",
         json!({ "sketch": sketch, "axis": "Z", "up_to": "YZ", "end_offset": "10 deg" }),
     );
+
     assert!(close(total_volume(&mut client), quarter + tenth));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": ring, "reversed": true }),
     );
+
     assert!(close(total_volume(&mut client), quarter + tenth));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": ring, "end_offset": "-10 deg" }),
     );
+
     assert!(close(total_volume(&mut client), quarter - tenth));
 
     let none = client.tool_error(
         "add_revolve",
         json!({ "sketch": sketch, "axis": "Z", "angle": "90 deg", "end_offset": "5 deg" }),
     );
+
     assert!(none.contains("goes with an end up_to"), "{none}");
+
     client.finish();
 }
 
@@ -714,9 +882,11 @@ fn a_revolve_stop_takes_an_end_offset_in_degrees_kept_across_edits() {
 fn a_revolve_turns_up_to_the_next_face_or_a_face_off_its_axis() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let wall = box_of(&mut client, [2.0, 50.0, 40.0], [-1.0, 0.0], "Wall");
     let side = face_where(&mut client, &wall, [1.0, 0.0, 0.0]);
     let sketch = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -724,6 +894,7 @@ fn a_revolve_turns_up_to_the_next_face_or_a_face_off_its_axis() {
             "items": [{ "kind": "rectangle", "corner": [10, 5], "opposite": [20, 25] }]
         }),
     );
+
     let ring = PI * 300.0 * 20.0;
 
     added(
@@ -735,12 +906,15 @@ fn a_revolve_turns_up_to_the_next_face_or_a_face_off_its_axis() {
             "operation": "new_body"
         }),
     );
+
     let to_the_side = total_volume(&mut client) - 4000.0;
+
     added(
         &mut client,
         "add_revolve",
         json!({ "sketch": sketch, "up_to": "next", "body": wall, "reversed": true }),
     );
+
     let both = client.tool_error(
         "add_revolve",
         json!({ "sketch": sketch, "up_to": "next", "angle": "90 deg" }),
@@ -752,6 +926,7 @@ fn a_revolve_turns_up_to_the_next_face_or_a_face_off_its_axis() {
     );
     assert!(total_volume(&mut client) > 4000.0 + to_the_side + 0.5 * ring);
     assert!(both.contains("not both"), "{both}");
+
     client.finish();
 }
 
@@ -766,6 +941,7 @@ fn hole_sketch(client: &mut Client, items: Value) -> Value {
         "add_sketch_geometry",
         json!({ "sketch": sketch, "items": items }),
     );
+
     assert_eq!(drawn["failing"], json!([]), "{drawn}");
     sketch
 }
@@ -774,6 +950,7 @@ fn hole_sketch(client: &mut Client, items: Value) -> Value {
 fn holes_take_steps_slots_drill_points_and_sizes_from_circles() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
     let sketch = hole_sketch(&mut client, json!([{ "kind": "point", "at": [20, 15] }]));
 
@@ -783,6 +960,7 @@ fn holes_take_steps_slots_drill_points_and_sizes_from_circles() {
         json!({ "sketch": sketch, "diameter": 4, "depth": 10, "body": block }),
     );
     let plain = total_volume(&mut client);
+
     assert!(close(plain, 24_000.0 - PI * 4.0 * 10.0));
 
     added(
@@ -790,8 +968,11 @@ fn holes_take_steps_slots_drill_points_and_sizes_from_circles() {
         "edit_feature",
         json!({ "feature": hole, "steps": [{ "diameter": 8, "depth": 3 }] }),
     );
+
     let stepped = total_volume(&mut client);
+
     assert!(close(stepped, 24_000.0 - PI * (16.0 * 3.0 + 4.0 * 7.0)));
+
     added(
         &mut client,
         "edit_feature",
@@ -800,27 +981,33 @@ fn holes_take_steps_slots_drill_points_and_sizes_from_circles() {
             "steps": [{ "diameter": 8, "depth": 3 }, { "diameter": 6, "depth": 2 }]
         }),
     );
+
     assert!(close(
         total_volume(&mut client),
         24_000.0 - PI * (16.0 * 3.0 + 9.0 * 2.0 + 4.0 * 5.0)
     ));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": hole, "style": "plain" }),
     );
+
     assert!(close(total_volume(&mut client), plain));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": hole, "style": "stepped" }),
     );
+
     assert!(total_volume(&mut client) < plain);
 
     let clash = client.tool_error(
         "edit_feature",
         json!({ "feature": hole, "style": "countersink", "steps": [{ "diameter": 8, "depth": 3 }] }),
     );
+
     assert!(clash.contains("stepped"), "{clash}");
 
     added(
@@ -828,30 +1015,38 @@ fn holes_take_steps_slots_drill_points_and_sizes_from_circles() {
         "edit_feature",
         json!({ "feature": hole, "style": "plain", "slot_length": 10 }),
     );
+
     let slotted = total_volume(&mut client);
+
     assert!(
         close(slotted, 24_000.0 - (PI * 4.0 + 4.0 * 10.0) * 10.0),
         "{slotted}"
     );
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": hole, "slot_length": 14, "slot_angle": "90 deg" }),
     );
+
     assert!(close(
         total_volume(&mut client),
         24_000.0 - (PI * 4.0 + 4.0 * 14.0) * 10.0
     ));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": hole, "shape": "round" }),
     );
+
     assert!(close(total_volume(&mut client), plain));
+
     let round_slot = client.tool_error(
         "edit_feature",
         json!({ "feature": hole, "shape": "round", "slot_length": 5 }),
     );
+
     assert!(round_slot.contains("leave out shape round"), "{round_slot}");
 
     added(
@@ -859,24 +1054,32 @@ fn holes_take_steps_slots_drill_points_and_sizes_from_circles() {
         "edit_feature",
         json!({ "feature": hole, "bottom": "drill_point" }),
     );
+
     let pointed = total_volume(&mut client);
+
     assert!(pointed < plain, "{pointed} {plain}");
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": hole, "point_angle": "90 deg" }),
     );
+
     assert!(total_volume(&mut client) < pointed);
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": hole, "bottom": "flat" }),
     );
+
     assert!(close(total_volume(&mut client), plain));
+
     let flat_point = client.tool_error(
         "edit_feature",
         json!({ "feature": hole, "bottom": "flat", "point_angle": "90 deg" }),
     );
+
     assert!(flat_point.contains("leave out bottom flat"), "{flat_point}");
 
     let circled = hole_sketch(
@@ -888,21 +1091,27 @@ fn holes_take_steps_slots_drill_points_and_sizes_from_circles() {
         "add_hole",
         json!({ "sketch": circled, "diameter": 4, "depth": 5, "sizing": "circles", "body": block }),
     );
+
     assert!(close(total_volume(&mut client), plain - PI * 9.0 * 5.0));
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": sized, "sizing": "typed" }),
     );
+
     assert!(close(total_volume(&mut client), plain - PI * 4.0 * 5.0));
+
     client.finish();
 }
 
 fn line_edges(client: &mut Client, body: &Value, before: Option<&Value>) -> Vec<(String, f64)> {
     let mut arguments = json!({ "body": body });
+
     if let Some(feature) = before {
         arguments["before"] = feature.clone();
     }
+
     let listed = client.tool("list_edges", arguments);
     listed["edges"]
         .as_array()
@@ -922,6 +1131,7 @@ fn line_edges(client: &mut Client, body: &Value, before: Option<&Value>) -> Vec<
 fn an_edit_names_the_edges_and_faces_the_feature_received() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
     let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
     let long = line_edges(&mut client, &block, None)
@@ -936,17 +1146,21 @@ fn an_edit_names_the_edges_and_faces_the_feature_received() {
         json!({ "body": block, "edges": [long], "radius": 2 }),
     );
     let small = total_volume(&mut client);
+
     assert!(small < 24_000.0);
 
     let now: Vec<String> = line_edges(&mut client, &block, None)
         .into_iter()
         .map(|(key, _)| key)
         .collect();
+
     assert!(!now.contains(&long), "{now:?}");
+
     let received: Vec<String> = line_edges(&mut client, &block, Some(&fillet))
         .into_iter()
         .map(|(key, _)| key)
         .collect();
+
     assert!(received.contains(&long), "{received:?}");
     assert_eq!(received.len(), 12);
 
@@ -955,6 +1169,7 @@ fn an_edit_names_the_edges_and_faces_the_feature_received() {
         "edit_feature",
         json!({ "feature": fillet, "edges": [long], "radius": 4 }),
     );
+
     assert!(total_volume(&mut client) < small);
 
     let only_now = now.iter().find(|key| !received.contains(key)).unwrap();
@@ -962,12 +1177,14 @@ fn an_edit_names_the_edges_and_faces_the_feature_received() {
         "edit_feature",
         json!({ "feature": fillet, "edges": [only_now] }),
     );
+
     assert!(refused.contains("had no edge"), "{refused}");
     assert!(refused.contains("Fillet 1 received it"), "{refused}");
     assert!(refused.contains("list_edges with before"), "{refused}");
 
     let not_a_body_change =
         client.tool_error("list_edges", json!({ "body": block, "before": "Block" }));
+
     assert!(
         not_a_body_change.contains("works on no body"),
         "{not_a_body_change}"
@@ -979,18 +1196,22 @@ fn an_edit_names_the_edges_and_faces_the_feature_received() {
         json!({ "body": block, "open_faces": [top], "thickness": 2 }),
     );
     let hollow = total_volume(&mut client);
+
     added(
         &mut client,
         "edit_feature",
         json!({ "feature": shell, "open_faces": [top], "thickness": 3 }),
     );
+
     assert!(total_volume(&mut client) > hollow);
 
     let gone = client.tool_error(
         "edit_feature",
         json!({ "feature": shell, "open_faces": ["abc"] }),
     );
+
     assert!(gone.contains("had no face abc"), "{gone}");
+
     client.finish();
 }
 
@@ -1011,6 +1232,7 @@ fn slab_cut(client: &mut Client, body: &Value, corners: [[f64; 2]; 2], from: f64
     );
     let sketch = client.tool("add_sketch", json!({ "datum": datum }))["sketch"]["id"].clone();
     let [corner, opposite] = corners;
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -1029,6 +1251,7 @@ fn slab_cut(client: &mut Client, body: &Value, corners: [[f64; 2]; 2], from: f64
 fn a_pipe_along_a_rounded_edge_is_edited_with_the_edge_it_received() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
     let long = line_edges(&mut client, &block, None)
         .into_iter()
@@ -1046,17 +1269,20 @@ fn a_pipe_along_a_rounded_edge_is_edited_with_the_edge_it_received() {
         }),
     );
     let thin = total_volume(&mut client);
+
     added(
         &mut client,
         "add_fillet",
         json!({ "body": block, "edges": [long], "radius": 2 }),
     );
+
     let rounded = total_volume(&mut client);
 
     let now: Vec<String> = line_edges(&mut client, &block, None)
         .into_iter()
         .map(|(key, _)| key)
         .collect();
+
     assert!(!now.contains(&long), "{now:?}");
 
     added(
@@ -1064,10 +1290,12 @@ fn a_pipe_along_a_rounded_edge_is_edited_with_the_edge_it_received() {
         "edit_feature",
         json!({ "feature": pipe, "path": { "body": block, "edges": [long] }, "size": 4 }),
     );
+
     let thick = total_volume(&mut client);
 
     assert!(rounded < thin);
     assert!((thick - rounded - PI * 3.0 * 40.0).abs() < 0.5, "{thick}");
+
     client.finish();
 }
 
@@ -1075,6 +1303,7 @@ fn a_pipe_along_a_rounded_edge_is_edited_with_the_edge_it_received() {
 fn an_extrusion_up_to_a_face_is_edited_with_the_face_it_received() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [100.0, 0.0], "Block");
     let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
     let low = added(
@@ -1083,6 +1312,7 @@ fn an_extrusion_up_to_a_face_is_edited_with_the_face_it_received() {
         json!({ "base": "XY", "offset": -30 }),
     );
     let sketch = client.tool("add_sketch", json!({ "datum": low }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({
@@ -1090,6 +1320,7 @@ fn an_extrusion_up_to_a_face_is_edited_with_the_face_it_received() {
             "items": [{ "kind": "rectangle", "corner": [110, 10], "opposite": [112, 12] }]
         }),
     );
+
     let column = added(
         &mut client,
         "add_extrusion",
@@ -1099,7 +1330,9 @@ fn an_extrusion_up_to_a_face_is_edited_with_the_face_it_received() {
             "operation": "new_body"
         }),
     );
+
     slab_cut(&mut client, &block, [[95.0, -5.0], [145.0, 35.0]], 10.0);
+
     let lowered = total_volume(&mut client);
 
     assert!(!face_keys(&mut client, &block).contains(&top));
@@ -1115,6 +1348,7 @@ fn an_extrusion_up_to_a_face_is_edited_with_the_face_it_received() {
     );
 
     assert!(close(total_volume(&mut client) - lowered, -20.0));
+
     client.finish();
 }
 
@@ -1122,6 +1356,7 @@ fn an_extrusion_up_to_a_face_is_edited_with_the_face_it_received() {
 fn a_mirror_of_faces_is_edited_with_the_faces_it_received() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let block = box_of(&mut client, [40.0, 30.0, 20.0], [-20.0, 0.0], "Block");
     let datum = added(
         &mut client,
@@ -1129,6 +1364,7 @@ fn a_mirror_of_faces_is_edited_with_the_faces_it_received() {
         json!({ "base": "XY", "offset": 20 }),
     );
     let sketch = client.tool("add_sketch", json!({ "datum": datum }))["sketch"]["id"].clone();
+
     client.tool(
         "add_sketch_geometry",
         json!({ "sketch": sketch, "items": [{ "kind": "point", "at": [10, 15] }] }),
@@ -1138,6 +1374,7 @@ fn a_mirror_of_faces_is_edited_with_the_faces_it_received() {
         "add_hole",
         json!({ "sketch": sketch, "diameter": 4, "depth": 10, "body": block }),
     );
+
     let hole_faces: Vec<Value> = client.tool("list_faces", json!({ "body": block }))["faces"]
         .as_array()
         .unwrap()
@@ -1153,8 +1390,11 @@ fn a_mirror_of_faces_is_edited_with_the_faces_it_received() {
         "add_mirror",
         json!({ "body": block, "faces": hole_faces, "plane": "YZ" }),
     );
+
     slab_cut(&mut client, &block, [[0.0, -5.0], [25.0, 35.0]], 5.0);
+
     let now = face_keys(&mut client, &block);
+
     assert!(
         hole_faces
             .iter()
@@ -1167,7 +1407,9 @@ fn a_mirror_of_faces_is_edited_with_the_faces_it_received() {
         "edit_feature",
         json!({ "feature": mirror, "faces": [] }),
     );
+
     let unmirrored = total_volume(&mut client);
+
     added(
         &mut client,
         "edit_feature",
@@ -1175,5 +1417,6 @@ fn a_mirror_of_faces_is_edited_with_the_faces_it_received() {
     );
 
     assert!(total_volume(&mut client) < unmirrored);
+
     client.finish();
 }

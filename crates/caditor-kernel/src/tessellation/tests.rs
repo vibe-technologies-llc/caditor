@@ -26,6 +26,7 @@ struct Expected {
 fn profile_area_and_length() -> (f64, f64) {
     let profile = fixtures::spline_profile();
     let breaks: Vec<f64> = Interval::UNIT.split(64).collect();
+
     let area = integrate(&breaks, |parameter| {
         let derivatives = profile.evaluate(parameter);
         derivatives.point.x * derivatives.first.y
@@ -118,12 +119,15 @@ fn every_fixture_tessellates_watertight() {
         for chord in [0.5, 0.05, 0.002] {
             let tolerance = SamplingTolerance::new(chord, 0.3).unwrap();
             let mesh = expected.solid.tessellate(&tolerance).unwrap();
+
             assert_watertight(expected.name, &mesh);
         }
+
         let mesh = expected
             .solid
             .tessellate(&expected.solid.default_tolerance())
             .unwrap();
+
         assert_watertight(expected.name, &mesh);
     }
 }
@@ -137,6 +141,7 @@ fn mass_properties_match_closed_forms() {
         let properties = mesh.mass_properties();
         let volume_error = (properties.volume - expected.volume).abs();
         let area_error = (properties.area - expected.area).abs();
+
         assert!(
             volume_error <= 2.0 * chord * expected.area + 1e-9,
             "{}: volume {} vs {}",
@@ -144,11 +149,13 @@ fn mass_properties_match_closed_forms() {
             properties.volume,
             expected.volume
         );
+
         let area_allowance = if expected.smallest_radius.is_finite() {
             2.0 * chord / expected.smallest_radius * expected.area
         } else {
             1e-9
         };
+
         assert!(
             area_error <= area_allowance,
             "{}: area {} vs {}",
@@ -183,6 +190,7 @@ fn finer_tolerances_converge_on_the_exact_volume() {
             (volume - 256.0 * PI / 3.0).abs()
         })
         .collect();
+
     assert!(errors[1] < errors[0] && errors[2] < errors[1], "{errors:?}");
 }
 
@@ -199,12 +207,15 @@ fn second_moments_give_the_inertia_of_a_box_and_a_cylinder() {
         [0.0, 24.0 * (16.0 + 4.0) / 12.0, 0.0],
         [0.0, 0.0, 24.0 * (16.0 + 9.0) / 12.0],
     ];
+
     for (row, expected_row) in inertia.iter().zip(expected) {
         for (entry, expected_entry) in row.iter().zip(expected_row) {
             assert!((entry - expected_entry).abs() < 1e-9, "{inertia:?}");
         }
     }
+
     let about_corner = MassProperties::inertia(&cuboid.second_moment_about(Point3::ZERO));
+
     assert!((about_corner[0][0] - (26.0 + 24.0 * (2.25 + 1.0))).abs() < 1e-9);
     assert!((about_corner[0][1] + 24.0 * 2.0 * 1.5).abs() < 1e-9);
 
@@ -217,7 +228,9 @@ fn second_moments_give_the_inertia_of_a_box_and_a_cylinder() {
         MassProperties::principal_moments(&MassProperties::inertia(&cylinder.second_moment));
     let across = volume * (3.0 * 9.0 + 25.0) / 12.0;
     let along = volume * 9.0 / 2.0;
+
     let mut wanted = [across, across, along];
+
     wanted.sort_by(f64::total_cmp);
     for (moment, wanted) in moments.iter().zip(wanted) {
         assert!(
@@ -232,8 +245,10 @@ fn principal_moments_of_a_turned_tensor_are_its_eigenvalues() {
     let turn = 0.4f64;
     let (sine, cosine) = turn.sin_cos_libm();
     let diagonal = [2.0, 5.0, 11.0];
+
     let rotation = [[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]];
     let mut turned = [[0.0; 3]; 3];
+
     for (row, out) in turned.iter_mut().enumerate() {
         for (column, entry) in out.iter_mut().enumerate() {
             *entry = (0..3)
@@ -241,10 +256,13 @@ fn principal_moments_of_a_turned_tensor_are_its_eigenvalues() {
                 .sum();
         }
     }
+
     let moments = MassProperties::principal_moments(&turned);
+
     for (moment, expected) in moments.iter().zip(diagonal) {
         assert!((moment - expected).abs() < 1e-9, "{moments:?}");
     }
+
     assert_eq!(
         MassProperties::principal_moments(&[[3.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 2.0]]),
         [1.0, 2.0, 3.0]
@@ -260,9 +278,11 @@ fn normals_are_unit_and_face_outward() {
             .unwrap();
         for triangle in mesh.triangles() {
             let [a, b, c] = mesh.corner_points(*triangle).unwrap();
+
             let geometric = (b - a).cross(c - a).normalize();
             for corner in triangle {
                 let normal = mesh.vertices()[*corner as usize].normal.vector();
+
                 assert!((normal.length() - 1.0).abs() < 1e-9, "{}", expected.name);
                 assert!(
                     normal.dot(geometric) > 0.5,
@@ -279,8 +299,11 @@ fn faces_and_edges_are_reported_for_drawing_and_picking() {
     for expected in expectations() {
         let solid = &expected.solid;
         let mesh = solid.tessellate(&solid.default_tolerance()).unwrap();
+
         assert_eq!(mesh.faces().len(), solid.faces().count());
+
         let mut next = 0;
+
         for face in mesh.faces() {
             assert_eq!(face.triangles.start, next);
             assert!(
@@ -289,14 +312,17 @@ fn faces_and_edges_are_reported_for_drawing_and_picking() {
                 expected.name,
                 face.face
             );
+
             next = face.triangles.end;
         }
+
         assert_eq!(next, mesh.triangles().len());
         assert_eq!(mesh.edges().len(), solid.edges().count());
         for polyline in mesh.edges() {
             let edge = solid.edge(polyline.edge).unwrap();
             let first = mesh.position(*polyline.positions.first().unwrap()).unwrap();
             let last = mesh.position(*polyline.positions.last().unwrap()).unwrap();
+
             assert_eq!(first, solid.vertex(edge.start()).unwrap().point());
             assert_eq!(last, solid.vertex(edge.end()).unwrap().point());
             assert!(polyline.positions.len() >= 2);
@@ -310,6 +336,7 @@ fn tessellation_is_deterministic() {
         let tolerance = expected.solid.default_tolerance();
         let first = expected.solid.tessellate(&tolerance).unwrap();
         let second = expected.solid.tessellate(&tolerance).unwrap();
+
         assert_eq!(first, second, "{}", expected.name);
     }
 }
@@ -318,15 +345,20 @@ fn tessellation_is_deterministic() {
 fn a_void_shell_subtracts_and_lies_inside_the_outer_shell() {
     let solid = fixtures::hollow_cuboid(10.0, 4.0);
     let mesh = solid.tessellate(&solid.default_tolerance()).unwrap();
+
     let shell_volume = |shell: usize| {
         mesh.mass_properties_where(|face| solid.face(face).unwrap().shell().index() == shell)
             .volume
     };
+
     assert!((shell_volume(0) - 1000.0).abs() < 1e-9);
     assert!((shell_volume(1) + 64.0).abs() < 1e-9);
+
     let outer = |face: crate::topology::FaceId| solid.face(face).unwrap().shell().index() == 0;
+
     assert_eq!(mesh.contains(Point3::splat(5.0), outer), Some(true));
     assert_eq!(mesh.contains(Point3::splat(11.0), outer), Some(false));
+
     let _ = TAU;
 }
 
@@ -337,6 +369,7 @@ fn a_self_crossing_boundary_is_an_error_not_a_panic() {
     use crate::{fixtures::Fixture, sense::Sense, surface::PlaneSurface};
 
     let mut fixture = Fixture::new();
+
     let corners = [
         Point3::ZERO,
         Point3::new(1.0, 1.0, 0.0),
@@ -345,12 +378,15 @@ fn a_self_crossing_boundary_is_an_error_not_a_panic() {
     ]
     .map(|point| fixture.vertex(point));
     let coedges = fixture.polygon_loop(&corners);
+
     fixture.face(
         PlaneSurface::new(Plane::XY).unwrap(),
         Sense::Same,
         &[coedges],
     );
+
     let solid = fixture.build_unchecked();
+
     assert!(matches!(
         solid.tessellate(&SamplingTolerance::for_extent(1.0)),
         Err(TessellationError::SelfIntersectingBoundary(_))
@@ -386,17 +422,20 @@ fn a_thin_round_whose_edge_ends_a_tenth_of_a_micrometre_off_its_corners_meshes()
         at(0.5 * PI, height),
     ]
     .map(|point| fixture.vertex(point));
+
     let bottom = fixture.edge(Circle::new(Plane::XY, radius).unwrap(), quarter, a, b);
     let side = fixture.line(b, c);
     let upper = fixture.edge(Circle::new(top, radius).unwrap(), quarter, d, c);
     let from = at(0.5 * PI, height) + into_face + past_end;
     let to = at(0.5 * PI, 0.0) + into_face - past_end;
+
     let shifted = fixture.edge(
         Line::through(from, to).unwrap(),
         Interval::new(0.0, from.distance(to)).unwrap(),
         d,
         a,
     );
+
     fixture.face(
         Cylinder::new(Plane::XY, radius).unwrap(),
         Sense::Same,
@@ -407,6 +446,7 @@ fn a_thin_round_whose_edge_ends_a_tenth_of_a_micrometre_off_its_corners_meshes()
             (shifted, Sense::Same),
         ]],
     );
+
     let solid = fixture.build_unchecked();
 
     let mesh = solid.tessellate(&SamplingTolerance::for_extent(height));
@@ -468,6 +508,7 @@ fn a_corner_whose_edges_end_apart_on_the_surface_within_the_chord_meshes() {
         straight(Point2::new(side, side), Point2::new(0.0, side)),
         straight(Point2::new(0.0, side), Point2::new(0.0, -overshoot)),
     ];
+
     builder
         .add_loop_with_pcurves(
             face,
@@ -478,6 +519,7 @@ fn a_corner_whose_edges_end_apart_on_the_surface_within_the_chord_meshes() {
                 .collect(),
         )
         .unwrap();
+
     let solid = builder.build_unchecked();
 
     let mesh = solid.tessellate(&SamplingTolerance::for_extent(side));
@@ -546,6 +588,7 @@ fn two_corners_whose_pcurves_end_at_one_uv_mesh_side_by_side() {
         straight(side - short, Point2::new(0.0, side), Point2::new(0.0, 0.0)),
         straight(short, Point2::new(0.0, 0.0), Point2::new(0.0, 0.0)),
     ];
+
     builder
         .add_loop_with_pcurves(
             face,
@@ -556,6 +599,7 @@ fn two_corners_whose_pcurves_end_at_one_uv_mesh_side_by_side() {
                 .collect(),
         )
         .unwrap();
+
     let solid = builder.build_unchecked();
 
     let mesh = solid
@@ -579,11 +623,14 @@ fn a_cone_meshes_without_slivers_at_its_apex_at_any_tolerance() {
             let mesh = cone
                 .tessellate(&SamplingTolerance::new(chord, 0.3).unwrap())
                 .unwrap();
+
             assert_watertight("cone", &mesh);
             for triangle in mesh.triangles() {
                 let [a, b, c] = mesh.corner_points(*triangle).unwrap();
+
                 let longest = a.distance(b).max(b.distance(c)).max(c.distance(a));
                 let area = (b - a).cross(c - a).length() / 2.0;
+
                 assert!(
                     area > 1e-9 * longest * longest,
                     "a sliver {a} {b} {c} on a cone of radius {radius} and height {height} at \
@@ -619,29 +666,41 @@ fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
     };
     let post = [circle(1, (30.0, 0.0), 3.0)];
     let mut curves = post.to_vec();
+
     curves.push(circle(5, (0.0, 0.0), 10.0));
+
     let (sin, cos) = 0.07_f64.sin_cos_libm();
+
     curves.push(circle(6, (8.999 * cos, 8.999 * sin), 1.0));
+
     let both = sweep(&curves);
     let tolerance = SamplingTolerance::new(0.05, 0.5).unwrap();
+
     let mut tessellator =
         Tessellator::new(&both, &tolerance, MAX_POINTS, Keys::Skipped, 1).unwrap();
+
     let mut crossed = tessellator.first_pass().unwrap().faces().unwrap();
     let before = tessellator.triangles.clone();
     let mut refined_faces: Vec<FaceId> = Vec::new();
+
     while !crossed.is_empty() {
         assert!(tessellator.tolerances.refine(&crossed));
+
         refined_faces.extend(&crossed);
         crossed = tessellator.refine(&crossed).unwrap().faces;
     }
+
     let untouched: Vec<FaceId> = both
         .faces()
         .map(|(id, _)| id)
         .filter(|id| !refined_faces.contains(id) && tessellator.triangles.get(id) == before.get(id))
         .collect();
+
     assert!(untouched.len() >= 3, "{untouched:?}");
+
     let refined = tessellator.finish().into_mesh();
     let mut used = vec![false; refined.positions().len()];
+
     for position in refined.position_triangles().flatten().chain(
         refined
             .edges()
@@ -650,10 +709,15 @@ fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
     ) {
         used[position as usize] = true;
     }
+
     assert!(used.iter().all(|used| *used));
+
     assert_watertight("refined ring and post", &refined);
+
     let mesh = both.tessellate(&tolerance).unwrap();
+
     assert_watertight("ring and post", &mesh);
+
     let alone = sweep(&post).tessellate(&tolerance).unwrap();
     let counts = |mesh: &Mesh| {
         let mut counts: Vec<usize> = mesh
@@ -661,10 +725,12 @@ fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
             .iter()
             .map(|face| face.triangles.len())
             .collect();
+
         counts.sort_unstable();
         counts
     };
     let found = counts(&mesh);
+
     assert!(counts(&alone).iter().all(|count| found.contains(count)));
 }
 
@@ -686,6 +752,7 @@ fn tessellation_cancelled_anywhere_stops_with_cancelled() {
 fn a_mesh_needing_more_points_than_the_budget_is_refused() {
     let ball = fixtures::sphere(5.0);
     let fine = SamplingTolerance::new(1e-3, 0.05).unwrap();
+
     let points = ball.tessellate(&fine).unwrap().positions().len();
 
     assert!(tessellate_within(&ball, &fine, points).is_ok());
@@ -728,6 +795,7 @@ fn assert_circle_edges_follow(solid: &Solid, mesh: &Mesh, center: Point3, radius
 
         assert!(points.len() > (TAU / quality.angle()) as usize);
         assert_eq!(faces.len(), 2);
+
         for face in faces {
             let range = mesh
                 .faces()
@@ -738,6 +806,7 @@ fn assert_circle_edges_follow(solid: &Solid, mesh: &Mesh, center: Point3, radius
                 .iter()
                 .flat_map(|triangle| mesh.triangle_positions(*triangle).unwrap())
                 .collect();
+
             assert!(
                 polyline
                     .positions
@@ -748,8 +817,10 @@ fn assert_circle_edges_follow(solid: &Solid, mesh: &Mesh, center: Point3, radius
         }
         for pair in points.windows(2) {
             let (from, to) = ((pair[0] - center).truncate(), (pair[1] - center).truncate());
+
             let step = from.angle_to(to).abs();
             let sagitta = radius * (1.0 - (step / 2.0).cos_libm());
+
             assert!(step <= quality.angle() + 1e-9, "a {step} rad step");
             assert!(sagitta <= chord + 1e-12, "a sagitta of {sagitta}");
         }
@@ -759,13 +830,16 @@ fn assert_circle_edges_follow(solid: &Solid, mesh: &Mesh, center: Point3, radius
 #[test]
 fn a_displayed_cylinder_keeps_its_steps_within_the_angle_and_chord_and_shades_smoothly() {
     let (radius, height) = (10.0, 20.0);
+
     let solid = fixtures::cylinder(radius, height);
     let mesh = solid.display_mesh(&MeshQuality::SMOOTH).unwrap();
     let chord = solid.tolerance_for(&MeshQuality::SMOOTH).chord();
     let coarse = solid.tessellate(&solid.default_tolerance()).unwrap();
 
     assert_watertight("smooth cylinder", &mesh);
+
     assert!(mesh.triangles().len() > coarse.triangles().len());
+
     assert_circle_edges_follow(&solid, &mesh, Point3::ZERO, radius);
 
     for face in mesh.faces() {
@@ -775,6 +849,7 @@ fn a_displayed_cylinder_keeps_its_steps_within_the_angle_and_chord_and_shades_sm
         );
         for triangle in &mesh.triangles()[face.triangles.clone()] {
             let corners = mesh.corner_points(*triangle).unwrap();
+
             for (corner, point) in triangle.iter().zip(corners) {
                 let normal = mesh.vertices()[*corner as usize].normal.vector();
                 let expected = if curved {
@@ -784,6 +859,7 @@ fn a_displayed_cylinder_keeps_its_steps_within_the_angle_and_chord_and_shades_sm
                 } else {
                     Vector3::NEG_Z
                 };
+
                 assert!(
                     normal.distance(expected) < PACKED_NORMAL_ERROR,
                     "{normal} at {point} should be {expected}"
@@ -798,6 +874,7 @@ fn a_displayed_cylinder_keeps_its_steps_within_the_angle_and_chord_and_shades_sm
                     (c + a) * 0.5,
                 ] {
                     let deviation = radius - radial_distance(inside, Point3::ZERO);
+
                     assert!(deviation <= chord + 1e-12, "{deviation} off the cylinder");
                 }
             }
@@ -808,6 +885,7 @@ fn a_displayed_cylinder_keeps_its_steps_within_the_angle_and_chord_and_shades_sm
 #[test]
 fn a_small_hole_in_a_large_block_is_as_round_as_a_large_one() {
     let (side, radius) = (100.0, 2.0);
+
     let solid = fixtures::holed_block(side, 10.0, radius);
     let mesh = solid.display_mesh(&MeshQuality::SMOOTH).unwrap();
 
@@ -825,6 +903,7 @@ fn a_display_mesh_over_its_budget_falls_back_to_the_coarse_quality() {
     let ball = fixtures::sphere(5.0);
     let extent = ball.bounding_box().unwrap().diagonal();
     let smooth = ball.display_mesh(&MeshQuality::SMOOTH).unwrap();
+
     let coarse = ball
         .tessellate(&MeshQuality::COARSE.display_tolerance(extent))
         .unwrap();
@@ -846,6 +925,7 @@ fn a_display_mesh_over_its_budget_falls_back_to_the_coarse_quality() {
 fn surface_deviation(solid: &Solid, tolerance: &SamplingTolerance) -> f64 {
     let mesh = solid.tessellate(tolerance).unwrap();
     let mut worst: f64 = 0.0;
+
     for face in mesh.faces() {
         let surface = solid.face(face.face).unwrap().surface();
         for triangle in &mesh.triangles()[face.triangles.clone()] {
@@ -857,6 +937,7 @@ fn surface_deviation(solid: &Solid, tolerance: &SamplingTolerance) -> f64 {
                 (c + a) * 0.5,
             ] {
                 let foot = surface.project(point, None);
+
                 worst = worst.max(surface.point_at(foot).distance(point));
             }
         }
@@ -867,6 +948,7 @@ fn surface_deviation(solid: &Solid, tolerance: &SamplingTolerance) -> f64 {
 #[test]
 fn every_surface_kind_meshes_within_the_requested_chord() {
     let mut solids = fixtures::every_solid();
+
     solids.push(("fat torus", fixtures::torus(3.0, 2.5)));
     solids.push(("thin torus", fixtures::torus(20.0, 0.5)));
     solids.push(("very thin torus", fixtures::torus(60.0, 0.4)));
@@ -874,6 +956,7 @@ fn every_surface_kind_meshes_within_the_requested_chord() {
         let tolerance = SamplingTolerance::new(chord, 1.0).unwrap();
         for (name, solid) in &solids {
             let worst = surface_deviation(solid, &tolerance);
+
             assert!(
                 worst <= chord * 1.05,
                 "{name} deviates {worst} from its surface at a chord of {chord}"
@@ -892,6 +975,7 @@ fn a_long_cylinder_and_a_small_bump_mesh_with_few_triangles_within_the_chord() {
         )
         .unwrap();
     let long = fixtures::cylinder(0.5, 1000.0);
+
     let drilled = boolean(&long, &drill, BooleanOperation::Difference).unwrap();
     let bumped = fixtures::bumped_block(100.0, 10.0, 41, 2.0);
 
@@ -905,6 +989,7 @@ fn a_long_cylinder_and_a_small_bump_mesh_with_few_triangles_within_the_chord() {
         let deviation = surface_deviation(&solid, &tolerance);
 
         assert_watertight(name, &mesh);
+
         assert!(
             mesh.triangles().len() <= most,
             "{name} has {} triangles",
@@ -935,6 +1020,7 @@ fn indexed_containment_agrees_with_testing_every_triangle() {
             .iter()
             .step_by(triangles.len().div_ceil(64))
             .flat_map(|[a, b, c]| [*a, (*a + *b + *c) / 3.0, (*a + *b) / 2.0]);
+
         let probes: Vec<Point3> = scattered.chain(on_mesh).collect();
 
         for probe in probes {
@@ -954,6 +1040,7 @@ fn display_mesh_costs() {
     let dimple = fixtures::sphere(2.0)
         .transformed(&RigidTransform::translation(Vector3::new(0.0, 60.0, 5.0)).unwrap())
         .unwrap();
+
     let dimpled = boolean(&plate, &dimple, BooleanOperation::Difference).unwrap();
     let quality = MeshQuality::SMOOTH;
     let tolerance = plate.tolerance_for(&quality);
@@ -963,10 +1050,12 @@ fn display_mesh_costs() {
         let mut times: Vec<std::time::Duration> = (0..runs)
             .map(|_| {
                 let started = std::time::Instant::now();
+
                 assert!(mesh() > 0);
                 started.elapsed()
             })
             .collect();
+
         times.sort();
         times[runs / 2]
     };
@@ -996,6 +1085,7 @@ fn display_mesh_costs() {
     );
     let small = perforated_plate(3, 2);
     let coarse = small.default_tolerance();
+
     let small_alone = median(&|| {
         let meshed = mesh_faces(&small, &coarse, MAX_POINTS, Keys::Skipped, 1);
         meshed.unwrap().mesh().triangles().len()
@@ -1033,6 +1123,7 @@ fn faces_meshed_on_many_threads_make_the_mesh_of_one_thread() {
     assert_eq!(keyed.unwrap().mesh(), alone.mesh());
     for threads in [2, 3, 4, 16] {
         let shared = mesh_faces(&plate, &tolerance, MAX_POINTS, Keys::Skipped, threads);
+
         assert_eq!(shared.unwrap(), alone, "on {threads} threads");
     }
 }
@@ -1043,6 +1134,7 @@ fn a_changed_body_reuses_the_mesh_of_every_face_it_kept() {
     let dimple = fixtures::sphere(2.0)
         .transformed(&RigidTransform::translation(Vector3::new(15.0, 3.0, 10.0)).unwrap())
         .unwrap();
+
     let dimpled = boolean(&plate, &dimple, BooleanOperation::Difference).unwrap();
     let quality = MeshQuality::SMOOTH;
 

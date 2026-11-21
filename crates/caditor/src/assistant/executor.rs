@@ -106,6 +106,7 @@ pub fn all_tool_definitions() -> Vec<ToolDefinition> {
             input_schema: tool.input_schema(),
         })
         .collect();
+
     defs.push(ToolDefinition {
         name: LIST_RESOURCES_TOOL.to_owned(),
         description: "Lists available MCP resources, including caditor://model/summary, \
@@ -181,18 +182,22 @@ impl LiveMcpExecutor {
 
     fn alloc_id(&self) -> u64 {
         let mut next = self.next_tool_id.lock();
+
         let id = *next;
+
         *next = next.saturating_add(1);
         id
     }
 
     fn emit(&self, event: ExecutorEvent) {
         let _ = self.events.send(event);
+
         (self.wake)();
     }
 
     fn request_snapshot(&self) -> Result<ModelSnapshot, BridgeError> {
         let (reply_tx, reply_rx) = mpsc::channel();
+
         self.bridge
             .send(BridgeRequest::Snapshot { reply: reply_tx })
             .map_err(|_| BridgeError::ModelUnavailable)?;
@@ -207,6 +212,7 @@ impl LiveMcpExecutor {
         changes: Vec<Change>,
     ) -> Result<CommitOutcome, BridgeError> {
         let (reply_tx, reply_rx) = mpsc::channel();
+
         self.bridge
             .send(BridgeRequest::Commit {
                 expected_session,
@@ -224,6 +230,7 @@ impl LiveMcpExecutor {
         let wake = Arc::clone(&self.wake);
         Box::new(move |path| {
             let (reply_tx, reply_rx) = mpsc::channel();
+
             bridge
                 .send(BridgeRequest::Save {
                     expected_session,
@@ -245,13 +252,16 @@ impl LiveMcpExecutor {
     ) -> ToolResult {
         if name == LIST_RESOURCES_TOOL {
             let activity_id = self.alloc_id();
+
             self.emit(ExecutorEvent::Started {
                 id: activity_id,
                 tool_name: name.to_owned(),
                 title: tool_title(name),
                 arguments_preview: String::new(),
             });
+
             let text = resources::listing().to_string();
+
             self.emit(ExecutorEvent::Finished {
                 id: activity_id,
                 succeeded: true,
@@ -273,6 +283,7 @@ impl LiveMcpExecutor {
                 .unwrap_or_default()
                 .to_owned();
             let activity_id = self.alloc_id();
+
             self.emit(ExecutorEvent::Started {
                 id: activity_id,
                 tool_name: name.to_owned(),
@@ -297,6 +308,7 @@ impl LiveMcpExecutor {
                 }
                 Err(error) => {
                     let text = error.to_string();
+
                     self.emit(ExecutorEvent::Finished {
                         id: activity_id,
                         succeeded: false,
@@ -341,13 +353,16 @@ impl LiveMcpExecutor {
         cancelled: &Arc<AtomicBool>,
     ) -> Result<Answer, BridgeError> {
         let activity_id = self.alloc_id();
+
         self.emit(ExecutorEvent::Started {
             id: activity_id,
             tool_name: name.to_owned(),
             title: tool_title(name),
             arguments_preview: preview_arguments(&arguments),
         });
+
         let result = self.run_mcp_tool_inner(activity_id, name, arguments, cancelled);
+
         match &result {
             Ok(answer) => {
                 let preview = answer
@@ -355,6 +370,7 @@ impl LiveMcpExecutor {
                     .as_deref()
                     .and_then(Thumbnail::from_bytes)
                     .map(Arc::new);
+
                 self.emit(ExecutorEvent::Finished {
                     id: activity_id,
                     succeeded: true,
@@ -384,6 +400,7 @@ impl LiveMcpExecutor {
         if cancelled.load(Ordering::Acquire) {
             return Err(BridgeError::Cancelled);
         }
+
         let tool = Tool::named(name).ok_or_else(|| {
             let err = serde_json::from_str::<Value>("invalid").err();
             match err {
@@ -394,12 +411,14 @@ impl LiveMcpExecutor {
                 None => BridgeError::ModelUnavailable,
             }
         })?;
+
         for attempt in 0..=MAX_STALE_RETRIES {
             let call = tool.decode(arguments.clone())?;
             let snapshot = self.request_snapshot()?;
             let session_id = snapshot.session_id;
             let revision = snapshot.revision;
             let exported = self.exported.lock().clone();
+
             let mut session = Session::attached(AttachedConfig {
                 document: snapshot.document,
                 evaluation: snapshot.evaluation,
@@ -419,6 +438,7 @@ impl LiveMcpExecutor {
                 });
             };
             let work = Work::new(Arc::clone(cancelled), &report);
+
             let outcome = panic::catch_unwind(AssertUnwindSafe(|| call.run(&mut session, &work)));
             let answer = match outcome {
                 Ok(Ok(answer)) => answer,
@@ -427,6 +447,7 @@ impl LiveMcpExecutor {
             };
             let changes = session.take_changes();
             let exported_after = session.exported_paths().clone();
+
             if changes.is_empty() {
                 *self.exported.lock() = exported_after;
                 return Ok(answer);
@@ -448,6 +469,7 @@ impl LiveMcpExecutor {
         if cancelled.load(Ordering::Acquire) {
             return Err(BridgeError::Cancelled);
         }
+
         let snapshot = self.request_snapshot()?;
         let mut session = Session::attached(AttachedConfig {
             document: snapshot.document,
@@ -495,6 +517,7 @@ fn summarize_answer(name: &str, data: &Map<String, Value>) -> String {
             .get("failing")
             .and_then(Value::as_array)
             .map_or(0, Vec::len);
+
         if failing > 0 {
             return format!("{change} ({failing} failing)");
         }
@@ -526,6 +549,7 @@ fn summarize_answer(name: &str, data: &Map<String, Value>) -> String {
 
 fn truncate_chars(text: &str, max_chars: usize) -> String {
     let mut chars = text.chars();
+
     let kept: String = chars.by_ref().take(max_chars).collect();
     if chars.next().is_some() {
         format!("{kept}…")

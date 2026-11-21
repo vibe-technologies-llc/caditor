@@ -15,6 +15,7 @@ use super::{
 fn circles_touch_two_or_three_curves() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
     let drawn = draw(
         &mut client,
@@ -53,21 +54,27 @@ fn circles_touch_two_or_three_curves() {
         &sketch,
         json!({ "operation": "tangent_circle", "curves": [lines[0], lines[1]] }),
     );
+
     client.finish();
 
     let circles = of_kind(&shown, "circle");
+
     assert_eq!(circles.len(), 2, "{shown}");
+
     let wide = (60.0 - 30.0 * 2.0_f64.sqrt()) / 2.0;
+
     assert!(
         circles
             .iter()
             .any(|circle| close(number(&circle["radius"]), wide)),
         "{shown}"
     );
+
     let small = circles
         .iter()
         .find(|circle| close(number(&circle["radius"]), 5.0))
         .unwrap();
+
     assert!(
         near(position(&shown, &small["center"]), [5.0, 5.0]) || small["at"] == json!([5.0, 5.0])
     );
@@ -93,6 +100,7 @@ fn count_added(answer: &serde_json::Value) -> usize {
 fn two_curve_ends_are_blended_by_a_spline() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
     let drawn = draw(
         &mut client,
@@ -114,7 +122,9 @@ fn two_curve_ends_are_blended_by_a_spline() {
         }),
     );
     let shown = described(&mut client, &sketch);
+
     client.tool("undo", json!({}));
+
     let curved = modify(
         &mut client,
         &sketch,
@@ -144,10 +154,13 @@ fn two_curve_ends_are_blended_by_a_spline() {
             "second": { "curve": right["id"], "end": right["start"] }
         }),
     );
+
     client.finish();
 
     assert_eq!(tangent["change"], "Draw blend curve");
+
     let splines = of_kind(&shown, "spline");
+
     assert_eq!(splines.len(), 1, "{shown}");
     assert!(
         descriptions(&shown)
@@ -171,6 +184,7 @@ fn two_curve_ends_are_blended_by_a_spline() {
 fn gears_pairs_and_sprockets_are_drawn_where_asked() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let solid = modify(
@@ -179,21 +193,27 @@ fn gears_pairs_and_sprockets_are_drawn_where_asked() {
         json!({ "operation": "gear", "teeth": 20, "module": "2 mm" }),
     );
     let solid_area = extruded_area(&mut client, &sketch);
+
     client.tool("undo", json!({}));
+
     let bored = modify(
         &mut client,
         &sketch,
         json!({ "operation": "gear", "teeth": 20, "module": "2 mm", "bore": "10 mm" }),
     );
     let bored_area = extruded_area(&mut client, &sketch);
+
     client.tool("undo", json!({}));
+
     let pair = modify(
         &mut client,
         &sketch,
         json!({ "operation": "gear", "shape": "pair", "teeth": 20, "meshing_teeth": 30, "meshing_direction": "90 deg", "at": [5, 5] }),
     );
     let paired = described(&mut client, &sketch);
+
     client.tool("undo", json!({}));
+
     let sprocket = modify(
         &mut client,
         &sketch,
@@ -220,17 +240,23 @@ fn gears_pairs_and_sprockets_are_drawn_where_asked() {
         &sketch,
         json!({ "operation": "gear", "module": "0 mm" }),
     );
+
     client.finish();
 
     assert_eq!(solid["change"], "Draw spur gear");
+
     let pitch = PI * 20.0 * 20.0;
+
     assert!(
         solid_area > 0.8 * pitch && solid_area < 1.2 * pitch,
         "{solid_area}"
     );
     assert_eq!(bored["change"], "Draw spur gear");
+
     assert_area(solid_area - bored_area, PI * 25.0);
+
     assert_eq!(pair["change"], "Draw gear pair");
+
     let gears = paired["gears"].as_array().unwrap();
     let partner = gears
         .iter()
@@ -244,6 +270,7 @@ fn gears_pairs_and_sprockets_are_drawn_where_asked() {
         let at = gear["at"].as_array().unwrap();
         [number(&at[0]), number(&at[1])]
     };
+
     assert_eq!(gears.len(), 2);
     assert_eq!(partner["meshes_with"], driver["id"]);
     assert_eq!(driver["meshing_gears"], json!([partner["id"].clone()]));
@@ -266,6 +293,7 @@ fn gears_pairs_and_sprockets_are_drawn_where_asked() {
 fn a_tangent_arc_continues_a_curve_drawn_in_the_same_call() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
 
     let drawn = draw(
@@ -301,16 +329,19 @@ fn a_tangent_arc_continues_a_curve_drawn_in_the_same_call() {
             { "kind": "tangent_arc", "after_item": 0, "to": [5, 55] }
         ] }),
     );
+
     client.finish();
 
     assert_eq!(drawn[1]["tangent_to"], drawn[0]["id"]);
     assert_eq!(drawn[2]["tangent_to"], drawn[1]["id"]);
     assert!(near(position(&shown, &drawn[1]["start"]), [10.0, 0.0]));
     assert!(near(position(&shown, &drawn[1]["center"]), [10.0, 10.0]));
+
     let tangents = descriptions(&shown)
         .into_iter()
         .filter(|description| description.contains("tangent"))
         .count();
+
     assert_eq!(tangents, 2, "{shown}");
     assert_eq!(polyline[1]["tangent_to"], polyline[0]["lines"][0]);
     assert!(late.contains("not an earlier item"), "{late}");
@@ -323,7 +354,9 @@ fn a_tangent_arc_continues_a_curve_drawn_in_the_same_call() {
 fn a_conics_rho_is_held_by_a_parameter() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
+
     let sketch = new_sketch(&mut client);
+
     client.tool(
         "set_parameter",
         json!({ "name": "fullness", "expression": "0.3" }),
@@ -335,10 +368,12 @@ fn a_conics_rho_is_held_by_a_parameter() {
         json!([{ "kind": "conic", "start": [0, 0], "end": [20, 0], "apex": [10, 10], "rho": "fullness" }]),
     );
     let before = described(&mut client, &sketch);
+
     client.tool(
         "set_parameter",
         json!({ "name": "fullness", "expression": "0.6" }),
     );
+
     let after = described(&mut client, &sketch);
     let plain = draw(
         &mut client,
@@ -350,9 +385,11 @@ fn a_conics_rho_is_held_by_a_parameter() {
         "add_sketch_geometry",
         json!({ "sketch": sketch, "items": [{ "kind": "conic", "start": [0, 0], "end": [10, 0], "apex": [5, 5], "rho": "fullness * 5" }] }),
     );
+
     client.finish();
 
     let id = &drawn[0]["id"];
+
     assert!(close(number(&entity(&before, id)["rho"]), 0.3));
     assert!(close(number(&entity(&after, id)["rho"]), 0.6));
     assert!(

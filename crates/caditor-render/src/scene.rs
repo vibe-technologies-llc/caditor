@@ -8,7 +8,7 @@ use crate::{
     runs::PolylineRun, silhouette::Silhouette,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PickId(NonZeroU32);
 
 impl PickId {
@@ -30,7 +30,7 @@ impl PickId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Color {
     pub red: f32,
     pub green: f32,
@@ -62,7 +62,7 @@ impl Color {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Layer {
     Reference,
     Model,
@@ -88,14 +88,14 @@ const SOLID_WHERE_SEEN: u32 = 8;
 pub const MAX_SECTION_PLANES: usize = 6;
 const SECTION_SLACK_PER_DISTANCE: f64 = 1e-5;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum CutFace {
     #[default]
     Hatched,
     Filled,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SectionPlane {
     pub plane: Plane,
     pub cut_face: CutFace,
@@ -125,6 +125,7 @@ pub fn kept_span(
     slack: f64,
 ) -> Option<(f64, f64)> {
     let mut span = (0.0_f64, 1.0_f64);
+
     for plane in section.iter().take(MAX_SECTION_PLANES) {
         let start = plane.plane.signed_distance(from) - slack;
         let end = plane.plane.signed_distance(to) - slack;
@@ -138,7 +139,7 @@ pub fn kept_span(
     (span.0 <= span.1).then_some(span)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     pub start: Point3,
     pub end: Point3,
@@ -149,7 +150,7 @@ pub struct Line {
     pub stroke: Stroke,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Stroke {
     Solid,
     Dashed { along: f32 },
@@ -191,7 +192,7 @@ impl Stroke {
 
 const SOLID: f32 = -1.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum StrokeKind {
     Solid,
     Dashed,
@@ -220,7 +221,7 @@ impl StrokeKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Marker {
     pub position: Point3,
     pub color: Color,
@@ -229,7 +230,7 @@ pub struct Marker {
     pub pick: Option<PickId>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Fill {
     pub triangles: Vec<[Point3; 3]>,
     pub color: Color,
@@ -265,13 +266,13 @@ impl Fill {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Grid {
     pub plane: Plane,
     pub color: Color,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Batch {
     pub lines: Vec<Line>,
     pub runs: Vec<PolylineRun>,
@@ -314,14 +315,14 @@ impl Batch {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Backdrop {
     pub environment: Arc<Environment>,
     pub turn: f32,
     pub stops: f32,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Scene {
     pub meshes: Vec<MeshInstance>,
     pub translucent_meshes: Vec<MeshInstance>,
@@ -338,7 +339,7 @@ pub struct Scene {
     pub pictures: Vec<ScenePicture>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Reflection {
     #[default]
     Chrome,
@@ -388,20 +389,20 @@ impl From<Batch> for Scene {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PickHit {
     pub id: PickId,
     pub offset_points: f32,
     pub position: Point3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PickResult {
     pub cursor: DVec2,
     pub hits: Vec<PickHit>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ViewportRect {
     pub x: f32,
     pub y: f32,
@@ -422,7 +423,9 @@ mod tests {
             Point3::Y,
         ];
         let color = Color::from_rgb8(0, 0, 0);
+
         let fill = Fill::convex(&square, color, Layer::Reference, None);
+
         assert_eq!(
             fill.triangles,
             vec![
@@ -441,6 +444,7 @@ mod tests {
     #[test]
     fn pick_ids_round_trip_and_never_encode_zero() {
         let id = PickId::from_index(0).unwrap();
+
         assert_eq!(PickId::raw(Some(id)), 1);
         assert_eq!(id.index(), 0);
         assert_eq!(PickId::raw(None), 0);

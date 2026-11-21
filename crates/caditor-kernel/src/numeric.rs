@@ -36,7 +36,7 @@ pub(crate) fn integrate(breaks: &[f64], integrand: impl Fn(f64) -> f64) -> f64 {
         .sum()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Taylor {
     pub value: f64,
     pub slope: f64,
@@ -52,9 +52,12 @@ pub(crate) fn minimize(samples: &[f64], objective: impl Fn(f64) -> Taylor) -> Op
     let mut candidates: Vec<usize> = (0..values.len())
         .filter(|index| is_local_minimum(&values, *index))
         .collect();
+
     candidates.sort_by(|a, b| sample_value(&values, *a).total_cmp(&sample_value(&values, *b)));
     candidates.truncate(MAX_REFINED_CANDIDATES);
+
     let mut best = values.iter().copied().min_by(|a, b| a.1.total_cmp(&b.1))?;
+
     for index in candidates {
         let Some(&(start, _)) = values.get(index) else {
             continue;
@@ -64,6 +67,7 @@ pub(crate) fn minimize(samples: &[f64], objective: impl Fn(f64) -> Taylor) -> Op
             .and_then(|previous| values.get(previous))
             .map_or(start, |sample| sample.0);
         let high = values.get(index + 1).map_or(start, |sample| sample.0);
+
         let refined = refine(low, high, start, &objective);
         if refined.1 < best.1 {
             best = refined;
@@ -90,6 +94,7 @@ pub(crate) fn minimize_near(
         return minimize_runs(&runs(), &objective);
     };
     let reach = range.length() / HINT_BRACKETS;
+
     let around = [
         range.clamp(hint - reach),
         range.clamp(hint),
@@ -97,9 +102,11 @@ pub(crate) fn minimize_near(
     ];
     let local = minimize(&around, &objective);
     let local_value = local.map(|local| objective(local).value);
+
     if local_value.is_some_and(|value| value <= SQUARED_RESOLUTION) {
         return local;
     }
+
     let global = minimize_runs(&runs(), &objective);
     match (global, local, local_value) {
         (Some(global), Some(local), Some(value)) => {
@@ -130,8 +137,11 @@ fn refine(
     objective: &impl Fn(f64) -> Taylor,
 ) -> (f64, f64) {
     let mut at = start;
+
     let mut current = objective(at);
+
     let mut best = (at, current.value);
+
     for _ in 0..MAX_REFINE_ITERATIONS {
         if !current.slope.is_finite() || current.slope == 0.0 {
             break;
@@ -141,11 +151,14 @@ fn refine(
         } else {
             low = at;
         }
+
         let width = high - low;
         let resolution = PARAMETER_EPSILON * (1.0 + at.abs() + low.abs() + high.abs());
+
         if width <= resolution {
             break;
         }
+
         let newton = at - current.slope / current.curvature;
         let next = if current.curvature > 0.0 && newton > low && newton < high {
             newton
@@ -153,6 +166,7 @@ fn refine(
             low + 0.5 * width
         };
         let step = (next - at).abs();
+
         at = next;
         current = objective(at);
         if current.value.is_finite() && current.value < best.1 {
@@ -177,6 +191,7 @@ mod tests {
     fn integrates_polynomials_exactly() {
         let value = integrate(&[0.0, 1.0, 3.0], |x| x.powi(7) - 2.0 * x);
         let exact = 3f64.powi(8) / 8.0 - 9.0;
+
         assert!((value - exact).abs() < 1e-9 * exact.abs());
         assert!((integrate(&[0.0, PI], f64::sin_libm) - 2.0).abs() < 1e-12);
         assert_eq!(integrate(&[1.0], |x| x), 0.0);
@@ -190,7 +205,9 @@ mod tests {
             curvature: 12.0 * x * x - 4.0,
         };
         let samples: Vec<f64> = (0..=20).map(|index| -2.0 + 0.2 * index as f64).collect();
+
         let found = minimize(&samples, objective).unwrap();
+
         assert!(found < 0.0);
         assert!(objective(found).slope.abs() < 1e-9);
     }
@@ -227,12 +244,15 @@ mod tests {
             slope: 1.0,
             curvature: 0.0,
         };
+
         assert_eq!(minimize(&[0.0, 0.5, 1.0], objective), Some(0.0));
+
         let broken = |_: f64| Taylor {
             value: f64::NAN,
             slope: f64::NAN,
             curvature: f64::NAN,
         };
+
         assert_eq!(minimize(&[0.0, 1.0], broken), None);
     }
 }

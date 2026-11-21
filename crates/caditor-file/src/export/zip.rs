@@ -109,6 +109,7 @@ impl<W: Write + Seek> ZipWriter<W> {
         } else {
             (STORED, contents)
         };
+
         let entry = Written {
             name: name.to_owned(),
             method,
@@ -117,6 +118,7 @@ impl<W: Write + Seek> ZipWriter<W> {
             size: contents.len() as u64,
             offset: self.position,
         };
+
         if entry.sizes_need_zip64() {
             return Err(ExportError::TooLarge);
         }
@@ -145,7 +147,9 @@ impl<W: Write + Seek> ZipWriter<W> {
             size: 0,
             offset: self.position,
         };
+
         self.local_header(&entry, zip64)?;
+
         let data_start = self.position;
         let mut deflating = Deflating {
             zip: self,
@@ -158,8 +162,11 @@ impl<W: Write + Seek> ZipWriter<W> {
             output: vec![0; DEFLATE_CHUNK],
             size: 0,
         };
+
         fill(&mut deflating)?;
+
         let (crc, size) = deflating.finish()?;
+
         entry.crc = crc;
         entry.size = size;
         entry.compressed = self.position - data_start;
@@ -173,6 +180,7 @@ impl<W: Write + Seek> ZipWriter<W> {
 
     fn local_header(&mut self, entry: &Written, zip64: bool) -> Result<(), ExportError> {
         let name_length = u16::try_from(entry.name.len()).map_err(|_| ExportError::TooLarge)?;
+
         self.put_u32(LOCAL_HEADER_SIGNATURE)?;
         self.put_u16(if zip64 { ZIP64_VERSION } else { VERSION_NEEDED })?;
         self.put_u16(NO_FLAGS)?;
@@ -205,12 +213,14 @@ impl<W: Write + Seek> ZipWriter<W> {
 
     fn patch_local_header(&mut self, entry: &Written, zip64: bool) -> Result<(), ExportError> {
         let end = self.position;
+
         self.out
             .seek(SeekFrom::Start(entry.offset + CRC_OFFSET))
             .map_err(writing)?;
         self.local_sizes(entry, zip64)?;
         if zip64 {
             let extra = entry.offset + LOCAL_HEADER_LENGTH + entry.name.len() as u64 + 4;
+
             self.out.seek(SeekFrom::Start(extra)).map_err(writing)?;
             self.put_u64(entry.size)?;
             self.put_u64(entry.compressed)?;
@@ -223,17 +233,22 @@ impl<W: Write + Seek> ZipWriter<W> {
     pub fn finish(mut self) -> Result<W, ExportError> {
         let written = std::mem::take(&mut self.written);
         let directory_start = self.position;
+
         for entry in &written {
             self.central_header(entry)?;
         }
+
         let directory_size = self.position - directory_start;
         let count = written.len() as u64;
+
         let zip64 = written.iter().any(Written::needs_zip64)
             || too_large_for_u32(directory_start)
             || too_large_for_u32(directory_size)
             || count >= u64::from(u16::MAX);
+
         if zip64 {
             let record = self.position;
+
             self.put_u32(ZIP64_END_SIGNATURE)?;
             self.put_u64(ZIP64_END_LENGTH)?;
             self.put_u16(ZIP64_VERSION)?;
@@ -249,10 +264,12 @@ impl<W: Write + Seek> ZipWriter<W> {
             self.put_u64(record)?;
             self.put_u32(1)?;
         }
+
         let short_count = u16::try_from(count)
             .ok()
             .filter(|count| *count < u16::MAX)
             .unwrap_or(u16::MAX);
+
         self.put_u32(END_SIGNATURE)?;
         self.put_u16(0)?;
         self.put_u16(0)?;
@@ -281,6 +298,7 @@ impl<W: Write + Seek> ZipWriter<W> {
         } else {
             ZIP64_VERSION
         };
+
         self.put_u32(CENTRAL_HEADER_SIGNATURE)?;
         self.put_u16(version)?;
         self.put_u16(version)?;
@@ -322,11 +340,14 @@ pub(crate) struct Deflating<'z, W> {
 impl<W: Write + Seek> Deflating<'_, W> {
     fn deflate(&mut self, flush: TDEFLFlush) -> Result<(), ExportError> {
         let mut input = std::mem::take(&mut self.pending);
+
         let mut rest = input.as_slice();
+
         loop {
             let (status, read, made) =
                 compress(&mut self.compressor, rest, &mut self.output, flush);
             let produced = self.output.get(..made).unwrap_or_default();
+
             self.zip.out.write_all(produced).map_err(writing)?;
             self.zip.position += made as u64;
             rest = rest.get(read..).unwrap_or_default();
@@ -367,6 +388,7 @@ impl<W: Write + Seek> Deflating<'_, W> {
 #[cfg(test)]
 pub(crate) fn archive(entries: &[ZipEntry<'_>]) -> Result<Vec<u8>, ExportError> {
     let mut zip = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+
     for entry in entries {
         zip.add(entry.name, entry.contents)?;
     }
@@ -395,7 +417,9 @@ mod tests {
     fn a_streamed_entry_that_may_pass_four_gibibytes_keeps_its_sizes_in_a_zip64_field() {
         let text = "<vertex/>".repeat(10_000);
         let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+
         zip.add("small.txt", b"small").unwrap();
+
         let local = zip.position as usize;
 
         zip.add_deflated("big.model", u64::MAX, |deflating| {
@@ -405,10 +429,12 @@ mod tests {
             Ok(())
         })
         .unwrap();
+
         let central = zip.position as usize;
         let bytes = zip.finish().unwrap().into_inner();
         let name_length = u16_at(&bytes, local + 26) as usize;
         let extra = local + 30 + name_length;
+
         let compressed = u64_at(&bytes, extra + 12) as usize;
         let data = &bytes[extra + 20..extra + 20 + compressed];
         let first_central = central;
@@ -439,6 +465,7 @@ mod tests {
     #[test]
     fn sizes_and_offsets_past_four_gibibytes_move_into_zip64_records() {
         let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+
         zip.written.push(Written {
             name: "huge.model".to_owned(),
             method: DEFLATED,

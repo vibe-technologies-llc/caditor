@@ -13,7 +13,7 @@ use crate::{
     trim::{keeps_length, keeps_sweep, same_ellipse},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pick {
     pub curve: EntityId,
     pub near: Point2,
@@ -21,10 +21,10 @@ pub struct Pick {
 
 mod spliced;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CrossingPlan(Planned);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Planned {
     Existing(Corner),
     Spliced(Box<spliced::Spliced>),
@@ -36,7 +36,7 @@ enum Planned {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Course {
     Line {
         start: Point2,
@@ -59,13 +59,13 @@ enum Course {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Neighbour {
     turn: f64,
     at: Point2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Change {
     Kept(EntityId),
     Moved { end: EntityId, beyond: bool },
@@ -187,6 +187,7 @@ impl Course {
                 ];
             }
         };
+
         let circle = ArcGeometry::full_circle(center_at, radius);
         let from = direction_angle(corner - center_at);
         let [ahead, behind] = neighbours(center_at, corner, others)
@@ -202,6 +203,7 @@ impl Course {
             Self::Line { start, end, ends } => {
                 let span = end - start;
                 let length = span.length();
+
                 let along = |point: Point2| (point - start).dot(span) / (length * length);
                 let (at, picked) = (along(corner), along(near).clamp(0.0, 1.0));
                 let slack = tolerance / length;
@@ -250,6 +252,7 @@ impl Course {
                 };
                 let from = direction_angle(corner - center_at);
                 let picked = (direction_angle(near - center_at) - from).rem_euclid(TAU);
+
                 let forward = picked <= ahead.turn
                     || (picked < behind.turn && picked - ahead.turn <= behind.turn - picked);
                 Change::Opened {
@@ -261,7 +264,7 @@ impl Course {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Turning {
     at: f64,
     picked: f64,
@@ -277,6 +280,7 @@ impl Turning {
             sweep,
             slack,
         } = self;
+
         if at <= slack || at >= TAU - slack {
             return Change::Kept(first);
         }
@@ -296,6 +300,7 @@ impl Turning {
                 }
             };
         }
+
         let picked = if picked <= sweep {
             picked
         } else if picked - sweep < TAU - picked {
@@ -356,8 +361,10 @@ impl Sketch {
         if self.is_spline(first) || self.is_spline(second) {
             return self.spliced_picks(first, second);
         }
+
         let courses = [self.course(first)?, self.course(second)?];
         let tolerance = tolerance_of(&courses);
+
         let crossings = crossings_of(&courses, tolerance);
         let corner = crossings
             .iter()
@@ -372,8 +379,10 @@ impl Sketch {
                 reach(*a).total_cmp(&reach(*b))
             })
             .ok_or_else(|| self.never_meet(first, second))?;
+
         let others = other_crossings(&crossings, corner, tolerance);
         let [one, other] = courses;
+
         let nears = match courses {
             [Course::Circle { .. }, Course::Circle { .. }] => [
                 outside(&one, &other, corner, &others),
@@ -422,16 +431,19 @@ impl Sketch {
             } => (*curves, *courses, *changes, *corner),
         };
         let mut working = self.clone();
+
         let shared = working
             .join_curves(curves, &courses, &changes, corner)
             .map_err(FilletError::Edit)?;
         let joined = working.corner_at(shared)?;
+
         *self = working;
         Ok(joined)
     }
 
     pub fn crossing_plan(&self, picks: [Pick; 2]) -> Result<CrossingPlan, FilletError> {
         let [first, second] = picks;
+
         if first.curve == second.curve {
             return Err(FilletError::SameCurve {
                 entity: first.curve,
@@ -441,8 +453,10 @@ impl Sketch {
         if self.is_spline(first.curve) || self.is_spline(second.curve) {
             return self.spliced_plan(picks);
         }
+
         let courses = [self.course(first.curve)?, self.course(second.curve)?];
         let tolerance = tolerance_of(&courses);
+
         let crossings = crossings_of(&courses, tolerance);
         let corner = crossings
             .iter()
@@ -452,16 +466,19 @@ impl Sketch {
                 reach(*a).total_cmp(&reach(*b))
             })
             .ok_or_else(|| self.never_meet(first.curve, second.curve))?;
+
         if let Ok(existing) = self.corner_between(first.curve, second.curve)
             && existing.position.distance(corner) <= tolerance
         {
             return Ok(CrossingPlan(Planned::Existing(existing)));
         }
+
         let others = other_crossings(&crossings, corner, tolerance);
         let changes = [
             courses[0].change(corner, first.near, &others, tolerance),
             courses[1].change(corner, second.near, &others, tolerance),
         ];
+
         if changes
             .iter()
             .any(|change| matches!(change, Change::Opened { far: at, .. } if at.distance(corner) <= tolerance))
@@ -471,7 +488,9 @@ impl Sketch {
                 second: self.entity_label(second.curve),
             });
         }
+
         let mut changes = changes;
+
         for (pick, change) in picks.iter().zip(changes.iter_mut()) {
             *change = self.settled(pick.curve, *change)?;
         }
@@ -522,12 +541,15 @@ impl Sketch {
             Some(end) => *end,
             None => self.add_point(corner),
         };
+
         if let [one, other] = kept[..]
             && one != other
         {
             self.add_constraint(Constraint::Coincident(one, other))?;
         }
+
         let mut far_ends = Vec::new();
+
         for ((curve, course), change) in curves.into_iter().zip(courses).zip(changes) {
             self.reshape_plain(curve, *course, *change, shared, &mut far_ends)?;
         }
@@ -536,6 +558,7 @@ impl Sketch {
                 .into_iter()
                 .find(|other| *other != curve)
                 .ok_or(SketchError::NoSuchEntity(curve))?;
+
             self.add_constraint(Constraint::Coincident(far_end, other))?;
         }
         Ok(shared)
@@ -562,6 +585,7 @@ impl Sketch {
                 } else {
                     Entity::Line { start, end: shared }
                 };
+
                 self.drop_length_dimensions(start, end)?;
                 self.restructure(curve, line, &[], keeps_length)?;
                 self.drop_if_unused(moved)?;
@@ -587,6 +611,7 @@ impl Sketch {
                         end: shared,
                     }
                 };
+
                 self.drop_length_dimensions(start, end)?;
                 self.restructure(curve, arc, &[], keeps_sweep)?;
                 self.drop_if_unused(moved)?;
@@ -611,6 +636,7 @@ impl Sketch {
                 } else {
                     [start, shared]
                 };
+
                 let arc = Entity::EllipticalArc {
                     center,
                     major,
@@ -618,6 +644,7 @@ impl Sketch {
                     start: kept_start,
                     end: kept_end,
                 };
+
                 self.drop_length_dimensions(start, end)?;
                 self.restructure(curve, arc, &[], keeps_sweep)?;
                 self.drop_if_unused(moved)?;
@@ -643,6 +670,7 @@ impl Sketch {
                         end: shared,
                     }
                 };
+
                 self.restructure(curve, arc, &[], |_| true)?;
                 far_ends.push((far_end, curve));
             }
@@ -655,12 +683,14 @@ impl Sketch {
 
     fn course(&self, curve: EntityId) -> Result<Course, FilletError> {
         let label = || self.entity_label(curve);
+
         if self.is_projected(curve) {
             return Err(FilletError::Projected {
                 entity: curve,
                 label: label(),
             });
         }
+
         let not_line_or_arc = || FilletError::NotLineOrArc {
             entity: curve,
             label: label(),

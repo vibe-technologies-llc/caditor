@@ -25,7 +25,7 @@ const TRIANGLE_SIDES: u64 = 3;
 const INRADIUS_PER_SIDE: f64 = 0.288_675_134_594_812_9;
 const BEND_SAMPLES: u32 = 32;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PipeShape {
     #[default]
     Round,
@@ -76,7 +76,7 @@ impl PipeShape {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PipeSection {
     pub shape: PipeShape,
     pub size: f64,
@@ -95,17 +95,22 @@ impl PipeSection {
         if !self.size.is_finite() || self.size <= LINEAR_RESOLUTION || self.size > MAX_SIZE {
             return Err(PipeError::InvalidSize);
         }
+
         let mut curves = self.shape.outline(self.size, OUTER);
+
         if let Some(wall) = self.wall {
             if !wall.is_finite() || wall <= LINEAR_RESOLUTION {
                 return Err(PipeError::InvalidWall);
             }
+
             let inner = self.inner_size(wall);
+
             if inner <= LINEAR_RESOLUTION {
                 return Err(PipeError::WallTooThick);
             }
             curves.extend(self.shape.outline(inner, OUTER + self.shape.curves()));
         }
+
         let profile = Profile::new(&curves).map_err(PipeError::Section)?;
         Ok(profile
             .regions()
@@ -116,7 +121,7 @@ impl PipeSection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum PipeError {
     #[error("the pipe's size must be a length above zero and within reach")]
     InvalidSize,
@@ -148,19 +153,19 @@ impl From<GeometryError> for PipeError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Source {
     Segment(usize),
     Bend([usize; 2]),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Bend {
     segment: PathSegment,
     segments: [usize; 2],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Rounded {
     segments: Vec<PathSegment>,
     sources: Vec<Source>,
@@ -179,6 +184,7 @@ impl Rounded {
         let pair = |[first, second]: [usize; 2]| [one(first), one(second)];
         let many = |segments: Vec<usize>| {
             let mut named: Vec<usize> = segments.into_iter().map(one).collect();
+
             named.sort_unstable();
             named.dedup();
             named
@@ -247,14 +253,17 @@ fn corners(chain: &Chain, radius: f64) -> Result<Corners, PipeError> {
         .iter()
         .map(|leg| [leg.range.start(), leg.range.end()])
         .collect();
+
     if radius <= 0.0 {
         return Ok(Corners { bends, kept });
     }
+
     let joints = if chain.closed && count > 1 {
         count
     } else {
         count.saturating_sub(1)
     };
+
     for index in 0..joints {
         let next = (index + 1) % count;
         let (Some(leg), Some(after)) = (legs.get(index), legs.get(next)) else {
@@ -262,19 +271,25 @@ fn corners(chain: &Chain, radius: f64) -> Result<Corners, PipeError> {
         };
         let incoming = leg.end_tangent().ok_or_else(degenerate)?;
         let outgoing = after.start_tangent().ok_or_else(degenerate)?;
+
         let turn = incoming.angle_between(outgoing);
+
         if turn <= SMOOTH_TURN {
             continue;
         }
+
         let segments = [leg.segment, after.segment];
+
         if turn > MOST_MITRE_TURN {
             return Err(PathSweepError::CornerTooSharp { segments }.into());
         }
+
         let Rounding {
             incoming_end,
             outgoing_start,
             segment,
         } = bend::rounding(leg, after, radius, path_bend(leg.key, after.key))?;
+
         if let Some([_, end]) = kept.get_mut(index) {
             *end = incoming_end;
         }
@@ -300,10 +315,12 @@ fn rounded(chain: &Chain, radius: f64) -> Result<Rounded, PipeError> {
     let Corners { bends, kept } = corners(chain, radius)?;
     let mut segments = Vec::with_capacity(chain.legs.len() * 2);
     let mut sources = Vec::with_capacity(chain.legs.len() * 2);
+
     for ((leg, [start, end]), bend) in chain.legs.iter().zip(kept).zip(bends) {
         let left = Interval::new(start, end).filter(|left| {
             *left == leg.range || leg.curve.is_longer_than(*left, LINEAR_RESOLUTION)
         });
+
         if let Some(left) = left {
             segments.push(leg.segment_over(left));
             sources.push(Source::Segment(leg.segment));
@@ -352,19 +369,19 @@ fn path_reach(path: &[PathSegment]) -> f64 {
         .fold(0.0, larger)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BendMiddle {
     pub radius: f64,
     pub point: Point3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BendMiddles {
     AlongBisector,
     Sampled(Vec<BendMiddle>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PipeCorner {
     pub point: Point3,
     pub incoming: Vector3,
@@ -372,7 +389,7 @@ pub struct PipeCorner {
     pub middles: BendMiddles,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PipeStand {
     pub section: Plane,
     pub corner: Option<PipeCorner>,
@@ -395,14 +412,17 @@ fn sampled_middles(leg: &Leg, after: &Leg, turn: f64, bend: f64) -> Vec<BendMidd
     let mut radii: Vec<f64> = (1..=BEND_SAMPLES)
         .map(|index| widest * f64::from(index) / f64::from(BEND_SAMPLES))
         .collect();
+
     if bend.is_finite() && bend > 0.0 && bend <= MAX_SIZE {
         radii.push(bend);
     }
     radii.sort_by(f64::total_cmp);
+
     let mut middles = vec![BendMiddle {
         radius: 0.0,
         point: corner,
     }];
+
     middles.extend(
         radii
             .into_iter()
@@ -425,10 +445,13 @@ fn first_corner(chain: &Chain, bend: f64) -> Option<PipeCorner> {
         let after = legs.get((index + 1) % count)?;
         let incoming = leg.end_tangent()?;
         let outgoing = after.start_tangent()?;
+
         let turn = incoming.angle_between(outgoing);
+
         if turn <= SMOOTH_TURN || turn > MOST_MITRE_TURN {
             return None;
         }
+
         let middles = if is_line(leg) && is_line(after) {
             BendMiddles::AlongBisector
         } else {
@@ -443,14 +466,14 @@ fn first_corner(chain: &Chain, bend: f64) -> Option<PipeCorner> {
     })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChainedLeg {
     pub curve: Curve,
     pub range: Interval,
     pub segment: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChainedPath {
     pub legs: Vec<ChainedLeg>,
     pub closed: bool,
@@ -493,6 +516,7 @@ pub fn pipe(
     if !bend.is_finite() || bend < 0.0 || bend > MAX_SIZE {
         return Err(PipeError::InvalidBend);
     }
+
     let regions = section.regions()?;
     let tolerance = section_tolerance(&regions).max(path_reach(path) * RELATIVE_TOLERANCE);
     let chain = path::ordered(path, tolerance)?;

@@ -5,7 +5,7 @@ use crate::profile::{
     arrangement::{Arrangement, UnionFind, piece_of},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Draft {
     outer: Vec<Piece>,
     holes: Vec<Vec<Piece>>,
@@ -35,6 +35,7 @@ pub(super) fn lumps(arrangement: &Arrangement, chosen: &BTreeSet<usize>) -> Vec<
         .iter()
         .flat_map(|face| arrangement.half_edges_of(*face).iter().copied())
         .collect();
+
     let Ok(cycles) = arrangement.cycles_from(starts.iter().copied(), is_kept) else {
         return Vec::new();
     };
@@ -45,16 +46,20 @@ pub(super) fn lumps(arrangement: &Arrangement, chosen: &BTreeSet<usize>) -> Vec<
             .sum()
     };
     let mut lump_of = joined_faces(arrangement, chosen, &starts);
+
     let (outers, holes): (Vec<&Vec<usize>>, Vec<&Vec<usize>>) =
         cycles.iter().partition(|cycle| area(cycle) > 0.0);
     let mut outers_of_lump: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+
     for (index, outer) in outers.iter().enumerate() {
         if let Some(lump) = lump_of(outer) {
             outers_of_lump.entry(lump).or_default().push(index);
         }
     }
+
     let every_outer: Vec<usize> = (0..outers.len()).collect();
     let mut assigned: Vec<Vec<&Vec<usize>>> = vec![Vec::new(); outers.len()];
+
     for hole in holes {
         let lump_outers = lump_of(hole).and_then(|lump| outers_of_lump.get(&lump));
         let container = match lump_outers.map(Vec::as_slice) {
@@ -123,6 +128,7 @@ fn joined_faces<'a>(
     let members: Vec<usize> = chosen.iter().copied().collect();
     let member = move |face: usize| members.binary_search(&face).ok();
     let mut sets = UnionFind::new(chosen.len());
+
     for half_edge in half_edges {
         let across = arrangement
             .face_of(*half_edge)
@@ -151,6 +157,7 @@ pub(super) fn base_keys(drafts: &[Draft]) -> Vec<RegionKey> {
 
 fn counts(bases: &[RegionKey]) -> BTreeMap<RegionKey, usize> {
     let mut counts = BTreeMap::new();
+
     for base in bases {
         *counts.entry(*base).or_insert(0) += 1;
     }
@@ -171,6 +178,7 @@ pub(super) fn with_keys(
 ) -> Vec<(Region, BTreeSet<usize>)> {
     let bases = base_keys(&drafts);
     let counts = counts(&bases);
+
     let mut keyed: Vec<(Region, BTreeSet<usize>)> = drafts
         .into_iter()
         .zip(&bases)
@@ -197,6 +205,7 @@ pub(super) fn with_keys(
             (region, draft.faces)
         })
         .collect();
+
     keyed.sort_by_key(|(region, _)| region.key);
     keyed
 }

@@ -26,7 +26,7 @@ pub const UNCHOSEN: &str = "Click a body or choose one";
 pub const CANCEL: &str = "Cancel";
 const CANCEL_HOVER: &str = "Stop choosing bodies to combine (Esc)";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 enum CombineChangeError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -69,6 +69,7 @@ fn operation_row(
             }),
         })
         .collect();
+
     actions.extend(feature_fields::segmented_row(
         ui,
         "Operation",
@@ -138,11 +139,14 @@ fn body_row(
 ) {
     let document = model.document();
     let id = feature.id();
+
     widgets::caption(ui, role.caption());
+
     let current = role.current(combine);
     let taken = role.taken(combine);
     let current_name = document.body_label(current);
     let selected = feature_fields::combo_text(ui, current_name.as_deref(), NOT_A_BODY);
+
     let chosen = feature_fields::combo(ui, Id::unique((role.salt(), id)), selected, || {
         document
             .bodies_before_in(id, model.evaluation())
@@ -162,6 +166,7 @@ fn body_row(
             })
             .collect()
     });
+
     actions.extend(chosen);
     ui.end_row();
 }
@@ -193,15 +198,18 @@ fn more_tool_rows(
 ) {
     let document = model.document();
     let id = feature.id();
+
     for (index, tool) in combine.more_tools.iter().enumerate() {
         if index == 0 {
             widgets::caption(ui, ALSO_COMBINES);
         } else {
             ui.label("");
         }
+
         let name = feature_fields::feature_name(document, *tool);
         let hover = format!("Stop using {}", name.unwrap_or("the missing body"));
         let mut dropped = false;
+
         ui.horizontal(|ui| {
             match name {
                 Some(name) => {
@@ -214,6 +222,7 @@ fn more_tool_rows(
         ui.end_row();
         if dropped {
             let mut kept = combine.clone();
+
             kept.more_tools.retain(|other| other != tool);
             actions.push(feature_fields::applied(
                 &feature.name,
@@ -221,11 +230,13 @@ fn more_tool_rows(
             ));
         }
     }
+
     let candidates: Vec<FeatureId> = document
         .bodies_before_in(id, model.evaluation())
         .into_iter()
         .filter(|body| combine.body != *body && !combine.tools().any(|tool| tool == *body))
         .collect();
+
     if candidates.is_empty() {
         return;
     }
@@ -234,6 +245,7 @@ fn more_tool_rows(
     } else {
         ui.label("");
     }
+
     let chosen = feature_fields::combo(
         ui,
         Id::unique(("combine-more-tool", id)),
@@ -243,6 +255,7 @@ fn more_tool_rows(
                 .iter()
                 .filter_map(|body| {
                     let mut extended = combine.clone();
+
                     extended.more_tools.push(*body);
                     Some(Choice {
                         label: document.body_label(*body)?,
@@ -258,6 +271,7 @@ fn more_tool_rows(
                 .collect()
         },
     );
+
     actions.extend(chosen);
     ui.end_row();
 }
@@ -278,7 +292,9 @@ fn swap_row(
     actions: &mut Vec<Action>,
 ) {
     ui.label("");
+
     let button = widgets::small_button(ui, icons::SWAP, SWAP);
+
     if ui.add(button).on_hover_text(SWAP_HOVER).clicked() {
         actions.push(feature_fields::applied(
             &feature.name,
@@ -300,6 +316,7 @@ fn keep_tool_row(
             keep_tool,
             ..combine.clone()
         };
+
         actions.push(feature_fields::applied(
             &feature.name,
             change(model, feature.id(), kept),
@@ -310,6 +327,7 @@ fn keep_tool_row(
 pub fn show_choosing(ui: &mut Ui, model: &Model, combining: Combining, actions: &mut Vec<Action>) {
     let document = model.document();
     let bodies = combine_tools::choosable(model);
+
     let choices = |except: Option<FeatureId>, command: fn(FeatureId) -> EditingCommand| {
         bodies
             .iter()
@@ -323,11 +341,13 @@ pub fn show_choosing(ui: &mut Ui, model: &Model, combining: Combining, actions: 
             })
             .collect()
     };
+
     widgets::card(ui, |ui| {
         ui.label(widgets::section_title(combine_tools::TITLE));
         widgets::properties(ui, "combine-choosing", |ui| {
             feature_fields::description_row(ui, CHOOSING_DESCRIPTION);
             widgets::caption(ui, Role::Target.caption());
+
             let target = combining
                 .target
                 .and_then(|target| document.body_label(target))
@@ -338,16 +358,19 @@ pub fn show_choosing(ui: &mut Ui, model: &Model, combining: Combining, actions: 
                         EditingCommand::ChooseCombined(Some(body))
                     })
                 });
+
             actions.extend(chosen);
             ui.end_row();
             if let Some(target) = combining.target {
                 widgets::caption(ui, Role::Tool.caption());
+
                 let chosen = feature_fields::combo(
                     ui,
                     Id::unique("combine-choosing-tool"),
                     UNCHOSEN,
                     || choices(Some(target), EditingCommand::CombineWith),
                 );
+
                 actions.extend(chosen);
                 ui.end_row();
             }

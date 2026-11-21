@@ -26,9 +26,11 @@ fn area(regions: &[Region]) -> f64 {
 
 fn volume(solid: &Solid) -> f64 {
     assert_eq!(solid.validate(), Ok(()));
+
     let mesh = solid
         .tessellate(&SamplingTolerance::new(1e-3, 0.05).unwrap())
         .unwrap();
+
     assert_watertight("wall", &mesh);
     mesh.mass_properties().volume
 }
@@ -62,9 +64,13 @@ fn an_l_shaped_chain_takes_its_wall_inside_outside_or_centred() {
         FEATURE,
     )
     .unwrap();
+
     assert_near(volume(&solid), 300.0);
+
     assert_eq!(solid.faces().count(), 8);
+
     let names: BTreeSet<FaceName> = solid.faces().map(|(_, face)| face.name()).collect();
+
     assert_eq!(names.len(), 8);
 }
 
@@ -116,7 +122,9 @@ fn a_closed_outline_becomes_a_ring_and_a_circle_a_tube() {
     assert!((area(&outside) - (144.0 - 100.0)).abs() < 1e-9);
 
     let tube = wall_regions(&[circle(5, (1.0, 2.0), 3.0)], 0.5, WallSide::Centred).unwrap();
+
     assert!((area(&tube) - PI * (3.25_f64.powi(2) - 2.75_f64.powi(2))).abs() < 1e-9);
+
     let solid = extrude(
         &Plane::XY,
         &tube,
@@ -124,6 +132,7 @@ fn a_closed_outline_becomes_a_ring_and_a_circle_a_tube() {
         FEATURE,
     )
     .unwrap();
+
     assert_near(volume(&solid), 4.0 * area(&tube));
 }
 
@@ -139,6 +148,7 @@ fn a_chain_of_arcs_and_lines_walls_like_a_bent_strip() {
     let strip = wall_regions(&curves, 1.0, WallSide::Centred).unwrap();
 
     assert!((area(&strip) - length).abs() < 1e-9);
+
     let solid = extrude(
         &Plane::XY,
         &strip,
@@ -146,6 +156,7 @@ fn a_chain_of_arcs_and_lines_walls_like_a_bent_strip() {
         FEATURE,
     )
     .unwrap();
+
     assert_near(volume(&solid), 2.0 * length);
 
     let tapered = extrude_tapered(
@@ -156,6 +167,7 @@ fn a_chain_of_arcs_and_lines_walls_like_a_bent_strip() {
         FEATURE,
     )
     .unwrap();
+
     assert!(volume(&tapered) < length);
 }
 
@@ -172,6 +184,7 @@ fn a_wall_revolves_into_a_thin_cup() {
 
     let base = PI * 3.5 * 3.5 * 0.5;
     let side = PI * (16.0 - 12.25) * 6.0;
+
     assert_near(volume(&cup), base + side);
 }
 
@@ -182,6 +195,7 @@ fn walls_that_cannot_be_built_say_why() {
         line(2, (0.0, 0.0), (0.0, 10.0)),
         line(3, (0.0, 0.0), (-5.0, -5.0)),
     ];
+
     assert_eq!(
         wall_regions(&branching, 1.0, WallSide::Centred),
         Err(WallError::Branches {
@@ -196,21 +210,25 @@ fn walls_that_cannot_be_built_say_why() {
         wall_regions(&l_shape(), 0.0, WallSide::Inside),
         Err(WallError::NotPositive)
     );
+
     let hairpin = vec![
         line(1, (0.0, 0.0), (10.0, 0.0)),
         line(2, (10.0, 0.0), (10.0, 1.0)),
         line(3, (10.0, 1.0), (0.0, 1.0)),
     ];
+
     assert!(matches!(
         wall_regions(&hairpin, 3.0, WallSide::Inside),
         Err(WallError::CrossesItself | WallError::TooThick { .. })
     ));
+
     let nearly_closed = vec![
         line(1, (0.0, 0.0), (10.0, 0.0)),
         line(2, (10.0, 0.0), (10.0, 10.0)),
         line(3, (10.0, 10.0), (0.0, 10.0)),
         line(4, (0.0, 10.0), (0.0, 1.0)),
     ];
+
     assert_eq!(
         wall_regions(&nearly_closed, 3.0, WallSide::Centred),
         Err(WallError::CrossesItself)
@@ -248,15 +266,18 @@ fn a_spline_walls_like_a_strip_as_wide_as_asked_along_its_whole_length() {
 
     let sides = [WallSide::Inside, WallSide::Outside]
         .map(|side| wall_regions(std::slice::from_ref(&curve), 1.5, side).unwrap());
+
     assert!((area(&sides[0]) + area(&sides[1]) - 3.0 * length).abs() < 2e-3 * length);
 
     for side in [WallSide::Centred, WallSide::Inside, WallSide::Outside] {
         let strip = wall_regions(std::slice::from_ref(&curve), 1.5, side).unwrap();
 
         assert_eq!(strip.len(), 1);
+
         if side == WallSide::Centred {
             assert!((area(&strip) - 1.5 * length).abs() < 1e-3 * length);
         }
+
         let solid = extrude(
             &Plane::XY,
             &strip,
@@ -264,12 +285,15 @@ fn a_spline_walls_like_a_strip_as_wide_as_asked_along_its_whole_length() {
             FEATURE,
         )
         .unwrap();
+
         assert_near(volume(&solid), 2.0 * area(&strip));
     }
 
     let centred = wall_regions(std::slice::from_ref(&curve), 1.5, WallSide::Centred).unwrap();
     let (path, range) = curve.curve().unwrap();
+
     let middle = path.point(range.middle());
+
     assert!(centred[0].contains(middle));
     assert!(!centred[0].contains(middle + Vector2::new(0.0, 4.0)));
 }
@@ -281,6 +305,7 @@ fn an_elliptical_arc_walls_to_either_side_and_a_whole_ellipse_becomes_a_ring() {
 
     let sides = [WallSide::Inside, WallSide::Outside]
         .map(|side| wall_regions(std::slice::from_ref(&arc), 1.0, side).unwrap());
+
     assert!((area(&sides[0]) + area(&sides[1]) - 2.0 * length).abs() < 2e-3 * length);
 
     for side in [WallSide::Centred, WallSide::Inside, WallSide::Outside] {
@@ -289,6 +314,7 @@ fn an_elliptical_arc_walls_to_either_side_and_a_whole_ellipse_becomes_a_ring() {
         if side == WallSide::Centred {
             assert!((area(&strip) - length).abs() < 1e-3 * length);
         }
+
         let solid = extrude(
             &Plane::XY,
             &strip,
@@ -296,6 +322,7 @@ fn an_elliptical_arc_walls_to_either_side_and_a_whole_ellipse_becomes_a_ring() {
             FEATURE,
         )
         .unwrap();
+
         assert_near(volume(&solid), 3.0 * area(&strip));
     }
 
@@ -303,12 +330,15 @@ fn an_elliptical_arc_walls_to_either_side_and_a_whole_ellipse_becomes_a_ring() {
     let perimeter = drawn_length(&whole);
     let rings = [WallSide::Inside, WallSide::Outside]
         .map(|side| wall_regions(std::slice::from_ref(&whole), 0.5, side).unwrap());
+
     assert!((area(&rings[0]) + area(&rings[1]) - perimeter).abs() < 2e-3 * perimeter);
 
     let ring = wall_regions(std::slice::from_ref(&whole), 0.5, WallSide::Centred).unwrap();
+
     assert_eq!(ring.len(), 1);
     assert_eq!(ring[0].holes().len(), 1);
     assert!((area(&ring) - 0.5 * perimeter).abs() < 2e-3 * perimeter);
+
     let pipe = extrude(
         &Plane::XY,
         &ring,
@@ -316,6 +346,7 @@ fn an_elliptical_arc_walls_to_either_side_and_a_whole_ellipse_becomes_a_ring() {
         FEATURE,
     )
     .unwrap();
+
     assert_near(volume(&pipe), 2.0 * area(&ring));
 }
 
@@ -330,14 +361,17 @@ fn a_spline_meeting_a_line_or_an_arc_smoothly_or_at_a_corner_keeps_its_wall_whol
         WallSide::Centred,
     )
     .unwrap();
+
     assert_eq!(corner.len(), 1);
     assert!((area(&corner) - (10.0 + length)).abs() < 1.0);
     assert!(corner[0].contains(Point2::new(5.0, 0.2)));
     assert!(corner[0].contains(Point2::new(10.1, 0.5)));
 
     let (path, range) = curve.curve().unwrap();
+
     let ahead = path.evaluate(range.end()).first.normalize();
     let end = path.point(range.end());
+
     let carried = vec![
         curve,
         line(
@@ -347,8 +381,10 @@ fn a_spline_meeting_a_line_or_an_arc_smoothly_or_at_a_corner_keeps_its_wall_whol
         ),
     ];
     let smooth = wall_regions(&carried, 1.0, WallSide::Centred).unwrap();
+
     assert_eq!(smooth.len(), 1);
     assert!((area(&smooth) - (length + 9.0)).abs() < 1e-3 * (length + 9.0));
+
     let solid = extrude(
         &Plane::XY,
         &smooth,
@@ -356,12 +392,14 @@ fn a_spline_meeting_a_line_or_an_arc_smoothly_or_at_a_corner_keeps_its_wall_whol
         FEATURE,
     )
     .unwrap();
+
     assert_near(volume(&solid), 2.0 * area(&smooth));
 }
 
 #[test]
 fn a_curve_wall_too_thick_for_its_bend_says_so() {
     let whole = ProfileCurve::ellipse(6, Point2::ZERO, Vector2::new(4.0, 0.0), 2.0);
+
     assert!(matches!(
         wall_regions(std::slice::from_ref(&whole), 3.0, WallSide::Inside),
         Err(WallError::TooThick { entities }) if entities == vec![6]
@@ -372,6 +410,7 @@ fn a_curve_wall_too_thick_for_its_bend_says_so() {
 fn two_curves_meeting_at_a_corner_keep_one_mitered_wall() {
     let first = spline(1, &[(0.0, 0.0), (4.0, 3.0), (8.0, 0.0)]);
     let second = spline(2, &[(8.0, 0.0), (11.0, 5.0), (16.0, 6.0)]);
+
     let length = drawn_length(&first) + drawn_length(&second);
 
     let wall = wall_regions(&[first.clone(), second.clone()], 1.0, WallSide::Centred).unwrap();
@@ -381,6 +420,7 @@ fn two_curves_meeting_at_a_corner_keep_one_mitered_wall() {
     assert!(wall[0].contains(Point2::new(8.0, 0.0)));
     assert!(wall[0].contains(Point2::new(4.0, 1.5)));
     assert!(wall[0].contains(Point2::new(11.5, 4.0)));
+
     let solid = extrude(
         &Plane::XY,
         &wall,
@@ -388,6 +428,7 @@ fn two_curves_meeting_at_a_corner_keep_one_mitered_wall() {
         FEATURE,
     )
     .unwrap();
+
     assert_near(volume(&solid), 2.0 * area(&wall));
 
     for side in [WallSide::Inside, WallSide::Outside] {
@@ -412,6 +453,7 @@ fn two_curves_meeting_at_a_corner_keep_one_mitered_wall() {
         WallSide::Centred,
     )
     .unwrap();
+
     assert_eq!(ellipse_arc_then_spline.len(), 1);
 }
 
@@ -456,9 +498,11 @@ fn a_drafted_wall_along_a_spline_or_an_ellipse_arc_widens_with_its_height() {
 
         let perimeter = 2.0 * length + 2.0;
         let slope = angle.tan_libm();
+
         let expected = area(&wall) * height
             + perimeter * slope * height * height / 2.0
             + 4.0 * slope * slope * height.powi(3) / 3.0;
+
         assert!((volume(&solid) - expected).abs() < 0.01 * expected);
     }
 }

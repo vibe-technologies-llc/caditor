@@ -68,13 +68,16 @@ fn boss_on(base: &Solid, center: (f64, f64), radius: f64, from: f64, height: f64
 fn deleting_a_fillet_restores_the_sharp_edge_of_the_box() {
     let block = cuboid(Vector3::splat(10.0));
     let rim = edge_through(&block, Point3::new(5.0, 0.0, 10.0));
+
     let rounded = blend(&block, &[rim], BlendShape::Fillet { radius: 2.0 }, 5).unwrap();
     let [fillet] = faces_of_kind(&rounded, round)[..] else {
         panic!("one fillet face");
     };
 
     let sharp = without(&rounded, &[fillet]);
+
     check("sharp", &sharp, 1000.0);
+
     assert_eq!(sharp.faces().count(), 6);
     assert_eq!(sharp.edges().count(), 12);
     assert!(names(&sharp).is_subset(&names(&rounded)));
@@ -84,6 +87,7 @@ fn deleting_a_fillet_restores_the_sharp_edge_of_the_box() {
 fn deleting_a_chamfer_restores_the_sharp_edge_of_the_box() {
     let block = cuboid(Vector3::splat(10.0));
     let rim = edge_through(&block, Point3::new(5.0, 0.0, 10.0));
+
     let chamfered = blend(&block, &[rim], BlendShape::Chamfer { distance: 2.0 }, 5).unwrap();
     let bevel = chamfered
         .faces()
@@ -98,7 +102,9 @@ fn deleting_a_chamfer_restores_the_sharp_edge_of_the_box() {
         .unwrap();
 
     let sharp = without(&chamfered, &[bevel]);
+
     check("sharp", &sharp, 1000.0);
+
     assert_eq!(sharp.faces().count(), 6);
 }
 
@@ -116,6 +122,7 @@ fn deleting_an_inside_fillet_fills_the_corner_back_out() {
         8.0,
     );
     let corner = edge_through(&step, Point3::new(10.0, 5.0, 4.0));
+
     let rounded = blend(&step, &[corner], BlendShape::Fillet { radius: 2.0 }, 5).unwrap();
     let [fillet] = faces_of_kind(&rounded, round)[..] else {
         panic!("one fillet face");
@@ -132,6 +139,7 @@ fn deleting_the_rim_fillet_of_a_drum_leaves_a_plain_cylinder() {
         .find(|(_, edge)| edge.curve().point(0.0).z > 5.0)
         .map(|(id, _)| id)
         .unwrap();
+
     let rounded = blend(&drum, &[rim], BlendShape::Fillet { radius: 1.0 }, 5).unwrap();
     let torus = rounded
         .faces()
@@ -140,7 +148,9 @@ fn deleting_the_rim_fillet_of_a_drum_leaves_a_plain_cylinder() {
         .unwrap();
 
     let plain = without(&rounded, &[torus]);
+
     check("plain", &plain, 250.0 * PI);
+
     assert_eq!(plain.faces().count(), 3);
 }
 
@@ -150,7 +160,9 @@ fn deleting_the_wall_of_a_through_hole_fills_it() {
     let bore = faces_of_kind(&plate, round);
 
     let filled = without(&plate, &bore);
+
     check("filled", &filled, 20.0 * 20.0 * 6.0);
+
     assert_eq!(filled.faces().count(), 6);
     assert!(filled.faces().all(|(_, face)| face.loops().len() == 1));
 }
@@ -162,10 +174,13 @@ fn deleting_a_boss_closes_the_face_it_stood_on() {
     let side = faces_of_kind(&body, round);
     let top = face_facing(&body, Vector3::Z, Point3::new(10.0, 10.0, 9.0));
     let mut boss = side.clone();
+
     boss.push(top);
 
     let flat = without(&body, &boss);
+
     check("flat", &flat, 2000.0);
+
     assert_eq!(flat.faces().count(), 6);
     assert!(matches!(
         delete_faces(&body, &side),
@@ -184,6 +199,7 @@ fn deleting_the_chamfer_of_a_hole_leaves_a_plain_hole() {
         })
         .map(|(id, _)| id)
         .unwrap();
+
     let chamfered = blend(&plate, &[rim], BlendShape::Chamfer { distance: 1.0 }, 5).unwrap();
     let cone = chamfered
         .faces()
@@ -192,7 +208,9 @@ fn deleting_the_chamfer_of_a_hole_leaves_a_plain_hole() {
         .unwrap();
 
     let plain = without(&chamfered, &[cone]);
+
     check("plain", &plain, 20.0 * 20.0 * 6.0 - 9.0 * PI * 6.0);
+
     assert!(
         plain
             .faces()
@@ -231,6 +249,7 @@ fn fillets_on_separate_edges_go_together() {
     let block = cuboid(Vector3::splat(10.0));
     let front = edge_through(&block, Point3::new(5.0, 0.0, 10.0));
     let back = edge_through(&block, Point3::new(5.0, 10.0, 0.0));
+
     let rounded = blend(
         &block,
         &[front, back],
@@ -241,6 +260,7 @@ fn fillets_on_separate_edges_go_together() {
     let fillets = faces_of_kind(&rounded, round);
 
     assert_eq!(fillets.len(), 2);
+
     check("sharp", &without(&rounded, &fillets), 1000.0);
 }
 
@@ -283,11 +303,15 @@ fn a_whole_rim_of_fillets_or_chamfers_goes_at_once() {
     ] {
         let blended = blend(&block, &rim, shape, 5).unwrap();
         let top = face_facing(&blended, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+
         let around = slanted_or_round(&blended, top);
 
         assert_eq!(around.len(), 4, "{shape:?}");
+
         let sharp = without(&blended, &around);
+
         check(&format!("{shape:?}"), &sharp, 1000.0);
+
         assert_eq!(sharp.faces().count(), 6, "{shape:?}");
     }
 }
@@ -303,11 +327,13 @@ fn one_fillet_of_a_chain_takes_the_whole_chain_with_it() {
     )
     .unwrap();
     let top = face_facing(&rounded, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+
     let first = slanted_or_round(&rounded, top)[0];
 
     let sharp = without(&rounded, &[first]);
 
     check("sharp", &sharp, 1000.0);
+
     assert_eq!(sharp.faces().count(), 6);
 }
 
@@ -322,6 +348,7 @@ fn one_chamfer_of_a_rim_goes_alone_as_its_neighbours_run_on_past_it() {
     )
     .unwrap();
     let top = face_facing(&chamfered, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+
     let first = slanted_or_round(&chamfered, top)[0];
 
     let opened = without(&chamfered, &[first]);
@@ -359,11 +386,13 @@ fn a_step_s_riser_goes_with_the_smaller_face_levelled_onto_the_larger() {
     let step = stepped();
     let riser = face_facing(&step, Vector3::X, Point3::new(10.0, 7.0, 5.0));
     let lower = face_facing(&step, Vector3::Y, Point3::new(20.0, 5.0, 5.0));
+
     let lower_name = step.face(lower).unwrap().name();
 
     let level = without(&step, &[riser]);
 
     check("level", &level, 30.0 * 5.0 * 10.0);
+
     assert_eq!(level.faces().count(), 6);
     assert_eq!(level.edges().count(), 12);
     assert!(level.faces().any(|(_, face)| face.name() == lower_name));
@@ -409,6 +438,7 @@ fn one_riser_of_a_notch_is_refused_naming_another_that_would_go() {
         delete_faces(&body, &[left]),
         Err(DeleteError::Vanishes(right))
     );
+
     check(
         "filled",
         &without(&body, &[left, right]),
@@ -421,6 +451,7 @@ fn a_pocket_and_the_fillets_along_its_floor_are_deleted() {
     let base = cuboid(Vector3::new(20.0, 20.0, 10.0));
     let floor = Plane::from_frame(Point3::new(0.0, 0.0, 5.0), Vector3::Z, Vector3::X).unwrap();
     let outline = polygon(&[(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)]);
+
     let tool = extrude(
         &floor,
         &Profile::new(&outline)
@@ -433,6 +464,7 @@ fn a_pocket_and_the_fillets_along_its_floor_are_deleted() {
     .unwrap();
     let pocketed = boolean(&base, &tool, BooleanOperation::Difference).unwrap();
     let lid = face_facing(&pocketed, Vector3::Z, Point3::new(1.0, 1.0, 10.0));
+
     let inside: Vec<FaceId> = pocketed
         .faces()
         .filter(|(id, face)| {
@@ -462,9 +494,13 @@ fn a_pocket_and_the_fillets_along_its_floor_are_deleted() {
     let fillets = faces_of_kind(&filleted, round);
 
     assert_eq!(inside.len(), 5);
+
     let closed = without(&pocketed, &inside);
+
     check("closed", &closed, 4000.0);
+
     assert_eq!(closed.faces().count(), 6);
+
     check("sharp", &without(&filleted, &fillets), 3500.0);
 }
 
@@ -472,6 +508,7 @@ fn a_pocket_and_the_fillets_along_its_floor_are_deleted() {
 fn deleting_stops_wherever_it_is_cancelled() {
     let block = cuboid(Vector3::splat(10.0));
     let rim = edge_through(&block, Point3::new(5.0, 0.0, 10.0));
+
     let rounded = blend(&block, &[rim], BlendShape::Fillet { radius: 2.0 }, 5).unwrap();
     let fillets = faces_of_kind(&rounded, round);
     let plate = holed_block(20.0, 6.0, 3.0);
@@ -515,8 +552,11 @@ fn every_blend_of_a_rounded_or_bevelled_box_goes_with_its_corners() {
             .collect();
 
         assert_eq!(blends.len(), 20, "{shape:?}");
+
         let sharp = without(&blended, &blends);
+
         check(&format!("{shape:?}"), &sharp, 1000.0);
+
         assert_eq!(sharp.faces().count(), 6, "{shape:?}");
     }
 }

@@ -27,7 +27,7 @@ use crate::{
 
 pub const DESCRIPTION: &str = "Drills a hole at every point of the sketch";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum HolePanelError {
     #[error("The feature no longer exists")]
     FeatureGone,
@@ -175,7 +175,9 @@ impl Panel<'_> {
     fn size_row(&mut self, ui: &mut Ui) {
         let unit = self.model.length_unit();
         let current = self.hole.standard;
+
         widgets::caption(ui, "Size");
+
         let selected = current.map_or(CUSTOM_SIZE, |standard| standard.size.name());
         let chosen =
             feature_fields::combo(ui, Id::unique(("hole-size", self.id())), selected, || {
@@ -202,6 +204,7 @@ impl Panel<'_> {
                 });
                 std::iter::once(custom).chain(sizes).collect()
             });
+
         self.actions.extend(chosen);
         ui.end_row();
     }
@@ -225,6 +228,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Fit", &self.feature.name, segments);
+
         self.actions.extend(chosen);
         self.pitch_row(ui, standard);
         if let Some(note) = insert_note(standard) {
@@ -242,6 +246,7 @@ impl Panel<'_> {
                      tap drill size, then cut with a tap or by a self-tapping screw"
                 )
             };
+
             feature_fields::description_row(ui, &note);
         }
         self.thread_rows(ui);
@@ -265,14 +270,18 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, THREAD_FORM, &self.feature.name, forms);
+
         self.actions.extend(chosen);
         if self.hole.is_modelled_thread() && self.model.threads_shown_cosmetic() {
             feature_fields::description_row(ui, thread_panel::SHOWN_COSMETIC);
         }
+
         let family = designation.size.family();
         let current = designation.class;
         let default = family.default_class(ThreadSide::Internal);
+
         widgets::caption(ui, THREAD_CLASS);
+
         let chosen = feature_fields::combo(
             ui,
             Id::unique(("hole-thread-class", self.id())),
@@ -294,8 +303,10 @@ impl Panel<'_> {
                     .collect()
             },
         );
+
         self.actions.extend(chosen);
         ui.end_row();
+
         let hands = ThreadHand::ALL
             .into_iter()
             .map(|hand| Segment {
@@ -313,6 +324,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, THREAD_HAND, &self.feature.name, hands);
+
         self.actions.extend(chosen);
         self.thread_length_rows(ui);
     }
@@ -320,6 +332,7 @@ impl Panel<'_> {
     fn thread_length_rows(&mut self, ui: &mut Ui) {
         let unit = self.model.length_unit();
         let depth = self.hole.thread.depth.clone();
+
         let options = [
             (
                 WHOLE_BORE,
@@ -348,6 +361,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, THREAD_LENGTH, &self.feature.name, segments);
+
         self.actions.extend(chosen);
         if let Some(depth) = &depth {
             self.length_row(
@@ -379,9 +393,11 @@ impl Panel<'_> {
 
     fn pitch_row(&mut self, ui: &mut Ui, standard: HoleStandard) {
         let fine = standard.size.fine_fits();
+
         if !standard.fit.is_fine() || fine.len() < 2 {
             return;
         }
+
         let unit = self.model.length_unit();
         let labels: Vec<String> = fine
             .iter()
@@ -394,6 +410,7 @@ impl Panel<'_> {
                 .map_or_else(String::new, pitch_text)
             })
             .collect();
+
         let segments = fine
             .iter()
             .zip(&labels)
@@ -413,12 +430,14 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, PITCH, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
     fn shape_row(&mut self, ui: &mut Ui) {
         let unit = self.model.length_unit();
         let slot = matches!(self.hole.shape, HoleShape::Slot { .. });
+
         let options = [
             (
                 "Round",
@@ -447,12 +466,14 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Shape", &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
     fn slot_rows(&mut self, ui: &mut Ui) {
         if let HoleShape::Slot { length, angle } = self.hole.shape.clone() {
             let turned = angle.clone();
+
             self.length_row(
                 ui,
                 Field {
@@ -502,6 +523,7 @@ impl Panel<'_> {
         if self.hole.sizing == HoleSizing::Typed && !self.has_circles() {
             return;
         }
+
         let segments = [HoleSizing::Typed, HoleSizing::CirclesAndHeads]
             .into_iter()
             .map(|sizing| Segment {
@@ -516,6 +538,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Sized by", &self.feature.name, segments);
+
         self.actions.extend(chosen);
         match self.hole.sizing {
             HoleSizing::Typed => return,
@@ -527,6 +550,7 @@ impl Panel<'_> {
         if self.hole.style == HoleStyle::Plain {
             return;
         }
+
         let scaled = self.hole.sizing == HoleSizing::CirclesAndHeads;
         if let Some(scale) = feature_fields::reverse_row(ui, SCALE_HEADS, scaled) {
             let sizing = if scale {
@@ -538,6 +562,7 @@ impl Panel<'_> {
                 sizing,
                 ..self.hole.clone()
             });
+
             self.actions
                 .push(feature_fields::applied(&self.feature.name, change));
         }
@@ -547,6 +572,7 @@ impl Panel<'_> {
         let current = Kind::of(&self.hole.style);
         let unit = self.model.length_unit();
         let standard = self.hole.standard;
+
         let segments = Kind::ALL
             .into_iter()
             .map(|kind| Segment {
@@ -561,6 +587,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Style", &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -569,7 +596,9 @@ impl Panel<'_> {
         let depth = &self.hole.depth;
         let kept = depth.offset().cloned();
         let current = depth_label(depth);
+
         widgets::caption(ui, "Depth");
+
         let chosen =
             feature_fields::combo(ui, Id::unique(("hole-depth", self.id())), current, || {
                 let options = [
@@ -605,6 +634,7 @@ impl Panel<'_> {
                     })
                     .collect()
             });
+
         self.actions.extend(chosen);
         ui.end_row();
     }
@@ -626,11 +656,13 @@ impl Panel<'_> {
         let picking = reference_picking::current(ui.ctx())
             .is_some_and(|picking| picking.is_for(id, Slot::HoleTarget));
         let target = self.hole.depth.target();
+
         if target.is_some() || picking {
             let model = self.model;
             let hole = self.hole;
             let kept = hole.depth.offset().cloned();
             let mut actions = Vec::new();
+
             plane_selector::row(
                 ui,
                 model,
@@ -655,12 +687,14 @@ impl Panel<'_> {
         if !self.hole.depth.takes_offset() {
             return;
         }
+
         let offset = self
             .hole
             .depth
             .offset()
             .cloned()
             .unwrap_or_else(|| self.model.length_unit().default_length(0.0));
+
         self.length_row(
             ui,
             Field {
@@ -683,10 +717,13 @@ impl Panel<'_> {
     fn bottom_rows(&mut self, ui: &mut Ui) {
         let blind = matches!(self.hole.depth, HoleDepth::Blind(_));
         let round = matches!(self.hole.shape, HoleShape::Round);
+
         if !blind || !round {
             return;
         }
+
         let pointed = matches!(self.hole.bottom, HoleBottom::DrillPoint(_));
+
         if let Some(pointed) = feature_fields::reverse_row(ui, DRILL_POINT, pointed) {
             let bottom = if pointed {
                 hole_tools::default_drill_point()
@@ -697,6 +734,7 @@ impl Panel<'_> {
                 bottom,
                 ..self.hole.clone()
             });
+
             self.actions
                 .push(feature_fields::applied(&self.feature.name, change));
         }
@@ -733,6 +771,7 @@ impl Panel<'_> {
             rule: field.rule,
         };
         let hole = self.hole;
+
         let drafting = feature_fields::expression_row_drafting(
             ui,
             self.model,
@@ -740,16 +779,20 @@ impl Panel<'_> {
             quantity,
             |value| self.change(rebuild(hole, value)),
         );
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
     fn body_row(&mut self, ui: &mut Ui) {
         let document = self.model.document();
         let id = self.id();
+
         widgets::caption(ui, "Body");
+
         let current = self.hole.body;
         let current_name = document.body_label(current);
         let selected = feature_fields::combo_text(ui, current_name.as_deref(), NOT_A_BODY);
+
         let chosen = feature_fields::combo(ui, Id::unique(("hole-body", id)), selected, || {
             document
                 .bodies_before_in(id, self.model.evaluation())
@@ -768,6 +811,7 @@ impl Panel<'_> {
                 })
                 .collect()
         });
+
         self.actions.extend(chosen);
         ui.end_row();
     }
@@ -776,12 +820,17 @@ impl Panel<'_> {
         let document = self.model.document();
         let lone = hole_tools::lone_point(document, self.hole);
         let mounted = hole_on_curve::mount(document, self.hole);
+
         let placement = hole_placement::read(document, self.hole).filter(|_| mounted.is_none());
+
         if lone.is_none() && placement.is_none() {
             return;
         }
+
         let id = self.id();
+
         widgets::caption(ui, PLACED_ON);
+
         let text = match mounted.and_then(|mount| hole_on_curve::face_words(document, mount)) {
             Some(words) => capitalized(&words),
             None => document
@@ -792,6 +841,7 @@ impl Panel<'_> {
                     |attachment| capitalized(&sketch_placement::describe(document, attachment)),
                 ),
         };
+
         ui.vertical(|ui| {
             ui.add(Label::new(text).wrap());
             if lone.is_some() {
@@ -807,6 +857,7 @@ impl Panel<'_> {
                     ),
                     hover: PLACE_HOVER,
                 };
+
                 feature_fields::reference_picker(ui, self.model, picker, self.actions);
             }
             if placement.is_some() {
@@ -814,6 +865,7 @@ impl Panel<'_> {
             }
         });
         ui.end_row();
+
         let Some(placement) = placement else {
             return;
         };
@@ -826,8 +878,10 @@ impl Panel<'_> {
     fn hole_rows(&mut self, ui: &mut Ui, number: usize, several: bool, placed: &PlacedHole) {
         let document = self.model.document();
         let id = self.id();
+
         if several {
             widgets::caption(ui, &format!("Hole {number}"));
+
             let words = match &placed.anchor {
                 Anchor::Free => FREE_WORDS.to_owned(),
                 Anchor::Edges(edges) if edges.len() == 1 => ONE_EDGE_WORDS.to_owned(),
@@ -836,6 +890,7 @@ impl Panel<'_> {
                 Anchor::At(_) => AT_POINT_WORDS.to_owned(),
             };
             let hover = format!("Remove hole {number}");
+
             if widgets::removable_row(ui, widgets::muted(words, ui), &hover) {
                 self.actions.push(feature_fields::applied(
                     &self.feature.name,
@@ -853,8 +908,10 @@ impl Panel<'_> {
             }
             Anchor::At(source) => {
                 widgets::caption(ui, CONCENTRIC_WITH);
+
                 let words = hole_placement::source_words(self.model, self.hole.sketch, source);
                 let hover = format!("Stop centring hole {number} on this point");
+
                 if widgets::removable_row(ui, RichText::new(words), &hover) {
                     self.actions.push(feature_fields::applied(
                         &self.feature.name,
@@ -865,20 +922,24 @@ impl Panel<'_> {
             }
             Anchor::Concentric(held) => {
                 widgets::caption(ui, CONCENTRIC_WITH);
+
                 let words =
                     hole_placement::source_words(self.model, self.hole.sketch, &held.source);
                 let hover = format!("Stop centring hole {number} on this {}", held.noun());
+
                 if widgets::removable_row(ui, RichText::new(words), &hover) {
                     self.release(held.constraint);
                 }
                 ui.end_row();
             }
         }
+
         let measured = match &placed.anchor {
             Anchor::Free => Some(0),
             Anchor::Edges(edges) => Some(edges.len()),
             Anchor::Concentric(_) | Anchor::At(_) => None,
         };
+
         widgets::caption(ui, PLACE_BY);
         ui.vertical(|ui| {
             if measured.is_some_and(|count| count < hole_placement::MAX_EDGES) {
@@ -901,6 +962,7 @@ impl Panel<'_> {
 
     fn release(&mut self, constraint: ConstraintId) {
         let document = self.model.document();
+
         self.actions.push(feature_fields::applied(
             &self.feature.name,
             hole_placement::released(document, self.id(), self.hole, constraint),
@@ -916,9 +978,11 @@ impl Panel<'_> {
     ) {
         let id = self.id();
         let stop = feature_fields::STOP_CHOOSING;
+
         if feature_fields::choosing_prompt(ui, self.model, (id, slot), stop, self.actions) {
             return;
         }
+
         let offered = feature_fields::offered_change(
             ui.ctx(),
             self.model,
@@ -972,6 +1036,7 @@ impl Panel<'_> {
                     };
                     hole_placement::positioned(model, id, self.hole, placed.point, typed)
                 });
+
             self.actions.extend(drafting.into_actions(id));
         }
     }
@@ -979,17 +1044,21 @@ impl Panel<'_> {
     fn edge_rows(&mut self, ui: &mut Ui, number: usize, distance: &EdgeDistance) {
         let document = self.model.document();
         let id = self.id();
+
         widgets::caption(ui, MEASURED_FROM);
+
         let words =
             hole_placement::source_words(self.model, self.hole.sketch, &distance.held.source);
         let hover = format!(
             "Stop measuring hole {number} from this {}",
             distance.held.noun()
         );
+
         if widgets::removable_row(ui, RichText::new(words), &hover) {
             self.release(distance.held.constraint);
         }
         ui.end_row();
+
         let constraint = distance.held.constraint;
         let quantity = Quantity {
             feature: id,
@@ -998,6 +1067,7 @@ impl Panel<'_> {
             dimension: Dimension::LENGTH,
             rule: Rule::ZeroOrMore,
         };
+
         let drafting = feature_fields::expression_row_drafting(
             ui,
             self.model,
@@ -1005,6 +1075,7 @@ impl Panel<'_> {
             quantity,
             |value| hole_placement::distance_change(document, id, self.hole, constraint, value),
         );
+
         self.actions.extend(drafting.into_actions(id));
     }
 
@@ -1026,10 +1097,12 @@ impl Panel<'_> {
     fn sketch_row(&mut self, ui: &mut Ui) {
         let document = self.model.document();
         let sketch = self.hole.sketch;
+
         widgets::caption(ui, "Sketch");
         ui.vertical(|ui| match feature_fields::feature_name(document, sketch) {
             Some(name) => {
                 ui.label(name);
+
                 let button = widgets::small_button(ui, icons::EDIT, EDIT_SKETCH);
                 if ui.add(button).on_hover_text(EDIT_SKETCH_HOVER).clicked() {
                     self.actions
@@ -1095,6 +1168,7 @@ impl Panel<'_> {
                     quantity,
                     |value| {
                         let mut changed = steps.to_vec();
+
                         if let Some(step) = changed.get_mut(index) {
                             if diameter {
                                 step.diameter = value;
@@ -1105,22 +1179,28 @@ impl Panel<'_> {
                         self.with_steps(changed)
                     },
                 );
+
                 self.actions.extend(drafting.into_actions(self.id()));
             }
         }
         ui.label("");
+
         let mut change = None;
+
         ui.horizontal_wrapped(|ui| {
             let add = widgets::small_button(ui, icons::ADD, ADD_STEP);
+
             if ui
                 .add_enabled(steps.len() < MAX_HOLE_STEPS, add)
                 .on_disabled_hover_text(format!("A hole has at most {MAX_HOLE_STEPS} steps"))
                 .clicked()
             {
                 let mut more = steps.to_vec();
+
                 more.push(self.next_step(steps));
                 change = Some(self.with_steps(more));
             }
+
             let remove = widgets::small_button(ui, icons::SUBTRACT, REMOVE_STEP);
             let fewer = steps
                 .split_last()
@@ -1165,7 +1245,9 @@ impl Panel<'_> {
                         ..hole.clone()
                     },
                 );
+
                 let wide = diameter.clone();
+
                 self.length_row(
                     ui,
                     Field {
@@ -1204,7 +1286,9 @@ impl Panel<'_> {
                         ..hole.clone()
                     },
                 );
+
                 let wide = diameter.clone();
+
                 self.length_row(
                     ui,
                     Field {
@@ -1236,9 +1320,11 @@ pub fn target_change(
 ) -> Result<Transaction, HolePanelError> {
     let target = solid_panel::selected_target(model, selection, feature)?;
     let depth = HoleDepth::up_to_face(target).with_offset(hole.depth.offset().cloned());
+
     if depth == hole.depth {
         return Err(HolePanelError::AlreadyEndsThere);
     }
+
     let transaction = hole_tools::edit(
         model.document(),
         feature,
@@ -1266,6 +1352,7 @@ pub fn show(
         hole,
         actions,
     };
+
     widgets::properties(ui, ("hole-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         panel.shape_row(ui);
@@ -1318,6 +1405,7 @@ pub fn show(
                 reversed,
                 ..hole.clone()
             };
+
             panel.actions.push(feature_fields::applied(
                 &feature.name,
                 panel.change(flipped),

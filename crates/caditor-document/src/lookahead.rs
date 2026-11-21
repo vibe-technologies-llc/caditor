@@ -47,10 +47,12 @@ impl Lookahead {
             halted: false,
         };
         let mut last_touch: BTreeMap<FeatureId, usize> = BTreeMap::new();
+
         for (index, feature) in features.iter().enumerate().take(bar) {
             if feature.suppressed {
                 continue;
             }
+
             let consumed = feature.kind.consumed_bodies();
             let touched: Vec<FeatureId> = feature
                 .bodies()
@@ -58,6 +60,7 @@ impl Lookahead {
                 .chain(consumed.iter().copied())
                 .collect();
             let bodies_used = feature.kind.bodies_used();
+
             let touched_before: BTreeMap<FeatureId, usize> = bodies_used
                 .iter()
                 .chain(&touched)
@@ -69,12 +72,14 @@ impl Lookahead {
                 .filter_map(|used| Some((used, *position.get(&used)?)))
                 .filter(|(_, at)| *at < index)
                 .collect();
+
             let needed: BTreeSet<usize> = used
                 .iter()
                 .map(|(_, at)| *at)
                 .chain(touched_before.values().copied())
                 .filter(|at| lookahead.nodes.contains_key(at))
                 .collect();
+
             for at in &needed {
                 if let Some(needed) = lookahead.nodes.get_mut(at) {
                     needed.dependents.push(index);
@@ -129,6 +134,7 @@ impl Lookahead {
         let Some(node) = self.nodes.get(&index) else {
             return view;
         };
+
         for (used, at) in &node.used {
             if let Some(stood) = self.stood(*at) {
                 view.features.insert(*used, Arc::clone(stood));
@@ -138,6 +144,7 @@ impl Lookahead {
             if let Some(state) = self.before(node, *body) {
                 view.bodies.insert(*body, state);
             }
+
             let consumers = self.consumers.get(body).into_iter().flatten();
             for consumer in consumers.filter(|consumer| **consumer < index) {
                 if let (Some(stood), Some(node)) = (self.stood(*consumer), self.nodes.get(consumer))
@@ -153,9 +160,11 @@ impl Lookahead {
         let Some(node) = self.nodes.get(&index) else {
             return;
         };
+
         if node.settled.is_some() {
             return;
         }
+
         let consumed = node.feature.kind.consumed_bodies();
         let after = node
             .touched
@@ -173,6 +182,7 @@ impl Lookahead {
             })
             .collect();
         let dependents = node.dependents.clone();
+
         if let Some(node) = self.nodes.get_mut(&index) {
             node.settled = Some(Settled { stood, after });
         }

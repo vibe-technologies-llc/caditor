@@ -26,7 +26,7 @@ const MAX_SPAN_PIECES: usize = 4096;
 const PERIOD_SLACK: f64 = 1e-9;
 const MIN_BRANCH_LENGTH: f64 = LINEAR_RESOLUTION;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct IntersectionBranch {
     pub curve: Curve,
     pub range: Interval,
@@ -36,14 +36,14 @@ pub struct IntersectionBranch {
     pub end_uv: [Point2; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct IntersectionPoint {
     pub point: Point3,
     pub uv: [Point2; 2],
     pub tangent: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SurfaceIntersection {
     Coincident(Sense),
     Branches {
@@ -72,20 +72,20 @@ impl SurfaceIntersection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RawCurve {
     pub curve: Curve,
     pub range: Interval,
     pub tangent: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct RawPoint {
     pub point: Point3,
     pub tangent: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Raw {
     pub curves: Vec<RawCurve>,
     pub points: Vec<RawPoint>,
@@ -106,17 +106,22 @@ pub fn intersect_surfaces_through(
     if let Some(sense) = first.surface().same_surface(second.surface()) {
         return Ok(SurfaceIntersection::Coincident(sense));
     }
+
     let (first_box, second_box) = (first.bounding_box(), second.bounding_box());
+
     if !boxes_overlap(&first_box, &second_box, TOLERANCE) {
         return Ok(SurfaceIntersection::Branches {
             branches: Vec::new(),
             points: Vec::new(),
         });
     }
+
     let sampled = overlap::sampled_kind(first.surface()) || overlap::sampled_kind(second.surface());
+
     if sampled && let Some(sense) = overlap::coincident_part(first, second) {
         return Ok(SurfaceIntersection::Coincident(sense));
     }
+
     let window = shared_window(&first_box, &second_box);
     let raw = match analytic::intersect(first, second, &window) {
         Some(raw) => raw,
@@ -148,11 +153,14 @@ fn clip(
     let probe = |parameter: f64| {
         let point = raw.curve.point(parameter);
         let [first_hint, second_hint] = previous.get();
+
         let uv = [
             first.place_near(point, first_hint),
             second.place_near(point, second_hint),
         ];
+
         previous.set(uv);
+
         let [first_uv, second_uv] = uv;
         (first.contains(first_uv) && second.contains(second_uv), uv)
     };
@@ -165,13 +173,16 @@ fn clip(
             .and(second.path_bound([second_start, second_middle, second_end]))
     };
     let mut pieces: Vec<Interval> = Vec::new();
+
     for span in spans_within(&raw.curve, raw.range, &reach) {
         pieces.extend(guided_intervals(span, CLIP_SAMPLES, probe, bound)?);
     }
+
     let whole_period = raw
         .curve
         .period()
         .is_some_and(|period| raw.range.length() >= period * (1.0 - PERIOD_SLACK));
+
     if whole_period
         && pieces.len() >= 2
         && let (Some(first_piece), Some(last_piece)) =
@@ -191,15 +202,19 @@ fn spans_within(curve: &Curve, range: Interval, reach: &Aabb) -> Vec<Interval> {
     let mut spans: Vec<Interval> = Vec::new();
     let mut pending = vec![(range, 0)];
     let mut visited = 0;
+
     while let Some((piece, depth)) = pending.pop() {
         visited += 1;
         if visited > MAX_SPAN_PIECES {
             return vec![range];
         }
+
         let bounds = curve.bounding_box(piece);
+
         if !boxes_overlap(&bounds, reach, 0.0) {
             continue;
         }
+
         let halves = Interval::new(piece.start(), piece.middle())
             .zip(Interval::new(piece.middle(), piece.end()));
         let settled = depth >= MAX_SPAN_DEPTH
@@ -232,11 +247,13 @@ fn finish(
     raw: Raw,
 ) -> Result<SurfaceIntersection, IntersectionError> {
     let mut branches = Vec::new();
+
     for curve in &raw.curves {
         for range in clip(first, second, window, curve)? {
             if !curve.curve.is_longer_than(range, MIN_BRANCH_LENGTH) {
                 continue;
             }
+
             let (start, end) = (
                 curve.curve.point(range.start()),
                 curve.curve.point(range.end()),
@@ -251,6 +268,7 @@ fn finish(
                 .curve
                 .period()
                 .is_some_and(|period| range.length() >= period * (1.0 - PERIOD_SLACK));
+
             branches.push(IntersectionBranch {
                 curve: curve.curve.clone(),
                 range,
@@ -261,11 +279,14 @@ fn finish(
             });
         }
     }
+
     let mut points: Vec<IntersectionPoint> = Vec::new();
+
     for point in raw.points {
         let Some(uv) = locate_both(first, second, point.point) else {
             continue;
         };
+
         if points
             .iter()
             .any(|existing| existing.point.distance(point.point) <= TOLERANCE)

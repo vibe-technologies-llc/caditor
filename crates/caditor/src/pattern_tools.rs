@@ -42,7 +42,7 @@ const FEATURE_SPACING_ROOM: f64 = 2.0;
 const NO_BODY_SELECTED: &str =
     "Select a face, edge or vertex of the body to pattern, or the body in the tree";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PatternToolError {
     #[error("Make a body first, then pattern it")]
     NoBody,
@@ -91,7 +91,7 @@ impl Reason for PatternToolError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shape {
     Linear,
     Circular,
@@ -148,7 +148,7 @@ fn linear_default_axis() -> AxisReference {
     AxisReference::Principal(PrincipalAxis::X)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PatternSource {
     pub body: FeatureId,
     pub axis: Option<AxisReference>,
@@ -187,9 +187,11 @@ pub fn subject(document: &Document, body: FeatureId, repeated: &[FeatureId]) -> 
 pub fn repeatable(document: &Document, rows: &[FeatureId]) -> Option<(FeatureId, Vec<FeatureId>)> {
     let mut body = None;
     let mut repeated: Vec<(usize, FeatureId)> = Vec::new();
+
     for row in rows {
         let feature = document.feature(*row)?;
         let on = repeatable_on(&feature.kind)?;
+
         if body.is_some_and(|known| known != on) {
             return None;
         }
@@ -198,11 +200,13 @@ pub fn repeatable(document: &Document, rows: &[FeatureId]) -> Option<(FeatureId,
             repeated.push((document.feature_index(*row)?, *row));
         }
     }
+
     let nothing_of_their_own = repeated.iter().all(|(_, row)| {
         document
             .feature(*row)
             .is_some_and(|feature| feature.kind.blend().is_some() || feature.kind.shell().is_some())
     });
+
     if nothing_of_their_own {
         return None;
     }
@@ -210,7 +214,7 @@ pub fn repeatable(document: &Document, rows: &[FeatureId]) -> Option<(FeatureId,
     Some((body?, repeated.into_iter().map(|(_, row)| row).collect()))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reference {
     First,
     Second,
@@ -242,6 +246,7 @@ pub fn source(
             Vec::new(),
         ),
     };
+
     let axis = chosen_axis(model, selection, body, document.bar_index())?;
     Ok(PatternSource {
         body,
@@ -259,6 +264,7 @@ fn chosen_axis(
     index: usize,
 ) -> Result<Option<AxisReference>, PatternToolError> {
     let mut candidates: Vec<(Pickable, AxisReference)> = Vec::new();
+
     for pickable in selection.in_pick_order() {
         if let Some(axis) = datum_tools::axis_reference(model, pickable, index)
             && !candidates.iter().any(|(_, known)| *known == axis)
@@ -266,6 +272,7 @@ fn chosen_axis(
             candidates.push((pickable, axis));
         }
     }
+
     let outside: Vec<&AxisReference> = candidates
         .iter()
         .filter(|(pickable, _)| pickable.body() != Some(body))
@@ -391,6 +398,7 @@ pub fn create(
     };
     let name = editing::next_feature_name(document, shape.title());
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::from(Pattern::new(source.body, kind).repeating(source.repeated.clone())),
@@ -405,6 +413,7 @@ pub fn create_actions(model: &Model, shape: Shape, source: &PatternSource) -> Ve
                 Action::Apply(transaction),
                 Action::Editing(EditingCommand::OpenSolid(feature)),
             ];
+
             if shape == Shape::Circular && source.axis.is_none() {
                 actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
                     feature,
@@ -443,11 +452,14 @@ pub fn clicked_copy(model: &Model, open: FeatureId, pickable: Pickable) -> Optio
     let FeatureKind::Pattern(pattern) = &model.document().feature(open)?.kind else {
         return None;
     };
+
     if pattern.body != body && body.maker() != open {
         return None;
     }
+
     let result = model.evaluation().body_result(body)?.solid()?;
     let found = bodies::find_face(result, face)?;
+
     let copy = result.solid.face(found)?.origin()?.copy()?;
     (copy.pattern == open.raw()).then(|| ClickedCopy {
         instance: copy.index,
@@ -513,6 +525,7 @@ pub fn reshaped(
         }
         (PatternKind::Curve(curve), Shape::Linear | Shape::Circular) => {
             let mut kind = kind_for(model, shape, (pattern.body, &pattern.repeated), None);
+
             match &mut kind {
                 PatternKind::Linear { first, .. } => first.count = curve.count.clone(),
                 PatternKind::Circular(circular) => circular.count = curve.count.clone(),
@@ -539,6 +552,7 @@ pub fn reshaped(
                 Expression::Number(DEFAULT_LINEAR_COUNT),
                 &Starts::of(model),
             );
+
             first.count = circular.count.clone();
             first.reversed = circular.reversed;
             PatternKind::Linear {
@@ -630,6 +644,7 @@ pub fn with_axis(
 pub fn listed_axes(model: &Model, feature: FeatureId) -> Vec<AxisReference> {
     let document = model.document();
     let before = document.feature_index(feature).unwrap_or(usize::MAX);
+
     let datums = document
         .features()
         .take(before)

@@ -24,7 +24,7 @@ use crate::{
 pub const MIRROR_IMAGE: [u32; 2] = [1, 0];
 const PIECE_SOURCE_KEYS: u32 = 1 << 31;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum MirrorOutcome {
     Replace,
     #[default]
@@ -40,7 +40,7 @@ impl MirrorOutcome {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Mirror {
     pub body: FeatureId,
     pub more_bodies: Vec<FeatureId>,
@@ -148,8 +148,11 @@ impl Mirror {
 
     pub(crate) fn settle(&mut self) {
         let mut mirrored = BTreeSet::new();
+
         self.mirrored.retain(|feature| mirrored.insert(*feature));
+
         let mut seen = BTreeSet::from([self.body]);
+
         self.more_bodies.retain(|more| seen.insert(*more));
         if !self.mirrors_whole_body() {
             self.more_bodies.clear();
@@ -170,6 +173,7 @@ impl Mirror {
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         let mut origins = self.plane.origin_features();
+
         origins.extend(self.faces.iter().flat_map(origins::of_face));
         origins
     }
@@ -191,6 +195,7 @@ impl Mirror {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         used.extend(self.more_bodies.iter().copied());
         used.extend(self.mirrored.iter().copied());
         used.extend(self.plane.datum());
@@ -329,6 +334,7 @@ impl<'a> Context<'a> {
             repeater: Repeater::Mirror,
             copy: &image_words,
         };
+
         for (feature, repeated) in seeds.repeated {
             let seed = match repeated {
                 Repeated::Tools(seed) => seed,
@@ -340,8 +346,10 @@ impl<'a> Context<'a> {
                 }
                 Repeated::Shell(_) => continue,
             };
+
             if let Some(landing) = seed.landing(definition.body) {
                 let landed = landing.land(inputs, body, &copies, &base, cancel)?;
+
                 body = landed.body;
                 if seed.operation == BooleanOperation::Difference {
                     cuts.extend(landed.tools);
@@ -353,11 +361,13 @@ impl<'a> Context<'a> {
                 if cancel.is_cancelled() {
                     return Err(Failure::Cancelled);
                 }
+
                 let placed = pattern_copies(tool, &copies, raw)
                     .map_err(|error| self.seed_placement_failure(&seed, &error))?;
                 let Some(placed) = placed else {
                     continue;
                 };
+
                 body = boolean(&body, &placed, seed.operation).map_err(|error| {
                     self.combine_failure(inputs, [&body, &placed], &seed, &error)
                 })?;
@@ -386,11 +396,14 @@ impl<'a> Context<'a> {
         let faces = definition
             .resolve(solid)
             .map_err(|unresolved| self.unresolved_faces(unresolved))?;
+
         let enclosure =
             enclose_faces(solid, &faces, raw).map_err(|error| self.enclosure_failure(&error))?;
+
         if cancel.is_cancelled() {
             return Err(Failure::Cancelled);
         }
+
         let placed = pattern_copies(&enclosure.solid, &[image], raw)
             .map_err(|error| self.faces_placement_failure(&error))?
             .ok_or_else(|| self.unbuildable(&"the chosen faces have no image"))?;
@@ -398,6 +411,7 @@ impl<'a> Context<'a> {
             Bounds::Cavity => BooleanOperation::Difference,
             Bounds::Material => BooleanOperation::Union,
         };
+
         let body = boolean(solid, &placed, operation)
             .map_err(|error| self.faces_combine_failure([solid, &placed], operation, &error))?;
         let result = SolidResult::new(definition.body, body);
@@ -470,7 +484,9 @@ impl<'a> Context<'a> {
             (_, BooleanOperation::Difference) => true,
             (_, _) => false,
         };
+
         log::warn!("{} could not be built: {error}", self.resolver.feature.name);
+
         let trouble = trouble::boolean_trouble(
             self.resolver.inputs.document,
             operands,
@@ -517,6 +533,7 @@ impl<'a> Context<'a> {
     ) -> Failure {
         let name = seed.name.clone();
         let body = self.body_name.clone();
+
         let cutting = match (error, seed.operation) {
             (BooleanError::Cancelled(_), _) => return Failure::Cancelled,
             (BooleanError::Empty, _) => {
@@ -525,7 +542,9 @@ impl<'a> Context<'a> {
             (_, BooleanOperation::Difference) => true,
             (_, _) => false,
         };
+
         log::warn!("{} could not be built: {error}", self.resolver.feature.name);
+
         let trouble = trouble::boolean_trouble(
             inputs.document,
             operands,
@@ -543,7 +562,7 @@ impl<'a> Context<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Opening {
     NotFlat,
     NotElementary,
@@ -553,7 +572,7 @@ pub(crate) enum Opening {
     Build,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum MirrorCause {
     Unbuilt {
         of: String,
@@ -740,42 +759,56 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let context = Context::of(feature, inputs, definition.body);
     let plane = context.resolver.plane(&definition.plane)?;
+
     let reflection = Similarity::reflection(&plane)
         .ok_or_else(|| context.unbuildable(&"the plane has no direction"))?;
     let image = PatternCopy {
         index: MIRROR_IMAGE,
         placement: reflection,
     };
+
     if definition.mirrors_features() || definition.mirrors_faces() {
         let solid = context.source(definition.body)?;
+
         if cancel.is_cancelled() {
             return Err(Failure::Cancelled);
         }
+
         let reflected = if definition.mirrors_features() {
             context.reflect_features(definition, solid, image, cancel)
         } else {
             context.reflect_faces(definition, solid, image, cancel)
         };
+
         return reflected.map(FeatureResult::Solid);
     }
+
     let mut owners = BTreeSet::new();
     let mut results = Vec::new();
+
     for source in definition.bodies() {
         let context = Context::of(feature, inputs, source);
         let solid = context.source(source)?;
+
         if cancel.is_cancelled() {
             return Err(Failure::Cancelled);
         }
+
         let owner = context.image_owner(definition, source)?;
+
         if !owners.insert(owner) {
             return Err(context.error(MirrorCause::ImagesAlike {
                 mirror: feature.name.clone(),
             }));
         }
+
         let built = context.reflect_body(definition.outcome, solid, &image)?;
+
         results.push(SolidResult::new(owner, built));
     }
+
     let mut results = results.into_iter();
+
     let first = results
         .next()
         .ok_or_else(|| context.unbuildable(&"there is no body to mirror"))?;

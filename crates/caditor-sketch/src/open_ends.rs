@@ -6,6 +6,7 @@ impl Sketch {
     pub fn open_ends(&self) -> Vec<EntityId> {
         let mut classes = Classes::default();
         let mut on_profile_curve = BTreeSet::new();
+
         for (_, constraint) in self.active_constraints() {
             match *constraint {
                 Constraint::Coincident(a, b) => match (self.entity(a), self.entity(b)) {
@@ -24,6 +25,7 @@ impl Sketch {
                 _ => {}
             }
         }
+
         let ends: Vec<EntityId> = self
             .entities()
             .filter(|(id, _)| self.is_profile_curve(*id))
@@ -31,12 +33,14 @@ impl Sketch {
             .collect();
         let mut incidences: BTreeMap<EntityId, usize> = BTreeMap::new();
         let mut supported = BTreeSet::new();
+
         for end in &ends {
             *incidences.entry(classes.root(*end)).or_default() += 1;
         }
         for point in &on_profile_curve {
             supported.insert(classes.root(*point));
         }
+
         let mut open: Vec<EntityId> = ends
             .into_iter()
             .filter(|end| {
@@ -44,6 +48,7 @@ impl Sketch {
                 incidences.get(&root) == Some(&1) && !supported.contains(&root)
             })
             .collect();
+
         open.sort_unstable();
         open.dedup();
         open
@@ -74,6 +79,7 @@ pub(crate) struct Classes {
 impl Classes {
     pub(crate) fn root(&self, point: EntityId) -> EntityId {
         let mut current = point;
+
         for _ in 0..=self.parents.len() {
             match self.parents.get(&current) {
                 Some(parent) if *parent != current => current = *parent,
@@ -113,36 +119,45 @@ mod tests {
             Point2::new(10.0, 5.0),
             Point2::new(0.0, 5.0),
         ];
+
         let sides: Vec<EntityId> = (0..4)
             .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]))
             .collect();
+
         for index in 0..4 {
             let (_, end) = ends(&sketch, sides[index]);
             let (start, _) = ends(&sketch, sides[(index + 1) % 4]);
+
             sketch
                 .add_constraint(Constraint::Coincident(end, start))
                 .unwrap();
         }
         sketch.add_circle(Point2::new(20.0, 0.0), 2.0);
+
         assert_eq!(sketch.open_ends(), Vec::<EntityId>::new());
 
         let stray = sketch.add_line(Point2::new(30.0, 0.0), Point2::new(40.0, 0.0));
         let (stray_start, stray_end) = ends(&sketch, stray);
+
         assert_eq!(sketch.open_ends(), vec![stray_start, stray_end]);
 
         sketch
             .add_constraint(Constraint::Coincident(stray_start, sides[0]))
             .unwrap();
+
         assert_eq!(sketch.open_ends(), vec![stray_end]);
 
         let guide = sketch.add_line(Point2::new(40.0, -5.0), Point2::new(40.0, 5.0));
+
         sketch.set_construction(guide, true).unwrap();
         sketch
             .add_constraint(Constraint::Coincident(stray_end, guide))
             .unwrap();
+
         assert_eq!(sketch.open_ends(), vec![stray_end]);
 
         sketch.set_construction(stray, true).unwrap();
+
         assert_eq!(sketch.open_ends(), Vec::<EntityId>::new());
     }
 }

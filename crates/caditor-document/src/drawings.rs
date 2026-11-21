@@ -27,7 +27,7 @@ const NUMBERED_NAME: &str = "Drawing";
 const ENLARGEMENT: f64 = 2.0;
 const RATIO_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DrawingId(u64);
 
 impl DrawingId {
@@ -40,7 +40,7 @@ impl DrawingId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SheetSize {
     A4,
     #[default]
@@ -88,7 +88,7 @@ impl SheetSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SheetOrientation {
     #[default]
     Landscape,
@@ -119,7 +119,7 @@ impl SheetOrientation {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Projection {
     #[default]
     FirstAngle,
@@ -150,7 +150,7 @@ impl Projection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StandardView {
     Front,
     Top,
@@ -197,7 +197,7 @@ impl StandardView {
     pub const SECTIONED: [Self; 4] = [Self::Front, Self::Top, Self::Right, Self::Left];
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SectionPlane {
     Yz,
     Xz,
@@ -267,7 +267,7 @@ impl SectionPlane {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum SectionPlace {
     #[default]
     Centre,
@@ -287,7 +287,7 @@ impl SectionPlace {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SectionView {
     pub letter: char,
     pub parent: StandardView,
@@ -311,7 +311,7 @@ impl SectionView {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DrawnView {
     Standard(StandardView),
     Section(char),
@@ -328,7 +328,7 @@ impl DrawnView {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DetailParent {
     Standard(StandardView),
     Section(char),
@@ -343,7 +343,7 @@ impl DetailParent {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ScaleRatio {
     pub sheet: u32,
     pub model: u32,
@@ -394,7 +394,7 @@ impl ScaleRatio {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DrawingScale {
     #[default]
     Fit,
@@ -410,7 +410,7 @@ impl DrawingScale {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DetailScale {
     #[default]
     Enlarged,
@@ -433,7 +433,7 @@ impl DetailScale {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DetailView {
     pub letter: char,
     pub parent: DetailParent,
@@ -452,7 +452,7 @@ impl DetailView {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Drawing {
     pub id: DrawingId,
     pub name: String,
@@ -588,11 +588,13 @@ impl Drawing {
                 details: self.details.len(),
             });
         }
+
         let letters = self
             .sections
             .iter()
             .map(|section| section.letter)
             .chain(self.details.iter().map(|detail| detail.letter));
+
         for (index, letter) in letters.clone().enumerate() {
             if !VIEW_LETTERS.contains(&letter) {
                 return Err(EditError::ViewLetterUnusable(letter));
@@ -607,16 +609,19 @@ impl Drawing {
     fn checked_details(&self) -> Result<(), EditError> {
         for detail in &self.details {
             let letter = detail.letter;
+
             if let DetailParent::Section(parent) = detail.parent
                 && self.section(parent).is_none()
             {
                 return Err(EditError::DetailParentMissing { letter, parent });
             }
+
             let centre_usable = detail.centre.is_finite()
                 && detail.centre.x.abs() <= MAX_DETAIL_EXTENT
                 && detail.centre.y.abs() <= MAX_DETAIL_EXTENT;
             let radius_usable = detail.radius.is_finite()
                 && (MIN_DETAIL_RADIUS..=MAX_DETAIL_EXTENT).contains(&detail.radius);
+
             if !(centre_usable && radius_usable) {
                 return Err(EditError::DetailOutOfRange { letter });
             }
@@ -636,6 +641,7 @@ impl Drawing {
     fn checked_sections(&self, document: &Document) -> Result<(), EditError> {
         for section in &self.sections {
             let letter = section.letter;
+
             if !section.plane.is_edge_on_in(section.parent) {
                 return Err(EditError::SectionPlaneFacesParent {
                     letter,
@@ -665,7 +671,7 @@ impl Drawing {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Drawings {
     pub drawings: Vec<Drawing>,
     pub next_id: u64,
@@ -752,18 +758,22 @@ impl Drawings {
 
     pub(crate) fn checked(self, document: &Document) -> Result<Self, EditError> {
         let drawings = self.normalized();
+
         if drawings.drawings.len() > MAX_DRAWINGS {
             return Err(EditError::TooManyDrawings);
         }
         for (index, drawing) in drawings.drawings.iter().enumerate() {
             let length = drawing.name.chars().count();
+
             if length == 0 {
                 return Err(EditError::DrawingNameEmpty);
             }
             if length > MAX_DRAWING_NAME_CHARS {
                 return Err(EditError::DrawingNameTooLong { length });
             }
+
             let earlier = drawings.drawings.iter().take(index);
+
             if earlier
                 .clone()
                 .any(|other| same_name(&other.name, &drawing.name))
@@ -837,6 +847,7 @@ impl Document {
                 drawings: Box::new(drawings),
             },
         );
+
         self.check(&transaction)?;
         Ok(transaction)
     }
@@ -846,11 +857,14 @@ impl Document {
         bodies: Vec<FeatureId>,
     ) -> Result<(Transaction, DrawingId), EditError> {
         let mut drawings = self.drawings().clone();
+
         let id = DrawingId::from_raw(drawings.first_free_id());
         let mut drawing = Drawing::new(id, drawings.unused_name());
+
         drawing.bodies = bodies;
         drawings.drawings.push(drawing);
         drawings.next_id = id.raw().saturating_add(1);
+
         let transaction = self.drawings_changed("New drawing", drawings)?;
         Ok((transaction, id))
     }
@@ -862,13 +876,16 @@ impl Document {
         change: impl FnOnce(&mut Drawing),
     ) -> Result<Transaction, EditError> {
         let mut drawings = self.drawings().clone();
+
         let drawing = drawings.get_mut(id).ok_or(EditError::MissingDrawing)?;
+
         change(drawing);
         self.drawings_changed(label, drawings)
     }
 
     pub fn adding_section_view(&self, id: DrawingId) -> Result<(Transaction, char), EditError> {
         let mut drawings = self.drawings().clone();
+
         let drawing = drawings.get_mut(id).ok_or(EditError::MissingDrawing)?;
         let section = drawing
             .new_section()
@@ -877,7 +894,9 @@ impl Document {
                 sections: drawing.sections.len().saturating_add(1),
             })?;
         let letter = section.letter;
+
         drawing.sections.push(section);
+
         let transaction = self.drawings_changed("New section view", drawings)?;
         Ok((transaction, letter))
     }
@@ -890,6 +909,7 @@ impl Document {
         radius: f64,
     ) -> Result<(Transaction, char), EditError> {
         let mut drawings = self.drawings().clone();
+
         let drawing = drawings.get_mut(id).ok_or(EditError::MissingDrawing)?;
         let detail = drawing.new_detail(parent, centre, radius).ok_or_else(|| {
             EditError::DrawingTooManyDetails {
@@ -898,14 +918,18 @@ impl Document {
             }
         })?;
         let letter = detail.letter;
+
         drawing.details.push(detail);
+
         let transaction = self.drawings_changed("New detail view", drawings)?;
         Ok((transaction, letter))
     }
 
     pub fn deleting_drawing(&self, id: DrawingId) -> Result<Transaction, EditError> {
         let mut drawings = self.drawings().clone();
+
         let before = drawings.drawings.len();
+
         drawings.drawings.retain(|drawing| drawing.id != id);
         if drawings.drawings.len() == before {
             return Err(EditError::MissingDrawing);

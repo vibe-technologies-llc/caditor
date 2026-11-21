@@ -86,12 +86,15 @@ fn rectangle() -> Rectangle {
         Point2::new(40.0, 20.0),
         Point2::new(0.0, 20.0),
     ];
+
     let sides: Vec<EntityId> = (0..4)
         .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]))
         .collect();
+
     for index in 0..4 {
         let (_, end) = ends(&sketch, sides[index]);
         let (start, _) = ends(&sketch, sides[(index + 1) % 4]);
+
         sketch
             .add_constraint(Constraint::Coincident(end, start))
             .unwrap();
@@ -103,10 +106,13 @@ fn rectangle() -> Rectangle {
             })
             .unwrap();
     }
+
     let (origin_corner, corner) = ends(&sketch, sides[0]);
+
     sketch
         .add_constraint(Constraint::Coincident(origin_corner, EntityId::ORIGIN))
         .unwrap();
+
     let width = sketch
         .add_constraint(Constraint::Distance {
             from: origin_corner,
@@ -115,6 +121,7 @@ fn rectangle() -> Rectangle {
         })
         .unwrap();
     let (bottom, top) = ends(&sketch, sides[1]);
+
     sketch
         .add_constraint(Constraint::Distance {
             from: bottom,
@@ -139,7 +146,9 @@ fn a_rectangle_corner_is_rounded_and_stays_rounded_when_the_rectangle_widens() {
         corner,
     } = rectangle();
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let found = sketch.corner_at(corner).unwrap();
+
     assert_eq!(found.curves, [sides[0], sides[1]]);
     assert_eq!(sketch.corner_between(sides[0], sides[1]).unwrap(), found);
     assert_eq!(
@@ -151,10 +160,14 @@ fn a_rectangle_corner_is_rounded_and_stays_rounded_when_the_rectangle_widens() {
 
     let (_, bottom_end) = ends(&sketch, sides[0]);
     let (right_start, _) = ends(&sketch, sides[1]);
+
     assert_near(sketch.point(bottom_end).unwrap(), Point2::new(35.0, 0.0));
     assert_near(sketch.point(right_start).unwrap(), Point2::new(40.0, 5.0));
+
     let geometry = sketch.arc(arc).unwrap();
+
     assert_near(geometry.center, Point2::new(35.0, 5.0));
+
     assert!((geometry.radius - 5.0).abs() < EXACT);
     assert!((geometry.sweep - FRAC_PI_2).abs() < EXACT);
     assert!(has(&sketch, &Constraint::Tangent(sides[0], arc)));
@@ -170,12 +183,17 @@ fn a_rectangle_corner_is_rounded_and_stays_rounded_when_the_rectangle_widens() {
     assert!(has(&sketch, &Constraint::Coincident(corner, sides[0])));
     assert!(has(&sketch, &Constraint::Coincident(corner, sides[1])));
     assert!(sketch.entities_using(corner).is_empty());
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(width, mm(60.0)).unwrap();
+
     let wider = solve(&sketch).geometry;
+
     assert_near(wider.arc(arc).unwrap().center, Point2::new(55.0, 5.0));
     assert_near(wider.point(bottom_end).unwrap(), Point2::new(55.0, 0.0));
     assert_near(wider.point(corner).unwrap(), Point2::new(60.0, 0.0));
@@ -184,10 +202,12 @@ fn a_rectangle_corner_is_rounded_and_stays_rounded_when_the_rectangle_widens() {
 #[test]
 fn a_corner_shared_by_two_lines_keeps_its_point_as_the_sharp() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::new(-20.0, 10.0), Point2::ZERO);
     let (_, corner) = ends(&sketch, first);
     let far = sketch.add_point(Point2::new(20.0, 10.0));
     let second = EntityId::from_raw(sketch.next_id());
+
     sketch
         .insert_entity(
             second,
@@ -206,6 +226,7 @@ fn a_corner_shared_by_two_lines_keeps_its_point_as_the_sharp() {
     sketch
         .add_constraint(Constraint::Equal(first, second))
         .unwrap();
+
     let freedom = solve(&sketch).solution.degrees_of_freedom();
 
     let arc = sketch
@@ -213,6 +234,7 @@ fn a_corner_shared_by_two_lines_keeps_its_point_as_the_sharp() {
         .unwrap();
 
     let centre = sketch.arc(arc).unwrap().center;
+
     assert!(centre.x.abs() < EXACT && centre.y > 4.0);
     assert!(has(
         &sketch,
@@ -222,14 +244,18 @@ fn a_corner_shared_by_two_lines_keeps_its_point_as_the_sharp() {
         }
     ));
     assert!(has(&sketch, &Constraint::Equal(first, second)));
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 }
 
 #[test]
 fn a_line_meeting_an_arc_is_rounded_by_an_arc_tangent_to_both() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(-20.0, 0.0), Point2::new(-10.0, 0.0));
     let arc = sketch.add_arc(
         Point2::ZERO,
@@ -238,9 +264,11 @@ fn a_line_meeting_an_arc_is_rounded_by_an_arc_tangent_to_both() {
     );
     let (_, line_end) = ends(&sketch, line);
     let (_, arc_end) = ends(&sketch, arc);
+
     sketch
         .add_constraint(Constraint::Coincident(line_end, arc_end))
         .unwrap();
+
     let radius = sketch
         .add_constraint(Constraint::Radius {
             entity: arc,
@@ -250,26 +278,34 @@ fn a_line_meeting_an_arc_is_rounded_by_an_arc_tangent_to_both() {
     let Some(Entity::Arc { center, .. }) = sketch.entity(arc).cloned() else {
         panic!("an arc");
     };
+
     sketch
         .add_constraint(Constraint::Coincident(center, EntityId::ORIGIN))
         .unwrap();
     sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+
     let freedom = solve(&sketch).solution.degrees_of_freedom();
     let corner = sketch.corner_between(line, arc).unwrap();
 
     let rounding = sketch.fillet(&corner, 2.0, mm(2.0)).unwrap();
 
     let fillet = sketch.arc(rounding).unwrap();
+
     assert!((fillet.radius - 2.0).abs() < EXACT);
     assert!((fillet.center.distance(Point2::ZERO) - 12.0).abs() < EXACT);
     assert!((fillet.center.y - 2.0).abs() < EXACT);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 
     sketch.set_dimension(radius, mm(15.0)).unwrap();
+
     let bigger = solve(&sketch).geometry;
     let moved = bigger.arc(rounding).unwrap();
+
     assert!((moved.center.distance(Point2::ZERO) - 17.0).abs() < EXACT);
     assert!((moved.radius - 2.0).abs() < EXACT);
 }
@@ -282,6 +318,7 @@ fn a_radius_too_large_for_either_side_is_refused_in_words() {
         corner,
         ..
     } = rectangle();
+
     let found = sketch.corner_at(corner).unwrap();
     let before = sketch.clone();
 
@@ -309,6 +346,7 @@ fn a_radius_too_large_for_either_side_is_refused_in_words() {
 #[test]
 fn only_a_corner_of_two_open_curves_can_be_filleted() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let straight = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 0.0));
     let lone = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(10.0, 30.0));
@@ -351,7 +389,9 @@ fn only_a_corner_of_two_open_curves_can_be_filleted() {
             label(lone)
         )
     );
+
     let straight_corner = sketch.corner_at(first_end).unwrap();
+
     assert_eq!(
         sketch.rounding(&straight_corner, 1.0),
         Err(FilletError::NoCorner {
@@ -379,6 +419,7 @@ fn every_rectangle_corner_is_offered_once_and_the_drag_radius_passes_under_the_p
     let corners = sketch.fillet_corners();
 
     assert_eq!(corners.len(), 4);
+
     for side in sides {
         assert_eq!(
             corners
@@ -388,12 +429,15 @@ fn every_rectangle_corner_is_offered_once_and_the_drag_radius_passes_under_the_p
             2
         );
     }
+
     let found = sketch.corner_at(corner).unwrap();
     let radius = sketch
         .radius_through(&found, Point2::new(38.0, 2.0))
         .unwrap();
+
     let rounding = sketch.rounding(&found, radius).unwrap();
     let middle = rounding.center + (Point2::new(40.0, 0.0) - rounding.center).normalize() * radius;
+
     assert_near(middle, Point2::new(38.0, 2.0));
 }
 
@@ -406,6 +450,7 @@ fn a_rectangle_corner_is_chamfered_and_keeps_its_distances_when_the_rectangle_wi
         corner,
     } = rectangle();
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let found = sketch.corner_at(corner).unwrap();
     let bevel = sketch.bevel(&found, &equal(5.0)).unwrap();
 
@@ -417,13 +462,17 @@ fn a_rectangle_corner_is_chamfered_and_keeps_its_distances_when_the_rectangle_wi
     let (start, end) = ends(&sketch, line);
 
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+
     assert_near(sketch.point(start).unwrap(), Point2::new(35.0, 0.0));
     assert_near(sketch.point(end).unwrap(), Point2::new(40.0, 5.0));
+
     assert!(has(&sketch, &Constraint::Coincident(corner, sides[0])));
     assert!(has(&sketch, &Constraint::Coincident(corner, sides[1])));
 
     sketch.set_dimension(width, mm(60.0)).unwrap();
+
     let wider = solve(&sketch).geometry;
 
     assert_near(wider.point(start).unwrap(), Point2::new(55.0, 0.0));
@@ -433,6 +482,7 @@ fn a_rectangle_corner_is_chamfered_and_keeps_its_distances_when_the_rectangle_wi
 #[test]
 fn a_chamfer_longer_than_a_side_or_not_above_zero_is_refused() {
     let Rectangle { sketch, corner, .. } = rectangle();
+
     let found = sketch.corner_at(corner).unwrap();
 
     assert!(matches!(
@@ -453,18 +503,22 @@ fn a_chamfer_longer_than_a_side_or_not_above_zero_is_refused() {
 #[test]
 fn a_corner_of_a_line_and_an_arc_is_chamfered_on_the_arc_by_its_chord() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(0.0, 10.0));
     let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
     let (_, line_end) = ends(&sketch, line);
     let (_, arc_end) = ends(&sketch, arc);
+
     sketch
         .add_constraint(Constraint::Coincident(line_end, arc_end))
         .unwrap();
+
     let found = sketch.corner_between(line, arc).unwrap();
 
     let bevel = sketch.bevel(&found, &equal(4.0)).unwrap();
 
     assert_near(bevel.touches[0], Point2::new(0.0, 14.0));
+
     assert!(bevel.touches[1].x > 0.0);
     assert!((bevel.touches[1].length() - 10.0).abs() < EXACT);
     assert!((bevel.touches[1].distance(Point2::new(0.0, 10.0)) - 4.0).abs() < EXACT);
@@ -480,6 +534,7 @@ fn a_corner_is_chamfered_by_a_different_distance_on_each_curve_and_each_stays_ed
         ..
     } = rectangle();
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let found = sketch.corner_at(corner).unwrap();
     let size = ChamferSize::Distances {
         first: dimensioned(8.0),
@@ -489,12 +544,14 @@ fn a_corner_is_chamfered_by_a_different_distance_on_each_curve_and_each_stays_ed
     let bevel = sketch.bevel(&found, &size).unwrap();
 
     assert_eq!(bevel.distances, [8.0, 3.0]);
+
     assert_near(bevel.touches[0], Point2::new(32.0, 0.0));
     assert_near(bevel.touches[1], Point2::new(40.0, 3.0));
 
     let line = sketch.chamfer(&found, &size).unwrap();
     let solved = solve(&sketch);
     let (start, end) = ends(&sketch, line);
+
     let distances: Vec<ConstraintId> = sketch
         .constraints()
         .filter(|(_, constraint)| {
@@ -504,12 +561,15 @@ fn a_corner_is_chamfered_by_a_different_distance_on_each_curve_and_each_stays_ed
         .collect();
 
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
     assert_eq!(distances.len(), 2);
     assert!(has(&sketch, &Constraint::Coincident(corner, sides[1])));
 
     let second = distances[1];
+
     sketch.set_dimension(second, mm(6.0)).unwrap();
+
     let taller = solve(&sketch).geometry;
 
     assert_near(taller.point(start).unwrap(), Point2::new(32.0, 0.0));
@@ -525,6 +585,7 @@ fn a_corner_is_chamfered_by_a_distance_and_an_angle_that_stays_a_dimension() {
         ..
     } = rectangle();
     let freedom = solve(&sketch).solution.degrees_of_freedom();
+
     let found = sketch.corner_at(corner).unwrap();
     let size = ChamferSize::DistanceAndAngle {
         distance: dimensioned(6.0),
@@ -549,6 +610,7 @@ fn a_corner_is_chamfered_by_a_distance_and_an_angle_that_stays_a_dimension() {
         .unwrap();
 
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
     assert!(has(&sketch, &Constraint::Coincident(corner, sides[0])));
     assert!(
@@ -563,6 +625,7 @@ fn a_corner_is_chamfered_by_a_distance_and_an_angle_that_stays_a_dimension() {
     sketch
         .set_dimension(angle.0, degrees(60.0).expression)
         .unwrap();
+
     let steeper = solve(&sketch).geometry;
 
     assert_near(steeper.point(start).unwrap(), Point2::new(34.0, 0.0));
@@ -575,13 +638,16 @@ fn a_corner_is_chamfered_by_a_distance_and_an_angle_that_stays_a_dimension() {
 #[test]
 fn a_chamfer_angle_is_measured_inside_the_cut_corner_whichever_way_the_lines_are_drawn() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let across = sketch.add_line(Point2::new(40.0, 0.0), Point2::new(0.0, 0.0));
     let up = sketch.add_line(Point2::new(40.0, 20.0), Point2::new(40.0, 0.0));
     let (across_start, _) = ends(&sketch, across);
     let (_, up_end) = ends(&sketch, up);
+
     sketch
         .add_constraint(Constraint::Coincident(across_start, up_end))
         .unwrap();
+
     let found = sketch.corner_between(across, up).unwrap();
     let size = ChamferSize::DistanceAndAngle {
         distance: dimensioned(5.0),
@@ -594,6 +660,7 @@ fn a_chamfer_angle_is_measured_inside_the_cut_corner_whichever_way_the_lines_are
     assert_near(bevel.touches[1], Point2::new(40.0, 5.0));
 
     sketch.chamfer(&found, &size).unwrap();
+
     let angle = sketch
         .constraints()
         .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
@@ -610,6 +677,7 @@ fn a_chamfer_angle_is_measured_inside_the_cut_corner_whichever_way_the_lines_are
 #[test]
 fn a_chamfer_angle_outside_a_half_turn_or_missing_the_other_curve_is_refused() {
     let Rectangle { sketch, corner, .. } = rectangle();
+
     let found = sketch.corner_at(corner).unwrap();
     let at = |angle: f64| ChamferSize::DistanceAndAngle {
         distance: dimensioned(5.0),
@@ -637,13 +705,16 @@ fn a_chamfer_angle_outside_a_half_turn_or_missing_the_other_curve_is_refused() {
 #[test]
 fn a_line_and_an_arc_are_chamfered_by_a_distance_and_an_angle_held_at_the_line() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(0.0, 10.0));
     let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
     let (_, line_end) = ends(&sketch, line);
     let (_, arc_end) = ends(&sketch, arc);
+
     sketch
         .add_constraint(Constraint::Coincident(line_end, arc_end))
         .unwrap();
+
     let found = sketch.corner_between(line, arc).unwrap();
     let size = ChamferSize::DistanceAndAngle {
         distance: dimensioned(4.0),
@@ -651,6 +722,7 @@ fn a_line_and_an_arc_are_chamfered_by_a_distance_and_an_angle_held_at_the_line()
     };
 
     sketch.chamfer(&found, &size).unwrap();
+
     let angle = sketch
         .constraints()
         .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
@@ -681,6 +753,7 @@ fn gap_to_ellipse(sketch: &Sketch, ellipse: EntityId, point: Point2) -> f64 {
 
 fn line_on_elliptical_arc(corner_at_start: bool) -> (Sketch, EntityId, EntityId) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_elliptical_arc(
         Point2::ZERO,
         Point2::new(10.0, 0.0),
@@ -689,6 +762,7 @@ fn line_on_elliptical_arc(corner_at_start: bool) -> (Sketch, EntityId, EntityId)
         Point2::new(0.0, 4.0),
     );
     let (start, end) = elliptic_ends(&sketch, arc);
+
     let (line, joint) = if corner_at_start {
         (
             sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 0.0)),
@@ -701,6 +775,7 @@ fn line_on_elliptical_arc(corner_at_start: bool) -> (Sketch, EntityId, EntityId)
         )
     };
     let (line_start, _) = ends(&sketch, line);
+
     sketch
         .add_constraint(Constraint::Coincident(line_start, joint))
         .unwrap();
@@ -712,23 +787,31 @@ fn a_line_meeting_an_elliptical_arc_is_rounded_by_an_arc_tangent_to_both() {
     for corner_at_start in [true, false] {
         let (mut sketch, line, ellipse) = line_on_elliptical_arc(corner_at_start);
         let freedom = solve(&sketch).solution.degrees_of_freedom();
+
         let corner = sketch.corner_between(ellipse, line).unwrap();
 
         let rounding = sketch.fillet(&corner, 1.5, mm(1.5)).unwrap();
 
         let fillet = sketch.arc(rounding).unwrap();
         let (start, end) = sketch.line_endpoints(line).unwrap();
+
         let line_gap = (fillet.center - start)
             .perp_dot((end - start).normalize())
             .abs();
+
         assert!((fillet.radius - 1.5).abs() < EXACT);
         assert!((line_gap - 1.5).abs() < EXACT, "{line_gap}");
         assert!((gap_to_ellipse(&sketch, ellipse, fillet.center) - 1.5).abs() < 1e-6);
         assert!(has(&sketch, &Constraint::Tangent(ellipse, rounding)));
+
         let solved = solve(&sketch);
+
         assert_clean(&solved);
+
         assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+
         let moved = solved.geometry.arc(rounding).unwrap();
+
         assert!(moved.center.distance(fillet.center) < 1e-6);
     }
 }
@@ -736,6 +819,7 @@ fn a_line_meeting_an_elliptical_arc_is_rounded_by_an_arc_tangent_to_both() {
 #[test]
 fn an_elliptical_arc_too_short_for_the_radius_is_refused_and_one_is_chamfered_along_it() {
     let (mut sketch, line, ellipse) = line_on_elliptical_arc(true);
+
     let corner = sketch.corner_between(line, ellipse).unwrap();
 
     assert!(matches!(
@@ -744,16 +828,20 @@ fn an_elliptical_arc_too_short_for_the_radius_is_refused_and_one_is_chamfered_al
     ));
 
     sketch.chamfer(&corner, &equal(2.0)).unwrap();
+
     let (start, _) = elliptic_ends(&sketch, ellipse);
     let touch = sketch.point(start).unwrap();
+
     assert!((touch.distance(Point2::new(10.0, 0.0)) - 2.0).abs() < EXACT);
     assert!(gap_to_ellipse(&sketch, ellipse, touch) < EXACT);
+
     assert_clean(&solve(&sketch));
 }
 
 #[test]
 fn a_corner_of_two_elliptical_arcs_is_rounded_tangent_to_both() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_elliptical_arc(
         Point2::ZERO,
         Point2::new(10.0, 0.0),
@@ -770,14 +858,17 @@ fn a_corner_of_two_elliptical_arcs_is_rounded_tangent_to_both() {
     );
     let (corner, _) = elliptic_ends(&sketch, first);
     let (other, _) = elliptic_ends(&sketch, second);
+
     sketch
         .add_constraint(Constraint::Coincident(corner, other))
         .unwrap();
+
     let found = sketch.corner_between(first, second).unwrap();
 
     let rounding = sketch.fillet(&found, 1.0, mm(1.0)).unwrap();
 
     let fillet = sketch.arc(rounding).unwrap();
+
     for ellipse in [first, second] {
         assert!((gap_to_ellipse(&sketch, ellipse, fillet.center) - 1.0).abs() < 1e-6);
     }
@@ -788,6 +879,7 @@ fn a_corner_of_two_elliptical_arcs_is_rounded_tangent_to_both() {
 fn an_elliptical_arc_is_chamfered_by_a_distance_along_it_and_an_angle_from_it() {
     for corner_at_start in [true, false] {
         let (mut sketch, line, ellipse) = line_on_elliptical_arc(corner_at_start);
+
         let corner = sketch.corner_between(ellipse, line).unwrap();
         let size = ChamferSize::DistanceAndAngle {
             distance: dimensioned(3.0),
@@ -795,6 +887,7 @@ fn an_elliptical_arc_is_chamfered_by_a_distance_along_it_and_an_angle_from_it() 
         };
 
         sketch.chamfer(&corner, &size).unwrap();
+
         let angle = sketch
             .constraints()
             .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
@@ -812,8 +905,11 @@ fn an_elliptical_arc_is_chamfered_by_a_distance_along_it_and_an_angle_from_it() 
             "{:?}",
             sketch.measured(&angle)
         );
+
         let solved = solve(&sketch);
+
         assert_clean(&solved);
+
         assert!(
             solved
                 .geometry
@@ -833,6 +929,7 @@ fn pick(curve: EntityId, x: f64, y: f64) -> Pick {
 #[test]
 fn two_crossing_lines_are_trimmed_to_their_crossing_and_rounded_in_one_step() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let level = sketch.add_line(Point2::new(-10.0, 0.0), Point2::new(10.0, 0.0));
     let upright = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(0.0, 10.0));
 
@@ -843,19 +940,23 @@ fn two_crossing_lines_are_trimmed_to_their_crossing_and_rounded_in_one_step() {
 
     let (level_start, level_end) = ends(&sketch, level);
     let (upright_start, upright_end) = ends(&sketch, upright);
+
     assert_near(sketch.point(level_start).unwrap(), Point2::new(2.0, 0.0));
     assert_near(sketch.point(level_end).unwrap(), Point2::new(10.0, 0.0));
     assert_near(sketch.point(upright_start).unwrap(), Point2::new(0.0, 2.0));
     assert_near(sketch.point(upright_end).unwrap(), Point2::new(0.0, 10.0));
     assert_near(sketch.arc(arc).unwrap().center, Point2::new(2.0, 2.0));
+
     assert_eq!(sketch.point(corner.point), Some(Point2::ZERO));
     assert_eq!(sketch.free_points(), vec![corner.point]);
+
     assert_clean(&solve(&sketch));
 }
 
 #[test]
 fn two_lines_stopping_short_are_extended_to_where_they_would_meet() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let level = sketch.add_line(Point2::new(-10.0, 0.0), Point2::new(-3.0, 0.0));
     let upright = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(0.0, 4.0));
     let mut chamfered = sketch.clone();
@@ -863,25 +964,34 @@ fn two_lines_stopping_short_are_extended_to_where_they_would_meet() {
     let corner = sketch
         .join_at_crossing([pick(level, -6.0, 0.0), pick(upright, 0.0, 7.0)])
         .unwrap();
+
     sketch.fillet(&corner, 2.0, mm(2.0)).unwrap();
+
     let cut = chamfered
         .join_at_crossing([pick(level, -6.0, 0.0), pick(upright, 0.0, 7.0)])
         .unwrap();
+
     chamfered.chamfer(&cut, &equal(1.0)).unwrap();
 
     let (_, level_end) = ends(&sketch, level);
     let (_, upright_end) = ends(&sketch, upright);
+
     assert_near(sketch.point(level_end).unwrap(), Point2::new(-2.0, 0.0));
     assert_near(sketch.point(upright_end).unwrap(), Point2::new(0.0, 2.0));
+
     assert_eq!(sketch.open_ends().len(), 2);
+
     assert_clean(&solve(&sketch));
+
     let (_, cut_end) = ends(&chamfered, level);
+
     assert_near(chamfered.point(cut_end).unwrap(), Point2::new(-1.0, 0.0));
 }
 
 #[test]
 fn the_lever_outline_rounds_where_each_line_meets_a_boss_in_one_step_each() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let left = sketch.add_circle(Point2::ZERO, 10.0);
     let right = sketch.add_circle(Point2::new(50.0, 0.0), 6.0);
     let top = sketch.add_line(Point2::new(0.0, 8.0), Point2::new(50.0, 4.0));
@@ -893,14 +1003,18 @@ fn the_lever_outline_rounds_where_each_line_meets_a_boss_in_one_step_each() {
         [pick(top, 30.0, 5.6), pick(right, 46.0, 4.47)],
         [pick(bottom, 30.0, -5.6), pick(right, 46.0, -4.47)],
     ];
+
     for picks in steps {
         let corner = sketch.join_at_crossing(picks).unwrap();
+
         sketch.fillet(&corner, 3.0, mm(3.0)).unwrap();
     }
 
     assert!(sketch.open_ends().is_empty(), "{:?}", sketch.open_ends());
+
     let left_arc = sketch.arc(left).unwrap();
     let right_arc = sketch.arc(right).unwrap();
+
     assert!(left_arc.sweep > PI);
     assert!(right_arc.sweep > PI);
     assert!(
@@ -915,12 +1029,14 @@ fn the_lever_outline_rounds_where_each_line_meets_a_boss_in_one_step_each() {
             .x
             > 55.0
     );
+
     assert_clean(&solve(&sketch));
 }
 
 #[test]
 fn selected_curves_keep_their_longer_parts_and_a_boss_its_blunter_side() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let boss = sketch.add_circle(Point2::ZERO, 10.0);
     let top = sketch.add_line(Point2::new(0.0, 8.0), Point2::new(50.0, 4.0));
 
@@ -928,19 +1044,25 @@ fn selected_curves_keep_their_longer_parts_and_a_boss_its_blunter_side() {
     let corner = sketch.join_at_crossing(picks).unwrap();
 
     let arc = sketch.arc(boss).unwrap();
+
     assert!(arc.point_at(arc.start_angle + arc.sweep / 2.0).y > 9.0);
+
     let (start, end) = ends(&sketch, top);
+
     assert_eq!(start, corner.point);
+
     assert_near(sketch.point(end).unwrap(), Point2::new(50.0, 4.0));
 }
 
 #[test]
 fn curves_that_never_meet_or_cannot_move_are_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let second = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0));
     let upright = sketch.add_line(Point2::new(20.0, 10.0), Point2::new(20.0, 2.0));
     let (_, held) = ends(&sketch, upright);
+
     sketch
         .add_constraint(Constraint::Fix {
             point: held,
@@ -979,9 +1101,11 @@ fn disabled_on_second_point() -> DisabledOnSecondPoint {
     let far = sketch.add_point(Point2::new(60.0, 0.0));
     let (_, first_end) = ends(&sketch, first);
     let (second_start, _) = ends(&sketch, second);
+
     sketch
         .add_constraint(Constraint::Coincident(first_end, second_start))
         .unwrap();
+
     let dimension = sketch
         .add_constraint(Constraint::Distance {
             from: second_start,
@@ -989,10 +1113,12 @@ fn disabled_on_second_point() -> DisabledOnSecondPoint {
             value: mm(20.0),
         })
         .unwrap();
+
     sketch.set_active(dimension, false).unwrap();
     sketch
         .set_label_offset(dimension, Some(PLACED_LABEL))
         .unwrap();
+
     let corner = sketch.corner_between(first, second).unwrap();
 
     DisabledOnSecondPoint {
@@ -1011,6 +1137,7 @@ fn distance_to(sketch: &Sketch, far: EntityId) -> ConstraintId {
         )
         .map(|(id, _)| id)
         .collect();
+
     assert_eq!(found.len(), 1);
     found[0]
 }
@@ -1027,6 +1154,7 @@ fn a_disabled_dimension_on_the_second_corner_point_stays_disabled_and_placed_whe
     sketch.fillet(&corner, 5.0, mm(5.0)).unwrap();
 
     let moved = distance_to(&sketch, far);
+
     assert_eq!(moved, dimension);
     assert!(!sketch.is_active(moved));
     assert_eq!(sketch.label_offset(moved), Some(PLACED_LABEL));
@@ -1044,6 +1172,7 @@ fn a_disabled_dimension_on_the_second_corner_point_stays_disabled_and_placed_whe
     sketch.chamfer(&corner, &equal(5.0)).unwrap();
 
     let moved = distance_to(&sketch, far);
+
     assert_eq!(moved, dimension);
     assert!(!sketch.is_active(moved));
     assert_eq!(sketch.label_offset(moved), Some(PLACED_LABEL));
@@ -1052,6 +1181,7 @@ fn a_disabled_dimension_on_the_second_corner_point_stays_disabled_and_placed_whe
 #[test]
 fn a_moved_constraint_is_not_dropped_as_a_duplicate_of_an_inactive_one() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::new(-20.0, 10.0), Point2::ZERO);
     let second = sketch.add_line(Point2::ZERO, Point2::new(20.0, 10.0));
     let (_, kept) = ends(&sketch, first);
@@ -1062,6 +1192,7 @@ fn a_moved_constraint_is_not_dropped_as_a_duplicate_of_an_inactive_one() {
             at: Point2::ZERO,
         })
         .unwrap();
+
     sketch.set_active(inactive, false).unwrap();
     sketch
         .add_constraint(Constraint::Fix {
@@ -1069,6 +1200,7 @@ fn a_moved_constraint_is_not_dropped_as_a_duplicate_of_an_inactive_one() {
             at: Point2::ZERO,
         })
         .unwrap();
+
     let corner = sketch.fillet_corners().into_iter().next().unwrap();
 
     sketch.fillet(&corner, 4.0, mm(4.0)).unwrap();
@@ -1107,9 +1239,11 @@ fn assert_on_ellipse(sketch: &Sketch, ellipse: EntityId, point: EntityId) {
     let at = sketch.point(point).unwrap();
     let whole = sketch.ellipse(ellipse).unwrap();
     let axis = whole.axis();
+
     let offset = at - whole.center;
     let level = (offset.dot(axis) / whole.major_radius()).powi(2)
         + (offset.dot(axis.perp()) / whole.minor_radius).powi(2);
+
     assert!((level - 1.0).abs() < EXACT, "{at} lies off the ellipse");
 }
 
@@ -1128,14 +1262,18 @@ fn assert_holds(sketch: &Sketch, freedom_before: usize, rounding: EntityId) {
     let solved = solve(sketch);
 
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom_before);
+
     let moved = solved.geometry.arc(rounding).unwrap();
+
     assert!(moved.center.distance(center) < 1e-6, "{center} moved");
 }
 
 #[test]
 fn a_line_crossing_an_elliptical_arc_is_trimmed_to_the_crossing_and_rounded_tangent_to_both() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = ellipse_between(&mut sketch, -FRAC_PI_2, FRAC_PI_2);
     let upright = sketch.add_line(Point2::new(6.0, -10.0), Point2::new(6.0, 10.0));
     let before = freedom(&sketch);
@@ -1150,25 +1288,32 @@ fn a_line_crossing_an_elliptical_arc_is_trimmed_to_the_crossing_and_rounded_tang
     let (ellipse_start, ellipse_end) = elliptic_ends(&sketch, ellipse);
     let (_, upright_end) = ends(&sketch, upright);
     let fillet = sketch.arc(rounding).unwrap();
+
     assert_near(corner.position, crossing);
     assert_near(sketch.point(corner.point).unwrap(), crossing);
     assert_near(sketch.point(ellipse_end).unwrap(), Point2::new(0.0, 4.0));
     assert_near(sketch.point(upright_end).unwrap(), Point2::new(6.0, 10.0));
     assert_on_ellipse(&sketch, ellipse, ellipse_start);
+
     assert!((fillet.center.x - 5.0).abs() < EXACT, "{}", fillet.center);
     assert!((gap_to_ellipse(&sketch, ellipse, fillet.center) - 1.0).abs() < 1e-6);
+
     assert_rounds_tangent(&sketch, [upright, ellipse], rounding);
+
     assert_eq!(joined, before - 2);
+
     assert_holds(&sketch, joined, rounding);
 }
 
 #[test]
 fn an_elliptical_arc_stopping_short_of_a_line_is_carried_round_its_ellipse_to_meet_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = ellipse_between(&mut sketch, 0.0, FRAC_PI_2);
     let upright = sketch.add_line(Point2::new(-3.0, 10.0), Point2::new(-3.0, 5.0));
     let before = freedom(&sketch);
     let mut chamfered = sketch.clone();
+
     let picks = [pick(upright, -3.0, 8.0), pick(ellipse, 7.0, 2.8)];
 
     let corner = sketch.join_at_crossing(picks).unwrap();
@@ -1181,10 +1326,13 @@ fn an_elliptical_arc_stopping_short_of_a_line_is_carried_round_its_ellipse_to_me
     let crossing = Point2::new(-3.0, MINOR * 0.91f64.sqrt());
     let (ellipse_start, _) = elliptic_ends(&sketch, ellipse);
     let (upright_start, _) = ends(&sketch, upright);
+
     assert_near(corner.position, crossing);
+
     assert!((reached.start).abs() < EXACT);
     assert!((reached.end() - reached.parameter_of(crossing)).abs() < EXACT);
     assert!(reached.sweep > FRAC_PI_2);
+
     assert_near(
         sketch.point(ellipse_start).unwrap(),
         Point2::new(MAJOR, 0.0),
@@ -1194,22 +1342,32 @@ fn an_elliptical_arc_stopping_short_of_a_line_is_carried_round_its_ellipse_to_me
         Point2::new(-3.0, 10.0),
     );
     assert_rounds_tangent(&sketch, [upright, ellipse], rounding);
+
     assert_eq!(joined, before - 2);
+
     assert_holds(&sketch, joined, rounding);
+
     let (cut_start, cut_end) = chamfered.line_endpoints(line).unwrap();
+
     for touch in [cut_start, cut_end] {
         assert!((touch.distance(crossing) - 1.0).abs() < EXACT, "{touch}");
     }
+
     let (_, chamfered_end) = elliptic_ends(&chamfered, ellipse);
+
     assert_on_ellipse(&chamfered, ellipse, chamfered_end);
+
     let solved = solve(&chamfered);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), joined);
 }
 
 #[test]
 fn an_arc_and_an_elliptical_arc_stopping_short_are_rounded_where_their_carriers_cross() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = ellipse_between(&mut sketch, 0.0, FRAC_PI_2);
     let center = Point2::new(-6.0, 0.0);
     let arc = sketch.add_arc(
@@ -1236,15 +1394,19 @@ fn an_arc_and_an_elliptical_arc_stopping_short_are_rounded_where_their_carriers_
     assert!(reached.sweep > FRAC_PI_2);
     assert!((reached.end() - reached.parameter_of(corner.position)).abs() < EXACT);
     assert!(trimmed.sweep < 2.0 * FRAC_PI_3);
+
     assert_near(trimmed.point_at(trimmed.end_angle()), corner.position);
     assert_rounds_tangent(&sketch, [arc, ellipse], rounding);
+
     assert_eq!(joined, before - 2);
+
     assert_holds(&sketch, joined, rounding);
 }
 
 #[test]
 fn a_circle_meeting_an_elliptical_arc_opens_up_to_the_next_crossing_on_the_picked_side() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = ellipse_between(&mut sketch, -FRAC_PI_4, FRAC_PI_4);
     let boss = sketch.add_circle(Point2::ZERO, 7.0);
 
@@ -1255,18 +1417,25 @@ fn a_circle_meeting_an_elliptical_arc_opens_up_to_the_next_crossing_on_the_picke
 
     let across = ((1.0 - 49.0 / 16.0) / (0.01 - 1.0 / 16.0f64)).sqrt();
     let up = (49.0 - across * across).sqrt();
+
     assert_near(corner.position, Point2::new(across, up));
+
     let opened = sketch.arc(boss).unwrap();
+
     assert_near(
         opened.point_at(opened.end_angle()),
         Point2::new(-across, up),
     );
+
     assert!(opened.point_at(opened.start_angle + opened.sweep / 2.0).y > 6.0);
+
     let far = match sketch.entity(boss) {
         Some(Entity::Arc { end, .. }) => *end,
         other => panic!("expected an arc, found {other:?}"),
     };
+
     assert!(has(&sketch, &Constraint::Coincident(far, ellipse)));
+
     assert_on_ellipse(&sketch, ellipse, far);
     assert_rounds_tangent(&sketch, [boss, ellipse], rounding);
     assert_clean(&solve(&sketch));
@@ -1275,11 +1444,13 @@ fn a_circle_meeting_an_elliptical_arc_opens_up_to_the_next_crossing_on_the_picke
 #[test]
 fn two_elliptical_arcs_crossing_are_trimmed_to_their_crossing_and_chamfered() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = ellipse_between(&mut sketch, -FRAC_PI_2, FRAC_PI_2);
     let narrow_center = Point2::new(8.0, 0.0);
     let on_narrow = |parameter: f64| {
         narrow_center + Vector2::new(-3.0 * parameter.sin(), 6.0 * parameter.cos())
     };
+
     let second = sketch.add_elliptical_arc(
         narrow_center,
         narrow_center + Vector2::new(0.0, 6.0),
@@ -1297,25 +1468,35 @@ fn two_elliptical_arcs_crossing_are_trimmed_to_their_crossing_and_chamfered() {
 
     let (first_start, first_end) = elliptic_ends(&sketch, first);
     let (second_start, second_end) = elliptic_ends(&sketch, second);
+
     assert!(corner.position.y > 0.0, "{}", corner.position);
+
     assert_near(sketch.point(first_end).unwrap(), Point2::new(0.0, MINOR));
     assert_near(sketch.point(second_start).unwrap(), on_narrow(0.0));
     for (ellipse, touch) in [(first, first_start), (second, second_end)] {
         assert_on_ellipse(&sketch, ellipse, touch);
+
         let at = sketch.point(touch).unwrap();
+
         assert!((at.distance(corner.position) - 1.0).abs() < EXACT, "{at}");
     }
+
     let (cut_start, cut_end) = sketch.line_endpoints(line).unwrap();
+
     assert!(cut_start.distance(cut_end) > 0.5);
     assert_eq!(joined, before - 2);
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), joined);
 }
 
 #[test]
 fn a_selected_line_and_elliptical_arc_keep_their_longer_parts() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = ellipse_between(&mut sketch, -FRAC_PI_2, FRAC_PI_2);
     let upright = sketch.add_line(Point2::new(6.0, -10.0), Point2::new(6.0, 2.0));
 
@@ -1324,13 +1505,17 @@ fn a_selected_line_and_elliptical_arc_keep_their_longer_parts() {
 
     let (ellipse_start, ellipse_end) = elliptic_ends(&sketch, ellipse);
     let (upright_start, upright_end) = ends(&sketch, upright);
+
     assert_near(corner.position, Point2::new(6.0, -3.2));
+
     assert_eq!(ellipse_start, corner.point);
+
     assert_near(sketch.point(ellipse_end).unwrap(), Point2::new(0.0, MINOR));
     assert_near(
         sketch.point(upright_start).unwrap(),
         Point2::new(6.0, -10.0),
     );
+
     assert_eq!(upright_end, corner.point);
 }
 
@@ -1343,10 +1528,12 @@ struct Wedge {
 
 fn wedge() -> Wedge {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::new(-20.0, 10.0), Point2::ZERO);
     let (_, corner) = ends(&sketch, first);
     let far = sketch.add_point(Point2::new(20.0, 10.0));
     let second = EntityId::from_raw(sketch.next_id());
+
     sketch
         .insert_entity(
             second,
@@ -1382,6 +1569,7 @@ fn a_third_line_equal_to_a_rounded_one_is_freed_while_the_rounded_pair_stay_equa
         Point2::new(30.0, 0.0),
         Point2::new(30.0, 22.360679774997898),
     );
+
     sketch
         .add_constraint(Constraint::Equal(first, second))
         .unwrap();
@@ -1395,6 +1583,7 @@ fn a_third_line_equal_to_a_rounded_one_is_freed_while_the_rounded_pair_stay_equa
 
     assert!(has(&sketch, &Constraint::Equal(first, second)));
     assert!(!has(&sketch, &Constraint::Equal(first, third)));
+
     assert_clean(&solve(&sketch));
 }
 
@@ -1406,9 +1595,11 @@ fn a_chamfer_by_unequal_distances_frees_the_equal_lengths_of_its_corner() {
         second,
         corner,
     } = wedge();
+
     sketch
         .add_constraint(Constraint::Equal(first, second))
         .unwrap();
+
     let freedom = solve(&sketch).solution.degrees_of_freedom();
     let size = ChamferSize::Distances {
         first: dimensioned(3.0),
@@ -1420,8 +1611,11 @@ fn a_chamfer_by_unequal_distances_frees_the_equal_lengths_of_its_corner() {
         .unwrap();
 
     assert!(!has(&sketch, &Constraint::Equal(first, second)));
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom + 1);
 }
 
@@ -1433,9 +1627,11 @@ fn a_chamfer_by_one_distance_keeps_the_equal_lengths_of_its_corner() {
         second,
         corner,
     } = wedge();
+
     sketch
         .add_constraint(Constraint::Equal(first, second))
         .unwrap();
+
     let freedom = solve(&sketch).solution.degrees_of_freedom();
 
     sketch
@@ -1443,8 +1639,11 @@ fn a_chamfer_by_one_distance_keeps_the_equal_lengths_of_its_corner() {
         .unwrap();
 
     assert!(has(&sketch, &Constraint::Equal(first, second)));
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 }
 
@@ -1457,6 +1656,7 @@ fn a_midpoint_on_a_rounded_line_becomes_a_point_on_it_while_it_stays_on_what_is_
         ..
     } = rectangle();
     let middle = sketch.add_point(Point2::new(20.0, 0.0));
+
     let held = sketch
         .add_constraint(Constraint::Midpoint {
             point: middle,
@@ -1473,22 +1673,29 @@ fn a_midpoint_on_a_rounded_line_becomes_a_point_on_it_while_it_stays_on_what_is_
         sketch.constraint(held),
         Some(&Constraint::Coincident(middle, sides[0]))
     );
+
     let solved = solve(&sketch);
+
     assert_clean(&solved);
+
     assert_eq!(solved.solution.degrees_of_freedom(), freedom + 1);
 }
 
 #[test]
 fn a_midpoint_on_a_rounded_line_is_freed_when_the_round_takes_its_part_of_the_line() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let across = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
     let (_, corner) = ends(&sketch, across);
     let up = sketch.add_line(Point2::new(40.0, 0.0), Point2::new(40.0, 100.0));
     let (joint, _) = ends(&sketch, up);
+
     sketch
         .add_constraint(Constraint::Coincident(corner, joint))
         .unwrap();
+
     let middle = sketch.add_point(Point2::new(20.0, 0.0));
+
     sketch
         .add_constraint(Constraint::Midpoint {
             point: middle,
@@ -1521,11 +1728,14 @@ fn line_on_spline(spline_first: bool, kind: SplineKind) -> (Sketch, EntityId, En
     } else {
         bowed().into_iter().rev().collect()
     };
+
     let spline = sketch.add_spline_of(&points, kind);
     let (first, last) = sketch.entity(spline).and_then(Entity::spline_ends).unwrap();
+
     let joint = if spline_first { first } else { last };
     let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(0.0, -8.0));
     let (line_start, _) = ends(&sketch, line);
+
     sketch
         .add_constraint(Constraint::Coincident(line_start, joint))
         .unwrap();
@@ -1544,6 +1754,7 @@ fn a_line_meeting_a_spline_is_rounded_by_an_arc_tangent_to_both() {
     for spline_first in [true, false] {
         for kind in [SplineKind::OPEN, SplineKind::fit(false)] {
             let (mut sketch, line, spline) = line_on_spline(spline_first, kind);
+
             let whole = sketch.spline(spline).unwrap();
             let dof_before = freedom(&sketch);
             let corner = sketch.corner_between(spline, line).unwrap();
@@ -1554,23 +1765,31 @@ fn a_line_meeting_a_spline_is_rounded_by_an_arc_tangent_to_both() {
 
             let fillet = sketch.arc(rounding).unwrap();
             let (start, end) = sketch.line_endpoints(line).unwrap();
+
             let line_gap = (fillet.center - start)
                 .perp_dot((end - start).normalize())
                 .abs();
             let trimmed = sketch.spline(spline).unwrap();
+
             assert!((fillet.radius - SPLINE_ROUNDING).abs() < EXACT);
             assert!((line_gap - SPLINE_ROUNDING).abs() < EXACT, "{line_gap}");
             assert!((gap_to_spline(&sketch, spline, fillet.center) - SPLINE_ROUNDING).abs() < 1e-6);
             assert!(has(&sketch, &Constraint::Tangent(spline, rounding)));
             assert!(has(&sketch, &Constraint::Tangent(line, rounding)));
+
             for index in 0..=32 {
                 let point = trimmed.point_at(index as f64 / 32.0);
                 let off = crate::intersect::closest_spline_parameter(&whole, point);
+
                 assert!(whole.point_at(off).distance(point) < 1e-6);
             }
+
             let solved = solve(&sketch);
+
             assert_clean(&solved);
+
             let moved = solved.geometry.arc(rounding).unwrap();
+
             assert!(moved.center.distance(fillet.center) < 1e-6);
             assert_eq!(solved.solution.degrees_of_freedom(), dof_before);
         }
@@ -1580,17 +1799,22 @@ fn a_line_meeting_a_spline_is_rounded_by_an_arc_tangent_to_both() {
 #[test]
 fn a_spline_too_short_for_the_radius_is_refused_and_one_is_chamfered_along_it() {
     let (mut sketch, line, spline) = line_on_spline(true, SplineKind::OPEN);
+
     let corner = sketch.corner_between(line, spline).unwrap();
 
     let refused = sketch.rounding(&corner, 400.0);
+
     assert!(
         matches!(refused, Err(FilletError::TooLarge { .. })),
         "{refused:?}"
     );
 
     sketch.chamfer(&corner, &equal(2.0)).unwrap();
+
     let curve = sketch.spline(spline).unwrap();
+
     assert!((curve.point_at(0.0).distance(Point2::new(10.0, 0.0)) - 2.0).abs() < 1e-6);
+
     assert_clean(&solve(&sketch));
 }
 
@@ -1599,6 +1823,7 @@ fn a_spline_is_chamfered_by_a_distance_along_it_and_an_angle_from_its_end() {
     for spline_first in [true, false] {
         for kind in [SplineKind::OPEN, SplineKind::fit(false)] {
             let (mut sketch, line, spline) = line_on_spline(spline_first, kind);
+
             let corner = sketch.corner_between(spline, line).unwrap();
             let size = ChamferSize::DistanceAndAngle {
                 distance: dimensioned(3.0),
@@ -1626,14 +1851,18 @@ fn a_spline_is_chamfered_by_a_distance_along_it_and_an_angle_from_its_end() {
                 "{:?}",
                 sketch.measured(&angle)
             );
+
             assert_clean(&solved);
+
             assert!(
                 solved
                     .geometry
                     .measured(&angle)
                     .is_some_and(|found| (found - 3.0).abs() < 1e-6)
             );
+
             let (start, end) = solved.geometry.line_endpoints(cut).unwrap();
+
             assert_near(start, drawn.0);
             assert_near(end, drawn.1);
         }
@@ -1643,11 +1872,13 @@ fn a_spline_is_chamfered_by_a_distance_along_it_and_an_angle_from_its_end() {
 #[test]
 fn the_angle_of_a_spline_chamfer_follows_a_changed_value() {
     let (mut sketch, line, spline) = line_on_spline(true, SplineKind::OPEN);
+
     let corner = sketch.corner_between(spline, line).unwrap();
     let size = ChamferSize::DistanceAndAngle {
         distance: dimensioned(3.0),
         angle: degrees(3.0),
     };
+
     let cut = sketch.chamfer(&corner, &size).unwrap();
     let (id, angle) = sketch
         .constraints()
@@ -1664,15 +1895,18 @@ fn the_angle_of_a_spline_chamfer_follows_a_changed_value() {
     sketch
         .set_dimension(id, Expression::Measure(2.0, Unit::Degree))
         .unwrap();
+
     let solved = solve(&sketch);
 
     assert_clean(&solved);
+
     let moved = Constraint::Angle {
         from,
         to,
         reversed,
         value: Expression::Measure(2.0, Unit::Degree),
     };
+
     assert!(
         solved
             .geometry
@@ -1685,6 +1919,7 @@ fn the_angle_of_a_spline_chamfer_follows_a_changed_value() {
 #[test]
 fn a_corner_of_two_splines_is_rounded_tangent_to_both() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_spline(&bowed());
     let mirrored: Vec<Point2> = bowed()
         .iter()
@@ -1693,14 +1928,17 @@ fn a_corner_of_two_splines_is_rounded_tangent_to_both() {
     let second = sketch.add_spline(&mirrored);
     let (corner, _) = sketch.entity(first).and_then(Entity::spline_ends).unwrap();
     let (other, _) = sketch.entity(second).and_then(Entity::spline_ends).unwrap();
+
     sketch
         .add_constraint(Constraint::Coincident(corner, other))
         .unwrap();
+
     let found = sketch.corner_between(first, second).unwrap();
 
     let rounding = sketch.fillet(&found, 1.0, mm(1.0)).unwrap();
 
     let fillet = sketch.arc(rounding).unwrap();
+
     for spline in [first, second] {
         assert!((gap_to_spline(&sketch, spline, fillet.center) - 1.0).abs() < 1e-6);
         assert!(has(&sketch, &Constraint::Tangent(spline, rounding)));
@@ -1712,13 +1950,17 @@ fn a_corner_of_two_splines_is_rounded_tangent_to_both() {
 fn the_sharp_of_a_spline_corner_stays_only_while_something_holds_it() {
     let (mut free, line, spline) = line_on_spline(true, SplineKind::OPEN);
     let (mut held, _, _) = line_on_spline(true, SplineKind::OPEN);
+
     let corner = held.corner_between(spline, line).unwrap();
     let at = held.point(corner.point).unwrap();
+
     let fix = Constraint::Fix {
         point: corner.point,
         at,
     };
+
     held.add_constraint(fix.clone()).unwrap();
+
     let loose = free.corner_between(spline, line).unwrap();
 
     held.fillet(&corner, 1.0, mm(1.0)).unwrap();
@@ -1728,6 +1970,7 @@ fn the_sharp_of_a_spline_corner_stays_only_while_something_holds_it() {
     assert!(has(&held, &Constraint::Coincident(corner.point, line)));
     assert!(!has(&held, &Constraint::Coincident(corner.point, spline)));
     assert!(free.point(loose.point).is_none());
+
     assert_clean(&solve(&held));
 }
 
@@ -1749,6 +1992,7 @@ fn assert_on_old_curve(whole: &crate::curve::BSpline, sketch: &Sketch, spline: E
     for index in 0..=32 {
         let point = kept.point_at(index as f64 / 32.0 * to);
         let off = crate::intersect::closest_spline_parameter(whole, point);
+
         assert!(whole.point_at(off).distance(point) < 1e-6);
     }
 }
@@ -1757,6 +2001,7 @@ fn assert_on_old_curve(whole: &crate::curve::BSpline, sketch: &Sketch, spline: E
 fn a_spline_stopping_short_of_a_line_is_carried_on_along_its_curve_to_it() {
     for (kind, exact) in [(SplineKind::OPEN, true), (SplineKind::fit(false), false)] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline_of(&gentle(), kind);
         let line = upright_at(&mut sketch, 20.0);
         let whole = sketch.spline(spline).unwrap();
@@ -1767,12 +2012,18 @@ fn a_spline_stopping_short_of_a_line_is_carried_on_along_its_curve_to_it() {
             .unwrap();
 
         let carried = sketch.spline(spline).unwrap();
+
         assert_near(corner.position, carried.point_at(1.0));
+
         assert!((corner.position.x - 20.0).abs() < 1e-6);
+
         assert_near(carried.point_at(0.0), Point2::ZERO);
+
         let (start, end) = sketch.line_endpoints(line).unwrap();
+
         assert_near(start, corner.position);
         assert_near(end, Point2::new(20.0, 40.0));
+
         let passes: Vec<Point2> = if exact {
             (0..=32)
                 .map(|index| whole.point_at(index as f64 / 32.0))
@@ -1780,12 +2031,17 @@ fn a_spline_stopping_short_of_a_line_is_carried_on_along_its_curve_to_it() {
         } else {
             gentle().to_vec()
         };
+
         for point in passes {
             let off = crate::intersect::closest_spline_parameter(&carried, point);
+
             assert!(carried.point_at(off).distance(point) < 1e-6);
         }
+
         let solved = solve(&sketch);
+
         assert_clean(&solved);
+
         assert!(
             solved
                 .geometry
@@ -1795,7 +2051,9 @@ fn a_spline_stopping_short_of_a_line_is_carried_on_along_its_curve_to_it() {
                 .distance(corner.position)
                 < 1e-6
         );
+
         let old_end_kept_as_fit_point = if exact { 0 } else { 2 };
+
         assert_eq!(
             solved.solution.degrees_of_freedom(),
             dof_before - 2 + old_end_kept_as_fit_point
@@ -1807,6 +2065,7 @@ fn a_spline_stopping_short_of_a_line_is_carried_on_along_its_curve_to_it() {
 fn a_spline_crossing_a_line_is_cut_at_the_crossing_keeping_the_side_picked() {
     for (near, kept_start) in [(2.0, true), (11.0, false)] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline(&gentle());
         let line = upright_at(&mut sketch, 8.0);
         let whole = sketch.spline(spline).unwrap();
@@ -1816,12 +2075,15 @@ fn a_spline_crossing_a_line_is_cut_at_the_crossing_keeping_the_side_picked() {
             .unwrap();
 
         let cut = sketch.spline(spline).unwrap();
+
         assert!((corner.position.x - 8.0).abs() < 1e-6);
+
         let (kept, dropped) = if kept_start {
             (cut.point_at(0.0), cut.point_at(1.0))
         } else {
             (cut.point_at(1.0), cut.point_at(0.0))
         };
+
         assert_near(
             kept,
             if kept_start {
@@ -1839,6 +2101,7 @@ fn a_spline_crossing_a_line_is_cut_at_the_crossing_keeping_the_side_picked() {
 #[test]
 fn two_splines_that_would_meet_only_when_extended_are_joined_and_rounded() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_spline(&gentle());
     let mirrored: Vec<Point2> = gentle()
         .iter()
@@ -1851,8 +2114,10 @@ fn two_splines_that_would_meet_only_when_extended_are_joined_and_rounded() {
         .unwrap();
 
     assert!((corner.position.x - 15.0).abs() < 1e-6);
+
     for spline in [first, second] {
         let ends = sketch.entity(spline).and_then(Entity::spline_ends).unwrap();
+
         assert!(ends.0 == corner.point || ends.1 == corner.point);
         assert!(sketch.spline(spline).unwrap().length() > 12.0);
     }
@@ -1861,6 +2126,7 @@ fn two_splines_that_would_meet_only_when_extended_are_joined_and_rounded() {
     let rounding = sketch.fillet(&corner, 2.0, mm(2.0)).unwrap();
 
     let fillet = sketch.arc(rounding).unwrap();
+
     for spline in [first, second] {
         assert!((gap_to_spline(&sketch, spline, fillet.center) - 2.0).abs() < 1e-6);
         assert!(has(&sketch, &Constraint::Tangent(spline, rounding)));
@@ -1871,6 +2137,7 @@ fn two_splines_that_would_meet_only_when_extended_are_joined_and_rounded() {
 #[test]
 fn a_spline_joined_to_a_whole_circle_or_a_closed_spline_is_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let open = sketch.add_spline(&gentle());
     let circle = sketch.add_circle(Point2::new(30.0, 10.0), 4.0);
     let closed = sketch.add_spline_of(

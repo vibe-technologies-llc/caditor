@@ -6,7 +6,7 @@ const SCALE_LIMIT: f64 = 1e6;
 const AXIS_TOLERANCE: f64 = 1e-9;
 const MIRROR: DMat3 = DMat3::from_diagonal(Vector3::new(1.0, 1.0, -1.0));
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Similarity {
     rotation: Rotation3,
     mirrored: bool,
@@ -24,9 +24,11 @@ impl Similarity {
 
     pub fn reflection(plane: &Plane) -> Option<Self> {
         let normal = plane.normal().try_normalize()?;
+
         if !plane.origin().is_finite() {
             return None;
         }
+
         let linear = DMat3::IDENTITY - 2.0 * outer(normal, normal);
         Some(Self::from_linear(
             linear,
@@ -172,6 +174,7 @@ mod tests {
         let plane = tilted_plane();
         let mirror = Similarity::reflection(&plane).unwrap();
         let on_plane = plane.to_world(crate::Point2::new(4.0, -7.0));
+
         let off_plane = on_plane + plane.normal() * 2.5;
 
         assert!(mirror.is_mirrored());
@@ -243,6 +246,7 @@ mod tests {
         );
         let scaling = Similarity::scaling(Point3::new(0.0, 1.0, 2.0), 0.4).unwrap();
         let point = Point3::new(0.3, -2.0, 5.0);
+
         let composed = mirror.then(&turn).then(&scaling);
         let stepwise = scaling.apply_point(turn.apply_point(mirror.apply_point(point)));
 

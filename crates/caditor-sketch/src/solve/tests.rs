@@ -83,6 +83,7 @@ struct Rectangle {
 fn rectangle(corners: [Point2; 4]) -> Rectangle {
     let mut sketch = Sketch::new(Plane::XY);
     let [a, b, c, d] = corners;
+
     let lines = [
         sketch.add_line(a, b),
         sketch.add_line(b, c),
@@ -90,13 +91,16 @@ fn rectangle(corners: [Point2; 4]) -> Rectangle {
         sketch.add_line(d, a),
     ];
     let ends: Vec<(EntityId, EntityId)> = lines.iter().map(|line| ends(&sketch, *line)).collect();
+
     for index in 0..4 {
         add(
             &mut sketch,
             Constraint::Coincident(ends[index].1, ends[(index + 1) % 4].0),
         );
     }
+
     let [bottom, right, top, left] = lines;
+
     add(&mut sketch, Constraint::Horizontal(bottom));
     add(&mut sketch, Constraint::Vertical(right));
     add(&mut sketch, Constraint::Horizontal(top));
@@ -149,19 +153,24 @@ fn a_rectangle_solves_exactly_and_is_fully_constrained() {
         Point2::new(40.0, 20.0),
         Point2::new(0.0, 20.0),
     ];
+
     for (corner, expected) in corners.iter().zip(expected) {
         assert_near(at(&solved, *corner), expected);
     }
+
     let solution = &solved.solution;
+
     assert_eq!(solution.degrees_of_freedom(), 0);
     assert!(solution.is_fully_constrained());
     assert!(solution.redundancies().is_empty());
+
     for (entity, _) in sketch.entities() {
         assert_eq!(
             solution.entity_state(entity),
             Some(EntityState::FullyConstrained)
         );
     }
+
     assert_eq!(
         solution.entity_state(EntityId::ORIGIN),
         Some(EntityState::FullyConstrained)
@@ -186,13 +195,18 @@ fn geometry_that_already_satisfies_its_constraints_does_not_move() {
         Point2::new(40.0, 20.0),
         Point2::new(0.0, 20.0),
     ]);
+
     assert_eq!(solve(&exact.sketch).unwrap().geometry, exact.sketch);
 
     let mut loose = Sketch::new(Plane::XY);
+
     let line = loose.add_line(Point2::new(3.25, 7.5), Point2::new(9.125, 7.5));
+
     add(&mut loose, Constraint::Horizontal(line));
     loose.add_circle(Point2::new(-4.0, 1.0), 2.5);
+
     let solved = solve(&loose).unwrap();
+
     assert_eq!(solved.geometry, loose);
     assert_eq!(solved.solution.degrees_of_freedom(), 3 + 3);
 }
@@ -200,18 +214,24 @@ fn geometry_that_already_satisfies_its_constraints_does_not_move() {
 #[test]
 fn degrees_of_freedom_count_what_is_left_to_fix() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 1.0));
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(solved.solution.degrees_of_freedom(), 4);
     assert_eq!(
         solved.solution.entity_state(line),
         Some(EntityState::UnderConstrained)
     );
+
     add(&mut sketch, Constraint::Horizontal(line));
+
     assert_eq!(solve(&sketch).unwrap().solution.degrees_of_freedom(), 3);
 
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(3.0, 4.0), 5.0);
+
     add(
         &mut sketch,
         Constraint::Radius {
@@ -219,18 +239,24 @@ fn degrees_of_freedom_count_what_is_left_to_fix() {
             value: mm(6.0),
         },
     );
+
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
     assert_eq!(
         solved.solution.entity_state(circle),
         Some(EntityState::UnderConstrained)
     );
+
     let middle = center(&sketch, circle);
+
     add(
         &mut sketch,
         Constraint::Coincident(middle, EntityId::ORIGIN),
     );
+
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
     assert_eq!(
         solved.solution.entity_state(circle),
@@ -239,18 +265,25 @@ fn degrees_of_freedom_count_what_is_left_to_fix() {
     assert_eq!(solved.geometry.circle(circle), Some((Point2::ZERO, 6.0)));
 
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_arc(Point2::ZERO, Point2::new(5.0, 0.0), Point2::new(0.0, 4.0));
+
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(solved.solution.degrees_of_freedom(), 5);
 }
 
 #[test]
 fn a_fixed_point_on_a_free_line_is_fully_constrained_while_the_line_is_not() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(10.0, 2.0));
     let (start, end) = ends(&sketch, line);
+
     add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
+
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
     assert_eq!(
         solved.solution.entity_state(start),
@@ -264,6 +297,7 @@ fn a_fixed_point_on_a_free_line_is_fully_constrained_while_the_line_is_not() {
         solved.solution.entity_state(line),
         Some(EntityState::UnderConstrained)
     );
+
     assert_near(at(&solved, start), Point2::ZERO);
     assert_near(at(&solved, end), Point2::new(10.0, 2.0));
 }
@@ -271,9 +305,12 @@ fn a_fixed_point_on_a_free_line_is_fully_constrained_while_the_line_is_not() {
 #[test]
 fn changing_a_distance_moves_the_geometry_as_little_as_possible() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
     let (start, end) = ends(&sketch, line);
+
     add(&mut sketch, Constraint::Horizontal(line));
+
     let distance = add(
         &mut sketch,
         Constraint::Distance {
@@ -283,26 +320,35 @@ fn changing_a_distance_moves_the_geometry_as_little_as_possible() {
         },
     );
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(solved.geometry, sketch);
 
     sketch.set_dimension(distance, mm(80.0)).unwrap();
+
     let solved = solve(&sketch).unwrap();
+
     assert_near(at(&solved, start), Point2::new(-20.0, 0.0));
     assert_near(at(&solved, end), Point2::new(60.0, 0.0));
+
     assert_eq!(solved.solution.dimension(distance), Some(80.0));
 
     add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
+
     let solved = solve(&sketch).unwrap();
+
     assert_near(at(&solved, start), Point2::ZERO);
     assert_near(at(&solved, end), Point2::new(80.0, 0.0));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
 }
 
 #[test]
 fn a_line_becomes_tangent_to_a_circle_and_an_arc_on_its_own_side() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::ZERO, 5.0);
     let middle = center(&sketch, circle);
+
     add(
         &mut sketch,
         Constraint::Coincident(middle, EntityId::ORIGIN),
@@ -314,10 +360,14 @@ fn a_line_becomes_tangent_to_a_circle_and_an_arc_on_its_own_side() {
             value: mm(5.0),
         },
     );
+
     let above = sketch.add_line(Point2::new(-10.0, 5.5), Point2::new(10.0, 5.2));
+
     add(&mut sketch, Constraint::Horizontal(above));
     add(&mut sketch, Constraint::Tangent(above, circle));
+
     let below = sketch.add_line(Point2::new(-10.0, -4.0), Point2::new(10.0, -4.5));
+
     add(
         &mut sketch,
         Constraint::Parallel(below, EntityId::HORIZONTAL_AXIS),
@@ -326,25 +376,34 @@ fn a_line_becomes_tangent_to_a_circle_and_an_arc_on_its_own_side() {
 
     let solved = solve(&sketch).unwrap();
     let (start, end) = ends(&sketch, above);
+
     assert!((at(&solved, start).y - 5.0).abs() < EXACT);
     assert!((at(&solved, end).y - 5.0).abs() < EXACT);
+
     let (start, end) = ends(&sketch, below);
+
     assert!((at(&solved, start).y + 5.0).abs() < EXACT);
     assert!((at(&solved, end).y + 5.0).abs() < EXACT);
 
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_arc(Point2::ZERO, Point2::new(4.0, 0.0), Point2::new(0.0, 4.5));
     let side = sketch.add_line(Point2::new(4.6, -3.0), Point2::new(4.2, 3.0));
+
     add(&mut sketch, Constraint::Vertical(side));
     add(&mut sketch, Constraint::Tangent(side, arc));
+
     let solved = solve(&sketch).unwrap();
     let (middle, radius) = solved.geometry.circle(arc).unwrap();
     let arc_end = match sketch.entity(arc) {
         Some(Entity::Arc { end, .. }) => *end,
         _ => panic!("expected an arc"),
     };
+
     assert!((at(&solved, arc_end).distance(middle) - radius).abs() < EXACT);
+
     let (start, end) = ends(&sketch, side);
+
     assert!((at(&solved, start).x - middle.x - radius).abs() < EXACT);
     assert!((at(&solved, end).x - middle.x - radius).abs() < EXACT);
 }
@@ -352,29 +411,38 @@ fn a_line_becomes_tangent_to_a_circle_and_an_arc_on_its_own_side() {
 #[test]
 fn circles_touch_from_outside_or_inside_as_drawn() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let big = sketch.add_circle(Point2::ZERO, 10.0);
     let outside = sketch.add_circle(Point2::new(14.0, 1.0), 3.0);
     let inside = sketch.add_circle(Point2::new(5.0, 0.0), 4.0);
+
     add(&mut sketch, Constraint::Tangent(big, outside));
     add(&mut sketch, Constraint::Tangent(inside, big));
+
     let solved = solve(&sketch).unwrap();
     let circle = |id| solved.geometry.circle(id).unwrap();
     let ((big_center, big_radius), (outer_center, outer_radius)) = (circle(big), circle(outside));
+
     assert!((big_center.distance(outer_center) - (big_radius + outer_radius)).abs() < EXACT);
+
     let (inner_center, inner_radius) = circle(inside);
+
     assert!((big_center.distance(inner_center) - (big_radius - inner_radius)).abs() < EXACT);
 }
 
 #[test]
 fn an_angle_turns_the_second_line_counter_clockwise_from_the_first() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let base = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let (base_start, _) = ends(&sketch, base);
+
     add(&mut sketch, Constraint::Horizontal(base));
     add(
         &mut sketch,
         Constraint::Coincident(base_start, EntityId::ORIGIN),
     );
+
     let slope = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(9.0, 3.0));
     let angle = add(
         &mut sketch,
@@ -388,18 +456,22 @@ fn an_angle_turns_the_second_line_counter_clockwise_from_the_first() {
 
     let solved = solve(&sketch).unwrap();
     let direction = solved.geometry.line_direction(slope).unwrap();
+
     assert!((direction.y.atan2(direction.x).to_degrees() - 30.0).abs() < 1e-7);
     assert_eq!(solved.solution.dimension(angle), Some(30.0));
 
     sketch.set_dimension(angle, degrees(-100.0)).unwrap();
+
     let solved = solve(&sketch).unwrap();
     let direction = solved.geometry.line_direction(slope).unwrap();
+
     assert!((direction.y.atan2(direction.x).to_degrees() + 100.0).abs() < 1e-7);
 }
 
 #[test]
 fn equal_lines_and_radii_match() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let short = sketch.add_line(Point2::ZERO, Point2::new(3.0, 0.0));
     let long = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(8.0, 6.0));
     let small = sketch.add_circle(Point2::new(20.0, 0.0), 1.0);
@@ -408,19 +480,26 @@ fn equal_lines_and_radii_match() {
         Point2::new(33.0, 0.0),
         Point2::new(30.0, 3.0),
     );
+
     add(&mut sketch, Constraint::Equal(short, long));
     add(&mut sketch, Constraint::Equal(arc, small));
+
     let solved = solve(&sketch).unwrap();
     let length = |line| solved.geometry.line_direction(line).unwrap().length();
+
     assert!((length(short) - length(long)).abs() < EXACT);
+
     let radius = |curve| solved.geometry.circle(curve).unwrap().1;
+
     assert!((radius(small) - radius(arc)).abs() < EXACT);
 }
 
 #[test]
 fn distances_to_lines_and_points_on_curves_hold() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::new(2.0, 3.0));
+
     add(
         &mut sketch,
         Constraint::Distance {
@@ -433,22 +512,30 @@ fn distances_to_lines_and_points_on_curves_hold() {
         &mut sketch,
         Constraint::Coincident(EntityId::VERTICAL_AXIS, point),
     );
+
     let circle = sketch.add_circle(Point2::new(20.0, 0.0), 4.0);
     let on_circle = sketch.add_point(Point2::new(25.0, 1.0));
+
     add(&mut sketch, Constraint::Coincident(on_circle, circle));
+
     let solved = solve(&sketch).unwrap();
+
     assert_near(at(&solved, point), Point2::new(0.0, 7.0));
+
     let (middle, radius) = solved.geometry.circle(circle).unwrap();
+
     assert!((at(&solved, on_circle).distance(middle) - radius).abs() < EXACT);
 }
 
 #[test]
 fn contradicting_directions_and_length_are_named_as_one_conflict() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let (start, end) = ends(&sketch, line);
     let horizontal = add(&mut sketch, Constraint::Horizontal(line));
     let vertical = add(&mut sketch, Constraint::Vertical(line));
+
     let distance = add(
         &mut sketch,
         Constraint::Distance {
@@ -458,6 +545,7 @@ fn contradicting_directions_and_length_are_named_as_one_conflict() {
         },
     );
     let unrelated = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(3.0, 9.0));
+
     add(&mut sketch, Constraint::Horizontal(unrelated));
 
     assert_eq!(
@@ -466,14 +554,18 @@ fn contradicting_directions_and_length_are_named_as_one_conflict() {
             constraints: vec![horizontal, vertical]
         })
     );
+
     sketch.remove_constraint(vertical).unwrap();
+
     assert!(solve(&sketch).is_ok());
+
     let _ = distance;
 }
 
 #[test]
 fn every_conflicting_part_is_reported_not_only_the_newest() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let first_level = add(&mut sketch, Constraint::Horizontal(first));
     let first_upright = add(&mut sketch, Constraint::Vertical(first));
@@ -501,6 +593,7 @@ fn every_conflicting_part_is_reported_not_only_the_newest() {
 
     sketch.remove_constraint(third_upright).unwrap();
     sketch.remove_constraint(second_upright).unwrap();
+
     assert_eq!(
         solve(&sketch),
         Err(SketchError::Conflict {
@@ -512,10 +605,13 @@ fn every_conflicting_part_is_reported_not_only_the_newest() {
 #[test]
 fn two_different_distances_between_the_same_points_conflict() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
     let (start, end) = ends(&sketch, line);
+
     add(&mut sketch, Constraint::Horizontal(line));
     add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
+
     let first = add(
         &mut sketch,
         Constraint::Distance {
@@ -532,6 +628,7 @@ fn two_different_distances_between_the_same_points_conflict() {
             value: mm(80.0),
         },
     );
+
     assert_eq!(
         solve(&sketch),
         Err(SketchError::Conflict {
@@ -543,10 +640,12 @@ fn two_different_distances_between_the_same_points_conflict() {
 #[test]
 fn repeated_constraints_are_redundant_with_what_they_repeat() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first_line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let second_line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(10.0, 10.0));
     let (_, corner) = ends(&sketch, first_line);
     let (other_corner, _) = ends(&sketch, second_line);
+
     let original = add(&mut sketch, Constraint::Coincident(corner, other_corner));
     let horizontal = add(&mut sketch, Constraint::Horizontal(first_line));
     let repeated = add(&mut sketch, Constraint::Coincident(other_corner, corner));
@@ -556,6 +655,7 @@ fn repeated_constraints_are_redundant_with_what_they_repeat() {
     );
 
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(
         solved.solution.redundancies(),
         [
@@ -576,8 +676,10 @@ fn repeated_constraints_are_redundant_with_what_they_repeat() {
 #[test]
 fn degenerate_geometry_never_produces_nan() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let collapsed = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(1.0, 1.0));
     let tilted = sketch.add_line(Point2::ZERO, Point2::new(3.0, 4.0));
+
     add(&mut sketch, Constraint::Parallel(collapsed, tilted));
     add(&mut sketch, Constraint::Perpendicular(tilted, collapsed));
     add(
@@ -589,16 +691,22 @@ fn degenerate_geometry_never_produces_nan() {
             value: degrees(45.0),
         },
     );
+
     let outer = sketch.add_circle(Point2::new(20.0, 20.0), 5.0);
     let inner = sketch.add_circle(Point2::new(20.0, 20.0), 3.0);
+
     add(&mut sketch, Constraint::Tangent(outer, inner));
+
     let arc = sketch.add_arc(
         Point2::new(-5.0, -5.0),
         Point2::new(-5.0, -5.0),
         Point2::new(-5.0, -5.0),
     );
+
     add(&mut sketch, Constraint::Tangent(arc, tilted));
+
     let (a, b) = ends(&sketch, tilted);
+
     add(
         &mut sketch,
         Constraint::Distance {
@@ -607,7 +715,9 @@ fn degenerate_geometry_never_produces_nan() {
             value: mm(0.0),
         },
     );
+
     let point = sketch.add_point(Point2::new(-5.0, -5.0));
+
     add(&mut sketch, Constraint::Coincident(point, arc));
     add(
         &mut sketch,
@@ -632,23 +742,33 @@ fn degenerate_geometry_never_produces_nan() {
     }
 
     let mut concentric = Sketch::new(Plane::XY);
+
     let outer = concentric.add_circle(Point2::ZERO, 5.0);
     let inner = concentric.add_circle(Point2::ZERO, 3.0);
+
     let centers = (center(&concentric, outer), center(&concentric, inner));
+
     add(
         &mut concentric,
         Constraint::Coincident(centers.0, centers.1),
     );
     add(&mut concentric, Constraint::Tangent(outer, inner));
+
     let solved = solve(&concentric).unwrap();
+
     assert_finite(&solved);
+
     let radius = |curve| solved.geometry.circle(curve).unwrap().1;
+
     assert!((radius(outer) - radius(inner)).abs() < EXACT);
 
     let mut zero = Sketch::new(Plane::XY);
+
     let line = zero.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
     let (start, end) = ends(&zero, line);
+
     add(&mut zero, Constraint::Horizontal(line));
+
     let collapse = add(
         &mut zero,
         Constraint::Distance {
@@ -657,6 +777,7 @@ fn degenerate_geometry_never_produces_nan() {
             value: mm(0.0),
         },
     );
+
     assert_eq!(
         solve(&zero),
         Err(SketchError::Conflict {
@@ -668,8 +789,10 @@ fn degenerate_geometry_never_produces_nan() {
 #[test]
 fn a_cancelled_solve_reports_that_it_was_cancelled() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 3.0));
     let (start, end) = ends(&sketch, line);
+
     add(&mut sketch, Constraint::Horizontal(line));
     add(
         &mut sketch,
@@ -679,11 +802,13 @@ fn a_cancelled_solve_reports_that_it_was_cancelled() {
             value: mm(20.0),
         },
     );
+
     let checks = Cell::new(0);
     let cancel_on_second_check = || {
         checks.set(checks.get() + 1);
         checks.get() > 1
     };
+
     assert_eq!(
         sketch.solve(&no_parameters, &cancel_on_second_check),
         Err(SketchError::Cancelled)
@@ -697,6 +822,7 @@ fn a_cancelled_solve_reports_that_it_was_cancelled() {
 #[test]
 fn dimension_errors_come_before_solving() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::ZERO, 1.0);
     let radius = add(
         &mut sketch,
@@ -708,14 +834,17 @@ fn dimension_errors_come_before_solving() {
     let error = sketch
         .solve(&|_: ParameterId| Ok(Quantity::length(-2.0)), &|| false)
         .unwrap_err();
+
     assert!(matches!(error, SketchError::Dimension { constraint, .. } if constraint == radius));
 }
 
 #[test]
 fn a_zero_distance_between_separate_points_joins_them_with_full_rank() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_point(Point2::new(1.0, 2.0));
     let second = sketch.add_point(Point2::new(4.0, 6.0));
+
     add(
         &mut sketch,
         Constraint::Distance {
@@ -724,8 +853,11 @@ fn a_zero_distance_between_separate_points_joins_them_with_full_rank() {
             value: mm(0.0),
         },
     );
+
     let solved = solve(&sketch).unwrap();
+
     assert_near(at(&solved, first), at(&solved, second));
+
     assert_eq!(solved.solution.degrees_of_freedom(), 2);
     assert!(solved.solution.redundancies().is_empty());
 }
@@ -733,20 +865,25 @@ fn a_zero_distance_between_separate_points_joins_them_with_full_rank() {
 #[test]
 fn horizontal_on_a_nearly_vertical_line_is_a_conflict_not_a_collapse() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(0.001, 10.0));
     let (start, _) = ends(&sketch, line);
+
     add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
     add(&mut sketch, Constraint::Vertical(line));
+
     let horizontal = add(&mut sketch, Constraint::Horizontal(line));
     let Err(SketchError::Conflict { constraints }) = solve(&sketch) else {
         panic!("the line would collapse");
     };
+
     assert!(constraints.contains(&horizontal), "{constraints:?}");
 }
 
 #[test]
 fn a_tangent_at_a_line_arc_joint_adds_one_degree_of_constraint() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(-10.0, 5.0), Point2::new(0.0, 5.0));
     let arc = sketch.add_arc(
         Point2::new(0.2, 0.1),
@@ -760,29 +897,40 @@ fn a_tangent_at_a_line_arc_joint_adds_one_degree_of_constraint() {
     else {
         panic!("expected an arc");
     };
+
     add(&mut sketch, Constraint::Coincident(line_end, arc_start));
+
     let before = solve(&sketch).unwrap().solution.degrees_of_freedom();
     let tangent = add(&mut sketch, Constraint::Tangent(line, arc));
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(solved.solution.degrees_of_freedom(), before - 1);
     assert!(solved.solution.redundancy(tangent).is_none());
+
     let (start, end) = solved.geometry.line_endpoints(line).unwrap();
     let center = solved.geometry.arc(arc).unwrap().center;
+
     let direction = (end - start).normalize();
+
     assert!(direction.dot((center - end).normalize()).abs() < 1e-9);
 }
 
 #[test]
 fn internal_tangency_follows_whichever_circle_becomes_larger() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let outer = sketch.add_circle(Point2::ZERO, 5.0);
     let inner = sketch.add_circle(Point2::new(2.0, 0.0), 3.0);
+
     add(&mut sketch, Constraint::Tangent(outer, inner));
+
     let outer_center = center(&sketch, outer);
+
     add(
         &mut sketch,
         Constraint::Coincident(outer_center, EntityId::ORIGIN),
     );
+
     let outer_radius = add(
         &mut sketch,
         Constraint::Radius {
@@ -790,6 +938,7 @@ fn internal_tangency_follows_whichever_circle_becomes_larger() {
             value: mm(5.0),
         },
     );
+
     add(
         &mut sketch,
         Constraint::Radius {
@@ -797,21 +946,27 @@ fn internal_tangency_follows_whichever_circle_becomes_larger() {
             value: mm(3.0),
         },
     );
+
     assert!(solve(&sketch).is_ok());
+
     sketch.set_dimension(outer_radius, mm(1.0)).unwrap();
+
     let solved = solve(&sketch).unwrap();
     let (outer_middle, outer_size) = solved.geometry.circle(outer).unwrap();
     let (inner_middle, inner_size) = solved.geometry.circle(inner).unwrap();
+
     assert!((outer_middle.distance(inner_middle) - (inner_size - outer_size)).abs() < 1e-6);
 }
 
 #[test]
 fn a_reversed_angle_holds_the_corner_between_a_chain_of_lines() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let second = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(6.0, 7.0));
     let (first_start, first_end) = ends(&sketch, first);
     let (second_start, _) = ends(&sketch, second);
+
     add(&mut sketch, Constraint::Coincident(first_end, second_start));
     add(
         &mut sketch,
@@ -827,11 +982,14 @@ fn a_reversed_angle_holds_the_corner_between_a_chain_of_lines() {
             value: degrees(60.0),
         },
     );
+
     let solved = solve(&sketch).unwrap();
     let (corner, far) = solved.geometry.line_endpoints(second).unwrap();
     let (start, _) = solved.geometry.line_endpoints(first).unwrap();
+
     let back = (start - corner).normalize();
     let along = (far - corner).normalize();
+
     assert!((back.angle_to(along).abs().to_degrees() - 60.0).abs() < 1e-6);
 }
 
@@ -839,6 +997,7 @@ fn chain(count: usize) -> (Sketch, Vec<EntityId>) {
     let mut sketch = Sketch::new(Plane::XY);
     let mut lines = Vec::with_capacity(count);
     let mut previous_end = None;
+
     for index in 0..count {
         let x = index as f64;
         let line = sketch.add_line(
@@ -846,6 +1005,7 @@ fn chain(count: usize) -> (Sketch, Vec<EntityId>) {
             Point2::new(x + 1.02, 0.02),
         );
         let (start, end) = ends(&sketch, line);
+
         match previous_end {
             Some(previous) => {
                 add(&mut sketch, Constraint::Coincident(previous, start));
@@ -872,14 +1032,18 @@ fn chain(count: usize) -> (Sketch, Vec<EntityId>) {
 #[test]
 fn a_long_chain_solves_and_analyses_within_its_work_budget() {
     const LONG_CHAIN_WORK: usize = 32_000_000;
+
     let (sketch, lines) = chain(400);
 
     let (solved, work) = super::tally::measure(|| solve(&sketch).unwrap());
 
     assert!(work < LONG_CHAIN_WORK, "{work}");
     assert!(solved.solution.is_fully_constrained());
+
     let (_, end) = solved.geometry.line_endpoints(lines[399]).unwrap();
+
     assert_near(end, Point2::new(400.0, 0.0));
+
     assert!(
         lines
             .iter()
@@ -890,8 +1054,11 @@ fn a_long_chain_solves_and_analyses_within_its_work_budget() {
 #[test]
 fn a_star_of_lines_meeting_at_a_free_point_solves_without_factoring_the_clique_of_its_rows() {
     const STAR_WORK: usize = 1_000_000;
+
     let mut sketch = Sketch::new(Plane::XY);
+
     let hub = sketch.add_point(Point2::new(0.3, -0.2));
+
     for index in 0..300 {
         let angle = index as f64 * 0.1;
         let line = sketch.add_line(
@@ -899,6 +1066,7 @@ fn a_star_of_lines_meeting_at_a_free_point_solves_without_factoring_the_clique_o
             Point2::new(10.0 * angle.cos(), 10.0 * angle.sin()),
         );
         let (start, end) = ends(&sketch, line);
+
         add(&mut sketch, Constraint::Coincident(hub, start));
         add(
             &mut sketch,
@@ -922,6 +1090,7 @@ fn many_rectangles(count: usize) -> Sketch {
 
 fn rectangles_of_width(count: usize, width: &Expression) -> Sketch {
     let mut sketch = Sketch::new(Plane::XY);
+
     for index in 0..count {
         let origin = Point2::new((index % 80) as f64 * 100.0, (index / 80) as f64 * 100.0);
         let corners = [
@@ -931,6 +1100,7 @@ fn rectangles_of_width(count: usize, width: &Expression) -> Sketch {
             origin + Point2::new(0.0, 20.0),
         ];
         let [a, b, c, d] = corners;
+
         let lines = [
             sketch.add_line(a, b),
             sketch.add_line(b, c),
@@ -939,13 +1109,16 @@ fn rectangles_of_width(count: usize, width: &Expression) -> Sketch {
         ];
         let ends: Vec<(EntityId, EntityId)> =
             lines.iter().map(|line| ends(&sketch, *line)).collect();
+
         for next in 0..4 {
             add(
                 &mut sketch,
                 Constraint::Coincident(ends[next].1, ends[(next + 1) % 4].0),
             );
         }
+
         let [bottom, right, top, left] = lines;
+
         add(&mut sketch, Constraint::Horizontal(bottom));
         add(&mut sketch, Constraint::Vertical(right));
         add(&mut sketch, Constraint::Horizontal(top));
@@ -988,7 +1161,9 @@ fn thousands_of_independent_rectangles_solve_in_a_fraction_of_a_second() {
             .unwrap();
 
         let warm = started.elapsed();
+
         println!("{count} rectangles: {cold:?} cold, {warm:?} warm");
+
         assert!(solved.solution.is_fully_constrained());
         assert_eq!(again.memo.recalled(), count);
         assert_eq!(again.solution, solved.solution);
@@ -1007,7 +1182,9 @@ fn thousands_of_rectangles_resized_by_one_parameter_solve_in_a_fraction_of_a_sec
         let solved = sketch.solve(&resized, &|| false).unwrap();
 
         println!("{count} rectangles resized: {:?}", started.elapsed());
+
         assert!(solved.solution.is_fully_constrained());
+
         let (start, end) = sketch
             .entities()
             .find_map(|(_, entity)| match entity {
@@ -1015,11 +1192,13 @@ fn thousands_of_rectangles_resized_by_one_parameter_solve_in_a_fraction_of_a_sec
                 _ => None,
             })
             .unwrap();
+
         let length = solved
             .geometry
             .point(start)
             .unwrap()
             .distance(solved.geometry.point(end).unwrap());
+
         assert!((length - 55.0).abs() < 1e-6, "{length}");
     }
 }
@@ -1027,14 +1206,18 @@ fn thousands_of_rectangles_resized_by_one_parameter_solve_in_a_fraction_of_a_sec
 #[test]
 fn large_parts_report_freedoms_and_redundancies_like_small_ones() {
     let (mut sketch, lines) = chain(15);
+
     let horizontal = sketch
         .constraints()
         .find_map(|(id, constraint)| {
             (*constraint == Constraint::Horizontal(lines[7])).then_some(id)
         })
         .unwrap();
+
     sketch.remove_constraint(horizontal).unwrap();
+
     let solved = solve(&sketch).unwrap();
+
     assert_eq!(solved.solution.degrees_of_freedom(), 1);
     assert_eq!(
         solved.solution.entity_state(lines[3]),
@@ -1046,17 +1229,23 @@ fn large_parts_report_freedoms_and_redundancies_like_small_ones() {
     );
 
     let (mut sketch, lines) = chain(15);
+
     let parallel = add(&mut sketch, Constraint::Parallel(lines[4], lines[5]));
     let solved = solve(&sketch).unwrap();
+
     assert!(solved.solution.is_fully_constrained());
+
     let redundancy = solved.solution.redundancy(parallel).unwrap();
+
     assert!(!redundancy.duplicates.is_empty());
 }
 
 #[test]
 fn a_conflict_at_the_end_of_a_long_chain_is_found_within_its_work_budget() {
     const CONFLICT_WORK: usize = 60_000_000;
+
     let (mut sketch, lines) = chain(120);
+
     let vertical = add(&mut sketch, Constraint::Vertical(lines[119]));
 
     let (result, work) = super::tally::measure(|| solve(&sketch));
@@ -1064,6 +1253,7 @@ fn a_conflict_at_the_end_of_a_long_chain_is_found_within_its_work_budget() {
     let Err(SketchError::Conflict { constraints }) = result else {
         panic!("a line cannot be horizontal and vertical");
     };
+
     assert!(work < CONFLICT_WORK, "{work}");
     assert!(constraints.contains(&vertical));
     assert!(constraints.len() <= 3, "{constraints:?}");
@@ -1078,6 +1268,7 @@ fn drag(sketch: &Sketch, drags: &[crate::Drag]) -> Solved {
 #[test]
 fn a_dragged_point_goes_where_its_constraints_let_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let free = sketch.add_point(Point2::new(1.0, 1.0));
     let solved = drag(
         &sketch,
@@ -1086,10 +1277,12 @@ fn a_dragged_point_goes_where_its_constraints_let_it() {
             to: Point2::new(4.0, -2.0),
         }],
     );
+
     assert_near(at(&solved, free), Point2::new(4.0, -2.0));
 
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let (start, end) = ends(&sketch, line);
+
     add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
     add(
         &mut sketch,
@@ -1099,6 +1292,7 @@ fn a_dragged_point_goes_where_its_constraints_let_it() {
             value: mm(10.0),
         },
     );
+
     let solved = drag(
         &sketch,
         &[crate::Drag::Point {
@@ -1106,6 +1300,7 @@ fn a_dragged_point_goes_where_its_constraints_let_it() {
             to: Point2::new(3.0, 4.0),
         }],
     );
+
     assert_near(at(&solved, start), Point2::ZERO);
     assert_near(at(&solved, end), Point2::new(6.0, 8.0));
 }
@@ -1113,6 +1308,7 @@ fn a_dragged_point_goes_where_its_constraints_let_it() {
 #[test]
 fn a_geometry_only_solve_gives_the_geometry_of_the_full_one_and_never_stands_in_for_its_analysis() {
     let (sketch, lines) = chain(6);
+
     let (_, end) = ends(&sketch, lines[5]);
     let drags = [crate::Drag::Point {
         point: end,
@@ -1125,6 +1321,7 @@ fn a_geometry_only_solve_gives_the_geometry_of_the_full_one_and_never_stands_in_
     let (geometry, memo) = sketch
         .solve_geometry_from(&no_parameters, &|| false, &drags, None)
         .unwrap();
+
     let again = geometry
         .solve_from(&no_parameters, &|| false, &[], Some(&memo))
         .unwrap();
@@ -1141,9 +1338,11 @@ fn a_geometry_only_solve_gives_the_geometry_of_the_full_one_and_never_stands_in_
 #[test]
 fn a_dragged_radius_grows_the_circle_unless_a_dimension_holds_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let free = sketch.add_circle(Point2::new(2.0, 3.0), 4.0);
     let held = sketch.add_circle(Point2::new(20.0, 0.0), 4.0);
     let free_centre = center(&sketch, free);
+
     add(
         &mut sketch,
         Constraint::Coincident(free_centre, EntityId::ORIGIN),
@@ -1172,9 +1371,12 @@ fn a_dragged_radius_grows_the_circle_unless_a_dimension_holds_it() {
 
     let (free_center, free_radius) = solved.geometry.circle(free).unwrap();
     let (held_center, held_radius) = solved.geometry.circle(held).unwrap();
+
     assert_near(free_center, Point2::ZERO);
+
     assert!((free_radius - 7.5).abs() < EXACT, "{free_radius}");
     assert!((held_radius - 4.0).abs() < EXACT, "{held_radius}");
+
     assert_near(held_center, Point2::new(20.0, 0.0));
 }
 
@@ -1187,19 +1389,24 @@ fn dragging_a_corner_of_a_free_rectangle_moves_the_rest_with_it() {
         Point2::new(4.0, 2.0),
         Point2::new(0.0, 2.0),
     ];
+
     let lines: Vec<EntityId> = (0..4)
         .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]))
         .collect();
+
     for index in 0..4 {
         let (_, end) = ends(&sketch, lines[index]);
         let (next_start, _) = ends(&sketch, lines[(index + 1) % 4]);
+
         add(&mut sketch, Constraint::Coincident(end, next_start));
     }
     add(&mut sketch, Constraint::Horizontal(lines[0]));
     add(&mut sketch, Constraint::Vertical(lines[1]));
     add(&mut sketch, Constraint::Horizontal(lines[2]));
     add(&mut sketch, Constraint::Vertical(lines[3]));
+
     let (first, second) = ends(&sketch, lines[0]);
+
     add(
         &mut sketch,
         Constraint::Distance {
@@ -1208,7 +1415,9 @@ fn dragging_a_corner_of_a_free_rectangle_moves_the_rest_with_it() {
             value: mm(4.0),
         },
     );
+
     let (side_start, side_end) = ends(&sketch, lines[1]);
+
     add(
         &mut sketch,
         Constraint::Distance {
@@ -1217,6 +1426,7 @@ fn dragging_a_corner_of_a_free_rectangle_moves_the_rest_with_it() {
             value: mm(2.0),
         },
     );
+
     let solved = drag(
         &sketch,
         &[crate::Drag::Point {
@@ -1224,18 +1434,25 @@ fn dragging_a_corner_of_a_free_rectangle_moves_the_rest_with_it() {
             to: Point2::new(3.0, 2.0),
         }],
     );
+
     assert_near(at(&solved, first), Point2::new(3.0, 2.0));
+
     let (_, far) = solved.geometry.line_endpoints(lines[1]).unwrap();
+
     assert_near(far, Point2::new(7.0, 4.0));
 }
 
 #[test]
 fn a_start_that_needs_perturbing_keeps_the_tangency_it_was_drawn_with() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let base = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
     let (a, b) = ends(&sketch, base);
+
     add(&mut sketch, Constraint::Coincident(a, EntityId::ORIGIN));
+
     let c = sketch.add_point(Point2::new(2.0, 0.0));
+
     for (from, to, length) in [(a, b, 4.0), (b, c, 3.0), (a, c, 5.0)] {
         add(
             &mut sketch,
@@ -1246,21 +1463,27 @@ fn a_start_that_needs_perturbing_keeps_the_tangency_it_was_drawn_with() {
             },
         );
     }
+
     let first = sketch.add_circle(Point2::new(4.0, 0.0), 1.0);
     let second = sketch.add_circle(Point2::new(2.0, 0.0), 1.0);
     let first_center = center(&sketch, first);
     let second_center = center(&sketch, second);
+
     add(&mut sketch, Constraint::Coincident(first_center, b));
     add(&mut sketch, Constraint::Coincident(second_center, c));
     add(&mut sketch, Constraint::Tangent(first, second));
 
     let solved = solve(&sketch).unwrap();
+
     assert_finite(&solved);
+
     assert!((at(&solved, a).distance(at(&solved, b)) - 4.0).abs() < EXACT);
     assert!((at(&solved, b).distance(at(&solved, c)) - 3.0).abs() < EXACT);
     assert!((at(&solved, a).distance(at(&solved, c)) - 5.0).abs() < EXACT);
+
     let (_, first_radius) = solved.geometry.circle(first).unwrap();
     let (_, second_radius) = solved.geometry.circle(second).unwrap();
+
     assert!((first_radius + second_radius - 3.0).abs() < EXACT);
 }
 
@@ -1273,6 +1496,7 @@ fn an_edit_reanalyses_only_the_parts_it_touches() {
         Point2::new(0.0, 20.0),
     ]);
     let mut sketch = first.sketch;
+
     let circle = sketch.add_circle(Point2::new(80.0, 10.0), 4.0);
     let radius = add(
         &mut sketch,
@@ -1282,15 +1506,20 @@ fn an_edit_reanalyses_only_the_parts_it_touches() {
         },
     );
     let line = sketch.add_line(Point2::new(60.0, 30.0), Point2::new(70.0, 31.0));
+
     add(&mut sketch, Constraint::Horizontal(line));
 
     let fresh = solve(&sketch).unwrap();
+
     assert_eq!(fresh.memo.remembered(), 4);
     assert_eq!(fresh.memo.recalled(), 0);
+
     let mut settled = fresh.geometry.clone();
+
     let again = settled
         .solve_from(&no_parameters, &|| false, &[], Some(&fresh.memo))
         .unwrap();
+
     assert_eq!(again.memo.recalled(), 3);
     assert_eq!(again.solution, fresh.solution);
     assert_eq!(again.geometry, fresh.geometry);
@@ -1298,10 +1527,12 @@ fn an_edit_reanalyses_only_the_parts_it_touches() {
     settled
         .set_dimension(radius, mm(6.0))
         .expect("the radius takes a new value");
+
     let edited = settled
         .solve_from(&no_parameters, &|| false, &[], Some(&again.memo))
         .unwrap();
     let from_scratch = solve(&settled).unwrap();
+
     assert_eq!(edited.memo.recalled(), 2);
     assert_eq!(edited.solution, from_scratch.solution);
     assert_eq!(edited.geometry, from_scratch.geometry);
@@ -1328,7 +1559,9 @@ fn growing_the_outermost_part_keeps_every_other_part_remembered() {
         })
         .unwrap();
     let line = settled.add_line(Point2::new(5.0, 30.0), Point2::new(15.0, 31.0));
+
     let (start, end) = ends(&settled, line);
+
     add(&mut settled, Constraint::Horizontal(line));
     add(
         &mut settled,
@@ -1340,13 +1573,17 @@ fn growing_the_outermost_part_keeps_every_other_part_remembered() {
     );
 
     let fresh = solve(&settled).unwrap();
+
     settled = fresh.geometry.clone();
+
     let again = settled
         .solve_from(&no_parameters, &|| false, &[], Some(&fresh.memo))
         .unwrap();
+
     settled
         .set_dimension(width, mm(60.0))
         .expect("the width takes a new value");
+
     let edited = settled
         .solve_from(&no_parameters, &|| false, &[], Some(&again.memo))
         .unwrap();
@@ -1355,6 +1592,7 @@ fn growing_the_outermost_part_keeps_every_other_part_remembered() {
         point: corners[2],
         to: Point2::new(90.0, 45.0),
     };
+
     let dragged = settled
         .solve_from(&no_parameters, &|| false, &[dragged_to], Some(&edited.memo))
         .unwrap();
@@ -1366,8 +1604,10 @@ fn growing_the_outermost_part_keeps_every_other_part_remembered() {
     assert_eq!(edited.memo.recalled(), 1);
     assert_eq!(edited.solution, from_scratch.solution);
     assert_eq!(edited.geometry, from_scratch.geometry);
+
     assert_near(at(&edited, corners[2]), Point2::new(60.0, 20.0));
     assert_near(at(&edited, end), Point2::new(15.0, 30.5));
+
     assert_eq!(dragged.memo.recalled(), 1);
     assert_eq!(dragged.solution, dragged_from_scratch.solution);
     assert_eq!(dragged.geometry, dragged_from_scratch.geometry);
@@ -1376,13 +1616,18 @@ fn growing_the_outermost_part_keeps_every_other_part_remembered() {
 #[test]
 fn a_line_that_starts_with_no_length_is_named_instead_of_its_constraints() {
     let mut pinned = Sketch::new(Plane::XY);
+
     let line = pinned.add_line(Point2::ZERO, Point2::ZERO);
     let (start, _) = ends(&pinned, line);
+
     pinned
         .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
         .unwrap();
+
     let mut free = Sketch::new(Plane::XY);
+
     let free_line = free.add_line(Point2::new(1.0, 1.0), Point2::new(1.0, 1.0));
+
     free.add_constraint(Constraint::Horizontal(free_line))
         .unwrap();
 
@@ -1415,6 +1660,7 @@ struct ArcsAndLines {
 
 fn arcs_joined_by_tangent_lines() -> ArcsAndLines {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first_line = sketch.add_line(Point2::new(0.2, 0.1), Point2::new(9.8, -0.2));
     let first_arc = sketch.add_arc(
         Point2::new(10.3, 4.6),
@@ -1517,6 +1763,7 @@ fn arcs_follow_tangent_equal_and_angle_constraints_exactly() {
     } = arcs_joined_by_tangent_lines();
     let root_three = 3.0_f64.sqrt();
     let third_end = Point2::new(15.0 - 3.0 * root_three, 15.0);
+
     let second_center = third_end + 5.0 * Point2::new(-0.5, -root_three / 2.0);
     let second_arc_end = second_center + 5.0 * Point2::new(-root_three / 2.0, 0.5);
     let fourth_end = second_arc_end + 3.0 * Point2::new(-0.5, -root_three / 2.0);
@@ -1525,25 +1772,39 @@ fn arcs_follow_tangent_equal_and_angle_constraints_exactly() {
 
     assert!(solved.solution.is_fully_constrained());
     assert!(solved.solution.redundancies().is_empty());
+
     let (first_center, first_radius) = solved.geometry.circle(arcs[0]).unwrap();
     let (second_arc_center, second_radius) = solved.geometry.circle(arcs[1]).unwrap();
     let (circle_center, circle_radius) = solved.geometry.circle(circle).unwrap();
+
     assert_near(first_center, Point2::new(10.0, 5.0));
+
     assert!((first_radius - 5.0).abs() < EXACT);
     assert!((second_radius - 5.0).abs() < EXACT);
     assert!((circle_radius - 5.0).abs() < EXACT);
+
     assert_near(circle_center, Point2::new(20.0, 5.0));
     assert_near(second_arc_center, second_center);
+
     let (_, first_arc_end) = solved.geometry.line_endpoints(lines[1]).unwrap();
+
     assert_near(first_arc_end, Point2::new(15.0, 12.0));
+
     let (_, third) = solved.geometry.line_endpoints(lines[2]).unwrap();
+
     assert_near(third, third_end);
+
     let (fourth_start, fourth) = solved.geometry.line_endpoints(lines[3]).unwrap();
+
     assert_near(fourth_start, second_arc_end);
     assert_near(fourth, fourth_end);
+
     let second_arc = solved.geometry.arc(arcs[1]).unwrap();
+
     assert!((second_arc.sweep.to_degrees() - 90.0).abs() < 1e-6);
+
     let first_arc = solved.geometry.arc(arcs[0]).unwrap();
+
     assert!((first_arc.sweep.to_degrees() - 90.0).abs() < 1e-6);
 }
 
@@ -1558,15 +1819,20 @@ fn two_conflicts_in_one_large_part_are_named_one_at_a_time() {
             })
             .unwrap()
     };
+
     let early_horizontal = horizontal(&sketch, lines[4]);
     let late_horizontal = horizontal(&sketch, lines[15]);
     let early_vertical = add(&mut sketch, Constraint::Vertical(lines[4]));
     let late_vertical = add(&mut sketch, Constraint::Vertical(lines[15]));
 
     let first = solve(&sketch);
+
     sketch.remove_constraint(late_vertical).unwrap();
+
     let second = solve(&sketch);
+
     sketch.remove_constraint(early_vertical).unwrap();
+
     let third = solve(&sketch);
 
     assert_eq!(
@@ -1595,23 +1861,27 @@ fn dense_and_sparse_analyses_agree_on_both_sides_of_the_dense_limit() {
 
     let loosened = |count: usize| {
         let (mut sketch, lines) = chain(count);
+
         let horizontal = sketch
             .constraints()
             .find_map(|(id, constraint)| {
                 (*constraint == Constraint::Horizontal(lines[count / 2])).then_some(id)
             })
             .unwrap();
+
         sketch.remove_constraint(horizontal).unwrap();
         sketch
     };
     let repeated = |count: usize| {
         let (mut sketch, lines) = chain(count);
+
         add(
             &mut sketch,
             Constraint::Parallel(lines[1], lines[count - 2]),
         );
         sketch
     };
+
     let sketches = [
         loosened(DENSE_LIMIT / 4),
         loosened(DENSE_LIMIT / 4 + 1),
@@ -1621,11 +1891,14 @@ fn dense_and_sparse_analyses_agree_on_both_sides_of_the_dense_limit() {
     ];
 
     let mut sizes = BTreeSet::new();
+
     for sketch in sketches {
         let geometry = solve(&sketch).unwrap().geometry;
         let dimensions = geometry.evaluate(&no_parameters).unwrap();
+
         let system = System::build(&geometry, &dimensions).unwrap();
         let stiff = BTreeSet::new();
+
         let solver = Solver {
             system: &system,
             cancelled: &|| false,
@@ -1641,7 +1914,9 @@ fn dense_and_sparse_analyses_agree_on_both_sides_of_the_dense_limit() {
             let sparse = solver
                 .analyze_by(Elimination::Sparse, &component, &system.values)
                 .unwrap();
+
             sizes.insert(component.variables.len());
+
             assert_eq!(dense, sparse, "{} variables", component.variables.len());
         }
     }
@@ -1652,8 +1927,10 @@ fn dense_and_sparse_analyses_agree_on_both_sides_of_the_dense_limit() {
 
 fn chain_closed_out_of_reach(count: usize) -> (Sketch, Vec<EntityId>, ConstraintId) {
     let (mut sketch, lines) = chain(count);
+
     let (first, _) = ends(&sketch, lines[0]);
     let (_, last) = ends(&sketch, lines[count - 1]);
+
     let closing = add(
         &mut sketch,
         Constraint::Distance {
@@ -1702,8 +1979,10 @@ fn a_diagnosis_out_of_work_names_the_part_and_its_newest_constraint() {
 
     let (sketch, lines, closing) = chain_closed_out_of_reach(6);
     let dimensions = sketch.evaluate(&no_parameters).unwrap();
+
     let system = System::build(&sketch, &dimensions).unwrap();
     let stiff = BTreeSet::new();
+
     let solver = Solver {
         system: &system,
         cancelled: &|| false,
@@ -1713,6 +1992,7 @@ fn a_diagnosis_out_of_work_names_the_part_and_its_newest_constraint() {
     };
     let every: Vec<usize> = (0..system.equations.len()).collect();
     let mut values = system.values.clone();
+
     let failed = solver.solve(&every, &mut values).unwrap();
 
     let enough_once_stalled_attempts_stop = 10_000;
@@ -1735,19 +2015,24 @@ fn a_diagnosis_out_of_work_names_the_part_and_its_newest_constraint() {
             newest: Some(closing),
         }
     );
+
     let SketchError::Conflict { constraints } = funded else {
         panic!("with enough work the conflict is found, not {funded:?}");
     };
+
     assert_eq!(constraints.len(), 6 + 5 + 1);
     assert_eq!(constraints.last(), Some(&closing));
 }
 
 fn measured_line() -> (Sketch, EntityId, EntityId, EntityId, ConstraintId) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
     let (start, end) = ends(&sketch, line);
+
     add(&mut sketch, Constraint::Horizontal(line));
     add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
+
     let distance = add(
         &mut sketch,
         Constraint::Distance {
@@ -1762,11 +2047,15 @@ fn measured_line() -> (Sketch, EntityId, EntityId, EntityId, ConstraintId) {
 #[test]
 fn an_inactive_dimension_no_longer_moves_the_geometry_and_active_again_it_does() {
     let (mut sketch, _, _, end, distance) = measured_line();
+
     sketch.set_dimension(distance, mm(80.0)).unwrap();
 
     assert_eq!(sketch.set_active(distance, false), Ok(true));
+
     let loose = solve(&sketch).unwrap();
+
     assert_near(at(&loose, end), Point2::new(40.0, 0.0));
+
     assert_eq!(loose.solution.dimension(distance), None);
     assert_eq!(
         loose
@@ -1776,13 +2065,16 @@ fn an_inactive_dimension_no_longer_moves_the_geometry_and_active_again_it_does()
     );
 
     assert_eq!(sketch.set_active(distance, true), Ok(false));
+
     let held = solve(&sketch).unwrap();
+
     assert_near(at(&held, end), Point2::new(80.0, 0.0));
 }
 
 #[test]
 fn a_dimension_that_would_over_constrain_can_be_left_inactive_without_a_conflict() {
     let (mut sketch, _, start, end, _) = measured_line();
+
     let again = add(
         &mut sketch,
         Constraint::Distance {
@@ -1793,21 +2085,27 @@ fn a_dimension_that_would_over_constrain_can_be_left_inactive_without_a_conflict
     );
 
     assert!(solve(&sketch).is_err());
+
     sketch.set_active(again, false).unwrap();
+
     let solved = solve(&sketch).unwrap();
 
     assert_near(at(&solved, end), Point2::new(40.0, 0.0));
+
     assert_eq!(solved.solution.redundancy(again), None);
 }
 
 #[test]
 fn constraints_know_whether_they_are_active_and_forget_it_when_removed() {
     let (mut sketch, _, _, _, distance) = measured_line();
+
     assert!(sketch.is_active(distance));
     assert_eq!(sketch.inactive().count(), 0);
 
     sketch.set_active(distance, false).unwrap();
+
     let other = sketch.clone();
+
     assert!(!sketch.is_active(distance));
     assert_eq!(sketch.inactive().collect::<Vec<_>>(), vec![distance]);
     assert!(!sketch.same_content(&{
@@ -1821,6 +2119,7 @@ fn constraints_know_whether_they_are_active_and_forget_it_when_removed() {
     );
 
     sketch.remove_constraint(distance).unwrap();
+
     assert_eq!(sketch.inactive().count(), 0);
     assert_eq!(
         sketch.set_active(distance, false),
@@ -1831,11 +2130,13 @@ fn constraints_know_whether_they_are_active_and_forget_it_when_removed() {
 #[test]
 fn an_inactive_constraint_neither_restates_nor_contradicts_a_new_one() {
     let (mut sketch, line, _, _, _) = measured_line();
+
     let level = sketch
         .constraints()
         .find(|(_, constraint)| **constraint == Constraint::Horizontal(line))
         .map(|(id, _)| id)
         .unwrap();
+
     assert_eq!(sketch.restating(&Constraint::Horizontal(line)), Some(level));
 
     sketch.set_active(level, false).unwrap();
@@ -1843,7 +2144,7 @@ fn an_inactive_constraint_neither_restates_nor_contradicts_a_new_one() {
     assert_eq!(sketch.restating(&Constraint::Horizontal(line)), None);
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Dimensioning {
     Joints,
     Lengths,
@@ -1854,6 +2155,7 @@ fn closed_polygon(count: usize, order: [Dimensioning; 3]) -> (Sketch, Vec<Entity
     let step = std::f64::consts::TAU / count as f64;
     let radius = count as f64 / std::f64::consts::TAU * 10.0;
     let first_turn = -std::f64::consts::FRAC_PI_2 - step / 2.0;
+
     let corner = |index: usize| {
         let turn = first_turn + step * index as f64;
         Point2::new(
@@ -1875,6 +2177,7 @@ fn closed_polygon(count: usize, order: [Dimensioning; 3]) -> (Sketch, Vec<Entity
             Dimensioning::Joints => {
                 for (index, (_, end)) in corners.iter().enumerate() {
                     let (next, _) = corners[(index + 1) % count];
+
                     add(&mut sketch, Constraint::Coincident(*end, next));
                 }
                 add(
@@ -1921,7 +2224,9 @@ const ANGLES_FIRST: [Dimensioning; 3] = [
 
 fn offset_closed_polygon(count: usize) -> Sketch {
     let (mut sketch, lines) = closed_polygon(count, ANGLES_FIRST);
+
     let side = sketch.offset_chain(&lines).unwrap().default_side();
+
     sketch.offset(&lines, side, 2.0, mm(2.0)).unwrap();
     sketch
 }
@@ -1931,6 +2236,7 @@ fn a_closed_dimensioned_chain_and_its_offset_analyse_in_near_linear_work() {
     let analysed = |count: usize| {
         let sketch = offset_closed_polygon(count);
         let (solved, work) = super::tally::measure(|| solve(&sketch).unwrap());
+
         assert!(solved.solution.is_fully_constrained());
         assert!(solved.solution.redundancies().is_empty());
         work
@@ -1952,6 +2258,7 @@ fn offsetting_a_closed_dimensioned_chain_solves_in_milliseconds() {
         let solved = solve(&sketch).unwrap();
 
         println!("{count} lines and their offset: {:?}", started.elapsed());
+
         assert!(solved.solution.is_fully_constrained());
     }
 }
@@ -1964,11 +2271,15 @@ fn cancelling_during_the_analysis_stops_the_solve() {
         polls.set(polls.get() + 1);
         false
     };
+
     sketch
         .solve_geometry_from(&no_parameters, &counting, &[], None)
         .unwrap();
+
     let solving = polls.replace(0);
+
     sketch.solve(&no_parameters, &counting).unwrap();
+
     let with_analysis = polls.replace(0);
     let after_solving = || {
         polls.set(polls.get() + 1);
@@ -2010,15 +2321,18 @@ fn closed_chains_report_freedoms_and_redundancies_alike_by_dense_and_sparse_elim
             .filter(|(_, constraint)| constraint.kind_name() == kind)
             .map(|(id, _)| id)
             .collect();
+
         sketch.remove_constraint(loose[loose.len() / 2]).unwrap();
         sketch
     };
     let repeated = |order| {
         let (mut sketch, lines) = closed_polygon(24, order);
+
         add(&mut sketch, Constraint::Equal(lines[3], lines[17]));
         sketch
     };
     let mut sketches = Vec::new();
+
     for order in orders {
         sketches.push(closed_polygon(24, order).0);
         sketches.push(loosened(order, "Distance"));
@@ -2027,11 +2341,14 @@ fn closed_chains_report_freedoms_and_redundancies_alike_by_dense_and_sparse_elim
     }
 
     let mut freedoms = BTreeSet::new();
+
     for sketch in sketches {
         let geometry = solve(&sketch).unwrap().geometry;
         let dimensions = geometry.evaluate(&no_parameters).unwrap();
+
         let system = System::build(&geometry, &dimensions).unwrap();
         let stiff = BTreeSet::new();
+
         let solver = Solver {
             system: &system,
             cancelled: &|| false,
@@ -2047,7 +2364,9 @@ fn closed_chains_report_freedoms_and_redundancies_alike_by_dense_and_sparse_elim
             let sparse = solver
                 .analyze_by(Elimination::Sparse, &component, &system.values)
                 .unwrap();
+
             freedoms.insert(component.variables.len() - sparse.rank);
+
             assert_eq!(dense, sparse, "{} variables", component.variables.len());
         }
     }
@@ -2059,10 +2378,12 @@ fn closed_chains_report_freedoms_and_redundancies_alike_by_dense_and_sparse_elim
 #[test]
 fn an_arm_dragged_past_its_reach_straightens_toward_the_pointer() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let upper = sketch.add_line(Point2::ZERO, Point2::new(9.95, 0.999));
     let lower = sketch.add_line(Point2::new(9.95, 0.999), Point2::new(19.9, 0.0));
     let (shoulder, elbow) = ends(&sketch, upper);
     let (joint, hand) = ends(&sketch, lower);
+
     add(
         &mut sketch,
         Constraint::Coincident(shoulder, EntityId::ORIGIN),
@@ -2111,6 +2432,7 @@ fn tridiagonal(diagonal: f64, beside: f64, width: usize) -> Vec<Row> {
     (0..width)
         .map(|column| {
             let mut row = Vec::new();
+
             if column > 0 {
                 row.push((column - 1, beside));
             }
@@ -2143,6 +2465,7 @@ fn a_sparse_cholesky_factorisation_solves_a_positive_definite_system_and_refuses
             .iter()
             .map(|(column, value)| value * solution[*column])
             .sum();
+
         assert!(
             (product - wanted).abs() < EXACT,
             "{product} is not {wanted}"
@@ -2151,14 +2474,17 @@ fn a_sparse_cholesky_factorisation_solves_a_positive_definite_system_and_refuses
     for (by_shift, direct) in shifted.iter().zip(&solution) {
         assert!((by_shift - direct).abs() < EXACT);
     }
+
     assert!(refused.is_none());
 }
 
 #[test]
 fn a_conflict_too_small_for_where_it_lands_is_named_rather_than_failing_on_the_next_solve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_circle(Point2::new(1.0, -3.5), 7.0);
     let second = sketch.add_circle(Point2::new(-0.5, 10.0), 3.5);
+
     let (low, high) = (center(&sketch, first), center(&sketch, second));
 
     let on_axis = add(
@@ -2173,6 +2499,7 @@ fn a_conflict_too_small_for_where_it_lands_is_named_rather_than_failing_on_the_n
             value: mm(1e-9),
         },
     );
+
     add(
         &mut sketch,
         Constraint::VerticalDistance {
@@ -2209,9 +2536,11 @@ fn a_nan_miss_is_not_taken_as_converging() {
     let rounds = 2 * super::PARAMETER_ROUNDS;
 
     let mut recent_nan = shrinking_misses(rounds);
+
     recent_nan[rounds - 1] = f64::NAN;
 
     let mut earlier_nan = shrinking_misses(rounds);
+
     earlier_nan[0] = f64::NAN;
 
     let all_nan = vec![f64::NAN; rounds];

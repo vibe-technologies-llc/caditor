@@ -33,6 +33,7 @@ impl HelperThreads {
         let mut left = spare.load(Ordering::Relaxed);
         loop {
             let count = wanted.min(left);
+
             if count == 0 {
                 return Self { count };
             }
@@ -67,12 +68,14 @@ pub(crate) fn both<A, B: Send>(
     second: impl Fn() -> B + Sync,
 ) -> (A, B) {
     let helpers = HelperThreads::take(threads.saturating_sub(1).min(1));
+
     if helpers.count() == 0 {
         return (first(), second());
     }
     thread::scope(|scope| {
         let interrupt = interrupt::current();
         let second = &second;
+
         let helper = thread::Builder::new()
             .name("kernel".to_owned())
             .spawn_scoped(scope, move || interrupt::within(interrupt, second));
@@ -93,14 +96,17 @@ pub(crate) fn each_in_order<T: Send>(
 ) -> Vec<T> {
     let threads = most_threads.min(count.div_ceil(least_each.max(1)));
     let helpers = HelperThreads::take(threads.saturating_sub(1));
+
     if helpers.count() == 0 {
         return (0..count).map(make).collect();
     }
+
     let next = AtomicUsize::new(0);
     let take = || {
         let mut made = Vec::new();
         loop {
             let index = next.fetch_add(1, Ordering::Relaxed);
+
             if index >= count {
                 return made;
             }
@@ -118,6 +124,7 @@ pub(crate) fn each_in_order<T: Send>(
             })
             .collect();
         let mut made = take();
+
         for helper in spawned {
             match helper.join() {
                 Ok(more) => made.extend(more),
@@ -126,6 +133,7 @@ pub(crate) fn each_in_order<T: Send>(
         }
         made
     });
+
     made.sort_unstable_by_key(|(index, _)| *index);
     made.into_iter().map(|(_, made)| made).collect()
 }

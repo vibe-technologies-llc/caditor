@@ -1,6 +1,6 @@
 use crate::{body_appearance::DensityError, failure::Cause, measurement::Of};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Unreadable {
     MassWorked { body: String },
     Distance { between: String },
@@ -87,7 +87,7 @@ impl Unreadable {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum MeasureCause {
     Unreadable(Unreadable),
     EdgeGone { name: String },

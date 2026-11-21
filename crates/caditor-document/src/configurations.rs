@@ -16,7 +16,7 @@ pub const MAX_CONFIGURED_VALUES: usize = 256;
 const NUMBERED_NAME: &str = "Configuration";
 const COLUMN_USER: &str = "the configurations";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConfigurationId(u64);
 
 impl ConfigurationId {
@@ -29,7 +29,7 @@ impl ConfigurationId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ConfiguredValue {
     Parameter(ParameterId),
     Suppressed(FeatureId),
@@ -61,7 +61,7 @@ impl ConfiguredValue {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Setting {
     Expression(Expression),
     Suppressed(bool),
@@ -84,7 +84,7 @@ impl Setting {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Configuration {
     pub id: ConfigurationId,
     pub name: String,
@@ -97,7 +97,7 @@ impl Configuration {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Configurations {
     pub values: Vec<ConfiguredValue>,
     pub rows: Vec<Configuration>,
@@ -147,6 +147,7 @@ impl Configurations {
 
     pub fn copy_name(&self, name: &str) -> String {
         let first = format!("{name} copy");
+
         if !self.is_taken(&first) {
             return first;
         }
@@ -194,6 +195,7 @@ impl Configurations {
 
     pub(crate) fn fresh_id(&mut self) -> ConfigurationId {
         let id = ConfigurationId(self.next_id);
+
         self.next_id = self.next_id.saturating_add(1);
         id
     }
@@ -220,17 +222,23 @@ impl Configurations {
         if self.values.len() > MAX_CONFIGURED_VALUES {
             return Err(EditError::TooManyConfiguredValues);
         }
+
         let mut columns = Vec::with_capacity(self.values.len());
+
         for value in self.values {
             if !columns.contains(&value) {
                 columns.push(value);
             }
         }
         self.values = columns;
+
         let mut seen = Vec::with_capacity(self.rows.len());
+
         for row in &mut self.rows {
             row.name = configuration_name(&row.name);
+
             let length = row.name.chars().count();
+
             if length == 0 {
                 return Err(EditError::ConfigurationNameEmpty);
             }
@@ -244,11 +252,15 @@ impl Configurations {
                 return Err(EditError::ConfigurationNameTaken(row.name.clone()));
             }
             seen.push(row.name.clone());
+
             let values = &self.values;
+
             row.settings
                 .retain(|value, setting| values.contains(value) && value.fits(setting));
         }
+
         let ids: Vec<ConfigurationId> = self.rows.iter().map(|row| row.id).collect();
+
         for (index, id) in ids.iter().enumerate() {
             if ids.iter().take(index).any(|other| other == id) {
                 return Err(EditError::DuplicateId);
@@ -259,11 +271,13 @@ impl Configurations {
         {
             return Err(EditError::MissingConfiguration);
         }
+
         let beyond = ids
             .iter()
             .map(|id| id.raw().saturating_add(1))
             .max()
             .unwrap_or(0);
+
         self.next_id = self.next_id.max(beyond);
         Ok(self)
     }
@@ -373,6 +387,7 @@ impl Document {
             .row(id)
             .ok_or(EditError::MissingConfiguration)?;
         let label = format!("Switch to {}", row.name);
+
         if self.configurations.is_active(id) {
             return Ok(Transaction::new(label, Vec::new()));
         }
@@ -383,7 +398,9 @@ impl Document {
                 path: self.cycle_path(&cycle),
             });
         }
+
         let mut edits = vec![Edit::SetActiveConfiguration { active: None }];
+
         edits.extend(self.applying(row)?);
         edits.push(Edit::SetActiveConfiguration { active: Some(id) });
         Ok(Transaction::new(label, edits))
@@ -414,6 +431,7 @@ impl Document {
                 .expression()
                 .is_none_or(|expression| expression.parameters().is_empty())
         });
+
         for (value, setting) in plain.into_iter().chain(using) {
             edits.push(self.setting_edit(value, setting.clone())?);
         }
@@ -437,6 +455,7 @@ impl Document {
                     .body_appearance(id)
                     .ok_or(EditError::MissingFeature)?
                     .into_owned();
+
                 appearance.colour = colour;
                 Ok(Edit::SetBodyAppearance { id, appearance })
             }
@@ -455,12 +474,14 @@ impl Document {
 
     pub fn adding_configuration(&self, name: Option<&str>) -> (Transaction, ConfigurationId) {
         let mut table = Configurations::clone(&self.configurations);
+
         let id = table.fresh_id();
         let name = name
             .map(configuration_name)
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| table.unused_name());
         let label = format!("Add configuration {name}");
+
         table.rows.push(Configuration {
             id,
             name,
@@ -477,6 +498,7 @@ impl Document {
         source: ConfigurationId,
     ) -> Result<(Transaction, ConfigurationId), EditError> {
         let mut table = Configurations::clone(&self.configurations);
+
         let original = table.row(source).ok_or(EditError::MissingConfiguration)?;
         let name = table.copy_name(&original.name);
         let settings = if table.is_active(source) {
@@ -491,6 +513,7 @@ impl Document {
             .position(|row| row.id == source)
             .map_or(table.rows.len(), |index| index + 1);
         let id = table.fresh_id();
+
         table
             .rows
             .insert(index, Configuration { id, name, settings });
@@ -503,12 +526,14 @@ impl Document {
         name: &str,
     ) -> Result<Transaction, EditError> {
         let mut table = Configurations::clone(&self.configurations);
+
         let row = table
             .rows
             .iter_mut()
             .find(|row| row.id == id)
             .ok_or(EditError::MissingConfiguration)?;
         let label = format!("Rename {}", row.name);
+
         row.name = configuration_name(name);
         Ok(self.with_table(label, table))
     }
@@ -519,6 +544,7 @@ impl Document {
         index: usize,
     ) -> Result<Transaction, EditError> {
         let mut table = Configurations::clone(&self.configurations);
+
         let from = table
             .rows
             .iter()
@@ -526,6 +552,7 @@ impl Document {
             .ok_or(EditError::MissingConfiguration)?;
         let row = table.rows.remove(from);
         let label = format!("Move {}", row.name);
+
         table.rows.insert(index.min(table.rows.len()), row);
         Ok(self.with_table(label, table))
     }
@@ -538,10 +565,12 @@ impl Document {
         let label = format!("Delete configuration {}", row.name);
         let mut edits = Vec::new();
         let mut table = Configurations::clone(&self.configurations);
+
         if table.is_active(id) {
             let next = table
                 .successor(id)
                 .filter(|next| self.row_cycle(next).is_none());
+
             edits.push(Edit::SetActiveConfiguration { active: None });
             if let Some(next) = next {
                 edits.extend(self.applying(next)?);
@@ -566,6 +595,7 @@ impl Document {
             }
         })?;
         let mut table = Configurations::clone(&self.configurations);
+
         if table.configures(value) {
             return Ok(Transaction::new("Configure", Vec::new()));
         }
@@ -578,6 +608,7 @@ impl Document {
 
     pub fn unconfiguring(&self, value: ConfiguredValue) -> Result<Transaction, EditError> {
         let mut table = Configurations::clone(&self.configurations);
+
         table.values.retain(|other| *other != value);
         for row in &mut table.rows {
             row.settings.remove(&value);
@@ -595,9 +626,11 @@ impl Document {
             .filter(|row| !table.is_active(row.id))
             .find_map(|row| {
                 let before = self.configurations.row(row.id)?;
+
                 if self.row_cycle(before).is_some() {
                     return None;
                 }
+
                 let cycle = self.row_cycle(row)?;
                 Some(self.configuration_cycle(row.id, &cycle))
             });
@@ -615,6 +648,7 @@ impl Document {
             .row(id)
             .ok_or(EditError::MissingConfiguration)?;
         let label = format!("Change {}", row.name);
+
         if !value.fits(&setting) || !self.configurations.configures(value) {
             return Err(EditError::SettingMismatch);
         }
@@ -629,7 +663,9 @@ impl Document {
         {
             self.check_row_cycle(row, target, expression)?;
         }
+
         let mut table = Configurations::clone(&self.configurations);
+
         if let Some(row) = table.rows.iter_mut().find(|row| row.id == id) {
             row.settings.insert(value, setting);
         }

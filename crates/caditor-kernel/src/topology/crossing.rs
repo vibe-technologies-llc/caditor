@@ -24,13 +24,13 @@ const FACE_SAMPLES: usize = 7;
 const NEAR_SHARED_VERTEX: f64 = PCURVE_TOLERANCE;
 const PAIRS_PER_THREAD: usize = 32;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Crossing {
     pub faces: [FaceId; 2],
     pub point: Point3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CrossingCheck {
     Clear,
     Crossing(Crossing),
@@ -46,7 +46,7 @@ impl CrossingCheck {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Probe {
     Clear,
     Crossing(Point3),
@@ -146,6 +146,7 @@ impl Solid {
             })
             .collect();
         let mut neighbours: BTreeSet<(FaceId, FaceId)> = BTreeSet::new();
+
         for (_, edge) in self.edges() {
             let faces: Vec<FaceId> = edge
                 .coedges()
@@ -158,11 +159,13 @@ impl Solid {
                 }
             }
         }
+
         let boundaries: BTreeMap<FaceId, Boundary<'_>> = self
             .faces()
             .map(|(id, face)| (id, self.boundary(face)))
             .collect();
         let mut inconclusive = None;
+
         for (id, boundary) in &boundaries {
             let id = *id;
             match self.boundary_crossing(boundary)? {
@@ -178,6 +181,7 @@ impl Solid {
                 }
             }
         }
+
         let classifier = self.classifier();
         let tree = BoxTree::new(extents.iter().map(|extent| extent.bounds));
         let pairs: Vec<(&Extent, &Extent)> = extents
@@ -196,6 +200,7 @@ impl Solid {
             if !neighbours.contains(&(first.id, second.id)) {
                 return Ok(self.crossing_between(&classifier, first, second));
             }
+
             let (Some(first_boundary), Some(second_boundary)) =
                 (boundaries.get(&first.id), boundaries.get(&second.id))
             else {
@@ -206,6 +211,7 @@ impl Solid {
                     self.edges_piercing(&classifier, second_boundary, first, first_boundary)
                 })
         };
+
         for ((first, second), found) in pairs.iter().zip(probed(&pairs, probe)?) {
             match found {
                 Probe::Clear => {}
@@ -229,6 +235,7 @@ impl Solid {
 
     fn boundary(&self, face: &Face) -> Boundary<'_> {
         let mut uses: BTreeMap<EdgeId, usize> = BTreeMap::new();
+
         for coedge in face
             .loops()
             .iter()
@@ -238,6 +245,7 @@ impl Solid {
         {
             *uses.entry(coedge.edge()).or_default() += 1;
         }
+
         let edges: Vec<BoundaryEdge<'_>> = uses
             .into_iter()
             .filter_map(|(id, uses)| {
@@ -269,12 +277,15 @@ impl Solid {
         let surface = target_face.surface();
         let inside =
             |uv: Point2| classifier.point_in_face(target.id, uv) == Some(FaceContainment::Inside);
+
         for (_, candidate) in source
             .near(&target.bounds)
             .filter(|(_, candidate)| !target_boundary.uses(candidate.id))
         {
             let edge = candidate.edge;
+
             interrupt::check()?;
+
             let Ok(found) =
                 intersect_curve_surface(edge.curve(), edge.interval(), surface, Some(target.uv))
             else {
@@ -304,6 +315,7 @@ impl Solid {
             .iter()
             .enumerate()
             .filter(|(_, edge)| edge.uses == 1);
+
         for (index, first) in single {
             let later = boundary
                 .near(&first.bounds)
@@ -362,6 +374,7 @@ impl Solid {
         else {
             return Probe::Inconclusive;
         };
+
         let (Ok(first_patch), Ok(second_patch)) = (
             SurfacePatch::new(first_face.surface(), first.uv),
             SurfacePatch::new(second_face.surface(), second.uv),
@@ -371,10 +384,12 @@ impl Solid {
         let inside = |extent: &Extent, point: Point3, hint: Option<Point2>| {
             let surface = self.face(extent.id)?.surface();
             let uv = surface.project(point, hint.or(Some(extent.uv.center())));
+
             let on_surface = surface.point_at(uv).distance(point) <= LINEAR_RESOLUTION;
             (on_surface && classifier.point_in_face(extent.id, uv) == Some(FaceContainment::Inside))
                 .then_some(())
         };
+
         let Ok(intersection) = intersect_surfaces(&first_patch, &second_patch) else {
             return Probe::Inconclusive;
         };
@@ -401,6 +416,7 @@ impl Solid {
                     let fraction = (sample as f64 + 0.5) / BRANCH_SAMPLES as f64;
                     let point = branch.curve.point(branch.range.at(fraction));
                     let [first_hint, second_hint] = branch.start_uv;
+
                     inside(first, point, Some(first_hint))?;
                     inside(second, point, Some(second_hint))?;
                     Some(point)
@@ -417,10 +433,13 @@ fn probed<T: Sync>(
 ) -> Result<Vec<Probe>, Interrupted> {
     let threads = available_threads().min(items.len() / PAIRS_PER_THREAD);
     let helpers = HelperThreads::take(threads);
+
     if helpers.count() <= 1 {
         let mut found = Vec::with_capacity(items.len());
+
         for item in items {
             let probe = probe(item)?;
+
             found.push(probe);
             if matches!(probe, Probe::Crossing(_)) {
                 break;
@@ -428,11 +447,13 @@ fn probed<T: Sync>(
         }
         return Ok(found);
     }
+
     let next = AtomicUsize::new(0);
     let crossed = AtomicUsize::new(usize::MAX);
     let interrupt = interrupt::current();
     let mut found: Vec<Option<Probe>> = vec![None; items.len()];
     let mut interrupted = false;
+
     thread::scope(|scope| {
         let workers: Vec<_> = (0..helpers.count())
             .map(|_| {
@@ -443,13 +464,16 @@ fn probed<T: Sync>(
                         let mut done = Vec::new();
                         loop {
                             let at = next.fetch_add(1, Ordering::Relaxed);
+
                             if at > crossed.load(Ordering::Relaxed) {
                                 return Ok(done);
                             }
+
                             let Some(item) = items.get(at) else {
                                 return Ok(done);
                             };
                             let found = probe(item)?;
+
                             if matches!(found, Probe::Crossing(_)) {
                                 crossed.fetch_min(at, Ordering::Relaxed);
                             }
@@ -480,6 +504,7 @@ fn probed<T: Sync>(
     if interrupted {
         return Err(Interrupted);
     }
+
     let decided = crossed.into_inner().saturating_add(1);
     Ok(found
         .into_iter()
@@ -523,10 +548,12 @@ mod tests {
     #[test]
     fn a_survey_with_any_failed_check_is_inconclusive() {
         let mut clean = Survey::default();
+
         assert_eq!(clean.record(Probe::Clear), None);
         assert_eq!(clean.outcome(), Probe::Clear);
 
         let mut doubtful = Survey::default();
+
         assert_eq!(doubtful.record(Probe::Inconclusive), None);
         assert_eq!(doubtful.record(Probe::Clear), None);
         assert_eq!(doubtful.outcome(), Probe::Inconclusive);

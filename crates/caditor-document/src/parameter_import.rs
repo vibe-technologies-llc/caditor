@@ -9,14 +9,14 @@ use crate::{
     values::{ParameterError, ParameterValues},
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ImportedParameter {
     pub name: String,
     pub expression: String,
     pub note: String,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ImportRefusal {
     #[error("{0}")]
     Name(NameError),
@@ -34,7 +34,7 @@ pub enum ImportRefusal {
     Value(ParameterError),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ImportOutcome {
     Added,
     Changed { before: String },
@@ -43,14 +43,14 @@ pub enum ImportOutcome {
     Refused(ImportRefusal),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ImportRow {
     pub name: String,
     pub expression: String,
     pub outcome: ImportOutcome,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ParameterImport {
     pub rows: Vec<ImportRow>,
     pub transaction: Option<Transaction>,
@@ -90,6 +90,7 @@ impl Document {
         let mut ids: BTreeMap<String, ParameterId> = BTreeMap::new();
         let mut next_new = self.next_parameter_id();
         let mut new_ids = BTreeSet::new();
+
         for (index, row) in rows.iter().enumerate() {
             let name = row.name.trim();
             let refusal = if let Err(error) = check_name(name) {
@@ -101,31 +102,38 @@ impl Document {
             } else {
                 None
             };
+
             if let Some(refusal) = refusal {
                 set_refused(&mut outcomes, index, refusal);
                 continue;
             }
+
             let id = match self.parameter_named(name) {
                 Some(existing) => existing.id(),
                 None => {
                     let id = ParameterId::from_raw(next_new);
+
                     next_new = next_new.saturating_add(1);
                     new_ids.insert(id);
                     id
                 }
             };
+
             ids.insert(name.to_owned(), id);
         }
+
         let resolve = |name: &str| {
             ids.get(name)
                 .copied()
                 .or_else(|| self.parameter_named(name).map(Parameter::id))
         };
         let mut candidates = Vec::new();
+
         for (index, row) in rows.iter().enumerate() {
             if outcomes.get(index).is_some_and(Option::is_some) {
                 continue;
             }
+
             let Some(id) = ids.get(row.name.trim()).copied() else {
                 continue;
             };
@@ -134,6 +142,7 @@ impl Document {
                     let existing = self
                         .parameter(id)
                         .map(|parameter| parameter.expression.clone());
+
                     if let Some(existing) = &existing
                         && *existing != expression
                         && !replace_existing
@@ -157,6 +166,7 @@ impl Document {
                 Err(error) => set_refused(&mut outcomes, index, ImportRefusal::Unreadable(error)),
             }
         }
+
         let name_of = |id: ParameterId| {
             ids.iter()
                 .find(|(_, candidate)| **candidate == id)
@@ -177,10 +187,12 @@ impl Document {
                 )
                 .collect();
             let mut refused_now = false;
+
             for candidate in &candidates {
                 if is_refused(&outcomes, candidate.row) {
                     continue;
                 }
+
                 let missing = candidate
                     .expression
                     .parameters()
@@ -197,7 +209,9 @@ impl Document {
                     refused_now = true;
                 }
             }
+
             let mut graph = DependencyGraph::of(self);
+
             for candidate in candidates
                 .iter()
                 .filter(|candidate| !is_refused(&outcomes, candidate.row))
@@ -214,6 +228,7 @@ impl Document {
                         .map(name_of)
                         .collect::<Vec<_>>()
                         .join(" → ");
+
                     set_refused(&mut outcomes, candidate.row, ImportRefusal::Cycle { path });
                     refused_now = true;
                 }
@@ -221,10 +236,14 @@ impl Document {
             if refused_now {
                 continue;
             }
+
             let transaction = self.import_transaction(label.clone(), rows, &candidates, &outcomes);
             let mut trial = self.clone();
+
             trial.apply(transaction.clone())?;
+
             let values = ParameterValues::evaluate(&trial);
+
             for candidate in &candidates {
                 if is_refused(&outcomes, candidate.row) {
                     continue;
@@ -245,6 +264,7 @@ impl Document {
                 if is_refused(&outcomes, candidate.row) {
                     continue;
                 }
+
                 let note_changes = rows
                     .get(candidate.row)
                     .is_some_and(|row| self.note_changes(candidate.id, &row.note));
@@ -257,8 +277,10 @@ impl Document {
                         before: existing.to_text(&|id| self.parameter_name(id)),
                     },
                 };
+
                 set_outcome(&mut outcomes, candidate.row, outcome);
             }
+
             let rows = rows
                 .iter()
                 .zip(outcomes)
@@ -269,6 +291,7 @@ impl Document {
                 })
                 .collect();
             let transaction = (!transaction.is_empty()).then_some(transaction);
+
             return Ok(ParameterImport { rows, transaction });
         }
     }
@@ -294,6 +317,7 @@ impl Document {
             .collect();
         let mut edits = Vec::new();
         let mut index = self.parameters().len();
+
         for candidate in accepted
             .iter()
             .filter(|candidate| candidate.existing.is_none())
@@ -307,6 +331,7 @@ impl Document {
                 Expression::number(0.0),
             )
             .with_note(row.note.trim().to_owned());
+
             edits.push(Edit::InsertParameter { index, parameter });
             index += 1;
         }

@@ -2,7 +2,7 @@ use std::fmt;
 
 pub(crate) const FIRST_UNSTORABLE_ID: u64 = 1 << 63;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EntityId(u64);
 
 impl EntityId {
@@ -36,7 +36,7 @@ impl fmt::Display for EntityId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConstraintId(u64);
 
 impl ConstraintId {
@@ -55,7 +55,7 @@ impl fmt::Display for ConstraintId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Reference {
     Origin,
     HorizontalAxis,

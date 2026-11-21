@@ -62,18 +62,22 @@ fn assert_same_curve(before: &BSpline, after: &BSpline) {
         let moved = before
             .point_at(parameter)
             .distance(after.point_at(parameter));
+
         assert!(moved < EXACT, "the curve moved by {moved} at {parameter}");
     }
 }
 
 fn assert_solves_in_place(sketch: &Sketch) {
     let solved = solve(sketch);
+
     for (id, entity) in sketch.entities() {
         if let Entity::Point(position) = entity {
             let moved = solved.geometry.point(id).unwrap().distance(*position);
+
             assert!(moved < 1e-7, "point {id:?} moved by {moved}");
         }
     }
+
     assert!(solved.solution.redundancies().is_empty());
 }
 
@@ -89,6 +93,7 @@ fn a_point_added_to_a_spline_keeps_its_curve_exactly_wherever_it_is_added() {
         (long_wave(), 0.95),
     ] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline(&points);
         let before = sketch.spline(spline).unwrap();
         let near = before.point_at(at);
@@ -96,8 +101,10 @@ fn a_point_added_to_a_spline_keeps_its_curve_exactly_wherever_it_is_added() {
         let added = sketch.insert_control_point(spline, Some(near)).unwrap();
 
         let after = sketch.spline(spline).unwrap();
+
         assert_eq!(points_of(&sketch, spline).len(), points.len() + 1);
         assert!(points_of(&sketch, spline).contains(&added));
+
         assert_same_curve(&before, &after);
         assert_solves_in_place(&sketch);
     }
@@ -106,18 +113,21 @@ fn a_point_added_to_a_spline_keeps_its_curve_exactly_wherever_it_is_added() {
 #[test]
 fn a_spline_given_no_place_gets_its_point_in_its_longest_stretch_and_keeps_its_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
     let before = sketch.spline(spline).unwrap();
 
     sketch.insert_control_point(spline, None).unwrap();
 
     assert_eq!(points_of(&sketch, spline).len(), 8);
+
     assert_same_curve(&before, &sketch.spline(spline).unwrap());
 }
 
 #[test]
 fn points_added_again_and_again_keep_the_curve_and_the_ends() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
     let before = sketch.spline(spline).unwrap();
     let ends = (
@@ -127,16 +137,19 @@ fn points_added_again_and_again_keep_the_curve_and_the_ends() {
 
     for step in 0..6 {
         let near = before.point_at(0.13 + 0.15 * step as f64);
+
         sketch.insert_control_point(spline, Some(near)).unwrap();
     }
 
     let points = points_of(&sketch, spline);
+
     assert_eq!(points.len(), 13);
     assert_eq!((points[0], *points.last().unwrap()), ends);
     assert!(matches!(
         kind_of(&sketch, spline),
         SplineKind::Knotted { .. }
     ));
+
     assert_same_curve(&before, &sketch.spline(spline).unwrap());
     assert_solves_in_place(&sketch);
 }
@@ -144,15 +157,20 @@ fn points_added_again_and_again_keep_the_curve_and_the_ends() {
 #[test]
 fn a_trimmed_piece_keeps_its_curve_when_a_point_is_added() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
+
     sketch.add_line(Point2::new(13.0, -40.0), Point2::new(13.0, 40.0));
     sketch.trim(spline, Point2::new(2.0, 0.0)).unwrap();
+
     let before = sketch.spline(spline).unwrap();
 
     sketch
         .insert_control_point(spline, Some(before.point_at(0.4)))
         .unwrap();
+
     let inserted = sketch.spline(spline).unwrap();
+
     sketch
         .insert_control_point(spline, Some(before.point_at(0.8)))
         .unwrap();
@@ -164,12 +182,16 @@ fn a_trimmed_piece_keeps_its_curve_when_a_point_is_added() {
 #[test]
 fn a_spline_with_an_added_point_splits_and_trims_into_exact_pieces() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
     let whole = sketch.spline(spline).unwrap();
+
     sketch
         .insert_control_point(spline, Some(whole.point_at(0.3)))
         .unwrap();
+
     let cut = sketch.add_point(whole.point_at(0.6));
+
     sketch
         .add_constraint(Constraint::Coincident(cut, spline))
         .unwrap();
@@ -183,6 +205,7 @@ fn a_spline_with_an_added_point_splits_and_trims_into_exact_pieces() {
             let off = whole
                 .point_at(closest_spline_parameter(&whole, at))
                 .distance(at);
+
             assert!(off < 1e-7, "{at} lies {off} off the original spline");
         }
     }
@@ -191,10 +214,13 @@ fn a_spline_with_an_added_point_splits_and_trims_into_exact_pieces() {
 #[test]
 fn a_point_that_would_move_a_constrained_control_point_is_refused_naming_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
     let held = points_of(&sketch, spline)[1];
     let constraint = fixed(&sketch, held);
+
     sketch.add_constraint(constraint).unwrap();
+
     let before = sketch.clone();
     let near = sketch.spline(spline).unwrap().point_at(0.05);
 
@@ -210,18 +236,24 @@ fn a_point_that_would_move_a_constrained_control_point_is_refused_naming_it() {
 #[test]
 fn a_spline_with_a_held_point_takes_its_point_in_a_stretch_that_leaves_it_alone() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
     let held: Vec<EntityId> = points_of(&sketch, spline)[1..4].to_vec();
+
     for point in &held {
         let constraint = fixed(&sketch, *point);
+
         sketch.add_constraint(constraint).unwrap();
     }
+
     let before = sketch.spline(spline).unwrap();
 
     sketch.insert_control_point(spline, None).unwrap();
 
     assert_same_curve(&before, &sketch.spline(spline).unwrap());
+
     let kept = points_of(&sketch, spline);
+
     assert!(held.iter().all(|point| kept.contains(point)));
     for point in &held {
         assert!(
@@ -235,8 +267,10 @@ fn a_spline_with_a_held_point_takes_its_point_in_a_stretch_that_leaves_it_alone(
 #[test]
 fn constraints_on_the_spline_itself_survive_an_added_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
     let on = sketch.add_point(sketch.spline(spline).unwrap().point_at(0.5));
+
     let coincident = sketch
         .add_constraint(Constraint::Coincident(on, spline))
         .unwrap();
@@ -266,6 +300,7 @@ fn constraints_on_the_spline_itself_survive_an_added_point() {
 #[test]
 fn splines_that_cannot_take_a_point_exactly_are_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let fit = sketch.add_spline_of(&long_wave(), SplineKind::fit(false));
     let conic = sketch.add_spline_of(
         &[
@@ -311,6 +346,7 @@ fn a_point_added_to_a_closed_spline_keeps_its_curve_exactly_wherever_it_is_added
             .flat_map(|span| [0.1, 0.5, 0.9].map(|share| (span as f64 + share) / spans as f64))
         {
             let mut sketch = Sketch::new(Plane::XY);
+
             let spline = sketch.add_spline_of(&points, SplineKind::Control { closed: true });
             let before = sketch.spline(spline).unwrap();
 
@@ -319,12 +355,14 @@ fn a_point_added_to_a_closed_spline_keeps_its_curve_exactly_wherever_it_is_added
                 .unwrap();
 
             let after = sketch.spline(spline).unwrap();
+
             assert_eq!(points_of(&sketch, spline).len(), spans + 1);
             assert!(points_of(&sketch, spline).contains(&added));
             assert!(matches!(
                 kind_of(&sketch, spline),
                 SplineKind::Knotted { closed: true, .. }
             ));
+
             assert_same_curve(&before, &after);
             assert_solves_in_place(&sketch);
         }
@@ -334,17 +372,20 @@ fn a_point_added_to_a_closed_spline_keeps_its_curve_exactly_wherever_it_is_added
 #[test]
 fn points_added_again_and_again_to_a_closed_spline_keep_its_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&closed_loop(), SplineKind::Control { closed: true });
     let before = sketch.spline(spline).unwrap();
 
     for step in 0..7 {
         let near = before.point_at((0.07 + 0.31 * step as f64).fract());
+
         sketch.insert_control_point(spline, Some(near)).unwrap();
     }
     sketch.insert_control_point(spline, None).unwrap();
 
     assert_eq!(points_of(&sketch, spline).len(), 13);
     assert!(sketch.entity(spline).unwrap().spline_ends().is_none());
+
     assert_same_curve(&before, &sketch.spline(spline).unwrap());
     assert_solves_in_place(&sketch);
 }
@@ -352,10 +393,13 @@ fn points_added_again_and_again_to_a_closed_spline_keep_its_curve() {
 #[test]
 fn a_closed_spline_refuses_a_point_that_would_move_a_held_control_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&closed_loop(), SplineKind::Control { closed: true });
     let held = points_of(&sketch, spline)[1];
     let constraint = fixed(&sketch, held);
+
     sketch.add_constraint(constraint).unwrap();
+
     let before = sketch.clone();
     let near = sketch.spline(spline).unwrap().point_at(0.1);
 
@@ -371,8 +415,10 @@ fn a_closed_spline_refuses_a_point_that_would_move_a_held_control_point() {
 #[test]
 fn a_closed_spline_with_added_points_trims_along_its_own_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&closed_loop(), SplineKind::Control { closed: true });
     let whole = sketch.spline(spline).unwrap();
+
     for at in [0.15, 0.62] {
         sketch
             .insert_control_point(spline, Some(whole.point_at(at)))
@@ -384,13 +430,16 @@ fn a_closed_spline_with_added_points_trims_along_its_own_curve() {
     sketch.trim(spline, Point2::new(60.0, 10.0)).unwrap();
 
     let trimmed = sketch.spline(spline).unwrap();
+
     assert!(sketch.entity(spline).unwrap().spline_ends().is_some());
+
     assert_lies_on(&trimmed, &whole);
 }
 
 #[test]
 fn a_two_point_spline_takes_points_along_its_line_and_grows_into_a_cubic_on_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&[Point2::new(0.0, 0.0), Point2::new(40.0, 20.0)]);
     let line = sketch.spline(spline).unwrap();
     let off_line = Point2::new(10.0, 15.0);
@@ -398,9 +447,13 @@ fn a_two_point_spline_takes_points_along_its_line_and_grows_into_a_cubic_on_it()
     let added = sketch.insert_control_point(spline, Some(off_line)).unwrap();
 
     let straight = sketch.spline(spline).unwrap();
+
     assert_eq!(points_of(&sketch, spline)[1], added);
+
     let along = closest_spline_parameter(&line, off_line);
+
     assert!(sketch.point(added).unwrap().distance(line.point_at(along)) < EXACT);
+
     assert_lies_on(&straight, &line);
     assert_lies_on(&line, &straight);
 
@@ -410,6 +463,7 @@ fn a_two_point_spline_takes_points_along_its_line_and_grows_into_a_cubic_on_it()
     assert_same_curve(&straight, &sketch.spline(spline).unwrap());
 
     assert_eq!(points_of(&sketch, spline).len(), 5);
+
     assert_solves_in_place(&sketch);
 }
 
@@ -417,6 +471,7 @@ fn a_two_point_spline_takes_points_along_its_line_and_grows_into_a_cubic_on_it()
 fn a_three_point_spline_is_raised_to_a_cubic_keeping_its_curve_exactly() {
     for (at, new_place) in [(0.2, 1), (0.8, 2)] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline(&bezier()[..3]);
         let middle = points_of(&sketch, spline)[1];
         let before = sketch.spline(spline).unwrap();
@@ -426,10 +481,12 @@ fn a_three_point_spline_is_raised_to_a_cubic_keeping_its_curve_exactly() {
             .unwrap();
 
         let points = points_of(&sketch, spline);
+
         assert_eq!(points.len(), 4);
         assert_eq!(points[new_place], added);
         assert!(points.contains(&middle));
         assert_eq!(kind_of(&sketch, spline), SplineKind::OPEN);
+
         assert_same_curve(&before, &sketch.spline(spline).unwrap());
         assert_solves_in_place(&sketch);
     }
@@ -438,10 +495,13 @@ fn a_three_point_spline_is_raised_to_a_cubic_keeping_its_curve_exactly() {
 #[test]
 fn a_three_point_spline_with_a_held_middle_point_refuses_a_point_naming_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&bezier()[..3]);
     let middle = points_of(&sketch, spline)[1];
     let constraint = fixed(&sketch, middle);
+
     sketch.add_constraint(constraint).unwrap();
+
     let before = sketch.clone();
 
     let refused = sketch.insert_control_point(spline, None);
@@ -459,6 +519,7 @@ fn assert_lies_on(piece: &BSpline, whole: &BSpline) {
         let off = whole
             .point_at(closest_spline_parameter(whole, at))
             .distance(at);
+
         assert!(off < 1e-7, "{at} lies {off} off the original spline");
     }
 }
@@ -466,8 +527,10 @@ fn assert_lies_on(piece: &BSpline, whole: &BSpline) {
 #[test]
 fn a_spline_with_added_points_trims_and_extends_along_its_own_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline(&long_wave());
     let whole = sketch.spline(spline).unwrap();
+
     for parameter in [0.2, 0.5, 0.8] {
         sketch
             .insert_control_point(spline, Some(whole.point_at(parameter)))
@@ -478,28 +541,37 @@ fn a_spline_with_added_points_trims_and_extends_along_its_own_curve() {
 
     sketch.trim(spline, whole.point_at(0.02)).unwrap();
     sketch.trim(spline, whole.point_at(0.98)).unwrap();
+
     let wall = sketch.add_line(Point2::new(8.0, -40.0), Point2::new(8.0, 40.0));
 
     let trimmed = sketch.spline(spline).unwrap();
+
     assert!(matches!(
         kind_of(&sketch, spline),
         SplineKind::Knotted { .. }
     ));
+
     assert_lies_on(&trimmed, &whole);
+
     assert!((trimmed.point_at(0.0).x - 13.0).abs() < 1e-7);
 
     let extension = sketch.extend(spline, trimmed.point_at(0.01)).unwrap();
 
     assert_eq!(extension.target, wall);
+
     let extended = sketch.spline(spline).unwrap();
+
     assert_lies_on(&trimmed, &extended);
+
     assert!((extended.point_at(0.0).x - 8.0).abs() < 1e-7);
+
     assert_solves_in_place(&sketch);
 }
 
 #[test]
 fn a_spline_with_spans_that_do_not_fit_its_points_is_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let points: Vec<EntityId> = (0..7)
         .map(|index| sketch.add_point(Point2::new(f64::from(index) * 10.0, 0.0)))
         .collect();
@@ -535,6 +607,7 @@ fn a_spline_with_spans_that_do_not_fit_its_points_is_refused_in_words() {
 #[test]
 fn a_closed_spline_with_spans_that_do_not_fit_its_points_is_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let points: Vec<EntityId> = closed_loop()
         .into_iter()
         .map(|position| sketch.add_point(position))

@@ -30,7 +30,9 @@ fn edge_faces(solid: &Solid, edge: &Edge) -> [Option<FaceId>; 2] {
         .coedges()
         .iter()
         .map(|coedge| solid.coedge_face(*coedge));
+
     let (first, second) = (faces.next().flatten(), faces.next().flatten());
+
     if faces.next().is_some() {
         return [None; 2];
     }
@@ -42,9 +44,11 @@ fn mergeable_faces(solid: &Solid) -> bool {
         let [Some(first), Some(second)] = edge_faces(solid, edge) else {
             return false;
         };
+
         if first == second {
             return false;
         }
+
         let (Some(first), Some(second)) = (solid.face(first), solid.face(second)) else {
             return false;
         };
@@ -55,7 +59,7 @@ fn mergeable_faces(solid: &Solid) -> bool {
     })
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 enum Around {
     #[default]
     Unused,
@@ -76,6 +80,7 @@ impl Around {
 
 fn joinable_edges(solid: &Solid) -> bool {
     let mut around = vec![Around::Unused; solid.vertices().count()];
+
     for (_, edge) in solid.edges() {
         let faces = edge_faces(solid, edge);
         let open = edge.start() != edge.end();
@@ -95,6 +100,7 @@ fn joinable_edges(solid: &Solid) -> bool {
 
 fn settled(solids: &[&Solid]) -> bool {
     let mut names = BTreeSet::new();
+
     let unique = solids
         .iter()
         .flat_map(|solid| solid.edges())
@@ -111,6 +117,7 @@ pub(super) fn combine_apart(
     operation: BooleanOperation,
 ) -> Option<Result<Solid, BooleanError>> {
     let (first_box, second_box) = (enclosure(first)?, enclosure(second)?);
+
     if boxes_overlap(&first_box, &second_box, APART) {
         return None;
     }

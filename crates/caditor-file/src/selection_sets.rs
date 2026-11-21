@@ -8,19 +8,19 @@ use crate::format::{
     EdgeRecord, FaceRecord, Lenient, edge_record, face_record, restore_edge, restore_face,
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SelectionSetsRecord {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sets: Vec<Lenient<SelectionSetRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SelectionSetRecord {
     pub name: String,
     pub members: Vec<Lenient<SetMemberRecord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SetMemberRecord {
     Body(u64),
@@ -87,8 +87,10 @@ fn restore_member(record: &SetMemberRecord) -> Option<SetMember> {
 
 fn fitting_set_name(name: &str, taken: &SelectionSets, issues: &mut Vec<String>) -> String {
     let mut name = set_name(name);
+
     if name.is_empty() {
         let numbered = taken.unused_name();
+
         issues.push(format!(
             "A selection set had no name, so it is called “{numbered}”."
         ));
@@ -109,12 +111,14 @@ fn fitting_set_name(name: &str, taken: &SelectionSets, issues: &mut Vec<String>)
     if !taken.is_taken(&name) {
         return name;
     }
+
     let room = MAX_SET_NAME_CHARS - 6;
     let base: String = name.chars().take(room).collect();
     let numbered = (2..)
         .map(|number| format!("{base} {number}"))
         .find(|candidate| !taken.is_taken(candidate))
         .unwrap_or_else(|| name.clone());
+
     issues.push(format!(
         "Two selection sets were called “{name}”, so one is called “{numbered}”."
     ));
@@ -124,6 +128,7 @@ fn fitting_set_name(name: &str, taken: &SelectionSets, issues: &mut Vec<String>)
 fn restore_members(record: &SelectionSetRecord, issues: &mut Vec<String>) -> Vec<SetMember> {
     let mut unreadable = 0_usize;
     let mut members: Vec<SetMember> = Vec::new();
+
     for member in &record.members {
         match member {
             Lenient::Read(member) => match restore_member(member) {
@@ -133,7 +138,9 @@ fn restore_members(record: &SelectionSetRecord, issues: &mut Vec<String>) -> Vec
             Lenient::Unreadable(_) => unreadable += 1,
         }
     }
+
     let name = &record.name;
+
     match unreadable {
         0 => {}
         1 => issues.push(format!(
@@ -160,11 +167,13 @@ pub(crate) fn restore_selection_sets(
     issues: &mut Vec<String>,
 ) -> SelectionSets {
     let mut sets = SelectionSets::default();
+
     for set in record.sets {
         let Lenient::Read(set) = set else {
             issues.push("A selection set could not be read, so it was left out.".to_owned());
             continue;
         };
+
         if sets.sets.len() >= MAX_SELECTION_SETS {
             issues.push(format!(
                 "A model keeps at most {MAX_SELECTION_SETS} selection sets, so the rest were \
@@ -172,7 +181,9 @@ pub(crate) fn restore_selection_sets(
             ));
             break;
         }
+
         let members = restore_members(&set, issues);
+
         if members.is_empty() {
             issues.push(format!(
                 "The selection set “{}” held nothing that could be read, so it was left out.",
@@ -180,7 +191,9 @@ pub(crate) fn restore_selection_sets(
             ));
             continue;
         }
+
         let name = fitting_set_name(&set.name, &sets, issues);
+
         sets.sets.push(SelectionSet { name, members });
     }
     sets

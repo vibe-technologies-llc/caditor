@@ -76,6 +76,7 @@ fn closes(failure: OffsetFailure, pieces: &[Piece]) -> WrapError {
         .into_iter()
         .filter_map(|index| pieces.get(index).map(Piece::entity))
         .collect();
+
     entities.sort_unstable();
     entities.dedup();
     WrapError::DraftCloses { entities }
@@ -90,6 +91,7 @@ struct Offsets<'a> {
 impl Offsets<'_> {
     fn entities(&self) -> Vec<u64> {
         let mut entities: Vec<u64> = self.pieces.iter().map(Piece::entity).collect();
+
         entities.sort_unstable();
         entities.dedup();
         entities
@@ -102,6 +104,7 @@ fn check_level(
     tolerance: f64,
 ) -> Result<(), WrapError> {
     let mut polygons = Vec::new();
+
     for loops in offsets {
         for offset in loops {
             let Some(courses) = offset.moved.get(level) else {
@@ -110,6 +113,7 @@ fn check_level(
             let outline = outline_of(courses);
             let area = signed_area(&outline);
             let before = signed_area(&outline_of(&offset.originals));
+
             if area.abs() <= tolerance * tolerance || area.signum() != before.signum() {
                 return Err(WrapError::DraftCloses {
                     entities: offset.entities(),
@@ -136,6 +140,7 @@ pub(super) fn leanings(
             .map(|region| region.loops().map(|_| Leaning::straight()).collect())
             .collect());
     }
+
     let size = regions
         .iter()
         .filter_map(Region::bounds)
@@ -145,16 +150,20 @@ pub(super) fn leanings(
         .fold(1.0, larger);
     let tolerance = (size * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
     let mut offsets = Vec::with_capacity(regions.len());
+
     for region in regions {
         let mut loops = Vec::new();
+
         for profile_loop in region.loops() {
             let pieces = profile_loop.pieces();
             let originals: Vec<Course> = pieces.iter().map(Course::of_piece).collect();
+
             let level = |inset: f64| {
                 offset_courses(&originals, true, inset, None, tolerance)
                     .map_err(|failure| closes(failure, pieces))
             };
             let moved = [level(insets[0])?, level(insets[1])?];
+
             loops.push(Offsets {
                 pieces,
                 originals,

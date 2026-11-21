@@ -30,11 +30,14 @@ fn themes_folder(dir: &Path) -> std::path::PathBuf {
 
 fn with_themes(dir: &Path, themes: &[(&str, &str)]) -> Harness {
     let folder = themes_folder(dir);
+
     fs::create_dir_all(&folder).unwrap();
     for (name, text) in themes {
         fs::write(folder.join(name), text).unwrap();
     }
+
     let mut harness = Harness::with_directories(Some(dir));
+
     harness.wait_until("the themes are read", |harness| {
         harness.files.themes().generation() > 0
     });
@@ -64,6 +67,7 @@ fn card_selected(harness: &Harness, name: &str) -> Option<bool> {
 fn the_theme_picker_offers_a_card_per_theme_and_chooses_by_click_and_keyboard() {
     let dir = TempDir::new().unwrap();
     let mut harness = with_themes(dir.path(), &[("ocean.json", OCEAN), ("murky.json", MURKY)]);
+
     open_appearance(&mut harness);
 
     for name in [
@@ -77,6 +81,7 @@ fn the_theme_picker_offers_a_card_per_theme_and_chooses_by_click_and_keyboard() 
     ] {
         assert!(card_selected(&harness, name).is_some(), "{name}");
     }
+
     assert_eq!(card_selected(&harness, "Follow the system"), Some(true));
     assert_eq!(card_selected(&harness, "Murky"), None);
     assert!(harness.shows_containing("murky.json was not loaded: the muted text (text_muted"));
@@ -98,10 +103,12 @@ fn the_theme_picker_offers_a_card_per_theme_and_chooses_by_click_and_keyboard() 
     harness.frame();
     harness.key(Key::ArrowLeft, Modifiers::NONE);
     harness.frame();
+
     assert_eq!(
         harness.focused(),
         Some(preferences::theme_card_id(&Theme::Graphite))
     );
+
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.frame();
@@ -126,7 +133,9 @@ fn the_theme_picker_offers_a_card_per_theme_and_chooses_by_click_and_keyboard() 
 #[test]
 fn an_accent_and_the_3d_view_change_any_theme_and_high_contrast_keeps_its_own() {
     let mut harness = Harness::new();
+
     open_appearance(&mut harness);
+
     let own = appearance::tokens_of(&harness.context).accent;
 
     harness.click_button(&preferences::accent_name(Accent::Teal));
@@ -142,6 +151,7 @@ fn an_accent_and_the_3d_view_change_any_theme_and_high_contrast_keeps_its_own() 
     harness.click_button(&preferences::view_name(ViewChoice::Canvas(Canvas::Light)));
     harness.frame();
     harness.frame();
+
     assert_eq!(canvas::canvas(&harness.context), Canvas::Light);
 
     harness.perform(Action::Preferences(PreferencesCommand::Change(
@@ -151,6 +161,7 @@ fn an_accent_and_the_3d_view_change_any_theme_and_high_contrast_keeps_its_own() 
     harness.frame();
 
     let skin = appearance::skin(&harness.context);
+
     assert!(skin.high_contrast);
     assert_eq!(skin.canvas, Canvas::Light);
     assert!(appearance::check(&skin.tokens, true).is_ok());
@@ -160,11 +171,14 @@ fn an_accent_and_the_3d_view_change_any_theme_and_high_contrast_keeps_its_own() 
 fn a_chosen_theme_failing_on_reload_is_refused_in_words_and_the_previous_theme_kept() {
     let dir = TempDir::new().unwrap();
     let mut harness = with_themes(dir.path(), &[("ocean.json", OCEAN)]);
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Theme(Theme::User("ocean".to_owned())),
     )));
     harness.frame();
+
     let ocean = appearance::tokens_of(&harness.context);
+
     assert_eq!(ocean.panel, egui::Color32::from_rgb(0x0b, 0x22, 0x30));
 
     fs::write(
@@ -180,6 +194,7 @@ fn a_chosen_theme_failing_on_reload_is_refused_in_words_and_the_previous_theme_k
     harness.frame();
 
     let notice = harness.model.notice().unwrap();
+
     assert!(
         notice
             .text
@@ -198,7 +213,9 @@ fn a_chosen_theme_failing_on_reload_is_refused_in_words_and_the_previous_theme_k
 #[test]
 fn a_lighter_3d_view_and_a_grid_colour_are_chosen_in_preferences_and_an_unseen_grid_refused() {
     let mut harness = Harness::new();
+
     open_appearance(&mut harness);
+
     let studio = ViewChoice::Canvas(Canvas::Studio);
     let hex = colour_selector::hex_id(egui::Id::unique(preferences::GRID_SELECTOR));
 
@@ -242,6 +259,7 @@ fn a_lighter_3d_view_and_a_grid_colour_are_chosen_in_preferences_and_an_unseen_g
     harness.frame();
 
     let chosen = Rgb::new(0x3c, 0x42, 0x50);
+
     assert_eq!(
         harness.workspace.preferences.appearance.grid,
         GridColour::Custom(chosen)

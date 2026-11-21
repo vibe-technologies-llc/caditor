@@ -15,6 +15,7 @@ pub(crate) fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketc
         Point2::new(max.0, max.1),
         Point2::new(min.0, max.1),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -63,7 +64,9 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let depth = transaction.add_parameter("depth", transaction.parse("2 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
@@ -78,6 +81,7 @@ fn model() -> Model {
         "Hole sketch",
         FeatureKind::from(rectangle(top, (2.0, 2.0), (4.0, 4.0))),
     );
+
     let pocket = transaction.add_feature(
         "Pocket",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -100,6 +104,7 @@ fn model() -> Model {
         "Boss",
         extrude(lug, "3 mm", false, BodyOperation::Add(base)),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -113,7 +118,9 @@ fn model() -> Model {
 fn features_chain_through_the_body() {
     let model = model();
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&model.document, &mut engine);
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!((volume(&evaluation, model.base) - (320.0 - 8.0 + 36.0)).abs() < 0.05);
     assert_eq!(
@@ -136,12 +143,14 @@ fn a_cut_keeps_its_tool_for_showing_while_other_features_keep_none() {
     assert_eq!(tools.len(), 1);
     assert_eq!(tool.body, model.base);
     assert!(!tool.is_meshed());
+
     let tool_volume = tool
         .solid
         .tessellate(&caditor_kernel::SamplingTolerance::new(1e-3, 0.1).unwrap())
         .unwrap()
         .mass_properties()
         .volume;
+
     assert!((tool_volume - 8.0).abs() < 0.05);
     assert!(evaluation.cuts(model.base).is_empty());
     assert!(evaluation.cuts(model.boss).is_empty());
@@ -161,6 +170,7 @@ fn only_the_final_state_of_each_body_is_meshed_on_the_worker() {
 
     let last = solid_of(model.boss);
     let mesh = last.mesh().unwrap();
+
     assert!((mesh.mass_properties().volume - 348.0).abs() < 0.5);
     assert!(Arc::ptr_eq(
         evaluation.body_result(model.base).unwrap(),
@@ -184,6 +194,7 @@ fn only_the_final_state_of_each_body_is_meshed_on_the_worker() {
         .unwrap()
         .as_ref()
         .unwrap();
+
     assert_eq!(regions.len(), 1);
     assert!(regions[0].even_depth);
     assert_eq!(regions[0].mesh.as_ref().unwrap().triangles.len(), 2);
@@ -193,8 +204,11 @@ fn only_the_final_state_of_each_body_is_meshed_on_the_worker() {
 fn a_failing_feature_is_skipped_and_the_rest_still_apply() {
     let mut model = model();
     let mut engine = Recompute::default();
+
     evaluate(&model.document, &mut engine);
+
     let depth = model.document.parameter_named("depth").unwrap().id();
+
     model
         .document
         .apply(Transaction::single(
@@ -205,10 +219,12 @@ fn a_failing_feature_is_skipped_and_the_rest_still_apply() {
             },
         ))
         .unwrap();
+
     let evaluation = evaluate(&model.document, &mut engine);
     let FeatureState::Failed(error) = &evaluation.feature(model.pocket).unwrap().state else {
         panic!("the pocket should fail");
     };
+
     assert_eq!(error.reason(), "The distance must be more than zero.");
     assert_eq!(
         evaluation.feature(model.boss).unwrap().state,
@@ -222,19 +238,26 @@ fn a_failing_feature_is_skipped_and_the_rest_still_apply() {
 fn solid_features_protect_what_they_use() {
     let model = model();
     let mut document = model.document.clone();
+
     let outline = document.features().next().unwrap().id();
+
     assert!(!document.dependents_of(&[outline]).is_empty());
+
     let mut transaction = document.transaction("Second body");
+
     let other = transaction.add_feature(
         "Other",
         extrude(outline, "1 mm", true, BodyOperation::NewBody),
     );
+
     transaction.edit(Edit::MoveFeature {
         id: other,
         index: 1,
     });
     document.apply(transaction.finish()).unwrap();
+
     let changed = extrude(outline, "5 mm", false, BodyOperation::Add(other));
+
     assert!(matches!(
         document.apply(Transaction::single(
             "Change",
@@ -245,7 +268,9 @@ fn solid_features_protect_what_they_use() {
         )),
         Err(EditError::BodyInUse { .. })
     ));
+
     document = model.document.clone();
+
     let taller = extrude(outline, "5 mm", false, BodyOperation::NewBody);
     let undo = document
         .apply(Transaction::single(
@@ -256,9 +281,13 @@ fn solid_features_protect_what_they_use() {
             },
         ))
         .unwrap();
+
     document.apply(undo).unwrap();
+
     assert_eq!(document, model.document);
+
     let onto_sketch = extrude(outline, "5 mm", false, BodyOperation::Add(outline));
+
     assert!(matches!(
         document.apply(Transaction::single(
             "Change",
@@ -274,7 +303,9 @@ fn solid_features_protect_what_they_use() {
 #[test]
 fn a_revolve_uses_a_sketch_axis_and_keeps_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let section = transaction.add_feature(
         "Section",
         FeatureKind::from(rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0))),
@@ -293,9 +324,12 @@ fn a_revolve_uses_a_sketch_axis_and_keeps_it() {
             wall: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut Recompute::default());
     let expected = std::f64::consts::PI * (16.0 - 4.0) * 3.0;
+
     assert!((volume(&evaluation, ring) - expected).abs() < 0.1);
 }
 
@@ -304,13 +338,18 @@ fn a_revolve_axis_must_be_a_line_of_its_own_sketch() {
     let mut document = Document::default();
 
     let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
+
     let pivot = section.add_line(Point2::new(0.0, 0.0), Point2::new(0.0, 3.0));
     let mut marks = Sketch::new(Plane::XZ);
+
     let mark = marks.add_point(Point2::new(1.0, 1.0));
     let mut transaction = document.transaction("Build");
+
     let section = transaction.add_feature("Section", FeatureKind::from(section));
     let marks = transaction.add_feature("Marks", FeatureKind::from(marks));
+
     document.apply(transaction.finish()).unwrap();
+
     let revolve = |sketch, axis| {
         FeatureKind::Solid(SolidFeature::Revolve(Revolve {
             sketch,
@@ -325,8 +364,11 @@ fn a_revolve_axis_must_be_a_line_of_its_own_sketch() {
         }))
     };
     let mut transaction = document.transaction("Revolve");
+
     let ring = transaction.add_feature("Ring", revolve(section, pivot));
+
     document.apply(transaction.finish()).unwrap();
+
     let moved = |kind| Transaction::single("Edit", Edit::SetFeatureKind { id: ring, kind });
 
     assert_eq!(
@@ -350,19 +392,25 @@ fn a_revolve_axis_must_be_a_line_of_its_own_sketch() {
 #[test]
 fn an_open_sketch_is_reported_against_the_sketch() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut open = Sketch::new(Plane::XY);
+
     open.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
+
     let sketch = transaction.add_feature("Open", FeatureKind::from(open));
     let solid = transaction.add_feature(
         "Solid",
         extrude(sketch, "1 mm", false, BodyOperation::NewBody),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut Recompute::default());
     let FeatureState::Failed(error) = &evaluation.feature(solid).unwrap().state else {
         panic!("an open sketch cannot be extruded");
     };
+
     assert_eq!(error.reason(), "Open has no closed shape to sweep.");
     assert_eq!(error.fix, Some(FixTarget::Feature(sketch)));
 }
@@ -370,6 +418,7 @@ fn an_open_sketch_is_reported_against_the_sketch() {
 #[test]
 fn an_outline_with_a_gap_names_the_two_ends_and_how_far_apart_they_are() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut open = Sketch::new(Plane::XY);
     let corners = [
@@ -378,6 +427,7 @@ fn an_outline_with_a_gap_names_the_two_ends_and_how_far_apart_they_are() {
         Point2::new(10.0, 6.0),
         Point2::new(0.0, 6.0),
     ];
+
     let lines: Vec<EntityId> = corners
         .iter()
         .enumerate()
@@ -394,6 +444,7 @@ fn an_outline_with_a_gap_names_the_two_ends_and_how_far_apart_they_are() {
         "Solid",
         extrude(sketch, "1 mm", false, BodyOperation::NewBody),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document, &mut Recompute::default());
@@ -402,6 +453,7 @@ fn an_outline_with_a_gap_names_the_two_ends_and_how_far_apart_they_are() {
     };
 
     let (first, last) = (lines.first().unwrap(), lines.last().unwrap());
+
     assert_eq!(
         error.reason(),
         format!(
@@ -414,10 +466,14 @@ fn an_outline_with_a_gap_names_the_two_ends_and_how_far_apart_they_are() {
 fn a_body_whose_first_feature_fails_keeps_its_last_good_shape_as_stale() {
     let mut model = model();
     let mut engine = Recompute::default();
+
     let good = evaluate(&model.document, &mut engine);
+
     assert!(!good.is_stale(model.base));
+
     let outline = model.document.features().next().unwrap().id();
     let flat = extrude(outline, "0 mm", false, BodyOperation::NewBody);
+
     model
         .document
         .apply(Transaction::single(
@@ -428,7 +484,9 @@ fn a_body_whose_first_feature_fails_keeps_its_last_good_shape_as_stale() {
             },
         ))
         .unwrap();
+
     let evaluation = evaluate(&model.document, &mut engine);
+
     assert!(matches!(
         evaluation.feature(model.base).unwrap().state,
         FeatureState::Failed(_)
@@ -448,6 +506,7 @@ fn a_body_whose_first_feature_fails_keeps_its_last_good_shape_as_stale() {
 fn an_edit_that_leaves_geometry_unchanged_stops_at_the_first_equal_result() {
     let mut model = model();
     let mut engine = Recompute::default();
+
     let before = evaluate(&model.document, &mut engine);
     let hole = model.document.features().nth(2).unwrap().id();
     let bottom = model
@@ -462,10 +521,12 @@ fn an_edit_that_leaves_geometry_unchanged_stops_at_the_first_equal_result() {
         .map(|(id, _)| id)
         .unwrap();
     let mut transaction = model.document.transaction("Constrain");
+
     transaction.add_sketch_constraint(hole, caditor_sketch::Constraint::Horizontal(bottom));
     model.document.apply(transaction.finish()).unwrap();
 
     let after = evaluate(&model.document, &mut engine);
+
     assert_eq!(after.recomputed(), &[hole]);
     assert!(Arc::ptr_eq(
         before
@@ -487,6 +548,7 @@ fn an_edit_that_leaves_geometry_unchanged_stops_at_the_first_equal_result() {
 fn renaming_keeps_results_and_refreshes_only_failure_messages() {
     let mut model = model();
     let mut engine = Recompute::default();
+
     evaluate(&model.document, &mut engine);
     model
         .document
@@ -498,7 +560,9 @@ fn renaming_keeps_results_and_refreshes_only_failure_messages() {
             },
         ))
         .unwrap();
+
     let depth = model.document.parameter_named("depth").unwrap().id();
+
     model
         .document
         .apply(Transaction::single(
@@ -509,19 +573,26 @@ fn renaming_keeps_results_and_refreshes_only_failure_messages() {
             },
         ))
         .unwrap();
+
     assert_eq!(evaluate(&model.document, &mut engine).recomputed(), &[]);
 
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut open = Sketch::new(Plane::XY);
+
     open.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
+
     let sketch = transaction.add_feature("Open", FeatureKind::from(open));
     let solid = transaction.add_feature(
         "Solid",
         extrude(sketch, "1 mm", false, BodyOperation::NewBody),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     evaluate(&document, &mut engine);
     document
         .apply(Transaction::single(
@@ -532,11 +603,15 @@ fn renaming_keeps_results_and_refreshes_only_failure_messages() {
             },
         ))
         .unwrap();
+
     let renamed = evaluate(&document, &mut engine);
+
     assert_eq!(renamed.recomputed(), &[solid]);
+
     let FeatureState::Failed(error) = &renamed.feature(solid).unwrap().state else {
         panic!("an open sketch cannot be extruded");
     };
+
     assert_eq!(error.reason(), "Outline has no closed shape to sweep.");
 }
 
@@ -547,12 +622,14 @@ fn a_run_cancelled_while_meshing_is_not_complete() {
     let flag = Arc::clone(&reached_meshing);
     let cancel = CancelToken::new(move || flag.load(std::sync::atomic::Ordering::SeqCst));
     let features = model.document.features().len();
+
     let evaluation =
         Recompute::default().run(&model.document, &ModelEvaluator, &cancel, &|done, _| {
             if done == features {
                 reached_meshing.store(true, std::sync::atomic::Ordering::SeqCst);
             }
         });
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!(!evaluation.is_complete());
 }
@@ -594,15 +671,20 @@ fn redefined(document: &mut Document, feature: FeatureId, kind: FeatureKind) {
 #[test]
 fn a_feature_using_one_cut_short_is_outdated_not_failed_through_it() {
     let mut drawing = rectangle(Plane::XY, (0.0, 0.0), (4.0, 4.0));
+
     let mark = drawing.add_point(Point2::new(1.0, 1.0));
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(drawing));
     let solid = transaction.add_feature(
         "Solid",
         extrude(outline, "5 mm", false, BodyOperation::NewBody),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default().with_workers(0);
     let run = |engine: &mut Recompute, document: &Document, cut_short| {
         let evaluator = Interfering {
@@ -613,6 +695,7 @@ fn a_feature_using_one_cut_short_is_outdated_not_failed_through_it() {
     };
 
     let failed = run(&mut engine, &document, false);
+
     document
         .apply(Transaction::single(
             "Move",
@@ -623,6 +706,7 @@ fn a_feature_using_one_cut_short_is_outdated_not_failed_through_it() {
             },
         ))
         .unwrap();
+
     let cut = run(&mut engine, &document, true);
 
     assert!(matches!(
@@ -636,7 +720,9 @@ fn a_feature_using_one_cut_short_is_outdated_not_failed_through_it() {
 #[test]
 fn a_feature_on_a_body_cut_short_is_outdated_not_failed_through_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 10.0))),
@@ -650,11 +736,14 @@ fn a_feature_on_a_body_cut_short_is_outdated_not_failed_through_it() {
         "Pocket outline",
         FeatureKind::from(rectangle(top, (2.0, 2.0), (4.0, 4.0))),
     );
+
     let pocket = transaction.add_feature(
         "Pocket",
         extrude(pocket_outline, "3 mm", true, BodyOperation::Remove(plate)),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default().with_workers(0);
 
     let failed = engine.run(
@@ -663,11 +752,13 @@ fn a_feature_on_a_body_cut_short_is_outdated_not_failed_through_it() {
         &CancelToken::never(),
         &|_, _| {},
     );
+
     redefined(
         &mut document,
         plate,
         extrude(outline, "6 mm", false, BodyOperation::NewBody),
     );
+
     let evaluator = Interfering {
         name: "Plate",
         cut_short: true,
@@ -685,7 +776,9 @@ fn a_feature_on_a_body_cut_short_is_outdated_not_failed_through_it() {
 #[test]
 fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (4.0, 4.0))),
@@ -707,11 +800,14 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut Recompute::default());
     let FeatureState::Failed(error) = &evaluation.feature(solid).unwrap().state else {
         panic!("a negative distance should be refused");
     };
+
     assert_eq!(
         error.reason(),
         "The backward distance must be more than zero."
@@ -720,7 +816,9 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
 
 fn single_body(extent_or_revolve: FeatureKind, sketch: Sketch) -> (Document, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let section = transaction.add_feature("Section", FeatureKind::from(sketch));
     let kind = match extent_or_revolve {
         FeatureKind::Solid(SolidFeature::Extrude(mut extrude)) => {
@@ -734,6 +832,7 @@ fn single_body(extent_or_revolve: FeatureKind, sketch: Sketch) -> (Document, Fea
         other => other,
     };
     let body = transaction.add_feature("Body", kind);
+
     document.apply(transaction.finish()).unwrap();
     (document, body)
 }
@@ -776,6 +875,7 @@ fn bounds(evaluation: &Evaluation, body: FeatureId) -> caditor_geometry::Aabb {
 
 fn extruded_circle() -> (Document, FeatureId) {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_circle(Point2::ZERO, 10.0);
     single_body(
         extruded(ExtrudeExtent::one_side(stored("20 mm"), false)),
@@ -807,6 +907,7 @@ fn bodies_are_meshed_at_the_recompute_mesh_quality_and_a_new_quality_meshes_them
     );
 
     engine.set_mesh_quality(MeshQuality::COARSE);
+
     let coarse = evaluate(&document, &mut engine);
     let coarse_mesh = shown_mesh(&coarse, body);
 
@@ -821,6 +922,7 @@ fn bodies_are_meshed_at_the_recompute_mesh_quality_and_a_new_quality_meshes_them
     assert!(smooth_mesh.triangles().len() > coarse_mesh.triangles().len());
 
     engine.set_mesh_quality(MeshQuality::COARSE);
+
     let again = evaluate(&document, &mut engine);
 
     assert!(Arc::ptr_eq(
@@ -840,6 +942,7 @@ fn the_worker_meshes_bodies_at_the_quality_it_was_given() {
 
     worker.set_mesh_quality(MeshQuality::COARSE).unwrap();
     worker.submit(document, 1).unwrap();
+
     let update = worker.wait();
 
     assert_eq!(
@@ -858,8 +961,11 @@ fn symmetric_and_two_sided_extrusions_reach_both_ways() {
         square.clone(),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     assert!((volume(&evaluation, body) - 24.0).abs() < 1e-6);
+
     let reach = bounds(&evaluation, body);
+
     assert!((reach.min().z + 3.0).abs() < 1e-9 && (reach.max().z - 3.0).abs() < 1e-9);
 
     let (document, body) = single_body(
@@ -867,8 +973,11 @@ fn symmetric_and_two_sided_extrusions_reach_both_ways() {
         square,
     );
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     assert!((volume(&evaluation, body) - 24.0).abs() < 1e-6);
+
     let reach = bounds(&evaluation, body);
+
     assert!((reach.min().z + 1.0).abs() < 1e-9 && (reach.max().z - 5.0).abs() < 1e-9);
 }
 
@@ -901,6 +1010,7 @@ fn one_sided_and_symmetric_revolutions_sweep_their_angle() {
         let (document, body) = single_body(revolved(extent.clone()), section.clone());
         let evaluation = evaluate(&document, &mut Recompute::default());
         let expected = full * fraction;
+
         assert!(
             (volume(&evaluation, body) - expected).abs() < 1e-3 * expected,
             "{extent:?}"
@@ -911,7 +1021,9 @@ fn one_sided_and_symmetric_revolutions_sweep_their_angle() {
 #[test]
 fn intersecting_keeps_only_what_both_bodies_share() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let first = transaction.add_feature(
         "First",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (4.0, 4.0))),
@@ -924,12 +1036,15 @@ fn intersecting_keeps_only_what_both_bodies_share() {
         "Second",
         FeatureKind::from(rectangle(Plane::XY, (2.0, 1.0), (6.0, 3.0))),
     );
+
     transaction.add_feature(
         "Common",
         extrude(second, "4 mm", false, BodyOperation::Intersect(body)),
     );
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!((volume(&evaluation, body) - 16.0).abs() < 1e-6);
 }
@@ -938,9 +1053,12 @@ fn intersecting_keeps_only_what_both_bodies_share() {
 fn an_import_makes_a_body_named_by_its_own_feature() {
     let base = model();
     let evaluation = evaluate(&base.document, &mut Recompute::default());
+
     let solid = evaluation.body(base.base).unwrap().clone();
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
+
     let imported = transaction.add_feature(
         "Bracket",
         FeatureKind::Import(Import::new("bracket.step", solid, "")),
@@ -953,23 +1071,30 @@ fn an_import_makes_a_body_named_by_its_own_feature() {
             "",
         )),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     assert!((volume(&evaluation, imported) - 348.0).abs() < 0.05);
+
     let origins: Vec<_> = evaluation
         .body(imported)
         .unwrap()
         .faces()
         .map(|(_, face)| face.origin())
         .collect();
+
     assert!(
         origins
             .iter()
             .all(|origin| matches!(origin, Some(caditor_kernel::FaceOrigin::Imported { .. })))
     );
+
     let FeatureState::Failed(error) = &evaluation.feature(broken).unwrap().state else {
         panic!("an empty import cannot make a body");
     };
+
     assert_eq!(
         error.reason(),
         "The shape imported from “empty.step” could not be read back from the model file."
@@ -980,13 +1105,17 @@ fn an_import_makes_a_body_named_by_its_own_feature() {
 fn an_import_used_by_later_features_can_be_replaced_by_another_import_but_not_another_kind() {
     let base = model();
     let evaluation = evaluate(&base.document, &mut Recompute::default());
+
     let solid = evaluation.body(base.base).unwrap().clone();
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
+
     let imported = transaction.add_feature(
         "Bracket",
         FeatureKind::Import(Import::new("bracket.step", solid.clone(), "first")),
     );
+
     transaction.add_feature("Gone", FeatureKind::Remove(Remove { body: imported }));
     document.apply(transaction.finish()).unwrap();
 
@@ -1023,16 +1152,22 @@ fn an_import_used_by_later_features_can_be_replaced_by_another_import_but_not_an
 fn an_import_is_placed_by_its_turns_and_distances_keeping_its_face_names() {
     let base = model();
     let evaluation = evaluate(&base.document, &mut Recompute::default());
+
     let solid = evaluation.body(base.base).unwrap().clone();
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
+
     let shift = transaction.add_parameter("shift", transaction.parse("5 mm").unwrap());
     let imported = transaction.add_feature(
         "Bracket",
         FeatureKind::Import(Import::new("bracket.step", solid, "text")),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let at_origin = evaluate(&document, &mut engine);
     let names: Vec<_> = at_origin
         .body(imported)
@@ -1046,8 +1181,10 @@ fn an_import_is_placed_by_its_turns_and_distances_keeping_its_face_names() {
     };
 
     let mut placement = BodyPlacement::default();
+
     placement.offset[0] = Expression::Parameter(shift);
     placement.turn[2] = document.parse("90 deg").unwrap();
+
     let placed = document
         .feature(imported)
         .and_then(|feature| feature.kind.import())
@@ -1082,6 +1219,7 @@ fn an_import_is_placed_by_its_turns_and_distances_keeping_its_face_names() {
     assert!(document.check(&inlined.unwrap()).is_ok());
 
     document.apply(undo).unwrap();
+
     let back = evaluate(&document, &mut engine);
     let bounds = back.body(imported).unwrap().bounding_box().unwrap();
 
@@ -1092,15 +1230,20 @@ fn an_import_is_placed_by_its_turns_and_distances_keeping_its_face_names() {
 fn a_placement_that_is_not_a_length_fails_the_import_alone() {
     let base = model();
     let evaluation = evaluate(&base.document, &mut Recompute::default());
+
     let solid = evaluation.body(base.base).unwrap().clone();
     let mut document = Document::default();
     let mut placement = BodyPlacement::default();
+
     placement.offset[1] = document.parse("30 deg").unwrap();
+
     let mut transaction = document.transaction("Import");
+
     let imported = transaction.add_feature(
         "Bracket",
         FeatureKind::Import(Import::new("bracket.step", solid, "text").placed(placement)),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document, &mut Recompute::default());
@@ -1108,6 +1251,7 @@ fn a_placement_that_is_not_a_length_fails_the_import_alone() {
     let FeatureState::Failed(error) = &evaluation.feature(imported).unwrap().state else {
         panic!("an angle cannot shift a body");
     };
+
     assert!(
         error.reason().contains("distance along Y"),
         "{}",
@@ -1119,6 +1263,7 @@ fn a_placement_that_is_not_a_length_fails_the_import_alone() {
 #[test]
 fn a_revolve_with_regions_on_both_sides_names_the_curves_apart_from_the_rest() {
     let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
+
     let stray = section.add_circle(Point2::new(-3.0, 1.0), 0.5);
     let label = section.entity_label(stray);
     let (document, body) = single_body(
@@ -1129,9 +1274,11 @@ fn a_revolve_with_regions_on_both_sides_names_the_curves_apart_from_the_rest() {
         section,
     );
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     let FeatureState::Failed(error) = &evaluation.feature(body).unwrap().state else {
         panic!("regions on both sides of the axis cannot revolve");
     };
+
     assert_eq!(
         error.reason(),
         format!(
@@ -1181,7 +1328,9 @@ fn a_revolve_keeping_one_side_of_its_axis_turns_only_the_part_of_the_profile_the
 #[test]
 fn a_part_turn_keeping_one_side_caps_the_profile_along_the_axis() {
     let mut section = rectangle(Plane::XZ, (-2.0, 0.0), (4.0, 3.0));
+
     section.add_circle(Point2::new(0.0, 1.5), 1.0);
+
     let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = revolved(RevolveExtent::OneSide {
         angle: stored("90 deg"),
         reversed: false,
@@ -1198,13 +1347,16 @@ fn a_part_turn_keeping_one_side_caps_the_profile_along_the_axis() {
 
     let quarter = std::f64::consts::FRAC_PI_4;
     let expected = quarter * (16.0 * 3.0 - 4.0 / 3.0);
+
     assert!((volume(&evaluation, body) - expected).abs() < 0.05);
 }
 
 #[test]
 fn a_revolve_keeping_one_side_leaves_out_regions_on_the_other() {
     let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
+
     section.add_circle(Point2::new(-3.0, 1.0), 0.5);
+
     let volume_of = |side| {
         let (document, body) = single_body(one_sided(Some(side)), section.clone());
         volume(&evaluate(&document, &mut Recompute::default()), body)
@@ -1214,6 +1366,7 @@ fn a_revolve_keeping_one_side_leaves_out_regions_on_the_other() {
     let right = volume_of(AxisSide::Right);
 
     let torus = 2.0 * std::f64::consts::PI * 3.0 * std::f64::consts::PI * 0.25;
+
     assert!((left - torus).abs() < 0.05);
     assert!((right - std::f64::consts::PI * 12.0 * 3.0).abs() < 0.1);
 }
@@ -1228,6 +1381,7 @@ fn a_revolve_keeping_a_side_with_nothing_on_it_says_so() {
     let FeatureState::Failed(error) = &evaluation.feature(body).unwrap().state else {
         panic!("nothing lies on the left of the axis");
     };
+
     assert_eq!(
         error.reason(),
         "No part of the profile of Section lies on the left side of the revolution axis."
@@ -1246,9 +1400,11 @@ fn a_distance_beyond_a_kilometre_is_refused_in_words() {
         rectangle(Plane::XY, (0.0, 0.0), (2.0, 2.0)),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());
+
     let FeatureState::Failed(error) = &evaluation.feature(body).unwrap().state else {
         panic!("a two-kilometre extrusion should be refused");
     };
+
     assert_eq!(error.reason(), "The distance cannot be more than 1000 m.");
     assert_eq!(error.remedy(), "Enter a distance of at most 1000 m.");
 }
@@ -1262,6 +1418,7 @@ fn a_profile_cancelled_while_it_is_built_is_built_again_later() {
     let stop = || -> Interrupt { Arc::new(|| true) };
 
     let stopped = interruptible(stop(), || result.profile().map(|_| ()));
+
     interruptible(stop(), || result.find_regions());
 
     assert!(matches!(stopped, Err(ProfileError::Cancelled(_))));
@@ -1270,13 +1427,16 @@ fn a_profile_cancelled_while_it_is_built_is_built_again_later() {
         result.profile().map(|profile| profile.regions().len()),
         Ok(1)
     );
+
     result.find_regions();
+
     assert!(matches!(result.regions(), Some(Ok(regions)) if regions.len() == 1));
 }
 
 #[test]
 fn construction_curves_are_left_out_of_the_profile() {
     let mut outline = rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0));
+
     let circle = outline.add_circle(Point2::new(5.0, 4.0), 2.0);
     let (mut document, body) = single_body(
         extruded(ExtrudeExtent::one_side(stored("1 mm"), false)),
@@ -1285,6 +1445,7 @@ fn construction_curves_are_left_out_of_the_profile() {
     let section = document.features().next().unwrap().id();
     let mut engine = Recompute::default();
     let hole = 80.0 - std::f64::consts::PI * 4.0;
+
     assert!((volume(&evaluate(&document, &mut engine), body) - hole).abs() < 0.05);
 
     let ordinary = document
@@ -1311,6 +1472,7 @@ fn construction_curves_are_left_out_of_the_profile() {
     );
 
     document.apply(ordinary).unwrap();
+
     assert!((volume(&evaluate(&document, &mut engine), body) - hole).abs() < 0.05);
 }
 
@@ -1318,8 +1480,11 @@ fn construction_curves_are_left_out_of_the_profile() {
 fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keeps_it_construction()
 {
     let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
+
     let centreline = section.add_line(Point2::new(0.0, -1.0), Point2::new(0.0, 5.0));
+
     section.set_construction(centreline, true).unwrap();
+
     let (mut document, ring) = single_body(
         FeatureKind::Solid(SolidFeature::Revolve(Revolve {
             sketch: FeatureId::from_raw(0),
@@ -1337,6 +1502,7 @@ fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keep
     let sketch = document.features().next().unwrap().id();
     let evaluation = evaluate(&document, &mut Recompute::default());
     let expected = std::f64::consts::PI * (16.0 - 4.0) * 3.0;
+
     assert!((volume(&evaluation, ring) - expected).abs() < 0.1);
 
     document
@@ -1345,8 +1511,11 @@ fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keep
             Edit::RemoveFeature { id: ring },
         ))
         .unwrap();
+
     let mut transaction = document.transaction("Delete centreline");
+
     transaction.remove_sketch_items(sketch, [centreline], []);
+
     let restore = document.apply(transaction.finish()).unwrap();
     let removed = document
         .feature(sketch)
@@ -1355,7 +1524,9 @@ fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keep
         .sketch()
         .unwrap()
         .clone();
+
     document.apply(restore).unwrap();
+
     let restored = document.feature(sketch).unwrap().kind.sketch().unwrap();
 
     assert_eq!(removed.construction().len(), 0);
@@ -1372,6 +1543,7 @@ fn named_vertices(
         .vertices()
         .map(|(id, vertex)| {
             let name = result.names().vertex_name(id).unwrap();
+
             assert_eq!(result.names().vertices_named(name), [id]);
             (name, vertex.point())
         })
@@ -1382,6 +1554,7 @@ fn named_vertices(
 fn vertices_keep_their_names_when_a_parameter_moves_them() {
     let mut model = model();
     let mut engine = Recompute::default();
+
     let before = named_vertices(&evaluate(&model.document, &mut engine), model.base);
     let depth = model.document.parameter_named("depth").unwrap().id();
 
@@ -1395,6 +1568,7 @@ fn vertices_keep_their_names_when_a_parameter_moves_them() {
             },
         ))
         .unwrap();
+
     let after = named_vertices(&evaluate(&model.document, &mut engine), model.base);
     let moved: Vec<(f64, f64)> = before
         .iter()
@@ -1418,7 +1592,9 @@ fn vertices_keep_their_names_when_a_parameter_moves_them() {
 
 fn extrusion_with_start(start: Option<&str>) -> (Document, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
@@ -1437,6 +1613,7 @@ fn extrusion_with_start(start: Option<&str>) -> (Document, FeatureId) {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     (document, base)
 }
@@ -1460,7 +1637,9 @@ fn an_extrusion_can_start_off_its_sketch_plane_either_way() {
         let evaluation = evaluate(&document, &mut engine);
 
         assert_eq!(evaluation.failed_count(), 0, "{start:?}");
+
         let (low, high) = heights(&evaluation, base);
+
         assert!(
             (low - expected.0).abs() < 1e-9 && (high - expected.1).abs() < 1e-9,
             "{start:?} gave {low} to {high}"
@@ -1483,6 +1662,7 @@ fn a_start_offset_that_cannot_be_evaluated_or_reaches_too_far_fails_the_extrusio
         let FeatureState::Failed(error) = &evaluation.feature(base).unwrap().state else {
             panic!("the extrusion should fail for {start}");
         };
+
         assert!(error.reason().starts_with(reason), "{}", error.reason());
         assert_eq!(evaluation.failed_count(), 1);
     }
@@ -1491,12 +1671,15 @@ fn a_start_offset_that_cannot_be_evaluated_or_reaches_too_far_fails_the_extrusio
 #[test]
 fn a_start_offset_follows_the_parameter_it_uses() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let lift = transaction.add_parameter("lift", transaction.parse("2 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
     );
+
     let base = transaction.add_feature(
         "Base",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -1511,11 +1694,15 @@ fn a_start_offset_follows_the_parameter_it_uses() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     assert_eq!(heights(&evaluate(&document, &mut engine), base), (2.0, 6.0));
 
     let mut transaction = document.transaction("Lift");
+
     transaction.edit(Edit::SetParameterExpression {
         id: lift,
         expression: transaction.parse("7 mm").unwrap(),
@@ -1538,9 +1725,12 @@ fn closed_splines_and_a_conic_closed_by_its_chord_extrude_into_bodies() {
         Point2::new(25.0, 15.0),
         Point2::new(5.0, 20.0),
     ];
+
     for kind in [SplineKind::Control { closed: true }, SplineKind::fit(true)] {
         let mut sketch = Sketch::new(Plane::XY);
+
         sketch.add_spline_of(&outline, kind.clone());
+
         let (document, body) = single_body(
             extruded(ExtrudeExtent::one_side(stored("5 mm"), false)),
             sketch,
@@ -1550,7 +1740,9 @@ fn closed_splines_and_a_conic_closed_by_its_chord_extrude_into_bodies() {
 
         assert!(volume(&evaluation, body) > 100.0, "{kind:?}");
     }
+
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_spline_of(
         &[
             Point2::new(10.0, 0.0),
@@ -1562,6 +1754,7 @@ fn closed_splines_and_a_conic_closed_by_its_chord_extrude_into_bodies() {
         },
     );
     sketch.add_line(Point2::new(0.0, 10.0), Point2::new(10.0, 0.0));
+
     let (document, body) = single_body(
         extruded(ExtrudeExtent::one_side(stored("2 mm"), false)),
         sketch,
@@ -1577,6 +1770,7 @@ fn closed_splines_and_a_conic_closed_by_its_chord_extrude_into_bodies() {
 fn a_spline_of_a_chosen_degree_closed_by_its_chord_extrudes_into_a_body() {
     for degree in [2, 5, 7] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline(&[
             Point2::new(0.0, 0.0),
             Point2::new(5.0, 12.0),
@@ -1587,8 +1781,10 @@ fn a_spline_of_a_chosen_degree_closed_by_its_chord_extrudes_into_a_body() {
             Point2::new(38.0, 4.0),
             Point2::new(44.0, 12.0),
         ]);
+
         sketch.set_spline_degree(spline, degree).unwrap();
         sketch.add_line(Point2::new(0.0, 0.0), Point2::new(44.0, 12.0));
+
         let (document, body) = single_body(
             extruded(ExtrudeExtent::one_side(stored("5 mm"), false)),
             sketch,
@@ -1619,10 +1815,14 @@ fn a_closed_spline_of_a_chosen_degree_extrudes_into_a_body_the_polygon_bounds() 
         .sum::<f64>()
         / 2.0;
     let mut volumes = Vec::new();
+
     for degree in [1, 2, 5] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline_of(&ring, SplineKind::Control { closed: true });
+
         sketch.set_spline_degree(spline, degree).unwrap();
+
         let (document, body) = single_body(
             extruded(ExtrudeExtent::one_side(stored("5 mm"), false)),
             sketch,

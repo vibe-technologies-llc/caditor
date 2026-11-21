@@ -76,6 +76,7 @@ fn bore_spec(form: ThreadForm, radius: f64, height: f64) -> ThreadSpec {
 fn groove_per_length(form: &ThreadForm, from: f64, to: f64) -> f64 {
     let steps = 20_000;
     let width = (to - from) / steps as f64;
+
     let moment: f64 = (0..steps)
         .map(|step| {
             let radius = from + width * (step as f64 + 0.5);
@@ -96,6 +97,7 @@ fn volume(solid: &Solid) -> f64 {
 
 fn assert_volume(name: &str, solid: &Solid, expected: f64) {
     let measured = volume(solid);
+
     assert!(
         (measured - expected).abs() < 2e-4 * expected,
         "{name}: {measured} mm³, expected {expected} mm³"
@@ -105,6 +107,7 @@ fn assert_volume(name: &str, solid: &Solid, expected: f64) {
 fn threaded_timed(name: &str, solid: &Solid, spec: &ThreadSpec) -> Solid {
     let started = Instant::now();
     let threaded = thread(solid, spec, FEATURE).unwrap();
+
     eprintln!("{name} threaded in {:?}", started.elapsed());
     threaded
 }
@@ -124,12 +127,14 @@ fn the_groove_tool_has_a_face_per_turn_and_side() {
     let tools = thread_tools(&spec, FEATURE).unwrap();
 
     assert_eq!(tools.len(), 1);
+
     let turns = (20.0 + 2.0 * RUN_OUT * 0.7) / 0.7;
     let first_root = FaceName::thread(FEATURE, GROOVE_PARTS.root);
     let named = tools[0]
         .faces()
         .filter(|(_, face)| face.name() == first_root)
         .count();
+
     assert_eq!(named, 1);
     assert!(tools[0].faces().count() >= 4 * turns.ceil() as usize + 2);
 }
@@ -156,9 +161,11 @@ fn branches_ending_on_a_flank_edge_never_step_back() {
     let tool = thread_tools(&spec, FEATURE).unwrap().remove(0);
     let plane = Surface::Plane(PlaneSurface::new(Plane::XY).unwrap());
     let around = Aabb2::from_point(Point2::new(-3.0, -3.0)).including(Point2::new(3.0, 3.0));
+
     let plane_patch = SurfacePatch::new(&plane, around).unwrap();
 
     let mut branches = 0;
+
     for (_, face) in tool.faces() {
         let Surface::BSpline(flank) = face.surface() else {
             continue;
@@ -171,14 +178,17 @@ fn branches_ending_on_a_flank_edge_never_step_back() {
             let Curve::Intersection(curve) = &branch.curve else {
                 continue;
             };
+
             branches += 1;
             for pair in curve.nodes().windows(2) {
                 let chord = pair[1].point - pair[0].point;
+
                 assert!(pair[0].derivative.dot(chord) > 0.0, "{:?}", pair[0].point);
                 assert!(pair[1].derivative.dot(chord) > 0.0, "{:?}", pair[1].point);
             }
         }
     }
+
     assert!(branches >= 2);
 }
 
@@ -190,6 +200,7 @@ fn an_m4_shaft_is_threaded_its_whole_length() {
     let threaded = threaded_timed("M4x20", &shaft, &shaft_spec(form, 2.0, 20.0, 20.0));
 
     let expected = PI * 4.0 * 20.0 - groove_per_length(&form, form.root_radius, 2.0) * 20.0;
+
     assert_volume("M4x20", &threaded, expected);
 }
 
@@ -206,6 +217,7 @@ fn a_thread_stopping_short_leaves_the_rest_of_the_shaft_round() {
 
     let cut = PI * 4.0 * 20.0 - volume(&threaded);
     let per_length = groove_per_length(&form, form.root_radius, 2.0);
+
     assert!(cut > per_length * 7.0 && cut < per_length * 8.0, "{cut}");
     assert_eq!(
         threaded.classify_point(Point3::new(0.0, form.root_radius + 0.1, 5.0)),
@@ -230,6 +242,7 @@ fn hands_wind_opposite_ways() {
     let toward = |side: Vector3| quarter_turn + side * (form.root_radius + 0.1);
     let right_groove = toward(right.frame.y_axis());
     let left_groove = toward(-right.frame.y_axis());
+
     assert_eq!(
         right_handed.classify_point(right_groove),
         PointClass::Outside
@@ -248,6 +261,7 @@ fn points_in_a_threaded_body_classify_as_its_mesh_does() {
         hand: Handedness::Left,
         ..shaft_spec(form, 3.0, 10.0, 10.0)
     };
+
     let threaded = thread(&shaft, &spec, FEATURE).unwrap();
     let mesh = threaded
         .tessellate(&SamplingTolerance::new(1e-4, 0.02).unwrap())
@@ -267,6 +281,7 @@ fn points_in_a_threaded_body_classify_as_its_mesh_does() {
                 Some(false) => PointClass::Outside,
                 None => continue,
             };
+
             assert_eq!(threaded.classify_point(point), expected, "{point}");
         }
     }
@@ -282,6 +297,7 @@ fn an_m8_bore_is_tapped_through() {
     let expected = 20.0 * 20.0 * 12.0
         - PI * 3.4 * 3.4 * 12.0
         - groove_per_length(&form, 3.4, form.root_radius) * 12.0;
+
     assert_volume("M8 tapped", &tapped, expected);
 }
 
@@ -300,6 +316,7 @@ fn a_bore_narrower_than_the_minor_diameter_is_bored_out_first() {
     let expected = 20.0 * 20.0 * 12.0
         - PI * minor * minor * 12.0
         - groove_per_length(&form, minor, form.root_radius) * 12.0;
+
     assert_volume("M8 bored out", &tapped, expected);
 }
 

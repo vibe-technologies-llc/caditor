@@ -18,6 +18,7 @@ use crate::{
 
 fn empty_model() -> Harness {
     let mut harness = Harness::starting(None, Document::default(), Workspace::new());
+
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();
@@ -27,10 +28,13 @@ fn empty_model() -> Harness {
 fn empty_model_in(dir: &Path) -> Harness {
     let mut preferences =
         Preferences::from_settings(caditor_file::Settings::load(&dir.join("config")));
+
     preferences.onboarding.welcomed = true;
     preferences.onboarding.hints = false;
+
     let workspace = Workspace::with_preferences(preferences);
     let mut harness = Harness::starting(Some(dir), Document::default(), workspace);
+
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();
@@ -110,6 +114,7 @@ fn closing_the_card_hides_it_for_this_model_only_and_leaves_the_model_unchanged(
 #[test]
 fn show_the_start_card_brings_it_back_for_the_current_model() {
     let mut harness = empty_model();
+
     harness.click_button(CLOSE);
     harness.frame();
 
@@ -125,6 +130,7 @@ fn dont_show_this_again_outlasts_a_restart_and_the_preference_brings_the_card_ba
     let dir = TempDir::new().unwrap();
     let config = dir.path().join("config");
     let mut harness = empty_model_in(dir.path());
+
     assert!(harness.shows(TITLE));
 
     harness.click(DONT_SHOW_AGAIN);
@@ -138,6 +144,7 @@ fn dont_show_this_again_outlasts_a_restart_and_the_preference_brings_the_card_ba
     assert!(!harness.shows(TITLE));
     assert!(!harness.workspace.preferences.onboarding.start_card);
     assert!(!harness.model.is_dirty());
+
     harness.wait_until("the start card preference is saved", |_| {
         caditor_file::Settings::load(&config).flag("onboarding.start_card") == Some(false)
     });
@@ -165,6 +172,7 @@ fn dont_show_this_again_outlasts_a_restart_and_the_preference_brings_the_card_ba
 
     assert!(restarted.workspace.preferences.onboarding.start_card);
     assert!(restarted.shows(TITLE));
+
     restarted.wait_until("the start card preference is saved again", |_| {
         caditor_file::Settings::load(&config).flag("onboarding.start_card") == Some(true)
     });
@@ -194,6 +202,7 @@ fn a_start_used_with_dont_show_this_again_ticked_stops_the_card_on_empty_models(
 fn the_card_fits_in_the_view_clear_of_the_view_cube_at_every_interface_size() {
     for scale in [0.75, 1.0, 1.5, 2.0] {
         let mut harness = empty_model();
+
         set_scale(&mut harness, scale);
 
         let view = harness.workspace.viewport.rect().unwrap();
@@ -215,10 +224,12 @@ fn the_card_fits_in_the_view_clear_of_the_view_cube_at_every_interface_size() {
 fn the_card_moves_clear_of_the_view_cube_at_every_size_and_corner() {
     for scale in [1.0, 2.0] {
         let mut harness = empty_model();
+
         set_scale(&mut harness, scale);
         for size in [CubeSize::Small, CubeSize::Standard, CubeSize::Large] {
             for corner in Corner::ALL {
                 let crowded = scale > 1.0 && size == CubeSize::Large && !corner.is_top();
+
                 if crowded {
                     continue;
                 }

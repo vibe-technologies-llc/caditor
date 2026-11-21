@@ -41,6 +41,7 @@ impl Canonical {
             .map(|point| Point2::new(point.x, point.y))
             .collect();
         let origin = *points.first()?;
+
         let farthest = points
             .iter()
             .map(|point| point.distance(origin))
@@ -49,9 +50,11 @@ impl Canonical {
             .iter()
             .find(|point| point.distance(origin) > farthest * NEGLIGIBLE_LEG)?;
         let leg = far.distance(origin);
+
         let along = (*far - origin) / leg;
         let usable = leg.is_finite() && leg > 0.0 && along.is_finite();
         let bits = |values: &[f64]| values.iter().map(|value| value.to_bits()).collect();
+
         let mut canonical = Self {
             key: Key {
                 degree: nurbs.degree,
@@ -63,6 +66,7 @@ impl Canonical {
             leg,
             points: Vec::new(),
         };
+
         canonical.points = points.iter().map(|point| canonical.local(*point)).collect();
         usable.then_some(canonical)
     }
@@ -86,6 +90,7 @@ impl FitCache {
         let entries = self.entries.get(&canonical.key)?;
         entries.iter().find_map(|entry| {
             let deviation = entry.relative_deviation * canonical.leg;
+
             if deviation > tolerance {
                 return None;
             }
@@ -109,6 +114,7 @@ impl FitCache {
             fitted: fitted.iter().map(|point| canonical.local(*point)).collect(),
             relative_deviation: deviation / canonical.leg,
         };
+
         self.entries.entry(canonical.key).or_default().push(entry);
     }
 }
@@ -147,6 +153,7 @@ mod tests {
             .map(|index| Point2::new(f64::from(index), f64::from(index * index)))
             .collect();
         let mut cache = FitCache::default();
+
         cache.store(canonical, &fitted, 0.01);
         (cache, fitted)
     }
@@ -169,6 +176,7 @@ mod tests {
                 .unwrap();
             let expected_start = transform(fitted[0]);
             let expected_end = transform(fitted[3]);
+
             assert_eq!(found.len(), fitted.len());
             assert!(found[0].distance(expected_start) < 1e-9);
             assert!(found[3].distance(expected_end) < 1e-9);

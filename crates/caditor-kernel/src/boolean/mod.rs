@@ -40,14 +40,14 @@ use crate::{
 const TOLERANCE: f64 = LINEAR_RESOLUTION;
 const MAX_WIDENING: f64 = 0.05;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum BooleanOperation {
     Union,
     Difference,
     Intersection,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct BooleanSite {
     pub first: Vec<FaceId>,
     pub second: Vec<FaceId>,
@@ -74,7 +74,7 @@ impl BooleanSite {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum BooleanError {
     #[error("nothing is left of the solids")]
     Empty,
@@ -189,7 +189,7 @@ impl From<PlanError> for BooleanError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum Operand {
     First,
     Second,
@@ -206,20 +206,20 @@ impl Operand {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct FaceKey {
     operand: Operand,
     face: FaceId,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct FaceBounds {
     id: FaceId,
     uv: Aabb2,
     bounds: Aabb,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OverlapCuts {
     AtMiddle,
     WhereverInside,
@@ -244,6 +244,7 @@ fn bounds_positions(faces: &[FaceBounds]) -> Vec<Option<usize>> {
         .max()
         .unwrap_or(0);
     let mut positions = vec![None; size];
+
     for (position, face) in faces.iter().enumerate() {
         if let Some(slot) = positions.get_mut(face.id.index()) {
             *slot = Some(position);
@@ -278,10 +279,12 @@ fn widened(surface: &Surface, uv: Aabb2) -> Aabb2 {
         }
     };
     let size = uv.size();
+
     let (along_u, along_v) = (
         margin(|speed| speed.0, size.x),
         margin(|speed| speed.1, size.y),
     );
+
     let low = Point2::new(
         surface.u_period().map_or_else(
             || surface.u_domain().clamp(uv.min().x - along_u),
@@ -382,6 +385,7 @@ impl<'a> Input<'a> {
         if self.imprinted.is_none() || operand == Operand::Second {
             return true;
         }
+
         let solid = self.solid(operand);
         solid
             .edge(edge)
@@ -420,6 +424,7 @@ impl<'a> Input<'a> {
 
     fn faces_near(&self, operand: Operand, bounds: &Aabb) -> impl Iterator<Item = &FaceBounds> {
         let [first, second] = &self.trees;
+
         let tree = match operand {
             Operand::First => first,
             Operand::Second => second,
@@ -436,6 +441,7 @@ impl<'a> Input<'a> {
 
     fn bounds(&self, key: FaceKey) -> Option<&FaceBounds> {
         let [first, second] = &self.positions;
+
         let positions = match key.operand {
             Operand::First => first,
             Operand::Second => second,
@@ -465,23 +471,28 @@ fn combine(
     if let Some(result) = apart::combine_apart(first, second, operation) {
         return result;
     }
+
     let mut plain = Input::new(first, second);
+
     let snapped_solid = snap::snapped(&plain);
     let mut snapped = snapped_solid.as_ref().map(|solid| Input::new(first, solid));
     let attempt = |input: &mut Input, cuts: OverlapCuts| {
         input.overlap_cuts = cuts;
         settled(run(input, operation))
     };
+
     if let Some(done) = snapped
         .as_mut()
         .and_then(|input| attempt(input, OverlapCuts::AtMiddle).ok())
     {
         return done;
     }
+
     let reported = match attempt(&mut plain, OverlapCuts::AtMiddle) {
         Ok(done) => return done,
         Err(error) => error,
     };
+
     if let Some(done) = snapped
         .as_mut()
         .and_then(|input| attempt(input, OverlapCuts::WhereverInside).ok())
@@ -502,15 +513,22 @@ fn settled(
 
 fn run(input: &Input, operation: BooleanOperation) -> Result<Solid, BooleanError> {
     let mut arrangement = imprint::imprint(input)?;
+
     interrupt::check()?;
+
     let split = faces::split(input, &arrangement)?;
+
     interrupt::check()?;
+
     let kept = select::select(input, &arrangement, split, operation)?;
+
     if kept.is_empty() {
         return Err(BooleanError::Empty);
     }
     interrupt::check()?;
+
     let healed = heal::heal(&mut arrangement, kept)?;
+
     interrupt::check()?;
     assemble::assemble(input, &arrangement, healed, &BTreeMap::new())
 }

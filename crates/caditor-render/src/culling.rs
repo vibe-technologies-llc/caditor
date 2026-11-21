@@ -3,7 +3,7 @@ use glam::{DMat4, DVec2, DVec4};
 
 use crate::camera::View;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ClipWindow {
     eye: Point3,
     clip: DMat4,
@@ -13,6 +13,7 @@ pub struct ClipWindow {
 impl ClipWindow {
     pub fn new(view: &View, transform: [f32; 4], pixels_per_point: f32) -> Self {
         let [scale_x, scale_y, offset_x, offset_y] = transform.map(f64::from);
+
         let ndc_per_pixel = DVec2::new(scale_x, scale_y) * 2.0 / view.size().max(DVec2::ONE);
         let window = DMat4::from_cols(
             DVec4::new(scale_x, 0.0, 0.0, 0.0),
@@ -31,6 +32,7 @@ impl ClipWindow {
         let reach = DVec2::ONE + self.ndc_per_point * reach_points.max(0.0);
         let clipped = corners.map(|corner| self.clip * (corner - self.eye).extend(1.0));
         let all = |outside: &dyn Fn(DVec4) -> bool| clipped.iter().all(|point| outside(*point));
+
         let beyond_a_side = all(&|point| point.x > point.w * reach.x)
             || all(&|point| point.x < -point.w * reach.x)
             || all(&|point| point.y > point.w * reach.y)
@@ -138,6 +140,7 @@ mod tests {
                 height: 600,
             },
         );
+
         let window = ClipWindow::new(&view, left_quarter, 1.0);
         let left = view.unproject(DVec2::new(100.0, 300.0), 100.0).unwrap();
         let right = view.unproject(DVec2::new(700.0, 300.0), 100.0).unwrap();

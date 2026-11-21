@@ -19,15 +19,21 @@ struct Source {
 
 fn source() -> Source {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let width = transaction.add_parameter("width", transaction.parse("20 mm").unwrap());
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
     let circle = sketch.add_circle(Point2::new(5.0, 5.0), 2.0);
+
     sketch.set_construction(circle, true).unwrap();
+
     let Some(&Entity::Line { start, end }) = sketch.entity(line) else {
         panic!("a line");
     };
+
     sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
     sketch
         .add_constraint(Constraint::Distance {
@@ -36,18 +42,22 @@ fn source() -> Source {
             value: Expression::Parameter(width),
         })
         .unwrap();
+
     let radius = sketch
         .add_constraint(Constraint::Radius {
             entity: circle,
             value: Expression::measure(2.0, Unit::Millimetre),
         })
         .unwrap();
+
     sketch.set_active(radius, false).unwrap();
     sketch
         .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
         .unwrap();
+
     let clip = sketch.clip(&[line, circle]).unwrap();
     let feature = transaction.add_feature("Sketch 1", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
     Source {
         document,
@@ -84,6 +94,7 @@ fn sketch_geometry_crosses_the_clipboard_with_its_constraints_and_a_recognisable
     assert_eq!(clipboard_kind(&text), Ok(ClipboardKind::SketchGeometry));
 
     let same = read_sketch_clipboard(&text, &source.document, HERE).unwrap();
+
     assert_eq!(same.origin, PasteOrigin::ThisDocument);
     assert_eq!(same.sketch, Some(source.sketch));
     assert_eq!(same.inlined, 0);
@@ -94,18 +105,25 @@ fn sketch_geometry_crosses_the_clipboard_with_its_constraints_and_a_recognisable
 
     let elsewhere = Document::default();
     let pasted = read_sketch_clipboard(&text, &elsewhere, THERE).unwrap();
+
     assert_eq!(pasted.origin, PasteOrigin::Elsewhere);
     assert_eq!(pasted.inlined, 1);
     assert_eq!(pasted.clip.curve_count(), 2);
     assert_eq!(pasted.clip.constraint_count(), 3);
+
     let mut target = Sketch::new(Plane::XY);
+
     let items = target.paste(&pasted.clip, Vector2::ZERO).unwrap();
+
     assert_eq!(items.len(), 2);
+
     let inactive = target
         .constraints()
         .filter(|(id, _)| !target.is_active(*id))
         .count();
+
     assert_eq!(inactive, 1);
+
     let distance = target
         .constraints()
         .find_map(|(_, constraint)| match constraint {
@@ -113,6 +131,7 @@ fn sketch_geometry_crosses_the_clipboard_with_its_constraints_and_a_recognisable
             _ => None,
         })
         .unwrap();
+
     assert!(distance.parameters().is_empty());
     assert_eq!(distance.to_stored_text(), "20 mm");
     assert!(
@@ -128,15 +147,21 @@ fn a_parameter_of_the_same_name_drives_pasted_dimensions() {
     let source = source();
     let text = copied_text(&source);
     let mut target = Document::default();
+
     let mut transaction = target.transaction("Width");
+
     let own = transaction.add_parameter("width", transaction.parse("35 mm").unwrap());
+
     target.apply(transaction.finish()).unwrap();
 
     let pasted = read_sketch_clipboard(&text, &target, THERE).unwrap();
 
     assert_eq!(pasted.inlined, 0);
+
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.paste(&pasted.clip, Vector2::ZERO).unwrap();
+
     assert!(
         sketch
             .constraints()
@@ -164,7 +189,9 @@ fn foreign_damaged_newer_and_other_kinds_of_text_are_refused_in_words() {
         read("caditor clipboard: drawings, version 1\n{}"),
         Err(ClipboardError::UnknownKind)
     );
+
     let truncated = &text[..text.len() / 2];
+
     assert_eq!(
         read(truncated),
         Err(ClipboardError::Damaged {
@@ -177,7 +204,9 @@ fn foreign_damaged_newer_and_other_kinds_of_text_are_refused_in_words() {
         ),
         Err(ClipboardError::NothingUsable)
     );
+
     let features = features_clipboard_text(&[], &CarriedParameters::default(), HERE).unwrap();
+
     assert_eq!(
         read(&features),
         Err(ClipboardError::OtherKind {
@@ -192,6 +221,7 @@ fn foreign_damaged_newer_and_other_kinds_of_text_are_refused_in_words() {
     );
 
     let windows = text.replace('\n', "\r\n");
+
     assert!(read(&windows).is_ok());
 }
 
@@ -211,7 +241,9 @@ fn damaged_items_are_left_out_with_a_note_and_the_rest_pastes() {
 fn features_cross_the_clipboard_and_paste_into_another_model() {
     let source = source();
     let mut document = source.document;
+
     let mut transaction = document.transaction("Extrude");
+
     let extrude = transaction.add_feature(
         "Extrude 1",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -226,6 +258,7 @@ fn features_cross_the_clipboard_and_paste_into_another_model() {
             wall: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     document
         .apply(caditor_document::Transaction::single(
@@ -239,6 +272,7 @@ fn features_cross_the_clipboard_and_paste_into_another_model() {
             },
         ))
         .unwrap();
+
     let features: Vec<Feature> = [source.sketch, extrude]
         .iter()
         .map(|id| document.feature(*id).unwrap().clone())
@@ -252,13 +286,18 @@ fn features_cross_the_clipboard_and_paste_into_another_model() {
     assert_eq!(read.origin, PasteOrigin::Elsewhere);
     assert!(read.notes.is_empty(), "{:?}", read.notes);
     assert_eq!(read.features, features);
+
     let mut target = Document::default();
+
     let paste = target
         .paste_features(&read.features, &read.parameters, read.origin)
         .unwrap();
+
     assert_eq!(paste.pasted.len(), 2);
     assert_eq!(paste.inlined, 1);
+
     target.apply(paste.transaction).unwrap();
+
     assert_eq!(target.features().len(), 2);
     assert!(
         target
@@ -275,9 +314,12 @@ fn features_cross_the_clipboard_and_paste_into_another_model() {
 #[test]
 fn a_copied_text_crosses_the_clipboard_with_its_height_written_out_elsewhere() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let size = transaction.add_parameter("size", transaction.parse("7 mm").unwrap());
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::new(3.0, 1.0));
     let text = sketch
         .add_text(Text {
@@ -292,7 +334,9 @@ fn a_copied_text_crosses_the_clipboard_with_its_height_written_out_elsewhere() {
         .unwrap();
     let clip = sketch.clip(&[text]).unwrap();
     let feature = transaction.add_feature("Sketch 1", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
+
     let source = Source {
         document,
         sketch: feature,
@@ -303,7 +347,9 @@ fn a_copied_text_crosses_the_clipboard_with_its_height_written_out_elsewhere() {
     let same = read_sketch_clipboard(&copied, &source.document, HERE).unwrap();
     let elsewhere = read_sketch_clipboard(&copied, &Document::default(), THERE).unwrap();
     let mut target = Sketch::new(Plane::XY);
+
     target.paste(&elsewhere.clip, Vector2::ZERO).unwrap();
+
     let pasted: Vec<&Text> = target.texts().map(|(_, text)| text).collect();
 
     assert_eq!(same.clip.text_count(), 1);
@@ -320,9 +366,12 @@ fn a_copied_text_crosses_the_clipboard_with_its_height_written_out_elsewhere() {
 #[test]
 fn a_copied_gear_crosses_the_clipboard_with_its_parameters_written_out_elsewhere() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let module = transaction.add_parameter("module", transaction.parse("2 mm").unwrap());
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(3.0, 1.0));
     let gear = sketch
         .add_parametric_gear(Gear {
@@ -340,7 +389,9 @@ fn a_copied_gear_crosses_the_clipboard_with_its_parameters_written_out_elsewhere
         .unwrap();
     let clip = sketch.clip(&[gear]).unwrap();
     let feature = transaction.add_feature("Sketch 1", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
+
     let source = Source {
         document,
         sketch: feature,
@@ -351,7 +402,9 @@ fn a_copied_gear_crosses_the_clipboard_with_its_parameters_written_out_elsewhere
     let same = read_sketch_clipboard(&copied, &source.document, HERE).unwrap();
     let elsewhere = read_sketch_clipboard(&copied, &Document::default(), THERE).unwrap();
     let mut target = Sketch::new(Plane::XY);
+
     target.paste(&elsewhere.clip, Vector2::ZERO).unwrap();
+
     let pasted: Vec<&Gear> = target.gears().map(|(_, gear)| gear).collect();
 
     assert_eq!(same.clip.gear_count(), 1);
@@ -366,9 +419,12 @@ fn a_copied_gear_crosses_the_clipboard_with_its_parameters_written_out_elsewhere
 #[test]
 fn a_copied_sprocket_crosses_the_clipboard_with_its_chain_and_parameters_written_out_elsewhere() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let teeth = transaction.add_parameter("teeth", transaction.parse("19").unwrap());
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(3.0, 1.0));
     let sprocket = sketch
         .add_parametric_gear(Gear::sprocket(
@@ -381,7 +437,9 @@ fn a_copied_sprocket_crosses_the_clipboard_with_its_chain_and_parameters_written
         .unwrap();
     let clip = sketch.clip(&[sprocket]).unwrap();
     let feature = transaction.add_feature("Sketch 1", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
+
     let source = Source {
         document,
         sketch: feature,
@@ -391,7 +449,9 @@ fn a_copied_sprocket_crosses_the_clipboard_with_its_chain_and_parameters_written
 
     let elsewhere = read_sketch_clipboard(&copied, &Document::default(), THERE).unwrap();
     let mut target = Sketch::new(Plane::XY);
+
     target.paste(&elsewhere.clip, Vector2::ZERO).unwrap();
+
     let pasted: Vec<&Gear> = target.gears().map(|(_, gear)| gear).collect();
 
     assert_eq!(elsewhere.inlined, 1);

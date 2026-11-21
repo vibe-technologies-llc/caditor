@@ -9,7 +9,7 @@ const DEVICE_SCOPE: &str = "Device";
 const PORTABLE_CHASSIS: [u32; 8] = [8, 9, 10, 11, 14, 30, 31, 32];
 const UNINFORMATIVE_CHASSIS: [u32; 3] = [0, 1, 2];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct PowerSupply {
     kind: String,
     scope: Option<String>,
@@ -122,6 +122,7 @@ mod tests {
     fn the_power_supplies_and_chassis_are_read_from_files() {
         let directory = tempfile::tempdir().unwrap();
         let supplies = directory.path().join("power_supply");
+
         fs::create_dir(&supplies).unwrap();
 
         for (name, kind, scope) in [
@@ -130,16 +131,20 @@ mod tests {
             ("AC", "Mains\n", None),
         ] {
             let path = supplies.join(name);
+
             fs::create_dir(&path).unwrap();
             fs::write(path.join("type"), kind).unwrap();
             if let Some(scope) = scope {
                 fs::write(path.join("scope"), scope).unwrap();
             }
         }
+
         let chassis = directory.path().join("chassis_type");
+
         fs::write(&chassis, "10\n").unwrap();
 
         let mut read = read_power_supplies(&supplies).unwrap();
+
         read.sort_by(|a, b| a.kind.cmp(&b.kind).then(a.scope.cmp(&b.scope)));
 
         assert_eq!(

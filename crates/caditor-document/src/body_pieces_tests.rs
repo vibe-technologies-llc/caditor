@@ -25,8 +25,10 @@ fn draw(sketch: &mut Sketch, min: (f64, f64), max: (f64, f64)) -> Drawn {
         points: Vec::new(),
         lines: Vec::new(),
     };
+
     for index in 0..4 {
         let line = sketch.add_line(corners[index], corners[(index + 1) % 4]);
+
         if let Some(Entity::Line { start, end }) = sketch.entity(line) {
             drawn.points.extend([*start, *end]);
         }
@@ -80,21 +82,27 @@ pub(crate) struct Model {
 
 pub(crate) fn three_rectangles() -> Model {
     let mut drawing = Sketch::new(Plane::XY);
+
     let rectangles = [
         draw(&mut drawing, (0.0, 0.0), (4.0, 4.0)),
         draw(&mut drawing, (10.0, 0.0), (14.0, 4.0)),
         draw(&mut drawing, (20.0, 0.0), (24.0, 4.0)),
     ];
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let sketch = transaction.add_feature("Shapes", FeatureKind::from(drawing));
     let mut extruded = Feature::new(
         FeatureId::from_raw(0),
         "Blocks".to_owned(),
         extrusion(sketch),
     );
+
     extruded.pieces = Pieces::BodyEach;
+
     let extrusion = transaction.add_copied_feature(extruded);
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -109,6 +117,7 @@ fn fillet_on(model: &mut Model, body: FeatureId, at: Point3) -> FeatureId {
     let evaluation = evaluate(&model.document, &mut model.engine);
     let edge = edge_at(evaluation.body(body).unwrap(), at);
     let mut transaction = model.document.transaction("Fillet");
+
     let fillet = transaction.add_feature(
         "Fillet 1",
         FeatureKind::Blend(Blend {
@@ -122,6 +131,7 @@ fn fillet_on(model: &mut Model, body: FeatureId, at: Point3) -> FeatureId {
             sizing: FilletSizing::Radius,
         }),
     );
+
     model.document.apply(transaction.finish()).unwrap();
     fillet
 }
@@ -136,6 +146,7 @@ fn moved(model: &mut Model, rectangle: usize, by: (f64, f64)) {
         .sketch()
         .unwrap()
         .clone();
+
     let edits = points
         .into_iter()
         .map(|point| {
@@ -147,6 +158,7 @@ fn moved(model: &mut Model, rectangle: usize, by: (f64, f64)) {
             }
         })
         .collect();
+
     model
         .document
         .apply(Transaction::new("Move", edits))
@@ -168,6 +180,7 @@ fn three_separate_rectangles_extrude_into_three_bodies() {
         .iter()
         .map(|drawn| piece_of(model.extrusion, drawn))
         .collect();
+
     let shells: Vec<usize> = bodies
         .iter()
         .map(|body| evaluation.body(*body).unwrap().shells().count())
@@ -187,6 +200,7 @@ fn three_separate_rectangles_extrude_into_three_bodies() {
 #[test]
 fn one_body_keeps_the_separate_rectangles_as_lumps_of_one_body() {
     let mut model = three_rectangles();
+
     model
         .document
         .apply(Transaction::single(
@@ -211,14 +225,18 @@ fn one_body_keeps_the_separate_rectangles_as_lumps_of_one_body() {
 #[test]
 fn a_fillet_on_the_second_body_survives_moving_the_first_and_adding_a_fourth() {
     let mut model = three_rectangles();
+
     let second = piece_of(model.extrusion, &model.rectangles[1]);
     let fillet = fillet_on(&mut model, second, Point3::new(12.0, 0.0, 2.0));
     let before = evaluate(&model.document, &mut model.engine);
+
     let filleted_faces = before.body(second).unwrap().faces().count();
 
     moved(&mut model, 0, (0.0, 30.0));
+
     let after_move = evaluate(&model.document, &mut model.engine);
     let mut transaction = model.document.transaction("Fourth");
+
     for (start, end) in [
         ((30.0, 0.0), (34.0, 0.0)),
         ((34.0, 0.0), (34.0, 4.0)),
@@ -229,9 +247,11 @@ fn a_fillet_on_the_second_body_survives_moving_the_first_and_adding_a_fourth() {
             .add_sketch_entity(model.sketch, Entity::Point(Point2::new(start.0, start.1)));
         let end =
             transaction.add_sketch_entity(model.sketch, Entity::Point(Point2::new(end.0, end.1)));
+
         transaction.add_sketch_entity(model.sketch, Entity::Line { start, end });
     }
     model.document.apply(transaction.finish()).unwrap();
+
     let after_adding = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(state(&before, fillet), FeatureState::UpToDate);
@@ -257,6 +277,7 @@ fn a_fillet_on_the_second_body_survives_moving_the_first_and_adding_a_fourth() {
 #[test]
 fn deleting_the_second_rectangle_fails_its_fillet_in_plain_words() {
     let mut model = three_rectangles();
+
     let second = piece_of(model.extrusion, &model.rectangles[1]);
     let fillet = fillet_on(&mut model, second, Point3::new(12.0, 0.0, 2.0));
     let doomed: Vec<EntityId> = model.rectangles[1]
@@ -266,6 +287,7 @@ fn deleting_the_second_rectangle_fails_its_fillet_in_plain_words() {
         .copied()
         .collect();
     let mut transaction = model.document.transaction("Delete");
+
     transaction.remove_sketch_items(model.sketch, doomed, []);
     model.document.apply(transaction.finish()).unwrap();
 
@@ -292,10 +314,12 @@ fn deleting_the_second_rectangle_fails_its_fillet_in_plain_words() {
 #[test]
 fn pieces_that_merge_keep_the_identity_of_the_one_drawn_first() {
     let mut model = three_rectangles();
+
     let first = piece_of(model.extrusion, &model.rectangles[0]);
     let second = piece_of(model.extrusion, &model.rectangles[1]);
 
     moved(&mut model, 1, (-6.0, 0.0));
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let bodies: Vec<FeatureId> = evaluation.bodies().map(|(body, _)| body).collect();
 
@@ -310,7 +334,9 @@ fn pieces_that_merge_keep_the_identity_of_the_one_drawn_first() {
 #[test]
 fn pieces_in_use_cannot_go_back_to_one_body() {
     let mut model = three_rectangles();
+
     let second = piece_of(model.extrusion, &model.rectangles[1]);
+
     fillet_on(&mut model, second, Point3::new(12.0, 0.0, 2.0));
 
     let refused = model.document.apply(Transaction::single(
@@ -327,6 +353,7 @@ fn pieces_in_use_cannot_go_back_to_one_body() {
 #[test]
 fn each_piece_is_hidden_and_coloured_on_its_own_and_undo_restores_it() {
     let mut model = three_rectangles();
+
     let first = piece_of(model.extrusion, &model.rectangles[0]);
     let second = piece_of(model.extrusion, &model.rectangles[1]);
     let red = BodyAppearance {
@@ -363,6 +390,7 @@ fn each_piece_is_hidden_and_coloured_on_its_own_and_undo_restores_it() {
     let first_look = model.document.body_appearance(first).unwrap().into_owned();
     let second_look = model.document.body_appearance(second).unwrap().into_owned();
     let first_name = model.document.body_name(first).unwrap().into_owned();
+
     model.document.apply(undo).unwrap();
 
     assert_eq!(hidden, (false, true));
@@ -386,6 +414,7 @@ fn look(id: FeatureId, appearance: BodyAppearance) -> Transaction {
 #[test]
 fn undoing_a_deletion_keeps_a_piece_look_that_came_to_equal_the_feature_look() {
     let mut model = three_rectangles();
+
     let first = piece_of(model.extrusion, &model.rectangles[0]);
     let red = coloured(200, 0, 0);
     let blue = coloured(0, 0, 200);
@@ -395,6 +424,7 @@ fn undoing_a_deletion_keeps_a_piece_look_that_came_to_equal_the_feature_look() {
         .document
         .apply(look(model.extrusion, red.clone()))
         .unwrap();
+
     let before = model.document.clone();
     let undo = model
         .document
@@ -405,8 +435,11 @@ fn undoing_a_deletion_keeps_a_piece_look_that_came_to_equal_the_feature_look() {
             },
         ))
         .unwrap();
+
     model.document.apply(undo).unwrap();
+
     let restored = model.document.same_content(&before);
+
     model.document.apply(look(model.extrusion, blue)).unwrap();
 
     assert!(restored);
@@ -418,10 +451,13 @@ fn undoing_a_deletion_keeps_a_piece_look_that_came_to_equal_the_feature_look() {
 
 fn redraw_line(model: &mut Model, start: (f64, f64), end: (f64, f64)) -> EntityId {
     let mut transaction = model.document.transaction("Redraw");
+
     let start =
         transaction.add_sketch_entity(model.sketch, Entity::Point(Point2::new(start.0, start.1)));
     let end = transaction.add_sketch_entity(model.sketch, Entity::Point(Point2::new(end.0, end.1)));
+
     let line = transaction.add_sketch_entity(model.sketch, Entity::Line { start, end });
+
     model.document.apply(transaction.finish()).unwrap();
     line
 }
@@ -429,14 +465,17 @@ fn redraw_line(model: &mut Model, start: (f64, f64), end: (f64, f64)) -> EntityI
 #[test]
 fn deleting_and_redrawing_the_curve_keying_a_piece_keeps_its_body_and_its_fillet() {
     let mut model = three_rectangles();
+
     let second = piece_of(model.extrusion, &model.rectangles[1]);
     let keying = model.rectangles[1].lines[0];
     let carrier = model.rectangles[1].lines[1];
     let fillet = fillet_on(&mut model, second, Point3::new(14.0, 2.0, 2.0));
 
     let mut transaction = model.document.transaction("Delete");
+
     transaction.remove_sketch_items(model.sketch, [keying], []);
     model.document.apply(transaction.finish()).unwrap();
+
     let stand_ins = model
         .document
         .feature(model.extrusion)
@@ -468,11 +507,14 @@ fn deleting_and_redrawing_the_curve_keying_a_piece_keeps_its_body_and_its_fillet
 #[test]
 fn undoing_the_deletion_of_a_keying_curve_restores_the_stand_ins_exactly() {
     let mut model = three_rectangles();
+
     let keying = model.rectangles[1].lines[0];
     let before = model.document.clone();
 
     let mut transaction = model.document.transaction("Delete");
+
     transaction.remove_sketch_items(model.sketch, [keying], []);
+
     let undo = model.document.apply(transaction.finish()).unwrap();
     let recorded = !model
         .document
@@ -480,6 +522,7 @@ fn undoing_the_deletion_of_a_keying_curve_restores_the_stand_ins_exactly() {
         .unwrap()
         .piece_stand_ins
         .is_empty();
+
     model.document.apply(undo).unwrap();
 
     assert!(recorded);
@@ -489,22 +532,27 @@ fn undoing_the_deletion_of_a_keying_curve_restores_the_stand_ins_exactly() {
 #[test]
 fn a_carrier_deleted_in_turn_hands_the_key_on_to_the_next_curve() {
     let mut model = three_rectangles();
+
     let second = piece_of(model.extrusion, &model.rectangles[1]);
     let lines = model.rectangles[1].lines.clone();
 
     for line in [lines[0], lines[1]] {
         let mut transaction = model.document.transaction("Delete");
+
         transaction.remove_sketch_items(model.sketch, [line], []);
         model.document.apply(transaction.finish()).unwrap();
     }
+
     let stand_ins = model
         .document
         .feature(model.extrusion)
         .unwrap()
         .piece_stand_ins
         .clone();
+
     redraw_line(&mut model, (10.0, 0.0), (14.0, 0.0));
     redraw_line(&mut model, (14.0, 0.0), (14.0, 4.0));
+
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(stand_ins, PieceStandIns::default().with(lines[0], lines[2]));

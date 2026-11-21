@@ -118,6 +118,7 @@ fn finishing_the_sign_in_trades_the_code_and_verifier_for_a_session() {
         .unwrap();
 
     let pairs = form_of(net.requests().first().unwrap());
+
     assert_eq!(
         field(&pairs, "grant_type").as_deref(),
         Some("authorization_code")
@@ -149,6 +150,7 @@ fn a_refresh_keeps_the_old_refresh_token_when_the_answer_has_none() {
     let renewed = fusion().refresh(&net, &session(), NOW).unwrap();
 
     let pairs = form_of(net.requests().first().unwrap());
+
     assert_eq!(
         field(&pairs, "grant_type").as_deref(),
         Some("refresh_token")
@@ -199,6 +201,7 @@ fn a_refused_refresh_means_signing_in_again() {
 fn a_session_without_a_refresh_token_cannot_refresh() {
     let net = ScriptedTransport::new();
     let mut session = session();
+
     session.refresh_token = None;
 
     assert!(matches!(
@@ -215,6 +218,7 @@ fn signing_out_revokes_the_refresh_token_at_the_service() {
     fusion().revoke(&net, &session()).unwrap();
 
     let pairs = form_of(net.requests().first().unwrap());
+
     assert_eq!(field(&pairs, "token").as_deref(), Some("refresh-1"));
     assert_eq!(
         field(&pairs, "token_type_hint").as_deref(),
@@ -227,11 +231,13 @@ fn signing_out_revokes_the_refresh_token_at_the_service() {
 fn a_session_without_a_refresh_token_revokes_its_access_token() {
     let net = ScriptedTransport::new().route(Method::Post, REVOKE, 200, "");
     let mut session = session();
+
     session.refresh_token = None;
 
     fusion().revoke(&net, &session).unwrap();
 
     let pairs = form_of(net.requests().first().unwrap());
+
     assert_eq!(field(&pairs, "token").as_deref(), Some("access-1"));
     assert_eq!(
         field(&pairs, "token_type_hint").as_deref(),
@@ -274,6 +280,7 @@ fn requests_carry_the_access_token_as_a_bearer() {
 fn hubs_become_workspaces_by_kind_across_pages_and_never_follow_a_foreign_link() {
     let first = format!("{PROJECT_API}/hubs");
     let second = format!("{PROJECT_API}/hubs?page[number]=1");
+
     let net = ScriptedTransport::new()
         .route(
             Method::Get,
@@ -308,6 +315,7 @@ fn hubs_become_workspaces_by_kind_across_pages_and_never_follow_a_foreign_link()
             )
         })
         .collect();
+
     assert_eq!(
         kinds,
         vec![
@@ -391,6 +399,7 @@ fn a_folder_lists_designs_newest_first_with_subfolders_and_importable_uploads_an
         .iter()
         .map(|design| (design.id.as_str(), design.name.as_str()))
         .collect();
+
     assert_eq!(
         designs,
         vec![("urn:i:new", "New frame"), ("urn:i:old", "Old frame")]
@@ -403,17 +412,21 @@ fn a_folder_lists_designs_newest_first_with_subfolders_and_importable_uploads_an
             .map(|time| time.to_string()),
         Some("2025-06-07T08:09:10Z".to_owned())
     );
+
     let folders: Vec<_> = folder
         .folders
         .iter()
         .map(|entry| (entry.reference.folder.as_str(), entry.name.as_str()))
         .collect();
+
     assert_eq!(folders, vec![("urn:f:sub", "Parts")]);
+
     let uploads: Vec<_> = folder
         .uploads
         .iter()
         .map(|upload| (upload.id.as_str(), upload.name.as_str(), upload.format))
         .collect();
+
     assert_eq!(
         uploads,
         vec![
@@ -457,11 +470,13 @@ fn a_project_with_several_top_folders_lists_them_as_folders() {
     let root = fusion().root(&net, &session(), &project()).unwrap();
 
     assert!(root.designs.is_empty());
+
     let names: Vec<_> = root
         .folders
         .iter()
         .map(|entry| entry.name.as_str())
         .collect();
+
     assert_eq!(names, vec!["Files", "Plans"]);
 }
 
@@ -469,6 +484,7 @@ fn a_project_with_several_top_folders_lists_them_as_folders() {
 fn starting_a_conversion_asks_for_the_newest_version_as_step() {
     let tip = format!("{DATA_API}/projects/a.proj/items/urn%3Ai%3Anew/tip");
     let job = format!("{DERIVATIVE_API}/job");
+
     let net = ScriptedTransport::new()
         .route(
             Method::Get,
@@ -486,11 +502,13 @@ fn starting_a_conversion_asks_for_the_newest_version_as_step() {
         translation.source,
         base64_url(b"urn:adsk.wipprod:fs.file:vf.X?version=5")
     );
+
     let requests = net.requests();
     let Body::Json(text) = &requests.get(1).unwrap().body else {
         panic!("the job is JSON");
     };
     let sent: serde_json::Value = serde_json::from_str(text).unwrap();
+
     assert_eq!(sent["input"]["urn"], translation.source.as_str());
     assert_eq!(sent["output"]["formats"][0]["type"], "step");
 }
@@ -712,7 +730,9 @@ fn answer_with(status: u16, body: &str) -> ScriptedTransport {
 #[test]
 fn a_thumbnail_is_asked_for_the_newest_version_at_a_fixed_size_and_comes_back_as_bytes() {
     let mut picture = PNG_SIGNATURE.to_vec();
+
     picture.extend_from_slice(&[0, 0, 0, 13, b'I', b'H', b'D', b'R']);
+
     let net = tip_route(ScriptedTransport::new()).route_bytes(
         Method::Get,
         &thumbnail_address(),
@@ -725,7 +745,9 @@ fn a_thumbnail_is_asked_for_the_newest_version_at_a_fixed_size_and_comes_back_as
         .unwrap();
 
     assert_eq!(found, Some(picture));
+
     let requests = net.requests();
+
     assert_eq!(requests.len(), 2);
     assert_eq!(requests.get(1).unwrap().url, thumbnail_address());
     assert_eq!(requests.get(1).unwrap().bearer.as_deref(), Some("access-1"));
@@ -838,11 +860,13 @@ fn an_uploaded_file_is_downloaded_from_its_storage_object_through_a_signed_link_
 
     assert_eq!(sink, b"solid ");
     assert_eq!(bytes, 6);
+
     let requests = net.requests();
     let urls: Vec<_> = requests
         .iter()
         .map(|request| request.url.as_str())
         .collect();
+
     assert_eq!(
         urls,
         vec![upload_tip(), signed_download(), SIGNED_LINK.to_owned()]
@@ -1004,6 +1028,7 @@ fn a_designs_versions_are_listed_newest_first_across_pages() {
         .unwrap();
 
     let numbers: Vec<_> = versions.iter().map(|version| version.number).collect();
+
     assert_eq!(numbers, vec![3, 2, 1]);
     assert_eq!(
         versions.first().map(|version| version.id.as_str()),
@@ -1054,12 +1079,16 @@ fn a_chosen_version_is_converted_instead_of_the_newest_and_the_tip_is_not_asked(
         translation.source,
         base64_url(b"urn:adsk.wipprod:fs.file:vf.X?version=2")
     );
+
     let requests = net.requests();
+
     assert_eq!(requests.len(), 1);
+
     let Body::Json(text) = &requests.first().unwrap().body else {
         panic!("the job is JSON");
     };
     let sent: serde_json::Value = serde_json::from_str(text).unwrap();
+
     assert_eq!(sent["input"]["urn"], translation.source.as_str());
 }
 
@@ -1171,11 +1200,13 @@ fn a_new_file_gets_a_storage_object_a_signed_upload_and_a_first_version_item() {
     assert_eq!(sent.name, "plate.step");
     assert_eq!(sent.outcome, SendOutcome::Created);
     assert_eq!(seen, vec![(0, Some(13)), (13, Some(13))]);
+
     let requests = net.requests();
     let urls: Vec<_> = requests
         .iter()
         .map(|request| (request.method, request.url.as_str()))
         .collect();
+
     assert_eq!(
         urls,
         vec![
@@ -1202,6 +1233,7 @@ fn a_new_file_gets_a_storage_object_a_signed_upload_and_a_first_version_item() {
     assert!(matches!(requests.get(5).unwrap().body, Body::JsonApi(_)));
 
     let storage = json_of(requests.get(1).unwrap());
+
     assert_eq!(storage["data"]["type"], "objects");
     assert_eq!(storage["data"]["attributes"]["name"], "plate.step");
     assert_eq!(
@@ -1211,6 +1243,7 @@ fn a_new_file_gets_a_storage_object_a_signed_upload_and_a_first_version_item() {
     assert_eq!(json_of(requests.get(4).unwrap())["uploadKey"], "key-1");
 
     let item = json_of(requests.get(5).unwrap());
+
     assert_eq!(item["data"]["type"], "items");
     assert_eq!(item["data"]["attributes"]["displayName"], "plate.step");
     assert_eq!(
@@ -1260,13 +1293,17 @@ fn a_file_of_that_name_already_in_the_folder_gets_a_new_version_instead() {
         .unwrap();
 
     assert_eq!(sent.outcome, SendOutcome::NewVersion { number: Some(3) });
+
     let requests = net.requests();
+
     assert!(
         requests
             .iter()
             .all(|request| request.url != format!("{DATA_API}/projects/a.proj/items"))
     );
+
     let version = json_of(requests.last().unwrap());
+
     assert_eq!(version["data"]["type"], "versions");
     assert_eq!(
         version["data"]["attributes"]["extension"]["type"],
@@ -1321,7 +1358,9 @@ fn a_large_file_goes_up_in_parts_of_at_least_five_mebibytes_with_progress_after_
 
     let total = u64::try_from(bytes.len()).unwrap();
     let part = u64::try_from(PART_BYTES).unwrap();
+
     assert_eq!(seen, vec![0, part, 2 * part, total]);
+
     let sizes: Vec<usize> = net
         .requests()
         .iter()
@@ -1331,6 +1370,7 @@ fn a_large_file_goes_up_in_parts_of_at_least_five_mebibytes_with_progress_after_
             other => panic!("expected bytes, found {other:?}"),
         })
         .collect();
+
     assert_eq!(sizes, vec![PART_BYTES, PART_BYTES, 10]);
 }
 
@@ -1422,6 +1462,7 @@ fn a_part_the_storage_refuses_is_an_incomplete_upload_and_no_item_is_made() {
 #[test]
 fn a_signed_upload_with_the_wrong_number_of_links_or_a_plain_http_link_is_unreadable() {
     let wrong_count = sending_net_with_links(EMPTY_FOLDER, 1, &upload_links(2));
+
     assert!(matches!(
         send_once(&wrong_count),
         Err(Error::Unreadable {
@@ -1435,6 +1476,7 @@ fn a_signed_upload_with_the_wrong_number_of_links_or_a_plain_http_link_is_unread
         1,
         r#"{"uploadKey":"k","urls":["http://signed.example.invalid/x"]}"#,
     );
+
     assert!(matches!(
         send_once(&plain),
         Err(Error::Unreadable {
@@ -1475,9 +1517,11 @@ fn the_sign_in_asks_for_the_scope_that_creates_storage_and_a_refresh_names_none(
         200,
         r#"{"access_token":"fresh","expires_in":600}"#,
     );
+
     fusion().refresh(&net, &session(), NOW).unwrap();
 
     let pairs = form_of(net.requests().first().unwrap());
+
     assert_eq!(field(&pairs, "scope"), None);
 }
 
@@ -1532,6 +1576,7 @@ fn a_version_web_page_stands_in_when_the_item_carries_none() {
 #[test]
 fn an_answer_without_a_web_page_or_with_an_unsafe_one_gives_no_link() {
     let none = send_into_new_item(&created_item_answer("", ""));
+
     assert_eq!(none.web_link, None);
     assert_eq!(none.item, Some(ItemId::new("urn:i:made")));
 

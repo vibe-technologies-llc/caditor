@@ -47,7 +47,7 @@ impl Occluders {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Frame {
     across: Vector3,
     along: Vector3,
@@ -72,7 +72,7 @@ impl Frame {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Shadow {
     corners: [Point2; 3],
     heights: [f64; 3],
@@ -84,11 +84,13 @@ struct Shadow {
 impl Shadow {
     fn of(corners: [Point2; 3], heights: [f64; 3], slack: f64) -> Option<Self> {
         let [a, b, c] = corners;
+
         let area = (b - a).perp_dot(c - a);
         let longest = [b - a, c - b, a - c]
             .into_iter()
             .map(Vector2::length)
             .fold(0.0, larger);
+
         if area.abs() <= slack * longest {
             return None;
         }
@@ -105,17 +107,21 @@ impl Shadow {
         if point.cmplt(self.lowest).any() || point.cmpgt(self.highest).any() {
             return None;
         }
+
         let [a, b, c] = self.corners;
         let sign = self.area.signum();
         let mut weights = [0.0; 3];
+
         for (weight, (from, to)) in weights.iter_mut().zip([(b, c), (c, a), (a, b)]) {
             let edge = to - from;
             let signed = edge.perp_dot(point - from) * sign;
+
             if signed <= slack * edge.length() {
                 return None;
             }
             *weight = signed;
         }
+
         let total: f64 = weights.iter().sum();
         let height = weights
             .iter()
@@ -147,6 +153,7 @@ impl Grid {
             .reduce(|all, bounds| all.union(bounds))
             .map_or(0.0, |bounds| bounds.diagonal());
         let slack = (size * SLACK_PER_SIZE).max(SMALLEST_SLACK);
+
         let shadows: Vec<Shadow> = meshes
             .iter()
             .flat_map(|mesh| mesh.face_triangles())
@@ -169,11 +176,14 @@ impl Grid {
             .map(|shadow| shadow.highest)
             .reduce(Point2::max)
             .unwrap_or(Point2::ZERO);
+
         let extent = highest - lowest;
         let across = ((shadows.len() as f64).sqrt().ceil() as usize).clamp(1, MOST_CELLS_ACROSS);
+
         let cell = (extent.max_element() / across as f64).max(slack);
         let count = |length: f64| ((length / cell).floor() as usize + 1).min(MOST_CELLS_ACROSS);
         let (columns, rows) = (count(extent.x), count(extent.y));
+
         let mut grid = Self {
             frame,
             shadows: Vec::new(),
@@ -184,6 +194,7 @@ impl Grid {
             rows,
             slack,
         };
+
         for (index, shadow) in shadows.iter().enumerate() {
             let Ok(index) = u32::try_from(index) else {
                 break;
@@ -212,6 +223,7 @@ impl Grid {
         let nudged = point + normal * (self.slack * NUDGES_PER_SLACK);
         let (spot, height) = self.frame.project(nudged);
         let (column, row) = self.cell_of(spot);
+
         let Some(cell) = self.cells.get(row * self.columns + column) else {
             return false;
         };

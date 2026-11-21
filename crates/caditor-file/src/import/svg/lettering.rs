@@ -31,14 +31,14 @@ const TRACK_SHAPES: [&str; 7] = [
     "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
 ];
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Letter<'a> {
     character: char,
     style: Inherited<'a>,
     track: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Span<'a, 't> {
     node: Node<'a, 't>,
     start: usize,
@@ -64,6 +64,7 @@ impl<'a> Gathered<'a, '_> {
                 character => character,
             };
             let is_space = character == SPACE;
+
             if is_space && self.after_space && !style.text.preserve_space {
                 continue;
             }
@@ -86,7 +87,7 @@ impl<'a> Gathered<'a, '_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Fit {
     start: usize,
     end: usize,
@@ -94,7 +95,7 @@ struct Fit {
     glyphs: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Positions {
     x: Vec<Option<f64>>,
     y: Vec<Option<f64>>,
@@ -114,6 +115,7 @@ impl Positions {
             rotate: vec![None; count],
             fits: Vec::new(),
         };
+
         for span in spans {
             let start = span.start.min(count);
             let end = span.end.min(count);
@@ -124,6 +126,7 @@ impl Positions {
                 (&mut positions.dx, "dx", Axis::Horizontal),
                 (&mut positions.dy, "dy", Axis::Vertical),
             ];
+
             for (resolved, name, axis) in lists {
                 let values = lengths(node.attribute(name), axis.reference(viewport));
                 let targets = resolved.get_mut(start..end).unwrap_or_default();
@@ -131,13 +134,16 @@ impl Positions {
                     *target = Some(value);
                 }
             }
+
             let (angles, _) = numbers(node.attribute("rotate").unwrap_or_default());
+
             if let Some(last) = angles.last().copied() {
                 let targets = positions.rotate.get_mut(start..end).unwrap_or_default();
                 for (index, target) in targets.iter_mut().enumerate() {
                     *target = Some(angles.get(index).copied().unwrap_or(last));
                 }
             }
+
             let fitted = lengths(node.attribute("textLength"), viewport.x)
                 .first()
                 .copied()
@@ -170,7 +176,7 @@ fn lengths(text: Option<&str>, reference: f64) -> Vec<f64> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Placed {
     at: Point2,
     advance: f64,
@@ -184,14 +190,14 @@ struct Placed {
     warped_along: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Run {
     Straight,
     OnPath(usize),
     AfterPath,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Chunk {
     start: usize,
     end: usize,
@@ -212,26 +218,34 @@ impl<'a, 't> Walker<'a, 't> {
             after_space: true,
             viewport: context.viewport,
         };
+
         self.gather(node, context.style, context.depth, &mut gathered)?;
         gathered.trim_end();
+
         let Gathered {
             letters,
             spans,
             tracks,
             ..
         } = gathered;
+
         if letters.is_empty() {
             return Ok(());
         }
+
         let positions = Positions::of(&spans, letters.len(), context.viewport);
         let Some(typeface) = self.typeface.as_mut() else {
             return Ok(());
         };
         let italic_carried = typeface.has_italic();
+
         let placed = lay_out(typeface, &letters, &positions, &tracks);
+
         self.note_style(&letters, italic_carried);
+
         let mut unpainted = false;
         let mut hidden = false;
+
         for (letter, placed) in letters.iter().zip(&placed) {
             let Some(glyph) = placed.glyph else {
                 if !letter.character.is_whitespace() {
@@ -239,6 +253,7 @@ impl<'a, 't> Walker<'a, 't> {
                 }
                 continue;
             };
+
             if placed.off_path {
                 if !letter.character.is_whitespace() {
                     self.tally.off_path = self.tally.off_path.saturating_add(1);
@@ -256,17 +271,22 @@ impl<'a, 't> Walker<'a, 't> {
             if placed.scale <= 0.0 || placed.stretch <= 0.0 {
                 continue;
             }
+
             let Some(typeface) = self.typeface.as_mut() else {
                 return Ok(());
             };
+
             if self.shapes.len() >= MAX_READ_CURVES {
                 let count = typeface.curve_count(placed.instance, glyph);
+
                 self.charge(count)?;
                 self.beyond_the_limit = self.beyond_the_limit.saturating_add(count);
                 continue;
             }
+
             let segments = typeface.outline(placed.instance, glyph);
             let warping = placed.warped_along.and_then(|index| tracks.get(index));
+
             let (outline, matrix) = match warping {
                 Some(track) => (traced(&warped(&segments, placed, track)), context.matrix),
                 None => (
@@ -281,6 +301,7 @@ impl<'a, 't> Walker<'a, 't> {
                 style: letter.style,
                 ..context.clone()
             };
+
             self.place(&outline.shapes, &matrix, &lettered)?;
         }
         if hidden {
@@ -301,6 +322,7 @@ impl<'a, 't> Walker<'a, 't> {
     ) -> Result<(), ImportError> {
         let slot = gathered.spans.len();
         let start = gathered.letters.len();
+
         gathered.spans.push(Span {
             node,
             start,
@@ -315,7 +337,9 @@ impl<'a, 't> Walker<'a, 't> {
                 Content::Element(_) => {}
             }
         }
+
         let end = gathered.letters.len();
+
         if let Some(span) = gathered.spans.get_mut(slot) {
             span.end = end;
         }
@@ -330,6 +354,7 @@ impl<'a, 't> Walker<'a, 't> {
         gathered: &mut Gathered<'a, 't>,
     ) -> Result<(), ImportError> {
         let on_path = child.name() == "textPath";
+
         if !on_path && !matches!(child.name(), "tspan" | "a") {
             return Ok(());
         }
@@ -337,23 +362,31 @@ impl<'a, 't> Walker<'a, 't> {
             self.tally.too_deep += 1;
             return Ok(());
         }
+
         let properties = self.properties(child);
+
         if properties.hidden {
             self.tally.hidden += 1;
             return Ok(());
         }
+
         let style = style.under(&properties);
+
         if !on_path || gathered.track.is_some() {
             return self.gather(child, style, depth + 1, gathered);
         }
+
         let Some(track) = self.track(child, gathered.viewport) else {
             self.tally.missing += 1;
             return Ok(());
         };
+
         self.charge_expansion(track.point_count())?;
         gathered.track = Some(gathered.tracks.len());
         gathered.tracks.push(track);
+
         let gathering = self.gather(child, style, depth + 1, gathered);
+
         gathered.track = None;
         gathering
     }
@@ -381,6 +414,7 @@ impl<'a, 't> Walker<'a, 't> {
                 .and_then(|id| self.ids.get(id).copied())
                 .filter(|target| self.is_svg(*target) && TRACK_SHAPES.contains(&target.name()))?,
         };
+
         let key = (source.id(), side, viewport_key(viewport));
         let mut track = match self.tracks.get(&key) {
             Some(track) => track.clone(),
@@ -389,11 +423,14 @@ impl<'a, 't> Walker<'a, 't> {
                     Some(data) => Track::of(&path_outline(data), &Matrix::IDENTITY, side),
                     None => self.target_track(source, viewport, side),
                 };
+
                 self.tracks.insert(key, track.clone());
                 track
             }
         };
+
         let length = track.length();
+
         track.method = method;
         track.spacing = spacing;
         track.start = text_path
@@ -415,8 +452,10 @@ impl<'a, 't> Walker<'a, 't> {
 
     fn note_style(&mut self, letters: &[Letter<'a>], italic_carried: bool) {
         let mut italic = false;
+
         for letter in letters {
             italic = italic || letter.style.text.italic;
+
             let Some(family) = letter.style.text.family.and_then(substituted) else {
                 continue;
             };
@@ -446,6 +485,7 @@ fn lay_out(
     let mut starts: Vec<(usize, Run)> = Vec::new();
     let mut pen = Point2::ZERO;
     let mut previous: Option<(GlyphId, Instance, f64)> = None;
+
     for (index, letter) in letters.iter().enumerate() {
         let at = |list: &[Option<f64>]| list.get(index).copied().flatten();
         let before = index
@@ -458,7 +498,9 @@ fn lay_out(
             Some(_) => (None, None),
             None => (at(&positions.x), at(&positions.y)),
         };
+
         let absolute = x.is_some() || y.is_some();
+
         if entering || leaving {
             pen = Point2::ZERO;
             previous = None;
@@ -469,11 +511,14 @@ fn lay_out(
                 None if leaving && !absolute => Run::AfterPath,
                 None => Run::Straight,
             };
+
             starts.push((index, run));
         }
+
         let instance = typeface.instance(letter.style.text.weight, letter.style.text.italic);
         let glyph = typeface.glyph(letter.character, instance);
         let scale = letter.style.text.size / units_per_em;
+
         if let (Some((before, before_instance, before_scale)), Some(glyph), None) =
             (previous, glyph, x)
             && before_instance == instance
@@ -490,7 +535,9 @@ fn lay_out(
             at(&positions.dx).unwrap_or(0.0),
             at(&positions.dy).unwrap_or(0.0),
         );
+
         let advance = typeface.advance(instance, glyph) * scale;
+
         placed.push(Placed {
             at: pen,
             advance,
@@ -503,14 +550,17 @@ fn lay_out(
             off_path: false,
             warped_along: None,
         });
+
         let word_spacing = if letter.character == SPACE {
             letter.style.text.word_spacing
         } else {
             0.0
         };
+
         pen.x += advance + letter.style.text.letter_spacing + word_spacing;
         previous = glyph.map(|glyph| (glyph, instance, scale));
     }
+
     let ends = starts
         .iter()
         .skip(1)
@@ -525,14 +575,18 @@ fn lay_out(
             run: *run,
         })
         .collect();
+
     for fit in positions.fits.iter().rev() {
         let end_of_chunk = chunks
             .iter()
             .find(|chunk| (chunk.start..chunk.end).contains(&fit.start))
             .map_or(fit.end, |chunk| chunk.end.max(fit.end));
+
         fitted(&mut placed, fit, end_of_chunk);
     }
+
     let mut path_end: Option<Point2> = None;
+
     for chunk in &chunks {
         let anchor = letters
             .get(chunk.start)
@@ -540,6 +594,7 @@ fn lay_out(
         let Some(run) = placed.get_mut(chunk.start..chunk.end) else {
             continue;
         };
+
         anchored(run, anchor);
         match chunk.run {
             Run::OnPath(index) => {
@@ -567,15 +622,20 @@ fn fitted(placed: &mut [Placed], fit: &Fit, end_of_chunk: usize) {
         return;
     };
     let (low, high) = extent(run);
+
     let natural = high - low;
+
     if !natural.is_finite() {
         return;
     }
+
     let delta = fit.length - natural;
+
     if fit.glyphs {
         if natural <= 0.0 {
             return;
         }
+
         let factor = fit.length / natural;
         for letter in run.iter_mut() {
             letter.at.x = low + (letter.at.x - low) * factor;
@@ -584,9 +644,11 @@ fn fitted(placed: &mut [Placed], fit: &Fit, end_of_chunk: usize) {
         }
     } else {
         let gaps = run.len().saturating_sub(1);
+
         if gaps == 0 {
             return;
         }
+
         let step = delta / gaps as f64;
         for (index, letter) in run.iter_mut().enumerate() {
             letter.at.x += step * index as f64;
@@ -606,6 +668,7 @@ fn font_rise(
     if style.font_shift == FontShift::default() {
         return style.rise;
     }
+
     let FontShift {
         subscripted,
         superscripted,
@@ -631,6 +694,7 @@ fn along(run: &mut [Placed], track: &Track, index: usize) -> Option<Point2> {
 
 fn aligned_along(run: &mut [Placed], track: &Track) -> Option<Point2> {
     let mut end = None;
+
     for letter in run {
         let middle = track.start + letter.at.x + letter.advance / 2.0;
         let Some((point, tangent)) = track.at(middle) else {
@@ -639,6 +703,7 @@ fn aligned_along(run: &mut [Placed], track: &Track) -> Option<Point2> {
         };
         let normal = Vector2::new(-tangent.y, tangent.x);
         let offset = letter.at.y - letter.rise;
+
         letter.at = point - tangent * (letter.advance / 2.0) + normal * offset;
         letter.rotate += tangent.y.atan2(tangent.x).to_degrees();
         letter.rise = 0.0;
@@ -658,10 +723,13 @@ fn chord_end(track: &Track, start: f64, advance: f64) -> f64 {
     };
     let step = advance / CHORD_STEPS_PER_ADVANCE;
     let mut near = start;
+
     for count in 1..=MAX_CHORD_STEPS {
         let far = start + step * count as f64;
+
         if reach(far) >= advance {
             let (mut low, mut high) = (near, far);
+
             for _ in 0..CHORD_BISECTIONS {
                 let middle = 0.5 * (low + high);
                 if reach(middle) >= advance {
@@ -680,23 +748,29 @@ fn chord_end(track: &Track, start: f64, advance: f64) -> f64 {
 fn chorded_along(run: &mut [Placed], track: &Track) -> Option<Point2> {
     let mut end = None;
     let mut shift = 0.0;
+
     for letter in run {
         let start = track.start + letter.at.x + shift;
         let finish = chord_end(track, start, letter.advance);
+
         shift += finish - start - letter.advance;
+
         let middle = 0.5 * (start + finish);
         let ends = track.extended(start).zip(track.extended(finish));
+
         let (Some(((from, _), (to, _))), true) = (ends, (0.0..=track.length()).contains(&middle))
         else {
             letter.off_path = true;
             continue;
         };
+
         let Some(direction) = (to - from).try_normalize() else {
             letter.off_path = true;
             continue;
         };
         let normal = Vector2::new(-direction.y, direction.x);
         let offset = letter.at.y - letter.rise;
+
         letter.at = from + normal * offset;
         letter.rotate += direction.y.atan2(direction.x).to_degrees();
         letter.rise = 0.0;
@@ -707,8 +781,10 @@ fn chorded_along(run: &mut [Placed], track: &Track) -> Option<Point2> {
 
 fn stretched_along(run: &mut [Placed], track: &Track, index: usize) -> Option<Point2> {
     let mut end = None;
+
     for letter in run {
         let middle = track.start + letter.at.x + letter.advance / 2.0;
+
         if track.at(middle).is_none() {
             letter.off_path = true;
             continue;
@@ -736,6 +812,7 @@ fn warped(segments: &[Segment], placed: &Placed, track: &Track) -> Vec<Segment> 
     };
     let piece_length = (placed.advance / PIECES_PER_ADVANCE).max(f64::EPSILON);
     let mut warped = Vec::with_capacity(segments.len());
+
     for segment in segments {
         let line;
         let points: &[Point2] = match segment {
@@ -752,6 +829,7 @@ fn warped(segments: &[Segment], placed: &Placed, track: &Track) -> Vec<Segment> 
             });
         let from = track.start + placed.at.x + low * across;
         let to = track.start + placed.at.x + high * across;
+
         let pieces = if track.turns_between(from, to) {
             (((to - from) / piece_length).ceil() as usize).clamp(1, MOST_PIECES)
         } else {
@@ -764,6 +842,7 @@ fn warped(segments: &[Segment], placed: &Placed, track: &Track) -> Vec<Segment> 
                         start.lerp(*end, step as f64 / pieces as f64),
                         start.lerp(*end, (step + 1) as f64 / pieces as f64),
                     );
+
                     warped.push(Segment::Line(place(first), place(last)));
                 }
             }
@@ -772,6 +851,7 @@ fn warped(segments: &[Segment], placed: &Placed, track: &Track) -> Vec<Segment> 
                 for step in 0..pieces {
                     let share = 1.0 / (pieces - step) as f64;
                     let (head, tail) = split_bezier(&rest, share);
+
                     warped.push(Segment::Bezier(head.into_iter().map(place).collect()));
                     rest = tail;
                 }
@@ -785,6 +865,7 @@ fn split_bezier(points: &[Point2], at: f64) -> (Vec<Point2>, Vec<Point2>) {
     let mut head = Vec::with_capacity(points.len());
     let mut tail = Vec::with_capacity(points.len());
     let mut level = points.to_vec();
+
     while let Some(first) = level.first().copied() {
         head.push(first);
         tail.push(level.last().copied().unwrap_or(first));
@@ -817,6 +898,7 @@ fn anchored(chunk: &mut [Placed], anchor: Anchor) {
         return;
     };
     let (low, high) = extent(chunk);
+
     let shift = first
         - match anchor {
             Anchor::Start => low,
@@ -843,6 +925,7 @@ fn substituted(families: &str) -> Option<String> {
     let lowered = unquoted.to_lowercase();
     let is_inter = INTER_NAMES.contains(&squashed.as_str());
     let is_sans_serif = SANS_SERIF_NAMES.contains(&lowered.as_str());
+
     if unquoted.is_empty() || is_inter || is_sans_serif {
         return None;
     }
@@ -913,9 +996,11 @@ mod tests {
                 pair
             );
         }
+
         let angle = |at: Point2| at.y.atan2(at.x).rem_euclid(TAU);
         let covered = |letters: &[Placed]| angle(letters[4].at) - angle(letters[0].at);
         let predicted = 2.0 * (10.0_f64 / 80.0).asin() / (10.0 / 40.0);
+
         assert!(
             (covered(&automatic) / covered(&exact) - predicted).abs() < 0.01,
             "{} against {}",

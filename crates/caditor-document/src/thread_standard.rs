@@ -10,7 +10,7 @@ const METRIC_FLANK_DEGREES: f64 = 30.0;
 const WHITWORTH_FLANK_DEGREES: f64 = 27.5;
 const TRAPEZOIDAL_FLANK_DEGREES: f64 = 15.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ThreadFamily {
     MetricCoarse,
     MetricFine,
@@ -128,7 +128,7 @@ impl ThreadFamily {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ThreadSide {
     Internal,
     External,
@@ -143,7 +143,7 @@ impl ThreadSide {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ThreadHand {
     #[default]
     Right,
@@ -161,7 +161,7 @@ impl ThreadHand {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ThreadClass(&'static str);
 
 impl ThreadClass {
@@ -209,7 +209,7 @@ const TRAPEZOIDAL_EXTERNAL: [ThreadClass; 4] = [
     ThreadClass("8c"),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThreadSize {
     family: ThreadFamily,
     name: &'static str,
@@ -338,6 +338,7 @@ impl ThreadSize {
         };
         let major = self.major_diameter(side);
         let flank_angle = flank_degrees.to_radians();
+
         let depth = (major - minor) / 2.0;
         let (crest_radius, root_radius) = match side {
             ThreadSide::Internal => (minor / 2.0, major / 2.0),
@@ -365,7 +366,7 @@ impl ThreadSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThreadDesignation {
     pub size: ThreadSize,
     pub class: ThreadClass,

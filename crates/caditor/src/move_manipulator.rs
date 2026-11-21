@@ -41,7 +41,7 @@ const TURN_STEP_DEGREES: f64 = 5.0;
 const UNCHANGED_DEGREES: f64 = 1e-9;
 const SMALLEST_TURN_RADIUS: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Handle {
     Along(MoveAxis),
     Across(MoveAxis),
@@ -55,7 +55,7 @@ pub enum Handle {
     Image(ImageGrip),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaceGrip {
     AlongX,
     AlongY,
@@ -72,7 +72,7 @@ impl PlaceGrip {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Reach {
     Only,
     Symmetric,
@@ -165,7 +165,7 @@ fn axis_colour(palette: &ScenePalette, axis: MoveAxis) -> Color {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Turning {
     Fixed,
     Axes,
@@ -189,7 +189,7 @@ impl Turning {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MoveHandles {
     pub feature: FeatureId,
     origin: Point3,
@@ -214,6 +214,7 @@ impl MoveHandles {
         let FeatureKind::Move(movement) = &model.document().feature(feature)?.kind else {
             return None;
         };
+
         let body = if movement.copy {
             feature
         } else {
@@ -221,6 +222,7 @@ impl MoveHandles {
         };
         let parameters = model.parameters();
         let frame = model.move_frame(movement)?;
+
         let shift = || {
             MoveAxis::ALL
                 .into_iter()
@@ -254,9 +256,11 @@ impl MoveHandles {
             Some(_) | None => centre,
         };
         let depth = view.view_depth(origin);
+
         if !view.is_drawn_at(depth) {
             return None;
         }
+
         let reach = ARROW_POINTS * pixels_per_point * view.units_per_pixel_at(depth);
         (reach.is_finite() && reach > 0.0).then_some(Self {
             feature,
@@ -294,8 +298,11 @@ impl MoveHandles {
         if self.direction(normal).dot(self.sight).abs() < EDGE_ON {
             return None;
         }
+
         let [first, second] = <[MoveAxis; 2]>::try_from(Handle::Across(normal).moves()).ok()?;
+
         let (first, second) = (self.direction(first), self.direction(second));
+
         let corner =
             |a: f64, b: f64| self.origin + first * a * self.reach + second * b * self.reach;
         Some([
@@ -323,9 +330,11 @@ impl MoveHandles {
             }
             _ => return None,
         };
+
         if normal.dot(self.sight).abs() < EDGE_ON {
             return None;
         }
+
         let radius = RING_REACH * self.reach;
         Some(
             (0..=RING_SEGMENTS)
@@ -390,6 +399,7 @@ impl MoveHandles {
         let reach = HIT_POINTS * pixels_per_point;
         let arrows = MoveAxis::ALL.into_iter().filter_map(|axis| {
             let (from, to) = self.arrow(axis)?;
+
             let distance = segment_distance(view.project(from)?, view.project(to)?, cursor);
             Some((distance, Handle::Along(axis)))
         });
@@ -408,6 +418,7 @@ impl MoveHandles {
                 .fold(f64::INFINITY, f64::min);
             Some((distance, handle))
         });
+
         let nearest = arrows
             .chain(rings)
             .filter(|(distance, _)| *distance <= reach)
@@ -450,9 +461,11 @@ impl MoveHandles {
                 axis_colour(palette, axis)
             }
         };
+
         for normal in MoveAxis::ALL {
             if let Some(corners) = manipulator.square(normal) {
                 let handle = Handle::Across(normal);
+
                 batch.fills.push(Fill::convex(
                     &corners,
                     colour(handle, normal).with_alpha(SQUARE_ALPHA),
@@ -490,6 +503,7 @@ impl MoveHandles {
             };
             let handle = Handle::Along(axis);
             let colour = colour(handle, axis);
+
             let arrow = Arrow {
                 from,
                 tip,
@@ -497,6 +511,7 @@ impl MoveHandles {
                 per_point: manipulator.per_point(),
                 forward: manipulator.sight,
             };
+
             arrow.add_to(batch, colour);
         }
     }
@@ -513,6 +528,7 @@ pub struct Arrow {
 impl Arrow {
     pub fn add_to(&self, batch: &mut Batch, colour: Color) {
         let base = self.tip - self.direction * HEAD_POINTS * self.per_point;
+
         batch.lines.push(Line {
             start: self.from,
             end: base,
@@ -522,10 +538,12 @@ impl Arrow {
             pick: None,
             stroke: Stroke::Solid,
         });
+
         let Some(side) = self.direction.cross(self.forward).try_normalize() else {
             return;
         };
         let half = side * HEAD_HALF_POINTS * self.per_point;
+
         batch.fills.push(Fill::convex(
             &[self.tip, base + half, base - half],
             colour,
@@ -555,6 +573,7 @@ pub fn segments_apart(a: (Vector2, Vector2), b: (Vector2, Vector2)) -> f64 {
     let straddles = |from: Vector2, to: Vector2, ends: (Vector2, Vector2)| {
         side(from, to, ends.0) * side(from, to, ends.1) < 0.0
     };
+
     if straddles(a.0, a.1, b) && straddles(b.0, b.1, a) {
         return 0.0;
     }
@@ -571,9 +590,11 @@ pub fn segments_apart(a: (Vector2, Vector2), b: (Vector2, Vector2)) -> f64 {
 pub fn segment_distance(from: Vector2, to: Vector2, point: Vector2) -> f64 {
     let along = to - from;
     let length_squared = along.length_squared();
+
     if length_squared == 0.0 {
         return from.distance(point);
     }
+
     let fraction = ((point - from).dot(along) / length_squared).clamp(0.0, 1.0);
     (from + along * fraction).distance(point)
 }
@@ -582,6 +603,7 @@ fn nice_step(at_least: f64) -> f64 {
     if !(at_least.is_finite() && at_least > 0.0) {
         return 1.0;
     }
+
     let decade = 10.0_f64.powf(at_least.log10().floor());
     [1.0, 2.0, 5.0, 10.0]
         .into_iter()
@@ -590,7 +612,7 @@ fn nice_step(at_least: f64) -> f64 {
         .unwrap_or(10.0 * decade)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MoveDrag {
     pub feature: FeatureId,
     pub handle: Handle,
@@ -622,6 +644,7 @@ impl MoveDrag {
         let parameters = model.parameters();
         let from = evaluated(model, &start.offset, Dimension::LENGTH)?;
         let from_turns = evaluated(model, &start.turn, Dimension::ANGLE)?;
+
         let from_angle = match start.about.axis_turn() {
             Some(turn) => turn
                 .angle
@@ -685,6 +708,7 @@ impl MoveDrag {
 
     fn snapped_offset(&self, snap: Snap, ray: Ray) -> Option<[f64; 3]> {
         let mut offset = self.from;
+
         match self.handle {
             Handle::Along(axis) => {
                 let towards = direction(&self.frame, axis);
@@ -692,6 +716,7 @@ impl MoveDrag {
                 let pulled = point_on(self.handle, &self.frame, self.origin, self.about, ray)
                     .map(|at| (at - self.grabbed).dot(towards));
                 let off = handle_snap::off_line(&ray, self.origin, towards);
+
                 if !snap.holds(along, pulled, off, self.step) {
                     return None;
                 }
@@ -733,9 +758,11 @@ impl MoveDrag {
     ) -> Option<(f64, Option<Snap>)> {
         let snapped =
             snap.and_then(|snap| Some((self.turned_to(axis, snap.pinned_point()?)?, snap)));
+
         if let Some((angle, snap)) = snapped {
             return Some((angle, Some(snap)));
         }
+
         let at = point_on(self.handle, &self.frame, self.origin, self.about, ray)?;
         let angle = self.turned_to(axis, at)?;
         Some(if free {
@@ -757,7 +784,9 @@ impl MoveDrag {
         } else {
             (self.turns, self.from_angle + angle)
         };
+
         let changed = turns != self.turns || about != self.angle || snapped != self.snapped;
+
         self.turns = turns;
         self.angle = about;
         self.snapped = snapped;
@@ -766,6 +795,7 @@ impl MoveDrag {
 
     pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
         let snap = snap.filter(|_| !free);
+
         if let Some(axis) = self.turn_axis() {
             return self.follow_turn(axis, ray, free, snap);
         }
@@ -773,16 +803,19 @@ impl MoveDrag {
             snap.and_then(|snap| Some((self.snapped_offset(snap, ray)?, snap)))
         {
             let changed = offset != self.offset || self.snapped != Some(snap);
+
             self.offset = offset;
             self.snapped = Some(snap);
             return changed;
         }
+
         let unsnapped = self.snapped.take().is_some();
         let Some(at) = point_on(self.handle, &self.frame, self.origin, self.about, ray) else {
             return unsnapped;
         };
         let moved = at - self.grabbed;
         let mut offset = self.from;
+
         for axis in self.handle.moves() {
             let along = moved.dot(direction(&self.frame, axis));
             let rounded = if free {
@@ -794,7 +827,9 @@ impl MoveDrag {
                 *value += rounded;
             }
         }
+
         let changed = offset != self.offset || unsnapped;
+
         self.offset = offset;
         changed
     }
@@ -809,9 +844,11 @@ impl MoveDrag {
         };
         let mut movement = self.start.clone();
         let mut named = Vec::new();
+
         for axis in self.handle.moves() {
             if let Some(value) = self.offset.get(axis.index()) {
                 let slot = axis.of_mut(&mut movement.offset);
+
                 held(&move_panel::distance_caption(axis), slot).set(
                     slot,
                     units.length.measured(*value),
@@ -823,6 +860,7 @@ impl MoveDrag {
             let (now, before) = (*axis.of(&self.turns), *axis.of(&self.from_turns));
             if (now - before).abs() > UNCHANGED_DEGREES {
                 let slot = axis.of_mut(&mut movement.turn);
+
                 held(&move_panel::turn_caption(axis), slot).set(
                     slot,
                     units.angle.measured(now),
@@ -864,19 +902,23 @@ impl MoveDrag {
         if self.handle == Handle::TurnAbout {
             let turned = self.angle - self.from_angle;
             let shown = if turned >= 0.0 { "+" } else { "" };
+
             return format!("Turn about its axis {shown}{}", units.angle_readout(turned));
         }
         if let Handle::Turn(axis) = self.handle {
             let start = rotation_from_turns(self.from_turns.map(f64::to_radians));
             let now = rotation_from_turns(self.turns.map(f64::to_radians));
+
             let (about, angle) = (now * start.inverse()).to_axis_angle();
             let sign = if about.dot(axis.direction()) >= 0.0 {
                 1.0
             } else {
                 -1.0
             };
+
             let turned = sign * angle.to_degrees();
             let shown = if turned >= 0.0 { "+" } else { "" };
+
             return format!(
                 "Turn about {} {shown}{}",
                 axis.name(),
@@ -937,10 +979,12 @@ pub fn typed(
         |caption: &str, expression: &Expression| Held::of(document, feature, caption, expression);
     let mut movement = start.clone();
     let mut named = Vec::new();
+
     match handle {
         Handle::Along(_) | Handle::Across(_) => {
             for (axis, value) in handle.moves().into_iter().zip(values) {
                 let slot = axis.of_mut(&mut movement.offset);
+
                 held(&move_panel::distance_caption(axis), slot).set(
                     slot,
                     value.clone(),
@@ -950,6 +994,7 @@ pub fn typed(
         }
         Handle::Turn(axis) => {
             let slot = axis.of_mut(&mut movement.turn);
+
             held(&move_panel::turn_caption(axis), slot).set(
                 slot,
                 values.first()?.clone(),
@@ -960,6 +1005,7 @@ pub fn typed(
             let TurnCentre::Axis(turn) = &mut movement.about else {
                 return None;
             };
+
             held(move_panel::ANGLE, &turn.angle).set(
                 &mut turn.angle,
                 values.first()?.clone(),
@@ -1001,9 +1047,11 @@ fn adds_alone(from: [f64; 3], axis: MoveAxis) -> bool {
 fn turned(from: [f64; 3], axis: MoveAxis, degrees: f64) -> [f64; 3] {
     if adds_alone(from, axis) {
         let mut turns = from;
+
         *axis.of_mut(&mut turns) += degrees;
         return turns;
     }
+
     let start = rotation_from_turns(from.map(f64::to_radians));
     let turn = Rotation3::from_axis_angle(axis.direction(), degrees.to_radians());
     turns_about_axes(turn * start).map(f64::to_degrees)
@@ -1068,6 +1116,7 @@ mod tests {
         let viewpoint = Viewpoint::looking_from(eye, Point3::ZERO, eye.length()).unwrap();
         let view = View::new(viewpoint, 800.0, 600.0);
         let origin = Point3::new(0.0, 300.0, 0.0);
+
         let depth = view.view_depth(origin);
         let handles = MoveHandles {
             feature: FeatureId::from_raw(3),
@@ -1090,19 +1139,25 @@ mod tests {
 
         for axis in MoveAxis::ALL {
             let (from, tip) = manipulator.arrow(axis).unwrap();
+
             let middle = view.project(from.lerp(tip, 0.5)).unwrap();
+
             assert_eq!(
                 manipulator.hit(&view, middle, 1.0),
                 Some(Handle::Along(axis))
             );
         }
+
         let square = manipulator.square(MoveAxis::Z).unwrap();
         let centre = view.project(square[0].lerp(square[2], 0.5)).unwrap();
+
         assert_eq!(
             manipulator.hit(&view, centre, 1.0),
             Some(Handle::Across(MoveAxis::Z))
         );
+
         let away = view.project(Point3::new(-200.0, 200.0, 0.0)).unwrap();
+
         assert_eq!(manipulator.hit(&view, away, 1.0), None);
     }
 
@@ -1139,7 +1194,9 @@ mod tests {
             ray,
         )
         .unwrap();
+
         assert!(along.distance(Point3::new(7.0, 0.0, 0.0)) < 1e-9);
+
         let across = point_on(
             Handle::Across(MoveAxis::Z),
             &Plane::XY,
@@ -1148,6 +1205,7 @@ mod tests {
             ray,
         )
         .unwrap();
+
         assert!(across.distance(Point3::new(7.0, 3.0, 0.0)) < 1e-9);
     }
 
@@ -1181,6 +1239,7 @@ mod tests {
             * rotation_from_turns(from.map(f64::to_radians));
         let found = rotation_from_turns(composed.map(f64::to_radians));
         let point = Vector3::new(1.0, -2.0, 3.0);
+
         assert!((found * point).distance(expected * point) < 1e-9);
     }
 }

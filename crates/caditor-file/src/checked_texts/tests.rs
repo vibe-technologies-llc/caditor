@@ -13,6 +13,7 @@ fn texts_marked_in_one_session_are_known_in_the_next() {
 
     first.mark(digest("bolt"));
     first.persist().unwrap();
+
     let next = CheckedTexts::kept_in(dir.path());
 
     assert!(next.contains(&digest("bolt")));
@@ -29,6 +30,7 @@ fn two_sessions_keep_what_each_marked() {
     other.mark(digest("nut"));
     one.persist().unwrap();
     other.persist().unwrap();
+
     let next = CheckedTexts::kept_in(dir.path());
 
     assert!(next.contains(&digest("bolt")));
@@ -40,8 +42,10 @@ fn two_sessions_keep_what_each_marked() {
 fn a_damaged_file_forgets_every_text_rather_than_trusting_any() {
     let dir = TempDir::new().unwrap();
     let mut checked = CheckedTexts::kept_in(dir.path());
+
     checked.mark(digest("bolt"));
     checked.persist().unwrap();
+
     let path = dir.path().join(CHECKED_FILE);
     let mut bytes = std::fs::read(&path).unwrap();
 
@@ -49,6 +53,7 @@ fn a_damaged_file_forgets_every_text_rather_than_trusting_any() {
         *byte ^= 1;
     }
     std::fs::write(&path, &bytes).unwrap();
+
     let next = CheckedTexts::kept_in(dir.path());
 
     assert!(!next.contains(&digest("bolt")));

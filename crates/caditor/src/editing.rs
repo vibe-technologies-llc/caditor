@@ -21,7 +21,7 @@ use crate::{
 
 const NEW_SKETCH_PREFIX: &str = "Sketch";
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tool {
     #[default]
     Select,
@@ -272,14 +272,14 @@ impl Tool {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActiveSketch {
     pub feature: FeatureId,
     pub tool: Tool,
     pub construction: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EditingCommand {
     NewSketch(Option<PrincipalPlane>),
     NewSketchOnFace(FaceChoice),
@@ -307,7 +307,7 @@ pub enum EditingCommand {
     CalibrateFrom(ImageSpot),
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Context {
     pub sketch: Option<FeatureId>,
     pub solid: Option<FeatureId>,
@@ -335,26 +335,26 @@ impl Context {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Combining {
     pub target: Option<FeatureId>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Opened {
     pub feature: FeatureId,
     pub added: bool,
     mark: UndoMark,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Entered {
     pub feature: FeatureId,
     pub added: bool,
     mark: UndoMark,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Closed {
     Sketch(Entered),
     Feature(Opened),
@@ -369,14 +369,14 @@ impl Closed {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SwitchBack {
     closed: Closed,
     since: UndoMark,
     session: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Switched {
     closed: Closed,
     since: UndoMark,
@@ -393,7 +393,7 @@ const NO_SKETCH: &str = "no sketch is being edited";
 const HISTORY_GONE: &str =
     "the undo history no longer goes back to before the switch; use Undo instead";
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CancelRefusal {
     #[error("{NOTHING_OPEN}")]
     NothingOpen,
@@ -428,7 +428,7 @@ impl Reason for CancelRefusal {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SketchEditing {
     active: Option<ActiveSketch>,
     entered: Option<Entered>,
@@ -547,11 +547,13 @@ impl SketchEditing {
 
     pub fn perform(&mut self, command: EditingCommand, model: &mut Model) {
         let since = model.undo_mark();
+
         self.perform_after(command, model, since);
     }
 
     pub fn perform_after(&mut self, command: EditingCommand, model: &mut Model, since: UndoMark) {
         self.sync(model);
+
         let before = (
             self.feature().map(|feature| {
                 self.entered().unwrap_or(Entered {
@@ -562,6 +564,7 @@ impl SketchEditing {
             }),
             self.solid,
         );
+
         match command {
             EditingCommand::NewSketch(Some(plane)) => self.create(plane, model, since),
             EditingCommand::NewSketchOnFace(face) => self.create_on_face(face, model, since),
@@ -655,11 +658,13 @@ impl SketchEditing {
         if self.switched.is_some() {
             return;
         }
+
         let closed = match before {
             (Some(sketch), _) if self.feature() != Some(sketch.feature) => Closed::Sketch(sketch),
             (None, Some(opened)) if self.solid().is_none() => Closed::Feature(opened),
             _ => return,
         };
+
         self.switched = Some(Switched { closed, since });
     }
 
@@ -668,9 +673,11 @@ impl SketchEditing {
             return;
         };
         let closed = switched.closed.feature();
+
         if self.feature() == Some(closed) || self.solid() == Some(closed) {
             return;
         }
+
         let document = model.document();
         let name = |feature| {
             document
@@ -681,9 +688,11 @@ impl SketchEditing {
             return;
         };
         let opened = self.feature().or(self.solid());
+
         if opened.is_some_and(|opened| document.dependents_of(&[closed]).contains(&opened)) {
             return;
         }
+
         let next = match opened {
             Some(feature) => match name(feature) {
                 Some(next) => format!("edit {next}"),
@@ -697,9 +706,11 @@ impl SketchEditing {
             && posted.is_some_and(|notice| {
                 matches!(notice.kind, NoticeKind::Warning | NoticeKind::Error)
             });
+
         if warned {
             return;
         }
+
         let undo = model
             .undo_steps_since(switched.since)
             .filter(|steps| !steps.is_empty())
@@ -708,6 +719,7 @@ impl SketchEditing {
                 since: switched.since,
                 session: model.session(),
             });
+
         model.perform(Action::Inform(Notice {
             action: undo.map(NoticeAction::SwitchBack),
             ..Notice::info(format!("Finished {closed_name} to {next}."))
@@ -718,17 +730,21 @@ impl SketchEditing {
         if back.session != model.session() {
             return;
         }
+
         let Some(steps) = model.undo_steps_since(back.since).map(|steps| steps.len()) else {
             model.perform(Action::Inform(Notice::warning(format!(
                 "Undo: {HISTORY_GONE}."
             ))));
             return;
         };
+
         for _ in 0..steps {
             model.perform(Action::Undo);
         }
         self.sync(model);
+
         let document = model.document();
+
         match back.closed {
             Closed::Sketch(entered)
                 if edited_sketch(document, entered.feature).is_some()
@@ -779,6 +795,7 @@ impl SketchEditing {
             return;
         };
         let dependents = document.dependents_of(&[entered.feature]);
+
         if !dependents.is_empty() {
             let users = dependents
                 .iter()
@@ -793,9 +810,11 @@ impl SketchEditing {
                 ),
                 [] => return,
             };
+
             model.perform(Action::Inform(Notice::info(told)));
             return;
         }
+
         let label = format!("Remove the empty {name}");
         let discard = match self.sketch_changes(model) {
             Ok(steps) => discard(&steps, true, label),
@@ -806,6 +825,7 @@ impl SketchEditing {
             Discard::Undo => format!("Removed the empty {name}; Redo brings it back."),
             Discard::Apply(_) => format!("Removed the empty {name}; Undo brings it back."),
         };
+
         perform_discard(discard, model);
         model.perform(Action::Inform(Notice::info(told)));
     }
@@ -822,6 +842,7 @@ impl SketchEditing {
             ))));
             return;
         };
+
         let label = cancel_title(&name, added);
         let discard = match self.sketch_changes(model) {
             Ok(steps) => discard(&steps, added, label),
@@ -842,6 +863,7 @@ impl SketchEditing {
                 "Took back the changes to {name}; Undo brings them back."
             )),
         };
+
         perform_discard(discard, model);
         if let Some(told) = told {
             model.perform(Action::Inform(Notice::info(told)));
@@ -852,6 +874,7 @@ impl SketchEditing {
 
     fn open_solid(&mut self, feature: FeatureId, model: &Model, since: UndoMark) {
         let document = model.document();
+
         if !opened_solid(document, feature) || !document.is_active(feature) {
             return;
         }
@@ -862,9 +885,11 @@ impl SketchEditing {
         if self.solid() == Some(feature) {
             return;
         }
+
         let added = model
             .undo_steps_since(since)
             .is_some_and(|steps| steps.iter().any(|step| adds(step, feature)));
+
         self.solid = Some(Opened {
             feature,
             added,
@@ -887,6 +912,7 @@ impl SketchEditing {
                     Some(cancel_title(&feature.name, opened.added))
                 });
                 let title = open.unwrap_or_else(|| Command::CancelFeature.title());
+
                 model.perform(Action::Inform(Notice::warning(format!(
                     "{title}: {refusal}."
                 ))));
@@ -913,7 +939,9 @@ impl SketchEditing {
             self.mirroring = false;
             self.switched = None;
         }
+
         let document = model.document();
+
         if let Some(active) = self.active
             && (edited_sketch(document, active.feature).is_none()
                 || !document.is_active(active.feature))
@@ -954,7 +982,9 @@ impl SketchEditing {
             Ok(pair) => {
                 self.combining = None;
                 self.mirroring = false;
+
                 let (transaction, feature) = combine_tools::create(model.document(), pair);
+
                 model.perform(Action::Apply(transaction));
                 self.open_solid(feature, model, since);
             }
@@ -967,10 +997,13 @@ impl SketchEditing {
 
     fn create(&mut self, plane: PrincipalPlane, model: &mut Model, since: UndoMark) {
         self.choosing_plane = false;
+
         let document = model.document();
         let name = next_sketch_name(document);
         let mut transaction = document.transaction(format!("Create {name}"));
+
         let feature = transaction.add_feature(name, FeatureKind::from(Sketch::new(plane.plane())));
+
         model.perform(Action::Apply(transaction.finish()));
         self.enter(feature, model, since);
     }
@@ -1001,6 +1034,7 @@ impl SketchEditing {
 
     fn enter(&mut self, feature: FeatureId, model: &Model, since: UndoMark) {
         let document = model.document();
+
         if edited_sketch(document, feature).is_none() || !document.is_active(feature) {
             return;
         }
@@ -1012,6 +1046,7 @@ impl SketchEditing {
             let added = model
                 .undo_steps_since(since)
                 .is_some_and(|steps| steps.iter().any(|step| adds(step, feature)));
+
             self.entered = Some(Entered {
                 feature,
                 added,
@@ -1040,6 +1075,7 @@ fn switches(command: EditingCommand) -> bool {
 
 fn refuse_new_sketch(model: &mut Model, reason: &impl Reason, retry: EditingCommand) {
     let title = Command::NewSketch.title();
+
     model.perform(match reason.pending() {
         Some(pending) => {
             Action::Queue(Box::new(Queued::new(Rerun::Editing(retry), title, pending)))
@@ -1073,7 +1109,9 @@ fn changes_since(
                 feature: name.clone(),
             },
         })?;
+
     let owned = parameters_of(document, &steps, feature);
+
     if let Some(step) = steps
         .iter()
         .find(|step| !(added && adds(step, feature) || changes_only(step, feature, &owned)))
@@ -1144,6 +1182,7 @@ fn parameters_of(
     let owns =
         |owner: Option<&ParameterOwner>| owner.is_some_and(|owner| owner.feature() == feature);
     let touched = steps.iter().flat_map(|step| step.touched().parameters);
+
     let live = touched.filter(|id| {
         owns(
             document
@@ -1224,11 +1263,15 @@ mod tests {
     #[test]
     fn new_sketch_names_fill_the_first_free_number() {
         let mut document = Document::default();
+
         assert_eq!(next_sketch_name(&document), "Sketch 1");
+
         let mut transaction = document.transaction("Sketches");
+
         transaction.add_feature("Sketch 1", FeatureKind::from(Sketch::new(Plane::XY)));
         transaction.add_feature("Sketch 3", FeatureKind::from(Sketch::new(Plane::XY)));
         document.apply(transaction.finish()).unwrap();
+
         assert_eq!(next_sketch_name(&document), "Sketch 2");
     }
 }

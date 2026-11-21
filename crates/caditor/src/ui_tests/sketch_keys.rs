@@ -42,6 +42,7 @@ fn notice_text(harness: &Harness) -> Option<String> {
 fn smart_dimension_lets_go_of_its_picks_when_another_tool_is_chosen() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 40.0));
     let feature = edit_free_sketch(&mut harness, sketch);
 
@@ -71,6 +72,7 @@ fn smart_dimension_lets_go_of_its_picks_when_another_tool_is_chosen() {
 #[test]
 fn holding_escape_takes_one_step_back_instead_of_finishing_the_sketch() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
 
     harness.use_tool(Key::L);
@@ -97,6 +99,7 @@ fn holding_escape_takes_one_step_back_instead_of_finishing_the_sketch() {
 #[test]
 fn enter_stops_a_line_chain_as_a_click_on_its_last_point_does() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
 
     harness.use_tool(Key::L);
@@ -122,6 +125,7 @@ fn enter_stops_a_line_chain_as_a_click_on_its_last_point_does() {
 #[test]
 fn enter_on_a_spline_with_too_few_points_says_so_and_keeps_them() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
 
     harness.use_tool(Key::S);
@@ -149,6 +153,7 @@ fn enter_on_a_spline_with_too_few_points_says_so_and_keeps_them() {
 #[test]
 fn delete_takes_back_the_last_point_and_one_hint_says_so() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
 
     harness.use_tool(Key::R);
@@ -172,6 +177,7 @@ fn delete_takes_back_the_last_point_and_one_hint_says_so() {
 #[test]
 fn a_new_way_keeps_a_first_point_meaning_the_same_and_refuses_otherwise() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
 
     harness.use_tool(Key::R);
@@ -213,6 +219,7 @@ fn a_new_way_keeps_a_first_point_meaning_the_same_and_refuses_otherwise() {
 #[test]
 fn with_snapping_off_the_prompt_says_so_and_names_alt() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     harness.use_tool(Key::L);
 
@@ -230,8 +237,10 @@ fn with_snapping_off_the_prompt_says_so_and_names_alt() {
 fn dragging_the_origin_says_it_stays_put_and_draws_no_box() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(-40.0, -30.0), Point2::new(40.0, -30.0));
     sketch.add_point(Point2::new(15.0, 10.0));
+
     let feature = edit_free_sketch(&mut harness, sketch);
 
     let from = harness.hover_pickable(
@@ -239,6 +248,7 @@ fn dragging_the_origin_says_it_stays_put_and_draws_no_box() {
         Point2::ZERO,
         sketch_entity(feature, EntityId::ORIGIN),
     );
+
     harness.events.push(Event::PointerButton {
         pos: from,
         button: PointerButton::Primary,
@@ -246,9 +256,12 @@ fn dragging_the_origin_says_it_stays_put_and_draws_no_box() {
         modifiers: Modifiers::NONE,
     });
     harness.frame();
+
     let target = harness.on_screen(Point2::new(30.0, 20.0));
+
     for step in 1..=4 {
         let position = from + (target - from) * (step as f32 / 4.0);
+
         harness.events.push(Event::PointerMoved(position));
         harness.frame();
     }

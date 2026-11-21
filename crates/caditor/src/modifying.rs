@@ -29,7 +29,7 @@ const LENGTH: Expected = Expected {
     non_negative: false,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SketchVersion {
     pub(crate) feature: FeatureId,
     pub(crate) revision: u64,
@@ -48,7 +48,7 @@ impl SketchVersion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum Refusal {
     #[error("{}: select what to mirror first: click it or drag a box around it.", Tool::Mirror.label())]
     NothingToMirror,
@@ -91,33 +91,33 @@ impl<E: Into<Refusal>> From<Result<Transaction, E>> for Outcome {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Hint {
     Targets,
     Keys(&'static str),
     Text(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Prompt {
     pub text: &'static str,
     pub hint: Hint,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ValueField {
     pub label: &'static str,
     pub placeholder: &'static str,
     pub action: &'static str,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Value {
     pub expression: Expression,
     pub millimetres: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ValueError {
     #[error(transparent)]
     Expression(#[from] ExpressionError),
@@ -125,7 +125,7 @@ pub enum ValueError {
     Unevaluable(EvalError),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum EntryError {
     #[error(transparent)]
     Value(#[from] ValueError),
@@ -182,7 +182,7 @@ pub fn length_text(unit: Units, millimetres: f64) -> String {
     )))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum StepError {
     #[error("The sketch has no line, arc or spline whose end could be blended")]
     NoEnds,
@@ -202,7 +202,7 @@ impl Reason for StepError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum HighlightNeeded {
     #[error(
         "Highlight the end of a line, arc or spline first, with Highlight the next item in the view"
@@ -226,7 +226,7 @@ impl Reason for HighlightNeeded {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 enum State {
     #[default]
     Idle,
@@ -240,7 +240,7 @@ enum State {
     Text(Box<Texting>),
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct LastSizes {
     round: Option<String>,
     chamfer: Option<String>,
@@ -263,7 +263,7 @@ impl LastSizes {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Modifying {
     context: Option<(FeatureId, Tool)>,
     state: State,
@@ -352,13 +352,16 @@ impl Modifying {
         let context = active
             .filter(|active| active.tool.reshapes())
             .map(|active| (active.feature, active.tool));
+
         if context != self.context {
             if let State::Fillet(filleting) = &self.state {
                 self.last.keep(filleting);
             }
             self.context = context;
+
             let round = self.last.of(CornerCut::Round);
             let chamfer = self.last.of(CornerCut::Chamfer);
+
             self.state = match (context, sketch) {
                 (Some((_, Tool::Offset)), _) => State::Offset(Offsetting::default()),
                 (Some((_, Tool::Mirror)), _) => State::Mirror(Mirroring::starting(selected)),
@@ -415,6 +418,7 @@ impl Modifying {
                 _ => State::Idle,
             };
         }
+
         let Some(sketch) = sketch else {
             return;
         };
@@ -570,6 +574,7 @@ impl Modifying {
                 let shown = text
                     .and_then(|text| Value::typed(model, text).ok())
                     .map(|value| value.millimetres);
+
                 self.show_typed(shown);
             }
         }

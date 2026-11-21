@@ -28,7 +28,7 @@ const DEFAULT_CURVE_SPACING: f64 = 10.0;
 const NO_BODY_SELECTED: &str =
     "Select a face, edge or vertex of the body to pattern, or the body in the tree";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum NoSketchError {
     #[error(
         "Draw the curve to follow in a sketch above the pattern, as one chain of lines, arcs or \
@@ -41,7 +41,7 @@ pub enum NoSketchError {
     NoPoints,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum SketchPickError {
     #[error("Geometry of several sketches is selected; select the curves or points of one")]
     SeveralSketches,
@@ -59,7 +59,7 @@ pub enum SketchPickError {
     EdgesGone,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum ResketchError {
     #[error("It already follows that sketch")]
     Already,
@@ -67,7 +67,7 @@ pub enum ResketchError {
     NotFromASketch,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum SketchSourceError {
     #[error("Make a body first, then pattern it")]
     NoBody,
@@ -92,7 +92,7 @@ impl Reason for SketchSourceError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum PatternSketchError {
     #[error("The feature no longer exists")]
     Gone,
@@ -189,8 +189,10 @@ pub fn selected_sketch(
             _ => None,
         })
         .collect();
+
     sketches.sort_unstable();
     sketches.dedup();
+
     let [sketch] = sketches.as_slice() else {
         return if sketches.is_empty() {
             Ok(None)
@@ -198,6 +200,7 @@ pub fn selected_sketch(
             Err(SketchPickError::SeveralSketches)
         };
     };
+
     if model
         .document()
         .feature_index(*sketch)
@@ -234,9 +237,11 @@ pub fn selected_edge_path(
     let Some((body, _)) = edges.first() else {
         return Ok(None);
     };
+
     if edges.iter().any(|(other, _)| other != body) {
         return Err(SketchPickError::EdgesOfSeveralBodies);
     }
+
     let evaluation = model.evaluation();
     let state = match pattern {
         Some(pattern) => evaluation
@@ -245,6 +250,7 @@ pub fn selected_edge_path(
         None => bodies::shown(evaluation, *body).ok_or(SketchPickError::EdgesGone)?,
     };
     let names: Vec<EdgeName> = edges.iter().map(|(_, edge)| *edge).collect();
+
     let captured =
         sweep_tools::captured_edges(state, &names).map_err(|_| SketchPickError::EdgesGone)?;
     Ok(Some(CurvePatternPath::Edges {
@@ -289,6 +295,7 @@ pub fn source(
         Shape::Curve => selected_edge_path(model, selection, None)?,
         Shape::Points | Shape::Linear | Shape::Circular => None,
     };
+
     let sketch = match (&edges, selected_sketch(model, selection, shape, before)?) {
         (Some(_), _) => None,
         (None, Some(sketch)) => Some(sketch),
@@ -340,6 +347,7 @@ pub fn reshaped_kind(
         .or_else(|| guess(model, shape, before))
         .ok_or(wanting(shape))?;
     let mut kind = kind(shape, sketch, model.length_unit());
+
     if let (PatternKind::Curve(curve), Some(count)) = (&mut kind, count_of(&pattern.kind)) {
         curve.count = count;
     }
@@ -393,6 +401,7 @@ pub fn sketch_change(
         .feature_index(feature)
         .ok_or(PatternSketchError::Gone)?;
     let shape = Shape::of(&pattern.kind);
+
     let sketch = selected_sketch(model, selection, shape, before)?
         .ok_or(PatternSketchError::NoSketchSelected)?;
     let changed = with_sketch(pattern, sketch)?;
@@ -409,6 +418,7 @@ pub fn toggled_edges(current: &CurvePatternPath, picked: CurvePatternPath) -> Cu
             },
         ) if *body == clicked => {
             let mut kept = edges.clone();
+
             for edge in added {
                 match kept.iter().position(|held| held.name() == edge.name()) {
                     Some(index) => {
@@ -437,6 +447,7 @@ pub fn edges_change(
     };
     let picked = selected_edge_path(model, selection, Some(feature))?
         .ok_or(PatternSketchError::NoEdgesSelected)?;
+
     let changed = Pattern {
         kind: PatternKind::Curve(CurvePattern {
             path: toggled_edges(&curve.path, picked),
@@ -459,6 +470,7 @@ pub fn base_change(
         .feature_index(feature)
         .ok_or(PatternSketchError::Gone)?;
     let mut picked = selection.iter();
+
     let base = match (picked.next(), picked.next()) {
         (Some(only), None) => datum_tools::point_reference(model, only, index),
         _ => None,
@@ -476,9 +488,11 @@ pub fn with_base(
     let PatternKind::Points(points) = &pattern.kind else {
         return Err(PatternSketchError::NotAPointPattern);
     };
+
     if points.base == base {
         return Err(PatternSketchError::AlreadyPlacedFromThatPoint);
     }
+
     let kind = PatternKind::Points(PointsPattern {
         base,
         ..points.clone()

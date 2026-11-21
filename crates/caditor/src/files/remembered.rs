@@ -35,7 +35,7 @@ const IMAGE_FOLDER_KEY: &str = "export.folder.image";
 const LONGEST_REMEMBERED_SIDE: f64 = 65_536.0;
 const WIDEST_REMEMBERED_SHEET: f64 = 100_000.0;
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RememberedExports {
     pub model: ExportChoices,
     pub drawing: DrawingChoices,
@@ -45,7 +45,7 @@ pub struct RememberedExports {
     pub folders: ExportFolders,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExportFolders {
     pub model: Option<PathBuf>,
     pub drawing: Option<PathBuf>,
@@ -160,6 +160,7 @@ impl RememberedExports {
             }
         };
         let model = self.model;
+
         text(
             MODEL_FORMAT_KEY,
             model.format.extension(),
@@ -176,7 +177,9 @@ impl RememberedExports {
             threads_key(model.threads),
             threads_key(defaults.model.threads),
         );
+
         let drawing = self.drawing;
+
         text(
             DRAWING_FORMAT_KEY,
             drawing.format.extension(),
@@ -192,7 +195,9 @@ impl RememberedExports {
             self.sheet.extension(),
             defaults.sheet.extension(),
         );
+
         let image = self.image;
+
         text(
             IMAGE_SIZE_KEY,
             size_key(image.size),
@@ -218,6 +223,7 @@ impl RememberedExports {
                 None => text(key, "", ""),
             }
         }
+
         let mut number = |key: &str, value: f64, default: f64| {
             if value == default {
                 settings.remove(key);
@@ -225,6 +231,7 @@ impl RememberedExports {
                 settings.set_number(key, value);
             }
         };
+
         number(
             SHEET_WIDTH_KEY,
             drawing.sheet_width,
@@ -241,6 +248,7 @@ impl RememberedExports {
             f64::from(image.custom.height),
             f64::from(defaults.image.custom.height),
         );
+
         let mut flag = |key: &str, value: bool, default: bool| {
             if value == default {
                 settings.remove(key);
@@ -248,6 +256,7 @@ impl RememberedExports {
                 settings.set_flag(key, value);
             }
         };
+
         flag(TURNS_KEY, drawing.turns, defaults.drawing.turns);
         flag(
             ANNOTATIONS_KEY,
@@ -353,6 +362,7 @@ mod tests {
             },
         };
         let mut settings = Settings::default();
+
         remembered.write(&mut settings);
 
         assert_eq!(RememberedExports::from_settings(&settings), remembered);
@@ -362,14 +372,17 @@ mod tests {
         assert_eq!(settings.text(IMAGE_FOLDER_KEY), None);
 
         RememberedExports::default().write(&mut settings);
+
         assert!(settings.keys_under("export.").is_empty());
 
         let mut odd = Settings::default();
+
         odd.set_text(MODEL_FORMAT_KEY, "from a newer caditor");
         odd.set_text(SHEET_FORMAT_KEY, "png");
         odd.set_number(SHEET_WIDTH_KEY, -3.0);
         odd.set_number(IMAGE_WIDTH_KEY, 1.5);
         odd.set_text(IMAGE_SCALE_KEY, "16");
+
         assert!(RememberedExports::from_settings(&odd).is_empty());
         assert!(RememberedExports::from_settings(&Settings::default()).is_empty());
     }

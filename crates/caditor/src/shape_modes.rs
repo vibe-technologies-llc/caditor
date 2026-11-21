@@ -2,7 +2,7 @@ use caditor_sketch::{Caps, Continuity, SplineKind};
 
 use crate::editing::Tool;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RectangleMode {
     #[default]
     Corners,
@@ -10,7 +10,7 @@ pub enum RectangleMode {
     ThreePoints,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CircleMode {
     #[default]
     Center,
@@ -18,7 +18,7 @@ pub enum CircleMode {
     ThreePoints,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PolygonMode {
     #[default]
     Corner,
@@ -26,7 +26,7 @@ pub enum PolygonMode {
     Side,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SlotMode {
     #[default]
     Ends,
@@ -34,7 +34,7 @@ pub enum SlotMode {
     Arc,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SplineMode {
     #[default]
     Fit,
@@ -62,7 +62,7 @@ impl SplineMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BlendMode {
     #[default]
     Tangent,
@@ -78,7 +78,7 @@ impl BlendMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OffsetMode {
     #[default]
     OneSide,
@@ -96,7 +96,7 @@ impl OffsetMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ShapeMode {
     Rectangle(RectangleMode),
     Circle(CircleMode),
@@ -342,7 +342,7 @@ impl ShapeMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShapeModes {
     rectangle: RectangleMode,
     circle: CircleMode,
@@ -513,6 +513,7 @@ mod tests {
         );
 
         let mut modes = ShapeModes::default();
+
         modes.set(tangent.next());
 
         assert_eq!(modes.blend(), Continuity::Curvature);
@@ -534,6 +535,7 @@ mod tests {
         assert_eq!(OffsetMode::BothFlat.caps(), Some(Caps::Flat));
 
         let mut modes = ShapeModes::default();
+
         modes.set(one_side.next().next());
 
         assert_eq!(modes.offset(), OffsetMode::BothFlat);

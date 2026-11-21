@@ -109,12 +109,14 @@ impl Panel<'_> {
 
     fn apply(&mut self, helix: Helix) {
         let change = self.change(helix);
+
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
 
     fn axis_row(&mut self, ui: &mut Ui) {
         let (model, id, helix) = (self.model, self.id(), self.helix);
+
         let row = AxisRow {
             caption: AXIS,
             shown: Some(capitalized(&describe_axis(model.document(), &helix.axis))),
@@ -137,6 +139,7 @@ impl Panel<'_> {
             })
         };
         let mut actions = Vec::new();
+
         feature_fields::axis_row(ui, model, row, Some(&listed), &mut actions);
         self.actions.extend(actions);
         if let Some(reversed) =
@@ -167,6 +170,7 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, self.model, caption, quantity, |value| {
                 helix_tools::change(self.model, self.id(), changed(value))
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
@@ -182,12 +186,14 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, SHAPE, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
     fn sizing_rows(&mut self, ui: &mut Ui) {
         let kind = self.helix.kind;
         let current = self.helix.length.sizing();
+
         let segments = CoilSizing::ALL
             .into_iter()
             .map(|sizing| Segment {
@@ -198,6 +204,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, SIZED_BY, &self.feature.name, segments);
+
         self.actions.extend(chosen);
         for (index, (caption, key, expression)) in coil_panel::length_fields(&self.helix.length)
             .into_iter()
@@ -214,6 +221,7 @@ impl Panel<'_> {
                 caption
             };
             let helix = self.helix.clone();
+
             self.value_row(
                 ui,
                 caption,
@@ -239,6 +247,7 @@ impl Panel<'_> {
         } else {
             DIAMETER
         };
+
         self.value_row(ui, caption, field, move |diameter| Helix {
             diameter,
             ..helix.clone()
@@ -253,6 +262,7 @@ impl Panel<'_> {
             Dimension::ANGLE,
             Rule::CoilTaper,
         );
+
         self.value_row(ui, TAPER, field, move |taper| Helix {
             taper,
             ..helix.clone()
@@ -264,6 +274,7 @@ impl Panel<'_> {
         let progressive = self.helix.final_pitch.is_some() && !tabled;
         let model = self.model;
         let helix = self.helix;
+
         let laws = [
             (!tabled && !progressive, EVEN_PITCH, EVEN_PITCH_HOVER),
             (progressive, PROGRESSIVE_PITCH, PROGRESSIVE_PITCH_HOVER),
@@ -285,16 +296,19 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, PITCH_LAW, &self.feature.name, segments);
+
         self.actions.extend(chosen);
         if tabled {
             self.pitch_table_rows(ui);
             return;
         }
+
         let Some(last) = &self.helix.final_pitch else {
             return;
         };
         let helix = self.helix.clone();
         let field = ("final-pitch", last, Dimension::LENGTH, Rule::AboveZero);
+
         self.value_row(ui, FINAL_PITCH, field, move |pitch| Helix {
             final_pitch: Some(pitch),
             ..helix.clone()
@@ -303,6 +317,7 @@ impl Panel<'_> {
 
     fn pitch_table_rows(&mut self, ui: &mut Ui) {
         let helix = self.helix.clone();
+
         for (index, row) in helix.pitch_table.iter().enumerate() {
             let fields = [
                 (true, format!("Row {} at turn", index + 1), &row.turns),
@@ -315,6 +330,7 @@ impl Panel<'_> {
                     (Dimension::LENGTH, Rule::AboveZero)
                 };
                 let key = if turns { "row-turns" } else { "row-pitch" };
+
                 let quantity = Quantity {
                     feature: self.id(),
                     id: Id::unique(("helix-table", index, key, self.id())),
@@ -335,13 +351,17 @@ impl Panel<'_> {
                         )
                     },
                 );
+
                 self.actions.extend(drafting.into_actions(self.id()));
             }
         }
         ui.label("");
+
         let mut change = None;
+
         ui.horizontal_wrapped(|ui| {
             let add = widgets::small_button(ui, icons::ADD, ADD_PITCH_ROW);
+
             if ui
                 .add_enabled(helix_tools::can_add_pitch_row(&helix), add)
                 .on_disabled_hover_text(format!("A table has at most {MAX_PITCH_ROWS} rows"))
@@ -349,6 +369,7 @@ impl Panel<'_> {
             {
                 change = Some(self.change(helix_tools::with_pitch_row_added(self.model, &helix)));
             }
+
             let remove = widgets::small_button(ui, icons::SUBTRACT, REMOVE_PITCH_ROW);
             let fewer = (helix.pitch_table.len() > 1)
                 .then(|| helix_tools::with_last_pitch_row_removed(&helix));
@@ -383,13 +404,17 @@ impl Panel<'_> {
         })
         .collect();
         let chosen = feature_fields::segmented_row(ui, ENDS, &self.feature.name, segments);
+
         self.actions.extend(chosen);
+
         let current = self.helix;
         let Some(ends) = &current.ends else {
             return;
         };
+
         let (helix, kept) = (current.clone(), ends.clone());
         let field = ("end-turns", &ends.turns, Dimension::NONE, Rule::ZeroOrMore);
+
         self.value_row(ui, END_TURNS, field, move |turns| Helix {
             ends: Some(Box::new(ClosedEnds {
                 turns,
@@ -397,8 +422,10 @@ impl Panel<'_> {
             })),
             ..helix.clone()
         });
+
         let (helix, kept) = (current.clone(), ends.clone());
         let field = ("end-pitch", &ends.pitch, Dimension::LENGTH, Rule::AboveZero);
+
         self.value_row(ui, END_PITCH, field, move |pitch| Helix {
             ends: Some(Box::new(ClosedEnds {
                 pitch,
@@ -406,8 +433,10 @@ impl Panel<'_> {
             })),
             ..helix.clone()
         });
+
         let (helix, kept) = (current.clone(), ends.clone());
         let field = ("end-change", &ends.change, Dimension::NONE, Rule::AboveZero);
+
         self.value_row(ui, END_CHANGE, field, move |change| Helix {
             ends: Some(Box::new(ClosedEnds {
                 change,
@@ -419,6 +448,7 @@ impl Panel<'_> {
 
     fn start_point_row(&mut self, ui: &mut Ui) {
         let (model, id, helix) = (self.model, self.id(), self.helix);
+
         let shown = match &helix.start_point {
             Some(point) => Shown::Named(capitalized(&describe_point(model.document(), point))),
             None => Shown::Named(BY_ANGLE.to_owned()),
@@ -436,6 +466,7 @@ impl Panel<'_> {
             hover: START_POINT_HOVER,
         };
         let mut actions = Vec::new();
+
         let removed = feature_fields::reference_row(
             ui,
             model,
@@ -448,6 +479,7 @@ impl Panel<'_> {
                 .then_some(START_POINT_REMOVE_HOVER),
             &mut actions,
         );
+
         self.actions.extend(actions);
         if removed {
             self.apply(helix_tools::with_start_point(helix, None));
@@ -459,8 +491,10 @@ impl Panel<'_> {
         if self.helix.start_point.is_some() {
             return;
         }
+
         let helix = self.helix.clone();
         let field = ("start", &self.helix.start, Dimension::ANGLE, Rule::Any);
+
         self.value_row(ui, START_ANGLE, field, move |start| Helix {
             start,
             ..helix.clone()
@@ -479,6 +513,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, TURNING, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 }
@@ -498,8 +533,10 @@ pub fn show(
         helix,
         actions,
     };
+
     widgets::properties(ui, ("helix-properties", feature.id()), |ui| {
         let flat = helix.is_flat();
+
         feature_fields::description_row(
             ui,
             if flat {

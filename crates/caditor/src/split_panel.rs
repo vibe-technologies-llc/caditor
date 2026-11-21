@@ -39,7 +39,9 @@ impl Panel<'_> {
     fn along_rows(&mut self, ui: &mut Ui) {
         let document = self.model.document();
         let current = split_tools::describe(document, &self.split.along);
+
         widgets::caption(ui, "Split along");
+
         let chosen =
             feature_fields::combo(ui, Id::unique(("split-plane", self.id())), current, || {
                 split_tools::choices(self.model, self.id(), self.split)
@@ -54,15 +56,19 @@ impl Panel<'_> {
                     })
                     .collect()
             });
+
         ui.end_row();
+
         let choosing = reference_picking::current(ui.ctx())
             .is_some_and(|picking| picking.is_for(self.id(), Slot::SplitPlane));
+
         if chosen.is_some() && choosing {
             self.actions
                 .push(Action::Editing(EditingCommand::StopPicking));
         }
         self.actions.extend(chosen);
         ui.label("");
+
         let picker = Picker {
             feature: self.id(),
             slot: Slot::SplitPlane,
@@ -75,6 +81,7 @@ impl Panel<'_> {
             ),
             hover: PICK_HOVER,
         };
+
         ui.vertical(|ui| {
             feature_fields::reference_picker(ui, self.model, picker, self.actions);
         });
@@ -92,6 +99,7 @@ impl Panel<'_> {
                     ..self.split.clone()
                 },
             );
+
             self.actions
                 .push(feature_fields::applied(&self.feature.name, change));
         }
@@ -113,6 +121,7 @@ pub fn show(
         split,
         actions,
     };
+
     widgets::properties(ui, ("split-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         panel.along_rows(ui);

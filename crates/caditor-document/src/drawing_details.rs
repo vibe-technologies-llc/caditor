@@ -56,6 +56,7 @@ fn crossings(curve: &Curve2, range: Interval, disc: &Disc) -> Vec<f64> {
         .unwrap_or_else(|| SamplingTolerance::for_extent(disc.radius));
     let samples = curve.sample(range, &tolerance);
     let mut found = Vec::new();
+
     for (before, after) in samples.iter().zip(samples.iter().skip(1)) {
         let middle = 0.5 * (before.parameter + after.parameter);
         let heights = [
@@ -70,6 +71,7 @@ fn crossings(curve: &Curve2, range: Interval, disc: &Disc) -> Vec<f64> {
                 } else {
                     (to.0, from.0)
                 };
+
                 found.push(root_between(curve, disc, inside, outside));
             }
         }
@@ -80,14 +82,18 @@ fn crossings(curve: &Curve2, range: Interval, disc: &Disc) -> Vec<f64> {
 
 fn curve_ranges(curve: &Curve2, range: Interval, disc: &Disc) -> Vec<Interval> {
     let mut stops = vec![range.start()];
+
     stops.extend(crossings(curve, range, disc));
     stops.push(range.end());
+
     let mut kept: Vec<Interval> = Vec::new();
+
     for (from, to) in stops.iter().zip(stops.iter().skip(1)) {
         let Some(span) = Interval::new(*from, *to) else {
             continue;
         };
         let inside = outside_by(disc, curve.point(span.middle())) <= 0.0;
+
         if !inside || curve.length(span) < LINEAR_RESOLUTION {
             continue;
         }
@@ -107,6 +113,7 @@ fn clipped(piece: &ViewPiece, disc: &Disc) -> Vec<ViewPiece> {
     if !overlap(piece.curve.bounding_box(piece.range), disc.bounds()) {
         return Vec::new();
     }
+
     let ranges = match &piece.curve {
         Curve2::Line(line) => line_ranges(line, piece.range, disc),
         curve => curve_ranges(curve, piece.range, disc),
@@ -126,6 +133,7 @@ fn enlarged(detail: &DetailView, parent: &ViewLines) -> Result<ViewLines, Drawin
         radius: detail.radius,
     };
     let mut pieces = Vec::new();
+
     for piece in &parent.pieces {
         check_interrupt().map_err(|_| DrawingViewError::Cancelled)?;
         pieces.extend(clipped(piece, &disc));

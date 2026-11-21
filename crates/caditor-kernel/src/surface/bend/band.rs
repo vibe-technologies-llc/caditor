@@ -49,9 +49,11 @@ impl Band {
             let first = row.saturating_sub(self.reach);
             for column in first..=row {
                 let mut sum = self.at(row, column);
+
                 for k in first.max(column.saturating_sub(self.reach))..column {
                     sum -= self.at(row, k) * self.at(column, k);
                 }
+
                 let value = if row == column {
                     if !(sum > 0.0 && sum.is_finite()) {
                         return Err(GeometryError::NonFinite);
@@ -73,8 +75,10 @@ impl Band {
 
     pub(super) fn solve(&self, right: Vec<Vector3>) -> Vec<Vector3> {
         let mut values = right;
+
         for row in 0..self.count {
             let mut sum = values.get(row).copied().unwrap_or(Vector3::ZERO);
+
             for k in row.saturating_sub(self.reach)..row {
                 sum -= values.get(k).copied().unwrap_or(Vector3::ZERO) * self.at(row, k);
             }
@@ -84,6 +88,7 @@ impl Band {
         }
         for row in (0..self.count).rev() {
             let mut sum = values.get(row).copied().unwrap_or(Vector3::ZERO);
+
             for k in row + 1..(row + self.reach + 1).min(self.count) {
                 sum -= values.get(k).copied().unwrap_or(Vector3::ZERO) * self.at(k, row);
             }

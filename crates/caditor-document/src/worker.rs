@@ -21,7 +21,7 @@ use crate::{
 const NO_JOB: u64 = u64::MAX;
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Progress {
     pub done: usize,
     pub total: usize,
@@ -35,7 +35,7 @@ impl Progress {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     FeaturesDone,
     Finished,
@@ -43,14 +43,14 @@ pub enum Outcome {
     Failed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Update {
     pub revision: u64,
     pub outcome: Outcome,
     pub evaluation: Evaluation,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("the recompute worker stopped")]
 pub struct WorkerStopped;
 
@@ -164,6 +164,7 @@ impl Recomputer {
     ) -> std::io::Result<Self> {
         let evaluator: Arc<dyn Evaluator> = Arc::new(evaluator);
         let wake: SharedWake = Arc::new(Mutex::new(Box::new(wake)));
+
         let handle = start_worker(&evaluator, &wake)?;
         Ok(Self {
             evaluator,
@@ -246,6 +247,7 @@ impl Recomputer {
         draft: bool,
     ) -> Result<(), WorkerStopped> {
         let sequence = self.next_sequence;
+
         self.next_sequence += 1;
         if !draft {
             self.handle.shared.models.fetch_add(1, Ordering::SeqCst);
@@ -346,17 +348,20 @@ impl Recomputer {
                 progress.since.elapsed()
             ))
         });
+
         log::error!(
             "the recompute worker did not stop within {:?}{}, so it is left behind and a new one \
              starts",
             self.grace,
             running.unwrap_or_default()
         );
+
         let fresh = start_worker(&self.evaluator, &self.wake).map_err(|error| {
             log::error!("could not start a new recompute worker: {error}");
             WorkerStopped
         })?;
         let stuck = std::mem::replace(&mut self.handle, fresh);
+
         stuck.shared.cancels.fetch_add(1, Ordering::SeqCst);
         stuck.shared.models.fetch_add(1, Ordering::SeqCst);
         stuck.shared.latest.store(NO_JOB, Ordering::SeqCst);
@@ -366,9 +371,11 @@ impl Recomputer {
                 .send(Message::MeshQuality(quality))
                 .map_err(|_| WorkerStopped)?;
         }
+
         let Some(newest) = self.newest.take() else {
             return Ok(None);
         };
+
         if newest.cancelled {
             return Ok(Some(Update {
                 revision: newest.revision,
@@ -391,7 +398,9 @@ impl Recomputer {
         {
             return Ok(Some(update));
         }
+
         let mut latest = None;
+
         loop {
             match self.handle.updates.try_recv() {
                 Ok(Report {
@@ -450,10 +459,12 @@ fn start_worker(evaluator: &Arc<dyn Evaluator>, wake: &SharedWake) -> std::io::R
     let worker = Arc::clone(&shared);
     let evaluator = Arc::clone(evaluator);
     let wake = Arc::clone(wake);
+
     thread::Builder::new()
         .name("recompute".to_owned())
         .spawn(move || {
             let wake = move || (wake.lock())();
+
             work(evaluator.as_ref(), &queue, &sender, &worker, &wake);
         })?;
     Ok(Handle {
@@ -482,12 +493,16 @@ fn work(
     let mut tasks: Vec<QueuedTask> = Vec::new();
     loop {
         shared.busy.store(false, Ordering::SeqCst);
+
         let Ok(first) = queue.recv() else {
             break;
         };
+
         shared.busy.store(true, Ordering::SeqCst);
         *shared.stop_asked.lock() = None;
+
         let mut latest: Option<Job> = None;
+
         for message in std::iter::once(first).chain(std::iter::from_fn(|| queue.try_recv().ok())) {
             match message {
                 Message::Recompute(mut job) => {
@@ -517,6 +532,7 @@ fn work(
         }
         if let Some(job) = latest.take_if(|job| job.draft) {
             let mut draft = recompute.draft_copy();
+
             let ran = run_contained(&mut draft, &job, evaluator, shared, &|_| {});
             if let Some(Ok(evaluation)) =
                 ran.filter(|_| !shared.is_cancelled(job.sequence, job.cancels))
@@ -530,6 +546,7 @@ fn work(
                         evaluation,
                     },
                 };
+
                 if updates.send(report).is_err() {
                     break;
                 }
@@ -540,6 +557,7 @@ fn work(
             if job.retry_failures {
                 recompute.retry_failures();
             }
+
             let report_features = |evaluation| {
                 let update = Update {
                     revision: job.revision,
@@ -564,6 +582,7 @@ fn work(
             let (outcome, evaluation) = match ran {
                 Ok(evaluation) => {
                     reported = evaluation.clone();
+
                     let outcome = if evaluation.is_complete() {
                         Outcome::Finished
                     } else {
@@ -573,11 +592,13 @@ fn work(
                 }
                 Err(Panicked) => (Outcome::Failed, reported.clone()),
             };
+
             let update = Update {
                 revision: job.revision,
                 outcome,
                 evaluation,
             };
+
             if updates
                 .send(Report {
                     draft: false,
@@ -604,6 +625,7 @@ fn run_task(
 ) {
     let QueuedTask { task, models } = queued;
     let watched = Arc::clone(shared);
+
     let cancel = CancelToken::new(move || watched.models.load(Ordering::SeqCst) != models);
     let mut copy = recompute.draft_copy();
     if panic::catch_unwind(AssertUnwindSafe(|| task(&mut copy, evaluator, &cancel))).is_err() {
@@ -622,6 +644,7 @@ fn run_contained(
 ) -> Option<Result<Evaluation, Panicked>> {
     let (sequence, cancels) = (job.sequence, job.cancels);
     let watched = Arc::clone(shared);
+
     let cancel = CancelToken::new(move || watched.is_cancelled(sequence, cancels));
     let report = |done: usize, total: usize| {
         let running = job
@@ -629,6 +652,7 @@ fn run_contained(
             .feature_handles()
             .get(done)
             .map(|feature| feature.name.clone());
+
         *shared.progress.lock() = Some(Progress {
             done,
             total,
@@ -636,9 +660,11 @@ fn run_contained(
             since: Instant::now(),
         });
     };
+
     let evaluation = contained(recompute, |recompute| {
         recompute.run_reporting(&job.document, evaluator, &cancel, &report, features_done)
     });
+
     *shared.progress.lock() = None;
 
     (shared.latest.load(Ordering::SeqCst) == sequence).then_some(evaluation)
@@ -670,6 +696,7 @@ fn mesh_pending(
     let sequence = shared.latest.load(Ordering::SeqCst);
     let cancels = shared.cancels.load(Ordering::SeqCst);
     let watched = Arc::clone(shared);
+
     let cancel = CancelToken::new(move || watched.is_cancelled(sequence, cancels));
     while let Some(pending) = meshes.last() {
         if cancel.is_cancelled() {
@@ -687,6 +714,7 @@ fn mesh_pending(
                 }
                 None => Some(solid),
             };
+
             if let Some(shown) = shown {
                 interruptible(cancel.interrupt(), || {
                     shown.tessellate(&pending.name, quality, None)
@@ -788,6 +816,7 @@ mod tests {
     fn stuck() -> (Stuck, Arc<AtomicUsize>, Arc<AtomicBool>) {
         let started = Arc::new(AtomicUsize::new(0));
         let release = Arc::new(AtomicBool::new(false));
+
         let evaluator = Stuck {
             started: Arc::clone(&started),
             release: Arc::clone(&release),
@@ -801,7 +830,9 @@ mod tests {
             if let Some(update) = worker.poll().unwrap() {
                 return update;
             }
+
             assert!(Instant::now() < deadline, "no update arrived");
+
             thread::sleep(Duration::from_millis(2));
         }
     }
@@ -819,12 +850,16 @@ mod tests {
             thread::yield_now();
         }
         worker.cancel();
+
         let update = poll_until_update(&mut worker);
 
         assert_eq!((update.revision, update.outcome), (3, Outcome::Cancelled));
+
         release.store(true, Ordering::SeqCst);
         worker.submit(document, 4).unwrap();
+
         let next = poll_until_update(&mut worker);
+
         assert_eq!((next.revision, next.outcome), (4, Outcome::Finished));
     }
 
@@ -842,7 +877,9 @@ mod tests {
         }
         worker.submit(document, 2).unwrap();
         thread::sleep(Duration::from_millis(120));
+
         assert_eq!(worker.poll().unwrap().map(|update| update.revision), None);
+
         release.store(true, Ordering::SeqCst);
 
         let update = poll_until_update(&mut worker);
@@ -872,14 +909,20 @@ mod tests {
     #[test]
     fn a_forgotten_evaluation_is_never_reported_for_the_next_document() {
         let (evaluator, started, release) = stuck();
+
         release.store(true, Ordering::SeqCst);
+
         let mut worker = Recomputer::spawn(evaluator, || {})
             .unwrap()
             .with_stop_grace(Duration::from_millis(50));
         let (document, ids) = sample();
+
         worker.submit(document.clone(), 1).unwrap();
+
         let first = poll_until_finished(&mut worker);
+
         release.store(false, Ordering::SeqCst);
+
         let evaluated = started.load(Ordering::SeqCst);
 
         worker.forget().unwrap();
@@ -888,7 +931,9 @@ mod tests {
             thread::yield_now();
         }
         worker.cancel();
+
         let cancelled = poll_until_update(&mut worker);
+
         release.store(true, Ordering::SeqCst);
 
         assert!(first.evaluation.feature(ids.base).is_some());
@@ -926,9 +971,13 @@ mod tests {
         let (document, ids) = sample();
 
         worker.submit(document, 5).unwrap();
+
         let early = poll_until_update(&mut worker);
+
         worker.cancel();
+
         let cancelled = poll_until_update(&mut worker);
+
         release.store(true, Ordering::SeqCst);
 
         assert_eq!(early.outcome, Outcome::FeaturesDone);
@@ -937,7 +986,9 @@ mod tests {
             (cancelled.revision, cancelled.outcome),
             (5, Outcome::Cancelled)
         );
+
         let state = |id| cancelled.evaluation.feature(id).unwrap().state.clone();
+
         assert_eq!(state(ids.base), FeatureState::UpToDate);
         assert_eq!(state(ids.side), FeatureState::Outdated);
         assert!(!cancelled.evaluation.is_pending(ids.side));
@@ -980,15 +1031,19 @@ mod tests {
         let (document, _) = sample();
 
         worker.submit(document, 7).unwrap();
+
         let update = worker.wait();
 
         assert_eq!(update.revision, 7);
         assert_eq!(update.outcome, Outcome::Finished);
         assert_eq!(update.evaluation.failed_count(), 0);
+
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+
         while woken.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
             std::thread::yield_now();
         }
+
         assert_eq!(woken.load(Ordering::SeqCst), 1);
         assert_eq!(worker.progress(), None);
     }
@@ -1003,13 +1058,19 @@ mod tests {
         while started.load(Ordering::SeqCst) == 0 {
             thread::yield_now();
         }
+
         let progress = worker.progress().unwrap();
+
         assert_eq!(progress.running.as_deref(), Some("Base sketch"));
+
         worker.cancel();
+
         let update = worker.wait();
 
         assert_eq!(update.outcome, Outcome::Cancelled);
+
         let status = update.evaluation.feature(ids.base).unwrap();
+
         assert_eq!(status.state, FeatureState::Outdated);
         assert_eq!(status.result, None);
     }
@@ -1028,6 +1089,7 @@ mod tests {
         release.store(true, Ordering::SeqCst);
 
         let update = worker.wait();
+
         assert_eq!(update.revision, 2);
         assert_eq!(update.outcome, Outcome::Finished);
         assert!(worker.poll().unwrap().is_none());
@@ -1039,14 +1101,17 @@ mod tests {
         let (document, ids) = sample();
 
         worker.submit(document.clone(), 1).unwrap();
+
         let update = worker.wait();
         let FeatureState::Failed(error) = &update.evaluation.feature(ids.base).unwrap().state
         else {
             panic!("the panicking feature should fail");
         };
+
         assert!(error.reason().contains("internal error"));
 
         worker.submit(document, 2).unwrap();
+
         assert_eq!(worker.wait().revision, 2);
     }
 
@@ -1055,6 +1120,7 @@ mod tests {
         let (document, ids) = sample();
         let reported = Mutex::new(Vec::new());
         let mut recompute = Recompute::default();
+
         recompute.report_features_done_after(Duration::ZERO);
 
         let evaluation = recompute.run_reporting(
@@ -1069,6 +1135,7 @@ mod tests {
         let [first, last] = reported.as_slice() else {
             panic!("the features should be reported as they go and once all are done");
         };
+
         assert_eq!(first.feature(ids.base), evaluation.feature(ids.base));
         assert!(first.is_pending(ids.side));
         assert_eq!(first.feature(ids.side), None);
@@ -1130,6 +1197,7 @@ mod tests {
     #[test]
     fn requested_meshes_are_served_newest_first() {
         let (old, new) = (empty_body(1), empty_body(2));
+
         let mut meshes = vec![
             PendingMesh {
                 result: Arc::clone(&old),
@@ -1158,9 +1226,12 @@ mod tests {
 
         worker.cancel();
         worker.submit(document.clone(), 1).unwrap();
+
         let first = worker.wait();
+
         worker.cancel();
         worker.submit(document, 2).unwrap();
+
         let second = worker.wait();
 
         assert_eq!(first.outcome, Outcome::Finished);
@@ -1189,12 +1260,17 @@ mod tests {
 
         worker.submit(document.clone(), 1).unwrap();
         worker.wait();
+
         let after_first = runs.load(Ordering::SeqCst);
+
         worker.submit(document.clone(), 2).unwrap();
         worker.wait();
+
         let after_plain = runs.load(Ordering::SeqCst);
+
         worker.submit_retrying_failures(document, 3).unwrap();
         worker.wait();
+
         let after_retry = runs.load(Ordering::SeqCst);
 
         assert_eq!(after_first, 2);
@@ -1225,7 +1301,9 @@ mod tests {
 
         worker.submit(document.clone(), 1).unwrap();
         worker.wait();
+
         let by_the_model = evaluated.load(Ordering::SeqCst);
+
         worker
             .submit_on_cache(Box::new(move |cache, evaluator, cancel| {
                 let evaluation = cache.run_without_display(&document, evaluator, cancel);
@@ -1234,9 +1312,11 @@ mod tests {
                         .feature(feature.id())
                         .is_some_and(|status| status.state == FeatureState::UpToDate)
                 });
+
                 sender.send((computed, cancel.is_cancelled())).unwrap();
             }))
             .unwrap();
+
         let (computed, cancelled) = received.recv_timeout(Duration::from_secs(10)).unwrap();
 
         assert!(by_the_model > 0);
@@ -1254,15 +1334,20 @@ mod tests {
         worker
             .submit_on_cache(Box::new(move |_, _, cancel| {
                 sender.send(false).unwrap();
+
                 let deadline = Instant::now() + Duration::from_secs(10);
+
                 while !cancel.is_cancelled() && Instant::now() < deadline {
                     thread::yield_now();
                 }
                 sender.send(cancel.is_cancelled()).unwrap();
             }))
             .unwrap();
+
         let started = received.recv_timeout(Duration::from_secs(10));
+
         worker.submit(document, 1).unwrap();
+
         let stopped = received.recv_timeout(Duration::from_secs(10));
         let model = poll_until_update(&mut worker);
 
@@ -1278,7 +1363,9 @@ mod tests {
             if let Some(update) = worker.take_draft() {
                 return update;
             }
+
             assert!(Instant::now() < deadline, "no draft arrived");
+
             thread::sleep(Duration::from_millis(2));
         }
     }
@@ -1290,13 +1377,18 @@ mod tests {
 
         worker.submit(document.clone(), 1).unwrap();
         worker.submit_draft(document.clone(), 40).unwrap();
+
         let model = poll_until_update(&mut worker);
+
         assert_eq!((model.revision, model.outcome), (1, Outcome::Finished));
 
         let draft = poll_until_draft(&mut worker);
+
         assert_eq!((draft.revision, draft.outcome), (40, Outcome::Finished));
         assert!(draft.evaluation.is_complete());
+
         thread::sleep(Duration::from_millis(20));
+
         assert_eq!(worker.poll().unwrap().map(|update| update.revision), None);
     }
 
@@ -1308,7 +1400,9 @@ mod tests {
         worker.submit(document.clone(), 1).unwrap();
         worker.submit_draft(document.clone(), 40).unwrap();
         worker.submit(document, 2).unwrap();
+
         let mut finished = poll_until_update(&mut worker);
+
         while finished.revision != 2 || finished.outcome != Outcome::Finished {
             finished = poll_until_update(&mut worker);
         }

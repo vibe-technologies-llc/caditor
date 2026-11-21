@@ -24,14 +24,14 @@ const HEADER: PanelTitle<'static> = PanelTitle {
 };
 const NEXT: &str = "Next:";
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Shown {
     #[default]
     Contents,
     Page(Page),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Guide {
     pub open: bool,
     shown: Shown,
@@ -91,6 +91,7 @@ enum Choice {
 pub fn show(ui: &mut Ui, state: &mut Guide, keymap: &Keymap, room: f32) {
     let on_contents = state.shown == Shown::Contents;
     let at_start = state.back.is_empty();
+
     let actions = |ui: &mut Ui| {
         let contents = ui
             .add_enabled_ui(!on_contents, |ui| {
@@ -109,6 +110,7 @@ pub fn show(ui: &mut Ui, state: &mut Guide, keymap: &Keymap, room: f32) {
     let panel = widgets::side_panel_parts(ui, room, PANEL, &HEADER, actions, |ui| {
         search_field(ui, state);
         ui.add_space(SPACE_M);
+
         let salt = match state.shown {
             Shown::Contents => "contents",
             Shown::Page(page) => page.id(),
@@ -145,7 +147,9 @@ fn search_id() -> Id {
 fn search_field(ui: &mut Ui, state: &mut Guide) {
     ui.horizontal(|ui| {
         let muted = appearance::tokens(ui).text_muted;
+
         widgets::icon_label(ui, icons::SEARCH, muted);
+
         let field = widgets::text_field(ui, |ui| {
             widgets::spoken_as(
                 ui.add(
@@ -173,6 +177,7 @@ fn page_link(ui: &mut Ui, page: Page) -> bool {
 
 fn contents(ui: &mut Ui) -> Option<Page> {
     let mut chosen = None;
+
     for chapter in Chapter::ALL {
         ui.add(Label::new(widgets::section_title(chapter.title())).selectable(false));
         ui.add_space(SPACE_S);
@@ -202,7 +207,9 @@ fn hits(ui: &mut Ui, query: &str, hits: &[Hit]) -> Option<Page> {
         });
         return None;
     }
+
     let mut chosen = None;
+
     for hit in hits {
         if page_link(ui, hit.page) {
             chosen = Some(hit.page);
@@ -216,6 +223,7 @@ fn hits(ui: &mut Ui, query: &str, hits: &[Hit]) -> Option<Page> {
 fn page_body(ui: &mut Ui, page: Page, keymap: &Keymap) -> Option<Page> {
     let mut chosen = None;
     let bullet = appearance::tokens(ui).text;
+
     ui.add(Label::new(widgets::muted(page.chapter().title(), ui)).selectable(false));
     ui.add(
         Label::new(
@@ -242,6 +250,7 @@ fn page_body(ui: &mut Ui, page: Page, keymap: &Keymap) -> Option<Page> {
                 .inner
             }
         };
+
         chosen = chosen.or(clicked);
         ui.add_space(SPACE_S);
     }
@@ -269,7 +278,9 @@ fn next_page(page: Page) -> Option<Page> {
 fn paragraph(ui: &mut Ui, spans: &[Span], keymap: &Keymap) -> Option<Page> {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
+
         let mut chosen = None;
+
         for span in spans {
             match span {
                 Span::Text(text) => {
@@ -321,19 +332,31 @@ mod tests {
     #[test]
     fn toggling_opens_the_context_page_and_closes_it_when_shown() {
         let mut guide = Guide::default();
+
         guide.toggle_at(Some(Page::Extrude));
+
         assert!(guide.open);
         assert_eq!(guide.page(), Some(Page::Extrude));
+
         guide.toggle_at(Some(Page::Line));
+
         assert_eq!(guide.page(), Some(Page::Line));
+
         guide.go_back();
+
         assert_eq!(guide.page(), Some(Page::Extrude));
+
         guide.toggle_at(Some(Page::Extrude));
+
         assert!(!guide.open);
+
         guide.toggle_at(None);
+
         assert!(guide.open);
         assert_eq!(guide.page(), Some(Page::Extrude));
+
         guide.toggle_at(None);
+
         assert!(!guide.open);
     }
 

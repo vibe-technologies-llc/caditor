@@ -18,13 +18,13 @@ const RECOMPUTE_FIRST: &str = "recompute the model first";
 const RESTART_FIRST: &str = "restart the recompute first";
 const MEND_FIRST: &str = "mend the failed feature first";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Awaited {
     Recompute,
     ConstraintCheck,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Pending {
     #[error("The body has no shape yet")]
     BodyShape,
@@ -68,7 +68,7 @@ impl Awaited {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Rerun {
     Command(Command),
     Editing(EditingCommand),
@@ -83,7 +83,7 @@ pub enum Rerun {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Queued {
     rerun: Rerun,
     title: String,
@@ -138,13 +138,13 @@ pub fn refused_rerun(rerun: Rerun, title: &str, reason: &impl Reason) -> Action 
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Basis {
     session: u64,
     revision: u64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Queue {
     held: Option<(Queued, Basis)>,
 }
@@ -222,6 +222,7 @@ mod tests {
     #[test]
     fn a_queued_action_runs_once_nothing_it_waits_for_is_running_and_never_on_another_model() {
         let mut queue = Queue::default();
+
         queue.hold(moving(), 1, 4);
 
         let while_busy = queue.take_due(1, 4, |_| true);
@@ -233,11 +234,13 @@ mod tests {
         assert!(again.is_none());
 
         queue.hold(moving(), 1, 4);
+
         assert!(queue.current(1, 5).is_none());
         assert!(queue.take_due(1, 5, |_| false).is_none());
         assert!(queue.current(1, 4).is_none());
 
         queue.hold(moving(), 1, 4);
+
         assert!(queue.take_due(2, 4, |_| false).is_none());
     }
 
@@ -249,12 +252,15 @@ mod tests {
             "Parallel",
             Pending::ConstraintCheck,
         );
+
         queue.hold(parallel, 1, 4);
         queue.follow(4, 5);
+
         assert!(queue.current(1, 5).is_some());
 
         queue.hold(moving(), 1, 5);
         queue.follow(5, 6);
+
         assert!(queue.current(1, 6).is_none());
     }
 }

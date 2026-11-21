@@ -25,6 +25,7 @@ impl TransactionBuilder<'_> {
         construction: bool,
     ) -> EntityId {
         let id = EntityId::from_raw(self.allocate_sketch_id(feature));
+
         self.edits.push(Edit::AddSketchEntity {
             feature,
             id,
@@ -37,6 +38,7 @@ impl TransactionBuilder<'_> {
 
     pub fn add_sketch_text(&mut self, feature: FeatureId, text: Text) -> EntityId {
         let id = EntityId::from_raw(self.allocate_sketch_id(feature));
+
         self.edits.push(Edit::AddSketchText { feature, id, text });
         id
     }
@@ -48,6 +50,7 @@ impl TransactionBuilder<'_> {
 
     pub fn add_sketch_gear(&mut self, feature: FeatureId, gear: Gear) -> EntityId {
         let id = EntityId::from_raw(self.allocate_sketch_id(feature));
+
         self.edits.push(Edit::AddSketchGear { feature, id, gear });
         id
     }
@@ -63,6 +66,7 @@ impl TransactionBuilder<'_> {
         constraint: Constraint,
     ) -> ConstraintId {
         let id = ConstraintId::from_raw(self.allocate_sketch_id(feature));
+
         self.edits.push(Edit::AddSketchConstraint {
             feature,
             id,
@@ -110,13 +114,16 @@ impl TransactionBuilder<'_> {
         let edits = match self.sketch_feature(feature) {
             Some(definition) => {
                 let mut entities: BTreeSet<EntityId> = entities.into_iter().collect();
+
                 let projected_points: Vec<EntityId> = entities
                     .iter()
                     .filter(|id| definition.projections.contains_key(id))
                     .filter_map(|id| definition.sketch.entity(*id))
                     .flat_map(Entity::points)
                     .collect();
+
                 entities.extend(projected_points);
+
                 let removal = Removal::plan(&definition.sketch, entities, constraints);
                 let removed: BTreeSet<EntityId> = removal.entities.iter().copied().collect();
                 let kept_keys = self.keeping_piece_keys(feature, &definition.sketch, &removed);
@@ -153,6 +160,7 @@ impl TransactionBuilder<'_> {
                 _ => None,
             })
             .collect();
+
         self.edits.extend(edits);
         self.release_dimensions(feature, &removed);
         self
@@ -160,11 +168,14 @@ impl TransactionBuilder<'_> {
 
     fn release_dimensions(&mut self, sketch: FeatureId, constraints: &BTreeSet<ConstraintId>) {
         let owned = self.document.owned_by_dimensions(sketch, constraints);
+
         if owned.is_empty() {
             return;
         }
+
         let pending = Transaction::new(self.label.clone(), std::mem::take(&mut self.edits));
         let (_, edits) = self.document.releasing(pending, owned).into_parts();
+
         self.edits = edits;
     }
 
@@ -184,6 +195,7 @@ impl TransactionBuilder<'_> {
                 })
             })
             .collect();
+
         self.edits.extend(edits);
         self
     }
@@ -205,10 +217,14 @@ impl TransactionBuilder<'_> {
             .filter(|id| after.constraint(*id).is_none())
             .collect();
         let kept_keys = self.keeping_piece_keys(feature, before, &removed);
+
         self.edits.extend(kept_keys);
+
         let edits = Reshape::between(before, after).edits(feature);
+
         self.edits.extend(edits);
         self.release_dimensions(feature, &dropped);
+
         let next = self
             .next_sketch_ids
             .get(&feature)
@@ -216,6 +232,7 @@ impl TransactionBuilder<'_> {
             .or_else(|| self.sketch(feature).map(Sketch::next_id))
             .unwrap_or(0)
             .max(after.next_id());
+
         self.next_sketch_ids.insert(feature, next);
         self
     }
@@ -286,6 +303,7 @@ impl TransactionBuilder<'_> {
             Some(next) => *next,
             None => self.sketch(feature).map_or(0, Sketch::next_id),
         };
+
         self.next_sketch_ids.insert(feature, id.saturating_add(1));
         id
     }
@@ -311,46 +329,58 @@ impl Removal {
             .into_iter()
             .partition(|id| sketch.gear(*id).is_some());
         let mut entity_users: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
+
         for (user, entity) in sketch.entities() {
             for point in entity.points() {
                 entity_users.entry(point).or_default().push(user);
             }
         }
+
         let mut constraint_users: BTreeMap<EntityId, Vec<ConstraintId>> = BTreeMap::new();
+
         for (user, constraint) in sketch.constraints() {
             for entity in constraint.entities() {
                 constraint_users.entry(entity).or_default().push(user);
             }
         }
+
         let mut doomed_entities = BTreeSet::new();
         let mut pending: Vec<EntityId> = entities
             .into_iter()
             .filter(|id| sketch.entity(*id).is_some())
             .collect();
+
         while let Some(id) = pending.pop() {
             if doomed_entities.insert(id) {
                 pending.extend(entity_users.get(&id).into_iter().flatten());
             }
         }
+
         let mut doomed_texts: BTreeSet<EntityId> = texts.into_iter().collect();
+
         doomed_texts.extend(
             sketch
                 .texts()
                 .filter(|(_, text)| doomed_entities.contains(&text.anchor))
                 .map(|(id, _)| id),
         );
+
         let mut doomed_gears: BTreeSet<EntityId> = gears.into_iter().collect();
+
         doomed_gears.extend(
             sketch
                 .gears()
                 .filter(|(_, gear)| doomed_entities.contains(&gear.centre))
                 .map(|(id, _)| id),
         );
+
         let partners: Vec<EntityId> = doomed_gears
             .iter()
             .flat_map(|id| sketch.partners_of(*id))
             .collect();
+
         doomed_gears.extend(partners);
+
         let lone_points: Vec<EntityId> = doomed_texts
             .iter()
             .filter_map(|id| sketch.text(*id))
@@ -373,14 +403,18 @@ impl Removal {
                         .all(|user| doomed_gears.contains(user))
             })
             .collect();
+
         doomed_entities.extend(lone_points);
+
         let mut doomed_constraints: BTreeSet<ConstraintId> = constraints
             .into_iter()
             .filter(|id| sketch.constraint(*id).is_some())
             .collect();
+
         for entity in &doomed_entities {
             doomed_constraints.extend(constraint_users.get(entity).into_iter().flatten());
         }
+
         let uses_points = |id: &EntityId| {
             sketch
                 .entity(*id)
@@ -463,6 +497,7 @@ impl Reshape {
             })
             .map(|(id, _)| id)
             .collect();
+
         loop {
             let users: Vec<EntityId> = before
                 .entities()
@@ -473,11 +508,13 @@ impl Reshape {
                 })
                 .map(|(id, _)| id)
                 .collect();
+
             if users.is_empty() {
                 break;
             }
             replaced.extend(users);
         }
+
         let renewed = |constraint: &Constraint| {
             constraint
                 .entities()
@@ -616,6 +653,7 @@ impl Reshape {
                     .gear(*id)
                     .is_some_and(|previous| kept_gear(*id, previous))
             });
+
         added_gears.sort_by_key(|(_, gear)| gear.driver().is_some());
         Self {
             removed_constraints,
@@ -749,7 +787,9 @@ impl Document {
     ) -> Result<Edit, EditError> {
         self.check_references(&value)?;
         self.check_sketch_reads(feature, value.parameters())?;
+
         let (name, sketch) = self.sketch_mut(feature)?;
+
         let previous = sketch
             .set_dimension(constraint, value)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -781,10 +821,14 @@ impl Document {
                     .map(|original| sketch.set_split_from(id, Some(original)))
                     .transpose()
             });
+
         inserted.map_err(|error| EditError::Sketch { name, error })?;
+
         let users = self.curve_users(feature, id);
+
         if !users.is_empty() {
             let (name, sketch) = self.sketch_mut(feature)?;
+
             return Err(EditError::EntityNumberNamed {
                 feature: name,
                 name: sketch.entity_label(id),
@@ -807,6 +851,7 @@ impl Document {
             })
             .flatten()
             .collect();
+
         self.reserve_entities(skipped);
     }
 
@@ -837,6 +882,7 @@ impl Document {
         construction: bool,
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
+
         let previous = sketch
             .set_construction(id, construction)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -854,20 +900,24 @@ impl Document {
         source: Option<ProjectionSource>,
     ) -> Result<Edit, EditError> {
         let index = self.feature_position(feature)?;
+
         if let Some(source) = &source {
             let probe = FeatureKind::Sketch(SketchFeature {
                 sketch: Sketch::new(Plane::XY),
                 attachment: None,
                 projections: BTreeMap::from([(id, source.clone())]),
             });
+
             self.check_feature_references(&probe, index)?;
             self.reserve_past_references(&probe);
         }
+
         let existing = self.feature_mut(feature)?;
         let name = existing.name.clone();
         let FeatureKind::Sketch(definition) = &mut existing.kind else {
             return Err(EditError::NotASketch(name));
         };
+
         let points = definition
             .sketch
             .entity(id)
@@ -881,6 +931,7 @@ impl Document {
             None => definition.projections.remove(&id),
         };
         let still_projected = projected_by_sources(definition);
+
         for marked in points.into_iter().chain([id]) {
             definition
                 .sketch
@@ -903,21 +954,26 @@ impl Document {
         id: EntityId,
     ) -> Result<Edit, EditError> {
         let axis_users = self.curve_users(feature, id);
+
         if !axis_users.is_empty() {
             let (name, sketch) = self.sketch_mut(feature)?;
+
             return Err(EditError::EntityInUse {
                 feature: name,
                 name: sketch.entity_label(id),
                 users: list_names(&axis_users),
             });
         }
+
         let (name, sketch) = self.sketch_mut(feature)?;
+
         if sketch.is_projected(id) {
             return Err(EditError::StillProjected {
                 feature: name,
                 name: sketch.entity_label(id),
             });
         }
+
         let construction = sketch.is_construction(id);
         let split_from = sketch.split_from(id);
         match sketch.remove_unused_entity(id) {
@@ -944,6 +1000,7 @@ impl Document {
         entity: Entity,
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
+
         let previous = sketch
             .replace_entity(id, entity)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -966,7 +1023,9 @@ impl Document {
             self.check_references(value)?;
             self.check_sketch_reads(feature, value.parameters())?;
         }
+
         let (name, sketch) = self.sketch_mut(feature)?;
+
         sketch
             .insert_constraint(id, constraint)
             .and_then(|()| {
@@ -992,7 +1051,9 @@ impl Document {
         text: Text,
     ) -> Result<Edit, EditError> {
         self.check_text_references(feature, &text)?;
+
         let (name, sketch) = self.sketch_mut(feature)?;
+
         sketch
             .insert_text(id, text)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -1005,6 +1066,7 @@ impl Document {
         id: EntityId,
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
+
         let text = sketch
             .remove_text(id)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -1018,7 +1080,9 @@ impl Document {
         text: Text,
     ) -> Result<Edit, EditError> {
         self.check_text_references(feature, &text)?;
+
         let (name, sketch) = self.sketch_mut(feature)?;
+
         let previous = sketch
             .replace_text(id, text)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -1036,7 +1100,9 @@ impl Document {
         gear: Gear,
     ) -> Result<Edit, EditError> {
         self.check_gear_references(feature, &gear)?;
+
         let (name, sketch) = self.sketch_mut(feature)?;
+
         sketch
             .insert_gear(id, gear)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -1049,6 +1115,7 @@ impl Document {
         id: EntityId,
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
+
         let gear = sketch
             .remove_gear(id)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -1062,7 +1129,9 @@ impl Document {
         gear: Gear,
     ) -> Result<Edit, EditError> {
         self.check_gear_references(feature, &gear)?;
+
         let (name, sketch) = self.sketch_mut(feature)?;
+
         let previous = sketch
             .replace_gear(id, gear)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -1093,6 +1162,7 @@ impl Document {
         active: bool,
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
+
         let previous = sketch
             .set_active(id, active)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -1110,6 +1180,7 @@ impl Document {
         offset: Option<Vector2>,
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
+
         let previous = sketch
             .set_label_offset(id, offset)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -1128,6 +1199,7 @@ impl Document {
         let (name, sketch) = self.sketch_mut(feature)?;
         let inactive = !sketch.is_active(id);
         let label = sketch.label_offset(id);
+
         let constraint = sketch
             .remove_constraint(id)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -1146,9 +1218,11 @@ impl Document {
         used: impl IntoIterator<Item = ParameterId>,
     ) -> Result<(), EditError> {
         let mut used = used.into_iter().peekable();
+
         if used.peek().is_none() {
             return Ok(());
         }
+
         let index = self.feature_position(feature)?;
         let sketch = self.feature(feature).ok_or(EditError::MissingFeature)?;
         self.check_measurements_above(&Measured::of(self), &sketch.name, feature, used, index)

@@ -17,7 +17,7 @@ const POLE_NUDGE: f64 = 1e-7;
 const RADIAL_SLACK: f64 = 1e-9;
 const SAMPLES_PER_CHARGE: usize = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum OffsetBasis {
     #[error("cylinder")]
     Cylinder,
@@ -35,7 +35,7 @@ pub enum OffsetBasis {
     Spline,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum OffsetRefusal {
     #[error("is offset by more than the radius of its {0}, which leaves no surface")]
     PastCentre(OffsetBasis),
@@ -116,6 +116,7 @@ pub(crate) fn offset(
         .into(),
         Surface::Torus(torus) => {
             let minor = grown(torus.minor_radius(), OffsetBasis::TorusTube)?;
+
             if minor >= torus.major_radius() {
                 return Err(OffsetRefusal::TubeReachesAxis);
             }
@@ -125,6 +126,7 @@ pub(crate) fn offset(
             let frame = cone.frame();
             let (sin, cos) = cone.half_angle().sin_cos();
             let radius = cone.radius() + distance * cos;
+
             let (slide, radius) = if radius < 0.0 {
                 (radius / sin, 0.0)
             } else {
@@ -145,6 +147,7 @@ pub(crate) fn offset(
                 what,
             )?;
             let moved = Surface::from(Extrusion::new(profile, extrusion.direction())?);
+
             unfolded(
                 basis,
                 &moved,
@@ -167,6 +170,7 @@ pub(crate) fn offset(
                 revolution.axis_origin(),
                 revolution.axis_direction(),
             )?);
+
             unfolded(
                 basis,
                 &moved,
@@ -207,20 +211,25 @@ fn offset_profile(
         Curve::Line(line) => {
             let across = normal(0.0).ok_or(OffsetRefusal::NoNormal(what))?;
             let moved = Line::new(line.origin() + across * distance, line.direction())?;
+
             return Ok((moved.into(), vec![0.0]));
         }
         Curve::Circle(circle) => {
             if let Some(sign) = radial_sign(profile, circle, &normal) {
                 let radius = circle.radius() + sign * distance;
+
                 if radius <= 0.0 {
                     return Err(OffsetRefusal::PastCentre(OffsetBasis::ProfileCircle));
                 }
+
                 let moved = Circle::new(*circle.frame(), radius)?;
+
                 return Ok((moved.into(), circle_samples().to_vec()));
             }
         }
         _ => {}
     }
+
     let range = profile
         .domain()
         .bounded()
@@ -240,6 +249,7 @@ fn offset_profile(
             .ok_or(OffsetRefusal::NoNormal(what))?;
         Ok(profile.point(t) + across * distance)
     };
+
     let (fitted, samples) = fitted_curve(&breaks, exact, fit, what)?;
     Ok((Curve::BSpline(fitted), samples))
 }
@@ -254,13 +264,17 @@ fn radial_sign(
     normal: &impl Fn(f64) -> Option<Vector3>,
 ) -> Option<f64> {
     let mut sign = None;
+
     for t in circle_samples() {
         let radial = (profile.point(t) - circle.center()).try_normalize()?;
         let along = normal(t)?.dot(radial);
+
         if along.abs() < 1.0 - RADIAL_SLACK {
             return None;
         }
+
         let this = along.signum();
+
         if sign.is_some_and(|sign| sign != this) {
             return None;
         }
@@ -280,18 +294,22 @@ fn nudged(t: f64, range: Interval) -> f64 {
 
 fn spans(breaks: &[f64], most: usize) -> Vec<f64> {
     let count = breaks.len().saturating_sub(1);
+
     if count <= most {
         return breaks.to_vec();
     }
+
     let mut kept: Vec<f64> = (0..=most)
         .filter_map(|index| breaks.get(index * count / most).copied())
         .collect();
+
     kept.dedup();
     kept
 }
 
 fn sampled(breaks: &[f64], pieces: usize) -> Vec<f64> {
     let mut parameters = Vec::with_capacity(breaks.len() * pieces);
+
     for pair in breaks.windows(2) {
         if let [start, end] = pair
             && let Some(span) = Interval::new(*start, *end)
@@ -323,6 +341,7 @@ fn joined(
     let mut knots: Vec<f64> = Vec::new();
     let mut control: Vec<Point3> = Vec::new();
     let mut start = 0;
+
     while start + pieces < parameters.len() {
         let end = start + pieces;
         let piece = BSpline::interpolating_at(
@@ -330,6 +349,7 @@ fn joined(
             parameters.get(start..=end).ok_or(GeometryError::Knots)?,
             points.get(start..=end).ok_or(GeometryError::Knots)?,
         )?;
+
         if knots.is_empty() {
             knots.extend_from_slice(piece.knots());
             control.extend_from_slice(piece.control_points());
@@ -353,18 +373,24 @@ fn fitted_curve(
     let mut pieces = FIRST_PIECES;
     loop {
         let parameters = sampled(&breaks, pieces);
+
         fit.round(parameters.len())?;
+
         let points = parameters
             .iter()
             .map(|t| exact(*t))
             .collect::<Result<Vec<Point3>, OffsetRefusal>>()?;
         let (knots, control) = joined(&parameters, &points, pieces)?;
+
         let curve = BSpline::new(FIT_DEGREE, knots, control)?;
         let mut reached: f64 = 0.0;
+
         for t in middles(&parameters) {
             reached = reached.max(curve.point(t).distance(exact(t)?));
         }
+
         let finer = 2 * parameters.len() - 1;
+
         if reached <= TIGHT_FIT || finer > MAX_CURVE_SAMPLES {
             if reached > fit.tolerance {
                 return Err(OffsetRefusal::NotFitted {
@@ -373,7 +399,9 @@ fn fitted_curve(
                     reached,
                 });
             }
+
             let mut samples = parameters;
+
             samples.extend(middles(&samples));
             return Ok((curve, samples));
         }
@@ -403,9 +431,11 @@ fn fitted_surface(
             .copied()
             .filter(|knot| domain.contains(*knot))
             .collect();
+
         breaks.dedup();
         spans(&breaks, most)
     };
+
     let u_breaks = breaks_of(spline.u_knots(), u_domain);
     let v_breaks = breaks_of(spline.v_knots(), v_domain);
     let exact = |u: f64, v: f64| -> Result<(Point3, Vector3), OffsetRefusal> {
@@ -428,20 +458,25 @@ fn fitted_surface(
             u_pieces,
             v_pieces,
         };
+
         fit.round(grid.u.len() * grid.v.len())?;
+
         let fitted = Surface::from(surface_through(basis, &grid, &exact)?);
         let mut reached = [0.0f64; 2];
         let (u_middles, v_middles) = (middles(&grid.u), middles(&grid.v));
+
         let checks = [
             (&u_middles, &grid.v, [true, false]),
             (&grid.u, &v_middles, [false, true]),
             (&u_middles, &v_middles, [true, true]),
         ];
+
         for (us, vs, refines) in checks {
             for u in us {
                 for v in vs {
                     let (point, normal) = exact(*u, *v)?;
                     let gap = fitted.point_at(Point2::new(*u, *v)).distance(point);
+
                     if fitted
                         .normal(*u, *v)
                         .is_some_and(|fitted| fitted.dot(normal) <= 0.0)
@@ -456,11 +491,14 @@ fn fitted_surface(
                 }
             }
         }
+
         let grows = |count: usize| 2 * count - 1 <= MAX_SURFACE_SAMPLES;
         let refine_u = reached[0] > TIGHT_FIT && grows(grid.u.len());
         let refine_v = reached[1] > TIGHT_FIT && grows(grid.v.len());
+
         if !refine_u && !refine_v {
             let reached = reached[0].max(reached[1]);
+
             if reached > fit.tolerance {
                 return Err(OffsetRefusal::NotFitted {
                     what,
@@ -486,9 +524,11 @@ fn surface_through(
 ) -> Result<BSplineSurface, OffsetRefusal> {
     let mut rows: Vec<Vec<Point3>> = Vec::with_capacity(grid.v.len());
     let mut on_basis: Vec<Vec<Point3>> = Vec::with_capacity(grid.v.len());
+
     for v in &grid.v {
         let mut row = Vec::with_capacity(grid.u.len());
         let mut basis_row = Vec::with_capacity(grid.u.len());
+
         for u in &grid.u {
             row.push(exact(*u, *v)?.0);
             basis_row.push(basis.point_at(Point2::new(*u, *v)));
@@ -497,27 +537,35 @@ fn surface_through(
         on_basis.push(basis_row);
     }
     gather_poles(&mut rows, &on_basis);
+
     let mut u_knots = Vec::new();
     let mut control_rows = Vec::with_capacity(rows.len());
+
     for row in &rows {
         let (knots, control) = joined(&grid.u, row, grid.u_pieces)?;
+
         u_knots = knots;
         control_rows.push(control);
     }
+
     let columns = control_rows.first().map_or(0, Vec::len);
     let mut v_knots = Vec::new();
     let mut control_columns = Vec::with_capacity(columns);
+
     for column in 0..columns {
         let values: Vec<Point3> = control_rows
             .iter()
             .filter_map(|row| row.get(column).copied())
             .collect();
         let (knots, control) = joined(&grid.v, &values, grid.v_pieces)?;
+
         v_knots = knots;
         control_columns.push(control);
     }
+
     let count = control_columns.first().map_or(0, Vec::len);
     let mut points = Vec::with_capacity(count * columns);
+
     for row in 0..count {
         for column in &control_columns {
             points.push(*column.get(row).ok_or(GeometryError::Knots)?);
@@ -540,21 +588,26 @@ fn gather_poles(rows: &mut [Vec<Point3>], on_basis: &[Vec<Point3>]) {
         let count = points.len().max(1) as f64;
         points.iter().fold(Point3::ZERO, |sum, point| sum + *point) / count
     };
+
     for (row, basis_row) in rows.iter_mut().zip(on_basis) {
         if collapsed(basis_row) {
             let pole = mean(row);
+
             row.iter_mut().for_each(|point| *point = pole);
         }
     }
+
     let columns = on_basis.first().map_or(0, Vec::len);
     for column in 0..columns {
         let basis_column: Vec<Point3> = on_basis
             .iter()
             .filter_map(|row| row.get(column).copied())
             .collect();
+
         if !collapsed(&basis_column) {
             continue;
         }
+
         let column_points: Vec<Point3> = rows
             .iter()
             .filter_map(|row| row.get(column).copied())
@@ -601,6 +654,7 @@ mod tests {
         for row in 0..=12 {
             for column in 0..=12 {
                 let (u, v) = (u.at(column as f64 / 12.0), v.at(row as f64 / 12.0));
+
                 let Some(normal) = basis.normal(u, v) else {
                     continue;
                 };
@@ -713,12 +767,15 @@ mod tests {
             Revolution::new(Curve::BSpline(profile), Point3::ZERO, Vector3::Z).unwrap(),
         );
         let mut net = Vec::new();
+
         for row in 0..4 {
             for column in 0..5 {
                 let (x, y) = (column as f64 * 5.0, row as f64 * 6.0);
+
                 net.push(Point3::new(x, y, 3.0 * (x * 0.3).sin() * (y * 0.2).cos()));
             }
         }
+
         let bump = Surface::from(
             BSplineSurface::new(
                 3,

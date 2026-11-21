@@ -186,8 +186,10 @@ mod tests {
         assert_eq!(response.tool_calls[0].id, "toolu_1");
         assert_eq!(response.tool_calls[0].name, "add_primitive");
         assert_eq!(response.tool_calls[0].arguments, json!({ "kind": "box" }));
+
         let sent = transport.recorded();
         let body: Value = serde_json::from_str(&sent[0].body).unwrap();
+
         assert_eq!(
             body["messages"][1]["content"][0]["content"][1]["type"],
             "image"
@@ -197,6 +199,7 @@ mod tests {
     #[test]
     fn gemini_normalizes_union_types_and_parses_function_calls() {
         let normalized = normalize_schema(&sample_tool().input_schema);
+
         assert!(normalized.get("additionalProperties").is_none());
         assert_eq!(
             normalized["properties"]["body"]["anyOf"],
@@ -218,6 +221,7 @@ mod tests {
             max_tokens: 1024,
         };
         let cancel = AtomicBool::new(false);
+
         let response = stream_turn(
             &transport,
             &config,
@@ -259,6 +263,7 @@ mod tests {
             max_tokens: 1024,
         };
         let cancel = AtomicBool::new(false);
+
         let response = stream_turn(
             &transport,
             &config,
@@ -290,11 +295,14 @@ mod tests {
             max_tokens: 256,
         };
         let cancel = AtomicBool::new(false);
+
         let err = stream_turn(&transport, &config, &[], &[], &cancel, &mut |_| {}).unwrap_err();
+
         assert_eq!(err, AiError::Unauthorised);
 
         let cancelled = AtomicBool::new(true);
         let err = stream_turn(&transport, &config, &[], &[], &cancelled, &mut |_| {}).unwrap_err();
+
         assert_eq!(err, AiError::Cancelled);
     }
 }

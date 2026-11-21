@@ -35,6 +35,7 @@ fn setting_properties_is_undoable_content() {
 
     let changed = editor.apply(set(bracket())).unwrap();
     let with_properties = editor.document().clone();
+
     editor.undo().unwrap();
 
     assert!(changed);
@@ -48,7 +49,9 @@ fn setting_properties_is_undoable_content() {
 fn setting_the_same_properties_again_is_no_change() {
     let (document, _) = sample();
     let mut editor = Editor::new(document);
+
     editor.apply(set(bracket())).unwrap();
+
     let revision = editor.revision();
 
     let changed = editor.apply(set(bracket())).unwrap();
@@ -103,13 +106,17 @@ fn a_property_too_long_is_refused_naming_it() {
 fn restoring_a_version_brings_its_properties_back() {
     let (earlier, _) = sample();
     let mut later = earlier.clone();
+
     later.apply(set(bracket())).unwrap();
 
     let restore = later.transaction_to(&earlier, "Restore");
     let mut restored = later.clone();
+
     restored.apply(restore).unwrap();
+
     let forward = earlier.transaction_to(&later, "Restore");
     let mut forwarded = earlier.clone();
+
     forwarded.apply(forward).unwrap();
 
     assert!(restored.same_content(&earlier));

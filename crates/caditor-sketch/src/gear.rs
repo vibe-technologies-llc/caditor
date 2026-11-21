@@ -35,7 +35,7 @@ const SHIFT_STEP: f64 = 0.01;
 const TOUCHING: f64 = 1e-9;
 const SPOKEN_DECIMALS: usize = 3;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum GearError {
     #[error("the module must be greater than zero")]
     ModuleNotPositive,
@@ -132,7 +132,7 @@ fn millimetres(value: f64) -> String {
     plain(value)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpurGear {
     pub module: f64,
     pub teeth: u32,
@@ -142,7 +142,7 @@ pub struct SpurGear {
     pub bore: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GearCircles {
     pub pitch: f64,
     pub base: f64,
@@ -156,7 +156,7 @@ impl GearCircles {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum GearPiece {
     Arc {
         center: Point2,
@@ -210,6 +210,7 @@ impl GearPiece {
                 } else {
                     let mut points =
                         ArcGeometry::from_points(*center, *to, *from).faceted(faceting);
+
                     points.reverse();
                     points
                 }
@@ -273,7 +274,7 @@ impl GearPiece {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GearOutline {
     pub centre: Point2,
     pub teeth: u32,
@@ -283,7 +284,7 @@ pub struct GearOutline {
     pub deviation: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GearPieceName {
     pub tooth: usize,
     pub segment: usize,
@@ -347,13 +348,13 @@ impl GearOutline {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GearCentre {
     Free(Point2),
     Point(EntityId),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DrawnGear {
     pub centre: EntityId,
     pub outline: Vec<EntityId>,
@@ -361,7 +362,7 @@ pub struct DrawnGear {
     pub bore: Option<EntityId>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Involute {
     base: f64,
     half: f64,
@@ -404,7 +405,7 @@ impl Involute {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Fillet {
     centre: Point2,
     touch: Point2,
@@ -480,7 +481,9 @@ impl SpurGear {
         if self.bore.is_nan() || self.bore < 0.0 {
             return Err(GearError::BoreNegative);
         }
+
         let circles = self.circles();
+
         if circles.root <= 0.0 {
             return Err(GearError::RootThroughCentre);
         }
@@ -493,8 +496,10 @@ impl SpurGear {
                 least_shift: self.least_shift(),
             });
         }
+
         let teeth = f64::from(self.teeth);
         let pressure = self.pressure_angle.to_radians();
+
         let half_at_pitch = PI / (2.0 * teeth) + 2.0 * self.profile_shift * pressure.tan() / teeth;
         let mut involute = Involute {
             base: circles.base,
@@ -504,14 +509,19 @@ impl SpurGear {
             start_roll: 0.0,
             gap: PI / teeth,
         };
+
         involute.tip_roll = involute.roll_at(circles.tip);
+
         let lowest = START_ROLL.min(involute.tip_roll * START_ROLL_SHARE);
+
         involute.start_roll = if circles.root >= involute.radius(lowest) {
             involute.roll_at(circles.root)
         } else {
             lowest
         };
+
         let land = 2.0 * circles.tip * involute.angle(involute.tip_roll);
+
         if land.is_nan()
             || land < MIN_TIP_LAND * self.module
             || involute.start_roll >= involute.tip_roll
@@ -526,11 +536,13 @@ impl SpurGear {
 
     fn fillet(involute: &Involute, radius: f64) -> Option<Fillet> {
         let reach = involute.root + radius;
+
         if involute.has_line() {
             let along = (reach * reach - radius * radius).sqrt();
             if along <= involute.radius(involute.start_roll) {
                 let line = involute.foot_angle();
                 let centre = polar(reach, line + (radius / reach).asin());
+
                 return Some(Fillet {
                     centre,
                     touch: polar(along, line),
@@ -541,9 +553,11 @@ impl SpurGear {
                 .filter(|fillet| angle_of(fillet.root) < involute.gap);
             }
         }
+
         let gap_at =
             |roll: f64| (involute.point(roll) + involute.normal(roll) * radius).length() - reach;
         let mut low = involute.start_roll;
+
         let roll = if gap_at(low) >= 0.0 {
             low
         } else {
@@ -552,12 +566,14 @@ impl SpurGear {
                 .map(|index| involute.start_roll + step * index as f64)
                 .find(|roll| {
                     let reached = gap_at(*roll) >= 0.0;
+
                     if !reached {
                         low = *roll;
                     }
                     reached
                 })?;
             let mut high = high;
+
             for _ in 0..BISECTIONS {
                 let middle = 0.5 * (low + high);
                 if gap_at(middle) >= 0.0 {
@@ -568,9 +584,11 @@ impl SpurGear {
             }
             high
         };
+
         if roll >= involute.tip_roll {
             return None;
         }
+
         let touch = involute.point(roll);
         let centre = touch + involute.normal(roll) * radius;
         Some(Fillet {
@@ -587,6 +605,7 @@ impl SpurGear {
         let involute = self.checked().ok()?;
         let mut low = 0.0;
         let mut high = involute.root;
+
         for _ in 0..LARGEST_FILLET_STEPS {
             let middle = 0.5 * (low + high);
             if Self::fillet(&involute, middle).is_some() {
@@ -618,6 +637,7 @@ impl SpurGear {
             .filter(|fillet| !fillet.on_line)
             .map_or(involute.start_roll, |fillet| fillet.roll);
         let tolerance = FLANK_TOLERANCE * self.module;
+
         let (points, deviation) = traced_flank(involute, low_roll, tolerance)
             .ok_or(GearError::FlankNotTraced { tolerance })?;
         let mut pieces = vec![GearPiece::Flank { points }];
@@ -629,6 +649,7 @@ impl SpurGear {
                 .has_line()
                 .then(|| polar(involute.root, involute.foot_angle())),
         };
+
         if let Some(end) = line_end
             && (end - last).length() > TOUCHING * self.module
         {
@@ -640,6 +661,7 @@ impl SpurGear {
         }
         if let Some(fillet) = fillet {
             let turn = (last - fillet.centre).perp_dot(fillet.root - fillet.centre);
+
             pieces.push(GearPiece::Arc {
                 center: fillet.centre,
                 about_gear: false,
@@ -653,6 +675,7 @@ impl SpurGear {
 
     pub fn check(&self) -> Result<(), GearError> {
         let involute = self.checked()?;
+
         self.check_bore()?;
         self.half_tooth(&involute).map(|_| ())
     }
@@ -674,10 +697,12 @@ impl SpurGear {
     pub fn outline_turned(&self, centre: Point2, turn: f64) -> Result<GearOutline, GearError> {
         let involute = self.checked()?;
         let circles = self.circles();
+
         self.check_bore()?;
         if !(centre.is_finite() && centre.length() + circles.tip <= MAX_LENGTH) {
             return Err(GearError::OutOfReach);
         }
+
         let (upper, deviation) = self.half_tooth(&involute)?;
         let lower: Vec<GearPiece> = upper
             .iter()
@@ -692,6 +717,7 @@ impl SpurGear {
             to: tip,
             counter_clockwise: true,
         };
+
         let upper_root = upper.last().map_or(tip, GearPiece::to);
         let lower_root = lower.first().map_or(tip, GearPiece::from);
         let step = TAU / f64::from(self.teeth);
@@ -705,9 +731,11 @@ impl SpurGear {
             }
         };
         let mut pieces = Vec::new();
+
         for tooth in 0..self.teeth {
             let here = place(turn + step * f64::from(tooth));
             let next = place(turn + step * f64::from((tooth + 1) % self.teeth));
+
             pieces.push(tip_arc.placed(&here));
             pieces.extend(upper.iter().map(|piece| piece.placed(&here)));
             pieces.push(GearPiece::Arc {
@@ -735,6 +763,7 @@ fn traced_flank(involute: &Involute, low_roll: f64, tolerance: f64) -> Option<(V
     let parameters: Vec<f64> = (0..=FLANK_SAMPLES)
         .map(|index| index as f64 / FLANK_SAMPLES as f64)
         .collect();
+
     let samples: Vec<Point2> = parameters
         .iter()
         .map(|share| involute.point(roll_at(*share)))
@@ -742,6 +771,7 @@ fn traced_flank(involute: &Involute, low_roll: f64, tolerance: f64) -> Option<(V
     let (first, last) = (*samples.first()?, *samples.last()?);
     let checks = FLANK_SAMPLES * CHECKS_PER_SAMPLE;
     let mut best: Option<(Vec<Point2>, f64)> = None;
+
     for count in MIN_FLANK_POINTS..=MAX_FLANK_POINTS {
         let template = BSpline::clamped(vec![Point2::ZERO; count])?;
         let Some(spline) = fit::least_squares(&template, &samples, &parameters, first, last) else {
@@ -755,6 +785,7 @@ fn traced_flank(involute: &Involute, low_roll: f64, tolerance: f64) -> Option<(V
                     .distance(involute.point(roll_at(share)))
             })
             .fold(0.0, larger);
+
         if best.as_ref().is_none_or(|best| deviation < best.1) {
             best = Some((spline.control_points().to_vec(), deviation));
         }
@@ -815,6 +846,7 @@ impl Sketch {
             GearCentre::Free(at) => Ok(self.add_point(at)),
             GearCentre::Point(point) if point.is_reference() => {
                 let held = self.add_point(at);
+
                 self.add_constraint(Constraint::Coincident(held, point))
                     .map_err(GearError::Edit)?;
                 Ok(held)
@@ -840,14 +872,17 @@ impl Sketch {
                 })
             })
             .collect();
+
         for circle in &circles {
             self.set_construction(*circle, true)
                 .map_err(GearError::Edit)?;
         }
+
         let first = self.add_point(pieces.first().map_or(at, GearPiece::from));
         let mut last = first;
         let mut drawn = Vec::with_capacity(pieces.len());
         let count = pieces.len();
+
         for (index, piece) in pieces.iter().enumerate() {
             let end = if index + 1 == count {
                 first
@@ -879,6 +914,7 @@ impl Sketch {
                         .get(1..points.len().saturating_sub(1))
                         .unwrap_or_default();
                     let mut ids = Vec::with_capacity(points.len());
+
                     ids.push(last);
                     for point in inner {
                         ids.push(self.add_point(*point));
@@ -890,9 +926,11 @@ impl Sketch {
                     }
                 }
             };
+
             drawn.push(self.insert(entity));
             last = end;
         }
+
         let bore = bore.map(|radius| {
             self.insert(Entity::Circle {
                 center: centre,

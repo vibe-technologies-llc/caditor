@@ -31,6 +31,7 @@ fn hatch(paths: Vec<Pairs>) -> Pairs {
         pair(71, 0),
         pair(91, paths.len()),
     ];
+
     pairs.extend(paths.into_iter().flatten());
     pairs.extend([
         pair(75, 1),
@@ -49,6 +50,7 @@ fn polyline_path(flags: i64, vertices: &[(f64, f64, f64)], sources: &[&str]) -> 
         pair(73, 1),
         pair(93, vertices.len()),
     ];
+
     for (x, y, bulge) in vertices {
         pairs.extend([pair(10, x), pair(20, y), pair(42, bulge)]);
     }
@@ -59,6 +61,7 @@ fn polyline_path(flags: i64, vertices: &[(f64, f64, f64)], sources: &[&str]) -> 
 
 fn edge_path(edges: Vec<Pairs>) -> Pairs {
     let mut pairs = vec![pair(92, 1), pair(93, edges.len())];
+
     pairs.extend(edges.into_iter().flatten());
     pairs.push(pair(97, 0));
     pairs
@@ -179,6 +182,7 @@ fn hatch_ellipse_and_spline_edges_follow_their_curves() {
         pair(95, 8),
         pair(96, 4),
     ];
+
     for knot in [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0] {
         spline.push(pair(40, knot));
     }
@@ -219,6 +223,7 @@ fn an_associative_hatch_is_not_drawn_over_its_own_outline() {
         (0..4)
             .map(|index| {
                 let mut edge = line(square[index], square[(index + 1) % 4]);
+
                 edge.push(pair(5, format!("a{index}")));
                 if hidden_last && index == 3 {
                     edge[1] = pair(8, "Off");
@@ -234,8 +239,10 @@ fn an_associative_hatch_is_not_drawn_over_its_own_outline() {
             &["A0", "A1", "A2", "A3"],
         )])
     };
+
     let drawn = |hidden_last: bool| {
         let mut entities = outline(hidden_last);
+
         entities.push(traced());
         parse_dxf(&text(vec![
             header(Some(4)),
@@ -380,6 +387,7 @@ fn mline(flags: i64, vertices: &[Joint]) -> Pairs {
         pair(20, 0.0),
         pair(30, 0.0),
     ];
+
     for Joint { at, miter, offset } in vertices {
         pairs.extend([
             pair(11, at.0),
@@ -482,8 +490,11 @@ fn a_drawing_whose_only_outline_is_a_hatch_extrudes_into_a_solid() {
         },
         "Import hatch.dxf",
     );
+
     document.apply(import.transaction).unwrap();
+
     let mut transaction = document.transaction("Extrude");
+
     let body = transaction.add_feature(
         "Plate",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -498,7 +509,9 @@ fn a_drawing_whose_only_outline_is_a_hatch_extrudes_into_a_solid() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
     let volume = evaluation
         .body(body)
@@ -517,6 +530,7 @@ fn a_drawing_whose_only_outline_is_a_hatch_extrudes_into_a_solid() {
 fn leaves_along(spline: &BSpline, start: Point2, end: Point2) -> bool {
     let points = spline.control_points();
     let direction = |from: Point2, to: Point2| (to - from).normalize();
+
     let first = direction(points[0], points[1]);
     let last = direction(points[points.len() - 2], points[points.len() - 1]);
     first.distance(start) < 1e-2 && last.distance(end) < 1e-2
@@ -525,6 +539,7 @@ fn leaves_along(spline: &BSpline, start: Point2, end: Point2) -> bool {
 #[test]
 fn fit_point_splines_honour_their_end_tangents() {
     let mut arch = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 8), pair(71, 3)];
+
     for (x, y) in [(0.0, 0.0), (10.0, 0.0)] {
         arch.extend([pair(11, x), pair(21, y), pair(31, 0.0)]);
     }
@@ -536,6 +551,7 @@ fn fit_point_splines_honour_their_end_tangents() {
         pair(23, -1.0),
         pair(33, 0.0),
     ]);
+
     let mut edge = vec![
         pair(72, 4),
         pair(94, 3),
@@ -545,6 +561,7 @@ fn fit_point_splines_honour_their_end_tangents() {
         pair(96, 0),
         pair(97, 3),
     ];
+
     for (x, y) in [(20.0, 0.0), (25.0, 2.0), (30.0, 0.0)] {
         edge.extend([pair(11, x), pair(21, y)]);
     }
@@ -572,6 +589,7 @@ fn fit_point_splines_honour_their_end_tangents() {
     let traced: Vec<Point2> = (0..=4000)
         .map(|step| arched.point_at(f64::from(step) / 4000.0))
         .collect();
+
     let farthest = (0..=100)
         .map(|step| {
             let expected = bezier(f64::from(step) / 100.0);
@@ -603,9 +621,11 @@ fn fit_point_splines_honour_their_end_tangents() {
 
 fn with_code_page(page: Option<&str>, block_name: &[u8]) -> Vec<u8> {
     let mut header = vec![pair(9, "$ACADVER"), pair(1, "AC1015")];
+
     if let Some(page) = page {
         header.extend([pair(9, "$DWGCODEPAGE"), pair(3, page)]);
     }
+
     let bytes = text(vec![
         section("HEADER", vec![header]),
         section(
@@ -637,6 +657,7 @@ fn binary_text(bytes: &mut Vec<u8>, code: i16, text: &[u8]) {
 
 fn binary_with_code_page(page: &str, block_name: &[u8]) -> Vec<u8> {
     let mut bytes = b"AutoCAD Binary DXF\r\n\x1a\0".to_vec();
+
     for (code, text) in [
         (0, &b"SECTION"[..]),
         (2, b"HEADER"),
@@ -692,9 +713,13 @@ fn names_are_read_in_the_code_page_the_drawing_declares() {
 #[test]
 fn block_content_on_layer_zero_takes_the_layer_of_its_insert() {
     let mut own_hidden = line((0.0, 5.0), (1.0, 5.0));
+
     own_hidden[1] = pair(8, "Off");
+
     let mut paper = line((0.0, 6.0), (1.0, 6.0));
+
     paper.push(pair(67, 1));
+
     let bytes = text(vec![
         header(Some(4)),
         tables(vec![

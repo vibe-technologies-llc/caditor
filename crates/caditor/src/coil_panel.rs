@@ -83,6 +83,7 @@ pub fn length_fields(length: &CoilLength) -> [(&'static str, &'static str, &Expr
 
 pub fn with_length_value(length: &CoilLength, index: usize, value: Expression) -> CoilLength {
     let mut changed = length.clone();
+
     if let Some(slot) = changed.expressions_mut().into_iter().nth(index) {
         *slot = value;
     }
@@ -108,12 +109,14 @@ impl Panel<'_> {
 
     fn apply(&mut self, coil: Coil) {
         let change = self.change(coil);
+
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
 
     fn axis_row(&mut self, ui: &mut Ui) {
         let (model, id, coil) = (self.model, self.id(), self.coil);
+
         let row = AxisRow {
             caption: AXIS,
             shown: Some(capitalized(&describe_axis(model.document(), &coil.axis))),
@@ -136,6 +139,7 @@ impl Panel<'_> {
             })
         };
         let mut actions = Vec::new();
+
         feature_fields::axis_row(ui, model, row, Some(&listed), &mut actions);
         self.actions.extend(actions);
         if let Some(reversed) =
@@ -166,6 +170,7 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, self.model, caption, quantity, |value| {
                 coil_tools::change(self.model, self.id(), changed(value))
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
@@ -181,6 +186,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, SIZED_BY, &self.feature.name, segments);
+
         self.actions.extend(chosen);
         for (index, (caption, key, expression)) in
             length_fields(&self.coil.length).into_iter().enumerate()
@@ -191,6 +197,7 @@ impl Panel<'_> {
                 (Dimension::LENGTH, Rule::AboveZero)
             };
             let coil = self.coil.clone();
+
             self.value_row(
                 ui,
                 caption,
@@ -211,6 +218,7 @@ impl Panel<'_> {
             Dimension::LENGTH,
             Rule::AboveZero,
         );
+
         self.value_row(ui, DIAMETER, field, move |diameter| Coil {
             diameter,
             ..coil.clone()
@@ -229,14 +237,18 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, SECTION, &self.feature.name, segments);
+
         self.actions.extend(chosen);
+
         let caption = capitalized(coil_size_name(self.coil.shape));
         let coil = self.coil.clone();
         let field = ("size", &self.coil.size, Dimension::LENGTH, Rule::AboveZero);
+
         self.value_row(ui, &caption, field, move |size| Coil {
             size,
             ..coil.clone()
         });
+
         let current = self.coil.placement;
         let segments = CoilPlacement::ALL
             .into_iter()
@@ -248,12 +260,14 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, POSITION, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
     fn taper_row(&mut self, ui: &mut Ui) {
         let coil = self.coil.clone();
         let field = ("taper", &self.coil.taper, Dimension::ANGLE, Rule::CoilTaper);
+
         self.value_row(ui, TAPER, field, move |taper| Coil {
             taper,
             ..coil.clone()
@@ -272,6 +286,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, TURNING, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -284,6 +299,7 @@ impl Panel<'_> {
         let chosen = feature_fields::body_operation_rows(ui, self.model, &rows, |operation| {
             self.change(coil_tools::with_operation(self.coil, operation))
         });
+
         self.actions.extend(chosen);
     }
 }
@@ -303,6 +319,7 @@ pub fn show(
         coil,
         actions,
     };
+
     widgets::properties(ui, ("coil-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         panel.axis_row(ui);

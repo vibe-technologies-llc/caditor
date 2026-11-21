@@ -46,12 +46,14 @@ impl CopiedNames {
     ) -> Result<Hollowing, CopyShellError> {
         let names = NameIndex::of(body);
         let mut open = Vec::new();
+
         for face in &recipe.open {
             match names.faces_named(face.name) {
                 [] => return Err(CopyShellError::OriginalOpening),
                 found => open.extend_from_slice(found),
             }
         }
+
         let mut faces: BTreeMap<FaceId, f64> = recipe
             .faces
             .iter()
@@ -62,10 +64,12 @@ impl CopiedNames {
                     .map(|found| (*found, *thickness))
             })
             .collect();
+
         for &copy in copies {
             if cancel.is_cancelled() {
                 return Err(CopyShellError::Cancelled);
             }
+
             let openings: Vec<&[FaceId]> = recipe
                 .open
                 .iter()
@@ -73,6 +77,7 @@ impl CopiedNames {
                 .collect();
             let missed_the_body =
                 !openings.is_empty() && openings.iter().all(|found| found.is_empty());
+
             if missed_the_body {
                 continue;
             }
@@ -82,6 +87,7 @@ impl CopiedNames {
             open.extend(openings.into_iter().flatten());
             for (face, thickness) in &recipe.faces {
                 let found = self.copied_faces(&names, copy, face).unwrap_or_default();
+
                 faces.extend(found.iter().map(|found| (*found, *thickness)));
             }
         }
@@ -119,6 +125,7 @@ pub(crate) fn failure(error: &CopyShellError, repeat: &Repeat<'_>, shell: &str) 
         copy,
     } = *repeat;
     let named = shell.to_owned();
+
     let cause = match error {
         CopyShellError::Cancelled => return Failure::Cancelled,
         CopyShellError::OriginalOpening => RepeatCause::ShellOpeningLost {

@@ -22,7 +22,7 @@ pub const DESCRIPTION: &str =
     "Moves the chosen faces along their normals, the faces beside them following";
 const TANGENT: &str = "Move the faces tangent to these too";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 enum OffsetFaceChangeError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -66,6 +66,7 @@ fn distance_row(
                 },
             )
         });
+
     actions.extend(drafting.into_actions(feature));
 }
 
@@ -130,12 +131,15 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         opened,
     } = *row;
     let id = feature.id();
+
     widgets::caption(ui, "Faces to move");
+
     let evaluation = model.evaluation();
     let mut previewed = Vec::new();
     let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
         face_rows(model.document(), bodies::input(evaluation, id), offset)
     });
+
     ui.vertical(|ui| {
         if offset.faces.is_empty() {
             ui.label(widgets::muted("None: nothing moves", ui));
@@ -145,6 +149,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
             let row = widgets::removable_row_hovered(ui, text, "Leave this face out");
+
             if row.hovered && opened {
                 previewed = bodies::input(evaluation, id)
                     .map(|input| {
@@ -158,6 +163,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             }
             if row.removed {
                 let mut changed = offset.clone();
+
                 changed.faces.remove(index);
                 actions.push(feature_fields::applied(
                     &feature.name,
@@ -165,6 +171,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
+
         let chosen = feature_fields::list_in_view(
             ui,
             opened,
@@ -198,6 +205,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         ..
     } = *row;
     let id = feature.id();
+
     widgets::properties(ui, ("offset-face-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         faces_row(ui, row, cache, actions);

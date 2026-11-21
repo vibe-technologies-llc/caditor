@@ -76,12 +76,14 @@ fn close_feature(harness: &mut Harness) {
 #[test]
 fn fillet_with_a_face_selected_rounds_every_edge_around_it() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let side = edge_through(&harness, plate, Point3::new(0.0, 0.0, 5.0));
 
     harness.select([top, side]);
     harness.click_tool(BlendKind::Fillet.title());
     harness.settle();
+
     let fillet = open_feature(&harness);
     let blend = blend_of(&harness, fillet);
 
@@ -95,12 +97,15 @@ fn fillet_with_a_face_selected_rounds_every_edge_around_it() {
 #[test]
 fn fillet_with_a_body_chosen_in_the_tree_rounds_every_edge_of_it() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     harness.select([]);
 
     click_with(&mut harness, "Extrude 1", Modifiers::NONE);
     harness.click_tool(BlendKind::Chamfer.title());
     harness.settle();
+
     let chamfer = open_feature(&harness);
     let blend = blend_of(&harness, chamfer);
 
@@ -114,12 +119,16 @@ fn fillet_with_a_body_chosen_in_the_tree_rounds_every_edge_of_it() {
 #[test]
 fn leaving_out_an_edge_of_a_filleted_face_keeps_its_other_edges() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click_tool(BlendKind::Fillet.title());
     harness.settle();
+
     let fillet = open_feature(&harness);
     let input = bodies::input(harness.model.evaluation(), fillet).unwrap();
+
     let around = blend_of(&harness, fillet).entry_edges(harness.document(), &input.solid);
     let edge = input.solid.edge(around[0][0]).unwrap().name();
 
@@ -127,8 +136,10 @@ fn leaving_out_an_edge_of_a_filleted_face_keeps_its_other_edges() {
     assert_eq!(around[0].len(), 4);
 
     let transaction = blend_tools::toggle_edge(&harness.model, fillet, edge).unwrap();
+
     harness.perform(Action::Apply(transaction));
     harness.settle();
+
     let blend = blend_of(&harness, fillet);
 
     assert!(blend.groups.is_empty());
@@ -139,9 +150,11 @@ fn leaving_out_an_edge_of_a_filleted_face_keeps_its_other_edges() {
 #[test]
 fn a_fillet_takes_faces_of_one_body_and_says_what_it_leaves_out() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let corner = Pickable::Origin;
     let mut selection = Selection::default();
+
     selection.toggle(top);
     selection.toggle(corner);
 
@@ -150,6 +163,7 @@ fn a_fillet_takes_faces_of_one_body_and_says_what_it_leaves_out() {
     assert_eq!(source.body, plate);
     assert_eq!(source.edges.len(), 4);
     assert_eq!(source.left_out, vec![corner]);
+
     let unselected =
         blend_tools::selected_edges(&harness.model, &Selection::default(), &[]).unwrap();
 
@@ -168,14 +182,18 @@ fn a_fillet_takes_faces_of_one_body_and_says_what_it_leaves_out() {
 #[test]
 fn revolve_with_a_flat_face_and_an_edge_selected_turns_the_face_about_the_edge() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     close_feature(&mut harness);
+
     let side = faces_facing(&harness, plate, -Vector3::X, 0.0);
     let axis = edge_through(&harness, plate, Point3::new(0.0, 0.0, 5.0));
 
     harness.select(side.iter().copied().chain([axis]));
     harness.click_tool("Revolve");
     harness.settle();
+
     let revolve = open_feature(&harness);
     let Some(SolidFeature::Revolve(definition)) = harness
         .document()
@@ -204,18 +222,22 @@ fn revolve_with_a_flat_face_and_an_edge_selected_turns_the_face_about_the_edge()
             .hidden
     );
     assert!(harness.shows_containing("Revolve 1 revolves the selected face out of its body"));
+
     let volume = harness.body_volume(plate);
     let expected = cylinder + corners_outside;
+
     assert!((volume - expected).abs() < expected * 0.01, "{volume}");
 }
 
 #[test]
 fn a_face_alone_is_not_revolved_and_faces_of_two_planes_are_not_swept() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let side = faces_facing(&harness, plate, -Vector3::X, 0.0);
     let offer = |selected: &[Pickable], sweep: Sweep| {
         let mut selection = Selection::default();
+
         for pickable in selected {
             selection.toggle(*pickable);
         }
@@ -244,14 +266,18 @@ fn a_face_alone_is_not_revolved_and_faces_of_two_planes_are_not_swept() {
 fn extrude_with_faces_of_one_plane_selected_extrudes_them_all_as_one_profile() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
     rectangle(&mut sketch, Point2::new(20.0, 0.0), Point2::new(30.0, 10.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let body = open_feature(&harness);
+
     close_feature(&mut harness);
+
     let tops = faces_facing(&harness, body, Vector3::Z, 10.0);
 
     harness.select(tops.iter().copied());
@@ -279,11 +305,14 @@ fn look(harness: &mut Harness) -> caditor_render::Viewpoint {
 #[test]
 fn looking_straight_at_a_face_again_turns_the_view_a_quarter_turn() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     close_feature(&mut harness);
     settle_camera(&mut harness);
 
     harness.select([top]);
+
     let first = look(&mut harness);
     let second = look(&mut harness);
 
@@ -292,7 +321,9 @@ fn looking_straight_at_a_face_again_turns_the_view_a_quarter_turn() {
     assert!((second.up() + first.right()).length() < 1e-6);
 
     let edge = edge_through(&harness, plate, Point3::new(20.0, 0.0, 10.0));
+
     harness.select([edge]);
+
     let along = look(&mut harness);
     let direction = measure::direction_of(&harness.model, edge).unwrap();
 

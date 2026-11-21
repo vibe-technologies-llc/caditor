@@ -55,6 +55,7 @@ fn check2(
         for parameter in overlap.first.split(8) {
             let point = first.point(parameter);
             let other = second.closest_parameter(point, second_range);
+
             assert!(second.point(other).distance(point) <= LINEAR_RESOLUTION);
         }
     }
@@ -69,14 +70,18 @@ fn brute2(
     let a: Vec<Point2> = first_range.split(800).map(|t| first.point(t)).collect();
     let b: Vec<Point2> = second_range.split(800).map(|t| second.point(t)).collect();
     let mut crossings = Vec::new();
+
     for pa in a.windows(2) {
         for pb in b.windows(2) {
             let (p, r) = (pa[0], pa[1] - pa[0]);
             let (q, s) = (pb[0], pb[1] - pb[0]);
+
             let denominator = r.perp_dot(s);
+
             if denominator.abs() < 1e-14 {
                 continue;
             }
+
             let t = (q - p).perp_dot(s) / denominator;
             let u = (q - p).perp_dot(r) / denominator;
             if (0.0..1.0).contains(&t) && (0.0..1.0).contains(&u) {
@@ -91,34 +96,50 @@ fn brute2(
 fn lines_and_circles_meet_analytically() {
     let (a, ra) = line2((0.0, 0.0), (4.0, 4.0));
     let (b, rb) = line2((0.0, 4.0), (4.0, 0.0));
+
     let found = intersect_curves2(&a, ra, &b, rb).unwrap();
+
     check2(&a, ra, &b, rb, &found);
+
     assert_eq!(found.points.len(), 1);
     assert!(found.points[0].point.distance(Point2::new(2.0, 2.0)) < 1e-12);
+
     let (c, rc) = line2((1.0, 1.0), (6.0, 6.0));
+
     let found = intersect_curves2(&a, ra, &c, rc).unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
+
     let overlap = found.overlaps[0];
+
     assert!(
         (overlap.first.start() - 2f64.sqrt()).abs() < 1e-9,
         "{found:?}"
     );
     assert!((overlap.first.end() - ra.end()).abs() < 1e-9);
     assert!(found.points.is_empty());
+
     let (d, rd) = line2((4.0, 4.0), (8.0, 3.0));
+
     let found = intersect_curves2(&a, ra, &d, rd).unwrap();
+
     assert_eq!(found.points.len(), 1);
     assert_eq!(found.points[0].first, ra.end());
     assert_eq!(found.points[0].second, 0.0);
     assert!(!found.points[0].tangent);
+
     let wheel = circle2((0.0, 0.0), 2.0);
     let (touching, rt) = line2((-3.0, 2.0), (3.0, 2.0));
+
     let found = intersect_curves2(&touching, rt, &wheel, Interval::FULL_TURN).unwrap();
+
     assert_eq!(found.points.len(), 1);
     assert!(found.points[0].tangent);
+
     let other = circle2((3.0, 0.0), 2.0);
     let found =
         intersect_curves2(&wheel, Interval::FULL_TURN, &other, Interval::FULL_TURN).unwrap();
+
     check2(
         &wheel,
         Interval::FULL_TURN,
@@ -126,12 +147,16 @@ fn lines_and_circles_meet_analytically() {
         Interval::FULL_TURN,
         &found,
     );
+
     assert_eq!(found.points.len(), 2);
+
     let kissing = circle2((4.0, 0.0), 2.0);
     let found =
         intersect_curves2(&wheel, Interval::FULL_TURN, &kissing, Interval::FULL_TURN).unwrap();
+
     assert_eq!(found.points.len(), 1);
     assert!(found.points[0].tangent);
+
     let same = circle2((0.0, 0.0), 2.0);
     let found = intersect_curves2(
         &wheel,
@@ -140,6 +165,7 @@ fn lines_and_circles_meet_analytically() {
         Interval::new(2.0, 5.0).unwrap(),
     )
     .unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
     assert!((found.overlaps[0].first.start() - 2.0).abs() < 1e-9);
     assert!((found.overlaps[0].first.end() - 3.0).abs() < 1e-9);
@@ -148,6 +174,7 @@ fn lines_and_circles_meet_analytically() {
 #[test]
 fn splines_meet_lines_circles_and_each_other_like_brute_force() {
     let mut random = Random::new(3);
+
     for _ in 0..6 {
         let points: Vec<(f64, f64)> = (0..6)
             .map(|_| {
@@ -179,6 +206,7 @@ fn splines_meet_lines_circles_and_each_other_like_brute_force() {
         ];
         for (second, second_range) in &others {
             let found = intersect_curves2(&first, Interval::UNIT, second, *second_range).unwrap();
+
             check2(&first, Interval::UNIT, second, *second_range, &found);
             for crossing in brute2(&first, Interval::UNIT, second, *second_range) {
                 assert!(
@@ -191,8 +219,10 @@ fn splines_meet_lines_circles_and_each_other_like_brute_force() {
             }
         }
     }
+
     let wave = spline2(&[(0.0, 0.0), (1.0, 1.0), (2.0, -1.0), (3.0, 1.0), (4.0, 0.0)]);
     let found = intersect_curves2(&wave, Interval::UNIT, &wave, Interval::UNIT).unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
     assert!(found.points.is_empty());
 }
@@ -204,19 +234,24 @@ fn curves_meet_in_space() {
         .unwrap()
         .into();
     let span = Interval::new(-5.0, 5.0).unwrap();
+
     let found = intersect_curves(&a, span, &b, span).unwrap();
+
     assert_eq!(found.points.len(), 1);
     assert!((found.points[0].first - 1.0).abs() < 1e-12);
     assert!((found.points[0].second - 1.0).abs() < 1e-12);
+
     let skew: Curve = Line::new(Point3::new(1.0, -1.0, 0.1), Vector3::Y)
         .unwrap()
         .into();
+
     assert!(
         intersect_curves(&a, span, &skew, span)
             .unwrap()
             .points
             .is_empty()
     );
+
     let ring: Curve = Circle::new(Plane::XY, 2.0).unwrap().into();
     let hoop: Curve = Circle::new(
         Plane::new(Point3::new(2.0, 0.0, 1.5), Vector3::Y).unwrap(),
@@ -224,10 +259,13 @@ fn curves_meet_in_space() {
     )
     .unwrap()
     .into();
+
     let found = intersect_curves(&ring, Interval::FULL_TURN, &hoop, Interval::FULL_TURN).unwrap();
+
     assert_eq!(found.points.len(), 1, "{found:?}");
     assert!(!found.points[0].tangent);
     assert!(found.points[0].point.distance(Point3::new(2.0, 0.0, 0.0)) < 1e-9);
+
     let spline: Curve = BSpline::clamped_uniform(
         3,
         vec![
@@ -240,11 +278,14 @@ fn curves_meet_in_space() {
     .unwrap()
     .into();
     let found = intersect_curves(&spline, Interval::UNIT, &a, span).unwrap();
+
     assert_eq!(found.points.len(), 3);
+
     for point in &found.points {
         assert!(point.point.z.abs() < LINEAR_RESOLUTION);
         assert!(point.point.y.abs() < LINEAR_RESOLUTION);
     }
+
     let partial: Curve = Line::new(Point3::new(3.0, 0.0, 0.0), Vector3::NEG_X)
         .unwrap()
         .into();
@@ -255,8 +296,11 @@ fn curves_meet_in_space() {
         Interval::new(0.0, 2.0).unwrap(),
     )
     .unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
+
     let overlap = found.overlaps[0];
+
     assert!((overlap.first.start() - 1.0).abs() < 1e-9);
     assert!((overlap.first.end() - 3.0).abs() < 1e-9);
     assert!((overlap.second_start - 2.0).abs() < 1e-9);
@@ -286,6 +330,7 @@ fn circles_crossing_at_a_grazing_angle_meet_where_they_cross() {
     )
     .unwrap()
     .into();
+
     let found = intersect_curves(&plug, Interval::FULL_TURN, &bore, Interval::FULL_TURN).unwrap();
 
     assert_eq!(found.points.len(), 2, "{found:?}");

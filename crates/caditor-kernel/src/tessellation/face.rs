@@ -36,32 +36,32 @@ const CUSP_ENDS: f64 = 0.1;
 const CUSP_SEGMENTS: usize = 16;
 const SHALLOW_CROSSING: f64 = 0.5;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct BoundaryPoint {
     pub uv: Point2,
     pub position: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EdgeEnd {
     Start,
     End,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct EndPiece {
     pub edge: EdgeId,
     pub end: EdgeEnd,
     pub from_end: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct SegmentPiece {
     pub edge: EdgeId,
     pub after: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct BoundarySegment {
     piece: SegmentPiece,
     ends: [Point2; 2],
@@ -80,7 +80,7 @@ impl BoundarySegment {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct EndSegment {
     edge: EdgeId,
     end: EdgeEnd,
@@ -112,13 +112,13 @@ impl EndSegment {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct LocalPoint {
     uv: Point2,
     position: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Scaled<'a> {
     Cells(&'a Density),
     Speeds {
@@ -184,6 +184,7 @@ pub(crate) fn triangulate(
     let Some(bounds) = Aabb2::from_points(loops.iter().flatten().map(|point| point.uv)) else {
         return Ok(FacePatch::default());
     };
+
     let density = budget
         .density
         .clone()
@@ -194,11 +195,14 @@ pub(crate) fn triangulate(
         .collect();
     let scaled = Scaled::of(bounds, &density);
     let mut points = FacePoints::new(face_id, scaled);
+
     for boundary in &loops {
         points.add_loop(boundary)?;
     }
+
     let grid = grid_points(&loops, &scaled)?;
     let grid_size = grid.len();
+
     if budget.placed.saturating_add(grid_size) > budget.limit {
         return Err(TessellationError::TooLarge);
     }
@@ -208,6 +212,7 @@ pub(crate) fn triangulate(
         }
         points.add_interior(uv, nudge)?;
     }
+
     let shape = PatchShape {
         grid: grid_size,
         points: points.points.len(),
@@ -233,10 +238,13 @@ pub(crate) fn pole_sampling(
         .ok_or(TessellationError::MissingEntity)?;
     let surface = face.surface();
     let poles = surface.poles();
+
     if poles.is_empty() {
         return Ok(None);
     }
+
     let mut coedges = Vec::new();
+
     for loop_id in face.loops() {
         let face_loop = solid
             .face_loop(*loop_id)
@@ -249,6 +257,7 @@ pub(crate) fn pole_sampling(
             );
         }
     }
+
     let uvs = coedges
         .iter()
         .flat_map(|coedge| coedge.pcurve().samples().iter().map(|sample| sample.uv));
@@ -257,13 +266,16 @@ pub(crate) fn pole_sampling(
     };
     let density = density(surface, bounds, tolerance);
     let mut segments = Vec::new();
+
     for coedge in coedges {
         let edge = solid
             .edge(coedge.edge())
             .ok_or(TessellationError::MissingEntity)?;
+
         if !matches!(edge.curve(), Curve::Line(_)) {
             continue;
         }
+
         let at_pole = [edge.start(), edge.end()].into_iter().any(|vertex| {
             solid.vertex(vertex).is_some_and(|vertex| {
                 poles
@@ -271,9 +283,11 @@ pub(crate) fn pole_sampling(
                     .any(|pole| pole.point.distance(vertex.point()) <= LINEAR_RESOLUTION)
             })
         });
+
         if !at_pole {
             continue;
         }
+
         let pcurve = coedge.pcurve();
         let rows = density.v.index(pcurve.end().y) - density.v.index(pcurve.start().y);
         let pieces = rows.abs().round();
@@ -295,11 +309,13 @@ pub(crate) fn boundary_loops(
 ) -> Result<Vec<Vec<BoundaryPoint>>, TessellationError> {
     let surface = face.surface();
     let mut loops = Vec::with_capacity(face.loops().len());
+
     for loop_id in face.loops() {
         let face_loop = solid
             .face_loop(*loop_id)
             .ok_or(TessellationError::MissingEntity)?;
         let mut points: Vec<BoundaryPoint> = Vec::new();
+
         for coedge_id in face_loop.coedges() {
             let coedge = solid
                 .coedge(*coedge_id)
@@ -309,14 +325,17 @@ pub(crate) fn boundary_loops(
                 .ok_or(TessellationError::MissingEntity)?;
             let count = sampling.parameters.len();
             let mut order: Vec<usize> = (0..count).collect();
+
             if coedge.sense() == Sense::Reversed {
                 order.reverse();
             }
+
             let pcurve = coedge.pcurve();
             for (step, index) in order.into_iter().enumerate() {
                 if step.is_multiple_of(POLL_EVERY) {
                     interrupt::check()?;
                 }
+
                 let (Some(parameter), Some(point), Some(position)) = (
                     sampling.parameters.get(index),
                     sampling.points.get(index),
@@ -324,6 +343,7 @@ pub(crate) fn boundary_loops(
                 ) else {
                     return Err(TessellationError::MissingEntity);
                 };
+
                 let uv = if step == 0 {
                     pcurve.start()
                 } else if step + 1 == count {
@@ -331,6 +351,7 @@ pub(crate) fn boundary_loops(
                 } else {
                     surface.project(*point, Some(pcurve.uv_at(*parameter)))
                 };
+
                 push_distinct(
                     surface,
                     joint_reach,
@@ -364,6 +385,7 @@ pub(crate) fn overlapping_ends(
         .ok_or(TessellationError::MissingEntity)?;
     let surface = face.surface();
     let mut at_vertex: BTreeMap<u32, Vec<EndSegment>> = BTreeMap::new();
+
     for loop_id in face.loops() {
         let face_loop = solid
             .face_loop(*loop_id)
@@ -394,6 +416,7 @@ pub(crate) fn overlapping_ends(
                 } else {
                     pcurve.end()
                 };
+
                 at_vertex.entry(*position).or_default().push(EndSegment {
                     edge: coedge.edge(),
                     end,
@@ -408,13 +431,16 @@ pub(crate) fn overlapping_ends(
             }
         }
     }
+
     let mut longer = BTreeSet::new();
+
     for ends in at_vertex.values() {
         for (index, first) in ends.iter().enumerate() {
             for second in ends.iter().skip(index + 1) {
                 let distinct = (first.edge, first.end) != (second.edge, second.end);
                 let together = coincide(&first.at, &second.at)
                     || joined(surface, &first.at, &second.at, LINEAR_RESOLUTION);
+
                 if !(distinct && together) {
                     continue;
                 }
@@ -424,6 +450,7 @@ pub(crate) fn overlapping_ends(
                     } else {
                         first
                     };
+
                     longer.insert(split.piece(0));
                 } else if first.leaves_with(second) {
                     longer.extend(crossings(solid, surface, samplings, [first, second])?);
@@ -445,6 +472,7 @@ pub(crate) fn crossing_segments(
     let segments = boundary_segments(solid, face, samplings)?;
     let tree = BoxTree::new(segments.iter().map(BoundarySegment::uv_box));
     let mut parted = BTreeSet::new();
+
     for (index, segment) in segments.iter().enumerate() {
         if index.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
@@ -453,6 +481,7 @@ pub(crate) fn crossing_segments(
             let Some(other) = segments.get(other_index) else {
                 return Err(TessellationError::MissingEntity);
             };
+
             if other_index <= index || !segments_cross(segment.ends, other.ends) {
                 continue;
             }
@@ -476,6 +505,7 @@ fn more_bowed(
     pieces: [SegmentPiece; 2],
 ) -> Result<Option<SegmentPiece>, TessellationError> {
     let [first, second] = pieces.map(|piece| bow(solid, samplings, piece));
+
     let (piece, bow) = if second? > first? {
         (pieces[1], second?)
     } else {
@@ -496,6 +526,7 @@ fn bow(
         .get(piece.edge.index())
         .ok_or(TessellationError::MissingEntity)?;
     let before = piece.after.wrapping_sub(1);
+
     let (Some(low), Some(high), Some(from), Some(to)) = (
         sampling.parameters.get(before),
         sampling.parameters.get(piece.after),
@@ -504,6 +535,7 @@ fn bow(
     ) else {
         return Err(TessellationError::MissingEntity);
     };
+
     let middle = edge.curve().point(0.5 * (low + high));
     Ok(middle.distance(from.midpoint(*to)))
 }
@@ -515,12 +547,14 @@ fn boundary_segments(
 ) -> Result<Vec<BoundarySegment>, TessellationError> {
     let surface = face.surface();
     let mut segments = Vec::new();
+
     for loop_id in face.loops() {
         let face_loop = solid
             .face_loop(*loop_id)
             .ok_or(TessellationError::MissingEntity)?;
         for coedge_id in face_loop.coedges() {
             interrupt::check()?;
+
             let coedge = solid
                 .coedge(*coedge_id)
                 .ok_or(TessellationError::MissingEntity)?;
@@ -528,12 +562,14 @@ fn boundary_segments(
                 .get(coedge.edge().index())
                 .ok_or(TessellationError::MissingEntity)?;
             let pcurve = coedge.pcurve();
+
             let (first, last) = if coedge.sense().is_same() {
                 (pcurve.start(), pcurve.end())
             } else {
                 (pcurve.end(), pcurve.start())
             };
             let count = sampling.parameters.len();
+
             let uvs: Vec<Point2> = sampling
                 .parameters
                 .iter()
@@ -545,6 +581,7 @@ fn boundary_segments(
                     _ => surface.project(*point, Some(pcurve.uv_at(*parameter))),
                 })
                 .collect();
+
             segments.extend(
                 uvs.windows(2)
                     .zip(sampling.points.windows(2))
@@ -585,6 +622,7 @@ fn end_path(
         .ok_or(TessellationError::MissingEntity)?;
     let count = sampling.parameters.len();
     let reach = count.min(CUSP_SEGMENTS + 1);
+
     let indices: Vec<usize> = match end.end {
         EdgeEnd::Start => (0..reach).collect(),
         EdgeEnd::End => (0..reach).map(|step| count - 1 - step).collect(),
@@ -593,12 +631,14 @@ fn end_path(
     let mut points = Vec::with_capacity(indices.len());
     let mut lengths = Vec::with_capacity(indices.len());
     let mut previous = None;
+
     for (step, index) in indices.into_iter().enumerate() {
         let (Some(parameter), Some(point)) =
             (sampling.parameters.get(index), sampling.points.get(index))
         else {
             return Err(TessellationError::MissingEntity);
         };
+
         points.push(if step == 0 {
             end.at.uv
         } else {
@@ -620,10 +660,13 @@ fn crossings(
 ) -> Result<BTreeSet<EndPiece>, TessellationError> {
     let one = end_path(solid, surface, samplings, first)?;
     let mut other = end_path(solid, surface, samplings, second)?;
+
     if let Some(tip) = other.points.first_mut() {
         *tip = first.at.uv;
     }
+
     let mut longer = BTreeSet::new();
+
     for (index, (a, b)) in one.points.iter().zip(one.points.iter().skip(1)).enumerate() {
         for (other_index, (c, d)) in other
             .points
@@ -634,8 +677,10 @@ fn crossings(
             if !segments_cross([*a, *b], [*c, *d]) {
                 continue;
             }
+
             let length = one.lengths.get(index).copied().unwrap_or(0.0);
             let other_length = other.lengths.get(other_index).copied().unwrap_or(0.0);
+
             longer.insert(if other_length > length {
                 second.piece(other_index)
             } else {
@@ -678,15 +723,19 @@ fn joined(surface: &Surface, a: &BoundaryPoint, b: &BoundaryPoint, reach: f64) -
     if a.position != b.position {
         return false;
     }
+
     let gap = b.uv - a.uv;
     let scale = 1.0 + a.uv.abs().max_element();
     let parameter_gap = gap.abs().max_element();
     let off_poles = || surface.pole_at(a.uv).is_none() && surface.pole_at(b.uv).is_none();
+
     let close_in_parameters = parameter_gap <= JOINT_PARAMETER_GAP * scale
         || (parameter_gap <= OFF_POLE_JOINT_PARAMETER_GAP * scale && off_poles());
+
     if !close_in_parameters {
         return false;
     }
+
     let derivatives = surface.evaluate(a.uv.x, a.uv.y);
     gap.x.abs() * derivatives.du.length() + gap.y.abs() * derivatives.dv.length()
         <= reach.max(LINEAR_RESOLUTION)
@@ -709,15 +758,20 @@ fn push_distinct(
 fn close_gaps(points: Vec<BoundaryPoint>, density: &Density) -> Vec<BoundaryPoint> {
     let count = points.len();
     let mut closed = Vec::with_capacity(count);
+
     for (index, point) in points.iter().enumerate() {
         closed.push(*point);
+
         let Some(next) = points.get((index + 1) % count.max(1)) else {
             continue;
         };
+
         if next.position != point.position || coincide(point, next) {
             continue;
         }
+
         let (from, to) = (density.index(point.uv), density.index(next.uv));
+
         let pieces = [to.x - from.x, to.y - from.y]
             .into_iter()
             .filter(|cells| cells.is_finite())
@@ -752,6 +806,7 @@ fn grid_points(
             })
         })
         .collect();
+
     let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); columns * rows];
     let clamp_cell = |value: f64, cells: usize| {
         let index = value.floor();
@@ -761,6 +816,7 @@ fn grid_points(
             0
         }
     };
+
     for (index, (start, end)) in segments.iter().enumerate() {
         let (low, high) = (start.min(*end), start.max(*end));
         for column in clamp_cell(low.x, columns)..=clamp_cell(high.x, columns) {
@@ -771,9 +827,12 @@ fn grid_points(
             }
         }
     }
+
     let mut points = Vec::new();
+
     for row in 1..rows {
         interrupt::check()?;
+
         let Some(v) = density.v.line(row) else {
             continue;
         };
@@ -787,6 +846,7 @@ fn grid_points(
                 .any(|(start, end)| distance_to_segment(local, *start, *end) < GRID_CLEARANCE);
             if !near && let Some(u) = density.u.line(column) {
                 let [x, y] = scatter(((row as u64) << 32) | column as u64);
+
                 points.push((Point2::new(u, v), [x * GRID_NUDGE, y * GRID_NUDGE]));
             }
         }
@@ -818,17 +878,21 @@ impl<'a> FacePoints<'a> {
     fn insert(&mut self, point: LocalPoint, nudge: [f64; 2]) -> Result<usize, TessellationError> {
         let mapped = self.scaled.map(point.uv);
         let place = [mapped.x.to_bits(), mapped.y.to_bits()];
+
         if let Some(&index) = self.by_place.get(&place) {
             let existing = self
                 .points
                 .get(index)
                 .ok_or(TessellationError::Triangulation(self.face))?;
+
             if existing.position != point.position {
                 return Err(TessellationError::DuplicateBoundaryPoint(self.face));
             }
             return Ok(index);
         }
+
         let index = self.points.len();
+
         self.by_place.insert(place, index);
         self.points.push(point);
         self.mapped
@@ -838,10 +902,12 @@ impl<'a> FacePoints<'a> {
 
     fn add_loop(&mut self, points: &[BoundaryPoint]) -> Result<(), TessellationError> {
         let mut indices = Vec::with_capacity(points.len());
+
         for (index, point) in points.iter().enumerate() {
             if index.is_multiple_of(POLL_EVERY) {
                 interrupt::check()?;
             }
+
             let local = LocalPoint {
                 uv: point.uv,
                 position: Some(point.position),
@@ -853,6 +919,7 @@ impl<'a> FacePoints<'a> {
                 }
                 inserted => inserted?,
             };
+
             indices.push(inserted);
         }
         self.loops.push(indices);
@@ -873,6 +940,7 @@ impl<'a> FacePoints<'a> {
             .and_then(|existing| existing.position);
         let count = points.len();
         let next = points.get((index + 1) % count.max(1))?;
+
         let backwards = Some(next.position) == collided;
         let steps = (1..count).map(|step| {
             if backwards {
@@ -895,12 +963,16 @@ impl<'a> FacePoints<'a> {
         let duplicate = TessellationError::DuplicateBoundaryPoint(self.face);
         let toward = toward.ok_or(duplicate)?;
         let (at, to) = (self.scaled.map(point.uv), self.scaled.map(toward));
+
         let beside = at + (to - at) * BESIDE_SHARE;
         let place = [beside.x.to_bits(), beside.y.to_bits()];
+
         if beside == at || self.by_place.contains_key(&place) {
             return Err(duplicate);
         }
+
         let index = self.points.len();
+
         self.by_place.insert(place, index);
         self.points.push(point);
         self.mapped.push(PlanePoint::new(beside.x, beside.y));
@@ -923,6 +995,7 @@ impl<'a> FacePoints<'a> {
         } else {
             None
         };
+
         let triangles = match pieced {
             Some(triangles) => triangles,
             None => constrained::whole(self.face, &self.mapped, &outline)?,
@@ -953,18 +1026,23 @@ impl FaceTriangulation {
             shape,
             ..FacePatch::default()
         };
+
         for (step, [a, b, c]) in self.triangles.iter().copied().enumerate() {
             if step.is_multiple_of(POLL_EVERY) {
                 interrupt::check()?;
             }
+
             let triangle = match sense {
                 Sense::Same => [a, b, c],
                 Sense::Reversed => [a, c, b],
             };
+
             if self.collapses(&triangle) {
                 continue;
             }
+
             let mut indices = [0u32; 3];
+
             for (slot, index) in indices.iter_mut().zip(triangle) {
                 *slot = self.corner(index, &triangle, &mut corners, surface, sense, &mut patch)?;
             }
@@ -992,6 +1070,7 @@ impl FaceTriangulation {
         if let Some(corner) = corners.get(index).copied().flatten() {
             return Ok(corner);
         }
+
         let point = self
             .points
             .get(index)
@@ -1000,6 +1079,7 @@ impl FaceTriangulation {
             Some(position) => PatchPosition::Boundary(position),
             None => patch.push_interior(surface.point_at(point.uv))?,
         };
+
         let corner = patch.push_vertex(PatchVertex {
             position,
             normal: MeshNormal::new(vertex_normal(
@@ -1011,6 +1091,7 @@ impl FaceTriangulation {
             )),
         })?;
         let shared_normal = surface.normal(point.uv.x, point.uv.y).is_some();
+
         if shared_normal && let Some(entry) = corners.get_mut(index) {
             *entry = Some(corner);
         }
@@ -1026,9 +1107,11 @@ fn vertex_normal(
     triangle: &[usize; 3],
 ) -> Vector3 {
     let flip = sense.sign();
+
     if let Some(normal) = surface.normal(uv.x, uv.y) {
         return normal * flip;
     }
+
     let centroid = triangle
         .iter()
         .filter_map(|index| points.get(*index))

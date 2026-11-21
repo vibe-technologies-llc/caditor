@@ -4,7 +4,7 @@ use crate::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 
 const UNIT_TOLERANCE: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RigidTransform {
     rotation: Rotation3,
     translation: Vector3,
@@ -36,9 +36,11 @@ impl RigidTransform {
 
     pub fn rotation_about(axis_origin: Point3, axis: Vector3, angle: f64) -> Option<Self> {
         let axis = axis.try_normalize()?;
+
         if !angle.is_finite() || !axis_origin.is_finite() {
             return None;
         }
+
         let rotation = Rotation3::from_axis_angle(axis, angle);
         Self::new(rotation, axis_origin - rotation * axis_origin)
     }
@@ -77,7 +79,7 @@ impl RigidTransform {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RigidTransform2 {
     rotation: Vector2,
     translation: Vector2,
@@ -151,6 +153,7 @@ mod tests {
     fn a_frame_maps_its_own_axes_onto_the_world() {
         let frame = Plane::with_x_axis(Point3::new(1.0, 2.0, 3.0), Vector3::Y, Vector3::Z).unwrap();
         let placed = RigidTransform::from_frame(&frame).unwrap();
+
         assert!(placed.apply_point(Point3::ZERO).distance(frame.origin()) < EPSILON);
         assert!(placed.apply_vector(Vector3::X).distance(frame.x_axis()) < EPSILON);
         assert!(placed.apply_vector(Vector3::Y).distance(frame.y_axis()) < EPSILON);
@@ -161,8 +164,11 @@ mod tests {
     fn rotation_about_an_axis_keeps_the_axis_fixed() {
         let origin = Point3::new(1.0, 2.0, 3.0);
         let turn = RigidTransform::rotation_about(origin, Vector3::Z, FRAC_PI_2).unwrap();
+
         assert!(turn.apply_point(origin).distance(origin) < EPSILON);
+
         let moved = turn.apply_point(origin + Vector3::X);
+
         assert!(moved.distance(origin + Vector3::Y) < EPSILON);
         assert!(turn.apply_vector(Vector3::X).distance(Vector3::Y) < EPSILON);
     }
@@ -173,7 +179,9 @@ mod tests {
             RigidTransform::rotation_about(Point3::ONE, Vector3::new(1.0, 2.0, 0.5), 0.7).unwrap();
         let b = RigidTransform::translation(Vector3::new(-4.0, 1.0, 9.0)).unwrap();
         let point = Point3::new(0.3, -2.0, 5.0);
+
         let composed = a.then(&b);
+
         assert!(
             composed
                 .apply_point(point)
@@ -204,8 +212,11 @@ mod tests {
         let a = RigidTransform2::new(FRAC_PI_2, Vector2::new(1.0, 0.0)).unwrap();
         let b = RigidTransform2::new(-0.3, Vector2::new(2.0, -5.0)).unwrap();
         let point = Point2::new(3.0, 4.0);
+
         assert!(a.apply_point(Point2::X).distance(Point2::new(1.0, 1.0)) < EPSILON);
+
         let composed = a.then(&b);
+
         assert!(
             composed
                 .apply_point(point)
@@ -232,10 +243,13 @@ mod tests {
             .then(&RigidTransform::rotation_about(Point3::ZERO, Vector3::Z, turns[2]).unwrap());
 
         let found = turns_about_axes(rotation);
+
         for (found, turn) in found.iter().zip(turns) {
             assert!((found - turn).abs() < 1e-12, "{found} {turn}");
         }
+
         let point = Point3::new(1.0, 2.0, 3.0);
+
         assert!((rotation * point).distance(stepwise.apply_point(point)) < 1e-12);
     }
 }

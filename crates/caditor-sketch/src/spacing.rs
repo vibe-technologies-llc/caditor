@@ -16,7 +16,7 @@ const SHORTEST_GAP_SHARE: f64 = 1e-3;
 const BORDER: usize = 2;
 const SINGULAR_SHARE: f64 = 1e-14;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FitLayout {
     pub degree: usize,
     pub knots: Vec<f64>,
@@ -34,9 +34,11 @@ impl FitLayout {
 
     pub fn open(points: &[Point2], spacing: FitSpacing) -> Option<Self> {
         let count = points.len();
+
         if count < 2 {
             return None;
         }
+
         let (degree, uniform) = clamped_knots(count);
         match spacing {
             FitSpacing::Even => {
@@ -60,6 +62,7 @@ impl FitLayout {
 
     pub fn closed(points: &[Point2], spacing: FitSpacing) -> Option<Self> {
         let count = points.len();
+
         if count < MIN_CLOSED_POINTS {
             return None;
         }
@@ -77,6 +80,7 @@ impl FitLayout {
             FitSpacing::Centripetal => {
                 let parameters = centripetal_parameters(points, true)?;
                 let degree = MAX_SPLINE_DEGREE;
+
                 let knots = (0..count + 2 * degree + 1)
                     .map(|index| looped(&parameters, index as isize - degree as isize))
                     .collect::<Option<Vec<_>>>()?;
@@ -154,6 +158,7 @@ fn centripetal_parameters(points: &[Point2], closed: bool) -> Option<Vec<f64>> {
     if points.iter().any(|point| !point.is_finite()) {
         return None;
     }
+
     let closing = closed.then(|| (points.last().copied(), points.first().copied()));
     let mut gaps: Vec<f64> = points
         .windows(2)
@@ -162,20 +167,26 @@ fn centripetal_parameters(points: &[Point2], closed: bool) -> Option<Vec<f64>> {
             _ => None,
         })
         .collect();
+
     if let Some((Some(last), Some(first))) = closing {
         gaps.push(last.distance(first).sqrt());
     }
+
     let total: f64 = gaps.iter().sum();
     let spans = gaps.len().max(1) as f64;
+
     if !(total > 0.0 && total.is_finite()) {
         gaps.iter_mut().for_each(|gap| *gap = 1.0);
     } else {
         let shortest = total * SHORTEST_GAP_SHARE / spans;
+
         gaps.iter_mut().for_each(|gap| *gap = gap.max(shortest));
     }
+
     let total: f64 = gaps.iter().sum();
     let mut travelled = 0.0;
     let mut parameters = Vec::with_capacity(points.len());
+
     parameters.push(0.0);
     for gap in gaps.iter().take(points.len().saturating_sub(1)) {
         travelled += gap;
@@ -196,9 +207,11 @@ fn looped(parameters: &[f64], index: isize) -> Option<f64> {
 
 pub(crate) fn periodic_through_knots(points: &[Point2], layout: &FitLayout) -> Option<Vec<Point2>> {
     let count = points.len();
+
     if count < MIN_CLOSED_POINTS || layout.parameters.len() != count {
         return None;
     }
+
     let rows: Vec<Vec<(usize, f64)>> = layout
         .parameters
         .iter()
@@ -210,10 +223,12 @@ pub(crate) fn periodic_through_knots(points: &[Point2], layout: &FitLayout) -> O
                 *parameter,
             );
             let mut row: Vec<(usize, f64)> = Vec::with_capacity(weights.len());
+
             for (offset, weight) in weights.iter().enumerate() {
                 if *weight == 0.0 {
                     continue;
                 }
+
                 let column = (first + offset + count - 1) % count;
                 match row.iter_mut().find(|(known, _)| *known == column) {
                     Some((_, total)) => *total += weight,
@@ -239,9 +254,11 @@ fn cyclic_solve(rows: &[Vec<(usize, f64)>], targets: &[Point2]) -> Option<Vec<Po
     let mut lower: Vec<(usize, usize, f64)> = Vec::new();
     let mut corner = [[0.0; BORDER]; BORDER];
     let mut tail = [[0.0; 2]; BORDER];
+
     for (row, (entries, target)) in rows.iter().zip(targets).enumerate() {
         if row < core {
             let mut values = [target.x, target.y, 0.0, 0.0];
+
             for (column, weight) in entries {
                 if *column < core {
                     if row.abs_diff(*column) > 1 {
@@ -255,6 +272,7 @@ fn cyclic_solve(rows: &[Vec<(usize, f64)>], targets: &[Point2]) -> Option<Vec<Po
             right.push(values);
         } else {
             let border_row = row - core;
+
             *tail.get_mut(border_row)? = [target.x, target.y];
             for (column, weight) in entries {
                 if *column < core {
@@ -265,29 +283,40 @@ fn cyclic_solve(rows: &[Vec<(usize, f64)>], targets: &[Point2]) -> Option<Vec<Po
             }
         }
     }
+
     let solved = band.solve(right)?;
     let mut schur = corner;
     let mut reduced = tail;
+
     for (border_row, column, weight) in &lower {
         let [x, y, first, second] = *solved.get(*column)?;
         let schur_row = schur.get_mut(*border_row)?;
+
         schur_row[0] -= weight * first;
         schur_row[1] -= weight * second;
+
         let reduced_row = reduced.get_mut(*border_row)?;
+
         reduced_row[0] -= weight * x;
         reduced_row[1] -= weight * y;
     }
+
     let [[a, b], [c, d]] = schur;
+
     let determinant = a * d - b * c;
     let largest = [a, b, c, d]
         .iter()
         .fold(0.0_f64, |largest, entry| larger(largest, entry.abs()));
+
     let singular =
         !determinant.is_finite() || determinant.abs() <= SINGULAR_SHARE * largest * largest;
+
     if singular {
         return None;
     }
+
     let [[first_x, first_y], [second_x, second_y]] = reduced;
+
     let border = [
         Point2::new(
             (d * first_x - b * second_x) / determinant,
@@ -302,6 +331,7 @@ fn cyclic_solve(rows: &[Vec<(usize, f64)>], targets: &[Point2]) -> Option<Vec<Po
         .iter()
         .map(|[x, y, first, second]| Point2::new(*x, *y) - border[0] * *first - border[1] * *second)
         .collect();
+
     columns.extend(border);
     columns
         .iter()
@@ -337,6 +367,7 @@ mod tests {
                 .windows(2)
                 .map(|pair| {
                     let (start, end) = (pair[0], pair[1]);
+
                     let along = end - start;
                     let share = ((at - start).dot(along) / along.length_squared()).clamp(0.0, 1.0);
                     at.distance(start + along * share)

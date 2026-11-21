@@ -99,7 +99,9 @@ impl ScriptedTransport {
 
     fn answer(&self, request: &Request) -> Result<(u16, Vec<u8>), TransportError> {
         self.requests.lock().push(request.clone());
+
         let mut routes = self.routes.lock();
+
         let route = routes
             .iter_mut()
             .find(|route| route.method == request.method && route.url == request.url)
@@ -137,6 +139,7 @@ impl Transport for ScriptedTransport {
             .into_iter()
             .any(|sent| !progress(sent, total));
         let (status, body) = self.answer(request)?;
+
         if stopped {
             return Err(TransportError::Stopped);
         }
@@ -154,6 +157,7 @@ impl Transport for ScriptedTransport {
         progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<Fetched, TransportError> {
         let (status, body) = self.answer(request)?;
+
         if !(200..300).contains(&status) {
             return Ok(Fetched {
                 status,
@@ -163,7 +167,9 @@ impl Transport for ScriptedTransport {
         }
         sink.write_all(&body)
             .map_err(|error| TransportError::Io(error.kind()))?;
+
         let bytes = u64::try_from(body.len()).unwrap_or(u64::MAX);
+
         if !progress(bytes, Some(bytes)) {
             return Err(TransportError::Stopped);
         }
@@ -213,6 +219,7 @@ impl Hold {
         if self.used.swap(true, Ordering::SeqCst) {
             return;
         }
+
         let waited = self
             .arrivals
             .lock()
@@ -225,7 +232,7 @@ impl Hold {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
     SignIn,
     Refresh,
@@ -244,7 +251,7 @@ pub enum Step {
     Placement,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Received {
     pub folder: FolderRef,
     pub name: String,
@@ -438,6 +445,7 @@ impl FakeProvider {
 
     fn enter(&self, step: Step, call: String) -> Result<(), Error> {
         self.calls.lock().push(call);
+
         let failure = self
             .failures
             .lock()
@@ -490,7 +498,9 @@ impl Provider for FakeProvider {
     ) -> Result<Session, Error> {
         self.enter(Step::SignIn, "finish sign in".to_owned())?;
         self.wait_if_held(Step::SignIn);
+
         let session = Self::session(now);
+
         if self.expiring_at_sign_in {
             return Ok(Session {
                 expires_at: now,
@@ -563,7 +573,9 @@ impl Provider for FakeProvider {
         folder: &FolderRef,
     ) -> Result<Folder, Error> {
         self.enter(Step::Folder, format!("folder {}", folder.folder.as_str()))?;
+
         let mut contents = self.folders.get(folder).cloned().unwrap_or_default();
+
         contents.place = Some(folder.clone());
         Ok(contents)
     }
@@ -616,6 +628,7 @@ impl Provider for FakeProvider {
             Some(version) => format!("convert {} {}", design.id.as_str(), version.id.as_str()),
             None => format!("convert {}", design.id.as_str()),
         };
+
         self.enter(Step::Conversion, call)?;
         self.polled.store(0, Ordering::Relaxed);
         Ok(Translation {
@@ -650,7 +663,9 @@ impl Provider for FakeProvider {
         self.enter(Step::Fetch, "fetch".to_owned())?;
         sink.write_all(&self.step)
             .map_err(|error| Error::Write(error.kind()))?;
+
         let bytes = u64::try_from(self.step.len()).unwrap_or(u64::MAX);
+
         if !progress(bytes, Some(bytes)) {
             return Err(Error::Stopped);
         }
@@ -666,12 +681,16 @@ impl Provider for FakeProvider {
         progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<u64, Error> {
         self.enter(Step::Fetch, format!("fetch upload {}", upload.id.as_str()))?;
+
         let bytes = self.stored.get(&upload.id).ok_or(Error::NoStoredFile {
             service: self.service,
         })?;
+
         sink.write_all(bytes)
             .map_err(|error| Error::Write(error.kind()))?;
+
         let length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+
         if !progress(length, Some(length)) {
             return Err(Error::Stopped);
         }
@@ -689,7 +708,9 @@ impl Provider for FakeProvider {
             Step::Send,
             format!("send {} {}", outgoing.folder.folder.as_str(), outgoing.name),
         )?;
+
         let total = u64::try_from(outgoing.bytes.len()).unwrap_or(u64::MAX);
+
         if let Some(released) = &self.holding_sends {
             while !released.load(Ordering::Relaxed) {
                 if !progress(0, Some(total)) {
@@ -703,6 +724,7 @@ impl Provider for FakeProvider {
                 return Err(Error::Stopped);
             }
         }
+
         let so_far = self.versions_so_far(outgoing.folder, outgoing.name);
         let outcome = if so_far == 0 {
             SendOutcome::Created
@@ -711,12 +733,14 @@ impl Provider for FakeProvider {
                 number: Some(so_far + 1),
             }
         };
+
         self.received.lock().push(Received {
             folder: outgoing.folder.clone(),
             name: outgoing.name.to_owned(),
             bytes: outgoing.bytes.to_vec(),
             how: SendAs::File,
         });
+
         let item = ItemId::new(format!(
             "{}/{}/{}",
             outgoing.folder.project.as_str(),
@@ -755,7 +779,9 @@ impl Provider for FakeProvider {
                 outgoing.name
             ),
         )?;
+
         let total = u64::try_from(outgoing.bytes.len()).unwrap_or(u64::MAX);
+
         for sent in [0, total / 2, total] {
             if !progress(sent, Some(total)) {
                 return Err(Error::Stopped);

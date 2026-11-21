@@ -34,7 +34,7 @@ const SEED_GAP: f64 = 1e-3 * LINEAR_RESOLUTION;
 const MIN_INDEXED_SEGMENTS: usize = 16;
 const PROBE_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct IntersectionNode {
     pub parameter: f64,
     pub point: Point3,
@@ -42,7 +42,7 @@ pub struct IntersectionNode {
     pub uv: [Point2; 2],
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct IntersectionCurve {
     surfaces: Arc<[Surface; 2]>,
     nodes: Arc<[IntersectionNode]>,
@@ -93,13 +93,17 @@ pub(crate) fn hermite(
     parameter: f64,
 ) -> [Point3; 3] {
     let h = end.parameter - start.parameter;
+
     if h <= 0.0 || !h.is_finite() {
         return [start.point, start.derivative, Vector3::ZERO];
     }
+
     let s = (parameter - start.parameter) / h;
     let s2 = s * s;
+
     let s3 = s2 * s;
     let (p0, d0, p1, d1) = (start.point, start.derivative, end.point, end.derivative);
+
     let point = p0 * (2.0 * s3 - 3.0 * s2 + 1.0)
         + d0 * (h * (s3 - 2.0 * s2 + s))
         + p1 * (3.0 * s2 - 2.0 * s3)
@@ -130,6 +134,7 @@ fn segment_hull(start: &IntersectionNode, end: &IntersectionNode) -> Aabb {
 fn crossing_along(surfaces: [&Surface; 2], contact: &Contact, travel: Vector3) -> Option<Vector3> {
     let travel = travel.try_normalize()?;
     let [first, second] = crossing_directions(surfaces, contact)?;
+
     let nearer = if first.dot(travel).abs() >= second.dot(travel).abs() {
         first
     } else {
@@ -149,7 +154,7 @@ fn arc_estimate(start: Point3, start_tangent: Vector3, end: Point3, end_tangent:
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Traced {
     contact: Contact,
     tangent: Vector3,
@@ -222,23 +227,27 @@ impl IntersectionCurve {
                 [a, b]
             };
             let mut traced: Vec<Traced> = Vec::with_capacity(contacts.len());
+
             for (index, contact) in contacts.iter().enumerate() {
                 let previous = index
                     .checked_sub(1)
                     .and_then(|before| contacts.get(before))
                     .unwrap_or(contact);
                 let next = contacts.get(index + 1).unwrap_or(contact);
+
                 let travel = next.point - previous.point;
                 let tangent = contact_direction(pair, contact)
                     .filter(|(_, sine)| *sine > 1e-9)
                     .map(|(direction, _)| direction)
                     .or_else(|| crossing_along(pair, contact, travel))
                     .unwrap_or(travel.normalize_or_zero());
+
                 let tangent = if tangent.dot(travel) < 0.0 {
                     -tangent
                 } else {
                     tangent
                 };
+
                 traced.push(Traced {
                     contact: *contact,
                     tangent,
@@ -249,6 +258,7 @@ impl IntersectionCurve {
         };
         let mut nodes = Vec::with_capacity(traced.len());
         let mut parameter = 0.0;
+
         for (index, item) in traced.iter().enumerate() {
             if let Some(previous) = index.checked_sub(1).and_then(|before| traced.get(before)) {
                 parameter += arc_estimate(
@@ -280,6 +290,7 @@ impl IntersectionCurve {
         closed: bool,
     ) -> Option<Self> {
         let mut contacts = rough_contacts(&surfaces, points, closed)?;
+
         if let (Some(contact), Some(end)) = (contacts.first_mut(), points.first()) {
             pin_within_reach(&surfaces, contact, *end);
         }
@@ -371,9 +382,11 @@ impl IntersectionCurve {
         let parameter = |index: usize| self.nodes.get(index).map_or(low, |node| node.parameter);
         let first = self.segment_index(low);
         let last = self.segment_index(high);
+
         if first >= last {
             return partial(first, low, high);
         }
+
         let travelled = self.travelled();
         let between = match (travelled.get(first + 1), travelled.get(last)) {
             (Some(from), Some(to)) => to - from,
@@ -386,8 +399,10 @@ impl IntersectionCurve {
         let domain = self.domain();
         let Some(period) = self.period().filter(|period| *period > 0.0) else {
             let low = domain.clamp(range.start());
+
             return self.length_within(low, domain.clamp(range.end()).max(low));
         };
+
         let turns = ((range.start() - domain.start()) / period).floor();
         let shift = if turns.is_finite() {
             turns * period
@@ -396,11 +411,14 @@ impl IntersectionCurve {
         };
         let low = domain.clamp(range.start() - shift);
         let high = range.end() - shift;
+
         if high <= domain.end() {
             return self.length_within(low, domain.clamp(high).max(low));
         }
+
         let beyond = high - domain.end();
         let laps = (beyond / period).floor();
+
         let rest = domain.clamp(domain.start() + beyond - laps * period);
         let lap = self.travelled().last().copied().unwrap_or(0.0);
         self.length_within(low, domain.end())
@@ -416,10 +434,12 @@ impl IntersectionCurve {
     pub(crate) fn nearby_runs(&self, point: Point3, range: Interval) -> Vec<Interval> {
         let (range, windows) = self.windows(range);
         let segments: usize = windows.iter().map(|window| window.segments.len()).sum();
+
         if segments < MIN_INDEXED_SEGMENTS {
             tally::add(segments);
             return vec![range];
         }
+
         let within = |index: usize| {
             windows
                 .iter()
@@ -428,9 +448,12 @@ impl IntersectionCurve {
         let nearest = self
             .hulls()
             .possibly_nearest_among(point, LINEAR_RESOLUTION, within);
+
         tally::add(nearest.len());
+
         let period = self.domain().length();
         let mut runs: Vec<Interval> = Vec::new();
+
         for window in &windows {
             let offset = window.turn as f64 * period;
             for (start, end) in nearest
@@ -440,6 +463,7 @@ impl IntersectionCurve {
             {
                 let low = (start.parameter + offset).max(range.start());
                 let high = (end.parameter + offset).min(range.end());
+
                 let Some(piece) = Interval::new(low, high).filter(|piece| piece.length() > 0.0)
                 else {
                     continue;
@@ -477,6 +501,7 @@ impl IntersectionCurve {
             let start = domain.clamp(range.start());
             Interval::new(start, domain.clamp(range.end()).max(start)).unwrap_or(domain)
         };
+
         let windows = turns
             .map(|turn| {
                 let offset = turn as f64 * domain.length();
@@ -515,6 +540,7 @@ impl IntersectionCurve {
         let Some((start, end)) = self.segment_at(parameter) else {
             return [Point2::ZERO; 2];
         };
+
         let span = end.parameter - start.parameter;
         let fraction = if span > 0.0 {
             ((parameter - start.parameter) / span).clamp(0.0, 1.0)
@@ -550,6 +576,7 @@ impl IntersectionCurve {
         let (Some(first), Some(last)) = (self.nodes.first(), self.nodes.last()) else {
             return Vec::new();
         };
+
         let uv_shift = if self.closed {
             let [a0, a1] = first.uv;
             let [b0, b1] = last.uv;
@@ -560,6 +587,7 @@ impl IntersectionCurve {
         let period = self.domain().length();
         let (range, windows) = self.windows(range);
         let mut pieces = Vec::new();
+
         for window in windows {
             let turn = window.turn as f64;
             let shift = |node: &IntersectionNode| {
@@ -573,14 +601,18 @@ impl IntersectionCurve {
             };
             for (a, b) in window.segments.filter_map(|index| self.segment(index)) {
                 let (a, b) = (shift(a), shift(b));
+
                 if b.parameter < range.start() || a.parameter > range.end() {
                     continue;
                 }
+
                 let low = a.parameter.max(range.start());
                 let high = b.parameter.min(range.end());
+
                 if high < low {
                     continue;
                 }
+
                 let cut = |parameter: f64| {
                     if parameter == a.parameter {
                         a
@@ -599,6 +631,7 @@ impl IntersectionCurve {
                         }
                     }
                 };
+
                 pieces.push((cut(low), cut(high)));
             }
         }
@@ -623,6 +656,7 @@ impl IntersectionCurve {
                 range.contains(*seed) && apart(range.start(), *seed) && apart(*seed, range.end())
             })
             .collect();
+
         seeds.sort_by(f64::total_cmp);
         seeds.dedup_by(|later, earlier| !apart(*earlier, *later));
         seeds.insert(0, range.start());
@@ -633,6 +667,7 @@ impl IntersectionCurve {
     pub fn trimmed(&self, range: Interval) -> Option<Self> {
         let pieces = self.pieces(range);
         let mut nodes: Vec<IntersectionNode> = Vec::with_capacity(pieces.len() + 1);
+
         for (a, b) in pieces {
             if nodes.is_empty() {
                 nodes.push(a);
@@ -641,14 +676,18 @@ impl IntersectionCurve {
                 nodes.push(b);
             }
         }
+
         let [first, second] = &*self.surfaces;
+
         for node in &mut nodes {
             let [first_hint, second_hint] = node.uv;
+
             node.uv = [
                 first.project(node.point, Some(first_hint)),
                 second.project(node.point, Some(second_hint)),
             ];
         }
+
         let full_turn = self
             .period()
             .is_some_and(|period| (range.length() - period).abs() <= 1e-12 * (1.0 + period));
@@ -686,6 +725,7 @@ impl IntersectionCurve {
         let (first, first_map) = first.mapped(similarity)?;
         let (second, second_map) = second.mapped(similarity)?;
         let scale = similarity.scale();
+
         let nodes = self
             .nodes
             .iter()
@@ -703,7 +743,7 @@ impl IntersectionCurve {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Touching {
     Refuse,
     Follow,
@@ -716,21 +756,26 @@ fn rough_contacts(
 ) -> Option<Vec<Contact>> {
     let mut contacts: Vec<Contact> = Vec::with_capacity(points.len());
     let [first, second] = surfaces;
+
     let pair = [first, second];
     let mut hints: Option<[Point2; 2]> = None;
+
     for (index, point) in points.iter().enumerate() {
         let previous = index
             .checked_sub(1)
             .and_then(|before| points.get(before))
             .unwrap_or(point);
         let next = points.get(index + 1).unwrap_or(point);
+
         let tangent = (*next - *previous).try_normalize()?;
         let start = [
             first.project(*point, hints.map(|[hint, _]| hint)),
             second.project(*point, hints.map(|[_, hint]| hint)),
         ];
+
         let contact = refine_on_plane(pair, start, *point, tangent)
             .or_else(|| touching_contact(pair, start, *point))?;
+
         hints = Some(contact.uv);
         contacts.push(contact);
     }
@@ -743,10 +788,12 @@ fn rough_contacts(
 fn pin_within_reach(surfaces: &[Surface; 2], contact: &mut Contact, end: Point3) {
     let [first, second] = surfaces;
     let [first_hint, second_hint] = contact.uv;
+
     let (first_uv, second_uv) = (
         first.project(end, Some(first_hint)),
         second.project(end, Some(second_hint)),
     );
+
     let reached = first
         .point_at(first_uv)
         .distance(end)
@@ -763,12 +810,17 @@ fn touching_contact(surfaces: [&Surface; 2], start: [Point2; 2], point: Point3) 
     let [first, second] = surfaces;
     let [mut first_uv, mut second_uv] = start;
     let mut current = point;
+
     for _ in 0..TOUCHING_ITERATIONS {
         first_uv = first.project(current, Some(first_uv));
+
         let on_first = first.point_at(first_uv);
+
         second_uv = second.project(on_first, Some(second_uv));
+
         let on_second = second.point_at(second_uv);
         let gap = on_first.distance(on_second);
+
         current = on_first.lerp(on_second, 0.5);
         if gap <= TOUCHING_GAP {
             return Some(Contact {
@@ -792,13 +844,16 @@ fn refine_traced(
         return Ok(Vec::new());
     };
     let mut refined = vec![*first];
+
     for pair in traced.windows(2) {
         let [start, end] = pair else {
             continue;
         };
+
         let mut pending = vec![(*start, *end, 0usize)];
         while let Some((low, high, depth)) = pending.pop() {
             interrupt::check()?;
+
             let (probes, cause) = match assess(surfaces, &low, &high, touching) {
                 Assessment::Fits => {
                     refined.push(high);
@@ -818,6 +873,7 @@ fn refine_traced(
                 Assessment::Stuck { probes, cause } => (probes, cause),
             };
             let (point, distance) = farthest_stray(surfaces, &probes);
+
             if distance > INTERSECTION_TOLERANCE || distance.is_nan() {
                 return Err(IntersectionError::Unrefined {
                     point,
@@ -831,7 +887,7 @@ fn refine_traced(
     Ok(refined)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Probe {
     guess: Point3,
     normal: Option<Vector3>,
@@ -926,28 +982,35 @@ fn assess(surfaces: [&Surface; 2], low: &Traced, high: &Traced, touching: Touchi
         high.contact.point,
         high.tangent,
     );
+
     if span <= 2.0 * LINEAR_RESOLUTION {
         return Assessment::Fits;
     }
+
     let probes = probes(surfaces, low, high, span);
     let stuck = |cause: RefineStop| Assessment::Stuck { probes, cause };
     let [before, middle, after] = probes;
     let (Some(normal), Some(contact)) = (middle.normal, middle.solve(surfaces, touching)) else {
         return stuck(RefineStop::Unsolved);
     };
+
     let fits = angle_between(low.tangent, high.tangent) <= MAX_SEGMENT_TURN
         && contact.point.distance(middle.guess) <= INTERSECTION_TOLERANCE
         && [before, after]
             .iter()
             .all(|probe| probe.deviation(surfaces, touching) <= INTERSECTION_TOLERANCE);
+
     if fits {
         return Assessment::Fits;
     }
+
     let between = (contact.point - low.contact.point).length() > LINEAR_RESOLUTION
         && (high.contact.point - contact.point).length() > LINEAR_RESOLUTION;
+
     if !between {
         return stuck(RefineStop::AtEnd);
     }
+
     let tangent = contact_direction(surfaces, &contact)
         .filter(|(_, sine)| *sine > 1e-9)
         .map_or(normal, |(direction, _)| direction);
@@ -959,6 +1022,7 @@ fn assess(surfaces: [&Surface; 2], low: &Traced, high: &Traced, touching: Touchi
     let [first, second] = surfaces;
     let [first_hint, second_hint] = middle.hint;
     let [first_uv, second_uv] = contact.uv;
+
     let continuous = [
         continuous_uv(first, first_uv, first_hint),
         continuous_uv(second, second_uv, second_hint),

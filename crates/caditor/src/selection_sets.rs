@@ -28,7 +28,7 @@ pub const NAME_CAPTION: &str = "Name";
 pub const NOTHING_TO_KEEP: &str =
     "Select faces, edges or whole bodies first; a selection set keeps those";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SelectionSetError {
     #[error("{}", NOTHING_TO_KEEP)]
     NothingToKeep,
@@ -61,7 +61,7 @@ const UPDATE_HOVER: &str = "Replace it with the current selection";
 const RENAME_HOVER: &str = "Rename it";
 const DELETE_HOVER: &str = "Delete it";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Captured {
     pub members: Vec<SetMember>,
     pub left_out: usize,
@@ -72,6 +72,7 @@ pub fn capture(model: &Model, selection: &Selection) -> Captured {
     let mut faces: BTreeMap<FeatureId, BTreeSet<FaceKey>> = BTreeMap::new();
     let mut edges: BTreeMap<FeatureId, Vec<EdgeName>> = BTreeMap::new();
     let mut left_out = 0_usize;
+
     for pickable in selection.in_pick_order() {
         match pickable {
             Pickable::Face { body, face } => {
@@ -81,13 +82,16 @@ pub fn capture(model: &Model, selection: &Selection) -> Captured {
             _ => left_out += 1,
         }
     }
+
     let mut members = Vec::new();
+
     for (body, keys) in faces {
         let Some(result) = bodies::shown(evaluation, body) else {
             left_out += keys.len();
             continue;
         };
         let every = bodies::face_keys(&result.solid);
+
         if every.len() == keys.len() && every.iter().all(|(_, key)| keys.contains(key)) {
             members.push(SetMember::Body(body));
             continue;
@@ -121,6 +125,7 @@ pub fn capture(model: &Model, selection: &Selection) -> Captured {
 
 fn captured_members(model: &Model, selection: &Selection) -> Result<Captured, SelectionSetError> {
     let captured = capture(model, selection);
+
     if captured.members.is_empty() {
         return Err(SelectionSetError::NothingToKeep);
     }
@@ -145,13 +150,16 @@ fn replacing(
     change: impl FnOnce(&mut SelectionSets) -> Result<(), SelectionSetError>,
 ) -> Result<Transaction, SelectionSetError> {
     let mut sets = document.selection_sets().clone();
+
     change(&mut sets)?;
+
     let transaction = Transaction::single(
         label,
         Edit::SetSelectionSets {
             sets: Box::new(sets),
         },
     );
+
     document.check(&transaction)?;
     Ok(transaction)
 }
@@ -162,7 +170,7 @@ fn missing(name: &str) -> SelectionSetError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Saved {
     pub transaction: Transaction,
     pub left_out: usize,
@@ -171,6 +179,7 @@ pub struct Saved {
 pub fn save(model: &Model, selection: &Selection, name: &str) -> Result<Saved, SelectionSetError> {
     let captured = captured_members(model, selection)?;
     let name = set_name(name);
+
     let transaction = replacing(
         model.document(),
         format!("Save selection set “{name}”"),
@@ -199,6 +208,7 @@ pub fn update(
         format!("Update selection set “{name}”"),
         |sets| {
             let index = sets.position(name).ok_or_else(|| missing(name))?;
+
             if let Some(set) = sets.sets.get_mut(index) {
                 set.members = captured.members;
             }
@@ -218,6 +228,7 @@ pub fn rename(document: &Document, name: &str, to: &str) -> Result<Transaction, 
         format!("Rename selection set “{name}” to “{to}”"),
         |sets| {
             let index = sets.position(name).ok_or_else(|| missing(name))?;
+
             if let Some(set) = sets.sets.get_mut(index) {
                 set.name = to.clone();
             }
@@ -232,19 +243,20 @@ pub fn delete(document: &Document, name: &str) -> Result<Transaction, SelectionS
         format!("Delete selection set “{name}”"),
         |sets| {
             let index = sets.position(name).ok_or_else(|| missing(name))?;
+
             sets.sets.remove(index);
             Ok(())
         },
     )
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Chosen {
     pub pickables: Vec<Pickable>,
     pub report: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct Missed {
     bodies: Vec<FeatureId>,
     hidden: Vec<FeatureId>,
@@ -275,6 +287,7 @@ impl Missed {
                 .map_or_else(|| "a deleted body".to_owned(), Cow::into_owned)
         };
         let mut parts: Vec<String> = Vec::new();
+
         for (body, count) in &self.faces {
             parts.push(format!(
                 "{} of {} could not be found",
@@ -334,6 +347,7 @@ pub fn choose(model: &Model, index: usize, in_sketch: bool) -> Result<Chosen, Se
     if in_sketch {
         return Err(SelectionSetError::InSketch);
     }
+
     let document = model.document();
     let evaluation = model.evaluation();
     let set = document
@@ -341,8 +355,10 @@ pub fn choose(model: &Model, index: usize, in_sketch: bool) -> Result<Chosen, Se
         .sets
         .get(index)
         .ok_or(SelectionSetError::SetGone)?;
+
     let resolved = set.resolve(document, evaluation);
     let mut missed = Missed::default();
+
     for lost in resolved.lost {
         match lost {
             SetLoss::Body(body) => missed.bodies.push(body),
@@ -350,33 +366,42 @@ pub fn choose(model: &Model, index: usize, in_sketch: bool) -> Result<Chosen, Se
             SetLoss::Edge(body) => *missed.edges.entry(body).or_default() += 1,
         }
     }
+
     let mut keys: BTreeMap<FeatureId, BTreeMap<FaceId, FaceKey>> = BTreeMap::new();
     let mut pickables = Vec::new();
+
     for item in resolved.found {
         let body = item_body(item);
+
         if !visibility::is_shown(document, body) {
             if !missed.hidden.contains(&body) {
                 missed.hidden.push(body);
             }
             continue;
         }
+
         let Some(result) = bodies::shown(evaluation, body) else {
             continue;
         };
         let keys = keys
             .entry(body)
             .or_insert_with(|| bodies::face_keys(&result.solid).into_iter().collect());
+
         pickables.extend(pickable_of(item, result, keys));
     }
+
     let name = &set.name;
     let missed = missed.words(document);
+
     if pickables.is_empty() {
         let name = name.clone();
+
         return Err(match missed {
             Some(missed) => SelectionSetError::NothingSelectableBecause { name, missed },
             None => SelectionSetError::NothingSelectable { name },
         });
     }
+
     let report = match missed {
         Some(missed) => format!(
             "Selected what is left of “{name}”, but {missed}. Replace the set with the current \
@@ -387,14 +412,14 @@ pub fn choose(model: &Model, index: usize, in_sketch: bool) -> Result<Chosen, Se
     Ok(Chosen { pickables, report })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Renaming {
     from: String,
     to: String,
     focus_pending: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SetsDraft {
     name: String,
     renaming: Option<Renaming>,
@@ -415,7 +440,7 @@ impl SetsDraft {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Close,
     Apply(Transaction),
@@ -453,6 +478,7 @@ fn body(
 ) -> Option<Outcome> {
     let sets = model.document().selection_sets();
     let mut outcome = None;
+
     widgets::caption(ui, "Sets");
     if sets.sets.is_empty() {
         ui.label(widgets::muted(EMPTY, ui));
@@ -507,6 +533,7 @@ fn applying_saved(
 ) -> Option<Outcome> {
     let left_out = built.as_ref().map_or(0, |saved| saved.left_out);
     let outcome = applying(draft, built.map(|saved| saved.transaction));
+
     draft.note = left_out_note(left_out);
     outcome
 }
@@ -550,14 +577,17 @@ fn row(
         .renaming
         .as_ref()
         .is_some_and(|renaming| renaming.from == set.name);
+
     if renaming {
         return renaming_row(ui, model.document(), draft);
     }
+
     let mut outcome = None;
     let mut rename = false;
     let mut delete = false;
     let mut update = false;
     let mut select = false;
+
     Sides::new().shrink_left().truncate().show(
         ui,
         |ui| {
@@ -581,10 +611,12 @@ fn row(
     }
     if update {
         let built = self::update(model, selection, &set.name);
+
         outcome = applying_saved(draft, built);
     }
     if delete {
         let built = self::delete(model.document(), &set.name);
+
         outcome = applying(draft, built);
     }
     if rename {
@@ -602,6 +634,7 @@ fn renaming_row(ui: &mut Ui, document: &Document, draft: &mut SetsDraft) -> Opti
     let focus = std::mem::take(&mut renaming.focus_pending);
     let mut done = false;
     let mut cancelled = false;
+
     ui.horizontal(|ui| {
         let field = widgets::text_field(ui, |ui| {
             ui.add(
@@ -611,11 +644,14 @@ fn renaming_row(ui: &mut Ui, document: &Document, draft: &mut SetsDraft) -> Opti
                     .desired_width(ui.available_width() - 2.0 * ui.spacing().interact_size.y),
             )
         });
+
         if focus {
             field.request_focus();
         }
+
         let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
         let escape = widgets::escape_cancels(ui, &field);
+
         done = widgets::icon_button(ui, icons::DONE, "Rename the set").clicked() || enter;
         cancelled =
             widgets::icon_button(ui, icons::CLOSE, "Keep the name (Esc)").clicked() || escape;
@@ -627,6 +663,7 @@ fn renaming_row(ui: &mut Ui, document: &Document, draft: &mut SetsDraft) -> Opti
     if !done {
         return None;
     }
+
     let renaming = draft.renaming.take()?;
     let built = rename(document, &renaming.from, &renaming.to);
     applying(draft, built)
@@ -640,6 +677,7 @@ fn saving(
 ) -> Option<Outcome> {
     let focus = std::mem::take(&mut draft.focus_pending);
     let mut save_now = false;
+
     widgets::properties(ui, (DIALOG_ID, "save"), |ui| {
         widgets::property(ui, NAME_CAPTION, |ui| {
             ui.horizontal(|ui| {
@@ -653,11 +691,14 @@ fn saving(
                             ),
                     )
                 });
+
                 widgets::tie_to_caption(ui, &field);
                 if focus {
                     field.request_focus();
                 }
+
                 let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
+
                 save_now = ui.add(widgets::button(SAVE_LABEL)).clicked() || enter;
             });
         });
@@ -665,11 +706,14 @@ fn saving(
     if !save_now {
         return None;
     }
+
     let name = draft.name.clone();
     let built = save(model, selection, &name);
     let outcome = applying_saved(draft, built);
+
     if outcome.is_some() {
         let mut taken = model.document().selection_sets().clone();
+
         taken.sets.push(SelectionSet {
             name: set_name(&name),
             members: Vec::new(),

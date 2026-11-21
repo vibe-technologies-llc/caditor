@@ -10,7 +10,9 @@ struct SplitMix(u64);
 impl SplitMix {
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+
         let mut mixed = self.0;
+
         mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         mixed ^ (mixed >> 31)
@@ -33,6 +35,7 @@ pub(super) fn scatter(key: u64) -> [f64; 2] {
 
 fn spread(value: u32) -> u64 {
     let mut spread = u64::from(value);
+
     spread = (spread | (spread << 16)) & 0x0000_ffff_0000_ffff;
     spread = (spread | (spread << 8)) & 0x00ff_00ff_00ff_00ff;
     spread = (spread | (spread << 4)) & 0x0f0f_0f0f_0f0f_0f0f;
@@ -52,15 +55,18 @@ fn step(value: f64, low: f64, extent: f64) -> u32 {
 pub(super) fn insertion_order(points: &[PlanePoint<f64>]) -> Vec<usize> {
     let mut shuffled: Vec<usize> = (0..points.len()).collect();
     let mut random = SplitMix(SHUFFLE_SEED);
+
     for index in (1..shuffled.len()).rev() {
         shuffled.swap(index, random.below(index + 1));
     }
+
     let low = points.iter().fold([f64::INFINITY; 2], |[x, y], point| {
         [x.min(point.x), y.min(point.y)]
     });
     let high = points.iter().fold([f64::NEG_INFINITY; 2], |[x, y], point| {
         [x.max(point.x), y.max(point.y)]
     });
+
     let extent = (high[0] - low[0]).max(high[1] - low[1]);
     let place = |index: &usize| {
         points.get(*index).map_or(0, |point| {
@@ -69,14 +75,19 @@ pub(super) fn insertion_order(points: &[PlanePoint<f64>]) -> Vec<usize> {
     };
     let mut rounds = Vec::new();
     let mut end = shuffled.len();
+
     while end > 0 {
         let start = if end <= FIRST_ROUND { 0 } else { end / 2 };
+
         rounds.push(start..end);
         end = start;
     }
+
     let mut order = Vec::with_capacity(shuffled.len());
+
     for round in rounds.into_iter().rev() {
         let mut members = shuffled.get(round).unwrap_or_default().to_vec();
+
         members.sort_by_cached_key(place);
         order.extend(members);
     }
@@ -100,6 +111,7 @@ mod tests {
 
         let order = insertion_order(&points);
         let mut sorted = order.clone();
+
         sorted.sort_unstable();
 
         assert_eq!(sorted, (0..1000).collect::<Vec<_>>());

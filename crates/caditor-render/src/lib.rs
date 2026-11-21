@@ -92,7 +92,7 @@ pub enum RenderError {
     RecoveryInterrupted,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RenderFault {
     #[error(
         "The graphics device ran out of memory for the viewport at {from}x anti-aliasing, so it now uses {to}x."
@@ -124,7 +124,7 @@ pub enum RenderFault {
     EnvironmentRefused,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SurfaceSize {
     pub width: u32,
     pub height: u32,
@@ -182,6 +182,7 @@ impl Reopening {
                 log::warn!(
                     "the window's surface could not be reused ({error}), creating a new one"
                 );
+
                 let surface = Arc::new(self.instance.create_surface(Arc::clone(&self.window))?);
                 let gpu = Gpu::open(
                     &self.instance,
@@ -223,6 +224,7 @@ impl Gpu {
         let opened = gpu::open_device(instance, Some(surface), adapter).await?;
         let loss = DeviceLoss::watch(&opened.device, Arc::clone(wake));
         let present_modes = surface.get_capabilities(&opened.adapter).present_modes;
+
         let config = configure(
             &opened.adapter,
             &opened.device,
@@ -231,14 +233,18 @@ impl Gpu {
             settings::present_mode(vsync, &present_modes),
         )
         .await?;
+
         log::info!(
             "drawing to a {:?} surface presented with {:?}",
             config.format,
             config.present_mode
         );
+
         let mut info = GraphicsInfo::describe(&opened.adapter);
+
         info.msaa_offered =
             gpu::offered_msaa(&opened.adapter, &opened.device, config.format, DEPTH_FORMAT);
+
         let mut gpu = Self {
             adapter: opened.adapter,
             device: opened.device,
@@ -248,17 +254,21 @@ impl Gpu {
             loss,
             info,
         };
+
         gpu.note_presentation();
         Ok(gpu)
     }
 
     fn viewport(&mut self, graphics: GraphicsSettings) -> ViewportRenderer {
         let msaa = self.msaa_for(graphics.msaa);
+
         log::info!(
             "drawing the viewport with {}x multisampling",
             msaa.samples()
         );
+
         let mut viewport = ViewportRenderer::new(&self.device, self.config.format, msaa.samples());
+
         viewport.set_shading(graphics.shading);
         viewport.set_linear_resolve(gpu::resolves_linearly(&self.adapter));
         viewport
@@ -266,6 +276,7 @@ impl Gpu {
 
     fn msaa_for(&mut self, wanted: Msaa) -> Msaa {
         let msaa = wanted.closest(&self.info.msaa_offered);
+
         if msaa != wanted {
             log::info!(
                 "{}x multisampling is not offered, using {}x",
@@ -295,6 +306,7 @@ impl Gpu {
         let offered = gpu::offered_msaa(&self.adapter, &self.device, IMAGE_FORMAT, DEPTH_FORMAT);
         let msaa = self.info.msaa.closest(&offered);
         let mut viewport = ViewportRenderer::new(&self.device, IMAGE_FORMAT, msaa.samples());
+
         viewport.set_shading(shading);
         viewport.set_linear_resolve(gpu::resolves_linearly(&self.adapter));
         viewport
@@ -312,6 +324,7 @@ async fn configure(
     let mut config = surface
         .get_default_config(adapter, size.width, size.height)
         .ok_or(RenderError::UnsupportedSurface)?;
+
     if let Some(format) = preferred_format(&surface.get_capabilities(adapter).formats) {
         config.format = format;
     }
@@ -328,6 +341,7 @@ async fn try_configure(
     config: &wgpu::SurfaceConfiguration,
 ) -> Result<(), wgpu::Error> {
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+
     surface.configure(device, config);
     match scope.pop().await {
         None => Ok(()),
@@ -370,6 +384,7 @@ impl Renderer {
                 Box::new(Arc::clone(&window)),
             ));
         let surface = Arc::new(instance.create_surface(Arc::clone(&window))?);
+
         let mut gpu = Gpu::open(
             &instance,
             &surface,
@@ -379,6 +394,7 @@ impl Renderer {
             graphics.adapter,
         )
         .await?;
+
         let viewport = gpu.viewport(graphics);
 
         Ok(Self {
@@ -450,14 +466,17 @@ impl Renderer {
         if graphics == self.graphics {
             return;
         }
+
         let adapter_changed =
             gpu::power_preference(graphics.adapter) != gpu::power_preference(self.graphics.adapter);
+
         if graphics.vsync != self.graphics.vsync {
             self.gpu.present_with(graphics.vsync);
             self.needs_reconfigure = true;
         }
         if graphics.msaa != self.graphics.msaa {
             let msaa = self.gpu.msaa_for(graphics.msaa);
+
             self.viewport
                 .set_sample_count(&self.gpu.device, msaa.samples());
         }
@@ -474,6 +493,7 @@ impl Renderer {
 
     pub fn resize(&mut self, size: SurfaceSize) {
         let size = clamp_size(size, self.gpu.largest_side());
+
         self.gpu.config.width = size.width;
         self.gpu.config.height = size.height;
         if self.recovery.is_some() {
@@ -540,6 +560,7 @@ impl Renderer {
             height: surface_texture.texture.height(),
         };
         let mut encoder = self.new_frame_encoder();
+
         let mut faults = self.viewport.draw(
             &self.gpu.device,
             &self.gpu.queue,
@@ -547,6 +568,7 @@ impl Renderer {
             &target,
             viewport,
         );
+
         while faults.targets && self.step_multisampling_down() {
             encoder = self.new_frame_encoder();
             faults = self.viewport.draw(
@@ -576,10 +598,12 @@ impl Renderer {
             log::warn!("dropping a frame drawn on a graphics device that was lost");
             return;
         }
+
         let submission = self
             .gpu
             .queue
             .submit(preceding.into_iter().chain([frame.encoder.finish()]));
+
         self.gpu.queue.present(frame.surface_texture);
         self.viewport
             .after_submit(&self.gpu.device, &self.wake, submission);
@@ -606,9 +630,11 @@ impl Renderer {
         if self.image.is_some() {
             return Err(ImageError::Busy);
         }
+
         let gpu = &self.gpu;
         let viewport = &self.viewport;
         let shading = self.graphics.shading;
+
         let (mut tiles, bands) = image::start(
             ImageGpu {
                 device: gpu.device.clone(),
@@ -619,6 +645,7 @@ impl Renderer {
                 Some(_) => viewport.image_sibling(&gpu.device),
                 None => {
                     let mut image = gpu.image_viewport(shading);
+
                     image.set_background(viewport.background());
                     image
                 }
@@ -627,6 +654,7 @@ impl Renderer {
             TILE_SIDE.min(gpu.largest_side()),
             Arc::clone(&self.wake),
         )?;
+
         tiles.advance();
         self.image = (!tiles.is_finished()).then_some(tiles);
         Ok(bands)
@@ -660,6 +688,7 @@ impl Renderer {
             .filter(|level| *level < current)
             .max()
             .unwrap_or(Msaa::Off);
+
         if lower >= current {
             return false;
         }
@@ -716,7 +745,9 @@ impl Renderer {
         log::warn!(
             "the drawing surface keeps failing validation, configuring it conservatively with Fifo presentation"
         );
+
         let config = &mut self.gpu.config;
+
         config.present_mode = wgpu::PresentMode::Fifo;
         config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
         config.desired_maximum_frame_latency = CONSERVATIVE_FRAME_LATENCY;
@@ -729,6 +760,7 @@ impl Renderer {
             return Ok(());
         }
         log::warn!("opening a new graphics device to replace the lost one");
+
         let reopening = Reopening {
             instance: self.instance.clone(),
             surface: Arc::clone(&self.surface),
@@ -739,11 +771,13 @@ impl Renderer {
             adapter: self.graphics.adapter,
         };
         let (sender, receiver) = mpsc::channel();
+
         thread::Builder::new()
             .name("graphics-recovery".into())
             .spawn(move || {
                 let outcome = pollster::block_on(reopening.run());
                 let _ = sender.send(outcome);
+
                 (reopening.wake)();
             })
             .map_err(RenderError::RecoveryThread)?;
@@ -760,14 +794,21 @@ impl Renderer {
             Err(mpsc::TryRecvError::Empty) => return Ok(false),
             Err(mpsc::TryRecvError::Disconnected) => Err(RenderError::RecoveryInterrupted),
         };
+
         self.recovery = None;
+
         let recovered = outcome?;
+
         if let Some(surface) = recovered.surface {
             self.surface = surface;
         }
+
         let mut gpu = recovered.gpu;
+
         self.pick_dropped |= self.viewport.is_pick_pending();
+
         let background = self.viewport.background();
+
         self.viewport = gpu.viewport(self.graphics);
         self.viewport.set_background(background);
         self.gpu = gpu;
@@ -779,10 +820,14 @@ impl Renderer {
 
     fn recreate_surface(&mut self) -> Result<(), RenderError> {
         log::warn!("drawing surface was lost, recreating it");
+
         let surface = Arc::new(self.instance.create_surface(Arc::clone(&self.window))?);
         let capabilities = surface.get_capabilities(&self.gpu.adapter);
+
         self.surface = surface;
+
         let format = self.viewport.format();
+
         if !capabilities.formats.contains(&format) {
             log::warn!(
                 "the new drawing surface cannot present {format:?}, opening a new graphics device for it"

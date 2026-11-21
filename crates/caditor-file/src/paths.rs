@@ -29,6 +29,7 @@ pub(crate) fn adjacent_journal(file: &Path) -> Option<PathBuf> {
         .file_name()
         .filter(|name| name.len() + ADJACENT_JOURNAL_ROOM <= MAX_NAME_BYTES)?;
     let mut journal = OsString::from(".");
+
     journal.push(name);
     journal.push(".");
     journal.push(JOURNAL_EXTENSION);
@@ -40,12 +41,15 @@ const ADJACENT_JOURNAL_ROOM: usize = 40;
 
 pub(crate) fn fitting(name: &OsStr, limit: usize) -> OsString {
     let bytes = name.as_encoded_bytes();
+
     if bytes.len() <= limit {
         return name.to_os_string();
     }
+
     let hash = format!("~{:016x}", path_hash(Path::new(name)));
     let room = limit.saturating_sub(hash.len());
     let mut shortened = os::name_prefix(name, room);
+
     shortened.push(hash);
     shortened
 }
@@ -118,9 +122,11 @@ pub(crate) fn set_aside_at(name: &OsStr) -> Option<u64> {
     let name = name.to_str()?;
     let stamped = name.strip_suffix(UNREADABLE_EXTENSION)?.strip_suffix('.')?;
     let (journal, stamp) = stamped.rsplit_once('.')?;
+
     journal
         .rsplit_once('.')
         .filter(|(_, extension)| *extension == JOURNAL_EXTENSION)?;
+
     let seconds = stamp.split_once('-').map_or(stamp, |(seconds, _)| seconds);
     seconds.parse().ok()
 }
@@ -130,6 +136,7 @@ pub(crate) fn unreadable_journal(journal: &Path) -> PathBuf {
     let base = journal.file_name().unwrap_or_default();
     let named = |suffix: String| {
         let mut name = base.to_os_string();
+
         name.push(format!(".{seconds}{suffix}.{UNREADABLE_EXTENSION}"));
         journal.with_file_name(name)
     };

@@ -126,6 +126,7 @@ pub fn lint(selection: &Selection, windows: bool, locked: bool) -> Vec<Step> {
     };
 
     let mut steps = vec![clippy("clippy", &["clippy"])];
+
     if windows {
         steps.push(clippy(
             &format!("clippy ({WINDOWS_TARGET})"),
@@ -156,6 +157,7 @@ pub fn test(selection: &Selection, testing: Testing<'_>) -> Vec<Step> {
     if let Some(packages) = scope(selection) {
         let narrowed = matches!(selection, Selection::These { .. });
         let mut extra: Vec<String> = Vec::new();
+
         if narrowed {
             extra.push("--no-tests=warn".to_owned());
         }

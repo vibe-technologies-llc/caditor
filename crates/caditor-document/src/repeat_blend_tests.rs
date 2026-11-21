@@ -30,6 +30,7 @@ fn square() -> Sketch {
         Point2::new(20.0, 20.0),
         Point2::new(-20.0, 20.0),
     ];
+
     for (index, corner) in corners.iter().enumerate() {
         sketch.add_line(*corner, corners[(index + 1) % 4]);
     }
@@ -98,7 +99,9 @@ fn fillet(body: FeatureId, edges: Vec<EdgeReference>, groups: Vec<EdgeGroup>) ->
 fn filleted_peg() -> Peg {
     let mm = |value: f64| Expression::measure(value, Unit::Millimetre);
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let count = transaction.add_parameter("count", transaction.parse("3").unwrap());
     let outline = transaction.add_feature("Outline", FeatureKind::from(square()));
     let plate =
@@ -117,6 +120,7 @@ fn filleted_peg() -> Peg {
             operation: BodyOperation::Add(plate),
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -126,6 +130,7 @@ fn filleted_peg() -> Peg {
         feature: peg.raw(),
         entity: 1,
     };
+
     let foot_edge = edge_between(
         solid,
         wall,
@@ -135,8 +140,10 @@ fn filleted_peg() -> Peg {
     );
 
     let mut transaction = document.transaction("Fillets");
+
     let rim = transaction.add_feature("Rim", fillet(plate, Vec::new(), vec![EdgeGroup::Face(top)]));
     let foot = transaction.add_feature("Foot", fillet(plate, vec![foot_edge], Vec::new()));
+
     document.apply(transaction.finish()).unwrap();
     Peg {
         document,
@@ -152,7 +159,9 @@ fn add_pattern(peg: &mut Peg, kind: impl FnOnce(ParameterId) -> PatternKind) -> 
     let repeated = vec![peg.peg, peg.rim, peg.foot];
     let pattern = Pattern::new(peg.plate, kind(peg.count)).repeating(repeated);
     let mut transaction = peg.document.transaction("Pattern");
+
     let pattern = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+
     peg.document.apply(transaction.finish()).unwrap();
     pattern
 }
@@ -221,13 +230,18 @@ fn bare_peg() -> f64 {
 #[test]
 fn a_linear_pattern_gives_every_copy_of_a_filleted_peg_its_fillets() {
     let mut peg = filleted_peg();
+
     let pattern = add_pattern(&mut peg, linear);
     let evaluation = evaluate(&peg.document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let one = one_peg(&evaluation, &peg);
+
     assert!((one - bare_peg()).abs() > 0.05);
+
     assert_close(exact_volume(&evaluation, peg.plate), PLATE + 3.0 * one);
+
     let solid = evaluation.body(peg.plate).unwrap();
     for blend in [peg.rim, peg.foot] {
         assert_eq!(
@@ -240,8 +254,10 @@ fn a_linear_pattern_gives_every_copy_of_a_filleted_peg_its_fillets() {
 #[test]
 fn raising_the_count_gives_the_new_copies_their_fillets_too() {
     let mut peg = filleted_peg();
+
     let pattern = add_pattern(&mut peg, linear);
     let mut engine = Recompute::default();
+
     engine.run(
         &peg.document,
         &ModelEvaluator,
@@ -250,6 +266,7 @@ fn raising_the_count_gives_the_new_copies_their_fillets_too() {
     );
 
     let expression = peg.document.parse("4").unwrap();
+
     peg.document
         .apply(Transaction::single(
             "Count",
@@ -259,6 +276,7 @@ fn raising_the_count_gives_the_new_copies_their_fillets_too() {
             },
         ))
         .unwrap();
+
     let evaluation = engine.run(
         &peg.document,
         &ModelEvaluator,
@@ -267,8 +285,11 @@ fn raising_the_count_gives_the_new_copies_their_fillets_too() {
     );
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let one = one_peg(&evaluation, &peg);
+
     assert_close(exact_volume(&evaluation, peg.plate), PLATE + 4.0 * one);
+
     let solid = evaluation.body(peg.plate).unwrap();
     for blend in [peg.rim, peg.foot] {
         assert_eq!(
@@ -281,13 +302,18 @@ fn raising_the_count_gives_the_new_copies_their_fillets_too() {
 #[test]
 fn a_circular_pattern_turns_the_fillets_with_their_peg() {
     let mut peg = filleted_peg();
+
     let pattern = add_pattern(&mut peg, circular);
     let evaluation = evaluate(&peg.document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let one = one_peg(&evaluation, &peg);
+
     assert_close(exact_volume(&evaluation, peg.plate), PLATE + 3.0 * one);
+
     let solid = evaluation.body(peg.plate).unwrap();
+
     assert_eq!(
         blended_copies(solid, pattern, peg.foot),
         BTreeSet::from([[1, 0], [2, 0]])
@@ -297,16 +323,23 @@ fn a_circular_pattern_turns_the_fillets_with_their_peg() {
 #[test]
 fn a_mirror_of_features_reflects_the_fillets_of_its_peg() {
     let mut peg = filleted_peg();
+
     let mirror = Mirror::new(peg.plate, PlaneReference::Principal(PrincipalPlane::Yz))
         .mirroring(vec![peg.peg, peg.rim, peg.foot]);
     let mut transaction = peg.document.transaction("Mirror");
+
     let mirror = transaction.add_feature("Mirror 1", FeatureKind::Mirror(mirror));
+
     peg.document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&peg.document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let one = one_peg(&evaluation, &peg);
+
     assert_close(exact_volume(&evaluation, peg.plate), PLATE + 2.0 * one);
+
     let solid = evaluation.body(peg.plate).unwrap();
     for blend in [peg.rim, peg.foot] {
         assert_eq!(
@@ -319,13 +352,18 @@ fn a_mirror_of_features_reflects_the_fillets_of_its_peg() {
 #[test]
 fn a_fillet_repeated_without_the_feature_it_rounds_is_refused_in_words() {
     let mut peg = filleted_peg();
+
     let pattern = Pattern::new(peg.plate, linear(peg.count)).repeating(vec![peg.rim]);
     let mut transaction = peg.document.transaction("Pattern");
+
     let pattern = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+
     peg.document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&peg.document);
 
     let error = failure(&evaluation, pattern);
+
     assert_eq!(
         error.reason(),
         "Rim blends no edge of the features this pattern repeats, so its fillet has nothing to \
@@ -350,7 +388,9 @@ pub(crate) struct Boss {
 
 pub(crate) fn square_boss() -> Boss {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let count = transaction.add_parameter("count", transaction.parse("3").unwrap());
     let outline = transaction.add_feature("Outline", FeatureKind::from(square()));
     let plate =
@@ -362,14 +402,17 @@ pub(crate) fn square_boss() -> Boss {
         Point2::new(-11.0, 2.0),
         Point2::new(-15.0, 2.0),
     ];
+
     for (index, corner) in corners.iter().enumerate() {
         boss_outline.add_line(*corner, corners[(index + 1) % 4]);
     }
+
     let boss_outline = transaction.add_feature("Boss outline", FeatureKind::from(boss_outline));
     let boss = transaction.add_feature(
         "Boss",
         extrusion(boss_outline, "2 mm", BodyOperation::Add(plate)),
     );
+
     document.apply(transaction.finish()).unwrap();
     Boss {
         document,
@@ -415,8 +458,11 @@ fn a_fillet_on_the_faces_of_an_earlier_repeated_fillet_follows_them_onto_the_cop
     let evaluation = evaluate(&document);
     let upright = uprights(evaluation.body(plate).unwrap(), boss);
     let mut transaction = document.transaction("Corners");
+
     let corners = transaction.add_feature("Corners", fillet(plate, upright.clone(), Vec::new()));
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
     let solid = evaluation.body(plate).unwrap();
     let cap = face_made_by(
@@ -426,18 +472,23 @@ fn a_fillet_on_the_faces_of_an_earlier_repeated_fillet_follows_them_onto_the_cop
         },
     );
     let mut transaction = document.transaction("Top");
+
     let rim = transaction.add_feature("Top", fillet(plate, Vec::new(), vec![EdgeGroup::Face(cap)]));
     let pattern = Pattern::new(plate, linear(count)).repeating(vec![boss, corners, rim]);
     let pattern = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
 
     assert_eq!(upright.len(), 4);
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_close(
         exact_volume(&evaluation, plate),
         PLATE + 3.0 * (volume_after(&evaluation, rim) - PLATE),
     );
+
     let solid = evaluation.body(plate).unwrap();
     for blend in [corners, rim] {
         assert_eq!(
@@ -455,6 +506,7 @@ fn corner_triangle_edge(solid: &Solid, chamfer: FeatureId) -> EdgeReference {
     let bevelled = Some(FaceOrigin::Chamfer {
         feature: chamfer.raw(),
     });
+
     let triangle = solid
         .faces()
         .map(|(_, face)| face)
@@ -493,6 +545,7 @@ fn a_blend_on_a_corner_face_of_an_earlier_repeated_chamfer_follows_it_onto_the_c
         },
     );
     let mut transaction = document.transaction("Bevel");
+
     let bevel = transaction.add_feature(
         "Bevel",
         blend(
@@ -503,24 +556,31 @@ fn a_blend_on_a_corner_face_of_an_earlier_repeated_chamfer_follows_it_onto_the_c
             vec![EdgeGroup::Face(cap)],
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
     let edge = corner_triangle_edge(evaluation.body(plate).unwrap(), bevel);
     let mut transaction = document.transaction("Round");
+
     let round = transaction.add_feature(
         "Round",
         blend(BlendKind::Fillet, 0.1, plate, vec![edge], Vec::new()),
     );
     let pattern = Pattern::new(plate, linear(count)).repeating(vec![boss, bevel, round]);
     let pattern = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_close(
         exact_volume(&evaluation, plate),
         PLATE + 3.0 * (volume_after(&evaluation, round) - PLATE),
     );
+
     let solid = evaluation.body(plate).unwrap();
     for repeated in [bevel, round] {
         assert_eq!(

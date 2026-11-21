@@ -84,7 +84,7 @@ pub(crate) fn curves(entities: &[u64]) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum SweepError {
     #[error("no region is chosen to sweep")]
     NoRegions,
@@ -178,13 +178,13 @@ impl SweepError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LinearBound {
     Offset(f64),
     Plane(Plane),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LinearExtent {
     start: LinearBound,
     end: LinearBound,
@@ -253,7 +253,7 @@ impl LinearExtent {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AngularExtent {
     start: f64,
     end: f64,
@@ -264,7 +264,9 @@ impl AngularExtent {
         if !start.is_finite() || !end.is_finite() {
             return Err(SweepError::NonFinite);
         }
+
         let sweep = (end - start).abs();
+
         if sweep <= ANGULAR_RESOLUTION {
             return Err(SweepError::ZeroAngle);
         }
@@ -306,7 +308,7 @@ impl AngularExtent {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Axis2 {
     origin: Point2,
     direction: Vector2,
@@ -317,6 +319,7 @@ impl Axis2 {
         if !origin.is_finite() || !direction.is_finite() {
             return Err(SweepError::NonFinite);
         }
+
         let direction = direction
             .try_normalize()
             .ok_or(SweepError::DegenerateAxis)?;

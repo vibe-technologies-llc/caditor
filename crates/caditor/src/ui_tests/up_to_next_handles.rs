@@ -25,6 +25,7 @@ fn extrusion_up_to_next(harness: &mut Harness) -> FeatureId {
     let (plate, _) = extruded_plate(harness);
     let level = Plane::new(Point3::new(0.0, 0.0, 5.0), Vector3::Z).unwrap();
     let mut sketch = Sketch::new(level);
+
     rectangle(
         &mut sketch,
         Point2::new(10.0, 10.0),
@@ -34,6 +35,7 @@ fn extrusion_up_to_next(harness: &mut Harness) -> FeatureId {
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = harness
         .workspace
         .editing
@@ -44,6 +46,7 @@ fn extrusion_up_to_next(harness: &mut Harness) -> FeatureId {
     else {
         panic!("an extrusion is open");
     };
+
     definition.operation = BodyOperation::Remove(plate);
     definition.extent = ExtrudeExtent::OneSide {
         end: ExtrudeEnd::UpToNext { offset: None },
@@ -65,6 +68,7 @@ fn extrusion_up_to_next(harness: &mut Harness) -> FeatureId {
 #[test]
 fn an_extrusion_up_to_the_next_face_has_a_past_the_face_arrow_on_that_face() {
     let mut harness = Harness::new();
+
     let extrude = extrusion_up_to_next(&mut harness);
     let foot = foot_of(&harness, Measured::EndOffset(Reach::Only));
 
@@ -95,19 +99,26 @@ fn an_extrusion_up_to_the_next_face_has_a_past_the_face_arrow_on_that_face() {
 #[test]
 fn a_hole_up_to_the_next_face_has_a_past_the_face_arrow_on_that_face() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
     harness.select([]);
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
     let mut definition = open_hole(&harness, hole);
+
     definition.depth = HoleDepth::up_to_next();
+
     let change = hole_tools::edit(harness.document(), hole, definition).unwrap();
+
     harness.perform(Action::Apply(change));
     harness.settle();
     harness.workspace.viewport.advance(super::CAMERA_SETTLE);
     harness.frame();
+
     let foot = foot_of(&harness, Measured::HoleEndOffset);
 
     assert!(

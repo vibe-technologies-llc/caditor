@@ -32,11 +32,13 @@ fn datum_plane_at(harness: &mut Harness, offset: &str) -> FeatureId {
     harness.select([]);
     harness.click("Plane");
     harness.settle();
+
     let plane = harness
         .workspace
         .editing
         .solid()
         .expect("the new plane is open");
+
     harness.type_into_field(Id::unique(("datum-field", "offset", plane)), offset);
     harness.settle();
     close_feature(harness);
@@ -46,12 +48,14 @@ fn datum_plane_at(harness: &mut Harness, offset: &str) -> FeatureId {
 #[test]
 fn the_palette_replaces_a_selected_top_with_a_selected_datum_plane_and_undoes() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let plane = datum_plane_at(&mut harness, "15 mm");
 
     harness.select([top, Pickable::Datum(plane)]);
     run_from_palette(&mut harness, "Replace face");
     harness.settle();
+
     let replace = harness
         .workspace
         .editing
@@ -81,11 +85,13 @@ fn the_palette_replaces_a_selected_top_with_a_selected_datum_plane_and_undoes() 
 #[test]
 fn a_top_chosen_alone_waits_for_its_target() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
 
     harness.select([top]);
     run_from_palette(&mut harness, "Replace face");
     harness.settle();
+
     let replace = harness
         .workspace
         .editing
@@ -101,9 +107,11 @@ fn a_top_chosen_alone_waits_for_its_target() {
 #[test]
 fn a_bore_takes_the_radius_of_another_body_s_cylinder_on_its_axis() {
     let mut harness = Harness::new();
+
     let (plate, bore, _) = holed_plate(&mut harness);
     let above = Plane::from_frame(Point3::new(0.0, 0.0, 50.0), Vector3::Z, Vector3::X).unwrap();
     let mut sketch = Sketch::new(above);
+
     sketch.add_circle(Point2::new(20.0, 20.0), 8.0);
     harness.add_sketch(sketch);
     harness.select([]);
@@ -112,6 +120,7 @@ fn a_bore_takes_the_radius_of_another_body_s_cylinder_on_its_axis() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let wall = harness
         .built()
         .picks
@@ -138,6 +147,7 @@ fn a_bore_takes_the_radius_of_another_body_s_cylinder_on_its_axis() {
     harness.select([bore, wall]);
     run_from_palette(&mut harness, "Replace face");
     harness.settle();
+
     let replace = harness
         .workspace
         .editing

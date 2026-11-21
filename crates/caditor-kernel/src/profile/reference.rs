@@ -4,7 +4,7 @@ use caditor_geometry::Point2;
 
 use crate::profile::{Piece, ProfileError, Region, RegionKey, Side};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BoundaryPiece {
     pub entity: u64,
     pub side: Side,
@@ -25,7 +25,7 @@ impl BoundaryPiece {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RegionReference {
     key: RegionKey,
     boundary: BTreeSet<BoundaryPiece>,
@@ -38,7 +38,7 @@ impl RegionReference {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegionMatch {
     Same(RegionKey),
     Healed(RegionKey),
@@ -54,7 +54,7 @@ impl RegionMatch {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Likeness {
     shared_pieces: usize,
     holds_anchor: bool,
@@ -99,6 +99,7 @@ impl RegionReference {
         regions: impl IntoIterator<Item = &'a Region>,
     ) -> Result<RegionMatch, ProfileError> {
         let regions: Vec<&Region> = regions.into_iter().collect();
+
         if regions.iter().any(|region| region.key() == self.key) {
             return Ok(RegionMatch::Same(self.key));
         }
@@ -110,6 +111,7 @@ impl RegionReference {
             .collect();
 
         let mut likenesses: Vec<(Likeness, RegionKey)> = Vec::new();
+
         for region in regions {
             let boundary: BTreeSet<BoundaryPiece> =
                 region.pieces().map(BoundaryPiece::of).collect();
@@ -119,14 +121,17 @@ impl RegionReference {
                 .collect::<BTreeSet<_>>()
                 .intersection(&sides)
                 .count();
+
             if shared_sides == 0 {
                 continue;
             }
+
             let likeness = Likeness {
                 shared_pieces: boundary.intersection(&self.boundary).count(),
                 holds_anchor: self.anchor.is_some_and(|anchor| region.contains(anchor)),
                 shared_sides,
             };
+
             likenesses.push((likeness, region.key()));
         }
 
@@ -148,7 +153,7 @@ impl RegionReference {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResolvedRegions {
     pub keys: Vec<RegionKey>,
     pub healed: Vec<(RegionKey, RegionKey)>,
@@ -160,6 +165,7 @@ pub fn resolve_regions<'a>(
     regions: impl IntoIterator<Item = &'a Region> + Clone,
 ) -> Result<ResolvedRegions, ProfileError> {
     let mut resolved = ResolvedRegions::default();
+
     for reference in references {
         let found = match reference.resolve(regions.clone())? {
             RegionMatch::Same(key) => key,

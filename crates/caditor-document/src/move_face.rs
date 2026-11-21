@@ -19,7 +19,7 @@ use crate::{
     solid::SolidResult,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MoveFace {
     pub body: FeatureId,
     pub faces: Vec<FaceReference>,
@@ -101,6 +101,7 @@ impl MoveFace {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         used.extend(self.reference_bodies());
         used.extend(self.axis_datums());
         used.extend(self.sketches());
@@ -192,6 +193,7 @@ impl Context<'_> {
         if distance == 0.0 {
             return Ok(Vector3::ZERO);
         }
+
         let along = match &self.definition.direction {
             Some(reference) => self.resolver().axis(reference)?.direction(),
             None => {
@@ -225,6 +227,7 @@ impl Context<'_> {
         if angle == 0.0 {
             return Ok(None);
         }
+
         let reference = self
             .definition
             .axis
@@ -288,7 +291,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum MoveFaceCause {
     Unmoved,
     NoNormal { face: String },
@@ -398,6 +401,7 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     let faces = definition.resolve(solid).map_err(|unresolved| {
         Failure::from(
             FeatureError::new(Unmatched {
@@ -408,15 +412,19 @@ pub(crate) fn evaluate(
             .fixing(FixTarget::Feature(feature.id())),
         )
     })?;
+
     if faces.is_empty() {
         return Err(Failure::Waiting(MissingInput::FacesToMove {
             body: definition.body,
         }));
     }
+
     let motion = context.motion(solid, &faces)?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let result =
         move_faces(solid, &faces, &motion).map_err(|error| context.failure(solid, &error))?;
     Ok(FeatureResult::Solid(SolidResult::new(

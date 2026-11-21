@@ -11,6 +11,7 @@ use crate::{
 
 fn line_then_corner(harness: &mut Harness) -> FeatureId {
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
     harness.click_at(Point2::new(10.0, 10.0));
     harness.click_at(Point2::new(40.0, 10.0));
@@ -32,10 +33,13 @@ fn press_and_move_through(harness: &mut Harness, from: Pos2, through: &[Point2])
         modifiers: Modifiers::NONE,
     });
     harness.frame();
+
     let mut at = from;
+
     for point in through {
         for step in 1..=4 {
             let target = harness.on_screen(*point);
+
             harness.events.push(Event::PointerMoved(
                 at + (target - at) * (step as f32 / 4.0),
             ));
@@ -56,9 +60,11 @@ fn press_and_move_through(harness: &mut Harness, from: Pos2, through: &[Point2])
 #[test]
 fn dragging_from_a_line_chains_last_point_draws_a_tangent_arc_and_lines_go_on() {
     let mut harness = Harness::new();
+
     let feature = line_then_corner(&mut harness);
 
     let from = harness.on_screen(Point2::new(40.0, 10.0));
+
     drag_in_sketch(&mut harness, from, Point2::new(60.0, 30.0));
     harness.settle();
 
@@ -69,6 +75,7 @@ fn dragging_from_a_line_chains_last_point_draws_a_tangent_arc_and_lines_go_on() 
     let [arc] = entities_of_kind(sketch, "Arc")[..] else {
         panic!("the drag draws one arc");
     };
+
     let centre = arc_centre(sketch, arc);
 
     assert_eq!(harness.tool(), Some(Tool::Line));
@@ -83,6 +90,7 @@ fn dragging_from_a_line_chains_last_point_draws_a_tangent_arc_and_lines_go_on() 
 
     let sketch = harness.sketch(feature);
     let lines = entities_of_kind(sketch, "Line");
+
     let (start, _) = line_ends(sketch, lines[1]);
     let start = sketch.point(start).expect("the line's start");
 
@@ -95,9 +103,11 @@ fn dragging_from_a_line_chains_last_point_draws_a_tangent_arc_and_lines_go_on() 
 #[test]
 fn a_chain_arc_bends_to_the_side_of_the_line_the_drag_goes() {
     let mut harness = Harness::new();
+
     let feature = line_then_corner(&mut harness);
 
     let from = harness.on_screen(Point2::new(40.0, 10.0));
+
     drag_in_sketch(&mut harness, from, Point2::new(60.0, -10.0));
     harness.settle();
 
@@ -105,6 +115,7 @@ fn a_chain_arc_bends_to_the_side_of_the_line_the_drag_goes() {
     let [arc] = entities_of_kind(sketch, "Arc")[..] else {
         panic!("the drag draws one arc");
     };
+
     let centre = arc_centre(sketch, arc);
 
     assert!(near(centre, Point2::new(40.0, -10.0)), "{centre}");
@@ -113,9 +124,11 @@ fn a_chain_arc_bends_to_the_side_of_the_line_the_drag_goes() {
 #[test]
 fn dragging_back_onto_the_last_point_draws_no_arc_and_keeps_the_chain() {
     let mut harness = Harness::new();
+
     let feature = line_then_corner(&mut harness);
 
     let from = harness.on_screen(Point2::new(40.0, 10.0));
+
     press_and_move_through(
         &mut harness,
         from,
@@ -134,7 +147,9 @@ fn dragging_back_onto_the_last_point_draws_no_arc_and_keeps_the_chain() {
 #[test]
 fn the_tangent_arc_key_turns_the_next_segment_of_a_line_chain_into_an_arc_and_back() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
     harness.click_at(Point2::new(10.0, 10.0));
     harness.use_tool(Key::T);

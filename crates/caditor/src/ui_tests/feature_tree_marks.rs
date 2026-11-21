@@ -29,6 +29,7 @@ fn close_open_feature(harness: &mut Harness) -> FeatureId {
         .editing
         .solid()
         .expect("the feature is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
     harness.select([]);
@@ -37,6 +38,7 @@ fn close_open_feature(harness: &mut Harness) -> FeatureId {
 
 fn marked_rows(harness: &mut Harness, face: Pickable, rows: [FeatureId; 2]) -> [bool; 2] {
     harness.select([face]);
+
     let panels = &harness.workspace.panels;
     rows.map(|row| panels.reads_selected(row))
 }
@@ -44,10 +46,13 @@ fn marked_rows(harness: &mut Harness, face: Pickable, rows: [FeatureId; 2]) -> [
 #[test]
 fn a_face_of_a_hole_marks_the_hole_row_and_not_the_extrusion_it_drills() {
     let mut harness = Harness::new();
+
     let (extrude, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
+
     let hole = close_open_feature(&mut harness);
     let bore = made_by(&mut harness, hole, |_| true);
 
@@ -60,14 +65,17 @@ fn a_face_of_a_hole_marks_the_hole_row_and_not_the_extrusion_it_drills() {
 #[test]
 fn a_face_of_a_fillet_marks_the_fillet_row_and_not_the_extrusion_it_rounds() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let edge = top_edge_along_x(&harness, extrude, 0.0);
+
     harness.select([Pickable::Edge {
         body: extrude,
         edge,
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = close_open_feature(&mut harness);
     let rounded = made_by(&mut harness, fillet, |origin| {
         matches!(origin, FaceOrigin::Fillet { .. })
@@ -82,14 +90,17 @@ fn a_face_of_a_fillet_marks_the_fillet_row_and_not_the_extrusion_it_rounds() {
 #[test]
 fn a_face_of_a_chamfer_marks_the_chamfer_row_and_not_the_extrusion_it_cuts() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let edge = top_edge_along_x(&harness, extrude, 0.0);
+
     harness.select([Pickable::Edge {
         body: extrude,
         edge,
     }]);
     harness.click("Chamfer");
     harness.settle();
+
     let chamfer = close_open_feature(&mut harness);
     let cut = made_by(&mut harness, chamfer, |origin| {
         matches!(origin, FaceOrigin::Chamfer { .. })
@@ -104,6 +115,7 @@ fn a_face_of_a_chamfer_marks_the_chamfer_row_and_not_the_extrusion_it_cuts() {
 #[test]
 fn a_face_of_the_extrusion_itself_still_marks_the_extrusion_row() {
     let mut harness = Harness::new();
+
     let (extrude, top) = extruded_plate(&mut harness);
 
     harness.select([top]);
@@ -117,11 +129,13 @@ fn boss_on_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
     let mut raised = Sketch::new(
         Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap(),
     );
+
     raised.add_circle(Point2::new(20.0, 20.0), 6.0);
     harness.add_sketch(raised);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let boss = close_open_feature(harness);
     (plate, boss)
 }
@@ -143,6 +157,7 @@ fn edge_described(harness: &mut Harness, wanted: &str) -> Pickable {
 #[test]
 fn an_edge_a_boss_made_on_a_plate_marks_the_boss_row_and_not_the_plate_s() {
     let mut harness = Harness::new();
+
     let (plate, boss) = boss_on_plate(&mut harness);
     let rim = edge_described(&mut harness, "Extrude 2 end face");
 
@@ -155,6 +170,7 @@ fn an_edge_a_boss_made_on_a_plate_marks_the_boss_row_and_not_the_plate_s() {
 #[test]
 fn an_edge_of_the_plate_alone_still_marks_the_plate_row() {
     let mut harness = Harness::new();
+
     let (plate, boss) = boss_on_plate(&mut harness);
     let edge = top_edge_along_x(&harness, plate, 0.0);
 

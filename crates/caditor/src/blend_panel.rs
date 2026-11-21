@@ -50,6 +50,7 @@ fn kind_row(
             }),
         })
         .collect();
+
     actions.extend(feature_fields::segmented_row(
         ui,
         "Shape",
@@ -80,6 +81,7 @@ fn form_row(
             }),
         })
         .collect();
+
     actions.extend(feature_fields::segmented_row(
         ui,
         "Distances",
@@ -112,6 +114,7 @@ fn sizing_row(
             }),
         })
         .collect();
+
     actions.extend(feature_fields::segmented_row(
         ui,
         "Sized by",
@@ -157,6 +160,7 @@ fn form_value_row(
             (CHAMFER_ANGLE, angle, Dimension::ANGLE, Rule::ChamferAngle)
         }
     };
+
     let quantity = Quantity {
         feature,
         id: Id::unique(("blend-form", feature)),
@@ -166,11 +170,13 @@ fn form_value_row(
     };
     let drafting = feature_fields::expression_row_drafting(ui, model, caption, quantity, |value| {
         let mut changed = blend.clone();
+
         if let Some(slot) = changed.form.expression_mut() {
             *slot = value;
         }
         change(model, feature, changed)
     });
+
     actions.extend(drafting.into_actions(feature));
 }
 
@@ -216,6 +222,7 @@ fn size_row(
         rule: Rule::AboveZero,
     };
     let caption = size_caption(blend);
+
     let drafting = feature_fields::expression_row_drafting(ui, model, caption, quantity, |size| {
         change(
             model,
@@ -226,6 +233,7 @@ fn size_row(
             },
         )
     });
+
     actions.extend(drafting.into_actions(feature));
 }
 
@@ -308,6 +316,7 @@ fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) ->
     let chosen = blend_tools::chosen_edges(document, solid, blend);
     let mut summary = count(chosen.explicit.len(), "edge", "edges");
     let extra = chosen.followed.len().saturating_sub(chosen.explicit.len());
+
     if extra > 0 {
         summary.push_str(&format!(
             ", and {} that {} smoothly",
@@ -315,6 +324,7 @@ fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) ->
             if extra == 1 { "continues" } else { "continue" }
         ));
     }
+
     let rows = blend
         .resolutions(document, solid)
         .iter()
@@ -346,12 +356,15 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
         opened,
     } = *row;
     let id = feature.id();
+
     widgets::caption(ui, "Edges");
+
     let evaluation = model.evaluation();
     let mut previewed = Vec::new();
     let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
         edge_rows(model.document(), bodies::input(evaluation, id), blend)
     });
+
     ui.vertical(|ui| {
         ui.label(&listed.summary);
         for (index, text) in listed.rows.iter().enumerate() {
@@ -361,12 +374,15 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
             } else {
                 "Leave these edges out"
             };
+
             let row = widgets::removable_row_hovered(ui, text, hover);
+
             if row.hovered && opened {
                 previewed = edge_pickables(model, id, blend, index);
             }
             if row.removed {
                 let mut changed = blend.clone();
+
                 changed.remove_entry(index);
                 actions.push(feature_fields::applied(
                     &feature.name,
@@ -375,6 +391,7 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
             }
         }
         rule_row(ui, model, feature, blend, actions);
+
         let chosen = feature_fields::list_in_view(
             ui,
             opened,
@@ -472,6 +489,7 @@ pub fn show(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mut
         ..
     } = *row;
     let id = feature.id();
+
     widgets::properties(ui, ("blend-properties", id), |ui| {
         kind_row(ui, model, feature, blend, actions);
         match blend.kind {

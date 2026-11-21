@@ -25,7 +25,7 @@ pub const SELECT_OPEN_ENDS: &str = "Select the open ends and bring them into vie
 pub const SELECT_REDUNDANT: &str = "Select the redundant constraints, ready to delete";
 const WIDEST_FREEDOM: usize = 88;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum StatusSelectError {
     #[error(
         "Open ends and redundant constraints are known once the sketch has solved; fix its \
@@ -44,7 +44,7 @@ impl Reason for StatusSelectError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SketchStatus {
     NotSolved,
     FullyConstrained,
@@ -55,7 +55,7 @@ pub enum SketchStatus {
     RolledBack,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SketchSummary {
     pub status: SketchStatus,
     pub redundant: usize,
@@ -166,6 +166,7 @@ pub fn up_to_date_solution(evaluation: &Evaluation, feature: FeatureId) -> Optio
 
 pub fn up_to_date_result(evaluation: &Evaluation, feature: FeatureId) -> Option<&SketchResult> {
     let status = evaluation.feature(feature)?;
+
     if status.state != FeatureState::UpToDate {
         return None;
     }
@@ -201,19 +202,19 @@ pub fn redundant_constraints(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatusRequest {
     ShowProblem(Focus),
     Run(Command),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Pills {
     Full,
     Counts,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Act {
     request: StatusRequest,
     does: &'static str,
@@ -284,7 +285,7 @@ impl SketchSummary {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Count {
     tone: Tone,
     glyph: &'static str,
@@ -317,6 +318,7 @@ impl Count {
             (Pills::Counts, Some(act)) => format!("{}. {}\n{}.", self.words, self.help, act.does),
             (Pills::Counts, None) => format!("{}. {}", self.words, self.help),
         };
+
         let response = response.on_hover_text(hover);
         self.act
             .filter(|_| response.clicked())

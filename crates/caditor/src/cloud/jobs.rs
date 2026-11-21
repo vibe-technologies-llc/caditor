@@ -138,11 +138,13 @@ impl Courier {
         let event = Arc::new(event);
         let courier = self.clone();
         let on_thread = Arc::clone(&event);
+
         let spawned = thread::Builder::new()
             .name("cloud".to_owned())
             .spawn(move || {
                 let result =
                     catch_unwind(AssertUnwindSafe(work)).unwrap_or(Err(Failure::Crashed(service)));
+
                 courier.send(on_thread(result));
             });
         if let Err(error) = spawned {
@@ -171,6 +173,7 @@ impl SignInJob {
         let courier = self.courier.clone();
         let outcome = catch_unwind(AssertUnwindSafe(|| self.sign_in()))
             .unwrap_or(Err(Failure::Crashed(service)));
+
         courier.send(Event::SignedIn {
             service,
             attempt,
@@ -181,6 +184,7 @@ impl SignInJob {
     fn sign_in(&self) -> Result<Session, Failure> {
         let listener = Listener::bind(self.port)?;
         let sign_in = self.provider.start_sign_in(&listener.redirect())?;
+
         self.courier.send(Event::SignInUrl {
             service: self.service,
             attempt: self.attempt,
@@ -189,9 +193,11 @@ impl SignInJob {
         if let Err(error) = (self.opener)(&sign_in.url) {
             log::warn!("the browser did not open by itself: {error}");
         }
+
         let callback = listener.wait(&sign_in.state, &self.stop, SIGN_IN_PATIENCE)?;
         let session =
             caditor_cloud::finish_sign_in(&*self.provider, &*self.transport, &sign_in, &callback)?;
+
         match self.keeper.as_ref().map(|keeper| keeper.save(&session)) {
             Some(Ok(Kept::Late)) => {
                 revoke_late(&*self.provider, &*self.transport, &session);
@@ -302,6 +308,7 @@ impl ImportJob {
     pub fn run(&self) -> Result<PathBuf, Failure> {
         let target = downloads::path_for(&self.dir, &self.item);
         let temporary = downloads::temporary_for(&target);
+
         let outcome = match &self.item {
             ImportItem::Design(design) => self.convert_and_download(
                 || self.client.start_conversion(design, None),
@@ -322,6 +329,7 @@ impl ImportJob {
                 self.client.fetch_upload(upload, writer, progress)
             }),
         };
+
         if outcome.is_err() {
             let _ = fs::remove_file(&temporary);
         }
@@ -341,6 +349,7 @@ impl ImportJob {
         let service = self.service;
         let translation = start()?;
         let deadline = Instant::now() + CONVERSION_PATIENCE;
+
         let download = loop {
             self.check_stopped()?;
             match self.client.poll_conversion(&translation)? {
@@ -367,11 +376,14 @@ impl ImportJob {
         ) -> Result<u64, Error>,
     ) -> Result<(), Failure> {
         let save = |error: std::io::Error| Failure::Save(error.kind());
+
         if let Some(folder) = target.parent() {
             private::create_dir_all(folder).map_err(save)?;
         }
+
         let mut writer = BufWriter::new(File::create(temporary).map_err(save)?);
         let mut last = None::<Instant>;
+
         let mut progress = |received: u64, total: Option<u64>| {
             if last.is_none_or(|at| at.elapsed() >= PROGRESS_EVERY) {
                 last = Some(Instant::now());
@@ -379,11 +391,14 @@ impl ImportJob {
             }
             !self.stop.load(Ordering::Relaxed)
         };
+
         fetch(&mut writer, &mut progress)?;
         writer.flush().map_err(save)?;
+
         let file = writer
             .into_inner()
             .map_err(|error| save(error.into_error()))?;
+
         file.sync_all().map_err(save)?;
         drop(file);
         fs::rename(temporary, target).map_err(save)
@@ -413,6 +428,7 @@ impl ImportJob {
 
 fn pause(stop: &AtomicBool, total: Duration) -> Result<(), Failure> {
     let until = Instant::now() + total;
+
     while Instant::now() < until {
         if stop.load(Ordering::Relaxed) {
             return Err(Error::Stopped.into());
@@ -435,6 +451,7 @@ pub struct SendJob {
 impl SendJob {
     pub fn run(&self) -> Result<Sent, Failure> {
         let outcome = self.deliver();
+
         if let Err(error) = fs::remove_file(&self.shipment.file) {
             log::info!("the exported file could not be removed after sending: {error}");
         }
@@ -445,6 +462,7 @@ impl SendJob {
         if self.stop.load(Ordering::Relaxed) {
             return Err(Error::Stopped.into());
         }
+
         let bytes = fs::read(&self.shipment.file).map_err(|error| Failure::Read(error.kind()))?;
         let outgoing = Outgoing {
             folder: &self.shipment.destination.folder,
@@ -452,8 +470,10 @@ impl SendJob {
             bytes: &bytes,
         };
         let mut last = None::<Instant>;
+
         let mut progress = |sent: u64, total: Option<u64>| {
             let finished = total == Some(sent);
+
             if finished || last.is_none_or(|at| at.elapsed() >= PROGRESS_EVERY) {
                 last = Some(Instant::now());
                 self.report(SendStage::Uploading { sent, total });
@@ -464,6 +484,7 @@ impl SendJob {
             SendAs::File => Ok(self.client.send(&outgoing, &mut progress)?),
             SendAs::PartStudio => {
                 let translation = self.client.send_part_studio(&outgoing, &mut progress)?;
+
                 self.await_part_studio(&translation)?;
                 Ok(Sent::new(outgoing.name.trim(), SendOutcome::PartStudio))
             }

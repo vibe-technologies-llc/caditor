@@ -34,12 +34,14 @@ fn upright() -> Plane {
 
 fn disc(radius: f64) -> Sketch {
     let mut sketch = Sketch::new(upright());
+
     sketch.add_circle(Point2::ZERO, radius);
     sketch
 }
 
 fn bent_path() -> (Sketch, Vec<EntityId>) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
     let arc = sketch.add_arc(
         Point2::new(5.0, 10.0),
@@ -65,10 +67,13 @@ struct Model {
 
 fn tube(radius: f64) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let profile = transaction.add_feature("Profile", FeatureKind::from(disc(radius)));
     let (path, curves) = bent_path();
     let path_sketch = transaction.add_feature("Path", FeatureKind::from(path));
+
     let sweep = transaction.add_feature(
         "Sweep 1",
         swept(
@@ -80,6 +85,7 @@ fn tube(radius: f64) -> Model {
             BodyOperation::NewBody,
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -96,7 +102,9 @@ fn a_sweep_along_a_sketch_path_makes_a_tube_of_the_profile_times_the_path_length
     let evaluation = evaluate(&model.document);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let length = 10.0 + 5.0 * FRAC_PI_2;
+
     assert!((volume(&evaluation, model.sweep) - PI * length).abs() < 0.05);
     assert!(
         model
@@ -112,7 +120,9 @@ fn a_sweep_along_a_sketch_path_makes_a_tube_of_the_profile_times_the_path_length
 #[test]
 fn a_curve_of_the_path_cannot_be_deleted_while_the_sweep_follows_it() {
     let mut model = tube(1.0);
+
     let mut transaction = model.document.transaction("Delete");
+
     transaction.remove_sketch_items(model.path_sketch, [model.curves[0]], []);
 
     let refused = model.document.apply(transaction.finish());
@@ -126,12 +136,15 @@ fn a_curve_of_the_path_cannot_be_deleted_while_the_sweep_follows_it() {
 #[test]
 fn a_sweep_with_no_path_waits_asking_for_one() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let profile = transaction.add_feature("Profile", FeatureKind::from(disc(1.0)));
     let sweep = transaction.add_feature(
         "Sweep 1",
         swept(profile, SweepPath::Unchosen, BodyOperation::NewBody),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -163,9 +176,12 @@ fn a_profile_too_large_for_the_bend_fails_naming_the_curve() {
 #[test]
 fn a_sharp_corner_onto_an_arc_fails_saying_how_to_round_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let profile = transaction.add_feature("Profile", FeatureKind::from(disc(0.5)));
     let mut path = Sketch::new(Plane::XY);
+
     let line = path.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
     let arc = path.add_arc(
         Point2::new(0.0, 15.0),
@@ -173,6 +189,7 @@ fn a_sharp_corner_onto_an_arc_fails_saying_how_to_round_it() {
         Point2::new(5.0, 15.0),
     );
     let path_sketch = transaction.add_feature("Path", FeatureKind::from(path));
+
     let sweep = transaction.add_feature(
         "Sweep 1",
         swept(
@@ -184,6 +201,7 @@ fn a_sharp_corner_onto_an_arc_fails_saying_how_to_round_it() {
             BodyOperation::NewBody,
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let error = failure(&evaluate(&document), sweep);
@@ -206,9 +224,11 @@ fn block(document: &mut Document) -> (FeatureId, FeatureId) {
         Point2::new(5.0, 20.0),
         Point2::new(-5.0, 20.0),
     ];
+
     for index in 0..4 {
         outline.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = transaction.add_feature(
         "Base",
@@ -224,6 +244,7 @@ fn block(document: &mut Document) -> (FeatureId, FeatureId) {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     (outline, base)
 }
@@ -231,18 +252,23 @@ fn block(document: &mut Document) -> (FeatureId, FeatureId) {
 #[test]
 fn a_removing_sweep_cuts_a_groove_along_its_path() {
     let mut document = Document::default();
+
     let (_, base) = block(&mut document);
     let mut transaction = document.transaction("Groove");
     let mut profile = Sketch::new(
         Plane::from_frame(Point3::new(0.0, -6.0, 10.0), Vector3::Y, Vector3::X).unwrap(),
     );
+
     profile.add_circle(Point2::ZERO, 1.0);
+
     let profile = transaction.add_feature("Groove profile", FeatureKind::from(profile));
     let mut path = Sketch::new(
         Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap(),
     );
+
     let line = path.add_line(Point2::new(0.0, -6.0), Point2::new(0.0, 30.0));
     let path = transaction.add_feature("Groove path", FeatureKind::from(path));
+
     let groove = transaction.add_feature(
         "Groove",
         swept(
@@ -254,6 +280,7 @@ fn a_removing_sweep_cuts_a_groove_along_its_path() {
             BodyOperation::Remove(base),
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -264,7 +291,9 @@ fn a_removing_sweep_cuts_a_groove_along_its_path() {
         "{:?}",
         evaluation.feature(groove)
     );
+
     let expected = 10.0 * 25.0 * 10.0 - 0.5 * PI * 25.0;
+
     assert!((volume(&evaluation, base) - expected).abs() < 0.05);
 }
 
@@ -285,8 +314,10 @@ fn top_long_edge(solid: &Solid) -> EdgeReference {
 #[test]
 fn a_sweep_follows_an_edge_of_a_body_by_name() {
     let mut document = Document::default();
+
     let (_, base) = block(&mut document);
     let evaluation = evaluate(&document);
+
     let edge = top_long_edge(evaluation.body(base).unwrap());
     let mut transaction = document.transaction("Rail");
     let mut profile = Sketch::new(
@@ -298,9 +329,11 @@ fn a_sweep_follows_an_edge_of_a_body_by_name() {
         Point2::new(1.0, 1.0),
         Point2::new(-1.0, 1.0),
     ];
+
     for index in 0..4 {
         profile.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let profile = transaction.add_feature("Rail profile", FeatureKind::from(profile));
     let rail = transaction.add_feature(
         "Rail",
@@ -313,6 +346,7 @@ fn a_sweep_follows_an_edge_of_a_body_by_name() {
             BodyOperation::NewBody,
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -324,18 +358,24 @@ fn a_sweep_follows_an_edge_of_a_body_by_name() {
         evaluation.feature(rail)
     );
     assert!((volume(&evaluation, rail) - 4.0 * 25.0).abs() < 1e-6);
+
     let kind = &document.feature(rail).unwrap().kind;
+
     assert!(kind.bodies_used().contains(&base));
 }
 
 #[test]
 fn a_parallel_sweep_keeps_the_profile_upright_along_a_slanted_line() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let profile = transaction.add_feature("Profile", FeatureKind::from(disc(1.0)));
     let mut path = Sketch::new(Plane::XY);
+
     let line = path.add_line(Point2::ZERO, Point2::new(6.0, 8.0));
     let path = transaction.add_feature("Path", FeatureKind::from(path));
+
     let sweep = transaction.add_feature(
         "Sweep 1",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep {
@@ -349,6 +389,7 @@ fn a_parallel_sweep_keeps_the_profile_upright_along_a_slanted_line() {
             )
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document);
@@ -360,15 +401,20 @@ fn a_parallel_sweep_keeps_the_profile_upright_along_a_slanted_line() {
 #[test]
 fn inserting_a_sweep_is_one_undoable_change() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Sketches");
+
     let profile = transaction.add_feature("Profile", FeatureKind::from(disc(1.0)));
     let (path, curves) = bent_path();
     let path = transaction.add_feature("Path", FeatureKind::from(path));
+
     document.apply(transaction.finish()).unwrap();
+
     let mut editor = Editor::new(document);
     let is_sweep = |feature: &Feature| matches!(feature.kind.solid(), Some(SolidFeature::Sweep(_)));
 
     let mut transaction = editor.document().transaction("Sweep");
+
     transaction.add_feature(
         "Sweep 1",
         swept(
@@ -380,13 +426,17 @@ fn inserting_a_sweep_is_one_undoable_change() {
             BodyOperation::NewBody,
         ),
     );
+
     let made = transaction.finish();
+
     editor.apply(made).unwrap();
+
     let swept_count = editor
         .document()
         .features()
         .filter(|feature| is_sweep(feature))
         .count();
+
     editor.undo().unwrap();
 
     assert_eq!(swept_count, 1);
@@ -401,6 +451,7 @@ fn square_profile() -> Sketch {
         Point2::new(1.0, 1.0),
         Point2::new(-1.0, 1.0),
     ];
+
     for (index, corner) in corners.iter().enumerate() {
         sketch.add_line(*corner, corners[(index + 1) % corners.len()]);
     }
@@ -409,12 +460,14 @@ fn square_profile() -> Sketch {
 
 fn straight_path() -> (Sketch, Vec<EntityId>) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
     (sketch, vec![line])
 }
 
 fn circle_path() -> (Sketch, Vec<EntityId>) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::new(-5.0, 0.0), 5.0);
     (sketch, vec![circle])
 }
@@ -431,11 +484,14 @@ struct Shaped {
 
 fn shaped(path: (Sketch, Vec<EntityId>), twist: &str, scale: &str) -> Shaped {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let twist = transaction.add_parameter("spin", stored(twist));
     let profile = transaction.add_feature("Profile", FeatureKind::from(square_profile()));
     let (path, curves) = path;
     let path_sketch = transaction.add_feature("Path", FeatureKind::from(path));
+
     let sweep = transaction.add_feature(
         "Sweep 1",
         FeatureKind::Solid(SolidFeature::Sweep(Sweep {
@@ -450,6 +506,7 @@ fn shaped(path: (Sketch, Vec<EntityId>), twist: &str, scale: &str) -> Shaped {
             )
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     Shaped {
         document,
@@ -464,11 +521,13 @@ fn a_twisted_sweep_keeps_the_area_times_the_length_as_its_twist_parameter_change
 
     let quarter = evaluate(&model.document);
     let mut transaction = model.document.transaction("Spin");
+
     transaction.edit(Edit::SetParameterExpression {
         id: model.twist,
         expression: stored("2 * 360 deg"),
     });
     model.document.apply(transaction.finish()).unwrap();
+
     let doubled = evaluate(&model.document);
 
     assert_eq!(quarter.failed_count(), 0);
@@ -492,6 +551,7 @@ fn a_scaled_sweep_along_a_line_is_a_frustum() {
     let evaluation = evaluate(&model.document);
 
     let frustum = 10.0 / 3.0 * (4.0 + 1.0 + 2.0);
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!((volume(&evaluation, model.sweep) - frustum).abs() < 0.01);
 }
@@ -543,11 +603,13 @@ fn an_end_scale_of_zero_or_a_twist_given_as_a_length_fails_in_words() {
 
 fn lawful(rows: &[(&str, &str, &str)]) -> Shaped {
     let mut model = shaped(straight_path(), "0 deg", "1");
+
     let mut transaction = model.document.transaction("Law");
     let kind = model.document.feature(model.sweep).unwrap().kind.clone();
     let FeatureKind::Solid(SolidFeature::Sweep(sweep)) = kind else {
         panic!("a sweep");
     };
+
     transaction.edit(Edit::SetFeatureKind {
         id: model.sweep,
         kind: FeatureKind::Solid(SolidFeature::Sweep(Sweep {

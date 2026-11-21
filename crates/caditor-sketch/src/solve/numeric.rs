@@ -42,10 +42,10 @@ pub(super) const DENSE_LIMIT: usize = 48;
 pub(crate) const FROZEN: f64 = 0.0;
 pub(crate) const STIFF: f64 = 1e-2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Cancelled;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Component {
     pub variables: Vec<usize>,
     pub equations: Vec<usize>,
@@ -56,6 +56,7 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
     let mut joints = Joints::default();
     let mut constant = Vec::new();
     let mut linked = Vec::new();
+
     for &index in active {
         let Some(equation) = system.equations.get(index) else {
             continue;
@@ -65,13 +66,16 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
             constant.push(index);
             continue;
         };
+
         for variable in &variables {
             joints.union(first, *variable);
         }
         linked.push((index, first));
     }
+
     let mut group_of_root = vec![None; joints.len()];
     let mut groups: Vec<(usize, Component)> = Vec::new();
+
     for (index, first) in linked {
         let root = joints.find(first);
         let group = match group_of_root.get(root).copied().flatten() {
@@ -85,7 +89,9 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
                         spans: Vec::new(),
                     },
                 ));
+
                 let group = groups.len() - 1;
+
                 if let Some(slot) = group_of_root.get_mut(root) {
                     *slot = Some(group);
                 }
@@ -100,6 +106,7 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
         if !joints.contains(variable) {
             continue;
         }
+
         let root = joints.find(variable);
         if let Some((_, component)) = group_of_root
             .get(root)
@@ -118,6 +125,7 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
             .flatten()
             .copied()
             .collect();
+
         spans.sort_unstable();
         spans.dedup();
         group.spans = spans;
@@ -192,16 +200,21 @@ impl Joints {
 
     fn find(&mut self, variable: usize) -> usize {
         let mut root = variable;
+
         loop {
             let parent = self.parent(root);
+
             if parent == root {
                 break;
             }
             root = parent;
         }
+
         let mut current = variable;
+
         while current != root {
             let next = self.parent(current);
+
             if let Some(slot) = self.parents.get_mut(current) {
                 *slot = Some(root);
             }
@@ -220,7 +233,7 @@ impl Joints {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Elimination {
     Dense,
     Sparse,
@@ -262,7 +275,7 @@ impl From<newton::Fell> for Stepped {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Ending {
     Converged,
     Minimum,
@@ -303,6 +316,7 @@ impl Linearized {
                 sparse::minimal_norm_step(&rows, residuals, width)
             }
         }?;
+
         step.iter_mut()
             .enumerate()
             .for_each(|(column, delta)| *delta *= scale_of(column));
@@ -349,7 +363,7 @@ impl Linearized {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Settled {
     pub end: Vec<f64>,
     pub cost: f64,
@@ -357,13 +371,13 @@ pub(crate) struct Settled {
     pub pressed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Descent {
     Solved,
     Failed(Settled),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Failure {
     pub component: Component,
     pub settled: Settled,
@@ -382,6 +396,7 @@ impl Solver<'_> {
         values: &mut [f64],
     ) -> Result<Vec<Failure>, Cancelled> {
         let mut failed = Vec::new();
+
         for component in parts {
             if let Descent::Failed(settled) = self.solve_component(&self.part(component), values)? {
                 failed.push(Failure {
@@ -448,6 +463,7 @@ impl Solver<'_> {
         let Some(step) = step else {
             return Vec::new();
         };
+
         let left = linearized.left_after(&step);
         let largest = left
             .iter()
@@ -468,6 +484,7 @@ impl Solver<'_> {
         if self.converged(part, values) {
             return Ok(Descent::Solved);
         }
+
         let component = part.component;
         let start: Vec<f64> = component
             .variables
@@ -480,14 +497,18 @@ impl Solver<'_> {
         let mut unperturbed_contradicts = None;
         let retries: &[f64] = if self.retrying { &PERTURBATIONS } else { &[] };
         let attempts = std::iter::once(0.0).chain(retries.iter().copied());
+
         for magnitude in attempts {
             self.restore(component, &start, values);
             self.perturb(part, magnitude, values);
+
             let ending = self.gauss_newton(part, values)?;
+
             if ending == Ending::Converged {
                 return Ok(Descent::Solved);
             }
             unperturbed_contradicts.get_or_insert_with(|| self.contradicts(part, values, ending));
+
             let cost = self.squared_residuals(part, values);
             if cost < lowest_cost {
                 lowest_cost = cost;
@@ -542,6 +563,7 @@ impl Solver<'_> {
         if magnitude == 0.0 {
             return;
         }
+
         let offset = magnitude * self.extent(part, values);
         for (order, variable) in part.component.variables.iter().enumerate() {
             if self.system.radius_variables.contains(variable)
@@ -549,6 +571,7 @@ impl Solver<'_> {
             {
                 continue;
             }
+
             let pattern = ((order + 1) as f64 * GOLDEN_RATIO_FRACTION).fract() * 2.0 - 1.0;
             if let Some(slot) = values.get_mut(*variable) {
                 *slot += offset * pattern;
@@ -558,8 +581,10 @@ impl Solver<'_> {
 
     fn extent(&self, part: &Part<'_>, values: &[f64]) -> f64 {
         let (mut low, mut high, mut radius) = (f64::INFINITY, f64::NEG_INFINITY, 0.0_f64);
+
         for variable in &part.component.variables {
             let current = value(values, *variable);
+
             if !current.is_finite() || self.system.parameter_variables.contains(variable) {
                 continue;
             }
@@ -570,6 +595,7 @@ impl Solver<'_> {
                 high = high.max(current);
             }
         }
+
         let extent = (high - low).max(radius);
         if extent.is_finite() && extent > part.context.degenerate_length {
             extent
@@ -646,6 +672,7 @@ impl Solver<'_> {
             self.residuals(part, values)
                 .all(|residual| residual.abs() <= tolerance)
         };
+
         let holds_where_it_landed = match reached.context.scale.total_cmp(&part.context.scale) {
             Ordering::Less => holds(&reached),
             Ordering::Equal => true,
@@ -657,22 +684,26 @@ impl Solver<'_> {
     fn gauss_newton(&self, part: &Part<'_>, values: &mut [f64]) -> Result<Ending, Cancelled> {
         let component = part.component;
         let scale = part.context.scale;
+
         if self.converged(part, values) {
             return Ok(Ending::Converged);
         }
         if component.variables.is_empty() {
             return Ok(Ending::Minimum);
         }
+
         let mut stride = Stride {
             longest: MAX_STEP * scale,
             curving: false,
             damping: Damping::NONE,
         };
         let mut stalled = 0;
+
         for _ in 0..MAX_ITERATIONS {
             if (self.cancelled)() {
                 return Err(Cancelled);
             }
+
             let remaining = match self.descent_step(part, values, &mut stride)? {
                 Stepped::Fell(remaining) => remaining,
                 Stepped::NoStep => return Ok(Ending::Unfinished),
@@ -684,6 +715,7 @@ impl Solver<'_> {
                 }
                 Stepped::NoDescent => return Ok(self.minimum(part, values)),
             };
+
             if self.converged(part, values) {
                 return Ok(Ending::Converged);
             }
@@ -710,12 +742,15 @@ impl Solver<'_> {
         {
             return Ok(Stepped::from(fell));
         }
+
         let Some(mut step) = self.bounded_step(part, values).1 else {
             return Ok(Stepped::NoStep);
         };
         let length = step.iter().map(|delta| delta * delta).sum::<f64>().sqrt();
+
         if length > stride.longest {
             let shrink = stride.longest / length;
+
             step.iter_mut().for_each(|delta| *delta *= shrink);
         }
         if let Some(remaining) = self.line_search(part, &step, values, 1) {
@@ -748,9 +783,11 @@ impl Solver<'_> {
             Linearized::Dense(rows, residuals)
         };
         let width = component.variables.len();
+
         let step = linearized.step(&scales, width);
         let pushed =
             self.pushed_past_bounds(component, values, step.as_deref().unwrap_or_default());
+
         if pushed.is_empty() {
             return (linearized, step);
         }
@@ -759,6 +796,7 @@ impl Solver<'_> {
                 *scale = 0.0;
             }
         }
+
         let step = linearized.step(&scales, width);
         (linearized, step)
     }
@@ -828,9 +866,12 @@ impl Solver<'_> {
             .map(|variable| value(values, *variable))
             .collect();
         let mut fraction = 1.0;
+
         for _ in 0..halvings {
             self.place(component, &start, step, fraction, values);
+
             let candidate = self.squared_residuals(part, values);
+
             if self.admissible(part, values) && candidate.is_finite() && candidate < current {
                 return Some(candidate / current);
             }
@@ -851,6 +892,7 @@ impl Solver<'_> {
         for ((variable, delta), start) in component.variables.iter().zip(step).zip(start) {
             if let Some(slot) = values.get_mut(*variable) {
                 let moved = start + fraction * delta;
+
                 *slot = if self.system.wrapping_parameters.contains(variable) {
                     moved.rem_euclid(1.0)
                 } else if self.system.parameter_variables.contains(variable) {
@@ -867,9 +909,11 @@ impl Solver<'_> {
         let mut gradient = Gradient::new();
         let mut rows = Vec::with_capacity(component.equations.len());
         let mut residuals = Vec::with_capacity(component.equations.len());
+
         tally::add(component.equations.len());
         for equation in self.equations(component) {
             let residual = equation.linearize(values, &part.context, &mut gradient);
+
             rows.push(dense_row(&gradient, &component.variables));
             residuals.push(residual);
         }
@@ -881,9 +925,11 @@ impl Solver<'_> {
         let mut gradient = Gradient::new();
         let mut rows = Vec::with_capacity(component.equations.len());
         let mut residuals = Vec::with_capacity(component.equations.len());
+
         tally::add(component.equations.len());
         for equation in self.equations(component) {
             let residual = equation.linearize(values, &part.context, &mut gradient);
+
             rows.push(sparse::row(&gradient, &component.variables));
             residuals.push(residual);
         }
@@ -912,9 +958,11 @@ impl Solver<'_> {
         if (self.cancelled)() {
             return Err(Cancelled);
         }
+
         let mut analysis = ComponentAnalysis::default();
         let mut contributions = BTreeMap::new();
         let part = self.part(component);
+
         match elimination {
             Elimination::Sparse => {
                 self.analyze_sparse(&part, values, &mut analysis, &mut contributions)?;
@@ -943,6 +991,7 @@ impl Solver<'_> {
         let component = part.component;
         let mut groups: BTreeMap<Option<ConstraintId>, Vec<Vec<f64>>> = BTreeMap::new();
         let mut gradient = Gradient::new();
+
         for equation in self.equations(component) {
             equation.linearize(values, &part.context, &mut gradient);
             groups
@@ -953,12 +1002,15 @@ impl Solver<'_> {
 
         let mut basis: Vec<Vec<f64>> = Vec::new();
         let mut earlier: Vec<(Option<ConstraintId>, Vec<f64>)> = Vec::new();
+
         for (owner, rows) in groups {
             let adds_rank = rows
                 .iter()
                 .any(|row| norm(&orthogonalized(row, &basis)) > RANK_TOLERANCE);
+
             if let Some(constraint) = owner {
                 let contribution = contributions.entry(constraint).or_default();
+
                 contribution.adds_rank |= adds_rank;
                 if !contribution.adds_rank {
                     contribution.duplicates.extend(duplicates(&rows, &earlier));
@@ -998,13 +1050,16 @@ impl Solver<'_> {
         if (self.cancelled)() {
             return Err(Cancelled);
         }
+
         let part = self.part(component);
         let mut own = Vec::new();
         let mut rest = Vec::new();
         let mut gradient = Gradient::new();
+
         tally::add(component.equations.len());
         for equation in self.equations(component) {
             equation.linearize(values, &part.context, &mut gradient);
+
             let row = sparse::normalized(sparse::row(&gradient, &component.variables));
             if equation.owner == Some(constraint) {
                 own.push(row);
@@ -1012,11 +1067,14 @@ impl Solver<'_> {
                 rest.push(row);
             }
         }
+
         let mut triangular =
             sparse::Triangular::ordered_for(component.variables.len(), rest.iter().chain(&own));
+
         for row in &rest {
             triangular.insert(row, RANK_TOLERANCE);
         }
+
         let added = own
             .iter()
             .filter(|row| triangular.insert(row, RANK_TOLERANCE))
@@ -1036,9 +1094,11 @@ impl Solver<'_> {
             .flatten()
             .filter_map(|variable| component.variables.binary_search(variable).ok())
             .collect();
+
         if columns.is_empty() {
             return 0;
         }
+
         let restricted: Vec<sparse::Row> = own
             .iter()
             .map(|row| {
@@ -1067,6 +1127,7 @@ impl Solver<'_> {
         let width = component.variables.len();
         let mut groups: BTreeMap<Option<ConstraintId>, Vec<sparse::Row>> = BTreeMap::new();
         let mut gradient = Gradient::new();
+
         for equation in self.equations(component) {
             equation.linearize(values, &part.context, &mut gradient);
             groups
@@ -1077,18 +1138,23 @@ impl Solver<'_> {
                     &component.variables,
                 )));
         }
+
         let mut triangular = sparse::Triangular::ordered_for(width, groups.values().flatten());
         let mut earlier: Vec<(Option<ConstraintId>, sparse::Row)> = Vec::new();
+
         for (owner, rows) in groups {
             if (self.cancelled)() {
                 return Err(Cancelled);
             }
+
             let mut adds_rank = false;
+
             for row in &rows {
                 adds_rank |= triangular.insert(row, RANK_TOLERANCE);
             }
             if let Some(constraint) = owner {
                 let contribution = contributions.entry(constraint).or_default();
+
                 contribution.adds_rank |= adds_rank;
                 if !contribution.adds_rank {
                     contribution
@@ -1099,7 +1165,9 @@ impl Solver<'_> {
             earlier.extend(rows.into_iter().map(|row| (owner, row)));
         }
         analysis.rank += triangular.rank();
+
         let fixed = triangular.fixed_columns(NULL_SPACE_TOLERANCE.sqrt(), self.cancelled)?;
+
         analysis.fixed.extend(
             component
                 .variables
@@ -1111,7 +1179,7 @@ impl Solver<'_> {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Analysis {
     pub rank: usize,
     pub fixed: Vec<usize>,
@@ -1122,6 +1190,7 @@ impl Analysis {
     pub fn combine(parts: impl IntoIterator<Item = ComponentAnalysis>) -> Self {
         let mut analysis = Self::default();
         let mut contributions = Vec::new();
+
         for part in parts {
             analysis.rank += part.rank;
             analysis.fixed.extend(part.fixed);
@@ -1148,20 +1217,20 @@ impl Analysis {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ComponentAnalysis {
     pub rank: usize,
     pub fixed: Vec<usize>,
     pub contributions: Vec<(ConstraintId, bool, Vec<ConstraintId>)>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct Contribution {
     adds_rank: bool,
     duplicates: BTreeSet<ConstraintId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Redundancy {
     pub constraint: ConstraintId,
     pub duplicates: Vec<ConstraintId>,
@@ -1169,6 +1238,7 @@ pub struct Redundancy {
 
 fn dense_row(gradient: &Gradient, variables: &[usize]) -> Vec<f64> {
     let mut row = vec![0.0; variables.len()];
+
     for (variable, partial) in gradient {
         if let Ok(column) = variables.binary_search(variable)
             && let Some(entry) = row.get_mut(column)
@@ -1202,10 +1272,13 @@ fn normalized(row: Vec<f64>) -> Vec<f64> {
 
 fn orthogonalized(row: &[f64], basis: &[Vec<f64>]) -> Vec<f64> {
     tally::add(2 * basis.len() * row.len());
+
     let mut remainder = row.to_vec();
+
     for _ in 0..2 {
         for vector in basis {
             let projection = dot(&remainder, vector);
+
             remainder
                 .iter_mut()
                 .zip(vector)
@@ -1222,10 +1295,12 @@ pub(crate) fn duplicates(
     let Some(width) = rows.first().map(Vec::len) else {
         return Vec::new();
     };
+
     if earlier.is_empty() || width == 0 {
         return Vec::new();
     }
     tally::add(width * earlier.len() * width.min(earlier.len()));
+
     let transposed = DMatrix::from_fn(width, earlier.len(), |row, column| {
         earlier
             .get(column)
@@ -1238,6 +1313,7 @@ pub(crate) fn duplicates(
     };
     let cutoff = svd.singular_values.max() * STEP_RANK_TOLERANCE;
     let mut weights: BTreeMap<ConstraintId, f64> = BTreeMap::new();
+
     for row in rows {
         let Ok(coefficients) = svd.solve(&DVector::from_column_slice(row), cutoff) else {
             continue;
@@ -1248,6 +1324,7 @@ pub(crate) fn duplicates(
             }
         }
     }
+
     let largest = weights.values().copied().fold(0.0, larger);
     weights
         .into_iter()
@@ -1260,11 +1337,14 @@ fn minimal_norm_step(rows: &[Vec<f64>], residuals: &[f64], width: usize) -> Opti
     if rows.is_empty() || width == 0 {
         return None;
     }
+
     let mut scaled_residuals = Vec::with_capacity(residuals.len());
     let mut data = Vec::with_capacity(rows.len() * width);
+
     for (row, residual) in rows.iter().zip(residuals) {
         let length = norm(row);
         let divisor = if length > 0.0 { length } else { 1.0 };
+
         data.extend(row.iter().map(|entry| entry / divisor));
         scaled_residuals.push(-residual / divisor);
     }
@@ -1276,9 +1356,11 @@ fn minimal_norm_step(rows: &[Vec<f64>], residuals: &[f64], width: usize) -> Opti
         return None;
     }
     tally::add(rows.len() * width * rows.len().min(width));
+
     let jacobian = DMatrix::from_row_slice(rows.len(), width, &data);
     let svd = SVD::try_new(jacobian, true, true, f64::EPSILON, SVD_ITERATIONS)?;
     let cutoff = svd.singular_values.max() * STEP_RANK_TOLERANCE;
+
     let step = svd
         .solve(&DVector::from_vec(scaled_residuals), cutoff)
         .ok()?;

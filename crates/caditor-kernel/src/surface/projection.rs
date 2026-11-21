@@ -48,43 +48,54 @@ pub(crate) fn refine_among(
     let distance = |uv: Point2| surface.point(uv.x, uv.y).distance_squared(point);
     let magnitude = point.length();
     let mut uv = clamp(start);
+
     let mut current = distance(uv);
     let mut settling_steps = 0;
+
     for _ in 0..MAX_REFINE_ITERATIONS {
         if !current.is_finite() || current == 0.0 {
             break;
         }
+
         let Some(newton) = newton_step(surface, point, uv) else {
             break;
         };
+
         if let Some(foot) = known_feet
             .iter()
             .find(|foot| newton.reach(surface, **foot - uv) <= LINEAR_RESOLUTION)
         {
             return *foot;
         }
+
         let noise = ROUNDING * (current + current.sqrt() * magnitude);
         let smallest_move = STEP_EPSILON * (1.0 + uv.length());
         let mut scale = 1.0;
         let mut accepted = None;
+
         for _ in 0..MAX_HALVINGS {
             if (newton.step * scale).length() <= smallest_move || newton.decrease(scale) <= noise {
                 break;
             }
+
             let candidate = clamp(uv + newton.step * scale);
             let value = distance(candidate);
+
             if value < current {
                 accepted = Some((candidate, value));
                 break;
             }
             scale *= 0.5;
         }
+
         let (next, value) = match accepted {
             Some(accepted) => accepted,
             None if settling_steps < SETTLING_STEPS => {
                 settling_steps += 1;
+
                 let candidate = clamp(uv + newton.step);
                 let value = distance(candidate);
+
                 if value > current + noise {
                     break;
                 }
@@ -93,6 +104,7 @@ pub(crate) fn refine_among(
             None => break,
         };
         let moved = (next - uv).length();
+
         uv = next;
         current = value;
         if moved <= smallest_move {
@@ -130,12 +142,14 @@ impl NewtonStep {
 fn newton_step(surface: &Surface, point: Point3, uv: Point2) -> Option<NewtonStep> {
     let derivatives = surface.evaluate(uv.x, uv.y);
     let offset = derivatives.point - point;
+
     let gradient = Point2::new(derivatives.du.dot(offset), derivatives.dv.dot(offset));
     let (uu, uv_, vv) = (
         derivatives.du.dot(derivatives.du),
         derivatives.du.dot(derivatives.dv),
         derivatives.dv.dot(derivatives.dv),
     );
+
     let full = (
         uu + derivatives.duu.dot(offset),
         uv_ + derivatives.duv.dot(offset),

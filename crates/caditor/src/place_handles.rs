@@ -27,7 +27,7 @@ const SQUARE_ALPHA: f32 = 0.55;
 const EDGE_ON: f64 = 0.2;
 const ARROWS: [PlaceGrip; 2] = [PlaceGrip::AlongX, PlaceGrip::AlongY];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Subject {
     Hole,
     Curved,
@@ -52,6 +52,7 @@ pub fn square_around(
     if plane.normal().dot(forward).abs() < EDGE_ON {
         return None;
     }
+
     let half = SQUARE_HALF_POINTS * per_point;
     let (x, y) = (plane.x_axis() * half, plane.y_axis() * half);
     Some([
@@ -86,7 +87,7 @@ pub fn draw_square(batch: &mut Batch, corners: &[Point3; 4], colour: Color) {
     ));
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlaceHandles {
     pub feature: FeatureId,
     subject: Subject,
@@ -165,6 +166,7 @@ impl PlaceHandles {
                     .draft_evaluation_of(feature)
                     .unwrap_or_else(|| model.evaluation());
                 let plane = scene::sketch_plane(document, evaluation, hole.sketch)?;
+
                 return Self::placed(
                     view,
                     pixels_per_point,
@@ -174,6 +176,7 @@ impl PlaceHandles {
                     Point2::ZERO,
                 );
             }
+
             let lone = hole_tools::lone_point(document, hole)?;
             let plane = scene::sketch_plane(document, model.evaluation(), hole.sketch)?;
             let at = previewed_point(model, feature, hole).unwrap_or(lone.at);
@@ -198,6 +201,7 @@ impl PlaceHandles {
         let centre = plane.to_world(at);
         let depth = view.view_depth(centre);
         let per_point = pixels_per_point * view.units_per_pixel_at(depth);
+
         let shown = view.is_drawn_at(depth) && per_point.is_finite() && per_point > 0.0;
         shown.then_some(Self {
             feature,
@@ -294,6 +298,7 @@ impl PlaceHandles {
             .into_iter()
             .filter_map(|grip| {
                 let (from, to, _) = self.arrow(grip)?;
+
                 let distance = segment_distance(view.project(from)?, view.project(to)?, cursor);
                 Some((distance, Handle::Place(grip)))
             })
@@ -325,6 +330,7 @@ impl PlaceHandles {
                 palette.handle
             }
         };
+
         if let Some(corners) = self.square() {
             draw_square(batch, &corners, colour(PlaceGrip::OnPlane));
         }
@@ -332,6 +338,7 @@ impl PlaceHandles {
             let Some((from, tip, direction)) = self.arrow(grip) else {
                 continue;
             };
+
             Arrow {
                 from,
                 tip,
@@ -344,14 +351,14 @@ impl PlaceHandles {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Line {
     pub direction: Vector2,
     pub value: f64,
     pub least: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Slide {
     plane: Plane,
     grabbed: Point2,
@@ -441,10 +448,12 @@ impl Slide {
         {
             let placed = self.bounded(self.kept(landed));
             let changed = placed != self.at || self.snapped != Some(snap);
+
             self.at = placed;
             self.snapped = Some(snap);
             return changed;
         }
+
         let unsnapped = self.snapped.take().is_some();
         let Some(at) = ray
             .intersect_plane(&self.plane)
@@ -455,7 +464,9 @@ impl Slide {
         let wanted = self.kept(self.from + (at - self.grabbed));
         let placed = if free { wanted } else { self.rounded(wanted) };
         let placed = self.bounded(placed);
+
         let changed = placed != self.at || unsnapped;
+
         self.at = placed;
         changed
     }
@@ -465,14 +476,14 @@ impl Slide {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Start {
     Hole(Hole),
     Curved(Hole),
     Primitive(Primitive),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PlaceDrag {
     start: Start,
     slide: Slide,
@@ -510,6 +521,7 @@ impl PlaceDrag {
             }),
             PlaceGrip::OnPlane => None,
         };
+
         let slide = Slide::begin(handles.plane, ray, handles.step(), from, line)?;
         Some(Self { start, slide })
     }
@@ -534,11 +546,13 @@ impl PlaceDrag {
                 let unit = model.units().length;
                 let mut moved = primitive.clone();
                 let mut named = Vec::new();
+
                 for (index, (from, to)) in [(from.x, at.x), (from.y, at.y)].into_iter().enumerate()
                 {
                     if from == to {
                         continue;
                     }
+
                     let keeper = held(document, feature, &primitive.at, index);
                     if let Some(slot) = moved.at.get_mut(index) {
                         keeper.set(slot, unit.measured(to), &mut named);
@@ -580,16 +594,21 @@ pub fn typed(
 ) -> Option<Transaction> {
     let document = model.document();
     let typed = axes_typed(grip, values);
+
     if let Some(hole) = committed_hole(document, feature) {
         if hole_on_curve::mount(document, hole).is_some() {
             return None;
         }
+
         let point = hole_tools::lone_point(document, hole)?.entity;
+
         return hole_placement::positioned(model, feature, hole, point, typed).ok();
     }
+
     let primitive = committed_primitive(document, feature)?;
     let mut moved = primitive.clone();
     let mut named = Vec::new();
+
     for (index, value) in typed.into_iter().enumerate() {
         let Some(value) = value else {
             continue;

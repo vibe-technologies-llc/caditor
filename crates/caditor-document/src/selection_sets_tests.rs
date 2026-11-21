@@ -59,6 +59,7 @@ fn saving_selection_sets_is_undoable_content() {
     let changed = editor.apply(set(sets.clone())).unwrap();
     let with_sets = editor.document().clone();
     let again = editor.apply(set(sets.clone())).unwrap();
+
     editor.undo().unwrap();
 
     assert!(changed);
@@ -74,11 +75,13 @@ fn saving_selection_sets_is_undoable_content() {
 fn restoring_an_earlier_version_restores_its_selection_sets() {
     let pair = pair();
     let mut later = pair.document.clone();
+
     later
         .apply(set(named("Plate", vec![SetMember::Body(pair.plate)])))
         .unwrap();
 
     let mut restored = later.clone();
+
     restored
         .apply(later.transaction_to(&pair.document, "Restore"))
         .unwrap();
@@ -90,6 +93,7 @@ fn restoring_an_earlier_version_restores_its_selection_sets() {
 #[test]
 fn set_names_are_trimmed_to_one_line() {
     let mut pair = pair();
+
     let top = plate_top(&pair);
     let sets = named(
         "  Mating\r\n faces \n",
@@ -99,6 +103,7 @@ fn set_names_are_trimmed_to_one_line() {
     pair.document.apply(set(sets)).unwrap();
 
     let kept = &pair.document.selection_sets().sets[0];
+
     assert_eq!(kept.name, "Mating faces");
     assert_eq!(kept.members, vec![top, SetMember::Body(pair.peg)]);
 }
@@ -106,6 +111,7 @@ fn set_names_are_trimmed_to_one_line() {
 #[test]
 fn a_blank_taken_or_long_name_an_empty_set_and_too_many_sets_are_refused() {
     let mut pair = pair();
+
     let before = pair.document.clone();
     let body = || vec![SetMember::Body(pair.plate)];
     let twice = SelectionSets {
@@ -144,6 +150,7 @@ fn a_blank_taken_or_long_name_an_empty_set_and_too_many_sets_are_refused() {
 #[test]
 fn a_set_naming_a_deleted_body_keeps_new_features_from_taking_its_id() {
     let mut pair = pair();
+
     let gone = FeatureId::from_raw(pair.document.next_feature_id() + 5);
 
     pair.document
@@ -158,6 +165,7 @@ fn a_body_member_resolves_to_every_face_and_a_lost_body_is_named() {
     let pair = pair();
     let evaluation = evaluate(&pair.document, &mut Recompute::default());
     let missing = FeatureId::from_raw(pair.document.next_feature_id() + 1);
+
     let chosen = SelectionSet {
         name: "Both".to_owned(),
         members: vec![SetMember::Body(pair.peg), SetMember::Body(missing)],
@@ -178,6 +186,7 @@ fn a_body_member_resolves_to_every_face_and_a_lost_body_is_named() {
 #[test]
 fn a_face_and_an_edge_are_found_again_after_a_later_cut_changes_the_body() {
     let mut pair = pair();
+
     let evaluation = evaluate(&pair.document, &mut Recompute::default());
     let solid = &evaluation
         .body_result(pair.plate)
@@ -187,6 +196,7 @@ fn a_face_and_an_edge_are_found_again_after_a_later_cut_changes_the_body() {
         .solid;
     let top = top_face(solid, pair.plate);
     let (edge, _) = solid.edges().next().unwrap();
+
     let edge = EdgeReference::capture(solid, edge).unwrap();
     let chosen = SelectionSet {
         name: "Top".to_owned(),
@@ -202,6 +212,7 @@ fn a_face_and_an_edge_are_found_again_after_a_later_cut_changes_the_body() {
         ],
     };
     let mut transaction = pair.document.transaction("Cut");
+
     transaction.add_feature(
         "Combine 1",
         FeatureKind::Combine(Combine::new(pair.plate, pair.peg, CombineOperation::Cut)),
@@ -213,6 +224,7 @@ fn a_face_and_an_edge_are_found_again_after_a_later_cut_changes_the_body() {
 
     let solid = &cut.body_result(pair.plate).unwrap().solid().unwrap().solid;
     let notched = top.resolve(solid).unwrap();
+
     assert!(resolved.lost.is_empty(), "{:?}", resolved.lost);
     assert_eq!(resolved.found.len(), 2);
     assert_eq!(

@@ -13,6 +13,7 @@ const TYPE_VALUE: &str = "type an exact value";
 
 fn add_parameter(harness: &mut Harness, name: &str, value: f64) {
     let mut transaction = harness.document().transaction("Add parameter");
+
     transaction.add_parameter(name, Expression::Number(value));
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
@@ -28,8 +29,11 @@ fn line_ends(sketch: &Sketch) -> Vec<(Point2, Point2)> {
 #[test]
 fn an_equals_sign_opens_the_point_field_so_a_value_can_start_with_a_parameter() {
     let mut harness = Harness::new();
+
     add_parameter(&mut harness, "span", 30.0);
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
 
     type_point(&mut harness, "0, 0");
@@ -39,6 +43,7 @@ fn an_equals_sign_opens_the_point_field_so_a_value_can_start_with_a_parameter() 
 
     let sketch = harness.sketch(feature);
     let ends = line_ends(sketch);
+
     assert_eq!(ends.len(), 1);
     assert!(near(ends[0].1, Point2::new(30.0, 20.0)), "{:?}", ends[0]);
     assert!(
@@ -54,14 +59,19 @@ fn an_equals_sign_opens_the_point_field_so_a_value_can_start_with_a_parameter() 
 #[test]
 fn an_equals_sign_opens_a_modify_tools_value_field_too() {
     let mut harness = Harness::new();
+
     add_parameter(&mut harness, "t", 3.0);
+
     let mut sketch = Sketch::new(Plane::XY);
+
     let circle = sketch.add_circle(Point2::ZERO, 10.0);
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.select(entity_pickables(feature, &[circle]));
     run_from_palette(&mut harness, "offset sketch curves");
+
     assert_eq!(harness.tool(), Some(Tool::Offset));
+
     type_point(&mut harness, "=t");
 
     assert!(close(
@@ -73,19 +83,26 @@ fn an_equals_sign_opens_a_modify_tools_value_field_too() {
 #[test]
 fn type_an_exact_value_opens_the_field_empty_and_says_why_without_a_tool() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
 
     harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
     harness.show_new_windows();
     harness.type_text(TYPE_VALUE);
+
     let refused = harness.shows_containing(viewport::TYPE_VALUE_UNAVAILABLE);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
+
     let closed = !harness.shows(typed_point::FIELD_LABEL);
+
     harness.use_tool(Key::L);
     run_from_palette(&mut harness, TYPE_VALUE);
     harness.frame();
+
     let opened = harness.shows(typed_point::FIELD_LABEL);
+
     harness.type_text("width");
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
@@ -101,16 +118,22 @@ fn type_an_exact_value_opens_the_field_empty_and_says_why_without_a_tool() {
 #[test]
 fn a_typed_point_previews_the_shape_until_enter_places_it() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
     type_point(&mut harness, "0, 0");
     harness.point_at(Point2::new(10.0, 10.0));
 
     harness.type_text("30, 0");
+
     let previewed = harness.shows("30.00 mm   0.0°");
     let nothing_placed = entities_of_kind(harness.sketch(feature), "Line").is_empty();
+
     harness.type_text(", nowhere");
+
     let follows_pointer = harness.shows("14.14 mm   45.0°");
+
     harness.key(Key::A, Modifiers::COMMAND);
     harness.type_text("30, 0");
     harness.key(Key::Enter, Modifiers::NONE);
@@ -120,7 +143,9 @@ fn a_typed_point_previews_the_shape_until_enter_places_it() {
     assert!(previewed);
     assert!(nothing_placed);
     assert!(follows_pointer);
+
     let ends = line_ends(harness.sketch(feature));
+
     assert_eq!(ends.len(), 1);
     assert!(near(ends[0].1, Point2::new(30.0, 0.0)));
 }
@@ -128,16 +153,22 @@ fn a_typed_point_previews_the_shape_until_enter_places_it() {
 #[test]
 fn an_angle_alone_locks_the_direction_and_the_pointer_sets_the_length() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
 
     type_point(&mut harness, "<30");
+
     let needs_a_point = harness.shows_containing("An angle alone sets the direction");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     type_point(&mut harness, "0, 0");
     type_point(&mut harness, "@<90");
+
     let locked = harness.shows(drawing::HEADING_PROMPT);
+
     harness.click_at(Point2::new(5.0, 20.0));
     type_point(&mut harness, "=<0");
     harness.point_at(Point2::new(12.0, 4.0));
@@ -147,8 +178,10 @@ fn an_angle_alone_locks_the_direction_and_the_pointer_sets_the_length() {
 
     assert!(needs_a_point);
     assert!(locked);
+
     let sketch = harness.sketch(feature);
     let ends = line_ends(sketch);
+
     assert_eq!(ends.len(), 2, "{ends:?}");
     assert!(near(ends[0].1, Point2::new(0.0, 20.0)), "{:?}", ends[0]);
     assert!(near(ends[1].1, Point2::new(8.0, 20.0)), "{:?}", ends[1]);
@@ -158,18 +191,26 @@ fn an_angle_alone_locks_the_direction_and_the_pointer_sets_the_length() {
 #[test]
 fn a_length_and_a_less_than_sign_hold_the_length_while_the_pointer_sets_the_direction() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
     type_point(&mut harness, "0, 0");
     harness.point_at(Point2::new(3.0, 3.0));
 
     type_point(&mut harness, "10<");
+
     let locked =
         harness.shows_containing("The length is locked: move the pointer to set the direction");
+
     harness.point_at(Point2::new(0.0, 40.0));
+
     let readout = harness.shows_containing("10.00 mm   90.0°   length locked");
+
     harness.click_at(Point2::new(0.0, 40.0));
+
     let released = !harness.shows_containing("The length is locked");
+
     harness.click_at(Point2::new(30.0, 40.0));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
@@ -177,8 +218,10 @@ fn a_length_and_a_less_than_sign_hold_the_length_while_the_pointer_sets_the_dire
     assert!(locked);
     assert!(readout);
     assert!(released);
+
     let sketch = harness.sketch(feature);
     let ends = line_ends(sketch);
+
     assert_eq!(ends.len(), 2, "{ends:?}");
     assert!(near(ends[0].1, Point2::new(0.0, 10.0)), "{:?}", ends[0]);
     assert!(near(ends[1].1, Point2::new(30.0, 40.0)), "{:?}", ends[1]);
@@ -188,25 +231,33 @@ fn a_length_and_a_less_than_sign_hold_the_length_while_the_pointer_sets_the_dire
 #[test]
 fn a_held_radius_keeps_the_circle_that_size_wherever_the_pointer_goes() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::C);
     type_point(&mut harness, "0, 0");
 
     harness.point_at(Point2::new(4.0, 0.0));
     type_point(&mut harness, "12<");
+
     let locked =
         harness.shows_containing("The radius is locked: move the pointer to set the direction");
+
     harness.click_at(Point2::new(-50.0, 30.0));
 
     assert!(locked);
+
     let sketch = harness.sketch(feature);
+
     assert!(close(&radii_of_circles(sketch), &[12.0]));
 }
 
 #[test]
 fn backspace_and_escape_let_go_of_a_held_length_before_taking_back_the_point() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
     type_point(&mut harness, "0, 0");
     harness.point_at(Point2::new(3.0, 3.0));
@@ -214,16 +265,22 @@ fn backspace_and_escape_let_go_of_a_held_length_before_taking_back_the_point() {
     type_point(&mut harness, "10<");
     harness.key(Key::Backspace, Modifiers::NONE);
     harness.frame();
+
     let released_by_backspace = !harness.shows_containing("The length is locked");
+
     type_point(&mut harness, "10<");
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let released_by_escape = !harness.shows_containing("The length is locked");
+
     harness.click_at(Point2::new(20.0, 0.0));
 
     assert!(released_by_backspace);
     assert!(released_by_escape);
+
     let ends = line_ends(harness.sketch(feature));
+
     assert_eq!(ends.len(), 1);
     assert!(near(ends[0].1, Point2::new(20.0, 0.0)), "{:?}", ends[0]);
 }
@@ -231,15 +288,19 @@ fn backspace_and_escape_let_go_of_a_held_length_before_taking_back_the_point() {
 #[test]
 fn a_held_length_needs_a_placed_point_and_a_shape_that_is_waiting_for_its_second_point() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     harness.use_tool(Key::L);
 
     type_point(&mut harness, "10<");
+
     let needs_a_point = harness.shows_containing("A length held with < sets the distance");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     type_point(&mut harness, "0, 0");
     type_point(&mut harness, "0<");
+
     let above_zero = harness.shows_containing("A held length must be above zero");
 
     assert!(needs_a_point);
@@ -249,18 +310,24 @@ fn a_held_length_needs_a_placed_point_and_a_shape_that_is_waiting_for_its_second
 #[test]
 fn escape_lets_go_of_a_locked_direction_before_the_shape() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
     type_point(&mut harness, "0, 0");
     type_point(&mut harness, "<45");
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let released = !harness.shows(drawing::HEADING_PROMPT);
+
     harness.click_at(Point2::new(20.0, 0.0));
 
     assert!(released);
+
     let ends = line_ends(harness.sketch(feature));
+
     assert_eq!(ends.len(), 1);
     assert!(near(ends[0].1, Point2::new(20.0, 0.0)), "{:?}", ends[0]);
 }
@@ -268,16 +335,22 @@ fn escape_lets_go_of_a_locked_direction_before_the_shape() {
 #[test]
 fn a_field_that_loses_focus_keeps_its_text_muted_until_typing_resumes_it() {
     let mut harness = Harness::new();
+
     let feature = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
 
     harness.type_text("10, 2");
     harness.click_at(Point2::new(-10.0, -10.0));
+
     let kept = harness.shows(typed_point::FIELD_LABEL);
     let muted = harness.color_of(typed_point::FIELD_LABEL) == canvas::DARK_CHROME.muted;
     let waiting = harness.shows_hint(typed_point::WAITING_HINT);
+
     harness.type_text("0");
+
     let resumed = harness.color_of(typed_point::FIELD_LABEL) == canvas::DARK_CHROME.text;
+
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
     harness.settle();
@@ -286,7 +359,9 @@ fn a_field_that_loses_focus_keeps_its_text_muted_until_typing_resumes_it() {
     assert!(muted);
     assert!(waiting);
     assert!(resumed);
+
     let ends = line_ends(harness.sketch(feature));
+
     assert_eq!(ends.len(), 1);
     assert!(near(ends[0].0, Point2::new(-10.0, -10.0)), "{:?}", ends[0]);
     assert!(near(ends[0].1, Point2::new(10.0, 20.0)), "{:?}", ends[0]);
@@ -295,6 +370,7 @@ fn a_field_that_loses_focus_keeps_its_text_muted_until_typing_resumes_it() {
 #[test]
 fn escape_or_another_tool_clears_a_waiting_field() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     harness.use_tool(Key::L);
 
@@ -302,8 +378,10 @@ fn escape_or_another_tool_clears_a_waiting_field() {
     harness.click_at(Point2::new(-10.0, -10.0));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
+
     let escaped = !harness.shows(typed_point::FIELD_LABEL);
     let drawing = harness.workspace.viewport.is_drawing();
+
     harness.type_text("5, 5");
     harness.click_at(Point2::new(-20.0, -10.0));
     harness.use_tool(Key::R);

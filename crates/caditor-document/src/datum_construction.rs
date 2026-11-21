@@ -87,6 +87,7 @@ pub(crate) fn tangent_plane(
     let document = resolver.inputs.document;
     let solid = resolver.body(tangent.body)?;
     let described = describe_origin(document, tangent.face.origin());
+
     let pieces: Vec<FaceId> = match tangent.face.resolve(solid) {
         Ok(found) => vec![found],
         Err(ReferenceError::Ambiguous(pieces)) => pieces,
@@ -101,17 +102,21 @@ pub(crate) fn tangent_plane(
         return Err(resolver.error(DatumCause::FaceMissing { described }));
     };
     let surface = solid.face(face).map(|face| face.surface());
+
     let (Some(surface @ (Surface::Cylinder(_) | Surface::Cone(_))), Some(axis)) =
         (surface, face_axis(solid, face))
     else {
         return Err(resolver.error(DatumCause::NotCurved { described }));
     };
     let toward = resolver.point(&tangent.toward)?;
+
     let offset = toward - axis.origin();
     let radial = offset - axis.direction() * offset.dot(axis.direction());
+
     if radial.length() <= LINEAR_RESOLUTION {
         return Err(resolver.error(DatumCause::OnAxis { described }));
     }
+
     let foot = surface.project(toward, None);
     let touching = surface.point(foot.x, foot.y);
     let mut normal = surface.normal(foot.x, foot.y).ok_or_else(|| {
@@ -119,6 +124,7 @@ pub(crate) fn tangent_plane(
             described: described.clone(),
         })
     })?;
+
     if normal.dot(radial) < 0.0 {
         normal = -normal;
     }
@@ -152,6 +158,7 @@ fn resolved_faces(
         Err(ReferenceError::Ambiguous(pieces)) => pieces,
         Err(ReferenceError::Missing) => Vec::new(),
     };
+
     if pieces.is_empty() {
         return Err(resolver.error(DatumCause::FaceGone {
             described: capitalized(&described),
@@ -174,11 +181,13 @@ fn face_centre(
             described: described.clone(),
         })
     };
+
     let mesh = solid
         .tessellate(&solid.tolerance_for(&MeshQuality::SMOOTH))
         .map_err(|_| unfound())?;
     let mut area = 0.0;
     let mut moment = Vector3::ZERO;
+
     for group in mesh
         .faces()
         .iter()
@@ -195,12 +204,15 @@ fn face_centre(
             let Some([Some(a), Some(b), Some(c)]) = corners else {
                 continue;
             };
+
             let piece = 0.5 * (b - a).cross(c - a).length();
+
             area += piece;
             moment +=
                 ((a - Point3::ZERO) + (b - Point3::ZERO) + (c - Point3::ZERO)) * (piece / 3.0);
         }
     }
+
     let centre = Point3::ZERO + moment / area;
     if area > f64::MIN_POSITIVE && centre.is_finite() {
         Ok(centre)
@@ -219,17 +231,20 @@ fn face_foot(resolver: &Resolver<'_>, tangent: &FaceTangent) -> Result<Foot, Fai
     let solid = resolver.body(tangent.body)?;
     let faces = resolved_faces(resolver, tangent.body, &tangent.face)?;
     let described = describe_origin(resolver.inputs.document, tangent.face.origin());
+
     let Some(face) = faces.first().and_then(|face| solid.face(*face)) else {
         return Err(resolver.error(DatumCause::FaceMissing {
             described: capitalized(&described),
         }));
     };
     let surface = face.surface();
+
     if matches!(surface, Surface::Plane(_)) {
         return Err(resolver.error(DatumCause::FlatFace {
             described: capitalized(&described),
         }));
     }
+
     let toward = resolver.point(&tangent.toward)?;
     let even = |what: &'static str| {
         resolver.error(DatumCause::EvenSides {
@@ -241,6 +256,7 @@ fn face_foot(resolver: &Resolver<'_>, tangent: &FaceTangent) -> Result<Foot, Fai
         let offset = toward - origin;
         (offset - direction * offset.dot(direction)).length()
     };
+
     match surface {
         Surface::Sphere(sphere) if toward.distance(sphere.center()) <= LINEAR_RESOLUTION => {
             return Err(even("at the centre"));
@@ -254,6 +270,7 @@ fn face_foot(resolver: &Resolver<'_>, tangent: &FaceTangent) -> Result<Foot, Fai
         }
         _ => {}
     }
+
     let foot = surface.project(toward, None);
     let point = surface.point(foot.x, foot.y);
     let normal = surface
@@ -267,11 +284,13 @@ fn face_foot(resolver: &Resolver<'_>, tangent: &FaceTangent) -> Result<Foot, Fai
         .normalize();
     let away = toward - point;
     let outward = normal * face.sense().sign();
+
     let normal = if away.length() <= LINEAR_RESOLUTION || away.dot(outward) >= 0.0 {
         outward
     } else {
         -outward
     };
+
     if !point.is_finite() {
         return Err(resolver.error(DatumCause::NearestNotFound { described }));
     }
@@ -316,6 +335,7 @@ pub(crate) fn plane_through_lines(
     let (one, other) = (resolver.axis(first)?, resolver.axis(second)?);
     let first_name = capitalized(&describe_axis(document, first));
     let second_name = describe_axis(document, second);
+
     if tolerance::same_line(one, other) {
         return Err(resolver.error(DatumCause::SameLine {
             pair: Pair {
@@ -324,11 +344,13 @@ pub(crate) fn plane_through_lines(
             },
         }));
     }
+
     let apart = other.origin() - one.origin();
     let normal = if tolerance::parallel(one.direction(), other.direction()) {
         one.direction().cross(apart)
     } else {
         let across = one.direction().cross(other.direction());
+
         if apart.dot(across.normalize_or_zero()).abs() > LINEAR_RESOLUTION {
             return Err(resolver.error(DatumCause::LinesNotOnePlane {
                 pair: Pair {
@@ -352,6 +374,7 @@ fn lines_cross(
     let (one, other): (Ray, Ray) = (resolver.axis(first)?, resolver.axis(second)?);
     let first_name = capitalized(&describe_axis(document, first));
     let second_name = describe_axis(document, second);
+
     let parallel = || {
         resolver.error(DatumCause::LinesParallel {
             pair: Pair {
@@ -360,10 +383,13 @@ fn lines_cross(
             },
         })
     };
+
     if tolerance::parallel(one.direction(), other.direction()) {
         return Err(parallel());
     }
+
     let across = one.direction().cross(other.direction()).normalize_or_zero();
+
     if (other.origin() - one.origin()).dot(across).abs() > LINEAR_RESOLUTION {
         return Err(resolver.error(DatumCause::LinesApart {
             pair: Pair {
@@ -387,6 +413,7 @@ fn line_meets_plane(
     let flat = resolver.plane(plane)?;
     let axis_name = capitalized(&describe_axis(document, axis));
     let plane_name = describe_plane(document, plane);
+
     if tolerance::perpendicular(line.direction(), flat.normal()) {
         return Err(resolver.error(DatumCause::LineAlongPlane {
             axis: axis_name,
@@ -394,6 +421,7 @@ fn line_meets_plane(
             within: tolerance::along_plane(line, &flat),
         }));
     }
+
     let distance = -flat.signed_distance(line.origin()) / line.direction().dot(flat.normal());
     Ok(line.at(distance))
 }
@@ -408,8 +436,10 @@ fn planes_meet(
         resolver.plane(&references[1])?,
         resolver.plane(&references[2])?,
     ];
+
     let corner = two.normal().cross(three.normal());
     let determinant = one.normal().dot(corner);
+
     if determinant.abs() <= PLANES_MEET_TOLERANCE {
         return Err(resolver.error(DatumCause::PlanesNoCorner {
             first: capitalized(&describe_plane(document, &references[0])),
@@ -417,6 +447,7 @@ fn planes_meet(
             third: describe_plane(document, &references[2]),
         }));
     }
+
     let distance = |plane: &Plane| plane.normal().dot(plane.origin());
     Ok((corner * distance(&one)
         + three.normal().cross(one.normal()) * distance(&two)
@@ -458,6 +489,7 @@ pub(crate) fn coordinate_system(
     } else {
         axis.direction()
     };
+
     if tolerance::parallel(along, normal) {
         return Err(resolver.error(DatumCause::XAxisAcross {
             axis: capitalized(&describe_axis(document, &frame.x_axis)),

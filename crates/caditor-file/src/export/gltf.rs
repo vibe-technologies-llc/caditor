@@ -43,6 +43,7 @@ fn asset(properties: &ModelProperties) -> Value {
     let extras: serde_json::Map<String, Value> = exported_properties(properties)
         .map(|(property, value)| (extras_key(property).to_owned(), Value::from(value)))
         .collect();
+
     if !extras.is_empty()
         && let Some(fields) = asset.as_object_mut()
     {
@@ -63,14 +64,17 @@ pub(super) fn encode(
         nodes: Vec::new(),
         materials: Vec::new(),
     };
+
     for body in bodies.iter().filter(|body| !body.triangles.is_empty()) {
         add_body(&mut parts, body);
     }
     if parts.nodes.is_empty() {
         return Err(ExportError::Empty);
     }
+
     let binary_length = u32::try_from(parts.binary.len()).map_err(|_| ExportError::TooLarge)?;
     let node_indices: Vec<usize> = (0..parts.nodes.len()).collect();
+
     let mut document = json!({
         "asset": asset(properties),
         "scene": 0,
@@ -81,11 +85,13 @@ pub(super) fn encode(
         "bufferViews": parts.views,
         "buffers": [{ "byteLength": binary_length }],
     });
+
     if !parts.materials.is_empty()
         && let Some(fields) = document.as_object_mut()
     {
         fields.insert("materials".to_owned(), Value::from(parts.materials));
     }
+
     let text = serde_json::to_vec(&document).map_err(|_| ExportError::Encoding)?;
     container(text, parts.binary)
 }
@@ -113,6 +119,7 @@ fn add_body(parts: &mut Parts, body: &MeshBody<'_>) {
         ARRAY_BUFFER,
     );
     let position_accessor = parts.accessors.len();
+
     parts.accessors.push(json!({
         "bufferView": position_view,
         "componentType": FLOAT,
@@ -131,6 +138,7 @@ fn add_body(parts: &mut Parts, body: &MeshBody<'_>) {
         ELEMENT_ARRAY_BUFFER,
     );
     let index_accessor = parts.accessors.len();
+
     parts.accessors.push(json!({
         "bufferView": index_view,
         "componentType": UNSIGNED_INT,
@@ -143,6 +151,7 @@ fn add_body(parts: &mut Parts, body: &MeshBody<'_>) {
         "indices": index_accessor,
         "mode": TRIANGLES,
     });
+
     if let Some(look) = body.look
         && let Some(fields) = primitive.as_object_mut()
     {
@@ -155,12 +164,16 @@ fn add_body(parts: &mut Parts, body: &MeshBody<'_>) {
             },
         }));
     }
+
     let mesh = parts.meshes.len();
+
     parts.meshes.push(json!({
         "name": body.name,
         "primitives": [primitive],
     }));
+
     let mut node = json!({ "name": body.name, "mesh": mesh });
+
     if !body.threads.is_empty()
         && let Some(fields) = node.as_object_mut()
     {
@@ -169,6 +182,7 @@ fn add_body(parts: &mut Parts, body: &MeshBody<'_>) {
             .iter()
             .map(|thread| thread.designation.as_str())
             .collect();
+
         fields.insert("extras".to_owned(), json!({ "threads": threads }));
     }
     parts.nodes.push(node);
@@ -194,6 +208,7 @@ fn linear(colour: Rgb) -> [f64; 4] {
 fn bounds(points: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {
     let mut minimum = [f32::INFINITY; 3];
     let mut maximum = [f32::NEG_INFINITY; 3];
+
     for point in points {
         for axis in 0..3 {
             if let (Some(low), Some(high), Some(value)) = (
@@ -211,10 +226,15 @@ fn bounds(points: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {
 
 fn push_view(parts: &mut Parts, bytes: impl Iterator<Item = u8>, target: u32) -> usize {
     let offset = parts.binary.len();
+
     parts.binary.extend(bytes);
+
     let length = parts.binary.len() - offset;
+
     pad(&mut parts.binary, 0);
+
     let view = parts.views.len();
+
     parts.views.push(json!({
         "buffer": 0,
         "byteOffset": offset,
@@ -233,11 +253,13 @@ fn pad(bytes: &mut Vec<u8>, with: u8) {
 fn container(mut text: Vec<u8>, mut binary: Vec<u8>) -> Result<Vec<u8>, ExportError> {
     pad(&mut text, b' ');
     pad(&mut binary, 0);
+
     let total = HEADER_LENGTH + 2 * CHUNK_HEADER_LENGTH + text.len() + binary.len();
     let total = u32::try_from(total).map_err(|_| ExportError::TooLarge)?;
     let text_length = u32::try_from(text.len()).map_err(|_| ExportError::TooLarge)?;
     let binary_length = u32::try_from(binary.len()).map_err(|_| ExportError::TooLarge)?;
     let mut bytes = Vec::with_capacity(total as usize);
+
     for word in [MAGIC, VERSION, total, text_length, JSON_CHUNK] {
         bytes.extend_from_slice(&word.to_le_bytes());
     }

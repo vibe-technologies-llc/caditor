@@ -27,7 +27,7 @@ const SIGNIFICANT_DIGITS: f64 = 6.0;
 const DEGENERATE_LENGTH: f64 = 1e-12;
 const UNCHANGED_SCALE: f64 = 1e-12;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ConstraintTool {
     Coincident,
     Midpoint,
@@ -50,7 +50,7 @@ pub enum ConstraintTool {
     Diameter,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum ConstraintOfferError {
     #[error("{}", .tool.selection_hint())]
     WrongSelection { tool: ConstraintTool },
@@ -70,7 +70,7 @@ pub enum ConstraintOfferError {
     AllAlreadyThere,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shape {
     Point,
     Line,
@@ -248,6 +248,7 @@ impl ConstraintTool {
         let constraints = items
             .and_then(|items| self.propose(definition, shown, &items))
             .ok_or(ConstraintOfferError::WrongSelection { tool: self })?;
+
         for constraint in &constraints {
             definition
                 .check_constraint(constraint)
@@ -437,6 +438,7 @@ fn new_relations(
             });
         }
     }
+
     let (restated, fresh): (Vec<Constraint>, Vec<Constraint>) = constraints
         .into_iter()
         .partition(|constraint| relations.restating(definition, constraint).is_some());
@@ -488,6 +490,7 @@ fn centred(items: &[Item]) -> Option<Vec<Constraint>> {
 
 fn radii(shown: &Sketch, items: &[Item]) -> Option<Vec<Constraint>> {
     let mut constraints = Vec::new();
+
     for (entity, shape) in items {
         let entity = *entity;
         match shape {
@@ -512,6 +515,7 @@ fn radii(shown: &Sketch, items: &[Item]) -> Option<Vec<Constraint>> {
                     conic: entity,
                     value: Expression::Number(0.0),
                 })?;
+
                 constraints.push(Constraint::Rho {
                     conic: entity,
                     value: Expression::Number(rounded_for_display(rho)),
@@ -539,6 +543,7 @@ fn onto_one_curve(
     let [(curve, _)] = curves.as_slice() else {
         return None;
     };
+
     if let [(first, _), (second, _)] = items {
         return Some(vec![make(*first, *second)]);
     }
@@ -557,6 +562,7 @@ fn touching(items: &[Item]) -> Option<Vec<Constraint>> {
     if let [(first, _), (second, _)] = items {
         return Some(vec![Constraint::Tangent(*first, *second)]);
     }
+
     let lines: Vec<EntityId> = items
         .iter()
         .filter(|(_, shape)| *shape == Shape::Line)
@@ -622,6 +628,7 @@ fn each_measured(
 fn fixed(definition: &Sketch, shown: &Sketch, items: &[Item]) -> Option<Vec<Constraint>> {
     let mut points: Vec<EntityId> = Vec::new();
     let mut seen: BTreeSet<EntityId> = BTreeSet::new();
+
     for (entity, shape) in items {
         let owned = match shape {
             Shape::Point => vec![*entity],
@@ -635,6 +642,7 @@ fn fixed(definition: &Sketch, shown: &Sketch, items: &[Item]) -> Option<Vec<Cons
             }
         }
     }
+
     let constraints: Vec<Constraint> = points
         .into_iter()
         .map(|point| {
@@ -647,7 +655,7 @@ fn fixed(definition: &Sketch, shown: &Sketch, items: &[Item]) -> Option<Vec<Cons
     (!constraints.is_empty()).then_some(constraints)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Mirror {
     Line(Point2, Vector2),
     Point(Point2),
@@ -685,6 +693,7 @@ fn symmetric(definition: &Sketch, shown: &Sketch, items: &[Item]) -> Option<Vec<
         .copied()
         .filter(|(entity, _)| entity.is_reference())
         .collect();
+
     if let [axis] = axes.as_slice()
         && axis.1 == Shape::Line
     {
@@ -721,6 +730,7 @@ fn mirrored(
             )
         })
     };
+
     let pairs = match (a.1, b.1) {
         (Shape::Point, Shape::Point) => vec![(a.0, b.0)],
         (Shape::Line, Shape::Line) => {
@@ -729,6 +739,7 @@ fn mirrored(
                 _ => None,
             };
             let ((a_start, a_end), (b_start, b_end)) = (ends(a.0)?, ends(b.0)?);
+
             let straight = vec![(a_start, b_start), (a_end, b_end)];
             let crossed = vec![(a_start, b_end), (a_end, b_start)];
             if error(&straight)? <= error(&crossed)? {
@@ -790,6 +801,7 @@ fn mirrored_circular(
         ) if a_center != b_center => {
             let error = off(a_center, b_center)? + (a_radius - b_radius).abs();
             let mut constraints = symmetric_pairs(&[(a_center, b_center)], about);
+
             constraints.push(Constraint::Equal(a, b));
             Some((error, constraints))
         }
@@ -812,17 +824,21 @@ fn mirrored_circular(
                     .iter()
                     .try_fold(0.0, |sum, (from, to)| Some(sum + off(*from, *to)?))
             };
+
             let (crossed_error, straight_error) = (error(&crossed)?, error(&straight)?);
+
             let (pairs, paired_error) = if crossed_error <= straight_error {
                 (crossed, crossed_error)
             } else {
                 (straight, straight_error)
             };
             let (a_arc, b_arc) = (shown.arc(a)?, shown.arc(b)?);
+
             let error = paired_error
                 + mirror.reflect(a_arc.center).distance(b_arc.center)
                 + (a_arc.radius - b_arc.radius).abs();
             let mut constraints = symmetric_pairs(&pairs, about);
+
             constraints.push(Constraint::Equal(a, b));
             Some((error, constraints))
         }
@@ -849,6 +865,7 @@ fn line_through(sketch: &Sketch, line: EntityId) -> Option<(Point2, Vector2)> {
 
 fn distance_to_line(point: Point2, (origin, direction): (Point2, Vector2)) -> f64 {
     let length = direction.length();
+
     if length < DEGENERATE_LENGTH {
         return point.distance(origin);
     }
@@ -857,6 +874,7 @@ fn distance_to_line(point: Point2, (origin, direction): (Point2, Vector2)) -> f6
 
 fn angle(shown: &Sketch, a: EntityId, b: EntityId) -> Option<Constraint> {
     let (first, second) = (shown.line_direction(a)?, shown.line_direction(b)?);
+
     let reversed = opens_backwards(shown, (a, first), (b, second));
     let from_ray = if reversed { -first } else { first };
     let signed = from_ray
@@ -876,9 +894,11 @@ fn angle_to_arc(shown: &Sketch, line: EntityId, arc: EntityId) -> Option<Constra
     let vertex = shown.angle_vertex(arc, line)?;
     let direction = shown.line_direction(line)?;
     let (start, end) = shown.line_endpoints(line)?;
+
     let reversed = ((start + end) / 2.0 - vertex).dot(direction) < 0.0;
     let line_ray = if reversed { -direction } else { direction };
     let arc_ray = shown.angle_direction(arc, line)?;
+
     let signed = line_ray
         .perp_dot(arc_ray)
         .atan2(line_ray.dot(arc_ray))
@@ -907,9 +927,11 @@ fn opens_backwards(
         return false;
     };
     let sine = first.perp_dot(second);
+
     if sine.abs() <= DEGENERATE_LENGTH * first.length() * second.length() {
         return false;
     }
+
     let vertex = a_origin + first * ((b_origin - a_origin).perp_dot(second) / sine);
     let side = |line: EntityId, direction: Vector2| {
         let middle = shown
@@ -1008,6 +1030,7 @@ pub fn rounded_to_decimals(value: f64, least_decimals: f64) -> f64 {
     if value == 0.0 || !value.is_finite() {
         return value;
     }
+
     let magnitude = value.abs().log10().floor();
     let decimals = if magnitude >= 0.0 {
         least_decimals
@@ -1110,7 +1133,9 @@ pub fn add_constraints(
         format!("Add {}", tool.label())
     };
     let mut transaction = settled_transaction(model, feature, label);
+
     projections.project(&mut transaction, feature);
+
     let constraints: Vec<ConstraintId> = constraints
         .into_iter()
         .map(|constraint| transaction.add_sketch_constraint(feature, constraint))
@@ -1121,6 +1146,7 @@ pub fn add_constraints(
         .filter(|(_, determined)| **determined)
         .map(|(id, _)| *id)
         .collect();
+
     for id in &references {
         transaction.set_sketch_constraint_active(feature, *id, false);
     }
@@ -1167,11 +1193,12 @@ pub fn remove_items(
     constraints: Vec<ConstraintId>,
 ) -> Transaction {
     let mut transaction = settled_transaction(model, feature, label);
+
     transaction.remove_sketch_items(feature, entities, constraints);
     transaction.finish()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ActivityChange {
     pub constraints: Vec<ConstraintId>,
     pub active: bool,
@@ -1185,6 +1212,7 @@ impl ActivityChange {
             .filter(|id| sketch.constraint(*id).is_some())
             .collect();
         let active = existing.iter().all(|id| !sketch.is_active(*id));
+
         let changed: Vec<ConstraintId> = existing
             .into_iter()
             .filter(|id| sketch.is_active(*id) != active)
@@ -1209,6 +1237,7 @@ impl ActivityChange {
 
     pub fn transaction(&self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Transaction {
         let mut transaction = settled_transaction(model, feature, self.label(sketch));
+
         for id in &self.constraints {
             transaction.set_sketch_constraint_active(feature, *id, self.active);
         }
@@ -1216,7 +1245,7 @@ impl ActivityChange {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConstructionChange {
     pub curves: Vec<EntityId>,
     pub construction: bool,
@@ -1234,6 +1263,7 @@ impl ConstructionChange {
             })
             .collect();
         let construction = curves.iter().any(|curve| !sketch.is_construction(*curve));
+
         let changed: Vec<EntityId> = curves
             .into_iter()
             .filter(|curve| sketch.is_construction(*curve) != construction)
@@ -1259,6 +1289,7 @@ impl ConstructionChange {
 
     pub fn transaction(&self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Transaction {
         let mut transaction = settled_transaction(model, feature, self.label(sketch));
+
         self.apply(&mut transaction, feature);
         transaction.finish()
     }
@@ -1287,6 +1318,7 @@ pub fn dimension_change(
         text,
         model.units(),
     )?;
+
     if !first_dimension_scales {
         return Ok(plain);
     }
@@ -1311,6 +1343,7 @@ fn scaled_to_first_dimension(
             || !sketch.is_active(id)
             || (other.dimension().is_none() && !matches!(other, Constraint::Fix { .. }))
     });
+
     if constraint.dimension_kind() != Some(Dimension::LENGTH)
         || !sketch.is_active(target.constraint)
         || !only_dimension
@@ -1318,12 +1351,16 @@ fn scaled_to_first_dimension(
     {
         return None;
     }
+
     let settled = model.settled_sketch(target.feature)?;
     let factor = wanted.value / settled.measured(constraint)?;
+
     if !factor.is_finite() || factor <= 0.0 || (factor - 1.0).abs() < UNCHANGED_SCALE {
         return None;
     }
+
     let mut scaled = settled.clone();
+
     for (id, entity) in settled.entities() {
         let resized = match entity {
             _ if id.is_reference() => continue,
@@ -1356,10 +1393,13 @@ fn scaled_to_first_dimension(
             },
             Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => continue,
         };
+
         scaled.replace_entity(id, resized).ok()?;
     }
+
     let mut transaction =
         document.transaction(format!("Scale {} to its first dimension", owner.name));
+
     transaction.settle_sketch(target.feature, &scaled);
     for edit in plain.edits() {
         transaction.edit(edit.clone());
@@ -1373,6 +1413,7 @@ pub fn settled_transaction(
     label: String,
 ) -> TransactionBuilder<'_> {
     let mut transaction = model.document().transaction(label);
+
     if let Some(settled) = model.settled_sketch(feature) {
         transaction.settle_sketch(feature, settled);
     }
@@ -1401,6 +1442,7 @@ mod tests {
 
     fn fixture() -> Fixture {
         let mut sketch = Sketch::new(Plane::XY);
+
         let horizontal = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(20.0, 5.0));
         let slanted = sketch.add_line(Point2::ZERO, Point2::new(10.0, 10.0));
         let Some(&Entity::Line { start, end }) = sketch.entity(slanted) else {
@@ -1438,6 +1480,7 @@ mod tests {
     #[test]
     fn several_lines_each_get_the_constraint() {
         let f = fixture();
+
         assert_eq!(
             candidates(&f, ConstraintTool::Horizontal, &[f.horizontal, f.slanted]),
             Ok(vec![
@@ -1462,6 +1505,7 @@ mod tests {
     #[test]
     fn a_constraint_the_sketch_already_has_is_refused_and_a_batch_skips_it() {
         let mut f = fixture();
+
         f.sketch
             .add_constraint(Constraint::Horizontal(f.horizontal))
             .unwrap();
@@ -1492,6 +1536,7 @@ mod tests {
     #[test]
     fn a_constraint_that_contradicts_one_in_the_sketch_is_refused() {
         let mut f = fixture();
+
         f.sketch
             .add_constraint(Constraint::Horizontal(f.horizontal))
             .unwrap();
@@ -1512,6 +1557,7 @@ mod tests {
     #[test]
     fn pairs_need_the_right_kinds_of_entity() {
         let f = fixture();
+
         assert_eq!(
             candidates(
                 &f,
@@ -1569,6 +1615,7 @@ mod tests {
     #[test]
     fn ellipses_take_tangents_and_distances_with_splines_and_other_ellipses() {
         let mut f = fixture();
+
         let ellipse = f
             .sketch
             .add_ellipse(Point2::new(0.0, 20.0), Point2::new(6.0, 20.0), 2.0);
@@ -1581,9 +1628,11 @@ mod tests {
                 candidates(&f, ConstraintTool::Tangent, &pair),
                 Ok(vec![Constraint::Tangent(pair[0], pair[1])])
             );
+
             let Ok(found) = candidates(&f, ConstraintTool::Distance, &pair) else {
                 panic!("{pair:?} take a distance");
             };
+
             assert!(
                 matches!(
                     found.as_slice(),
@@ -1603,17 +1652,21 @@ mod tests {
         let leaving = f
             .sketch
             .add_line(Point2::new(40.0, 4.0), Point2::new(40.0, 10.0));
+
         let (Some(&Entity::EllipticalArc { end, .. }), Some(&Entity::Line { start, .. })) =
             (f.sketch.entity(arc), f.sketch.entity(leaving))
         else {
             panic!("expected an elliptical arc and a line");
         };
+
         f.sketch
             .add_constraint(Constraint::Coincident(start, end))
             .unwrap();
+
         let Ok(found) = candidates(&f, ConstraintTool::Angle, &[leaving, arc]) else {
             panic!("a line leaving an elliptical arc takes an angle");
         };
+
         assert!(
             matches!(
                 found.as_slice(),
@@ -1626,6 +1679,7 @@ mod tests {
     #[test]
     fn splines_take_equal_lengths_and_distances_from_lines_and_circles() {
         let mut f = fixture();
+
         let other = f.sketch.add_spline(&[
             Point2::new(5.0, 0.0),
             Point2::new(6.0, 3.0),
@@ -1643,12 +1697,14 @@ mod tests {
             candidates(&f, ConstraintTool::Tangent, &[f.spline, other]),
             Ok(vec![Constraint::Tangent(f.spline, other)])
         );
+
         let Ok(found) = candidates(&f, ConstraintTool::Distance, &[other, f.horizontal]) else {
             panic!("a spline takes a distance from a line");
         };
         let [Constraint::Distance { from, to, value }] = found.as_slice() else {
             panic!("expected one distance, found {found:?}");
         };
+
         assert_eq!((*from, *to), (other, f.horizontal));
         assert_eq!(*value, measure(3.5, Unit::Millimetre));
         assert!(candidates(&f, ConstraintTool::Distance, &[f.circle, other]).is_ok());
@@ -1657,6 +1713,7 @@ mod tests {
     #[test]
     fn an_angle_runs_from_a_line_to_the_arc_it_shares_an_end_with() {
         let mut f = fixture();
+
         let Some(&Entity::Arc { start, .. }) = f.sketch.entity(f.arc) else {
             panic!("expected an arc");
         };
@@ -1666,6 +1723,7 @@ mod tests {
         let Some(&Entity::Line { end: joint, .. }) = f.sketch.entity(leaving) else {
             panic!("expected a line");
         };
+
         f.sketch
             .add_constraint(Constraint::Coincident(joint, start))
             .unwrap();
@@ -1685,6 +1743,7 @@ mod tests {
     #[test]
     fn coincident_perpendicular_and_tangent_take_several_items() {
         let f = fixture();
+
         assert_eq!(
             candidates(
                 &f,
@@ -1734,6 +1793,7 @@ mod tests {
     #[test]
     fn points_line_up_and_several_items_are_chained_to_the_first() {
         let f = fixture();
+
         assert_eq!(
             candidates(
                 &f,
@@ -1791,6 +1851,7 @@ mod tests {
     #[test]
     fn fixing_locks_every_point_of_the_selection_where_it_is_shown() {
         let f = fixture();
+
         assert_eq!(
             candidates(&f, ConstraintTool::Fix, &[f.slanted, f.slanted_end, f.lone]),
             Ok(vec![
@@ -1817,6 +1878,7 @@ mod tests {
     #[test]
     fn symmetry_finds_what_to_mirror_about() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let left = sketch.add_line(Point2::new(-5.0, 0.0), Point2::new(-2.0, 8.0));
         let right = sketch.add_line(Point2::new(2.1, 8.0), Point2::new(5.0, 0.2));
         let mirror = sketch.add_line(Point2::new(0.0, -1.0), Point2::new(0.0, 9.0));
@@ -1829,6 +1891,7 @@ mod tests {
             Some(&Entity::Line { start, end }) => (start, end),
             _ => panic!("expected a line"),
         };
+
         let ((left_start, left_end), (right_start, right_end)) = (ends(left), ends(right));
         let symmetric = |first, second, about| Constraint::Symmetric {
             first,
@@ -1868,6 +1931,7 @@ mod tests {
     #[test]
     fn circles_and_arcs_mirror_with_their_sizes_equal_and_no_constraint_redundant() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let left = sketch.add_circle(Point2::new(-10.0, 3.0), 2.0);
         let right = sketch.add_circle(Point2::new(11.0, 4.0), 3.0);
         let left_arc = sketch.add_arc(
@@ -1885,6 +1949,7 @@ mod tests {
         let circles = ConstraintTool::Symmetric.candidates(&sketch, &sketch, &[left, right, axis]);
         let arcs =
             ConstraintTool::Symmetric.candidates(&sketch, &sketch, &[left_arc, right_arc, axis]);
+
         for constraint in circles
             .clone()
             .unwrap()
@@ -1893,6 +1958,7 @@ mod tests {
         {
             sketch.add_constraint(constraint).unwrap();
         }
+
         let solved = sketch
             .solve(&|_| Ok(Quantity::plain(0.0)), &|| false)
             .unwrap();
@@ -1900,16 +1966,20 @@ mod tests {
         assert_eq!(circles.unwrap().len(), 2);
         assert_eq!(arcs.unwrap().len(), 3);
         assert!(solved.solution.redundancies().is_empty());
+
         let geometry = solved.geometry;
         let (left_centre, left_radius) = geometry.circle(left).unwrap();
         let (right_centre, right_radius) = geometry.circle(right).unwrap();
+
         assert!((left_centre.x + right_centre.x).abs() < 1e-7);
         assert!((left_centre.y - right_centre.y).abs() < 1e-7);
         assert!((left_radius - right_radius).abs() < 1e-7);
+
         let (left_arc, right_arc) = (
             geometry.arc(left_arc).unwrap(),
             geometry.arc(right_arc).unwrap(),
         );
+
         assert!((left_arc.center.x + right_arc.center.x).abs() < 1e-7);
         assert!((left_arc.center.y - right_arc.center.y).abs() < 1e-7);
         assert!((left_arc.radius - right_arc.radius).abs() < 1e-7);
@@ -1970,6 +2040,7 @@ mod tests {
     fn added_dimensions_start_at_the_measured_value() {
         let f = fixture();
         let mm = |value| measure(value, Unit::Millimetre);
+
         assert_eq!(
             candidates(&f, ConstraintTool::HorizontalDistance, &[f.slanted]),
             Ok(vec![Constraint::HorizontalDistance {
@@ -2106,9 +2177,11 @@ mod tests {
         };
 
         assert_eq!(*original, measure(45.0, Unit::Degree));
+
         let Expression::Measure(turned, Unit::Radian) = value else {
             panic!("expected radians");
         };
+
         assert!((turned - std::f64::consts::FRAC_PI_4).abs() < 1e-6);
         assert_eq!(in_unit(found.clone(), LengthUnit::Centimetre), found);
     }
@@ -2116,6 +2189,7 @@ mod tests {
     #[test]
     fn dimensions_start_at_the_measured_value() {
         let f = fixture();
+
         assert_eq!(
             candidates(&f, ConstraintTool::Distance, &[f.slanted]),
             Ok(vec![Constraint::Distance {
@@ -2180,6 +2254,7 @@ mod tests {
             reversed: false,
             value: measure(45.0, Unit::Degree),
         }]);
+
         assert_eq!(
             candidates(&f, ConstraintTool::Angle, &[f.horizontal, f.slanted]),
             expected
@@ -2206,11 +2281,13 @@ mod tests {
     #[test]
     fn the_angle_of_a_corner_in_a_chain_is_measured_inside_it() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let second = sketch.add_line(
             Point2::new(10.0, 0.0),
             Point2::new(5.0, 5.0 * 3.0_f64.sqrt()),
         );
+
         let found = ConstraintTool::Angle.candidates(&sketch, &sketch, &[first, second]);
         let Ok(constraints) = found else {
             panic!("two lines can take an angle");
@@ -2223,6 +2300,7 @@ mod tests {
         else {
             panic!("expected one angle");
         };
+
         assert!(*reversed);
         assert_eq!(*value, measure(60.0, Unit::Degree));
     }
@@ -2261,7 +2339,7 @@ pub const RESPACE_TITLE: &str = "Respace fit-point splines";
 pub const NOTHING_TO_UNLINK: &str =
     "Select projected or intersected geometry to keep as ordinary curves";
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum SketchChangeError {
     #[error(transparent)]
     SketchGone(#[from] SketchGone),
@@ -2301,7 +2379,7 @@ pub enum SketchChangeError {
     Respace { source: SketchError },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UnlinkChange {
     pub linked: Vec<(EntityId, ProjectionSource)>,
 }
@@ -2349,6 +2427,7 @@ impl UnlinkChange {
 
     pub fn transaction(&self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Transaction {
         let mut transaction = settled_transaction(model, feature, self.label(sketch));
+
         for (id, _) in &self.linked {
             transaction.edit(Edit::SetSketchProjection {
                 feature,
@@ -2381,7 +2460,7 @@ fn followed(document: &Document, source: &ProjectionSource) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SplinePointChange {
     pub splines: Vec<EntityId>,
     pub near: Option<EntityId>,
@@ -2398,6 +2477,7 @@ impl SplinePointChange {
             .into_iter()
             .filter(|id| matches!(sketch.entity(*id), Some(Entity::Spline { .. })))
             .collect();
+
         let near = match points.as_slice() {
             [] => None,
             [point] => {
@@ -2421,6 +2501,7 @@ impl SplinePointChange {
             }
             _ => return Err(SketchChangeError::NothingToInsert),
         };
+
         match (splines.as_slice(), near) {
             ([], _) | ([_, _, ..], Some(_)) => return Err(SketchChangeError::NothingToInsert),
             _ => {}
@@ -2440,6 +2521,7 @@ impl SplinePointChange {
     ) -> Result<Transaction, SketchChangeError> {
         trimming::reshape(model, feature, INSERT_TITLE.to_owned(), |sketch| {
             let near = self.near.and_then(|point| sketch.point(point));
+
             for spline in &self.splines {
                 sketch
                     .insert_control_point(*spline, near)
@@ -2450,13 +2532,13 @@ impl SplinePointChange {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DegreeStep {
     Raise,
     Lower,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DegreeChange {
     pub step: DegreeStep,
     pub splines: Vec<(EntityId, usize)>,
@@ -2514,7 +2596,7 @@ impl DegreeChange {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HandleChange {
     pub spline: EntityId,
     pub point: EntityId,
@@ -2530,6 +2612,7 @@ impl HandleChange {
         let [point] = points[..] else {
             return Err(SketchChangeError::NothingToHandle);
         };
+
         let holding = |spline: EntityId| {
             matches!(
                 sketch.entity(spline),
@@ -2551,6 +2634,7 @@ impl HandleChange {
         let [spline] = splines[..] else {
             return Err(SketchChangeError::NothingToHandle);
         };
+
         if sketch
             .spline_handles(spline)
             .iter()
@@ -2580,7 +2664,7 @@ impl HandleChange {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RespaceChange {
     pub splines: Vec<EntityId>,
 }
@@ -2625,7 +2709,7 @@ impl RespaceChange {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SplitChange {
     pub curve: EntityId,
     pub point: EntityId,
@@ -2638,6 +2722,7 @@ impl SplitChange {
             .copied()
             .filter(|id| !id.is_reference())
             .partition(|id| matches!(sketch.entity(*id), Some(Entity::Point(_))));
+
         let change = match (points.as_slice(), curves.as_slice()) {
             ([point], [curve]) => Self {
                 curve: *curve,
@@ -2675,6 +2760,7 @@ impl SplitChange {
             }
             _ => return Err(SketchChangeError::NothingToSplit),
         };
+
         sketch
             .check_split(change.curve, change.point)
             .map_err(SketchChangeError::Unsplittable)?;
@@ -2695,7 +2781,7 @@ impl SplitChange {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BreakChange {
     pub curves: Vec<EntityId>,
 }
@@ -2754,6 +2840,7 @@ mod degree_tests {
     #[test]
     fn raising_and_lowering_offer_the_splines_that_can_take_one_degree_more_or_less() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let control = sketch.add_spline(&wave());
         let fit = sketch.add_spline_of(&wave(), SplineKind::fit(false));
         let short = sketch.add_spline(&wave()[..4]);
@@ -2774,6 +2861,7 @@ mod degree_tests {
                 Point2::new(10.0 * angle.cos(), 10.0 * angle.sin())
             })
             .collect();
+
         let cubic = sketch.add_spline_of(&ring, SplineKind::Control { closed: true });
         let triangle = sketch.add_spline_of(&ring[..3], SplineKind::Control { closed: true });
 
@@ -2787,6 +2875,7 @@ mod degree_tests {
     #[test]
     fn nothing_selected_that_can_change_degree_says_so() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let fit = sketch.add_spline_of(&wave(), SplineKind::fit(false));
         let line = sketch.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
 

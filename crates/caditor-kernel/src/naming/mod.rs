@@ -35,7 +35,7 @@ const EDGE_OCCURRENCE: u8 = 0x13;
 const LOFTED_FACE: u8 = 0x14;
 const VERTEX_OF_FACES: u8 = 0x20;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SplitPiece {
     Inside,
     Outside,
@@ -50,7 +50,7 @@ impl SplitPiece {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FaceName(u128);
 
 impl FaceName {
@@ -70,6 +70,7 @@ impl FaceName {
 
     pub fn side(feature: u64, piece: &PieceId) -> Self {
         let mut digest = Digest::new(SIDE_FACE);
+
         digest.u64(feature);
         piece.write(&mut digest);
         Self(digest.finish())
@@ -77,6 +78,7 @@ impl FaceName {
 
     pub fn side_behind(feature: u64, piece: &PieceId) -> Self {
         let mut digest = Digest::new(SIDE_BEHIND_FACE);
+
         digest.u64(feature);
         piece.write(&mut digest);
         Self(digest.finish())
@@ -92,6 +94,7 @@ impl FaceName {
 
     pub fn blend(feature: u64, edge: EdgeName) -> Self {
         let mut digest = Digest::new(BLEND_FACE);
+
         digest.u64(feature);
         digest.u128(edge.0);
         Self(digest.finish())
@@ -99,6 +102,7 @@ impl FaceName {
 
     pub fn corner(feature: u64, vertex: VertexName) -> Self {
         let mut digest = Digest::new(CORNER_FACE);
+
         digest.u64(feature);
         digest.u128(vertex.0);
         Self(digest.finish())
@@ -106,6 +110,7 @@ impl FaceName {
 
     pub fn shell(feature: u64, original: FaceName) -> Self {
         let mut digest = Digest::new(SHELL_FACE);
+
         digest.u64(feature);
         digest.u128(original.0);
         Self(digest.finish())
@@ -113,6 +118,7 @@ impl FaceName {
 
     pub fn imported(feature: u64, index: u32) -> Self {
         let mut digest = Digest::new(IMPORTED_FACE);
+
         digest.u64(feature);
         digest.u32(index);
         Self(digest.finish())
@@ -120,6 +126,7 @@ impl FaceName {
 
     pub fn pattern(feature: u64, copy: [u32; 2], original: FaceName) -> Self {
         let mut digest = Digest::new(PATTERN_FACE);
+
         digest.u64(feature);
         for step in copy {
             digest.u32(step);
@@ -130,6 +137,7 @@ impl FaceName {
 
     pub fn split(feature: u64, original: FaceName, piece: SplitPiece) -> Self {
         let mut digest = Digest::new(SPLIT_FACE);
+
         digest.u64(feature);
         digest.u128(original.0);
         digest.byte(piece.tag());
@@ -138,9 +146,12 @@ impl FaceName {
 
     pub fn closure(feature: u64, edges: impl IntoIterator<Item = EdgeName>) -> Self {
         let mut edges: Vec<EdgeName> = edges.into_iter().collect();
+
         edges.sort_unstable();
         edges.dedup();
+
         let mut digest = Digest::new(CLOSURE_FACE);
+
         digest.u64(feature);
         digest.count(edges.len());
         for edge in edges {
@@ -151,6 +162,7 @@ impl FaceName {
 
     pub fn thread(feature: u64, part: u64) -> Self {
         let mut digest = Digest::new(THREAD_FACE);
+
         digest.u64(feature);
         digest.u64(part);
         Self(digest.finish())
@@ -158,6 +170,7 @@ impl FaceName {
 
     pub fn coil(feature: u64, part: u64) -> Self {
         let mut digest = Digest::new(COIL_FACE);
+
         digest.u64(feature);
         digest.u64(part);
         Self(digest.finish())
@@ -165,6 +178,7 @@ impl FaceName {
 
     pub fn swept(feature: u64, piece: &PieceId, path: u128, part: u8) -> Self {
         let mut digest = Digest::new(SWEPT_FACE);
+
         digest.u64(feature);
         piece.write(&mut digest);
         digest.u128(path);
@@ -174,6 +188,7 @@ impl FaceName {
 
     pub fn lofted(feature: u64, piece: &PieceId, part: u32, leg: u32) -> Self {
         let mut digest = Digest::new(LOFTED_FACE);
+
         digest.u64(feature);
         piece.write(&mut digest);
         digest.u32(part);
@@ -183,6 +198,7 @@ impl FaceName {
 
     fn cap(tag: u8, feature: u64, region: RegionKey) -> Self {
         let mut digest = Digest::new(tag);
+
         digest.u64(feature);
         digest.u128(region.digest());
         Self(digest.finish())
@@ -191,12 +207,13 @@ impl FaceName {
 
 pub(crate) fn path_bend(before: u128, after: u128) -> u128 {
     let mut digest = Digest::new(PATH_BEND);
+
     digest.u128(before);
     digest.u128(after);
     digest.finish()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VertexName(u128);
 
 impl VertexName {
@@ -210,9 +227,12 @@ impl VertexName {
 
     pub fn of_faces(faces: impl IntoIterator<Item = FaceName>) -> Self {
         let mut faces: Vec<FaceName> = faces.into_iter().collect();
+
         faces.sort_unstable();
         faces.dedup();
+
         let mut digest = Digest::new(VERTEX_OF_FACES);
+
         digest.count(faces.len());
         for face in faces {
             digest.u128(face.0);
@@ -221,7 +241,7 @@ impl VertexName {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EdgeName(u128);
 
 impl EdgeName {
@@ -246,6 +266,7 @@ impl EdgeName {
             (second, first)
         };
         let mut digest = Digest::new(EDGE_BETWEEN);
+
         digest.u128(low.0);
         digest.u128(high.0);
         Self(digest.finish())
@@ -258,6 +279,7 @@ impl EdgeName {
             Ordering::Equal => (left.min(right), left.max(right), from, to),
         };
         let mut digest = Digest::new(EDGE_BETWEEN_AT);
+
         digest.u128(left.0);
         digest.u128(right.0);
         digest.u128(from.0);
@@ -267,19 +289,21 @@ impl EdgeName {
 
     pub fn seam(face: FaceName) -> Self {
         let mut digest = Digest::new(SEAM_EDGE);
+
         digest.u128(face.0);
         Self(digest.finish())
     }
 
     pub fn occurrence(base: Self, index: u32) -> Self {
         let mut digest = Digest::new(EDGE_OCCURRENCE);
+
         digest.u128(base.0);
         digest.u32(index);
         Self(digest.finish())
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FaceOrigin {
     Side {
         feature: u64,
@@ -311,13 +335,13 @@ pub enum FaceOrigin {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FaceCopy {
     pub pattern: u64,
     pub index: [u32; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Made {
     Side { entity: u64 },
     StartCap,

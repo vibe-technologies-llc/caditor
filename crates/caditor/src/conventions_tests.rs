@@ -15,6 +15,7 @@ fn repository() -> PathBuf {
 fn files_with_extension(root: &Path, extension: &str) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut pending = vec![root.to_path_buf()];
+
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(&directory).unwrap() {
             let path = entry.unwrap().path();
@@ -37,6 +38,7 @@ fn first_rust_comment(source: &str) -> Option<usize> {
     let at = |index: usize| characters.get(index).copied();
     let mut line = 1;
     let mut index = 0;
+
     while let Some(current) = at(index) {
         match current {
             '\n' => {
@@ -72,20 +74,25 @@ fn first_rust_comment(source: &str) -> Option<usize> {
             }
             start if start.is_alphanumeric() || start == '_' => {
                 let begin = index;
+
                 while at(index).is_some_and(|inside| inside.is_alphanumeric() || inside == '_') {
                     index += 1;
                 }
+
                 let word: String = characters[begin..index].iter().collect();
                 if matches!(word.as_str(), "r" | "br" | "cr") {
                     let mut hashes = 0;
+
                     while at(index + hashes) == Some('#') {
                         hashes += 1;
                     }
                     if at(index + hashes) == Some('"') {
                         index += hashes + 1;
+
                         let closing: Vec<char> = std::iter::once('"')
                             .chain("#".repeat(hashes).chars())
                             .collect();
+
                         while index < characters.len() && !characters[index..].starts_with(&closing)
                         {
                             if characters[index] == '\n' {
@@ -106,15 +113,20 @@ fn first_rust_comment(source: &str) -> Option<usize> {
 fn first_toml_comment(source: &str) -> Option<usize> {
     let mut line = 1;
     let mut rest = source;
+
     while let Some(current) = rest.chars().next() {
         let quote = ["\"\"\"", "'''", "\"", "'"]
             .into_iter()
             .find(|quote| rest.starts_with(quote));
+
         if let Some(quote) = quote {
             rest = &rest[quote.len()..];
+
             let mut end = 0;
+
             loop {
                 let remaining = &rest[end..];
+
                 if remaining.is_empty() || remaining.starts_with(quote) {
                     break;
                 }
@@ -148,6 +160,7 @@ fn table_entries(manifest: &str, table: &str) -> Vec<String> {
         .filter(|line| !line.is_empty())
         .map(str::to_owned)
         .collect();
+
     entries.sort();
     entries
 }
@@ -176,6 +189,7 @@ fn no_source_file_or_manifest_holds_a_comment() {
         let comment = first_toml_comment(&fs::read_to_string(&path).unwrap());
         (path, comment)
     });
+
     let commented: Vec<String> = rust
         .chain(toml)
         .filter_map(|(path, line)| Some(format!("{}:{}", path.display(), line?)))
@@ -213,6 +227,7 @@ fn raw_widget_at(line: &str) -> Option<&'static str> {
 
 fn statements(text: &str) -> Vec<(usize, String)> {
     let mut joined: Vec<(usize, String)> = Vec::new();
+
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim_start();
         match joined.last_mut() {
@@ -246,7 +261,9 @@ fn buttons_outside_the_widget_kit_come_from_it() {
         .collect();
 
     assert!(raw.is_empty(), "use the widgets.rs kit instead of {raw:#?}");
+
     let split = statements("let response = ui\n    .button(title)\n    .on_hover_text(hover);");
+
     assert_eq!(split.len(), 1);
     assert_eq!(
         split
@@ -298,6 +315,7 @@ fn is_identifier_character(character: char) -> bool {
 
 fn string_end(characters: &[char], opening: usize) -> usize {
     let mut index = opening + 1;
+
     while let Some(inside) = characters.get(index) {
         match inside {
             '\\' => index += 2,
@@ -314,9 +332,11 @@ fn raw_string_end(characters: &[char], start: usize) -> Option<usize> {
         .skip(start + 1)
         .take_while(|character| **character == '#')
         .count();
+
     if characters.get(start + 1 + hashes) != Some(&'"') {
         return None;
     }
+
     let closing: Vec<char> = std::iter::once('"')
         .chain(std::iter::repeat_n('#', hashes))
         .collect();
@@ -352,6 +372,7 @@ fn literal_end(characters: &[char], start: usize) -> Option<usize> {
 fn mentions_elapsed(characters: &[char], opening: usize) -> bool {
     let mut depth = 0_usize;
     let mut index = opening;
+
     while let Some(current) = characters.get(index) {
         if let Some(end) = literal_end(characters, index) {
             index = end;
@@ -371,6 +392,7 @@ fn mentions_elapsed(characters: &[char], opening: usize) -> bool {
                     .skip(index)
                     .take_while(|character| is_identifier_character(**character))
                     .collect();
+
                 if word.contains(ELAPSED) {
                     return true;
                 }
@@ -389,6 +411,7 @@ const ELAPSED: &str = "elapsed";
 fn first_timed_assertion(source: &str) -> Option<usize> {
     let characters: Vec<char> = source.chars().collect();
     let mut index = 0;
+
     while let Some(current) = characters.get(index) {
         if let Some(end) = literal_end(&characters, index) {
             index = end;
@@ -398,6 +421,7 @@ fn first_timed_assertion(source: &str) -> Option<usize> {
             index += 1;
             continue;
         }
+
         let word: String = characters
             .iter()
             .skip(index)
@@ -405,6 +429,7 @@ fn first_timed_assertion(source: &str) -> Option<usize> {
             .collect();
         let after = index + word.chars().count();
         let is_assertion = word.starts_with("assert") || word.starts_with("debug_assert");
+
         if is_assertion
             && characters.get(after) == Some(&'!')
             && characters.get(after + 1) == Some(&'(')
@@ -415,6 +440,7 @@ fn first_timed_assertion(source: &str) -> Option<usize> {
                 .take(index)
                 .filter(|character| **character == '\n')
                 .count();
+
             return Some(line + 1);
         }
         index = after;
@@ -482,6 +508,7 @@ fn every_member_inherits_the_workspace_lints() {
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.join("Cargo.toml").exists())
         .collect();
+
     members.sort();
 
     assert!(!workspace_clippy.is_empty());
@@ -507,6 +534,7 @@ fn every_member_inherits_the_workspace_lints() {
                 .filter(|lint| lint.as_str() != PANIC_LINT)
                 .cloned()
                 .collect();
+
             assert_eq!(
                 table_entries(&manifest, "lints.clippy"),
                 without_panic,
@@ -549,16 +577,20 @@ fn rules() -> Vec<Rule> {
             Rule { name, scope, body }
         })
         .collect();
+
     rules.sort_by(|left, right| left.name.cmp(&right.name));
     rules
 }
 
 fn split_frontmatter(text: &str) -> (Vec<String>, String) {
     let mut lines = text.lines();
+
     if lines.next() != Some(FRONTMATTER_FENCE) {
         return (Vec::new(), text.to_owned());
     }
+
     let mut scope = Vec::new();
+
     for line in lines.by_ref() {
         if line == FRONTMATTER_FENCE {
             break;
@@ -660,6 +692,7 @@ fn every_rules_file_holds_its_rules_and_the_rules_table_lists_each_one() {
             .lines()
             .map(str::trim)
             .any(|line| !line.is_empty() && !line.starts_with('#'));
+
         assert!(
             rules_given,
             "{} holds nothing under its title; was it emptied by mistake?",
@@ -730,6 +763,7 @@ fn workflow_files() -> Vec<(String, String)> {
             (name, fs::read_to_string(&path).unwrap())
         })
         .collect();
+
     files.sort();
     files
 }
@@ -752,6 +786,7 @@ fn matrix_targets(workflow: &str) -> Vec<(String, String, String)> {
             )
         })
         .collect();
+
     targets.sort();
     targets
 }
@@ -765,6 +800,7 @@ fn fuzz_targets_are_listed_alike_by_files_manifest_and_ci_matrix() {
             .map(|entry| entry.unwrap().path())
             .filter_map(|path| Some(path.file_stem()?.to_string_lossy().into_owned()))
             .collect();
+
         names.sort();
         names
     };
@@ -776,6 +812,7 @@ fn fuzz_targets_are_listed_alike_by_files_manifest_and_ci_matrix() {
             .filter_map(|rest| Some(rest.strip_suffix('"')?.to_owned()))
             .filter(|name| name != "caditor-fuzz")
             .collect();
+
         names.sort();
         names
     };
@@ -821,16 +858,20 @@ fn every_action_is_pinned_by_commit_with_its_version_in_the_step_name() {
             let Some(used) = line.strip_prefix("uses: ") else {
                 continue;
             };
+
             if used.starts_with("./") {
                 continue;
             }
+
             let (action, commit) = used
                 .split_once('@')
                 .unwrap_or_else(|| panic!("{file}: {used} names no commit"));
+
             assert!(
                 commit.len() == COMMIT_LENGTH && commit.chars().all(|c| c.is_ascii_hexdigit()),
                 "{file}: {used} is not pinned by a full commit"
             );
+
             let step_name = lines
                 .get(..index)
                 .unwrap()
@@ -838,6 +879,7 @@ fn every_action_is_pinned_by_commit_with_its_version_in_the_step_name() {
                 .rev()
                 .find_map(|earlier| earlier.strip_prefix("- name: "))
                 .unwrap_or_else(|| panic!("{file}: {used} has no step name"));
+
             assert!(
                 step_name.contains(&format!("({action} v")),
                 "{file}: the step '{step_name}' does not name {action}'s version"
@@ -882,6 +924,7 @@ fn without_literals(source: &str) -> String {
     let characters: Vec<char> = source.chars().collect();
     let mut code = String::new();
     let mut index = 0;
+
     while let Some(current) = characters.get(index) {
         match literal_end(&characters, index) {
             Some(end) => {
@@ -900,16 +943,19 @@ fn without_literals(source: &str) -> String {
 fn without_test_items(code: &str) -> String {
     let mut kept = Vec::new();
     let mut lines = code.lines();
+
     while let Some(line) = lines.next() {
         if line.trim() != "#[cfg(test)]" {
             kept.push(line);
             continue;
         }
+
         let mut depth = 0_i64;
         let mut opened = false;
         for skipped in lines.by_ref() {
             let opening = skipped.matches('{').count();
             let closing = skipped.matches('}').count();
+
             depth += i64::try_from(opening).unwrap() - i64::try_from(closing).unwrap();
             opened |= opening > 0;
             if (opened && depth <= 0) || (!opened && skipped.trim_end().ends_with(';')) {
@@ -927,6 +973,7 @@ fn flattened(code: &str) -> String {
 fn generic_arguments(code: &str, opening: usize) -> Option<&str> {
     let mut depth = 0_usize;
     let mut previous = ' ';
+
     for (offset, character) in code.get(opening..)?.char_indices() {
         match character {
             '<' => depth += 1,
@@ -946,6 +993,7 @@ fn generic_arguments(code: &str, opening: usize) -> Option<&str> {
 fn last_argument(arguments: &str) -> Option<&str> {
     let mut depth = 0_usize;
     let mut last = None;
+
     for (offset, character) in arguments.char_indices() {
         match character {
             '<' | '(' | '[' => depth += 1,

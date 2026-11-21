@@ -44,6 +44,7 @@ fn hyperbola(
             return Err(GeometryError::BelowResolution(size));
         }
     }
+
     let point = |cosh: f64, sinh: f64| {
         frame.origin() + frame.x_axis() * (semi_axis * cosh) + frame.y_axis() * (imaginary * sinh)
     };
@@ -51,14 +52,17 @@ fn hyperbola(
     let segments = (2.0 * reach / MAX_HYPERBOLA_SPAN)
         .ceil()
         .clamp(1.0, MAX_HYPERBOLA_SEGMENTS) as usize;
+
     let step = 2.0 * reach / segments as f64;
     let half = 0.5 * step;
     let mut points = Vec::with_capacity(2 * segments + 1);
     let mut weights = Vec::with_capacity(2 * segments + 1);
     let mut knots = vec![-reach; 3];
+
     for index in 0..segments {
         let start = -reach + step * index as f64;
         let middle = start + half;
+
         points.push(point(start.cosh(), start.sinh()));
         weights.push(1.0);
         points.push(point(
@@ -66,7 +70,9 @@ fn hyperbola(
             middle.sinh() / half.cosh(),
         ));
         weights.push(half.cosh());
+
         let end = start + step;
+
         knots.extend(if index + 1 == segments {
             vec![end; 3]
         } else {
@@ -82,6 +88,7 @@ fn parabola(frame: &Plane, focal: f64) -> Result<BSpline<Point3>, GeometryError>
     if focal.is_nan() || focal <= 0.0 {
         return Err(GeometryError::NonPositive(focal));
     }
+
     let reach = (MODEL_EXTENT / focal)
         .sqrt()
         .max(MODEL_EXTENT / (2.0 * focal))
@@ -89,8 +96,10 @@ fn parabola(frame: &Plane, focal: f64) -> Result<BSpline<Point3>, GeometryError>
     let point = |t: f64| {
         frame.origin() + frame.x_axis() * (focal * t * t) + frame.y_axis() * (2.0 * focal * t)
     };
+
     let start = point(-reach);
     let tangent = frame.x_axis() * (-2.0 * focal * reach) + frame.y_axis() * (2.0 * focal);
+
     let middle = start + tangent * reach;
     BSpline::new(
         2,
@@ -109,6 +118,7 @@ fn sampled(curve: &Curve, range: Interval) -> Vec<Point3> {
 fn polyline(id: u64, points: Vec<Point3>) -> Read<Curve> {
     let mut knots = vec![0.0, 0.0];
     let mut travelled = 0.0;
+
     for pair in points.windows(2) {
         if let [a, b] = pair {
             travelled += a.distance(*b);
@@ -123,6 +133,7 @@ fn polyline(id: u64, points: Vec<Point3>) -> Read<Curve> {
 
 fn spline_degree(value: i64, id: u64) -> Read<usize> {
     let degree = usize::try_from(value).map_err(|_| Problem::new(id, Fault::NegativeDegree))?;
+
     if degree > MAX_SPLINE_DEGREE {
         return Err(Problem::new(
             id,
@@ -135,7 +146,7 @@ fn spline_degree(value: i64, id: u64) -> Read<usize> {
     Ok(degree)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct Work(Arc<AtomicUsize>);
 
 impl Work {
@@ -162,7 +173,7 @@ impl Work {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Crossings {
     Checked,
     Trusted,
@@ -209,12 +220,14 @@ impl<'a> Geometry<'a> {
 
     fn point_at(&self, id: u64, depth: usize) -> Read<Point3> {
         let entity = self.graph.entity(id)?;
+
         if entity.kind() != "POINT_REPLICA" {
             return self.cartesian_point(id);
         }
         if depth > MAX_CURVE_DEPTH {
             return Err(Problem::new(id, Fault::SelfReference));
         }
+
         let fields = entity.record("POINT_REPLICA")?;
         let parent = self.point_at(fields.reference(1)?, depth + 1)?;
         Ok(self
@@ -226,6 +239,7 @@ impl<'a> Geometry<'a> {
         let fields = self.graph.entity(id)?.record("CARTESIAN_POINT")?;
         let coordinates = fields.reals(1)?;
         let coordinate = |index: usize| coordinates.get(index).copied().unwrap_or(0.0);
+
         if coordinates.len() < 2 {
             return Err(Problem::new(id, Fault::NotAPoint));
         }
@@ -245,6 +259,7 @@ impl<'a> Geometry<'a> {
         let fields = self.graph.entity(id)?.record("VECTOR")?;
         let direction = self.direction(fields.reference(1)?)?;
         let magnitude = fields.real(2)?;
+
         if magnitude == 0.0 {
             return Err(Problem::new(id, Fault::ZeroVector));
         }
@@ -258,6 +273,7 @@ impl<'a> Geometry<'a> {
             Some(axis) => self.direction(axis)?,
             None => Vector3::Z,
         };
+
         let reference = match fields.optional_reference(3) {
             Some(reference) => self.direction(reference)?,
             None => {
@@ -292,7 +308,9 @@ impl<'a> Geometry<'a> {
             return Err(Problem::new(id, Fault::SelfReference));
         }
         self.charge(id)?;
+
         let built = self.build_curve(id, depth);
+
         if built.is_ok() || depth == 0 {
             self.curves.borrow_mut().insert(id, built.clone());
         }
@@ -365,6 +383,7 @@ impl<'a> Geometry<'a> {
                     .collect::<Read<Vec<Point3>>>()?;
                 let mut knots = vec![0.0];
                 let mut travelled = 0.0;
+
                 for pair in points.windows(2) {
                     if let [a, b] = pair {
                         travelled += a.distance(*b);
@@ -394,17 +413,21 @@ impl<'a> Geometry<'a> {
             Err(_) => entity.record("COMPOSITE_CURVE")?.references(0)?,
         };
         let mut points: Vec<Point3> = Vec::new();
+
         for segment in segments {
             let fields = self.graph.entity(segment)?.fields()?;
             let same_sense = fields.logical(1)?;
             let mut piece = self.piece(fields.reference(2)?, depth + 1)?;
+
             if !same_sense {
                 piece.reverse();
             }
+
             let joined = points
                 .last()
                 .zip(piece.first())
                 .is_some_and(|(last, first)| last.distance(*first) <= self.units.uncertainty());
+
             points.extend(piece.into_iter().skip(usize::from(joined)));
         }
         polyline(id, points)
@@ -415,19 +438,24 @@ impl<'a> Geometry<'a> {
             return Err(Problem::new(id, Fault::SelfReference));
         }
         self.charge(id)?;
+
         let entity = self.graph.entity(id)?;
+
         if entity.kind() != "TRIMMED_CURVE" {
             let curve = self.curve_at(id, depth)?;
             let range = curve
                 .domain()
                 .bounded()
                 .ok_or_else(|| Problem::new(id, Fault::PieceOfEndlessCurve))?;
+
             return Ok(sampled(&curve, range));
         }
+
         let fields = entity.record("TRIMMED_CURVE")?;
         let basis_id = fields.reference(1)?;
         let curve = self.curve_at(basis_id, depth + 1)?;
         let scale = self.parameter_scale(basis_id)?;
+
         let trim = |index: usize| -> Read<f64> {
             let options = fields.list(index)?;
             let by_point = options
@@ -451,20 +479,24 @@ impl<'a> Geometry<'a> {
         };
         let (first, second) = (trim(2)?, trim(3)?);
         let forward = fields.logical(4)?;
+
         let (low, mut high) = if forward {
             (first, second)
         } else {
             (second, first)
         };
+
         if let Some(period) = curve.period() {
             high = low + (high - low).rem_euclid(period);
             if high - low <= period * 1e-12 {
                 high = low + period;
             }
         }
+
         let range =
             Interval::new(low, high).ok_or_else(|| Problem::new(id, Fault::TrimmedToNothing))?;
         let mut points = sampled(&curve, range);
+
         if !forward {
             points.reverse();
         }
@@ -473,9 +505,11 @@ impl<'a> Geometry<'a> {
 
     fn hyperbola_point(&self, basis: u64, parameter: f64) -> Read<Option<Point3>> {
         let entity = self.graph.entity(basis)?;
+
         if entity.kind() != "HYPERBOLA" {
             return Ok(None);
         }
+
         let fields = entity.record("HYPERBOLA")?;
         let frame = self.placement(fields.reference(1)?)?;
         let (semi_axis, imaginary) = (self.length(&fields, 2)?, self.length(&fields, 3)?);
@@ -498,6 +532,7 @@ impl<'a> Geometry<'a> {
             "CURVE_REPLICA" => {
                 let fields = entity.record("CURVE_REPLICA")?;
                 let parent = fields.reference(1)?;
+
                 let stretch = match self.graph.entity(parent)?.kind() {
                     "LINE" => self.transformation(basis, fields.reference(2)?)?.scale(),
                     _ => 1.0,
@@ -514,6 +549,7 @@ impl<'a> Geometry<'a> {
         let basis = self.curve_at(fields.reference(1)?, depth + 1)?;
         let distance = self.length(&fields, 2)?;
         let reference = self.direction(fields.reference(4)?)?;
+
         let offset = |parameter: f64| {
             let tangent = basis.evaluate(parameter).first;
             tangent
@@ -521,13 +557,16 @@ impl<'a> Geometry<'a> {
                 .try_normalize()
                 .map(|side| basis.point(parameter) + side * distance)
         };
+
         if let Curve::Line(line) = &basis {
             let shifted =
                 offset(0.0).ok_or_else(|| Problem::new(id, Fault::OffsetAlongOwnDirection))?;
+
             return Ok(Line::new(shifted, line.direction())
                 .map_err(|error| Problem::new(id, Fault::UnusableCurve(error)))?
                 .into());
         }
+
         let range = basis
             .domain()
             .bounded()
@@ -546,10 +585,12 @@ impl<'a> Geometry<'a> {
     fn spline_curve(&self, entity: Entity<'_>) -> Read<BSpline<Point3>> {
         let id = entity.id;
         let mismatched = || Problem::new(id, Fault::KnotsMismatch);
+
         let (degree, points, knots) = match entity.fields() {
             Ok(fields) => {
                 let degree = spline_degree(fields.integer(1)?, id)?;
                 let points = fields.references(2)?;
+
                 let knots = match entity.kind() {
                     "B_SPLINE_CURVE_WITH_KNOTS" => {
                         let multiplicities: Vec<i64> = fields
@@ -571,6 +612,7 @@ impl<'a> Geometry<'a> {
                 let curve = entity.record("B_SPLINE_CURVE")?;
                 let degree = spline_degree(curve.integer(0)?, id)?;
                 let points = curve.references(1)?;
+
                 let knots = if let Some(with_knots) = entity.find("B_SPLINE_CURVE_WITH_KNOTS") {
                     let multiplicities: Vec<i64> = with_knots
                         .list(0)?
@@ -596,12 +638,14 @@ impl<'a> Geometry<'a> {
             .into_iter()
             .map(|point| self.point(point))
             .collect::<Read<Vec<Point3>>>()?;
+
         let homogeneous = homogeneous(&points, weights.as_deref())
             .ok_or_else(|| Problem::new(id, Fault::WeightsMismatchPoints))?;
         let (knots, homogeneous) = clamp(degree, &knots, &homogeneous)
             .ok_or_else(|| Problem::new(id, Fault::KnotsMisfitPoints))?;
         let (points, weights) =
             cartesian(&homogeneous).ok_or_else(|| Problem::new(id, Fault::WeightsNotPositive))?;
+
         let built = if weights.iter().all(|weight| *weight == 1.0) {
             BSpline::new(degree, knots, points)
         } else {
@@ -622,7 +666,9 @@ impl<'a> Geometry<'a> {
             return Err(Problem::new(id, Fault::SelfReference));
         }
         self.charge(id)?;
+
         let built = self.build_surface(id, depth);
+
         if built.is_ok() || depth == 0 {
             self.surfaces.borrow_mut().insert(id, built.clone());
         }
@@ -670,15 +716,19 @@ impl<'a> Geometry<'a> {
                 let major = self.length(&fields, 2)?;
                 let minor = self.length(&fields, 3)?;
                 let uncertainty = self.units.uncertainty();
+
                 if minor < major - uncertainty {
                     return Ok(Torus::new(frame, major, minor).map_err(kernel)?.into());
                 }
+
                 let outer = fields.logical(4)?;
                 let pole_height = (minor * minor - major * major).max(0.0).sqrt();
                 let horn = pole_height <= uncertainty;
+
                 if horn && !outer {
                     return Err(Problem::new(id, Fault::HornInside));
                 }
+
                 let minor = if horn { major } else { minor };
                 Ok(spindle(&frame, major, minor, outer).map_err(kernel)?.into())
             }
@@ -715,6 +765,7 @@ impl<'a> Geometry<'a> {
                 let basis_id = fields.reference(1)?;
                 let basis = self.surface_at(basis_id, depth + 1)?;
                 let reversed = self.reversed(basis_id);
+
                 let distance = self.length(&fields, 2)? * if reversed { -1.0 } else { 1.0 };
                 let charge = |amount: usize| {
                     self.work
@@ -725,8 +776,10 @@ impl<'a> Geometry<'a> {
                     tolerance: self.units.uncertainty(),
                     charge: &charge,
                 };
+
                 let surface = offset(&basis, distance, &fit)
                     .map_err(|refusal| Problem::new(id, Fault::Offset(refusal)))?;
+
                 self.follow_sense(id, reversed);
                 Ok(surface)
             }
@@ -735,7 +788,9 @@ impl<'a> Geometry<'a> {
                 let parent_id = fields.reference(1)?;
                 let parent = self.surface_at(parent_id, depth + 1)?;
                 let similarity = self.transformation(id, fields.reference(2)?)?;
+
                 let (surface, sense) = parent.similar(&similarity).map_err(kernel)?;
+
                 self.follow_sense(id, self.reversed(parent_id) != (sense == Sense::Reversed));
                 Ok(surface)
             }
@@ -743,6 +798,7 @@ impl<'a> Geometry<'a> {
                 let fields = entity.record("RECTANGULAR_TRIMMED_SURFACE")?;
                 let basis_id = fields.reference(1)?;
                 let surface = self.surface_at(basis_id, depth + 1)?;
+
                 self.follow_sense(id, self.reversed(basis_id));
                 Ok(surface)
             }
@@ -775,25 +831,30 @@ fn spindle(
         |angle: f64| center + (frame.x_axis() * angle.cos() + frame.normal() * angle.sin()) * minor;
     let range = Interval::new(-reach, reach).ok_or(GeometryError::NonFinite)?;
     let pieces = (range.length() / FRAC_PI_2).ceil().max(1.0) as usize;
+
     let step = range.length() / pieces as f64;
     let weight = (0.5 * step).cos();
     let mut points = Vec::with_capacity(2 * pieces + 1);
     let mut weights = Vec::with_capacity(2 * pieces + 1);
     let mut knots = vec![0.0; 3];
+
     for index in 0..pieces {
         let angle = range.start() + step * index as f64;
+
         points.push(point(angle));
         weights.push(1.0);
         points.push(center + (point(angle + 0.5 * step) - center) / weight);
         weights.push(weight);
         if index > 0 {
             let knot = index as f64 / pieces as f64;
+
             knots.extend([knot, knot]);
         }
     }
     points.push(point(range.end()));
     weights.push(1.0);
     knots.extend([1.0; 3]);
+
     let profile = BSpline::rational(2, knots, points, weights)?;
     Revolution::new(Curve::BSpline(profile), frame.origin(), frame.normal())
 }
@@ -825,6 +886,7 @@ impl Geometry<'_> {
                     )
                 }
             };
+
         let rows = fields.list(grid_index)?;
         let grid: Vec<Vec<u64>> = rows
             .iter()
@@ -836,9 +898,11 @@ impl Geometry<'_> {
             .collect::<Read<_>>()?;
         let columns = grid.len();
         let count = grid.first().map_or(0, Vec::len);
+
         if count == 0 || grid.iter().any(|row| row.len() != count) {
             return Err(Problem::new(id, Fault::RowsDiffer));
         }
+
         let kind = entity.kind();
         let explicit_knots =
             kind == "B_SPLINE_SURFACE_WITH_KNOTS" || entity.is("B_SPLINE_SURFACE_WITH_KNOTS");
@@ -854,6 +918,7 @@ impl Geometry<'_> {
                 let mismatched = || Problem::new(id, Fault::KnotsMismatch);
                 let u_expected = knot_count(columns, u_degree).ok_or_else(mismatched)?;
                 let v_expected = knot_count(count, v_degree).ok_or_else(mismatched)?;
+
                 let u = expand_knots(
                     &integers(knot_offset)?,
                     &knots.reals(knot_offset + 2)?,
@@ -902,6 +967,7 @@ impl Geometry<'_> {
             None => None,
         };
         let mut rows_by_v: Vec<Vec<Homogeneous>> = vec![Vec::with_capacity(columns); count];
+
         for (u_index, row) in grid.iter().enumerate() {
             for (v_index, point) in row.iter().enumerate() {
                 let point = self.point(*point)?;
@@ -912,6 +978,7 @@ impl Geometry<'_> {
                         .ok_or_else(|| Problem::new(id, Fault::WeightsMismatchPoints))?,
                     None => 1.0,
                 };
+
                 if weight.is_nan() || weight <= 0.0 {
                     return Err(Problem::new(id, Fault::WeightsNotPositive));
                 }
@@ -920,35 +987,44 @@ impl Geometry<'_> {
                 }
             }
         }
+
         let unusable = || Problem::new(id, Fault::KnotsMisfitPoints);
         let mut u_clamped_knots = None;
         let mut clamped_rows = Vec::with_capacity(rows_by_v.len());
+
         for row in &rows_by_v {
             let (knots, row) = clamp(u_degree, &u_knots, row).ok_or_else(unusable)?;
+
             u_clamped_knots = Some(knots);
             clamped_rows.push(row);
         }
+
         let u_knots = u_clamped_knots.ok_or_else(unusable)?;
         let columns = clamped_rows.first().map_or(0, Vec::len);
         let mut clamped_columns = Vec::with_capacity(columns);
         let mut v_clamped_knots = None;
+
         for column in 0..columns {
             let values: Vec<Homogeneous> = clamped_rows
                 .iter()
                 .filter_map(|row| row.get(column).copied())
                 .collect();
             let (knots, values) = clamp(v_degree, &v_knots, &values).ok_or_else(unusable)?;
+
             v_clamped_knots = Some(knots);
             clamped_columns.push(values);
         }
+
         let v_knots = v_clamped_knots.ok_or_else(unusable)?;
         let rows = clamped_columns.first().map_or(0, Vec::len);
         let mut homogeneous_points = Vec::with_capacity(rows * columns);
+
         for row in 0..rows {
             for column in &clamped_columns {
                 homogeneous_points.push(*column.get(row).ok_or_else(unusable)?);
             }
         }
+
         let (points, weights) = cartesian(&homogeneous_points)
             .ok_or_else(|| Problem::new(id, Fault::WeightsNotPositive))?;
         let weights = weights
@@ -991,6 +1067,7 @@ pub(crate) fn homogeneous(points: &[Point3], weights: Option<&[f64]>) -> Option<
 pub(crate) fn cartesian(points: &[Homogeneous]) -> Option<(Vec<Point3>, Vec<f64>)> {
     let mut cartesian = Vec::with_capacity(points.len());
     let mut weights = Vec::with_capacity(points.len());
+
     for [x, y, z, weight] in points {
         if weight.is_nan() || *weight <= 0.0 {
             return None;
@@ -1023,6 +1100,7 @@ mod tests {
             let range = curve.domain().bounded().unwrap();
             let far =
                 [range.start(), range.end()].map(|end| curve.point(end).distance(frame.origin()));
+
             assert!(
                 far.iter().all(|reach| *reach >= MODEL_EXTENT * 0.99),
                 "{far:?}"
@@ -1030,12 +1108,14 @@ mod tests {
             for index in 0..=400 {
                 let local = frame.to_local(curve.point(range.at(index as f64 / 400.0)));
                 let scale = 1.0 + local.length();
+
                 assert!(
                     on_conic(local.x, local.y).abs() < 1e-9 * scale * scale,
                     "{local}"
                 );
             }
         }
+
         assert!(hyperbola(&frame, 0.0, 3.0).is_err());
         assert!(hyperbola(&frame, 3.0, f64::NAN).is_err());
         assert!(parabola(&frame, -1.0).is_err());
@@ -1055,6 +1135,7 @@ mod tests {
                 GeometryError::BelowResolution(tiny)
             );
         }
+
         assert!(hyperbola(&frame, LINEAR_RESOLUTION, LINEAR_RESOLUTION).is_ok());
     }
 
@@ -1062,7 +1143,9 @@ mod tests {
     fn spline_degrees_above_the_kernel_limit_are_refused_before_any_work() {
         assert_eq!(spline_degree(3, 7), Ok(3));
         assert_eq!(spline_degree(25, 7), Ok(25));
+
         let refused = spline_degree(26, 7).unwrap_err();
+
         assert!(refused.to_string().contains("up to degree 25"), "{refused}");
         assert!(spline_degree(1_000_000_000, 7).is_err());
         assert!(spline_degree(-1, 7).is_err());

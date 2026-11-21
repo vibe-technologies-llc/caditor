@@ -36,6 +36,7 @@ fn polygon(outline: &GearOutline) -> Vec<Point2> {
         .iter()
         .flat_map(|piece| {
             let mut points = piece.faceted(Faceting::within(2e-3));
+
             points.pop();
             points
         })
@@ -44,6 +45,7 @@ fn polygon(outline: &GearOutline) -> Vec<Point2> {
 
 fn inside(polygon: &[Point2], point: Point2) -> bool {
     let mut inside = false;
+
     for (a, b) in polygon.iter().zip(polygon.iter().cycle().skip(1)) {
         if (a.y > point.y) != (b.y > point.y)
             && point.x < a.x + (point.y - a.y) / (b.y - a.y) * (b.x - a.x)
@@ -138,6 +140,7 @@ fn the_teeth_mesh_touching_without_overlapping_in_every_turn_of_the_pair() {
 fn turned_a_tooth_off_the_mesh_the_gears_would_collide() {
     let pair = pair(20, 30);
     let centre = Point2::ZERO;
+
     let driver = pair.driver.outline_turned(centre, 0.0).unwrap();
     let wrong = pair
         .partner()
@@ -175,6 +178,7 @@ fn a_partner_that_cannot_be_cut_is_refused_naming_it() {
     let GearError::Partner(inner) = &error else {
         panic!("{error:?}");
     };
+
     assert!(matches!(**inner, GearError::Undercut { teeth: 10, .. }));
     assert!(
         error

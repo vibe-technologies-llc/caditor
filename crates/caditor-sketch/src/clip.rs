@@ -12,7 +12,7 @@ use crate::{
     text::Text,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SketchClip {
     entities: BTreeMap<EntityId, Entity>,
     construction: BTreeSet<EntityId>,
@@ -21,7 +21,7 @@ pub struct SketchClip {
     gears: Vec<Gear>,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ClipError {
     #[error("no sketch geometry is selected")]
     NothingSelected,
@@ -112,6 +112,7 @@ impl Sketch {
         let mut entities = BTreeMap::new();
         let mut texts = Vec::new();
         let mut gears = Vec::new();
+
         for item in items.iter().filter(|item| !item.is_reference()) {
             if let Some(text) = self.text(*item)
                 && let Some(anchor) = self.entity(text.anchor)
@@ -132,9 +133,11 @@ impl Sketch {
                 gears.push(gear.clone());
                 continue;
             }
+
             let Some(entity) = self.entity(*item) else {
                 continue;
             };
+
             for point in entity.points() {
                 if let Some(defined) = self.entity(point) {
                     entities.insert(point, defined.clone());
@@ -145,6 +148,7 @@ impl Sketch {
         if entities.is_empty() {
             return Err(ClipError::NothingSelected);
         }
+
         let construction = entities
             .keys()
             .copied()
@@ -176,15 +180,18 @@ impl Sketch {
     ) -> Result<Vec<EntityId>, ClipError> {
         let mut working = self.clone();
         let mut renamed = BTreeMap::new();
+
         for (old, entity) in &clip.entities {
             if let Entity::Point(position) = entity {
                 renamed.insert(*old, working.add_point(*position + offset));
             }
         }
+
         let rename = |renamed: &BTreeMap<EntityId, EntityId>, id: EntityId| {
             renamed.get(&id).copied().unwrap_or(id)
         };
         let mut curves = Vec::new();
+
         for (old, entity) in &clip.entities {
             let moved = match entity {
                 Entity::Point(_) => continue,
@@ -213,6 +220,7 @@ impl Sketch {
                 }
             };
             let id = EntityId::from_raw(working.next_id());
+
             working.insert_entity(id, moved)?;
             if clip.construction.contains(old) {
                 working.set_construction(id, true)?;
@@ -222,10 +230,13 @@ impl Sketch {
         }
         for (constraint, active) in &clip.constraints {
             let mut moved = constraint.with_entities_mapped(|entity| rename(&renamed, entity));
+
             if let Constraint::Fix { at, .. } = &mut moved {
                 *at += offset;
             }
+
             let id = ConstraintId::from_raw(working.next_id());
+
             working.insert_constraint(id, moved)?;
             if !active {
                 working.set_active(id, false)?;
@@ -236,6 +247,7 @@ impl Sketch {
                 anchor: rename(&renamed, text.anchor),
                 ..text.clone()
             })?;
+
             curves.push(id);
         }
         for gear in &clip.gears {
@@ -243,9 +255,11 @@ impl Sketch {
                 centre: rename(&renamed, gear.centre),
                 ..gear.clone()
             })?;
+
             curves.push(id);
         }
         *self = working;
+
         let lone = clip.lone_points().map(|point| rename(&renamed, point));
         Ok(curves.into_iter().chain(lone).collect())
     }
@@ -262,6 +276,7 @@ mod tests {
     #[test]
     fn a_copied_text_is_pasted_on_a_copy_of_its_point() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let anchor = sketch.add_point(Point2::new(1.0, 2.0));
         let text = sketch
             .add_text(Text {
@@ -303,11 +318,14 @@ mod tests {
     #[test]
     fn a_pasted_copy_keeps_its_shape_and_the_constraints_among_its_geometry() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let circle = sketch.add_circle(Point2::new(5.0, 5.0), 2.0);
         let (start, end) = ends(&sketch, line);
+
         sketch.set_construction(circle, true).unwrap();
         sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+
         let length = sketch
             .add_constraint(Constraint::Distance {
                 from: start,
@@ -315,6 +333,7 @@ mod tests {
                 value: Expression::Measure(10.0, Unit::Millimetre),
             })
             .unwrap();
+
         sketch.set_active(length, false).unwrap();
         sketch
             .add_constraint(Constraint::Fix {
@@ -330,6 +349,7 @@ mod tests {
             .unwrap();
 
         let clip = sketch.clip(&[line, EntityId::HORIZONTAL_AXIS]).unwrap();
+
         assert_eq!(clip.curve_count(), 1);
         assert_eq!(clip.constraint_count(), 3);
         assert_eq!(clip.centre(), Some(Point2::new(5.0, 0.0)));
@@ -342,13 +362,16 @@ mod tests {
         let [copy] = pasted[..] else {
             panic!("one line should be pasted, got {pasted:?}");
         };
+
         assert_ne!(copy, line);
         assert_eq!(
             sketch.line_endpoints(copy),
             Some((Point2::new(0.0, 20.0), Point2::new(10.0, 20.0)))
         );
         assert_eq!(sketch.constraints().len(), before + 3);
+
         let (copy_start, _) = ends(&sketch, copy);
+
         assert!(sketch.constraints().any(|(id, constraint)| {
             matches!(constraint, Constraint::Distance { from, .. } if *from == copy_start)
                 && !sketch.is_active(id)
@@ -366,6 +389,7 @@ mod tests {
         let [round] = pasted[..] else {
             panic!("one circle should be pasted");
         };
+
         assert!(sketch.is_construction(round));
         assert_eq!(sketch.circle(round), Some((Point2::new(6.0, 5.0), 2.0)));
     }
@@ -373,18 +397,23 @@ mod tests {
     #[test]
     fn lone_points_paste_too_and_reference_geometry_is_never_copied() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let point = sketch.add_point(Point2::new(3.0, 4.0));
 
         assert_eq!(
             sketch.clip(&[EntityId::ORIGIN, EntityId::VERTICAL_AXIS]),
             Err(ClipError::NothingSelected)
         );
+
         let clip = sketch.clip(&[point]).unwrap();
+
         assert_eq!(clip.lone_point_count(), 1);
+
         let pasted = sketch.paste(&clip, Vector2::new(1.0, 1.0)).unwrap();
         let [copy] = pasted[..] else {
             panic!("one point should be pasted");
         };
+
         assert_eq!(sketch.point(copy), Some(Point2::new(4.0, 5.0)));
     }
 }

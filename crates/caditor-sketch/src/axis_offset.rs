@@ -20,6 +20,7 @@ impl Sketch {
         let [from, to] = constraint.entities()[..] else {
             return None;
         };
+
         let (start, end) = match (self.role(from)?, self.role(to)?) {
             (Role::Line, _) => {
                 let anchor = self.offset_anchor(to)?;
@@ -52,10 +53,12 @@ impl Sketch {
         if self.runs_along(line, along) {
             return None;
         }
+
         let direction = self.line_direction(line)?;
         let anchor = self
             .line_endpoints(line)
             .map_or(Point2::ZERO, |(start, _)| start);
+
         let reach = direction.perp_dot(anchor - through) / direction.perp_dot(along);
         Some(through + along * reach)
     }

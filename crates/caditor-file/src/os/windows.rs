@@ -40,6 +40,7 @@ pub(crate) fn hidden(options: &mut OpenOptions) -> &mut OpenOptions {
 
 pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
     let mut done = 0;
+
     while let Some(rest) = buffer.get_mut(done..).filter(|rest| !rest.is_empty()) {
         match file.seek_read(rest, offset + done as u64) {
             Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
@@ -53,6 +54,7 @@ pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::
 
 pub(crate) fn write_all_at(file: &File, buffer: &[u8], offset: u64) -> io::Result<()> {
     let mut done = 0;
+
     while let Some(rest) = buffer.get(done..).filter(|rest| !rest.is_empty()) {
         match file.seek_write(rest, offset + done as u64) {
             Ok(0) => return Err(io::Error::from(io::ErrorKind::WriteZero)),
@@ -73,6 +75,7 @@ pub(crate) fn clone_range(
 ) -> usize {
     let wanted = u64::try_from(length).unwrap_or(0);
     let mut copied = 0;
+
     match clone_whole_clusters(source, target, from, at, wanted, &mut copied) {
         Ok(()) => {}
         Err(error) => log::debug!("could not share earlier versions by block cloning: {error}"),
@@ -90,11 +93,14 @@ fn clone_whole_clusters(
 ) -> io::Result<()> {
     let cluster = caditor_windows::cluster_size(target)?;
     let total = cloning::cloneable(from, at, wanted, cluster);
+
     while *copied < total {
         let request = cloning::request_length(total - *copied, cluster);
         let start = at + *copied;
+
         let end = cloning::sized_for(start + request, cluster)
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+
         if target.metadata()?.len() < end {
             target.set_len(end)?;
         }
@@ -104,7 +110,7 @@ fn clone_whole_clusters(
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ChangeStamp {
     length: u64,
     written: u64,
@@ -121,7 +127,7 @@ impl ChangeStamp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FileKey(FileId);
 
 impl FileKey {
@@ -142,8 +148,10 @@ pub(crate) fn replace(temporary: &Path, target: &Path) -> io::Result<()> {
     if fs::symlink_metadata(target).is_err() {
         return caditor_windows::move_file_durably(temporary, target);
     }
+
     let backup = save::temporary_sibling(target)?;
     let replaced = caditor_windows::replace_file(temporary, target, &backup);
+
     settle_backup(&backup, target);
     match replaced {
         Ok(()) => Ok(()),
@@ -265,6 +273,7 @@ pub(crate) fn name_prefix(name: &OsStr, room: usize) -> OsString {
 fn wide_from_wtf8(bytes: &[u8]) -> Vec<u16> {
     let mut units = Vec::with_capacity(bytes.len());
     let mut rest = bytes;
+
     while let Some((&lead, tail)) = rest.split_first() {
         let (length, initial) = match lead {
             0x00..=0x7f => (0, u32::from(lead)),
@@ -285,6 +294,7 @@ fn wide_from_wtf8(bytes: &[u8]) -> Vec<u16> {
             rest = tail;
             continue;
         };
+
         let point = continuation
             .iter()
             .fold(initial, |point, byte| (point << 6) | u32::from(byte & 0x3f));
@@ -294,6 +304,7 @@ fn wide_from_wtf8(bytes: &[u8]) -> Vec<u16> {
             2 => point >= 0x800,
             _ => (0x1_0000..=0x10_ffff).contains(&point),
         };
+
         if shortest {
             push_point(&mut units, point);
         } else {
@@ -309,6 +320,7 @@ fn push_point(units: &mut Vec<u16>, point: u32) {
         Ok(unit) => units.push(unit),
         Err(_) => {
             let offset = point - 0x1_0000;
+
             units.extend([
                 0xd800 | (offset >> 10) as u16,
                 0xdc00 | (offset & 0x3ff) as u16,
@@ -349,7 +361,9 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let bytes: Vec<u8> = (0..16 * 4096).map(|index| (index % 251) as u8).collect();
         let source = dir.path().join("source");
+
         fs::write(&source, &bytes).unwrap();
+
         let from = File::open(&source).unwrap();
         let into = OpenOptions::new()
             .read(true)
@@ -362,8 +376,11 @@ mod tests {
 
         assert!(copied <= 8 * 4096);
         assert_eq!(copied % 4096, 0);
+
         let mut cloned = vec![0u8; copied];
+
         read_exact_at(&into, &mut cloned, 8192).unwrap();
+
         assert_eq!(cloned, bytes[4096..4096 + copied]);
     }
 
@@ -371,7 +388,9 @@ mod tests {
     fn a_clone_between_misaligned_offsets_copies_nothing() {
         let dir = tempfile::TempDir::new().unwrap();
         let source = dir.path().join("source");
+
         fs::write(&source, vec![7u8; 8 * 4096]).unwrap();
+
         let from = File::open(&source).unwrap();
         let into = tempfile::tempfile().unwrap();
 

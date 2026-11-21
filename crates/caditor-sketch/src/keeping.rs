@@ -7,7 +7,7 @@ use crate::{
 
 const SLACK: f64 = 1e-6;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct MidpointOn {
     id: ConstraintId,
     point: EntityId,
@@ -42,6 +42,7 @@ impl Sketch {
         midpoints: Vec<MidpointOn>,
     ) -> Result<Vec<MidpointOn>, SketchError> {
         let mut unsettled = Vec::new();
+
         for midpoint in midpoints {
             let Some(curve) = curves
                 .iter()
@@ -52,6 +53,7 @@ impl Sketch {
                 continue;
             };
             let on_curve = Constraint::Coincident(midpoint.point, curve);
+
             if self.holds_already(&on_curve) || self.check_constraint(&on_curve).is_err() {
                 continue;
             }
@@ -82,6 +84,7 @@ impl Sketch {
             Vec::new()
         };
         let mut ties = Vec::new();
+
         for id in tied {
             ties.push((id, self.detach_constraint(id)?));
         }
@@ -98,6 +101,7 @@ impl Sketch {
         let (Some(first_length), Some(second_length)) = lengths else {
             return Ok(());
         };
+
         if (first_length - second_length).abs() > SLACK * first_length.max(second_length).max(1.0) {
             return Ok(());
         }

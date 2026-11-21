@@ -12,7 +12,7 @@ const LOCAL_SIZE: usize = 30;
 const STORED: u16 = 0;
 const DEFLATED: u16 = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntryError {
     Missing,
     Damaged,
@@ -56,14 +56,17 @@ impl<'a> Archive<'a> {
         let count = usize::from(u16_at(bytes, end + 10)?);
         let mut at = usize_at(bytes, end + 16)?;
         let mut entries = Vec::with_capacity(count);
+
         for _ in 0..count {
             if u32_at(bytes, at)? != CENTRAL_SIGNATURE {
                 return None;
             }
+
             let name_length = usize::from(u16_at(bytes, at + 28)?);
             let extra = usize::from(u16_at(bytes, at + 30)?);
             let comment = usize::from(u16_at(bytes, at + 32)?);
             let name = bytes.get(at + CENTRAL_SIZE..at + CENTRAL_SIZE + name_length)?;
+
             entries.push(Entry {
                 name: String::from_utf8_lossy(name).into_owned(),
                 method: u16_at(bytes, at + 10)?,
@@ -100,11 +103,14 @@ impl<'a> Archive<'a> {
 
     fn packed(&self, entry: &Entry) -> Option<&'a [u8]> {
         let bytes = self.bytes;
+
         if u32_at(bytes, entry.local)? != LOCAL_SIGNATURE {
             return None;
         }
+
         let name_length = usize::from(u16_at(bytes, entry.local + 26)?);
         let extra = usize::from(u16_at(bytes, entry.local + 28)?);
+
         let start = entry.local + LOCAL_SIZE + name_length + extra;
         bytes.get(start..start.checked_add(entry.packed)?)
     }

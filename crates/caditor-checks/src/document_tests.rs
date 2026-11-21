@@ -40,8 +40,10 @@ fn budget() -> Budget {
     let polls = Arc::new(AtomicU64::new(0));
     let exhausted = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&exhausted);
+
     let token = CancelToken::new(move || {
         let spent = polls.fetch_add(1, Ordering::Relaxed) >= POLL_LIMIT;
+
         if spent {
             flag.store(true, Ordering::Relaxed);
         }
@@ -104,8 +106,10 @@ fn assert_same_evaluation(document: &Document, incremental: &Evaluation, fresh: 
                 incremental.feature(id).is_none() && fresh.feature(id).is_none(),
                 "feature {id:?} is evaluated by only one of an incremental and a fresh recompute"
             );
+
             continue;
         };
+
         assert!(
             same_state(&kept.state, &rebuilt.state) && kept.healing == rebuilt.healing,
             "feature {id:?} ends {:?} incrementally and {:?} from scratch",
@@ -119,6 +123,7 @@ fn assert_same_evaluation(document: &Document, incremental: &Evaluation, fresh: 
             );
         }
     }
+
     let standing = |evaluation: &Evaluation| {
         evaluation
             .bodies()
@@ -126,6 +131,7 @@ fn assert_same_evaluation(document: &Document, incremental: &Evaluation, fresh: 
             .map(|(body, _)| body)
             .collect::<Vec<_>>()
     };
+
     assert_eq!(
         standing(incremental),
         standing(fresh),
@@ -135,6 +141,7 @@ fn assert_same_evaluation(document: &Document, incremental: &Evaluation, fresh: 
 
 fn assert_bodies_sound(evaluation: &Evaluation) -> usize {
     let mut checked = 0;
+
     for (body, _) in evaluation.bodies() {
         if let Some(solid) = evaluation.body(body) {
             assert_sound(solid, &MeshQuality::COARSE);
@@ -152,6 +159,7 @@ fn compare_after_each_step(incremental: &mut Recompute, editor: &Editor) -> usiz
     let Some(fresh) = evaluate(&mut Recompute::default(), document) else {
         return 0;
     };
+
     assert_same_evaluation(document, &kept, &fresh);
     fresh.bodies().count()
 }
@@ -170,11 +178,13 @@ fn compare_a_run(input: &mut Unstructured) -> usize {
             bodies += compare_after_each_step(&mut incremental, editor);
         },
     );
+
     let Some(first) = evaluate(&mut Recompute::default(), editor.document()) else {
         return bodies;
     };
 
     let captured = References::capture(&first);
+
     run_steps(input, &mut editor, &captured, STEPS, |editor, _| {
         bodies += compare_after_each_step(&mut incremental, editor);
     });
@@ -199,6 +209,7 @@ fn perturb_parameters(editor: &mut Editor, incremental: &mut Recompute) -> usize
         .filter_map(|parameter| {
             let document = editor.document();
             let text = perturbed(&document.expression_text(&parameter.expression))?;
+
             let expression = document.parse(&text).ok()?;
             Some(Transaction::single(
                 "Perturb",
@@ -210,6 +221,7 @@ fn perturb_parameters(editor: &mut Editor, incremental: &mut Recompute) -> usize
         })
         .collect();
     let mut bodies = 0;
+
     for edit in edits {
         if editor.apply(edit).is_ok_and(|applied| applied) {
             bodies += compare_after_each_step(incremental, editor);
@@ -221,9 +233,11 @@ fn perturb_parameters(editor: &mut Editor, incremental: &mut Recompute) -> usize
 #[test]
 fn recomputing_after_each_step_equals_recomputing_from_scratch() {
     let mut bodies = 0;
+
     for_each_case("incremental recompute", COMPARISON_CASES, |_, input| {
         bodies += compare_a_run(input);
     });
+
     assert!(
         bodies >= FEWEST_BODIES_COMPARED,
         "only {bodies} bodies were compared, so the generators no longer reach enough"
@@ -234,27 +248,33 @@ fn recomputing_after_each_step_equals_recomputing_from_scratch() {
 fn every_input_kept_in_the_regression_folder_still_holds() {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("regressions/document");
     let mut replayed = 0;
+
     for entry in fs::read_dir(&folder).unwrap() {
         let bytes = fs::read(entry.unwrap().path()).unwrap();
+
         compare_a_run(&mut Unstructured::new(&bytes));
         replayed += 1;
     }
+
     assert!(replayed > 0, "{} holds no input", folder.display());
 }
 
 #[test]
 fn every_body_a_random_document_makes_is_valid_meshes_watertight_and_has_finite_mass() {
     let mut bodies = 0;
+
     for_each_case("sound bodies", SOUNDNESS_CASES, |_, input| {
         let mut editor = Editor::default();
 
         run_steps(input, &mut editor, &References::default(), STEPS, |_, _| {});
+
         let Some(evaluation) = evaluate(&mut Recompute::default(), editor.document()) else {
             return;
         };
 
         bodies += assert_bodies_sound(&evaluation);
     });
+
     assert!(
         bodies >= FEWEST_BODIES_SOUND,
         "only {bodies} bodies were checked, so the generators no longer reach enough"
@@ -265,13 +285,17 @@ fn every_body_a_random_document_makes_is_valid_meshes_watertight_and_has_finite_
 fn undoing_every_step_restores_the_empty_document_and_redoing_them_restores_the_last() {
     for_each_case("undo and redo", REVERSAL_CASES, |_, input| {
         let mut editor = Editor::default();
+
         run_steps(input, &mut editor, &References::default(), STEPS, |_, _| {});
+
         let last = editor.document().clone();
 
         let mut undone = 0;
+
         while editor.undo().unwrap().is_some() {
             undone += 1;
         }
+
         assert!(
             editor.document().same_content(Editor::default().document()),
             "undoing {undone} steps did not restore the empty document"
@@ -283,6 +307,7 @@ fn undoing_every_step_restores_the_empty_document_and_redoing_them_restores_the_
                 "a step could not be redone"
             );
         }
+
         assert!(
             editor.document().same_content(&last),
             "redoing {undone} steps did not restore the last document"
@@ -292,6 +317,7 @@ fn undoing_every_step_restores_the_empty_document_and_redoing_them_restores_the_
 
 fn saves_and_loads_to_the_same_content(input: &mut Unstructured) {
     let mut editor = Editor::default();
+
     run_steps(input, &mut editor, &References::default(), STEPS, |_, _| {});
 
     let bytes = caditor_file::fuzzing::save_over(editor.document(), None, 0).unwrap();

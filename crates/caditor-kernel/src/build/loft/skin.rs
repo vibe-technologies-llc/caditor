@@ -9,6 +9,7 @@ const HERMITE_DEGREE: usize = 3;
 
 fn mix(from: Homogeneous, to: Homogeneous, along: f64) -> Homogeneous {
     let mut mixed = from;
+
     for (slot, target) in mixed.iter_mut().zip(to) {
         *slot += (target - *slot) * along;
     }
@@ -25,17 +26,20 @@ fn lifted(point: Point3, weight: f64) -> Homogeneous {
 
 fn projected(point: Homogeneous) -> Result<(Point3, f64), GeometryError> {
     let [x, y, z, weight] = point;
+
     if !(weight.is_finite() && weight > 0.0) {
         return Err(GeometryError::Weight(weight));
     }
+
     let cartesian = Point3::new(x, y, z) / weight;
+
     if !cartesian.is_finite() {
         return Err(GeometryError::NonFinite);
     }
     Ok((cartesian, weight))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Beziers {
     degree: usize,
     breaks: Vec<f64>,
@@ -49,10 +53,13 @@ impl Beziers {
         let (Some(first), Some(last)) = (breakpoints.first(), breakpoints.last()) else {
             return Err(GeometryError::Knots);
         };
+
         let length = last - first;
+
         if !(length.is_finite() && length > 0.0) {
             return Err(GeometryError::Knots);
         }
+
         let interior: Vec<f64> = breakpoints
             .iter()
             .skip(1)
@@ -61,9 +68,11 @@ impl Beziers {
             .collect();
         let refined = spline.with_knots(&interior).ok_or(GeometryError::Knots)?;
         let segments = breakpoints.len() - 1;
+
         if refined.control_points().len() != segments * degree + 1 {
             return Err(GeometryError::Knots);
         }
+
         let points = refined
             .control_points()
             .iter()
@@ -120,8 +129,10 @@ impl Beziers {
 
     fn assembled(degree: usize, breaks: Vec<f64>, segments: &[Vec<Homogeneous>]) -> Self {
         let mut points = Vec::with_capacity(segments.len() * degree + 1);
+
         for (index, segment) in segments.iter().enumerate() {
             let skip = usize::from(index > 0);
+
             points.extend(segment.iter().skip(skip).copied());
         }
         Self {
@@ -136,9 +147,11 @@ impl Beziers {
         if degree <= self.degree {
             return self.clone();
         }
+
         let segments: Vec<Vec<Homogeneous>> = (0..self.segments())
             .map(|index| {
                 let mut points = self.segment(index).to_vec();
+
                 for _ in points.len()..=degree {
                     points = raised(&points);
                 }
@@ -152,6 +165,7 @@ impl Beziers {
     pub(super) fn refined(&self, breaks: &[f64]) -> Self {
         let mut kept = vec![0.0];
         let mut segments = Vec::with_capacity(self.segments());
+
         for index in 0..self.segments() {
             let (Some(start), Some(end)) = (self.breaks.get(index), self.breaks.get(index + 1))
             else {
@@ -159,11 +173,14 @@ impl Beziers {
             };
             let mut rest = self.segment(index).to_vec();
             let mut from = *start;
+
             for target in breaks {
                 if *target <= from + SAME_BREAK || *target >= end - SAME_BREAK {
                     continue;
                 }
+
                 let (before, after) = split(&rest, (target - from) / (end - from));
+
                 segments.push(before);
                 kept.push(*target);
                 rest = after;
@@ -198,10 +215,13 @@ impl Beziers {
 
 fn raised(points: &[Homogeneous]) -> Vec<Homogeneous> {
     let degree = points.len();
+
     if degree == 0 {
         return Vec::new();
     }
+
     let mut raised = Vec::with_capacity(degree + 1);
+
     for index in 0..=degree {
         let share = index as f64 / degree as f64;
         let point = match (
@@ -213,6 +233,7 @@ fn raised(points: &[Homogeneous]) -> Vec<Homogeneous> {
             (Some(before), None) => *before,
             (None, None) => continue,
         };
+
         raised.push(point);
     }
     raised
@@ -222,6 +243,7 @@ fn split(points: &[Homogeneous], at: f64) -> (Vec<Homogeneous>, Vec<Homogeneous>
     let mut level = points.to_vec();
     let mut before = Vec::with_capacity(points.len());
     let mut after = Vec::with_capacity(points.len());
+
     while let Some(first) = level.first() {
         before.push(*first);
         if let Some(last) = level.last() {
@@ -244,10 +266,13 @@ fn ends_weighted_one(points: &[Homogeneous]) -> Vec<Homogeneous> {
     let (Some(first), Some(last)) = (points.first(), points.last()) else {
         return points.to_vec();
     };
+
     let (start, end) = (first[3], last[3]);
+
     if degree == 0 || start <= 0.0 || end <= 0.0 {
         return points.to_vec();
     }
+
     let ratio = (start / end).powf_libm(1.0 / degree as f64);
     points
         .iter()
@@ -262,6 +287,7 @@ pub(super) fn compatible(curves: &[Beziers]) -> Vec<Beziers> {
         .iter()
         .flat_map(|curve| curve.breaks().iter().copied())
         .collect();
+
     breaks.sort_by(f64::total_cmp);
     breaks.dedup_by(|later, earlier| *later - *earlier <= SAME_BREAK);
     curves
@@ -285,6 +311,7 @@ pub(super) fn skinned(rows: &[Beziers], stations: &[f64]) -> Result<BSplineSurfa
     let width = first.points().len();
     let mut columns: Vec<Vec<Homogeneous>> = Vec::with_capacity(width);
     let mut knots = Vec::new();
+
     for column in 0..width {
         let data: Vec<Homogeneous> = rows
             .iter()
@@ -305,6 +332,7 @@ pub(super) fn skinned(rows: &[Beziers], stations: &[f64]) -> Result<BSplineSurfa
             .collect();
         let through = BSpline::interpolating_at(degree, stations, &spatial)?;
         let weighted = BSpline::interpolating_at(degree, stations, &weights)?;
+
         knots = through.knots().to_vec();
         columns.push(
             through
@@ -315,6 +343,7 @@ pub(super) fn skinned(rows: &[Beziers], stations: &[f64]) -> Result<BSplineSurfa
                 .collect(),
         );
     }
+
     let height = columns.first().map_or(0, Vec::len);
     let lines: Vec<Vec<Homogeneous>> = (0..height)
         .map(|row| {
@@ -336,12 +365,14 @@ fn net(
     let columns = across.points().len();
     let mut points = Vec::with_capacity(columns * lines.len());
     let mut weights = Vec::with_capacity(columns * lines.len());
+
     for line in lines {
         if line.len() != columns {
             return Err(GeometryError::DegenerateSurface);
         }
         for point in line {
             let (cartesian, weight) = projected(*point)?;
+
             points.push(cartesian);
             weights.push(weight);
         }
@@ -357,13 +388,13 @@ fn net(
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum SkinEnd {
     Natural,
     Along(Vector3),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct SkinEnds {
     pub(super) start: SkinEnd,
     pub(super) end: SkinEnd,
@@ -372,6 +403,7 @@ pub(super) struct SkinEnds {
 
 fn plus(from: Homogeneous, to: Homogeneous) -> Homogeneous {
     let mut sum = from;
+
     for (slot, added) in sum.iter_mut().zip(to) {
         *slot += added;
     }
@@ -393,6 +425,7 @@ fn quadratic_slopes(
 ) -> [Homogeneous; 3] {
     let low = slope(first, second);
     let high = slope(second, third);
+
     let bend = scaled(minus(high, low), 1.0 / (third.0 - first.0));
     [
         minus(low, scaled(bend, second.0 - first.0)),
@@ -428,12 +461,16 @@ fn end_slopes(
         ))
     };
     let last = data.len().saturating_sub(1);
+
     if ends.closed {
         let (before, point) = at(last.saturating_sub(1))?;
         let seam = at(0)?;
+
         let [_, slope, _] = quadratic_slopes((before - 1.0, point), seam, at(1)?);
+
         return Ok([slope, slope]);
     }
+
     let start = match ends.start {
         SkinEnd::Along(direction) => along(direction, at(0)?.1),
         SkinEnd::Natural if last >= 2 => quadratic_slopes(at(0)?, at(1)?, at(2)?)[0],
@@ -451,6 +488,7 @@ fn end_slopes(
 
 fn basis(knots: &[f64], index: usize, degree: usize, at: f64) -> f64 {
     let knot = |position: usize| knots.get(position).copied().unwrap_or(f64::NAN);
+
     if degree == 0 {
         return if knot(index) <= at && at < knot(index + 1) {
             1.0
@@ -458,6 +496,7 @@ fn basis(knots: &[f64], index: usize, degree: usize, at: f64) -> f64 {
             0.0
         };
     }
+
     let rising = knot(index + degree) - knot(index);
     let falling = knot(index + degree + 1) - knot(index + 1);
     let left = if rising > 0.0 {
@@ -485,9 +524,11 @@ fn hermite(
         return Err(GeometryError::DegenerateSurface);
     };
     let count = data.len();
+
     if count < 2 || stations.len() != count {
         return Err(GeometryError::DegenerateSurface);
     }
+
     let interior = stations.get(1..count - 1).unwrap_or_default();
     let knots: Vec<f64> = std::iter::repeat_n(*low, HERMITE_DEGREE + 1)
         .chain(interior.iter().copied())
@@ -501,12 +542,14 @@ fn hermite(
     let mut diagonal = Vec::with_capacity(count);
     let mut upper = Vec::with_capacity(count);
     let mut sides = Vec::with_capacity(count);
+
     for (row, (station, point)) in interior.iter().zip(data.iter().skip(1)).enumerate() {
         let index = row + 1;
         let below = basis(&knots, index, HERMITE_DEGREE, *station);
         let at = basis(&knots, index + 1, HERMITE_DEGREE, *station);
         let above = basis(&knots, index + 2, HERMITE_DEGREE, *station);
         let mut side = *point;
+
         if row == 0 {
             side = minus(side, scaled(lead, below));
         }
@@ -518,8 +561,10 @@ fn hermite(
         upper.push(above);
         sides.push(side);
     }
+
     let mut factors: Vec<f64> = Vec::with_capacity(sides.len());
     let mut carried: Vec<Homogeneous> = Vec::with_capacity(sides.len());
+
     for (row, ((below, at), (above, side))) in lower
         .iter()
         .zip(&diagonal)
@@ -531,6 +576,7 @@ fn hermite(
             _ => (0.0, [0.0; 4]),
         };
         let pivot = at - below * previous_factor;
+
         if !(pivot.is_finite() && pivot.abs() > f64::EPSILON) {
             return Err(GeometryError::NonFinite);
         }
@@ -540,13 +586,18 @@ fn hermite(
             1.0 / pivot,
         ));
     }
+
     let mut solved: Vec<Homogeneous> = Vec::with_capacity(carried.len());
+
     for (factor, side) in factors.iter().zip(&carried).rev() {
         let next = solved.last().copied().unwrap_or([0.0; 4]);
+
         solved.push(minus(*side, scaled(next, *factor)));
     }
     solved.reverse();
+
     let mut points = Vec::with_capacity(count + 2);
+
     points.push(*first);
     points.push(lead);
     points.extend(solved);
@@ -564,6 +615,7 @@ pub(super) fn skinned_through(
     let width = first.points().len();
     let mut columns: Vec<Vec<Homogeneous>> = Vec::with_capacity(width);
     let mut knots = Vec::new();
+
     for column in 0..width {
         let data: Vec<Homogeneous> = rows
             .iter()
@@ -575,10 +627,13 @@ pub(super) fn skinned_through(
             })
             .collect::<Result<_, _>>()?;
         let slopes = end_slopes(&data, stations, ends)?;
+
         let (points, column_knots) = hermite(&data, stations, slopes)?;
+
         knots = column_knots;
         columns.push(points);
     }
+
     let height = columns.first().map_or(0, Vec::len);
     let lines: Vec<Vec<Homogeneous>> = (0..height)
         .map(|row| {

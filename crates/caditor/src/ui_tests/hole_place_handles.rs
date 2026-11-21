@@ -20,10 +20,13 @@ fn open_two_holes(harness: &mut Harness) -> (FeatureId, FeatureId, Pickable) {
     let (plate, top) = extruded_plate(harness);
     let hole = open_hole_on(harness, top);
     let mut chosen = Selection::default();
+
     chosen.toggle(top);
+
     let added =
         hole_placement::add_change(&harness.model, &chosen, hole, &open_hole(harness, hole))
             .unwrap();
+
     harness.perform(Action::Apply(added));
     harness.settle();
     harness.select([]);
@@ -35,8 +38,10 @@ fn open_two_holes(harness: &mut Harness) -> (FeatureId, FeatureId, Pickable) {
 fn open_measured_hole(harness: &mut Harness, edges: &[[f64; 3]]) -> (FeatureId, FeatureId) {
     let (plate, top) = extruded_plate(harness);
     let hole = open_hole_on(harness, top);
+
     for [x, y, z] in edges {
         let edge = plate_edge_at(harness, plate, Point3::new(*x, *y, *z));
+
         harness.select([Pickable::Edge { body: plate, edge }]);
         harness.click(hole_panel::MEASURE_SELECTED);
         harness.settle();
@@ -64,6 +69,7 @@ fn grip(harness: &Harness, handle: Handle, along: f64) -> egui::Pos2 {
 
 fn hover(harness: &mut Harness, handle: Handle) {
     let at = grip(harness, handle, 0.0);
+
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     harness.frame();
@@ -73,6 +79,7 @@ fn drag_handle(harness: &mut Harness, handle: Handle, along: f64) -> f64 {
     let from = grip(harness, handle, 0.0);
     let to = grip(harness, handle, along);
     let step = harness.workspace.viewport.manipulator_step().unwrap();
+
     drag_screen(harness, from, to);
     harness.frame();
     harness.settle();
@@ -94,6 +101,7 @@ const LEFT: [f64; 3] = [0.0, 20.0, 10.0];
 #[test]
 fn each_free_point_of_a_hole_of_several_points_has_a_square_that_moves_only_that_point() {
     let mut harness = Harness::new();
+
     let (_, hole, _) = open_two_holes(&mut harness);
     let points: Vec<_> = placed_holes(&harness, hole)
         .into_iter()
@@ -128,10 +136,14 @@ fn each_free_point_of_a_hole_of_several_points_has_a_square_that_moves_only_that
 fn open_holes_with_second_at(harness: &mut Harness, expression: &str) -> (FeatureId, EntityId) {
     let (_, hole, _) = open_two_holes(harness);
     let mut transaction = harness.document().transaction("Add spot");
+
     let spot = transaction.parse("12 mm").unwrap();
+
     transaction.add_parameter("spot", spot);
     harness.perform(Action::Apply(transaction.finish()));
+
     let (placed, _) = placed_holes(harness, hole).remove(1);
+
     harness.type_into_field(
         Id::unique(("hole-position", hole, placed.point, 0)),
         expression,
@@ -154,6 +166,7 @@ fn spot(harness: &Harness) -> f64 {
 #[test]
 fn a_square_on_a_point_held_by_one_parameter_drags_by_editing_it() {
     let mut harness = Harness::new();
+
     let (hole, point) = open_holes_with_second_at(&mut harness, "spot");
     let before = placed_holes(&harness, hole)[1].1;
     let square = Handle::Hole(HoleGrip::Square(point));
@@ -190,6 +203,7 @@ fn a_square_on_a_point_held_by_one_parameter_drags_by_editing_it() {
 #[test]
 fn a_square_on_a_point_held_by_an_expression_does_not_drag_and_says_why() {
     let mut harness = Harness::new();
+
     let (hole, point) = open_holes_with_second_at(&mut harness, "spot * 2");
     let before = placed_holes(&harness, hole)[1].1;
     let square = Handle::Hole(HoleGrip::Square(point));
@@ -207,6 +221,7 @@ fn a_square_on_a_point_held_by_an_expression_does_not_drag_and_says_why() {
 #[test]
 fn a_hole_measured_from_edges_has_an_arrow_per_distance_and_dragging_one_changes_only_it() {
     let mut harness = Harness::new();
+
     let (_, hole) = open_measured_hole(&mut harness, &[FRONT, LEFT]);
     let [from_front, from_left] = constraints_of(&harness, hole)[..] else {
         panic!("the hole is measured from two edges");
@@ -260,6 +275,7 @@ fn a_hole_measured_from_edges_has_an_arrow_per_distance_and_dragging_one_changes
 #[test]
 fn an_edge_arrow_dragged_toward_its_edge_stops_one_step_short_of_it() {
     let mut harness = Harness::new();
+
     let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
     let [from_front] = constraints_of(&harness, hole)[..] else {
         panic!("the hole is measured from one edge");
@@ -279,17 +295,20 @@ fn an_edge_arrow_dragged_toward_its_edge_stops_one_step_short_of_it() {
 #[test]
 fn an_edge_arrow_keeps_a_named_distance_and_leaves_a_driven_one_alone() {
     let mut harness = Harness::new();
+
     let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
     let [from_front] = constraints_of(&harness, hole)[..] else {
         panic!("the hole is measured from one edge");
     };
     let arrow = Handle::Hole(HoleGrip::Distance(from_front));
+
     let field = Id::unique(("hole-edge-distance", hole, from_front));
 
     harness.type_into_field(field, "gap = 12 mm");
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let step = drag_handle(&mut harness, arrow, 5.0);
     let gap = harness
         .model
@@ -306,7 +325,9 @@ fn an_edge_arrow_keeps_a_named_distance_and_leaves_a_driven_one_alone() {
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let before = placed_holes(&harness, hole)[0].1;
+
     hover(&mut harness, arrow);
 
     assert!(harness.shows_containing("Distance follows gap"));
@@ -319,6 +340,7 @@ fn an_edge_arrow_keeps_a_named_distance_and_leaves_a_driven_one_alone() {
 #[test]
 fn a_value_typed_over_an_edge_arrow_sets_the_distance_in_one_change() {
     let mut harness = Harness::new();
+
     let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
     let [from_front] = constraints_of(&harness, hole)[..] else {
         panic!("the hole is measured from one edge");
@@ -347,6 +369,7 @@ fn a_value_typed_over_an_edge_arrow_sets_the_distance_in_one_change() {
 #[test]
 fn a_hole_measured_from_one_edge_slides_along_it_keeping_its_distance_in_one_change() {
     let mut harness = Harness::new();
+
     let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
     let at = placed_holes(&harness, hole)[0].1;
     let point = placed_holes(&harness, hole)[0].0.point;
@@ -377,6 +400,7 @@ fn a_hole_measured_from_one_edge_slides_along_it_keeping_its_distance_in_one_cha
 #[test]
 fn a_hole_measured_from_two_edges_has_no_arrow_along_an_edge() {
     let mut harness = Harness::new();
+
     let (_, hole) = open_measured_hole(&mut harness, &[FRONT, LEFT]);
     let point = placed_holes(&harness, hole)[0].0.point;
 
@@ -392,6 +416,7 @@ fn a_hole_measured_from_two_edges_has_no_arrow_along_an_edge() {
 #[test]
 fn a_length_typed_over_the_sliding_arrow_slides_the_hole_along_its_edge_in_one_change() {
     let mut harness = Harness::new();
+
     let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
     let point = placed_holes(&harness, hole)[0].0.point;
     let before = placed_holes(&harness, hole)[0].1;
@@ -401,6 +426,7 @@ fn a_length_typed_over_the_sliding_arrow_slides_the_hole_along_its_edge_in_one_c
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     let after = placed_holes(&harness, hole)[0].1;
 
     assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
@@ -418,11 +444,14 @@ fn a_length_typed_over_the_sliding_arrow_slides_the_hole_along_its_edge_in_one_c
 #[test]
 fn a_length_typed_over_the_sliding_arrow_may_be_an_expression() {
     let mut harness = Harness::new();
+
     let (_, hole) = open_measured_hole(&mut harness, &[FRONT]);
     let point = placed_holes(&harness, hole)[0].0.point;
     let before = placed_holes(&harness, hole)[0].1;
     let mut transaction = harness.document().transaction("Add shift");
+
     let shift = transaction.parse("4 mm").unwrap();
+
     transaction.add_parameter("shift", shift);
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
@@ -434,6 +463,7 @@ fn a_length_typed_over_the_sliding_arrow_may_be_an_expression() {
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     let after = placed_holes(&harness, hole)[0].1;
 
     assert!(

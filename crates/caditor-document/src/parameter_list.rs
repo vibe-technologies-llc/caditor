@@ -4,7 +4,7 @@ use caditor_expression::{Expression, ParameterId};
 
 use crate::{document::Parameter, model_parameters::ParameterOwner};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ParameterList {
     items: Vec<Parameter>,
     positions: BTreeMap<ParameterId, usize>,
@@ -40,6 +40,7 @@ impl ParameterList {
 
     pub fn insert(&mut self, index: usize, parameter: Parameter) {
         let index = index.min(self.items.len());
+
         self.positions.insert(parameter.id(), index);
         self.named.insert(parameter.name.clone(), parameter.id());
         self.items.insert(index, parameter);
@@ -50,7 +51,9 @@ impl ParameterList {
         if index >= self.items.len() {
             return None;
         }
+
         let parameter = self.items.remove(index);
+
         self.positions.remove(&parameter.id());
         self.named.remove(&parameter.name);
         self.reindex_from(index);
@@ -87,6 +90,7 @@ impl ParameterList {
         let index = self.position(id)?;
         let parameter = self.items.get_mut(index)?;
         let previous = std::mem::replace(&mut parameter.name, name.clone());
+
         self.named.remove(&previous);
         self.named.insert(name, id);
         Some(previous)
@@ -122,6 +126,7 @@ mod tests {
         list.insert(0, parameter(1, "a"));
         list.insert(1, parameter(2, "b"));
         list.insert(1, parameter(3, "c"));
+
         let order: Vec<u64> = list.iter().map(|parameter| parameter.id().raw()).collect();
         let positions = [
             list.position(id(1)),

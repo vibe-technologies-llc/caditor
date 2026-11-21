@@ -97,6 +97,7 @@ pub fn show(
     };
     let mut accepted = false;
     let mut stopped = false;
+
     let panel = widgets::side_panel_parts(
         ui,
         room,
@@ -112,16 +113,19 @@ pub fn show(
                 .iter()
                 .position(|task| *task == tidying.task)
                 .unwrap_or_default();
+
             if let Some(index) = widgets::segmented(ui, &choices, chosen)
                 && let Some(task) = Task::ALL.get(index)
             {
                 tidying.task = *task;
             }
             ui.add_space(SPACE_S);
+
             let primary = match tidying.progress() {
                 Progress::Found(found) => primary_label(found, tidying.task),
                 _ => None,
             };
+
             if let Some(label) = primary {
                 accepted = widgets::panel_footer(ui, PANEL.id, |ui| footer_button(ui, &label));
             }
@@ -130,6 +134,7 @@ pub fn show(
                 ui.add_space(SPACE_S);
                 settings(ui, model, tidying, selection, feature);
                 ui.add_space(SPACE_M);
+
                 let task = tidying.task;
                 match tidying.progress() {
                     Progress::Closed => {}
@@ -158,6 +163,7 @@ pub fn show(
             });
         },
     );
+
     if accepted && let Progress::Found(found) = tidying.progress() {
         shown
             .actions
@@ -245,19 +251,23 @@ fn settings(
                     || "Origin".to_owned(),
                     |sketch| sketch.entity_label(tidying.datum),
                 );
+
                 ui.add(Label::new(name).wrap_mode(TextWrapMode::Wrap));
+
                 let point = selected_point(selection, feature).filter(|point| {
                     model
                         .settled_sketch(feature)
                         .is_some_and(|sketch| sketch.point(*point).is_some())
                 });
                 let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED_POINT);
+
                 let response = ui.add_enabled(point.is_some(), button);
                 let response = if point.is_some() {
                     response
                 } else {
                     response.on_disabled_hover_text(SELECT_ONE_POINT)
                 };
+
                 if response.clicked()
                     && let Some(point) = point
                 {
@@ -278,6 +288,7 @@ fn settings(
             return;
         }
         widgets::caption(ui, TOLERANCE);
+
         let choices: Vec<(&str, &str)> = Looseness::ALL
             .iter()
             .map(|looseness| (looseness.label(), looseness_help(*looseness)))
@@ -286,6 +297,7 @@ fn settings(
             .iter()
             .position(|looseness| *looseness == tidying.looseness)
             .unwrap_or_default();
+
         if let Some(index) = widgets::segmented(ui, &choices, chosen)
             && let Some(looseness) = Looseness::ALL.get(index)
         {
@@ -297,6 +309,7 @@ fn settings(
         && tidying.task != Task::Dimensions
     {
         let tolerance = tidying.looseness.tolerance(sketch);
+
         wrapped(
             ui,
             widgets::muted(
@@ -399,13 +412,16 @@ fn constraints_list(
             tidying::count(left, "degree of freedom", "degrees of freedom")
         ),
     };
+
     wrapped(ui, freedom);
     ui.add_space(SPACE_S);
     shown.previewed = pickables(
         feature,
         kept.constraints.iter().flat_map(Constraint::entities),
     );
+
     let mut groups: Vec<(&str, Vec<&Constraint>)> = Vec::new();
+
     for constraint in &kept.constraints {
         let title = match RelationKind::of(constraint) {
             Some(kind) if relations => kind.label(),
@@ -425,11 +441,13 @@ fn constraints_list(
         widgets::card(ui, |ui| {
             for constraint in members.iter().take(MAX_LISTED) {
                 let mut text = sketch.describe(constraint);
+
                 if constraint.dimension().is_some()
                     && let Some(value) = sketch.measured(constraint)
                 {
                     text = format!("{text}: {}", units.measured_length(value));
                 }
+
                 let row = ui.add(
                     Label::new(text)
                         .wrap_mode(TextWrapMode::Wrap)
@@ -459,8 +477,11 @@ fn flaws_list(
     shown: &mut Shown,
 ) {
     let units = model.units();
+
     shown.previewed = pickables(feature, flaws.iter().flat_map(|(flaw, _)| subjects(flaw)));
+
     let mut fixed: Option<(String, Vec<&Fix>)> = None;
+
     widgets::card(ui, |ui| {
         for (flaw, fix) in flaws.iter().take(MAX_LISTED) {
             let (problem, remedy) = words(sketch, flaw, units);
@@ -469,6 +490,7 @@ fn flaws_list(
                     .wrap_mode(TextWrapMode::Wrap)
                     .sense(Sense::hover()),
             );
+
             if row.hovered() {
                 shown.previewed = pickables(feature, subjects(flaw));
             }

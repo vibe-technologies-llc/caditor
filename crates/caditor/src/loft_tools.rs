@@ -24,7 +24,7 @@ use crate::{
 
 pub const TITLE: &str = "Loft";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum LoftError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -66,19 +66,19 @@ impl Reason for LoftError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProfilePick {
     pub sketch: FeatureId,
     pub region: Option<RegionKey>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pick {
     Sketch(ProfilePick),
     Face(FaceChoice),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LoftStart {
     pub profiles: Vec<Pick>,
     pub end: Option<PointReference>,
@@ -105,6 +105,7 @@ fn pick_of(model: &Model, pickable: Pickable) -> Option<Pick> {
 
 fn picks(model: &Model, selection: &Selection) -> Vec<Pick> {
     let mut picks: Vec<Pick> = Vec::new();
+
     for pickable in selection.in_pick_order() {
         let Some(pick) = pick_of(model, pickable) else {
             continue;
@@ -131,14 +132,18 @@ fn face_sketch(
         sketch_placement::attachment_at(model, face, index).map_err(LoftError::FacePlacement)?;
     let shown = bodies::shown(model.evaluation(), face.body).ok_or(LoftError::FaceGone)?;
     let found = bodies::find_face(shown, face.face).ok_or(LoftError::FaceGone)?;
+
     let outline = projecting::face_projections(shown, face.body, &[found], &plane);
+
     if outline.is_empty() {
         return Err(LoftError::NoFaceOutline);
     }
+
     let sketch = transaction.add_feature(
         name,
         FeatureKind::Sketch(SketchFeature::on_face(Sketch::new(plane), attachment)),
     );
+
     transaction.edit(Edit::SetFeatureHidden {
         id: sketch,
         hidden: true,
@@ -152,6 +157,7 @@ fn face_sketch(
 fn face_sketch_name(document: &Document, loft: &str, numbered: &mut usize) -> String {
     loop {
         *numbered += 1;
+
         let name = format!("{loft} profile {numbered}");
         if document.features().all(|feature| feature.name != name) {
             return name;
@@ -180,6 +186,7 @@ fn profile_of(model: &Model, pickable: Pickable) -> Option<ProfilePick> {
 
 fn profile_picks(model: &Model, selection: &Selection) -> Vec<ProfilePick> {
     let mut picks: Vec<ProfilePick> = Vec::new();
+
     for pickable in selection.in_pick_order() {
         let Some(pick) = profile_of(model, pickable) else {
             continue;
@@ -231,6 +238,7 @@ pub fn create(model: &Model, start: &LoftStart) -> Result<(Transaction, FeatureI
     let mut transaction = document.transaction(format!("Create {name}"));
     let mut profiles = Vec::with_capacity(start.profiles.len());
     let mut faces = 0;
+
     for pick in &start.profiles {
         profiles.push(match pick {
             Pick::Sketch(pick) => captured(model.evaluation(), *pick)?,
@@ -240,6 +248,7 @@ pub fn create(model: &Model, start: &LoftStart) -> Result<(Transaction, FeatureI
             }
         });
     }
+
     let loft = Loft {
         end: start.end.clone(),
         operation: start
@@ -248,6 +257,7 @@ pub fn create(model: &Model, start: &LoftStart) -> Result<(Transaction, FeatureI
         ..Loft::new(profiles)
     };
     let feature = transaction.add_feature(name, FeatureKind::Loft(loft));
+
     if start.rows() >= 2 {
         for pick in &start.profiles {
             if let Pick::Sketch(pick) = pick
@@ -270,6 +280,7 @@ pub fn create_actions(model: &Model, start: &LoftStart) -> Vec<Action> {
                 Action::Apply(transaction),
                 Action::Editing(EditingCommand::OpenSolid(feature)),
             ];
+
             if start.rows() < 2 {
                 actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
                     feature,
@@ -347,6 +358,7 @@ pub fn without_end(loft: &Loft) -> Loft {
 
 pub fn without_profile(loft: &Loft, index: usize) -> Loft {
     let mut profiles = loft.profiles.clone();
+
     if index < profiles.len() {
         profiles.remove(index);
     }
@@ -362,10 +374,13 @@ pub fn moved(loft: &Loft, index: usize, earlier: bool) -> Option<Loft> {
     } else {
         index + 1
     };
+
     if other >= loft.profiles.len() || index >= loft.profiles.len() {
         return None;
     }
+
     let mut profiles = loft.profiles.clone();
+
     profiles.swap(index, other);
     Some(Loft {
         profiles,
@@ -402,6 +417,7 @@ pub fn profile_change(
         _ => return Err(LoftError::NotAProfile),
     };
     let mut profiles = loft.profiles.clone();
+
     match profiles
         .iter()
         .position(|section| section.sketch == pick.sketch)
@@ -438,21 +454,25 @@ pub fn selected_change(
     loft: &Loft,
 ) -> Result<Transaction, LoftError> {
     let chosen = picks(model, selection);
+
     if chosen.is_empty() {
         return Err(LoftError::NoProfileSelected);
     }
     if chosen.iter().any(|pick| matches!(pick, Pick::Face(_))) {
         return with_picks(model, feature, loft, (Vec::new(), &chosen));
     }
+
     let picks = profile_picks(model, selection);
     let profiles = picks
         .iter()
         .map(|pick| captured(model.evaluation(), *pick))
         .collect::<Result<Vec<_>, _>>()?;
+
     let unchanged = profiles.len() == loft.profiles.len()
         && picks.iter().zip(&loft.profiles).all(|(pick, known)| {
             is_pick(known, *pick) && pick.region.is_some() == known.region.is_some()
         });
+
     if unchanged {
         return Err(LoftError::AlreadyThrough);
     }
@@ -477,11 +497,13 @@ pub fn end_change(
         .feature_index(feature)
         .ok_or(LoftError::Gone { feature })?;
     let mut picked = selection.iter();
+
     let end = match (picked.next(), picked.next()) {
         (Some(only), None) => datum_tools::point_reference(model, only, index),
         _ => None,
     }
     .ok_or(LoftError::NoPointSelected)?;
+
     if loft.end.as_ref() == Some(&end) {
         return Err(LoftError::AlreadyEnds);
     }
@@ -520,10 +542,12 @@ fn with_picks(
         .ok_or(LoftError::Gone { feature })?
         .name
         .clone();
+
     let mut transaction = document
         .transaction(format!("Edit {name}"))
         .inserting_at(index);
     let mut faces = 0;
+
     for pick in chosen {
         profiles.push(match pick {
             Pick::Sketch(pick) => captured(model.evaluation(), *pick)?,

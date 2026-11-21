@@ -52,14 +52,14 @@ use crate::{
 const THROUGH_ALL_MARGIN: f64 = 1.0;
 const THROUGH_ALL_REACH: f64 = 0.05;
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum RegionChoice {
     #[default]
     All,
     Chosen(Vec<RegionReference>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BodyOperation {
     NewBody,
     Add(FeatureId),
@@ -95,7 +95,7 @@ impl BodyOperation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExtrudeEnd {
     Distance(Expression),
     ThroughAll,
@@ -199,7 +199,7 @@ impl ExtrudeEnd {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExtrudeExtent {
     OneSide {
         end: ExtrudeEnd,
@@ -287,7 +287,7 @@ impl ExtrudeExtent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RevolveExtent {
     Full,
     OneSide {
@@ -470,7 +470,7 @@ impl RevolveExtent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SolidStart {
     Distance(Expression),
     Plane(PlaneReference),
@@ -492,13 +492,13 @@ impl SolidStart {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Wall {
     pub thickness: Expression,
     pub side: WallSide,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Extrude {
     pub sketch: FeatureId,
     pub regions: RegionChoice,
@@ -511,7 +511,7 @@ pub struct Extrude {
     pub direction: Option<Box<AxisReference>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RevolveAxis {
     Sketch(EntityId),
     Model(AxisReference),
@@ -533,7 +533,7 @@ impl RevolveAxis {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AxisSide {
     Left,
     Right,
@@ -562,7 +562,7 @@ impl AxisSide {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Revolve {
     pub sketch: FeatureId,
     pub regions: RegionChoice,
@@ -575,7 +575,7 @@ pub struct Revolve {
     pub wall: Option<Box<Wall>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SolidFeature {
     Extrude(Extrude),
     Revolve(Revolve),
@@ -771,6 +771,7 @@ impl SolidFeature {
         match self {
             Self::Extrude(extrude) => {
                 let mut expressions = extrude.extent.expressions();
+
                 expressions.extend(self.start().and_then(SolidStart::distance));
                 expressions.extend(self.taper());
                 expressions.extend(self.wall().map(|wall| &wall.thickness));
@@ -778,6 +779,7 @@ impl SolidFeature {
             }
             Self::Revolve(revolve) => {
                 let mut expressions = revolve.extent.expressions();
+
                 expressions.extend(self.start().and_then(SolidStart::distance));
                 expressions.extend(self.wall().map(|wall| &wall.thickness));
                 expressions
@@ -823,6 +825,7 @@ impl SolidFeature {
             },
             Self::Sweep(sweep) => sweep.path.heap_size(),
         };
+
         let references = planes + axis;
         chosen + expressions + references + size_of_val(self.other_bodies())
     }
@@ -872,14 +875,14 @@ impl SolidFeature {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReachedSide {
     Only,
     Forward,
     Backward,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReachedEnd {
     pub side: ReachedSide,
     pub plane: Plane,
@@ -892,7 +895,7 @@ impl ReachedEnd {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SolidResult {
     pub body: FeatureId,
     pub solid: Solid,
@@ -910,20 +913,20 @@ pub struct SolidResult {
     clipped: OnceLock<Clipped>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Clipped {
     Within(Arc<FeatureResult>),
     Outside,
     Whole,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExactMass {
     pub properties: MassProperties,
     pub accuracy: Accuracy,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NameIndex {
     faces: BTreeMap<FaceName, Vec<FaceId>>,
     edges: BTreeMap<EdgeName, EdgeId>,
@@ -934,15 +937,20 @@ pub struct NameIndex {
 impl NameIndex {
     pub fn of(solid: &Solid) -> Self {
         let mut faces: BTreeMap<FaceName, Vec<FaceId>> = BTreeMap::new();
+
         for (id, face) in solid.faces() {
             faces.entry(face.name()).or_default().push(id);
         }
+
         let mut edges = BTreeMap::new();
+
         for (id, edge) in solid.edges() {
             edges.entry(edge.name()).or_insert(id);
         }
+
         let vertex_names = vertex_names(solid);
         let mut vertices: BTreeMap<VertexName, Vec<VertexId>> = BTreeMap::new();
+
         for (id, name) in &vertex_names {
             vertices.entry(*name).or_default().push(*id);
         }
@@ -1003,6 +1011,7 @@ impl SolidResult {
 
     pub fn cutting(mut self, tools: impl IntoIterator<Item = Solid>) -> Self {
         let body = self.body;
+
         self.cuts = tools
             .into_iter()
             .map(|tool| Arc::new(FeatureResult::Solid(SolidResult::new(body, tool))))
@@ -1016,6 +1025,7 @@ impl SolidResult {
 
     pub fn joining(mut self, tools: impl IntoIterator<Item = Solid>) -> Self {
         let body = self.body;
+
         self.joins = tools
             .into_iter()
             .map(|tool| Arc::new(FeatureResult::Solid(SolidResult::new(body, tool))))
@@ -1098,6 +1108,7 @@ impl SolidResult {
         if let Some(found) = self.mass.get() {
             return **found;
         }
+
         let tolerance = self.solid.tolerance_for(&MeshQuality::SMOOTH);
         let found = mass_properties_tessellating(&self.solid, &tolerance).map(|mass| ExactMass {
             properties: mass.properties,
@@ -1107,6 +1118,7 @@ impl SolidResult {
                 Accuracy::Approximate
             },
         });
+
         if !matches!(found, Err(MeasureError::Cancelled(_))) {
             let _ = self.mass.set(Box::new(found));
         }
@@ -1121,6 +1133,7 @@ impl SolidResult {
         if let Some(found) = self.clipped.get() {
             return Some(found);
         }
+
         let met = panic::catch_unwind(AssertUnwindSafe(|| {
             boolean(&self.solid, body, BooleanOperation::Intersection)
         }));
@@ -1162,6 +1175,7 @@ impl SolidResult {
         if self.is_meshed() {
             return;
         }
+
         let earlier = earlier.and_then(|earlier| {
             Some(MeshedSolid {
                 solid: &earlier.solid,
@@ -1257,7 +1271,7 @@ pub fn sketch_regions(sketch: &Sketch) -> Result<Vec<Region>, ProfileError> {
     Ok(Profile::new(&profile_curves(sketch))?.regions().to_vec())
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SketchRegion {
     pub region: Region,
     pub mesh: Option<RegionMesh>,
@@ -1382,9 +1396,11 @@ pub(crate) fn evaluate(
         sketch,
         regions,
     } = profiled(feature, solid, inputs)?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let plane = sketch.geometry.plane();
     let raw = feature.id().raw();
     let started = match solid.start() {
@@ -1395,9 +1411,11 @@ pub(crate) fn evaluate(
     let kept;
     let mut stopped_regions: &[Region] = &regions;
     let mut reached = Vec::new();
+
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
             let built = extruded(&context, inputs, definition, started, &regions, None)?;
+
             reached = built.reached;
             Ok(Stopping {
                 context: &context,
@@ -1426,6 +1444,7 @@ pub(crate) fn evaluate(
                 }
                 (None, _) => &regions,
             };
+
             let turn = Turn {
                 context: &context,
                 inputs,
@@ -1434,6 +1453,7 @@ pub(crate) fn evaluate(
                 regions: turned,
             };
             let (extent, stop) = turn.extent(&definition.extent, definition.operation)?;
+
             turned_stop = stop;
             stopped_regions = turned;
             revolve(&started, turned, axis, extent, raw)
@@ -1451,13 +1471,16 @@ pub(crate) fn evaluate(
         regions: stopped_regions,
         landing: None,
     };
+
     let tool = match turned_stop {
         Some(stop) => stopping.trim_turning(tool, stop)?,
         None => tool,
     };
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let other_bodies = solid.other_bodies();
     let operation = solid.operation();
     let (body, solid, cut) = match operation {
@@ -1471,6 +1494,7 @@ pub(crate) fn evaluate(
                 BodyOperation::Intersect(_) => BooleanOperation::Intersection,
                 BodyOperation::NewBody | BodyOperation::Add(_) => BooleanOperation::Union,
             };
+
             let combined = boolean(current, &tool, kernel_operation).map_err(|error| {
                 boolean_failure(&context, inputs, [current, &tool], body, operation, &error)
             })?;
@@ -1478,11 +1502,13 @@ pub(crate) fn evaluate(
         }
     };
     let mut distinct = Vec::new();
+
     for other in other_bodies {
         if *other != body && !distinct.contains(other) {
             distinct.push(*other);
         }
     }
+
     let (cut, joined) = match operation {
         BodyOperation::Remove(_) => (cut, None),
         BodyOperation::Add(_) => (None, cut),
@@ -1495,6 +1521,7 @@ pub(crate) fn evaluate(
             return Err(context.error(SolidCause::OnlyRemovalCutsSeveral));
         }
     };
+
     if operation == BodyOperation::NewBody && feature.separates_pieces() {
         let mut pieces = body_pieces::separated(feature, &solid)?
             .into_iter()
@@ -1535,6 +1562,7 @@ fn profiled<'a>(
                 .fixing(FixTarget::Feature(sketch_id)),
         ));
     };
+
     let context = Context {
         feature,
         sketch_name,
@@ -1593,6 +1621,7 @@ fn extruded(
         ),
         None => (started, along, definition.extent.clone()),
     };
+
     let ends = Ends {
         context,
         inputs,
@@ -1611,11 +1640,13 @@ fn extruded(
         Some(angle) => taper_angle(context, angle, inputs.parameters)?,
         None => 0.0,
     };
+
     if taper != 0.0 && built.stops.iter().any(|stop| stop.shift.is_some()) {
         return Err(context.error(SolidCause::StopOffsetTapered {
             sketch: context.sketch_name.clone(),
         }));
     }
+
     let build = |extent: LinearExtent| {
         match along {
             Some(direction) => {
@@ -1626,6 +1657,7 @@ fn extruded(
         .map_err(|error| sweep_failure(context, "extrusion", &error))
     };
     let stop_of = |reversed: bool| built.stops.iter().find(|stop| stop.reversed == reversed);
+
     let parts = match built.halves {
         Some([forward, backward]) => vec![
             Part {
@@ -1656,6 +1688,7 @@ pub(crate) fn land(
         context, regions, ..
     } = profiled(feature, solid, inputs)?;
     let plane = context.sketch.plane();
+
     let started = match solid.start() {
         Some(start) => start_plane(&context, inputs, solid.shape(), plane, start)?,
         None => plane,
@@ -1669,6 +1702,7 @@ pub(crate) fn land(
         Some(landing),
     )?;
     let landed_plane = landing.plane(&started);
+
     let tool = Stopping {
         context: &context,
         inputs,
@@ -1709,6 +1743,7 @@ fn cut_others(
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
             }
+
             let current = inputs
                 .body(*other)
                 .ok_or_else(|| inputs.missing_body(*other))?;
@@ -1764,6 +1799,7 @@ fn start_plane(
         SolidStart::Distance(offset) => offset_plane(context, plane, offset, inputs.parameters),
         SolidStart::Plane(target) => {
             let found = resolve_target(context, inputs, target, TargetFor::Start { shape })?;
+
             if !tolerance::parallel(found.normal(), plane.normal()) {
                 return Err(context.error(SolidCause::StartNotParallel {
                     plane: capitalized(&describe_plane(inputs.document, target)),
@@ -1771,7 +1807,9 @@ fn start_plane(
                     shape,
                 }));
             }
+
             let distance = plane.signed_distance(found.origin());
+
             within_reach(context, distance.abs(), "start offset")?;
             Plane::from_frame(
                 plane.origin() + plane.normal() * distance,
@@ -1806,7 +1844,9 @@ fn offset_plane(
     parameters: &ParameterValues,
 ) -> Result<Plane, Failure> {
     const WHAT: &str = "start offset";
+
     let distance = evaluate_value(context, offset, Dimension::LENGTH, WHAT, parameters)?;
+
     within_reach(context, distance.abs(), WHAT)?;
     Plane::from_frame(
         plane.origin() + plane.normal() * distance,
@@ -1848,6 +1888,7 @@ fn walled_regions(
     parameters: &ParameterValues,
 ) -> Result<Vec<Region>, Failure> {
     const WHAT: &str = "wall thickness";
+
     let thickness = evaluate_value(
         context,
         &wall.thickness,
@@ -1867,6 +1908,7 @@ fn taper_angle(
     parameters: &ParameterValues,
 ) -> Result<f64, Failure> {
     let degrees = evaluate_value(context, angle, Dimension::ANGLE, "taper angle", parameters)?;
+
     if degrees.abs() >= MAX_TAPER_DEGREES {
         return Err(steep_taper(context));
     }
@@ -1927,8 +1969,10 @@ fn open_gaps(context: &Context<'_>, open_ends: &[OpenEnd]) -> (Vec<Gap>, usize) 
             ))
         })
         .collect();
+
     gaps.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.0.cmp(&b.0)).then(a.1.cmp(&b.1)));
     gaps.dedup_by(|a, b| (a.0, a.1) == (b.0, b.1));
+
     let named = gaps
         .iter()
         .take(MAX_NAMED_GAPS)
@@ -2088,6 +2132,7 @@ fn boolean_failure(
         | BooleanError::Open(_)
         | BooleanError::Invalid(_) => {
             log::warn!("{} could not be combined: {error}", context.feature.name);
+
             let trouble = boolean_trouble(
                 inputs.document,
                 operands,
@@ -2151,7 +2196,7 @@ fn within_reach(context: &Context<'_>, value: f64, what: &str) -> Result<f64, Fa
     Err(Failure::from(FeatureError::too_big(context.own(), what)))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Side {
     Only { reversed: bool },
     Forward,
@@ -2228,7 +2273,7 @@ struct Ends<'a> {
     landing: Option<&'a Landing<'a>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct StopAt {
     body: FeatureId,
     far: f64,
@@ -2237,7 +2282,7 @@ struct StopAt {
     shift: Option<EndShift>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct EndShift {
     by: RigidTransform,
     onward: Vector3,
@@ -2258,6 +2303,7 @@ impl Ends<'_> {
 
     fn extent(&self, extent: &ExtrudeExtent) -> Result<Built, Failure> {
         let mut halves = None;
+
         let built = match extent {
             ExtrudeExtent::OneSide { end, reversed } => LinearExtent::between(
                 LinearBound::Offset(0.0),
@@ -2274,6 +2320,7 @@ impl Ends<'_> {
             ExtrudeExtent::TwoSides { forward, backward } => {
                 let backward = self.bound(backward, Side::Backward)?;
                 let forward = self.bound(forward, Side::Forward)?;
+
                 halves = Some([
                     LinearExtent::between(LinearBound::Offset(0.0), forward),
                     LinearExtent::between(LinearBound::Offset(0.0), backward),
@@ -2341,6 +2388,7 @@ impl Ends<'_> {
     ) -> Result<LinearBound, Failure> {
         let solid = self.body(face.body)?;
         let body_name = feature_name(self.inputs, face.body);
+
         let found = face.face.resolve(solid).map_err(|error| {
             self.error(SolidCause::SurfaceFace {
                 body: body_name.clone(),
@@ -2348,10 +2396,13 @@ impl Ends<'_> {
             })
         })?;
         let name = describe_origin(self.inputs.document, face.face.origin());
+
         if let Some(plane) = face_plane(solid, found) {
             return self.offset_end(plane, side, offset, &name);
         }
+
         let stop = self.stop_at(face.body, side, offset)?;
+
         if let Some(known) = self.stops.borrow_mut().last_mut() {
             known.face = solid.face(found).map(|found| found.name());
         }
@@ -2384,6 +2435,7 @@ impl Ends<'_> {
         if offset == 0.0 {
             return Ok(LinearBound::Plane(target));
         }
+
         let direction = self.plane.normal() * side.sign();
         let onwards = if target.normal().dot(direction) < 0.0 {
             -target.normal()
@@ -2409,6 +2461,7 @@ impl Ends<'_> {
         } else {
             found.least
         };
+
         if least <= LINEAR_RESOLUTION {
             return Err(self.error(SolidCause::EndOffsetShort {
                 offset,
@@ -2436,11 +2489,13 @@ impl Ends<'_> {
             }
         };
         let mut bounds = self.body(body)?.bounding_box();
+
         for other in self.other_bodies {
             if let Some(other) = self.body(*other)?.bounding_box() {
                 bounds = Some(bounds.map_or(other, |bounds| bounds.union(other)));
             }
         }
+
         let direction = self.plane.normal() * side.sign();
         let farthest = bounds.map_or(f64::NEG_INFINITY, |bounds| {
             bounds
@@ -2449,12 +2504,14 @@ impl Ends<'_> {
                 .map(|corner| (*corner - self.plane.origin()).dot(direction))
                 .fold(f64::NEG_INFINITY, larger)
         });
+
         if farthest <= LINEAR_RESOLUTION {
             return Err(self.error(SolidCause::NothingToGoThrough {
                 body: feature_name(self.inputs, body),
                 side,
             }));
         }
+
         let margin =
             bounds.map_or(0.0, |bounds| bounds.diagonal()) * THROUGH_ALL_REACH + THROUGH_ALL_MARGIN;
         Ok(LinearBound::Offset(
@@ -2473,6 +2530,7 @@ impl Ends<'_> {
             }
             None => next_face(solid, &self.plane, self.regions, side.reversed()),
         };
+
         let found = match reached {
             Ok(found) => found,
             Err(ReachError::Curved(_) | ReachError::SeveralFaces(_)) => {
@@ -2496,6 +2554,7 @@ impl Ends<'_> {
                     self.inputs.document,
                     solid.face(found.face).and_then(|face| face.origin()),
                 );
+
                 self.reached.borrow_mut().push(ReachedEnd {
                     side: side.reached(),
                     plane: found.plane,
@@ -2517,8 +2576,10 @@ impl Ends<'_> {
         });
         let margin =
             bounds.map_or(0.0, |bounds| bounds.diagonal()) * THROUGH_ALL_REACH + THROUGH_ALL_MARGIN;
+
         let far = (farthest + margin).min(MAX_SIZE);
         let shift = self.shift_of(side, offset)?;
+
         self.stops.borrow_mut().push(StopAt {
             body,
             far,
@@ -2533,6 +2594,7 @@ impl Ends<'_> {
         if offset == 0.0 {
             return Ok(None);
         }
+
         let travel = match self.along {
             Some(direction) => direction / self.rise(),
             None => self.plane.normal(),
@@ -2625,6 +2687,7 @@ impl Ends<'_> {
         } else {
             (found.least, found.most)
         };
+
         if most <= LINEAR_RESOLUTION {
             return Err(self.error(SolidCause::EndNotAhead {
                 name: name.to_owned(),
@@ -2657,16 +2720,20 @@ impl Stopping<'_> {
 
     fn assembled(&self, parts: Vec<Part>) -> Result<Solid, Failure> {
         let mut trimmed = Vec::with_capacity(parts.len());
+
         for part in parts {
             trimmed.push(match part.stop {
                 Some(stop) => self.trim(part.tool, stop)?,
                 None => part.tool,
             });
         }
+
         let mut joined = trimmed.into_iter();
+
         let Some(mut whole) = joined.next() else {
             return Err(self.error(SolidCause::ExtrusionEmpty));
         };
+
         for half in joined {
             whole = boolean(&whole, &half, BooleanOperation::Union).map_err(|error| {
                 boolean_failure(
@@ -2699,6 +2766,7 @@ impl Stopping<'_> {
             stop.reversed,
             stop.far,
         );
+
         let stopped = stopped.map_err(|error| self.swept_failure(&tool, body, stop.body, error))?;
         let trimmed = self.finish(body, stop.body, stop.face, stopped)?;
         match stop.shift {
@@ -2748,6 +2816,7 @@ impl Stopping<'_> {
             .ok_or_else(|| self.inputs.missing_body(stop.body))?;
         let stopped =
             stop_turning_at_body(&tool, body, self.plane, self.regions, stop.axis, stop.turn);
+
         let stopped =
             stopped.map_err(|error| self.turned_failure(&tool, body, stop.body, error))?;
         let unstopped = |why| {
@@ -2757,6 +2826,7 @@ impl Stopping<'_> {
                 why,
             })
         };
+
         match (self.operation, stopped.entering) {
             (BodyOperation::Add(target), false) if target == stop.body => {
                 return Err(unstopped(Unstopped::AddsInside));
@@ -2766,6 +2836,7 @@ impl Stopping<'_> {
             }
             _ => {}
         }
+
         let body_name = feature_name(self.inputs, stop.body);
         let trimmed = match stop.face {
             Some(chosen) => self.on_face(body, &body_name, chosen, stopped.solid)?,
@@ -2863,6 +2934,7 @@ impl Stopping<'_> {
     ) -> Result<Solid, Failure> {
         let body_name = feature_name(self.inputs, body_id);
         let sketch = self.context.sketch_name.clone();
+
         match (self.operation, stopped.entering) {
             (BodyOperation::Add(target), false) if target == body_id => {
                 return Err(self.error(SolidCause::AddInside {
@@ -2903,11 +2975,13 @@ impl Stopping<'_> {
             .filter_map(|(_, face)| of_body.get(&face.name()))
             .map(|origin| describe_origin(self.inputs.document, *origin))
             .collect();
+
         others.sort();
         others.dedup();
         if others.is_empty() {
             return Ok(stopped);
         }
+
         let face = of_body
             .get(&chosen)
             .map(|origin| describe_origin(self.inputs.document, *origin))
@@ -2933,7 +3007,7 @@ struct Turn<'a> {
     regions: &'a [Region],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct TurnStop {
     body: FeatureId,
     face: Option<FaceName>,
@@ -3001,9 +3075,11 @@ impl Turn<'_> {
     ) -> Result<(AngularExtent, Option<TurnStop>), Failure> {
         let found = resolve_target(self.context, self.inputs, target, TargetFor::RevolutionEnd)?;
         let name = capitalized(&describe_plane(self.inputs.document, target));
+
         if self.holds_axis(&found) {
             return Ok((self.onto_plane(&found, &name, reversed, offset)?, None));
         }
+
         let PlaneReference::Face(attachment) = target else {
             return Err(self.error(SolidCause::NotThroughAxis { name }));
         };
@@ -3026,12 +3102,15 @@ impl Turn<'_> {
                 split: matches!(error, ReferenceError::Ambiguous(_)),
             })
         })?;
+
         if let Some(plane) = face_plane(solid, found)
             && self.holds_axis(&plane)
         {
             let name = capitalized(&describe_origin(self.inputs.document, face.face.origin()));
+
             return Ok((self.onto_plane(&plane, &name, reversed, offset)?, None));
         }
+
         let name = solid.face(found).map(|found| found.name());
         self.stopping(face.body, name, reversed, offset)
     }
@@ -3066,6 +3145,7 @@ impl Turn<'_> {
         if offset == 0.0 {
             return Ok(None);
         }
+
         let unturnable = || {
             self.error(SolidCause::WouldNotTurn {
                 name: "the faces it stops at".to_owned(),
@@ -3073,6 +3153,7 @@ impl Turn<'_> {
             })
         };
         let (origin, direction) = self.axis_in_world();
+
         let axis = direction.try_normalize().ok_or_else(unturnable)?;
         let centre2d = self
             .regions
@@ -3082,6 +3163,7 @@ impl Turn<'_> {
             .map(|bounds| bounds.center())
             .ok_or_else(unturnable)?;
         let centre = self.plane.to_world(centre2d);
+
         let radial = (centre - origin) - axis * (centre - origin).dot(axis);
         let side = if self.axis.signed_distance(centre2d) < 0.0 {
             -1.0
@@ -3089,6 +3171,7 @@ impl Turn<'_> {
             1.0
         };
         let onward = self.plane.normal() * side * turn.signum();
+
         let spin = if axis.cross(radial).dot(onward) < 0.0 {
             -1.0
         } else {
@@ -3140,17 +3223,22 @@ impl Turn<'_> {
             .map(|bounds| self.plane.to_world(bounds.center()))
             .ok_or_else(unturnable)?;
         let axis = direction.normalize();
+
         let outward = (centre - origin) - axis * (centre - origin).dot(axis);
         let radial = outward.try_normalize().ok_or_else(unturnable)?;
         let normal = found.normal();
+
         let first = (-normal.dot(radial))
             .atan2(normal.dot(axis.cross(radial)))
             .rem_euclid(PI);
+
         if first <= HOLDS_PROFILE || PI - first <= HOLDS_PROFILE {
             return Err(unturnable());
         }
+
         let angle = if reversed { first - PI } else { first };
         let moved = angle + angle.signum() * offset;
+
         if moved * angle <= HOLDS_PROFILE {
             return Err(self.error(SolidCause::TurnOffsetShort {
                 offset,
@@ -3190,6 +3278,7 @@ fn angular_extent(
         RevolveExtent::TwoSides { forward, backward } => {
             let forward = angle(forward, "forward angle")?;
             let backward = angle(backward, "backward angle")?;
+
             return AngularExtent::new(-backward, forward).map_err(|error| match error {
                 SweepError::BeyondFullTurn => context.error(SolidCause::AnglesOverflow),
                 other => sweep_failure(context, "revolution", &other),
@@ -3209,6 +3298,7 @@ fn extrusion_direction(
     let axis = Resolver { feature, inputs }.axis(reference)?;
     let normal = plane.normal();
     let direction = axis.direction().normalize();
+
     if tolerance::perpendicular(direction, normal) {
         return Err(context.error(SolidCause::DirectionAlong {
             axis: capitalized(&describe_axis(inputs.document, reference)),
@@ -3232,6 +3322,7 @@ fn model_axis(
     let axis = Resolver { feature, inputs }.axis(reference)?;
     let in_plane = tolerance::along_plane(axis, plane);
     let origin = plane.to_local(axis.origin());
+
     let direction = plane.to_local(axis.origin() + axis.direction()) - origin;
     match Axis2::new(origin, direction) {
         Ok(found) if in_plane => Ok(found),
@@ -3263,7 +3354,9 @@ fn one_side(
         .reduce(Aabb2::union)
         .ok_or_else(nothing_left)?;
     let mut curves = profile_curves(&sketch.geometry);
+
     curves.push(axis_line(axis, bounds));
+
     let divided = Profile::new(&curves).map_err(|error| profile_failure(context, &error))?;
     let kept: Vec<_> = divided
         .regions()
@@ -3276,6 +3369,7 @@ fn one_side(
         })
         .map(Region::key)
         .collect();
+
     if kept.is_empty() {
         return Err(nothing_left());
     }
@@ -3287,6 +3381,7 @@ fn one_side(
 fn axis_line(axis: Axis2, bounds: Aabb2) -> ProfileCurve {
     let (min, max) = (bounds.min(), bounds.max());
     let reach = bounds.size().length() + 1.0;
+
     let along = [
         min,
         Point2::new(min.x, max.y),

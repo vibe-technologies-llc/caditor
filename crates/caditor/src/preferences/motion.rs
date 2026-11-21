@@ -16,11 +16,14 @@ fn speed_slider(
     command: &mut Option<PreferencesCommand>,
 ) {
     let mut speed = current;
+
     let response = widgets::slider(
         ui,
         egui::Slider::new(&mut speed, MIN_SPEED..=MAX_SPEED).logarithmic(true),
     );
+
     widgets::tie_to_caption(ui, &response);
+
     let settled = response.drag_stopped() || !response.dragged();
     if settled && (response.changed() || response.drag_stopped()) {
         change(command, make(speed));
@@ -37,6 +40,7 @@ pub fn navigation(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preferenc
         .hint(Command::ToggleProjection)
         .map_or_else(|| Command::ToggleProjection.title(), str::to_owned);
     let note = format!("{toggle_keys} switches between perspective and orthographic in the view.");
+
     section(ui, shown, Section::NavigationView, Some(note), |ui| {
         widgets::property(ui, "Projection", |ui| {
             let options = ProjectionMode::ALL.map(|projection| {
@@ -139,6 +143,7 @@ pub fn sketching(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
         "{} returns to the facing view whenever you want it, and {finish} always finishes.",
         Command::LookAtSketch.title()
     );
+
     section(ui, shown, Section::SketchEditing, Some(note), |ui| {
         widgets::property(ui, "Opening a sketch", |ui| {
             toggle(
@@ -163,10 +168,12 @@ pub fn sketching(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
             );
         });
     });
+
     let inference_note = "What a point placed while drawing may be held to. Off, that kind is \
                           neither offered nor made a constraint; the constraint tools still add \
                           it by hand."
         .to_owned();
+
     section(
         ui,
         shown,
@@ -195,9 +202,11 @@ pub fn sketching(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
             }
         },
     );
+
     let at_start = sketching.at_start;
     let note = "Each of these can still be turned on or off while you work, from the View or \
                 Sketch menu and the palette; changing one here also changes it now.";
+
     section(
         ui,
         shown,

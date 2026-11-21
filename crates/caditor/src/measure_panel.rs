@@ -71,7 +71,7 @@ const RELATIVE_HOVER: &str = "Positions, directions and the distances along X, Y
                               in this coordinate system";
 const WORLD_HOVER: &str = "Read from the origin along the principal axes";
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RelativeError {
     #[error(
         "The chosen coordinate system no longer exists, so the readings are relative to the world"
@@ -100,9 +100,11 @@ pub fn relative(model: &Model, tool: &MeasureTool) -> Result<Relative, RelativeE
 fn relative_row(ui: &mut Ui, model: &Model, relative_to: &mut Option<FeatureId>) {
     let document = model.document();
     let frames = datum_tools::frames_before(document, usize::MAX);
+
     if frames.is_empty() && relative_to.is_none() {
         return;
     }
+
     let name = |frame: FeatureId| {
         document.feature(frame).map_or_else(
             || "A deleted coordinate system".to_owned(),
@@ -110,6 +112,7 @@ fn relative_row(ui: &mut Ui, model: &Model, relative_to: &mut Option<FeatureId>)
         )
     };
     let shown = relative_to.map_or_else(|| WORLD.to_owned(), name);
+
     widgets::properties(ui, "measure-relative", |ui| {
         widgets::property(ui, RELATIVE_TO, |ui| {
             widgets::combo("measure-relative-to", shown)
@@ -117,6 +120,7 @@ fn relative_row(ui: &mut Ui, model: &Model, relative_to: &mut Option<FeatureId>)
                 .show(ui, |ui| {
                     let world = widgets::menu_option(ui, relative_to.is_none(), WORLD)
                         .on_hover_text(WORLD_HOVER);
+
                     if world.clicked() {
                         *relative_to = None;
                     }
@@ -132,13 +136,13 @@ fn relative_row(ui: &mut Ui, model: &Model, relative_to: &mut Option<FeatureId>)
     ui.add_space(SPACE_S);
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub label: String,
     pub text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Card {
     pub title: String,
     pub rows: Vec<Row>,
@@ -304,6 +308,7 @@ fn significant(value: f64) -> String {
     if value == 0.0 || !value.is_finite() {
         return format_number(value);
     }
+
     let decimals = INERTIA_DIGITS - 1 - value.abs().log10().floor() as i32;
     let step = 10f64.powi(decimals);
     format_number((value * step).round() / step)
@@ -319,6 +324,7 @@ fn inertia_text(grams_square_millimetres: [f64; 3], unit: Units) -> String {
     } else {
         (1.0, "g")
     };
+
     let [x, y, z] = scaled.map(|value| significant(value * factor));
     format!("{x}, {y}, {z} {mass}·{}²", unit.symbol())
 }
@@ -361,6 +367,7 @@ fn mass_card(
         } else {
             (Tone::Neutral, WORKING_OUT_MASS.to_owned())
         };
+
         return Card {
             title: name,
             rows: Vec::new(),
@@ -387,6 +394,7 @@ fn mass_card(
     };
     let properties = mass.properties;
     let centroid = relative.position(properties.centroid);
+
     let (substance_rows, problem) = mass_rows(substance, properties.volume, approximate);
     let inertia = match substance.density {
         Some(Ok(density)) => {
@@ -441,6 +449,7 @@ fn total_card(
     if parts.len() < 2 {
         return None;
     }
+
     let approximate = parts
         .iter()
         .any(|(mass, _)| mass.accuracy != MassAccuracy::Exact);
@@ -464,6 +473,7 @@ fn total_card(
         .zip(&weights)
         .map(|((mass, _), weight)| mass.properties.volume * weight)
         .sum();
+
     let centroid = if weighted.abs() > f64::MIN_POSITIVE {
         parts
             .iter()
@@ -486,6 +496,7 @@ fn total_card(
     };
     let inertia = densities.map(|densities| {
         let mut second: SecondMoment = [[0.0; 3]; 3];
+
         for ((mass, _), density) in parts.iter().zip(densities) {
             let about = mass.properties.second_moment_about(centroid);
             for (row, part_row) in second.iter_mut().zip(about) {
@@ -544,9 +555,11 @@ fn measured_bodies(context: &MeasureContext<'_>) -> (Vec<FeatureId>, bool) {
                 .filter(|feature| evaluation.body_result(*feature).is_some()),
         )
         .collect();
+
     if !chosen.is_empty() {
         return (chosen.into_iter().collect(), false);
     }
+
     let shown = evaluation
         .bodies()
         .map(|(body, _)| body)
@@ -617,6 +630,7 @@ pub fn mass_cards(
                 density: appearance.density_value(parameters),
             })
     };
+
     let (cards, offers) = bodies
         .iter()
         .take(MAX_MASS_CARDS)
@@ -630,6 +644,7 @@ pub fn mass_cards(
             let mass = mesh.and_then(BodyMesh::mass);
             let stopped = mesh.is_some_and(BodyMesh::mass_stopped);
             let substance = substance_of(*body);
+
             let card = mass_card((name, stopped), mass, unit, &substance, relative);
             let grams = mass
                 .zip(substance.density.as_ref())
@@ -638,6 +653,7 @@ pub fn mass_cards(
                         mass.properties.volume * density * GRAMS_PER_CUBIC_MILLIMETRE
                     })
                 });
+
             let offers = mass_offers(&card, *body, mass, grams, (relative, frame));
             (card, offers)
         })
@@ -667,7 +683,7 @@ pub fn mass_cards(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MassWork {
     Stop,
     Resume,
@@ -709,7 +725,7 @@ pub fn stopped_masses_text(stopped: usize) -> String {
     format!("Stopped working out mass properties; {bodies} without them.")
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum RowChoice {
     Copy {
         label: String,
@@ -726,7 +742,7 @@ enum RowChoice {
     },
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct RowOffer {
     value: Option<Value>,
     kept: Option<(Vec<MeasuredItem>, Vec<Keepable>)>,
@@ -742,14 +758,17 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     let relative = relative(context.model, tool);
+
     tool.measurements.refresh(
         context.model,
         context.selection,
         relative.clone().unwrap_or(Relative::WORLD),
     );
+
     let unit = context.model.units();
     let shown = tool.measurements.shown();
     let measuring = tool.measurements.is_measuring();
+
     let cards =
         shown.map(|(readout, freshness)| (readout, readout_cards(readout, unit), freshness));
     let frame = tool.relative_to.filter(|_| relative.is_ok());
@@ -766,6 +785,7 @@ pub fn show(
             .collect::<Vec<_>>()
             .join("\n");
         let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
+
         if ui
             .add(copy)
             .on_hover_text("Copy every reading in the panel as text")
@@ -777,6 +797,7 @@ pub fn show(
             widgets::progress(MEASURING).show(ui);
         }
     };
+
     let panel = widgets::side_panel_parts(ui, room, PANEL, &HEADER, header_actions, |ui| {
         relative_row(ui, context.model, &mut relative_to);
         if let Err(problem) = &relative {
@@ -795,11 +816,14 @@ pub fn show(
                     chosen = readings(ui, readout, cards, frame);
                 });
             }
+
             let (mass_choice, work) = mass_section(ui, &masses);
+
             chosen = mass_choice.or(chosen.take());
             mass_work = work;
         });
     });
+
     tool.relative_to = relative_to;
     if let Some(work) = mass_commands(&masses, commands).or(mass_work) {
         steer_masses(context, &masses, work);
@@ -839,6 +863,7 @@ fn perform(
                 &parameter_stem(&label),
                 expression,
             );
+
             actions.push(Action::Inform(Notice::success(format!(
                 "Added the parameter {name} = {text} from the measured {}. Type a new name in \
                  its field in Parameters to rename it.",
@@ -916,8 +941,10 @@ fn readings(
         widgets::callout(ui, Tone::Warning, |ui| ui.label(problem.to_string()));
         ui.add_space(SPACE_M);
     }
+
     let mut chosen = None;
     let items = readout.kept.len();
+
     for (index, (card, group)) in cards.iter().zip(&readout.groups).enumerate() {
         let kept: Option<&[MeasuredItem]> = match items {
             0 => None,
@@ -925,6 +952,7 @@ fn readings(
             _ => Some(&readout.kept),
         };
         let between = items > 0 && index >= items;
+
         let offers: Vec<RowOffer> = group
             .readings
             .iter()
@@ -938,6 +966,7 @@ fn readings(
                 }
             })
             .collect();
+
         chosen = card_with_menus(ui, ("measured", index), card, &offers).or(chosen.take());
         ui.add_space(SPACE_M);
     }
@@ -947,6 +976,7 @@ fn readings(
 fn mass_section(ui: &mut Ui, masses: &Masses) -> (Option<RowChoice>, Option<MassWork>) {
     let mut chosen = None;
     let mut work = None;
+
     widgets::section(
         ui,
         MASS_SECTION,
@@ -957,9 +987,11 @@ fn mass_section(ui: &mut Ui, masses: &Masses) -> (Option<RowChoice>, Option<Mass
             if masses.everything && !masses.cards.is_empty() {
                 ui.label(widgets::muted(ALL_BODIES, ui));
             }
+
             let done = masses
                 .bodies
                 .saturating_sub(masses.pending + masses.stopped);
+
             if masses.pending > 0
                 && widgets::progress(WORKING_OUT_MASSES)
                     .count(done, masses.bodies)
@@ -994,9 +1026,11 @@ fn mass_section(ui: &mut Ui, masses: &Masses) -> (Option<RowChoice>, Option<Mass
             }
             for (index, card) in masses.cards.iter().enumerate() {
                 let offers = masses.offers.get(index).map_or(&[][..], Vec::as_slice);
+
                 chosen = card_with_menus(ui, ("mass", index), card, offers).or(chosen.take());
                 ui.add_space(SPACE_S);
             }
+
             let unlisted = masses.bodies.saturating_sub(masses.cards.len());
             if unlisted > 0 {
                 ui.label(widgets::muted(
@@ -1035,6 +1069,7 @@ fn card_rows(
     mut value: impl FnMut(&mut Ui, &Row, usize) -> Option<RowChoice>,
 ) -> Option<RowChoice> {
     let mut chosen = None;
+
     widgets::card(ui, |ui| {
         ui.add(
             Label::new(widgets::strong(&card.title))
@@ -1065,6 +1100,7 @@ fn value_with_menu(ui: &mut Ui, row: &Row, offer: &RowOffer) -> Option<RowChoice
             &format!("More for {}", row.label),
         );
         let mut chosen = None;
+
         Popup::menu(&more).show(|ui| {
             widgets::fitted_menu(ui, |ui| chosen = row_menu(ui, row, offer));
         });
@@ -1096,6 +1132,7 @@ fn kept_value(value: Value, keepable: Keepable) -> Option<Value> {
 fn row_menu(ui: &mut Ui, row: &Row, offer: &RowOffer) -> Option<RowChoice> {
     let value = offer.value;
     let mut chosen = None;
+
     if widgets::menu_item(ui, icons::COPY, COPY_VALUE, None).clicked() {
         chosen = Some(RowChoice::Copy {
             label: row.label.clone(),
@@ -1112,9 +1149,11 @@ fn row_menu(ui: &mut Ui, row: &Row, offer: &RowOffer) -> Option<RowChoice> {
         });
         ui.close();
     }
+
     let Some((value, (items, keepables))) = value.zip(offer.kept.as_ref()) else {
         return chosen;
     };
+
     for keepable in keepables {
         let Some((standing, reading)) = kept_value(value, *keepable).zip(keepable.reading(items))
         else {
@@ -1128,6 +1167,7 @@ fn row_menu(ui: &mut Ui, row: &Row, offer: &RowOffer) -> Option<RowChoice> {
                 Some(name) => format!("{} {name}", row.label),
                 None => row.label.clone(),
             };
+
             chosen = Some(RowChoice::Keep {
                 label,
                 value: standing,

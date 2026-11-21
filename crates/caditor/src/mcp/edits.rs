@@ -25,14 +25,14 @@ use crate::{
     split_face_tools, split_tools, thread_tools,
 };
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Editing {
     pub feature: Named,
     #[serde(flatten)]
     pub values: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FeatureEditError {
     #[error(
         "{name} is a sketch: change it with add_sketch_geometry, add_sketch_constraints, \
@@ -336,12 +336,15 @@ pub fn edit(session: &mut Session, work: &Work<'_>, asked: Editing) -> Result<An
     let feature = found.id();
     let name = found.name.clone();
     let kind = found.kind.clone();
+
     if kind.sketch().is_some() {
         return Err(FeatureEditError::Sketch { name }.into());
     }
+
     let Some(tool) = tool_for(&kind) else {
         return Err(FeatureEditError::NotEditable { name }.into());
     };
+
     if asked.values.is_empty() {
         return Err(FeatureEditError::NothingGiven {
             name,
@@ -350,6 +353,7 @@ pub fn edit(session: &mut Session, work: &Work<'_>, asked: Editing) -> Result<An
         .into());
     }
     session.evaluate(work)?;
+
     let rebuilding = |session: &mut Session| rebuilt(session, work, (tool, &kind), &asked.values);
     let built = match session.looking_before(feature, rebuilding) {
         Some(result) => result.map_err(|error| as_received(error, &name))?,
@@ -359,15 +363,18 @@ pub fn edit(session: &mut Session, work: &Work<'_>, asked: Editing) -> Result<An
         return Err(FeatureEditError::NotEditable { name }.into());
     };
     let document = session.document();
+
     let transaction = edit_transaction(document, feature, built.kind)
         .ok_or_else(|| references::ReferenceError::NoFeature(asked.feature.clone()))?;
     let (label, mut edits) = transaction.into_parts();
+
     if let Some(renamed) = built.name.filter(|renamed| *renamed != name) {
         edits.push(Edit::RenameFeature {
             id: feature,
             name: renamed,
         });
     }
+
     let answer = apply(session, work, Transaction::new(label, edits), built.details)?;
     Ok(with_feature(session, answer, feature))
 }

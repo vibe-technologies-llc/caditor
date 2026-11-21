@@ -40,7 +40,7 @@ use crate::{
     thread::ThreadCause,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Cause {
     Panicked,
     Unevaluable(Unevaluable),
@@ -179,7 +179,7 @@ impl Cause {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Expected {
     Length(f64),
     Angle(f64),
@@ -196,7 +196,7 @@ impl Expected {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Unevaluable {
     what: String,
     expected: Expected,
@@ -246,7 +246,7 @@ impl FeatureError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Upstream {
     Deleted {
         sketch_attached: bool,
@@ -407,7 +407,7 @@ impl From<Upstream> for Cause {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SketchCause {
     NoLength {
         label: String,
@@ -523,6 +523,7 @@ impl SketchCause {
 
     fn pronouns(named: &[String], unnamed: usize) -> (String, &'static str, &'static str) {
         let mut names = named.to_vec();
+
         if unnamed > 0 {
             names.push(format!("{unnamed} more"));
         }
@@ -598,7 +599,7 @@ impl From<SketchCause> for Cause {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Chosen {
     Edges,
     Faces,
@@ -654,7 +655,7 @@ impl Chosen {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Unmatched {
     pub chosen: Chosen,
     pub unresolved: Unresolved,
@@ -703,7 +704,7 @@ impl From<Unmatched> for Cause {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Near {
     pub faces: Vec<String>,
     pub edge: Option<String>,

@@ -19,7 +19,7 @@ pub const MAX_CONFIGURATIONS_FILE: usize = 16 << 20;
 const NAME_COLUMN: &str = "Configuration";
 const NAME_ALIASES: [&str; 2] = ["configuration", "name"];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ConfigurationFileError {
     #[error("{0}")]
     Reading(ReadFailure),
@@ -49,8 +49,11 @@ pub fn configurations_csv(document: &Document) -> String {
         .filter_map(|value| Some((*value, document.configuration_column_header(*value)?)))
         .collect();
     let mut header = vec![NAME_COLUMN];
+
     header.extend(columns.iter().map(|(_, header)| header.as_str()));
+
     let mut text = csv_row(&header);
+
     for row in &configurations.rows {
         let cells: Vec<String> = columns
             .iter()
@@ -61,6 +64,7 @@ pub fn configurations_csv(document: &Document) -> String {
             })
             .collect();
         let mut line = vec![row.name.as_str()];
+
         line.extend(cells.iter().map(String::as_str));
         text.push_str(&csv_row(&line));
     }
@@ -75,9 +79,11 @@ pub fn write_configurations(path: &Path, text: &str) -> Result<(), Configuration
 pub fn read_configurations(path: &Path) -> Result<ImportedConfigurations, ConfigurationFileError> {
     let bytes = read_file(path)
         .map_err(|error| ConfigurationFileError::Reading(ReadFailure::of(&error)))?;
+
     if bytes.len() > MAX_CONFIGURATIONS_FILE {
         return Err(ConfigurationFileError::TooLarge);
     }
+
     let text = String::from_utf8(bytes).map_err(|_| ConfigurationFileError::NotText)?;
     parse_configurations(&text)
 }
@@ -85,23 +91,28 @@ pub fn read_configurations(path: &Path) -> Result<ImportedConfigurations, Config
 pub fn parse_configurations(text: &str) -> Result<ImportedConfigurations, ConfigurationFileError> {
     let text = text.trim_start_matches('\u{feff}');
     let delimiter = delimiter_in(text.lines().next().unwrap_or_default());
+
     let mut records = records(text, delimiter, MAX_CONFIGURATION_ROWS)
         .map_err(configuration_csv_error)?
         .into_iter();
+
     let header = records.next().ok_or(ConfigurationFileError::NoHeader)?;
     let name = header
         .iter()
         .position(|cell| NAME_ALIASES.contains(&cell.trim().to_lowercase().as_str()))
         .ok_or(ConfigurationFileError::NoHeader)?;
+
     let value_columns: Vec<usize> = header
         .iter()
         .enumerate()
         .filter(|(position, cell)| *position != name && !cell.trim().is_empty())
         .map(|(position, _)| position)
         .collect();
+
     if value_columns.len() > MAX_CONFIGURATION_COLUMNS {
         return Err(ConfigurationFileError::TooManyColumns);
     }
+
     let columns = value_columns
         .iter()
         .filter_map(|position| header.get(*position))
@@ -135,28 +146,41 @@ mod tests {
 
     fn model() -> Document {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Parameters");
+
         let width = transaction.add_parameter("width", transaction.parse("40 mm").unwrap());
+
         transaction.add_parameter("turn", transaction.parse("-15 deg").unwrap());
         document.apply(transaction.finish()).unwrap();
+
         let mut editor = Editor::new(document);
+
         let configure = editor
             .document()
             .configuring(ConfiguredValue::Parameter(width))
             .unwrap();
+
         editor.apply(configure).unwrap();
+
         let turn = editor.document().parameter_named("turn").unwrap().id();
         let configure = editor
             .document()
             .configuring(ConfiguredValue::Parameter(turn))
             .unwrap();
+
         editor.apply(configure).unwrap();
+
         let (first, _) = editor
             .document()
             .adding_configuration(Some("Small, \"slim\""));
+
         editor.apply(first).unwrap();
+
         let (second, large) = editor.document().adding_configuration(Some("Large"));
+
         editor.apply(second).unwrap();
+
         let wide = editor
             .document()
             .transaction("Parse")
@@ -170,6 +194,7 @@ mod tests {
                 Setting::Expression(wide),
             )
             .unwrap();
+
         editor.apply(change).unwrap();
         editor.document().clone()
     }
@@ -209,7 +234,9 @@ mod tests {
         let source = model();
         let text = configurations_csv(&source);
         let mut target = Document::default();
+
         let mut transaction = target.transaction("Parameters");
+
         transaction.add_parameter("width", transaction.parse("1 mm").unwrap());
         transaction.add_parameter("turn", transaction.parse("0 deg").unwrap());
         target.apply(transaction.finish()).unwrap();
@@ -218,6 +245,7 @@ mod tests {
         let plan = target
             .plan_configuration_import("Import", &file, true)
             .unwrap();
+
         target.apply(plan.transaction.unwrap()).unwrap();
 
         assert_eq!(configurations_csv(&target), text);
@@ -284,6 +312,7 @@ mod tests {
     fn a_file_that_is_not_text_or_cannot_be_read_is_refused_in_words() {
         let dir = tempfile::tempdir().unwrap();
         let binary = dir.path().join("table.csv");
+
         std::fs::write(&binary, [0xff, 0xfe, 0x00, 0x9f]).unwrap();
 
         let refused = read_configurations(&binary).unwrap_err();

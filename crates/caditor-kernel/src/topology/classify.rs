@@ -49,7 +49,7 @@ const RAY_DIRECTIONS: [[f64; 3]; 12] = [
     [-0.057_735, 0.519_615, -0.852_332],
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointClass {
     Inside,
     Outside,
@@ -57,14 +57,14 @@ pub enum PointClass {
     Undecided,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FaceContainment {
     Inside,
     Outside,
     OnBoundary,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RayCrossing {
     Crossing {
         face: FaceId,
@@ -75,14 +75,14 @@ pub enum RayCrossing {
     Undecided,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RayView {
     Covered,
     Clear,
     Undecided,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoundaryClass {
     Inside,
     Outside,
@@ -91,7 +91,7 @@ pub enum BoundaryClass {
     Undecided,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct BoundaryCoedge {
     id: CoedgeId,
     edge: EdgeId,
@@ -99,7 +99,7 @@ struct BoundaryCoedge {
     bounds: Aabb,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct FaceData {
     id: FaceId,
     polygons: Vec<Vec<Point2>>,
@@ -127,7 +127,7 @@ impl FaceData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct SolidClassifier<'a> {
     solid: &'a Solid,
     faces: Vec<FaceData>,
@@ -143,6 +143,7 @@ fn positions_of(faces: &[FaceData]) -> Vec<Option<usize>> {
         .max()
         .unwrap_or(0);
     let mut positions = vec![None; size];
+
     for (position, data) in faces.iter().enumerate() {
         if let Some(slot) = positions.get_mut(data.id.index()) {
             *slot = Some(position);
@@ -155,32 +156,40 @@ fn face_data(solid: &Solid, id: FaceId) -> Option<FaceData> {
     let face = solid.face(id)?;
     let mut polygons = Vec::with_capacity(face.loops().len());
     let mut uses: BTreeMap<EdgeId, usize> = BTreeMap::new();
+
     for loop_id in face.loops() {
         let face_loop = solid.face_loop(*loop_id)?;
         let mut polygon = Vec::new();
+
         for coedge in face_loop.coedges() {
             let coedge = solid.coedge(*coedge)?;
+
             polygon.extend(coedge.pcurve().samples().iter().map(|sample| sample.uv));
             *uses.entry(coedge.edge()).or_insert(0) += 1;
         }
         polygons.push(polygon);
     }
+
     let uv_box = Aabb2::from_points(polygons.iter().flatten().copied())?;
     let mut boundary = Vec::new();
     let mut boundary_ids = BTreeSet::new();
     let mut seams = Vec::new();
+
     for loop_id in face.loops() {
         let face_loop = solid.face_loop(*loop_id)?;
         for coedge_id in face_loop.coedges() {
             let coedge = solid.coedge(*coedge_id)?;
             let seam = uses.get(&coedge.edge()).is_some_and(|count| *count > 1);
+
             if seam {
                 if !seams.contains(&coedge.edge()) {
                     seams.push(coedge.edge());
                 }
                 continue;
             }
+
             let edge = solid.edge(coedge.edge())?;
+
             boundary_ids.insert(*coedge_id);
             boundary.push(BoundaryCoedge {
                 id: *coedge_id,
@@ -209,12 +218,15 @@ fn shifts(period: Option<f64>, value: f64, low: f64, high: f64) -> Vec<f64> {
     };
     let first = ((low - value) / period).ceil();
     let last = ((high - value) / period).floor();
+
     if !first.is_finite() || !last.is_finite() || last < first {
         return Vec::new();
     }
+
     let mut turns: Vec<f64> = (0..=(last - first) as usize)
         .map(|index| first + index as f64)
         .collect();
+
     turns.sort_by(|a, b| a.abs().total_cmp(&b.abs()));
     turns
         .into_iter()
@@ -298,6 +310,7 @@ impl<'a> SolidClassifier<'a> {
 
     pub fn point_in_face(&self, face: FaceId, uv: Point2) -> Option<FaceContainment> {
         let nearest = self.nearest_boundary(face, uv)?;
+
         if nearest.is_some_and(|(distance, _, _)| distance <= TOLERANCE) {
             return Some(FaceContainment::OnBoundary);
         }
@@ -321,9 +334,11 @@ impl<'a> SolidClassifier<'a> {
         let data = self.data(face)?;
         let point = self.solid.face(face)?.surface().point_at(uv);
         let mut nearest: Option<(f64, &BoundaryCoedge, f64)> = None;
+
         for coedge in data.boundary_near(point) {
             let edge = self.solid.edge(coedge.edge)?;
             let parameter = edge.curve().closest_parameter(point, edge.interval());
+
             let distance = edge.curve().point(parameter).distance(point);
             if nearest.is_none_or(|(best, _, _)| distance < best) {
                 nearest = Some((distance, coedge, parameter));
@@ -373,6 +388,7 @@ impl<'a> SolidClassifier<'a> {
                 };
                 let from_start = (pole.v - domain.start()).abs();
                 let from_end = (pole.v - domain.end()).abs();
+
                 let inward = if from_start <= from_end {
                     nudge
                 } else {
@@ -431,6 +447,7 @@ impl<'a> SolidClassifier<'a> {
         let foot = edge.curve().point(parameter);
         let (start, end) = self.solid.coedge_parameters(coedge.id)?;
         let (from, to) = self.solid.coedge_vertices(coedge.id)?;
+
         let at_vertex = if parameter == start {
             Some(from)
         } else if parameter == end {
@@ -440,6 +457,7 @@ impl<'a> SolidClassifier<'a> {
         };
         let Some(vertex) = at_vertex else {
             let tangent = self.coedge_tangent(coedge.id, parameter)?;
+
             return Some(self.left_of(normal, tangent, foot, point));
         };
         let (incoming, outgoing) = self.corner(coedge, vertex)?;
@@ -447,6 +465,7 @@ impl<'a> SolidClassifier<'a> {
         let tangent_out = self.coedge_tangent(outgoing.0, outgoing.1)?;
         let left_in = self.left_of(normal, tangent_in, foot, point);
         let left_out = self.left_of(normal, tangent_out, foot, point);
+
         let convex = tangent_in.cross(tangent_out).dot(normal) >= 0.0;
         Some(if convex {
             left_in && left_out
@@ -462,6 +481,7 @@ impl<'a> SolidClassifier<'a> {
     ) -> Option<((CoedgeId, f64), (CoedgeId, f64))> {
         let face_loop = self.solid.face_loop(coedge.face_loop)?;
         let data = self.data(face_loop.face())?;
+
         let boundary: Vec<CoedgeId> = face_loop
             .coedges()
             .iter()
@@ -487,8 +507,10 @@ impl<'a> SolidClassifier<'a> {
         if !contains_point(&data.bounds, point, TOLERANCE) {
             return None;
         }
+
         let surface = self.solid.face(data.id)?.surface();
         let uv = surface.project(point, Some(data.uv_box.center()));
+
         if surface.point_at(uv).distance(point) > TOLERANCE {
             return None;
         }
@@ -507,6 +529,7 @@ impl<'a> SolidClassifier<'a> {
         let Some(bounds) = self.bounds else {
             return PointClass::Outside;
         };
+
         if !point.is_finite() || !contains_point(&bounds, point, TOLERANCE) {
             return PointClass::Outside;
         }
@@ -521,6 +544,7 @@ impl<'a> SolidClassifier<'a> {
 
     pub(crate) fn side_of_touched_faces(&self, point: Point3) -> PointClass {
         let mut side = None;
+
         for data in self.faces_near(point) {
             let Some(uv) = self.on_face(data, point) else {
                 continue;
@@ -528,19 +552,23 @@ impl<'a> SolidClassifier<'a> {
             let Some(normal) = self.outward_normal(data.id, uv) else {
                 return PointClass::Undecided;
             };
+
             let height = (point
                 - self
                     .solid
                     .face(data.id)
                     .map_or(point, |face| face.surface().point_at(uv)))
             .dot(normal);
+
             if height.abs() <= NEGLIGIBLE_HEIGHT {
                 if self.exactly_inside_face(data.id, uv) == Some(false) {
                     continue;
                 }
                 return PointClass::Undecided;
             }
+
             let inside = height < 0.0;
+
             if side.is_some_and(|known| known != inside) {
                 return PointClass::Undecided;
             }
@@ -560,6 +588,7 @@ impl<'a> SolidClassifier<'a> {
             .map(|corner| corner.distance(point))
             .fold(0.0, larger)
             + RAY_REACH_MARGIN;
+
         for direction in directions {
             match self.cast(point, *direction, reach) {
                 Ok(Some(class)) => return class,
@@ -582,6 +611,7 @@ impl<'a> SolidClassifier<'a> {
         let curve = Curve::Line(line);
         let mut nearest: Option<(f64, f64)> = None;
         let mut first_doubt = f64::INFINITY;
+
         for data in self.faces_along(origin, direction, reach) {
             let Some(window) = crate::intersect::line_window(origin, direction, &data.bounds)
             else {
@@ -589,12 +619,14 @@ impl<'a> SolidClassifier<'a> {
             };
             let low = (window.start() - WINDOW_MARGIN).max(0.0);
             let high = (window.end() + WINDOW_MARGIN).min(reach);
+
             let Some(range) = Interval::new(low, high) else {
                 continue;
             };
             let Some(face) = self.solid.face(data.id) else {
                 continue;
             };
+
             let found =
                 match intersect_curve_surface(&curve, range, face.surface(), Some(data.uv_box)) {
                     Ok(found) if found.overlaps.is_empty() => found,
@@ -624,10 +656,12 @@ impl<'a> SolidClassifier<'a> {
                 }
             }
         }
+
         let doubtful = match nearest {
             Some((distance, _)) => first_doubt <= distance + TOLERANCE,
             None => first_doubt.is_finite(),
         };
+
         if doubtful {
             return Ok(None);
         }
@@ -654,6 +688,7 @@ impl<'a> SolidClassifier<'a> {
         let curve = Curve::Line(line);
         let mut nearest: Option<(f64, FaceId, f64)> = None;
         let mut first_doubt = f64::INFINITY;
+
         for data in self.faces_along(origin, direction, reach) {
             let Some(window) = crate::intersect::line_window(origin, direction, &data.bounds)
             else {
@@ -661,13 +696,16 @@ impl<'a> SolidClassifier<'a> {
             };
             let low = (window.start() - WINDOW_MARGIN).max(0.0);
             let high = (window.end() + WINDOW_MARGIN).min(reach);
+
             if high <= beyond {
                 continue;
             }
+
             let (Some(range), Some(face)) = (Interval::new(low, high), self.solid.face(data.id))
             else {
                 continue;
             };
+
             let found =
                 match intersect_curve_surface(&curve, range, face.surface(), Some(data.uv_box)) {
                     Ok(found) => found,
@@ -677,6 +715,7 @@ impl<'a> SolidClassifier<'a> {
                         continue;
                     }
                 };
+
             for overlap in found
                 .overlaps
                 .iter()
@@ -744,6 +783,7 @@ impl<'a> SolidClassifier<'a> {
             + RAY_REACH_MARGIN;
         let curve = Curve::Line(line);
         let mut doubtful = false;
+
         for data in self.faces_along(origin, direction, reach) {
             let (Some(window), Some(face)) = (
                 crate::intersect::line_window(origin, direction, &data.bounds),
@@ -753,10 +793,13 @@ impl<'a> SolidClassifier<'a> {
             };
             let low = (window.start() - WINDOW_MARGIN).max(0.0);
             let high = (window.end() + WINDOW_MARGIN).min(reach);
+
             let Some(range) = Interval::new(low, high) else {
                 continue;
             };
+
             tally::add(1);
+
             let surface = face.surface();
             let found = match intersect_curve_surface(&curve, range, surface, Some(data.uv_box)) {
                 Ok(found) => found,
@@ -767,12 +810,14 @@ impl<'a> SolidClassifier<'a> {
                 }
             };
             let is_own = own.contains(&data.id);
+
             let skips_point_hits = is_own && matches!(surface, Surface::Plane(_));
             let beyond = if is_own { OWN_FACE_REACH } else { RAY_TOUCH };
             let on_face = |uv: Point2| {
                 self.point_in_face(data.id, uv)
                     .is_some_and(|class| class != FaceContainment::Outside)
             };
+
             let hit_counts = |hit: &crate::intersect::CurveSurfacePoint| {
                 !skips_point_hits && hit.parameter > beyond && on_face(hit.uv)
             };
@@ -816,6 +861,7 @@ impl<'a> SolidClassifier<'a> {
         fragment: Option<&Surface>,
     ) -> BoundaryClass {
         let mut touching = None;
+
         for data in self.faces_near(point) {
             let Some(uv) = self.on_face(data, point) else {
                 continue;
@@ -833,6 +879,7 @@ impl<'a> SolidClassifier<'a> {
                     .face(data.id)
                     .is_some_and(|face| lies_on_same_surface(surface, face.surface()))
             });
+
             if shares_surface && outward.cross(given).length() <= COINCIDENT_SINE {
                 return BoundaryClass::Coincident {
                     face: data.id,

@@ -48,7 +48,7 @@ const FULL_TURN_DEGREES: f64 = 360.0;
 const HALF_TURN_DEGREES: f64 = 180.0;
 const WHOLE_TOLERANCE: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Rule {
     Any,
     AboveZero,
@@ -69,7 +69,7 @@ pub enum Rule {
     EmbossDraft,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum RuleError {
     #[error("{}", ABOVE_ZERO)]
     AboveZero,
@@ -198,7 +198,7 @@ impl Rule {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum QuantityError {
     #[error(transparent)]
     Expression(#[from] ExpressionError),
@@ -225,10 +225,12 @@ pub fn parse_quantity(
         },
         model.units(),
     )?;
+
     let value = parameters
         .evaluate_expression(&parsed)
         .map_err(QuantityError::Unevaluable)?
         .value;
+
     rule.check(value)?;
     Ok(parsed)
 }
@@ -292,6 +294,7 @@ fn expression_row_with<E: Display>(
     trailing: impl FnOnce(&mut Ui) -> bool,
 ) -> RemovableValue {
     widgets::caption(ui, caption);
+
     let document = model.document();
     let parameters = model.parameters();
     let unit = model.units();
@@ -300,6 +303,7 @@ fn expression_row_with<E: Display>(
         value: owned_as.to_owned(),
     };
     let parse = |text: &str| parse_quantity(model, quantity.dimension, quantity.rule, text);
+
     let named = field::NamedField {
         document,
         parameters,
@@ -309,9 +313,11 @@ fn expression_row_with<E: Display>(
         current: quantity.expression,
     };
     let validate = |text: &str| named.transaction(text, parse, &change);
+
     if let Some(held) = document.owned_parameter(&owner, quantity.expression) {
         completion::editing_parameter(ui, quantity.id, held.id());
     }
+
     let row = ui.horizontal_wrapped(|ui| {
         let field = field::value_field(
             ui,
@@ -322,11 +328,13 @@ fn expression_row_with<E: Display>(
             validate,
         );
         let shown = field::shown_value(document, &owner, quantity.expression);
+
         if field.error.is_none()
             && let Some(preview) = field::value_preview(parameters, shown, unit)
         {
             ui.add(Label::new(widgets::muted(preview, ui)).wrap_mode(TextWrapMode::Extend));
         }
+
         let draft = match (field.committed.is_some(), field.left, field.edited) {
             (true, _, _) | (false, false, None) => None,
             (false, true, _) => Some(None),
@@ -337,6 +345,7 @@ fn expression_row_with<E: Display>(
     });
     let hovered = row.response.contains_pointer();
     let (committed, error, draft, removed) = row.inner;
+
     ui.end_row();
     if let Some(error) = error {
         widgets::error_row(ui, &error);
@@ -372,6 +381,7 @@ pub fn description_row(ui: &mut Ui, text: &str) {
 
 pub fn missing(ui: &mut Ui, text: &str) {
     let warning = appearance::tokens(ui).warn;
+
     ui.horizontal_wrapped(|ui| {
         widgets::icon_label(ui, icons::WARNING, warning);
         ui.colored_label(warning, text);
@@ -418,9 +428,11 @@ pub fn frame_row<E: Display>(
 ) -> Option<Action> {
     let before = document.feature_index(row.feature).unwrap_or(usize::MAX);
     let frames = datum_tools::frames_before(document, before);
+
     if frames.is_empty() && row.current.is_none() {
         return None;
     }
+
     let name = |frame: FeatureId| {
         document.feature(frame).map_or_else(
             || "A deleted coordinate system".to_owned(),
@@ -428,7 +440,9 @@ pub fn frame_row<E: Display>(
         )
     };
     let current = row.current.map_or_else(|| WORLD.to_owned(), name);
+
     widgets::caption(ui, row.caption);
+
     let chosen = combo(ui, Id::unique((row.salt, row.feature)), current, || {
         std::iter::once(None)
             .chain(frames.into_iter().map(Some))
@@ -439,6 +453,7 @@ pub fn frame_row<E: Display>(
             })
             .collect()
     });
+
     ui.end_row();
     chosen
 }
@@ -448,6 +463,7 @@ pub fn combo_text(ui: &mut Ui, name: Option<&str>, missing: &str) -> WidgetText 
         Some(name) => name.into(),
         None => {
             let warning = appearance::tokens(ui).warn;
+
             widgets::icon_label(ui, icons::WARNING, warning);
             RichText::new(missing).color(warning).into()
         }
@@ -476,6 +492,7 @@ pub fn principal_combo<T, E: Display>(
     choices: impl FnOnce() -> Vec<Choice<T, E>>,
 ) -> Option<T> {
     let (chosen, open) = listing(ui, id, selected, choices);
+
     if open {
         visibility::listing_principal(ui.ctx(), listed);
     }
@@ -489,10 +506,12 @@ fn listing<T, E: Display>(
     choices: impl FnOnce() -> Vec<Choice<T, E>>,
 ) -> (Option<T>, bool) {
     let mut chosen = None;
+
     let shown = widgets::combo(id, selected).show(ui, |ui| {
         for choice in choices() {
             let enabled = choice.change.is_ok() || choice.selected;
             let button = widgets::button(choice.label.clone()).selected(choice.selected);
+
             let response = ui.add_enabled(
                 enabled,
                 Named::new(button, choice.label.as_str()).selected(choice.selected),
@@ -542,9 +561,12 @@ pub fn body_operation_rows<E: Display>(
     } = *rows;
     let mut actions = Vec::new();
     let document = model.document();
+
     let bodies = document.bodies_before_in(feature, model.evaluation());
     let target = operation.target().or(bodies.last().copied());
+
     widgets::caption(ui, "Result");
+
     let candidates = [
         Some(BodyOperation::NewBody),
         target.map(BodyOperation::Add),
@@ -567,12 +589,16 @@ pub fn body_operation_rows<E: Display>(
                 .collect()
         },
     );
+
     ui.end_row();
     actions.extend(chosen);
+
     let Some(target) = operation.target() else {
         return actions;
     };
+
     widgets::caption(ui, "Body");
+
     let name = document.body_label(target);
     let chosen = ui
         .horizontal(|ui| {
@@ -591,6 +617,7 @@ pub fn body_operation_rows<E: Display>(
             })
         })
         .inner;
+
     ui.end_row();
     actions.extend(chosen);
     actions
@@ -609,6 +636,7 @@ pub fn segmented_row<E: Display>(
     segments: Vec<Segment<'_, E>>,
 ) -> Option<Action> {
     widgets::caption(ui, caption);
+
     let labels: Vec<(&str, &str)> = segments
         .iter()
         .map(|segment| (segment.label, segment.hover))
@@ -617,16 +645,22 @@ pub fn segmented_row<E: Display>(
         .iter()
         .position(|segment| segment.change.is_none())
         .unwrap_or(0);
+
     let chosen = widgets::segmented(ui, &labels, current);
+
     ui.end_row();
+
     let change = segments.into_iter().nth(chosen?)?.change?;
     Some(applied(feature, change))
 }
 
 pub fn reverse_row(ui: &mut Ui, label: &str, reversed: bool) -> Option<bool> {
     ui.label("");
+
     let mut flipped = reversed;
+
     let changed = widgets::checkbox(ui, &mut flipped, label).changed();
+
     ui.end_row();
     changed.then_some(flipped)
 }
@@ -662,13 +696,17 @@ pub fn offered_change<E: Clone + Send + Sync + 'static>(
         model.revision(),
         model.evaluation_generation(),
     );
+
     let known = ctx
         .data(|data| data.get_temp::<OfferedChange<E>>(id))
         .filter(|known| known.basis == basis);
+
     if let Some(known) = known {
         return known.change;
     }
+
     let change = compute();
+
     ctx.data_mut(|data| {
         data.insert_temp(
             id,
@@ -694,6 +732,7 @@ pub fn choosing_prompt(
         return false;
     };
     let prompt = format!("{}.", reference_picking::prompt(model, picking));
+
     if choosing_row(ui, &prompt, slot.keeps_choosing(), (stop, None)) {
         actions.push(Action::Editing(EditingCommand::StopPicking));
     }
@@ -711,6 +750,7 @@ fn choosing_row(
         if keeps_choosing {
             widgets::pill(ui, Tone::Info, KEEPS_CHOOSING).on_hover_text(KEEPS_CHOOSING_HOVER);
         }
+
         let button = widgets::small_button(ui, icons::CLOSE, stop);
         let button = ui.add(button);
         match stop_hover {
@@ -729,6 +769,7 @@ pub fn reference_picker<E>(
     actions: &mut Vec<Action>,
 ) {
     let reference = (picker.feature, picker.slot);
+
     if choosing_prompt(ui, model, reference, STOP_CHOOSING, actions) {
         return;
     }
@@ -779,7 +820,9 @@ pub fn axis_row<E, L: Display>(
     actions: &mut Vec<Action>,
 ) {
     widgets::caption(ui, row.caption);
+
     let id = Id::unique(("axis-row", row.caption, row.picker.feature));
+
     ui.vertical(|ui| {
         match (listed, row.shown) {
             (Some(listed), shown) => {
@@ -787,6 +830,7 @@ pub fn axis_row<E, L: Display>(
                     Some(text) => text.into(),
                     None => widgets::muted(NONE_CHOSEN, ui).into(),
                 };
+
                 actions.extend(principal_combo(ui, (id, PrincipalSet::AXES), shown, listed));
             }
             (None, Some(text)) => {
@@ -799,7 +843,7 @@ pub fn axis_row<E, L: Display>(
     ui.end_row();
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ChoiceRefusal {
     #[error("{}", ALREADY_CHOSEN)]
     AlreadyChosen,
@@ -842,6 +886,7 @@ pub fn reference_row<E>(
     actions: &mut Vec<Action>,
 ) -> bool {
     widgets::caption(ui, caption);
+
     let removed = ui
         .vertical(|ui| {
             let removed = match (shown, remove) {
@@ -857,10 +902,12 @@ pub fn reference_row<E>(
                     false
                 }
             };
+
             reference_picker(ui, model, picker, actions);
             removed
         })
         .inner;
+
     ui.end_row();
     removed
 }
@@ -869,6 +916,7 @@ fn draft_failure_row(ui: &mut Ui, model: &Model, feature: FeatureId) {
     let Some(error) = model.draft_failure(feature) else {
         return;
     };
+
     ui.label("");
     widgets::callout(ui, Tone::Error, |ui| {
         ui.add(Label::new(format!("{DRAFT_FAILS} {}", error.reason())).wrap());

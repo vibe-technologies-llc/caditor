@@ -12,6 +12,7 @@ use crate::{commands::Command, editing::EditingCommand, model::Action, selection
 fn a_curved_face_or_a_round_edge_says_why_it_cannot_be_used() {
     let mut harness = Harness::new();
     let mut disc = Sketch::new(Plane::XY);
+
     disc.add_circle(Point2::ZERO, 10.0);
     harness.add_sketch(disc);
     harness.select([]);
@@ -20,6 +21,7 @@ fn a_curved_face_or_a_round_edge_says_why_it_cannot_be_used() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let pickables: Vec<Pickable> = harness.built().picks.pickables().collect();
     let side = pickables
         .iter()
@@ -40,17 +42,21 @@ fn a_curved_face_or_a_round_edge_says_why_it_cannot_be_used() {
     harness.click("New sketch");
     harness.click_pickable(Plane::XY, Point2::new(10.0, 0.0), side);
     harness.settle();
+
     assert!(harness.workspace.editing.is_choosing_plane());
     assert_eq!(
         harness.model.notice().map(|notice| notice.text.as_str()),
         Some("New sketch: The selected face is curved; sketches lie on planes and flat faces.")
     );
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
     harness.select([rim]);
+
     let end = harness.document().features().len();
     let selection = harness.workspace.viewport.selection();
+
     assert!(matches!(
         crate::datum_tools::plane_from_selection(&harness.model, selection, end),
         Ok(caditor_document::Datum::PlaneThrough(
@@ -82,6 +88,7 @@ fn extrude_selected_face(harness: &mut Harness, face: Pickable) -> FeatureId {
 #[test]
 fn extrude_with_a_face_selected_extrudes_that_face_out_of_its_body_not_the_last_sketch() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let first_sketch = open_extrude(&harness, plate).sketch;
 
@@ -117,16 +124,20 @@ fn extrude_with_a_face_selected_extrudes_that_face_out_of_its_body_not_the_last_
 #[test]
 fn a_face_selected_while_another_feature_is_open_is_still_the_one_extruded_or_drilled() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.perform(Action::Editing(EditingCommand::OpenSolid(plate)));
     harness.settle();
 
     let extrusion = extrude_selected_face(&mut harness, top);
     let extruded_sketch = open_extrude(&harness, extrusion).sketch;
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.perform(Action::Editing(EditingCommand::OpenSolid(plate)));
     harness.settle();
+
     let side = harness
         .built()
         .picks
@@ -137,9 +148,11 @@ fn a_face_selected_while_another_feature_is_open_is_still_the_one_extruded_or_dr
                     == "Extrude 1 › Extrude 2 end face"
         })
         .expect("the extruded face is pickable");
+
     harness.select([side]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
 
     assert_eq!(attached_body(&harness, extruded_sketch), Some(plate));
@@ -157,6 +170,7 @@ fn a_face_selected_while_another_feature_is_open_is_still_the_one_extruded_or_dr
 #[test]
 fn extrude_and_revolve_refuse_a_selection_holding_no_sketch_instead_of_taking_the_last_one() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let edge = top_edge_along_x(&harness, plate, 0.0);
     let features = harness.document().features().count();
@@ -176,6 +190,7 @@ fn extrude_and_revolve_refuse_a_selection_holding_no_sketch_instead_of_taking_th
 fn extruding_with_a_closed_shape_selected_sweeps_only_what_it_encloses() {
     let overlapping = || {
         let mut sketch = Sketch::new(Plane::XY);
+
         let sides: Vec<EntityId> = [
             (Point2::new(0.0, 0.0), Point2::new(30.0, 0.0)),
             (Point2::new(30.0, 0.0), Point2::new(30.0, 10.0)),
@@ -192,7 +207,9 @@ fn extruding_with_a_closed_shape_selected_sweeps_only_what_it_encloses() {
         |chosen: &dyn Fn(&[EntityId], EntityId) -> Vec<EntityId>| {
             let mut harness = Harness::new();
             let (sketch, sides, circle) = overlapping();
+
             let sketch = harness.add_sketch(sketch);
+
             harness.select(chosen(&sides, circle).into_iter().map(|entity| {
                 Pickable::SketchEntity {
                     feature: sketch,
@@ -201,6 +218,7 @@ fn extruding_with_a_closed_shape_selected_sweeps_only_what_it_encloses() {
             }));
             harness.click("Extrude");
             harness.settle();
+
             let extrusion = harness
                 .workspace
                 .editing
@@ -231,8 +249,10 @@ fn extruding_with_a_closed_shape_selected_sweeps_only_what_it_encloses() {
 #[test]
 fn a_chamfer_face_selected_for_extrude_grows_out_along_its_slant() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
@@ -242,6 +262,7 @@ fn a_chamfer_face_selected_for_extrude_grows_out_along_its_slant() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let chamfered = harness.body_volume(plate);
     let chamfer_face = harness
         .built()
@@ -278,6 +299,7 @@ fn extrude_refuses_a_revolved_face_just_off_flat_saying_how_to_make_it_flat() {
         Point2::new(12.0, 10.0),
         Point2::new(1.0, 10.01),
     ];
+
     for (index, corner) in corners.iter().enumerate() {
         section.add_line(*corner, corners[(index + 1) % corners.len()]);
     }
@@ -285,16 +307,20 @@ fn extrude_refuses_a_revolved_face_just_off_flat_saying_how_to_make_it_flat() {
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = harness
         .workspace
         .editing
         .solid()
         .expect("the revolve is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let pickables: Vec<Pickable> = harness.built().picks.pickables().collect();
     let shown = crate::bodies::shown(harness.model.evaluation(), revolve).expect("it is built");
+
     let sloped = pickables
         .into_iter()
         .find(|pickable| match pickable {
@@ -309,6 +335,7 @@ fn extrude_refuses_a_revolved_face_just_off_flat_saying_how_to_make_it_flat() {
 
     harness.select([sloped]);
     harness.frame();
+
     let refusal = offer(&harness, Command::Extrude)
         .availability
         .expect_err("extrude refuses the face");

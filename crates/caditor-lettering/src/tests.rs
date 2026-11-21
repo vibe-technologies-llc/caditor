@@ -168,6 +168,7 @@ fn every_letter_outline_closes() {
         };
         for segment in &letter.segments {
             let (_, end) = ends(segment);
+
             assert!(
                 letter
                     .segments
@@ -232,6 +233,7 @@ fn every_line_starts_at_the_anchor_and_the_widest_sets_the_width() {
             .collect::<Vec<_>>(),
         vec![0, 1, 3, 4, 5, 6, 9]
     );
+
     let (low, _) = bounds(&Lettered {
         letters: lines
             .letters
@@ -241,6 +243,7 @@ fn every_line_starts_at_the_anchor_and_the_widest_sets_the_width() {
             .collect(),
         ..Lettered::default()
     });
+
     assert!(low.x >= 0.0 && low.x < 0.2);
 }
 
@@ -263,9 +266,11 @@ fn centred_and_right_lines_hang_about_the_anchor_by_their_own_widths() {
 
     for (position, width) in [(0, plain.line_widths[0]), (3, plain.line_widths[1])] {
         let origin = first_x(&plain, position);
+
         assert!((first_x(&centred, position) - (origin - width / 2.0)).abs() < CLOSE);
         assert!((first_x(&right, position) - (origin - width)).abs() < CLOSE);
     }
+
     assert_eq!(centred.line_widths, plain.line_widths);
     assert_eq!(right.width, plain.width);
 }

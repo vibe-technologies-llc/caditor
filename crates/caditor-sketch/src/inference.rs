@@ -23,7 +23,7 @@ const SMALLEST_DISTANCE: f64 = 1e-6;
 const MAX_ROUNDS: usize = 64;
 const MOVE_LIMIT: f64 = 8.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tolerance {
     pub distance: f64,
     pub angle: f64,
@@ -47,7 +47,7 @@ impl Tolerance {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RelationKind {
     Coincident,
     Concentric,
@@ -103,13 +103,13 @@ impl RelationKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Kept {
     pub constraints: Vec<Constraint>,
     pub degrees_of_freedom: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum InferenceError {
     #[error("the sketch has to solve as it stands first: {0}")]
     Unsolved(SketchError),
@@ -123,6 +123,7 @@ impl Sketch {
     pub fn extent(&self) -> f64 {
         let mut low = Point2::splat(f64::INFINITY);
         let mut high = Point2::splat(f64::NEG_INFINITY);
+
         for (_, entity) in self.entities() {
             match *entity {
                 Entity::Point(at) => {
@@ -138,6 +139,7 @@ impl Sketch {
                 _ => {}
             }
         }
+
         let diagonal = high.distance(low);
         if diagonal.is_finite() { diagonal } else { 0.0 }
     }
@@ -148,6 +150,7 @@ impl Sketch {
         kinds: &BTreeSet<RelationKind>,
     ) -> Vec<Constraint> {
         let mut finder = Finder::new(self, tolerance);
+
         if kinds.contains(&RelationKind::Coincident) {
             finder.coincident_ends();
         }
@@ -214,6 +217,7 @@ impl Sketch {
                 })?,
             kept: Vec::new(),
         };
+
         for stage in stages {
             if !holding.all_at_once(&stage)? {
                 for candidate in stage {
@@ -247,6 +251,7 @@ where
     fn all_at_once(&mut self, stage: &[Constraint]) -> Result<bool, InferenceError> {
         let mut working = self.state.geometry.clone();
         let mut added = BTreeMap::new();
+
         for candidate in stage {
             if let Ok(id) = working.add_constraint(candidate.clone()) {
                 added.insert(id, candidate.clone());
@@ -278,6 +283,7 @@ where
                 Err(SketchError::Cancelled) => return Err(InferenceError::Cancelled),
                 Err(error) => {
                     let mut culprits = BTreeSet::new();
+
                     culprits_of(&error, &working, &added, &mut culprits);
                     if culprits.is_empty() {
                         return Ok(false);
@@ -296,6 +302,7 @@ where
 
     fn one(&mut self, candidate: Constraint) -> Result<(), InferenceError> {
         let mut working = self.state.geometry.clone();
+
         let Ok(id) = working.add_constraint(candidate.clone()) else {
             return Ok(());
         };
@@ -352,11 +359,13 @@ fn culprits_of(
                     .entity(*entity)
                     .map(Entity::points)
                     .unwrap_or_default();
+
                 touched.push(*entity);
                 touched
             })
             .collect()
     };
+
     let found = match error {
         SketchError::Conflict { constraints } => constraints
             .iter()
@@ -375,6 +384,7 @@ fn culprits_of(
         }
         _ => None,
     };
+
     culprits.extend(found);
 }
 
@@ -391,6 +401,7 @@ impl<'a> Finder<'a> {
     fn new(sketch: &'a Sketch, tolerance: Tolerance) -> Self {
         let mut classes = Classes::default();
         let mut straight = BTreeSet::new();
+
         for (_, constraint) in sketch.active_constraints() {
             match *constraint {
                 Constraint::Coincident(a, b)
@@ -416,13 +427,16 @@ impl<'a> Finder<'a> {
 
     fn offer(&mut self, constraint: Constraint) -> bool {
         let sketch = self.sketch;
+
         if sketch.check_constraint(&constraint).is_err()
             || self.relations.restating(sketch, &constraint).is_some()
             || self.relations.contradicting(sketch, &constraint).is_some()
         {
             return false;
         }
+
         let id = ConstraintId::from_raw(u64::MAX - self.found.len() as u64);
+
         self.relations.record(sketch, id, &constraint);
         self.found.push(constraint);
         true
@@ -442,6 +456,7 @@ impl<'a> Finder<'a> {
 
     fn coincident_ends(&mut self) {
         let mut owners: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
+
         for (curve, entity) in self.sketch.entities() {
             if !curve.is_reference() {
                 for end in entity.ends() {
@@ -449,9 +464,12 @@ impl<'a> Finder<'a> {
                 }
             }
         }
+
         let mut points: BTreeSet<EntityId> = owners.keys().copied().collect();
+
         points.extend(self.sketch.free_points());
         points.insert(EntityId::ORIGIN);
+
         let located = self.located(points);
         let grid = Grid::new(&located, self.tolerance.distance);
         for (index, &(point, at)) in located.iter().enumerate() {
@@ -464,6 +482,7 @@ impl<'a> Finder<'a> {
                         .get(&neighbour)
                         .is_some_and(|others| curves.iter().any(|curve| others.contains(curve)))
                 });
+
                 if other <= index
                     || same_curve
                     || self.joined(point, neighbour)
@@ -495,6 +514,7 @@ impl<'a> Finder<'a> {
                 let Some(&(neighbour, other_centre, there)) = centres.get(other) else {
                     continue;
                 };
+
                 if other <= index
                     || self.joined(centre, other_centre)
                     || at.distance(there) > self.tolerance.distance
@@ -523,6 +543,7 @@ impl<'a> Finder<'a> {
                 Vec::new(),
             ),
         ];
+
         for line in self.curves(Role::Line) {
             if let Some((start, end)) = self.sketch.line_endpoints(line)
                 && self.sketch.is_construction(line)
@@ -533,9 +554,11 @@ impl<'a> Finder<'a> {
                     .entity(line)
                     .map(Entity::points)
                     .unwrap_or_default();
+
                 axes.push((line, start, (end - start).normalize(), own));
             }
         }
+
         let arc_centres: BTreeSet<EntityId> = self
             .sketch
             .entities()
@@ -562,12 +585,14 @@ impl<'a> Finder<'a> {
                 let offset = at - through;
                 let across = along.perp_dot(offset);
                 let root = self.classes.root(point);
+
                 if across.abs() <= self.tolerance.distance
                     || own.contains(&point)
                     || paired.contains(&root)
                 {
                     continue;
                 }
+
                 let image = at - along.perp() * (2.0 * across);
                 let partner = grid
                     .near(image)
@@ -601,12 +626,16 @@ impl<'a> Finder<'a> {
             let Some((start, end)) = self.sketch.line_endpoints(line) else {
                 continue;
             };
+
             let direction = end - start;
+
             if direction.length() <= self.tolerance.distance || self.straight.contains(&line) {
                 continue;
             }
+
             let level = self.tolerance.parallel(direction, Vector2::X);
             let upright = self.tolerance.parallel(direction, Vector2::Y);
+
             let offered = (horizontal && level && self.offer(Constraint::Horizontal(line)))
                 || (vertical && upright && self.offer(Constraint::Vertical(line)));
             if offered || level || upright {
@@ -619,6 +648,7 @@ impl<'a> Finder<'a> {
         let mut joints: BTreeMap<EntityId, Vec<(EntityId, EntityId)>> = BTreeMap::new();
         let lines = self.curves(Role::Line);
         let circular = self.curves(Role::Circular);
+
         for &curve in lines.iter().chain(&circular) {
             if let Some(entity) = self.sketch.entity(curve) {
                 for end in entity.ends() {
@@ -629,13 +659,16 @@ impl<'a> Finder<'a> {
                 }
             }
         }
+
         let mut touching = BTreeSet::new();
+
         for ends in joints.values() {
             for (index, &(first, first_end)) in ends.iter().enumerate() {
                 for &(second, second_end) in ends.iter().skip(index + 1) {
                     if first == second || !touching.insert(ordered(first, second)) {
                         continue;
                     }
+
                     let directions = (
                         self.direction_at(first, first_end),
                         self.direction_at(second, second_end),
@@ -695,13 +728,17 @@ impl<'a> Finder<'a> {
         else {
             return false;
         };
+
         let span = end - start;
         let length = span.length();
+
         if length <= self.tolerance.distance || radius <= self.tolerance.distance {
             return false;
         }
+
         let along = span / length;
         let reach = along.dot(centre - start);
+
         let foot = start + along * reach;
         let slack = self.tolerance.distance;
         (centre.distance(foot) - radius).abs() <= slack
@@ -716,11 +753,14 @@ impl<'a> Finder<'a> {
         else {
             return false;
         };
+
         let apart = a.distance(b);
         let slack = self.tolerance.distance;
+
         if apart <= slack {
             return false;
         }
+
         let towards = (b - a) / apart;
         let contact = if (apart - (first_radius + second_radius)).abs() <= slack {
             a + towards * first_radius
@@ -747,8 +787,11 @@ impl<'a> Finder<'a> {
                     .then(|| (direction.y.atan2(direction.x).rem_euclid(PI), line))
             })
             .collect();
+
         slanted.sort_by(|a, b| a.0.total_cmp(&b.0));
+
         let groups = anchored_groups(&slanted, self.tolerance.angle);
+
         if perpendicular {
             for (index, first) in groups.iter().enumerate() {
                 for second in groups.iter().skip(index + 1) {
@@ -757,6 +800,7 @@ impl<'a> Finder<'a> {
                     else {
                         continue;
                     };
+
                     if ((second_angle - first_angle).abs() - FRAC_PI_2).abs() > self.tolerance.angle
                     {
                         continue;
@@ -855,6 +899,7 @@ pub(crate) fn within_sweep(arc: &ArcGeometry, at: Point2, slack: f64) -> bool {
 
 fn anchored_groups(sorted: &[(f64, EntityId)], tolerance: f64) -> Vec<Vec<(f64, EntityId)>> {
     let mut groups: Vec<Vec<(f64, EntityId)>> = Vec::new();
+
     for &(value, id) in sorted {
         match groups.last_mut() {
             Some(group)
@@ -881,8 +926,10 @@ impl Grid {
             cell: cell.max(SMALLEST_DISTANCE),
             cells: BTreeMap::new(),
         };
+
         for (index, &(_, at)) in points.iter().enumerate() {
             let key = grid.key(at);
+
             grid.cells.entry(key).or_default().push(index);
         }
         grid
@@ -898,6 +945,7 @@ impl Grid {
     pub(crate) fn near(&self, at: Point2) -> Vec<usize> {
         let (x, y) = self.key(at);
         let mut found = Vec::new();
+
         for column in x.saturating_sub(1)..=x.saturating_add(1) {
             for row in y.saturating_sub(1)..=y.saturating_add(1) {
                 if let Some(indices) = self.cells.get(&(column, row)) {

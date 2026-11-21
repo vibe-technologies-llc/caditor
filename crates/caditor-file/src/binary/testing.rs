@@ -41,14 +41,18 @@ pub(crate) fn current_model_from_json(records: &[String]) -> Vec<u8> {
 pub(crate) fn rewrite_journal(bytes: &[u8], edit: impl Fn(usize, String) -> String) -> Vec<u8> {
     let container = parse(bytes, &JOURNAL_MAGIC).unwrap();
     let mut rewritten = start_file(&JOURNAL_MAGIC, container.version);
+
     for (index, chunk) in container.chunks().enumerate() {
         let kind = chunk.kind.unwrap();
         let content = chunk.unpack(None).unwrap();
+
         if content.is_empty() {
             push_packed(&mut rewritten, kind, &content).unwrap();
             continue;
         }
+
         let json = edit(index, json_of(&content));
+
         push_packed(&mut rewritten, kind, &content_of(&json)).unwrap();
     }
     rewritten
@@ -61,15 +65,18 @@ pub(crate) fn corrupt_chunk(bytes: &[u8], magic: &Magic, index: usize) -> Vec<u8
     };
     let start = chunk.whole.as_ptr() as usize - bytes.as_ptr() as usize;
     let mut corrupted = bytes.to_vec();
+
     corrupted[start + chunk.whole.len() - 1] ^= 0x55;
     corrupted
 }
 
 pub(crate) fn with_unknown_codec(bytes: &[u8], record: usize) -> Vec<u8> {
     const UNKNOWN_CODEC: u8 = 200;
+
     let container = parse(bytes, &MODEL_MAGIC).unwrap();
     let mut rewritten = start_file(&MODEL_MAGIC, container.version);
     let mut records = 0;
+
     for chunk in container.chunks() {
         if chunk.kind != Some(ChunkKind::Record) {
             rewritten.extend_from_slice(chunk.whole);
@@ -77,6 +84,7 @@ pub(crate) fn with_unknown_codec(bytes: &[u8], record: usize) -> Vec<u8> {
         }
         if records == record {
             let content = chunk.unpack(None).unwrap();
+
             push_raw(
                 &mut rewritten,
                 [ChunkKind::Record as u8, UNKNOWN_CODEC, 0],
@@ -99,12 +107,15 @@ pub(crate) fn model_chunk_count(bytes: &[u8]) -> usize {
 pub(crate) fn stored_copy(bytes: &[u8], magic: &Magic) -> Vec<u8> {
     let container = parse(bytes, magic).unwrap();
     let mut stored = start_file(magic, container.version);
+
     for chunk in container.chunks() {
         if chunk.codec == Some(Codec::ZstdAfterNewer) {
             stored.extend_from_slice(chunk.whole);
             continue;
         }
+
         let content = chunk.unpack(None).unwrap();
+
         push_chunk(
             &mut stored,
             chunk.kind.unwrap(),
@@ -125,8 +136,10 @@ pub(crate) fn as_written_by_an_earlier_build(
     version: u32,
 ) -> Vec<u8> {
     const EARLIER_SYNC: &[u8; 4] = b"CDCK";
+
     let container = parse(bytes, magic).unwrap();
     let mut rewritten = start_file(earlier, version);
+
     for chunk in container.chunks() {
         rewritten.extend_from_slice(EARLIER_SYNC);
         rewritten.extend_from_slice(&chunk.whole[EARLIER_SYNC.len()..]);
@@ -155,6 +168,7 @@ pub(crate) fn slice_length() -> Option<usize> {
 pub(crate) fn with_slices_of<T>(length: usize, work: impl FnOnce() -> T) -> T {
     let before = SLICE_LENGTH.replace(Some(length));
     let result = work();
+
     SLICE_LENGTH.set(before);
     result
 }
@@ -170,6 +184,7 @@ pub(crate) fn worth_sharing() -> Option<usize> {
 pub(crate) fn sharing_from<T>(length: usize, work: impl FnOnce() -> T) -> T {
     let before = WORTH_SHARING.replace(Some(length));
     let result = work();
+
     WORTH_SHARING.set(before);
     result
 }
@@ -185,6 +200,7 @@ pub(crate) fn max_decompressed() -> Option<usize> {
 pub(crate) fn decompressing_at_most<T>(limit: usize, work: impl FnOnce() -> T) -> T {
     let before = MAX_DECOMPRESSED.replace(Some(limit));
     let result = work();
+
     MAX_DECOMPRESSED.set(before);
     result
 }
@@ -200,6 +216,7 @@ pub(crate) fn largest_file() -> Option<usize> {
 pub(crate) fn files_of_at_most<T>(largest: usize, work: impl FnOnce() -> T) -> T {
     let before = LARGEST_FILE.replace(Some(largest));
     let result = work();
+
     LARGEST_FILE.set(before);
     result
 }
@@ -215,6 +232,7 @@ pub(crate) fn deltas_damaged() -> bool {
 pub(crate) fn with_damaged_deltas<T>(work: impl FnOnce() -> T) -> T {
     let before = DELTAS_DAMAGED.replace(true);
     let result = work();
+
     DELTAS_DAMAGED.set(before);
     result
 }

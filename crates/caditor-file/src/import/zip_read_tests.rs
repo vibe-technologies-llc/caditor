@@ -23,7 +23,9 @@ impl Bits {
             if self.used.is_multiple_of(8) {
                 self.bytes.push(0);
             }
+
             let last = self.bytes.last_mut().unwrap();
+
             *last |= u8::from((value >> bit) & 1 == 1) << (self.used % 8);
             self.used += 1;
         }
@@ -38,10 +40,12 @@ pub(super) fn deflated_zeros(length: usize) -> Vec<u8> {
     let mut bits = Bits::default();
     let last_block = 1;
     let fixed_codes = 1;
+
     bits.push(last_block, 1);
     bits.push(fixed_codes, 2);
 
     let repeated = length.saturating_sub(1);
+
     bits.code(FIXED_LITERAL_ZERO);
     for _ in 0..repeated / MATCH_LENGTH {
         bits.code(FIXED_LONGEST_MATCH);
@@ -59,6 +63,7 @@ fn package(name: &str, packed: &[u8]) -> Vec<u8> {
     let packed_length = u32::try_from(packed.len()).unwrap();
 
     let mut bytes = Vec::new();
+
     bytes.extend(0x0403_4b50_u32.to_le_bytes());
     bytes.extend([0; 22]);
     bytes.extend(name_length.to_le_bytes());
@@ -67,6 +72,7 @@ fn package(name: &str, packed: &[u8]) -> Vec<u8> {
     bytes.extend(packed);
 
     let central = u32::try_from(bytes.len()).unwrap();
+
     bytes.extend(0x0201_4b50_u32.to_le_bytes());
     bytes.extend([0; 6]);
     bytes.extend(DEFLATED.to_le_bytes());

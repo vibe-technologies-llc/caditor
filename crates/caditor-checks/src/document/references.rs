@@ -40,6 +40,7 @@ pub struct References {
 impl References {
     pub fn capture(evaluation: &Evaluation) -> Self {
         let mut references = Self::default();
+
         for (body, _) in evaluation.bodies() {
             let Some(solid) = evaluation.body(body) else {
                 continue;
@@ -50,11 +51,13 @@ impl References {
                 .filter_map(|(face, _)| FaceReference::capture(solid, face))
                 .collect();
             let naming = EdgeNaming::new(solid);
+
             let edges = solid
                 .edges()
                 .take(MOST_CAPTURED)
                 .filter_map(|(edge, _)| EdgeReference::capture_in(&naming, edge))
                 .collect();
+
             references.faces.insert(body, faces);
             references.edges.insert(body, edges);
         }
@@ -74,6 +77,7 @@ impl Scene<'_> {
 
     pub fn feature(&self, input: &mut Unstructured) -> Result<FeatureId> {
         let ids = self.feature_ids();
+
         if ids.is_empty() || input.ratio(1u8, 32)? {
             return Ok(FeatureId::from_raw(input.int_in_range(0..=64)?));
         }
@@ -94,6 +98,7 @@ impl Scene<'_> {
         keep: impl Fn(&Feature) -> bool,
     ) -> Result<FeatureId> {
         let matching = self.matching(keep);
+
         if matching.is_empty() || input.ratio(1u8, 16)? {
             return self.feature(input);
         }
@@ -106,8 +111,10 @@ impl Scene<'_> {
             .document
             .feature(body)
             .is_some_and(Feature::separates_pieces);
+
         if separates && input.arbitrary::<bool>()? {
             let key = PieceKey::from_raw(input.int_in_range(0u32..=32)?);
+
             return Ok(body.piece(key).unwrap_or(body));
         }
         Ok(body)
@@ -123,6 +130,7 @@ impl Scene<'_> {
 
     pub fn existing_sketch(&self, input: &mut Unstructured) -> Result<Option<FeatureId>> {
         let sketches = self.matching(|feature| feature.kind.sketch().is_some());
+
         if sketches.is_empty() {
             return Ok(None);
         }
@@ -131,6 +139,7 @@ impl Scene<'_> {
 
     pub fn bodies(&self, input: &mut Unstructured) -> Result<Vec<FeatureId>> {
         let mut bodies = Vec::new();
+
         for _ in 0..input.int_in_range(0u8..=2)? {
             bodies.push(self.body(input)?);
         }
@@ -144,6 +153,7 @@ impl Scene<'_> {
             .iter()
             .map(|parameter| parameter.id())
             .collect();
+
         if ids.is_empty() {
             return Ok(None);
         }
@@ -157,6 +167,7 @@ impl Scene<'_> {
             .and_then(|feature| feature.kind.sketch())
             .map(|sketch| sketch.entities().map(|(id, _)| id).collect())
             .unwrap_or_default();
+
         entities.extend(EntityId::REFERENCES);
         if input.ratio(1u8, 32)? {
             return Ok(EntityId::from_raw(input.int_in_range(0u64..=16)?));
@@ -255,7 +266,9 @@ impl Scene<'_> {
         {
             return Ok(input.choose(captured)?.clone());
         }
+
         let mut neighbours = Vec::new();
+
         for _ in 0..input.int_in_range(0u8..=2)? {
             neighbours.push(Self::synthetic_face_name(input)?);
         }
@@ -268,6 +281,7 @@ impl Scene<'_> {
 
     pub fn faces(&self, input: &mut Unstructured, body: FeatureId) -> Result<Vec<FaceReference>> {
         let mut faces = Vec::new();
+
         for _ in 0..input.int_in_range(0u8..=3)? {
             faces.push(self.face(input, body)?);
         }
@@ -281,6 +295,7 @@ impl Scene<'_> {
         {
             return Ok(*input.choose(captured)?);
         }
+
         let name = |input: &mut Unstructured| -> Result<u128> {
             Ok(u128::from(input.int_in_range(0..=SYNTHETIC_NAMES)?))
         };
@@ -300,6 +315,7 @@ impl Scene<'_> {
 
     pub fn edges(&self, input: &mut Unstructured, body: FeatureId) -> Result<Vec<EdgeReference>> {
         let mut edges = Vec::new();
+
         for _ in 0..input.int_in_range(1u8..=3)? {
             edges.push(self.edge(input, body)?);
         }

@@ -33,7 +33,7 @@ pub fn same_direction(a: Vector3, b: Vector3) -> bool {
     parallel(a, b) && a.dot(b) > 0.0
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SamplingTolerance {
     chord: f64,
     angle: f64,
@@ -71,7 +71,7 @@ impl SamplingTolerance {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MeshQuality {
     chord_fraction: f64,
     angle: f64,
@@ -164,10 +164,14 @@ mod tests {
     fn sampling_tolerances_are_clamped_and_reject_bad_input() {
         assert!(SamplingTolerance::new(0.0, 0.1).is_none());
         assert!(SamplingTolerance::new(0.1, f64::NAN).is_none());
+
         let clamped = SamplingTolerance::new(1e-12, 10.0).unwrap();
+
         assert_eq!(clamped.chord(), MIN_CHORD_TOLERANCE);
         assert_eq!(clamped.angle(), MAX_ANGLE_TOLERANCE);
+
         let derived = SamplingTolerance::for_extent(100.0);
+
         assert!((derived.chord() - 0.1).abs() < 1e-12);
         assert_eq!(SamplingTolerance::for_extent(f64::NAN).chord(), 1.0);
     }
@@ -185,7 +189,9 @@ mod tests {
 
         assert!(MeshQuality::new(0.0, 0.1).is_none());
         assert!(MeshQuality::new(1e-3, f64::INFINITY).is_none());
+
         let clamped = MeshQuality::new(1e-3, 10.0).unwrap();
+
         assert_eq!(clamped.angle(), MAX_ANGLE_TOLERANCE);
         assert_eq!(clamped.tolerance(1e-9).chord(), MIN_CHORD_TOLERANCE);
         assert_eq!(clamped.tolerance(f64::NAN).chord(), 1.0);
@@ -205,6 +211,7 @@ mod tests {
         assert_eq!(stepped(0.0).chord(), 1.0);
         for extent in [0.01, 0.7, 3.0, 57.4, 181.0, 5000.0] {
             let ratio = stepped(extent).chord() / smooth.tolerance(extent).chord();
+
             assert!(
                 (FRAC_1_SQRT_2..=SQRT_2).contains(&ratio),
                 "{extent}: {ratio}"
@@ -216,8 +223,11 @@ mod tests {
     fn step_on_radius_holds_both_limits() {
         let tolerance = SamplingTolerance::new(0.01, 0.2).unwrap();
         let step = tolerance.step_on_radius(10.0);
+
         assert!(step <= 10.0 * 0.2 + 1e-12);
+
         let sagitta = 10.0 * (1.0 - (step / 20.0).cos_libm());
+
         assert!(sagitta <= 0.01 + 1e-12);
         assert!(tolerance.step_on_radius(0.001) <= 0.001 * 0.2 + 1e-15);
     }

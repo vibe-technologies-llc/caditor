@@ -41,7 +41,7 @@ const POLISH_ITERATIONS: usize = 4;
 const MAX_PERIODIC_HITS: usize = 8;
 const EXTENSION_BISECTIONS: usize = 60;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CurveSurfacePoint {
     pub parameter: f64,
     pub point: Point3,
@@ -49,20 +49,20 @@ pub struct CurveSurfacePoint {
     pub tangent: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CurveSurfaceOverlap {
     pub range: Interval,
     pub start_uv: Point2,
     pub end_uv: Point2,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct CurveSurfaceIntersection {
     pub points: Vec<CurveSurfacePoint>,
     pub overlaps: Vec<CurveSurfaceOverlap>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Candidate {
     Root(f64),
     Touch(f64),
@@ -93,7 +93,7 @@ pub(crate) struct Probe<'a> {
     pub local: Cell<Option<Nearest>>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Nearest {
     center: Point3,
     distance: f64,
@@ -137,6 +137,7 @@ impl Probe<'_> {
             }
             None => self.surface.project(point, None),
         };
+
         if swept {
             self.hint.set(Some(uv));
         }
@@ -145,6 +146,7 @@ impl Probe<'_> {
 
     fn is_foot(&self, point: Point3, uv: Point2) -> bool {
         let offset = point - self.surface.point_at(uv);
+
         if offset.length() <= TOLERANCE {
             return true;
         }
@@ -161,8 +163,10 @@ impl Probe<'_> {
     fn offset(&self, parameter: f64) -> (f64, f64) {
         let point = self.curve.point(parameter);
         let uv = self.project(point);
+
         let offset = point - self.surface.point_at(uv);
         let distance = offset.length();
+
         let signed = match self.surface.normal(uv.x, uv.y) {
             Some(normal) => offset.dot(normal),
             None => distance,
@@ -198,9 +202,11 @@ impl Probe<'_> {
             return f64::INFINITY;
         };
         let speed = derivatives.first.length_squared();
+
         if speed <= f64::MIN_POSITIVE {
             return f64::INFINITY;
         }
+
         let along = uv_direction(&surface, derivatives.first);
         let second_form = (surface.duu * (along.x * along.x)
             + surface.duv * (2.0 * along.x * along.y)
@@ -231,18 +237,22 @@ impl Probe<'_> {
     fn polish(&self, parameter: f64, range: Interval) -> f64 {
         let mut best = (parameter, self.signed(parameter).abs());
         let mut at = parameter;
+
         for _ in 0..POLISH_ITERATIONS {
             let derivatives = self.curve.evaluate(at);
             let uv = self.surface.project(derivatives.point, None);
             let Some(normal) = self.surface.normal(uv.x, uv.y) else {
                 break;
             };
+
             let slope = derivatives.first.dot(normal);
             let value = (derivatives.point - self.surface.point_at(uv)).dot(normal);
+
             if slope.abs() <= f64::MIN_POSITIVE {
                 break;
             }
             at = range.clamp(at - value / slope);
+
             let error = self.signed(at).abs();
             if error < best.1 {
                 best = (at, error);
@@ -270,6 +280,7 @@ pub fn intersect_curve_surface(
         _ => range,
     };
     let probe = Probe::new(curve, surface);
+
     let candidates = if lies_on_own_surface(curve, surface) {
         vec![Candidate::Along(range)]
     } else {
@@ -309,6 +320,7 @@ fn implicit(probe: &Probe, range: Interval, coefficients: &[f64]) -> Vec<Candida
         .filter(|root| probe.distance(*root) <= TOLERANCE)
         .map(Candidate::Root)
         .collect();
+
     candidates.extend(
         found
             .extrema
@@ -326,6 +338,7 @@ fn trigonometric(
     scale: f64,
 ) -> Vec<Candidate> {
     let amplitude = cosine.hypot_libm(sine);
+
     if amplitude / scale <= CONSTANT_VARIATION {
         return if probe.distance(range.middle()) <= TOLERANCE {
             vec![Candidate::Along(range)]
@@ -333,6 +346,7 @@ fn trigonometric(
             Vec::new()
         };
     }
+
     let phase = sine.atan2_libm(cosine);
     let mut candidates: Vec<Candidate> = [phase, phase + PI]
         .into_iter()
@@ -341,8 +355,10 @@ fn trigonometric(
         .map(Candidate::Touch)
         .collect();
     let ratio = -constant / amplitude;
+
     if ratio.abs() <= 1.0 {
         let spread = ratio.acos_libm();
+
         candidates.extend(
             [phase + spread, phase - spread]
                 .into_iter()
@@ -402,6 +418,7 @@ fn analytic(probe: &Probe, range: Interval) -> Option<Vec<Candidate>> {
             let across = |vector: caditor_geometry::Vector3| vector - axis * vector.dot(axis);
             let offset = across(line.origin() - cylinder.frame().origin());
             let direction = across(line.direction());
+
             if direction.length_squared() <= 1e-24 {
                 return Some(if probe.distance(range.middle()) <= TOLERANCE {
                     vec![Candidate::Along(range)]
@@ -425,13 +442,16 @@ fn analytic(probe: &Probe, range: Interval) -> Option<Vec<Candidate>> {
             let cos2 = cosine * cosine;
             let offset = line.origin() - cone.apex();
             let direction = line.direction();
+
             let (oa, da) = (offset.dot(axis), direction.dot(axis));
+
             let coefficients = [
                 oa * oa - cos2 * offset.length_squared(),
                 2.0 * (oa * da - cos2 * offset.dot(direction)),
                 da * da - cos2,
             ];
             let scale = 1.0 + offset.length_squared();
+
             if coefficients
                 .iter()
                 .all(|value| value.abs() <= 1e-15 * scale)
@@ -450,6 +470,7 @@ fn analytic(probe: &Probe, range: Interval) -> Option<Vec<Candidate>> {
             let offset = line.origin() - frame.origin();
             let direction = line.direction();
             let normal = frame.normal();
+
             let b = 2.0 * offset.dot(direction);
             let c = offset.length_squared() + major * major - minor * minor;
             let (on, dn) = (offset.dot(normal), direction.dot(normal));
@@ -457,14 +478,18 @@ fn analytic(probe: &Probe, range: Interval) -> Option<Vec<Candidate>> {
             let reach = major + minor + TOLERANCE;
             let middle = -0.5 * b;
             let closest = offset.length_squared() - middle * middle;
+
             if reach * reach < closest {
                 return Some(Vec::new());
             }
+
             let half = (reach * reach - closest).max(0.0).sqrt();
             let (low, high) = (middle - half, middle + half);
+
             if high < range.start() || low > range.end() {
                 return Some(Vec::new());
             }
+
             let near = Interval::new(range.clamp(low), range.clamp(high))?;
             Some(implicit(
                 probe,
@@ -554,9 +579,11 @@ fn is_leaf(probe: &Probe, piece: Interval, radius: f64) -> bool {
     if radius <= TINY_LEAF {
         return true;
     }
+
     let tangents = [piece.start(), piece.middle(), piece.end()]
         .map(|parameter| probe.curve.evaluate(parameter).first);
     let [start, middle, end] = tangents;
+
     let turn = angle_between(start, end)
         .max(angle_between(start, middle))
         .max(angle_between(middle, end));
@@ -578,30 +605,38 @@ fn general(
     {
         return Ok(vec![Candidate::Along(range)]);
     }
+
     let patch_box = patch.map(SurfacePatch::bounding_box);
     let mut pending = vec![(range, 0usize)];
     let mut leaves = Vec::new();
     let mut visited = 0usize;
+
     while let Some((piece, depth)) = pending.pop() {
         interrupt::check()?;
         visited += 1;
         if visited > MAX_PIECES {
             return Err(IntersectionError::TooComplex(MAX_PIECES));
         }
+
         let bounds = probe.curve.piece_bounds(piece);
+
         if let Some(patch_box) = &patch_box
             && !boxes_overlap(&bounds, patch_box, TOLERANCE)
         {
             continue;
         }
+
         let radius = bounds.half_extent().length();
+
         if hulls_miss(probe.surface, &bounds) {
             continue;
         }
+
         let nearest = Nearest {
             center: bounds.center(),
             distance: probe.surface.distance(bounds.center()),
         };
+
         if nearest.distance > radius + TOLERANCE {
             continue;
         }
@@ -609,6 +644,7 @@ fn general(
             leaves.push((piece, nearest));
             continue;
         }
+
         let middle = piece.middle();
         match (
             Interval::new(piece.start(), middle),
@@ -622,6 +658,7 @@ fn general(
         }
     }
     leaves.sort_by(|a, b| a.0.start().total_cmp(&b.0.start()));
+
     let candidates: Vec<Candidate> = leaves
         .into_iter()
         .flat_map(|(leaf, nearest)| solve_leaf(probe, leaf, nearest))
@@ -638,13 +675,15 @@ fn general(
 fn solve_leaf(probe: &Probe, piece: Interval, nearest: Nearest) -> Vec<Candidate> {
     probe.forget();
     probe.local.set(Some(nearest));
+
     let candidates = solve_leaf_locally(probe, piece);
+
     probe.local.set(None);
     probe.forget();
     candidates
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct LeafSample {
     at: f64,
     signed: f64,
@@ -665,9 +704,11 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
             }
         })
         .collect();
+
     if samples.iter().all(|sample| sample.distance <= ON_SURFACE) {
         return vec![Candidate::Along(piece)];
     }
+
     let signed = |parameter: f64| probe.signed(parameter);
     let signed_from = |parameter: f64, foot: Option<Point2>| {
         probe.hint.set(foot);
@@ -678,6 +719,7 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
         bracket_root(signed, low, high, at_low, at_high)
     };
     let mut candidates = Vec::new();
+
     for pair in samples.windows(2) {
         let [first, second] = pair else {
             continue;
@@ -694,7 +736,9 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
             )));
         }
     }
+
     let count = samples.len();
+
     for index in 0..count {
         let Some(&sample) = samples.get(index) else {
             continue;
@@ -702,18 +746,22 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
         let here = sample.signed;
         let before = index.checked_sub(1).and_then(|before| samples.get(before));
         let after = samples.get(index + 1);
+
         let neighbours = [before, after];
         let lowest = neighbours.iter().flatten().all(|neighbour| {
             (neighbour.signed < 0.0) == (here < 0.0) && neighbour.signed.abs() >= here.abs()
         });
         let (low, high) = (before.unwrap_or(&sample), after.unwrap_or(&sample));
+
         let reach = probe
             .curve
             .point(low.at)
             .distance(probe.curve.point(high.at));
+
         if !lowest || here.abs() > reach || high.at <= low.at {
             continue;
         }
+
         let side = if here < 0.0 { -1.0 } else { 1.0 };
         let settled = |bracket: Bracket| {
             let center = probe.curve.point(bracket.at);
@@ -723,7 +771,9 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
                 .fold(0.0, larger);
             bracket.value < -TOLERANCE || bracket.value - REACH_MARGIN * reach > TOLERANCE
         };
+
         probe.hint.set(sample.foot);
+
         let (extremum, value) = minimize_bracket(
             |parameter| side * signed(parameter),
             low.at,
@@ -734,6 +784,7 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
             let middle = signed_from(extremum, sample.foot);
             let foot = probe.hint.get();
             let mut roots = Vec::with_capacity(2);
+
             if (low.signed < 0.0) != (middle < 0.0) {
                 roots.push(root_from(foot, low.at, extremum, low.signed, middle));
             }
@@ -795,9 +846,12 @@ fn extend(probe: &Probe, inside: f64, limit: f64) -> f64 {
     if probe.distance(limit) <= TOLERANCE && connected(probe, inside, limit) {
         return limit;
     }
+
     let (mut inside, mut outside) = (inside, limit);
+
     for _ in 0..EXTENSION_BISECTIONS {
         let middle = 0.5 * (inside + outside);
+
         if middle == inside || middle == outside {
             break;
         }
@@ -813,6 +867,7 @@ fn extend(probe: &Probe, inside: f64, limit: f64) -> f64 {
 fn distinct(probe: &Probe, cluster: &[Candidate]) -> usize {
     let mut spots: Vec<Point3> = Vec::new();
     let mut count = 0;
+
     for candidate in cluster {
         match candidate {
             Candidate::Along(_) => count += 1,
@@ -831,6 +886,7 @@ fn distinct(probe: &Probe, cluster: &[Candidate]) -> usize {
 
 fn distinct_roots(probe: &Probe, cluster: &[Candidate]) -> Vec<f64> {
     let mut roots: Vec<(f64, Point3)> = Vec::new();
+
     for candidate in cluster {
         if let Candidate::Root(at) = candidate {
             let point = probe.curve.point(*at);
@@ -864,7 +920,9 @@ fn finish(
     candidates
         .retain(|candidate| candidate.low() >= range.start() && candidate.high() <= range.end());
     candidates.sort_by(|a, b| a.low().total_cmp(&b.low()));
+
     let mut clusters: Vec<Vec<Candidate>> = Vec::new();
+
     for candidate in candidates {
         match clusters.last_mut() {
             Some(cluster)
@@ -881,11 +939,13 @@ fn finish(
             _ => clusters.push(vec![candidate]),
         }
     }
+
     let lows: Vec<f64> = clusters
         .iter()
         .map(|cluster| cluster.iter().map(Candidate::low).fold(f64::MAX, f64::min))
         .collect();
     let mut outcomes = Vec::new();
+
     for (index, cluster) in clusters.iter().enumerate() {
         let low = lows.get(index).copied().unwrap_or(range.start());
         let high = cluster.iter().map(Candidate::high).fold(f64::MIN, larger);
@@ -893,9 +953,11 @@ fn finish(
             .iter()
             .any(|candidate| matches!(candidate, Candidate::Along(_)));
         let genuine = distinct(probe, cluster);
+
         let span = Interval::new(low, high).map_or(0.0, |span| probe.curve.length(span));
         let overlap =
             span > MIN_OVERLAP && (along || (genuine >= 2 && overlap_like(probe, low, high)));
+
         if overlap {
             let previous = index
                 .checked_sub(1)
@@ -906,11 +968,13 @@ fn finish(
             let next = lows.get(index + 1).copied().unwrap_or(range.end());
             let start = extend(probe, low, previous.max(range.start()));
             let end = extend(probe, high, next.min(range.end()));
+
             if let Some(extent) = Interval::new(start, end) {
                 outcomes.push(Outcome::Overlap(extent));
             }
             continue;
         }
+
         let at_end = cluster.iter().find_map(|candidate| match candidate {
             Candidate::End(at) => Some(*at),
             _ => None,
@@ -932,6 +996,7 @@ fn finish(
             [root] => Some(*root),
             _ => None,
         };
+
         if let (Some(end), Some(root)) = (at_end, crossing)
             && probe.curve.point(end).distance(probe.curve.point(root)) > TOLERANCE
         {
@@ -947,16 +1012,20 @@ fn finish(
             );
             continue;
         }
+
         let parameter = at_end.or(crossing).or(touch).unwrap_or(nearest);
         let tangent = probe.sine(parameter) <= TANGENT_SINE
             || (crossing.is_none() && (genuine >= 2 || touch.is_some() || along));
+
         outcomes.push(Outcome::Point(parameter, tangent));
     }
+
     let locate = |point: Point3| match patch {
         Some(patch) => patch.locate(point),
         None => Some(probe.surface.project(point, None)),
     };
     let mut result = CurveSurfaceIntersection::default();
+
     for outcome in outcomes {
         match outcome {
             Outcome::Point(parameter, tangent) => {
@@ -988,6 +1057,7 @@ fn finish(
                         probe.curve.point(piece.start()),
                         probe.curve.point(piece.end()),
                     );
+
                     let (Some(start_uv), Some(end_uv)) = (
                         locate(start).or_else(|| Some(probe.surface.project(start, None))),
                         locate(end).or_else(|| Some(probe.surface.project(end, None))),
@@ -1012,7 +1082,9 @@ fn finish(
             }
         }
     }
+
     let overlaps = result.overlaps.clone();
+
     result.points.retain(|point| {
         !overlaps
             .iter()
@@ -1022,10 +1094,12 @@ fn finish(
         .points
         .sort_by(|a, b| a.parameter.total_cmp(&b.parameter));
     result.points.dedup_by(|b, a| b.parameter == a.parameter);
+
     let full_period = probe
         .curve
         .period()
         .is_some_and(|period| range.length() >= period * (1.0 - 1e-12));
+
     if full_period
         && result.points.len() > 1
         && let (Some(first), Some(last)) = (result.points.first(), result.points.last())

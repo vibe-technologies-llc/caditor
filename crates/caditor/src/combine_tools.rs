@@ -20,7 +20,7 @@ pub const CHOOSE_TARGET_PROMPT: &str = "Click the body to combine into";
 pub const STOP_CHOOSING_HOVER: &str =
     "Click the bodies to combine in the view, or click here to stop choosing (Esc)";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CombineError {
     #[error("The model needs two shown bodies to combine")]
     NeedTwo,
@@ -44,13 +44,13 @@ impl Reason for CombineError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BodyPair {
     pub target: FeatureId,
     pub tool: FeatureId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CombineStart {
     Pair(BodyPair),
     Choose(Option<FeatureId>),
@@ -79,7 +79,9 @@ pub fn pair(model: &Model, target: FeatureId, tool: FeatureId) -> Result<BodyPai
     if target == tool {
         return Err(CombineError::SameBody);
     }
+
     let evaluation = model.evaluation();
+
     if bodies::shown(evaluation, target).is_none() || bodies::shown(evaluation, tool).is_none() {
         return Err(CombineError::NoShape);
     }
@@ -105,6 +107,7 @@ pub fn selected_bodies(
             .active_features()
             .any(|feature| feature.id() == *id)
     };
+
     let ordered: Vec<FeatureId> = if tree.len() >= 2 {
         document
             .active_features()
@@ -152,6 +155,7 @@ pub fn start_actions(model: &Model, start: CombineStart) -> Vec<Action> {
 pub fn create(document: &Document, pair: BodyPair) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Combine(Combine::new(pair.target, pair.tool, CombineOperation::Join)),

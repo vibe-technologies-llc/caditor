@@ -22,7 +22,7 @@ const NAMED_AT_MOST: usize = 6;
 const ITEMS_AT_MOST: usize = 400;
 const FACES_AT_MOST: usize = 64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Key {
     revision: u64,
     evaluation: u64,
@@ -30,7 +30,7 @@ struct Key {
     edited: Option<FeatureId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Item {
     pub name: String,
     pub parts: Vec<String>,
@@ -53,14 +53,14 @@ impl Item {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Described {
     key: Key,
     text: String,
     items: Option<Vec<Item>>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SceneDescription {
     cached: Option<Described>,
 }
@@ -82,6 +82,7 @@ impl SceneDescription {
             units: model.units(),
             edited,
         };
+
         if self
             .cached
             .as_ref()
@@ -129,11 +130,14 @@ fn group(names: &[String], singular: &str, plural: &str) -> Option<String> {
 
 pub fn describe(model: &Model, edited: Option<FeatureId>) -> String {
     let document = model.document();
+
     if let Some(sketch) = edited.and_then(|feature| edited_sketch(model, feature)) {
         return sketch;
     }
+
     let evaluation = model.evaluation();
     let unit = model.units();
+
     let bodies: Vec<String> = evaluation
         .bodies()
         .map(|(body, _)| body)
@@ -189,6 +193,7 @@ pub fn describe(model: &Model, edited: Option<FeatureId>) -> String {
             format!("{}{place}", feature.name)
         })
         .collect();
+
     let mut parts: Vec<String> = [
         group(&bodies, "body", "bodies"),
         group(&sketches, "sketch", "sketches"),
@@ -197,6 +202,7 @@ pub fn describe(model: &Model, edited: Option<FeatureId>) -> String {
     .into_iter()
     .flatten()
     .collect();
+
     if hidden_bodies > 0 {
         parts.push(format!("{} hidden", count(hidden_bodies, "body", "bodies")));
     }
@@ -206,6 +212,7 @@ pub fn describe(model: &Model, edited: Option<FeatureId>) -> String {
         } else {
             "Empty: nothing is drawn yet."
         };
+
         return words.to_owned();
     }
     format!("{}.", parts.join("; "))
@@ -236,12 +243,14 @@ fn datum_words(result: DatumResult, unit: Units) -> String {
 
 fn direction_words(direction: Vector3) -> String {
     let axes = [(Vector3::X, "x"), (Vector3::Y, "y"), (Vector3::Z, "z")];
+
     for (axis, name) in axes {
         let along = direction.dot(axis);
         if (along.abs() - 1.0).abs() <= SQUARE {
             return format!("along {name}");
         }
     }
+
     let rounded = |value: f64| format_decimals(value, DIRECTION_DECIMALS);
     format!(
         "along {}, {}, {}",
@@ -255,14 +264,17 @@ fn items(model: &Model, edited: Option<FeatureId>) -> Vec<Item> {
     if let Some(feature) = edited {
         return sketch_items(model, feature);
     }
+
     let document = model.document();
     let evaluation = model.evaluation();
     let unit = model.units();
     let mut items = Vec::new();
+
     for (body, _) in evaluation.bodies() {
         if items.len() >= ITEMS_AT_MOST || !visibility::is_shown(document, body) {
             continue;
         }
+
         let Some(name) = document.body_name(body) else {
             continue;
         };
@@ -287,6 +299,7 @@ fn items(model: &Model, edited: Option<FeatureId>) -> Vec<Item> {
             .unwrap_or_default();
         let keyed = bodies::face_keys(&shown.solid);
         let face_pick = |key: FaceKey| Pickable::Face { body, face: key };
+
         let mut parts: Vec<String> = keyed
             .iter()
             .take(FACES_AT_MOST)
@@ -297,6 +310,7 @@ fn items(model: &Model, edited: Option<FeatureId>) -> Vec<Item> {
             .take(FACES_AT_MOST)
             .map(|(_, key)| Some(face_pick(*key)))
             .collect();
+
         if let Some(more) = keyed
             .len()
             .checked_sub(FACES_AT_MOST)
@@ -330,6 +344,7 @@ fn items(model: &Model, edited: Option<FeatureId>) -> Vec<Item> {
                 .entities()
                 .filter(|(_, entity)| !matches!(entity, Entity::Point(_)))
                 .count();
+
             items.push(Item::alone(format!(
                 "Sketch {}{plane}, {}",
                 feature.name,
@@ -339,6 +354,7 @@ fn items(model: &Model, edited: Option<FeatureId>) -> Vec<Item> {
             let place = datum_tools::result(evaluation, feature.id())
                 .map(|result| format!(", {}", datum_words(result, unit)))
                 .unwrap_or_else(|| ", not computed".to_owned());
+
             items.push(
                 Item::alone(format!("Datum {}{place}", feature.name))
                     .selecting(vec![Pickable::Datum(feature.id())]),
@@ -357,6 +373,7 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
     };
     let unit = model.units();
     let solution = sketch_status::up_to_date_solution(model.evaluation(), feature);
+
     let point = |id: EntityId| {
         sketch
             .point(id)
@@ -475,10 +492,12 @@ fn plane_words(plane: Plane, unit: Units) -> String {
         (Vector3::Y, "y", origin.y),
         (Vector3::Z, "z", origin.z),
     ];
+
     for (axis, name, offset) in axes {
         let along = normal.dot(axis);
         if (along.abs() - 1.0).abs() <= SQUARE {
             let sign = if along > 0.0 { "+" } else { "-" };
+
             return format!(
                 "facing {sign}{name}, at {name} = {}",
                 unit.spoken_length(offset)
@@ -495,6 +514,7 @@ fn edited_sketch(model: &Model, feature: FeatureId) -> Option<String> {
     let owner = model.document().feature(feature)?;
     let sketch = model.displayed_sketch(owner)?;
     let (mut points, mut curves) = (0, 0);
+
     for (id, entity) in sketch.entities() {
         if id.reference().is_some() {
             continue;
@@ -511,6 +531,7 @@ fn edited_sketch(model: &Model, feature: FeatureId) -> Option<String> {
             }
         }
     }
+
     let constraints = sketch.constraints().count();
     let unit = model.units();
     let spans = sketch

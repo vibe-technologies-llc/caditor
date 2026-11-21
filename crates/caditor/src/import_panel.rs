@@ -29,7 +29,7 @@ pub fn placed(document: &Document, feature: FeatureId, import: Import) -> Option
     ))
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 enum PlacementError {
     #[error("The feature no longer exists")]
     FeatureGone,
@@ -73,12 +73,15 @@ impl Panel<'_> {
         };
         let model = self.model;
         let import = self.import;
+
         let drafting =
             feature_fields::expression_row_drafting(ui, model, caption, quantity, |value| {
                 let mut changed = import.clone();
+
                 rebuild(&mut changed.placement, value);
                 change(model, id, changed)
             });
+
         self.actions.extend(drafting.into_actions(id));
     }
 }
@@ -96,12 +99,15 @@ pub fn placement(
         import,
         actions,
     };
+
     widgets::properties(ui, ("import-placement", feature.id()), |ui| {
         let description = match import.placement.frame {
             Some(_) => FRAME_DESCRIPTION,
             None => DESCRIPTION,
         };
+
         feature_fields::description_row(ui, description);
+
         let row = feature_fields::FrameRow {
             feature: feature.id(),
             salt: "import-frame",
@@ -110,9 +116,11 @@ pub fn placement(
         };
         let chosen = feature_fields::frame_row(ui, model.document(), &row, |frame| {
             let mut changed = import.clone();
+
             changed.placement.frame = frame;
             change(model, feature.id(), changed)
         });
+
         panel.actions.extend(chosen);
         for axis in MoveAxis::ALL {
             panel.row(

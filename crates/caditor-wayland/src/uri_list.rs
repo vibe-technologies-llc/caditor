@@ -18,9 +18,11 @@ pub(crate) fn file_paths(list: &[u8], local_host: &[u8]) -> Vec<PathBuf> {
 
 fn file_path(uri: &[u8], local_host: &[u8]) -> Option<PathBuf> {
     let scheme = uri.get(..FILE_SCHEME.len())?;
+
     if !scheme.eq_ignore_ascii_case(FILE_SCHEME) {
         return None;
     }
+
     let rest = uri.get(FILE_SCHEME.len()..)?;
     let path = match rest.strip_prefix(AUTHORITY) {
         Some(authority) => {
@@ -33,6 +35,7 @@ fn file_path(uri: &[u8], local_host: &[u8]) -> Option<PathBuf> {
         None => rest.starts_with(b"/").then_some(rest)?,
     };
     let decoded = percent_decoded(path);
+
     if decoded.contains(&0) {
         return None;
     }
@@ -42,6 +45,7 @@ fn file_path(uri: &[u8], local_host: &[u8]) -> Option<PathBuf> {
 fn percent_decoded(text: &[u8]) -> Vec<u8> {
     let mut decoded = Vec::with_capacity(text.len());
     let mut rest = text;
+
     while let Some((&byte, after)) = rest.split_first() {
         let escaped = match after {
             [high, low, ..] if byte == ESCAPE => hex(*high).zip(hex(*low)),

@@ -37,7 +37,7 @@ const PREDECESSOR_TIMEOUT: Duration = Duration::from_secs(5);
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 const REBASE_JOURNAL_AFTER: u64 = 32 << 20;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorageConfig {
     pub recovery_dir: Option<PathBuf>,
     pub rebase_journal_after: u64,
@@ -67,7 +67,7 @@ pub struct Start {
     pub after: Option<Closing>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SaveRequest {
     pub ticket: u64,
     pub document: Document,
@@ -79,7 +79,7 @@ pub struct SaveRequest {
     pub preview: Option<PreviewSlot>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeepRequest {
     pub path: PathBuf,
     pub index: usize,
@@ -87,7 +87,7 @@ pub struct KeepRequest {
     pub kept: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum JournalFailure {
     #[error("{0}")]
     Writing(WriteFailure),
@@ -103,7 +103,7 @@ pub enum JournalFailure {
     WriterUnavailable,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Report {
     Saved {
         ticket: u64,
@@ -140,7 +140,7 @@ pub enum Report {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("the storage worker stopped")]
 pub struct StorageStopped;
 
@@ -178,6 +178,7 @@ impl Handover {
 
     pub fn wait(&self, timeout: Duration) -> bool {
         let mut gone = self.0.predecessor_gone.lock();
+
         self.0
             .changed
             .wait_while_for(&mut gone, |gone| !*gone, timeout);
@@ -198,6 +199,7 @@ impl Storage {
         let handed_over = handover.clone();
         let untitled = config.recovery_dir.as_deref().map(paths::untitled_journal);
         let worker_untitled = untitled.clone();
+
         thread::Builder::new()
             .name("storage".to_owned())
             .spawn(move || {
@@ -211,13 +213,16 @@ impl Storage {
                     replaces,
                     after,
                 } = start;
+
                 if let Some(predecessor) = after
                     && !predecessor.wait(PREDECESSOR_TIMEOUT)
                 {
                     log::warn!("the previous storage worker did not finish in time");
                 }
                 handed_over.complete();
+
                 let mut mirror = Mirror::new(base.clone());
+
                 let entries = entries.into_iter().map(|entry| mirror.log(entry)).collect();
                 let mut worker = Worker {
                     untitled: worker_untitled,
@@ -246,6 +251,7 @@ impl Storage {
                     #[cfg(test)]
                     gate: config.jobs,
                 };
+
                 worker.rewrite();
                 worker.run(&queue);
             })?;
@@ -325,6 +331,7 @@ impl Storage {
         });
         loop {
             let (done, _flushed) = mpsc::sync_channel(1);
+
             if self.send(Command::Flush(done)).is_err() {
                 return;
             }
@@ -502,6 +509,7 @@ impl Job {
                     head,
                     plan,
                 } = *job;
+
                 let prepared = plan.prepare(&head.borrowed(), &document, head.file.as_deref());
                 Finished::Rebased {
                     entries,
@@ -521,6 +529,7 @@ impl SaveJob {
             unless_changed_from,
             plan,
         } = self;
+
         let options = SaveOptions {
             keep_original: request.keep_original,
             history_from: history_from.as_deref(),
@@ -586,6 +595,7 @@ impl JournalPlan {
         model: Option<&Path>,
     ) -> Option<PreparedJournal> {
         let mut pictures = WrittenPictures::default();
+
         let contents = match encode_journal_noting(head, base, &[], &mut pictures) {
             Ok(contents) => contents,
             Err(error) => {
@@ -594,6 +604,7 @@ impl JournalPlan {
             }
         };
         let permissions = permissions_of(model);
+
         for candidate in &self.candidates {
             if self.own.as_ref() != Some(candidate) && locked_elsewhere(candidate) {
                 continue;
@@ -635,6 +646,7 @@ impl Worker {
             match received {
                 Ok(command) => {
                     let mut next = Some(command);
+
                     while let Some(command) = next.take() {
                         if let Flow::Stop = self.handle(command) {
                             return;
@@ -667,6 +679,7 @@ impl Worker {
                 if !self.protected {
                     self.retry();
                 }
+
                 let _ = done.send(());
             }
             Command::Finished(finished) => return self.finish(*finished),
@@ -687,7 +700,9 @@ impl Worker {
                 {
                     self.remove_own(&journal);
                 }
+
                 let _ = done.send(());
+
                 (self.wake)();
                 return Flow::Stop;
             }
@@ -699,6 +714,7 @@ impl Worker {
         let Some(busy) = &mut self.busy else {
             return;
         };
+
         busy.since.push(entry.clone());
         if !busy.waiting.is_empty() {
             busy.waiting.push_back(Queued::Journaled(entry.clone()));
@@ -720,6 +736,7 @@ impl Worker {
                     }
                 })
         });
+
         match spawned {
             Some(Ok(_)) => {
                 self.busy = Some(Busy::default());
@@ -728,9 +745,11 @@ impl Worker {
             Some(Err(error)) => log::warn!("could not save in the background: {error}"),
             None => {}
         }
+
         let job = slot.lock().take();
         if let Some(job) = job {
             let done = job.run_contained(self.before_job());
+
             self.complete(done, Vec::new());
         }
     }
@@ -748,6 +767,7 @@ impl Worker {
 
     fn finish(&mut self, finished: Finished) -> Flow {
         let Busy { since, waiting } = self.busy.take().unwrap_or_default();
+
         self.complete(finished, since);
         for queued in waiting {
             match queued {
@@ -775,6 +795,7 @@ impl Worker {
                     path,
                     ..
                 } = *request;
+
                 self.file = Some(path.clone());
                 self.on_disk = Some(saved.digest.clone());
                 self.loaded_with_problems = false;
@@ -845,6 +866,7 @@ impl Worker {
 
     fn restart_from(&mut self, base: Document, since: Vec<JournalEntry>) {
         let mut mirror = Mirror::new(base.clone());
+
         self.entries = since.into_iter().map(|entry| mirror.log(entry)).collect();
         self.mirror = mirror;
         self.base = base;
@@ -861,6 +883,7 @@ impl Worker {
                 }),
             Some(_) | None => Ok(0),
         };
+
         self.entries.push(logged);
         match written {
             Ok(length) => {
@@ -893,6 +916,7 @@ impl Worker {
             folded: self.folded.saturating_add(entries),
         };
         let plan = self.plan(self.journal_candidates());
+
         self.start(Job::Rebase(Box::new(RebaseJob {
             entries,
             document,
@@ -906,6 +930,7 @@ impl Worker {
             return;
         }
         self.unsynced = false;
+
         let Some(journal) = &self.journal else {
             return;
         };
@@ -955,6 +980,7 @@ impl Worker {
             });
             return;
         }
+
         let plan = self.plan(paths::journals_for(
             &request.path,
             self.recovery_dir.as_deref(),
@@ -963,6 +989,7 @@ impl Worker {
             .on_disk
             .clone()
             .filter(|_| !request.replace_outside_changes);
+
         self.start(Job::Save(SaveJob {
             request,
             history_from: self.file.clone(),
@@ -980,7 +1007,9 @@ impl Worker {
             });
             return;
         }
+
         let unless_changed_from = self.on_disk.clone();
+
         self.start(Job::Keep {
             request,
             unless_changed_from,
@@ -1039,6 +1068,7 @@ impl Worker {
             .iter()
             .map(|entry| encode_entry_sharing(entry, &mut pictures))
             .collect::<Result<Vec<_>, _>>();
+
         let later = match later {
             Ok(chunks) => chunks.concat(),
             Err(error) => {
@@ -1063,10 +1093,12 @@ impl Worker {
 
     fn rewrite(&mut self) {
         let candidates = self.journal_candidates();
+
         if candidates.is_empty() {
             self.fail(JournalFailure::NoFolder);
             return;
         }
+
         let head = JournalHead {
             file: self.file.as_deref(),
             on_disk: self.on_disk.as_ref(),
@@ -1084,12 +1116,15 @@ impl Worker {
         };
         let permissions = permissions_of(self.file.as_deref());
         let mut failure = None;
+
         for candidate in candidates.iter().cloned() {
             let own = self.own_journal_at(&candidate);
+
             if own.is_none() && locked_elsewhere(&candidate) {
                 log::warn!("{} belongs to another caditor window", candidate.display());
                 continue;
             }
+
             let written = write_locked(
                 &candidate,
                 &contents,
@@ -1121,7 +1156,9 @@ impl Worker {
 
     fn adopt(&mut self, path: PathBuf, file: File, length: usize) {
         self.mark_adjacent(&path);
+
         let previous = self.journal.replace(OpenJournal { path, file });
+
         if let Some(previous) = previous
             && self.journal_path() != Some(previous.path.as_path())
         {
@@ -1154,6 +1191,7 @@ impl Worker {
         let Some(recovery_dir) = self.recovery_dir.as_deref() else {
             return;
         };
+
         if journal.starts_with(recovery_dir) {
             return;
         }
@@ -1241,6 +1279,7 @@ fn stage(
     {
         fs::create_dir_all(dir)?;
     }
+
     let temporary = temporary_sibling(path)?;
     match write_temporary(&temporary, contents, permissions) {
         Ok(file) => Ok(Staged { temporary, file }),
@@ -1258,6 +1297,7 @@ fn write_temporary(
 ) -> io::Result<File> {
     let mut file =
         os::hidden(os::private(OpenOptions::new().write(true).create_new(true))).open(temporary)?;
+
     if let Some(permissions) = permissions {
         file.set_permissions(permissions.clone())?;
     }

@@ -24,7 +24,7 @@ const PICK_KEYS: &str = "Esc: back to Select";
 const RADIUS_KEYS: &str = "Type the radius   Enter: draw it   Esc: let go of the last curve";
 const MOST_PICKS: usize = 3;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum TangentCirclingError {
     #[error(transparent)]
     SketchGone(#[from] SketchGone),
@@ -45,7 +45,7 @@ pub const FIELD: ValueField = ValueField {
     action: "draw the circle",
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TangentCircling {
     picked: Vec<EntityId>,
     hover: Option<EntityId>,
@@ -112,8 +112,10 @@ impl TangentCircling {
         if let Some(Ok(radius)) = &self.radius {
             return Some((self.picked.clone(), Some(radius.value)));
         }
+
         let third = self.aim()?;
         let mut curves = self.picked.clone();
+
         curves.push(third);
         Some((curves, None))
     }
@@ -131,6 +133,7 @@ impl TangentCircling {
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
         let mut preview = Preview::default();
+
         if let Some((_, Ok(circle))) = &self.circle {
             preview.curves.push(circle.faceted(faceting));
             preview.points = vec![circle.center];
@@ -201,7 +204,9 @@ impl TangentCircling {
             self.picked.push(curve);
             return Outcome::Nothing;
         }
+
         let mut curves = self.picked.clone();
+
         curves.push(curve);
         self.draw(model, feature, curves, None).into()
     }
@@ -213,9 +218,11 @@ impl TangentCircling {
         text: &str,
     ) -> Result<Outcome, TangentCirclingError> {
         let value = Value::typed(model, text).map_err(TangentCirclingError::Typed)?;
+
         if self.picked.len() != 2 {
             return Err(TangentCirclingError::TwoFirst);
         }
+
         let radius = Dimensioned {
             expression: value.expression,
             value: value.millimetres,
@@ -239,6 +246,7 @@ impl TangentCircling {
                 .map(|_| ())
                 .map_err(|source| TangentCirclingError::Refused { source })
         })?;
+
         self.picked.clear();
         self.highlight = None;
         self.circle = None;
@@ -252,9 +260,11 @@ impl TangentCircling {
     pub fn step(&mut self, sketch: &Sketch, step: isize) {
         let curves = curves(sketch);
         let count = curves.len() as isize;
+
         if count == 0 {
             return;
         }
+
         let current = self
             .highlight
             .and_then(|aim| curves.iter().position(|curve| *curve == aim));
@@ -263,6 +273,7 @@ impl TangentCircling {
             None if step < 0 => count - 1,
             None => 0,
         };
+
         self.highlight = usize::try_from(next)
             .ok()
             .and_then(|next| curves.get(next).copied());

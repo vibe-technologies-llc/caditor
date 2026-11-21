@@ -10,6 +10,7 @@ use crate::{model::Action, panels::REVEAL_FRAMES, scene_palette};
 fn a_large_sketch_being_edited_shows_its_closed_regions_once_they_are_found() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
     for index in 0..2_000 {
         sketch.add_point(Point2::new(
@@ -17,9 +18,12 @@ fn a_large_sketch_being_edited_shows_its_closed_regions_once_they_are_found() {
             f64::from(index / 50),
         ));
     }
+
     let feature = harness.add_sketch(sketch);
+
     harness.edit(feature);
     harness.settle();
+
     let found = |harness: &Harness| {
         harness
             .model
@@ -34,6 +38,7 @@ fn a_large_sketch_being_edited_shows_its_closed_regions_once_they_are_found() {
 
     harness.wait_until("the regions are found", found);
     harness.frame();
+
     let tinted = harness
         .built()
         .scene
@@ -46,7 +51,9 @@ fn a_large_sketch_being_edited_shows_its_closed_regions_once_they_are_found() {
 #[test]
 fn feature_rows_far_out_of_view_are_not_laid_out_until_reached() {
     let mut harness = Harness::new();
+
     let mut transaction = harness.document().transaction("Add sketches");
+
     for index in 0..150 {
         transaction.add_feature(
             format!("Far sketch {index}"),
@@ -58,6 +65,7 @@ fn feature_rows_far_out_of_view_are_not_laid_out_until_reached() {
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();
+
     let laid_out = |harness: &Harness, name: &str| {
         harness.accessible_named(Role::Button, &format!("More actions for {name}"))
     };
@@ -91,16 +99,21 @@ fn feature_rows_far_out_of_view_are_not_laid_out_until_reached() {
 fn constraint_rows_far_out_of_view_are_not_laid_out() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     for index in 0..200 {
         let y = f64::from(index);
         let line = sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y + 0.5));
+
         sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
     }
+
     let feature = harness.add_sketch(sketch);
+
     harness.context.enable_accesskit();
     harness.edit(feature);
     harness.frame();
     harness.frame();
+
     let delete_buttons = harness
         .accessible
         .iter()
@@ -119,14 +132,18 @@ fn redundant_constraint_rows_far_out_of_view_are_not_laid_out_once_measured() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
     let mut lines = Vec::new();
+
     for index in 0..200 {
         let y = f64::from(index);
         let line = sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y + 0.5));
+
         sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
         lines.push(line);
     }
+
     let feature = harness.add_sketch(sketch);
     let mut transaction = harness.document().transaction("Restate every constraint");
+
     for line in lines {
         transaction.add_sketch_constraint(
             feature,
@@ -139,6 +156,7 @@ fn redundant_constraint_rows_far_out_of_view_are_not_laid_out_once_measured() {
     harness.edit(feature);
     harness.frame();
     harness.frame();
+
     let delete_buttons = harness
         .accessible
         .iter()
@@ -161,14 +179,18 @@ fn the_redundant_pill_shows_at_the_top_of_the_card_however_many_constraints_repe
         let mut harness = Harness::new();
         let mut sketch = Sketch::new(Plane::XY);
         let mut lines = Vec::new();
+
         for index in 0..repeated {
             let y = index as f64;
             let line = sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y + 0.5));
+
             sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
             lines.push(line);
         }
+
         let feature = harness.add_sketch(sketch);
         let mut transaction = harness.document().transaction("Restate every constraint");
+
         for line in lines {
             transaction.add_sketch_constraint(
                 feature,
@@ -180,6 +202,7 @@ fn the_redundant_pill_shows_at_the_top_of_the_card_however_many_constraints_repe
         harness.edit(feature);
         harness.frame();
         harness.frame();
+
         let words = format!("{repeated} redundant constraints");
         let pill = harness
             .texts

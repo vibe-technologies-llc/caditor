@@ -10,13 +10,13 @@ use crate::{
 
 const MERIDIAN: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Slopes {
     pub(super) from: f64,
     pub(super) to: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Taper {
     axis: Plane,
     hinge: f64,
@@ -35,6 +35,7 @@ impl Taper {
         let radius = hinge + middle * slopes.to;
         let anchor = Plane::from_frame(axis.origin() + along * middle, along, axis.x_axis())?;
         let half_angle = slopes.to.atan_libm();
+
         let surface: Surface = if half_angle.abs() <= ANGULAR_RESOLUTION {
             Cylinder::new(anchor, radius).ok()?.into()
         } else {
@@ -78,6 +79,7 @@ impl Taper {
     fn scaled(&self, point: Point3, from: f64, to: f64) -> Point3 {
         let Split { height, radial } = self.split(point);
         let (before, after) = (self.radius(height, from), self.radius(height, to));
+
         if before.abs() <= LINEAR_RESOLUTION {
             return point;
         }
@@ -96,6 +98,7 @@ impl Taper {
         let Split { height, radial } = self.split(point);
         let outward = radial.try_normalize().unwrap_or(self.axis.x_axis());
         let slant = (1.0 + self.slopes.to * self.slopes.to).sqrt();
+
         let beyond = radial.length() - self.radius(height, self.slopes.to);
         (
             beyond / slant,
@@ -109,16 +112,21 @@ impl Taper {
             Curve::Circle(circle) => {
                 let frame = circle.frame();
                 let Split { height, radial } = self.split(circle.center());
+
                 let coaxial = frame.normal().cross(self.axis.normal()).length()
                     <= ANGULAR_RESOLUTION
                     && radial.length() <= LINEAR_RESOLUTION;
+
                 if !coaxial {
                     return None;
                 }
+
                 let before = self.radius(height, self.slopes.from);
+
                 if before.abs() <= LINEAR_RESOLUTION {
                     return None;
                 }
+
                 let radius = circle.radius() * self.radius(height, self.slopes.to) / before;
                 let carried = Circle::new(*frame, radius).ok()?;
                 Some((carried.into(), interval))
@@ -128,10 +136,13 @@ impl Taper {
                 let end = edge.curve().point(interval.end());
                 let Split { radial, .. } = self.split(start);
                 let meridian = self.axis.normal().cross(radial);
+
                 if line.direction().dot(meridian).abs() > MERIDIAN * meridian.length().max(1.0) {
                     return None;
                 }
+
                 let (from, to) = (self.carried(start), self.carried(end));
+
                 let carried = Line::through(from, to).ok()?;
                 Some((carried.into(), Interval::new(0.0, from.distance(to))?))
             }

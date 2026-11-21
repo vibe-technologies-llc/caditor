@@ -12,7 +12,7 @@ const RAIL_WIDTH: f32 = BORDER_WIDTH;
 const TICK_WIDTH: f32 = FOCUS_WIDTH;
 pub const RING_WIDTH: f32 = FOCUS_WIDTH;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Links {
     pub uses: Vec<FeatureId>,
     pub used_by: Vec<FeatureId>,
@@ -57,13 +57,13 @@ impl Links {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LinksBasis {
     feature: FeatureId,
     revision: u64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct LinksCache {
     kept: Option<(LinksBasis, Links)>,
     computed: usize,
@@ -92,7 +92,7 @@ impl LinksCache {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mark {
     Focus,
     Uses,
@@ -117,9 +117,11 @@ pub fn paint(ui: &Ui, placed: &[(FeatureId, Rect)], marks: &[(FeatureId, Mark)])
                 .map(|(_, rect)| (*rect, *mark))
         })
         .collect();
+
     if shown.len() < 2 {
         return;
     }
+
     let x = shown
         .iter()
         .map(|(rect, _)| rect.left())
@@ -135,6 +137,7 @@ pub fn paint(ui: &Ui, placed: &[(FeatureId, Rect)], marks: &[(FeatureId, Mark)])
         .map(|(rect, _)| rect.center().y)
         .fold(f32::NEG_INFINITY, f32::max);
     let painter = ui.painter();
+
     painter.line_segment(
         [pos2(x, top), pos2(x, bottom)],
         Stroke::new(RAIL_WIDTH, tokens.text_muted),
@@ -164,6 +167,7 @@ fn focus_tick(ui: &Ui, centre: Pos2, row: Rect, colour: Color32) {
     );
     let bar = Rect::from_center_size(centre, vec2(TICK_WIDTH, MARK_RADIUS * 2.0));
     let painter = ui.painter();
+
     painter.rect_filled(tick, CornerRadius::ZERO, colour);
     painter.rect_filled(bar, CornerRadius::ZERO, colour);
 }

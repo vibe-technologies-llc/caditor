@@ -4,26 +4,26 @@ use caditor_geometry::Point3;
 
 use crate::tessellation::{MeshNormal, TessellationError};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PatchPosition {
     Boundary(u32),
     Interior(u32),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PatchVertex {
     pub position: PatchPosition,
     pub normal: MeshNormal,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct PatchShape {
     pub grid: usize,
     pub points: usize,
     pub in_pieces: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct FacePatch {
     pub interior: Vec<Point3>,
     pub vertices: Vec<PatchVertex>,
@@ -37,18 +37,21 @@ impl FacePatch {
         point: Point3,
     ) -> Result<PatchPosition, TessellationError> {
         let index = u32::try_from(self.interior.len()).map_err(|_| TessellationError::TooLarge)?;
+
         self.interior.push(point);
         Ok(PatchPosition::Interior(index))
     }
 
     pub(crate) fn push_vertex(&mut self, vertex: PatchVertex) -> Result<u32, TessellationError> {
         let index = u32::try_from(self.vertices.len()).map_err(|_| TessellationError::TooLarge)?;
+
         self.vertices.push(vertex);
         Ok(index)
     }
 
     pub(crate) fn inner_pairs(&self) -> Vec<BoundaryPair> {
         let mut uses: BTreeMap<BoundaryPair, usize> = BTreeMap::new();
+
         for triangle in &self.triangles {
             for [from, to, _] in turns(*triangle) {
                 if let Some(pair) = self.boundary_pair(from, to) {
@@ -70,6 +73,7 @@ impl FacePatch {
     ) -> Result<(), TessellationError> {
         let mut beside = Vec::new();
         let mut kept = Vec::with_capacity(self.triangles.len());
+
         for triangle in &self.triangles {
             let found = turns(*triangle)
                 .into_iter()
@@ -80,8 +84,10 @@ impl FacePatch {
             }
         }
         self.triangles = kept;
+
         let position = self.push_interior(point)?;
         let middle = self.push_vertex(PatchVertex { position, normal })?;
+
         for [from, to, apex] in beside {
             self.triangles.push([apex, from, middle]);
             self.triangles.push([middle, to, apex]);
@@ -102,7 +108,7 @@ fn turns([a, b, c]: [u32; 3]) -> [[u32; 3]; 3] {
     [[a, b, c], [b, c, a], [c, a, b]]
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct BoundaryPair(pub u32, pub u32);
 
 impl BoundaryPair {

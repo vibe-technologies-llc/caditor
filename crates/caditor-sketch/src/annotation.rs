@@ -13,7 +13,7 @@ pub const CIRCLE_LEADER_DIRECTION: Vector2 = Vector2::new(FRAC_1_SQRT_2, FRAC_1_
 const ARC_LEADER_FRACTION: f64 = 0.5;
 const MAX_OBSTACLE_CELLS: i64 = 64;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LineSpan {
     origin: Point2,
     direction: Vector2,
@@ -33,6 +33,7 @@ impl LineSpan {
             Some(Reference::Origin) => None,
             None => {
                 let (start, end) = sketch.line_endpoints(id)?;
+
                 let length = start.distance(end);
                 (length > DEGENERATE).then(|| Self {
                     origin: start,
@@ -97,7 +98,7 @@ impl LineSpan {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Measured {
     Points(Point2, Point2),
     Aligned {
@@ -194,6 +195,7 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
         }
         Constraint::Rho { conic, .. } => {
             let (start, end) = sketch.entity(conic)?.spline_ends()?;
+
             let middle = sketch.point(start)?.lerp(sketch.point(end)?, 0.5);
             Some(Measured::Points(
                 middle,
@@ -238,6 +240,7 @@ fn point_to_curve(sketch: &Sketch, point: Point2, curve: EntityId) -> Option<Mea
             sketch.closest_on_curve(curve, point)?,
         ));
     }
+
     let (center, radius) = sketch.circle(curve)?;
     Some(Measured::PointToCircle {
         point,
@@ -252,9 +255,11 @@ fn curve_to_curve(sketch: &Sketch, from: EntityId, to: EntityId) -> Option<Measu
         (None, Some(_)) => Some(sketch.spline_gap(to, from)?),
         (None, None) => None,
     };
+
     if let Some((on_spline, on_other)) = spline_gap {
         return Some(Measured::Points(on_spline, on_other));
     }
+
     let ellipse_gap = if sketch.is_elliptic(from) {
         sketch.ellipse_gap(from, to)
     } else if sketch.is_elliptic(to) {
@@ -262,6 +267,7 @@ fn curve_to_curve(sketch: &Sketch, from: EntityId, to: EntityId) -> Option<Measu
     } else {
         None
     };
+
     if let Some((on_ellipse, on_other)) = ellipse_gap {
         return Some(Measured::Points(on_ellipse, on_other));
     }
@@ -286,6 +292,7 @@ fn curve_to_curve(sketch: &Sketch, from: EntityId, to: EntityId) -> Option<Measu
             } else {
                 (second, second_radius, first, first_radius)
             };
+
             let outward = (inner - center).try_normalize().unwrap_or(Vector2::X);
             let between = inner.distance(center);
             let near_side = if between > radius + inner_radius {
@@ -318,7 +325,7 @@ fn leader(sketch: &Sketch, entity: EntityId) -> Option<(Point2, f64, Vector2)> {
     Some((center, radius, toward))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Track {
     along: Vector2,
     side: Vector2,
@@ -338,6 +345,7 @@ impl Track {
         } else {
             along
         };
+
         let side = away_from(along.perp(), (from + to) / 2.0, centre);
         let baseline = match measured {
             Measured::Aligned { .. } => from.dot(side).max(to.dot(side)),
@@ -376,6 +384,7 @@ pub fn lanes(measured: &[Option<Measured>], centre: Option<Point2>, extent: f64)
         })
         .collect();
     let mut order: Vec<usize> = (0..tracks.len()).collect();
+
     order.sort_by(|a, b| {
         let length = |index: &usize| {
             tracks
@@ -386,8 +395,10 @@ pub fn lanes(measured: &[Option<Measured>], centre: Option<Point2>, extent: f64)
         };
         length(a).total_cmp(&length(b))
     });
+
     let mut lanes = vec![0; tracks.len()];
     let mut placed: Vec<(Track, usize)> = Vec::new();
+
     for index in order {
         let Some(track) = tracks.get(index).copied().flatten() else {
             continue;
@@ -398,6 +409,7 @@ pub fn lanes(measured: &[Option<Measured>], centre: Option<Point2>, extent: f64)
             .map(|(_, lane)| *lane)
             .collect();
         let lane = (0..).find(|lane| !taken.contains(lane)).unwrap_or(0);
+
         if let Some(slot) = lanes.get_mut(index) {
             *slot = lane;
         }
@@ -418,7 +430,7 @@ pub fn away_from(normal: Vector2, at: Point2, centre: Option<Point2>) -> Vector2
     if preference < 0.0 { -normal } else { normal }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Footprint {
     pub center: Vector2,
     pub half: Vector2,
@@ -433,18 +445,19 @@ impl Footprint {
         let reach = self.half + other.half;
         let apart = (self.center - other.center).abs();
         let narrower = self.half.min(other.half) * 2.0;
+
         let shared = (reach - apart).min(narrower).max(Vector2::ZERO);
         shared.x * shared.y
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct Cell {
     footprints: Vec<usize>,
     covered: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Obstacles {
     cell: f64,
     footprints: Vec<(Footprint, (i64, i64))>,
@@ -462,11 +475,13 @@ impl Obstacles {
 
     pub fn add(&mut self, footprint: Footprint) {
         let index = self.footprints.len();
+
         self.footprints
             .push((footprint, self.first_cell(&footprint)));
         for cell in self.cells_under(&footprint) {
             let covered = footprint.overlap(&self.cell_footprint(cell));
             let entry = self.cells.entry(cell).or_default();
+
             entry.footprints.push(index);
             entry.covered += covered;
         }
@@ -475,6 +490,7 @@ impl Obstacles {
     pub fn overlap(&self, footprint: &Footprint) -> f64 {
         let first = self.first_cell(footprint);
         let mut total = 0.0;
+
         for cell in self.cells_under(footprint) {
             let near = self
                 .cells
@@ -511,6 +527,7 @@ impl Obstacles {
                 footprint.center + footprint.half,
             ]
         });
+
         let first = corners.next()?;
         let (low, high) = corners.fold((first, first), |(low, high), corner| {
             (low.min(corner), high.max(corner))
@@ -568,6 +585,7 @@ mod tests {
     #[test]
     fn gaps_between_circles_and_from_a_line_run_between_their_nearest_points() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let large = sketch.add_circle(Point2::ZERO, 10.0);
         let apart = sketch.add_circle(Point2::new(20.0, 0.0), 4.0);
         let within = sketch.add_circle(Point2::new(0.0, 5.0), 2.0);
@@ -600,9 +618,11 @@ mod tests {
                 radius: 10.0,
             }
         );
+
         let Measured::PointToLine(point, span) = gap(line, large) else {
             panic!("expected a gap to the line");
         };
+
         assert_close(point, Point2::new(0.0, 10.0));
         assert_close(span.foot(point), Point2::new(0.0, 30.0));
     }

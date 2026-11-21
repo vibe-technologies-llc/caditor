@@ -13,7 +13,7 @@ pub(crate) const TEXT_BITS: u32 = 39;
 const LETTER_BITS: u32 = 11;
 const SEGMENT_BITS: u32 = 12;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TextAlign {
     #[default]
     Left,
@@ -21,7 +21,7 @@ pub enum TextAlign {
     Right,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Text {
     pub anchor: EntityId,
     pub content: String,
@@ -32,13 +32,13 @@ pub struct Text {
     pub align: TextAlign,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextSize {
     pub height: f64,
     pub angle: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TextError {
     #[error("text needs at least one letter")]
     Blank,
@@ -70,7 +70,9 @@ impl Text {
         if content.trim().is_empty() {
             return Err(TextError::Blank);
         }
+
         let count = content.chars().count();
+
         if count > MAX_TEXT_CHARS {
             return Err(TextError::TooLong { count });
         }
@@ -79,6 +81,7 @@ impl Text {
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         let mut used = self.height.parameters();
+
         used.extend(self.angle.parameters());
         used
     }

@@ -29,6 +29,7 @@ fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
 
 fn point(evaluation: &Evaluation, feature: FeatureId) -> Point3 {
     let status = evaluation.feature(feature).unwrap();
+
     assert_eq!(status.state, FeatureState::UpToDate);
     status
         .result
@@ -42,6 +43,7 @@ fn point(evaluation: &Evaluation, feature: FeatureId) -> Point3 {
 
 fn reading(evaluation: &Evaluation, feature: FeatureId) -> MeasurementResult {
     let status = evaluation.feature(feature).unwrap();
+
     assert_eq!(status.state, FeatureState::UpToDate, "{status:?}");
     *status.result.as_deref().unwrap().measurement().unwrap()
 }
@@ -54,7 +56,9 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let mut outline = Sketch::new(Plane::XY);
     let corners = [
@@ -63,9 +67,11 @@ fn model() -> Model {
         Point2::new(10.0, 8.0),
         Point2::new(0.0, 8.0),
     ];
+
     for index in 0..4 {
         outline.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = transaction.add_feature(
         "Base",
@@ -81,6 +87,7 @@ fn model() -> Model {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -117,6 +124,7 @@ fn top_face(solid: &Solid) -> FaceReference {
 
 fn keep(model: &mut Model, name: &str, reading: Reading) -> (FeatureId, ParameterId) {
     let mut transaction = model.document.transaction("Keep");
+
     let parameter = transaction.add_parameter(name, millimetres(0.0));
     let earlier = model
         .document
@@ -124,6 +132,7 @@ fn keep(model: &mut Model, name: &str, reading: Reading) -> (FeatureId, Paramete
         .filter(|feature| feature.kind.measurement().is_some())
         .count();
     let title = format!("Measurement {}", earlier + 1);
+
     let measurement = transaction.add_feature(
         title,
         FeatureKind::from(Measurement {
@@ -131,6 +140,7 @@ fn keep(model: &mut Model, name: &str, reading: Reading) -> (FeatureId, Paramete
             parameter: Some(parameter),
         }),
     );
+
     model.document.apply(transaction.finish()).unwrap();
     (measurement, parameter)
 }
@@ -150,6 +160,7 @@ fn height_of_corner(model: &Model) -> Reading {
 
 fn reader(model: &mut Model, gap: ParameterId) -> FeatureId {
     let mut transaction = model.document.transaction("Add");
+
     let feature = transaction.add_feature(
         "Reader",
         FeatureKind::Datum(Datum::Point(DatumPoint {
@@ -161,6 +172,7 @@ fn reader(model: &mut Model, gap: ParameterId) -> FeatureId {
             ],
         })),
     );
+
     model.document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -181,12 +193,15 @@ fn set_height(model: &mut Model, value: f64) {
 #[test]
 fn a_feature_below_a_measurement_reads_it_and_follows_upstream_changes() {
     let mut model = model();
+
     let kept = height_of_corner(&model);
     let (measurement, gap) = keep(&mut model, "clearance", kept);
     let reader = reader(&mut model, gap);
 
     let first = evaluate(&model.document);
+
     set_height(&mut model, 6.5);
+
     let second = evaluate(&model.document);
 
     assert!((reading_value(&first, measurement) - 4.0).abs() < CLOSE);
@@ -197,7 +212,9 @@ fn a_feature_below_a_measurement_reads_it_and_follows_upstream_changes() {
         Ok(Quantity::length(6.5)),
         "the parameter shows what was measured"
     );
+
     let line = reading(&second, measurement).line.unwrap();
+
     assert!((line.0.z - line.1.z).abs() > 6.0);
 }
 
@@ -208,9 +225,11 @@ fn reading_value(evaluation: &Evaluation, measurement: FeatureId) -> f64 {
 #[test]
 fn a_measurement_reads_the_area_of_a_face() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document);
     let face = top_face(evaluation.body(model.base).unwrap());
     let body = model.base;
+
     let (measurement, _) = keep(
         &mut model,
         "top",
@@ -230,6 +249,7 @@ fn a_measurement_reads_the_area_of_a_face() {
 #[test]
 fn reading_a_measurement_above_it_is_refused_naming_the_cycle() {
     let mut model = model();
+
     let kept = height_of_corner(&model);
     let (measurement, gap) = keep(&mut model, "clearance", kept);
     let reader = reader(&mut model, gap);
@@ -238,7 +258,9 @@ fn reading_a_measurement_above_it_is_refused_naming_the_cycle() {
     let FeatureKind::Solid(SolidFeature::Extrude(mut extrude)) = base.kind.clone() else {
         panic!("the base is an extrusion");
     };
+
     extrude.extent = ExtrudeExtent::one_side(Expression::Parameter(gap), false);
+
     let above = model.document.apply(Transaction::single(
         "Base",
         Edit::SetFeatureKind {
@@ -257,6 +279,7 @@ fn reading_a_measurement_above_it_is_refused_naming_the_cycle() {
     ));
 
     let refusal = above.unwrap_err().to_string();
+
     assert!(
         refusal.contains("Base → clearance → Measurement 1 → Base"),
         "{refusal}"
@@ -266,7 +289,9 @@ fn reading_a_measurement_above_it_is_refused_naming_the_cycle() {
         inlined,
         Err(EditError::MeasuredParameterInlined { .. })
     ));
+
     let refusal = height_reads_it.unwrap_err().to_string();
+
     assert!(
         refusal.contains("Base → height → clearance → Measurement 1 → Base"),
         "{refusal}"
@@ -285,13 +310,16 @@ fn swept_sketch(model: &Model) -> FeatureId {
 #[test]
 fn a_sketch_dimension_cannot_read_a_measurement_of_the_feature_sweeping_it() {
     let mut model = model();
+
     let kept = height_of_corner(&model);
     let (_, gap) = keep(&mut model, "clearance", kept);
     let outline = swept_sketch(&model);
 
     let mut transaction = model.document.transaction("Dimension");
+
     let from = transaction.add_sketch_entity(outline, Entity::Point(Point2::new(20.0, 0.0)));
     let to = transaction.add_sketch_entity(outline, Entity::Point(Point2::new(30.0, 0.0)));
+
     let dimension = transaction.add_sketch_constraint(
         outline,
         Constraint::Distance {
@@ -300,6 +328,7 @@ fn a_sketch_dimension_cannot_read_a_measurement_of_the_feature_sweeping_it() {
             value: millimetres(10.0),
         },
     );
+
     model.document.apply(transaction.finish()).unwrap();
 
     let set = model.document.apply(Transaction::single(
@@ -341,22 +370,30 @@ fn a_sketch_dimension_cannot_read_a_measurement_of_the_feature_sweeping_it() {
 #[test]
 fn a_parameter_reading_a_measurement_feeds_features_below_it() {
     let mut model = model();
+
     let kept = height_of_corner(&model);
     let (measurement, _) = keep(&mut model, "clearance", kept);
     let mut transaction = model.document.transaction("Half");
+
     let half = transaction.add_parameter("half", transaction.parse("clearance / 2").unwrap());
+
     model.document.apply(transaction.finish()).unwrap();
+
     let reader = reader(&mut model, half);
 
     let first = evaluate(&model.document);
+
     set_height(&mut model, 7.0);
+
     let second = evaluate(&model.document);
     let values = ParameterValues::evaluate(&model.document);
     let base = model.document.feature(model.base).unwrap();
     let FeatureKind::Solid(SolidFeature::Extrude(mut extrude)) = base.kind.clone() else {
         panic!("the base is an extrusion");
     };
+
     extrude.extent = ExtrudeExtent::one_side(Expression::Parameter(half), false);
+
     let above = model.document.apply(Transaction::single(
         "Base",
         Edit::SetFeatureKind {
@@ -375,7 +412,9 @@ fn a_parameter_reading_a_measurement_feeds_features_below_it() {
         values.get(half),
         Some(Err(ParameterError::Unmeasured { .. }))
     ));
+
     let refusal = above.unwrap_err().to_string();
+
     assert!(
         refusal.contains("Base → half → clearance → Measurement 1 → Base"),
         "{refusal}"
@@ -387,19 +426,25 @@ fn a_parameter_reading_a_measurement_feeds_features_below_it() {
 #[test]
 fn a_parameter_derived_from_a_measurement_follows_its_other_inputs_through_the_cache() {
     let mut model = model();
+
     let kept = height_of_corner(&model);
     let _ = keep(&mut model, "clearance", kept);
     let mut transaction = model.document.transaction("Half");
+
     let divisor = transaction.add_parameter("k", transaction.parse("2").unwrap());
     let half = transaction.add_parameter("half", transaction.parse("clearance / k").unwrap());
+
     model.document.apply(transaction.finish()).unwrap();
+
     let reader = reader(&mut model, half);
     let mut recompute = Recompute::default();
+
     let mut run = |document: &Document| {
         recompute.run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
     };
 
     let halved = run(&model.document);
+
     model
         .document
         .apply(Transaction::single(
@@ -410,6 +455,7 @@ fn a_parameter_derived_from_a_measurement_follows_its_other_inputs_through_the_c
             },
         ))
         .unwrap();
+
     let quartered = run(&model.document);
 
     assert!((point(&halved, reader).x - 2.0).abs() < CLOSE);
@@ -421,9 +467,11 @@ fn a_parameter_derived_from_a_measurement_follows_its_other_inputs_through_the_c
 #[test]
 fn a_failed_measurement_fails_the_features_reading_it_alone() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document);
     let face = top_face(evaluation.body(model.base).unwrap());
     let body = model.base;
+
     let (measurement, gap) = keep(
         &mut model,
         "radius",
@@ -441,7 +489,9 @@ fn a_failed_measurement_fails_the_features_reading_it_alone() {
             .reason()
             .contains("has no radius")
     );
+
     let follows = failure(&evaluation, reader);
+
     assert_eq!(follows.fix, Some(FixTarget::Feature(measurement)));
     assert_eq!(
         evaluation.feature(model.base).unwrap().state,
@@ -456,6 +506,7 @@ fn a_failed_measurement_fails_the_features_reading_it_alone() {
 #[test]
 fn deleting_a_used_measurement_leaves_its_parameter_at_the_last_reading() {
     let mut model = model();
+
     let kept = height_of_corner(&model);
     let (measurement, gap) = keep(&mut model, "clearance", kept);
     let reader = reader(&mut model, gap);
@@ -464,6 +515,7 @@ fn deleting_a_used_measurement_leaves_its_parameter_at_the_last_reading() {
     let first = evaluate(editor.document());
     let followed = editor.follow_readings(&first);
     let again = editor.follow_readings(&first);
+
     editor
         .apply(Transaction::single(
             "Height",
@@ -473,11 +525,16 @@ fn deleting_a_used_measurement_leaves_its_parameter_at_the_last_reading() {
             },
         ))
         .unwrap();
+
     let second = evaluate(editor.document());
+
     editor.follow_readings(&second);
+
     let followed_value = editor.document().parameter(gap).unwrap().expression.clone();
     let deletion = editor.document().deletion(&[measurement], "Delete");
+
     editor.apply(deletion.clone()).unwrap();
+
     let after = evaluate(editor.document());
 
     assert!(followed);
@@ -499,9 +556,12 @@ fn deleting_a_used_measurement_leaves_its_parameter_at_the_last_reading() {
 #[test]
 fn following_readings_is_a_new_revision_a_change_prepared_before_cannot_commit_over() {
     let mut model = model();
+
     let kept = height_of_corner(&model);
     let (_, gap) = keep(&mut model, "clearance", kept);
+
     reader(&mut model, gap);
+
     let mut editor = Editor::new(model.document.clone());
 
     let base = editor.base();
@@ -544,23 +604,29 @@ fn a_followed_area_is_kept_in_square_millimetres() {
 #[test]
 fn a_measurement_reads_an_offset_along_an_axis_a_perimeter_and_a_sweep() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document);
     let solid = evaluation.body(model.base).unwrap();
     let face = top_face(solid);
     let body = model.base;
+
     let corner = MeasuredItem::Point(PointReference::Vertex {
         body,
         vertex: corner(solid, Point3::new(10.0, 8.0, 4.0)),
     });
     let mut arcs = Sketch::new(Plane::XY);
+
     let arc = arcs.add_arc(
         Point2::new(0.0, 0.0),
         Point2::new(5.0, 0.0),
         Point2::new(0.0, 5.0),
     );
     let mut transaction = model.document.transaction("Arc");
+
     let arcs = transaction.add_feature("Arcs", FeatureKind::from(arcs));
+
     model.document.apply(transaction.finish()).unwrap();
+
     let along = |axis| Reading::Along {
         first: MeasuredItem::Point(PointReference::Origin),
         second: corner.clone(),
@@ -604,7 +670,9 @@ fn a_measurement_reads_an_offset_along_an_axis_a_perimeter_and_a_sweep() {
     assert!((reading_value(&evaluation, along_x) - 10.0).abs() < CLOSE);
     assert!((reading_value(&evaluation, along_z) - 4.0).abs() < CLOSE);
     assert!((reading_value(&evaluation, perimeter) - 36.0).abs() < 1e-6);
+
     let swept = reading(&evaluation, sweep).value;
+
     assert_eq!(swept.dimension, Dimension::ANGLE);
     assert!((swept.value - 90.0).abs() < 1e-9);
     assert!(
@@ -619,6 +687,7 @@ fn set_density(model: &mut Model, density: f64) {
         density: Some(Expression::number(density)),
         ..BodyAppearance::default()
     };
+
     model
         .document
         .apply(Transaction::single(
@@ -634,6 +703,7 @@ fn set_density(model: &mut Model, density: f64) {
 #[test]
 fn a_measurement_reads_a_point_position_along_an_axis() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document);
     let solid = evaluation.body(model.base).unwrap();
     let top = MeasuredItem::Point(PointReference::Vertex {
@@ -641,6 +711,7 @@ fn a_measurement_reads_a_point_position_along_an_axis() {
         vertex: corner(solid, Point3::new(10.0, 8.0, 4.0)),
     });
     let along = |axis| MeasuredItem::Axis(AxisReference::Principal(axis));
+
     let (across, _) = keep(
         &mut model,
         "across",
@@ -659,7 +730,9 @@ fn a_measurement_reads_a_point_position_along_an_axis() {
     );
 
     let first = evaluate(&model.document);
+
     set_height(&mut model, 6.0);
+
     let second = evaluate(&model.document);
 
     assert!((reading_value(&first, across) - 8.0).abs() < CLOSE);
@@ -674,6 +747,7 @@ fn a_measurement_reads_a_point_position_along_an_axis() {
 #[test]
 fn a_measurement_reads_a_body_volume_area_and_centre_of_mass() {
     let mut model = model();
+
     let body = MeasuredItem::Body(model.base);
     let (volume, volume_parameter) = keep(
         &mut model,
@@ -702,6 +776,7 @@ fn a_measurement_reads_a_body_volume_area_and_centre_of_mass() {
 
     let evaluation = evaluate(&model.document);
     let followed = model.document.following_readings(&evaluation);
+
     model.document.apply(followed).unwrap();
 
     assert!((reading_value(&evaluation, volume) - 320.0).abs() < 1e-6);
@@ -728,6 +803,7 @@ fn a_measurement_reads_a_body_volume_area_and_centre_of_mass() {
 #[test]
 fn a_mass_reading_needs_a_density_and_follows_it_without_integrating_the_body_again() {
     let mut model = model();
+
     let body = MeasuredItem::Body(model.base);
 
     let (mass, _) = keep(
@@ -739,17 +815,23 @@ fn a_mass_reading_needs_a_density_and_follows_it_without_integrating_the_body_ag
         },
     );
     let mut recompute = Recompute::default();
+
     let mut run = |document: &Document| {
         recompute.run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
     };
 
     let without = run(&model.document);
+
     set_density(&mut model, 2.0);
+
     let dense = run(&model.document);
+
     set_density(&mut model, 3.0);
+
     let denser = run(&model.document);
 
     let error = failure(&without, mass);
+
     assert!(
         error.reason().contains("has no density"),
         "{}",
@@ -759,7 +841,9 @@ fn a_mass_reading_needs_a_density_and_follows_it_without_integrating_the_body_ag
     assert!((reading_value(&dense, mass) - 0.64).abs() < 1e-9);
     assert!((reading_value(&denser, mass) - 0.96).abs() < 1e-9);
     assert_eq!(reading(&denser, mass).value.dimension, MASS);
+
     let body = denser.body_result(model.base).unwrap();
+
     assert!(Arc::ptr_eq(body, without.body_result(model.base).unwrap()));
     assert!(body.solid().unwrap().is_mass_known());
 }
@@ -768,6 +852,7 @@ fn a_mass_reading_needs_a_density_and_follows_it_without_integrating_the_body_ag
 fn working_out_a_body_mass_stops_at_the_kernel_interrupt_and_is_not_kept() {
     let model = model();
     let evaluation = evaluate(&model.document);
+
     let body = evaluation.body_result(model.base).unwrap().solid().unwrap();
 
     let stopped = interruptible(Arc::new(|| true), || body.exact_mass());
@@ -781,6 +866,7 @@ fn working_out_a_body_mass_stops_at_the_kernel_interrupt_and_is_not_kept() {
 #[test]
 fn reading_a_body_quantity_of_anything_else_fails_in_words() {
     let mut model = model();
+
     let (volume, _) = keep(
         &mut model,
         "volume",

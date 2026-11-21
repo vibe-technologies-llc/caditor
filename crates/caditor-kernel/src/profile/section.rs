@@ -16,7 +16,7 @@ const QUADRATURE_TOLERANCE: f64 = 1e-11;
 const MAX_QUADRATURE_DEPTH: usize = 24;
 const ISOTROPIC_SHARE: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Integrals {
     perimeter: f64,
     area: f64,
@@ -114,6 +114,7 @@ impl Integrals {
         let (sin_to, cos_to) = to.sin_cos_libm();
         let double_sines = (2.0 * to).sin_libm() - (2.0 * from).sin_libm();
         let area = radius.powi(2) / 2.0 * sweep;
+
         let u = radius.powi(3) / 3.0 * (sin_to - sin_from);
         let v = -radius.powi(3) / 3.0 * (cos_to - cos_from);
         let uu = radius.powi(4) / 8.0 * (sweep + double_sines / 2.0);
@@ -131,14 +132,14 @@ impl Integrals {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AreaMoments {
     pub about_x: f64,
     pub about_y: f64,
     pub product: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PrincipalMoments {
     pub major: f64,
     pub minor: f64,
@@ -150,6 +151,7 @@ impl AreaMoments {
         let mean = (self.about_x + self.about_y) / 2.0;
         let half_difference = (self.about_x - self.about_y) / 2.0;
         let spread = half_difference.hypot_libm(self.product);
+
         let isotropic = spread <= ISOTROPIC_SHARE * mean.abs();
         PrincipalMoments {
             major: mean + spread,
@@ -163,7 +165,7 @@ impl AreaMoments {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Section {
     pub area: f64,
     pub perimeter: f64,
@@ -187,9 +189,11 @@ pub fn section_of<'a>(regions: impl IntoIterator<Item = &'a Region>) -> Option<S
         .collect();
     let mut total = Integrals::default();
     let mut accuracy = Accuracy::Exact;
+
     for piece in pieces {
         let (integrals, exact) = piece_integrals(piece, reference, size);
         let inside = sides.contains(&(piece.id(), opposite(piece.side())));
+
         total = total.plus(if inside {
             integrals.enclosed()
         } else {
@@ -199,10 +203,13 @@ pub fn section_of<'a>(regions: impl IntoIterator<Item = &'a Region>) -> Option<S
             accuracy = Accuracy::Approximate;
         }
     }
+
     let area = total.area;
+
     if !(area.is_finite() && area > 0.0) {
         return None;
     }
+
     let (x, y) = (total.x / area, total.y / area);
     Some(Section {
         area,
@@ -260,15 +267,19 @@ fn arc_integrals(circle: &Circle2, start: f64, end: f64, reference: Point2) -> I
     } else {
         -1.0
     };
+
     let angle = |parameter: f64| base + sense * parameter;
     let radius = circle.radius();
     let center = circle.center() - reference;
+
     let polar = |angle: f64| {
         let (sin, cos) = angle.sin_cos_libm();
         center + Vector2::new(cos, sin) * radius
     };
     let (from, to) = (angle(start), angle(end));
+
     let (first, last) = (polar(from), polar(to));
+
     let sides = Integrals::segment(first, center)
         .plus(Integrals::segment(center, last))
         .enclosed();
@@ -302,12 +313,15 @@ fn adaptive(curve: &Curve2, range: Interval, reference: Point2, size: f64) -> In
         })
         .collect();
     let mut total = Integrals::default();
+
     while let Some((low, high, whole, depth)) = pending.pop() {
         let middle = (low + high) / 2.0;
         let left = gauss(curve, low, middle, reference);
         let right = gauss(curve, middle, high, reference);
+
         let halves = left.plus(right);
         let allowed = QUADRATURE_TOLERANCE * (high - low) / length;
+
         let settled = halves.misfit(whole, size) <= allowed;
         if settled || depth >= MAX_QUADRATURE_DEPTH || middle <= low || middle >= high {
             total = total.plus(halves);
@@ -335,6 +349,7 @@ mod tests {
 
     fn only(curves: &[ProfileCurve]) -> Section {
         let regions = regions(curves);
+
         assert_eq!(regions.len(), 1);
         section_of(&regions).unwrap()
     }
@@ -362,6 +377,7 @@ mod tests {
         assert_close(section.moments.about_y, 6.0 * 4.0_f64.powi(3) / 12.0);
         assert_close(section.moments.product, 0.0);
         assert_close(section.moments.principal().angle.unwrap(), 0.0);
+
         assert_eq!(section.accuracy, Accuracy::Exact);
     }
 
@@ -377,6 +393,7 @@ mod tests {
         assert_close(section.moments.about_y, PI * 2.5_f64.powi(4) / 4.0);
         assert_close(section.moments.polar(), PI * 2.5_f64.powi(4) / 2.0);
         assert_close(principal.major, principal.minor);
+
         assert_eq!(principal.angle, None);
         assert_eq!(section.accuracy, Accuracy::Exact);
     }
@@ -384,7 +401,9 @@ mod tests {
     #[test]
     fn a_rectangle_with_a_hole_loses_the_hole() {
         let mut curves = rectangle(1, (0.0, 0.0), (20.0, 10.0));
+
         curves.push(circle(5, (5.0, 5.0), 2.0));
+
         let regions = regions(&curves);
         let plate = regions.iter().find(|region| region.depth() == 0).unwrap();
 
@@ -392,7 +411,9 @@ mod tests {
 
         let hole = PI * 4.0;
         let area = 200.0 - hole;
+
         let x = (200.0 * 10.0 - hole * 5.0) / area;
+
         assert_close(section.area, area);
         assert_close(section.perimeter, 60.0 + 4.0 * PI);
         assert_point(section.centroid, (x, 5.0));
@@ -434,6 +455,7 @@ mod tests {
     #[test]
     fn a_slot_of_two_arcs_is_exact() {
         let (half, radius) = (5.0, 2.0);
+
         let section = only(&[
             arc(1, (half, 0.0), (half, -radius), (half, radius)),
             line(2, (half, radius), (-half, radius)),
@@ -444,7 +466,9 @@ mod tests {
         let length = 2.0 * half;
         let disc = PI * radius * radius;
         let offset = half + 4.0 * radius / (3.0 * PI);
+
         let half_disc_own = PI * radius.powi(4) / 8.0 - disc / 2.0 * (offset - half).powi(2);
+
         assert_close(section.area, 2.0 * radius * length + disc);
         assert_close(section.perimeter, 2.0 * length + 2.0 * PI * radius);
         assert_point(section.centroid, (0.0, 0.0));
@@ -458,18 +482,22 @@ mod tests {
                 + 2.0 * (half_disc_own + disc / 2.0 * offset * offset),
         );
         assert_close(section.moments.product, 0.0);
+
         assert_eq!(section.accuracy, Accuracy::Exact);
     }
 
     #[test]
     fn regions_side_by_side_add_up_and_their_shared_side_is_no_perimeter() {
         let mut curves = rectangle(1, (0.0, 0.0), (10.0, 4.0));
+
         curves.push(line(5, (6.0, -1.0), (6.0, 5.0)));
+
         let halves = regions(&curves);
 
         let both = section_of(&halves).unwrap();
 
         assert_eq!(halves.len(), 2);
+
         assert_close(both.area, 40.0);
         assert_close(both.perimeter, 28.0);
         assert_point(both.centroid, (5.0, 2.0));
@@ -488,6 +516,7 @@ mod tests {
         assert_close(section.area, 4.0 / 3.0);
         assert_close(section.perimeter, 2.0 + arch);
         assert_point(section.centroid, (1.0, 0.4));
+
         assert_eq!(section.accuracy, Accuracy::Approximate);
     }
 }

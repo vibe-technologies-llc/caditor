@@ -58,13 +58,13 @@ const LENGTH_LOCK_ABOVE_ZERO: &str = "A held length must be above zero";
 const HEADING_NEEDS_A_POINT: &str = "An angle alone sets the direction from the last placed point: place a point first, or type \
      length < angle";
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct From {
     pub last: Option<Point2>,
     pub toward: Option<Point2>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TypedPoint {
     text: Option<String>,
     error: Option<String>,
@@ -87,19 +87,19 @@ impl Typed {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Heading {
     pub degrees: f64,
     pub dimension: Option<TypedDimension>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LengthLock {
     pub length: f64,
     pub dimension: Option<TypedDimension>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Measured {
     Across,
     Up,
@@ -107,14 +107,14 @@ pub enum Measured {
     Angle,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TypedDimension {
     pub measured: Measured,
     pub from: Option<Point2>,
     pub value: Expression,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Placed {
     pub position: Point2,
     pub dimensions: Vec<TypedDimension>,
@@ -179,7 +179,9 @@ fn counted(text: &str, words: &[&str]) -> Option<usize> {
 pub fn rho(model: &Model, text: &str) -> Option<Result<(f64, Expression), TypedValueError>> {
     let trimmed = text.trim();
     let split = trimmed.len().checked_sub(RHO_WORD.len())?;
+
     let (value, word) = (trimmed.get(..split)?, trimmed.get(split..)?);
+
     if !word.eq_ignore_ascii_case(RHO_WORD) {
         return None;
     }
@@ -217,6 +219,7 @@ fn split_top_level(text: &str, separates: impl Fn(char, Option<char>) -> bool) -
     let mut depth = 0_usize;
     let mut start = 0;
     let mut characters = text.char_indices().peekable();
+
     while let Some((index, character)) = characters.next() {
         let next = characters.peek().map(|(_, next)| *next);
         match character {
@@ -294,15 +297,19 @@ impl TypedPoint {
         if self.is_typing() {
             return;
         }
+
         let typed = ctx.input_mut(|input| {
             let first = input.events.iter().find_map(|event| match event {
                 Event::Text(text) => Some(text.clone()),
                 _ => None,
             })?;
+
             if !starts_a_point(&first) {
                 return None;
             }
+
             let mut text = String::new();
+
             input.events.retain(|event| match event {
                 Event::Text(typed) => {
                     text.push_str(typed);
@@ -314,6 +321,7 @@ impl TypedPoint {
         });
         if let Some(typed) = typed {
             let kept = self.text.take().unwrap_or_default();
+
             self.text = Some(resumed(&kept, &typed));
             self.error = None;
             self.focus_pending = true;
@@ -332,12 +340,15 @@ impl TypedPoint {
     ) -> Option<Typed> {
         let text = self.text.as_mut()?;
         let id = Id::unique("typed-point");
+
         if self.focus_pending {
             let mut state = TextEditState::load(ctx, id).unwrap_or_default();
             let end = CCursor::new(text.chars().count());
+
             state.cursor.set_char_range(Some(CCursorRange::one(end)));
             state.store(ctx, id);
         }
+
         let error = self.error.clone();
         let waiting = self.waiting && !self.focus_pending;
         let (label_color, hint) = match waiting {
@@ -345,6 +356,7 @@ impl TypedPoint {
             false => (canvas::chrome(ctx).text, hint),
         };
         let inner_width = (bounds.width() - FRAME_MARGIN.sum().x).max(FIELD_WIDTH);
+
         let response = Area::new(id.with("area"))
             .order(Order::Foreground)
             .pivot(Align2::CENTER_TOP)
@@ -353,6 +365,7 @@ impl TypedPoint {
             .show(ctx, |ui| {
                 canvas_frame(ctx).show(ui, |ui| {
                     ui.set_max_width(inner_width);
+
                     let field = ui
                         .horizontal(|ui| {
                             canvas_text(ui, label, label_color);
@@ -368,7 +381,9 @@ impl TypedPoint {
                             })
                         })
                         .inner;
+
                     ui.add_space(HINT_GAP);
+
                     let hints = canvas::Hints::bare(
                         ui.painter(),
                         &canvas::HintList::parsed(hint),
@@ -376,10 +391,12 @@ impl TypedPoint {
                         Align::Min,
                     );
                     let (rect, _) = ui.allocate_exact_size(hints.size(), Sense::hover());
+
                     hints.paint(ui.painter(), rect.min);
                     field
                 })
             });
+
         if let Some(error) = &error {
             Area::new(id.with("error"))
                 .order(Order::Foreground)
@@ -391,13 +408,16 @@ impl TypedPoint {
                         ui.set_max_width(inner_width);
                         ui.horizontal(|ui| {
                             let failed = canvas::chrome(ui.ctx()).error;
+
                             widgets::icon_label(ui, icons::FAILED, failed);
                             canvas_text(ui, error, failed);
                         });
                     });
                 });
         }
+
         let field = response.inner.inner;
+
         if self.focus_pending {
             field.request_focus();
             self.focus_pending = false;
@@ -411,18 +431,21 @@ impl TypedPoint {
         if !field.lost_focus() {
             return None;
         }
+
         let (entered, escaped) = ctx.input(|input| {
             (
                 input.key_pressed(Key::Enter),
                 input.key_pressed(Key::Escape),
             )
         });
+
         if escaped {
             self.close();
             return None;
         }
         if entered {
             let typed = Typed::of(text);
+
             self.close();
             return Some(typed);
         }
@@ -469,7 +492,7 @@ const DIRECTION: Part = Part {
     expected: ANGLE,
 };
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TypedValueError {
     #[error("The {noun} is missing")]
     Missing { noun: &'static str },
@@ -485,7 +508,7 @@ pub enum TypedValueError {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TypedPointError {
     #[error(transparent)]
     Value(#[from] TypedValueError),
@@ -519,9 +542,11 @@ fn typed_value(
         expected,
     } = part;
     let text = text.trim();
+
     if text.is_empty() {
         return Err(TypedValueError::Missing { noun });
     }
+
     let expression = field::parse_expression(
         model.document(),
         model.parameters(),
@@ -531,6 +556,7 @@ fn typed_value(
     )
     .map_err(|source| TypedValueError::Expression { label, source })?;
     let dimension = expected.dimension.unwrap_or(Dimension::NONE);
+
     let value = expression
         .evaluate_as(dimension, &|id| model.parameters().value(id))
         .map_err(|source| TypedValueError::Unevaluable { label, source })?;
@@ -557,6 +583,7 @@ fn offset(
         ([_], [length, angle]) => {
             let length = typed_value(model, length, DISTANCE, Measured::Length)?;
             let angle = typed_value(model, angle, DIRECTION, Measured::Angle)?;
+
             let offset = Vector2::from_angle(angle.value.to_radians()) * length.value;
             let typed = if length.value < 0.0 {
                 vec![length]
@@ -633,6 +660,7 @@ pub fn heading(model: &Model, text: &str, from: From) -> Option<Result<Heading, 
     let [length, angle] = polar(text)[..] else {
         return None;
     };
+
     if !length.trim().is_empty() || coordinates(text).len() != 1 {
         return None;
     }
@@ -658,6 +686,7 @@ pub fn length_lock(
     let [length, angle] = polar(text)[..] else {
         return None;
     };
+
     if length.trim().is_empty() || !angle.trim().is_empty() || coordinates(text).len() != 1 {
         return None;
     }
@@ -666,6 +695,7 @@ pub fn length_lock(
             .map_err(TypedPointError::from)
             .and_then(|length| {
                 let last = from.last.ok_or(TypedPointError::LengthLockNeedsPoint)?;
+
                 if length.value <= 0.0 {
                     return Err(TypedPointError::LengthLockNotPositive);
                 }
@@ -687,8 +717,10 @@ pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, Typ
     };
     let alone = coordinates(text).len() == 1 && polar(text).len() == 1;
     let (offset, typed) = offset(model, text, from)?;
+
     let measured_from = if relative || alone { from.last } else { None };
     let point = measured_from.unwrap_or(Point2::ZERO) + offset;
+
     if point.abs().max_element() > MAX_LENGTH {
         return Err(TypedPointError::PointTooFar { limit: MAX_LENGTH });
     }
@@ -737,6 +769,7 @@ mod tests {
         for text in ["=width, 20", "=t", "<30", "@<30"] {
             assert!(starts_a_point(text), "{text}");
         }
+
         assert_eq!(value_text("=width, 20"), "width, 20");
         assert_eq!(value_text(" = t "), "t");
         assert_eq!(value_text("10, 20"), "10, 20");

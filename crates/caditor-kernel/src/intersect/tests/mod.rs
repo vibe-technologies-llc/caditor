@@ -49,6 +49,7 @@ pub(super) fn distance(surface: &Surface, point: Point3) -> f64 {
 
 pub(super) fn samples(curve: &Curve, range: Interval, count: usize) -> Vec<f64> {
     let mut parameters: Vec<f64> = range.split(count).collect();
+
     if let Curve::Intersection(intersection) = curve {
         parameters.extend(
             intersection
@@ -63,9 +64,11 @@ pub(super) fn samples(curve: &Curve, range: Interval, count: usize) -> Vec<f64> 
 
 pub(super) fn check_branch(branch: &IntersectionBranch, first: &Surface, second: &Surface) {
     assert!(branch.range.length() > 0.0);
+
     for parameter in samples(&branch.curve, branch.range, 97) {
         let point = branch.curve.point(parameter);
         let (a, b) = (distance(first, point), distance(second, point));
+
         assert!(
             a <= LINEAR_RESOLUTION && b <= LINEAR_RESOLUTION,
             "point {point:?} at {parameter} lies {a} and {b} off the surfaces of {:?}",
@@ -80,6 +83,7 @@ pub(super) fn check_branch(branch: &IntersectionBranch, first: &Surface, second:
                 .all(|pair| pair[1].parameter > pair[0].parameter)
         );
     }
+
     let (start, end) = (
         branch.curve.point(branch.range.start()),
         branch.curve.point(branch.range.end()),
@@ -91,6 +95,7 @@ pub(super) fn check_branch(branch: &IntersectionBranch, first: &Surface, second:
         (second, branch.end_uv[1], end),
     ] {
         let point = surface.point_at(uv);
+
         assert!(
             point.distance(expected) <= 1e-5,
             "branch end uv {uv:?} maps to {point:?}, not {expected:?}"
@@ -100,6 +105,7 @@ pub(super) fn check_branch(branch: &IntersectionBranch, first: &Surface, second:
 
 pub(super) fn check_all(result: &SurfaceIntersection, first: &Surface, second: &Surface) {
     let branches = result.branches();
+
     for branch in branches {
         check_branch(branch, first, second);
     }
@@ -118,6 +124,7 @@ pub(super) fn check_all(result: &SurfaceIntersection, first: &Surface, second: &
                     other.curve.point(closest).distance(point) <= 1e-5
                 })
                 .count();
+
             assert!(
                 shared <= 3,
                 "branches trace the same curve ({shared} shared samples)"

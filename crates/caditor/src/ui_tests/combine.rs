@@ -15,6 +15,7 @@ use crate::{combine_panel, combine_tools, editing::Combining, model::Action};
 #[test]
 fn two_bodies_are_combined_from_the_selection_and_the_panel_changes_how() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
     let peg_top = pickable_described(&mut harness, "Peg › Peg end face");
@@ -25,12 +26,15 @@ fn two_bodies_are_combined_from_the_selection_and_the_panel_changes_how() {
     harness.select([top, peg_top]);
     harness.click("Combine");
     harness.settle();
+
     let combine = harness
         .workspace
         .editing
         .solid()
         .expect("the combine is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Combine 1"));
+
     let definition = harness
         .document()
         .feature(combine)
@@ -39,6 +43,7 @@ fn two_bodies_are_combined_from_the_selection_and_the_panel_changes_how() {
         .combine()
         .unwrap()
         .clone();
+
     assert_eq!((definition.body, definition.tool), (plate, peg));
     assert!(harness.shows("Operation"));
     assert!(harness.shows("Target body"));
@@ -48,17 +53,20 @@ fn two_bodies_are_combined_from_the_selection_and_the_panel_changes_how() {
 
     harness.click_button("Cut");
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Edit Combine 1"));
     assert!((harness.body_volume(plate) - (plate_volume - overlap)).abs() < 100.0);
 
     harness.click_button("Intersect");
     harness.settle();
+
     assert!((harness.body_volume(plate) - overlap).abs() < 100.0);
 
     harness.perform(Action::Undo);
     harness.perform(Action::Undo);
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(harness.model.evaluation().body_result(peg).is_some());
     assert!((harness.body_volume(plate) - plate_volume).abs() < 100.0);
 }
@@ -78,6 +86,7 @@ fn combined_pair(harness: &Harness, combine: FeatureId) -> (FeatureId, FeatureId
 #[test]
 fn combine_without_two_bodies_selected_asks_for_them_in_the_view() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
     let peg_top = pickable_described(&mut harness, "Peg › Peg end face");
@@ -85,6 +94,7 @@ fn combine_without_two_bodies_selected_asks_for_them_in_the_view() {
     harness.select([]);
     harness.click("Combine");
     harness.frame();
+
     assert_eq!(
         harness.workspace.editing.combining(),
         Some(Combining { target: None })
@@ -95,6 +105,7 @@ fn combine_without_two_bodies_selected_asks_for_them_in_the_view() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert_eq!(harness.workspace.editing.combining(), None);
     assert!(!harness.shows(combine_tools::CHOOSE_TARGET_PROMPT));
 
@@ -102,7 +113,9 @@ fn combine_without_two_bodies_selected_asks_for_them_in_the_view() {
     harness.frame();
     harness.click_pickable(Plane::XY, Point2::new(10.0, 10.0), top);
     harness.frame();
+
     let tool_prompt = combine_tools::tool_prompt(&harness.model, plate);
+
     assert_eq!(
         harness.workspace.editing.combining(),
         Some(Combining {
@@ -110,6 +123,7 @@ fn combine_without_two_bodies_selected_asks_for_them_in_the_view() {
         })
     );
     assert!(harness.shows(&tool_prompt));
+
     let top_of = |harness: &Harness, text: &str| {
         harness
             .texts
@@ -121,15 +135,18 @@ fn combine_without_two_bodies_selected_asks_for_them_in_the_view() {
     let features = top_of(&harness, "Features");
     let last_row = top_of(&harness, "Extrude 1");
     let card = top_of(&harness, "Target body");
+
     assert!(card > features && card > last_row);
 
     harness.click_pickable(Plane::XY, Point2::new(35.0, 20.0), peg_top);
     harness.settle();
+
     let combine = harness
         .workspace
         .editing
         .solid()
         .expect("the combine is open");
+
     assert_eq!(harness.workspace.editing.combining(), None);
     assert_eq!(harness.model.undo_label(), Some("Create Combine 1"));
     assert_eq!(combined_pair(&harness, combine), (plate, peg));
@@ -139,12 +156,14 @@ fn combine_without_two_bodies_selected_asks_for_them_in_the_view() {
 #[test]
 fn one_selected_body_is_the_target_and_the_card_chooses_the_tool() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
 
     harness.select([top]);
     harness.click("Combine");
     harness.frame();
+
     assert_eq!(
         harness.workspace.editing.combining(),
         Some(Combining {
@@ -153,6 +172,7 @@ fn one_selected_body_is_the_target_and_the_card_chooses_the_tool() {
     );
 
     open_combo(&mut harness, "Tool body");
+
     let caption = harness
         .texts
         .iter()
@@ -167,35 +187,44 @@ fn one_selected_body_is_the_target_and_the_card_chooses_the_tool() {
         .filter(|centre| centre.y > caption)
         .min_by(|a, b| a.y.total_cmp(&b.y))
         .expect("the list names the peg");
+
     harness.click_screen(listed);
     harness.show_new_windows();
     harness.settle();
+
     let combine = harness
         .workspace
         .editing
         .solid()
         .expect("the combine is open");
+
     assert_eq!(combined_pair(&harness, combine), (plate, peg));
 }
 
 #[test]
 fn combine_is_refused_while_fewer_than_two_bodies_are_shown() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
 
     harness.select([top]);
     harness.hover("Combine");
+
     assert!(harness.shows_containing(&combine_tools::CombineError::NoOtherBody.to_string()));
 
     harness.select([]);
     harness.hover("Combine");
+
     assert!(harness.shows_containing(&combine_tools::CombineError::NeedTwo.to_string()));
 }
 
 fn add_post(harness: &mut Harness) -> FeatureId {
     let mut outline = Sketch::new(Plane::XY);
+
     rectangle(&mut outline, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+
     let mut transaction = harness.document().transaction("Add a post");
+
     let sketch = transaction.add_feature("Post sketch", FeatureKind::from(outline));
     let post = transaction.add_feature(
         "Post",
@@ -211,6 +240,7 @@ fn add_post(harness: &mut Harness) -> FeatureId {
             direction: None,
         })),
     );
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
     post
@@ -219,6 +249,7 @@ fn add_post(harness: &mut Harness) -> FeatureId {
 #[test]
 fn a_combine_takes_several_tool_bodies_and_can_keep_them() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
     let post = add_post(&mut harness);
@@ -230,17 +261,21 @@ fn a_combine_takes_several_tool_bodies_and_can_keep_them() {
     harness.select([top, peg_top]);
     harness.click("Combine");
     harness.settle();
+
     let combine = harness
         .workspace
         .editing
         .solid()
         .expect("the combine is open");
+
     harness.click_button("Cut");
     harness.settle();
+
     assert!(harness.shows(crate::combine_panel::KEEP_TOOL));
     assert!(harness.shows(crate::combine_panel::ADD_TOOL_BODY));
 
     choose(&mut harness, crate::combine_panel::ADD_TOOL_BODY, "Post");
+
     let definition = harness
         .document()
         .feature(combine)
@@ -249,6 +284,7 @@ fn a_combine_takes_several_tool_bodies_and_can_keep_them() {
         .combine()
         .unwrap()
         .clone();
+
     assert_eq!(definition.more_tools, vec![post]);
     assert!(!definition.keep_tool);
     assert!(harness.shows(crate::combine_panel::ALSO_COMBINES));
@@ -263,6 +299,7 @@ fn a_combine_takes_several_tool_bodies_and_can_keep_them() {
 
     harness.click_lowest(crate::combine_panel::KEEP_TOOL);
     harness.settle();
+
     let definition = harness
         .document()
         .feature(combine)
@@ -271,6 +308,7 @@ fn a_combine_takes_several_tool_bodies_and_can_keep_them() {
         .combine()
         .unwrap()
         .clone();
+
     assert!(definition.keep_tool);
     assert!(harness.model.evaluation().body_result(peg).is_some());
     assert!(harness.model.evaluation().body_result(post).is_some());
@@ -278,6 +316,7 @@ fn a_combine_takes_several_tool_bodies_and_can_keep_them() {
 
     harness.click_button("Stop using Post");
     harness.settle();
+
     let definition = harness
         .document()
         .feature(combine)
@@ -286,6 +325,7 @@ fn a_combine_takes_several_tool_bodies_and_can_keep_them() {
         .combine()
         .unwrap()
         .clone();
+
     assert!(definition.more_tools.is_empty());
     assert!((harness.body_volume(plate) - (plate_volume - peg_cut)).abs() < 100.0);
 }
@@ -306,6 +346,7 @@ fn a_combine_failing_where_faces_nearly_touch_is_marked_and_shown_in_the_view() 
     };
     let place = error.place.expect("the failure has a place");
     let before = harness.workspace.viewport.viewpoint().target;
+
     assert!(harness.shows(&error.reason()), "{}", error.reason());
     assert!(harness.shows("Combine 1 failed here"));
     assert!(before.distance(place) > 1.0);
@@ -316,6 +357,7 @@ fn a_combine_failing_where_faces_nearly_touch_is_marked_and_shown_in_the_view() 
     harness.frame();
 
     let after = harness.workspace.viewport.viewpoint();
+
     assert!(after.target.distance(place) < 1e-6, "{after:?} {place:?}");
     assert!(harness.shows("Combine 1 failed here"));
 }
@@ -323,7 +365,9 @@ fn a_combine_failing_where_faces_nearly_touch_is_marked_and_shown_in_the_view() 
 #[test]
 fn a_combine_of_a_third_body_or_none_is_refused_with_what_to_select() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
 
     harness.click("Combine");

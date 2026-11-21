@@ -25,7 +25,7 @@ use crate::{
     value_handles::{self, ValueDrag, ValueHandles},
 };
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum TypingError {
     #[error("Type two values split by a comma, such as 10, 20")]
     TwoValues,
@@ -52,7 +52,7 @@ pub fn dragged(ctx: &egui::Context) -> Option<FeatureId> {
         .flatten()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Held {
     Typed,
     Named(ParameterId),
@@ -73,6 +73,7 @@ impl Held {
         let named = document.owned_parameter(&owner, expression);
         let shown = named.map_or(expression, |parameter| &parameter.expression);
         let used = shown.parameters();
+
         if !used.is_empty() {
             let names: Vec<String> = used
                 .into_iter()
@@ -84,6 +85,7 @@ impl Held {
                 })
                 .collect();
             let names = feature_tree::in_words(&names);
+
             return Self::Driven(format!(
                 "{caption} follows {names}; change {names} in Parameters"
             ));
@@ -124,7 +126,7 @@ pub fn keeping_names(
     ))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Manipulator {
     Move(MoveHandles),
     Reach(ReachHandles, Option<ValueHandles>),
@@ -135,7 +137,7 @@ pub enum Manipulator {
     Image(ImageHandles),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Primary<'a> {
     Move(&'a MoveHandles),
     Reach(&'a ReachHandles),
@@ -153,16 +155,19 @@ impl Manipulator {
         pixels_per_point: f64,
     ) -> Option<Self> {
         let feature = open?;
+
         if let Some(handles) = MoveHandles::of(model, open, view, pixels_per_point) {
             return Some(Self::Move(handles));
         }
         if let Some(handles) = ImageHandles::of(model, feature, view, pixels_per_point) {
             return Some(Self::Image(handles));
         }
+
         let values = ValueHandles::of(model, feature, view, pixels_per_point);
         let clear_of = |taken: &[HandleSegment]| {
             values.and_then(|values| values.clear_of(view, pixels_per_point, taken))
         };
+
         if let Some(handles) = ReachHandles::of(model, feature, view, pixels_per_point) {
             return Some(Self::Reach(handles, clear_of(&handles.segments())));
         }
@@ -174,6 +179,7 @@ impl Manipulator {
         }
         if let Some(handles) = HoleHandles::of(model, feature, view, pixels_per_point) {
             let values = clear_of(&handles.segments());
+
             return Some(Self::Holes(handles, values));
         }
         clear_of(&[]).map(Self::Value)
@@ -234,6 +240,7 @@ impl Manipulator {
     #[cfg(test)]
     pub fn grip(&self, handle: Handle, along: f64) -> Option<caditor_geometry::Point3> {
         let (primary, values) = self.parts();
+
         if let Handle::Value(_) = handle {
             return values?.grip(handle, along);
         }
@@ -250,6 +257,7 @@ impl Manipulator {
     #[cfg(test)]
     pub fn foot(&self, handle: Handle) -> Option<caditor_geometry::Point3> {
         let (primary, values) = self.parts();
+
         if let Handle::Value(_) = handle {
             return values?.foot(handle);
         }
@@ -262,6 +270,7 @@ impl Manipulator {
 
     pub fn driven(&self, model: &Model, handle: Handle) -> Option<String> {
         let (primary, values) = self.parts();
+
         if let Handle::Value(_) = handle {
             return values?.driven(model, handle);
         }
@@ -291,8 +300,10 @@ impl Manipulator {
         if self.driven(model, handle).is_some() {
             return None;
         }
+
         let (primary, values) = self.parts();
         let feature = self.feature();
+
         let (label, dimension, rules) = match (handle, primary) {
             (Handle::Value(measured), _) => {
                 values?;
@@ -380,7 +391,7 @@ pub fn primary_typing(model: &Model, feature: FeatureId) -> Option<Typing> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Typing {
     pub feature: FeatureId,
     pub handle: Handle,
@@ -405,9 +416,11 @@ impl Typing {
         } else {
             typed_point::coordinates(text)
         };
+
         if parts.len() != self.rules.len() {
             return Err(TypingError::TwoValues);
         }
+
         let parameters = model.parameters();
         parts
             .into_iter()
@@ -426,6 +439,7 @@ impl Typing {
                 let value = parameters
                     .evaluate_expression(&parsed)
                     .map_err(TypingError::Unevaluable)?;
+
                 rule.check(value.value)?;
                 Ok(parsed)
             })
@@ -439,6 +453,7 @@ impl Typing {
     ) -> Result<Transaction, TypingError> {
         let feature = self.feature;
         let first = values.first().cloned();
+
         let built = match self.handle {
             Handle::Value(measured) => {
                 first.and_then(|value| value_handles::written(model, feature, measured, value))
@@ -463,7 +478,7 @@ impl Typing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Drawn {
     manipulator: Manipulator,
     highlighted: Option<Handle>,
@@ -473,6 +488,7 @@ impl Drawn {
     pub fn add_to(&self, batch: &mut Batch, palette: &ScenePalette) {
         let highlighted = self.highlighted;
         let (primary, values) = self.manipulator.parts();
+
         match primary {
             Some(Primary::Move(handles)) => handles.add_to(batch, palette, highlighted),
             Some(Primary::Reach(handles)) => handles.add_to(batch, palette, highlighted),
@@ -488,7 +504,7 @@ impl Drawn {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Drag {
     Move(MoveDrag),
     Reach(ReachDrag),
@@ -499,7 +515,7 @@ enum Drag {
     Image(ImageDrag),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Manipulating {
     pub feature: FeatureId,
     pub handle: Handle,
@@ -516,7 +532,9 @@ impl Manipulating {
         if manipulator.driven(model, handle).is_some() {
             return None;
         }
+
         let (primary, values) = manipulator.parts();
+
         let drag = match (primary, handle) {
             (_, Handle::Value(measured)) => {
                 Drag::Value(Box::new(ValueDrag::begin(model, values?, measured, ray)?))

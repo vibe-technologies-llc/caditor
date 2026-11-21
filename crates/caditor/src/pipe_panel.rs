@@ -55,6 +55,7 @@ impl Panel<'_> {
 
     fn apply(&mut self, pipe: Pipe) {
         let change = self.change(pipe);
+
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
@@ -79,6 +80,7 @@ impl Panel<'_> {
             ),
             hover: FOLLOW_SELECTED,
         };
+
         let removed = feature_fields::reference_row(
             ui,
             self.model,
@@ -105,6 +107,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, SECTION, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -126,6 +129,7 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, self.model, caption, quantity, |value| {
                 pipe_tools::change(self.model, self.id(), changed(value))
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
@@ -133,6 +137,7 @@ impl Panel<'_> {
         let caption = capitalized(pipe_size_name(self.pipe.shape));
         let pipe = self.pipe.clone();
         let field = ("size", &self.pipe.size, Rule::AboveZero);
+
         self.value_row(ui, &caption, field, move |size| Pipe {
             size,
             ..pipe.clone()
@@ -142,6 +147,7 @@ impl Panel<'_> {
     fn wall_rows(&mut self, ui: &mut Ui) {
         let hollow = self.pipe.wall.is_some();
         let unit = self.model.length_unit();
+
         let with = |wanted: bool| {
             (wanted != hollow).then(|| self.change(pipe_tools::hollowed(self.pipe, wanted, unit)))
         };
@@ -158,12 +164,15 @@ impl Panel<'_> {
             },
         ];
         let chosen = feature_fields::segmented_row(ui, WALL, &self.feature.name, segments);
+
         self.actions.extend(chosen);
+
         let Some(wall) = &self.pipe.wall else {
             return;
         };
         let pipe = self.pipe.clone();
         let field = ("wall", wall, Rule::AboveZero);
+
         self.value_row(ui, WALL_THICKNESS, field, move |wall| Pipe {
             wall: Some(wall),
             ..pipe.clone()
@@ -173,6 +182,7 @@ impl Panel<'_> {
     fn bend_row(&mut self, ui: &mut Ui) {
         let pipe = self.pipe.clone();
         let field = ("bend", &self.pipe.bend, Rule::ZeroOrMore);
+
         self.value_row(ui, BEND_RADIUS, field, move |bend| Pipe {
             bend,
             ..pipe.clone()
@@ -188,6 +198,7 @@ impl Panel<'_> {
         let chosen = feature_fields::body_operation_rows(ui, self.model, &rows, |operation| {
             self.change(pipe_tools::with_operation(self.pipe, operation))
         });
+
         self.actions.extend(chosen);
     }
 }
@@ -207,6 +218,7 @@ pub fn show(
         pipe,
         actions,
     };
+
     widgets::properties(ui, ("pipe-properties", feature.id()), |ui| {
         panel.path_row(ui);
         panel.shape_row(ui);

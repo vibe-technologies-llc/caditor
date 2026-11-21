@@ -27,6 +27,7 @@ fn noted_in_the_view(harness: &Harness, text: &str) -> bool {
 #[test]
 fn a_long_list_of_keys_folds_behind_more_keys_and_the_chip_shows_the_rest() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.draw_on_new_sketch();
     harness.use_tool(Key::G);
@@ -52,6 +53,7 @@ fn a_long_list_of_keys_folds_behind_more_keys_and_the_chip_shows_the_rest() {
 #[test]
 fn a_short_list_of_keys_shows_whole_without_a_chip() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     harness.use_tool(Key::L);
 
@@ -63,6 +65,7 @@ fn a_short_list_of_keys_shows_whole_without_a_chip() {
 #[test]
 fn select_in_an_edited_sketch_has_a_short_prompt() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     harness.frame();
 
@@ -77,6 +80,7 @@ fn select_in_an_edited_sketch_has_a_short_prompt() {
 #[test]
 fn a_refused_click_leaves_a_note_beside_the_pointer_that_fades() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     harness.use_tool(Key::R);
     harness.click_at(Point2::new(10.0, 10.0));
@@ -84,6 +88,7 @@ fn a_refused_click_leaves_a_note_beside_the_pointer_that_fades() {
 
     let reason = Refusal::Rectangle.reason();
     let notice = harness.model.notice().map(|notice| notice.text.clone());
+
     assert!(
         notice.as_deref().is_some_and(|text| text.contains(reason)),
         "{notice:?}"
@@ -100,8 +105,11 @@ fn a_refused_click_leaves_a_note_beside_the_pointer_that_fades() {
 #[test]
 fn orbiting_marks_its_pivot_until_shortly_after_the_drag() {
     let mut harness = Harness::new();
+
     harness.frame();
+
     let from = viewport_centre(&harness);
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
     harness.events.push(Event::PointerButton {
@@ -119,6 +127,7 @@ fn orbiting_marks_its_pivot_until_shortly_after_the_drag() {
     }
 
     let held = harness.workspace.viewport.orbit_mark();
+
     assert!(held.is_some_and(|mark| mark.held), "{held:?}");
 
     harness.events.push(Event::PointerButton {
@@ -151,6 +160,7 @@ fn fills_behind(shape: &Shape, text: Rect, fills: &mut Vec<Color32>) {
 #[test]
 fn the_key_hint_panel_is_opaque_on_every_canvas_so_no_label_shows_through() {
     let mut harness = Harness::new();
+
     harness.painted = Some(Painted {
         shapes: Vec::new(),
         pixels_per_point: 1.0,
@@ -175,6 +185,7 @@ fn the_key_hint_panel_is_opaque_on_every_canvas_so_no_label_shows_through() {
                 .map(|(_, rect)| *rect)
                 .expect("the fewer keys chip is shown");
             let mut fills = Vec::new();
+
             for clipped in harness.painted.iter().flat_map(|painted| &painted.shapes) {
                 fills_behind(&clipped.shape, text, &mut fills);
             }

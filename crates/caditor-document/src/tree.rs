@@ -6,7 +6,7 @@ use crate::{
     measurement::Measured,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Slot {
     After(Option<FeatureId>),
     Before(Option<FeatureId>),
@@ -17,8 +17,10 @@ impl Document {
         let mut reached: BTreeSet<FeatureId> = ids.iter().copied().collect();
         let mut dependents = Vec::new();
         let measured = Measured::of(self);
+
         for feature in self.features() {
             let id = feature.id();
+
             if reached.contains(&id) {
                 continue;
             }
@@ -53,6 +55,7 @@ impl Document {
             .rev()
             .filter(|feature| doomed.contains(&feature.id()))
             .map(|feature| Edit::RemoveFeature { id: feature.id() });
+
         let transaction = Transaction::new(label, bar_moves.into_iter().chain(removals).collect());
         let released = self.releasing(transaction, self.owned_by(&doomed));
         self.keeping_readings(released, &doomed)
@@ -90,14 +93,18 @@ impl Document {
         label: impl Into<String>,
     ) -> Result<Transaction, EditError> {
         let mut rows = self.tree_rows();
+
         let from = rows
             .iter()
             .position(|candidate| *candidate == row)
             .ok_or(EditError::MissingFeature)?;
+
         if gap > rows.len() {
             return Err(EditError::OutOfRange(gap));
         }
+
         let moved = rows.remove(from);
+
         rows.insert(if gap > from { gap - 1 } else { gap }, moved);
 
         let order: Vec<FeatureId> = rows
@@ -111,11 +118,13 @@ impl Document {
             .iter()
             .position(|candidate| *candidate == TreeRow::Bar)
             .unwrap_or(order.len());
+
         let bar = order
             .get(bar_at)
             .map_or(RollbackBar::AtEnd, |id| RollbackBar::Before(*id));
 
         let mut edits = Vec::new();
+
         if let TreeRow::Feature(id) = row
             && let Some(index) = order.iter().position(|candidate| *candidate == id)
             && self.feature_index(id) != Some(index)
@@ -126,7 +135,9 @@ impl Document {
         if bar != self.rollback {
             edits.push(Edit::SetRollbackBar { bar });
         }
+
         let transaction = Transaction::new(label, edits);
+
         self.check_moves(&transaction)?;
         Ok(transaction)
     }
@@ -138,16 +149,20 @@ impl Document {
         label: impl Into<String>,
     ) -> Result<Transaction, EditError> {
         let chosen: BTreeSet<FeatureId> = features.iter().copied().collect();
+
         if let [only] = features {
             return self.move_row(TreeRow::Feature(*only), gap, label);
         }
         if chosen.iter().any(|id| self.feature_index(*id).is_none()) {
             return Err(EditError::MissingFeature);
         }
+
         let rows = self.tree_rows();
+
         if gap > rows.len() {
             return Err(EditError::OutOfRange(gap));
         }
+
         let is_chosen = |row: &TreeRow| matches!(row, TreeRow::Feature(id) if chosen.contains(id));
         let (above, below) = rows.split_at(gap);
         let last_above = above.iter().rev().find_map(|row| match row {
@@ -159,13 +174,16 @@ impl Document {
             TreeRow::Feature(_) | TreeRow::Bar => None,
         });
         let moved: Vec<TreeRow> = rows.iter().copied().filter(is_chosen).collect();
+
         let mut final_rows: Vec<TreeRow> = above
             .iter()
             .copied()
             .filter(|row| !is_chosen(row))
             .collect();
+
         final_rows.extend(moved.iter().copied());
         final_rows.extend(below.iter().copied().filter(|row| !is_chosen(row)));
+
         let order: Vec<FeatureId> = final_rows
             .iter()
             .filter_map(|row| match row {
@@ -177,6 +195,7 @@ impl Document {
             .iter()
             .position(|row| *row == TreeRow::Bar)
             .unwrap_or(order.len());
+
         let bar = order
             .get(bar_at)
             .map_or(RollbackBar::AtEnd, |id| RollbackBar::Before(*id));
@@ -186,6 +205,7 @@ impl Document {
             .iter()
             .filter(|row| matches!(row, TreeRow::Feature(_)))
             .count();
+
         let (sinking, rising): (Vec<FeatureId>, Vec<FeatureId>) = current
             .iter()
             .copied()
@@ -195,9 +215,12 @@ impl Document {
                     .is_some_and(|index| index < gap_feature)
             });
         let mut edits = Vec::new();
+
         let mut place = |current: &mut Vec<FeatureId>, id: FeatureId, slot: Slot| {
             let old = current.iter().position(|candidate| *candidate == id);
+
             current.retain(|candidate| *candidate != id);
+
             let index = match slot {
                 Slot::After(Some(after)) => current
                     .iter()
@@ -208,17 +231,21 @@ impl Document {
                     .and_then(|before| current.iter().position(|candidate| *candidate == before))
                     .unwrap_or(current.len()),
             };
+
             current.insert(index, id);
             if old != Some(index) {
                 edits.push(Edit::MoveFeature { id, index });
             }
         };
         let mut after = last_above;
+
         for id in &rising {
             place(&mut current, *id, Slot::After(after));
             after = Some(*id);
         }
+
         let mut before = rising.first().copied().or(anchor);
+
         for id in sinking.iter().rev() {
             place(&mut current, *id, Slot::Before(before));
             before = Some(*id);
@@ -229,7 +256,9 @@ impl Document {
         if bar != self.rollback {
             edits.push(Edit::SetRollbackBar { bar });
         }
+
         let transaction = Transaction::new(label, edits);
+
         self.check_moves(&transaction)?;
         Ok(transaction)
     }

@@ -49,6 +49,7 @@ fn open_mirror(harness: &Harness) -> (FeatureId, caditor_document::Mirror) {
 #[test]
 fn several_selected_bodies_are_mirrored_by_one_mirror_making_a_body_of_each_image() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
 
@@ -60,7 +61,9 @@ fn several_selected_bodies_are_mirrored_by_one_mirror_making_a_body_of_each_imag
         any_edge(&harness, peg),
     ]);
     harness.hover("Mirror body");
+
     assert!(harness.shows_containing("Mirror 2 bodies across"));
+
     harness.click("Mirror body");
     harness.settle();
 
@@ -69,7 +72,9 @@ fn several_selected_bodies_are_mirrored_by_one_mirror_making_a_body_of_each_imag
     assert!(harness.shows(mirror_panel::BODIES));
     assert!(harness.shows("Plate"));
     assert!(harness.shows("Peg"));
+
     let (mirror, definition) = open_mirror(&harness);
+
     assert_eq!(definition.body, plate);
     assert_eq!(definition.more_bodies, [peg]);
     assert_eq!(
@@ -80,8 +85,11 @@ fn several_selected_bodies_are_mirrored_by_one_mirror_making_a_body_of_each_imag
             .count(),
         1
     );
+
     let images = harness.model.evaluation().pieces_made_by(mirror);
+
     assert_eq!(images.len(), 2);
+
     let plate_image = mirror
         .piece(caditor_document::Mirror::image_key(plate))
         .unwrap();
@@ -89,10 +97,15 @@ fn several_selected_bodies_are_mirrored_by_one_mirror_making_a_body_of_each_imag
         .piece(caditor_document::Mirror::image_key(peg))
         .unwrap();
     let (_, high) = plate_bounds(&harness, peg);
+
     assert!((high.x - 60.0).abs() < 1e-6);
+
     let (low, _) = plate_bounds(&harness, peg_image);
+
     assert!((low.x + 60.0).abs() < 1e-6);
+
     let (low, high) = plate_bounds(&harness, plate_image);
+
     assert!((low.x + 40.0).abs() < 1e-6 && high.x.abs() < 1e-6);
     assert!(volume_about(&harness, plate_image, 16000.0));
     assert_eq!(
@@ -104,23 +117,29 @@ fn several_selected_bodies_are_mirrored_by_one_mirror_making_a_body_of_each_imag
 #[test]
 fn a_mirror_takes_and_leaves_out_bodies_from_the_panel_and_clicks_in_the_view() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: top_edge_along_x(&harness, plate, 0.0),
     }]);
     run_from_palette(&mut harness, "mirror body");
     harness.settle();
+
     let (mirror, _) = open_mirror(&harness);
 
     harness.click_lowest(crate::feature_fields::CHOOSE_IN_VIEW);
     harness.frame();
+
     assert!(harness.shows_containing("Click a body to mirror it too"));
+
     harness.click_pickable(Plane::XY, Point2::new(32.0, 20.0), any_edge(&harness, peg));
     harness.settle();
 
     let (_, definition) = open_mirror(&harness);
+
     assert_eq!(definition.more_bodies, [peg]);
     assert_eq!(harness.model.undo_label(), Some("Edit Mirror body 1"));
     assert_eq!(harness.model.evaluation().pieces_made_by(mirror).len(), 2);
@@ -134,9 +153,12 @@ fn a_mirror_takes_and_leaves_out_bodies_from_the_panel_and_clicks_in_the_view() 
 
     harness.click_pickable(Plane::XY, Point2::new(32.0, 20.0), any_edge(&harness, peg));
     harness.settle();
+
     let (_, definition) = open_mirror(&harness);
+
     assert!(definition.more_bodies.is_empty());
     assert!(volume_about(&harness, mirror, 16000.0));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
@@ -144,12 +166,16 @@ fn a_mirror_takes_and_leaves_out_bodies_from_the_panel_and_clicks_in_the_view() 
     harness.settle();
     harness.click_lowest(crate::feature_fields::USE_SELECTED);
     harness.settle();
+
     let (_, definition) = open_mirror(&harness);
+
     assert_eq!(definition.more_bodies, [peg]);
 
     harness.click_topmost_button("Stop mirroring this body");
     harness.settle();
+
     let (_, definition) = open_mirror(&harness);
+
     assert_eq!(definition.body, peg);
     assert!(definition.more_bodies.is_empty());
 }
@@ -165,13 +191,18 @@ fn picking_bodies(harness: &Harness) -> bool {
 #[test]
 fn mirror_body_with_nothing_selected_waits_for_the_bodies_clicked_in_the_view() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
+
     harness.select([]);
+
     let features = harness.document().features().count();
 
     harness.hover("Mirror body");
+
     assert!(harness.shows_containing(mirror_tools::CHOOSE_BODIES_HOVER));
+
     harness.click("Mirror body");
     harness.settle();
 
@@ -188,7 +219,9 @@ fn mirror_body_with_nothing_selected_waits_for_the_bodies_clicked_in_the_view() 
         },
     );
     harness.settle();
+
     let (_, definition) = open_mirror(&harness);
+
     assert_eq!(definition.body, plate);
     assert!(definition.more_bodies.is_empty());
     assert!(!harness.workspace.editing.is_choosing_mirrored());
@@ -196,15 +229,19 @@ fn mirror_body_with_nothing_selected_waits_for_the_bodies_clicked_in_the_view() 
 
     harness.click_pickable(Plane::XY, Point2::new(32.0, 20.0), any_edge(&harness, peg));
     harness.settle();
+
     let (_, definition) = open_mirror(&harness);
+
     assert_eq!(definition.more_bodies, [peg]);
 }
 
 #[test]
 fn escape_stops_choosing_bodies_to_mirror_without_making_a_mirror() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
+
     let features = harness.document().features().count();
 
     harness.click("Mirror body");
@@ -219,10 +256,13 @@ fn escape_stops_choosing_bodies_to_mirror_without_making_a_mirror() {
 #[test]
 fn an_open_mirror_lights_the_bodies_it_mirrors() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.select([]);
     harness.workspace.viewport.advance(super::CAMERA_SETTLE);
     harness.frame();
+
     let plain = drawn_colour(&mut harness, top);
 
     harness.select([Pickable::Edge {
@@ -233,9 +273,12 @@ fn an_open_mirror_lights_the_bodies_it_mirrors() {
     harness.settle();
     harness.select([]);
     harness.frame();
+
     let open = drawn_colour(&mut harness, top);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let closed = drawn_colour(&mut harness, top);
 
     assert_ne!(open, plain);
@@ -258,6 +301,7 @@ fn drawn_colour(harness: &mut Harness, face: Pickable) -> caditor_render::Color 
 #[test]
 fn a_body_is_mirrored_across_a_plane_as_a_new_body_joined_or_in_its_place_from_the_panel() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
 
     harness.select([Pickable::Edge {
@@ -266,20 +310,27 @@ fn a_body_is_mirrored_across_a_plane_as_a_new_body_joined_or_in_its_place_from_t
     }]);
     run_from_palette(&mut harness, "mirror body");
     harness.settle();
+
     let mirror = harness
         .workspace
         .editing
         .solid()
         .expect("the mirror is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Mirror body 1"));
     assert!(harness.shows("Mirror across"));
     assert!(harness.shows(mirror_panel::RESULT));
     assert!(volume_about(&harness, plate, 16000.0));
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!(low.x.abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
     assert!(volume_about(&harness, mirror, 16000.0));
+
     let (low, high) = plate_bounds(&harness, mirror);
+
     assert!((low.x + 40.0).abs() < 1e-6 && high.x.abs() < 1e-6);
+
     harness.built_with_meshes(2);
 
     choose(
@@ -287,9 +338,12 @@ fn a_body_is_mirrored_across_a_plane_as_a_new_body_joined_or_in_its_place_from_t
         mirror_panel::NEW_BODY,
         mirror_panel::ADD_TO_BODY,
     );
+
     assert_eq!(harness.model.undo_label(), Some("Edit Mirror body 1"));
     assert!(volume_about(&harness, plate, 2.0 * 16000.0));
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!((low.x + 40.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
 
     choose(
@@ -297,13 +351,18 @@ fn a_body_is_mirrored_across_a_plane_as_a_new_body_joined_or_in_its_place_from_t
         mirror_panel::ADD_TO_BODY,
         mirror_panel::REPLACE_BODY,
     );
+
     assert_eq!(harness.model.undo_label(), Some("Edit Mirror body 1"));
     assert!(volume_about(&harness, plate, 16000.0));
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!((low.x + 40.0).abs() < 1e-6 && high.x.abs() < 1e-6);
 
     choose(&mut harness, "The YZ plane", "The XY plane");
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!(
         (low.z + 10.0).abs() < 1e-6 && high.z.abs() < 1e-6,
         "{low:?} {high:?}"
@@ -312,7 +371,9 @@ fn a_body_is_mirrored_across_a_plane_as_a_new_body_joined_or_in_its_place_from_t
     harness.select([top]);
     run_from_palette(&mut harness, "mirror across selected");
     harness.settle();
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!(
         (low.z - 10.0).abs() < 1e-6 && (high.z - 20.0).abs() < 1e-6,
         "{low:?} {high:?}"
@@ -323,9 +384,12 @@ fn a_body_is_mirrored_across_a_plane_as_a_new_body_joined_or_in_its_place_from_t
         harness.perform(Action::Undo);
     }
     harness.settle();
+
     assert!(volume_about(&harness, plate, 16000.0));
     assert!(volume_about(&harness, mirror, 16000.0));
+
     let (low, high) = plate_bounds(&harness, mirror);
+
     assert!((low.x + 40.0).abs() < 1e-6 && high.x.abs() < 1e-6);
 }
 
@@ -333,6 +397,7 @@ fn a_body_is_mirrored_across_a_plane_as_a_new_body_joined_or_in_its_place_from_t
 fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(
         &mut sketch,
         Point2::new(-20.0, -20.0),
@@ -342,14 +407,17 @@ fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
     harness.select([]);
     harness.click("Extrude");
     harness.settle();
+
     let plate = harness
         .workspace
         .editing
         .solid()
         .expect("the extrusion is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let top = harness
         .built()
         .picks
@@ -360,11 +428,13 @@ fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
     harness.select([top]);
     harness.use_tool_with(Key::K, Modifiers::ALT);
     harness.settle();
+
     let split = harness
         .workspace
         .editing
         .solid()
         .expect("the split is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Split 1"));
     assert!(harness.shows("Split along"));
     assert!(harness.shows("Split-off body"));
@@ -373,26 +443,38 @@ fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 
     choose(&mut harness, "None chosen", "The YZ plane");
+
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!(low.x.abs() < 1e-6 && (high.x - 20.0).abs() < 1e-6);
+
     let (low, high) = plate_bounds(&harness, split);
+
     assert!((low.x + 20.0).abs() < 1e-6 && high.x.abs() < 1e-6);
     assert!(volume_about(&harness, split, 8000.0));
 
     harness.click(split_panel::KEEP_OTHER_SIDE);
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Edit Split 1"));
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!((low.x + 20.0).abs() < 1e-6 && high.x.abs() < 1e-6);
 
     choose(&mut harness, "The YZ plane", "The XZ plane");
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!(
         low.y.abs() < 1e-6 && (high.y - 20.0).abs() < 1e-6,
         "{low:?} {high:?}"
     );
+
     let (low, high) = plate_bounds(&harness, split);
+
     assert!(
         (low.y + 20.0).abs() < 1e-6 && high.y.abs() < 1e-6,
         "{low:?} {high:?}"
@@ -401,6 +483,7 @@ fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert_eq!(harness.workspace.editing.solid(), None);
     assert_eq!(harness.built_with_meshes(2).scene.meshes.len(), 2);
 }
@@ -408,14 +491,19 @@ fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
 #[test]
 fn a_body_is_split_along_a_sketch_curve_or_another_body_chosen_in_the_panel() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
     let mut line = Sketch::new(Plane::XY);
+
     line.add_line(Point2::new(20.0, 10.0), Point2::new(20.0, 30.0));
+
     let mut transaction = harness.document().transaction("Add a cut line");
+
     transaction.add_feature("Cut line", FeatureKind::from(line));
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
+
     let edge = |harness: &mut Harness, of: FeatureId| {
         harness
             .built()
@@ -430,11 +518,13 @@ fn a_body_is_split_along_a_sketch_curve_or_another_body_chosen_in_the_panel() {
     harness.select([plate_edge, peg_edge]);
     harness.use_tool_with(Key::K, Modifiers::ALT);
     harness.settle();
+
     let split = harness
         .workspace
         .editing
         .solid()
         .expect("the split is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Split 1"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(volume_about(&harness, plate, 16000.0 - 1000.0));
@@ -442,22 +532,30 @@ fn a_body_is_split_along_a_sketch_curve_or_another_body_chosen_in_the_panel() {
     assert!(volume_about(&harness, peg, 3000.0));
 
     choose(&mut harness, "Peg", "The curve of Cut line");
+
     assert_eq!(harness.model.undo_label(), Some("Edit Split 1"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!(low.x.abs() < 1e-6 && (high.x - 20.0).abs() < 1e-6);
+
     let (low, high) = plate_bounds(&harness, split);
+
     assert!((low.x - 20.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
 
     harness.click(split_panel::KEEP_OTHER_SIDE);
     harness.settle();
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!((low.x - 20.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
 }
 
 #[test]
 fn a_body_is_mated_face_to_face_from_the_palette_and_its_panel_sets_the_distance() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
     let bottom = pickable_described(&mut harness, "Peg › Peg start face");
@@ -465,24 +563,33 @@ fn a_body_is_mated_face_to_face_from_the_palette_and_its_panel_sets_the_distance
     harness.select([bottom, top]);
     run_from_palette(&mut harness, "mate body");
     harness.settle();
+
     let mate = harness.workspace.editing.solid().expect("the mate is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Mate 1"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(harness.shows("Face to mate"));
     assert!(harness.shows("Onto"));
+
     let (low, high) = plate_bounds(&harness, peg);
+
     assert!((low.z - 10.0).abs() < 1e-6 && (high.z - 15.0).abs() < 1e-6);
     assert!((low.x - 30.0).abs() < 1e-6);
 
     harness.type_into_field(Id::unique(("mate-field", "distance", mate)), "2 mm");
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Edit Mate 1"));
+
     let (low, _) = plate_bounds(&harness, peg);
+
     assert!((low.z - 12.0).abs() < 1e-6, "{low:?}");
 
     harness.click(mate_panel::FACE_SAME_WAY);
     harness.settle();
+
     let (low, high) = plate_bounds(&harness, peg);
+
     assert!(
         (high.z - 12.0).abs() < 1e-6 && (low.z - 7.0).abs() < 1e-6,
         "{low:?} {high:?}"
@@ -492,7 +599,9 @@ fn a_body_is_mated_face_to_face_from_the_palette_and_its_panel_sets_the_distance
         harness.perform(Action::Undo);
     }
     harness.settle();
+
     let (low, _) = plate_bounds(&harness, peg);
+
     assert!(low.z.abs() < 1e-6);
     assert!(volume_about(&harness, plate, 16000.0));
 }
@@ -500,6 +609,7 @@ fn a_body_is_mated_face_to_face_from_the_palette_and_its_panel_sets_the_distance
 #[test]
 fn a_body_is_mated_at_an_angle_and_by_a_corner_from_the_palette() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
     let bottom = pickable_described(&mut harness, "Peg › Peg start face");
@@ -507,34 +617,46 @@ fn a_body_is_mated_at_an_angle_and_by_a_corner_from_the_palette() {
     harness.select([bottom, top]);
     run_from_palette(&mut harness, "mate body at an angle");
     harness.settle();
+
     let mate = harness.workspace.editing.solid().expect("the mate is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Mate 1"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(harness.shows(mate_panel::ANGLE));
+
     let (low, high) = plate_bounds(&harness, peg);
+
     assert!((high.z - low.z - 5.0).abs() > 1.0, "{low:?} {high:?}");
 
     harness.type_into_field(Id::unique(("mate-field", "angle", mate)), "0 deg");
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Edit Mate 1"));
+
     let (low, high) = plate_bounds(&harness, peg);
+
     assert!((high.z - low.z - 5.0).abs() < 1e-6, "{low:?} {high:?}");
     assert!((low.x - 30.0).abs() < 1e-6, "{low:?}");
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
+
     let corner = vertex_at(
         &harness,
         peg,
         caditor_geometry::Point3::new(30.0, 10.0, 0.0),
     );
+
     harness.select([corner, top]);
     run_from_palette(&mut harness, "mate body");
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Create Mate 2"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(harness.shows("Point to mate"));
+
     let (low, _) = plate_bounds(&harness, peg);
+
     assert!((low.z - 10.0).abs() < 1e-6, "{low:?}");
     assert!((low.x - 30.0).abs() < 1e-6, "{low:?}");
 }
@@ -555,6 +677,7 @@ fn upright_edge_at(harness: &Harness, body: FeatureId, x: f64, y: f64) -> Pickab
 #[test]
 fn four_picks_mate_a_body_flush_and_concentric_in_one_feature() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
     let bottom = pickable_described(&mut harness, "Peg › Peg start face");
@@ -569,7 +692,9 @@ fn four_picks_mate_a_body_flush_and_concentric_in_one_feature() {
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(harness.shows(mate_panel::AXIS_TO_MATE));
     assert!(harness.shows(mate_panel::ONTO_AXIS));
+
     let (low, high) = plate_bounds(&harness, peg);
+
     assert!(
         (low - caditor_geometry::Point3::new(40.0, 40.0, 10.0)).length() < 1e-6,
         "{low:?}"
@@ -583,17 +708,23 @@ fn four_picks_mate_a_body_flush_and_concentric_in_one_feature() {
 #[test]
 fn one_cut_removes_material_from_every_body_chosen_in_its_panel() {
     let mut harness = Harness::new();
+
     let first = extruded(&mut harness, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let second = extruded(
         &mut harness,
         Point2::new(50.0, 0.0),
         Point2::new(90.0, 40.0),
     );
+
     assert_eq!(harness.solid(second).operation(), BodyOperation::NewBody);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert!(volume_about(&harness, second, 16000.0));
 
     let cut = extruded(
@@ -601,7 +732,9 @@ fn one_cut_removes_material_from_every_body_chosen_in_its_panel() {
         Point2::new(30.0, 10.0),
         Point2::new(60.0, 20.0),
     );
+
     choose(&mut harness, "Add to body", "Remove from body");
+
     assert_eq!(
         harness.solid(cut).operation(),
         BodyOperation::Remove(second)
@@ -611,6 +744,7 @@ fn one_cut_removes_material_from_every_body_chosen_in_its_panel() {
     assert!(volume_about(&harness, first, 16000.0));
 
     choose(&mut harness, solid_panel::ADD_CUT_BODY, "Extrude 1");
+
     assert_eq!(harness.solid(cut).other_bodies(), [first]);
     assert!(volume_about(&harness, first, 15000.0));
     assert!(volume_about(&harness, second, 15000.0));
@@ -618,11 +752,13 @@ fn one_cut_removes_material_from_every_body_chosen_in_its_panel() {
 
     harness.click_button("Stop cutting Extrude 1");
     harness.settle();
+
     assert!(harness.solid(cut).other_bodies().is_empty());
     assert!(volume_about(&harness, first, 16000.0));
 
     choose(&mut harness, solid_panel::ADD_CUT_BODY, "Extrude 1");
     choose(&mut harness, "Remove from body", "Add to body");
+
     assert!(harness.solid(cut).other_bodies().is_empty());
 }
 
@@ -636,35 +772,45 @@ fn start_picking(harness: &mut Harness, feature: FeatureId, slot: Slot) {
 #[test]
 fn the_bodies_a_cut_changes_are_clicked_in_the_view() {
     let mut harness = Harness::new();
+
     let first = extruded(&mut harness, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let second = extruded(
         &mut harness,
         Point2::new(50.0, 0.0),
         Point2::new(90.0, 40.0),
     );
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let cut = extruded(
         &mut harness,
         Point2::new(30.0, 10.0),
         Point2::new(60.0, 20.0),
     );
+
     choose(&mut harness, "Add to body", "Remove from body");
+
     assert_eq!(
         harness.solid(cut).operation(),
         BodyOperation::Remove(second)
     );
 
     start_picking(&mut harness, cut, Slot::AlsoCutBody);
+
     assert!(harness.shows_containing("Click a body to cut it too"));
+
     harness.click_pickable(
         Plane::XY,
         Point2::new(10.0, 10.0),
         any_edge(&harness, first),
     );
     harness.settle();
+
     assert_eq!(harness.solid(cut).other_bodies(), [first]);
     assert!(volume_about(&harness, first, 15000.0));
     assert!(
@@ -681,18 +827,23 @@ fn the_bodies_a_cut_changes_are_clicked_in_the_view() {
         any_edge(&harness, first),
     );
     harness.settle();
+
     assert!(harness.solid(cut).other_bodies().is_empty());
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
     start_picking(&mut harness, cut, Slot::OperationBody);
+
     assert!(harness.shows_containing("Click the body this feature changes"));
+
     harness.click_pickable(
         Plane::XY,
         Point2::new(10.0, 10.0),
         any_edge(&harness, first),
     );
     harness.settle();
+
     assert_eq!(harness.solid(cut).operation(), BodyOperation::Remove(first));
     assert!(harness.workspace.editing.picking().is_none());
     assert!(volume_about(&harness, second, 16000.0));
@@ -706,30 +857,37 @@ fn open_kind(harness: &Harness) -> Option<&FeatureKind> {
 #[test]
 fn move_scale_and_split_take_the_only_body_shown_when_nothing_is_selected() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     harness.select([]);
     harness.frame();
 
     harness.click("Move body");
     harness.settle();
+
     let moved = match open_kind(&harness) {
         Some(FeatureKind::Move(moving)) => Some(moving.body),
         _ => None,
     };
+
     harness.perform(Action::Editing(EditingCommand::CancelSolid));
     harness.settle();
     harness.select([]);
     run_from_palette(&mut harness, "Scale body");
     harness.settle();
+
     let scaled = match open_kind(&harness) {
         Some(FeatureKind::Scale(scale)) => Some(scale.body),
         _ => None,
     };
+
     harness.perform(Action::Editing(EditingCommand::CancelSolid));
     harness.settle();
     harness.select([]);
     run_from_palette(&mut harness, "Split body");
     harness.settle();
+
     let split = match open_kind(&harness) {
         Some(FeatureKind::Split(split)) => Some(split.body),
         _ => None,
@@ -743,14 +901,18 @@ fn move_scale_and_split_take_the_only_body_shown_when_nothing_is_selected() {
 #[test]
 fn move_body_with_nothing_selected_asks_for_a_body_when_two_are_shown_and_takes_the_one_left() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
+
     harness.settle();
     harness.select([]);
     harness.frame();
+
     let refused = offer(&harness, Command::Move).availability.is_err();
 
     let hide = visibility::toggle_body(harness.document(), plate).unwrap();
+
     harness.perform(Action::Apply(hide));
     harness.settle();
     harness.click("Move body");
@@ -766,16 +928,19 @@ fn move_body_with_nothing_selected_asks_for_a_body_when_two_are_shown_and_takes_
 #[test]
 fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
 
     harness.select([top]);
     harness.use_tool_with(Key::S, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     let scale = harness
         .workspace
         .editing
         .solid()
         .expect("the scale is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Scale body 1"));
     assert!(harness.shows("Factor"));
     assert!(harness.shows("Centre X"));
@@ -783,6 +948,7 @@ fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
 
     harness.type_into_field(Id::unique(("scale-field", ("factor", 0usize), scale)), "2");
     harness.settle();
+
     assert!(volume_about(&harness, plate, 8.0 * 16000.0));
 
     harness.type_into_field(
@@ -790,6 +956,7 @@ fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
         "0.5",
     );
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Edit Scale body 1"));
     assert!(volume_about(&harness, plate, 16000.0 / 8.0));
 
@@ -798,13 +965,16 @@ fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
         "40 mm",
     );
     harness.settle();
+
     let (low, high) = plate_bounds(&harness, plate);
+
     assert!(
         (low.x - 20.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6,
         "{low:?} {high:?}"
     );
 
     harness.type_into_field(Id::unique(("scale-field", ("factor", 0usize), scale)), "-1");
+
     assert!(harness.shows_containing("above zero"));
     assert_eq!(harness.workspace.editing.solid(), Some(scale));
 
@@ -812,6 +982,7 @@ fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
         harness.perform(Action::Undo);
     }
     harness.settle();
+
     assert!(volume_about(&harness, plate, 16000.0));
 }
 
@@ -823,7 +994,9 @@ fn add_round(
     reversed: bool,
 ) -> FeatureId {
     use caditor_document::{PlaneReference, Primitive, PrimitiveAnchor, PrincipalPlane};
+
     let mut transaction = harness.document().transaction("Add a round body");
+
     let body = transaction.add_feature(
         name,
         FeatureKind::Primitive(Primitive {
@@ -835,6 +1008,7 @@ fn add_round(
             operation: BodyOperation::NewBody,
         }),
     );
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
     body
@@ -843,9 +1017,11 @@ fn add_round(
 #[test]
 fn a_body_is_split_along_the_surface_of_a_curved_face_of_another_body() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let whole = harness.body_volume(plate);
     let height = whole / 1600.0;
+
     add_round(
         &mut harness,
         "Rod",
@@ -856,6 +1032,7 @@ fn a_body_is_split_along_the_surface_of_a_curved_face_of_another_body() {
         [20.0, 20.0],
         true,
     );
+
     let plate_edge = harness
         .built()
         .picks
@@ -867,6 +1044,7 @@ fn a_body_is_split_along_the_surface_of_a_curved_face_of_another_body() {
     harness.select([plate_edge, wall]);
     harness.use_tool_with(Key::K, Modifiers::ALT);
     harness.settle();
+
     let split = harness
         .workspace
         .editing
@@ -876,14 +1054,17 @@ fn a_body_is_split_along_the_surface_of_a_curved_face_of_another_body() {
     assert_eq!(harness.model.undo_label(), Some("Create Split 1"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(harness.shows("The surface of Rod wall"));
+
     let inside = PI * 25.0 * height;
     let roughly = |harness: &Harness, body: FeatureId, expected: f64| {
         let found = harness.body_volume(body);
+
         assert!(
             (found - expected).abs() < 2e-2 * expected,
             "{found} {expected}"
         );
     };
+
     roughly(&harness, split, inside);
     roughly(&harness, plate, whole - inside);
 
@@ -895,7 +1076,9 @@ fn a_body_is_split_along_the_surface_of_a_curved_face_of_another_body() {
 #[test]
 fn a_flat_face_is_mated_resting_on_a_sphere_of_another_body_from_the_palette() {
     let mut harness = Harness::new();
+
     let peg = add_peg(&mut harness);
+
     add_round(
         &mut harness,
         "Ball",
@@ -905,6 +1088,7 @@ fn a_flat_face_is_mated_resting_on_a_sphere_of_another_body_from_the_palette() {
         [100.0, 0.0],
         false,
     );
+
     let bottom = pickable_described(&mut harness, "Peg › Peg start face");
     let ball = pickable_described(&mut harness, "Ball › Ball surface");
 
@@ -916,7 +1100,9 @@ fn a_flat_face_is_mated_resting_on_a_sphere_of_another_body_from_the_palette() {
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(harness.shows("Flat face"));
     assert!(harness.shows("Rests on"));
+
     let (low, high) = plate_bounds(&harness, peg);
+
     assert!(
         (low.z - 10.0).abs() < 1e-6 && (high.z - 15.0).abs() < 1e-6,
         "{low:?} {high:?}"
@@ -924,17 +1110,22 @@ fn a_flat_face_is_mated_resting_on_a_sphere_of_another_body_from_the_palette() {
 
     harness.click(mate_panel::OTHER_SIDE);
     harness.settle();
+
     let (low, _) = plate_bounds(&harness, peg);
+
     assert!(low.z.abs() < 1e-6, "{low:?}");
 }
 
 #[test]
 fn a_pattern_makes_a_body_of_each_copy_from_its_result_row_and_undo_joins_them_again() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     harness.select([]);
     harness.click("Linear pattern");
     harness.settle();
+
     let pattern = harness
         .workspace
         .editing
@@ -942,6 +1133,7 @@ fn a_pattern_makes_a_body_of_each_copy_from_its_result_row_and_undo_joins_them_a
         .expect("the pattern is open");
     let copies = harness.model.evaluation().pieces_made_by(pattern).len();
     let joined = harness.model.evaluation().body(plate).map(|_| ());
+
     assert!(harness.shows(pattern_panel::RESULT));
     assert!(copies == 0 && joined.is_some());
 
@@ -952,15 +1144,18 @@ fn a_pattern_makes_a_body_of_each_copy_from_its_result_row_and_undo_joins_them_a
     );
 
     let copies = harness.model.evaluation().pieces_made_by(pattern);
+
     assert_eq!(harness.model.undo_label(), Some("Edit Linear pattern 1"));
     assert!(!copies.is_empty());
     assert!(volume_about(&harness, plate, 16000.0));
+
     for copy in &copies {
         assert!(volume_about(&harness, *copy, 16000.0));
     }
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(
         harness
             .model

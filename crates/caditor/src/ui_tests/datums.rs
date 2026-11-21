@@ -25,14 +25,17 @@ fn datum_plane(harness: &Harness, feature: FeatureId) -> Plane {
 #[test]
 fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
     let mut harness = Harness::new();
+
     harness.select([]);
     harness.click("Plane");
     harness.settle();
+
     let plane = harness
         .workspace
         .editing
         .solid()
         .expect("the new plane is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Plane 1"));
     assert!(datum_of(&harness, plane).is_plane());
     assert_eq!(datum_plane(&harness, plane).origin().z, 10.0);
@@ -42,6 +45,7 @@ fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
 
     harness.type_into_field(Id::unique(("datum-field", "offset", plane)), "25 mm");
     harness.settle();
+
     assert_eq!(datum_plane(&harness, plane).origin().z, 25.0);
     assert!(
         harness
@@ -56,17 +60,23 @@ fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
         harness.frame();
         harness.frame();
     }
+
     assert_eq!(harness.workspace.editing.solid(), None);
+
     harness.select([Pickable::Datum(plane)]);
     harness.click("New sketch");
     harness.settle();
+
     let sketch = harness.editing().expect("the new sketch is edited");
+
     assert_eq!(plane_height(&harness, sketch), 25.0);
+
     let attachment = harness
         .document()
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
         .cloned();
+
     assert_eq!(
         attachment,
         Some(caditor_document::SketchAttachment::Datum(plane))
@@ -79,8 +89,10 @@ fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
         harness.key(Key::Escape, Modifiers::NONE);
         harness.frame();
     }
+
     assert_eq!(harness.editing(), None);
     assert_eq!(harness.sketch(sketch).entities().count(), 1);
+
     let Some(caditor_document::Datum::Plane(mut changed)) = harness
         .document()
         .feature(plane)
@@ -89,6 +101,7 @@ fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
     else {
         panic!("the plane is a datum plane");
     };
+
     changed.offset = Expression::Measure(-5.0, Unit::Millimetre);
     harness.perform(Action::Apply(Transaction::single(
         "Move the plane",
@@ -98,14 +111,17 @@ fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
         },
     )));
     harness.settle();
+
     assert_eq!(plane_height(&harness, sketch), -5.0);
 }
 
 #[test]
 fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
+
     let edge = Pickable::Edge {
         body: plate,
         edge: front,
@@ -114,6 +130,7 @@ fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
     harness.select([top, edge]);
     harness.click("Plane");
     harness.settle();
+
     let plane = harness
         .workspace
         .editing
@@ -121,6 +138,7 @@ fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
         .expect("the plane is open");
     let tilted = datum_plane(&harness, plane);
     let half = std::f64::consts::FRAC_1_SQRT_2;
+
     assert!((tilted.normal().z.abs() - half).abs() < 1e-9, "{tilted:?}");
     assert!(
         tilted
@@ -134,29 +152,38 @@ fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
     harness.select([edge]);
     harness.click("Axis");
     harness.settle();
+
     let axis = harness.workspace.editing.solid().expect("the axis is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Axis 1"));
+
     let line = crate::datum_tools::result(harness.model.evaluation(), axis)
         .and_then(|result| result.axis())
         .expect("the axis has a position");
+
     assert!((line.direction().x.abs() - 1.0).abs() < 1e-9);
 
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(
         &mut section,
         Point2::new(0.0, 20.0),
         Point2::new(10.0, 30.0),
     );
+
     let section = harness.add_sketch(section);
+
     harness.select([Pickable::Datum(axis)]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = harness
         .workspace
         .editing
         .solid()
         .expect("the revolution is open");
     let definition = harness.solid(revolve);
+
     assert_eq!(definition.sketch(), section);
     assert_eq!(
         definition
@@ -177,6 +204,7 @@ fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
 #[test]
 fn a_revolve_and_a_datum_plane_take_the_selection_from_the_palette() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let edge = Pickable::Edge {
         body: plate,
@@ -184,6 +212,7 @@ fn a_revolve_and_a_datum_plane_take_the_selection_from_the_palette() {
     };
 
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(
         &mut section,
         Point2::new(0.0, 20.0),
@@ -193,11 +222,13 @@ fn a_revolve_and_a_datum_plane_take_the_selection_from_the_palette() {
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = harness
         .workspace
         .editing
         .solid()
         .expect("the revolve is open");
+
     assert_eq!(
         harness
             .solid(revolve)
@@ -205,9 +236,11 @@ fn a_revolve_and_a_datum_plane_take_the_selection_from_the_palette() {
             .and_then(caditor_document::RevolveAxis::model),
         None
     );
+
     harness.select([edge]);
     run_from_palette(&mut harness, "revolve about selected axis");
     harness.settle();
+
     assert!(
         harness
             .solid(revolve)
@@ -219,24 +252,29 @@ fn a_revolve_and_a_datum_plane_take_the_selection_from_the_palette() {
     harness.select([]);
     harness.click("Plane");
     harness.settle();
+
     let plane = harness
         .workspace
         .editing
         .solid()
         .expect("the plane is open");
+
     assert!(datum_plane(&harness, plane).normal().z.abs() > 0.999);
     assert_eq!(
         offer(&harness, Command::DatumUseSelected).availability,
         Err("Select a plane or flat face made before this plane".into())
     );
+
     harness.select([Pickable::Plane(PrincipalPlane::Xz)]);
     run_from_palette(&mut harness, "base datum on selection");
     harness.settle();
+
     assert!(datum_plane(&harness, plane).normal().y.abs() > 0.999);
 
     harness.select([edge]);
     run_from_palette(&mut harness, "turn datum plane about selected axis");
     harness.settle();
+
     let Some(caditor_document::Datum::Plane(turned)) = harness
         .document()
         .feature(plane)
@@ -244,32 +282,43 @@ fn a_revolve_and_a_datum_plane_take_the_selection_from_the_palette() {
     else {
         panic!("the plane is a datum plane");
     };
+
     assert!(turned.rotation.is_some());
 }
 
 #[test]
 fn a_datum_takes_its_base_and_turn_from_the_selection_in_its_panel() {
     let mut harness = Harness::new();
+
     harness.select([]);
     harness.click("Plane");
     harness.settle();
+
     let plane = open_solid(&harness);
+
     harness.hold_still();
 
     harness.select([Pickable::Plane(PrincipalPlane::Xz)]);
     harness.click_beside("Use selected", "Starts from");
     harness.settle();
+
     let based = datum_plane(&harness, plane).normal();
+
     harness.select([Pickable::Axis(crate::selection::Axis::Z)]);
     harness.click_beside("Use selected", "Turned about");
     harness.settle();
+
     let turned = datum_plane_of(&harness, plane).rotation.is_some();
+
     harness.hold_still();
     harness.type_into_field(Id::unique(("datum-field", "angle", plane)), "90 deg");
     harness.settle();
+
     let quarter = datum_plane(&harness, plane).normal();
+
     harness.click_button("Stop turning the plane");
     harness.settle();
+
     let unturned = datum_plane_of(&harness, plane).rotation.is_none();
 
     harness.key(Key::Escape, Modifiers::NONE);
@@ -280,12 +329,16 @@ fn a_datum_takes_its_base_and_turn_from_the_selection_in_its_panel() {
     ]);
     harness.click("Axis");
     harness.settle();
+
     let axis = open_solid(&harness);
+
     harness.hold_still();
+
     let meeting = matches!(
         datum_of(&harness, axis),
         caditor_document::Datum::Axis(caditor_document::DatumAxis::Intersection(..))
     );
+
     harness.select([Pickable::Axis(crate::selection::Axis::Z)]);
     harness.click_beside("Use selected", "Defined by");
     harness.settle();
@@ -306,6 +359,7 @@ fn a_datum_takes_its_base_and_turn_from_the_selection_in_its_panel() {
 #[test]
 fn a_plane_started_from_a_face_is_drawn_over_the_middle_of_that_face() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
 
     harness.select([top]);
@@ -313,6 +367,7 @@ fn a_plane_started_from_a_face_is_drawn_over_the_middle_of_that_face() {
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let plane = open_solid(&harness);
     let placed = datum_plane(&harness, plane);
     let drawn = harness

@@ -16,7 +16,7 @@ const TOLERANCE: f64 = 1e-9;
 const RESIDUAL: f64 = 1e-6;
 const SIGNS: [f64; 2] = [1.0, -1.0];
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TangentError {
     #[error("a circle touches two curves at a given radius, or three curves; {count} were chosen")]
     CurveCount { count: usize },
@@ -40,7 +40,7 @@ pub enum TangentError {
     Edit(SketchError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TangentCircle {
     pub center: Point2,
     pub radius: f64,
@@ -58,7 +58,7 @@ impl TangentCircle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Touch {
     Line {
         through: Point2,
@@ -164,8 +164,10 @@ impl Sketch {
     ) -> Result<EntityId, TangentError> {
         let circle = self.tangent_circle_near(curves, radius.map(|radius| radius.value), near)?;
         let mut working = self.clone();
+
         let made = working.add_circle(circle.center, circle.radius);
         let edit = |result: Result<_, SketchError>| result.map_err(TangentError::Edit);
+
         for curve in curves {
             edit(working.add_constraint(Constraint::Tangent(*curve, made)))?;
         }
@@ -218,9 +220,11 @@ impl Sketch {
             entity: curve,
             label: self.entity_label(curve),
         };
+
         if let Some((center, radius)) = self.circle(curve) {
             return Ok(Touch::Circle { center, radius });
         }
+
         let direction = self
             .line_direction(curve)
             .and_then(Vector2::try_normalize)
@@ -247,6 +251,7 @@ fn reach(circle: &TangentCircle) -> f64 {
 fn around_two(first: &Touch, second: &Touch, radius: f64) -> Vec<TangentCircle> {
     let scale = radius.max(1.0);
     let mut found = Vec::new();
+
     for first_sign in SIGNS {
         for second_sign in SIGNS {
             let (Some(a), Some(b)) = (
@@ -269,6 +274,7 @@ fn around_two(first: &Touch, second: &Touch, radius: f64) -> Vec<TangentCircle> 
 
 fn around_three(touches: [Touch; 3]) -> Vec<TangentCircle> {
     let mut found = Vec::new();
+
     for first in SIGNS {
         for second in SIGNS {
             for third in SIGNS {
@@ -298,6 +304,7 @@ fn add(found: &mut Vec<TangentCircle>, circle: TangentCircle, touches: &[Touch])
 fn around_three_signed(touches: &[Touch; 3], signs: [f64; 3]) -> Vec<TangentCircle> {
     let mut rows: Vec<Row> = Vec::new();
     let mut circles: Vec<Row> = Vec::new();
+
     for (touch, sign) in touches.iter().zip(signs) {
         match *touch {
             Touch::Line { normal, offset, .. } => {
@@ -309,6 +316,7 @@ fn around_three_signed(touches: &[Touch; 3], signs: [f64; 3]) -> Vec<TangentCirc
             )),
         }
     }
+
     let Some((base, base_rhs)) = circles.first().copied() else {
         return solve_linear(&rows)
             .map(|[x, y, r]| TangentCircle {
@@ -319,12 +327,15 @@ fn around_three_signed(touches: &[Touch; 3], signs: [f64; 3]) -> Vec<TangentCirc
             .filter(|circle| circle.radius > 0.0)
             .collect();
     };
+
     for (linear, rhs) in circles.iter().skip(1) {
         rows.push((subtract(*linear, base), rhs - base_rhs));
     }
+
     let [(first, first_rhs), (second, second_rhs)] = rows.as_slice() else {
         return Vec::new();
     };
+
     let Some(direction) = unit(cross(*first, *second), norm(*first) * norm(*second)) else {
         return Vec::new();
     };
@@ -333,9 +344,11 @@ fn around_three_signed(touches: &[Touch; 3], signs: [f64; 3]) -> Vec<TangentCirc
         [dot(*first, *second), dot(*second, *second)],
     ];
     let determinant = gram[0][0] * gram[1][1] - gram[0][1] * gram[1][0];
+
     if determinant.abs() <= TOLERANCE * gram[0][0] * gram[1][1] {
         return Vec::new();
     }
+
     let weights = [
         (gram[1][1] * first_rhs - gram[0][1] * second_rhs) / determinant,
         (gram[0][0] * second_rhs - gram[0][1] * first_rhs) / determinant,
@@ -369,10 +382,13 @@ fn solve_linear(rows: &[Row]) -> Option<[f64; 3]> {
     let [(a, x), (b, y), (c, z)] = rows else {
         return None;
     };
+
     let determinant = dot(*a, cross(*b, *c));
+
     if determinant.abs() <= TOLERANCE * norm(*a) * norm(*b) * norm(*c) {
         return None;
     }
+
     let solution = [
         (x * cross(*b, *c)[0] + y * cross(*c, *a)[0] + z * cross(*a, *b)[0]) / determinant,
         (x * cross(*b, *c)[1] + y * cross(*c, *a)[1] + z * cross(*a, *b)[1]) / determinant,
@@ -392,11 +408,14 @@ fn quadratic(a: f64, b: f64, c: f64) -> Vec<f64> {
             Vec::new()
         };
     }
+
     let discriminant = b * b - 4.0 * a * c;
     let slack = TOLERANCE * (b * b + (4.0 * a * c).abs());
+
     if discriminant < -slack {
         return Vec::new();
     }
+
     let root = discriminant.max(0.0).sqrt();
     vec![(-b + root) / (2.0 * a), (-b - root) / (2.0 * a)]
 }

@@ -234,7 +234,7 @@ const STEADY_TRIES: usize = 100;
 const WHEEL_TRIES: usize = 40;
 const WHEEL_STEP: f32 = 60.0;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Wheel {
     Up,
     Down,
@@ -480,6 +480,7 @@ impl Harness {
         let recovery_dir = dir.map(|dir| dir.join("recovery"));
         let dialogs = ScriptedDialogs::default();
         let wakes = Arc::new(AtomicUsize::new(0));
+
         let services = Services {
             make_waker: counted_wakes(&wakes),
             storage: StorageConfig {
@@ -497,12 +498,14 @@ impl Harness {
         let mut files = Files::new(config, Box::new(dialogs.clone()), no_wake());
         let revealed = Arc::new(Mutex::new(Vec::new()));
         let shown = Arc::clone(&revealed);
+
         files.reveal_with(Arc::new(move |path: &Path| {
             shown.lock().push(path.to_path_buf());
             Ok(())
         }));
         prepare(&mut files);
         files.start(None, &mut model);
+
         let mut harness = Self {
             context: egui::Context::default(),
             model,
@@ -531,6 +534,7 @@ impl Harness {
             repaint_after: Duration::MAX,
             revealed,
         };
+
         harness.settle();
         harness
     }
@@ -550,6 +554,7 @@ impl Harness {
 
     fn frame(&mut self) {
         let shapes = self.pass();
+
         self.texts.clear();
         self.text_clips.clear();
         self.text_colors.clear();
@@ -557,6 +562,7 @@ impl Harness {
             let ClippedShape {
                 shape, clip_rect, ..
             } = clipped;
+
             collect_texts(shape, &mut self.texts, &mut self.text_colors);
             self.text_clips.resize(self.texts.len(), clip_rect);
         }
@@ -572,8 +578,11 @@ impl Harness {
         {
             self.forced_hover = None;
         }
+
         let mut viewports = ViewportIdMap::default();
+
         viewports.insert(ViewportId::ROOT, self.window.clone());
+
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(
                 Pos2::ZERO,
@@ -586,10 +595,12 @@ impl Harness {
             ..RawInput::default()
         };
         let mut actions = Vec::new();
+
         self.model.poll();
         self.files
             .poll(&mut self.model, &mut self.workspace.editing);
         self.workspace.editing.sync(&self.model);
+
         let Self {
             context,
             model,
@@ -597,14 +608,17 @@ impl Harness {
             workspace,
             ..
         } = self;
+
         let mut output = context.run_ui(input, |ui| {
             app::show(ui, model, files, workspace, &mut actions);
         });
+
         assert!(
             self.workspace.dropped_commands.is_empty(),
             "commands triggered after the handler that offers them had run, so dropped: {:?}",
             self.workspace.dropped_commands
         );
+
         for (id, deltas) in std::mem::take(&mut output.textures_delta.set) {
             for delta in deltas {
                 self.textures.apply(id, &delta);
@@ -650,10 +664,12 @@ impl Harness {
         self.render_thumbnail();
         self.render_preview();
         self.render_save_preview();
+
         let ghosted = self
             .workspace
             .viewport
             .ghosted(&self.model, &self.workspace.editing);
+
         self.model
             .mesh_before(self.workspace.editing.context().solid, &ghosted);
         self.model.request_regions(self.workspace.editing.feature());
@@ -668,6 +684,7 @@ impl Harness {
         if self.renders_held {
             return;
         }
+
         let Some(job) = self.files.image_job() else {
             return;
         };
@@ -687,6 +704,7 @@ impl Harness {
                 }))
             }
         };
+
         self.files.image_rendered(pixels, &mut self.model);
     }
 
@@ -694,10 +712,12 @@ impl Harness {
         if self.renders_held {
             return;
         }
+
         let Some(job) = self.files.thumbnail_job() else {
             return;
         };
         let (width, height) = (job.size.width, job.size.height);
+
         let pixels: Result<ReadPixels, ImageError> = if self.renders_busy {
             Err(ImageError::Busy)
         } else {
@@ -708,6 +728,7 @@ impl Harness {
                 sent: Vec::new(),
             }))
         };
+
         self.files.thumbnail_rendered(pixels);
     }
 
@@ -715,6 +736,7 @@ impl Harness {
         if self.renders_held {
             return;
         }
+
         let Some(drawing) = self.model.take_preview_job() else {
             return;
         };
@@ -729,6 +751,7 @@ impl Harness {
                 sent: Vec::new(),
             }))
         };
+
         self.model.preview_drawn(drawing, pixels);
     }
 
@@ -737,7 +760,9 @@ impl Harness {
             return;
         };
         let size = version_preview::PICTURE_SIZE;
+
         assert!(picture.pixels_per_point > 0.0);
+
         self.files.preview_rendered(Ok(Box::new(SolidRows {
             width: size.width,
             height: size.height,
@@ -750,6 +775,7 @@ impl Harness {
         if self.picks_held {
             return;
         }
+
         let Some(cursor) = self
             .workspace
             .viewport
@@ -776,6 +802,7 @@ impl Harness {
             })
             .into_iter()
             .collect();
+
         self.workspace
             .viewport
             .apply_pick(&caditor_render::PickResult { cursor, hits });
@@ -783,10 +810,12 @@ impl Harness {
 
     fn settle(&mut self) {
         let deadline = Instant::now() + RECOMPUTE_TIMEOUT;
+
         self.model.flush_journal(RECOMPUTE_TIMEOUT);
         loop {
             while self.computing() {
                 assert!(Instant::now() < deadline, "the recompute did not finish");
+
                 self.model.poll();
                 std::thread::yield_now();
             }
@@ -812,6 +841,7 @@ impl Harness {
         let mut quiet_since = Instant::now();
         while quiet_since.elapsed() < WAKELESS_QUIET {
             let wakes = self.wakes.load(Ordering::SeqCst);
+
             if wakes == seen && self.events.is_empty() {
                 std::thread::sleep(Duration::from_millis(2));
                 continue;
@@ -824,8 +854,10 @@ impl Harness {
 
     fn wait_until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {
         let deadline = Instant::now() + FILE_TIMEOUT;
+
         while !done(self) {
             assert!(Instant::now() < deadline, "timed out waiting until {what}");
+
             std::thread::sleep(Duration::from_millis(2));
             self.frame();
         }
@@ -834,6 +866,7 @@ impl Harness {
 
     fn wait_for_import_options(&mut self, file: &str) {
         let title = format!("Import “{file}”");
+
         self.wait_until("the import options are shown", |harness| {
             harness.shows(&title)
         });
@@ -895,12 +928,15 @@ impl Harness {
 
     fn edit_width(&mut self, text: &str) {
         let width = self.parameter("width");
+
         self.type_into(Focus::ParameterValue(width), text);
+
         assert_eq!(self.expression_text("width"), text);
     }
 
     fn select(&mut self, items: impl IntoIterator<Item = Pickable>) {
         let selection = self.workspace.viewport.selection_mut();
+
         selection.clear();
         for item in items {
             selection.toggle(item);
@@ -935,7 +971,9 @@ impl Harness {
             "Plate".to_owned()
         };
         let mut transaction = self.document().transaction("Add sketch");
+
         let feature = transaction.add_feature(name, FeatureKind::from(sketch));
+
         self.perform(Action::Apply(transaction.finish()));
         self.settle();
         feature
@@ -944,6 +982,7 @@ impl Harness {
     fn edit(&mut self, feature: FeatureId) {
         self.perform(Action::Editing(EditingCommand::Enter(feature)));
         self.settle();
+
         assert_eq!(self.editing(), Some(feature));
     }
 
@@ -954,6 +993,7 @@ impl Harness {
             .find(|(shown, _)| shown == label)
             .unwrap_or_else(|| panic!("'{label}' is not on screen"))
             .clone();
+
         self.events.push(Event::PointerMoved(rect.center()));
         for _ in 0..TOOLTIP_FRAMES {
             self.frame();
@@ -971,6 +1011,7 @@ impl Harness {
             self.frame();
             self.frame();
         }
+
         let bounds = self
             .accessible
             .iter()
@@ -992,6 +1033,7 @@ impl Harness {
 
     fn click_button(&mut self, name: &str) {
         let first = self.button_rect(name).center();
+
         self.click_steadily(first, |harness| {
             harness.find_button_rect(name).map(|rect| rect.center())
         });
@@ -1000,6 +1042,7 @@ impl Harness {
 
     fn click_topmost_button(&mut self, name: &str) {
         self.read_screen();
+
         let bounds = self
             .accessible
             .iter()
@@ -1011,12 +1054,14 @@ impl Harness {
             ((bounds.x0 + bounds.x1) / 2.0) as f32,
             ((bounds.y0 + bounds.y1) / 2.0) as f32,
         );
+
         self.click_screen(centre);
         self.show_new_windows();
     }
 
     fn hover_button(&mut self, name: &str) {
         let position = self.button_rect(name).center();
+
         self.events.push(Event::PointerMoved(position));
         for _ in 0..TOOLTIP_FRAMES {
             self.frame();
@@ -1044,6 +1089,7 @@ impl Harness {
 
     fn add_stored_constraint(&mut self, feature: FeatureId, constraint: Constraint) {
         let mut transaction = self.document().transaction("Add constraint");
+
         transaction.add_sketch_constraint(feature, constraint);
         self.perform(Action::Apply(transaction.finish()));
         self.settle();
@@ -1091,6 +1137,7 @@ impl Harness {
     fn hold_still(&mut self) {
         for _ in 0..STILL_FRAMES {
             let before = self.texts.clone();
+
             self.frame();
             if self.texts == before {
                 return;
@@ -1156,14 +1203,18 @@ impl Harness {
         if self.computing() {
             self.settle();
         }
+
         let position = self.on_screen(point);
+
         self.events.push(Event::PointerMoved(position));
         self.frame();
     }
 
     fn click_at(&mut self, point: Point2) {
         self.point_at(point);
+
         let position = self.on_screen(point);
+
         for pressed in [true, false] {
             self.events.push(Event::PointerButton {
                 pos: position,
@@ -1178,6 +1229,7 @@ impl Harness {
 
     fn click(&mut self, label: &str) {
         let first = self.position_of(label);
+
         self.click_steadily(first, |harness| harness.find_position_of(label));
         self.show_new_windows();
     }
@@ -1198,6 +1250,7 @@ impl Harness {
             .map(|(_, rect)| rect.center())
             .min_by(|a, b| a.x.total_cmp(&b.x))
             .unwrap_or_else(|| panic!("'{label}' is not on screen"));
+
         self.click_screen(position);
         self.show_new_windows();
     }
@@ -1217,6 +1270,7 @@ impl Harness {
             .filter(|center| center.y >= row.min.y)
             .min_by(|a, b| a.y.total_cmp(&b.y))
             .unwrap_or_else(|| panic!("no {glyph:?} beside '{label}'"));
+
         self.click_screen(position);
         self.show_new_windows();
     }
@@ -1229,6 +1283,7 @@ impl Harness {
             .map(|(_, rect)| rect.center())
             .max_by(|a, b| a.y.total_cmp(&b.y))
             .unwrap_or_else(|| panic!("'{label}' is not on screen"));
+
         self.click_screen(position);
         self.show_new_windows();
     }
@@ -1285,6 +1340,7 @@ impl Harness {
 
     fn click_steadily(&mut self, first: Pos2, mut find: impl FnMut(&mut Self) -> Option<Pos2>) {
         let mut position = first;
+
         for _ in 0..STEADY_TRIES {
             self.events.push(Event::PointerMoved(position));
             self.frame();
@@ -1310,6 +1366,7 @@ impl Harness {
 
     fn double_click(&mut self, label: &str) {
         let position = self.position_of(label);
+
         self.click_screen(position);
         self.press(position);
         self.frame();
@@ -1327,13 +1384,16 @@ impl Harness {
         let deadline = Instant::now() + FILE_TIMEOUT;
         loop {
             let built = self.built();
+
             if built.scene.meshes.len() + built.scene.translucent_meshes.len() == count {
                 return built;
             }
+
             assert!(
                 Instant::now() < deadline,
                 "the scene never held {count} meshes"
             );
+
             std::thread::sleep(Duration::from_millis(2));
             self.frame();
         }
@@ -1343,13 +1403,16 @@ impl Harness {
         let deadline = Instant::now() + FILE_TIMEOUT;
         loop {
             let built = self.built();
+
             if built.scene.overlay_meshes.len() == count {
                 return built;
             }
+
             assert!(
                 Instant::now() < deadline,
                 "the scene never held {count} overlays"
             );
+
             std::thread::sleep(Duration::from_millis(2));
             self.frame();
         }
@@ -1403,6 +1466,7 @@ impl Harness {
 
     fn click_pickable(&mut self, plane: Plane, point: Point2, pickable: Pickable) {
         let position = self.hover_pickable(plane, point, pickable);
+
         self.press(position);
         self.frame();
     }
@@ -1413,6 +1477,7 @@ impl Harness {
             .viewport
             .screen_position(plane, point)
             .expect("the point is in view");
+
         self.events.push(Event::PointerMoved(position));
         self.frame();
         self.built();
@@ -1480,6 +1545,7 @@ impl Harness {
             .map(|(id, _)| *id)
             .collect();
         let mut index = 0;
+
         while let Some(parent) = hidden.get(index).copied() {
             if let Some((_, node)) = self.accessible.iter().find(|(id, _)| *id == parent) {
                 hidden.extend_from_slice(node.children());
@@ -1541,6 +1607,7 @@ fn collect_texts(
                 .map(|section| section.format.color)
                 .filter(|color| *color != Color32::PLACEHOLDER)
                 .unwrap_or(text.fallback_color);
+
             colors.push((shown.clone(), color));
             texts.push((shown, rect));
         }
@@ -1558,6 +1625,7 @@ fn write_drawing(path: &Path, units: Option<i64>, entities: &str) {
         format!("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n{units}\n0\nENDSEC\n")
     });
     let text = format!("{header}0\nSECTION\n2\nENTITIES\n{entities}0\nENDSEC\n0\nEOF\n");
+
     std::fs::write(path, text).unwrap();
 }
 
@@ -1596,10 +1664,12 @@ fn cube_stl(side: f64) -> String {
         [3, 4, 7],
     ];
     let mut text = "solid cube\n".to_owned();
+
     for triangle in triangles {
         text.push_str("facet normal 0 0 0\nouter loop\n");
         for corner in triangle {
             let [x, y, z] = corners[corner];
+
             text.push_str(&format!("vertex {x} {y} {z}\n"));
         }
         text.push_str("endloop\nendfacet\n");
@@ -1617,6 +1687,7 @@ fn damage_chunk(bytes: &[u8], chunk: usize) -> Vec<u8> {
         .collect();
     let end = starts.get(chunk + 1).copied().unwrap_or(bytes.len());
     let mut damaged = bytes.to_vec();
+
     damaged[end - 1] ^= 0x55;
     damaged
 }
@@ -1643,13 +1714,16 @@ fn line_ends(sketch: &Sketch, line: EntityId) -> (EntityId, EntityId) {
 
 fn only_constraint(sketch: &Sketch) -> (caditor_sketch::ConstraintId, Constraint) {
     let mut constraints = sketch.constraints();
+
     let (id, constraint) = constraints.next().unwrap();
+
     assert!(constraints.next().is_none());
     (id, constraint.clone())
 }
 
 fn edit_base_sketch(harness: &mut Harness) -> FeatureId {
     let base = harness.document().features().next().unwrap().id();
+
     harness.edit(base);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
@@ -1725,7 +1799,9 @@ fn aligned_point_pairs(sketch: &Sketch) -> Vec<Constraint> {
 
 fn refused(harness: &mut Harness, text: &str, refusal: Refusal) {
     type_point(harness, text);
+
     assert!(harness.shows(refusal.reason()), "{text}");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
 }
@@ -1742,6 +1818,7 @@ fn radii(sketch: &Sketch, kind: &str) -> Vec<f64> {
             _ => sketch.arc(curve).unwrap().radius,
         })
         .collect();
+
     radii.sort_by(f64::total_cmp);
     radii
 }
@@ -1826,19 +1903,23 @@ fn distance_of(harness: &Harness, feature: FeatureId) -> String {
 
 fn extruded_plate(harness: &mut Harness) -> (FeatureId, Pickable) {
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrude = harness
         .workspace
         .editing
         .solid()
         .expect("the extrusion is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let top = harness
         .built()
         .picks
@@ -1901,6 +1982,7 @@ fn drag_path(harness: &mut Harness, path: &[Pos2]) {
     let (Some(first), Some(last)) = (path.first().copied(), path.last().copied()) else {
         return;
     };
+
     harness.events.push(Event::PointerMoved(first));
     harness.frame();
     harness.events.push(Event::PointerButton {
@@ -1961,6 +2043,7 @@ fn drag_value_arrow(
 ) -> f64 {
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let from = harness
         .workspace
         .viewport
@@ -1972,6 +2055,7 @@ fn drag_value_arrow(
         .handle_position(Handle::Value(measured), along)
         .unwrap();
     let step = harness.workspace.viewport.manipulator_step().unwrap();
+
     drag_screen(harness, from, to);
     harness.frame();
     harness.settle();
@@ -2009,12 +2093,15 @@ fn move_of(harness: &Harness, movement: FeatureId) -> caditor_document::Move {
 
 fn add_peg(harness: &mut Harness) -> FeatureId {
     let mut outline = Sketch::new(Plane::XY);
+
     rectangle(
         &mut outline,
         Point2::new(30.0, 10.0),
         Point2::new(60.0, 30.0),
     );
+
     let mut transaction = harness.document().transaction("Add a peg");
+
     let sketch = transaction.add_feature("Peg sketch", FeatureKind::from(outline));
     let peg = transaction.add_feature(
         "Peg",
@@ -2030,6 +2117,7 @@ fn add_peg(harness: &mut Harness) -> FeatureId {
             direction: None,
         })),
     );
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
     peg
@@ -2039,12 +2127,16 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
     let mut transaction = harness.document().transaction("Nearly touching blocks");
     let mut bodies = Vec::new();
     let mut plate = Sketch::new(Plane::XY);
+
     rectangle(&mut plate, Point2::new(0.0, 0.0), Point2::new(20.0, 10.0));
     plate.add_circle(Point2::new(10.0, 5.0), 2.5);
+
     let mut peg = Sketch::new(Plane::XY);
+
     peg.add_circle(Point2::new(9.99999942597485, 5.000001385819298), 2.500001);
     for (name, outline) in [("Plate", plate), ("Peg", peg)] {
         let sketch = transaction.add_feature(format!("{name} sketch"), FeatureKind::from(outline));
+
         bodies.push(transaction.add_feature(
             name,
             FeatureKind::Solid(SolidFeature::Extrude(caditor_document::Extrude {
@@ -2060,6 +2152,7 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
             })),
         ));
     }
+
     let combine = transaction.add_feature(
         "Combine 1",
         FeatureKind::Combine(caditor_document::Combine::new(
@@ -2068,6 +2161,7 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
             caditor_document::CombineOperation::Cut,
         )),
     );
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
     combine
@@ -2089,6 +2183,7 @@ fn plate_bounds(
 
 fn extruded(harness: &mut Harness, min: Point2, max: Point2) -> FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, min, max);
     harness.add_sketch(sketch);
     harness.select([]);
@@ -2193,10 +2288,15 @@ fn open_menus(harness: &Harness) -> Vec<Rect> {
 
 fn sample_document() -> anyhow::Result<Document> {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Sample model");
+
     let width = transaction.parse("40 mm")?;
+
     transaction.add_parameter("width", width);
+
     let height = transaction.parse("width / 2")?;
+
     transaction.add_parameter("height", height);
 
     let base = dimensioned_line(
@@ -2205,13 +2305,16 @@ fn sample_document() -> anyhow::Result<Document> {
         Constraint::Horizontal,
         transaction.parse("width")?,
     )?;
+
     transaction.add_feature("Base sketch", FeatureKind::from(base));
+
     let side = dimensioned_line(
         Plane::XZ,
         Point2::new(0.0, 20.0),
         Constraint::Vertical,
         transaction.parse("height")?,
     )?;
+
     transaction.add_feature("Side sketch", FeatureKind::from(side));
 
     document.apply(transaction.finish())?;
@@ -2225,7 +2328,9 @@ fn dimensioned_line(
     value: Expression,
 ) -> anyhow::Result<Sketch> {
     let mut sketch = Sketch::new(plane);
+
     let line = sketch.add_line(Point2::ZERO, end);
+
     sketch.add_constraint(direction(line))?;
     if let Some((from, to)) = endpoints(&sketch, line) {
         sketch.add_constraint(Constraint::Distance { from, to, value })?;
@@ -2269,6 +2374,7 @@ fn feature_named(harness: &Harness, name: &str) -> FeatureId {
 
 fn assert_readable(harness: &Harness, screen: &str) {
     let unreadable = harness.unreadable_nodes();
+
     assert!(
         unreadable.is_empty(),
         "{screen} exposes glyphs or unnamed buttons: {unreadable:#?}"
@@ -2287,6 +2393,7 @@ fn drag_screen(harness: &mut Harness, from: Pos2, to: Pos2) {
     harness.frame();
     for step in 1..=4 {
         let position = from + (to - from) * (step as f32 / 4.0);
+
         harness.events.push(Event::PointerMoved(position));
         harness.frame();
     }
@@ -2324,11 +2431,14 @@ fn open_combo(harness: &mut Harness, caption: &str) {
         harness.frame();
     }
     harness.hold_still();
+
     let mut center = combo_centre(harness, caption);
+
     harness.events.push(Event::PointerMoved(center));
     harness.hold_still();
     for _ in 0..STILL_FRAMES {
         let settled = combo_centre(harness, caption);
+
         if settled == center {
             break;
         }
@@ -2375,6 +2485,7 @@ fn extrusion_above_plate(harness: &mut Harness, height: f64) -> FeatureId {
     )
     .unwrap();
     let mut profile = Sketch::new(plane);
+
     rectangle(
         &mut profile,
         Point2::new(10.0, 10.0),
@@ -2427,12 +2538,14 @@ fn rows_named(harness: &Harness, label: &str) -> Vec<Rect> {
         .filter(|(shown, _)| shown == label)
         .map(|(_, rect)| *rect)
         .collect();
+
     rows.sort_by(|a, b| a.min.y.total_cmp(&b.min.y));
     rows
 }
 
 fn edit_free_sketch(harness: &mut Harness, sketch: Sketch) -> FeatureId {
     let feature = harness.add_sketch(sketch);
+
     harness.edit(feature);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
@@ -2450,6 +2563,7 @@ fn drag_in_sketch(harness: &mut Harness, from: Pos2, to: Point2) {
     for step in 1..=4 {
         let target = harness.on_screen(to);
         let position = from + (target - from) * (step as f32 / 4.0);
+
         harness.events.push(Event::PointerMoved(position));
         harness.frame();
     }
@@ -2475,6 +2589,7 @@ fn click_window_button(harness: &mut Harness, glyph: &str) {
         .map(|(_, rect)| rect.center())
         .max_by(|a, b| a.x.total_cmp(&b.x))
         .unwrap_or_else(|| panic!("'{glyph}' is not in the title bar"));
+
     harness.click_screen(position);
     harness.show_new_windows();
 }
@@ -2518,7 +2633,9 @@ fn painted_faces(harness: &mut Harness, colour: caditor_render::Color) -> usize 
 
 fn add_block(harness: &mut Harness, name: &str, corners: [Point2; 2], height: &str) -> FeatureId {
     let mut transaction = harness.document().transaction(format!("Add {name}"));
+
     let block = block_into(&mut transaction, name, corners, height);
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
     block
@@ -2531,7 +2648,9 @@ fn block_into(
     height: &str,
 ) -> FeatureId {
     let mut outline = Sketch::new(Plane::XY);
+
     rectangle(&mut outline, corners[0], corners[1]);
+
     let sketch = transaction.add_feature(format!("{name} sketch"), FeatureKind::from(outline));
     transaction.add_feature(
         name,
@@ -2551,6 +2670,7 @@ fn block_into(
 
 fn click_with(harness: &mut Harness, label: &str, modifiers: Modifiers) {
     let position = harness.position_of(label);
+
     harness.events.push(Event::ModifiersChanged(modifiers));
     harness.events.push(Event::PointerMoved(position));
     harness.frame();
@@ -2581,6 +2701,7 @@ fn hold_drag(harness: &mut Harness, from: Pos2, to: Pos2) {
     harness.frame();
     for step in 1..=6 {
         let position = from + (to - from) * (step as f32 / 6.0);
+
         harness.events.push(Event::PointerMoved(position));
         harness.frame();
     }
@@ -2604,14 +2725,18 @@ fn radii_of_circles(sketch: &Sketch) -> Vec<f64> {
         .filter_map(|circle| sketch.circle(circle))
         .map(|(_, radius)| radius)
         .collect();
+
     radii.sort_by(f64::total_cmp);
     radii
 }
 
 fn mirror_fixture() -> (Sketch, EntityId, EntityId, EntityId) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let mirror = sketch.add_line(Point2::new(0.0, -30.0), Point2::new(0.0, 30.0));
+
     sketch.set_construction(mirror, true).unwrap();
+
     let line = sketch.add_line(Point2::new(5.0, 0.0), Point2::new(15.0, 10.0));
     let circle = sketch.add_circle(Point2::new(10.0, -10.0), 3.0);
     (sketch, mirror, line, circle)
@@ -2629,6 +2754,7 @@ fn viewport_centre(harness: &Harness) -> Pos2 {
 
 fn laptop_harness() -> Harness {
     let mut harness = Harness::new();
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::InputMode(InputMode::Laptop),
     )));
@@ -2721,6 +2847,7 @@ fn open_hole_on(harness: &mut Harness, face: Pickable) -> FeatureId {
 
 fn extruded_shaft(harness: &mut Harness) -> Pickable {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_circle(Point2::new(20.0, 20.0), 4.0);
     harness.add_sketch(sketch);
     harness.select([]);

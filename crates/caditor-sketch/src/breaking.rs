@@ -7,7 +7,7 @@ use crate::{
     trim::TrimError,
 };
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum BreakError {
     #[error("select the lines, arcs, elliptical arcs and splines to break")]
     NothingSelected,
@@ -51,7 +51,7 @@ impl BreakError {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Broken {
     pub curves: usize,
     pub pieces: Vec<EntityId>,
@@ -60,7 +60,9 @@ pub struct Broken {
 impl Sketch {
     pub fn break_curve(&mut self, curve: EntityId) -> Result<Vec<EntityId>, BreakError> {
         let mut working = self.clone();
+
         let pieces = working.break_at_crossings(curve)?;
+
         if pieces.is_empty() {
             return Err(BreakError::NoCrossing {
                 entity: curve,
@@ -83,8 +85,10 @@ impl Sketch {
         if curves.is_empty() {
             return Err(BreakError::NothingSelected);
         }
+
         let mut working = self.clone();
         let mut broken = Broken::default();
+
         for curve in curves {
             match working.break_at_crossings(*curve) {
                 Ok(pieces) if pieces.is_empty() => {}
@@ -109,6 +113,7 @@ impl Sketch {
             Some(Entity::Spline { kind, .. }) => Some(kind.clone()),
             _ => None,
         };
+
         let cuts = match self.open_cuts(curve) {
             Ok(Some(cuts)) => cuts,
             Ok(None) if spline.is_some() => {
@@ -127,6 +132,7 @@ impl Sketch {
         };
         let mut pieces = Vec::new();
         let mut remaining = curve;
+
         for cut in &cuts {
             let existing = cut
                 .point
@@ -136,11 +142,13 @@ impl Sketch {
                 Some(point) => point,
                 None => {
                     let point = self.add_point(cut.position);
+
                     self.add_constraint(Constraint::Coincident(point, cut.cutter))
                         .map_err(BreakError::Edit)?;
                     point
                 }
             };
+
             remaining = self.split_at(remaining, point).map_err(BreakError::Split)?;
             pieces.push(remaining);
         }

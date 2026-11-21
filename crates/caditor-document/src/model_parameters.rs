@@ -11,7 +11,7 @@ use crate::{
 
 pub const MAX_VALUE_LABEL_CHARS: usize = 120;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParameterOwner {
     Feature {
         feature: FeatureId,
@@ -43,6 +43,7 @@ impl ParameterOwner {
             Self::Feature { feature, value } => {
                 let value = value_label(&value);
                 let length = value.chars().count();
+
                 if length > MAX_VALUE_LABEL_CHARS {
                     return Err(EditError::ValueLabelTooLong(length));
                 }
@@ -107,22 +108,28 @@ impl Document {
                     .is_some_and(Parameter::is_model_parameter)
             })
             .collect();
+
         if pending.is_empty() {
             return transaction;
         }
+
         let mut after = self.clone();
+
         if after.apply(transaction.clone()).is_err() {
             return transaction;
         }
         pending.retain(|id| after.parameter(*id).is_some());
+
         let (label, mut edits) = transaction.into_parts();
         let mut refused = BTreeSet::new();
+
         loop {
             let unused: Vec<ParameterId> = pending
                 .iter()
                 .filter(|id| !refused.contains(*id) && after.parameter_user_ids(**id).is_empty())
                 .copied()
                 .collect();
+
             if unused.is_empty() {
                 break;
             }
@@ -165,9 +172,11 @@ impl Document {
                     | None => None,
                 })
                 .collect();
+
         if owned.is_empty() {
             return transaction;
         }
+
         let held: Vec<(&str, ParameterId)> = fields
             .into_iter()
             .filter_map(|(caption, expression)| match expression {
@@ -178,12 +187,14 @@ impl Document {
 
         let (label, mut edits) = transaction.into_parts();
         let mut dropped = Vec::new();
+
         for (id, caption) in owned {
             let captions: Vec<&str> = held
                 .iter()
                 .filter(|(_, holding)| *holding == id)
                 .map(|(caption, _)| *caption)
                 .collect();
+
             if captions.contains(&caption) {
                 continue;
             }
@@ -198,15 +209,19 @@ impl Document {
                 None => dropped.push(id),
             }
         }
+
         let carried = Transaction::new(label, edits);
+
         if dropped.is_empty() {
             return carried;
         }
 
         let mut after = self.clone();
+
         if after.apply(carried.clone()).is_err() {
             return carried;
         }
+
         let unused: Vec<ParameterId> = dropped
             .into_iter()
             .filter(|id| {
@@ -253,6 +268,7 @@ impl Document {
 impl Transaction {
     pub fn substituting(self, from: &Expression, to: &Expression) -> (Self, usize) {
         let mut count = 0;
+
         let mut replace = |expression: &mut Expression| {
             if expression == from {
                 *expression = to.clone();
@@ -260,6 +276,7 @@ impl Transaction {
             }
         };
         let (label, mut edits) = self.into_parts();
+
         for edit in &mut edits {
             match edit {
                 Edit::SetFeatureKind { kind, .. } => {

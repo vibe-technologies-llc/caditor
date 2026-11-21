@@ -22,7 +22,7 @@ use crate::{
 
 pub const TITLE: &str = "Replace face";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ReplaceToolError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -42,7 +42,7 @@ impl Reason for ReplaceToolError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ReplaceSourceError {
     #[error(transparent)]
     Faces(#[from] FaceToolError),
@@ -66,7 +66,7 @@ impl Reason for ReplaceSourceError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReplaceSource {
     pub faces: FaceSource,
     pub target: Option<PlaneReference>,
@@ -88,6 +88,7 @@ fn chosen_target(
     if let Some(flat) = datum_tools::chosen_plane(model, selection, index)? {
         return Ok(Some(flat.plane));
     }
+
     let round: Vec<PlaneReference> = selection
         .iter()
         .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
@@ -115,6 +116,7 @@ struct Picked {
 
 fn by_body(picks: &[Pickable]) -> Vec<Picked> {
     let mut groups: Vec<Picked> = Vec::new();
+
     for pickable in picks {
         let Pickable::Face { body, face } = *pickable else {
             continue;
@@ -149,25 +151,31 @@ pub fn selected_faces(
     };
     let picks = selection.in_pick_order();
     let mut groups = by_body(&picks).into_iter();
+
     let replaced = groups.next().ok_or(no_faces)?;
     let mut targets: Vec<Pickable> = groups.flat_map(|group| group.picks).collect();
+
     targets.extend(
         picks
             .iter()
             .copied()
             .filter(|pickable| is_plane_pick(*pickable)),
     );
+
     let mut left_out: Vec<Pickable> = picks
         .iter()
         .copied()
         .filter(|pickable| !is_plane_pick(*pickable) && !matches!(pickable, Pickable::Face { .. }))
         .collect();
+
     bodies::shown(model.evaluation(), replaced.body).ok_or(no_faces)?;
+
     let target = match targets.as_slice() {
         [] => None,
         [only] => {
             let index = model.document().bar_index();
             let found = target_reference(model, *only, index);
+
             if found.is_none() {
                 left_out.push(*only);
             }
@@ -192,16 +200,20 @@ pub fn create(
 ) -> Result<(Transaction, FeatureId), FaceToolError> {
     let chosen = &source.faces;
     let shown = bodies::shown(evaluation, chosen.body).ok_or(FaceToolError::NoShape)?;
+
     let faces: Vec<FaceReference> = chosen
         .faces
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
+
     if faces.len() < chosen.faces.len() {
         return Err(FaceToolError::FacesGone);
     }
+
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::ReplaceFace(ReplaceFace {
@@ -288,6 +300,7 @@ pub fn plane_change(
     let plane = chosen_target(model, selection, index)
         .map_err(ReplaceToolError::ChosenPlane)?
         .ok_or(ReplaceToolError::NoPlane)?;
+
     if replace.target.as_ref() == Some(&plane) {
         return Err(ReplaceToolError::AlreadyPlane);
     }
@@ -317,6 +330,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let clicked = bodies::find_face(input, face)?;
     let solid = &input.solid;
     let mut changed = replace.clone();
+
     changed.faces = replace
         .faces
         .iter()
@@ -324,6 +338,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
         .filter(|(_, resolution)| !resolution.found().contains(&clicked))
         .map(|(reference, _)| reference.clone())
         .collect();
+
     let label = if changed.faces.len() == replace.faces.len() {
         changed.faces.push(FaceReference::capture(solid, clicked)?);
         format!("Replace a face with {}", owner.name)
@@ -348,12 +363,15 @@ pub fn with_selected_faces(
     let replace = owner.kind.replace_face()?;
     let input = bodies::input(model.evaluation(), feature)?;
     let solid = &input.solid;
+
     let mut taken = chosen(solid, replace);
     let mut changed = replace.clone();
+
     for pickable in selection.iter() {
         let Pickable::Face { body, face } = pickable else {
             continue;
         };
+
         let Some(found) = (body == replace.body)
             .then(|| bodies::find_face(input, face))
             .flatten()
@@ -361,6 +379,7 @@ pub fn with_selected_faces(
         else {
             continue;
         };
+
         changed.faces.push(FaceReference::capture(solid, found)?);
         taken.insert(found);
     }

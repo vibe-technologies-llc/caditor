@@ -30,7 +30,7 @@ const PARALLEL_CROSS: f64 = 1e-12;
 const EXTENSION_BISECTIONS: usize = 60;
 const POLL_EVERY: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CurveCurvePoint<P> {
     pub first: f64,
     pub second: f64,
@@ -38,14 +38,14 @@ pub struct CurveCurvePoint<P> {
     pub tangent: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CurveCurveOverlap {
     pub first: Interval,
     pub second_start: f64,
     pub second_end: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CurveCurveIntersection<P> {
     pub points: Vec<CurveCurvePoint<P>>,
     pub overlaps: Vec<CurveCurveOverlap>,
@@ -60,7 +60,7 @@ impl<P> Default for CurveCurveIntersection<P> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Candidate {
     Pair {
         first: f64,
@@ -134,20 +134,26 @@ impl Traceable for Curve {
         let (Curve::Line(a), Curve::Line(b)) = (first, second) else {
             return None;
         };
+
         let (da, db) = (a.direction(), b.direction());
         let offset = b.origin() - a.origin();
+
         let cross = da.cross(db);
         let denominator = cross.length_squared();
+
         if denominator <= PARALLEL_CROSS * PARALLEL_CROSS {
             let apart = offset - da * offset.dot(da);
+
             return Some(if apart.length() <= TOLERANCE {
                 vec![Candidate::Along(first_range)]
             } else {
                 Vec::new()
             });
         }
+
         let s = offset.cross(db).dot(cross) / denominator;
         let t = offset.cross(da).dot(cross) / denominator;
+
         let hit = first_range.contains(s)
             && second_range.contains(t)
             && a.point(s).distance(b.point(t)) <= TOLERANCE;
@@ -173,6 +179,7 @@ fn pair_from_point(
 ) -> Option<Candidate> {
     let s = first.closest_parameter(point, first_range);
     let t = second.closest_parameter(point, second_range);
+
     let close =
         first.point(s).distance(point) <= TOLERANCE && second.point(t).distance(point) <= TOLERANCE;
     close.then_some(Candidate::Pair {
@@ -235,14 +242,17 @@ impl Traceable for Curve2 {
             (Curve2::Line(a), Curve2::Line(b)) => {
                 let cross = a.direction().perp_dot(b.direction());
                 let offset = b.origin() - a.origin();
+
                 if cross.abs() <= PARALLEL_CROSS {
                     let apart = offset.perp_dot(a.direction()).abs();
+
                     return Some(if apart <= TOLERANCE {
                         vec![Candidate::Along(first_range)]
                     } else {
                         Vec::new()
                     });
                 }
+
                 let s = offset.perp_dot(b.direction()) / cross;
                 vec![(a.point(s), false)]
             }
@@ -256,6 +266,7 @@ impl Traceable for Curve2 {
             (Curve2::Circle(a), Curve2::Circle(b)) => {
                 let apart = a.center().distance(b.center());
                 let (ra, rb) = (a.radius(), b.radius());
+
                 if apart <= TOLERANCE {
                     return Some(if (ra - rb).abs() <= TOLERANCE {
                         vec![Candidate::Along(first_range)]
@@ -263,6 +274,7 @@ impl Traceable for Curve2 {
                         Vec::new()
                     });
                 }
+
                 let axis = (b.center() - a.center()) / apart;
                 let along = (apart * apart + ra * ra - rb * rb) / (2.0 * apart);
                 let touching = (apart - (ra + rb)).abs() <= TOLERANCE
@@ -345,6 +357,7 @@ impl<C: Traceable> Pair<'_, C> {
     fn sine(&self, first: f64, second: f64) -> f64 {
         let [_, a, _] = self.first.evaluate(first);
         let [_, b, _] = self.second.evaluate(second);
+
         let angle = angle_between(a, b);
         angle.sin_libm().abs()
     }
@@ -354,9 +367,11 @@ impl<C: Traceable> Pair<'_, C> {
         let second = self.second.nearest(point, self.second_range);
         let bend = |[_, tangent, curvature]: [C::Point; 3]| {
             let speed = tangent.dot(tangent);
+
             if speed <= f64::MIN_POSITIVE {
                 return None;
             }
+
             let along = tangent * (tangent.dot(curvature) / speed);
             Some((curvature - along) * (1.0 / speed))
         };
@@ -400,6 +415,7 @@ fn turn<C: Traceable>(curve: &C, range: Interval) -> f64 {
 
 fn halves(range: Interval) -> Option<(Interval, Interval)> {
     let middle = range.middle();
+
     if middle <= range.start() || middle >= range.end() {
         return None;
     }
@@ -413,27 +429,34 @@ fn general<C: Traceable>(pair: &Pair<C>) -> Result<Vec<Candidate>, IntersectionE
     let mut pending = vec![(pair.first_range, pair.second_range, 0usize)];
     let mut candidates = Vec::new();
     let mut visited = 0usize;
+
     while let Some((a, b, depth)) = pending.pop() {
         interrupt::check()?;
         visited += 1;
         if visited > MAX_PAIRS {
             return Err(IntersectionError::TooComplex(MAX_PAIRS));
         }
+
         let [a_min, a_max] = pair.first.range_bounds(a);
         let [b_min, b_max] = pair.second.range_bounds(b);
+
         let low = a_min.component_max(b_min);
         let high = a_max.component_min(b_max);
+
         if (high - low).min_component() < -TOLERANCE {
             continue;
         }
+
         let a_size = a_min.distance_to(a_max);
         let b_size = b_min.distance_to(b_max);
         let a_flat = a_size <= TINY_LEAF || turn(pair.first, a) <= LEAF_TURN;
         let b_flat = b_size <= TINY_LEAF || turn(pair.second, b) <= LEAF_TURN;
+
         if (a_flat && b_flat) || depth >= MAX_DEPTH {
             candidates.extend(solve_leaf(pair, a, b));
             continue;
         }
+
         let split_first = !a_flat && (b_flat || a_size >= b_size);
         let halves = if split_first { halves(a) } else { halves(b) };
         match halves {
@@ -458,17 +481,22 @@ fn solve_leaf<C: Traceable>(pair: &Pair<C>, a: Interval, b: Interval) -> Vec<Can
         let [projected, _, _] = pair.second.evaluate(other);
         point.distance_to(projected) <= ON_CURVE
     });
+
     if on_other {
         return vec![Candidate::Along(a)];
     }
+
     let mut found: Vec<(f64, f64, C::Point)> = Vec::new();
+
     for start in [a.middle(), a.start(), a.end()] {
         let [point, _, _] = pair.first.evaluate(start);
         let other = pair.second.nearest(point, b);
         let (s, t, gap) = newton(pair.first, a, pair.second, b, start, other);
+
         if gap > TOLERANCE {
             continue;
         }
+
         let [at, _, _] = pair.first.evaluate(s);
         if found
             .iter()
@@ -501,44 +529,56 @@ fn newton<C: Traceable>(
         a.distance_to(b)
     };
     let (mut s, mut t) = (s, t);
+
     let mut current = distance(s, t);
+
     for _ in 0..MAX_NEWTON {
         if current == 0.0 {
             break;
         }
+
         let [pa, da, sa] = first.evaluate(s);
         let [pb, db, sb] = second.evaluate(t);
+
         let difference = pa - pb;
         let gradient = (da.dot(difference), -db.dot(difference));
         let cross = -da.dot(db);
+
         let full = (
             da.dot(da) + sa.dot(difference),
             cross,
             db.dot(db) - sb.dot(difference),
         );
         let plain = (da.dot(da), cross, db.dot(db));
+
         let Some((ds, dt)) = solve_2x2(full, gradient).or_else(|| solve_2x2(plain, gradient))
         else {
             break;
         };
         let mut scale = 1.0;
         let mut accepted = None;
+
         for _ in 0..MAX_HALVINGS {
             let (ns, nt) = (
                 first_range.clamp(s + ds * scale),
                 second_range.clamp(t + dt * scale),
             );
+
             let value = distance(ns, nt);
+
             if value < current {
                 accepted = Some((ns, nt, value));
                 break;
             }
             scale *= 0.5;
         }
+
         let Some((ns, nt, value)) = accepted else {
             break;
         };
+
         let moved = (ns - s).abs() + (nt - t).abs();
+
         s = ns;
         t = nt;
         current = value;
@@ -552,9 +592,11 @@ fn newton<C: Traceable>(
 fn solve_2x2((a, b, c): (f64, f64, f64), (g, h): (f64, f64)) -> Option<(f64, f64)> {
     let determinant = a * c - b * b;
     let scale = a.abs().max(c.abs()).max(b.abs());
+
     if a <= 0.0 || determinant <= 1e-14 * scale * scale || !determinant.is_finite() {
         return None;
     }
+
     let step = (
         -(c * g - b * h) / determinant,
         -(a * h - b * g) / determinant,
@@ -586,9 +628,12 @@ fn extend<C: Traceable>(pair: &Pair<C>, inside: f64, limit: f64) -> f64 {
     if pair.gap(limit) <= TOLERANCE && connected(pair, inside, limit) {
         return limit;
     }
+
     let (mut inside, mut outside) = (inside, limit);
+
     for _ in 0..EXTENSION_BISECTIONS {
         let middle = 0.5 * (inside + outside);
+
         if middle == inside || middle == outside {
             break;
         }
@@ -603,6 +648,7 @@ fn extend<C: Traceable>(pair: &Pair<C>, inside: f64, limit: f64) -> f64 {
 
 fn end_candidates<C: Traceable>(pair: &Pair<C>) -> Vec<Candidate> {
     let mut ends = Vec::new();
+
     for first in [pair.first_range.start(), pair.first_range.end()] {
         let [point, _, _] = pair.first.evaluate(first);
         let second = pair.second.nearest(point, pair.second_range);
@@ -633,6 +679,7 @@ fn cluster_low(cluster: &[Candidate]) -> f64 {
 fn distinct<C: Traceable>(curve: &C, cluster: &[Candidate]) -> usize {
     let mut spots: Vec<C::Point> = Vec::new();
     let mut count = 0;
+
     for candidate in cluster {
         match candidate {
             Candidate::Along(_) => count += 1,
@@ -690,7 +737,9 @@ fn finish<C: Traceable>(
         candidate.low() >= pair.first_range.start() && candidate.high() <= pair.first_range.end()
     });
     candidates.sort_by(|a, b| a.low().total_cmp(&b.low()));
+
     let mut clusters: Vec<Vec<Candidate>> = Vec::new();
+
     for (index, candidate) in candidates.into_iter().enumerate() {
         poll_now_and_then(index)?;
         match clusters.last_mut() {
@@ -703,17 +752,22 @@ fn finish<C: Traceable>(
             _ => clusters.push(vec![candidate]),
         }
     }
+
     let mut result = CurveCurveIntersection::default();
+
     for (index, cluster) in clusters.iter().enumerate() {
         poll_now_and_then(index)?;
+
         let (low, high) = (cluster_low(cluster), cluster_high(cluster));
         let along = cluster
             .iter()
             .any(|candidate| matches!(candidate, Candidate::Along(_)));
         let genuine = distinct(pair.first, cluster);
+
         let span = Interval::new(low, high).map_or(0.0, |span| pair.first.span_length(span));
         let overlap =
             span > MIN_OVERLAP && (along || (genuine >= 2 && overlap_like(pair, low, high)));
+
         if overlap {
             let previous = index
                 .checked_sub(1)
@@ -724,6 +778,7 @@ fn finish<C: Traceable>(
                 .map_or(pair.first_range.end(), |cluster| cluster_low(cluster));
             let start = extend(pair, low, previous);
             let end = extend(pair, high, next);
+
             let Some(extent) = Interval::new(start, end) else {
                 continue;
             };
@@ -744,6 +799,7 @@ fn finish<C: Traceable>(
                     })
                     .unwrap_or(parameter)
             };
+
             for piece in inside_intervals(
                 extent,
                 CLIP_SAMPLES,
@@ -759,6 +815,7 @@ fn finish<C: Traceable>(
                 };
                 if pair.first.span_length(piece) <= MIN_OVERLAP {
                     let [point, _, _] = pair.first.evaluate(piece.start());
+
                     result.points.push(CurveCurvePoint {
                         first: piece.start(),
                         second: second_of(piece.start()),
@@ -775,6 +832,7 @@ fn finish<C: Traceable>(
             }
             continue;
         }
+
         let end = cluster.iter().find_map(|candidate| match candidate {
             Candidate::End { first, second } => Some((*first, *second)),
             _ => None,
@@ -802,17 +860,21 @@ fn finish<C: Traceable>(
                 }
             })
             .min_by(|a, b| pair.apart(*a).total_cmp(&pair.apart(*b)));
+
         let Some((first, second)) = end.or(touch).or(any) else {
             continue;
         };
+
         let (first, second) = if end.is_some() {
             exact_ends(pair, cluster, (first, second))
         } else {
             (first, second)
         };
         let [point, _, _] = pair.first.evaluate(first);
+
         let tangent =
             genuine >= 2 || touch.is_some() || along || pair.sine(first, second) <= TANGENT_SINE;
+
         result.points.push(CurveCurvePoint {
             first,
             second,
@@ -820,7 +882,9 @@ fn finish<C: Traceable>(
             tangent,
         });
     }
+
     let overlaps = result.overlaps.clone();
+
     result.points.retain(|point| {
         !overlaps
             .iter()
@@ -841,6 +905,7 @@ fn range_end_seeds<C: Traceable>(pair: &Pair<C>, extent: Interval) -> Vec<f64> {
     if full_period(pair.second, pair.second_range) {
         return Vec::new();
     }
+
     let mut feet: Vec<f64> = [pair.second_range.start(), pair.second_range.end()]
         .into_iter()
         .map(|end| {
@@ -848,7 +913,9 @@ fn range_end_seeds<C: Traceable>(pair: &Pair<C>, extent: Interval) -> Vec<f64> {
             pair.first.nearest(point, extent)
         })
         .collect();
+
     feet.sort_by(f64::total_cmp);
+
     let betweens: Vec<f64> = feet
         .windows(2)
         .filter_map(|neighbours| match neighbours {
@@ -856,6 +923,7 @@ fn range_end_seeds<C: Traceable>(pair: &Pair<C>, extent: Interval) -> Vec<f64> {
             _ => None,
         })
         .collect();
+
     feet.extend(betweens);
     feet
 }

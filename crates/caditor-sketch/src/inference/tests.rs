@@ -42,6 +42,7 @@ fn relates(
 
 fn with(sketch: &Sketch, kept: &Kept) -> Sketch {
     let mut constrained = sketch.clone();
+
     for constraint in &kept.constraints {
         constrained.add_constraint(constraint.clone()).unwrap();
     }
@@ -65,6 +66,7 @@ fn loose_outline(sketch: &mut Sketch, corners: &[Point2]) -> Vec<EntityId> {
 #[test]
 fn a_loose_rectangle_gets_its_joints_and_directions_and_nothing_that_repeats_them() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let sides = loose_outline(
         &mut sketch,
         &[
@@ -96,6 +98,7 @@ fn a_loose_rectangle_gets_its_joints_and_directions_and_nothing_that_repeats_the
 #[test]
 fn a_square_keeps_one_equal_length_beside_its_directions() {
     let mut sketch = Sketch::new(Plane::XY);
+
     loose_outline(
         &mut sketch,
         &[
@@ -115,8 +118,10 @@ fn a_square_keeps_one_equal_length_beside_its_directions() {
 #[test]
 fn a_relation_already_in_the_sketch_is_not_found_again() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(1.0, 2.0), Point2::new(30.0, 2.0));
     let upright = sketch.add_line(Point2::new(40.0, 2.0), Point2::new(40.0, 20.0));
+
     sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
 
     let kept = infer(&sketch);
@@ -127,11 +132,13 @@ fn a_relation_already_in_the_sketch_is_not_found_again() {
 #[test]
 fn a_relation_the_sketch_cannot_hold_is_left_out() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(40.0, 10.2));
     let tilt = sketch
         .line_direction(line)
         .map(|direction| direction.y.atan2(direction.x).to_degrees())
         .unwrap();
+
     sketch
         .add_constraint(Constraint::Angle {
             from: EntityId::HORIZONTAL_AXIS,
@@ -151,8 +158,10 @@ fn a_relation_the_sketch_cannot_hold_is_left_out() {
 #[test]
 fn a_sketch_that_does_not_solve_is_refused() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(40.0, 25.0));
     let (start, end) = ends(&sketch, line);
+
     for value in [10.0, 20.0] {
         sketch
             .add_constraint(Constraint::Distance {
@@ -176,6 +185,7 @@ fn a_sketch_that_does_not_solve_is_refused() {
 #[test]
 fn a_line_leaving_an_arc_along_it_is_tangent_and_so_is_one_grazing_a_circle() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
     let line = sketch.add_line(Point2::new(10.0, 0.001), Point2::new(10.05, -20.0));
     let circle = sketch.add_circle(Point2::new(50.0, 0.0), 5.0);
@@ -191,6 +201,7 @@ fn a_line_leaving_an_arc_along_it_is_tangent_and_so_is_one_grazing_a_circle() {
 #[test]
 fn circles_nearly_sharing_a_centre_are_concentric() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let inner = sketch.add_circle(Point2::new(30.0, 20.0), 4.0);
     let outer = sketch.add_circle(Point2::new(30.002, 20.001), 9.0);
 
@@ -202,6 +213,7 @@ fn circles_nearly_sharing_a_centre_are_concentric() {
 #[test]
 fn circles_mirrored_about_an_axis_are_symmetric_and_equal() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let left = sketch.add_circle(Point2::new(-15.0, 8.0), 3.0);
     let right = sketch.add_circle(Point2::new(15.002, 8.001), 3.001);
 
@@ -211,6 +223,7 @@ fn circles_mirrored_about_an_axis_are_symmetric_and_equal() {
     else {
         panic!("circles have centres");
     };
+
     assert!(kept.constraints.contains(&Constraint::Symmetric {
         first: left_centre,
         second: right_centre,
@@ -228,12 +241,15 @@ fn a_rectangle_centred_on_the_origin_keeps_three_symmetries_and_two_freedoms() {
         Point2::new(20.0, 10.0),
         Point2::new(-20.0, 10.0),
     ];
+
     let sides: Vec<EntityId> = (0..4)
         .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]))
         .collect();
+
     for index in 0..4 {
         let (_, end) = ends(&sketch, sides[index]);
         let (start, _) = ends(&sketch, sides[(index + 1) % 4]);
+
         sketch
             .add_constraint(Constraint::Coincident(end, start))
             .unwrap();
@@ -252,6 +268,7 @@ fn slanted_lines_find_parallels_and_one_right_angle_between_their_directions() {
     let mut sketch = Sketch::new(Plane::XY);
     let direction = Vector2::from_angle(30f64.to_radians());
     let square = direction.perp();
+
     let first = sketch.add_line(Point2::ZERO, direction * 30.0);
     let second = sketch.add_line(
         Point2::new(0.0, 15.0),
@@ -275,6 +292,7 @@ fn slanted_lines_find_parallels_and_one_right_angle_between_their_directions() {
 #[test]
 fn only_the_chosen_kinds_are_found() {
     let mut sketch = Sketch::new(Plane::XY);
+
     loose_outline(
         &mut sketch,
         &[
@@ -297,6 +315,7 @@ fn only_the_chosen_kinds_are_found() {
 #[test]
 fn the_ends_of_one_short_line_are_never_joined_to_each_other() {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(5.0, 5.0), Point2::new(5.001, 5.0));
     sketch.add_line(Point2::new(1.0, 1.0), Point2::new(40.0, 30.0));
 
@@ -315,6 +334,7 @@ fn count_found(found: &[Constraint], kind: RelationKind) -> usize {
 #[test]
 fn a_loosely_drawn_centred_rectangle_settles_where_it_was_drawn() {
     let mut sketch = Sketch::new(Plane::XY);
+
     loose_outline(
         &mut sketch,
         &[

@@ -23,6 +23,7 @@ fn plate_and_block(harness: &mut Harness) -> (FeatureId, Pickable, FeatureId) {
         [Point2::new(60.0, 0.0), Point2::new(80.0, 20.0)],
         "10 mm",
     );
+
     harness.frame();
     (plate, top, block)
 }
@@ -52,12 +53,14 @@ fn notice_text(harness: &Harness) -> String {
 #[test]
 fn a_pattern_refuses_a_lone_axis_and_takes_the_body_of_a_vertex_or_of_the_tree() {
     let mut harness = Harness::new();
+
     let (plate, _, block) = plate_and_block(&mut harness);
     let features = harness.document().features().count();
 
     harness.select([Pickable::Axis(Axis::Y)]);
     harness.click("Linear pattern");
     harness.settle();
+
     let refused = harness.document().features().count() == features;
 
     harness.select([Pickable::Axis(Axis::Y)]);
@@ -65,29 +68,36 @@ fn a_pattern_refuses_a_lone_axis_and_takes_the_body_of_a_vertex_or_of_the_tree()
     harness.frame();
     harness.click("Linear pattern");
     harness.settle();
+
     let from_tree = open_solid(&harness);
     let tree_body = pattern_of(&harness, from_tree).body;
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.perform(Action::Undo);
     harness.settle();
 
     harness.workspace.panels.selected = None;
+
     let corner = super::vertex_at(&harness, plate, caditor_geometry::Point3::ZERO);
+
     harness.select([corner, Pickable::Axis(Axis::Y)]);
     harness.click("Linear pattern");
     harness.settle();
+
     let from_vertex = open_solid(&harness);
 
     assert!(refused);
     assert_eq!(tree_body, plate);
     assert_eq!(pattern_of(&harness, from_vertex).body, plate);
     assert_ne!(pattern_of(&harness, from_vertex).body, block);
+
     let caditor_document::PatternKind::Linear { first, .. } =
         &pattern_of(&harness, from_vertex).kind
     else {
         panic!("a linear pattern was made");
     };
+
     assert_eq!(
         first.axis,
         AxisReference::Principal(caditor_document::PrincipalAxis::Y)
@@ -97,6 +107,7 @@ fn a_pattern_refuses_a_lone_axis_and_takes_the_body_of_a_vertex_or_of_the_tree()
 #[test]
 fn an_edge_naming_the_body_does_not_become_the_pattern_direction() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let edge = Pickable::Edge {
         body: plate,
@@ -106,12 +117,14 @@ fn an_edge_naming_the_body_does_not_become_the_pattern_direction() {
     harness.select([edge, Pickable::Axis(Axis::Z)]);
     harness.click("Circular pattern");
     harness.settle();
+
     let pattern = open_solid(&harness);
 
     let caditor_document::PatternKind::Circular(circular) = &pattern_of(&harness, pattern).kind
     else {
         panic!("a circular pattern was made");
     };
+
     assert_eq!(
         circular.axis,
         Some(AxisReference::Principal(caditor_document::PrincipalAxis::Z))
@@ -121,6 +134,7 @@ fn an_edge_naming_the_body_does_not_become_the_pattern_direction() {
 #[test]
 fn a_body_mirrors_across_its_selected_flat_face_and_two_planes_are_refused() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let bottom = harness
         .built()
@@ -138,9 +152,11 @@ fn a_body_mirrors_across_its_selected_flat_face_and_two_planes_are_refused() {
         &selection_of([top, Pickable::Plane(PrincipalPlane::Xz)]),
         (&[], &[]),
     );
+
     harness.select([top]);
     harness.click("Mirror body");
     harness.settle();
+
     let mirror = harness
         .workspace
         .editing
@@ -174,6 +190,7 @@ fn a_body_mirrors_across_its_selected_flat_face_and_two_planes_are_refused() {
 
 fn selection_of(items: impl IntoIterator<Item = Pickable>) -> Selection {
     let mut selection = Selection::default();
+
     selection.extend(items);
     selection
 }
@@ -181,6 +198,7 @@ fn selection_of(items: impl IntoIterator<Item = Pickable>) -> Selection {
 #[test]
 fn remove_body_takes_the_body_chosen_in_the_tree_after_faces_of_another() {
     let mut harness = Harness::new();
+
     let (plate, top, block) = plate_and_block(&mut harness);
 
     harness.select([top]);
@@ -196,6 +214,7 @@ fn remove_body_takes_the_body_chosen_in_the_tree_after_faces_of_another() {
 #[test]
 fn two_bodies_chosen_in_the_tree_are_combined() {
     let mut harness = Harness::new();
+
     let (plate, _, block) = plate_and_block(&mut harness);
 
     harness.select([]);
@@ -203,6 +222,7 @@ fn two_bodies_chosen_in_the_tree_are_combined() {
     harness.frame();
     harness.click("Combine");
     harness.settle();
+
     let combine = open_solid(&harness);
 
     let definition = harness
@@ -211,18 +231,23 @@ fn two_bodies_chosen_in_the_tree_are_combined() {
         .and_then(|feature| feature.kind.combine())
         .cloned()
         .expect("a combine was made");
+
     assert_eq!((definition.body, definition.tool), (plate, block));
 }
 
 #[test]
 fn a_hole_and_an_extrusion_of_a_principal_plane_sketch_go_into_the_selected_body() {
     let mut harness = Harness::new();
+
     let (plate, top, block) = plate_and_block(&mut harness);
     let mut points = Sketch::new(Plane::XY);
+
     let point = points.add_point(Point2::new(20.0, 20.0));
     let drilled = harness.add_sketch(points);
     let mut boss = Sketch::new(Plane::XY);
+
     rectangle(&mut boss, Point2::new(10.0, 10.0), Point2::new(20.0, 20.0));
+
     let boss = harness.add_sketch(boss);
 
     harness.select([
@@ -234,6 +259,7 @@ fn a_hole_and_an_extrusion_of_a_principal_plane_sketch_go_into_the_selected_body
     ]);
     harness.click("Hole");
     harness.settle();
+
     let hole = open_solid(&harness);
     let hole_body = harness
         .document()
@@ -242,12 +268,16 @@ fn a_hole_and_an_extrusion_of_a_principal_plane_sketch_go_into_the_selected_body
             FeatureKind::Hole(hole) => Some(hole.body),
             _ => None,
         });
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let line = sketch_line(&harness, boss);
+
     harness.select([top, line]);
     harness.click("Extrude");
     harness.settle();
+
     let extrusion = open_solid(&harness);
 
     assert_eq!(hole_body, Some(plate));
@@ -265,11 +295,13 @@ fn a_hole_and_an_extrusion_of_a_principal_plane_sketch_go_into_the_selected_body
 fn extrude_again_with_nothing_selected_does_not_sweep_the_same_profile_twice() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click("Extrude");
     harness.settle();
+
     let first = open_solid(&harness);
     let features = harness.document().features().count();
 
@@ -283,6 +315,7 @@ fn extrude_again_with_nothing_selected_does_not_sweep_the_same_profile_twice() {
 #[test]
 fn a_fillet_and_a_shell_say_what_they_left_out_of_the_selection() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let edge = Pickable::Edge {
         body: plate,
@@ -298,7 +331,9 @@ fn a_fillet_and_a_shell_say_what_they_left_out_of_the_selection() {
     harness.select([edge, corner]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet_told = notice_text(&harness);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.perform(Action::Undo);
@@ -306,6 +341,7 @@ fn a_fillet_and_a_shell_say_what_they_left_out_of_the_selection() {
     harness.select([edge, top]);
     harness.click("Shell");
     harness.settle();
+
     let shell_told = notice_text(&harness);
 
     assert_eq!(
@@ -321,13 +357,16 @@ fn a_fillet_and_a_shell_say_what_they_left_out_of_the_selection() {
 #[test]
 fn a_selection_command_changes_the_open_feature_not_the_row_looked_at() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: top_edge_along_x(&harness, plate, 0.0),
     }]);
     harness.click("Mirror body");
     harness.settle();
+
     let mirror = open_solid(&harness);
 
     harness.workspace.panels.choose_only(plate);
@@ -340,12 +379,14 @@ fn a_selection_command_changes_the_open_feature_not_the_row_looked_at() {
         .feature(mirror)
         .and_then(|feature| feature.kind.mirror())
         .map(|mirror| mirror.plane.clone());
+
     assert_eq!(plane, Some(PlaneReference::Principal(PrincipalPlane::Xy)));
 }
 
 #[test]
 fn new_sketch_refuses_several_planes_instead_of_preferring_one() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
 
     harness.select([top, Pickable::Plane(PrincipalPlane::Xz)]);
@@ -362,11 +403,13 @@ fn new_sketch_refuses_several_planes_instead_of_preferring_one() {
 fn a_revolve_turns_about_the_axis_picked_after_its_profile() {
     let mut harness = Harness::new();
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(
         &mut section,
         Point2::new(10.0, 0.0),
         Point2::new(20.0, 10.0),
     );
+
     let section = harness.add_sketch(section);
     let lines: Vec<EntityId> = harness
         .sketch(section)
@@ -375,6 +418,7 @@ fn a_revolve_turns_about_the_axis_picked_after_its_profile() {
         .collect();
 
     let selection = harness.workspace.viewport.selection_mut();
+
     selection.clear();
     for entity in &lines {
         selection.toggle(Pickable::SketchEntity {
@@ -386,7 +430,9 @@ fn a_revolve_turns_about_the_axis_picked_after_its_profile() {
     harness.frame();
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
+
     harness.perform(Action::Editing(EditingCommand::CloseSolid));
     harness.settle();
 

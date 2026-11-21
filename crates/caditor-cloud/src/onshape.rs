@@ -106,6 +106,7 @@ impl Onshape {
         } else {
             BTreeMap::new()
         };
+
         let mut folder = Folder {
             place: place.is_workspace().then(|| FolderRef {
                 project: document.clone(),
@@ -121,6 +122,7 @@ impl Onshape {
                 .collect(),
             ..Folder::default()
         };
+
         folder.newest_first();
         Ok(folder)
     }
@@ -141,9 +143,11 @@ impl Onshape {
             percent_encode(&place.element)
         );
         let mut job = json!({ "formatName": STEP_FORMAT, "storeInDocument": false });
+
         if let (Some(part), Some(fields)) = (part, job.as_object_mut()) {
             fields.insert("partIds".to_owned(), json!(part.id.as_str()));
         }
+
         let request =
             Request::post(url, Body::Json(job.to_string())).with_bearer(&session.access_token);
         let response = checked(SERVICE, net.send(&request)?, Subject::Translation)?;
@@ -197,6 +201,7 @@ impl Onshape {
         let multipart = Multipart::new(fields, FILE_FIELD, file.name, file.bytes.to_vec())?;
         let request =
             Request::post(url, Body::Multipart(multipart)).with_bearer(&session.access_token);
+
         let response = net.send_tracked(&request, &mut |sent, _| {
             progress(sent.min(total), Some(total))
         })?;
@@ -257,6 +262,7 @@ impl Onshape {
                 )
             })
             .collect();
+
         entries.sort_by(|first, second| first.0.cmp(&second.0));
         Ok(entries.into_iter().map(|(_, entry)| entry).collect())
     }
@@ -272,6 +278,7 @@ impl Onshape {
             percent_encode(project.id.as_str())
         );
         let mut versions: Vec<Version> = self.get(net, session, url, Subject::Folder)?;
+
         versions.sort_by_key(|version| std::cmp::Reverse(version.created()));
         Ok(versions
             .into_iter()
@@ -294,11 +301,13 @@ impl Onshape {
     ) -> Result<Vec<Listed>, Error> {
         let mut found = Vec::new();
         let mut next = Some(first);
+
         for _ in 0..MAX_PAGES {
             let Some(url) = next.take() else {
                 break;
             };
             let page: Page = self.get(net, session, url, subject)?;
+
             found.extend(page.items);
             next = page.next.filter(|link| rest::is_within(link, API_PREFIX));
         }
@@ -328,6 +337,7 @@ impl Onshape {
             fixed(Scope::Recent, "Recently opened"),
             fixed(Scope::Shared, "Shared with me"),
         ];
+
         scopes.extend(companies.into_iter().map(|company| {
             fixed(
                 Scope::Company(company.id),
@@ -374,8 +384,10 @@ impl Provider for Onshape {
         if self.client_id.is_empty() {
             return Err(Error::NoClientId { service: SERVICE });
         }
+
         let verifier = Verifier::generate()?;
         let state = pkce::state()?;
+
         let query = form(&[
             ("response_type", "code"),
             ("client_id", &self.client_id),
@@ -487,6 +499,7 @@ impl Provider for Onshape {
         let default = self.default_workspace(net, session, &project.id)?;
         let main = self.contents(net, session, &project.id, &Place::workspace(&default))?;
         let mut folders = optional(self.branches(net, session, project, &default))?;
+
         folders.extend(optional(self.versions(net, session, project))?);
         Ok(Folder { folders, ..main })
     }
@@ -521,9 +534,11 @@ impl Provider for Onshape {
         let place = DesignPlace::parse(&design.id).ok_or(Error::NotFound {
             subject: Subject::Design,
         })?;
+
         if place.kind != ElementKind::PartStudio {
             return Ok(Vec::new());
         }
+
         let url = format!(
             "{API}/parts/d/{}/{}/e/{}",
             percent_encode(design.project.as_str()),
@@ -610,6 +625,7 @@ impl Provider for Onshape {
             body: Vec::new(),
             retry_after_seconds: fetched.retry_after_seconds,
         };
+
         checked(SERVICE, answer, Subject::Download)?;
         Ok(fetched.bytes)
     }
@@ -625,15 +641,19 @@ impl Provider for Onshape {
         let place = Place::from_folder_id(&outgoing.folder.folder).ok_or(Error::NotFound {
             subject: Subject::Folder,
         })?;
+
         if !place.is_workspace() {
             return Err(Error::VersionIsReadOnly);
         }
+
         let document = &outgoing.folder.project;
         let existing = self.existing_blob(net, session, document, &place, name)?;
         let total = u64::try_from(outgoing.bytes.len()).unwrap_or(u64::MAX);
+
         if !progress(0, Some(total)) {
             return Err(Error::Stopped);
         }
+
         let base = blob_base(document, &place);
         let (url, outcome) = match existing {
             Some(element) => (
@@ -652,8 +672,10 @@ impl Provider for Onshape {
             ],
             subject: Subject::Item,
         };
+
         let response = self.upload_file(net, session, url, payload, progress)?;
         let _: UploadedElement = rest::read(SERVICE, &response, Subject::Item)?;
+
         progress(total, Some(total));
         Ok(Sent::new(name, outcome))
     }
@@ -669,14 +691,18 @@ impl Provider for Onshape {
         let place = Place::from_folder_id(&outgoing.folder.folder).ok_or(Error::NotFound {
             subject: Subject::Folder,
         })?;
+
         if !place.is_workspace() {
             return Err(Error::VersionIsReadOnly);
         }
+
         let document = &outgoing.folder.project;
         let total = u64::try_from(outgoing.bytes.len()).unwrap_or(u64::MAX);
+
         if !progress(0, Some(total)) {
             return Err(Error::Stopped);
         }
+
         let payload = Payload {
             name,
             bytes: outgoing.bytes,
@@ -695,6 +721,7 @@ impl Provider for Onshape {
             service: SERVICE,
             subject: Subject::Translation,
         })?;
+
         progress(total, Some(total));
         Ok(Translation {
             source: format!("{}/{id}", document.as_str()),
@@ -743,6 +770,7 @@ impl Provider for Onshape {
             body: Vec::new(),
             retry_after_seconds: fetched.retry_after_seconds,
         };
+
         checked(SERVICE, answer, Subject::Upload)?;
         Ok(fetched.bytes)
     }
@@ -866,6 +894,7 @@ impl Element {
         if self.element_type.as_deref()? != BLOB {
             return None;
         }
+
         let name = label(self.name.as_deref(), "Untitled");
         Some(Upload {
             id: UploadPlace::encode(place, &self.id),

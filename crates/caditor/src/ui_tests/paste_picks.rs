@@ -12,17 +12,20 @@ fn filleted_plate(harness: &mut Harness) -> [FeatureId; 3] {
         other => panic!("an extrusion, found {other:?}"),
     };
     let front = top_edge_along_x(harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
         .solid()
         .expect("the fillet is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
     harness.select([]);
@@ -41,6 +44,7 @@ fn copy_features(harness: &mut Harness, features: &[FeatureId]) -> String {
 #[test]
 fn a_fillet_pasted_with_its_extrusion_rounds_the_copy_after_finding_its_edge_in_the_background() {
     let mut harness = Harness::new();
+
     let copied = filleted_plate(&mut harness);
     let before = harness.document().features().len();
     let text = copy_features(&mut harness, &copied);
@@ -49,8 +53,10 @@ fn a_fillet_pasted_with_its_extrusion_rounds_the_copy_after_finding_its_edge_in_
     harness.events.push(Event::Paste(text));
     harness.frame();
     harness.frame();
+
     let waiting = harness.document().features().len();
     let shown = harness.shows_containing("Pasting 3 features");
+
     harness.model.hold_pastes(false);
     harness.model.finish_pasting();
     harness.settle();
@@ -71,6 +77,7 @@ fn a_fillet_pasted_with_its_extrusion_rounds_the_copy_after_finding_its_edge_in_
         .evaluation()
         .feature(fillet_copy)
         .map(|status| status.state.clone());
+
     let rounded = harness
         .model
         .evaluation()
@@ -105,12 +112,14 @@ fn a_fillet_pasted_with_its_extrusion_rounds_the_copy_after_finding_its_edge_in_
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert_eq!(harness.document().features().len(), before);
 }
 
 #[test]
 fn a_paste_still_finding_its_picks_can_be_cancelled_and_adds_nothing() {
     let mut harness = Harness::new();
+
     let copied = filleted_plate(&mut harness);
     let before = harness.document().features().len();
     let text = copy_features(&mut harness, &copied);
@@ -121,7 +130,9 @@ fn a_paste_still_finding_its_picks_can_be_cancelled_and_adds_nothing() {
     harness.events.push(Event::Paste(text));
     harness.frame();
     harness.frame();
+
     let refused = harness.shows_containing(pasting::STILL_PASTING);
+
     run_from_palette(&mut harness, "Cancel the paste");
     harness.frame();
     harness.model.hold_pastes(false);
@@ -136,6 +147,7 @@ fn a_paste_still_finding_its_picks_can_be_cancelled_and_adds_nothing() {
 #[test]
 fn a_running_paste_shows_one_polite_progress_line_whose_cancel_stops_it() {
     let mut harness = Harness::new();
+
     let copied = filleted_plate(&mut harness);
     let before = harness.document().features().len();
     let text = copy_features(&mut harness, &copied);
@@ -146,11 +158,13 @@ fn a_running_paste_shows_one_polite_progress_line_whose_cancel_stops_it() {
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();
+
     let announced = harness.accessible.iter().any(|(_, node)| {
         node.value()
             .is_some_and(|value| value.starts_with("Pasting "))
             && node.live() == Some(egui::accesskit::Live::Polite)
     });
+
     harness.context.disable_accesskit();
     harness.click("Cancel");
     harness.frame();
@@ -167,12 +181,15 @@ fn a_running_paste_shows_one_polite_progress_line_whose_cancel_stops_it() {
 #[test]
 fn features_pasted_from_a_folder_land_in_it_as_one_undoable_change() {
     let mut harness = Harness::new();
+
     let copied = filleted_plate(&mut harness);
+
     harness.workspace.panels.choose_all(&copied);
     harness.frame();
     run_from_palette(&mut harness, "Group features");
     harness.key(Key::Enter, Modifiers::NONE);
     harness.settle();
+
     let folder = harness.document().group_of(copied[0]).map(str::to_owned);
     let before = harness.document().features().len();
     let text = copy_features(&mut harness, &copied);
@@ -190,13 +207,16 @@ fn features_pasted_from_a_folder_land_in_it_as_one_undoable_change() {
         .map(|feature| feature.id())
         .collect();
     let run = document.group_run(copied[0]);
+
     let groups: Vec<Option<String>> = pasted
         .iter()
         .map(|id| document.group_of(*id).map(str::to_owned))
         .collect();
     let label = harness.model.undo_label().map(str::to_owned);
+
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     let undone = harness.document().group_run(copied[0]);
 
     assert_eq!(folder.as_deref(), Some("Group 1"));

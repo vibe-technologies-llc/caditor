@@ -57,6 +57,7 @@ impl Panel<'_> {
             End::Moving(part) => (false, part),
             End::Target(part) => (true, part),
         };
+
         let slot = if target {
             Slot::MateTarget(part)
         } else {
@@ -79,6 +80,7 @@ impl Panel<'_> {
     fn reference_row(&mut self, ui: &mut Ui, caption: &str, shown: String, end: End) {
         let picker = self.picker(ui.ctx(), end);
         let model = self.model;
+
         feature_fields::reference_row(
             ui,
             model,
@@ -98,6 +100,7 @@ impl Panel<'_> {
             picker: self.picker(ui.ctx(), end),
         };
         let mut actions = Vec::new();
+
         match end {
             End::Moving(_) => feature_fields::axis_row(
                 ui,
@@ -112,6 +115,7 @@ impl Panel<'_> {
                         mate_tools::target_axis_change(model, id, mate, part, axis)
                     })
                 };
+
                 feature_fields::axis_row(ui, model, row, Some(&listed), &mut actions);
             }
         }
@@ -120,6 +124,7 @@ impl Panel<'_> {
 
     fn plane_row(&mut self, ui: &mut Ui, caption: &str, plane: &PlaneReference) {
         let (model, id, mate) = (self.model, self.id(), self.mate);
+
         let row = plane_selector::Row {
             caption,
             id: Id::unique(("mate-plane", caption, id)),
@@ -129,6 +134,7 @@ impl Panel<'_> {
             remove: None,
         };
         let mut actions = Vec::new();
+
         plane_selector::row(
             ui,
             model,
@@ -156,14 +162,17 @@ impl Panel<'_> {
             dimension: Dimension::LENGTH,
             rule: Rule::Any,
         };
+
         let drafting =
             feature_fields::expression_row_drafting(ui, model, DISTANCE, quantity, |value| {
                 let mut changed = mate.clone();
+
                 for distance in changed.lengths_mut() {
                     *distance = value.clone();
                 }
                 mate_tools::change(model, id, changed)
             });
+
         self.actions.extend(drafting.into_actions(id));
     }
 
@@ -176,14 +185,17 @@ impl Panel<'_> {
             dimension: Dimension::ANGLE,
             rule: Rule::MateAngle,
         };
+
         let drafting =
             feature_fields::expression_row_drafting(ui, model, ANGLE, quantity, |value| {
                 let mut changed = mate.clone();
+
                 if let MatePair::Angle(angle) = &mut changed.pair {
                     angle.angle = value;
                 }
                 mate_tools::change(model, id, changed)
             });
+
         self.actions.extend(drafting.into_actions(id));
     }
 
@@ -197,6 +209,7 @@ impl Panel<'_> {
                     ..self.mate.clone()
                 },
             );
+
             self.actions
                 .push(feature_fields::applied(&self.feature.name, change));
         }
@@ -219,6 +232,7 @@ pub fn show(
         mate,
         actions,
     };
+
     widgets::properties(ui, ("mate-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         match &mate.pair {
@@ -239,6 +253,7 @@ pub fn show(
             }
             MatePair::FaceAxis(both) => {
                 let face = describe_origin(document, both.faces.face.origin());
+
                 panel.moving(ui, "Face to mate", face);
                 panel.plane_row(ui, ONTO, &both.faces.target);
                 panel.axis_row(
@@ -260,11 +275,13 @@ pub fn show(
                 match &angle.sides {
                     AngleSides::Faces(faces) => {
                         let face = describe_origin(document, faces.face.origin());
+
                         panel.moving(ui, "Face to turn", face);
                         panel.plane_row(ui, ONTO, &faces.target);
                     }
                     AngleSides::Axes(axes) => {
                         let moving = End::Moving(MatePart::Main);
+
                         panel.axis_row(ui, "Axis to turn", &axes.axis, moving);
                         panel.axis_row(ui, ONTO, &axes.target, End::Target(MatePart::Main));
                     }
@@ -273,12 +290,14 @@ pub fn show(
             }
             MatePair::Tangent(tangent) => {
                 let face = describe_origin(document, tangent.face.origin());
+
                 panel.moving(ui, "Round face", face);
                 panel.plane_row(ui, "Rests on", &tangent.target);
                 panel.flip_row(ui, OTHER_SIDE);
             }
             MatePair::FaceOnRound(resting) => {
                 let face = describe_origin(document, resting.face.origin());
+
                 panel.moving(ui, "Flat face", face);
                 panel.reference_row(
                     ui,

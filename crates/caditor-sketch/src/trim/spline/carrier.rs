@@ -9,7 +9,7 @@ use crate::{
     trim::Cutter,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SplineCarrier {
     extended: BSpline,
     low: f64,
@@ -46,16 +46,21 @@ impl SplineCarrier {
 impl Sketch {
     pub(crate) fn spline_carrier(&self, curve: EntityId, reach: f64) -> Option<SplineCarrier> {
         let source = self.spline_source(curve)?;
+
         if source.kind.is_closed() {
             return None;
         }
+
         let own = self.spline(curve)?;
         let ends = self.entity(curve)?.spline_ends()?;
         let (low, high) = source.knotted.domain()?;
         let bound = REACH_MARGIN * reach.max(SplineCourse::reach_of(&own)).max(1.0);
+
         let before = continuation_length(&source, &own, false, bound)?;
         let after = continuation_length(&source, &own, true, bound)?;
+
         let (from, to) = (low - before, high + after);
+
         let extended = source.knotted.between(from, to)?.spline(source.rational)?;
         Some(SplineCarrier {
             extended,
@@ -79,12 +84,15 @@ fn continuation_length(
     let end_parameter = if at_end { 1.0 } else { 0.0 };
     let [tangent, _] = own.derivatives(end_parameter);
     let outward = (if at_end { tangent } else { -tangent }).try_normalize()?;
+
     let beyond = |along: f64| if at_end { high + along } else { low - along };
     let mut previous = own.point_at(end_parameter);
     let mut reached = 0.0;
+
     for doubling in 0..MAX_DOUBLINGS {
         let length = span * 2f64.powi(doubling);
         let step = (length - reached) / WINDOW_SAMPLES as f64;
+
         for index in 1..=WINDOW_SAMPLES {
             let along = reached + step * index as f64;
             let onward = source

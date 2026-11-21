@@ -35,7 +35,9 @@ fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
 
 fn add(document: &mut Document, name: &str, datum: Datum) -> FeatureId {
     let mut transaction = document.transaction("Add");
+
     let feature = transaction.add_feature(name, FeatureKind::Datum(datum));
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -57,7 +59,9 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let mut outline = Sketch::new(Plane::XY);
     let corners = [
@@ -66,9 +70,11 @@ fn model() -> Model {
         Point2::new(10.0, 8.0),
         Point2::new(0.0, 8.0),
     ];
+
     for index in 0..4 {
         outline.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = transaction.add_feature(
         "Base",
@@ -85,9 +91,11 @@ fn model() -> Model {
         })),
     );
     let mut marks = Sketch::new(Plane::XZ);
+
     let first = marks.add_point(Point2::new(2.0, 3.0));
     let second = marks.add_point(Point2::new(7.0, 3.0));
     let sketch = transaction.add_feature("Marks", FeatureKind::from(marks));
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -122,6 +130,7 @@ fn corner_reference(model: &Model, point: Point3) -> PointReference {
 #[test]
 fn a_datum_point_sits_at_a_corner_with_its_offsets_and_follows_the_body() {
     let mut model = model();
+
     let base = corner_reference(&model, Point3::new(10.0, 8.0, 4.0));
     let point = add(
         &mut model.document,
@@ -134,6 +143,7 @@ fn a_datum_point_sits_at_a_corner_with_its_offsets_and_follows_the_body() {
 
     let before = result(&evaluate(&model.document), point);
     let height = model.document.parse("9 mm").unwrap();
+
     model
         .document
         .apply(Transaction::single(
@@ -144,6 +154,7 @@ fn a_datum_point_sits_at_a_corner_with_its_offsets_and_follows_the_body() {
             },
         ))
         .unwrap();
+
     let after = result(&evaluate(&model.document), point);
 
     assert_eq!(before, DatumResult::Point(Point3::new(11.0, 8.0, 2.0)));
@@ -162,6 +173,7 @@ fn a_datum_point_sits_at_a_corner_with_its_offsets_and_follows_the_body() {
 #[test]
 fn a_plane_passes_through_three_corners_and_refuses_three_in_a_line() {
     let mut model = model();
+
     let corners = [
         Point3::new(0.0, 0.0, 4.0),
         Point3::new(10.0, 0.0, 4.0),
@@ -200,6 +212,7 @@ fn a_plane_passes_through_three_corners_and_refuses_three_in_a_line() {
 #[test]
 fn a_midway_plane_halves_parallel_planes_and_bisects_crossing_ones() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document);
     let solid = evaluation.body(model.base).unwrap();
     let (top, _) = solid
@@ -209,6 +222,7 @@ fn a_midway_plane_halves_parallel_planes_and_bisects_crossing_ones() {
             _ => false,
         })
         .unwrap();
+
     let top = FaceAttachment {
         body: model.base,
         face: caditor_kernel::FaceReference::capture(solid, top).unwrap(),
@@ -244,10 +258,12 @@ fn a_midway_plane_halves_parallel_planes_and_bisects_crossing_ones() {
 #[test]
 fn planes_and_axes_are_placed_from_axes_planes_and_sketch_points() {
     let mut model = model();
+
     let [first, second] = model.points.map(|entity| PointReference::Sketch {
         sketch: model.sketch,
         entity,
     });
+
     let along_marks = add(
         &mut model.document,
         "Axis 1",
@@ -314,9 +330,12 @@ fn planes_and_axes_are_placed_from_axes_planes_and_sketch_points() {
 #[test]
 fn a_datum_point_takes_the_centre_of_a_round_edge() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut disc = Sketch::new(Plane::XY);
+
     disc.add_circle(Point2::new(3.0, -2.0), 5.0);
+
     let disc = transaction.add_feature("Disc", FeatureKind::from(disc));
     let pin = transaction.add_feature(
         "Pin",
@@ -332,13 +351,16 @@ fn a_datum_point_takes_the_centre_of_a_round_edge() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
     let solid = evaluation.body(pin).unwrap();
     let (rim, _) = solid
         .edges()
         .find(|(_, edge)| matches!(edge.curve(), Curve::Circle(circle) if circle.center().z > 3.0))
         .unwrap();
+
     let centre = PointReference::Centre {
         body: pin,
         edge: Box::new(EdgeReference::capture(solid, rim).unwrap()),
@@ -353,12 +375,14 @@ fn a_datum_point_takes_the_centre_of_a_round_edge() {
 #[test]
 fn a_point_reference_to_another_kind_of_datum_is_refused() {
     let mut model = model();
+
     let axis = add(
         &mut model.document,
         "Axis 1",
         Datum::Axis(DatumAxis::Along(AxisReference::Principal(PrincipalAxis::X))),
     );
     let mut transaction = model.document.transaction("Add");
+
     transaction.add_feature(
         "Point 1",
         FeatureKind::Datum(at(PointReference::Datum(axis))),
@@ -396,11 +420,15 @@ fn a_point_is_its_own_kind_of_datum() {
 #[test]
 fn an_axis_runs_along_a_line_of_a_sketch_and_follows_it() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut guide = Sketch::new(Plane::XZ);
+
     let line = guide.add_line(Point2::new(1.0, 2.0), Point2::new(4.0, 6.0));
     let guide = transaction.add_feature("Guide", FeatureKind::from(guide));
+
     document.apply(transaction.finish()).unwrap();
+
     let axis = add(
         &mut document,
         "Axis 1",
@@ -424,6 +452,7 @@ fn an_axis_runs_along_a_line_of_a_sketch_and_follows_it() {
 
     let start = Plane::XZ.to_world(Point2::new(1.0, 2.0));
     let end = Plane::XZ.to_world(Point2::new(4.0, 6.0));
+
     assert!(ray.origin().distance(start) < CLOSE);
     assert!(ray.direction().cross(end - start).length() < CLOSE);
     assert!(

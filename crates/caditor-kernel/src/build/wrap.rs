@@ -35,7 +35,7 @@ const MAX_STATIONS: usize = 4096;
 const OVERLAP_GAP: f64 = 100.0 * LINEAR_RESOLUTION;
 const SLOPE_STEP: f64 = 1e-4;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum WrapError {
     #[error("no region is chosen to wrap")]
     NoRegions,
@@ -120,9 +120,11 @@ impl<'a> Wrap<'a> {
         };
         let axis = frame.normal();
         let normal = sketch.normal();
+
         if normal.dot(axis).abs() > ACROSS_AXIS {
             return Err(WrapError::AcrossAxis);
         }
+
         let offset = (sketch.origin() - frame.origin()).dot(normal);
         let facing = if offset < -LINEAR_RESOLUTION {
             -normal
@@ -152,6 +154,7 @@ impl<'a> Wrap<'a> {
                 Some((least, most)) => Some((least.min(along), most.max(along))),
             })
             .ok_or(WrapError::NoRegions)?;
+
         self.reference = 0.5 * (least + most);
         Ok(self)
     }
@@ -259,20 +262,26 @@ impl<'a> Wrap<'a> {
     fn stations(&self, piece: &Piece, least_radius: f64) -> Result<Vec<f64>, WrapError> {
         let tolerance = self.sampling(least_radius)?;
         let curve = piece.curve();
+
         let seeds = curve.sample(piece.range(), &tolerance);
         let mut stations: Vec<f64> = Vec::with_capacity(seeds.len());
+
         for pair in seeds.windows(2) {
             let [from, to] = pair else {
                 continue;
             };
+
             let turn = (self.angle(to.point) - self.angle(from.point)).abs();
             let steps = (turn / STEP_ANGLE).ceil().max(1.0);
+
             if stations.len() as f64 + steps > MAX_STATIONS as f64 {
                 return Err(WrapError::TooIntricate);
             }
+
             let count = steps as usize;
             for step in 0..count {
                 let share = step as f64 / steps;
+
                 stations.push(from.parameter + (to.parameter - from.parameter) * share);
             }
         }
@@ -305,11 +314,14 @@ impl<'a> Wrap<'a> {
                 .map(|(near, far)| *near + (*near - *far) * WALL_OVERHANG)
                 .collect()
         };
+
         let bottom = BSpline::interpolating_at(degree, stations, &overhung(low, high))?;
         let top = BSpline::interpolating_at(degree, stations, &overhung(high, low))?;
+
         if bottom.knots() != top.knots() {
             return Err(WrapError::Unassembled);
         }
+
         let columns = bottom.control_points().len();
         let points: Vec<Point3> = bottom
             .control_points()
@@ -346,7 +358,7 @@ struct Caps {
     names: (FaceName, FaceName),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WrapBand {
     inward: f64,
     outward: f64,
@@ -354,7 +366,7 @@ pub struct WrapBand {
     narrowing: WrapNarrowing,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WrapNarrowing {
     #[default]
     Outward,
@@ -459,8 +471,10 @@ pub fn wrap_regions_within(
     if regions.is_empty() {
         return Err(WrapError::NoRegions);
     }
+
     let points = region_points(regions);
     let wrap = Wrap::new(plane, surface)?.referenced(&points)?;
+
     let least = least_radius(&wrap, points.iter().map(|point| wrap.unrolled(*point).0))?;
     let (first, last) = points
         .iter()
@@ -470,6 +484,7 @@ pub fn wrap_regions_within(
             Some((first, last)) => Some((first.min(angle), last.max(angle))),
         })
         .ok_or(WrapError::NoRegions)?;
+
     if last - first >= TAU - OVERLAP_GAP / least {
         return Err(WrapError::BeyondFullTurn {
             turns: (last - first) / TAU,
@@ -478,6 +493,7 @@ pub fn wrap_regions_within(
     if band.is_some_and(|band| least - band.inward() * wrap.cos <= LINEAR_RESOLUTION) {
         return Err(WrapError::ReachesAxis);
     }
+
     let wrapping = Wrapping {
         seam: 0.5 * (first + last) + PI,
         least_radius: least,
@@ -494,9 +510,11 @@ pub fn wrapped_stand(
 ) -> Result<(Point3, Vector3), WrapError> {
     let wrap = Wrap::new(plane, surface)?.referenced(&region_points(regions))?;
     let (along, _) = wrap.unrolled(at);
+
     if wrap.radius_at(along) <= LINEAR_RESOLUTION {
         return Err(WrapError::PastApex);
     }
+
     let on_surface = wrap.point(at, 0.0);
     let outward = (wrap.point(at, 1.0) - on_surface).normalize();
     Ok((on_surface, outward))
@@ -515,6 +533,7 @@ pub(super) fn wrapped(
             (-band, band)
         }
     };
+
     let (low, high) = if wrap.up_is_outward() {
         (inner, outer)
     } else {
@@ -534,11 +553,14 @@ pub(super) fn wrapped(
         },
         _ => 0.0,
     };
+
     let leanings = leanings(regions, [rate * low, rate * high])?;
     let mut plan = Plan::default();
+
     for (region, region_leanings) in regions.iter().zip(&leanings) {
         interrupt::check()?;
         plan.label(region.entities());
+
         let caps = Caps {
             offsets: (low, high),
             surfaces: (
@@ -552,6 +574,7 @@ pub(super) fn wrapped(
         };
         let mut bottom_loops = Vec::new();
         let mut top_loops = Vec::new();
+
         for (profile_loop, leaning) in region.loops().zip(region_leanings) {
             let pieces = opened(profile_loop.pieces())?;
             let (bottom_loop, top_loop) = wrap_loop(
@@ -562,6 +585,7 @@ pub(super) fn wrapped(
                 wrapping,
                 feature,
             )?;
+
             bottom_loops.push(bottom_loop);
             top_loops.push(top_loop);
         }
@@ -585,13 +609,16 @@ pub(super) fn wrapped(
 
 fn opened(pieces: &[Piece]) -> Result<Vec<Opened>, WrapError> {
     let mut opened = Vec::with_capacity(pieces.len() + 1);
+
     for (index, piece) in pieces.iter().enumerate() {
         if piece.start().distance(piece.end()) > LINEAR_RESOLUTION {
             opened.push(Opened::whole(piece, index));
             continue;
         }
+
         let range = piece.range();
         let middle = range.middle();
+
         let halves = [
             Interval::new(range.start(), middle),
             Interval::new(middle, range.end()),
@@ -603,6 +630,7 @@ fn opened(pieces: &[Piece]) -> Result<Vec<Opened>, WrapError> {
             .ok_or(WrapError::Unassembled)
         });
         let [first, second] = halves;
+
         let (first, second) = (first?, second?);
         if piece.is_reversed() {
             opened.extend([second, first]);
@@ -628,6 +656,7 @@ fn wrap_loop(
             .point(opened, opened.piece.start_parameter(), level)
             .map(|point| wrap.point(point, offset))
     };
+
     let lower: Vec<usize> = pieces
         .iter()
         .map(|opened| Ok(plan.vertex(start_of(opened, 0, low)?)))
@@ -648,6 +677,7 @@ fn wrap_loop(
     };
     let name_at = |index: usize| sides.get(index % count.max(1)).copied().unwrap_or_default();
     let mut verticals = Vec::with_capacity(count);
+
     for joint in 0..count {
         verticals.push(plan.line(
             at(&lower, joint)?,
@@ -655,10 +685,13 @@ fn wrap_loop(
             EdgeName::between(name_at(joint + count - 1), name_at(joint)),
         )?);
     }
+
     let mut bottom_loop = Vec::with_capacity(count);
     let mut top_loop = Vec::with_capacity(count);
+
     for (index, opened) in pieces.iter().enumerate() {
         interrupt::check()?;
+
         let piece = &opened.piece;
         let side = name_at(index);
         let travel = traversal_sense(piece);
@@ -673,9 +706,11 @@ fn wrap_loop(
         let stations = wrap.stations(piece, wrapping.least_radius)?;
         let bottom_row = wrap.row(opened, leaning, &stations, (0, low))?;
         let top_row = wrap.row(opened, leaning, &stations, (1, high))?;
+
         let wall = wrap.wall(&stations, [&bottom_row, &top_row])?;
         let bottom_curve = wrap.rim(&bottom_row, [&wall, &caps.surfaces.0])?;
         let bottom_range = bottom_curve.domain();
+
         let bottom_edge = plan.edge(
             Curve::Intersection(bottom_curve),
             bottom_range,
@@ -684,6 +719,7 @@ fn wrap_loop(
         );
         let top_curve = wrap.rim(&top_row, [&wall, &caps.surfaces.1])?;
         let top_range = top_curve.domain();
+
         let top_edge = plan.edge(
             Curve::Intersection(top_curve),
             top_range,
@@ -696,9 +732,11 @@ fn wrap_loop(
         let near = Point2::new(middle, 0.5);
         let probe = wall.point_at(near);
         let outward_in_sketch = traversal_tangent(piece, middle).perp() * -1.0;
+
         let outward = wrap.direction(middle_point, outward_in_sketch, halfway);
         let sense = outward_sense(&wall, probe, outward, Some(near));
         let (entering, leaving) = (at(&verticals, index)?, at(&verticals, index + 1)?);
+
         plan.face(PlanFace {
             surface: wall,
             sense,

@@ -15,10 +15,10 @@ pub const PREVIEW_PATIENCE: Duration = Duration::from_millis(1500);
 pub(crate) const PREVIEW_PREFIX: u64 = MAX_PREVIEW_BYTES as u64 + (64 << 10);
 pub(crate) const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Preview(Arc<[u8]>);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PreviewError {
     #[error("the picture is not a PNG")]
     NotPng,
@@ -56,7 +56,7 @@ struct Shared {
     changed: Condvar,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct PreviewSlot(Arc<Shared>);
 
 impl PartialEq for PreviewSlot {
@@ -86,6 +86,7 @@ impl PreviewSlot {
     pub fn wait_at_most(&self, patience: Duration) -> Option<Preview> {
         let deadline = Instant::now() + patience;
         let mut state = self.0.state.lock();
+
         while matches!(*state, Drawn::Waiting) {
             if self.0.changed.wait_until(&mut state, deadline).timed_out() {
                 break;
@@ -126,7 +127,7 @@ impl Drop for PreviewDrawing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PreviewReadError {
     #[error("{0}")]
     Reading(ReadFailure),
@@ -136,6 +137,7 @@ pub fn read_preview(path: &Path) -> Result<Option<Preview>, PreviewReadError> {
     let reading = |error: io::Error| PreviewReadError::Reading(ReadFailure::of(&error));
     let file = open_file(path).map_err(reading)?;
     let mut prefix = Vec::new();
+
     File::take(file, PREVIEW_PREFIX)
         .read_to_end(&mut prefix)
         .map_err(reading)?;

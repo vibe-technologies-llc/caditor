@@ -26,13 +26,13 @@ const RUN_OUT: f64 = 1.5;
 const LEAST_LAND: f64 = 0.02;
 const RING_SLACK: f64 = 10.0 * LINEAR_RESOLUTION;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum ThreadedFace {
     Shaft,
     Bore,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Handedness {
     Right,
     Left,
@@ -47,13 +47,13 @@ impl Handedness {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum ThreadEnd {
     RunsOut,
     Stops,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThreadForm {
     pub pitch: f64,
     pub flank_angle: f64,
@@ -78,7 +78,7 @@ impl ThreadForm {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThreadSpec {
     pub frame: Plane,
     pub face: ThreadedFace,
@@ -90,7 +90,7 @@ pub struct ThreadSpec {
     pub end: ThreadEnd,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum ThreadError {
     #[error("a thread dimension is not a finite number")]
     NonFinite,
@@ -159,7 +159,7 @@ impl From<ProfileError> for ThreadError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Groove {
     pub frame: Plane,
     pub hand: Handedness,
@@ -177,9 +177,11 @@ impl Groove {
     fn of(spec: &ThreadSpec, far_radius: f64) -> Result<Self, ThreadError> {
         let form = spec.form;
         let far_half_width = form.half_width_at(far_radius);
+
         if 2.0 * far_half_width > (1.0 - LEAST_LAND) * form.pitch {
             return Err(ThreadError::GrooveOverlaps);
         }
+
         let first_centre = match spec.start {
             ThreadEnd::RunsOut => -RUN_OUT * form.pitch,
             ThreadEnd::Stops => far_half_width,
@@ -189,16 +191,20 @@ impl Groove {
             ThreadEnd::Stops => spec.length - far_half_width,
         };
         let needed = 2.0 * far_half_width + form.pitch;
+
         if last_centre - first_centre < form.pitch || spec.length < LINEAR_RESOLUTION {
             return Err(ThreadError::TooShort {
                 length: spec.length,
                 needed,
             });
         }
+
         let turns = (last_centre - first_centre) / form.pitch;
+
         if turns > MAX_THREAD_TURNS {
             return Err(ThreadError::TooManyTurns { turns });
         }
+
         let turns_to = |along: f64| (along - first_centre) / form.pitch;
         let crossings = [
             (spec.start == ThreadEnd::RunsOut).then(|| turns_to(0.0)),
@@ -229,6 +235,7 @@ impl Groove {
 pub fn thread(solid: &Solid, spec: &ThreadSpec, feature: u64) -> Result<Solid, ThreadError> {
     let tools = thread_tools(spec, feature)?;
     let mut body = solid.clone();
+
     for tool in &tools {
         interrupt::check()?;
         body = boolean(&body, tool, BooleanOperation::Difference)?;
@@ -249,9 +256,11 @@ pub fn thread_tools_numbered(
 
 pub fn thread_tools(spec: &ThreadSpec, feature: u64) -> Result<Vec<Solid>, ThreadError> {
     check(spec)?;
+
     let form = spec.form;
     let reach = FAR_REACH * form.pitch;
     let mut tools = Vec::new();
+
     let far_radius = match spec.face {
         ThreadedFace::Shaft if spec.face_radius > form.crest_radius + RING_SLACK => {
             tools.push(ring(
@@ -274,10 +283,13 @@ pub fn thread_tools(spec: &ThreadSpec, feature: u64) -> Result<Vec<Solid>, Threa
         }
         ThreadedFace::Bore => spec.face_radius - reach,
     };
+
     if far_radius <= LINEAR_RESOLUTION {
         return Err(ThreadError::RootOutsideFace);
     }
+
     let groove = Groove::of(spec, far_radius)?;
+
     tools.push(groove::tool(&groove, feature)?);
     Ok(tools)
 }
@@ -289,6 +301,7 @@ fn check(spec: &ThreadSpec) -> Result<(), ThreadError> {
         .into_iter()
         .chain([spec.face_radius, spec.length])
         .all(f64::is_finite);
+
     if !finite {
         return Err(ThreadError::NonFinite);
     }
@@ -301,13 +314,16 @@ fn check(spec: &ThreadSpec) -> Result<(), ThreadError> {
     if form.root_width <= LINEAR_RESOLUTION {
         return Err(ThreadError::NoRootWidth);
     }
+
     let reach = [form.root_radius, form.crest_radius, spec.face_radius]
         .into_iter()
         .fold(spec.length, larger)
         + spec.frame.origin().abs().max_element();
+
     if reach > MAX_SIZE {
         return Err(ThreadError::TooLarge);
     }
+
     let (root_inside, crest_beyond) = match spec.face {
         ThreadedFace::Shaft => (
             form.root_radius > LINEAR_RESOLUTION && form.root_radius < spec.face_radius,
@@ -318,6 +334,7 @@ fn check(spec: &ThreadSpec) -> Result<(), ThreadError> {
             form.crest_radius < form.root_radius && form.crest_radius > LINEAR_RESOLUTION,
         ),
     };
+
     if !crest_beyond {
         return Err(ThreadError::CrestBeyondRoot);
     }
@@ -340,6 +357,7 @@ fn ring(spec: &ThreadSpec, inner: f64, outer: f64, feature: u64) -> Result<Solid
     let frame = spec.frame;
     let radial = frame.x_axis();
     let axial = frame.normal();
+
     let plane = Plane::from_frame(frame.origin(), radial.cross(axial), radial)
         .ok_or(GeometryError::DegenerateSurface)?;
     let corner = |radius: f64, along: f64| Point2::new(radius, along);

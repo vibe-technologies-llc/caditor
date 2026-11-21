@@ -65,10 +65,12 @@ impl Chain {
         let mut joins = Vec::with_capacity(steps.len());
         let mut at = Point2::ZERO;
         let mut previous_end = None;
+
         for (index, step) in steps.iter().enumerate() {
             let wobble = Vector2::new(0.01, (index % 3) as f64 * 0.01);
             let line = sketch.add_line(at + wobble, at + *step * 1.02);
             let (start, end) = ends(&sketch, line);
+
             match previous_end {
                 Some(previous) => {
                     joins.push(add(&mut sketch, Constraint::Coincident(previous, start)))
@@ -85,8 +87,10 @@ impl Chain {
             lines.push(line);
             at += *step;
         }
+
         let (first, _) = ends(&sketch, lines[0]);
         let (_, last) = ends(&sketch, lines[lines.len() - 1]);
+
         let closing = distance(&mut sketch, first, last, closing_length);
         Self {
             sketch,
@@ -105,6 +109,7 @@ impl Chain {
             .copied()
             .chain([self.closing])
             .collect();
+
         spanning.sort_unstable();
         spanning
     }
@@ -133,11 +138,13 @@ fn assert_every_constraint_holds(solved: &Solved) {
         match *constraint {
             Constraint::Coincident(a, b) => {
                 let (a, b) = (geometry.point(a).unwrap(), geometry.point(b).unwrap());
+
                 assert!(a.distance(b) < HELD, "{id:?} leaves {a} apart from {b}");
             }
             Constraint::Distance { .. } => {
                 let measured = geometry.measured(constraint).unwrap();
                 let wanted = solved.solution.dimension(id).unwrap();
+
                 assert!(
                     (measured - wanted).abs() < HELD,
                     "{id:?}: {measured} is not {wanted}"
@@ -145,7 +152,9 @@ fn assert_every_constraint_holds(solved: &Solved) {
             }
             Constraint::Horizontal(line) => {
                 let (start, end) = ends(geometry, line);
+
                 let rise = geometry.point(end).unwrap().y - geometry.point(start).unwrap().y;
+
                 assert!(rise.abs() < HELD, "{id:?} rises by {rise}");
             }
             ref other => panic!("no check for {other:?}"),
@@ -168,7 +177,9 @@ fn reversed_lines(chain: &Chain, solved: &Solved) -> usize {
 fn a_chain_that_must_fold_a_line_back_solves_from_what_diagnosis_finds() {
     let straight = Chain::along(&level_steps(8), true, 6.0);
     let mut one_back = level_steps(8);
+
     one_back[3] = -Vector2::X;
+
     let folded = Chain::along(&one_back, true, 6.0);
 
     let from_straight = solve(&straight.sketch).unwrap();
@@ -176,6 +187,7 @@ fn a_chain_that_must_fold_a_line_back_solves_from_what_diagnosis_finds() {
 
     assert_every_constraint_holds(&from_straight);
     assert_every_constraint_holds(&from_folded);
+
     assert_eq!(reversed_lines(&straight, &from_straight), 1);
     assert_eq!(reversed_lines(&folded, &from_folded), 1);
     assert!(from_straight.solution.is_fully_constrained());
@@ -204,6 +216,7 @@ fn a_part_solved_by_diagnosis_leaves_a_conflict_elsewhere_reported_alone() {
     let mut chain = Chain::along(&level_steps(8), true, 6.0);
     let (open, _) = triangle([3.0, 4.0, 10.0]);
     let offset = Vector2::new(0.0, 50.0);
+
     let corners: Vec<EntityId> = open
         .entities()
         .map(|(_, entity)| match entity {
@@ -230,6 +243,7 @@ fn a_part_solved_by_diagnosis_leaves_a_conflict_elsewhere_reported_alone() {
 fn a_chain_that_must_curl_up_far_from_its_drawing_solves_from_what_diagnosis_finds() {
     let count = 50;
     let quarter = count as f64 / 4.0;
+
     let straight = Chain::along(&level_steps(count), false, quarter);
     let slope = (1.0_f64 - 0.25 * 0.25).sqrt();
     let zigzag: Vec<Vector2> = (0..count)
@@ -249,13 +263,16 @@ fn a_chain_that_must_curl_up_far_from_its_drawing_solves_from_what_diagnosis_fin
 
 fn triangle(sides: [f64; 3]) -> (Sketch, Vec<ConstraintId>) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let corner = sketch.add_point(Point2::ZERO);
     let right = sketch.add_point(Point2::new(4.0, 0.0));
     let top = sketch.add_point(Point2::new(4.0, 2.0));
+
     add(
         &mut sketch,
         Constraint::Coincident(corner, EntityId::ORIGIN),
     );
+
     let lengths = [(corner, right), (right, top), (corner, top)]
         .into_iter()
         .zip(sides)
@@ -286,6 +303,7 @@ fn sides_that_cannot_close_a_triangle_are_a_conflict_only_their_lengths_show() {
 fn an_incircle_given_too_large_a_radius_names_what_sizes_the_triangle() {
     let mut sketch = Sketch::new(Plane::XY);
     let corners = [Point2::ZERO, Point2::new(3.2, 0.1), Point2::new(2.9, 3.8)];
+
     let sides: Vec<EntityId> = (0..3)
         .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 3]))
         .collect();
@@ -297,8 +315,10 @@ fn an_incircle_given_too_large_a_radius_names_what_sizes_the_triangle() {
         })
         .collect();
     let (first, _) = ends(&sketch, sides[0]);
+
     add(&mut sketch, Constraint::Coincident(first, EntityId::ORIGIN));
     add(&mut sketch, Constraint::Horizontal(sides[0]));
+
     let lengths: Vec<ConstraintId> = sides
         .iter()
         .zip([3.0, 4.0, 5.0])
@@ -329,7 +349,9 @@ fn an_incircle_given_too_large_a_radius_names_what_sizes_the_triangle() {
         .chain(tangents)
         .chain([radius])
         .collect();
+
     expected.sort_unstable();
+
     assert!(inscribed.0.distance(Point2::new(2.0, 1.0)) < 1e-9);
     assert!((inscribed.1 - 1.0).abs() < 1e-9);
     assert_eq!(
@@ -344,6 +366,7 @@ fn with_failure<T>(chain: &Chain, then: impl FnOnce(&Solver<'_>, &[Failure]) -> 
     let dimensions = chain.sketch.evaluate(&no_parameters).unwrap();
     let system = System::build(&chain.sketch, &dimensions).unwrap();
     let stiff = BTreeSet::new();
+
     let solver = Solver {
         system: &system,
         cancelled: &|| false,
@@ -353,6 +376,7 @@ fn with_failure<T>(chain: &Chain, then: impl FnOnce(&Solver<'_>, &[Failure]) -> 
     };
     let every: Vec<usize> = (0..system.equations.len()).collect();
     let mut values = system.values.clone();
+
     let failed = solver.solve(&every, &mut values).unwrap();
     then(&solver, &failed)
 }
@@ -389,13 +413,17 @@ fn one_factorisation_steps_to_a_solution_without_each_constraint_the_conflict_ne
     let stepped = with_failure(&chain, |solver, failed| {
         let failure = &failed[0];
         let mut at = solver.system.values.clone();
+
         for (variable, value) in failure.component.variables.iter().zip(&failure.settled.end) {
             at[*variable] = *value;
         }
+
         let factored = Factored::at(solver, &failure.component, &at);
         let mut stepped = Vec::new();
+
         for constraint in &constraints {
             let mut free = || Ok::<(), ()>(());
+
             let Some(values) = factored.without(solver, *constraint, &mut free).unwrap() else {
                 continue;
             };
@@ -406,8 +434,11 @@ fn one_factorisation_steps_to_a_solution_without_each_constraint_the_conflict_ne
                 .copied()
                 .filter(|index| solver.system.equations[*index].owner != Some(*constraint))
                 .collect();
+
             let parts = components(solver.system, &rest, &values);
+
             assert!(parts.iter().all(|part| solver.holds(part, &values)));
+
             stepped.push(*constraint);
         }
         stepped
@@ -438,6 +469,7 @@ fn descent_from_drawn(chain: &Chain) -> (Descent, usize) {
     let dimensions = chain.sketch.evaluate(&no_parameters).unwrap();
     let system = System::build(&chain.sketch, &dimensions).unwrap();
     let conflict: BTreeSet<ConstraintId> = chain.spanning().into_iter().collect();
+
     let active: Vec<usize> = (0..system.equations.len())
         .filter(|index| {
             system.equations[*index]
@@ -446,6 +478,7 @@ fn descent_from_drawn(chain: &Chain) -> (Descent, usize) {
         })
         .collect();
     let mut values = system.values.clone();
+
     let parts = components(&system, &active, &values);
     let [part] = parts.as_slice() else {
         panic!("expected one part, found {}", parts.len());
@@ -456,6 +489,7 @@ fn descent_from_drawn(chain: &Chain) -> (Descent, usize) {
         false
     };
     let stiff = BTreeSet::new();
+
     let solver = Solver {
         system: &system,
         cancelled: &counting,
@@ -478,6 +512,7 @@ fn a_conflict_through_three_hundred_lines_settles_from_its_drawing_in_a_few_step
     let Descent::Failed(settled) = descent else {
         panic!("a chain out of reach cannot solve");
     };
+
     assert!(settled.conclusive);
     assert!(units < DIAGNOSIS_WORK / 8, "{units} units");
 }
@@ -544,6 +579,7 @@ fn trimmed_spanning(chain: &Chain) -> (Trimmed, Vec<ConstraintId>) {
     let dimensions = chain.sketch.evaluate(&no_parameters).unwrap();
     let system = System::build(&chain.sketch, &dimensions).unwrap();
     let spanning: BTreeSet<ConstraintId> = chain.spanning().into_iter().collect();
+
     let active: Vec<usize> = (0..system.equations.len())
         .filter(|index| {
             system.equations[*index]
@@ -560,6 +596,7 @@ fn trimmed_spanning(chain: &Chain) -> (Trimmed, Vec<ConstraintId>) {
         retrying: true,
     };
     let mut values = system.values.clone();
+
     let failed = solver.solve(&active, &mut values).unwrap();
     let [failure] = failed.as_slice() else {
         panic!("expected one failed part, found {}", failed.len());
@@ -574,9 +611,11 @@ fn trimmed_spanning(chain: &Chain) -> (Trimmed, Vec<ConstraintId>) {
         .zip(&trimmed.witnesses)
         .filter(|(constraint, witness)| {
             let mut at = system.values.clone();
+
             for (variable, value) in failure.component.variables.iter().zip(*witness) {
                 at[*variable] = *value;
             }
+
             let rest: Vec<usize> = active
                 .iter()
                 .copied()
@@ -593,6 +632,7 @@ fn trimmed_spanning(chain: &Chain) -> (Trimmed, Vec<ConstraintId>) {
 #[test]
 fn trimming_a_conflict_through_three_hundred_lines_costs_work_in_proportion_to_its_length() {
     const WORK_PER_LINE: usize = 20;
+
     let chain = out_of_reach(300);
 
     let (trimmed, unheld) = trimmed_spanning(&chain);
@@ -624,6 +664,7 @@ fn a_conflict_across_hundreds_of_entities_is_named_within_its_work_bound() {
             chain.sketch.entities().len(),
             chain.sketch.constraints().len()
         );
+
         assert_eq!(
             result,
             Err(SketchError::Conflict {

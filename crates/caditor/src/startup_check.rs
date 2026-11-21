@@ -46,7 +46,7 @@ impl Mode {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Progress {
     #[default]
     Waiting,
@@ -144,7 +144,9 @@ fn restore_offered(model: &mut Model, files: &mut Files) -> bool {
 
 fn edit_and_flush(model: &mut Model) {
     let mut transaction = model.document().transaction("Startup check");
+
     transaction.add_parameter(PARAMETER, Expression::Number(1.0));
+
     let transaction = transaction.finish();
 
     model.perform(Action::Apply(transaction));
@@ -198,8 +200,10 @@ mod tests {
 
         edit_and_flush(&mut model);
         drop(model);
+
         let deadline = Instant::now() + RELEASED_WITHIN;
         let mut recovered = caditor_file::scan(Some(dir.path()), &[]);
+
         while recovered.is_empty() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(20));
             recovered = caditor_file::scan(Some(dir.path()), &[]);

@@ -9,7 +9,7 @@ pub trait PolylineSource: Send + Sync {
     fn point(&self, index: u32) -> Option<Point3>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RunPolyline {
     pub polyline: u32,
     pub color: Color,
@@ -57,6 +57,7 @@ impl PolylineRun {
         let mut along = 0.0_f64;
         points.clone().zip(points.skip(1)).map(move |(start, end)| {
             let stroke = drawn.stroke.at(along as f32);
+
             along += start.distance(end);
             Line {
                 start: self.placed(start),

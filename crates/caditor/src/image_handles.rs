@@ -29,7 +29,7 @@ const SMALLEST_SHARE: f64 = 0.01;
 const SMALLEST_RADIUS: f64 = 1e-9;
 const LEAST_SPOT_GAP: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageGrip {
     Move,
     Turn,
@@ -46,7 +46,7 @@ impl ImageGrip {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Values {
     at: Point2,
     turn: f64,
@@ -150,7 +150,7 @@ fn wrapped(degrees: f64) -> f64 {
     turned - HALF_TURN_DEGREES
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ImageHandles {
     pub feature: FeatureId,
     plane: Plane,
@@ -175,6 +175,7 @@ impl ImageHandles {
         let values = values(model, feature, image)?;
         let plane = base_plane(model, feature, image)?;
         let aspect = image.picture.size().aspect();
+
         let placed = placed_on(
             &plane,
             values.at,
@@ -185,9 +186,11 @@ impl ImageHandles {
         );
         let frame = placed.plane()?;
         let centre = placed.centre;
+
         let corner =
             centre + placed.across * (placed.width / 2.0) + placed.up * (placed.height / 2.0);
         let top = centre + placed.up * (placed.height / 2.0);
+
         let per_point = [
             per_point_at(view, pixels_per_point, centre)?,
             per_point_at(view, pixels_per_point, corner)?,
@@ -298,6 +301,7 @@ impl ImageHandles {
                 palette.handle
             }
         };
+
         for grip in [ImageGrip::Move, ImageGrip::Scale] {
             if let Some(corners) = self.square(grip) {
                 draw_square(batch, &corners, colour(grip));
@@ -305,6 +309,7 @@ impl ImageHandles {
         }
         if self.turns() {
             let turning = colour(ImageGrip::Turn);
+
             batch.lines.push(Line {
                 start: self.stem[0],
                 end: self.stem[1],
@@ -325,7 +330,7 @@ impl ImageHandles {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ImageDrag {
     start: ReferenceImage,
     grip: ImageGrip,
@@ -345,6 +350,7 @@ impl ImageDrag {
         let start = committed(model, handles.feature)?.clone();
         let from = values(model, handles.feature, &start)?;
         let step = handles.step();
+
         let slide = Slide::begin(handles.plane, ray, step, from.at, None)?;
         let grabbed = handles
             .plane
@@ -378,6 +384,7 @@ impl ImageDrag {
 
     pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
         let before = self.now;
+
         match self.grip {
             ImageGrip::Move => {
                 self.slide.follow(ray, free, snap);
@@ -396,10 +403,13 @@ impl ImageDrag {
         let Some(degrees) = degrees_of(pointed - self.from.at) else {
             return;
         };
+
         self.swept += wrapped(degrees - self.last_degrees);
         self.last_degrees = degrees;
+
         let wanted = self.from.turn + self.swept;
         let landed = snap.is_some_and(|snap| !free && snap.on_plane(self.slide.plane()).is_some());
+
         self.now.turn = if free || landed {
             wanted
         } else {
@@ -412,12 +422,15 @@ impl ImageDrag {
             return;
         };
         let held = (self.grabbed - self.from.at).dot(self.diagonal);
+
         if held.abs() <= SMALLEST_RADIUS {
             return;
         }
+
         let ratio = (pointed - self.from.at).dot(self.diagonal) / held;
         let wanted = self.from.width * ratio;
         let landed = snap.is_some_and(|snap| !free && snap.on_plane(self.slide.plane()).is_some());
+
         let width = if free || landed {
             wanted
         } else {
@@ -426,6 +439,7 @@ impl ImageDrag {
         let width = width
             .max(self.from.width * SMALLEST_SHARE)
             .min(self.most_width);
+
         self.now.width = width;
         self.now.size = self.from.size * width / self.from.width;
     }
@@ -438,6 +452,7 @@ impl ImageDrag {
         let unit = model.units().length;
         let mut moved = self.start.clone();
         let mut named = Vec::new();
+
         match self.grip {
             ImageGrip::Move => {
                 let positions = [
@@ -513,6 +528,7 @@ pub fn typed(
     let image = committed(model, feature)?;
     let mut moved = image.clone();
     let mut named = Vec::new();
+
     match grip {
         ImageGrip::Move => {
             for (index, value) in values.iter().take(2).enumerate() {

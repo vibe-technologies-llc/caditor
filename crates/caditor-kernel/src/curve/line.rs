@@ -5,7 +5,7 @@ use crate::{
     error::GeometryError,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Line {
     origin: Point3,
     direction: Vector3,

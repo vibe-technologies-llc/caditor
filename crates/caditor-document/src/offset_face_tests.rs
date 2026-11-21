@@ -13,6 +13,7 @@ fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
         Point2::new(max.0, max.1),
         Point2::new(min.0, max.1),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -65,13 +66,16 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let lift = transaction.add_parameter("lift", transaction.parse("1 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
     );
+
     let base = transaction.add_feature(
         "Base",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -86,11 +90,15 @@ fn model() -> Model {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let faces = vec![top_face(evaluation.body(base).unwrap())];
     let mut transaction = document.transaction("Offset face");
+
     let offset = transaction.add_feature(
         "Offset face 1",
         FeatureKind::OffsetFace(OffsetFace {
@@ -100,6 +108,7 @@ fn model() -> Model {
             tangent: false,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -113,6 +122,7 @@ fn model() -> Model {
 
 fn set(model: &mut Model, parameter: ParameterId, text: &str) {
     let expression = model.document.parse(text).unwrap();
+
     model
         .document
         .apply(Transaction::single(
@@ -134,6 +144,7 @@ fn set_offset(model: &mut Model, change: impl FnOnce(&mut OffsetFace)) {
         .offset_face()
         .unwrap()
         .clone();
+
     change(&mut definition);
     model
         .document
@@ -149,6 +160,7 @@ fn set_offset(model: &mut Model, change: impl FnOnce(&mut OffsetFace)) {
 
 fn assert_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
     let found = volume(evaluation, body);
+
     assert!(
         (found - expected).abs() < 0.01 * expected,
         "volume {found} instead of {expected}"
@@ -158,34 +170,49 @@ fn assert_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
 #[test]
 fn a_moved_face_follows_its_distance_and_upstream_edits() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(evaluation.failed_count(), 0);
     assert_eq!(
         evaluation.bodies().collect::<Vec<_>>(),
         vec![(model.base, model.offset)]
     );
+
     assert_volume(&evaluation, model.base, 80.0 * 5.0);
+
     assert!(evaluation.body_before(model.offset).is_some());
 
     let id = model.lift;
+
     set(&mut model, id, "-1.5 mm");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_volume(&evaluation, model.base, 80.0 * 2.5);
 
     let id = model.height;
+
     set(&mut model, id, "6 mm");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(&evaluation, model.base, 80.0 * 4.5);
 }
 
 #[test]
 fn offset_face_errors_name_the_problem_and_the_fix() {
     let mut model = model();
+
     let id = model.lift;
+
     set(&mut model, id, "0 mm");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.offset);
+
     assert_eq!(
         error.reason(),
         "The distance must be more than 0.000001 mm."
@@ -193,16 +220,20 @@ fn offset_face_errors_name_the_problem_and_the_fix() {
     assert_eq!(error.fix, Some(FixTarget::Feature(model.offset)));
 
     set(&mut model, id, "30 deg");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.offset);
+
     assert_eq!(
         error.remedy(),
         "Edit the distance so it gives a length, such as 2 mm."
     );
 
     set(&mut model, id, "-5 mm");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.offset);
+
     assert_eq!(error.remedy(), "Enter a smaller distance.");
     assert!(evaluation.body(model.base).is_some());
 
@@ -212,15 +243,19 @@ fn offset_face_errors_name_the_problem_and_the_fix() {
             .faces
             .push(FaceReference::new(FaceName::from_digest(7), None, []));
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.offset);
+
     assert_eq!(
         error.reason(),
         "A face to move is no longer part of the body of Base."
     );
 
     set_offset(&mut model, |offset| offset.faces.clear());
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert!(matches!(
         evaluation.feature(model.offset).unwrap().state,
         FeatureState::Waiting(MissingInput::FacesToMove { .. })
@@ -231,6 +266,7 @@ fn offset_face_errors_name_the_problem_and_the_fix() {
 fn a_moved_face_stays_that_kind_and_keeps_its_body_in_use() {
     let model = model();
     let sketch = FeatureKind::from(rectangle((0.0, 0.0), (1.0, 1.0)));
+
     assert!(matches!(
         model.document.clone().apply(Transaction::single(
             "Change",
@@ -277,7 +313,9 @@ fn edge_at(solid: &Solid, point: Point3) -> EdgeReference {
 #[test]
 fn a_fillet_on_one_rim_of_a_groove_holds_after_another_face_moves() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
@@ -285,7 +323,9 @@ fn a_fillet_on_one_rim_of_a_groove_holds_after_another_face_moves() {
     let mut across = Sketch::new(
         Plane::from_frame(Point3::new(0.0, 9.0, 0.0), Vector3::NEG_Y, Vector3::X).unwrap(),
     );
+
     across.add_circle(Point2::new(5.0, 4.0), 1.5);
+
     let rod = transaction.add_feature("Rod", FeatureKind::from(across));
     let extrude = |sketch, height: f64, operation| {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -301,15 +341,19 @@ fn a_fillet_on_one_rim_of_a_groove_holds_after_another_face_moves() {
         }))
     };
     let base = transaction.add_feature("Base", extrude(outline, 4.0, BodyOperation::NewBody));
+
     transaction.add_feature("Groove", extrude(rod, 10.0, BodyOperation::Remove(base)));
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let right = plane_facing(evaluation.body(base).unwrap(), Vector3::X, 10.0);
 
     assert_eq!(evaluation.failed_count(), 0);
 
     let mut transaction = document.transaction("Offset face");
+
     transaction.add_feature(
         "Offset face 1",
         FeatureKind::OffsetFace(OffsetFace {
@@ -320,9 +364,11 @@ fn a_fillet_on_one_rim_of_a_groove_holds_after_another_face_moves() {
         }),
     );
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
     let rim = edge_at(evaluation.body(base).unwrap(), Point3::new(3.5, 4.0, 4.0));
     let mut transaction = document.transaction("Fillet");
+
     let fillet = transaction.add_feature(
         "Fillet 1",
         FeatureKind::Blend(Blend {
@@ -336,7 +382,9 @@ fn a_fillet_on_one_rim_of_a_groove_holds_after_another_face_moves() {
             sizing: FilletSizing::Radius,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);

@@ -19,7 +19,7 @@ const CURRENT_HOVER: &str = "The model is as it was just after this change";
 const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
 const NAMED: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Jump {
     Close,
     Undo(usize),
@@ -39,10 +39,12 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> Option<Jump> {
                 ui,
             ));
             ui.add_space(SPACE_M);
+
             let document = model.document();
             let undone: Vec<&Transaction> = model.redo_steps().collect();
             let done: Vec<&Transaction> = model.undo_steps().collect();
             let mut jump = None;
+
             widgets::DialogBody::default()
                 .list(ui.ctx(), LIST_HEIGHT)
                 .show(ui, |ui| {
@@ -82,6 +84,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> Option<Jump> {
 fn current_marker(ui: &mut egui::Ui, document: &Document, current: Option<&Transaction>) {
     ui.horizontal_wrapped(|ui| {
         ui.label(widgets::strong(NOW));
+
         let Some(step) = current else {
             return;
         };
@@ -91,6 +94,7 @@ fn current_marker(ui: &mut egui::Ui, document: &Document, current: Option<&Trans
         } else {
             format!("{CURRENT_HOVER}\n{summary}")
         };
+
         ui.add(Label::new(step.label()).wrap()).on_hover_text(hover);
     });
 }
@@ -119,10 +123,13 @@ pub fn summary(document: &Document, step: &Transaction) -> String {
                 .unwrap_or_else(|| "a deleted feature".to_owned())
         })
         .collect();
+
     if !features.is_empty() {
         lines.push(format!("Features: {}", named_list(&features)));
     }
+
     let mut sketch = Vec::new();
+
     if !touched.entities.is_empty() {
         sketch.push(count(
             touched.entities.len(),
@@ -140,6 +147,7 @@ pub fn summary(document: &Document, step: &Transaction) -> String {
     if !sketch.is_empty() {
         lines.push(format!("Sketch: {}", sketch.join(", ")));
     }
+
     let parameters: Vec<String> = touched
         .parameters
         .iter()
@@ -151,6 +159,7 @@ pub fn summary(document: &Document, step: &Transaction) -> String {
                 .unwrap_or_else(|| "a deleted parameter".to_owned())
         })
         .collect();
+
     if !parameters.is_empty() {
         lines.push(format!("Parameters: {}", named_list(&parameters)));
     }
@@ -198,12 +207,19 @@ mod tests {
     fn a_step_is_summed_up_by_the_features_sketch_items_and_parameters_it_touched() {
         let mut document = Document::default();
         let mut sketch = Sketch::new(Plane::XY);
+
         sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+
         let mut transaction = document.transaction("Build");
+
         let base = transaction.add_feature("Base", FeatureKind::from(sketch));
+
         transaction.add_parameter("width", transaction.parse("5 mm").unwrap());
+
         let built = transaction.finish();
+
         document.apply(built.clone()).unwrap();
+
         let hidden = Transaction::single(
             "Hide",
             Edit::SetFeatureHidden {

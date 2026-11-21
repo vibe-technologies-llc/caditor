@@ -1,11 +1,11 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SurfaceFailure {
     Validation,
     Lost,
     ReplacementLacksFormat,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SurfaceRepair {
     Reconfigure,
     Recreate,
@@ -13,7 +13,7 @@ pub(crate) enum SurfaceRepair {
     ReplaceDevice,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SurfaceLadder {
     validation_failures: u32,
 }
@@ -106,6 +106,7 @@ mod tests {
         let mut settled = SurfaceLadder::default();
 
         climbed(&mut replaced, &[SurfaceFailure::Validation; 2]);
+
         let after_replacement = climbed(
             &mut replaced,
             &[
@@ -113,8 +114,10 @@ mod tests {
                 SurfaceFailure::Validation,
             ],
         );
+
         climbed(&mut settled, &[SurfaceFailure::Validation; 3]);
         settled.settle();
+
         let after_settling = settled.climb(SurfaceFailure::Validation);
 
         assert_eq!(

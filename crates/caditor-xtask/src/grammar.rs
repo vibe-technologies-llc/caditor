@@ -143,6 +143,7 @@ fn refuse_what_does_not_apply(task: Task, flags: &Flags) -> Result<(), Error> {
 
     let scoped = [Task::Lint, Task::Test, Task::Check];
     let cargo = [Task::Lint, Task::Test, Task::Deny, Task::Check];
+
     let given: [(&'static str, bool, &[Task]); 5] = [
         ("--check", flags.check, &[Task::Format]),
         ("--windows", flags.windows, &[Task::Lint, Task::Check]),

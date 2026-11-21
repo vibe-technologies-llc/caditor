@@ -29,6 +29,7 @@ fn one_block_behind_another(harness: &mut Harness) -> Blocks {
         [Point2::new(0.0, 30.0), Point2::new(40.0, 40.0)],
         "20 mm",
     );
+
     harness.select([]);
     run_from_palette(harness, "view from the front");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
@@ -97,16 +98,21 @@ fn faces_of(harness: &Harness, body: FeatureId) -> usize {
 #[test]
 fn holding_alt_during_a_box_also_takes_the_faces_hidden_behind_the_front_body() {
     let mut harness = Harness::new();
+
     let blocks = one_block_behind_another(&mut harness);
     let from = blocks.centre + vec2(BOX_HALF_SIZE, BOX_HALF_SIZE);
     let to = blocks.centre - vec2(BOX_HALF_SIZE, BOX_HALF_SIZE);
+
     let midway = from.lerp(to, 0.5);
 
     press(&mut harness, from, Modifiers::NONE);
     move_to(&mut harness, midway);
     move_to(&mut harness, to);
+
     let offered = harness.shows(TAKING_SEEN_PROMPT) && harness.shows_hint(HOLD_ALT_HINT);
+
     release(&mut harness, to, Modifiers::NONE);
+
     let seen = (
         faces_of(&harness, blocks.front),
         faces_of(&harness, blocks.back),
@@ -116,8 +122,11 @@ fn holding_alt_during_a_box_also_takes_the_faces_hidden_behind_the_front_body() 
     move_to(&mut harness, midway);
     harness.events.push(Event::ModifiersChanged(Modifiers::ALT));
     move_to(&mut harness, to);
+
     let reaching = harness.shows(TAKING_HIDDEN_PROMPT) && harness.shows_hint(LET_GO_OF_ALT_HINT);
+
     release(&mut harness, to, Modifiers::ALT);
+
     let through = (
         faces_of(&harness, blocks.front),
         faces_of(&harness, blocks.back),
@@ -127,6 +136,7 @@ fn holding_alt_during_a_box_also_takes_the_faces_hidden_behind_the_front_body() 
     move_to(&mut harness, midway);
     move_to(&mut harness, to);
     release(&mut harness, to, Modifiers::ALT);
+
     let held_from_the_start = (
         faces_of(&harness, blocks.front),
         faces_of(&harness, blocks.back),
@@ -142,6 +152,7 @@ fn holding_alt_during_a_box_also_takes_the_faces_hidden_behind_the_front_body() 
 #[test]
 fn letting_go_of_alt_before_the_release_takes_only_what_can_be_seen() {
     let mut harness = Harness::new();
+
     let blocks = one_block_behind_another(&mut harness);
     let from = blocks.centre + vec2(BOX_HALF_SIZE, BOX_HALF_SIZE);
     let to = blocks.centre - vec2(BOX_HALF_SIZE, BOX_HALF_SIZE);
@@ -153,7 +164,9 @@ fn letting_go_of_alt_before_the_release_takes_only_what_can_be_seen() {
         .events
         .push(Event::ModifiersChanged(Modifiers::NONE));
     move_to(&mut harness, to);
+
     let back_to_seen = harness.shows(TAKING_SEEN_PROMPT);
+
     release(&mut harness, to, Modifiers::NONE);
 
     assert!(back_to_seen);

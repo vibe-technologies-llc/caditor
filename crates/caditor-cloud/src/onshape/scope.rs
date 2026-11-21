@@ -10,7 +10,7 @@ const PUBLIC: &str = "public";
 const COMPANY: &str = "company";
 const TEAM: &str = "team";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Scope {
     Mine,
     Shared,
@@ -40,6 +40,7 @@ impl Scope {
             PUBLIC => Some(Self::Public),
             other => {
                 let (kind, id) = other.split_once('/')?;
+
                 if id.is_empty() {
                     return None;
                 }
@@ -68,7 +69,7 @@ impl Scope {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaceKind {
     Workspace,
     Version,
@@ -89,7 +90,7 @@ impl PlaceKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
     pub kind: PlaceKind,
     pub id: String,
@@ -132,7 +133,7 @@ impl Place {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElementKind {
     PartStudio,
     Assembly,
@@ -179,6 +180,7 @@ impl DesignPlace {
 
     pub fn parse(id: &DesignId) -> Option<Self> {
         let mut parts = id.as_str().split('/');
+
         let kind = ElementKind::from_path(parts.next()?)?;
         let place_kind = PlaceKind::from_letter(parts.next()?)?;
         let place = parts.next()?;
@@ -206,6 +208,7 @@ impl UploadPlace {
 
     pub fn parse(id: &UploadId) -> Option<Self> {
         let mut parts = id.as_str().split('/');
+
         let kind = PlaceKind::from_letter(parts.next()?)?;
         let place = parts.next()?;
         let element = parts.next()?;

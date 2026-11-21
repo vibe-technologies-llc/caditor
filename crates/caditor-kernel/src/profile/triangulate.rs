@@ -11,7 +11,7 @@ use crate::tolerance::{LINEAR_RESOLUTION, SamplingTolerance};
 
 type Cdt = ConstrainedDelaunayTriangulation<PlanePoint<f64>>;
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RegionMesh {
     pub points: Vec<Point2>,
     pub triangles: Vec<[u32; 3]>,
@@ -39,6 +39,7 @@ pub(super) fn loop_polygon(
     tolerance: &SamplingTolerance,
 ) -> Vec<Point2> {
     let mut polygon: Vec<Point2> = Vec::new();
+
     for piece in profile_loop.pieces() {
         let mut samples: Vec<Point2> = piece
             .curve()
@@ -46,6 +47,7 @@ pub(super) fn loop_polygon(
             .into_iter()
             .map(|sample| sample.point)
             .collect();
+
         if piece.is_reversed() {
             samples.reverse();
         }
@@ -69,9 +71,11 @@ pub(super) fn loop_polygon(
 pub(super) fn triangulate(region: &Region, tolerance: &SamplingTolerance) -> Option<RegionMesh> {
     let mut cdt = Cdt::new();
     let mut handles: Vec<FixedVertexHandle> = Vec::new();
+
     for profile_loop in region.loops() {
         let polygon = loop_polygon(profile_loop, tolerance);
         let mut ring = Vec::with_capacity(polygon.len());
+
         for point in polygon {
             let handle = cdt.insert(PlanePoint::new(point.x, point.y)).ok()?;
             if ring.last() != Some(&handle) {
@@ -83,6 +87,7 @@ pub(super) fn triangulate(region: &Region, tolerance: &SamplingTolerance) -> Opt
         }
         for (index, from) in ring.iter().enumerate() {
             let to = ring.get((index + 1) % ring.len())?;
+
             if from == to || cdt.exists_constraint(*from, *to) {
                 continue;
             }
@@ -117,11 +122,13 @@ pub(super) fn triangulate(region: &Region, tolerance: &SamplingTolerance) -> Opt
 fn inside_faces(cdt: &Cdt) -> Vec<bool> {
     let mut parity: Vec<Option<bool>> = vec![None; cdt.num_all_faces()];
     let mut pending: VecDeque<FixedFaceHandle<InnerTag>> = VecDeque::new();
+
     for face in cdt.inner_faces() {
         for edge in face.adjacent_edges() {
             if !edge.rev().face().is_outer() {
                 continue;
             }
+
             let crossing = cdt.is_constraint_edge(edge.fix().as_undirected());
             if let Some(slot) = parity.get_mut(face.fix().index())
                 && slot.is_none()

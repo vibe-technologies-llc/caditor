@@ -82,6 +82,7 @@ pub fn plane(input: &mut Unstructured) -> Result<Plane> {
 
 pub fn check_solid(solid: &Solid) {
     let never: Interrupt = Arc::new(|| false);
+
     if let Err(error) = interruptible(never, || solid.validate()) {
         panic!("an operation returned an invalid solid: {error}");
     }

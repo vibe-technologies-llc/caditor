@@ -20,7 +20,7 @@ use crate::{
     tolerance,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrincipalPlane {
     Xy,
     Xz,
@@ -52,7 +52,7 @@ impl PrincipalPlane {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrincipalAxis {
     X,
     Y,
@@ -88,7 +88,7 @@ impl PrincipalAxis {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrincipalShowing {
     #[default]
     WhenNeeded,
@@ -96,7 +96,7 @@ pub enum PrincipalShowing {
     Hidden,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrincipalGeometry {
     Origin,
     Axis(PrincipalAxis),
@@ -123,7 +123,7 @@ impl PrincipalGeometry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PlaneReference {
     Principal(PrincipalPlane),
     Datum(FeatureId),
@@ -171,7 +171,7 @@ impl PlaneReference {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AxisReference {
     Principal(PrincipalAxis),
     Datum(FeatureId),
@@ -280,7 +280,7 @@ impl AxisReference {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PointReference {
     Origin,
     Datum(FeatureId),
@@ -414,13 +414,13 @@ impl PointReference {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DatumPoint {
     pub base: PointReference,
     pub offset: [Expression; 3],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CurveStation {
     pub body: FeatureId,
     pub edge: Box<EdgeReference>,
@@ -442,14 +442,14 @@ impl CurveStation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceTangent {
     pub body: FeatureId,
     pub face: FaceReference,
     pub toward: PointReference,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PlaneThrough {
     Points([PointReference; 3]),
     Midway(PlaneReference, PlaneReference),
@@ -461,7 +461,7 @@ pub enum PlaneThrough {
     TangentAt(Box<FaceTangent>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PointBy {
     LinesCross(AxisReference, AxisReference),
     AxisAndPlane(AxisReference, PlaneReference),
@@ -477,20 +477,20 @@ pub enum PointBy {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PlaneRotation {
     pub axis: AxisReference,
     pub angle: Expression,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DatumPlane {
     pub base: PlaneReference,
     pub rotation: Option<PlaneRotation>,
     pub offset: Expression,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DatumAxis {
     Along(AxisReference),
     Intersection(PlaneReference, PlaneReference),
@@ -499,7 +499,7 @@ pub enum DatumAxis {
     SquareToFace(Box<FaceTangent>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DatumFrame {
     pub origin: PointReference,
     pub x_axis: AxisReference,
@@ -520,7 +520,7 @@ impl DatumFrame {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Datum {
     Plane(DatumPlane),
     PlaneThrough(PlaneThrough),
@@ -530,7 +530,7 @@ pub enum Datum {
     Frame(Box<DatumFrame>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DatumKind {
     Plane,
     Axis,
@@ -538,7 +538,7 @@ pub enum DatumKind {
     Frame,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DatumResult {
     Plane(Plane),
     Axis(Ray),
@@ -881,6 +881,7 @@ impl Datum {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = self.plane_datums();
+
         used.extend(self.axis_datums());
         used.extend(self.axis_sketches());
         used.extend(self.point_datums());
@@ -975,6 +976,7 @@ pub fn describe_axis(document: &Document, reference: &AxisReference) -> String {
 fn sketch_line(sketch: &caditor_sketch::Sketch, entity: EntityId) -> Option<Ray> {
     let (start, end) = sketch.line_endpoints(entity)?;
     let plane = sketch.plane();
+
     let (from, to) = (plane.to_world(start), plane.to_world(end));
     Ray::new(from, to - from)
 }
@@ -1017,6 +1019,7 @@ pub fn describe_curve(document: &Document, station: &CurveStation) -> String {
 
 pub fn describe_points(document: &Document, points: &[&PointReference]) -> String {
     let mut groups: Vec<(String, usize)> = Vec::new();
+
     for point in points {
         let described = describe_point(document, point);
         match groups.iter_mut().find(|(text, _)| *text == described) {
@@ -1024,6 +1027,7 @@ pub fn describe_points(document: &Document, points: &[&PointReference]) -> Strin
             None => groups.push((described, 1)),
         }
     }
+
     let phrases: Vec<String> = groups
         .into_iter()
         .map(
@@ -1256,6 +1260,7 @@ impl Resolver<'_> {
             AxisReference::Edge { body, edge } => {
                 let solid = self.body(*body)?;
                 let name = feature_name(document, *body);
+
                 let pieces = match edge.resolve(solid) {
                     Ok(found) => vec![found],
                     Err(ReferenceError::Ambiguous(pieces)) => pieces,
@@ -1269,6 +1274,7 @@ impl Resolver<'_> {
             AxisReference::Face { body, face } => {
                 let solid = self.body(*body)?;
                 let described = describe_origin(document, face.origin());
+
                 let pieces = match face.resolve(solid) {
                     Ok(found) => vec![found],
                     Err(ReferenceError::Ambiguous(pieces)) => pieces,
@@ -1335,6 +1341,7 @@ impl Resolver<'_> {
             PointReference::Centre { body, edge } => {
                 let solid = self.body(*body)?;
                 let name = feature_name(document, *body);
+
                 let pieces = match edge.resolve(solid) {
                     Ok(found) => vec![found],
                     Err(ReferenceError::Ambiguous(pieces)) => pieces,
@@ -1360,6 +1367,7 @@ impl Resolver<'_> {
             PointReference::SurfaceCentre { body, face } => {
                 let solid = self.body(*body)?;
                 let described = describe_origin(document, face.origin());
+
                 let pieces = match face.resolve(solid) {
                     Ok(found) => vec![found],
                     Err(ReferenceError::Ambiguous(pieces)) => pieces,
@@ -1398,6 +1406,7 @@ impl Resolver<'_> {
                             *sketch,
                         )
                     })?;
+
                 let point = result
                     .geometry
                     .point(*entity)
@@ -1435,9 +1444,11 @@ fn intersection(first: Plane, second: Plane) -> Option<Ray> {
     if tolerance::parallel(first.normal(), second.normal()) {
         return None;
     }
+
     let direction = first.normal().cross(second.normal());
     let first_distance = first.normal().dot(first.origin());
     let second_distance = second.normal().dot(second.origin());
+
     let point = (second.normal().cross(direction) * first_distance
         + direction.cross(first.normal()) * second_distance)
         / direction.length_squared();
@@ -1453,9 +1464,11 @@ fn plane_through(resolver: &Resolver<'_>, through: &PlaneThrough) -> Result<Plan
                 resolver.point(&references[1])?,
                 resolver.point(&references[2])?,
             ];
+
             let along = second - first;
             let normal = along.cross(third - first);
             let spread = along.length().max((third - first).length());
+
             if normal.length() <= LINEAR_RESOLUTION * spread.max(1.0) {
                 return Err(resolver.error(DatumCause::PointsCollinear));
             }
@@ -1464,13 +1477,16 @@ fn plane_through(resolver: &Resolver<'_>, through: &PlaneThrough) -> Result<Plan
         }
         PlaneThrough::Midway(first, second) => {
             let (one, other) = (resolver.plane(first)?, resolver.plane(second)?);
+
             let facing = if one.normal().dot(other.normal()) < 0.0 {
                 -other.normal()
             } else {
                 other.normal()
             };
+
             if tolerance::parallel(one.normal(), facing) {
                 let gap = one.signed_distance(other.origin());
+
                 return Plane::from_frame(
                     one.origin() + one.normal() * (gap / 2.0),
                     one.normal(),
@@ -1478,6 +1494,7 @@ fn plane_through(resolver: &Resolver<'_>, through: &PlaneThrough) -> Result<Plan
                 )
                 .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::PlaneBetween)));
             }
+
             let line = intersection(one, other).ok_or_else(|| {
                 resolver.error(DatumCause::NotHalved {
                     pair: Pair {
@@ -1493,7 +1510,9 @@ fn plane_through(resolver: &Resolver<'_>, through: &PlaneThrough) -> Result<Plan
         PlaneThrough::AxisAndPoint(axis, point) => {
             let line = resolver.axis(axis)?;
             let at = resolver.point(point)?;
+
             let normal = line.direction().cross(at - line.origin());
+
             if normal.length() <= LINEAR_RESOLUTION {
                 return Err(resolver.error(DatumCause::PointOnAxis {
                     point: capitalized(&describe_point(document, point)),
@@ -1538,6 +1557,7 @@ fn axis_through(resolver: &Resolver<'_>, axis: &DatumAxis) -> Result<Ray, Failur
         }
         DatumAxis::Points(first, second) => {
             let (from, to) = (resolver.point(first)?, resolver.point(second)?);
+
             if from.distance(to) <= LINEAR_RESOLUTION {
                 return Err(resolver.error(DatumCause::PointsCoincide {
                     pair: Pair {
@@ -1561,6 +1581,7 @@ fn axis_through(resolver: &Resolver<'_>, axis: &DatumAxis) -> Result<Ray, Failur
 fn datum_point(resolver: &Resolver<'_>, point: &DatumPoint) -> Result<Point3, Failure> {
     let base = resolver.point(&point.base)?;
     let mut offset = Vector3::ZERO;
+
     for (index, (expression, what)) in point
         .offset
         .iter()
@@ -1572,7 +1593,9 @@ fn datum_point(resolver: &Resolver<'_>, point: &DatumPoint) -> Result<Point3, Fa
             *slot = value;
         }
     }
+
     let at = base + offset;
+
     if !at.is_finite() {
         return Err(resolver.error(DatumCause::Unplaced(Unplaced::PointOffsets)));
     }
@@ -1586,20 +1609,24 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let resolver = Resolver { feature, inputs };
     let document = inputs.document;
+
     let result = match datum {
         Datum::PlaneThrough(through) => DatumResult::Plane(plane_through(&resolver, through)?),
         Datum::Point(point) => DatumResult::Point(datum_point(&resolver, point)?),
         Datum::PointBy(by) => DatumResult::Point(datum_construction::point_by(&resolver, by)?),
         Datum::Plane(definition) => {
             let mut plane = resolver.plane(&definition.base)?;
+
             if let Some(rotation) = &definition.rotation {
                 let axis = resolver.axis(&rotation.axis)?;
+
                 if !tolerance::perpendicular(axis.direction(), plane.normal()) {
                     return Err(resolver.error(DatumCause::AxisNotAlong {
                         axis: capitalized(&describe_axis(document, &rotation.axis)),
                         plane: describe_plane(document, &definition.base),
                     }));
                 }
+
                 let angle = resolver.value(&rotation.angle, "angle", Dimension::ANGLE)?;
                 let transform = RigidTransform::rotation_about(
                     axis.origin(),
@@ -1613,8 +1640,10 @@ pub(crate) fn evaluate(
                     plane.x_axis(),
                 )
                 .unwrap_or(plane);
+
                 plane = through_axis.transformed(&transform);
             }
+
             let offset = resolver.value(&definition.offset, "offset", Dimension::LENGTH)?;
             let moved = Plane::from_frame(
                 plane.origin() + plane.normal() * offset,

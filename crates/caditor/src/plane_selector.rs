@@ -78,17 +78,22 @@ pub fn row<E: Display, P>(
     actions: &mut Vec<Action>,
 ) -> bool {
     widgets::caption(ui, row.caption);
+
     let document = model.document();
     let (feature, slot) = (row.picker.feature, row.picker.slot);
+
     let removed = ui
         .vertical(|ui| {
             let mut removed = false;
+
             ui.horizontal_wrapped(|ui| {
                 let chosen = combo(ui, row.id, document, row.planes, row.current, |plane| {
                     change(plane).map(Action::Apply)
                 });
+
                 if let Some(action) = chosen {
                     actions.push(action);
+
                     let choosing = reference_picking::current(ui.ctx())
                         .is_some_and(|picking| picking.is_for(feature, slot));
                     if choosing {
@@ -103,6 +108,7 @@ pub fn row<E: Display, P>(
             removed
         })
         .inner;
+
     ui.end_row();
     removed
 }

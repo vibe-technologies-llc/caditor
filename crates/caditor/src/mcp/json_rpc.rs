@@ -5,7 +5,7 @@ use serde_json::{Map, Value, json};
 pub const VERSION: &str = "2.0";
 pub const MAX_LINE_BYTES: usize = 16 << 20;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Code {
     ParseError,
     InvalidRequest,
@@ -28,7 +28,7 @@ impl Code {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RequestId(Value);
 
 impl RequestId {
@@ -48,7 +48,7 @@ impl RequestId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Incoming {
     Request {
         id: RequestId,
@@ -62,7 +62,7 @@ pub enum Incoming {
     Response,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Rejection {
     #[error("the message is not UTF-8 text")]
     NotText,
@@ -103,7 +103,7 @@ impl Rejection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Rejected {
     pub id: Option<RequestId>,
     pub reason: Rejection,
@@ -115,7 +115,7 @@ impl Rejected {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Line {
     Text(Vec<u8>),
     TooLong,
@@ -131,6 +131,7 @@ pub fn read_line(reader: &mut impl BufRead, limit: usize) -> io::Result<Line> {
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
         };
+
         if available.is_empty() {
             return Ok(match (overflowed, line.is_empty()) {
                 (true, _) => Line::TooLong,
@@ -138,8 +139,10 @@ pub fn read_line(reader: &mut impl BufRead, limit: usize) -> io::Result<Line> {
                 (false, false) => Line::Text(line),
             });
         }
+
         let ending = available.iter().position(|byte| *byte == b'\n');
         let taken = ending.map_or(available.len(), |at| at + 1);
+
         if !overflowed {
             let piece = available.get(..taken).unwrap_or_default();
             if line.len().saturating_add(piece.len()) > limit.saturating_add(1) {
@@ -163,9 +166,11 @@ pub fn read_line(reader: &mut impl BufRead, limit: usize) -> io::Result<Line> {
 pub fn parse(line: &[u8]) -> Result<Option<Incoming>, Rejected> {
     let text = std::str::from_utf8(line).map_err(|_| Rejected::without_id(Rejection::NotText))?;
     let text = text.trim();
+
     if text.is_empty() {
         return Ok(None);
     }
+
     let value: Value = serde_json::from_str(text).map_err(|error| {
         Rejected::without_id(Rejection::NotJson {
             line: error.line(),
@@ -187,11 +192,14 @@ pub fn parse(line: &[u8]) -> Result<Option<Incoming>, Rejected> {
         id: id.clone(),
         reason,
     };
+
     if message.get("jsonrpc").and_then(Value::as_str) != Some(VERSION) {
         return Err(rejected(Rejection::WrongVersion));
     }
+
     let Some(method) = message.get("method") else {
         let answers = message.contains_key("result") || message.contains_key("error");
+
         return match (answers, &id) {
             (true, Some(_)) => Ok(Some(Incoming::Response)),
             _ => Err(rejected(Rejection::NoMethod)),

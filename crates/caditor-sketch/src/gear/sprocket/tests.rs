@@ -27,6 +27,7 @@ fn polygon(sprocket: &Sprocket) -> Vec<Point2> {
         .iter()
         .flat_map(|piece| {
             let mut points = piece.faceted(Faceting::within(1e-3));
+
             points.pop();
             points
         })
@@ -49,6 +50,7 @@ fn the_pitch_circle_passes_through_the_roller_centres_of_a_chain_of_that_pitch()
             };
             let diameter = 2.0 * sprocket.circles().pitch;
             let wanted = size.pitch / (PI / f64::from(teeth)).sin();
+
             assert!(
                 (diameter - wanted).abs() < 1e-9 * wanted,
                 "{size:?} {teeth}"
@@ -74,18 +76,22 @@ fn every_size_and_tooth_count_gives_a_closed_outline_inside_the_iso_606_limits()
             let pitch_diameter = 2.0 * sprocket.circles().pitch;
 
             let seat = size.seat_radius();
+
             assert!(seat >= 0.505 * roller - 1e-12);
             assert!(seat <= 0.505 * roller + 0.069 * roller.cbrt() + 1e-12);
 
             let angle = sprocket.seating_angle().to_degrees();
+
             assert!(angle >= 120.0 - 90.0 / count - 1e-9);
             assert!(angle <= 140.0 - 90.0 / count + 1e-9);
 
             let flank = sprocket.flank_radius();
+
             assert!(flank >= 0.12 * roller * (count + 2.0) - 1e-9);
             assert!(flank <= 0.008 * roller * (count * count + 180.0) + 1e-9);
 
             let tip_diameter = 2.0 * sprocket.circles().tip;
+
             assert!(
                 tip_diameter >= pitch_diameter + size.pitch * (1.0 - 1.6 / count) - roller - 1e-9
             );
@@ -94,7 +100,9 @@ fn every_size_and_tooth_count_gives_a_closed_outline_inside_the_iso_606_limits()
             for pair in outline.pieces.windows(2) {
                 assert!(pair[0].to().distance(pair[1].from()) < 1e-9);
             }
+
             let last = outline.pieces.last().unwrap();
+
             assert!(last.to().distance(outline.pieces[0].from()) < 1e-9);
             assert_eq!(outline.pieces.len(), 4 * teeth as usize);
         }
@@ -105,6 +113,7 @@ fn every_size_and_tooth_count_gives_a_closed_outline_inside_the_iso_606_limits()
 fn the_seat_of_each_gap_holds_a_roller_of_the_chain_and_neighbours_are_a_pitch_apart() {
     let sprocket = sprocket("08B", 19);
     let outline = sprocket.outline(Point2::new(10.0, 5.0)).unwrap();
+
     let seats: Vec<(Point2, Point2, Point2)> = outline
         .pieces
         .iter()
@@ -123,8 +132,10 @@ fn the_seat_of_each_gap_holds_a_roller_of_the_chain_and_neighbours_are_a_pitch_a
         .collect();
 
     assert_eq!(seats.len(), 19);
+
     for (centre, from, to) in &seats {
         let roller = sprocket.chain.roller / 2.0;
+
         assert!(centre.distance(*from) > roller);
         assert!(centre.distance(*to) > roller);
         assert!((centre.distance(outline.centre) - sprocket.circles().pitch).abs() < 1e-9);
@@ -156,6 +167,7 @@ fn the_tips_lie_on_the_tip_circle_and_the_teeth_keep_a_land() {
     assert_eq!(tips.len(), 17);
     for tip in tips {
         let (from, to) = (tip.from(), tip.to());
+
         assert!((from.length() - outline.circles.tip).abs() < 1e-9);
         assert!((to.length() - outline.circles.tip).abs() < 1e-9);
         assert!(from.distance(to) > 0.02 * sprocket.chain.pitch);
@@ -178,6 +190,7 @@ fn the_outline_never_crosses_itself() {
                 if first == 0 && second == count - 1 {
                     continue;
                 }
+
                 assert!(
                     !crosses(
                         points[first],

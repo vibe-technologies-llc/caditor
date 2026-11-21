@@ -1,6 +1,6 @@
 pub(crate) const DELIMITERS: [char; 3] = [',', ';', '\t'];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CsvError {
     UnclosedQuote { line: usize },
     TooManyRows,
@@ -26,6 +26,7 @@ pub(crate) fn records(
     let mut line = 1;
     let mut quote_line = 1;
     let mut chars = text.chars().peekable();
+
     while let Some(character) = chars.next() {
         if quoted {
             match character {
@@ -77,6 +78,7 @@ pub(crate) fn csv_row(cells: &[&str]) -> String {
         .map(|cell| csv_cell(cell))
         .collect::<Vec<_>>()
         .join(",");
+
     row.push_str("\r\n");
     row
 }

@@ -17,6 +17,7 @@ use crate::{
 #[test]
 fn the_canvas_says_how_far_apart_the_grid_lines_are_and_names_it_for_screen_readers() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();
@@ -56,11 +57,13 @@ fn view_cube_node(harness: &Harness) -> Option<(NodeId, String)> {
 #[test]
 fn the_view_cube_names_its_view_and_steps_to_a_neighbour_from_the_keyboard() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.let_animations_finish();
 
     let (cube, name) = view_cube_node(&harness).expect("the view cube is named");
+
     assert_eq!(name, "View cube: View from top, front and right");
     assert!(harness.accessible_named(Role::Button, "Fit all"));
     assert!(harness.shows("Fit all"));
@@ -82,13 +85,17 @@ fn the_view_cube_names_its_view_and_steps_to_a_neighbour_from_the_keyboard() {
 
     let looking_from = harness.workspace.viewport.viewpoint().orientation * Vector3::Z;
     let expected = Vector3::new(1.0, 0.0, 1.0).normalize();
+
     assert!(looking_from.distance(expected) < 1e-6, "{looking_from}");
+
     let (_, name) = view_cube_node(&harness).expect("the view cube is named");
+
     assert_eq!(name, "View cube: View from top and right");
 }
 
 fn bracket_profile(harness: &mut Harness) -> FeatureId {
     let session = harness.model.session();
+
     harness.command(FileCommand::OpenSample(crate::samples::Sample::Bracket));
     if harness.shows("Continue Without Saving") {
         harness.click("Continue Without Saving");
@@ -97,12 +104,14 @@ fn bracket_profile(harness: &mut Harness) -> FeatureId {
         harness.model.session() != session
     });
     harness.settle();
+
     let profile = harness
         .document()
         .features()
         .find(|feature| feature.name == "Bracket profile")
         .map(|feature| feature.id())
         .expect("the bracket has its profile sketch");
+
     harness.edit(profile);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.let_animations_finish();
@@ -112,7 +121,9 @@ fn bracket_profile(harness: &mut Harness) -> FeatureId {
 #[test]
 fn constraint_glyphs_keep_clear_of_dimension_labels_in_the_bracket_profile() {
     let mut harness = Harness::new();
+
     bracket_profile(&mut harness);
+
     let view = harness.workspace.viewport.rect().unwrap();
     let in_view = |rect: &Rect| view.contains_rect(*rect);
 
@@ -141,6 +152,7 @@ fn constraint_glyphs_keep_clear_of_dimension_labels_in_the_bracket_profile() {
 #[test]
 fn the_prompt_and_key_hints_wrap_clear_of_the_view_cube_in_a_small_view() {
     let mut harness = Harness::new();
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(1.5),
     )));
@@ -156,8 +168,10 @@ fn the_prompt_and_key_hints_wrap_clear_of_the_view_cube_in_a_small_view() {
         "Rectangle from two corners   R: from its centre",
         "Esc: back to Select",
     );
+
     assert!(harness.shows(prompt));
     assert!(harness.shows_hint(&keys));
+
     let hinted: Vec<&str> = std::iter::once(prompt)
         .chain(canvas::hint_texts(&keys))
         .collect();
@@ -175,19 +189,23 @@ fn the_prompt_and_key_hints_wrap_clear_of_the_view_cube_in_a_small_view() {
         })
         .collect();
     let first = rows.iter().copied().fold(f32::INFINITY, f32::min);
+
     assert!(rows.iter().any(|top| *top > first + 30.0), "{rows:?}");
 }
 
 #[test]
 fn the_cursor_readout_keeps_clear_of_dimension_labels_and_inside_the_view_at_twice_the_size() {
     let mut harness = Harness::new();
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(2.0),
     )));
     harness.frame();
     bracket_profile(&mut harness);
     harness.use_tool(Key::R);
+
     let view = harness.workspace.viewport.rect().unwrap();
+
     harness
         .events
         .push(Event::PointerMoved(view.lerp_inside(egui::vec2(0.45, 0.6))));
@@ -206,6 +224,7 @@ fn the_cursor_readout_keeps_clear_of_dimension_labels_and_inside_the_view_at_twi
         .filter(|(text, _)| text.starts_with("x ") && text.contains("   y "))
         .map(|(_, rect)| *rect)
         .collect();
+
     assert!(!labels.is_empty());
     for readout in &readouts {
         assert!(view.contains_rect(*readout), "{readout:?} leaves {view:?}");

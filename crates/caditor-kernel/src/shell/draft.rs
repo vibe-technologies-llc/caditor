@@ -18,13 +18,13 @@ pub const STEEPEST_DRAFT: f64 = 89.0 * std::f64::consts::PI / 180.0;
 
 const HEIGHT_SAMPLES: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DraftedFace {
     pub face: FaceId,
     pub angle: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum DraftError {
     #[error("no face is to be drafted")]
     NothingToDraft,
@@ -106,6 +106,7 @@ pub fn check_draftable(solid: &Solid, face: FaceId, neutral: &Plane) -> Result<(
         | Surface::Revolution(_)
         | Surface::BSpline(_) => return Err(DraftError::NotDraftable(face)),
     };
+
     if axis.dot(neutral.normal()).abs() < 1.0 - ANGULAR_RESOLUTION {
         return Err(DraftError::OffPull(face));
     }
@@ -115,10 +116,12 @@ pub fn check_draftable(solid: &Solid, face: FaceId, neutral: &Plane) -> Result<(
 fn turn(solid: &Solid, drafted: DraftedFace, neutral: &Plane) -> Result<Option<Turn>, DraftError> {
     let face = drafted.face;
     let definition = solid.face(face).ok_or(DraftError::MissingFace(face))?;
+
     if !drafted.angle.is_finite() || drafted.angle.abs() > STEEPEST_DRAFT {
         return Err(DraftError::TooSteep(face));
     }
     check_draftable(solid, face, neutral)?;
+
     let drafting = match definition.surface() {
         Surface::Plane(_) => tilt(definition, drafted, neutral)?.map(Drafting::Tilted),
         _ => taper(solid, definition, drafted, neutral)?.map(Drafting::Tapered),
@@ -137,18 +140,24 @@ fn tilt(
     };
     let pull = neutral.normal();
     let normal = plane.frame().normal() * definition.sense().sign();
+
     let hinge = normal.cross(pull);
+
     if hinge.length() <= ANGULAR_RESOLUTION {
         return Err(DraftError::AlongNeutral(face));
     }
+
     let hinge = hinge.normalize();
     let current = normal.dot(pull).clamp(-1.0, 1.0).asin_libm();
     let turn = drafted.angle - current;
+
     if turn.abs() <= ANGULAR_RESOLUTION {
         return Ok(None);
     }
+
     let through = plane.frame().origin();
     let across = hinge.cross(normal);
+
     let toward_neutral = pull.dot(neutral.origin() - through) / pull.dot(across);
     let on_hinge = through + across * toward_neutral;
     let motion = RigidTransform::rotation_about(on_hinge, hinge, turn)
@@ -190,12 +199,15 @@ fn taper(
         _ => return Err(DraftError::NotDraftable(face)),
     };
     let pull = neutral.normal();
+
     let along = frame.normal().dot(pull);
     let leaning = -definition.sense().sign() * along.signum();
     let current = leaning * half_angle;
+
     if (drafted.angle - current).abs() <= ANGULAR_RESOLUTION {
         return Ok(None);
     }
+
     let slopes = Slopes {
         from: half_angle.tan_libm(),
         to: (leaning * drafted.angle).tan_libm(),
@@ -207,9 +219,12 @@ fn taper(
         frame.x_axis(),
     )
     .ok_or(DraftError::OffPull(face))?;
+
     let hinge = radius + slopes.from * to_neutral;
     let (low, high) = heights(solid, face, &axis).ok_or(DraftError::MissingFace(face))?;
+
     let narrowest = f64::min(hinge + low * slopes.to, hinge + high * slopes.to);
+
     if narrowest <= LINEAR_RESOLUTION {
         return Err(DraftError::NarrowsToPoint(face));
     }
@@ -220,6 +235,7 @@ fn taper(
 
 fn grouped(turns: Vec<Turn>) -> Vec<(Turn, Vec<FaceId>)> {
     let mut groups: Vec<(Turn, Vec<FaceId>)> = Vec::new();
+
     for turn in turns {
         let face = turn.face;
         match groups
@@ -241,7 +257,9 @@ pub fn draft_faces(
     if faces.is_empty() {
         return Err(DraftError::NothingToDraft);
     }
+
     let mut turns: Vec<Turn> = Vec::with_capacity(faces.len());
+
     for drafted in faces {
         if turns.iter().any(|turn| turn.face == drafted.face) {
             continue;
@@ -254,6 +272,7 @@ pub fn draft_faces(
         return Err(DraftError::AlreadyDrafted);
     }
     interrupt::check()?;
+
     let groups = grouped(turns);
     let carried: Vec<Carried<'_>> = groups
         .iter()

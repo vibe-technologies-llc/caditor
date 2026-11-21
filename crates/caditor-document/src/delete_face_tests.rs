@@ -17,6 +17,7 @@ fn holed_plate() -> Sketch {
         Point2::new(10.0, 8.0),
         Point2::new(0.0, 8.0),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -40,6 +41,7 @@ fn volume(evaluation: &Evaluation, body: FeatureId) -> f64 {
 
 fn assert_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
     let found = volume(evaluation, body);
+
     assert!(
         (found - expected).abs() < 0.002 * expected,
         "volume {found} instead of {expected}"
@@ -94,7 +96,9 @@ struct Model {
 
 fn rounded_plate() -> (Document, Recompute, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(holed_plate()));
     let base = transaction.add_feature(
         "Base",
@@ -110,8 +114,11 @@ fn rounded_plate() -> (Document, Recompute, FeatureId) {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(base).unwrap();
     let front_top = solid
@@ -123,6 +130,7 @@ fn rounded_plate() -> (Document, Recompute, FeatureId) {
         .map(|(id, _)| EdgeReference::capture(solid, id).unwrap())
         .unwrap();
     let mut transaction = document.transaction("Fillet");
+
     transaction.add_feature(
         "Fillet 1",
         FeatureKind::Blend(Blend {
@@ -142,16 +150,21 @@ fn rounded_plate() -> (Document, Recompute, FeatureId) {
 
 fn model() -> Model {
     let (mut document, mut engine, base) = rounded_plate();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(base).unwrap();
     let mut chosen = round_faces(solid, 1.0);
+
     chosen.extend(round_faces(solid, 2.0));
+
     let faces = references(solid, &chosen);
     let mut transaction = document.transaction("Delete face");
+
     let deletion = transaction.add_feature(
         "Delete face 1",
         FeatureKind::DeleteFace(DeleteFace { body: base, faces }),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -170,6 +183,7 @@ fn set_faces(model: &mut Model, change: impl FnOnce(&mut DeleteFace)) {
         .delete_face()
         .unwrap()
         .clone();
+
     change(&mut definition);
     model
         .document
@@ -186,10 +200,13 @@ fn set_faces(model: &mut Model, change: impl FnOnce(&mut DeleteFace)) {
 #[test]
 fn deleting_a_fillet_and_a_bore_leaves_the_plain_block() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_volume(&evaluation, model.base, BLOCK);
+
     assert!(evaluation.body_before(model.deletion).is_some());
     assert_eq!(evaluation.body(model.base).unwrap().faces().count(), 6);
 }
@@ -197,6 +214,7 @@ fn deleting_a_fillet_and_a_bore_leaves_the_plain_block() {
 #[test]
 fn delete_face_errors_name_the_problem_and_the_fix() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let before = evaluation
         .body_before(model.deletion)
@@ -206,8 +224,10 @@ fn delete_face_errors_name_the_problem_and_the_fix() {
     let top = references(&before, &[top_face(&before)]);
 
     set_faces(&mut model, |deletion| deletion.faces = top);
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.deletion);
+
     assert_eq!(
         error.reason(),
         "The faces around Base end face cannot close the gap it leaves."
@@ -220,14 +240,18 @@ fn delete_face_errors_name_the_problem_and_the_fix() {
             .faces
             .push(FaceReference::new(FaceName::from_digest(7), None, []));
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(
         failure(&evaluation, model.deletion).reason(),
         "A face to delete is no longer part of the body of Base."
     );
 
     set_faces(&mut model, |deletion| deletion.faces.clear());
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert!(matches!(
         evaluation.feature(model.deletion).unwrap().state,
         FeatureState::Waiting(MissingInput::FacesToDelete { .. })
@@ -260,24 +284,33 @@ fn a_deleted_face_stays_that_kind_and_keeps_its_body_in_use() {
 #[test]
 fn an_imported_body_loses_its_fillet_and_bore_and_later_features_build_on_it() {
     let (document, mut engine, base) = rounded_plate();
+
     let evaluation = evaluate(&document, &mut engine);
     let solid = evaluation.body(base).unwrap().clone();
 
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Import");
+
     let imported = transaction.add_feature(
         "Bracket",
         FeatureKind::Import(Import::new("bracket.step", solid, "")),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let read = evaluation.body(imported).unwrap();
     let mut chosen = round_faces(read, 1.0);
+
     chosen.extend(round_faces(read, 2.0));
+
     let faces = references(read, &chosen);
     let top = references(read, &[top_face(read)]);
     let mut transaction = document.transaction("Delete face");
+
     let deletion = transaction.add_feature(
         "Delete face 1",
         FeatureKind::DeleteFace(DeleteFace {
@@ -285,6 +318,7 @@ fn an_imported_body_loses_its_fillet_and_bore_and_later_features_build_on_it() {
             faces,
         }),
     );
+
     transaction.add_feature(
         "Offset face 1",
         FeatureKind::OffsetFace(OffsetFace {
@@ -295,9 +329,11 @@ fn an_imported_body_loses_its_fillet_and_bore_and_later_features_build_on_it() {
         }),
     );
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
     assert!(evaluation.body_before(deletion).is_some());
+
     assert_volume(&evaluation, imported, BLOCK + 80.0);
 }

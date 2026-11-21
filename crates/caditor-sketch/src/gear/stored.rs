@@ -19,7 +19,7 @@ const SEGMENT_BITS: u32 = 12;
 const WHOLE_TOLERANCE: f64 = 1e-9;
 pub const BORE_TOOTH: usize = (1 << TOOTH_BITS) - 1;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Gear {
     pub centre: EntityId,
     pub module: Expression,
@@ -33,20 +33,20 @@ pub struct Gear {
     pub chain: Option<ChainSize>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Meshing {
     pub driver: EntityId,
     pub direction: Expression,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MeshPlacement {
     pub driver: EntityId,
     pub distance: f64,
     pub direction: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GearShape {
     Spur(SpurGear),
     Sprocket(Sprocket),
@@ -91,7 +91,7 @@ impl GearShape {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ToothedOutline {
     Gear(GearOutline),
     Sprocket(SprocketOutline),
@@ -155,14 +155,14 @@ impl ToothedOutline {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GearValues {
     pub shape: GearShape,
     pub turn: f64,
     pub placement: Option<MeshPlacement>,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum GearValueError {
     #[error("its module cannot be worked out: {0}")]
     Module(EvalError),
@@ -335,6 +335,7 @@ impl Gear {
         if let Some(chain) = self.chain {
             return self.sprocket_values(chain, value_of);
         }
+
         let module = self
             .module
             .evaluate_as(Dimension::LENGTH, value_of)
@@ -363,9 +364,11 @@ impl Gear {
             .turn
             .evaluate_as(Dimension::ANGLE, value_of)
             .map_err(GearValueError::Turn)?;
+
         if !turn.is_finite() {
             return Err(GearValueError::TurnNotFinite);
         }
+
         let spur = SpurGear {
             module,
             teeth: whole_teeth(teeth)?,
@@ -374,6 +377,7 @@ impl Gear {
             root_fillet,
             bore,
         };
+
         spur.check()
             .map_err(|error| GearValueError::Build(Box::new(error)))?;
         Ok(GearValues {
@@ -403,14 +407,17 @@ impl Gear {
             .turn
             .evaluate_as(Dimension::ANGLE, value_of)
             .map_err(GearValueError::Turn)?;
+
         if !turn.is_finite() {
             return Err(GearValueError::TurnNotFinite);
         }
+
         let sprocket = Sprocket {
             chain,
             teeth: whole_sprocket_teeth(teeth)?,
             bore,
         };
+
         sprocket
             .check()
             .map_err(|error| GearValueError::Build(Box::new(error)))?;
@@ -442,9 +449,11 @@ impl Gear {
             .direction
             .evaluate_as(Dimension::ANGLE, value_of)
             .map_err(GearValueError::Direction)?;
+
         if !direction.is_finite() {
             return Err(GearValueError::DirectionNotFinite);
         }
+
         let driver_shape = driver.shape.spur().ok_or(GearValueError::DriverUnknown)?;
         let pair = GearPair {
             driver: *driver_shape,
@@ -453,6 +462,7 @@ impl Gear {
             direction: direction.to_radians(),
         };
         let spur = pair.partner();
+
         spur.check().map_err(|error| {
             GearValueError::Build(Box::new(GearError::Partner(Box::new(error))))
         })?;
@@ -479,6 +489,7 @@ impl Gear {
 
 fn whole_count(value: f64) -> Result<u32, GearValueError> {
     let rounded = value.round();
+
     if !value.is_finite() || (value - rounded).abs() > WHOLE_TOLERANCE {
         return Err(GearValueError::TeethNotWhole { value });
     }
@@ -487,6 +498,7 @@ fn whole_count(value: f64) -> Result<u32, GearValueError> {
 
 fn whole_teeth(value: f64) -> Result<u32, GearValueError> {
     let teeth = whole_count(value)?;
+
     if !(MIN_TEETH..=MAX_TEETH).contains(&teeth) {
         return Err(GearValueError::Build(Box::new(
             GearError::TeethOutOfRange { teeth },
@@ -497,6 +509,7 @@ fn whole_teeth(value: f64) -> Result<u32, GearValueError> {
 
 fn whole_sprocket_teeth(value: f64) -> Result<u32, GearValueError> {
     let teeth = whole_count(value)?;
+
     if !(MIN_SPROCKET_TEETH..=MAX_SPROCKET_TEETH).contains(&teeth) {
         return Err(GearValueError::Build(Box::new(
             GearError::SprocketTeethOutOfRange { teeth },

@@ -15,14 +15,14 @@ const VANISHED: f64 = 1e-9;
 const EDGE_ON: f64 = 1e-9;
 const ROUND: f64 = 1e-12;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Mapping {
     Same,
     Offset(f64),
     AlongLine,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Flat {
     pub curve: Curve2,
     pub mapping: Mapping,
@@ -110,6 +110,7 @@ fn spread(curve: &Curve, range: Interval, view: &Plane) -> bool {
 fn polyline(points: &[(f64, Point3)], view: &Plane) -> Result<Option<Flat>, GeometryError> {
     let mut parameters: Vec<f64> = Vec::with_capacity(points.len());
     let mut flat: Vec<Point2> = Vec::with_capacity(points.len());
+
     for (parameter, point) in points {
         if parameters.last().is_some_and(|last| parameter <= last) {
             continue;
@@ -117,17 +118,21 @@ fn polyline(points: &[(f64, Point3)], view: &Plane) -> Result<Option<Flat>, Geom
         parameters.push(*parameter);
         flat.push(view.to_local(*point));
     }
+
     let (Some(start), Some(end), Some(first)) =
         (parameters.first(), parameters.last(), flat.first())
     else {
         return Ok(None);
     };
+
     let Some(range) = Interval::new(*start, *end) else {
         return Ok(None);
     };
+
     if !flat.iter().any(|point| point.distance(*first) > VANISHED) {
         return Ok(None);
     }
+
     let knots: Vec<f64> = std::iter::once(*start)
         .chain(parameters.iter().copied())
         .chain(std::iter::once(*end))
@@ -143,6 +148,7 @@ fn polyline(points: &[(f64, Point3)], view: &Plane) -> Result<Option<Flat>, Geom
 fn straight(curve: &Curve, range: Interval, view: &Plane) -> Result<Option<Flat>, GeometryError> {
     let start = view.to_local(curve.point(range.start()));
     let end = view.to_local(curve.point(range.end()));
+
     if start.distance(end) <= VANISHED {
         return Ok(None);
     }
@@ -161,15 +167,18 @@ fn conic(
     conic: &Conic,
 ) -> Result<Vec<Flat>, GeometryError> {
     let (along, across) = (conic.along, conic.across);
+
     let difference = along.length_squared() - across.length_squared();
     let twice_shared = 2.0 * along.dot(across);
     let scale = along.length_squared().max(across.length_squared());
+
     if scale <= VANISHED * VANISHED {
         return Ok(Vec::new());
     }
     if difference.abs() <= ROUND * scale && twice_shared.abs() <= ROUND * scale {
         let counter_clockwise = along.perp_dot(across) > 0.0;
         let circle = Circle2::with_axes(conic.center, along.length(), along, counter_clockwise)?;
+
         return Ok(vec![Flat {
             curve: Curve2::Circle(circle),
             mapping: Mapping::Same,
@@ -177,13 +186,17 @@ fn conic(
             sampled: false,
         }]);
     }
+
     let turn = 0.5 * twice_shared.atan2_libm(difference);
     let (sin, cos) = turn.sin_cos_libm();
+
     let major = along * cos + across * sin;
     let minor = across * cos - along * sin;
+
     if minor.length() <= EDGE_ON {
         return folded(curve, range, view, turn);
     }
+
     let counter_clockwise = major.perp_dot(minor) > 0.0;
     let ellipse = Ellipse2::with_axes(
         conic.center,
@@ -208,19 +221,24 @@ fn folded(
 ) -> Result<Vec<Flat>, GeometryError> {
     let mut ends = vec![range.start()];
     let mut fold = ((range.start() - turn) / PI).floor() + 1.0;
+
     while turn + fold * PI < range.end() {
         ends.push(turn + fold * PI);
         fold += 1.0;
     }
     ends.push(range.end());
+
     let mut flats = Vec::with_capacity(ends.len());
+
     for pair in ends.windows(2) {
         let [start, end] = pair else {
             continue;
         };
+
         let Some(piece) = Interval::new(*start, *end) else {
             continue;
         };
+
         flats.extend(straight(curve, piece, view)?);
     }
     Ok(flats)
@@ -242,6 +260,7 @@ pub(super) fn polyline_curve(
     let mut kept: Vec<Point3> = Vec::with_capacity(points.len());
     let mut lengths: Vec<f64> = Vec::with_capacity(points.len());
     let mut travelled = 0.0;
+
     for point in points {
         match kept.last() {
             Some(last) if last.distance(*point) <= VANISHED => {}
@@ -256,6 +275,7 @@ pub(super) fn polyline_curve(
             }
         }
     }
+
     let Some(range) = Interval::new(0.0, travelled).filter(|_| kept.len() >= 2) else {
         return Ok(None);
     };

@@ -4,7 +4,7 @@ const DISPLAY_DECIMALS: usize = 6;
 const SCIENTIFIC_BELOW: f64 = 1e-4;
 const SCIENTIFIC_FROM: f64 = 1e15;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub struct Dimension {
     length: i8,
     angle: i8,
@@ -98,7 +98,7 @@ impl fmt::Display for Dimension {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Quantity {
     pub value: f64,
     pub dimension: Dimension,
@@ -135,6 +135,7 @@ impl fmt::Display for Quantity {
 
 pub fn format_number(value: f64) -> String {
     let magnitude = value.abs();
+
     if magnitude != 0.0 && (magnitude < SCIENTIFIC_BELOW || magnitude >= SCIENTIFIC_FROM) {
         return format_scientific(value);
     }
@@ -175,7 +176,7 @@ pub fn trim_decimals(text: &str) -> &str {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Unit {
     Micrometre,
     Millimetre,

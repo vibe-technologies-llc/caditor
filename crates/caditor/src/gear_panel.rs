@@ -84,12 +84,15 @@ pub fn show(
     room: f32,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
+
     settings.load(context.model, context.sketch);
+
     let evaluation = settings.evaluate(context.model, context.sketch);
     let editing = settings.editing();
     let centre = context
         .sketch
         .and_then(|sketch| gearing::lone_point(sketch, context.selected));
+
     let label = match editing {
         Some(gear) => update_label(context.sketch, gear),
         None => draw_label(context.sketch, centre),
@@ -100,6 +103,7 @@ pub fn show(
         close: CLOSE,
         help: Some(Page::Gear),
     };
+
     let panel = widgets::side_panel_parts(
         ui,
         room,
@@ -120,6 +124,7 @@ pub fn show(
                     }
                 })
             });
+
             widgets::panel_scroll(ui, PANEL.id, |ui| {
                 let about = match (editing, settings.kind()) {
                     (Some(_), GearKind::Meshing) => EDITING_MESHING,
@@ -127,6 +132,7 @@ pub fn show(
                     (Some(_), _) => EDITING,
                     (None, _) => DESCRIPTION,
                 };
+
                 wrapped(ui, widgets::muted(about, ui));
                 ui.add_space(SPACE_S);
                 if let Some(note) = editing.and_then(|gear| followers(context.sketch, gear)) {
@@ -149,6 +155,7 @@ pub fn show(
             pressed
         },
     );
+
     if panel.closed {
         actions.push(Action::Editing(EditingCommand::SetTool(Tool::Select)));
     }
@@ -180,6 +187,7 @@ pub fn show(
         }
         (Some(Pressed::Primary), Ok(part), None) => {
             let centre = GearCentre::Point(centre.unwrap_or(EntityId::ORIGIN));
+
             actions.push(applied(gearing::draw(
                 context.model,
                 context.feature,
@@ -195,9 +203,11 @@ pub fn show(
 fn followers(sketch: Option<&Sketch>, gear: EntityId) -> Option<String> {
     let sketch = sketch?;
     let partners = sketch.partners_of(gear);
+
     if partners.is_empty() {
         return None;
     }
+
     let names: Vec<String> = partners
         .into_iter()
         .map(|partner| sketch.entity_label(partner))
@@ -236,6 +246,7 @@ fn fields(
 ) {
     let unit = model.units();
     let kind = settings.kind();
+
     widgets::properties(ui, "spur-gear-values", |ui| {
         if kind == GearKind::Sprocket {
             widgets::property(ui, CHAIN, |ui| chain(ui, settings, unit));
@@ -248,6 +259,7 @@ fn fields(
                 about: field.about(),
                 expected: field.expected(),
             };
+
             let refusal = widgets::property(ui, field.label(), |ui| {
                 let text = settings.text_mut(field)?;
                 field::live_value(ui, model, text, &value)
@@ -264,6 +276,7 @@ fn fields(
 fn chain(ui: &mut Ui, settings: &mut GearSettings, unit: Units) {
     let current = settings.chain();
     let mut chosen = None;
+
     widgets::combo(chain_id(), gearing::chain_label(current, unit))
         .hover(CHAIN_ABOUT)
         .show(ui, |ui| {
@@ -282,6 +295,7 @@ fn chain(ui: &mut Ui, settings: &mut GearSettings, unit: Units) {
 fn circles(ui: &mut Ui, part: &Part, unit: Units) {
     wrapped(ui, widgets::muted(CIRCLES, ui));
     ui.add_space(SPACE_S);
+
     let rows: Vec<(&str, f64)> = match part {
         Part::Gear(spur) => {
             let circles = spur.values.circles();
@@ -313,6 +327,7 @@ fn circles(ui: &mut Ui, part: &Part, unit: Units) {
             ]
         }
     };
+
     widgets::properties(ui, "spur-gear-circles", |ui| {
         for (caption, length) in rows {
             widgets::property(ui, caption, |ui| {

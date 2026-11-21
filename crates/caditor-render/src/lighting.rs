@@ -42,7 +42,7 @@ const MOST_ENVIRONMENT_GAIN: f32 = 1024.0;
 const LONGEST_GROUND_SHADOW: f64 = 3.0;
 const LOWEST_SUN_FOR_GROUND_SHADOWS: f64 = 0.05;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Lighting {
     pub direction: LightDirection,
     pub colour: [f32; 3],
@@ -55,7 +55,7 @@ pub struct Lighting {
     pub surroundings: Surroundings,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Surroundings {
     pub backdrop: Option<Color>,
     pub floor: bool,
@@ -84,7 +84,7 @@ impl Lighting {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LightDirection {
     View { azimuth: f64, elevation: f64 },
     Model { azimuth: f64, elevation: f64 },
@@ -117,6 +117,7 @@ impl LightDirection {
 fn behind_the_viewer(view: &View) -> Vector3 {
     let viewpoint = view.viewpoint();
     let level = |direction: Vector3| Vector3::new(direction.x, direction.y, 0.0);
+
     let back = level(-viewpoint.forward());
     let back = if back.length() > LEVEL_HEADING {
         back
@@ -126,7 +127,7 @@ fn behind_the_viewer(view: &View) -> Vector3 {
     back.normalize_or(Vector3::NEG_Y)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Ground {
     height: f64,
     centre: Point3,
@@ -137,10 +138,12 @@ impl Ground {
     pub(crate) fn under(casters: &[[Point3; 8]]) -> Option<Self> {
         let mut low = Vector3::splat(f64::INFINITY);
         let mut high = Vector3::splat(f64::NEG_INFINITY);
+
         for corner in casters.iter().flatten() {
             low = low.min(*corner);
             high = high.max(*corner);
         }
+
         let radius = (high - low).length() * 0.5;
         (low.is_finite() && high.is_finite() && radius > 0.0).then(|| Self {
             height: low.z,
@@ -157,6 +160,7 @@ impl Ground {
         if toward_light.z < LOWEST_SUN_FOR_GROUND_SHADOWS {
             return Vec::new();
         }
+
         let longest = self.radius * LONGEST_GROUND_SHADOW;
         casters
             .iter()
@@ -179,7 +183,7 @@ impl Ground {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LightFrame {
     matrix: Mat4,
     relative_from_light: Mat4,
@@ -214,18 +218,22 @@ impl LightFrame {
         let along = -toward_light;
         let mut low = Vector3::splat(f64::INFINITY);
         let mut high = Vector3::splat(f64::NEG_INFINITY);
+
         for corner in casters.into_iter().flatten() {
             let light = Vector3::new(right.dot(corner), up.dot(corner), along.dot(corner));
+
             low = low.min(light);
             high = high.max(light);
         }
         if !(low.is_finite() && high.is_finite()) {
             return None;
         }
+
         let middle = (low + high) * 0.5;
         let side = (high.x - low.x).max(high.y - low.y) * (1.0 + SHADOW_SIDE_MARGIN);
         let depth_margin = (high.z - low.z).max(side) * SHADOW_DEPTH_MARGIN;
         let near = low.z - depth_margin;
+
         let depth = (high.z + depth_margin - near).max(f64::MIN_POSITIVE);
         let half = (side * 0.5).max(f64::MIN_POSITIVE);
         let row = |axis: Vector3, offset: f64, scale: f64| {
@@ -236,6 +244,7 @@ impl LightFrame {
                 (axis.dot(eye) - offset) * scale,
             )
         };
+
         let rows = [
             row(right, middle.x, 1.0 / half),
             row(up, middle.y, 1.0 / half),
@@ -279,7 +288,7 @@ fn slope_direction(toward_light: Vector3) -> Vector3 {
     (toward_light + up_the_slope * SLOPE_TILT).normalize_or(toward_light)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LightUniform {
     sun: [f32; 4],
     colour: [f32; 4],
@@ -531,7 +540,7 @@ pub(crate) enum LightPassReady {
     NewlyRefused,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct EnvironmentBound {
     pub rebound: bool,
     pub newly_refused: bool,
@@ -602,6 +611,7 @@ impl LightPass {
         let environment_sampler = environment_textures::sampler(device);
         let stand_in_targets = LightTargets::new(device, (1, 1));
         let stand_in_environment = environment_textures::stand_in(device);
+
         let bind_group = bind_group(
             device,
             &layout,
@@ -661,8 +671,10 @@ impl LightPass {
         if self.refused {
             return LightPassReady::Refused;
         }
+
         let side = SHADOW_MAP_SIDE.min(device.limits().max_texture_dimension_2d);
         let cross_side = CROSS_MAP_SIDE.min(device.limits().max_texture_dimension_2d);
+
         let (targets, error) =
             gpu::scoped(device, || LightTargets::new(device, (side, cross_side)));
         match error {
@@ -695,7 +707,9 @@ impl LightPass {
     ) -> EnvironmentBound {
         let Some(wanted) = wanted else {
             self.refused_environment = None;
+
             let rebound = self.environment.take().is_some();
+
             if rebound {
                 self.rebind(device);
             }
@@ -712,14 +726,18 @@ impl LightPass {
             .refused_environment
             .as_ref()
             .is_some_and(|refused| Arc::ptr_eq(refused, wanted));
+
         if held || declined {
             return EnvironmentBound::default();
         }
+
         let (views, error) = gpu::scoped(device, || {
             environment_textures::upload(device, queue, wanted)
         });
+
         let views = views.filter(|_| error.is_none());
         let newly_refused = views.is_none();
+
         if let Some(error) = error {
             log::warn!("the graphics device refused the environment picture: {error}");
         }
@@ -795,6 +813,7 @@ impl LightPass {
         let targets = self.targets.as_ref()?;
         let previous = self.peel_groups.as_ref()?.get(layer)?;
         let peeled = targets.peeled.get(layer)?;
+
         let pass = layer_pass(encoder, "peeled depth", peeled, &targets.peel_depth);
         Some((pass, previous))
     }
@@ -1179,16 +1198,20 @@ mod tests {
                     .corners()
             })
             .collect();
+
         let frame = LightFrame::fitted(toward_light, eye, corners.iter().copied(), SHADOW_MAP_SIDE)
             .expect("the casters have a frame");
 
         for corner in corners.iter().flatten() {
             let placed = frame.place((*corner - eye).as_vec3());
+
             assert!(placed.x.abs() <= 1.0 && placed.y.abs() <= 1.0, "{placed}");
             assert!((0.0..=1.0).contains(&placed.z), "{placed}");
         }
+
         let top = frame.place((Point3::new(4_230.0, 60.0, 300.0) - eye).as_vec3());
         let bottom = frame.place((Point3::new(4_230.0, 60.0, 0.0) - eye).as_vec3());
+
         assert!(top.z < bottom.z);
     }
 

@@ -5,7 +5,7 @@ use crate::{import::xml::Node, untrusted::UntrustedMap};
 pub(super) const MAX_STYLE_RULES: usize = 10_000;
 const MAX_MATCHING_WORK: usize = 50_000_000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Precedence {
     important: bool,
     inline: bool,
@@ -14,7 +14,7 @@ pub(super) struct Precedence {
     position: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Declaration<'a> {
     pub name: &'a str,
     pub value: &'a str,
@@ -60,6 +60,7 @@ fn declarations(block: &str) -> Vec<Declaration<'_>> {
 fn without_important(value: &str) -> Option<&str> {
     let length = value.len().checked_sub("important".len())?;
     let (rest, word) = (value.get(..length)?, value.get(length..)?);
+
     if !word.eq_ignore_ascii_case("important") {
         return None;
     }
@@ -93,6 +94,7 @@ impl<'a> Compound<'a> {
     fn parse(text: &'a str) -> Option<Self> {
         let mut compound = Self::default();
         let mut rest = text;
+
         if let Some(after) = rest.strip_prefix('*') {
             rest = after;
         } else if let Some((name, after)) = identifier(rest) {
@@ -189,10 +191,12 @@ impl<'a> StyleSheet<'a> {
                 rest = after;
                 continue;
             }
+
             let Some(open) = rest.find(['{', ';']) else {
                 return sheet;
             };
             let at_rule = rest.starts_with('@');
+
             if rest.as_bytes().get(open) == Some(&b';') {
                 if !at_rule {
                     sheet.unread_selectors += 1;
@@ -200,12 +204,15 @@ impl<'a> StyleSheet<'a> {
                 rest = rest.get(open + 1..).unwrap_or_default();
                 continue;
             }
+
             let close = block_end(rest, open);
+
             if !at_rule {
                 let prelude = rest.get(..open).unwrap_or_default();
                 let block = rest
                     .get(open + 1..close.unwrap_or(rest.len()))
                     .unwrap_or_default();
+
                 sheet.rule(prelude, block);
             }
             rest = close
@@ -217,15 +224,18 @@ impl<'a> StyleSheet<'a> {
     fn rule(&mut self, prelude: &'a str, block: &'a str) {
         let index = self.blocks.len();
         let mut used = false;
+
         for selector in split_outside_brackets(prelude, ',') {
             let Some(selector) = Compound::parse(selector.trim()) else {
                 self.unread_selectors += 1;
                 continue;
             };
+
             if self.rules.len() >= MAX_STYLE_RULES {
                 self.beyond_the_limit += 1;
                 continue;
             }
+
             let order = self.rules.len();
             let bucket = if let Some(id) = selector.id {
                 self.by_id.entry(id).or_default()
@@ -236,6 +246,7 @@ impl<'a> StyleSheet<'a> {
             } else {
                 &mut self.universal
             };
+
             bucket.push(order);
             self.rules.push(Rule {
                 selector,
@@ -256,11 +267,14 @@ impl<'a> StyleSheet<'a> {
         if self.rules.is_empty() || self.exhausted() {
             return Vec::new();
         }
+
         let id = node.attribute("id").map(str::trim);
         let mut candidates: Vec<usize> = self.universal.clone();
+
         let mut add = |bucket: Option<&Vec<usize>>| {
             candidates.extend(bucket.into_iter().flatten());
         };
+
         add(id.and_then(|id| self.by_id.get(id)));
         add(self.by_element.get(node.name()));
         for class in classes(node) {
@@ -302,6 +316,7 @@ impl<'a> StyleSheet<'a> {
 fn block_end(text: &str, open: usize) -> Option<usize> {
     let mut depth = 0_usize;
     let mut quote = None;
+
     for (at, character) in text.char_indices().skip_while(|(at, _)| *at < open) {
         match (quote, character) {
             (Some(open), _) if character == open => quote = None,
@@ -322,6 +337,7 @@ fn block_end(text: &str, open: usize) -> Option<usize> {
 
 pub(super) fn without_comments(text: &str, sheet: &mut String) {
     let mut rest = text;
+
     while let Some(start) = rest.find("/*") {
         sheet.push_str(rest.get(..start).unwrap_or_default());
         sheet.push(' ');

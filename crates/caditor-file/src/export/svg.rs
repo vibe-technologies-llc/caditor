@@ -26,7 +26,7 @@ const THIN_WIDTH: f64 = 0.25;
 const CHAIN: &str = "12 3 0.5 3";
 const CAP_HEIGHT_PER_FONT_SIZE: f64 = 0.727;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Page {
     low: Point2,
     high: Point2,
@@ -38,11 +38,13 @@ pub(super) fn encode(figure: &Figure) -> Result<String, ExportError> {
         return Err(ExportError::NoCurves);
     };
     let mut text = String::new();
+
     let page = Page {
         low,
         high,
         margin: MARGIN,
     };
+
     write_document(&mut text, figure, page).map_err(|_| ExportError::Encoding)?;
     Ok(text)
 }
@@ -54,6 +56,7 @@ pub(super) fn encode_page(figure: &Figure, width: f64, height: f64) -> Result<St
         high: Point2::new(width, height),
         margin: 0.0,
     };
+
     write_document(&mut text, figure, page).map_err(|_| ExportError::Encoding)?;
     Ok(text)
 }
@@ -73,8 +76,10 @@ fn extent(figure: &Figure) -> Option<(Point2, Point2)> {
 
 fn write_document(text: &mut String, figure: &Figure, page: Page) -> std::fmt::Result {
     let Page { low, high, margin } = page;
+
     let width = high.x - low.x + 2.0 * margin;
     let height = high.y - low.y + 2.0 * margin;
+
     writeln!(
         text,
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}mm" height="{}mm" viewBox="{} {} {} {}">"#,
@@ -92,6 +97,7 @@ fn write_document(text: &mut String, figure: &Figure, page: Page) -> std::fmt::R
     )?;
     for layer in figure.layers() {
         let grouped = layer != Layer::Sketch;
+
         match layer {
             Layer::Sketch => {}
             Layer::Construction => writeln!(
@@ -137,11 +143,13 @@ fn write_document(text: &mut String, figure: &Figure, page: Page) -> std::fmt::R
                 Real(FRAME_WIDTH)
             )?,
         }
+
         let font_scale = if layer.is_on_sheet() {
             1.0 / CAP_HEIGHT_PER_FONT_SIZE
         } else {
             1.0
         };
+
         for (_, shape) in figure.shapes.iter().filter(|(on, _)| *on == layer) {
             write_shape(text, shape, font_scale)?;
         }
@@ -216,6 +224,7 @@ fn write_text(text: &mut String, label: &Text, font_scale: f64) -> std::fmt::Res
         Anchor::Middle => ("middle", "central"),
     };
     let rotation = -label.upright_angle().to_degrees();
+
     write!(
         text,
         r##"<text x="{x}" y="{y}" font-size="{}" font-family="sans-serif" text-anchor="{anchor}" dominant-baseline="{baseline}" fill="#000000" stroke="none""##,
@@ -254,15 +263,18 @@ fn write_ellipse(text: &mut String, ellipse: &Ellipse) -> std::fmt::Result {
     } else {
         (ellipse.start, ellipse.end)
     };
+
     let pieces: &[(f64, f64)] = if ellipse.is_full() {
         &[(start, start + PI), (start + PI, end)]
     } else {
         &[(start, end)]
     };
     let from = ellipse.point_at(start);
+
     write!(text, r#"<path d="M {} {}"#, Real(from.x), Real(-from.y))?;
     for (piece_start, piece_end) in pieces {
         let to = ellipse.point_at(*piece_end);
+
         write!(
             text,
             " A {} {} {} {} 0 {} {}",
@@ -281,6 +293,7 @@ fn write_polyline(text: &mut String, points: &[Point2]) -> std::fmt::Result {
     write!(text, r#"<polyline points=""#)?;
     for (index, point) in points.iter().enumerate() {
         let separator = if index == 0 { "" } else { " " };
+
         write!(text, "{separator}{},{}", Real(point.x), Real(-point.y))?;
     }
     writeln!(text, r#""/>"#)

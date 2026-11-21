@@ -9,9 +9,11 @@ const SCALE_FIRST: &str = "scale the whole sketch on its first dimension";
 
 fn dimension_line(harness: &mut Harness, scales: bool, typed: &str) -> (f64, f64) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(40.0, 40.0));
     let circle = sketch.add_circle(Point2::new(0.0, 20.0), 5.0);
     let feature = edit_free_sketch(harness, sketch);
+
     harness.settle();
     if scales {
         run_from_palette(harness, SCALE_FIRST);
@@ -35,7 +37,9 @@ fn dimension_line(harness: &mut Harness, scales: bool, typed: &str) -> (f64, f64
     let Some(Entity::Circle { center, radius }) = shown.entity(circle).cloned() else {
         panic!("the circle is still a circle");
     };
+
     let centre = shown.point(center).unwrap();
+
     assert!((start.distance(end) - 100.0).abs() < 1e-6);
     (centre.y, radius)
 }

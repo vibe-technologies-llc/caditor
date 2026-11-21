@@ -47,7 +47,7 @@ pub(crate) struct LooseBody<'a> {
     pub allowance: f64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Conformed {
     pub surfaces: BTreeMap<u64, Surface>,
     pub vertices: BTreeMap<u64, Point3>,
@@ -56,7 +56,7 @@ pub(crate) struct Conformed {
     pub farthest: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Line {
     fixed_u: bool,
     value: f64,
@@ -87,7 +87,7 @@ struct Study {
     angle: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Role {
     Bent { master: u64, slave: u64 },
     Traced,
@@ -99,7 +99,7 @@ struct FaceLine {
     bound: Bound,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Bound {
     Lower,
     Upper,
@@ -113,6 +113,7 @@ struct Placed {
 
 pub(crate) fn conform(body: &LooseBody<'_>) -> Read<Conformed> {
     let mut studies: Vec<Option<Study>> = body.edges.iter().map(|edge| study(body, edge)).collect();
+
     let lines = face_lines(body, &mut studies);
     let order = ordered(body, &studies)?;
     let rank: BTreeMap<u64, usize> = order
@@ -129,6 +130,7 @@ pub(crate) fn conform(body: &LooseBody<'_>) -> Read<Conformed> {
         })
         .collect();
     let vertices = placed_vertices(body, &lines)?;
+
     let mut bender = Bender {
         body,
         studies: &studies,
@@ -140,10 +142,13 @@ pub(crate) fn conform(body: &LooseBody<'_>) -> Read<Conformed> {
         bent: BTreeSet::new(),
         farthest: 0.0,
     };
+
     for face in &order {
         bender.bend_face(*face)?;
     }
+
     let mut edges = BTreeMap::new();
+
     for (index, placed) in &bender.placed {
         let Some(edge) = body.edges.get(*index) else {
             continue;
@@ -154,14 +159,17 @@ pub(crate) fn conform(body: &LooseBody<'_>) -> Read<Conformed> {
         let curve = slave
             .side(placed.side)
             .ok_or_else(|| Problem::new(placed.slave, Fault::LostSideWhileBent))?;
+
         edges.insert(edge.id, oriented(curve, placed.stations, edge.id)?);
     }
+
     let Bender {
         surfaces,
         bent,
         farthest,
         ..
     } = bender;
+
     let surfaces: BTreeMap<u64, Surface> = surfaces
         .into_iter()
         .filter(|(face, _)| bent.contains(face))
@@ -177,10 +185,13 @@ pub(crate) fn conform(body: &LooseBody<'_>) -> Read<Conformed> {
 
 fn oriented(curve: BSpline<Point3>, [start, end]: [f64; 2], id: u64) -> Read<(Curve, Interval)> {
     let backwards = || Problem::new(id, Fault::BackwardsAlongBentFace);
+
     if start < end {
         let interval = Interval::new(start, end).ok_or_else(backwards)?;
+
         return Ok((Curve::BSpline(curve), interval));
     }
+
     let domain = curve.domain();
     let pivot = domain.start() + domain.end();
     let interval = Interval::new(pivot - start, pivot - end).ok_or_else(backwards)?;
@@ -200,6 +211,7 @@ fn feet_on(surface: &Surface, points: &[Point3]) -> Vec<Point2> {
         .iter()
         .map(|point| {
             let uv = surface.project(*point, hint);
+
             hint = Some(uv);
             uv
         })
@@ -210,15 +222,18 @@ fn study(body: &LooseBody<'_>, edge: &LooseEdge) -> Option<Study> {
     let [first, second] = edge.faces.as_slice() else {
         return None;
     };
+
     if first == second || edge.ends[0] == edge.ends[1] {
         return None;
     }
+
     let samples: Vec<Point3> = edge
         .interval
         .split(STUDY_SAMPLES)
         .map(|parameter| edge.curve.point(parameter))
         .collect();
     let (a, b) = (body.faces.get(first)?, body.faces.get(second)?);
+
     let feet = [feet_on(a, &samples), feet_on(b, &samples)];
     let angle = feet[0]
         .iter()
@@ -246,15 +261,18 @@ fn line_of(surface: &Surface, feet: &[Point2], allowance: f64) -> Option<Line> {
         return None;
     };
     let mut best: Option<(f64, Line)> = None;
+
     for fixed_u in [true, false] {
         let (domain, closed) = if fixed_u {
             (spline.u_domain(), spline.u_period().is_some())
         } else {
             (spline.v_domain(), spline.v_period().is_some())
         };
+
         if closed || feet.is_empty() {
             continue;
         }
+
         let probe = Line {
             fixed_u,
             value: 0.0,
@@ -269,6 +287,7 @@ fn line_of(surface: &Surface, feet: &[Point2], allowance: f64) -> Option<Line> {
                 })
                 .fold(0.0, larger)
         };
+
         let chosen = [domain.start(), domain.end(), mean]
             .into_iter()
             .map(|value| Line { fixed_u, value })
@@ -285,6 +304,7 @@ fn line_of(surface: &Surface, feet: &[Point2], allowance: f64) -> Option<Line> {
 
 fn face_lines(body: &LooseBody<'_>, studies: &mut [Option<Study>]) -> BTreeMap<u64, Vec<FaceLine>> {
     let mut lines: BTreeMap<u64, Vec<(Line, Vec<usize>)>> = BTreeMap::new();
+
     for (index, study) in studies.iter().enumerate() {
         let Some(study) = study else {
             continue;
@@ -300,6 +320,7 @@ fn face_lines(body: &LooseBody<'_>, studies: &mut [Option<Study>]) -> BTreeMap<u
             let Some(surface) = body.faces.get(face) else {
                 continue;
             };
+
             let middle = feet.get(feet.len() / 2).map_or(0.0, |uv| line.along(*uv));
             let known = lines.entry(*face).or_default();
             let same = known.iter_mut().find(|(known, _)| {
@@ -315,8 +336,10 @@ fn face_lines(body: &LooseBody<'_>, studies: &mut [Option<Study>]) -> BTreeMap<u
             }
         }
     }
+
     let mut bounding: BTreeMap<u64, Vec<FaceLine>> = BTreeMap::new();
     let mut inner: Vec<(u64, usize)> = Vec::new();
+
     for (face, found) in lines {
         for (line, edges) in found {
             match bound_of(body, studies, face, line, &edges) {
@@ -351,22 +374,28 @@ fn bound_of(
 ) -> Option<Bound> {
     let surface = body.faces.get(&face)?;
     let spline = spline_of(Some(surface))?;
+
     if let Some(bound) = domain_bound(spline, line) {
         return Some(bound);
     }
+
     let (mut above, mut below) = (false, false);
+
     for (index, study) in studies.iter().enumerate() {
         let Some(study) = study else {
             continue;
         };
+
         if edges.contains(&index) {
             continue;
         }
+
         let Some(feet) = slot_of(study, face).and_then(|slot| study.feet.get(slot)) else {
             continue;
         };
         for uv in feet {
             let on_line = line.at(line.along(*uv));
+
             if surface.point_at(*uv).distance(surface.point_at(on_line)) <= body.allowance {
                 continue;
             }
@@ -397,14 +426,18 @@ fn ordered(body: &LooseBody<'_>, studies: &[Option<Study>]) -> Read<Vec<u64>> {
         .collect();
     let mut after: BTreeMap<u64, BTreeSet<u64>> = BTreeMap::new();
     let mut waiting: BTreeMap<u64, usize> = splines.iter().map(|face| (*face, 0)).collect();
+
     for study in studies.iter().flatten() {
         if study.angle > TANGENT_ANGLE {
             continue;
         }
+
         let [a, b] = study.faces;
+
         if !(splines.contains(&a) && splines.contains(&b)) {
             continue;
         }
+
         let (master, slave) = match study.lines {
             [None, Some(_)] => (a, b),
             [Some(_), None] => (b, a),
@@ -416,6 +449,7 @@ fn ordered(body: &LooseBody<'_>, studies: &[Option<Study>]) -> Read<Vec<u64>> {
             *count += 1;
         }
     }
+
     let size = |face: u64| {
         spline_of(body.faces.get(&face)).map_or(0, |spline| spline.control_points().len())
     };
@@ -425,6 +459,7 @@ fn ordered(body: &LooseBody<'_>, studies: &[Option<Study>]) -> Read<Vec<u64>> {
         .map(|(face, _)| (size(*face), *face))
         .collect();
     let mut order = Vec::with_capacity(splines.len());
+
     while let Some((_, face)) = ready.pop_first() {
         order.push(face);
         for next in after.get(&face).into_iter().flatten() {
@@ -442,6 +477,7 @@ fn ordered(body: &LooseBody<'_>, studies: &[Option<Study>]) -> Read<Vec<u64>> {
             .find(|face| !order.contains(face))
             .copied()
             .unwrap_or_default();
+
         return Err(Problem::new(stuck, Fault::GiveWayRing));
     }
     Ok(order)
@@ -450,12 +486,14 @@ fn ordered(body: &LooseBody<'_>, studies: &[Option<Study>]) -> Read<Vec<u64>> {
 fn role(body: &LooseBody<'_>, study: &Study, rank: &BTreeMap<u64, usize>) -> Role {
     let [a, b] = study.faces;
     let rigid = |face: u64| spline_of(body.faces.get(&face)).is_none();
+
     if study.angle > TANGENT_ANGLE {
         let on_side = |face: u64, line: Option<Line>| {
             spline_of(body.faces.get(&face))
                 .zip(line)
                 .is_some_and(|(spline, line)| domain_bound(spline, line).is_some())
         };
+
         return match study.lines {
             [_, line] if rigid(a) && on_side(b, line) => Role::Bent {
                 master: a,
@@ -537,6 +575,7 @@ fn placed_vertices(
         })
     };
     let mut placed = BTreeMap::new();
+
     for (vertex, start) in &body.vertices {
         let rigid: Vec<Surface> = body
             .vertex_faces
@@ -547,10 +586,12 @@ fn placed_vertices(
             .filter_map(|face| body.faces.get(face).cloned())
             .collect();
         let (point, _) = settle_on(*start, &rigid, body.allowance);
+
         let off = rigid
             .iter()
             .map(|surface| surface.distance(point))
             .fold(0.0, larger);
+
         if off > VERTEX_HELD {
             return Err(Problem::new(*vertex, Fault::VertexOffBentFaces { off }));
         }
@@ -639,6 +680,7 @@ impl Strict {
         let mut knots = Vec::new();
         let blend =
             |along: f64| ((along - self.range.start()) / self.range.length()).clamp(0.0, 1.0);
+
         match &self.map {
             Map::Rigid { .. } => {}
             Map::Line {
@@ -658,6 +700,7 @@ impl Strict {
                 } else {
                     spline.u_knots()
                 };
+
                 knots.extend(crossed(&values, lines));
             }
             Map::Patch {
@@ -671,6 +714,7 @@ impl Strict {
                     .collect();
                 let us: Vec<(f64, f64)> = moved.iter().map(|(along, uv)| (*along, uv.x)).collect();
                 let vs: Vec<(f64, f64)> = moved.iter().map(|(along, uv)| (*along, uv.y)).collect();
+
                 knots.extend(crossed(&us, spline.u_knots()));
                 knots.extend(crossed(&vs, spline.v_knots()));
             }
@@ -731,6 +775,7 @@ fn nearest<T: Copy>(table: &[(f64, T)], along: f64) -> Option<T> {
 fn crossed(values: &[(f64, f64)], knots: &[f64]) -> Vec<f64> {
     let mut found = Vec::new();
     let mut distinct: Vec<(f64, usize)> = Vec::new();
+
     for knot in knots {
         match distinct.last_mut() {
             Some((value, count)) if *value == *knot => *count += 1,
@@ -744,6 +789,7 @@ fn crossed(values: &[(f64, f64)], knots: &[f64]) -> Vec<f64> {
             };
             if (a - knot) * (b - knot) < 0.0 {
                 let along = a_along + (b_along - a_along) * (knot - a) / (b - a);
+
                 found.extend(std::iter::repeat_n(along, multiplicity));
             }
         }
@@ -758,6 +804,7 @@ fn onto_domain(spline: &BSplineSurface, uv: Point2) -> Point2 {
 fn closest_on_line(spline: &BSplineSurface, line: Line, point: Point3, start: f64) -> Option<f64> {
     let mut along = start;
     let mut last_step = f64::INFINITY;
+
     for _ in 0..NEWTON_STEPS {
         let uv = line.at(along);
         let at = spline.extended_evaluate(uv.x, uv.y);
@@ -768,11 +815,15 @@ fn closest_on_line(spline: &BSplineSurface, line: Line, point: Point3, start: f6
         };
         let offset = at.point - point;
         let speed = first.dot(first);
+
         let curvature = speed + offset.dot(second);
+
         if speed.is_nan() || speed <= 0.0 {
             return None;
         }
+
         let step = offset.dot(first) / if curvature > 0.0 { curvature } else { speed };
+
         along -= step;
         last_step = step.abs();
         if last_step <= NEWTON_SETTLED * (1.0 + along.abs()) {
@@ -785,14 +836,18 @@ fn closest_on_line(spline: &BSplineSurface, line: Line, point: Point3, start: f6
 fn closest_on_patch(spline: &BSplineSurface, point: Point3, start: Point2) -> Option<Point2> {
     let mut uv = start;
     let mut last_step = f64::INFINITY;
+
     for _ in 0..NEWTON_STEPS {
         let at = spline.extended_evaluate(uv.x, uv.y);
         let offset = at.point - point;
+
         let gradient = Vector2::new(at.du.dot(offset), at.dv.dot(offset));
         let mut uu = at.du.dot(at.du) + at.duu.dot(offset);
         let mut uv_term = at.du.dot(at.dv) + at.duv.dot(offset);
         let mut vv = at.dv.dot(at.dv) + at.dvv.dot(offset);
+
         let mut determinant = uu * vv - uv_term * uv_term;
+
         if !(determinant > 0.0 && uu > 0.0) {
             uu = at.du.dot(at.du);
             uv_term = at.du.dot(at.dv);
@@ -802,10 +857,12 @@ fn closest_on_patch(spline: &BSplineSurface, point: Point3, start: Point2) -> Op
                 return None;
             }
         }
+
         let step = Vector2::new(
             (vv * gradient.x - uv_term * gradient.y) / determinant,
             (uu * gradient.y - uv_term * gradient.x) / determinant,
         );
+
         uv -= step;
         last_step = step.length();
         if last_step <= NEWTON_SETTLED * (1.0 + uv.length()) {
@@ -857,6 +914,7 @@ impl Bender<'_, '_> {
             return Ok(());
         };
         let surface = Surface::from(spline.clone());
+
         let fits: Vec<usize> = lines
             .iter()
             .enumerate()
@@ -870,12 +928,15 @@ impl Bender<'_, '_> {
             })
             .map(|(index, _)| index)
             .collect();
+
         if fits.is_empty() {
             return Ok(());
         }
+
         let (restricted, sides) = restricted(face, &spline, lines, &fits)?;
         let mut current = restricted;
         let mut corners = [false; 4];
+
         for side in SIDES {
             let Some(fitting) = sides.iter().find(|fitting| fitting.side == side) else {
                 continue;
@@ -883,6 +944,7 @@ impl Bender<'_, '_> {
             let Some(line) = lines.get(fitting.line) else {
                 continue;
             };
+
             current =
                 self.bend_side(face, current, (lines, line), fitting, &sides, &mut corners)?;
         }
@@ -905,6 +967,7 @@ impl Bender<'_, '_> {
             .side(side)
             .ok_or_else(|| Problem::new(face, Fault::SideUnfollowable))?;
         let domain = curve.domain();
+
         let stations = self.stations(&curve, lines, line, side, sides);
         let closed = if side.along_u() {
             surface.u_period().is_some()
@@ -912,21 +975,26 @@ impl Bender<'_, '_> {
             surface.v_period().is_some()
         };
         let mut ranges: Vec<(Interval, usize)> = Vec::new();
+
         for index in &line.edges {
             let Some(edge) = self.body.edges.get(*index) else {
                 continue;
             };
             let [start, end] = edge.ends;
+
             let (Some(a), Some(b)) = (stations.get(&start), stations.get(&end)) else {
                 continue;
             };
+
             let [a, b] = if closed {
                 around_closed_side(&shape_of(&curve), edge, [*a, *b])
             } else {
                 [*a, *b]
             };
+
             let range = Interval::new(a.min(b), a.max(b))
                 .ok_or_else(|| Problem::new(face, Fault::EdgeOfNoLengthAlongSide))?;
+
             ranges.push((range, *index));
             if self.is_slave(face, *index) {
                 self.placed.insert(
@@ -946,6 +1014,7 @@ impl Bender<'_, '_> {
         {
             return Err(Problem::new(face, Fault::EdgesOverlapAlongSide));
         }
+
         let pins: Vec<(f64, Point3)> = stations
             .iter()
             .filter_map(|(vertex, along)| self.vertices.get(vertex).map(|point| (*along, *point)))
@@ -963,8 +1032,10 @@ impl Bender<'_, '_> {
         let mut goals: Vec<Goal> = Vec::new();
         let mut cursor = domain.start();
         let mut previous = shift_at(domain.start());
+
         for (range, index) in &ranges {
             let (start, end) = (shift_at(range.start()), shift_at(range.end()));
+
             if range.start() > cursor
                 && let Some(gap) = Interval::new(cursor, range.start())
             {
@@ -981,6 +1052,7 @@ impl Bender<'_, '_> {
                     ],
                 }));
             }
+
             let goal = match self.roles.get(*index) {
                 Some(Role::Bent { master, slave }) if *slave == face => Goal::Strict(Box::new(
                     self.strict(face, *master, *index, &curve, *range, &pins)?,
@@ -991,6 +1063,7 @@ impl Bender<'_, '_> {
                     shift: [start, end],
                 }),
             };
+
             goals.push(goal);
             cursor = range.end();
             previous = end;
@@ -1004,6 +1077,7 @@ impl Bender<'_, '_> {
                 shift: [previous, previous],
             }));
         }
+
         let knots: Vec<f64> = goals
             .iter()
             .filter_map(|goal| match goal {
@@ -1013,6 +1087,7 @@ impl Bender<'_, '_> {
             .flatten()
             .collect();
         let mut moved = 0.0f64;
+
         for goal in &goals {
             if let Goal::Strict(strict) = goal {
                 for along in strict_samples(strict) {
@@ -1029,6 +1104,7 @@ impl Bender<'_, '_> {
             return Err(Problem::new(face, Fault::BendsBeyondPrecision));
         }
         self.farthest = self.farthest.max(moved);
+
         let closures: Vec<Box<dyn Fn(f64) -> Option<Point3> + '_>> = goals
             .iter()
             .map(|goal| Box::new(move |along: f64| goal.point(along)) as Box<_>)
@@ -1043,6 +1119,7 @@ impl Bender<'_, '_> {
             })
             .collect();
         let held = corner_slots(side).map(|slot| corners.get(slot).copied().unwrap_or(false));
+
         let bend = SideBend {
             side,
             targets,
@@ -1053,6 +1130,7 @@ impl Bender<'_, '_> {
         let bent = surface
             .bent_side(&bend, BEND_TOLERANCE)
             .map_err(|error| bend_problem(face, &error))?;
+
         for slot in corner_slots(side) {
             if let Some(corner) = corners.get_mut(slot) {
                 *corner = true;
@@ -1072,6 +1150,7 @@ impl Bender<'_, '_> {
         let domain = curve.domain();
         let shape = Curve::BSpline(curve.clone());
         let mut stations = BTreeMap::new();
+
         for vertex in self.line_vertices(line) {
             let Some(point) = self.vertices.get(&vertex) else {
                 continue;
@@ -1091,10 +1170,12 @@ impl Bender<'_, '_> {
                         domain.end()
                     }
                 });
+
             let along = match corner {
                 Some(end) => end,
                 None => snapped(curve, shape.closest_parameter(*point, domain)),
             };
+
             stations.insert(vertex, along);
         }
         stations
@@ -1135,18 +1216,22 @@ impl Bender<'_, '_> {
                         value: known.line.value,
                     })
             });
+
         let map = match (&surface, line) {
             (Surface::BSpline(spline), Some(line)) => {
                 let first = curve.point(range.start());
                 let seed = line.along(surface.project(first, None));
+
                 let mut previous =
                     closest_on_line(spline, line, first, seed).ok_or_else(missing)?;
                 let mut table = Vec::with_capacity(stations.len());
+
                 for along in &stations {
                     previous = closest_on_line(spline, line, curve.point(*along), previous)
                         .ok_or_else(missing)?;
                     table.push((*along, previous));
                 }
+
                 let raw = [
                     table.first().map(|(_, t)| *t).ok_or_else(missing)?,
                     table.last().map(|(_, t)| *t).ok_or_else(missing)?,
@@ -1167,11 +1252,13 @@ impl Bender<'_, '_> {
                 let mut previous = closest_on_patch(spline, first, surface.project(first, None))
                     .ok_or_else(missing)?;
                 let mut table = Vec::with_capacity(stations.len());
+
                 for along in &stations {
                     previous = closest_on_patch(spline, curve.point(*along), previous)
                         .ok_or_else(missing)?;
                     table.push((*along, previous));
                 }
+
                 let raw = [
                     table.first().map(|(_, uv)| *uv).ok_or_else(missing)?,
                     table.last().map(|(_, uv)| *uv).ok_or_else(missing)?,
@@ -1189,11 +1276,14 @@ impl Bender<'_, '_> {
             (rigid, _) => {
                 let mut hint = None;
                 let mut table = Vec::with_capacity(stations.len());
+
                 for along in &stations {
                     let uv = rigid.project(curve.point(*along), hint);
+
                     hint = Some(uv);
                     table.push((*along, uv));
                 }
+
                 let raw = [
                     table.first().map(|(_, uv)| *uv).ok_or_else(missing)?,
                     table.last().map(|(_, uv)| *uv).ok_or_else(missing)?,
@@ -1215,11 +1305,13 @@ impl Bender<'_, '_> {
             range,
             settled: [Vector3::ZERO; 2],
         };
+
         let reached = [
             strict.on_master(range.start(), 0.0).ok_or_else(missing)?,
             strict.on_master(range.end(), 1.0).ok_or_else(missing)?,
         ];
         let settled = [ends[0] - reached[0], ends[1] - reached[1]];
+
         if settled.iter().any(|offset| offset.length() > CLEAN) {
             return Err(Problem::new(face, Fault::CornerOffBentFace));
         }
@@ -1235,10 +1327,13 @@ fn table_stations(curve: &BSpline<Point3>, range: Interval) -> Vec<f64> {
         .filter(|knot| *knot > range.start() && *knot < range.end())
         .chain([range.start(), range.end()])
         .collect();
+
     breaks.sort_by(f64::total_cmp);
     breaks.dedup();
+
     let per_span = TABLE_PER_SPAN.max(TABLE_MINIMUM / breaks.len().max(1));
     let mut stations = Vec::with_capacity(breaks.len() * per_span);
+
     for pair in breaks.windows(2) {
         let [start, end] = pair else {
             continue;
@@ -1270,6 +1365,7 @@ fn around_closed_side(side: &Curve, edge: &LooseEdge, [a, b]: [f64; 2]) -> [f64;
     };
     let middle = side.closest_parameter(edge.curve.point(edge.interval.middle()), domain);
     let at_seam = |along: f64| along == domain.start() || along == domain.end();
+
     let seam_towards = |other: f64| {
         if middle > other {
             domain.end()
@@ -1287,14 +1383,17 @@ fn around_closed_side(side: &Curve, edge: &LooseEdge, [a, b]: [f64; 2]) -> [f64;
 fn snapped(curve: &BSpline<Point3>, along: f64) -> f64 {
     let breaks = curve.breakpoints();
     let after = breaks.partition_point(|knot| *knot <= along);
+
     let below = after
         .checked_sub(1)
         .and_then(|index| breaks.get(index))
         .copied();
     let above = breaks.get(after).copied();
+
     let (Some(below), Some(above)) = (below, above) else {
         return along;
     };
+
     let reach = PIN_SNAP * (above - below);
     if along - below <= reach {
         below
@@ -1337,6 +1436,7 @@ fn restricted(
 ) -> Read<(BSplineSurface, Vec<Fitting>)> {
     let (mut u, mut v) = (spline.u_domain(), spline.v_domain());
     let mut sides: Vec<Fitting> = Vec::with_capacity(fits.len());
+
     for index in fits {
         let Some(line) = lines.get(*index) else {
             continue;
@@ -1345,24 +1445,29 @@ fn restricted(
         let domain = if line.line.fixed_u { &mut u } else { &mut v };
         let tolerance = LINE_SIDE * domain.length();
         let value = line.line.value;
+
         let narrowed = match bound {
             Bound::Lower if value <= domain.start() + tolerance => Some(*domain),
             Bound::Upper if value >= domain.end() - tolerance => Some(*domain),
             Bound::Lower => Interval::new(value, domain.end()),
             Bound::Upper => Interval::new(domain.start(), value),
         };
+
         *domain = narrowed.ok_or_else(|| Problem::new(face, Fault::NoRoomBetweenLines))?;
+
         let side = match (line.line.fixed_u, bound) {
             (true, Bound::Lower) => SurfaceSide::UStart,
             (true, Bound::Upper) => SurfaceSide::UEnd,
             (false, Bound::Lower) => SurfaceSide::VStart,
             (false, Bound::Upper) => SurfaceSide::VEnd,
         };
+
         if sides.iter().any(|known| known.side == side) {
             return Err(Problem::new(face, Fault::TwoLinesBoundOneSide));
         }
         sides.push(Fitting { line: *index, side });
     }
+
     let piece = if u == spline.u_domain() && v == spline.v_domain() {
         spline.clone()
     } else {

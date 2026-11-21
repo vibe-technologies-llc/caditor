@@ -33,7 +33,7 @@ pub use self::{
 };
 use crate::{error::GeometryError, interrupt::Interrupted};
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum IntersectionError {
     #[error("a parameter box is empty or not finite")]
     InvalidBounds,
@@ -55,7 +55,7 @@ pub enum IntersectionError {
     Cancelled(#[from] Interrupted),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum RefineStop {
     #[error("no point on both surfaces lies across its middle")]
     Unsolved,

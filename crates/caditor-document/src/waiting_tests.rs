@@ -24,6 +24,7 @@ fn square() -> Sketch {
         Point2::new(20.0, 8.0),
         Point2::new(10.0, 8.0),
     ];
+
     for (index, corner) in corners.iter().enumerate() {
         sketch.add_line(*corner, corners[(index + 1) % corners.len()]);
     }
@@ -63,7 +64,9 @@ struct Patterned {
 
 fn patterned(axis: Option<AxisReference>) -> Patterned {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(square()));
     let base = transaction.add_feature(
         "Base",
@@ -73,10 +76,12 @@ fn patterned(axis: Option<AxisReference>) -> Patterned {
         "Pattern 1",
         FeatureKind::from(Pattern::new(base, turning(axis))),
     );
+
     let after = transaction.add_feature(
         "Raise",
         extrusion(outline, RegionChoice::All, BodyOperation::Add(base)),
     );
+
     document.apply(transaction.finish()).unwrap();
     Patterned {
         document,
@@ -95,6 +100,7 @@ fn set_axis(model: &mut Patterned, axis: Option<AxisReference>) {
             kind: FeatureKind::from(Pattern::new(model.base, turning(axis))),
         },
     );
+
     model.document.apply(transaction).unwrap();
 }
 
@@ -117,10 +123,12 @@ fn a_circular_pattern_without_an_axis_waits_for_one_and_is_not_counted_as_failed
 #[test]
 fn a_pattern_whose_axis_is_cleared_waits_and_keeps_its_last_result() {
     let mut model = patterned(Some(AxisReference::Principal(PrincipalAxis::Z)));
+
     let computed = evaluate(&model.document, &mut model.engine);
     let last_good = computed.feature(model.pattern).unwrap().result.clone();
 
     set_axis(&mut model, None);
+
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(state(&computed, model.pattern), FeatureState::UpToDate);
@@ -132,6 +140,7 @@ fn a_pattern_whose_axis_is_cleared_waits_and_keeps_its_last_result() {
     assert_eq!(evaluation.feature(model.pattern).unwrap().result, last_good);
 
     set_axis(&mut model, Some(AxisReference::Principal(PrincipalAxis::Z)));
+
     let chosen = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(state(&chosen, model.pattern), FeatureState::UpToDate);
@@ -140,6 +149,7 @@ fn a_pattern_whose_axis_is_cleared_waits_and_keeps_its_last_result() {
 fn upright_disc() -> Sketch {
     let plane = Plane::from_frame(Point3::ZERO, Vector3::Y, Vector3::X).unwrap();
     let mut sketch = Sketch::new(plane);
+
     sketch.add_circle(Point2::ZERO, 1.0);
     sketch
 }
@@ -147,7 +157,9 @@ fn upright_disc() -> Sketch {
 #[test]
 fn a_sweep_without_a_path_waits_and_what_uses_its_body_fails_as_without_a_result() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let profile = transaction.add_feature("Profile", FeatureKind::from(upright_disc()));
     let sweep = transaction.add_feature(
         "Sweep 1",
@@ -167,6 +179,7 @@ fn a_sweep_without_a_path_waits_and_what_uses_its_body_fails_as_without_a_result
             frame: None,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document, &mut Recompute::default());
@@ -175,9 +188,11 @@ fn a_sweep_without_a_path_waits_and_what_uses_its_body_fails_as_without_a_result
         state(&evaluation, sweep),
         FeatureState::Waiting(MissingInput::Path)
     );
+
     let FeatureState::Failed(error) = state(&evaluation, moved) else {
         panic!("the move should fail without the swept body");
     };
+
     assert_eq!(error.fix, Some(FixTarget::Feature(sweep)));
     assert!(error.reason().contains("Sweep 1"), "{}", error.reason());
 }
@@ -185,7 +200,9 @@ fn a_sweep_without_a_path_waits_and_what_uses_its_body_fails_as_without_a_result
 #[test]
 fn an_extrusion_with_no_region_chosen_waits_for_regions_of_its_sketch() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(square()));
     let base = transaction.add_feature(
         "Base",
@@ -195,11 +212,13 @@ fn an_extrusion_with_no_region_chosen_waits_for_regions_of_its_sketch() {
             BodyOperation::NewBody,
         ),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document, &mut Recompute::default());
 
     let waiting = MissingInput::Regions { sketch: outline };
+
     assert_eq!(state(&evaluation, base), FeatureState::Waiting(waiting));
     assert_eq!(waiting.waiting_words(), "Waiting for regions");
     assert_eq!(
@@ -211,7 +230,9 @@ fn an_extrusion_with_no_region_chosen_waits_for_regions_of_its_sketch() {
 #[test]
 fn a_blend_and_an_offset_face_with_nothing_chosen_wait_for_their_body() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(square()));
     let base = transaction.add_feature(
         "Base",
@@ -239,6 +260,7 @@ fn a_blend_and_an_offset_face_with_nothing_chosen_wait_for_their_body() {
             tangent: false,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&document, &mut Recompute::default());

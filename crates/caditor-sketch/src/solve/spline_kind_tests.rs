@@ -45,6 +45,7 @@ fn passes_through(sketch: &Sketch, spline: EntityId) -> bool {
 #[test]
 fn a_fit_point_spline_passes_its_points_and_frees_two_per_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&fit_points(), SplineKind::fit(false));
 
     let solved = solve(&sketch).unwrap();
@@ -59,9 +60,12 @@ fn a_fit_point_spline_passes_its_points_and_frees_two_per_point() {
 #[test]
 fn fixing_every_fit_point_constrains_the_spline_fully() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&fit_points(), SplineKind::fit(true));
+
     for point in points_of(&sketch, spline) {
         let at = sketch.point(point).unwrap();
+
         sketch
             .add_constraint(Constraint::Fix { point, at })
             .unwrap();
@@ -80,6 +84,7 @@ fn fixing_every_fit_point_constrains_the_spline_fully() {
 #[test]
 fn dragging_a_fit_point_keeps_the_curve_through_all_of_them() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&fit_points(), SplineKind::fit(false));
     let points = points_of(&sketch, spline);
     let to = Point2::new(24.0, 12.0);
@@ -102,8 +107,10 @@ fn dragging_a_fit_point_keeps_the_curve_through_all_of_them() {
 #[test]
 fn a_point_dimensioned_on_a_closed_fit_spline_holds() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&fit_points(), SplineKind::fit(true));
     let points = points_of(&sketch, spline);
+
     sketch
         .add_constraint(Constraint::Distance {
             from: points[0],
@@ -126,6 +133,7 @@ fn a_point_dimensioned_on_a_closed_fit_spline_holds() {
 #[test]
 fn a_closed_control_spline_closes_smoothly() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&fit_points(), SplineKind::Control { closed: true });
 
     let solved = solve(&sketch).unwrap();
@@ -149,6 +157,7 @@ fn a_closed_control_spline_closes_smoothly() {
 #[test]
 fn a_line_tangent_to_a_conic_end_follows_its_apex() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let conic = sketch.add_spline_of(
         &[
             Point2::new(0.0, 0.0),
@@ -164,6 +173,7 @@ fn a_line_tangent_to_a_conic_end_follows_its_apex() {
     let Some(&Entity::Line { start: away, end }) = sketch.entity(line) else {
         panic!("a line has two ends");
     };
+
     sketch
         .add_constraint(Constraint::Coincident(end, start))
         .unwrap();
@@ -186,8 +196,10 @@ fn a_conic_passes_its_shoulder_at_rho_of_the_way_to_its_apex() {
         Point2::new(10.0, 10.0),
         Point2::new(20.0, 0.0),
     );
+
     for rho in [0.2, 0.5, 0.8] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let conic = sketch.add_spline_of(&[start, apex, end], SplineKind::Conic { rho });
         let curve = sketch.spline(conic).unwrap();
         let middle = start.lerp(end, 0.5);
@@ -196,7 +208,9 @@ fn a_conic_passes_its_shoulder_at_rho_of_the_way_to_its_apex() {
         assert!(curve.point_at(0.0).distance(start) < EXACT);
         assert!(curve.point_at(1.0).distance(end) < EXACT);
     }
+
     let mut sketch = Sketch::new(Plane::XY);
+
     let start = sketch.add_point(start);
     let apex = sketch.add_point(apex);
     let end = sketch.add_point(end);
@@ -231,6 +245,7 @@ fn a_rho_dimension_drives_the_conic_without_taking_a_degree_of_freedom() {
         Point2::new(20.0, 0.0),
     );
     let mut sketch = Sketch::new(Plane::XY);
+
     let conic = sketch.add_spline_of(&[start, apex, end], SplineKind::Conic { rho: 0.7 });
     let rho = |value: f64| Constraint::Rho {
         conic,
@@ -241,7 +256,9 @@ fn a_rho_dimension_drives_the_conic_without_taking_a_degree_of_freedom() {
         sketch.add_constraint(rho(1.5)),
         Err(SketchError::DimensionValue { .. })
     ));
+
     sketch.add_constraint(rho(0.3)).unwrap();
+
     let solved = solve(&sketch).unwrap();
     let shoulder = start.lerp(end, 0.5).lerp(apex, 0.3);
 
@@ -271,6 +288,7 @@ fn uneven_points() -> Vec<Point2> {
 #[test]
 fn an_evenly_spaced_fit_spline_keeps_the_shape_it_was_stored_with() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let open = sketch.add_spline_of(
         &uneven_points(),
         SplineKind::Fit {
@@ -306,10 +324,12 @@ fn an_evenly_spaced_fit_spline_keeps_the_shape_it_was_stored_with() {
 fn a_point_on_a_centripetal_spline_stays_on_the_curve_as_its_fit_points_move() {
     for closed in [false, true] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline_of(&uneven_points(), SplineKind::fit(closed));
         let points = points_of(&sketch, spline);
         let on = sketch.spline(spline).unwrap().point_at(0.3);
         let point = sketch.add_point(on);
+
         sketch
             .add_constraint(Constraint::Coincident(point, spline))
             .unwrap();
@@ -350,18 +370,24 @@ fn a_point_held_on_a_closed_spline_moves_across_its_seam() {
         let ring: Vec<Point2> = (0..6)
             .map(|step| Point2::from_angle(f64::from(step) * TAU / 6.0) * 20.0)
             .collect();
+
         let spline = sketch.add_spline_of(&ring, kind.clone());
+
         for point in points_of(&sketch, spline) {
             let at = sketch.point(point).unwrap();
+
             sketch
                 .add_constraint(Constraint::Fix { point, at })
                 .unwrap();
         }
+
         let curve = sketch.spline(spline).unwrap();
         let point = sketch.add_point(curve.point_at(0.97));
+
         sketch
             .add_constraint(Constraint::Coincident(point, spline))
             .unwrap();
+
         let to = curve.point_at(0.03);
 
         let solved = sketch
@@ -381,14 +407,19 @@ fn a_point_on_a_spline_with_knots_of_its_own_stays_on_the_curve_as_its_points_mo
     let wave: Vec<Point2> = (0..7)
         .map(|index| Point2::new(index as f64 * 10.0, if index % 2 == 0 { 0.0 } else { 12.0 }))
         .collect();
+
     let spline = sketch.add_spline(&wave);
+
     for parameter in [0.2, 0.55] {
         let near = sketch.spline(spline).unwrap().point_at(parameter);
+
         sketch.insert_control_point(spline, Some(near)).unwrap();
     }
+
     let points = points_of(&sketch, spline);
     let on = sketch.spline(spline).unwrap().point_at(0.45);
     let point = sketch.add_point(on);
+
     sketch
         .add_constraint(Constraint::Coincident(point, spline))
         .unwrap();
@@ -431,6 +462,7 @@ fn shift_between(first: &Sketch, second: &Sketch) -> f64 {
 fn a_dimensioned_gap_from_a_closed_spline_to_a_line_is_the_one_measured_and_stays_when_solved_again()
  {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(
         &[
             Point2::new(-5.00002, 9.0),
@@ -441,12 +473,14 @@ fn a_dimensioned_gap_from_a_closed_spline_to_a_line_is_the_one_measured_and_stay
         SplineKind::Control { closed: true },
     );
     let anchor = points_of(&sketch, spline)[0];
+
     sketch
         .add_constraint(Constraint::Fix {
             point: anchor,
             at: Point2::new(5.499999, -2.0),
         })
         .unwrap();
+
     let corners: Vec<EntityId> = [
         Point2::new(7.000001, 0.5),
         Point2::new(17.0, 0.5),
@@ -461,6 +495,7 @@ fn a_dimensioned_gap_from_a_closed_spline_to_a_line_is_the_one_measured_and_stay
             let start = corners[index];
             let end = corners[(index + 1) % corners.len()];
             let line = EntityId::from_raw(sketch.next_id());
+
             sketch
                 .insert_entity(line, Entity::Line { start, end })
                 .unwrap();
@@ -468,12 +503,14 @@ fn a_dimensioned_gap_from_a_closed_spline_to_a_line_is_the_one_measured_and_stay
         })
         .collect();
     let line = sides[3];
+
     sketch
         .add_constraint(Constraint::Coincident(
             corners[2],
             points_of(&sketch, spline)[1],
         ))
         .unwrap();
+
     let gap = sketch
         .add_constraint(Constraint::Distance {
             from: spline,
@@ -496,7 +533,9 @@ fn a_dimensioned_gap_from_a_closed_spline_to_a_line_is_the_one_measured_and_stay
 #[test]
 fn constraints_only_a_collapsed_line_satisfies_are_a_conflict_not_a_solution() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(-9.5, 7.5), Point2::new(2.0, -8.0));
+
     sketch
         .add_constraint(Constraint::Distance {
             from: EntityId::HORIZONTAL_AXIS,
@@ -543,12 +582,14 @@ fn stayed_put(first: &Solved, again: &Solved) -> bool {
 fn a_closed_spline_of_one_point_solves_again_from_its_own_result() {
     for kind in [SplineKind::fit(true), SplineKind::Control { closed: true }] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let point = sketch.add_point(Point2::new(-9.00002, -8.50002));
         let spline = sketch.insert(Entity::Spline {
             points: vec![point, point, point],
             kind,
         });
         let away = sketch.add_point(Point2::new(3.5, -7.0));
+
         sketch
             .add_constraint(Constraint::Distance {
                 from: away,
@@ -569,6 +610,7 @@ fn a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_resul
         SplineKind::fit(true),
     ] {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline_of(
             &[
                 Point2::new(9.5001, 10.499999),
@@ -579,6 +621,7 @@ fn a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_resul
             kind,
         );
         let points = points_of(&sketch, spline);
+
         for pair in points.windows(2).take(2) {
             if let [one, other] = *pair {
                 sketch
@@ -586,7 +629,9 @@ fn a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_resul
                     .unwrap();
             }
         }
+
         let line = sketch.add_line(Point2::new(-4.0, -6.0), Point2::new(-4.0, 6.0));
+
         sketch
             .add_constraint(Constraint::Distance {
                 from: line,
@@ -613,12 +658,16 @@ fn a_spline_ending_in_a_cusp_solves_again_whatever_its_inputs_round_to() {
     ];
     for (first_y, value) in [(3, 0), (0, -1)] {
         let mut points = base;
+
         if let Some(first) = points.first_mut() {
             first.y = ulps_off(first.y, first_y);
         }
+
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline_of(&points, SplineKind::OPEN);
         let ends = points_of(&sketch, spline);
+
         for pair in ends.windows(2).take(2) {
             if let [one, other] = *pair {
                 sketch
@@ -626,7 +675,9 @@ fn a_spline_ending_in_a_cusp_solves_again_whatever_its_inputs_round_to() {
                     .unwrap();
             }
         }
+
         let line = sketch.add_line(Point2::new(-4.0, -6.0), Point2::new(-4.0, 6.0));
+
         sketch
             .add_constraint(Constraint::Distance {
                 from: line,
@@ -643,6 +694,7 @@ fn a_spline_ending_in_a_cusp_solves_again_whatever_its_inputs_round_to() {
 fn a_distance_from_a_closed_fit_spline_to_a_line_it_crosses_is_held_though_a_nearer_bulge_alternates()
  {
     let mut sketch = Sketch::new(Plane::XY);
+
     let side = sketch.add_line(
         Point2::new(2.000099, -2.500001),
         Point2::new(-5.000001, -2.500001),
@@ -652,6 +704,7 @@ fn a_distance_from_a_closed_fit_spline_to_a_line_it_crosses_is_held_though_a_nea
     };
     let right = sketch.add_point(Point2::new(8.500001, -0.5));
     let top = sketch.add_point(Point2::new(8.0, 8.500001));
+
     let spline = sketch.insert(Entity::Spline {
         points: vec![right, corner, top],
         kind: SplineKind::Fit {
@@ -664,11 +717,13 @@ fn a_distance_from_a_closed_fit_spline_to_a_line_it_crosses_is_held_though_a_nea
         to: side,
         value: Expression::Measure(7.000001, Unit::Millimetre),
     };
+
     sketch.add_constraint(distance.clone()).unwrap();
 
     let solved = solve(&sketch).unwrap();
 
     let measured = solved.geometry.measured(&distance).unwrap();
+
     assert!((measured - 7.000001).abs() < 1e-5, "{measured}");
     assert!(passes_through(&solved.geometry, spline));
 }

@@ -12,7 +12,7 @@ const WRITTEN_DEVIATION: f64 = 0.25 * LINEAR_RESOLUTION;
 const MAX_WRITTEN_SPLITS: u32 = 8;
 const SPLIT_PROBES: [f64; 3] = [0.25, 0.5, 0.75];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Unsupported {
     Geometry,
     Shells,
@@ -56,15 +56,19 @@ impl<'a> Shapes<'a> {
         self.vertices.clear();
         self.edges.clear();
         self.faces.clear();
+
         let mut solids = Vec::new();
+
         for lump in lumps(solid)? {
             let outer = self.closed_shell(solid, lump.outer, false)?;
             let entity = if lump.voids.is_empty() {
                 format!("MANIFOLD_SOLID_BREP({},{outer})", text(name))
             } else {
                 let mut voids = Vec::new();
+
                 for void in lump.voids {
                     let shell = self.closed_shell(solid, void, true)?;
+
                     voids.push(
                         self.data
                             .add(format!("ORIENTED_CLOSED_SHELL('',*,{shell},.F.)")),
@@ -72,6 +76,7 @@ impl<'a> Shapes<'a> {
                 }
                 format!("BREP_WITH_VOIDS({},{outer},{})", text(name), list(voids))
             };
+
             solids.push(self.data.add(entity));
         }
         Ok(solids)
@@ -85,6 +90,7 @@ impl<'a> Shapes<'a> {
     ) -> Result<Ref, Unsupported> {
         let faces = solid.shell(shell).ok_or(Unsupported::Geometry)?.faces();
         let mut written = Vec::with_capacity(faces.len());
+
         for face in faces {
             written.push(self.face(solid, *face, flipped)?);
         }
@@ -94,34 +100,41 @@ impl<'a> Shapes<'a> {
     fn face(&mut self, solid: &Solid, id: FaceId, flipped: bool) -> Result<Ref, Unsupported> {
         let face = solid.face(id).ok_or(Unsupported::Geometry)?;
         let mut bounds = Vec::with_capacity(face.loops().len());
+
         for (index, loop_id) in face.loops().iter().enumerate() {
             let face_loop = solid.face_loop(*loop_id).ok_or(Unsupported::Geometry)?;
             let mut oriented = Vec::with_capacity(face_loop.coedges().len());
+
             for coedge_id in face_loop.coedges() {
                 let coedge = solid.coedge(*coedge_id).ok_or(Unsupported::Geometry)?;
                 let edge = self.edge(solid, coedge.edge())?;
+
                 oriented.push(self.data.add(format!(
                     "ORIENTED_EDGE('',*,*,{edge},{})",
                     logical(coedge.sense().is_same())
                 )));
             }
+
             let edge_loop = self.data.add(format!("EDGE_LOOP('',{})", list(oriented)));
             let kind = if index == 0 {
                 "FACE_OUTER_BOUND"
             } else {
                 "FACE_BOUND"
             };
+
             bounds.push(
                 self.data
                     .add(format!("{kind}('',{edge_loop},{})", logical(!flipped))),
             );
         }
+
         let surface = self.surface(face.surface())?;
         let written = self.data.add(format!(
             "ADVANCED_FACE('',{},{surface},{})",
             list(bounds),
             logical(face.sense().is_same() != flipped)
         ));
+
         self.faces.insert(id, written);
         Ok(written)
     }
@@ -130,10 +143,12 @@ impl<'a> Shapes<'a> {
         if let Some(existing) = self.vertices.get(&id) {
             return Ok(*existing);
         }
+
         let point = self
             .data
             .point(solid.vertex(id).ok_or(Unsupported::Geometry)?.point());
         let vertex = self.data.add(format!("VERTEX_POINT('',{point})"));
+
         self.vertices.insert(id, vertex);
         Ok(vertex)
     }
@@ -142,6 +157,7 @@ impl<'a> Shapes<'a> {
         if let Some(existing) = self.edges.get(&id) {
             return Ok(*existing);
         }
+
         let edge = solid.edge(id).ok_or(Unsupported::Geometry)?;
         let start = self.vertex(solid, edge.start())?;
         let end = self.vertex(solid, edge.end())?;
@@ -151,10 +167,12 @@ impl<'a> Shapes<'a> {
             [Some(start), Some(end)] => Some((start, end)),
             _ => None,
         };
+
         let curve = self.curve(edge.curve(), Some(edge.interval()), ends)?;
         let written = self
             .data
             .add(format!("EDGE_CURVE('',{start},{end},{curve},.T.)"));
+
         self.edges.insert(id, written);
         Ok(written)
     }
@@ -222,11 +240,14 @@ impl<'a> Shapes<'a> {
     fn spline_surface(&mut self, spline: &BSplineSurface) -> Ref {
         let mut grid = Vec::with_capacity(spline.columns());
         let mut weights = Vec::with_capacity(spline.columns());
+
         for column in 0..spline.columns() {
             let mut row = Vec::with_capacity(spline.rows());
             let mut row_weights = Vec::with_capacity(spline.rows());
+
             for index in 0..spline.rows() {
                 let control = spline.control_point(column, index).unwrap_or(Point3::ZERO);
+
                 row.push(self.data.point(control));
                 row_weights.push(
                     spline
@@ -239,10 +260,12 @@ impl<'a> Shapes<'a> {
             grid.push(list(row));
             weights.push(self.data.reals(row_weights));
         }
+
         let (u_multiplicities, u_knots) = knot_runs(spline.u_knots());
         let (v_multiplicities, v_knots) = knot_runs(spline.v_knots());
         let (u_degree, v_degree) = (spline.u_degree(), spline.v_degree());
         let grid = list(grid);
+
         let knots = format!(
             "{},{},{},{}",
             list(u_multiplicities),
@@ -276,6 +299,7 @@ impl<'a> Shapes<'a> {
             Surface::Cone(cone) => {
                 let source = cone.frame();
                 let opening = cone.half_angle();
+
                 let frame = if opening > 0.0 {
                     frame_placement(self.data, source)
                 } else {
@@ -337,6 +361,7 @@ fn frame_placement(data: &mut Data, frame: &Plane) -> Ref {
 fn knot_runs(knots: &[f64]) -> (Vec<usize>, Vec<f64>) {
     let mut multiplicities: Vec<usize> = Vec::new();
     let mut distinct: Vec<f64> = Vec::new();
+
     for knot in knots {
         match (distinct.last(), multiplicities.last_mut()) {
             (Some(last), Some(count)) if last == knot => *count += 1,
@@ -357,11 +382,14 @@ fn hermite_spline(
     let first = nodes.first()?;
     let mut points = vec![first.point];
     let mut knots = vec![first.parameter; 4];
+
     for pair in nodes.windows(2) {
         let [start, end] = pair else {
             continue;
         };
+
         let third = (end.parameter - start.parameter) / 3.0;
+
         points.extend([
             start.point + start.derivative * third,
             end.point - end.derivative * third,
@@ -381,7 +409,7 @@ fn hermite_spline(
     BSpline::new(3, knots, points).ok()
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct WrittenNode {
     parameter: f64,
     point: Point3,
@@ -405,6 +433,7 @@ fn written_nodes(curve: &IntersectionCurve) -> Option<Vec<WrittenNode>> {
         })
         .collect();
     let mut written = vec![*nodes.first()?];
+
     for pair in nodes.windows(2) {
         let [start, end] = pair else {
             continue;
@@ -419,12 +448,15 @@ fn written_nodes(curve: &IntersectionCurve) -> Option<Vec<WrittenNode>> {
                     hermite_point(&from, &to, parameter).distance(curve.refined_point(parameter))
                 })
                 .fold(0.0, larger);
+
             if farthest <= WRITTEN_DEVIATION || splits_left == 0 {
                 written.push(to);
                 from = to;
                 continue;
             }
+
             let middle = 0.5 * (from.parameter + to.parameter);
+
             pending.push((to, splits_left - 1));
             pending.push((node(middle, curve.refined_point(middle)), splits_left - 1));
         }
@@ -453,6 +485,7 @@ fn classify(solid: &Solid) -> Option<(Classified, caditor_kernel::Mesh)> {
         outward: Vec::new(),
         inward: Vec::new(),
     };
+
     for (id, _) in solid.shells() {
         let in_shell = |face: FaceId| solid.face(face).is_some_and(|face| face.shell() == id);
         if mesh.mass_properties_where(in_shell).volume < 0.0 {
@@ -471,8 +504,10 @@ pub(crate) fn lump_faces(solid: &Solid) -> Result<Vec<Vec<usize>>, Unsupported> 
         .map(|(position, (id, _))| (id, position))
         .collect();
     let mut written = Vec::new();
+
     for lump in lumps(solid)? {
         let mut faces = Vec::new();
+
         for shell in std::iter::once(lump.outer).chain(lump.voids) {
             for face in solid.shell(shell).ok_or(Unsupported::Geometry)?.faces() {
                 faces.push(*positions.get(face).ok_or(Unsupported::Geometry)?);
@@ -485,12 +520,14 @@ pub(crate) fn lump_faces(solid: &Solid) -> Result<Vec<Vec<usize>>, Unsupported> 
 
 fn lumps(solid: &Solid) -> Result<Vec<Lump>, Unsupported> {
     let shells: Vec<ShellId> = solid.shells().map(|(id, _)| id).collect();
+
     if let [outer] = shells.as_slice() {
         return Ok(vec![Lump {
             outer: *outer,
             voids: Vec::new(),
         }]);
     }
+
     let Some((classified, mesh)) = classify(solid) else {
         log::warn!("the solid could not be meshed, so its shells cannot be told apart");
         return Err(Unsupported::Shells);
@@ -503,6 +540,7 @@ fn lumps(solid: &Solid) -> Result<Vec<Lump>, Unsupported> {
             voids: Vec::new(),
         })
         .collect();
+
     for void in classified.inward {
         let probe = shell_point(solid, void);
         let owner = lumps.iter().position(|lump| {
@@ -517,6 +555,7 @@ fn lumps(solid: &Solid) -> Result<Vec<Lump>, Unsupported> {
         let lump = owner
             .and_then(|owner| lumps.get_mut(owner))
             .ok_or(Unsupported::Shells)?;
+
         lump.voids.push(void);
     }
     Ok(lumps)

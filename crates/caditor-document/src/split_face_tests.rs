@@ -15,6 +15,7 @@ fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
         Point2::new(max.0, max.1),
         Point2::new(min.0, max.1),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -23,6 +24,7 @@ fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
 
 fn line(from: (f64, f64), to: (f64, f64)) -> Sketch {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(from.0, from.1), Point2::new(to.0, to.1));
     sketch
 }
@@ -72,12 +74,15 @@ struct Model {
 
 fn model(along: impl FnOnce(&mut TransactionBuilder) -> SplitAlong) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle((-5.0, -4.0), (5.0, 4.0))),
     );
+
     let base = transaction.add_feature(
         "Base",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -93,11 +98,15 @@ fn model(along: impl FnOnce(&mut TransactionBuilder) -> SplitAlong) -> Model {
         })),
     );
     let along = along(&mut transaction);
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let faces = top_faces(evaluation.body(base).unwrap());
     let mut transaction = document.transaction("Split face");
+
     let split = transaction.add_feature(
         "Split face 1",
         FeatureKind::SplitFace(SplitFace {
@@ -107,6 +116,7 @@ fn model(along: impl FnOnce(&mut TransactionBuilder) -> SplitAlong) -> Model {
             carry: SplitCarry::Square,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -119,6 +129,7 @@ fn model(along: impl FnOnce(&mut TransactionBuilder) -> SplitAlong) -> Model {
 
 fn set_height(model: &mut Model, text: &str) {
     let expression = model.document.parse(text).unwrap();
+
     model
         .document
         .apply(Transaction::single(
@@ -136,20 +147,29 @@ fn a_plane_splits_the_top_face_and_its_pieces_survive_an_upstream_edit() {
     let mut model = model(|_| SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz)));
 
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(evaluation.failed_count(), 0);
+
     let solid = evaluation.body(model.base).unwrap();
+
     assert_eq!(solid.faces().count(), 7);
     assert!((volume(&evaluation, model.base) - 320.0).abs() < 0.01);
     assert!(evaluation.body_before(model.split).is_some());
+
     let pieces = top_faces(solid);
+
     assert_eq!(pieces.len(), 2);
 
     set_height(&mut model, "6 mm");
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(evaluation.failed_count(), 0);
+
     let taller = evaluation.body(model.base).unwrap();
     for piece in &pieces {
         let found = piece.resolve(taller).unwrap();
+
         assert!(
             top_faces(taller)
                 .iter()
@@ -188,6 +208,7 @@ fn a_tool_missing_the_faces_fails_the_split_alone_in_words() {
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     let error = failure(&evaluation, model.split);
+
     assert_eq!(
         error.reason(),
         "The curve of Far line does not cross any of the chosen faces."
@@ -234,6 +255,7 @@ fn colour_top(model: &mut Model, evaluation: &Evaluation, colour: Rgb) {
             .collect(),
         ..BodyAppearance::default()
     };
+
     model
         .document
         .apply(Transaction::single(
@@ -249,6 +271,7 @@ fn colour_top(model: &mut Model, evaluation: &Evaluation, colour: Rgb) {
 fn top_colours(model: &Model, evaluation: &Evaluation, splits: &FaceSplits) -> Vec<Rgb> {
     let solid = evaluation.body(model.base).unwrap();
     let appearance = &model.document.feature(model.base).unwrap().appearance;
+
     let colours = appearance.face_colours(solid, splits);
     top_faces(solid)
         .iter()
@@ -258,6 +281,7 @@ fn top_colours(model: &Model, evaluation: &Evaluation, splits: &FaceSplits) -> V
 
 fn slanted_line(transaction: &mut TransactionBuilder) -> AxisReference {
     let mut sketch = Sketch::new(Plane::XZ);
+
     let entity = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(0.5, 1.0));
     let sketch = transaction.add_feature("Slant", FeatureKind::from(sketch));
     AxisReference::Sketch { sketch, entity }
@@ -267,11 +291,14 @@ fn slanted_line(transaction: &mut TransactionBuilder) -> AxisReference {
 fn a_face_colour_given_before_the_split_carries_to_every_piece() {
     let red = Rgb::new(200, 30, 30);
     let mut model = model(|_| SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz)));
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     colour_top(&mut model, &evaluation, red);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
     let splits = model.document.face_splits(model.base);
+
     let carried = top_colours(&model, &evaluation, &splits);
     let without = top_colours(&model, &evaluation, &FaceSplits::default());
 
@@ -283,15 +310,19 @@ fn a_face_colour_given_before_the_split_carries_to_every_piece() {
 #[test]
 fn a_direction_carries_the_curve_slanted_through_the_body() {
     let mut slant = None;
+
     let mut model = model(|transaction| {
         slant = Some(slanted_line(transaction));
+
         let sketch = transaction.add_feature(
             "Part line",
             FeatureKind::from(line((0.0, -10.0), (0.0, 10.0))),
         );
         SplitAlong::Sketch(sketch)
     });
+
     let mut split = split_of(&model);
+
     split.carry = SplitCarry::Along(Box::new(slant.unwrap()));
     set_split(&mut model, split);
 
@@ -328,7 +359,9 @@ fn a_direction_along_the_sketch_plane_fails_the_split_in_words() {
         );
         SplitAlong::Sketch(sketch)
     });
+
     let mut split = split_of(&model);
+
     split.carry = SplitCarry::Along(Box::new(AxisReference::Principal(PrincipalAxis::X)));
     set_split(&mut model, split);
 
@@ -347,11 +380,15 @@ fn a_sketch_mixing_an_open_chain_with_outlines_splits_along_both_and_keeps_colou
     let red = Rgb::new(200, 30, 30);
     let mut model = model(|transaction| {
         let mut sketch = line((2.0, -10.0), (2.0, 10.0));
+
         sketch.add_circle(Point2::new(-2.0, 0.0), 1.0);
+
         let sketch = transaction.add_feature("Part line", FeatureKind::from(sketch));
         SplitAlong::Sketch(sketch)
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     colour_top(&mut model, &evaluation, red);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -366,7 +403,9 @@ fn a_sketch_mixing_an_open_chain_with_outlines_splits_along_both_and_keeps_colou
 fn a_mixed_sketch_whose_outline_misses_the_faces_still_splits_along_the_chain() {
     let mut model = model(|transaction| {
         let mut sketch = line((2.0, -10.0), (2.0, 10.0));
+
         sketch.add_circle(Point2::new(-20.0, 0.0), 1.0);
+
         let sketch = transaction.add_feature("Part line", FeatureKind::from(sketch));
         SplitAlong::Sketch(sketch)
     });
@@ -381,6 +420,7 @@ type Segment = ((f64, f64), (f64, f64));
 
 fn square_with(extra: &[Segment]) -> Sketch {
     let mut sketch = rectangle((-3.0, -1.0), (-1.0, 1.0));
+
     for (from, to) in extra {
         sketch.add_line(Point2::new(from.0, from.1), Point2::new(to.0, to.1));
     }
@@ -436,7 +476,9 @@ fn cone(sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceReference>) -> Rod {
 
 fn wrapped_on(conical: bool, sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceReference>) -> Rod {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let base = if conical {
         let mm = |text: &str| Expression::parse_stored(text).unwrap();
         transaction.add_feature(
@@ -456,7 +498,9 @@ fn wrapped_on(conical: bool, sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceR
         )
     } else {
         let mut outline = Sketch::new(Plane::XY);
+
         outline.add_circle(Point2::new(0.0, 0.0), 10.0);
+
         let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
         transaction.add_feature(
             "Rod",
@@ -474,11 +518,15 @@ fn wrapped_on(conical: bool, sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceR
         )
     };
     let label = transaction.add_feature("Label", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let faces = faces(evaluation.body(base).unwrap());
     let mut transaction = document.transaction("Split face");
+
     let split = transaction.add_feature(
         "Split face 1",
         FeatureKind::SplitFace(SplitFace {
@@ -488,6 +536,7 @@ fn wrapped_on(conical: bool, sketch: Sketch, faces: impl Fn(&Solid) -> Vec<FaceR
             carry: SplitCarry::Wrapped,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     Rod {
         document,
@@ -520,7 +569,9 @@ fn label(sketch: &mut Sketch) {
 #[test]
 fn a_wrapped_outline_lays_a_patch_of_its_own_size_round_a_cylinder() {
     let mut sketch = tangent_sketch(10.0);
+
     label(&mut sketch);
+
     let mut rod = rod(sketch, walls);
 
     let evaluation = evaluate(&rod.document, &mut rod.engine);
@@ -542,7 +593,9 @@ fn a_wrapped_outline_lays_a_patch_of_its_own_size_round_a_cylinder() {
 #[test]
 fn a_wrapped_sketch_across_the_axis_fails_the_split_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     label(&mut sketch);
+
     let mut rod = rod(sketch, walls);
 
     let evaluation = evaluate(&rod.document, &mut rod.engine);
@@ -558,7 +611,9 @@ fn a_wrapped_sketch_across_the_axis_fails_the_split_in_words() {
 #[test]
 fn a_wrapped_split_of_a_flat_face_fails_in_words() {
     let mut sketch = tangent_sketch(10.0);
+
     label(&mut sketch);
+
     let mut rod = rod(sketch, |solid| {
         solid
             .faces()
@@ -583,7 +638,9 @@ fn a_wrapped_split_of_a_flat_face_fails_in_words() {
 #[test]
 fn a_wrapped_curve_round_the_axis_or_a_long_outline_fails_in_words() {
     let mut open = tangent_sketch(10.0);
+
     open.add_line(Point2::new(5.0, -20.0), Point2::new(5.0, 20.0));
+
     let mut long = tangent_sketch(10.0);
     let round = std::f64::consts::TAU * 10.0;
     let corners = [
@@ -592,6 +649,7 @@ fn a_wrapped_curve_round_the_axis_or_a_long_outline_fails_in_words() {
         Point2::new(12.0, 0.5 * round + 1.0),
         Point2::new(10.0, 0.5 * round + 1.0),
     ];
+
     for index in 0..4 {
         long.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -600,6 +658,7 @@ fn a_wrapped_curve_round_the_axis_or_a_long_outline_fails_in_words() {
         .into_iter()
         .map(|sketch| {
             let mut rod = rod(sketch, walls);
+
             let evaluation = evaluate(&rod.document, &mut rod.engine);
             failure(&evaluation, rod.split).reason()
         })
@@ -619,6 +678,7 @@ fn a_wrapped_curve_round_the_axis_or_a_long_outline_fails_in_words() {
 
 fn wall_count(rod: &mut Rod) -> usize {
     let evaluation = evaluate(&rod.document, &mut rod.engine);
+
     assert_eq!(
         evaluation.failed_count(),
         0,
@@ -638,10 +698,12 @@ fn a_wrapped_open_chain_cuts_the_wall_along_a_helix() {
     let round = std::f64::consts::TAU * 10.0;
     let rise = 2.0 * round / 30.0;
     let mut sketch = tangent_sketch(10.0);
+
     sketch.add_line(
         Point2::new(-5.0, 0.5 * round - 5.0 * rise),
         Point2::new(35.0, 0.5 * round + 35.0 * rise),
     );
+
     let mut rod = rod(sketch, walls);
 
     assert!(wall_count(&mut rod) >= 3);
@@ -650,8 +712,10 @@ fn a_wrapped_open_chain_cuts_the_wall_along_a_helix() {
 #[test]
 fn a_wrapped_chain_and_outline_cut_the_wall_twice() {
     let mut sketch = tangent_sketch(10.0);
+
     label(&mut sketch);
     sketch.add_line(Point2::new(22.0, 5.0), Point2::new(40.0, 5.0));
+
     let mut rod = rod(sketch, walls);
 
     assert!(wall_count(&mut rod) >= 3);
@@ -661,9 +725,12 @@ fn a_wrapped_chain_and_outline_cut_the_wall_twice() {
 fn outlines_and_chains_wrap_round_a_cone() {
     let mut outline =
         Sketch::new(Plane::from_frame(Point3::new(0.0, 9.0, 0.0), Vector3::Y, Vector3::Z).unwrap());
+
     label(&mut outline);
+
     let mut chain =
         Sketch::new(Plane::from_frame(Point3::new(0.0, 9.0, 0.0), Vector3::Y, Vector3::Z).unwrap());
+
     chain.add_line(Point2::new(-5.0, 2.0), Point2::new(35.0, 2.0));
 
     let counts: Vec<usize> = [outline, chain]
@@ -680,8 +747,11 @@ fn only_faces_of_one_cylinder_or_cone_lie_on_one_unrolled_surface() {
         .into_iter()
         .map(|conical| {
             let mut sketch = tangent_sketch(10.0);
+
             label(&mut sketch);
+
             let mut model = wrapped_on(conical, sketch, walls);
+
             let evaluation = evaluate(&model.document, &mut model.engine);
             let solid = evaluation.body(model.base).unwrap();
             let curved: Vec<FaceId> = solid
@@ -703,6 +773,7 @@ fn only_faces_of_one_cylinder_or_cone_lie_on_one_unrolled_surface() {
 #[test]
 fn only_a_split_along_a_sketch_keeps_how_it_carries_the_curves() {
     let mut model = model(|_| SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz)));
+
     let mut wrapped = model
         .document
         .feature(model.split)
@@ -711,6 +782,7 @@ fn only_a_split_along_a_sketch_keeps_how_it_carries_the_curves() {
         .split_face()
         .unwrap()
         .clone();
+
     wrapped.carry = SplitCarry::Wrapped;
 
     model
@@ -723,6 +795,7 @@ fn only_a_split_along_a_sketch_keeps_how_it_carries_the_curves() {
             },
         ))
         .unwrap();
+
     let kept = model.document.feature(model.split).unwrap().kind.clone();
 
     assert_eq!(kept.split_face().unwrap().carry, SplitCarry::Square);

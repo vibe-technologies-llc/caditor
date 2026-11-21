@@ -16,6 +16,7 @@ pub(in crate::import) fn looks_like_svg(bytes: &[u8]) -> bool {
     if is_packed(bytes) || bytes.starts_with(UTF16_LE_BOM) || bytes.starts_with(UTF16_BE_BOM) {
         return true;
     }
+
     let bytes = bytes.strip_prefix(UTF8_BOM).unwrap_or(bytes);
     bytes
         .iter()

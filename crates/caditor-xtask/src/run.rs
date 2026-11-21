@@ -68,11 +68,13 @@ pub fn all(root: &Path, steps: &[Step], output: Output, keep_going: bool) -> Res
     }
 
     let logs = logs_within(root);
+
     if output == Output::Kept {
         fresh(&logs)?;
     }
 
     let mut failed = 0;
+
     for (index, step) in steps.iter().enumerate() {
         let passed = match output {
             Output::Kept => kept(root, &logs, index, step)?,
@@ -115,6 +117,7 @@ fn logs_within(root: &Path) -> PathBuf {
 
 fn command(root: &Path, step: &Step) -> Command {
     let mut command = Command::new(step.program.path());
+
     command.current_dir(root).args(&step.args);
     command
 }
@@ -125,6 +128,7 @@ fn kept(root: &Path, logs: &Path, index: usize, step: &Step) -> Result<bool, Err
         path: path.clone(),
         source,
     };
+
     let log = File::create(&path).map_err(log_error)?;
     let errors = log.try_clone().map_err(log_error)?;
 
@@ -144,6 +148,7 @@ fn kept(root: &Path, logs: &Path, index: usize, step: &Step) -> Result<bool, Err
     let took = began.elapsed().as_secs_f64();
 
     let written = fs::read_to_string(&path).unwrap_or_default();
+
     if status.success() {
         println!("ok ({took:.1}s)");
         if step.summary == Summary::Nextest

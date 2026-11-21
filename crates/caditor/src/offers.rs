@@ -37,7 +37,7 @@ use crate::{
 
 pub const MAX_DESCRIBED: usize = 12;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Basis {
     selection: u64,
     tree: Vec<FeatureId>,
@@ -53,7 +53,7 @@ struct Basis {
 
 pub type Chosen<'a> = (&'a [FeatureId], &'a [FeatureId]);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Offers {
     pub sketch_target: Result<SketchTarget, TargetError>,
     pub model_axes: Vec<(Pickable, AxisReference)>,
@@ -185,7 +185,7 @@ impl Offers {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SelectionOffers {
     current: Option<(Basis, Offers)>,
     #[cfg(test)]
@@ -201,6 +201,7 @@ impl SelectionOffers {
         chosen: Chosen<'_>,
     ) -> &Offers {
         let (tree, rows) = chosen;
+
         let basis = Basis {
             selection: selection.generation(),
             tree: tree.to_vec(),

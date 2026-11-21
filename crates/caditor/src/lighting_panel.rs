@@ -80,7 +80,7 @@ const HEADER: PanelTitle<'static> = PanelTitle {
     help: Some(Page::RenderedView),
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LightingTool {
     pub open: bool,
 }
@@ -91,7 +91,7 @@ impl LightingTool {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SkyPicture<'a> {
     pub path: Option<&'a Path>,
     pub status: &'a Status,
@@ -114,7 +114,7 @@ struct Setting {
     value: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 enum AngleError {
     #[error(transparent)]
     Unreadable(#[from] ParseError),
@@ -148,6 +148,7 @@ fn track(
     command: &mut Option<PreferencesCommand>,
 ) {
     let mut changed = lighting;
+
     let plain = Slider::new((setting.value)(&mut changed), setting.range.clone())
         .suffix(setting.suffix)
         .fixed_decimals(setting.decimals);
@@ -158,7 +159,9 @@ fn track(
     } else {
         widgets::slider(ui, plain)
     };
+
     widgets::tie_to_caption(ui, &response);
+
     let settled = response.drag_stopped() || !response.dragged();
     if settled && (response.changed() || response.drag_stopped()) {
         preferences::change(command, PreferenceChange::Lighting(changed));
@@ -181,6 +184,7 @@ fn slider(
     command: &mut Option<PreferencesCommand>,
 ) {
     let mut refusal = None;
+
     widgets::property(ui, setting.caption, |ui| {
         if !setting.angle {
             track(ui, setting, lighting, command);
@@ -188,6 +192,7 @@ fn slider(
         }
         ui.horizontal(|ui| {
             track(ui, setting, lighting, command);
+
             let typed = field::commit_field(
                 ui,
                 angle_field_id(place, setting.caption),
@@ -196,9 +201,11 @@ fn slider(
                 false,
                 |text| angle_in(&setting.range, text),
             );
+
             typed.response.on_hover_text(ANGLE_HOVER);
             if let Some(degrees) = typed.committed {
                 let mut changed = lighting;
+
                 *(setting.value)(&mut changed) = degrees;
                 preferences::change(command, PreferenceChange::Lighting(changed));
             }
@@ -224,6 +231,7 @@ pub fn rows(
             );
         }
     });
+
     let settings: [Setting; 8] = [
         Setting {
             caption: AZIMUTH,
@@ -290,10 +298,12 @@ pub fn rows(
             value: |lighting| &mut lighting.exposure,
         },
     ];
+
     for setting in &settings {
         slider(ui, place, setting, lighting, command);
         if setting.caption == TEMPERATURE {
             let [red, green, blue] = lighting.swatch();
+
             widgets::property(ui, "", |ui| {
                 widgets::swatch(
                     ui,
@@ -333,7 +343,7 @@ pub fn rows(
     });
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum BackdropPlace {
     LightingPanel,
     Preferences,
@@ -359,10 +369,13 @@ pub fn backdrop_colour(
     let selector = backdrop_selector(place);
     let refusal = selector.with("refused");
     let selecting = colour_selector::is_open(ui, selector);
+
     ui.label(widgets::section_title(BACKDROP));
     ui.label(widgets::muted(BACKDROP_ABOUT, ui));
     ui.add_space(SPACE_S);
+
     let mut chosen = None;
+
     let toggled = ui
         .horizontal_wrapped(|ui| {
             if widgets::swatch(ui, SKY_SWATCH_FILL, SKY_SWATCH, current.is_none()).clicked()
@@ -373,6 +386,7 @@ pub fn backdrop_colour(
             for (name, colour) in BACKDROPS {
                 let seen = scene_palette::seen_backdrop(color32(colour), body);
                 let picked = current == Some(colour);
+
                 let response = ui
                     .add_enabled_ui(seen.is_ok(), |ui| {
                         widgets::swatch(ui, color32(colour), &backdrop_swatch_name(name), picked)
@@ -390,12 +404,14 @@ pub fn backdrop_colour(
                 current.filter(|colour| BACKDROPS.iter().all(|(_, known)| known != colour))
             {
                 let name = backdrop_swatch_name(&colour_selector::describe(colour));
+
                 widgets::swatch(ui, color32(colour), &name, true);
             }
             widgets::icon_swatch(ui, icons::ADD, CUSTOM_BACKDROP, selecting).clicked()
         })
         .inner;
     let shown = current.unwrap_or(Rgb::new(0xd9, 0xdc, 0xe1));
+
     if toggled {
         colour_selector::toggle(ui, selector, shown);
     }
@@ -444,6 +460,7 @@ fn sky_picture(ui: &mut Ui, lighting: Lighting, sky: SkyPicture<'_>, asked: &mut
             let name = sky
                 .path
                 .map_or_else(|| PLAIN_SKY.to_owned(), |path| display_name(Some(path)));
+
             ui.label(name);
         });
         if matches!(sky.status, Status::Ready(..)) {
@@ -495,6 +512,7 @@ fn sky_picture(ui: &mut Ui, lighting: Lighting, sky: SkyPicture<'_>, asked: &mut
     ui.add_space(SPACE_S);
     ui.horizontal_wrapped(|ui| {
         let choose = widgets::small_button(ui, icons::SKY_PICTURE, CHOOSE_PICTURE);
+
         if ui.add(choose).clicked() {
             asked.run = Some(Command::ChooseBackdrop);
         }
@@ -515,6 +533,7 @@ pub fn show(
     tool: &mut LightingTool,
 ) -> Asked {
     let mut asked = Asked::default();
+
     let panel = widgets::side_panel(
         ui,
         room,
@@ -527,6 +546,7 @@ pub fn show(
             if !style.is_rendered() {
                 widgets::callout(ui, Tone::Info, |ui| {
                     ui.label(OTHER_STYLE);
+
                     let button = widgets::small_button(ui, icons::LIGHTING, SHOW_RENDERED);
                     if ui.add(button).clicked() {
                         asked.run = Some(Command::Style(DisplayStyle::Rendered));
@@ -553,12 +573,14 @@ pub fn show(
                 &mut asked.command,
             );
             ui.add_space(SPACE_M);
+
             let reset = widgets::small_button(ui, icons::RESET_SECTION, RESET);
             if ui.add(reset).clicked() {
                 asked.run = Some(Command::ResetLighting);
             }
         },
     );
+
     if panel.closed {
         tool.toggle();
     }

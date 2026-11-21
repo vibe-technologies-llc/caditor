@@ -23,6 +23,7 @@ pub(crate) fn farthest(surface: &Surface, samples: &[Point3]) -> f64 {
                 Some(uv) if surface.point_at(uv).distance(*point) <= CLEAN => uv,
                 _ => surface.project(*point, None),
             };
+
             hint = Some(foot);
             surface.point_at(foot).distance(*point)
         })
@@ -40,6 +41,7 @@ pub(crate) fn met_at_ends(
         to - curve.point(interval.end()),
     ];
     let gap = shifts[0].length().max(shifts[1].length());
+
     if gap <= CLEAN || gap > allowance {
         return None;
     }
@@ -49,18 +51,22 @@ pub(crate) fn met_at_ends(
     {
         return Some(((Curve::Line(line), length), gap));
     }
+
     let blended = |along: f64| {
         curve.point(interval.at(along)) + shifts[0] * (1.0 - along) + shifts[1] * along
     };
     let fit = (FIT_SHARE * allowance).max(LINEAR_RESOLUTION);
     let mut count = FIRST_SAMPLES;
+
     while count <= MOST_SAMPLES {
         let points: Vec<Point3> = (0..=count)
             .map(|index| blended(index as f64 / count as f64))
             .collect();
+
         if let Ok(spline) = BSpline::interpolating(3, &points) {
             let domain = spline.domain();
             let rebuilt = Curve::BSpline(spline);
+
             let close = (0..count).all(|index| {
                 let along = (index as f64 + 0.5) / count as f64;
                 let target = blended(along);

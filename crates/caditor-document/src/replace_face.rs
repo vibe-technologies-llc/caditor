@@ -18,7 +18,7 @@ use crate::{
     solid::SolidResult,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReplaceFace {
     pub body: FeatureId,
     pub faces: Vec<FaceReference>,
@@ -38,6 +38,7 @@ impl ReplaceFace {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         if let Some(target) = &self.target {
             used.extend(target.datum());
             used.extend(target.frame());
@@ -52,6 +53,7 @@ impl ReplaceFace {
             .as_ref()
             .map(PlaneReference::origin_features)
             .unwrap_or_default();
+
         origins.extend(self.faces.iter().flat_map(origins::of_face));
         origins
     }
@@ -180,7 +182,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ReplaceFaceCause {
     FaceGone { body: String },
     NotFlat { face: String },
@@ -312,6 +314,7 @@ fn round_target(inputs: &Inputs<'_>, target: &PlaneReference) -> Option<Surface>
         return None;
     };
     let body = inputs.body(attachment.body)?;
+
     let found = attachment.face.resolve(body).ok()?;
     let surface = body.face(found)?.surface();
     (!matches!(surface, Surface::Plane(_))).then(|| surface.clone())
@@ -336,6 +339,7 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     let faces = definition.resolve(solid).map_err(|unresolved| {
         Failure::from(
             FeatureError::new(Unmatched {
@@ -346,11 +350,13 @@ pub(crate) fn evaluate(
             .fixing(FixTarget::Feature(feature.id())),
         )
     })?;
+
     if faces.is_empty() {
         return Err(Failure::Waiting(MissingInput::FacesToReplace {
             body: definition.body,
         }));
     }
+
     let Some(target) = &definition.target else {
         return Err(Failure::Waiting(MissingInput::TargetPlane {
             body: definition.body,
@@ -365,6 +371,7 @@ pub(crate) fn evaluate(
         }
         None => {
             let target = Resolver { feature, inputs }.plane(target)?;
+
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
             }

@@ -201,9 +201,12 @@ impl Harness {
         } else {
             Workspace::new()
         };
+
         workspace.preferences = look.preferences(workspace.preferences.clone());
+
         let mut harness =
             Self::starting(Some(dir), caditor_document::Document::default(), workspace);
+
         harness.painted = Some(Painted {
             shapes: Vec::new(),
             pixels_per_point: 1.0,
@@ -214,6 +217,7 @@ impl Harness {
 
     fn open_sample(&mut self, sample: Sample) {
         let session = self.model.session();
+
         self.command(FileCommand::OpenSample(sample));
         self.wait_until("the sample opens", |harness| {
             harness.model.session() != session
@@ -231,6 +235,7 @@ impl Harness {
 
     fn screenshot(&mut self, gpu: &Gpu, path: &Path) {
         self.still();
+
         let Some(painted) = self.painted.as_ref() else {
             return;
         };
@@ -239,15 +244,18 @@ impl Harness {
         let pixels_per_point = painted.pixels_per_point;
         let width = super::SCREEN.width() as u32;
         let height = super::SCREEN.height() as u32;
+
         let primitives = self
             .context
             .tessellate(painted.shapes.clone(), pixels_per_point);
 
         let mut egui =
             egui_wgpu::Renderer::new(device, FORMAT, egui_wgpu::RendererOptions::PREDICTABLE);
+
         for (id, delta) in self.textures.whole() {
             egui.update_texture(device, queue, id, &delta);
         }
+
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("screenshot"),
             size: wgpu::Extent3d {
@@ -266,8 +274,10 @@ impl Harness {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
         let mut viewport = ViewportRenderer::new(device, FORMAT, SAMPLES);
+
         viewport.set_linear_resolve(true);
         viewport.set_background(self.workspace.viewport.canvas().background());
+
         let request = self.workspace.viewport.request(false);
         let frame =
             request
@@ -297,6 +307,7 @@ impl Harness {
             pixels_per_point,
         };
         let prepared = egui.update_buffers(device, queue, &mut encoder, &primitives, &screen);
+
         {
             let mut pass = encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -313,6 +324,7 @@ impl Harness {
                     ..Default::default()
                 })
                 .forget_lifetime();
+
             egui.render(&mut pass, &primitives, &screen);
         }
 
@@ -323,6 +335,7 @@ impl Harness {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+
         encoder.copy_texture_to_buffer(
             target.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
@@ -342,8 +355,10 @@ impl Harness {
         device
             .poll(wgpu::PollType::wait_indefinitely())
             .expect("the device finishes");
+
         let mapped = buffer.get_mapped_range(..).expect("the readback is mapped");
         let row = width as usize * 4;
+
         let pixels: Vec<u8> = mapped
             .chunks(pitch as usize)
             .flat_map(|line| line.iter().take(row))
@@ -352,6 +367,7 @@ impl Harness {
 
         let file = fs::File::create(path).expect("the screenshot file is created");
         let mut png = png::Encoder::new(BufWriter::new(file), width, height);
+
         png.set_color(png::ColorType::Rgba);
         png.set_depth(png::BitDepth::Eight);
         png.write_header()
@@ -385,7 +401,9 @@ fn screenshots() {
     let Some(out) = std::env::var_os(OUTPUT).map(PathBuf::from) else {
         panic!("set {OUTPUT} to the directory the screenshots go to");
     };
+
     fs::create_dir_all(&out).expect("the screenshot directory is created");
+
     let gpu = Gpu::open();
     let only = std::env::var("CADITOR_SCREENSHOT_LOOKS").ok();
 
@@ -396,13 +414,16 @@ fn screenshots() {
         {
             continue;
         }
+
         let dir = TempDir::new().expect("a temporary directory");
 
         let mut welcome = Harness::styled(look, dir.path(), true);
+
         shoot(&mut welcome, &gpu, &out, "welcome", look);
         drop(welcome);
 
         let mut empty = Harness::styled(look, dir.path(), false);
+
         shoot(&mut empty, &gpu, &out, "empty", look);
         empty.workspace.viewport.set_uploading(true);
         empty.frame();
@@ -422,21 +443,25 @@ fn screenshots() {
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut bodies = Harness::styled(look, dir.path(), false);
+
         interference(&mut bodies, &gpu, &out, look);
         drop(bodies);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut filleted = Harness::styled(look, dir.path(), false);
+
         ghost_scene(&mut filleted, &gpu, &out, look);
         drop(filleted);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut sketching = Harness::styled(look, dir.path(), false);
+
         inference_scenes(&mut sketching, &gpu, &out, look);
         drop(sketching);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut beyond = Harness::styled(look, dir.path(), false);
+
         beyond_scene(&mut beyond, &gpu, &out, look);
         drop(beyond);
 
@@ -445,44 +470,53 @@ fn screenshots() {
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut principal = Harness::styled(look, dir.path(), false);
+
         principal_scenes(&mut principal, &gpu, &out, look);
         drop(principal);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut moving = Harness::styled(look, dir.path(), false);
+
         move_scene(&mut moving, &gpu, &out, look);
         drop(moving);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut tracing = Harness::styled(look, dir.path(), false);
+
         reference_image_scene(&mut tracing, dir.path(), &gpu, &out, look);
         drop(tracing);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut grouped = Harness::styled(look, dir.path(), false);
+
         body_groups_scene(&mut grouped, &gpu, &out, look);
         drop(grouped);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut drawn = Harness::styled(look, dir.path(), false);
+
         drawings_scene(&mut drawn, &gpu, &out, look);
         drop(drawn);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut configured = Harness::styled(look, dir.path(), false);
+
         configured.open_sample(Sample::Bracket);
         configurations_scene(&mut configured, &gpu, &out, look);
         drop(configured);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut model = Harness::styled(look, dir.path(), false);
+
         model.open_sample(Sample::Bracket);
         shoot(&mut model, &gpu, &out, "model", look);
+
         let linked = model
             .document()
             .features()
             .find(|feature| feature.kind.solid().is_some())
             .map(caditor_document::Feature::id);
+
         if let Some(linked) = linked {
             model.workspace.panels.choose_only(linked);
             model.still();
@@ -516,6 +550,7 @@ fn screenshots() {
             .features()
             .find(|feature| feature.kind.solid().is_some())
             .map(|feature| feature.id());
+
         if let Some(extrusion) = extrusion {
             model.perform(Action::Editing(EditingCommand::OpenSolid(extrusion)));
             model.settle();
@@ -558,6 +593,7 @@ fn screenshots() {
             .pickables()
             .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
             .collect();
+
         model.workspace.isocurves.toggle();
         model.select(faces);
         model.frame();
@@ -605,18 +641,23 @@ fn screenshots() {
             .features()
             .find(|feature| feature.kind.sketch().is_some())
             .map(|feature| feature.id());
+
         if let Some(sketch) = sketch {
             model.edit(sketch);
             shoot(&mut model, &gpu, &out, "sketch", look);
             for group in ["Draw", "Modify", "Constrain"] {
                 model.click_button(&sketch_toolbar::group_menu_name(group));
                 model.frame();
+
                 let scene = format!("sketch-menu-{}", group.to_lowercase());
+
                 shoot(&mut model, &gpu, &out, &scene, look);
                 model.key(Key::Escape, Modifiers::NONE);
                 model.frame();
             }
+
             let entities: Vec<_> = model.sketch(sketch).entities().map(|(id, _)| id).collect();
+
             model.select(entity_pickables(sketch, &entities));
             for (query, scene) in [
                 (
@@ -741,6 +782,7 @@ fn screenshots() {
 fn ghost_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     let (plate, _) = extruded_plate(harness);
     let rounded = top_edge_along_x(harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: rounded,
@@ -748,9 +790,11 @@ fn ghost_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     harness.key(Key::F, Modifiers::ALT);
     harness.frame();
     harness.settle();
+
     let Some(fillet) = harness.workspace.editing.solid() else {
         return;
     };
+
     harness.type_into_field(egui::Id::unique(("blend-size", fillet)), "6 mm");
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
@@ -768,8 +812,11 @@ fn ghost_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
 
 fn recent_menu_scene(gpu: &Gpu, out: &Path, look: Look) {
     let dir = TempDir::new().expect("a temporary directory");
+
     super::home::seed_recent(dir.path());
+
     let mut harness = Harness::styled(look, dir.path(), false);
+
     harness.wait_until("the recent files are read", |harness| {
         !harness.files.recent().is_empty()
     });
@@ -781,9 +828,11 @@ fn recent_menu_scene(gpu: &Gpu, out: &Path, look: Look) {
 
 fn cloud_scenes(gpu: &Gpu, out: &Path, look: Look) {
     recent_menu_scene(gpu, out, look);
+
     let dir = TempDir::new().expect("a temporary directory");
     let provider = super::home::fusion_provider_with_pictures();
     let mut harness = Harness::styled(look, dir.path(), false);
+
     super::home::attach(&mut harness, dir.path(), &provider);
     super::home::open_home(&mut harness);
     shoot(&mut harness, gpu, out, "home-advert", look);
@@ -816,6 +865,7 @@ fn cloud_send_scenes(gpu: &Gpu, out: &Path, look: Look) {
     let dir = TempDir::new().expect("a temporary directory");
     let provider = super::home::sendable_provider(Some(super::home::top_folder()), Vec::new());
     let mut harness = Harness::styled(look, dir.path(), false);
+
     super::home::attach(&mut harness, dir.path(), &provider);
     super::home::open_home(&mut harness);
     super::home::sign_in(&mut harness);
@@ -839,8 +889,10 @@ fn cloud_send_scenes(gpu: &Gpu, out: &Path, look: Look) {
 fn file_scenes(gpu: &Gpu, out: &Path, look: Look) {
     let dir = TempDir::new().expect("a temporary directory");
     let mut model = Harness::styled(look, dir.path(), false);
+
     for name in ["bracket.caditor", "lid.caditor"] {
         let path = dir.path().join(name);
+
         caditor_file::save(&caditor_document::Document::default(), &path, false)
             .expect("a model is saved");
         model.command(FileCommand::OpenPath(path.clone()));
@@ -866,6 +918,7 @@ fn file_scenes(gpu: &Gpu, out: &Path, look: Look) {
     for name in ["first", "second"] {
         let length = model.model.length_unit().default_length(10.0);
         let mut transaction = model.document().transaction(format!("Add {name}"));
+
         transaction.add_parameter(name.to_owned(), length);
         model.perform(Action::Apply(transaction.finish()));
         model.settle();
@@ -900,6 +953,7 @@ fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         return;
     };
     let cube = view_cube::area(viewport);
+
     model.events.push(Event::PointerMoved(
         cube.center_top() + egui::vec2(0.0, 40.0),
     ));
@@ -979,6 +1033,7 @@ fn view_menu_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         .picks
         .pickables()
         .find(|pickable| matches!(pickable, Pickable::Face { .. }));
+
     if let Some(face) = face {
         model.select([face]);
         open_view_menu(model);
@@ -987,6 +1042,7 @@ fn view_menu_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.frame();
         model.select([]);
     }
+
     let sketch = model
         .document()
         .features()
@@ -995,7 +1051,9 @@ fn view_menu_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     let Some(sketch) = sketch else {
         return;
     };
+
     model.edit(sketch);
+
     let curve = model
         .document()
         .feature(sketch)
@@ -1006,6 +1064,7 @@ fn view_menu_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
                 .find(|(_, entity)| entity.kind_name() == "Line")
                 .map(|(id, _)| id)
         });
+
     if let Some(entity) = curve {
         model.select([Pickable::SketchEntity {
             feature: sketch,
@@ -1029,6 +1088,7 @@ fn open_view_menu(harness: &mut Harness) {
 
 fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     let rows: Vec<FeatureId> = model.document().features().map(Feature::id).collect();
+
     if let [first, second, ..] = rows.as_slice() {
         model.workspace.panels.choose_only(*first);
         model.workspace.panels.toggle_chosen(*second);
@@ -1042,12 +1102,16 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.frame();
 
         let suppression = model.document().suppression(&[*first], true, "Suppress");
+
         model.perform(Action::Apply(suppression));
         model.settle();
         shoot(model, gpu, out, "failed", look);
+
         let suppressed = model.document().feature(*first).map(|row| row.name.clone());
+
         if let Some(name) = suppressed {
             let tree = model.panel_rect("model").center();
+
             model.wheel_until_shown(tree, &name, Wheel::Up);
             model.click_button(&format!("Show details of {name}"));
             model.frame();
@@ -1062,6 +1126,7 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
             .document()
             .feature(*second)
             .map(|row| row.name.clone());
+
         if let Some(name) = menu_row {
             model.click_beside(crate::icons::MORE, &name);
             model.hover("Uses");
@@ -1096,6 +1161,7 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     let Some(body) = body else {
         return;
     };
+
     model.workspace.panels.painting = Some(Painting {
         body,
         naming: false,
@@ -1114,6 +1180,7 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     shoot(model, gpu, out, "body-appearance-custom", look);
     model.click_button(crate::body_appearance::CUSTOM_COLOUR_NAME);
     model.frame();
+
     let steel = crate::body_appearance::MATERIALS
         .iter()
         .find(|material| material.name == "Steel");
@@ -1126,6 +1193,7 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         )
         .ok()
     });
+
     if let Some(finished) = finished {
         model.perform(Action::Apply(finished));
         model.workspace.panels.choose_nothing();
@@ -1136,6 +1204,7 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     }
     model.workspace.panels.painting = None;
     model.frame();
+
     let keys: Vec<_> = model
         .workspace
         .viewport
@@ -1158,7 +1227,9 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
                 .readout()
                 .is_some_and(|readout| readout.line.is_some())
         });
+
         let panel = model.panel_rect("measure").center();
+
         model.wheel_until_shown(panel, "Between them", Wheel::Down);
         shoot(model, gpu, out, "measure-two", look);
         model.key(Key::I, Modifiers::NONE);
@@ -1179,12 +1250,16 @@ fn inference_scenes(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
 
 fn beyond_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
     let past = sketch.add_point(Point2::new(45.0, 0.0));
+
     sketch
         .add_constraint(Constraint::Coincident(past, line))
         .expect("a point goes on a line");
+
     let feature = harness.add_sketch(sketch);
+
     harness.edit(feature);
     harness.frame();
     shoot(harness, gpu, out, "point-beyond", look);
@@ -1229,6 +1304,7 @@ fn principal_scenes(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
 
 fn move_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     let (_, top) = extruded_plate(harness);
+
     harness.select([top]);
     harness.click_tool("Move body");
     harness.settle();
@@ -1266,7 +1342,9 @@ fn interference(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         harness.shows("1 pair overlaps and 1 pair touches.")
     });
     shoot(harness, gpu, out, "interference", look);
+
     let panel = harness.panel_rect("interference").center();
+
     harness.wheel_until_shown(panel, crate::interference_panel::SHOW_PLACE, Wheel::Down);
     harness.click(crate::interference_panel::SHOW_PLACE);
     harness.frame();
@@ -1277,6 +1355,7 @@ fn interference(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
 
 fn reference_image_scene(harness: &mut Harness, dir: &Path, gpu: &Gpu, out: &Path, look: Look) {
     let photo = dir.join("bracket.png");
+
     super::reference_images::write_drawing_photo(&photo);
     harness.select([]);
     harness.answer_dialog(Some(photo));
@@ -1302,14 +1381,18 @@ fn reference_image_scene(harness: &mut Harness, dir: &Path, gpu: &Gpu, out: &Pat
     shoot(harness, gpu, out, "reference-image", look);
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let sketch = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::L);
     for corner in [(-30.0, -10.0), (20.0, -10.0), (20.0, 15.0), (-30.0, -10.0)] {
         harness.click_at(caditor_geometry::Point2::new(corner.0, corner.1));
     }
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let _ = sketch;
+
     shoot(harness, gpu, out, "reference-image-traced", look);
 }
 
@@ -1339,12 +1422,14 @@ fn rendered_scene(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         .viewport
         .look_toward(caditor_geometry::Vector3::new(1.0, -1.0, 1.0));
     model.still();
+
     let bodies: Vec<FeatureId> = model
         .document()
         .features()
         .filter(|feature| feature.makes_body())
         .map(|feature| feature.id())
         .collect();
+
     for (body, material) in bodies.iter().zip(["Brass", "PLA"]) {
         model.perform(Action::Apply(caditor_document::Transaction::single(
             "Choose a material",
@@ -1367,6 +1452,7 @@ fn rendered_scene(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.perform(Action::Undo);
     }
     model.settle();
+
     let low = crate::lighting::Lighting {
         frame: crate::lighting::LightFrame::Model,
         azimuth: 30.0,
@@ -1374,6 +1460,7 @@ fn rendered_scene(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         temperature: 3200.0,
         ..crate::lighting::Lighting::default()
     };
+
     model.perform(Action::Preferences(
         crate::preferences::PreferencesCommand::Change(
             crate::preferences::PreferenceChange::Lighting(low),
@@ -1415,6 +1502,7 @@ fn perform_all(harness: &mut Harness, actions: Vec<Action>) {
 
 fn only(pickable: Pickable) -> Selection {
     let mut selection = Selection::default();
+
     selection.replace_with(pickable);
     selection
 }
@@ -1433,6 +1521,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             let selection = only(*pickable);
             blend_tools::selected_edges(&model.model, &selection, &[]).ok()
         });
+
     if let Some(source) = edge {
         let actions = blend_tools::create_actions(
             model.document(),
@@ -1441,6 +1530,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             &source,
             &Starts::of(&model.model),
         );
+
         perform_all(model, actions);
         if let Some(fillet) = model.workspace.editing.solid() {
             model.settle();
@@ -1462,6 +1552,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         .ok()
         .map(|_| source)
     });
+
     if let Some(source) = faces {
         let actions = shell_tools::create_actions(
             model.document(),
@@ -1469,6 +1560,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             &source,
             &Starts::of(&model.model),
         );
+
         perform_all(model, actions);
         shoot_open(model, gpu, out, "panel-shell", look);
     }
@@ -1479,14 +1571,20 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             _ => None,
         }
     });
+
     if let Some(source) = mirrored {
         let actions = mirror_tools::create_actions(&model.model, &source);
+
         perform_all(model, actions);
         shoot_open(model, gpu, out, "panel-mirror", look);
+
         let actions = scale_tools::create_actions(&model.model, source.body);
+
         perform_all(model, actions);
         shoot_open(model, gpu, out, "panel-scale", look);
+
         let actions = move_tools::create_actions(&model.model, source.body, false);
+
         perform_all(model, actions);
         if let Some(movement) = model.workspace.editing.solid() {
             model.settle();
@@ -1504,6 +1602,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
     ] {
         if let Ok(source) = pattern_tools::source(&model.model, &Selection::default(), &[], &[]) {
             let actions = pattern_tools::create_actions(&model.model, shape, &source);
+
             perform_all(model, actions);
             shoot_open(model, gpu, out, scene, look);
             if shape == Shape::Circular {
@@ -1513,13 +1612,17 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
     }
 
     let end = model.document().features().len();
+
     if let Ok(plane) = datum_tools::plane_from_selection(&model.model, &Selection::default(), end) {
         let actions = datum_tools::create_actions(model.document(), plane);
+
         perform_all(model, actions);
         shoot_open(model, gpu, out, "panel-datum-plane", look);
     }
+
     let axis = Datum::Axis(DatumAxis::Along(AxisReference::Principal(PrincipalAxis::Z)));
     let actions = datum_tools::create_actions(model.document(), axis);
+
     perform_all(model, actions);
     if let Some(datum) = model.workspace.editing.solid() {
         model.settle();
@@ -1530,17 +1633,20 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         ))));
         shoot_open(model, gpu, out, "panel-picking", look);
     }
+
     let point = Datum::Point(caditor_document::DatumPoint {
         base: caditor_document::PointReference::Origin,
         offset: [10.0, 20.0, 30.0].map(|value| model.model.length_unit().default_length(value)),
     });
     let actions = datum_tools::create_actions(model.document(), point);
+
     perform_all(model, actions);
     model.settle();
     shoot(model, gpu, out, "panel-datum-point", look);
 
     let dir = TempDir::new().expect("a temporary directory");
     let mut spool = Harness::styled(look, dir.path(), false);
+
     spool.open_sample(Sample::Spool);
     open_kind(&mut spool, |kind| {
         matches!(kind.solid(), Some(SolidFeature::Revolve(_)))
@@ -1549,7 +1655,9 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
 
     let hole_dir = TempDir::new().expect("a temporary directory");
     let mut drilled = Harness::styled(look, hole_dir.path(), false);
+
     extruded_plate(&mut drilled);
+
     let top = Plane::from_frame(
         caditor_geometry::Point3::new(0.0, 0.0, 10.0),
         caditor_geometry::Vector3::Z,
@@ -1557,17 +1665,20 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
     )
     .expect("a plane on the plate");
     let mut points = Sketch::new(top);
+
     points.add_point(Point2::new(20.0, 20.0));
     drilled.add_sketch(points);
     drilled.select([]);
     drilled.click_tool("Hole");
     drilled.settle();
+
     let hole = drilled.workspace.editing.solid().and_then(|feature| {
         Some((
             feature,
             drilled.document().feature(feature)?.kind.hole()?.clone(),
         ))
     });
+
     if let Some((feature, hole)) = hole {
         let style = hole_tools::Kind::Stepped.default_style(drilled.model.length_unit());
         let stepped = caditor_document::Hole { style, ..hole };
@@ -1580,22 +1691,29 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
 
     let joined_dir = TempDir::new().expect("a temporary directory");
     let mut joined = Harness::styled(look, joined_dir.path(), false);
+
     let (_, top) = extruded_plate(&mut joined);
+
     add_peg(&mut joined);
+
     let peg_top = super::pickable_described(&mut joined, "Peg › Peg end face");
+
     joined.select([top, peg_top]);
     joined.click_tool("Combine");
     shoot_open(&mut joined, gpu, out, "panel-combine", look);
 
     let threaded_dir = TempDir::new().expect("a temporary directory");
     let mut threaded = Harness::styled(look, threaded_dir.path(), false);
+
     threaded.perform(Action::ShowThreadsAsCosmetic(true));
     threaded.select([]);
     run_from_palette(&mut threaded, "Cylinder");
     threaded.settle();
     threaded.perform(Action::Editing(EditingCommand::CloseSolid));
     threaded.settle();
+
     let wall = super::pickable_described(&mut threaded, "Cylinder 1 › Cylinder 1 wall");
+
     threaded.select([wall]);
     threaded.key(Key::O, Modifiers::ALT | Modifiers::SHIFT);
     shoot_open(&mut threaded, gpu, out, "panel-thread", look);
@@ -1603,6 +1721,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
     let piped_dir = TempDir::new().expect("a temporary directory");
     let mut piped = Harness::styled(look, piped_dir.path(), false);
     let mut elbow = Sketch::new(Plane::XY);
+
     elbow.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
     elbow.add_line(Point2::new(40.0, 0.0), Point2::new(40.0, 30.0));
     piped.add_sketch(elbow);
@@ -1623,12 +1742,15 @@ fn close_dialog(harness: &mut Harness) {
 fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     let dir = TempDir::new().expect("a temporary directory");
     let mut model = Harness::styled(look, dir.path(), false);
+
     model.open_sample(Sample::Plate);
 
     for tab in PreferencesTab::ALL {
         model.perform(Action::Preferences(PreferencesCommand::Tab(tab)));
         model.perform(Action::Preferences(PreferencesCommand::Show));
+
         let scene = format!("preferences-{}", tab.label().to_lowercase());
+
         shoot(&mut model, gpu, out, &scene, look);
         close_dialog(&mut model);
     }
@@ -1670,6 +1792,7 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
         .filter(|feature| feature.kind.sketch().is_some())
         .map(|feature| feature.id())
         .collect();
+
     model.command(FileCommand::ExportDrawing(DrawingSource::Sketches(
         sketches,
     )));
@@ -1683,6 +1806,7 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     close_dialog(&mut model);
 
     let outline = dir.path().join("outline.dxf");
+
     super::square_drawing(&outline);
     model.answer_dialog(Some(outline));
     model.command(FileCommand::Import { into: None });
@@ -1693,6 +1817,7 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     close_dialog(&mut model);
 
     let table = dir.path().join("dimensions.csv");
+
     std::fs::write(
         &table,
         "name,expression,note\nwidth,60 mm,\ndepth,width / 4,\nwall,2 mm,\n2nd,1 mm,\n",
@@ -1707,6 +1832,7 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     close_dialog(&mut model);
 
     let path = dir.path().join("plate.caditor");
+
     model.answer_dialog(Some(path.clone()));
     model.command(FileCommand::SaveAs);
     model.wait_until("the model is saved", |harness| {
@@ -1739,6 +1865,7 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     let damaged = dir.path().join("damaged.caditor");
     let bytes = caditor_file::encode(&super::sample_document().expect("the sample builds"))
         .expect("the sample encodes");
+
     std::fs::write(&damaged, super::damage_chunk(&bytes, 4)).expect("the damaged file is written");
     model.command(FileCommand::OpenPath(damaged.clone()));
     model.wait_until("the damaged file opens", |harness| {
@@ -1750,12 +1877,14 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     drop(model);
 
     let mut tip = Harness::styled(look, dir.path(), false);
+
     tip.workspace.preferences.onboarding.hints = true;
     tip.settle();
     shoot(&mut tip, gpu, out, "tip", look);
     drop(tip);
 
     let mut welcome = Harness::styled(look, dir.path(), true);
+
     welcome.wait_until("the recent files are read", |harness| {
         !harness.files.recent().is_empty()
     });
@@ -1763,8 +1892,11 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     drop(welcome);
 
     let crash = TempDir::new().expect("a temporary directory");
+
     crashed_session(crash.path());
+
     let mut recovery = Harness::styled(look, crash.path(), false);
+
     recovery.wait_until("recovery is offered", |harness| {
         harness.files.has_recoverable()
     });
@@ -1775,6 +1907,7 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
 fn crashed_session(dir: &Path) {
     let base = super::sample_document().expect("the sample builds");
     let width = base.parameter_named("width").expect("a width").id();
+
     let change = caditor_document::Transaction::single(
         "Edit width",
         caditor_document::Edit::SetParameterExpression {
@@ -1800,6 +1933,7 @@ fn crashed_session(dir: &Path) {
         || {},
     )
     .expect("the storage starts");
+
     assert!(crashed.flusher().flush(super::FILE_TIMEOUT));
     assert!(crashed.close(false).wait(super::FILE_TIMEOUT));
 }
@@ -1807,6 +1941,7 @@ fn crashed_session(dir: &Path) {
 fn body_groups_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     let (plate, _) = extruded_plate(harness);
     let peg = add_peg(harness);
+
     add_block(
         harness,
         "Cover",
@@ -1814,15 +1949,19 @@ fn body_groups_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         "3 mm",
     );
     harness.settle();
+
     let fixtures = harness.document().bodies_moving(
         &[plate, peg],
         &["Fixtures".to_owned(), "Pins".to_owned()],
         "Group",
     );
+
     harness.perform(Action::Apply(fixtures.expect("the bodies group")));
+
     let frame = harness
         .document()
         .bodies_moving(&[plate], &["Fixtures".to_owned()], "Group");
+
     harness.perform(Action::Apply(frame.expect("the plate moves up")));
     harness.settle();
     harness.click(&format!("{} ({})", crate::bodies_tree::GROUP_TITLE, 3));
@@ -1836,7 +1975,9 @@ fn configurations_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look
     use caditor_document::{ConfiguredValue, Setting};
 
     let (first, _) = harness.document().adding_configuration(Some("M4"));
+
     harness.perform(Action::Apply(first));
+
     let parameters: Vec<_> = harness
         .document()
         .parameters()
@@ -1854,23 +1995,28 @@ fn configurations_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look
         .features()
         .last()
         .map(|feature| feature.id());
+
     let values: Vec<ConfiguredValue> = parameters
         .into_iter()
         .chain(last.map(ConfiguredValue::Suppressed))
         .chain(body.map(ConfiguredValue::Colour))
         .collect();
+
     for value in &values {
         let configure = harness.document().configuring(*value).unwrap();
+
         harness.perform(Action::Apply(configure));
     }
     for name in ["M6", "M8"] {
         let (added, id) = harness.document().adding_configuration(Some(name));
+
         harness.perform(Action::Apply(added));
         if let Some(value) = values.iter().find(|value| value.feature().is_some()) {
             let change = harness
                 .document()
                 .setting_configuration(id, *value, Setting::Suppressed(true))
                 .unwrap();
+
             harness.perform(Action::Apply(change));
         }
     }

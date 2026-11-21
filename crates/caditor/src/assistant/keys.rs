@@ -49,6 +49,7 @@ impl KeyStore {
 
     pub fn load_all(&self) -> BTreeMap<ApiProvider, (ApiKey, KeySource)> {
         let mut loaded = BTreeMap::new();
+
         for provider in ApiProvider::ALL {
             loaded.insert(provider, self.load(provider));
         }
@@ -66,6 +67,7 @@ impl KeyStore {
                 .is_ok()
             {
                 let _ = self.remove_file(provider);
+
                 return (file_key, KeySource::Keyring);
             }
             return (file_key, KeySource::PrivateFile);
@@ -146,7 +148,9 @@ impl KeyStore {
                 "no state directory is available",
             ));
         };
+
         private::create_dir_all(folder)?;
+
         let path = folder.join(format!("{}-key.txt", provider.id()));
         caditor_file::write_privately(&path, bytes)
     }
@@ -174,17 +178,22 @@ mod tests {
     fn key_store_uses_keyring_and_falls_back_to_private_file_when_unreachable() {
         let dir = TempDir::new().unwrap();
         let keyring = FakeAiKeyring::reachable();
+
         let store = KeyStore::new(Some(dir.path()), keyring).without_env();
 
         let source = store
             .save(ApiProvider::Claude, &ApiKey::new("sk-ant-123"))
             .unwrap();
+
         assert_eq!(source, KeySource::Keyring);
+
         let (loaded, found_source) = store.load(ApiProvider::Claude);
+
         assert_eq!(loaded.as_str(), "sk-ant-123");
         assert_eq!(found_source, KeySource::Keyring);
 
         store.clear(ApiProvider::Claude).unwrap();
+
         assert_eq!(store.load(ApiProvider::Claude).1, KeySource::Missing);
 
         let unreachable = FakeAiKeyring::unreachable();
@@ -192,8 +201,11 @@ mod tests {
         let file_source = fallback
             .save(ApiProvider::OpenAi, &ApiKey::new("sk-openai-456"))
             .unwrap();
+
         assert_eq!(file_source, KeySource::PrivateFile);
+
         let (loaded, source) = fallback.load(ApiProvider::OpenAi);
+
         assert_eq!(loaded.as_str(), "sk-openai-456");
         assert_eq!(source, KeySource::PrivateFile);
     }

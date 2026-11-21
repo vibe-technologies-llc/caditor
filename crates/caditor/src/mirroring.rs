@@ -12,7 +12,7 @@ use crate::{
     trimming::{self, capitalized},
 };
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum MirrorRefusal {
     #[error(transparent)]
     SketchGone(#[from] trimming::SketchGone),
@@ -29,7 +29,7 @@ const GATHER_KEYS: &str = "Click: add or remove   Drag: add what the box takes  
 const GATHERED_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the line to mirror about   Esc: let go of the selection";
 const LINE_KEYS: &str = "Esc: change what is mirrored";
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Mirroring {
     selected: Vec<EntityId>,
     gathering: bool,
@@ -101,6 +101,7 @@ impl Mirroring {
 
     pub fn preview(&self) -> Preview {
         let mut preview = Preview::default();
+
         if let Some((_, Ok(image))) = &self.image {
             preview.curves = image.curves.clone();
             preview.points = image.points.clone();
@@ -168,6 +169,7 @@ impl Mirroring {
 
     pub fn activate(&mut self, model: &Model, feature: FeatureId) -> Outcome {
         let aim = self.aim();
+
         self.highlight = None;
         match aim {
             Some(line) => self.mirror(model, feature, line),
@@ -183,6 +185,7 @@ impl Mirroring {
                 .map(|_| ())
                 .map_err(|source| MirrorRefusal::Mirror { source })
         });
+
         if outcome.is_ok() {
             self.image = None;
         }
@@ -207,11 +210,13 @@ impl Mirroring {
         let current = self
             .aim()
             .and_then(|aim| lines.iter().position(|line| *line == aim));
+
         let next = match current {
             Some(index) => (index as isize + step).rem_euclid(count),
             None if step < 0 => count - 1,
             None => 0,
         };
+
         self.highlight = usize::try_from(next)
             .ok()
             .and_then(|next| lines.get(next).copied());

@@ -3,6 +3,7 @@ use crate::display_style::DisplayStyle;
 
 fn plate() -> Harness {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     run_from_palette(&mut harness, "fit view");
@@ -21,6 +22,7 @@ fn choose_from_menu(harness: &mut Harness, title: &str) {
 
 fn drawn_see_through(harness: &mut Harness) -> bool {
     let built = harness.built();
+
     assert_eq!(
         built.scene.meshes.len() + built.scene.translucent_meshes.len(),
         1
@@ -31,15 +33,18 @@ fn drawn_see_through(harness: &mut Harness) -> bool {
 #[test]
 fn x_ray_turns_on_and_off_from_the_palette() {
     let mut harness = plate();
+
     let at_first = drawn_see_through(&mut harness);
 
     run_from_palette(&mut harness, "x-ray");
     harness.frame();
+
     let on = drawn_see_through(&mut harness);
     let style_on = harness.workspace.viewport.style();
 
     run_from_palette(&mut harness, "x-ray");
     harness.frame();
+
     let off = drawn_see_through(&mut harness);
     let style_off = harness.workspace.viewport.style();
 
@@ -55,9 +60,11 @@ fn x_ray_turns_on_and_off_from_the_view_menu() {
     let mut harness = plate();
 
     choose_from_menu(&mut harness, "X-ray");
+
     let on = drawn_see_through(&mut harness);
 
     choose_from_menu(&mut harness, "X-ray");
+
     let off = drawn_see_through(&mut harness);
 
     assert!(on);
@@ -76,9 +83,12 @@ fn turning_x_ray_off_returns_to_the_style_it_replaced() {
     harness.frame();
     run_from_palette(&mut harness, "x-ray");
     harness.frame();
+
     let on = drawn_see_through(&mut harness);
+
     run_from_palette(&mut harness, "x-ray");
     harness.frame();
+
     let off = drawn_see_through(&mut harness);
 
     assert!(on);
@@ -94,10 +104,12 @@ fn another_style_chosen_from_either_route_ends_x_ray() {
     harness.frame();
     run_from_palette(&mut harness, "shaded with edges");
     harness.frame();
+
     let from_palette = drawn_see_through(&mut harness);
 
     choose_from_menu(&mut harness, "X-ray");
     choose_from_menu(&mut harness, "Shaded without edges");
+
     let from_menu = drawn_see_through(&mut harness);
 
     assert!(!from_palette);
@@ -118,7 +130,9 @@ fn styles_of(harness: &mut Harness) -> Vec<caditor_render::FaceStyle> {
 #[test]
 fn the_rendered_style_lights_the_scene_and_finishes_every_face_with_the_material_s_preset() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     harness.select([]);
     harness.model.perform(crate::model::Action::Apply(
         caditor_document::Transaction::single(
@@ -133,19 +147,23 @@ fn the_rendered_style_lights_the_scene_and_finishes_every_face_with_the_material
         ),
     ));
     harness.settle();
+
     let shaded = styles_of(&mut harness);
     let lit_before = harness.built().scene.lighting;
 
     choose_from_menu(&mut harness, "Rendered");
     harness.frame();
+
     let rendered = styles_of(&mut harness);
     let lighting = harness.built().scene.lighting;
 
     choose_from_menu(&mut harness, "Shaded with edges");
     harness.frame();
+
     let back = styles_of(&mut harness);
 
     let brushed = crate::body_appearance::surface(caditor_document::Finish::BrushedMetal);
+
     assert!(shaded.iter().all(|face| face.finish.is_none()));
     assert_eq!(lit_before, None);
     assert_eq!(
@@ -165,15 +183,19 @@ fn the_rendered_style_lights_the_scene_and_finishes_every_face_with_the_material
 fn a_body_without_finish_or_known_material_renders_satin_and_a_selected_face_stays_rendered_in_its_highlight()
  {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([]);
     choose_from_menu(&mut harness, "Rendered");
     harness.frame();
+
     let satin = crate::body_appearance::surface(caditor_document::Finish::Satin);
     let rendered = styles_of(&mut harness);
 
     harness.select([top]);
     harness.frame();
+
     let selected = styles_of(&mut harness);
 
     assert!(rendered.iter().all(|face| face.finish == Some(satin)));
@@ -184,26 +206,31 @@ fn a_body_without_finish_or_known_material_renders_satin_and_a_selected_face_sta
 #[test]
 fn the_lighting_panel_opens_from_the_palette_and_its_settings_reach_the_rendered_scene() {
     let mut harness = plate();
+
     choose_from_menu(&mut harness, "Rendered");
 
     run_from_palette(&mut harness, "light the rendered view");
     harness.frame();
+
     let open = harness.workspace.lighting.open;
     let low_sun = crate::lighting::Lighting {
         elevation: 10.0,
         shadows: false,
         ..crate::lighting::Lighting::default()
     };
+
     harness.perform(crate::model::Action::Preferences(
         crate::preferences::PreferencesCommand::Change(
             crate::preferences::PreferenceChange::Lighting(low_sun),
         ),
     ));
     harness.frame();
+
     let lit = harness.built().scene.lighting;
 
     run_from_palette(&mut harness, "reset the rendered view's lighting");
     harness.frame();
+
     let reset = harness.workspace.preferences.lighting;
 
     assert!(open);
@@ -222,16 +249,19 @@ fn sun_field(caption: &str) -> egui::Id {
 #[test]
 fn the_lighting_panel_takes_the_sun_angles_with_units() {
     let mut harness = plate();
+
     choose_from_menu(&mut harness, "Rendered");
     run_from_palette(&mut harness, "light the rendered view");
     harness.frame();
 
     harness.type_into_field(sun_field(crate::lighting_panel::AZIMUTH), "0.5 rad");
     harness.frame();
+
     let turned = harness.workspace.preferences.lighting.azimuth;
 
     harness.type_into_field(sun_field(crate::lighting_panel::ELEVATION), "30");
     harness.frame();
+
     let raised = harness.workspace.preferences.lighting.elevation;
 
     assert!((turned - 0.5_f64.to_degrees()).abs() < 1e-9, "{turned}");
@@ -242,13 +272,16 @@ fn the_lighting_panel_takes_the_sun_angles_with_units() {
 #[test]
 fn a_sun_angle_out_of_range_is_refused_in_words_and_changes_nothing() {
     let mut harness = plate();
+
     choose_from_menu(&mut harness, "Rendered");
     run_from_palette(&mut harness, "light the rendered view");
     harness.frame();
+
     let before = harness.workspace.preferences.lighting;
 
     harness.type_into_field(sun_field(crate::lighting_panel::ELEVATION), "120");
     harness.frame();
+
     let said = harness.shows_containing("Use an angle from 0° to 90°");
 
     harness.type_into_field(sun_field(crate::lighting_panel::ELEVATION), "2 mm");
@@ -261,15 +294,18 @@ fn a_sun_angle_out_of_range_is_refused_in_words_and_changes_nothing() {
 #[test]
 fn the_lighting_panel_offers_a_plain_backdrop_and_a_visible_floor_that_reach_the_rendered_scene() {
     let mut harness = plate();
+
     choose_from_menu(&mut harness, "Rendered");
     run_from_palette(&mut harness, "light the rendered view");
     harness.frame();
+
     let surroundings = |harness: &mut Harness| harness.built().scene.lighting.unwrap().surroundings;
     let at_first = surroundings(&mut harness);
 
     harness.click_button(&crate::lighting_panel::backdrop_swatch_name("Charcoal"));
     harness.frame();
     harness.frame();
+
     let charcoal = surroundings(&mut harness);
     let stored =
         crate::lighting::Lighting::from_settings(&harness.workspace.preferences.settings());
@@ -277,22 +313,27 @@ fn the_lighting_panel_offers_a_plain_backdrop_and_a_visible_floor_that_reach_the
     harness.click(crate::lighting_panel::FLOOR);
     harness.frame();
     harness.frame();
+
     let floored = surroundings(&mut harness);
 
     harness.click_button(crate::lighting_panel::CUSTOM_BACKDROP);
     harness.frame();
+
     let hex = crate::colour_selector::hex_id(crate::lighting_panel::backdrop_selector(
         crate::lighting_panel::BackdropPlace::LightingPanel,
     ));
     let hiding = crate::body_appearance::DEFAULT_COLOUR.hex();
+
     harness.type_into_field(hex, &hiding);
     harness.frame();
+
     let refused = surroundings(&mut harness);
     let said = harness.shows_containing("shows bodies in");
 
     harness.click_button(crate::lighting_panel::SKY_SWATCH);
     harness.frame();
     harness.frame();
+
     let sky_again = surroundings(&mut harness);
 
     assert_eq!(at_first, caditor_render::Surroundings::default());
@@ -318,6 +359,7 @@ fn the_display_picker_in_the_view_names_the_style_and_switches_it_from_its_menu(
     let mut harness = plate();
     let shaded = crate::display_picker::name_of(DisplayStyle::ShadedWithEdges);
     let rendered = crate::display_picker::name_of(DisplayStyle::Rendered);
+
     let at_first = harness.button_rect(&shaded);
 
     harness.click_button(&shaded);
@@ -325,6 +367,7 @@ fn the_display_picker_in_the_view_names_the_style_and_switches_it_from_its_menu(
     harness.click("Rendered");
     harness.frame();
     harness.frame();
+
     let style = harness.workspace.viewport.style();
     let renamed = harness.button_rect(&rendered);
 
@@ -342,10 +385,13 @@ fn the_display_picker_in_the_view_names_the_style_and_switches_it_from_its_menu(
 
 fn radiance_file(folder: &std::path::Path, name: &str) -> std::path::PathBuf {
     let mut bytes = b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 16 +X 32\n".to_vec();
+
     for _ in 0..32 * 16 {
         bytes.extend([128, 64, 32, 131]);
     }
+
     let path = folder.join(name);
+
     std::fs::write(&path, bytes).unwrap();
     path
 }
@@ -356,9 +402,11 @@ fn a_sky_picture_chosen_in_the_lighting_panel_is_read_in_the_background_and_reac
     let folder = tempfile::tempdir().unwrap();
     let picture = radiance_file(folder.path(), "studio.hdr");
     let mut harness = plate();
+
     choose_from_menu(&mut harness, "Rendered");
     run_from_palette(&mut harness, "light the rendered view");
     harness.frame();
+
     let plain = harness.built().scene.backdrop.is_none();
 
     harness.answer_dialog(Some(picture.clone()));
@@ -367,6 +415,7 @@ fn a_sky_picture_chosen_in_the_lighting_panel_is_read_in_the_background_and_reac
         harness.workspace.backdrop.environment().is_some()
     });
     harness.frame();
+
     let backdrop = harness.built().scene.backdrop;
     let stored = harness.workspace.preferences.backdrop.clone();
     let remembered = crate::backdrop::read(&harness.workspace.preferences.settings());
@@ -377,7 +426,9 @@ fn a_sky_picture_chosen_in_the_lighting_panel_is_read_in_the_background_and_reac
 
     assert!(plain);
     assert!(harness.shows(crate::lighting_panel::SKY_PICTURE));
+
     let backdrop = backdrop.expect("the rendered scene carries the picture");
+
     assert_eq!(
         (backdrop.environment.width(), backdrop.environment.height()),
         (32, 16)
@@ -393,8 +444,11 @@ fn a_sky_picture_chosen_in_the_lighting_panel_is_read_in_the_background_and_reac
 fn a_sky_picture_that_cannot_be_read_says_so_and_the_plain_sky_stays() {
     let folder = tempfile::tempdir().unwrap();
     let notes = folder.path().join("notes.hdr");
+
     std::fs::write(&notes, b"not a picture").unwrap();
+
     let mut harness = plate();
+
     choose_from_menu(&mut harness, "Rendered");
     run_from_palette(&mut harness, "light the rendered view");
 
@@ -410,6 +464,7 @@ fn a_sky_picture_that_cannot_be_read_says_so_and_the_plain_sky_stays() {
     harness.frame();
 
     let notice = harness.model.notice().expect("the refusal is announced");
+
     assert!(notice.text.contains("Radiance"), "{}", notice.text);
     assert!(notice.text.contains("notes.hdr"), "{}", notice.text);
     assert!(harness.workspace.backdrop.environment().is_none());

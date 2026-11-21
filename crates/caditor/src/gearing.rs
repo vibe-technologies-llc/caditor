@@ -44,7 +44,7 @@ const PLAIN: Expected = Expected {
     non_negative: false,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GearKind {
     #[default]
     Gear,
@@ -116,7 +116,7 @@ impl GearKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GearField {
     Module,
     Teeth,
@@ -231,7 +231,7 @@ impl GearField {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Spur {
     pub values: SpurGear,
     pub turn: f64,
@@ -271,7 +271,7 @@ impl Spur {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StoredSprocket {
     pub values: Sprocket,
     pub turn: f64,
@@ -306,14 +306,14 @@ impl StoredSprocket {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Part {
     Gear(Box<Spur>),
     Pair(Box<StoredPair>),
     Sprocket(Box<StoredSprocket>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StoredPair {
     pub driver: Spur,
     pub placing: GearPair,
@@ -344,7 +344,7 @@ impl StoredPair {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Wheel {
     Gear(GearOutline),
     Sprocket(SprocketOutline),
@@ -449,7 +449,7 @@ pub fn chain_label(size: ChainSize, unit: Units) -> String {
     )
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum FieldProblem {
     #[error(transparent)]
     Value(crate::patterning::PatternTextError),
@@ -461,7 +461,7 @@ pub enum FieldProblem {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum PartProblem {
     #[error("Mend the {} first", .field.label().to_lowercase())]
     MendFirst { field: GearField },
@@ -471,7 +471,7 @@ pub enum PartProblem {
     Unbuildable(GearError),
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum GearingError {
     #[error(transparent)]
     SketchGone(#[from] SketchGone),
@@ -485,7 +485,7 @@ pub enum GearingError {
     GearGone,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GearSettings {
     kind: GearKind,
     chain: ChainSize,
@@ -508,7 +508,7 @@ impl Default for GearSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Evaluation {
     pub problems: Vec<(GearField, FieldProblem)>,
     pub part: Result<Part, PartProblem>,
@@ -555,6 +555,7 @@ impl GearSettings {
             _ => None,
         };
         self.loaded = None;
+
         let held = sketch
             .zip(self.editing)
             .and_then(|(sketch, gear)| sketch.gear(gear));
@@ -572,9 +573,11 @@ impl GearSettings {
         let Some(editing) = self.editing else {
             return;
         };
+
         if self.loaded == Some(editing) {
             return;
         }
+
         let Some(gear) = sketch.and_then(|sketch| sketch.gear(editing)) else {
             self.stop_editing();
             return;
@@ -608,6 +611,7 @@ impl GearSettings {
                 (GearField::Direction, &meshing.direction),
             ],
         };
+
         for (field, expression) in loaded {
             if let Some(text) = self.text_mut(field) {
                 *text = stored(field, expression);
@@ -625,6 +629,7 @@ impl GearSettings {
         let kind = self.kind;
         let mut problems = Vec::new();
         let mut read: [Option<Dimensioned>; 10] = Default::default();
+
         for field in kind.fields() {
             match value_of(model, kind, *field, self.text(*field)) {
                 Ok(value) => {
@@ -635,6 +640,7 @@ impl GearSettings {
                 Err(problem) => problems.push((*field, problem)),
             }
         }
+
         let held = |field: GearField| {
             read.get(field.index())
                 .and_then(Option::as_ref)
@@ -645,6 +651,7 @@ impl GearSettings {
                 })
         };
         let value = |field: GearField| held(field).value;
+
         let spur = || {
             let values = SpurGear {
                 module: value(GearField::Module),
@@ -691,6 +698,7 @@ impl GearSettings {
             partner: partner(EntityId::ORIGIN),
             driver,
         };
+
         let part = match problems.first() {
             Some((field, _)) => Err(PartProblem::MendFirst { field: *field }),
             None => {
@@ -715,6 +723,7 @@ impl GearSettings {
                     GearKind::Meshing => {
                         self.driver_of_editing(model, sketch).map(|(id, driver)| {
                             let mut pair = pair_around(driver);
+
                             pair.partner = partner(id);
                             Part::Pair(Box::new(pair))
                         })
@@ -727,6 +736,7 @@ impl GearSettings {
                 })
             }
         };
+
         self.evaluated = Some(part.clone());
         Evaluation { problems, part }
     }
@@ -750,6 +760,7 @@ impl GearSettings {
             driver: "the gear it meshes with".to_owned(),
         })?;
         let parameters = model.parameters();
+
         let values = driver
             .values(&|parameter| parameters.value(parameter))
             .map_err(|_| broken(id))?;
@@ -785,14 +796,18 @@ fn value_of(
             value: 0.0,
         });
     }
+
     let label = field.label().to_lowercase();
     let quantity =
         patterning::quantity(model, text, field.expected(), &label).map_err(FieldProblem::Value)?;
+
     if !field.is_count() {
         return Ok(quantity);
     }
+
     let (least, most) = kind.teeth_range();
     let rounded = quantity.value.round();
+
     if (quantity.value - rounded).abs() > WHOLE_NUMBER_TOLERANCE
         || !(f64::from(least)..=f64::from(most)).contains(&rounded)
     {
@@ -830,7 +845,7 @@ pub fn draw(
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Aim {
     Point(EntityId, Point2),
     Free(Point2),
@@ -865,6 +880,7 @@ pub fn update(
         .gear(gear)
         .ok_or(GearingError::GearGone)?;
     let mut transaction = model.document().transaction(EDIT_TRANSACTION);
+
     transaction.set_sketch_gear(feature, gear, spur.gear_at(held.centre));
     Ok(transaction.finish())
 }
@@ -883,6 +899,7 @@ pub fn update_sprocket(
         .gear(gear)
         .ok_or(GearingError::GearGone)?;
     let mut transaction = model.document().transaction(EDIT_SPROCKET_TRANSACTION);
+
     transaction.set_sketch_gear(feature, gear, sprocket.gear_at(held.centre));
     Ok(transaction.finish())
 }
@@ -901,6 +918,7 @@ pub fn update_meshing(
         .gear(gear)
         .ok_or(GearingError::GearGone)?;
     let mut transaction = model.document().transaction(EDIT_TRANSACTION);
+
     transaction.set_sketch_gear(
         feature,
         gear,
@@ -912,7 +930,7 @@ pub fn update_meshing(
     Ok(transaction.finish())
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Gearing {
     selected: Option<EntityId>,
     editing: Option<EntityId>,
@@ -932,6 +950,7 @@ impl Gearing {
 
     pub fn sync(&mut self, sketch: &Sketch, editing: Option<EntityId>) {
         let exists = |point: &EntityId| is_centre(sketch, *point);
+
         self.selected = self.selected.filter(exists);
         self.highlight = self.highlight.filter(exists);
         self.editing = editing.filter(|gear| sketch.gear(*gear).is_some());
@@ -972,16 +991,19 @@ impl Gearing {
             self.shown = None;
             return;
         };
+
         let fresh =
             matches!(&self.shown, Some((shown, drawn, _)) if *shown == aim && drawn == part);
         if !fresh {
             let wheels = part.wheels(aim.at()).map_err(PartProblem::Unbuildable);
+
             self.shown = Some((aim, part.clone(), wheels));
         }
     }
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
         let mut preview = Preview::default();
+
         if let Some((aim, _, Ok(wheels))) = &self.shown {
             preview.curves = wheels
                 .iter()
@@ -1009,6 +1031,7 @@ impl Gearing {
         if let Some(gear) = self.editing {
             return vec![gear];
         }
+
         let aimed = match self.shown {
             Some((Aim::Point(point, _), ..)) => Some(point),
             _ => self.highlight,
@@ -1032,6 +1055,7 @@ impl Gearing {
         if let Some(Err(problem)) = part {
             return Some(problem.to_string());
         }
+
         let (aim, part, wheels) = self.shown.as_ref()?;
         Some(match wheels {
             Ok(wheels) => {
@@ -1092,7 +1116,9 @@ impl Gearing {
                 ),
             };
         }
+
         let centre = self.highlight.or(self.selected).unwrap_or(EntityId::ORIGIN);
+
         self.highlight = None;
         self.draw_at(model, feature, part, GearCentre::Point(centre))
     }
@@ -1123,6 +1149,7 @@ impl Gearing {
             }),
             None => Err(GearingError::NotRead),
         };
+
         if drawn.is_ok() {
             self.shown = None;
         }
@@ -1146,11 +1173,13 @@ impl Gearing {
         let current = self
             .highlight
             .and_then(|aim| points.iter().position(|point| *point == aim));
+
         let next = match current {
             Some(index) => (index as isize + step).rem_euclid(total),
             None if step < 0 => total - 1,
             None => 0,
         };
+
         self.highlight = usize::try_from(next)
             .ok()
             .and_then(|next| points.get(next).copied());

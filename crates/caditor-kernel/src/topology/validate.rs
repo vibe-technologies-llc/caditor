@@ -26,7 +26,7 @@ const VALIDATION_COARSENESS: [f64; 4] = [20.0, 1.0, 0.1, 0.01];
 const FLAT_SHELL_VOLUME: f64 = 1e-9;
 const EMPTY_SHELL_VOLUME: f64 = 1e-12;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum ValidationError {
     #[error("the solid has no shells")]
     NoShells,
@@ -115,6 +115,7 @@ impl ValidationError {
                 .filter_map(|coedge| solid.coedge_face(*coedge))
                 .collect::<Vec<_>>()
         };
+
         let mut faces = match self {
             Self::EmptyShell(shell)
             | Self::EmptyVolume(shell)
@@ -122,6 +123,7 @@ impl ValidationError {
             | Self::EulerPoincare { shell, .. } => of_shell(*shell),
             Self::LumpsOverlap { shell, other } | Self::LumpsCoincide { shell, other } => {
                 let mut faces = of_shell(*shell);
+
                 faces.extend(of_shell(*other));
                 faces
             }
@@ -148,6 +150,7 @@ impl ValidationError {
             | Self::Tessellation(_)
             | Self::Cancelled(_) => Vec::new(),
         };
+
         faces.sort();
         faces.dedup();
         faces
@@ -194,6 +197,7 @@ fn structure(solid: &Solid) -> Checked<()> {
             let face_loop = solid
                 .face_loop(*loop_id)
                 .ok_or(ValidationError::MissingEntity)?;
+
             if face_loop.coedges().is_empty() {
                 return Err(ValidationError::EmptyLoop(*loop_id));
             }
@@ -258,12 +262,15 @@ fn edge_uses(solid: &Solid) -> Checked<()> {
                 uses: edge.coedges().len(),
             });
         };
+
         let (Some(first), Some(second)) = (solid.coedge(*first), solid.coedge(*second)) else {
             return Err(ValidationError::MissingEntity);
         };
+
         if first.sense() == second.sense() {
             return Err(ValidationError::EdgeSenses(id));
         }
+
         let shell_of = |owner: LoopId| -> Checked<ShellId> {
             let face = solid
                 .face_loop(owner)
@@ -309,6 +316,7 @@ fn same_parameter(a: f64, b: f64) -> bool {
 fn coedge_geometry(solid: &Solid, settled: &BTreeSet<CoedgeId>) -> Checked<()> {
     for (id, coedge) in solid.coedges().filter(|(id, _)| !settled.contains(id)) {
         interrupt::check()?;
+
         let edge = solid
             .edge(coedge.edge())
             .ok_or(ValidationError::MissingEntity)?;
@@ -320,15 +328,19 @@ fn coedge_geometry(solid: &Solid, settled: &BTreeSet<CoedgeId>) -> Checked<()> {
             .coedge_parameters(id)
             .ok_or(ValidationError::MissingEntity)?;
         let pcurve = coedge.pcurve();
+
         if !same_parameter(pcurve.start_parameter(), start)
             || !same_parameter(pcurve.end_parameter(), end)
         {
             return Err(ValidationError::PcurveEnds(id));
         }
+
         let curve = edge.curve();
+
         for step in 0..=EDGE_CHECK_SAMPLES {
             let parameter = start + (end - start) * step as f64 / EDGE_CHECK_SAMPLES as f64;
             let point = curve.point(parameter);
+
             let uv = surface.project(point, Some(pcurve.uv_at(parameter)));
             let distance = surface.point_at(uv).distance(point);
             if distance.is_nan() || distance > LINEAR_RESOLUTION {
@@ -339,6 +351,7 @@ fn coedge_geometry(solid: &Solid, settled: &BTreeSet<CoedgeId>) -> Checked<()> {
                 });
             }
         }
+
         let samples = pcurve.samples();
         let at_samples = samples.iter().map(|sample| {
             (
@@ -377,18 +390,22 @@ fn seams(solid: &Solid) -> Checked<()> {
         let [first, second] = edge.coedges() else {
             continue;
         };
+
         let (Some(face), Some(other_face)) =
             (solid.coedge_face(*first), solid.coedge_face(*second))
         else {
             return Err(ValidationError::MissingEntity);
         };
+
         if face != other_face {
             continue;
         }
+
         let (Some(first), Some(second)) = (solid.coedge(*first), solid.coedge(*second)) else {
             return Err(ValidationError::MissingEntity);
         };
         let surface = face_of(solid, face)?.surface();
+
         let apart = SEAM_PROBES.iter().any(|fraction| {
             let parameter = edge.interval().at(*fraction);
             apart_in_domain(
@@ -407,6 +424,7 @@ fn seams(solid: &Solid) -> Checked<()> {
 fn apart_in_domain(surface: &Surface, first: Point2, second: Point2) -> bool {
     let derivatives = surface.evaluate(first.x, first.y);
     let gap = second - first;
+
     let spatial = gap.x.abs() * derivatives.du.length() + gap.y.abs() * derivatives.dv.length();
     let across_period =
         |gap: f64, period: Option<f64>| period.is_some_and(|period| gap.abs() >= 0.5 * period);
@@ -419,10 +437,13 @@ fn apart_in_domain(surface: &Surface, first: Point2, second: Point2) -> bool {
 pub(crate) fn continues(surface: &Surface, end: Point2, start: Point2) -> bool {
     let derivatives = surface.evaluate(end.x, end.y);
     let gap = start - end;
+
     let spatial = gap.x.abs() * derivatives.du.length() + gap.y.abs() * derivatives.dv.length();
+
     if spatial <= LINEAR_RESOLUTION && gap.abs().max_element() <= periodic_limit(surface) {
         return true;
     }
+
     let same_pole = matches!(
         (surface.pole_at(end), surface.pole_at(start)),
         (Some(a), Some(b)) if (a.v - b.v).abs() <= POLE_MATCH
@@ -440,10 +461,12 @@ fn loop_polygon(solid: &Solid, loop_id: LoopId) -> Checked<Vec<Point2>> {
         .face_loop(loop_id)
         .ok_or(ValidationError::MissingEntity)?;
     let mut polygon = Vec::new();
+
     for coedge in face_loop.coedges() {
         let coedge = solid
             .coedge(*coedge)
             .ok_or(ValidationError::MissingEntity)?;
+
         polygon.extend(coedge.pcurve().samples().iter().map(|sample| sample.uv));
     }
     Ok(polygon)
@@ -475,12 +498,15 @@ pub(crate) fn inside_polygon(polygon: &[Point2], point: Point2) -> bool {
 fn face_domains(solid: &Solid) -> Checked<()> {
     for (_, face) in solid.faces() {
         interrupt::check()?;
+
         let surface = face.surface();
+
         for (position, loop_id) in face.loops().iter().enumerate() {
             let face_loop = solid
                 .face_loop(*loop_id)
                 .ok_or(ValidationError::MissingEntity)?;
             let coedges = face_loop.coedges();
+
             for (index, coedge) in coedges.iter().enumerate() {
                 let Some(next) = coedges.get((index + 1) % coedges.len()) else {
                     continue;
@@ -493,6 +519,7 @@ fn face_domains(solid: &Solid) -> Checked<()> {
                     return Err(ValidationError::PcurveGap(*next));
                 }
             }
+
             let area = signed_area(&loop_polygon(solid, *loop_id)?);
             let outer = if position == 0 {
                 Sense::Same
@@ -507,6 +534,7 @@ fn face_domains(solid: &Solid) -> Checked<()> {
                 });
             }
         }
+
         let Some(outer) = face.outer_loop() else {
             continue;
         };
@@ -520,6 +548,7 @@ fn face_domains(solid: &Solid) -> Checked<()> {
                 Some(period) => vec![-period, 0.0, period],
                 None => vec![0.0],
             };
+
             let inside = shifts(surface.u_period()).into_iter().any(|du| {
                 shifts(surface.v_period())
                     .into_iter()
@@ -535,6 +564,7 @@ fn face_domains(solid: &Solid) -> Checked<()> {
 
 pub(super) fn face_edges(solid: &Solid, face: &Face) -> Checked<Vec<EdgeId>> {
     let mut edges = Vec::new();
+
     for loop_id in face.loops() {
         let face_loop = solid
             .face_loop(*loop_id)
@@ -556,6 +586,7 @@ fn shells(solid: &Solid) -> Checked<()> {
         let faces = shell.faces();
         let mut reached: BTreeSet<FaceId> = BTreeSet::new();
         let mut pending: VecDeque<FaceId> = faces.first().copied().into_iter().collect();
+
         while let Some(face_id) = pending.pop_front() {
             if !reached.insert(face_id) {
                 continue;
@@ -578,13 +609,17 @@ fn shells(solid: &Solid) -> Checked<()> {
                 face: *face,
             });
         }
+
         let mut edges: BTreeSet<EdgeId> = BTreeSet::new();
         let mut rings = 0i64;
+
         for face_id in faces {
             let face = face_of(solid, *face_id)?;
+
             edges.extend(face_edges(solid, face)?);
             rings += face.loops().len() as i64 - 1;
         }
+
         let characteristic =
             vertex_fans(solid, faces)? - edges.len() as i64 + faces.len() as i64 - rings;
         if characteristic % 2 != 0 || characteristic > 2 {
@@ -600,6 +635,7 @@ fn shells(solid: &Solid) -> Checked<()> {
 fn vertex_fans(solid: &Solid, faces: &[FaceId]) -> Checked<i64> {
     let mut leaving: Vec<CoedgeId> = Vec::new();
     let mut corner_after: BTreeMap<CoedgeId, usize> = BTreeMap::new();
+
     for face_id in faces {
         for loop_id in face_of(solid, *face_id)?.loops() {
             let coedges = solid
@@ -610,15 +646,19 @@ fn vertex_fans(solid: &Solid, faces: &[FaceId]) -> Checked<i64> {
                 let next = coedges
                     .get((index + 1) % coedges.len())
                     .ok_or(ValidationError::MissingEntity)?;
+
                 corner_after.insert(*arriving, leaving.len());
                 leaving.push(*next);
             }
         }
     }
+
     let mut visited = vec![false; leaving.len()];
     let mut fans = 0;
+
     for start in 0..leaving.len() {
         let mut corner = start;
+
         if visited.get(corner).copied().unwrap_or(true) {
             continue;
         }
@@ -627,16 +667,19 @@ fn vertex_fans(solid: &Solid, faces: &[FaceId]) -> Checked<i64> {
             && !*seen
         {
             *seen = true;
+
             let coedge = *leaving.get(corner).ok_or(ValidationError::MissingEntity)?;
             let edge = solid
                 .coedge(coedge)
                 .and_then(|coedge| solid.edge(coedge.edge()))
                 .ok_or(ValidationError::MissingEntity)?;
+
             let mate = edge
                 .coedges()
                 .iter()
                 .find(|other| **other != coedge)
                 .ok_or(ValidationError::MissingEntity)?;
+
             corner = *corner_after
                 .get(mate)
                 .ok_or(ValidationError::MissingEntity)?;
@@ -648,6 +691,7 @@ fn vertex_fans(solid: &Solid, faces: &[FaceId]) -> Checked<i64> {
 fn volumes(solid: &Solid) -> Checked<()> {
     let extent = solid.outline_box().map_or(1.0, |bounds| bounds.diagonal());
     let mut result = Ok(());
+
     for coarseness in VALIDATION_COARSENESS {
         result = volumes_at(solid, &SamplingTolerance::for_extent(extent * coarseness));
         if !matches!(
@@ -669,13 +713,16 @@ fn shell_meshes(
 ) -> Result<BTreeMap<ShellId, ShellMesh>, TessellationError> {
     let mesh = solid.tessellate(tolerance)?;
     let mut faces_by_shell: BTreeMap<ShellId, Vec<&FaceTriangles>> = BTreeMap::new();
+
     for face in mesh.faces() {
         if let Some(shell) = solid.face(face.face).map(Face::shell) {
             faces_by_shell.entry(shell).or_default().push(face);
         }
     }
+
     let mut cornered = vec![false; mesh.positions().len()];
     let mut by_shell = BTreeMap::new();
+
     for (shell, faces) in faces_by_shell {
         let mut shell_mesh = ShellMesh {
             triangles: Vec::new(),
@@ -683,6 +730,7 @@ fn shell_meshes(
             corners: Vec::new(),
         };
         let mut corner_positions = Vec::new();
+
         for face in faces {
             let triangles = mesh
                 .triangles()
@@ -695,6 +743,7 @@ fn shell_meshes(
                 ) else {
                     continue;
                 };
+
                 shell_mesh.triangles.push(points);
                 shell_mesh.faces.push(face.face);
                 for (position, point) in positions.into_iter().zip(points) {
@@ -718,7 +767,7 @@ fn shell_meshes(
     Ok(by_shell)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ShellSpan {
     pub(crate) void: bool,
     pub(crate) least: f64,
@@ -742,6 +791,7 @@ impl Solid {
     ) -> Result<BTreeMap<ShellId, ShellSpan>, TessellationError> {
         let extent = self.outline_box().map_or(1.0, |bounds| bounds.diagonal());
         let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
+
         let by_shell = shell_meshes(self, &SamplingTolerance::for_extent(extent * coarseness))?;
         Ok(by_shell
             .into_iter()
@@ -760,6 +810,7 @@ impl Solid {
     pub(crate) fn void_shells(&self) -> Result<BTreeSet<ShellId>, TessellationError> {
         let extent = self.outline_box().map_or(1.0, |bounds| bounds.diagonal());
         let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
+
         let by_shell = shell_meshes(self, &SamplingTolerance::for_extent(extent * coarseness))?;
         Ok(by_shell
             .into_iter()
@@ -773,9 +824,11 @@ fn shell_volume(solid: &Solid, shell: ShellId, mesh: &ShellMesh) -> f64 {
     let properties = MassProperties::of(&mesh.triangles);
     let bounds = Aabb::from_points(mesh.triangles.iter().flatten().copied());
     let scale = properties.area * bounds.map_or(0.0, |bounds| bounds.diagonal());
+
     if properties.volume.abs() > FLAT_SHELL_VOLUME * scale {
         return properties.volume;
     }
+
     let exact = solid
         .shell(shell)
         .zip(bounds)
@@ -788,13 +841,17 @@ fn shell_volume(solid: &Solid, shell: ShellId, mesh: &ShellMesh) -> f64 {
 fn volumes_at(solid: &Solid, tolerance: &SamplingTolerance) -> Checked<()> {
     let by_shell = shell_meshes(solid, tolerance)?;
     let mut lumps = Vec::new();
+
     for (id, _) in solid.shells() {
         let shell_mesh = by_shell.get(&id).ok_or(ValidationError::EmptyVolume(id))?;
         let volume = shell_volume(solid, id, shell_mesh);
+
         if !volume.is_finite() || volume == 0.0 {
             return Err(ValidationError::EmptyVolume(id));
         }
+
         let sense = Sense::from_sign(volume);
+
         lumps.push(Lump::new(id, sense, shell_mesh).ok_or(ValidationError::EmptyVolume(id))?);
     }
     lumps::check(solid, &lumps)

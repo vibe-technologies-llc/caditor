@@ -93,6 +93,7 @@ impl Course {
 
 pub(crate) fn closest_pair(first: &Course, second: &Course) -> (f64, f64) {
     let (ones, others) = (first.samples(), second.samples());
+
     let rough = ones
         .iter()
         .flat_map(|one| others.iter().map(move |other| (*one, *other)))
@@ -103,32 +104,39 @@ pub(crate) fn closest_pair(first: &Course, second: &Course) -> (f64, f64) {
         })
         .map_or((0.0, 0.0), |((one, _), (other, _))| (one, other));
     let (mut one, mut other) = rough;
+
     for _ in 0..REFINEMENTS {
         let (at, along, bend) = first.at(one);
         let (there, other_along, other_bend) = second.at(other);
+
         let gap = at - there;
         let gradient = (gap.dot(along), -gap.dot(other_along));
         let across = -along.dot(other_along);
+
         let hessian = (
             along.dot(along) + gap.dot(bend),
             across,
             other_along.dot(other_along) - gap.dot(other_bend),
         );
         let determinant = hessian.0 * hessian.2 - hessian.1 * hessian.1;
+
         if !(determinant.is_finite() && determinant.abs() > f64::EPSILON) {
             break;
         }
+
         let step = (
             (hessian.2 * gradient.0 - hessian.1 * gradient.1) / determinant,
             (hessian.0 * gradient.1 - hessian.1 * gradient.0) / determinant,
         );
         let next = (first.settle(one - step.0), second.settle(other - step.1));
         let moved = step.0.abs() + step.1.abs();
+
         (one, other) = next;
         if moved <= f64::EPSILON {
             break;
         }
     }
+
     let distance = |(one, other): (f64, f64)| first.point_at(one).distance(second.point_at(other));
     if distance((one, other)) <= distance(rough) {
         (one, other)
@@ -143,6 +151,7 @@ pub(crate) fn curve_pair_gap(
     second: EntityId,
 ) -> Option<(Point2, Point2)> {
     let (one, other) = (Course::of(sketch, first)?, Course::of(sketch, second)?);
+
     let (at, there) = closest_pair(&one, &other);
     Some((one.point_at(at), other.point_at(there)))
 }
@@ -205,6 +214,7 @@ impl System {
             Constraint::Distance { from, to, .. } => (from, to),
             Constraint::Tangent(a, b) => {
                 let joints = joints.get_or_init(|| Joints::of(sketch));
+
                 if joints.pair_joint(sketch, a, b).is_some() {
                     return Ok(Vec::new());
                 }
@@ -212,9 +222,11 @@ impl System {
             }
             _ => return Ok(Vec::new()),
         };
+
         if !is_elliptic_pair(sketch, a, b) {
             return Ok(Vec::new());
         }
+
         let (one, other) = closest_pair(&self.course(sketch, a)?, &self.course(sketch, b)?);
         Ok(vec![(a, one), (b, other)])
     }
@@ -258,6 +270,7 @@ impl System {
             self.start_tangent(sketch, a, parameters.0)?,
             self.start_tangent(sketch, b, parameters.1)?,
         );
+
         let meet = |along| Form::CurvesMeet {
             first: first.clone(),
             second: second.clone(),
@@ -291,6 +304,7 @@ impl System {
         let start = |parameter: usize| self.values.get(parameter).copied().unwrap_or(0.0);
         let drawn = self.course(sketch, b)?.point_at(start(parameters.1))
             - self.course(sketch, a)?.point_at(start(parameters.0));
+
         let side = if fallbacks.0.perp().dot(drawn) < 0.0 {
             -1.0
         } else {

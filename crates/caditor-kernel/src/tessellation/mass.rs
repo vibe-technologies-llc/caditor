@@ -29,7 +29,7 @@ const PARALLEL_EPSILON: f64 = 1e-14;
 
 pub type SecondMoment = [[f64; 3]; 3];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MassProperties {
     pub volume: f64,
     pub area: f64,
@@ -37,7 +37,7 @@ pub struct MassProperties {
     pub second_moment: SecondMoment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Moments {
     pub(crate) area: f64,
     pub(crate) volume: f64,
@@ -48,12 +48,16 @@ pub(crate) struct Moments {
 impl Moments {
     pub(crate) fn of_triangles(triangles: &[[Point3; 3]], reference: Point3) -> Self {
         let mut moments = Self::default();
+
         for [a, b, c] in triangles {
             let (a, b, c) = (*a - reference, *b - reference, *c - reference);
+
             let signed = a.dot(b.cross(c)) / 6.0;
+
             moments.volume += signed;
             moments.first += (a + b + c) * (signed / 4.0);
             moments.area += 0.5 * (b - a).cross(c - a).length();
+
             let sum = a + b + c;
             for corner in [a, b, c, sum] {
                 add_outer(&mut moments.second, corner, corner, signed / 20.0);
@@ -80,6 +84,7 @@ impl Moments {
             Vector3::ZERO
         };
         let mut second = self.second;
+
         add_outer(&mut second, offset, offset, -self.volume);
         MassProperties {
             volume: self.volume,
@@ -100,6 +105,7 @@ impl MassProperties {
     pub fn second_moment_about(&self, point: Point3) -> SecondMoment {
         let mut second = self.second_moment;
         let offset = self.centroid - point;
+
         add_outer(&mut second, offset, offset, self.volume);
         second
     }
@@ -115,6 +121,7 @@ impl MassProperties {
 
     pub fn principal_moments(inertia: &SecondMoment) -> [f64; 3] {
         let [[a, d, e], [_, b, f], [_, _, c]] = *inertia;
+
         let off_diagonal = d * d + e * e + f * f;
         let mut moments = if off_diagonal <= f64::EPSILON * (a * a + b * b + c * c) {
             [a, b, c]
@@ -126,9 +133,11 @@ impl MassProperties {
                 + 2.0 * off_diagonal)
                 / 6.0)
                 .sqrt();
+
             let scaled = |value: f64| (value - mean) / spread;
             let (sa, sb, sc) = (scaled(a), scaled(b), scaled(c));
             let (sd, se, sf) = (d / spread, e / spread, f / spread);
+
             let half_determinant = (sa * (sb * sc - sf * sf) - sd * (sd * sc - sf * se)
                 + se * (sd * sf - sb * se))
                 / 2.0;
@@ -137,6 +146,7 @@ impl MassProperties {
             let smallest = mean + 2.0 * spread * (angle + 2.0 * PI / 3.0).cos_libm();
             [smallest, 3.0 * mean - largest - smallest, largest]
         };
+
         moments.sort_by(f64::total_cmp);
         moments
     }
@@ -168,7 +178,7 @@ impl Mesh {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct TriangleIndex {
     tree: BoxTree,
     bounded: Vec<usize>,
@@ -219,6 +229,7 @@ impl TriangleIndex {
             .filter_map(|found| self.bounded.get(found).copied())
             .chain(self.unbounded.iter().copied())
             .collect();
+
         indices.sort_unstable();
         indices
     }
@@ -238,6 +249,7 @@ fn parity(
     triangles: impl IntoIterator<Item = [Point3; 3]>,
 ) -> Option<bool> {
     let mut crossings = 0usize;
+
     for triangle in triangles {
         match crossing(point, direction, &triangle) {
             Crossing::Miss => {}
@@ -257,21 +269,28 @@ enum Crossing {
 fn crossing(origin: Point3, direction: Vector3, [a, b, c]: &[Point3; 3]) -> Crossing {
     let (first, second) = (*b - *a, *c - *a);
     let across = direction.cross(second);
+
     let determinant = first.dot(across);
+
     if determinant.abs() <= PARALLEL_EPSILON * first.length() * second.length() {
         return Crossing::Miss;
     }
+
     let inverse = 1.0 / determinant;
     let offset = origin - *a;
+
     let u = offset.dot(across) * inverse;
     let turned = offset.cross(first);
     let v = direction.dot(turned) * inverse;
     let distance = second.dot(turned) * inverse;
+
     let outside =
         u < -EDGE_MARGIN || v < -EDGE_MARGIN || u + v > 1.0 + EDGE_MARGIN || distance < 0.0;
+
     if outside {
         return Crossing::Miss;
     }
+
     let near_edge = u < EDGE_MARGIN || v < EDGE_MARGIN || u + v > 1.0 - EDGE_MARGIN;
     if near_edge || distance <= EDGE_MARGIN {
         Crossing::Ambiguous

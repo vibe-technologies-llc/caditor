@@ -33,20 +33,20 @@ const PARAMETERS_HOVER: &str =
 const DIALOG_ID: &str = "scale-model";
 pub const IN_SKETCH: &str = "Finish the sketch first";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Centre {
     Origin,
     Datum(FeatureId),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Displacement {
     revision: u64,
     centre: Point3,
     moved: Vec<DisplacedFeature>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ScaleDraft {
     pub factor: String,
     pub centre: Centre,
@@ -69,7 +69,7 @@ impl Default for ScaleDraft {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Close,
     Scale(Transaction, String),
@@ -121,7 +121,7 @@ fn centre_name(document: &Document, centre: Centre) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ScaleModelError {
     #[error("Enter a factor, such as 2 to double the size or 25.4 for inches.")]
     NoFactor,
@@ -146,19 +146,23 @@ pub fn scaling(
 ) -> Result<(Transaction, String), ScaleModelError> {
     let document = model.document();
     let text = draft.factor.trim();
+
     if text.is_empty() {
         return Err(ScaleModelError::NoFactor);
     }
+
     let expression = document.parse(text).map_err(ScaleModelError::Unreadable)?;
     let factor = model
         .parameters()
         .evaluate_expression(&expression)
         .map_err(ScaleModelError::Unevaluable)?;
+
     if !factor.dimension.is_plain() {
         return Err(ScaleModelError::NotPlain {
             dimension: factor.dimension,
         });
     }
+
     let centre = match draft.centre {
         Centre::Origin => Point3::ZERO,
         Centre::Datum(feature) => centre_point(model.evaluation(), feature).ok_or_else(|| {
@@ -189,6 +193,7 @@ pub fn moving_words(moved: &[DisplacedFeature]) -> Option<String> {
     if moved.is_empty() {
         return None;
     }
+
     let users: Vec<String> = moved
         .iter()
         .map(|feature| {
@@ -217,10 +222,12 @@ fn displaced<'a>(model: &Model, draft: &'a mut ScaleDraft) -> &'a [DisplacedFeat
         return &[];
     };
     let revision = model.revision();
+
     let current = draft
         .displaced
         .as_ref()
         .is_some_and(|known| known.revision == revision && known.centre == centre);
+
     if !current {
         draft.displaced = Some(Displacement {
             revision,
@@ -251,6 +258,7 @@ pub fn summary(factor: f64, summary: &ScaleSummary) -> String {
         [name] => Some(format!("{name} {one}")),
         names => Some(format!("{} {many}", names.join(", "))),
     };
+
     parts.extend(said(
         &summary.kept,
         "uses parameters, so its values were left to follow them.",
@@ -267,6 +275,7 @@ pub fn summary(factor: f64, summary: &ScaleSummary) -> String {
             .iter()
             .map(|feature| feature.name.clone())
             .collect();
+
         parts.push(format!(
             "{} now {} {}, standing where the principal geometry landed.",
             listed(&moved),
@@ -286,8 +295,10 @@ pub fn dialog(ctx: &egui::Context, model: &Model, draft: &mut ScaleDraft) -> Opt
     let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Medium, |ui| {
         ui.label(widgets::muted(EXPLANATION, ui));
         ui.add_space(SPACE_S);
+
         let entered = widgets::dialog_body(ui, |ui| {
             let entered = fields(ui, model, draft);
+
             if let Some(moving) = moving_words(displaced(model, draft)) {
                 ui.add_space(SPACE_S);
                 widgets::callout(ui, Tone::Info, |ui| ui.label(moving));
@@ -332,6 +343,7 @@ fn fields(ui: &mut Ui, model: &Model, draft: &mut ScaleDraft) -> bool {
             ui.vertical(|ui| {
                 let live =
                     field::live_value_field(ui, factor_field_id(), &mut draft.factor, FACTOR_HINT);
+
                 if live.changed {
                     draft.problem = None;
                 }
@@ -346,6 +358,7 @@ fn fields(ui: &mut Ui, model: &Model, draft: &mut ScaleDraft) -> bool {
             })
             .inner
         });
+
         widgets::property(ui, CENTRE, |ui| {
             widgets::combo((DIALOG_ID, "centre"), centre_name(document, draft.centre)).show(
                 ui,

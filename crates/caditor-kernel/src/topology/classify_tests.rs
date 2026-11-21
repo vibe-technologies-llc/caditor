@@ -48,12 +48,14 @@ fn spline_polygon() -> Vec<Point2> {
             Point2::new(point.x, point.y)
         })
         .collect();
+
     polygon.push(Point2::new(20.0, 0.0));
     polygon
 }
 
 fn polygon_contains(polygon: &[Point2], point: Point2) -> bool {
     let mut inside = false;
+
     for index in 0..polygon.len() {
         let a = polygon[index];
         let b = polygon[(index + 1) % polygon.len()];
@@ -71,6 +73,7 @@ fn polygon_distance(polygon: &[Point2], point: Point2) -> f64 {
         .map(|index| {
             let a = polygon[index];
             let b = polygon[(index + 1) % polygon.len()];
+
             let along = ((point - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
             point.distance(a + (b - a) * along)
         })
@@ -176,6 +179,7 @@ fn random_points_classify_like_analytic_tests_on_the_fixtures() {
         let classifier = solid.classifier();
         let bounds = solid.bounding_box().unwrap().expanded(1.0);
         let mut checked = 0;
+
         for _ in 0..200 {
             let point = Point3::new(
                 random.between(bounds.min().x, bounds.max().x),
@@ -191,9 +195,12 @@ fn random_points_classify_like_analytic_tests_on_the_fixtures() {
             } else {
                 PointClass::Outside
             };
+
             assert_eq!(class, expected, "{name}: {point:?}");
+
             checked += 1;
         }
+
         assert!(checked > 100, "{name}");
     }
 }
@@ -202,6 +209,7 @@ fn random_points_classify_like_analytic_tests_on_the_fixtures() {
 fn points_on_faces_edges_and_vertices_are_on_the_boundary() {
     for (name, solid, _) in cases() {
         let classifier = solid.classifier();
+
         for (_, vertex) in solid.vertices() {
             assert!(
                 matches!(
@@ -214,6 +222,7 @@ fn points_on_faces_edges_and_vertices_are_on_the_boundary() {
         }
         for (_, edge) in solid.edges() {
             let middle = edge.curve().point(edge.interval().middle());
+
             assert!(
                 matches!(classifier.classify(middle), PointClass::OnBoundary(_)),
                 "{name}: edge point {middle:?}"
@@ -237,10 +246,13 @@ fn points_on_faces_edges_and_vertices_are_on_the_boundary() {
                 .collect();
             let center =
                 polygon.iter().fold(Point2::ZERO, |sum, uv| sum + *uv) / polygon.len() as f64;
+
             if classifier.point_in_face(id, center) != Some(FaceContainment::Inside) {
                 continue;
             }
+
             let point = face.surface().point_at(center);
+
             assert_eq!(
                 classifier.classify(point),
                 PointClass::OnBoundary(id),
@@ -255,6 +267,7 @@ fn rays_through_edges_and_vertices_retry_another_direction() {
     let solid = cuboid(Vector3::new(4.0, 3.0, 2.0));
     let classifier = solid.classifier();
     let first = Vector3::new(0.573_462, 0.612_378, 0.544_223).normalize();
+
     for (target, inside) in [
         (Point3::new(4.0, 3.0, 2.0), true),
         (Point3::new(4.0, 1.5, 2.0), true),
@@ -265,6 +278,7 @@ fn rays_through_edges_and_vertices_retry_another_direction() {
         let point = target - direction * 0.5;
         let expected = inside_box(point, Point3::ZERO, Point3::new(4.0, 3.0, 2.0)).unwrap();
         let class = classifier.classify(point);
+
         assert_eq!(
             class,
             if expected {
@@ -282,6 +296,7 @@ fn rays_through_edges_and_vertices_retry_another_direction() {
         Point3::new(2.0, 1.5, 1.0),
     ] {
         let expected = inside_box(point, Point3::ZERO, Point3::new(4.0, 3.0, 2.0)).unwrap();
+
         assert_eq!(
             classifier.classify(point) == PointClass::Inside,
             expected,
@@ -329,6 +344,7 @@ fn a_point_whose_every_ray_meets_an_edge_or_vertex_is_undecided() {
     assert_eq!(classifier.classify(center), PointClass::Inside);
 
     let mixed = [corners[0], Vector3::new(0.3, 0.2, 0.9).normalize()];
+
     assert_eq!(
         classifier.classify_along(center, &mixed),
         PointClass::Inside
@@ -365,8 +381,10 @@ fn point_in_face_handles_holes_seams_and_poles() {
         })
         .map(|(id, _)| id)
         .unwrap();
+
     let surface = block.face(top).unwrap().surface().clone();
     let uv_of = |x: f64, y: f64| surface.project(Point3::new(x, y, 4.0), None);
+
     assert_eq!(
         block.point_in_face(top, uv_of(1.0, 1.0)),
         Some(FaceContainment::Inside)
@@ -395,11 +413,13 @@ fn point_in_face_handles_holes_seams_and_poles() {
         block.point_in_face(top, uv_of(10.0 + 1e-5, 5.0)),
         Some(FaceContainment::Outside)
     );
+
     let tube = cylinder(3.0, 5.0);
     let (side, _) = tube
         .faces()
         .find(|(_, face)| matches!(face.surface(), crate::surface::Surface::Cylinder(_)))
         .unwrap();
+
     for u in [
         0.0,
         1e-9,
@@ -415,6 +435,7 @@ fn point_in_face_handles_holes_seams_and_poles() {
             "u {u}"
         );
     }
+
     assert_eq!(
         tube.point_in_face(side, Point2::new(1.0, 5.0)),
         Some(FaceContainment::OnBoundary)
@@ -423,6 +444,7 @@ fn point_in_face_handles_holes_seams_and_poles() {
         tube.point_in_face(side, Point2::new(1.0, 6.0)),
         Some(FaceContainment::Outside)
     );
+
     let ball = sphere(4.0);
     let (id, _) = ball.faces().next().unwrap();
     for uv in [
@@ -444,6 +466,7 @@ fn boundary_points_report_coincidence_and_sense() {
     let solid = cuboid(Vector3::new(4.0, 3.0, 2.0));
     let classifier = solid.classifier();
     let top = Point3::new(2.0, 1.5, 2.0);
+
     assert!(matches!(
         classifier.classify_boundary_point(top, Vector3::Z),
         BoundaryClass::Coincident {
@@ -481,7 +504,9 @@ fn built_solids_classify_like_their_shapes() {
             .unwrap()
     };
     let mut plate_curves = rectangle(1, (0.0, 0.0), (10.0, 8.0));
+
     plate_curves.push(circle(5, (4.0, 4.0), 2.0));
+
     let plate = extrude(
         &Plane::XY,
         &regions(&plate_curves),
@@ -518,6 +543,7 @@ fn built_solids_classify_like_their_shapes() {
     )
     .unwrap();
     let mut random = Random::new(29);
+
     let shapes: Vec<(&str, Solid, Oracle)> = vec![
         (
             "plate",
@@ -574,6 +600,7 @@ fn built_solids_classify_like_their_shapes() {
         let classifier = solid.classifier();
         let bounds = solid.bounding_box().unwrap().expanded(1.0);
         let mut checked = 0;
+
         for _ in 0..150 {
             let point = Point3::new(
                 random.between(bounds.min().x, bounds.max().x),
@@ -584,6 +611,7 @@ fn built_solids_classify_like_their_shapes() {
                 continue;
             };
             let class = classifier.classify(point);
+
             assert_eq!(
                 class == PointClass::Inside,
                 expected,
@@ -593,8 +621,10 @@ fn built_solids_classify_like_their_shapes() {
                 !matches!(class, PointClass::OnBoundary(_)),
                 "{name}: {point:?}"
             );
+
             checked += 1;
         }
+
         assert!(checked > 60, "{name}: {checked}");
     }
 }
@@ -602,6 +632,7 @@ fn built_solids_classify_like_their_shapes() {
 #[test]
 fn a_cancelled_ray_stops_at_its_first_poll_instead_of_trying_every_direction() {
     let mut polled = 0;
+
     for (name, solid) in fixtures::every_solid() {
         let bounds = solid.bounding_box().unwrap();
         let classifier = solid.classifier();
@@ -618,6 +649,7 @@ fn a_cancelled_ray_stops_at_its_first_poll_instead_of_trying_every_direction() {
 
             assert!(polls <= 1, "{name}: {point:?} polled {polls} times");
             assert!(ray_polls <= 1, "{name}: {point:?} polled {ray_polls} times");
+
             if polls == 1 {
                 assert_eq!(class, PointClass::Undecided, "{name}: {point:?}");
             }
@@ -628,6 +660,7 @@ fn a_cancelled_ray_stops_at_its_first_poll_instead_of_trying_every_direction() {
             polled += polls + ray_polls;
         }
     }
+
     assert!(polled > 4, "only {polled} casts polled");
 }
 
@@ -636,10 +669,12 @@ fn a_point_in_a_face_is_found_however_many_periods_its_uv_is_away() {
     let ball = sphere(4.0);
     let (face, definition) = ball.faces().next().unwrap();
     let point = Point3::new(1.8352887868890053, 3.231926532772807, -1.478636516853581);
+
     let uv = definition.surface().project(point, None);
 
     for turns in -4..=4 {
         let shifted = Point2::new(uv.x + f64::from(turns) * 2.0 * PI, uv.y);
+
         assert_eq!(
             ball.point_in_face(face, shifted),
             Some(FaceContainment::Inside),

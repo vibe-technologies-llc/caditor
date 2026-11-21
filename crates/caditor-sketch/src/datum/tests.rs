@@ -26,6 +26,7 @@ fn rectangle(sketch: &mut Sketch, low: Point2, high: Point2) -> Vec<EntityId> {
     let sides: Vec<EntityId> = (0..4)
         .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]))
         .collect();
+
     for index in 0..4 {
         let Some(&Entity::Line { end, .. }) = sketch.entity(sides[index]) else {
             panic!("expected a line");
@@ -33,6 +34,7 @@ fn rectangle(sketch: &mut Sketch, low: Point2, high: Point2) -> Vec<EntityId> {
         let Some(&Entity::Line { start, .. }) = sketch.entity(sides[(index + 1) % 4]) else {
             panic!("expected a line");
         };
+
         sketch
             .add_constraint(Constraint::Coincident(end, start))
             .unwrap();
@@ -43,6 +45,7 @@ fn rectangle(sketch: &mut Sketch, low: Point2, high: Point2) -> Vec<EntityId> {
         } else {
             Constraint::Vertical(*side)
         };
+
         sketch.add_constraint(direction).unwrap();
     }
     sides
@@ -65,6 +68,7 @@ fn dimensions(kept: &Kept) -> usize {
 #[test]
 fn a_rectangle_is_dimensioned_from_its_corner_and_the_corner_from_the_origin() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let sides = rectangle(&mut sketch, Point2::new(10.0, 5.0), Point2::new(50.0, 30.0));
     let datum = start_of(&sketch, sides[0]);
 
@@ -78,9 +82,11 @@ fn a_rectangle_is_dimensioned_from_its_corner_and_the_corner_from_the_origin() {
         constraint,
         Constraint::HorizontalDistance { from: EntityId::ORIGIN, to, .. } if *to == datum
     )));
+
     let solved = constrained(sketch.clone(), &kept)
         .solve(&no_parameters, &|| false)
         .unwrap();
+
     assert!(solved.solution.is_fully_constrained());
     assert!(solved.solution.redundancies().is_empty());
     for (id, entity) in sketch.entities() {
@@ -93,8 +99,10 @@ fn a_rectangle_is_dimensioned_from_its_corner_and_the_corner_from_the_origin() {
 #[test]
 fn a_corner_level_with_the_datum_is_held_level_rather_than_at_no_distance() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let sides = rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(30.0, 20.0));
     let corner = start_of(&sketch, sides[0]);
+
     sketch
         .add_constraint(Constraint::Coincident(corner, EntityId::ORIGIN))
         .unwrap();
@@ -120,8 +128,10 @@ fn a_corner_level_with_the_datum_is_held_level_rather_than_at_no_distance() {
 #[test]
 fn circles_get_a_diameter_and_their_centre_after_the_relations_found() {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_circle(Point2::new(-12.0, 4.0), 3.0);
     sketch.add_circle(Point2::new(12.0, 4.0), 3.0);
+
     let relations = sketch
         .inferred_relations(
             Tolerance::of(&sketch),
@@ -148,6 +158,7 @@ fn circles_get_a_diameter_and_their_centre_after_the_relations_found() {
 #[test]
 fn a_datum_must_be_a_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::X);
 
     let refused = sketch.datum_dimensions(line, Tolerance::of(&sketch), &no_parameters, &|| false);

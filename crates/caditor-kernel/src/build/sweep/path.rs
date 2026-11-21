@@ -15,7 +15,7 @@ const ROOT_STEPS: usize = 64;
 const INTERSECTION_CHORD: f64 = 1e-5;
 const INTERSECTION_ANGLE: f64 = 0.02;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Leg {
     pub(super) curve: Curve,
     pub(super) range: Interval,
@@ -116,6 +116,7 @@ impl Leg {
                 let tolerance = SamplingTolerance::new(INTERSECTION_CHORD, INTERSECTION_ANGLE)
                     .ok_or_else(unsupported)?;
                 let mut points: Vec<Point3> = Vec::new();
+
                 for sample in self.curve.sample(self.range, &tolerance) {
                     if points
                         .last()
@@ -124,6 +125,7 @@ impl Leg {
                         points.push(sample.point);
                     }
                 }
+
                 let degree = 3.min(points.len().saturating_sub(1)).max(1);
                 Ok(BSpline::interpolating(degree, &points)?)
             }
@@ -131,7 +133,7 @@ impl Leg {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Chain {
     pub(super) legs: Vec<Leg>,
     pub(super) closed: bool,
@@ -158,6 +160,7 @@ impl Ends {
 
     fn of(segments: &[PathSegment], tolerance: f64) -> Self {
         let mut nodes = Vec::new();
+
         let of_segment = segments
             .iter()
             .map(|segment| {
@@ -192,6 +195,7 @@ pub(super) fn chain(
     tolerance: f64,
 ) -> Result<Chain, PathSweepError> {
     let Chain { legs, closed } = ordered(segments, tolerance)?;
+
     let legs = if closed {
         opened_at_profile(legs, plane, centre, tolerance)?
     } else {
@@ -207,6 +211,7 @@ pub(super) fn ordered(segments: &[PathSegment], tolerance: f64) -> Result<Chain,
     for (index, segment) in segments.iter().enumerate() {
         let bounds = segment.curve.bounding_box(segment.range);
         let reach = bounds.min().abs().max(bounds.max().abs()).max_element();
+
         if !reach.is_finite() {
             return Err(PathSweepError::Sweep(super::SweepError::NonFinite));
         }
@@ -217,11 +222,14 @@ pub(super) fn ordered(segments: &[PathSegment], tolerance: f64) -> Result<Chain,
             return Err(PathSweepError::SegmentTooShort { segment: index });
         }
     }
+
     let ends = Ends::of(segments, tolerance);
+
     for node in 0..ends.nodes.len() {
         let users = ends.users(node);
         if users.len() > 2 {
             let mut branching: Vec<usize> = users;
+
             branching.sort_unstable();
             branching.dedup();
             return Err(PathSweepError::Branches {
@@ -229,6 +237,7 @@ pub(super) fn ordered(segments: &[PathSegment], tolerance: f64) -> Result<Chain,
             });
         }
     }
+
     let legs = walk(segments, &ends)?;
     let closed = legs
         .first()
@@ -250,8 +259,10 @@ fn walk(segments: &[PathSegment], ends: &Ends) -> Result<Vec<Leg>, PathSweepErro
     let mut used = vec![false; segments.len()];
     let mut legs = Vec::with_capacity(segments.len());
     let mut node = start_node;
+
     loop {
         interrupt::check()?;
+
         let next = ends
             .users(node)
             .into_iter()
@@ -259,9 +270,11 @@ fn walk(segments: &[PathSegment], ends: &Ends) -> Result<Vec<Leg>, PathSweepErro
         let Some(index) = next else {
             break;
         };
+
         if let Some(slot) = used.get_mut(index) {
             *slot = true;
         }
+
         let (Some(segment), Some([from, to])) = (segments.get(index), ends.of_segment.get(index))
         else {
             break;
@@ -282,12 +295,14 @@ fn walk(segments: &[PathSegment], ends: &Ends) -> Result<Vec<Leg>, PathSweepErro
             node = *from;
         }
     }
+
     let apart: Vec<usize> = used
         .iter()
         .enumerate()
         .filter(|(_, used)| !**used)
         .map(|(index, _)| index)
         .collect();
+
     if !apart.is_empty() {
         return Err(PathSweepError::Apart { segments: apart });
     }
@@ -302,11 +317,14 @@ fn started_near_profile(legs: Vec<Leg>, plane: &Plane, centre: Point3, tolerance
     let (Some(first), Some(last)) = (legs.first(), legs.last()) else {
         return legs;
     };
+
     let (start, end) = (first.start_point(), last.end_point());
+
     let (from_start, from_end) = (
         plane.signed_distance(start).abs(),
         plane.signed_distance(end).abs(),
     );
+
     let reverse = if (from_start - from_end).abs() > tolerance {
         from_end < from_start
     } else {
@@ -324,15 +342,19 @@ struct Crossing {
 fn crossings(legs: &[Leg], plane: &Plane, size: f64) -> Result<Vec<Crossing>, PathSweepError> {
     let sampling = SamplingTolerance::for_extent(size);
     let mut found = Vec::new();
+
     for (index, leg) in legs.iter().enumerate() {
         interrupt::check()?;
+
         let height = |parameter: f64| plane.signed_distance(leg.curve.point(parameter));
         let samples = leg.curve.sample(leg.range, &sampling);
         for pair in samples.windows(2) {
             let [from, to] = pair else {
                 continue;
             };
+
             let (low, high) = (height(from.parameter), height(to.parameter));
+
             if low == 0.0 {
                 found.push(Crossing {
                     leg: index,
@@ -344,7 +366,9 @@ fn crossings(legs: &[Leg], plane: &Plane, size: f64) -> Result<Vec<Crossing>, Pa
             if low.signum() == high.signum() || high == 0.0 {
                 continue;
             }
+
             let (mut a, mut b) = (from.parameter, to.parameter);
+
             for _ in 0..ROOT_STEPS {
                 let middle = 0.5 * (a + b);
                 if height(middle).signum() == low.signum() {
@@ -353,7 +377,9 @@ fn crossings(legs: &[Leg], plane: &Plane, size: f64) -> Result<Vec<Crossing>, Pa
                     b = middle;
                 }
             }
+
             let parameter = 0.5 * (a + b);
+
             found.push(Crossing {
                 leg: index,
                 parameter,
@@ -386,6 +412,7 @@ fn opened_at_profile(
     let leg = legs
         .get(nearest.leg)
         .ok_or(PathSweepError::ClosedPathMissesProfile)?;
+
     let rotated: Vec<Leg> = if nearest.point.distance(leg.start_point()) <= tolerance {
         legs.iter()
             .cycle()
@@ -405,6 +432,7 @@ fn opened_at_profile(
             .split_at(nearest.parameter)
             .ok_or(PathSweepError::ClosedPathMissesProfile)?;
         let mut rotated = vec![after];
+
         rotated.extend(
             legs.iter()
                 .cycle()

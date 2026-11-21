@@ -12,7 +12,7 @@ use crate::{
     transport::Transport,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Redirect {
     pub uri: String,
 }
@@ -29,7 +29,7 @@ impl std::fmt::Debug for Callback {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignIn {
     pub url: String,
     pub state: String,

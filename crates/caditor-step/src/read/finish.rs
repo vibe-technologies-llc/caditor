@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Finish {
     Matte,
     Satin,
@@ -69,6 +69,7 @@ pub(crate) fn appearance_finish(name: &str) -> Option<Finish> {
         .map(str::to_lowercase)
         .collect();
     let has = |list: &[&str]| words.iter().any(|word| list.contains(&word.as_str()));
+
     let powder_coat = has(&POWDER_COATS)
         || words.windows(2).any(
             |pair| matches!(pair, [powder, coat] if powder == "powder" && coat.starts_with("coat")),

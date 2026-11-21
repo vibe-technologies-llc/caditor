@@ -29,6 +29,7 @@ pub fn area(ui: &Ui, viewport: Rect, cube: Option<Corner>, style: DisplayStyle) 
     let width = canvas::menu_button_width(ui, glyph(style), style.short_title());
     let left = viewport.left() + canvas::MARGIN;
     let right = viewport.right() - canvas::MARGIN - width;
+
     let x = match cube {
         Some(Corner::TopLeft) => right,
         Some(Corner::TopRight | Corner::BottomLeft | Corner::BottomRight) | None => left,

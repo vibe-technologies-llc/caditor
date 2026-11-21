@@ -67,18 +67,22 @@ fn more(ui: &mut Ui, total: usize) {
 fn settings(ui: &mut Ui, tool: &mut CombTool) {
     widgets::properties(ui, "comb-properties", |ui| {
         widgets::caption(ui, TEETH);
+
         let teeth = widgets::slider(
             ui,
             Slider::new(&mut tool.teeth, comb::MIN_TEETH..=comb::MAX_TEETH),
         );
+
         widgets::tie_to_caption(ui, &teeth);
         ui.end_row();
 
         widgets::caption(ui, SCALE);
+
         let scale = widgets::slider(
             ui,
             Slider::new(&mut tool.scale, comb::MIN_SCALE..=comb::MAX_SCALE).logarithmic(true),
         );
+
         widgets::tie_to_caption(ui, &scale);
         ui.end_row();
     });
@@ -94,6 +98,7 @@ fn curves(ui: &mut Ui, units: Units, comb: &Comb) {
                 ),
                 None => "straight".to_owned(),
             };
+
             wrapped(ui, format!("{}: {bend}", curve.name));
         }
         more(ui, comb.curves.len());
@@ -120,6 +125,7 @@ fn joints(ui: &mut Ui, units: Units, comb: &Comb) {
                 Continuity::Tangent => Tone::Info,
                 Continuity::Corner => Tone::Neutral,
             };
+
             widgets::status_pill(
                 ui,
                 tone,
@@ -129,6 +135,7 @@ fn joints(ui: &mut Ui, units: Units, comb: &Comb) {
                     joint.continuity.grade()
                 ),
             );
+
             let [arriving, leaving] = joint
                 .curvatures
                 .map(|curvature| bend_text(units, curvature));
@@ -137,6 +144,7 @@ fn joints(ui: &mut Ui, units: Units, comb: &Comb) {
                 Continuity::Curvature => format!(" share a {arriving}"),
                 Continuity::Corner => " meet at an angle".to_owned(),
             };
+
             wrapped(ui, format!("{first} and {second}{detail}"));
             ui.add_space(SPACE_S);
         }

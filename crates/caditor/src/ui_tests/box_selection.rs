@@ -14,14 +14,17 @@ use crate::{
 #[test]
 fn a_lasso_drawn_around_the_model_takes_what_lies_inside_it() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     run_from_palette(&mut harness, "fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.frame();
+
     let (low, high) = plate_on_screen(&harness);
     let margin = 12.0;
+
     let middle = low.lerp(high, 0.5);
     let ring: Vec<Pos2> = (0..=24)
         .map(|step| {
@@ -30,6 +33,7 @@ fn a_lasso_drawn_around_the_model_takes_what_lies_inside_it() {
             middle + egui::vec2(angle.cos() * reach.x, angle.sin() * reach.y)
         })
         .collect();
+
     let small: Vec<Pos2> = ring
         .iter()
         .map(|point| middle + (*point - middle) * 0.05)
@@ -37,14 +41,19 @@ fn a_lasso_drawn_around_the_model_takes_what_lies_inside_it() {
 
     run_from_palette(&mut harness, "select with a lasso");
     harness.frame();
+
     let lasso = harness.workspace.viewport.lasso();
+
     harness
         .workspace
         .viewport
         .set_filter(SelectionFilter::Vertices);
     drag_path(&mut harness, &ring);
+
     let around = selected_kinds(&harness);
+
     drag_path(&mut harness, &small);
+
     let inside = selected_kinds(&harness);
 
     assert!(lasso);
@@ -55,12 +64,14 @@ fn a_lasso_drawn_around_the_model_takes_what_lies_inside_it() {
 #[test]
 fn select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     run_from_palette(&mut harness, "fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.frame();
+
     let (low, high) = plate_on_screen(&harness);
     let margin = egui::vec2(12.0, 12.0);
 
@@ -69,13 +80,18 @@ fn select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model(
         .viewport
         .set_filter(SelectionFilter::Vertices);
     drag_screen(&mut harness, low - margin, high + margin);
+
     let seen = selected_kinds(&harness);
 
     run_from_palette(&mut harness, "select through to what is hidden");
     harness.frame();
+
     assert!(harness.workspace.viewport.select_through());
+
     let (low, high) = plate_on_screen(&harness);
+
     drag_screen(&mut harness, low - margin, high + margin);
+
     let through = selected_kinds(&harness);
 
     harness
@@ -83,6 +99,7 @@ fn select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model(
         .viewport
         .set_filter(SelectionFilter::Edges);
     drag_screen(&mut harness, low - margin, high + margin);
+
     let edges_through = selected_kinds(&harness);
 
     assert_eq!(seen, (0, 0, 7));
@@ -93,12 +110,14 @@ fn select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model(
 #[test]
 fn where_the_style_picks_no_faces_a_box_takes_every_edge_and_painting_draws_a_box() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
     run_from_palette(&mut harness, "fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.frame();
+
     let (low, high) = plate_on_screen(&harness);
     let margin = egui::vec2(12.0, 12.0);
     let mut caught = Vec::new();
@@ -127,11 +146,15 @@ fn where_the_style_picks_no_faces_a_box_takes_every_edge_and_painting_draws_a_bo
         .viewport
         .set_style(DisplayStyle::Wireframe);
     harness.frame();
+
     let (low, high) = plate_on_screen(&harness);
+
     drag_screen(&mut harness, low - margin, high + margin);
+
     let painted_in_wireframe = selected_kinds(&harness);
 
     let through = [(0, 12, 0), (0, 12, 0), (0, 0, 8)];
+
     assert_eq!(caught, [through, through].concat());
     assert!(harness.workspace.viewport.paint());
     assert_eq!(painted_in_wireframe, (0, 12, 0));
@@ -140,16 +163,20 @@ fn where_the_style_picks_no_faces_a_box_takes_every_edge_and_painting_draws_a_bo
 #[test]
 fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([]);
     run_from_palette(&mut harness, "fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.frame();
+
     let (low, high) = plate_on_screen(&harness);
     let margin = egui::vec2(12.0, 12.0);
 
     drag_screen(&mut harness, low - margin, high + margin);
+
     assert_eq!(selected_kinds(&harness), (3, 0, 0));
 
     harness
@@ -157,6 +184,7 @@ fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter()
         .viewport
         .set_filter(SelectionFilter::Edges);
     drag_screen(&mut harness, low - margin, high + margin);
+
     assert_eq!(selected_kinds(&harness), (0, 9, 0));
 
     harness
@@ -164,12 +192,14 @@ fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter()
         .viewport
         .set_filter(SelectionFilter::Vertices);
     drag_screen(&mut harness, low - margin, high + margin);
+
     assert_eq!(selected_kinds(&harness), (0, 0, 7));
 
     harness
         .workspace
         .viewport
         .set_filter(SelectionFilter::Everything);
+
     let middle = harness
         .workspace
         .viewport
@@ -178,11 +208,13 @@ fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter()
             Point2::new(20.0, 20.0),
         )
         .unwrap();
+
     drag_screen(
         &mut harness,
         middle + egui::vec2(5.0, 5.0),
         middle - egui::vec2(5.0, 5.0),
     );
+
     assert_eq!(
         harness
             .workspace
@@ -197,8 +229,10 @@ fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter()
 #[test]
 fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.frame();
+
     let edge_alphas = |harness: &mut Harness| -> Vec<f32> {
         let built = harness.built();
         let edges: Vec<_> = built
@@ -232,6 +266,7 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
             .pickables()
             .any(|pickable| matches!(pickable, Pickable::Face { .. }))
     };
+
     assert_eq!(
         harness.workspace.viewport.style(),
         DisplayStyle::ShadedWithEdges
@@ -245,9 +280,12 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
 
     run_from_palette(&mut harness, "shaded without edges");
     harness.frame();
+
     assert_eq!(harness.workspace.viewport.style(), DisplayStyle::Shaded);
     assert_eq!(harness.built().scene.meshes.len(), 1);
+
     let hidden = edge_alphas(&mut harness);
+
     assert!(!hidden.is_empty() && hidden.iter().all(|alpha| *alpha == 0.0));
     assert!(silhouettes(&mut harness).is_empty());
     assert!(faces_pickable(&mut harness));
@@ -255,6 +293,7 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     harness.key(Key::Escape, Modifiers::NONE);
     run_from_palette(&mut harness, "wireframe");
     harness.frame();
+
     assert_eq!(harness.workspace.viewport.style(), DisplayStyle::Wireframe);
     assert_eq!(
         silhouettes(&mut harness),
@@ -267,12 +306,15 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     harness.key(Key::Escape, Modifiers::NONE);
     run_from_palette(&mut harness, "x-ray");
     harness.frame();
+
     assert_eq!(harness.workspace.viewport.style(), DisplayStyle::XRay);
     assert_eq!(
         silhouettes(&mut harness),
         vec![scene_palette::STANDARD.body_edge]
     );
+
     let built = harness.built();
+
     assert!(built.scene.meshes.is_empty());
     assert_eq!(built.scene.translucent_meshes.len(), 1);
     assert!(
@@ -287,16 +329,21 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     harness.key(Key::Escape, Modifiers::NONE);
     run_from_palette(&mut harness, "hidden lines removed");
     harness.frame();
+
     assert_eq!(harness.workspace.viewport.style(), DisplayStyle::HiddenLine);
     assert_eq!(
         silhouettes(&mut harness),
         vec![scene_palette::STANDARD.body_edge]
     );
+
     let built = harness.built();
+
     assert!(built.scene.meshes.is_empty());
     assert!(built.scene.translucent_meshes.is_empty());
     assert_eq!(built.scene.flat_meshes.len(), 1);
+
     let first = built.scene.flat_meshes[0].faces[0].color;
+
     assert!(
         built.scene.flat_meshes[0]
             .faces
@@ -311,8 +358,10 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
 #[test]
 fn shaded_with_hidden_edges_dashed_draws_each_edge_dashed_behind_the_faces_without_a_copy() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     harness.select([]);
+
     let hidden_lines = |harness: &mut Harness| {
         harness
             .built()
@@ -337,6 +386,7 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_dashed_behind_the_faces_witho
 
     run_from_palette(&mut harness, "shaded with hidden edges dashed");
     harness.frame();
+
     let style = harness.workspace.viewport.style();
     let lines = hidden_lines(&mut harness);
     let lines_shown = line_count(&mut harness);
@@ -351,6 +401,7 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_dashed_behind_the_faces_witho
 
     run_from_palette(&mut harness, "shaded with edges");
     harness.frame();
+
     let after = hidden_lines(&mut harness).len();
     let silhouettes_after = silhouettes_dashed_where_hidden(&mut harness);
 

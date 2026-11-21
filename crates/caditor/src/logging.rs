@@ -37,6 +37,7 @@ impl Logging {
             Some(Err(error)) => (None, Some(error)),
             None => (None, None),
         };
+
         Builder::from_env(Env::default().default_filter_or(DEFAULT_FILTER))
             .target(Target::Pipe(Box::new(Tee {
                 stderr: io::stderr(),
@@ -67,6 +68,7 @@ impl Logging {
     pub fn earlier_unexpected_end(&self, state_dir: &Path) -> Option<PathBuf> {
         let own = self.path()?;
         let stopped = caditor_file::ended_unexpectedly(state_dir, own);
+
         for log in &stopped {
             if let Err(error) = caditor_file::mark_reported(log) {
                 log::warn!("could not mark {} as reported: {error}", log.display());
@@ -109,6 +111,7 @@ pub fn unexpected_end_notice(log: &Path) -> String {
 
 pub fn failure_text(error: &anyhow::Error, log: Option<&Path>) -> String {
     let mut text = format!("caditor had to stop: {error:#}.");
+
     if error.chain().any(|cause| cause.is::<RenderError>()) {
         text.push_str(GRAPHICS_ADVICE);
     }
@@ -142,6 +145,7 @@ pub fn show_failure(text: &str) {
     if io::stderr().is_terminal() {
         return;
     }
+
     let attempts: [(&str, Vec<&str>); 3] = [
         (
             "zenity",
@@ -161,6 +165,7 @@ pub fn show_failure(text: &str) {
         .iter()
         .any(|variable| std::env::var_os(variable).is_some_and(|value| !value.is_empty()));
     let usable = |program: &str| display || program == NOTIFIER;
+
     let shown =
         attempts
             .iter()

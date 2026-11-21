@@ -18,7 +18,7 @@ const MIN_TRACK_LENGTH: f64 = 12.0;
 const PARALLEL_TOLERANCE: f64 = 1e-9;
 pub const ALIGNED_CROSSING_TOLERANCE: f64 = 12.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Anchor {
     target: Target,
     near: Point2,
@@ -36,7 +36,7 @@ impl Anchor {
 
 const SAME_PLACE_TOLERANCE: f64 = 1e-9;
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Acquired {
     anchors: Vec<Anchor>,
     lines: Vec<EntityId>,
@@ -87,6 +87,7 @@ impl Acquired {
 
     fn anchor(&mut self, target: Target, near: Point2) {
         let anchor = Anchor { target, near };
+
         self.anchors.retain(|kept| !kept.is(anchor));
         self.anchors.insert(0, anchor);
         self.anchors.truncate(MAX_ACQUIRED_POINTS);
@@ -104,6 +105,7 @@ impl Acquired {
                 .target
                 .involved()
                 .all(|entity| sketch.contains(entity));
+
             if defined
                 && anchor.target.has_several_places()
                 && let Some(at) = snap::position_of(sketch, anchor.target, anchor.near, &[])
@@ -136,7 +138,7 @@ fn lines_ending_at(sketch: &Sketch, point: EntityId) -> Vec<EntityId> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Axis {
     Level,
     Upright,
@@ -172,7 +174,7 @@ impl Axis {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Track {
     pub anchor: Target,
     pub from: Point2,
@@ -233,9 +235,11 @@ impl Track {
     fn crossing(self, through: Point2, along: Vector2) -> Option<Point2> {
         let direction = self.axis.along();
         let denominator = along.perp_dot(direction);
+
         if denominator.abs() <= PARALLEL_TOLERANCE * along.length() * direction.length() {
             return None;
         }
+
         let fraction = direction.perp_dot(through - self.from) / denominator;
         Some(through + along * fraction)
     }
@@ -247,7 +251,7 @@ impl Track {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Tracks {
     pub level: Option<Track>,
     pub upright: Option<Track>,
@@ -295,6 +299,7 @@ impl Tracks {
     pub fn label(self, sketch: &Sketch) -> Option<String> {
         let (held, loose): (Vec<Track>, Vec<Track>) =
             self.iter().partition(|track| track.is_held(sketch));
+
         let words: Vec<String> = held
             .iter()
             .chain(&loose)
@@ -318,7 +323,7 @@ impl Tracks {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tracked {
     pub position: Point2,
     pub tracks: Tracks,
@@ -333,19 +338,23 @@ pub fn nearby(
     own: &[Target],
 ) -> Tracks {
     let mut best: [Option<(f64, Track)>; 3] = [None, None, None];
+
     for anchor in &acquired.anchors {
         if own.contains(&anchor.target) {
             continue;
         }
+
         let Some(from) = snap::position_of(sketch, anchor.target, anchor.near, ignored) else {
             continue;
         };
         let Some(from_on_screen) = screen.to_screen(from) else {
             continue;
         };
+
         if from_on_screen.distance(pointer.screen) < MIN_TRACK_LENGTH {
             continue;
         }
+
         let axes = [(0, Axis::Level), (1, Axis::Upright)].into_iter().chain(
             slanted_axes(sketch, acquired, from)
                 .chain(bisector(sketch, anchor.target))
@@ -371,7 +380,9 @@ pub fn nearby(
             }
         }
     }
+
     let [level, upright, slanted] = best.map(|found| found.map(|(_, track)| track));
+
     let shares_an_anchor = |track: Track| {
         level
             .into_iter()
@@ -414,6 +425,7 @@ fn slanted_axes(sketch: &Sketch, acquired: &Acquired, from: Point2) -> impl Iter
             return Vec::new();
         };
         let through = sketch.line_endpoints(line).map_or(from, |(start, _)| start);
+
         let on_line = along.perp_dot(from - through).abs()
             <= ON_LINE_TOLERANCE * (1.0 + through.distance(from));
         [(false, along), (true, along.perp())]
@@ -434,6 +446,7 @@ fn bisector(sketch: &Sketch, anchor: Target) -> Option<Axis> {
         return None;
     };
     let (start, end) = sketch.line_endpoints(line)?;
+
     let along = (end - start).try_normalize()?.perp();
     is_slanted(along).then_some(Axis::Slanted {
         line,
@@ -483,17 +496,19 @@ fn anchor_words(sketch: &Sketch, anchor: Target) -> String {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ShownOutlines(Vec<(EntityId, Vec<EntityId>)>);
 
 impl ShownOutlines {
     pub fn keep(&mut self, sketch: &Sketch, targets: impl IntoIterator<Item = Target>) {
         let wanted: Vec<EntityId> = targets.into_iter().filter_map(outline_of).collect();
+
         self.0.retain(|(outline, _)| wanted.contains(outline));
         for outline in wanted {
             if !self.0.iter().any(|(kept, _)| *kept == outline) {
                 let pieces =
                     snap::outline_through(sketch, outline).unwrap_or_else(|| vec![outline]);
+
                 self.0.push((outline, pieces));
             }
         }
@@ -555,7 +570,7 @@ fn outline_of(target: Target) -> Option<EntityId> {
 const ON_LINE_TOLERANCE: f64 = 1e-9;
 const LEVEL_TOLERANCE: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Landing {
     pub position: Point2,
     pub target: Option<Target>,
@@ -610,8 +625,10 @@ pub fn land(
             bodies,
             inferred,
         };
+
         return land_held(sketch, screen, pointer, lookup, hold);
     }
+
     let landing = land_freely(sketch, screen, pointer, acquired, ignored, inferred);
     match bodies {
         Some(bodies) => onto_body(bodies, landing, screen, pointer, inferred),
@@ -796,6 +813,7 @@ fn runs_along(sketch: &Sketch, curve: EntityId, track: Track) -> bool {
         .map_or(Point2::ZERO, |ends| ends.0);
     let length = direction.length();
     let along = track.axis.along();
+
     let parallel = along.perp_dot(direction).abs() <= PARALLEL_TOLERANCE * length;
     let on = direction.perp_dot(track.from - through).abs()
         <= PARALLEL_TOLERANCE * length * (1.0 + through.distance(track.from));
@@ -835,6 +853,7 @@ mod tests {
     #[test]
     fn points_are_acquired_newest_first_and_forgotten_past_the_limit() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let points: Vec<EntityId> = (0..8)
             .map(|index| sketch.add_point(Point2::new(f64::from(index), 0.0)))
             .collect();
@@ -853,6 +872,7 @@ mod tests {
     #[test]
     fn hovering_a_circle_acquires_its_centre_and_a_line_end_its_line() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let circle = sketch.add_circle(Point2::new(5.0, 5.0), 2.0);
         let centre = sketch.entity(circle).unwrap().points()[0];
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
@@ -878,11 +898,14 @@ mod tests {
     #[test]
     fn the_pointer_tracks_acquired_points_level_upright_or_both() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let left = sketch.add_point(Point2::new(0.0, 20.0));
         let below = sketch.add_point(Point2::new(30.0, 0.0));
         let mut acquired = Acquired::default();
+
         acquired.point(left);
         acquired.point(below);
+
         let screen = Scaled(10.0);
 
         let level = nearby(
@@ -893,17 +916,22 @@ mod tests {
             &[],
             &[],
         );
+
         assert_eq!(
             level.level.map(|track| track.anchor),
             Some(Target::Point(left))
         );
         assert_eq!(level.upright, None);
+
         let placed = alone(level, &screen, pointer(Point2::new(15.0, 20.3))).unwrap();
+
         assert_eq!(placed.position, Point2::new(15.0, 20.0));
 
         let corner = pointer(Point2::new(30.2, 19.6));
         let both = nearby(&sketch, &screen, corner, &acquired, &[], &[]);
+
         let placed = alone(both, &screen, corner).unwrap();
+
         assert_eq!(placed.position, Point2::new(30.0, 20.0));
         assert_eq!(
             both.label(&sketch),
@@ -921,6 +949,7 @@ mod tests {
         );
 
         let excluded = nearby(&sketch, &screen, corner, &acquired, &[left], &[]);
+
         assert_eq!(excluded.level, None);
 
         let far = nearby(
@@ -931,12 +960,14 @@ mod tests {
             &[],
             &[],
         );
+
         assert_eq!(far, Tracks::default());
     }
 
     #[test]
     fn a_track_meets_a_ray_or_a_curve_but_never_runs_along_a_line() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let tracked = sketch.add_point(Point2::new(40.0, 0.0));
         let slanted = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(60.0, 30.0));
         let level = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(80.0, 0.0));
@@ -956,6 +987,7 @@ mod tests {
             12.0,
         )
         .unwrap();
+
         assert_eq!(on_ray.position, Point2::new(40.0, 10.0));
 
         let crossing = on_curve(
@@ -967,6 +999,7 @@ mod tests {
             12.0,
         )
         .unwrap();
+
         assert!(crossing.position.distance(Point2::new(40.0, 20.0)) < 1e-12);
 
         let along = Tracks::one(Track {
@@ -974,6 +1007,7 @@ mod tests {
             from: Point2::new(40.0, 0.0),
             axis: Axis::Level,
         });
+
         assert_eq!(
             on_curve(
                 &sketch,
@@ -990,12 +1024,15 @@ mod tests {
     #[test]
     fn an_acquired_line_guides_points_square_to_it_from_its_end_and_parallel_to_it_elsewhere() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 40.0));
         let end = sketch.entity(line).unwrap().points()[1];
         let other = sketch.add_point(Point2::new(50.0, 0.0));
         let mut acquired = Acquired::default();
+
         acquired.note(&sketch, Target::Point(end), Point2::new(30.0, 40.0));
         acquired.point(other);
+
         let screen = Scaled(10.0);
         let square = pointer(Point2::new(10.2, 55.1));
         let parallel = pointer(Point2::new(74.1, 31.9));
@@ -1080,12 +1117,14 @@ mod tests {
     #[test]
     fn the_middle_of_a_line_tracks_level_upright_and_along_its_perpendicular_bisector() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 40.0));
         let middle = Point2::new(15.0, 20.0);
         let mut acquired = Acquired::default();
         let label = sketch.entity_label(line);
 
         acquired.note(&sketch, Target::Midpoint(line), middle);
+
         let level = placed_at(&sketch, &acquired, Point2::new(45.0, 20.3)).unwrap();
         let upright = placed_at(&sketch, &acquired, Point2::new(15.3, -10.0)).unwrap();
         let bisecting = placed_at(&sketch, &acquired, Point2::new(-5.2, 35.1)).unwrap();
@@ -1138,10 +1177,12 @@ mod tests {
     #[test]
     fn a_level_line_has_its_bisector_as_the_upright_track_through_its_middle() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(50.0, 10.0));
         let mut acquired = Acquired::default();
 
         acquired.note(&sketch, Target::Midpoint(line), Point2::new(30.0, 10.0));
+
         let above = tracks_at(&sketch, &acquired, Point2::new(30.2, 40.0));
 
         assert_eq!(
@@ -1154,6 +1195,7 @@ mod tests {
     #[test]
     fn crossings_outline_centres_and_axis_ends_are_acquired_and_tracked() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let rising = sketch.add_line(Point2::ZERO, Point2::new(30.0, 30.0));
         let falling = sketch.add_line(Point2::new(0.0, 20.0), Point2::new(30.0, -10.0));
         let ellipse = sketch.add_ellipse(Point2::new(100.0, 0.0), Point2::new(110.0, 10.0), 4.0);
@@ -1188,6 +1230,7 @@ mod tests {
         for snapped in [crossing, centre, far_end] {
             acquired.note(&sketch, snapped.target, snapped.position);
         }
+
         let level_with_crossing = placed_at(&sketch, &acquired, Point2::new(-30.0, 10.2)).unwrap();
         let below_centre = placed_at(&sketch, &acquired, Point2::new(50.3, -40.0)).unwrap();
         let level_with_far_end = placed_at(&sketch, &acquired, Point2::new(150.0, -10.4)).unwrap();
@@ -1218,10 +1261,12 @@ mod tests {
                 < 1e-9
         );
         assert!(met.position.distance(Point2::new(10.0, 45.0)) < 1e-9);
+
         let met_constraints: Vec<Constraint> = met
             .tracks
             .constraints(&sketch, EntityId::from_raw(99))
             .collect();
+
         assert_eq!(met_constraints.len(), 2);
         assert!(met_constraints.contains(&Constraint::VerticalPoints(
             EntityId::from_raw(99),
@@ -1229,6 +1274,7 @@ mod tests {
         )));
 
         let ellipse_centre = sketch.entity(ellipse).unwrap().points()[0];
+
         sketch.remove_unused_entity(falling).unwrap();
         acquired.retain(&sketch);
 
@@ -1241,14 +1287,17 @@ mod tests {
     #[test]
     fn both_crossings_of_a_line_and_a_circle_are_kept_apart_and_each_tracked() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(-20.0, 0.0), Point2::new(20.0, 0.0));
         let circle = sketch.add_circle(Point2::ZERO, 10.0);
+
         let crossing = Target::Intersection(line.min(circle), line.max(circle));
         let mut acquired = Acquired::default();
 
         acquired.note(&sketch, crossing, Point2::new(10.0, 0.0));
         acquired.note(&sketch, crossing, Point2::new(-10.0, 0.0));
         acquired.note(&sketch, crossing, Point2::new(10.0, 0.0));
+
         let right = placed_at(&sketch, &acquired, Point2::new(10.2, 30.0)).unwrap();
         let left = placed_at(&sketch, &acquired, Point2::new(-10.2, 30.0)).unwrap();
 
@@ -1260,8 +1309,10 @@ mod tests {
     #[test]
     fn a_track_through_a_sketch_point_wins_over_another_lying_on_it() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let circle = sketch.add_circle(Point2::ZERO, 10.0);
         let centre = sketch.entity(circle).unwrap().points()[0];
+
         let right = Target::Quadrant {
             curve: circle,
             centre,
@@ -1276,6 +1327,7 @@ mod tests {
 
         acquired.note(&sketch, right, Point2::new(10.0, 0.0));
         acquired.note(&sketch, top, Point2::new(0.0, 10.0));
+
         let level_with_centre = tracks_at(&sketch, &acquired, Point2::new(40.0, 0.2));
         let level_with_top = tracks_at(&sketch, &acquired, Point2::new(40.0, 10.2));
 
@@ -1314,9 +1366,12 @@ mod tests {
     #[test]
     fn a_target_moving_in_a_drag_or_placed_by_the_shape_itself_draws_no_track() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(50.0, 10.0));
         let mut acquired = Acquired::default();
+
         acquired.note(&sketch, Target::Midpoint(line), Point2::new(30.0, 10.0));
+
         let above = pointer(Point2::new(30.2, 40.0));
         let screen = Scaled(10.0);
 

@@ -117,6 +117,7 @@ fn brute_crossings(curve: &Curve, range: Interval, surface: &Surface) -> Vec<f64
     let count = if swept { SWEPT_SAMPLES } else { BRUTE_SAMPLES };
     let parameters: Vec<f64> = range.split(count).collect();
     let mut hint = None;
+
     let samples: Vec<(f64, Point2)> = parameters
         .iter()
         .enumerate()
@@ -127,18 +128,23 @@ fn brute_crossings(curve: &Curve, range: Interval, surface: &Surface) -> Vec<f64
                 curve.point(*parameter),
                 if resync { None } else { hint },
             );
+
             hint = Some(uv);
             (value, uv)
         })
         .collect();
     let mut crossings = Vec::new();
+
     for (index, pair) in parameters.windows(2).enumerate() {
         let (mut low, mut high) = (pair[0], pair[1]);
         let ((a, uv), (b, _)) = (samples[index], samples[index + 1]);
+
         if (a < 0.0) == (b < 0.0) {
             continue;
         }
+
         let near = swept.then_some(uv);
+
         for _ in 0..60 {
             let middle = 0.5 * (low + high);
             let (value, _, _) = signed_near(surface, curve.point(middle), near);
@@ -148,6 +154,7 @@ fn brute_crossings(curve: &Curve, range: Interval, surface: &Surface) -> Vec<f64
                 high = middle;
             }
         }
+
         let root = 0.5 * (low + high);
         if signed(surface, curve.point(root)).1 <= 1e-7 {
             crossings.push(root);
@@ -216,6 +223,7 @@ fn every_curve_against_every_surface_matches_brute_force() {
                 let found = intersect_curve_surface(curve, *range, &surface, None)
                     .unwrap_or_else(|error| panic!("{name}: {error}"));
                 let brute = brute_crossings(curve, *range, &surface);
+
                 check_result(&name, curve, *range, &surface, &found);
                 for crossing in brute {
                     let point = curve.point(crossing);
@@ -227,6 +235,7 @@ fn every_curve_against_every_surface_matches_brute_force() {
                             .overlaps
                             .iter()
                             .any(|overlap| overlap.range.contains(crossing));
+
                     assert!(
                         matched,
                         "{name}: missed the crossing at {crossing} ({point:?}); found {found:?}"
@@ -243,6 +252,7 @@ fn intersection_curves_meet_other_surfaces_and_lie_on_their_own() {
         .unwrap()
         .into();
     let ball: Surface = Sphere::new(Plane::XY, 2.0).unwrap().into();
+
     let result = intersect_surfaces(
         &around(&tube, (-5.0, 5.0)),
         &patch(&ball, (0.0, TAU), (-FRAC_PI_2, FRAC_PI_2)),
@@ -250,12 +260,16 @@ fn intersection_curves_meet_other_surfaces_and_lie_on_their_own() {
     .unwrap();
     let branch = &result.branches()[0];
     let found = intersect_curve_surface(&branch.curve, branch.range, &ball, None).unwrap();
+
     assert!(found.points.is_empty());
     assert_eq!(found.overlaps.len(), 1);
     assert_eq!(found.overlaps[0].range, branch.range);
+
     let floor = plane(Point3::new(0.0, 0.0, 0.5), Vector3::Z);
     let found = intersect_curve_surface(&branch.curve, branch.range, &floor, None).unwrap();
+
     check_result("viviani", &branch.curve, branch.range, &floor, &found);
+
     assert_eq!(found.points.len(), 2);
     assert!(found.points.iter().all(|point| !point.tangent));
     for crossing in brute_crossings(&branch.curve, branch.range, &floor) {
@@ -281,50 +295,69 @@ fn lines_cross_touch_and_lie_on_elementary_surfaces() {
     let flat: Curve = Line::new(Point3::new(0.0, 0.0, 0.0), Vector3::X)
         .unwrap()
         .into();
+
     let found = intersect_curve_surface(&flat, span, &floor, None).unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
     assert_eq!(found.overlaps[0].range, span);
     assert!(found.points.is_empty());
+
     let steep: Curve = Line::new(Point3::new(1.0, 2.0, 3.0), Vector3::new(0.1, 0.2, -1.0))
         .unwrap()
         .into();
+
     assert!(!single(&intersect_curve_surface(&steep, span, &floor, None).unwrap()).1);
+
     let tube: Surface = Cylinder::new(Plane::XY, 2.0).unwrap().into();
     let ruling: Curve = Line::new(Point3::new(0.0, 2.0, 0.0), Vector3::Z)
         .unwrap()
         .into();
+
     let found = intersect_curve_surface(&ruling, span, &tube, None).unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
+
     let grazing: Curve = Line::new(Point3::new(0.0, 2.0, 1.0), Vector3::new(1.0, 0.0, 0.3))
         .unwrap()
         .into();
     let (at, tangent) = single(&intersect_curve_surface(&grazing, span, &tube, None).unwrap());
+
     assert!(tangent);
     assert!(at.abs() < 1e-6);
+
     let through: Curve = Line::new(Point3::new(0.0, 1.0, 0.0), Vector3::new(1.0, 0.0, 0.2))
         .unwrap()
         .into();
     let found = intersect_curve_surface(&through, span, &tube, None).unwrap();
+
     assert_eq!(found.points.len(), 2);
+
     let ball: Surface = Sphere::new(Plane::XY, 3.0).unwrap().into();
     let skimming: Curve = Line::new(Point3::new(0.0, 0.0, 3.0), Vector3::X)
         .unwrap()
         .into();
+
     assert!(single(&intersect_curve_surface(&skimming, span, &ball, None).unwrap()).1);
+
     let ring: Surface = Torus::new(Plane::XY, 6.0, 2.0).unwrap().into();
     let axis: Curve = Line::new(Point3::new(-10.0, 0.0, 0.5), Vector3::X)
         .unwrap()
         .into();
     let long = Interval::new(0.0, 20.0).unwrap();
+
     let found = intersect_curve_surface(&axis, long, &ring, None).unwrap();
+
     assert_eq!(found.points.len(), 4);
     assert!(found.points.iter().all(|point| !point.tangent));
+
     let over_top: Curve = Line::new(Point3::new(-10.0, 6.0, 2.0), Vector3::X)
         .unwrap()
         .into();
     let (at, tangent) = single(&intersect_curve_surface(&over_top, long, &ring, None).unwrap());
+
     assert!(tangent);
     assert!((at - 10.0).abs() < 1e-5);
+
     let cone: Surface = Cone::new(Plane::XY, 1.0, 0.5).unwrap().into();
     let apex = match &cone {
         Surface::Cone(cone) => cone.apex(),
@@ -333,18 +366,24 @@ fn lines_cross_touch_and_lie_on_elementary_surfaces() {
     let along: Curve = Line::through(apex, Point3::new(1.0, 0.0, 0.0))
         .unwrap()
         .into();
+
     let found =
         intersect_curve_surface(&along, Interval::new(0.0, 5.0).unwrap(), &cone, None).unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
+
     let across: Curve = Line::new(Point3::new(-5.0, 0.0, 2.0), Vector3::X)
         .unwrap()
         .into();
     let found =
         intersect_curve_surface(&across, Interval::new(0.0, 10.0).unwrap(), &cone, None).unwrap();
+
     assert_eq!(found.points.len(), 2);
+
     let below: Curve = Line::new(Point3::new(-5.0, 0.0, -5.0), Vector3::X)
         .unwrap()
         .into();
+
     assert!(
         intersect_curve_surface(&below, Interval::new(0.0, 10.0).unwrap(), &cone, None)
             .unwrap()
@@ -357,33 +396,49 @@ fn lines_cross_touch_and_lie_on_elementary_surfaces() {
 fn circles_cross_touch_and_lie_on_surfaces() {
     let floor = plane(Point3::ZERO, Vector3::Z);
     let lying: Curve = Circle::new(Plane::XY, 2.0).unwrap().into();
+
     let found = intersect_curve_surface(&lying, Interval::FULL_TURN, &floor, None).unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
+
     let standing_frame = Plane::new(Point3::new(0.0, 0.0, 2.0), Vector3::Y).unwrap();
     let standing: Curve = Circle::new(standing_frame, 2.0).unwrap().into();
     let (_, tangent) =
         single(&intersect_curve_surface(&standing, Interval::FULL_TURN, &floor, None).unwrap());
+
     assert!(tangent);
+
     let crossing_frame = Plane::new(Point3::new(0.0, 0.0, 1.0), Vector3::Y).unwrap();
     let crossing: Curve = Circle::new(crossing_frame, 2.0).unwrap().into();
     let found = intersect_curve_surface(&crossing, Interval::FULL_TURN, &floor, None).unwrap();
+
     assert_eq!(found.points.len(), 2);
+
     let ball: Surface = Sphere::new(Plane::XY, 5.0).unwrap().into();
     let latitude = Plane::new(Point3::new(0.0, 0.0, 3.0), Vector3::Z).unwrap();
     let parallel: Curve = Circle::new(latitude, 4.0).unwrap().into();
+
     let found = intersect_curve_surface(&parallel, Interval::FULL_TURN, &ball, None).unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
+
     let tube: Surface = Cylinder::new(Plane::XY, 4.0).unwrap().into();
     let found = intersect_curve_surface(&parallel, Interval::FULL_TURN, &tube, None).unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
+
     let ring: Surface = Torus::new(Plane::XY, 6.0, 2.0).unwrap().into();
     let crest = Plane::new(Point3::new(0.0, 0.0, 2.0), Vector3::Z).unwrap();
     let crest: Curve = Circle::new(crest, 6.0).unwrap().into();
+
     let found = intersect_curve_surface(&crest, Interval::FULL_TURN, &ring, None).unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
+
     let kissing_frame = Plane::new(Point3::new(8.0, 0.0, 0.0), Vector3::Y).unwrap();
     let kissing: Curve = Circle::new(kissing_frame, 3.0).unwrap().into();
     let found = intersect_curve_surface(&kissing, Interval::FULL_TURN, &ball, None).unwrap();
+
     assert_eq!(found.points.len(), 1, "{found:?}");
     assert!(found.points[0].tangent);
 }
@@ -394,6 +449,7 @@ fn points_at_range_ends_are_reported_once_and_patches_filter() {
     let drop: Curve = Line::new(Point3::new(0.0, 0.0, 5.0), Vector3::NEG_Z)
         .unwrap()
         .into();
+
     for range in [
         Interval::new(0.0, 5.0).unwrap(),
         Interval::new(5.0, 9.0).unwrap(),
@@ -401,9 +457,11 @@ fn points_at_range_ends_are_reported_once_and_patches_filter() {
     ] {
         let found = intersect_curve_surface(&drop, range, &floor, None).unwrap();
         let (at, tangent) = single(&found);
+
         assert!(!tangent);
         assert!(at == 5.0 || at == range.end(), "{at} in {range:?}");
     }
+
     let spline: Curve = BSpline::clamped_uniform(
         3,
         vec![
@@ -416,13 +474,16 @@ fn points_at_range_ends_are_reported_once_and_patches_filter() {
     .unwrap()
     .into();
     let found = intersect_curve_surface(&spline, Interval::UNIT, &floor, None).unwrap();
+
     assert_eq!(found.points.len(), 2);
     assert_eq!(found.points[1].parameter, 1.0);
+
     let tube: Surface = Cylinder::new(Plane::XY, 2.0).unwrap().into();
     let through: Curve = Line::new(Point3::new(-5.0, 0.0, 0.0), Vector3::X)
         .unwrap()
         .into();
     let range = Interval::new(0.0, 10.0).unwrap();
+
     let found = intersect_curve_surface(
         &through,
         range,
@@ -431,8 +492,10 @@ fn points_at_range_ends_are_reported_once_and_patches_filter() {
     )
     .unwrap();
     let (at, _) = single(&found);
+
     assert!((at - 7.0).abs() < 1e-9);
     assert!(found.points[0].uv.x.abs() < 1e-9);
+
     let found = intersect_curve_surface(
         &through,
         range,
@@ -441,7 +504,9 @@ fn points_at_range_ends_are_reported_once_and_patches_filter() {
     )
     .unwrap();
     let (at, _) = single(&found);
+
     assert!((at - 3.0).abs() < 1e-9);
+
     let lying: Curve = Line::new(Point3::new(0.0, 2.0, -4.0), Vector3::Z)
         .unwrap()
         .into();
@@ -452,6 +517,7 @@ fn points_at_range_ends_are_reported_once_and_patches_filter() {
         Some(uv_box((0.0, TAU), (-1.0, 3.0))),
     )
     .unwrap();
+
     assert_eq!(found.overlaps.len(), 1);
     assert!((found.overlaps[0].range.start() - 3.0).abs() < 1e-9);
     assert!((found.overlaps[0].range.end() - 7.0).abs() < 1e-9);
@@ -492,6 +558,7 @@ fn a_circle_crossing_a_cylinder_at_a_grazing_angle_is_met_at_its_roots() {
     let plug: Surface = Cylinder::new(frame(Point3::new(offset, 0.0, 0.0), Vector3::Z), 2.5)
         .unwrap()
         .into();
+
     let found =
         intersect_curve_surface(&bore, crate::interval::Interval::FULL_TURN, &plug, None).unwrap();
 
@@ -531,6 +598,7 @@ fn a_circle_poking_out_of_a_torus_by_less_than_the_resolution_is_met_at_both_cro
     let ring: Surface = Torus::new(Plane::XY, 6.0, 2.0).unwrap().into();
     let (shift, poke) = (0.1, 5e-7);
     let centre = Point3::new(shift, 0.0, 0.0);
+
     let circle: Curve = Circle::new(
         Plane::from_frame(centre, Vector3::Z, Vector3::Y).unwrap(),
         8.0 - shift + poke,

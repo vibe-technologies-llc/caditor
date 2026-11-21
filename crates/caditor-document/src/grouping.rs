@@ -45,6 +45,7 @@ impl Document {
         let Some((above, from)) = self.features.split_at_checked(at) else {
             return Vec::new();
         };
+
         let before = above.iter().rev().take_while(within).count();
         let after = from.iter().take_while(within).count();
         self.features
@@ -82,6 +83,7 @@ impl Document {
             return Ok(Transaction::new(label, Vec::new()));
         };
         let mut edits = Vec::new();
+
         if last - first + 1 != indices.len() {
             let first_id = self
                 .features()
@@ -98,6 +100,7 @@ impl Document {
                 .map(Feature::id)
                 .filter(|id| chosen.contains(id))
                 .collect();
+
             edits.extend(
                 self.move_features(&ordered, gap, label.clone())?
                     .edits()
@@ -105,12 +108,16 @@ impl Document {
                     .cloned(),
             );
         }
+
         let group = Some(name.to_owned());
+
         edits.extend(chosen.iter().map(|id| Edit::SetFeatureGroup {
             id: *id,
             group: group.clone(),
         }));
+
         let transaction = Transaction::new(label, edits);
+
         self.check(&transaction)?;
         Ok(transaction)
     }
@@ -130,6 +137,7 @@ impl Document {
             })
             .collect();
         let transaction = Transaction::new(label, edits);
+
         self.check(&transaction)?;
         Ok(transaction)
     }
@@ -152,6 +160,7 @@ impl Document {
                     .get(at + 1..)
                     .and_then(|after| after.iter().find(|other| !moved.contains(other)));
                 let own = self.group_of(*id);
+
                 let (over, under) = (group(above), group(below));
                 let wanted = match (over, under) {
                     (Some(over), Some(under)) if over == under => Some(over),

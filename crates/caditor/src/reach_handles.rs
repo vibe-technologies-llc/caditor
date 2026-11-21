@@ -24,7 +24,7 @@ use crate::{
 #[cfg(test)]
 const GRIP_FRACTION: f64 = 0.6;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct ReachArrow {
     reach: Reach,
     end: Point3,
@@ -41,7 +41,7 @@ impl ReachArrow {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReachHandles {
     pub feature: FeatureId,
     arrows: [Option<ReachArrow>; 2],
@@ -134,6 +134,7 @@ fn slot_mut(extent: &mut ExtrudeExtent, reach: Reach) -> Option<&mut Expression>
 
 fn held(model: &Model, feature: FeatureId, extrude: &Extrude, reach: Reach) -> Option<Held> {
     let mut extent = extrude.extent.clone();
+
     let slot = slot_mut(&mut extent, reach)?;
     Some(Held::of(
         model.document(),
@@ -161,6 +162,7 @@ pub fn swept_bounds(model: &Model, extrude: &Extrude, plane: &Plane) -> Option<A
     chosen.or_else(|| {
         let bounds = model.sketch_bounds(document.feature(extrude.sketch)?)?;
         let centre = plane.to_local(bounds.center());
+
         let half = plane.to_local(bounds.max()) - centre;
         let half = Vector2::new(half.x.abs(), half.y.abs());
         Aabb2::from_points([centre - half, centre + half])
@@ -171,6 +173,7 @@ fn base_of(model: &Model, feature: FeatureId, extrude: &Extrude) -> Option<(Poin
     if extrude.direction.is_some() {
         return None;
     }
+
     let document = model.document();
     let plane = crate::scene::sketch_plane(document, model.evaluation(), extrude.sketch)?;
     let start = start_offset(model, feature, &plane, extrude.start.as_ref())?;
@@ -185,6 +188,7 @@ pub fn primary(model: &Model, feature: FeatureId) -> Option<Reach> {
         .into_iter()
         .flatten()
         .next()?;
+
     let free = held(model, feature, extrude, reach)?.driven().is_none();
     free.then_some(reach)
 }
@@ -221,12 +225,15 @@ impl ReachHandles {
         let parameters = model.shown_parameters(feature);
         let (base, normal) = base_of(model, feature, extrude)?;
         let forward = view.forward();
+
         let arrow = |found: Option<(Reach, f64, f64)>| {
             let (reach, sign, distance) = found?;
             let direction = normal * sign;
+
             let end = base + direction * distance;
             let depth = view.view_depth(end);
             let per_point = pixels_per_point * view.units_per_pixel_at(depth);
+
             let shown = view.is_drawn_at(depth)
                 && per_point.is_finite()
                 && per_point > 0.0
@@ -282,6 +289,7 @@ impl ReachHandles {
         self.arrows()
             .filter_map(|arrow| {
                 let (from, to) = arrow.segment();
+
                 let distance = segment_distance(view.project(from)?, view.project(to)?, cursor);
                 Some((distance, Handle::Reach(arrow.reach)))
             })
@@ -316,6 +324,7 @@ impl ReachHandles {
             } else {
                 palette.handle
             };
+
             Arrow {
                 from,
                 tip,
@@ -328,7 +337,7 @@ impl ReachHandles {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReachDrag {
     start: Extrude,
     reach: Reach,
@@ -395,6 +404,7 @@ impl ReachDrag {
             snap.holds(distance, pulled, off, self.step)
                 .then_some((distance, snap))
         });
+
         let (distance, snap) = match snapped {
             Some((distance, snap)) => (distance, Some(snap)),
             None => {
@@ -410,7 +420,9 @@ impl ReachDrag {
             }
         };
         let distance = self.limited(distance);
+
         let changed = distance != self.distance || snap != self.snapped;
+
         self.distance = distance;
         self.snapped = snap;
         changed
@@ -425,11 +437,13 @@ impl ReachDrag {
         let held = held(model, feature, &self.start, self.reach)?;
         let mut extrude = self.start.clone();
         let mut named = Vec::new();
+
         held.set(
             slot_mut(&mut extrude.extent, self.reach)?,
             distance,
             &mut named,
         );
+
         let extrude = if self.flips() {
             reversing::flipped_extrude(&extrude)
         } else {
@@ -474,7 +488,9 @@ pub fn typed(
     };
     let mut extrude = start.clone();
     let mut named = Vec::new();
+
     held.set(slot_mut(&mut extrude.extent, reach)?, value, &mut named);
+
     let extrude = if negative {
         reversing::flipped_extrude(&extrude)
     } else {
@@ -495,6 +511,7 @@ mod tests {
 
         let mut changed = two.clone();
         let mut unchanged = two.clone();
+
         if let Some(slot) = slot_mut(&mut changed, Reach::Backward) {
             *slot = Expression::number(4.0);
         }

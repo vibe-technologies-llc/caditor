@@ -68,6 +68,7 @@ fn decode(render: Render) -> Result<Logo, LogoError> {
     let mut reader = Decoder::new(Cursor::new(render.png))
         .read_info()
         .map_err(unreadable)?;
+
     let (color, depth) = reader.output_color_type();
     let (width, height) = (reader.info().width, reader.info().height);
 
@@ -86,6 +87,7 @@ fn decode(render: Render) -> Result<Logo, LogoError> {
         .output_buffer_size()
         .ok_or(LogoError::TooLarge { size })?;
     let mut rgba = vec![0; length];
+
     reader.next_frame(&mut rgba).map_err(unreadable)?;
     Ok(Logo { size, rgba })
 }
@@ -114,6 +116,7 @@ pub fn texture_name(size: u32) -> String {
 
 fn texture(ui: &Ui, render: Render) -> Option<TextureHandle> {
     let id = Id::unique(("caditor-logo", render.size));
+
     if let Some(cached) = ui.data(|data| data.get_temp::<Option<TextureHandle>>(id)) {
         return cached;
     }
@@ -132,6 +135,7 @@ fn texture(ui: &Ui, render: Render) -> Option<TextureHandle> {
             None
         }
     };
+
     ui.data_mut(|data| data.insert_temp(id, texture.clone()));
     texture
 }
@@ -144,6 +148,7 @@ pub fn show(ui: &mut Ui, side: f32) -> Response {
         Some(texture) => ui.add(Image::new(SizedTexture::new(texture.id(), size))),
         None => ui.allocate_response(size, Sense::hover()),
     };
+
     widgets::decorative(ui, &response);
     response
 }

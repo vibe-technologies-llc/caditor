@@ -25,7 +25,7 @@ const SINGLE_LINE: [ModelProperty; 6] = [
     ModelProperty::Description,
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PropertiesDraft {
     properties: ModelProperties,
     focus_pending: bool,
@@ -40,7 +40,7 @@ impl PropertiesDraft {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Close,
     Save(Transaction),
@@ -91,6 +91,7 @@ pub fn dialog(
 
 fn fields(ui: &mut Ui, draft: &mut PropertiesDraft) {
     let focus = std::mem::take(&mut draft.focus_pending);
+
     widgets::properties(ui, DIALOG_ID, |ui| {
         for property in SINGLE_LINE {
             widgets::property(ui, property.label(), |ui| {
@@ -102,6 +103,7 @@ fn fields(ui: &mut Ui, draft: &mut PropertiesDraft) {
                             .desired_width(f32::INFINITY),
                     )
                 });
+
                 widgets::tie_to_caption(ui, &field);
                 if focus && property == ModelProperty::Title {
                     field.request_focus();
@@ -110,8 +112,11 @@ fn fields(ui: &mut Ui, draft: &mut PropertiesDraft) {
         }
     });
     ui.add_space(SPACE_S);
+
     let notes = ModelProperty::Notes;
+
     widgets::caption(ui, notes.label());
+
     let field = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::multiline(draft.properties.get_mut(notes))
@@ -121,5 +126,6 @@ fn fields(ui: &mut Ui, draft: &mut PropertiesDraft) {
                 .desired_width(f32::INFINITY),
         )
     });
+
     widgets::tie_to_caption(ui, &field);
 }

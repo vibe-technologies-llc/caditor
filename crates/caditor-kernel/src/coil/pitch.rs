@@ -8,7 +8,7 @@ pub const END_CHANGE_TURNS: f64 = 0.5;
 const BREAK_SLACK: f64 = 1e-9;
 const ROUNDING_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PitchStop {
     pub turns: f64,
     pub pitch: f64,
@@ -17,6 +17,7 @@ pub struct PitchStop {
 impl PitchStop {
     fn pitch_towards(self, to: Self, turns: f64) -> f64 {
         let length = to.turns - self.turns;
+
         if length <= 0.0 {
             return to.pitch;
         }
@@ -24,7 +25,7 @@ impl PitchStop {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum TableFault {
     NonFinite,
     NoPitch,
@@ -34,6 +35,7 @@ pub(super) enum TableFault {
 
 pub(super) fn checked_table(table: &[PitchStop], turns: f64) -> Result<(), TableFault> {
     let mut before = 0.0;
+
     for stop in table {
         if !stop.turns.is_finite() || !stop.pitch.is_finite() {
             return Err(TableFault::NonFinite);
@@ -52,14 +54,14 @@ pub(super) fn checked_table(table: &[PitchStop], turns: f64) -> Result<(), Table
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ClosedEndLaw {
     pub pitch: f64,
     pub turns: f64,
     pub change: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct PitchLaw {
     stops: Vec<PitchStop>,
 }
@@ -126,6 +128,7 @@ impl PitchLaw {
             turns: end_turns,
             change,
         } = ends;
+
         let body_start = end_turns + change;
         let body_end = turns - body_start;
         let last = table.last().map_or(first, |row| row.pitch);
@@ -134,12 +137,15 @@ impl PitchLaw {
             stop(end_turns, end),
             stop(body_start, first),
         ];
+
         stops.extend(
             table
                 .iter()
                 .map(|row| stop(body_start + row.turns, row.pitch)),
         );
+
         let held_to = stops.last().map_or(body_start, |last| last.turns);
+
         if body_end > held_to + BREAK_SLACK {
             stops.push(stop(body_end, last));
         }
@@ -183,6 +189,7 @@ impl PitchLaw {
     pub(super) fn pitch_at(&self, angle: f64) -> f64 {
         let turns = angle / TAU;
         let (first, last) = self.bounds();
+
         if turns <= first.turns {
             return first.pitch;
         }
@@ -197,15 +204,20 @@ impl PitchLaw {
     pub(super) fn rise(&self, angle: f64) -> f64 {
         let turns = angle / TAU;
         let (first, last) = self.bounds();
+
         if turns <= first.turns {
             return first.pitch * turns;
         }
+
         let mut rise = first.pitch * first.turns;
+
         for (from, to) in self.pairs() {
             if turns <= from.turns {
                 break;
             }
+
             let until = turns.min(to.turns);
+
             rise += 0.5 * (from.pitch + from.pitch_towards(to, until)) * (until - from.turns);
         }
         if turns > last.turns {
@@ -217,14 +229,18 @@ impl PitchLaw {
     pub(super) fn turns_for(&self, height: f64) -> f64 {
         let (first, last) = self.bounds();
         let mut rise = first.pitch * first.turns;
+
         for (from, to) in self.pairs() {
             let span = to.turns - from.turns;
             let spanned = 0.5 * (from.pitch + to.pitch) * span;
+
             if span > 0.0 && rise + spanned >= height {
                 let slope = (to.pitch - from.pitch) / span;
                 let needed = height - rise;
+
                 let root = (from.pitch * from.pitch + 2.0 * slope * needed).max(0.0);
                 let into = 2.0 * needed / (from.pitch + root.sqrt());
+
                 return from.turns + into;
             }
             rise += spanned;
@@ -238,6 +254,7 @@ impl PitchLaw {
 
     pub(super) fn breaks(&self, turns: f64) -> Vec<f64> {
         let mut breaks = vec![0.0];
+
         breaks.extend(
             self.stops
                 .iter()

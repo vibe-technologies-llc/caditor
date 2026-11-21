@@ -10,7 +10,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Variable {
     X(EntityId),
     Y(EntityId),
@@ -20,7 +20,7 @@ enum Variable {
     Target(ConstraintId, usize),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
     scale: u64,
     entities: Vec<EntityId>,
@@ -30,7 +30,7 @@ struct Key {
     meshes: Vec<(EntityId, EntityId, u64, u64)>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Outcome {
     analysed: bool,
     solved: Vec<f64>,
@@ -39,13 +39,13 @@ struct Outcome {
     contributions: Vec<(ConstraintId, bool, Vec<ConstraintId>)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct BeyondReach {
     dragged: Vec<Variable>,
     from: Key,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SolveMemo {
     anchors: Vec<u64>,
     outcomes: BTreeMap<Key, Outcome>,
@@ -101,6 +101,7 @@ impl<'a> Recall<'a> {
         let Held { stiff, targets } = held;
         let names = Names::of(system);
         let anchors = system.anchor_bits();
+
         let keys = parts
             .iter()
             .map(|component| {
@@ -118,6 +119,7 @@ impl<'a> Recall<'a> {
             })
             .collect();
         let mut part_from_first_equation = vec![None; system.equations.len()];
+
         for (index, component) in parts.iter().enumerate() {
             if let Some(slot) = component
                 .equations
@@ -181,6 +183,7 @@ impl<'a> Recall<'a> {
             None => Outcome::analysed(component, values, analyze()?),
         };
         let analysis = outcome.restore(component);
+
         self.remember(key, outcome);
         Ok(analysis)
     }
@@ -196,6 +199,7 @@ impl<'a> Recall<'a> {
             fixed_columns: Vec::new(),
             contributions: Vec::new(),
         };
+
         self.remember(key, outcome);
     }
 
@@ -206,6 +210,7 @@ impl<'a> Recall<'a> {
         let Some(aimed) = self.aimed_from(component, drawn) else {
             return false;
         };
+
         let Some(aimed_before) = previous.beyond_reach.get(&aimed.beyond) else {
             return false;
         };
@@ -239,9 +244,11 @@ impl<'a> Recall<'a> {
                     .map(|(_, to)| (*variable, *to))
             })
             .unzip();
+
         if variables.is_empty() {
             return None;
         }
+
         let dragged = variables
             .iter()
             .map(|variable| self.names.variables.get(*variable).copied().flatten())
@@ -275,6 +282,7 @@ impl<'a> Recall<'a> {
             .flatten()?;
         let part = self.parts.get(index)?;
         let same = part.equations == component.equations && part.variables == component.variables;
+
         if !same {
             return None;
         }
@@ -283,6 +291,7 @@ impl<'a> Recall<'a> {
 
     fn remember(&mut self, key: Key, outcome: Outcome) {
         let settled = key.settled(&outcome);
+
         if settled != key {
             self.next.outcomes.insert(settled, outcome.clone());
         }
@@ -344,11 +353,13 @@ struct Names {
 impl Names {
     fn of(system: &System) -> Self {
         let mut variables = vec![None; system.values.len()];
+
         let mut name = |index: usize, variable: Variable| {
             if let Some(slot) = variables.get_mut(index) {
                 *slot = Some(variable);
             }
         };
+
         for (entity, x) in &system.points {
             name(*x, Variable::X(*entity));
             name(x + 1, Variable::Y(*entity));
@@ -373,12 +384,15 @@ impl Names {
                 name(*parameter, Variable::Parameter(*constraint, ordinal));
             }
         }
+
         let mut counts = vec![0; system.values.len()];
+
         for variable in system.entity_variables.values().flatten() {
             if let Some(count) = counts.get_mut(*variable) {
                 *count += 1;
             }
         }
+
         let first_owner: Vec<usize> = std::iter::once(0)
             .chain(counts.iter().scan(0, |total, count| {
                 *total += count;
@@ -387,11 +401,13 @@ impl Names {
             .collect();
         let mut owners = vec![EntityId::ORIGIN; first_owner.last().copied().unwrap_or(0)];
         let mut filled = first_owner.clone();
+
         for (entity, variables) in &system.entity_variables {
             for variable in variables {
                 let Some(next) = filled.get_mut(*variable) else {
                     continue;
                 };
+
                 if let Some(slot) = owners.get_mut(*next) {
                     *slot = *entity;
                 }
@@ -439,15 +455,19 @@ impl Key {
             .flat_map(|variable| names.owners_of(*variable))
             .copied()
             .collect();
+
         entities.sort_unstable();
         entities.dedup();
+
         let mut constraints: Vec<ConstraintId> = component
             .equations
             .iter()
             .filter_map(|index| system.equations.get(*index)?.owner)
             .collect();
+
         constraints.sort_unstable();
         constraints.dedup();
+
         let start = component
             .variables
             .iter()

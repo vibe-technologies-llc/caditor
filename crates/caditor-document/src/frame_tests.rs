@@ -19,7 +19,9 @@ fn evaluate(document: &Document) -> Evaluation {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let mut outline = Sketch::new(Plane::XY);
     let corners = [
@@ -28,9 +30,11 @@ fn model() -> Model {
         Point2::new(10.0, 8.0),
         Point2::new(0.0, 8.0),
     ];
+
     for index in 0..4 {
         outline.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = transaction.add_feature(
         "Base",
@@ -46,6 +50,7 @@ fn model() -> Model {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -62,6 +67,7 @@ fn corner(model: &Model, point: Point3) -> PointReference {
         .vertices()
         .find(|(_, vertex)| vertex.point().distance(point) < CLOSE)
         .unwrap();
+
     let vertex: VertexName = names
         .iter()
         .find(|(vertex, _)| **vertex == id)
@@ -75,7 +81,9 @@ fn corner(model: &Model, point: Point3) -> PointReference {
 
 fn add(document: &mut Document, name: &str, kind: FeatureKind) -> FeatureId {
     let mut transaction = document.transaction("Add");
+
     let feature = transaction.add_feature(name, kind);
+
     document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -110,6 +118,7 @@ fn near(found: Vector3, expected: [f64; 3]) -> bool {
 #[test]
 fn a_coordinate_system_stands_at_its_point_with_x_along_its_axis_and_follows_the_body() {
     let mut model = model();
+
     let origin = corner(&model, Point3::new(10.0, 8.0, 4.0));
     let system = add(
         &mut model.document,
@@ -119,6 +128,7 @@ fn a_coordinate_system_stands_at_its_point_with_x_along_its_axis_and_follows_the
 
     let placed = frame(&evaluate(&model.document), system);
     let taller = model.document.parse("9 mm").unwrap();
+
     model
         .document
         .apply(Transaction::single(
@@ -129,6 +139,7 @@ fn a_coordinate_system_stands_at_its_point_with_x_along_its_axis_and_follows_the
             },
         ))
         .unwrap();
+
     let followed = frame(&evaluate(&model.document), system);
 
     assert!(near(placed.origin(), [10.0, 8.0, 4.0]));
@@ -151,6 +162,7 @@ fn a_coordinate_system_stands_at_its_point_with_x_along_its_axis_and_follows_the
 #[test]
 fn reversing_its_axes_keeps_the_system_right_handed() {
     let mut model = model();
+
     let system = add(
         &mut model.document,
         "Coordinate system 1",
@@ -171,6 +183,7 @@ fn reversing_its_axes_keeps_the_system_right_handed() {
 #[test]
 fn an_x_axis_square_to_the_plane_is_refused_in_words() {
     let mut model = model();
+
     let system = add(
         &mut model.document,
         "Coordinate system 1",
@@ -182,6 +195,7 @@ fn an_x_axis_square_to_the_plane_is_refused_in_words() {
     let FeatureState::Failed(error) = &evaluation.feature(system).unwrap().state else {
         panic!("a degenerate coordinate system must fail");
     };
+
     assert_eq!(
         error.reason(),
         "The Z axis stands square to the XY plane, so it gives no direction in that plane for \
@@ -193,6 +207,7 @@ fn an_x_axis_square_to_the_plane_is_refused_in_words() {
 #[test]
 fn its_axes_and_planes_place_datums_sketches_and_mirrors() {
     let mut model = model();
+
     let origin = corner(&model, Point3::new(10.0, 8.0, 4.0));
     let system = add(
         &mut model.document,
@@ -239,8 +254,10 @@ fn its_axes_and_planes_place_datums_sketches_and_mirrors() {
     let evaluation = evaluate(&model.document);
 
     let ray = datum(&evaluation, axis).axis().unwrap();
+
     assert!(near(ray.origin(), [10.0, 8.0, 4.0]));
     assert!(near(ray.direction(), [0.0, 1.0, 0.0]));
+
     let lies_on = evaluation
         .feature(sketch)
         .unwrap()
@@ -250,13 +267,18 @@ fn its_axes_and_planes_place_datums_sketches_and_mirrors() {
         .unwrap()
         .geometry
         .plane();
+
     assert!(near(lies_on.origin(), [10.0, 8.0, 4.0]));
     assert!(near(lies_on.normal(), [1.0, 0.0, 0.0]));
+
     let mirrored = evaluation.body(model.base).unwrap().bounding_box().unwrap();
+
     assert!(near(mirrored.min(), [0.0, 8.0, 0.0]));
     assert!(near(mirrored.max(), [10.0, 16.0, 4.0]));
     assert_eq!(evaluation.failed_count(), 0);
+
     let users = model.document.dependents_of(&[system]);
+
     assert!(
         [axis, sketch, mirror]
             .iter()
@@ -267,6 +289,7 @@ fn its_axes_and_planes_place_datums_sketches_and_mirrors() {
 #[test]
 fn a_move_in_a_coordinate_system_shifts_and_turns_along_its_axes() {
     let mut model = model();
+
     let origin = corner(&model, Point3::new(10.0, 0.0, 0.0));
     let system = add(
         &mut model.document,
@@ -274,6 +297,7 @@ fn a_move_in_a_coordinate_system_shifts_and_turns_along_its_axes() {
         FeatureKind::Datum(coordinate_system(origin, PrincipalAxis::Y)),
     );
     let mut transaction = model.document.transaction("Move");
+
     let values = |texts: [&str; 3]| texts.map(|text| transaction.parse(text).unwrap());
     let movement = Move {
         body: model.base,
@@ -283,12 +307,14 @@ fn a_move_in_a_coordinate_system_shifts_and_turns_along_its_axes() {
         about: TurnCentre::Origin,
         frame: Some(system),
     };
+
     transaction.add_feature("Move 1", FeatureKind::Move(movement));
     model.document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&model.document);
 
     let moved = evaluation.body(model.base).unwrap().bounding_box().unwrap();
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!(near(moved.min(), [2.0, -5.0, 0.0]));
     assert!(near(moved.max(), [10.0, 5.0, 4.0]));
@@ -297,6 +323,7 @@ fn a_move_in_a_coordinate_system_shifts_and_turns_along_its_axes() {
 #[test]
 fn a_reference_to_a_coordinate_system_must_name_one() {
     let mut model = model();
+
     let point = add(
         &mut model.document,
         "Point 1",
@@ -306,6 +333,7 @@ fn a_reference_to_a_coordinate_system_must_name_one() {
         })),
     );
     let mut transaction = model.document.transaction("Add");
+
     transaction.add_feature(
         "Axis 1",
         FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Frame {
@@ -334,8 +362,10 @@ fn framed_at_corner(model: &mut Model) -> FeatureId {
 #[test]
 fn a_point_at_a_coordinate_system_origin_follows_it() {
     let mut model = model();
+
     let system = framed_at_corner(&mut model);
     let mut transaction = model.document.transaction("Point");
+
     let offset = ["1 mm", "2 mm", "3 mm"].map(|text| transaction.parse(text).unwrap());
     let point = transaction.add_feature(
         "Point 1",
@@ -344,6 +374,7 @@ fn a_point_at_a_coordinate_system_origin_follows_it() {
             offset,
         })),
     );
+
     model.document.apply(transaction.finish()).unwrap();
 
     let placed = datum(&evaluate(&model.document), point).point().unwrap();
@@ -367,7 +398,9 @@ fn a_point_at_a_coordinate_system_origin_follows_it() {
 #[test]
 fn a_coordinate_system_origin_must_name_one() {
     let mut model = model();
+
     let mut transaction = model.document.transaction("Point");
+
     transaction.add_feature(
         "Point 1",
         FeatureKind::Datum(Datum::Point(DatumPoint {
@@ -387,9 +420,12 @@ fn a_coordinate_system_origin_must_name_one() {
 #[test]
 fn a_scale_centre_in_a_coordinate_system_is_measured_from_its_origin_along_its_axes() {
     let mut model = model();
+
     let system = framed_at_corner(&mut model);
     let mut transaction = model.document.transaction("Scale");
+
     let center = ["1 mm", "0 mm", "0 mm"].map(|text| transaction.parse(text).unwrap());
+
     transaction.add_feature(
         "Scale 1",
         FeatureKind::Scale(Scale {
@@ -412,11 +448,14 @@ fn a_scale_centre_in_a_coordinate_system_is_measured_from_its_origin_along_its_a
 #[test]
 fn an_import_placed_in_a_coordinate_system_takes_its_origin_and_axes() {
     let mut model = model();
+
     let system = framed_at_corner(&mut model);
     let solid = evaluate(&model.document).body(model.base).unwrap().clone();
     let mut placement = BodyPlacement::default();
+
     placement.offset[0] = model.document.parse("5 mm").unwrap();
     placement.frame = Some(system);
+
     let imported = add(
         &mut model.document,
         "Bracket",

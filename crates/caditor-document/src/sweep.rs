@@ -20,7 +20,7 @@ use crate::{
 
 pub const SWEEP_SHAPE: &str = "sweep";
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum SweepPath {
     #[default]
     Unchosen,
@@ -121,7 +121,7 @@ impl SweepPath {
 
 pub const MAX_SHAPE_ROWS: usize = 16;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ShapeRow {
     pub fraction: Expression,
     pub twist: Expression,
@@ -138,7 +138,7 @@ impl ShapeRow {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Sweep {
     pub sketch: FeatureId,
     pub regions: RegionChoice,
@@ -168,6 +168,7 @@ impl Sweep {
 
     pub fn expressions(&self) -> Vec<&Expression> {
         let mut expressions = vec![&self.twist, &self.scale];
+
         for row in &self.shape_law {
             expressions.extend([&row.fraction, &row.twist, &row.scale]);
         }
@@ -176,6 +177,7 @@ impl Sweep {
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         let mut expressions = vec![&mut self.twist, &mut self.scale];
+
         for row in &mut self.shape_law {
             expressions.extend([&mut row.fraction, &mut row.twist, &mut row.scale]);
         }
@@ -258,6 +260,7 @@ fn curve_path(
     let plane = geometry.plane();
     let mut segments = Vec::with_capacity(curves.len());
     let mut labels = Vec::with_capacity(curves.len());
+
     for curve in curves {
         let missing = || {
             failed(
@@ -272,7 +275,9 @@ fn curve_path(
             .ok_or_else(missing)?
             .curve()
             .map_err(|_| missing())?;
+
         let placed = flat.on_plane(&plane).map_err(|_| missing())?;
+
         segments.push(PathSegment::new(placed, range, u128::from(curve.raw())));
         labels.push(geometry.entity_label(*curve));
     }
@@ -297,6 +302,7 @@ fn edge_path(
     let naming = EdgeNaming::new(solid);
     let mut segments = Vec::with_capacity(edges.len());
     let mut labels = Vec::with_capacity(edges.len());
+
     for reference in edges {
         let id = reference.resolve_in(&naming).map_err(|error| {
             let body = body_name.clone();
@@ -317,6 +323,7 @@ fn edge_path(
                 own,
             )
         })?;
+
         segments.push(PathSegment::new(
             edge.curve().clone(),
             edge.interval(),
@@ -378,6 +385,7 @@ pub(crate) fn path_of(
         SweepPath::Edges { body, edges } => edge_path(feature, inputs, *body, edges)?,
         SweepPath::Helix { helix } => helix_path(inputs, *helix)?,
     };
+
     if built.segments.is_empty() {
         return Err(no_path());
     }
@@ -401,6 +409,7 @@ fn shape_of(
         "end scale",
         inputs.parameters,
     )?;
+
     if scale <= 0.0 {
         return Err(context.error(SweepCause::EndScale {
             feature: context.feature.name.clone(),
@@ -413,7 +422,9 @@ fn shape_of(
             rows: definition.shape_law.len(),
         }));
     }
+
     let mut law = Vec::with_capacity(definition.shape_law.len());
+
     for row in &definition.shape_law {
         let fraction = context.value(
             &row.fraction,
@@ -433,6 +444,7 @@ fn shape_of(
             "table scale",
             inputs.parameters,
         )?;
+
         law.push(ShapeStop {
             fraction,
             twist: twist.to_radians(),

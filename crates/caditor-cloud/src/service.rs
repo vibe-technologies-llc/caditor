@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Service {
     Fusion,
     Onshape,
@@ -97,6 +97,7 @@ mod tests {
         for service in Service::ALL {
             assert_eq!(Service::from_id(service.id()), Some(service));
         }
+
         assert_eq!(Service::from_id("solidworks"), None);
     }
 }

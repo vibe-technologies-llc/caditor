@@ -21,7 +21,9 @@ impl Stream {
 
     pub fn next_word(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(INCREMENT);
+
         let mut mixed = self.0;
+
         mixed = (mixed ^ (mixed >> 30)).wrapping_mul(FIRST_MIX);
         mixed = (mixed ^ (mixed >> 27)).wrapping_mul(SECOND_MIX);
         mixed ^ (mixed >> 31)
@@ -29,6 +31,7 @@ impl Stream {
 
     pub fn bytes(&mut self, length: usize) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(length + 8);
+
         while bytes.len() < length {
             bytes.extend_from_slice(&self.next_word().to_le_bytes());
         }
@@ -47,6 +50,7 @@ pub fn cases(default: u64) -> u64 {
 pub fn replay_case(seed: u64, mut check: impl FnMut(u64, &mut Unstructured)) {
     let bytes = Stream::new(seed).bytes(BYTES_PER_CASE);
     let mut input = Unstructured::new(&bytes);
+
     check(seed, &mut input);
 }
 

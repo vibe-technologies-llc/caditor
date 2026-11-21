@@ -5,7 +5,7 @@ use thiserror::Error;
 use super::{EdgeName, FaceName, FaceOrigin, VertexName};
 use crate::topology::{EdgeId, FaceId, Solid, VertexId};
 
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum ReferenceError<Id> {
     #[error("the referenced topology no longer exists")]
     Missing,
@@ -13,7 +13,7 @@ pub enum ReferenceError<Id> {
     Ambiguous(Vec<Id>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct FaceReference {
     name: FaceName,
     origin: Option<FaceOrigin>,
@@ -64,6 +64,7 @@ impl FaceReference {
             .filter(|(_, face)| face.name() == self.name)
             .map(|(id, _)| id)
             .collect();
+
         if let [only] = named.as_slice() {
             let found = neighbour_names(solid, *only);
             if self.neighbours.is_empty() || !self.neighbours.is_disjoint(&found) {
@@ -72,6 +73,7 @@ impl FaceReference {
         } else if !named.is_empty() {
             return self.best_by_neighbours(solid, &named, 0);
         }
+
         let Some(origin) = self.origin else {
             return Err(ReferenceError::Missing);
         };
@@ -113,7 +115,7 @@ impl FaceReference {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Match {
     shared: usize,
     fewer_differences: std::cmp::Reverse<usize>,
@@ -129,7 +131,7 @@ impl Match {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct EdgeReference {
     name: EdgeName,
     faces: [FaceName; 2],
@@ -201,14 +203,17 @@ impl EdgeReference {
         fallback: Fallback,
     ) -> Result<EdgeId, ReferenceError<EdgeId>> {
         let named = naming.named(self.name);
+
         if let [only] = named {
             return Ok(*only);
         }
+
         let candidates = if named.is_empty() {
             naming.between(self.faces)
         } else {
             named
         };
+
         if let [only] = candidates {
             return Ok(*only);
         }
@@ -218,6 +223,7 @@ impl EdgeReference {
                 Fallback::None => Err(ReferenceError::Missing),
             };
         }
+
         let scored: Vec<(EdgeId, usize)> = candidates
             .iter()
             .filter_map(|id| Some((*id, self.matching_ends(naming.edges.get(id)?))))
@@ -241,6 +247,7 @@ impl EdgeReference {
     fn kept_sides(&self, sides: [NamedSide; 2]) -> Option<usize> {
         let [first, second] = sides;
         let [expected_first, expected_second] = self.expected_sides();
+
         let paired = |a: &ExpectedSide, b: &ExpectedSide| Some(a.kept(&first)? + b.kept(&second)?);
         paired(&expected_first, &expected_second)
             .into_iter()
@@ -271,7 +278,7 @@ impl EdgeReference {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Fallback {
     Origins,
     None,
@@ -312,20 +319,20 @@ fn best_of<Score: Ord + Copy>(
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct NamedEdge {
     name: EdgeName,
     sides: Option<[NamedSide; 2]>,
     ends: [VertexName; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct NamedSide {
     name: FaceName,
     origin: Option<FaceOrigin>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct EdgeNaming {
     edges: BTreeMap<EdgeId, NamedEdge>,
     by_name: BTreeMap<EdgeName, Vec<EdgeId>>,
@@ -342,8 +349,10 @@ impl EdgeNaming {
                 .unwrap_or_else(|| VertexName::of_faces([]))
         };
         let mut naming = Self::default();
+
         for (id, edge) in solid.edges() {
             let sides = edge_sides(solid, id);
+
             naming.edges.insert(
                 id,
                 NamedEdge {
@@ -430,6 +439,7 @@ pub fn vertex_names(solid: &Solid) -> BTreeMap<VertexId, VertexName> {
 
 pub fn faces_around_vertices(solid: &Solid) -> BTreeMap<VertexId, BTreeSet<FaceName>> {
     let mut around: BTreeMap<VertexId, BTreeSet<FaceName>> = BTreeMap::new();
+
     for (id, edge) in solid.edges() {
         let names: Vec<FaceName> = edge_faces(solid, id)
             .into_iter()

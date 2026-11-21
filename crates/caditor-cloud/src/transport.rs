@@ -2,7 +2,7 @@ use std::io::Write;
 
 use crate::{encoding::percent_encode, error::Error, pkce};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Method {
     Get,
     Post,
@@ -62,6 +62,7 @@ impl Multipart {
 
     pub fn encoded(&self) -> Vec<u8> {
         let mut body = Vec::with_capacity(self.bytes.len() + 1024);
+
         for (name, value) in &self.fields {
             body.extend_from_slice(format!("--{}\r\n", self.boundary).as_bytes());
             body.extend_from_slice(
@@ -183,7 +184,7 @@ impl std::fmt::Debug for Request {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Response {
     pub status: u16,
     pub body: Vec<u8>,
@@ -196,14 +197,14 @@ impl Response {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fetched {
     pub status: u16,
     pub retry_after_seconds: Option<u64>,
     pub bytes: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TransportError {
     #[error("caditor could not reach the service. Check the internet connection.")]
     Unreachable,

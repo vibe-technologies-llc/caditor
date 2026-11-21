@@ -16,6 +16,7 @@ const PLATE_VOLUME: f64 = 20.0 * 10.0 * 4.0;
 fn mirrored(pair: &mut Pair, plane: PlaneReference, outcome: MirrorOutcome) -> FeatureId {
     let plate = pair.plate;
     let mut transaction = pair.document.transaction("Mirror");
+
     let feature = transaction.add_feature(
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
@@ -27,6 +28,7 @@ fn mirrored(pair: &mut Pair, plane: PlaneReference, outcome: MirrorOutcome) -> F
             faces: Vec::new(),
         }),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -66,6 +68,7 @@ fn end_face(solid: &Solid, normal: Vector3) -> FaceId {
 fn a_mirror_alone_puts_the_body_on_the_other_side_and_keeps_its_face_names() {
     let mut pair = pair();
     let mut engine = Recompute::default();
+
     let before = evaluate(&pair.document, &mut engine);
     let names = face_names(&before, pair.plate);
 
@@ -74,10 +77,13 @@ fn a_mirror_alone_puts_the_body_on_the_other_side_and_keeps_its_face_names() {
         PlaneReference::Principal(PrincipalPlane::Yz),
         MirrorOutcome::Replace,
     );
+
     let after = evaluate(&pair.document, &mut engine);
 
     assert_eq!(after.failed_count(), 0);
+
     let (low, high) = bounds(&after, pair.plate);
+
     assert!(near(low, [-20.0, 0.0, 0.0]), "{low:?}");
     assert!(near(high, [0.0, 10.0, 4.0]), "{high:?}");
     assert!((volume(&after, pair.plate) - PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
@@ -94,10 +100,13 @@ fn keeping_the_original_joins_it_with_its_image_across_the_plane() {
         PlaneReference::Principal(PrincipalPlane::Yz),
         MirrorOutcome::AddToBody,
     );
+
     let after = evaluate(&pair.document, &mut engine);
 
     assert_eq!(after.failed_count(), 0);
+
     let (low, high) = bounds(&after, pair.plate);
+
     assert!(near(low, [-20.0, 0.0, 0.0]), "{low:?}");
     assert!(near(high, [20.0, 10.0, 4.0]), "{high:?}");
     assert!((volume(&after, pair.plate) - 2.0 * PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
@@ -107,6 +116,7 @@ fn keeping_the_original_joins_it_with_its_image_across_the_plane() {
 fn a_mirror_across_a_face_of_its_own_body_doubles_it_and_follows_the_face() {
     let mut pair = pair();
     let mut engine = Recompute::default();
+
     let before = evaluate(&pair.document, &mut engine);
     let plate = before.body(pair.plate).unwrap();
     let (attachment, _) =
@@ -120,10 +130,14 @@ fn a_mirror_across_a_face_of_its_own_body_doubles_it_and_follows_the_face() {
     let after = evaluate(&pair.document, &mut engine);
 
     assert_eq!(after.failed_count(), 0);
+
     let (low, high) = bounds(&after, pair.plate);
+
     assert!(near(low, [0.0, 0.0, 0.0]), "{low:?}");
     assert!(near(high, [40.0, 10.0, 4.0]), "{high:?}");
+
     let feature = pair.document.feature(mirror).unwrap();
+
     assert!(feature.kind.dependencies().contains(&pair.plate));
     assert!(feature.kind.origin_features().contains(&pair.plate));
 }
@@ -131,7 +145,9 @@ fn a_mirror_across_a_face_of_its_own_body_doubles_it_and_follows_the_face() {
 #[test]
 fn a_mirror_across_a_datum_plane_apart_from_the_body_keeps_two_lumps_and_uses_the_datum() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Datum");
+
     let datum = transaction.add_feature(
         "Plane 1",
         FeatureKind::Datum(Datum::Plane(DatumPlane {
@@ -140,7 +156,9 @@ fn a_mirror_across_a_datum_plane_apart_from_the_body_keeps_two_lumps_and_uses_th
             offset: transaction.parse("30 mm").unwrap(),
         })),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mirror = mirrored(
         &mut pair,
         PlaneReference::Datum(datum),
@@ -151,7 +169,9 @@ fn a_mirror_across_a_datum_plane_apart_from_the_body_keeps_two_lumps_and_uses_th
     let after = evaluate(&pair.document, &mut engine);
 
     assert_eq!(after.failed_count(), 0);
+
     let (low, high) = bounds(&after, pair.plate);
+
     assert!(near(low, [0.0, 0.0, 0.0]), "{low:?}");
     assert!(near(high, [60.0, 10.0, 4.0]), "{high:?}");
     assert!((volume(&after, pair.plate) - 2.0 * PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
@@ -170,6 +190,7 @@ fn a_mirror_across_a_datum_plane_apart_from_the_body_keeps_two_lumps_and_uses_th
 fn faces_of_the_image_are_described_as_the_mirror_image_of_the_original() {
     let mut pair = pair();
     let mut engine = Recompute::default();
+
     mirrored(
         &mut pair,
         PlaneReference::Principal(PrincipalPlane::Yz),
@@ -179,6 +200,7 @@ fn faces_of_the_image_are_described_as_the_mirror_image_of_the_original() {
     let after = evaluate(&pair.document, &mut engine);
     let solid = after.body(pair.plate).unwrap();
     let image = end_face(solid, Vector3::NEG_X);
+
     let described = describe_origin(&pair.document, solid.face(image).unwrap().origin());
 
     assert_eq!(described, "Mirror 1 image of Plate side from Line 5");
@@ -188,6 +210,7 @@ fn faces_of_the_image_are_described_as_the_mirror_image_of_the_original() {
 fn a_mirror_as_a_new_body_leaves_the_original_and_makes_a_body_of_the_image() {
     let mut pair = pair();
     let mut engine = Recompute::default();
+
     let before = evaluate(&pair.document, &mut engine);
     let names = face_names(&before, pair.plate);
 
@@ -199,14 +222,19 @@ fn a_mirror_as_a_new_body_leaves_the_original_and_makes_a_body_of_the_image() {
     let after = evaluate(&pair.document, &mut engine);
 
     let feature = pair.document.feature(mirror).unwrap();
+
     assert!(feature.makes_body());
     assert_eq!(feature.body(), Some(mirror));
     assert_eq!(after.failed_count(), 0);
+
     let (low, high) = bounds(&after, pair.plate);
+
     assert!(near(low, [0.0, 0.0, 0.0]), "{low:?}");
     assert!(near(high, [20.0, 10.0, 4.0]), "{high:?}");
     assert_eq!(face_names(&after, pair.plate), names);
+
     let (low, high) = bounds(&after, mirror);
+
     assert!(near(low, [-20.0, 0.0, 0.0]), "{low:?}");
     assert!(near(high, [0.0, 10.0, 4.0]), "{high:?}");
     assert!((volume(&after, mirror) - PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
@@ -215,8 +243,10 @@ fn a_mirror_as_a_new_body_leaves_the_original_and_makes_a_body_of_the_image() {
         vec![pair.plate, pair.peg, mirror]
     );
     assert_eq!(pair.document.dependents_of(&[pair.plate]), vec![mirror]);
+
     let image = after.body(mirror).unwrap();
     let face = end_face(image, Vector3::NEG_X);
+
     assert_eq!(
         describe_origin(&pair.document, image.face(face).unwrap().origin()),
         "Mirror 1 image of Plate side from Line 5"
@@ -232,6 +262,7 @@ fn a_mirror_switches_to_a_new_body_and_back_and_undo_restores_each() {
         PlaneReference::Principal(PrincipalPlane::Yz),
         MirrorOutcome::AddToBody,
     );
+
     let joined = pair.document.feature(mirror).unwrap().kind.clone();
     let FeatureKind::Mirror(apart) = joined.clone() else {
         panic!("the feature is a mirror");
@@ -248,12 +279,15 @@ fn a_mirror_switches_to_a_new_body_and_back_and_undo_restores_each() {
         ))
         .unwrap();
     let after = evaluate(&pair.document, &mut engine);
+
     assert!(pair.document.feature(mirror).unwrap().makes_body());
     assert!((volume(&after, pair.plate) - PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
     assert!((volume(&after, mirror) - PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
 
     pair.document.apply(undo).unwrap();
+
     let after = evaluate(&pair.document, &mut engine);
+
     assert_eq!(pair.document.feature(mirror).unwrap().kind, joined);
     assert!(!pair.document.feature(mirror).unwrap().makes_body());
     assert!((volume(&after, pair.plate) - 2.0 * PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
@@ -263,14 +297,17 @@ fn a_mirror_switches_to_a_new_body_and_back_and_undo_restores_each() {
 #[test]
 fn a_new_body_others_use_cannot_stop_being_one_and_mirrored_features_make_none() {
     let mut pair = pair();
+
     let mirror = mirrored(
         &mut pair,
         PlaneReference::Principal(PrincipalPlane::Yz),
         MirrorOutcome::NewBody,
     );
     let mut transaction = pair.document.transaction("Use");
+
     transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: mirror }));
     pair.document.apply(transaction.finish()).unwrap();
+
     let FeatureKind::Mirror(image) = pair.document.feature(mirror).unwrap().kind.clone() else {
         panic!("the feature is a mirror");
     };
@@ -301,15 +338,20 @@ fn a_new_body_others_use_cannot_stop_being_one_and_mirrored_features_make_none()
 #[test]
 fn a_mirror_across_an_axis_datum_is_refused() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Axis");
+
     let axis = transaction.add_feature(
         "Axis 1",
         FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Principal(
             PrincipalAxis::Z,
         )))),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mut transaction = pair.document.transaction("Mirror");
+
     transaction.add_feature(
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
@@ -331,6 +373,7 @@ fn a_mirror_across_an_axis_datum_is_refused() {
 #[test]
 fn a_mirror_changes_its_body_without_hiding_the_result_and_is_dependent_on_it() {
     let mut pair = pair();
+
     let mirror = mirrored(
         &mut pair,
         PlaneReference::Principal(PrincipalPlane::Xz),
@@ -370,7 +413,9 @@ fn hole_of(points: FeatureId, plate: FeatureId, diameter: &str) -> FeatureKind {
 
 fn featured(mirrored: impl FnOnce(&Featured) -> Vec<FeatureId>) -> Featured {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle((-30.0, 0.0), (30.0, 10.0))),
@@ -378,7 +423,9 @@ fn featured(mirrored: impl FnOnce(&Featured) -> Vec<FeatureId>) -> Featured {
     let plate =
         transaction.add_feature("Plate", extrusion(outline, "4 mm", BodyOperation::NewBody));
     let mut points = Sketch::new(top());
+
     points.add_point(Point2::new(-25.0, 5.0));
+
     let points = transaction.add_feature("Hole sketch", FeatureKind::from(points));
     let hole = transaction.add_feature("Hole 1", hole_of(points, plate, "2 mm"));
     let boss_outline = transaction.add_feature(
@@ -389,7 +436,9 @@ fn featured(mirrored: impl FnOnce(&Featured) -> Vec<FeatureId>) -> Featured {
         "Boss",
         extrusion(boss_outline, "2 mm", BodyOperation::Add(plate)),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut featured = Featured {
         document,
         plate,
@@ -397,9 +446,11 @@ fn featured(mirrored: impl FnOnce(&Featured) -> Vec<FeatureId>) -> Featured {
         boss,
         mirror: FeatureId::from_raw(0),
     };
+
     let mirror = Mirror::new(plate, PlaneReference::Principal(PrincipalPlane::Yz))
         .mirroring(mirrored(&featured));
     let mut transaction = featured.document.transaction("Mirror");
+
     featured.mirror = transaction.add_feature("Mirror 1", FeatureKind::Mirror(mirror));
     featured.document.apply(transaction.finish()).unwrap();
     featured
@@ -411,6 +462,7 @@ fn hole_area(diameter: f64) -> f64 {
 
 fn assert_near_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
     let found = volume(evaluation, body);
+
     assert!(
         (found - expected).abs() < 0.01 * expected,
         "volume {found} instead of {expected}"
@@ -427,15 +479,20 @@ fn mirroring_features_reflects_their_hole_and_boss_and_follows_edits_to_them() {
     let evaluation = evaluate(&featured.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_near_volume(
         &evaluation,
         featured.plate,
         plate - 2.0 * hole_area(2.0) * 4.0 + 2.0 * boss,
     );
+
     assert_eq!(evaluation.cuts(featured.mirror).len(), 1);
+
     let (low, high) = bounds(&evaluation, featured.plate);
+
     assert!(near(low, [-30.0, 0.0, 0.0]), "{low:?}");
     assert!(near(high, [30.0, 10.0, 6.0]), "{high:?}");
+
     let solid = evaluation.body(featured.plate).unwrap();
     let images: BTreeSet<[u32; 2]> = solid
         .faces()
@@ -443,13 +500,16 @@ fn mirroring_features_reflects_their_hole_and_boss_and_follows_edits_to_them() {
         .filter(|copy| copy.pattern == featured.mirror.raw())
         .map(|copy| copy.index)
         .collect();
+
     assert_eq!(images, BTreeSet::from([MIRROR_IMAGE]));
+
     let used = featured
         .document
         .feature(featured.mirror)
         .unwrap()
         .kind
         .features();
+
     assert!(used.contains(&featured.hole) && used.contains(&featured.boss));
 
     let points = featured
@@ -460,6 +520,7 @@ fn mirroring_features_reflects_their_hole_and_boss_and_follows_edits_to_them() {
         .hole()
         .unwrap()
         .sketch;
+
     featured
         .document
         .apply(Transaction::single(
@@ -470,9 +531,11 @@ fn mirroring_features_reflects_their_hole_and_boss_and_follows_edits_to_them() {
             },
         ))
         .unwrap();
+
     let widened = evaluate(&featured.document, &mut engine);
 
     assert_eq!(widened.failed_count(), 0);
+
     assert_near_volume(
         &widened,
         featured.plate,
@@ -486,6 +549,7 @@ fn a_mirrored_feature_that_made_the_body_fails_the_mirror_naming_it() {
     let evaluation = evaluate(&featured.document, &mut Recompute::default());
 
     let error = failure(&evaluation, featured.mirror);
+
     assert_eq!(
         error.reason(),
         "Plate neither adds to nor removes from a body, so it cannot be mirrored."
@@ -509,6 +573,7 @@ fn faces_mirrored(featured: &mut Featured, made_by: FeatureId, engine: &mut Reco
             },
         ))
         .unwrap();
+
     let before = evaluate(&featured.document, engine);
     let solid = before.body(featured.plate).unwrap();
     let faces = solid
@@ -524,6 +589,7 @@ fn faces_mirrored(featured: &mut Featured, made_by: FeatureId, engine: &mut Reco
         PlaneReference::Principal(PrincipalPlane::Yz),
     )
     .mirroring_faces(faces);
+
     featured
         .document
         .apply(Transaction::new(
@@ -551,16 +617,21 @@ fn mirroring_a_hole_s_faces_cuts_their_image_and_follows_edits_to_them() {
     let hole = featured.hole;
 
     faces_mirrored(&mut featured, hole, &mut engine);
+
     let evaluation = evaluate(&featured.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_near_volume(
         &evaluation,
         featured.plate,
         plate - 2.0 * hole_area(2.0) * 4.0 + boss,
     );
+
     assert_eq!(evaluation.cuts(featured.mirror).len(), 1);
+
     let mirror = featured.document.feature(featured.mirror).unwrap();
+
     assert!(mirror.kind.dependencies().contains(&featured.hole));
 
     let points = featured
@@ -571,6 +642,7 @@ fn mirroring_a_hole_s_faces_cuts_their_image_and_follows_edits_to_them() {
         .hole()
         .unwrap()
         .sketch;
+
     featured
         .document
         .apply(Transaction::single(
@@ -581,9 +653,11 @@ fn mirroring_a_hole_s_faces_cuts_their_image_and_follows_edits_to_them() {
             },
         ))
         .unwrap();
+
     let widened = evaluate(&featured.document, &mut engine);
 
     assert_eq!(widened.failed_count(), 0);
+
     assert_near_volume(
         &widened,
         featured.plate,
@@ -600,16 +674,21 @@ fn mirroring_a_boss_s_faces_joins_their_image() {
     let made_by = featured.boss;
 
     faces_mirrored(&mut featured, made_by, &mut engine);
+
     let evaluation = evaluate(&featured.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     assert_near_volume(
         &evaluation,
         featured.plate,
         plate - hole_area(2.0) * 4.0 + 2.0 * boss,
     );
+
     assert_eq!(evaluation.joins(featured.mirror).len(), 1);
+
     let (_, high) = bounds(&evaluation, featured.plate);
+
     assert!(near(high, [30.0, 10.0, 6.0]), "{high:?}");
 }
 
@@ -618,7 +697,9 @@ fn faces_that_bound_no_closable_region_fail_the_mirror_in_words() {
     let mut featured = featured(|_| Vec::new());
     let mut engine = Recompute::default();
     let made_by = featured.boss;
+
     faces_mirrored(&mut featured, made_by, &mut engine);
+
     let mut mirror = featured
         .document
         .feature(featured.mirror)
@@ -627,6 +708,7 @@ fn faces_that_bound_no_closable_region_fail_the_mirror_in_words() {
         .mirror()
         .unwrap()
         .clone();
+
     mirror.faces.truncate(2);
     featured
         .document
@@ -642,6 +724,7 @@ fn faces_that_bound_no_closable_region_fail_the_mirror_in_words() {
     let evaluation = evaluate(&featured.document, &mut engine);
 
     let error = failure(&evaluation, featured.mirror);
+
     assert!(
         error.reason().contains("so they do not bound a region"),
         "{}",
@@ -660,6 +743,7 @@ const PEG_VOLUME: f64 = 10.0 * 6.0 * 6.0;
 fn mirrored_both(pair: &mut Pair, outcome: MirrorOutcome) -> FeatureId {
     let (plate, peg) = (pair.plate, pair.peg);
     let mut transaction = pair.document.transaction("Mirror");
+
     let feature = transaction.add_feature(
         "Mirror 1",
         FeatureKind::Mirror(
@@ -668,6 +752,7 @@ fn mirrored_both(pair: &mut Pair, outcome: MirrorOutcome) -> FeatureId {
                 .with_outcome(outcome),
         ),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -693,10 +778,14 @@ fn one_mirror_joins_each_of_several_bodies_with_its_own_image() {
         pair.document.feature(mirror).unwrap().bodies(),
         [pair.plate, pair.peg]
     );
+
     let (low, high) = bounds(&after, pair.plate);
+
     assert!(near(low, [-20.0, 0.0, 0.0]), "{low:?}");
     assert!(near(high, [20.0, 10.0, 4.0]), "{high:?}");
+
     let (low, high) = bounds(&after, pair.peg);
+
     assert!(near(low, [-25.0, 2.0, 0.0]), "{low:?}");
     assert!(near(high, [25.0, 8.0, 6.0]), "{high:?}");
     assert!((volume(&after, pair.peg) - 2.0 * PEG_VOLUME).abs() < 1e-6 * PEG_VOLUME);
@@ -712,16 +801,21 @@ fn one_mirror_of_several_bodies_makes_a_body_of_each_image_named_after_its_origi
     let after = evaluate(&pair.document, &mut engine);
 
     let feature = pair.document.feature(mirror).unwrap();
+
     assert!(feature.makes_body() && feature.separates_pieces());
     assert_eq!(after.failed_count(), 0);
+
     let images = after.pieces_made_by(mirror);
     let plate_image = mirror.piece(Mirror::image_key(pair.plate)).unwrap();
     let peg_image = mirror.piece(Mirror::image_key(pair.peg)).unwrap();
+
     assert_eq!(images, [plate_image, peg_image]);
     assert!(after.body(mirror).is_none());
     assert!((volume(&after, pair.plate) - PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
     assert!((volume(&after, pair.peg) - PEG_VOLUME).abs() < 1e-6 * PEG_VOLUME);
+
     let (low, high) = bounds(&after, peg_image);
+
     assert!(near(low, [-25.0, 2.0, 0.0]), "{low:?}");
     assert!(near(high, [-15.0, 8.0, 6.0]), "{high:?}");
     assert!((volume(&after, plate_image) - PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
@@ -740,14 +834,20 @@ fn an_image_others_use_keeps_its_mirror_making_bodies_and_fails_them_once_left_o
     let mut pair = pair();
     let mut engine = Recompute::default();
     let mut transaction = pair.document.transaction("Third");
+
     let block = block(&mut transaction, "Block", (0.0, 20.0), (5.0, 25.0), "3 mm");
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let mirror = mirrored_both(&mut pair, MirrorOutcome::NewBody);
     let peg_image = mirror.piece(Mirror::image_key(pair.peg)).unwrap();
     let mut transaction = pair.document.transaction("Use");
+
     let removal =
         transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: peg_image }));
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let both = mirror_of(&pair.document, mirror);
 
     let joining = pair.document.apply(Transaction::single(
@@ -764,6 +864,7 @@ fn an_image_others_use_keeps_its_mirror_making_bodies_and_fails_them_once_left_o
             kind: FeatureKind::Mirror(both.clone().with_more_bodies(Vec::new())),
         },
     ));
+
     pair.document
         .apply(Transaction::single(
             "Block instead of the peg",
@@ -773,12 +874,15 @@ fn an_image_others_use_keeps_its_mirror_making_bodies_and_fails_them_once_left_o
             },
         ))
         .unwrap();
+
     let after = evaluate(&pair.document, &mut engine);
 
     assert!(matches!(joining, Err(EditError::BodyInUse { .. })));
     assert!(matches!(plate_only, Err(EditError::PiecesInUse { .. })));
     assert_eq!(after.failed_count(), 1);
+
     let error = failure(&after, removal);
+
     assert_eq!(
         error.reason(),
         "Mirror 1 no longer mirrors Peg, so there is no image to work on."

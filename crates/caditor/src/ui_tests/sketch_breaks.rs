@@ -14,14 +14,18 @@ const BREAK: &str = "break the selected curves at every crossing";
 fn breaking_the_selected_line_cuts_it_at_every_crossing_in_one_undoable_step() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let across = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+
     sketch.add_line(Point2::new(10.0, -5.0), Point2::new(10.0, 5.0));
     sketch.add_line(Point2::new(30.0, -5.0), Point2::new(30.0, 5.0));
+
     let feature = edit_free_sketch(&mut harness, sketch);
     let before = harness.sketch(feature).clone();
 
     run_from_palette(&mut harness, BREAK);
     harness.settle();
+
     assert!(harness.shows_containing(sketch_tools::NOTHING_TO_BREAK));
     assert!(harness.sketch(feature).same_content(&before));
     assert!(!harness.workspace.palette.is_open());
@@ -31,6 +35,7 @@ fn breaking_the_selected_line_cuts_it_at_every_crossing_in_one_undoable_step() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
+
     assert_eq!(entities_of_kind(sketch, "Line").len(), 5);
     assert_eq!(constraints_of_kind(sketch, "Collinear").len(), 2);
     assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 2);
@@ -38,6 +43,7 @@ fn breaking_the_selected_line_cuts_it_at_every_crossing_in_one_undoable_step() {
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
+
     assert!(harness.sketch(feature).same_content(&before));
 }
 
@@ -45,6 +51,7 @@ fn breaking_the_selected_line_cuts_it_at_every_crossing_in_one_undoable_step() {
 fn breaking_a_curve_that_crosses_nothing_says_so_and_changes_nothing() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     let alone = sketch.add_line(Point2::new(5.0, 5.0), Point2::new(15.0, 5.0));
     let feature = edit_free_sketch(&mut harness, sketch);
     let before = harness.sketch(feature).clone();

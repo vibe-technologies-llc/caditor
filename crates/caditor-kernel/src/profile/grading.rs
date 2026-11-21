@@ -17,6 +17,7 @@ pub(crate) fn graded(
                 .filter(|junction| from < *junction && *junction < to),
         )
         .collect();
+
     nodes.sort_by(f64::total_cmp);
     nodes.dedup_by(|later, earlier| *later - *earlier < NARROWEST);
     loop {
@@ -33,6 +34,7 @@ pub(crate) fn graded(
                 _ => None,
             })
             .collect();
+
         if wide.is_empty() || nodes.len() + wide.len() > MAX_NODES {
             return nodes;
         }

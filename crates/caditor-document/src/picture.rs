@@ -13,7 +13,7 @@ const TGA_TYPES: [u8; 6] = [1, 2, 3, 9, 10, 11];
 const TGA_DEPTHS: [u8; 5] = [8, 15, 16, 24, 32];
 const TGA_HEADER_BYTES: usize = 18;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PictureFormat {
     Png,
     Jpeg,
@@ -75,7 +75,7 @@ impl PictureFormat {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnsupportedPicture {
     Avif,
     Heic,
@@ -90,7 +90,7 @@ impl UnsupportedPicture {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sniffed {
     Supported(PictureFormat),
     Unsupported(UnsupportedPicture),
@@ -99,6 +99,7 @@ pub enum Sniffed {
 
 pub fn sniff_picture(bytes: &[u8]) -> Sniffed {
     let starts = |magic: &[u8]| bytes.starts_with(magic);
+
     if starts(b"\x89PNG\r\n\x1a\n") {
         return Sniffed::Supported(PictureFormat::Png);
     }
@@ -136,6 +137,7 @@ fn iso_media(bytes: &[u8]) -> Option<UnsupportedPicture> {
     if bytes.get(4..8) != Some(b"ftyp") {
         return None;
     }
+
     let brands = bytes.get(8..12)?;
     match brands {
         b"avif" | b"avis" => Some(UnsupportedPicture::Avif),
@@ -163,7 +165,7 @@ fn looks_like_tga(bytes: &[u8]) -> bool {
         && (colour_map == 1) == matches!(kind, 1 | 9)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PictureDigest([u8; DIGEST_BYTES]);
 
 impl PictureDigest {
@@ -179,9 +181,12 @@ impl PictureDigest {
         if text.len() != DIGEST_BYTES * 2 || !text.is_ascii() {
             return None;
         }
+
         let mut digest = [0; DIGEST_BYTES];
+
         for (index, byte) in digest.iter_mut().enumerate() {
             let pair = text.get(index * 2..index * 2 + 2)?;
+
             *byte = u8::from_str_radix(pair, 16).ok()?;
         }
         Some(Self(digest))
@@ -194,7 +199,7 @@ impl fmt::Debug for PictureDigest {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct PixelSize {
     pub width: u32,
     pub height: u32,
@@ -219,7 +224,7 @@ impl PixelSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum PictureError {
     #[error("it is empty")]
     Empty,

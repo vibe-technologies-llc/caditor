@@ -20,7 +20,7 @@ const ADAPTER_KEY: &str = "graphics.adapter";
 const LOWEST_DISPLAY_RATE: f64 = 1.0;
 pub const COPY_DETAILS: &str = "Copy details";
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FrameLimit {
     #[default]
     Unlimited,
@@ -128,7 +128,7 @@ fn usable_rate(rate: Option<f64>) -> Option<f64> {
     rate.filter(|rate| rate.is_finite() && *rate >= LOWEST_DISPLAY_RATE)
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CurveQuality {
     Coarse,
     #[default]
@@ -289,7 +289,7 @@ fn shading_from_key(key: &str) -> Option<Shading> {
         .find(|shading| shading_key(*shading) == key)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Graphics {
     pub vsync: bool,
     pub frame_limit: FrameLimit,
@@ -370,7 +370,7 @@ impl Graphics {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hardware {
     pub adapter: Option<GraphicsInfo>,
     pub refresh_rate: Option<f64>,
@@ -379,6 +379,7 @@ pub struct Hardware {
 impl Hardware {
     fn details(&self, graphics: &Graphics) -> String {
         let mut lines = Vec::new();
+
         if let Some(adapter) = &self.adapter {
             lines.push(format!("Adapter: {}", adapter.adapter));
             lines.push(format!("Backend: {}", adapter.backend));
@@ -424,6 +425,7 @@ impl FramePacer {
             let late = due.checked_add(interval)?;
             (due <= now && now < late).then_some(due)
         });
+
         self.slot = Some(on_cadence.unwrap_or(now));
     }
 
@@ -457,6 +459,7 @@ fn display(
         .adapter
         .as_ref()
         .is_none_or(|adapter| adapter.vsync_optional);
+
     preferences::section(
         ui,
         shown,
@@ -465,6 +468,7 @@ fn display(
         |ui| {
             widgets::property(ui, "Vsync", |ui| {
                 let mut vsync = graphics.vsync || !vsync_optional;
+
                 let response = ui
                     .add_enabled_ui(vsync_optional, |ui| {
                         widgets::checkbox(ui, &mut vsync, "Wait for the display")
@@ -479,6 +483,7 @@ fn display(
                         "This display only shows frames in step with its refresh, so vsync stays \
                          on",
                     );
+
                 widgets::tie_to_caption(ui, &response);
                 if response.changed() {
                     preferences::change(command, PreferenceChange::Vsync(vsync));
@@ -506,13 +511,16 @@ fn display(
             if let Some(current) = graphics.frame_limit.rate() {
                 widgets::property(ui, "Frames a second", |ui| {
                     let mut rate = current;
+
                     let response = widgets::slider(
                         ui,
                         egui::Slider::new(&mut rate, FrameLimit::MIN_FPS..=FrameLimit::MAX_FPS)
                             .logarithmic(true)
                             .suffix(" fps"),
                     );
+
                     widgets::tie_to_caption(ui, &response);
+
                     let make = |rate| PreferenceChange::FrameLimit(FrameLimit::fps(rate));
                     if response.drag_stopped() || (response.changed() && !response.dragged()) {
                         preferences::change(command, make(rate));
@@ -536,6 +544,7 @@ fn quality(
     let fallback = adapter
         .filter(|adapter| adapter.msaa != graphics.msaa)
         .map(|adapter| adapter.msaa);
+
     preferences::section(ui, shown, Section::GraphicsQuality, None, |ui| {
         widgets::property(ui, "Anti-aliasing", |ui| {
             let hovers = Msaa::ALL.map(msaa_hover);
@@ -543,6 +552,7 @@ fn quality(
                 let offered = adapter.is_none_or(|adapter| adapter.offers(msaa));
                 (!offered).then(|| msaa_refusal(msaa))
             });
+
             let segments: Vec<Segment<'_>> = Msaa::ALL
                 .iter()
                 .zip(hovers.iter().zip(&refusals))
@@ -598,6 +608,7 @@ fn adapter(
     let graphics = &shown.preferences.graphics;
     let note = "Include these details when reporting a drawing problem. Choosing another adapter \
                 switches the drawing to it at once; WGPU_POWER_PREF, when set, still decides.";
+
     preferences::section(
         ui,
         shown,
@@ -658,6 +669,7 @@ mod tests {
     #[test]
     fn graphics_settings_are_read_clamped_to_what_caditor_offers() {
         let mut raw = Settings::default();
+
         raw.set_flag(VSYNC_KEY, false);
         raw.set_text(FRAME_LIMIT_KEY, "75");
         raw.set_number(MSAA_KEY, 16.0);
@@ -677,19 +689,24 @@ mod tests {
         assert_eq!(read.curves.mesh_quality(), MeshQuality::COARSE);
 
         let mut written = Settings::default();
+
         read.write(&mut written);
+
         assert_eq!(written.text(FRAME_LIMIT_KEY), Some("75"));
         assert_eq!(written.number(MSAA_KEY), Some(8.0));
         assert_eq!(written.text(ADAPTER_KEY), Some("performance"));
         assert_eq!(Graphics::from_settings(&written), read);
 
         let mut odd = Settings::default();
+
         odd.set_text(FRAME_LIMIT_KEY, "fast");
         odd.set_number(MSAA_KEY, 3.0);
         odd.set_text(SHADING_KEY, "raytraced");
         odd.set_text(CURVE_QUALITY_KEY, "exact");
         odd.set_text(ADAPTER_KEY, "fastest");
+
         let odd = Graphics::from_settings(&odd);
+
         assert_eq!(odd.frame_limit, FrameLimit::Unlimited);
         assert_eq!(odd.msaa, Msaa::X2);
         assert_eq!(odd.shading, Shading::Enhanced);
@@ -697,12 +714,16 @@ mod tests {
         assert_eq!(odd.adapter, AdapterPreference::Auto);
 
         let mut numeric = Settings::default();
+
         numeric.set_number(FRAME_LIMIT_KEY, 5000.0);
+
         assert_eq!(
             Graphics::from_settings(&numeric).frame_limit,
             FrameLimit::Fps(FrameLimit::MAX_FPS)
         );
+
         numeric.set_number(FRAME_LIMIT_KEY, 0.0);
+
         assert_eq!(
             Graphics::from_settings(&numeric).frame_limit,
             FrameLimit::Fps(FrameLimit::MIN_FPS)
@@ -716,9 +737,12 @@ mod tests {
     #[test]
     fn the_adapter_preference_defaults_to_auto_and_keeps_an_explicit_saved_choice() {
         let mut saved = Settings::default();
+
         saved.set_text(ADAPTER_KEY, "power_saving");
+
         let mut written = Settings::default();
         let auto = Graphics::default();
+
         auto.write(&mut written);
 
         assert_eq!(auto.adapter, AdapterPreference::Auto);
@@ -788,17 +812,22 @@ mod tests {
         let mut pacer = FramePacer::default();
 
         assert_eq!(pacer.next_frame_at(start, interval), None);
+
         pacer.frame_started(start, interval);
+
         assert_eq!(pacer.next_frame_at(at(3), interval), Some(at(10)));
         assert_eq!(pacer.next_frame_at(at(3), None), None);
 
         pacer.frame_started(at(12), interval);
+
         assert_eq!(pacer.next_frame_at(at(13), interval), Some(at(20)));
 
         pacer.frame_started(at(21), interval);
+
         assert_eq!(pacer.next_frame_at(at(21), interval), Some(at(30)));
 
         pacer.frame_started(at(500), interval);
+
         assert_eq!(pacer.next_frame_at(at(505), interval), Some(at(510)));
         assert_eq!(pacer.next_frame_at(at(510), interval), None);
     }

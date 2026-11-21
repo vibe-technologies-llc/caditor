@@ -35,7 +35,9 @@ fn with_slicer(
 ) -> (Harness, Launched, Asked) {
     let launched = Launched::default();
     let asked = Asked::default();
+
     let (record, ask) = (Arc::clone(&launched), Arc::clone(&asked));
+
     let harness = Harness::starting_with(
         Some(dir),
         sample_document().unwrap(),
@@ -72,6 +74,7 @@ fn notice_text(harness: &Harness) -> Option<(String, NoticeKind)> {
 fn open_in_slicer_writes_a_3mf_of_its_own_and_starts_the_slicer_with_it() {
     let dir = TempDir::new().unwrap();
     let program = dir.path().join("orca-slicer");
+
     let (mut harness, launched, _) = with_slicer(dir.path(), Ok(installed(&program)), Ok(()));
     let expected = dir.path().join("state").join("slicer").join("Untitled.3mf");
 
@@ -111,8 +114,10 @@ fn open_in_slicer_writes_a_3mf_of_its_own_and_starts_the_slicer_with_it() {
 fn the_export_dialog_opens_the_chosen_bodies_in_the_slicer_and_closes() {
     let dir = TempDir::new().unwrap();
     let program = dir.path().join("orca-slicer");
+
     let (mut harness, launched, _) = with_slicer(dir.path(), Ok(installed(&program)), Ok(()));
     let (extrude, _) = extruded_plate(&mut harness);
+
     wait_until_found(&mut harness);
 
     harness.command(FileCommand::Export(ExportCommand::Show));
@@ -146,7 +151,9 @@ fn a_missing_slicer_is_named_and_a_failed_start_says_which_program() {
     let missing = FindError::NotFound {
         slicer: Slicer::OrcaSlicer,
     };
+
     let (mut harness, launched, _) = with_slicer(dir.path(), Err(missing.clone()), Ok(()));
+
     extruded_plate(&mut harness);
     wait_until_found(&mut harness);
 
@@ -173,8 +180,10 @@ fn a_missing_slicer_is_named_and_a_failed_start_says_which_program() {
         program: program.clone(),
         kind: std::io::ErrorKind::NotFound,
     };
+
     let (mut harness, _, _) =
         with_slicer(dir.path(), Ok(installed(&program)), Err(refused.clone()));
+
     extruded_plate(&mut harness);
     wait_until_found(&mut harness);
 
@@ -195,7 +204,9 @@ fn a_missing_slicer_is_named_and_a_failed_start_says_which_program() {
 fn naming_the_slicer_program_in_preferences_looks_for_it_there() {
     let dir = TempDir::new().unwrap();
     let program = dir.path().join("orca-slicer");
+
     let (mut harness, _, asked) = with_slicer(dir.path(), Ok(installed(&program)), Ok(()));
+
     wait_until_found(&mut harness);
 
     harness.perform(Action::Preferences(PreferencesCommand::Change(
@@ -218,8 +229,10 @@ fn naming_the_slicer_program_in_preferences_looks_for_it_there() {
 fn bodies_named_by_the_command_are_the_only_ones_sent_to_the_slicer() {
     let dir = TempDir::new().unwrap();
     let program = dir.path().join("orca-slicer");
+
     let (mut harness, launched, _) = with_slicer(dir.path(), Ok(installed(&program)), Ok(()));
     let (plate, top) = extruded_plate(&mut harness);
+
     add_peg(&mut harness);
     wait_until_found(&mut harness);
     harness.settle();

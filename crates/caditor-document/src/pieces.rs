@@ -3,13 +3,13 @@ use caditor_kernel::{Curve, Edge, EdgeId, FaceId, ReferenceError, Sense, Solid};
 
 use crate::tolerance;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unresolved {
     Missing(usize),
     Unrelated(usize),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Resolution<T> {
     One(T),
     Pieces(Vec<T>),
@@ -43,6 +43,7 @@ pub(crate) fn tally<T: Ord>(resolutions: Vec<Resolution<T>>) -> Result<Vec<T>, U
     let mut found = Vec::with_capacity(resolutions.len());
     let mut missing = 0;
     let mut unrelated = 0_usize;
+
     for resolution in resolutions {
         match resolution {
             Resolution::One(item) => found.push(item),

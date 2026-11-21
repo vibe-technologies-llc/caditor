@@ -39,7 +39,7 @@ const AXIS_CLEARANCE: f64 = 10.0 * LINEAR_RESOLUTION;
 const STRAIGHT_TAPER: f64 = 1e-12;
 const SECTION_PIECES: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum CoilShape {
     Round,
     Square,
@@ -49,7 +49,7 @@ impl CoilShape {
     pub const ALL: [Self; 2] = [Self::Round, Self::Square];
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum CoilPlacement {
     Inside,
     Centred,
@@ -60,7 +60,7 @@ impl CoilPlacement {
     pub const ALL: [Self; 3] = [Self::Inside, Self::Centred, Self::Outside];
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum CoilFace {
     Bottom,
     Outside,
@@ -75,12 +75,14 @@ impl CoilFace {
 
     pub fn of_entity(entity: u64) -> Option<Self> {
         let parts = COIL_PARTS;
+
         if entity == parts.start {
             return Some(Self::Start);
         }
         if entity == parts.end {
             return Some(Self::End);
         }
+
         let side = usize::try_from(entity % parts.per_turn)
             .ok()?
             .checked_sub(1)?;
@@ -88,7 +90,7 @@ impl CoilFace {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CoilParts {
     pub start: u64,
     pub end: u64,
@@ -101,7 +103,7 @@ impl CoilParts {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CoilSpec {
     pub frame: Plane,
     pub radius: f64,
@@ -149,7 +151,7 @@ impl CoilSpec {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum CoilError {
     #[error("a coil dimension is not a finite number")]
     NonFinite,
@@ -190,7 +192,7 @@ impl From<BuildError> for CoilError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct SectionPiece {
     points: Vec<Point2>,
     weights: Vec<f64>,
@@ -243,7 +245,7 @@ impl SectionPiece {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Winding {
     frame: Plane,
     hand: Handedness,
@@ -251,7 +253,7 @@ struct Winding {
     spread: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Layout {
     winding: Winding,
     turns: f64,
@@ -328,17 +330,22 @@ fn layout(spec: &CoilSpec) -> Result<Layout, CoilError> {
     if spec.taper.abs() >= MAX_COIL_TAPER_DEGREES.to_radians() {
         return Err(CoilError::TaperTooSteep);
     }
+
     let reach = spec.radius
         + spec.size
         + spec.radial_rise().abs()
         + spec.height()
         + spec.frame.origin().abs().max_element();
+
     if reach > MAX_SIZE {
         return Err(CoilError::TooLarge);
     }
+
     let half = 0.5 * spec.size;
     let centre = spec.centre_radius();
+
     let innermost = centre - half + spec.radial_rise().min(0.0);
+
     if innermost <= AXIS_CLEARANCE {
         return Err(CoilError::ReachesAxis);
     }
@@ -348,6 +355,7 @@ fn layout(spec: &CoilSpec) -> Result<Layout, CoilError> {
             least: least_pitch(spec),
         });
     }
+
     let taper = if spec.taper.abs() < STRAIGHT_TAPER {
         0.0
     } else {

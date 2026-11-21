@@ -23,7 +23,9 @@ fn add_square(harness: &mut Harness, height: f64, half: f64) -> (FeatureId, Enti
         Point2::new(half, half),
         Point2::new(-half, half),
     ];
+
     let first = sketch.add_line(corners[0], corners[1]);
+
     for index in 1..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -55,16 +57,21 @@ fn curve(feature: FeatureId, entity: EntityId) -> Pickable {
 #[test]
 fn loft_runs_through_the_selected_sketches_in_order_and_takes_its_sides_from_the_panel() {
     let mut harness = Harness::new();
+
     let (low, low_line) = add_square(&mut harness, 0.0, LOW_HALF);
     let (high, high_line) = add_square(&mut harness, HEIGHT, HIGH_HALF);
+
     harness.select([curve(low, low_line), curve(high, high_line)]);
 
     run_from_palette(&mut harness, "loft");
     harness.settle();
 
     let loft = harness.workspace.editing.solid().expect("the loft is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Loft 1"));
+
     let made = loft_of(&harness, loft);
+
     assert_eq!(
         made.profiles,
         vec![LoftSection::whole(low), LoftSection::whole(high)]
@@ -72,17 +79,21 @@ fn loft_runs_through_the_selected_sketches_in_order_and_takes_its_sides_from_the
     assert_eq!(made.skin, LoftSkin::Smooth);
     assert!(near(harness.body_volume(loft), frustum()));
     assert!(harness.shows(loft_panel::PROFILES));
+
     let name = |sketch: FeatureId| harness.document().feature(sketch).unwrap().name.clone();
+
     assert!(harness.shows(&format!("1. {}", name(low))));
     assert!(harness.shows(&format!("2. {}", name(high))));
     assert!(harness.shows(loft_panel::LAST_PROFILE));
 
     choose(&mut harness, "Smooth", "Ruled");
+
     assert_eq!(loft_of(&harness, loft).skin, LoftSkin::Ruled);
     assert!(near(harness.body_volume(loft), frustum()));
 
     harness.click_button("Move this profile later");
     harness.settle();
+
     assert_eq!(
         loft_of(&harness, loft).profiles,
         vec![LoftSection::whole(high), LoftSection::whole(low)]
@@ -91,6 +102,7 @@ fn loft_runs_through_the_selected_sketches_in_order_and_takes_its_sides_from_the
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert_eq!(
         loft_of(&harness, loft).profiles,
         vec![LoftSection::whole(low), LoftSection::whole(high)]
@@ -100,14 +112,17 @@ fn loft_runs_through_the_selected_sketches_in_order_and_takes_its_sides_from_the
 #[test]
 fn loft_with_one_profile_waits_and_takes_the_next_from_a_click_in_the_view() {
     let mut harness = Harness::new();
+
     let (low, low_line) = add_square(&mut harness, 0.0, LOW_HALF);
     let (high, high_line) = add_square(&mut harness, HEIGHT, HIGH_HALF);
+
     harness.select([curve(high, high_line)]);
 
     run_from_palette(&mut harness, "loft");
     harness.settle();
 
     let loft = harness.workspace.editing.solid().expect("the loft is open");
+
     assert_eq!(
         loft_of(&harness, loft).profiles,
         vec![LoftSection::whole(high)]
@@ -155,6 +170,7 @@ fn loft_with_one_profile_waits_and_takes_the_next_from_a_click_in_the_view() {
 #[test]
 fn a_loft_starts_from_a_flat_face_and_takes_a_square_end_and_closing_from_the_panel() {
     let mut harness = Harness::new();
+
     let (plate, top) = super::extruded_plate(&mut harness);
     let plate_volume = harness.body_volume(plate);
     let height = harness
@@ -171,11 +187,15 @@ fn a_loft_starts_from_a_flat_face_and_takes_a_square_end_and_closing_from_the_pa
         Point2::new(30.0, 30.0),
         Point2::new(10.0, 30.0),
     ];
+
     let first = sketch.add_line(corners[0], corners[1]);
+
     for index in 1..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let high = harness.add_sketch(sketch);
+
     harness.select([top, curve(high, first)]);
 
     run_from_palette(&mut harness, "loft");
@@ -185,6 +205,7 @@ fn a_loft_starts_from_a_flat_face_and_takes_a_square_end_and_closing_from_the_pa
     let made = loft_of(&harness, loft);
     let face_sketch = made.profiles.first().expect("a face profile").sketch;
     let lofted = plate_volume + 20.0 / 3.0 * (1600.0 + 400.0 + 800.0);
+
     assert_eq!(made.profiles.get(1), Some(&LoftSection::whole(high)));
     assert_eq!(
         harness
@@ -196,32 +217,42 @@ fn a_loft_starts_from_a_flat_face_and_takes_a_square_end_and_closing_from_the_pa
     assert!(near(harness.body_volume(plate), lofted));
 
     choose(&mut harness, loft_panel::FREE, loft_panel::SQUARE);
+
     assert_eq!(
         loft_of(&harness, loft).square_end,
         Some(caditor_expression::Expression::number(1.0))
     );
+
     harness.type_into_field(egui::Id::unique(("loft-field", loft, "end")), "2");
     harness.settle();
+
     assert_eq!(
         loft_of(&harness, loft).square_end,
         Some(caditor_expression::Expression::number(2.0))
     );
     assert!(harness.shows(loft_panel::END_WEIGHT));
+
     let squared = harness.body_volume(plate);
+
     assert!(!near(squared, lofted), "{squared} against {lofted}");
 
     choose(&mut harness, loft_panel::OPEN, loft_panel::CLOSED);
+
     let closed = loft_of(&harness, loft);
+
     assert!(closed.closed);
     assert_eq!(closed.square_end, None);
+
     let reason = match &harness.model.evaluation().feature(loft).unwrap().state {
         FeatureState::Failed(error) => error.reason(),
         other => panic!("a ring of two profiles fails, found {other:?}"),
     };
+
     assert!(reason.contains("at least three"), "{reason}");
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert!(!loft_of(&harness, loft).closed);
     assert!(near(harness.body_volume(plate), squared));
 }

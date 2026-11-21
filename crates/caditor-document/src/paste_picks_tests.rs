@@ -18,6 +18,7 @@ fn rectangle() -> Sketch {
         Point2::new(10.0, 8.0),
         Point2::new(0.0, 8.0),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -82,10 +83,14 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let outline = transaction.add_feature("Outline", FeatureKind::from(rectangle()));
+
     let base = transaction.add_feature("Base", extrude(outline, Expression::Parameter(height)));
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -96,7 +101,9 @@ fn model() -> Model {
 
 fn add(document: &mut Document, name: &str, kind: FeatureKind) -> FeatureId {
     let mut transaction = document.transaction(name);
+
     let id = transaction.add_feature(name, kind);
+
     document.apply(transaction.finish()).unwrap();
     id
 }
@@ -181,6 +188,7 @@ fn a_fillet_copied_with_its_extrusion_rounds_the_copy_of_its_edge() {
         base,
     } = model();
     let before = evaluate(&document);
+
     let edge = edge_at(before.body(base).unwrap(), Point3::new(10.0, 4.0, 4.0));
     let fillet = add(
         &mut document,
@@ -197,7 +205,9 @@ fn a_fillet_copied_with_its_extrusion_rounds_the_copy_of_its_edge() {
         &CancelToken::never(),
     )
     .unwrap();
+
     document.apply(paste.transaction).unwrap();
+
     let evaluation = evaluate(&document);
 
     let [_, base_copy, fillet_copy] = paste.pasted[..] else {
@@ -206,6 +216,7 @@ fn a_fillet_copied_with_its_extrusion_rounds_the_copy_of_its_edge() {
     let copy_edge = blend_of(&document, fillet_copy).edges[0];
     let rounded = evaluation.body(base_copy).unwrap();
     let original = evaluation.body(base).unwrap();
+
     let seen = evaluation.body_seen_by(fillet_copy, base_copy).unwrap();
 
     assert!(paste.left_out.is_empty(), "{:?}", paste.left_out);
@@ -250,10 +261,13 @@ fn block(document: &mut Document, index: u32) {
         Point2::new(left + 5.0, 5.0),
         Point2::new(left, 5.0),
     ];
+
     for corner in 0..4 {
         sketch.add_line(corners[corner], corners[(corner + 1) % 4]);
     }
+
     let outline = add(document, &format!("Block outline {index}"), sketch.into());
+
     add(
         document,
         &format!("Block {index}"),
@@ -269,15 +283,18 @@ fn a_paste_on_the_models_cache_evaluates_only_the_copies_its_picks_lie_on() {
         base,
     } = model();
     let before = evaluate(&document);
+
     let edge = edge_at(before.body(base).unwrap(), Point3::new(10.0, 4.0, 4.0));
     let fillet = add(
         &mut document,
         "Fillet 1",
         blend(BlendKind::Fillet, base, vec![edge]),
     );
+
     for index in 0..6 {
         block(&mut document, index);
     }
+
     let features = copied(&document, &[outline, base, fillet]);
     let parameters = carried(&document, &features);
     let counted = Counted::default();
@@ -290,6 +307,7 @@ fn a_paste_on_the_models_cache_evaluates_only_the_copies_its_picks_lie_on() {
     let mut model_cache = Recompute::default();
 
     model_cache.run(&document, &counted, &CancelToken::never(), &|_, _| {});
+
     let model_features = counted.take();
     let warm = document.paste_features_finding_picks(
         &features,
@@ -324,6 +342,7 @@ fn a_chamfer_on_a_copied_fillet_follows_the_copy_of_the_fillet_it_was_picked_on(
         base,
     } = model();
     let before = evaluate(&document);
+
     let body = before.body(base).unwrap();
     let corners = vec![
         edge_at(body, Point3::new(10.0, 0.0, 2.0)),
@@ -336,6 +355,7 @@ fn a_chamfer_on_a_copied_fillet_follows_the_copy_of_the_fillet_it_was_picked_on(
     );
     let filleted = evaluate(&document);
     let round = filleted.body(base).unwrap();
+
     let rim = round
         .edges()
         .find(|(id, edge)| {
@@ -367,15 +387,19 @@ fn a_chamfer_on_a_copied_fillet_follows_the_copy_of_the_fillet_it_was_picked_on(
         &CancelToken::never(),
     )
     .unwrap();
+
     document.apply(paste.transaction).unwrap();
+
     let evaluation = evaluate(&document);
 
     let [_, base_copy, fillet_copy, chamfer_copy] = paste.pasted[..] else {
         panic!("expected four copies, got {:?}", paste.pasted);
     };
     let picked = blend_of(&document, chamfer_copy).edges[0];
+
     let seen = evaluation.body_seen_by(chamfer_copy, base_copy).unwrap();
     let found = picked.resolve(seen).unwrap();
+
     let middle = seen
         .edge(found)
         .map(|edge| edge.curve().point(edge.interval().middle()))
@@ -400,6 +424,7 @@ fn features_pasted_into_another_model_find_their_picks_on_the_copies() {
         base,
     } = model();
     let before = evaluate(&document);
+
     let body = before.body(base).unwrap();
     let edge = edge_at(body, Point3::new(5.0, 0.0, 4.0));
     let corner = corner_at(body, Point3::new(10.0, 8.0, 4.0));
@@ -423,9 +448,11 @@ fn features_pasted_into_another_model_find_their_picks_on_the_copies() {
             ],
         })),
     );
+
     let features = copied(&document, &[outline, base, fillet, point]);
     let parameters = carried(&document, &features);
     let mut other = Document::default();
+
     add(&mut other, "Elsewhere", FeatureKind::from(rectangle()));
 
     let paste = finding(
@@ -436,10 +463,13 @@ fn features_pasted_into_another_model_find_their_picks_on_the_copies() {
         &CancelToken::never(),
     )
     .unwrap();
+
     other.apply(paste.transaction).unwrap();
+
     let evaluation = evaluate(&other);
 
     assert!(paste.left_out.is_empty(), "{:?}", paste.left_out);
+
     for copy in &paste.pasted {
         assert_eq!(
             evaluation.feature(*copy).unwrap().state,
@@ -448,6 +478,7 @@ fn features_pasted_into_another_model_find_their_picks_on_the_copies() {
             other.feature(*copy).map(|feature| &feature.name)
         );
     }
+
     assert_eq!(
         evaluation
             .feature(paste.pasted[3])
@@ -465,6 +496,7 @@ fn a_pick_on_a_copy_that_cannot_be_computed_is_left_out_with_its_reason() {
         base,
     } = model();
     let before = evaluate(&document);
+
     let edge = edge_at(before.body(base).unwrap(), Point3::new(5.0, 0.0, 4.0));
     let fillet = add(
         &mut document,
@@ -474,7 +506,9 @@ fn a_pick_on_a_copy_that_cannot_be_computed_is_left_out_with_its_reason() {
     let features = copied(&document, &[outline, base, fillet]);
     let parameters = carried(&document, &features);
     let mut other = Document::default();
+
     let mut flat = other.transaction("Flat");
+
     flat.add_parameter("height", flat.parse("0 mm").unwrap());
     other.apply(flat.finish()).unwrap();
 
@@ -507,6 +541,7 @@ fn a_cancelled_search_pastes_nothing() {
         base,
     } = model();
     let before = evaluate(&document);
+
     let edge = edge_at(before.body(base).unwrap(), Point3::new(5.0, 0.0, 4.0));
     let fillet = add(
         &mut document,
@@ -545,6 +580,7 @@ fn a_copied_mirror_follows_the_copy_of_the_datum_plane_it_mirrors_across() {
             offset: Expression::measure(30.0, Unit::Millimetre),
         })),
     );
+
     let mirror = add(
         &mut document,
         "Mirror 1",
@@ -566,11 +602,13 @@ fn a_copied_mirror_follows_the_copy_of_the_datum_plane_it_mirrors_across() {
             PasteOrigin::ThisDocument,
         )
         .unwrap();
+
     document.apply(paste.transaction).unwrap();
 
     let FeatureKind::Mirror(pasted) = &document.feature(paste.pasted[1]).unwrap().kind else {
         panic!("expected a mirror");
     };
+
     assert_eq!(pasted.body, base);
     assert_eq!(pasted.plane, PlaneReference::Datum(paste.pasted[0]));
 }
@@ -590,6 +628,7 @@ fn picks_alike_in_structure_are_told_apart_only_by_where_they_lie() {
     let cap = vec![Some(FaceOrigin::EndCap { feature: 8 })];
     let here = Point3::new(1.0, 2.0, 3.0);
     let there = Point3::new(7.0, 2.0, 3.0);
+
     let originals = [
         described(0, fillet.clone(), cap.clone(), here),
         described(1, fillet.clone(), cap.clone(), there),
@@ -638,10 +677,12 @@ fn cut_on(document: &mut Document, body: FeatureId, datum: FeatureId) -> Feature
         panic!("expected a plane");
     };
     let mut transaction = document.transaction("Cut");
+
     let sketch = transaction.add_feature(
         "Cut",
         FeatureKind::Sketch(SketchFeature::on_datum(Sketch::new(Plane::XY), datum)),
     );
+
     for curve in section_curves(body, &solid, plane, sketch).unwrap() {
         transaction.add_projection(sketch, curve.source, &curve.outline);
     }
@@ -681,9 +722,13 @@ fn section_bodies(document: &Document, sketch: FeatureId) -> Vec<FeatureId> {
 
 fn model_with_level() -> (Model, FeatureId, FeatureId) {
     let mut model = model();
+
     let mut transaction = model.document.transaction("Level");
+
     let level = transaction.add_parameter("level", transaction.parse("2 mm").unwrap());
+
     model.document.apply(transaction.finish()).unwrap();
+
     let datum = level_plane(&mut model.document, level);
     let cut = cut_on(&mut model.document, model.base, datum);
     (model, datum, cut)
@@ -700,6 +745,7 @@ fn a_cut_through_a_copied_body_is_pasted_cutting_the_copy() {
         datum,
         cut,
     ) = model_with_level();
+
     let features = copied(&document, &[outline, base, datum, cut]);
 
     let paste = finding(
@@ -710,7 +756,9 @@ fn a_cut_through_a_copied_body_is_pasted_cutting_the_copy() {
         &CancelToken::never(),
     )
     .unwrap();
+
     document.apply(paste.transaction).unwrap();
+
     let evaluation = evaluate(&document);
 
     let [_, base_copy, _, cut_copy] = paste.pasted[..] else {
@@ -719,12 +767,15 @@ fn a_cut_through_a_copied_body_is_pasted_cutting_the_copy() {
             paste.pasted, paste.left_out
         );
     };
+
     assert!(paste.left_out.is_empty(), "{:?}", paste.left_out);
     assert_eq!(
         evaluation.feature(cut_copy).unwrap().state,
         FeatureState::UpToDate
     );
+
     let ends = projected_ends(&evaluation, cut_copy);
+
     assert_eq!(section_bodies(&document, cut_copy), vec![base_copy; 4]);
     assert_eq!(ends.len(), 4);
     assert!(
@@ -745,10 +796,13 @@ fn a_cut_pasted_into_another_model_is_taken_where_that_model_puts_its_plane() {
         datum,
         cut,
     ) = model_with_level();
+
     let features = copied(&document, &[outline, base, datum, cut]);
     let parameters = carried(&document, &features);
     let mut other = Document::default();
+
     let mut transaction = other.transaction("Level");
+
     transaction.add_parameter("level", transaction.parse("3 mm").unwrap());
     other.apply(transaction.finish()).unwrap();
 
@@ -760,7 +814,9 @@ fn a_cut_pasted_into_another_model_is_taken_where_that_model_puts_its_plane() {
         &CancelToken::never(),
     )
     .unwrap();
+
     other.apply(paste.transaction).unwrap();
+
     let evaluation = evaluate(&other);
 
     let cut_copy = paste.pasted[3];
@@ -790,10 +846,13 @@ fn a_cut_whose_copy_the_plane_no_longer_reaches_is_left_out_with_its_reason() {
         datum,
         cut,
     ) = model_with_level();
+
     let features = copied(&document, &[outline, base, datum, cut]);
     let parameters = carried(&document, &features);
     let mut other = Document::default();
+
     let mut transaction = other.transaction("Level");
+
     transaction.add_parameter("level", transaction.parse("9 mm").unwrap());
     other.apply(transaction.finish()).unwrap();
 
@@ -819,6 +878,7 @@ fn patterned_twice() -> (Document, FeatureId, FeatureId, FeatureId) {
     let Model {
         mut document, base, ..
     } = model();
+
     let pattern = add(
         &mut document,
         "Pattern 1",
@@ -861,6 +921,7 @@ fn patterned_twice() -> (Document, FeatureId, FeatureId, FeatureId) {
 #[test]
 fn a_corner_on_a_body_outside_the_copy_follows_the_copied_faces_around_it() {
     let (mut document, base, pattern, point) = patterned_twice();
+
     let features = copied(&document, &[pattern, point]);
 
     let paste = finding(
@@ -871,7 +932,9 @@ fn a_corner_on_a_body_outside_the_copy_follows_the_copied_faces_around_it() {
         &CancelToken::never(),
     )
     .unwrap();
+
     document.apply(paste.transaction).unwrap();
+
     let evaluation = evaluate(&document);
 
     let result = |feature: FeatureId| {
@@ -898,6 +961,7 @@ fn a_corner_on_a_body_outside_the_copy_follows_the_copied_faces_around_it() {
 #[test]
 fn a_corner_the_copies_leave_untouched_stays_where_it_was_picked() {
     let (mut document, _, pattern, point) = patterned_twice();
+
     let features = copied(&document, &[point]);
 
     let paste = finding(
@@ -908,7 +972,9 @@ fn a_corner_the_copies_leave_untouched_stays_where_it_was_picked() {
         &CancelToken::never(),
     )
     .unwrap();
+
     document.apply(paste.transaction).unwrap();
+
     let evaluation = evaluate(&document);
 
     assert_eq!(copied_picks(&features), 0);

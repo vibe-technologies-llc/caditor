@@ -43,6 +43,7 @@ pub(super) fn sets_of(base: FeatureId, other: FeatureId) -> SelectionSets {
 fn selection_sets_survive_saving_the_journal_and_its_snapshot() {
     let (mut document, base, other) = solid_model();
     let plain = encode(&document).unwrap();
+
     let change = Transaction::single(
         "Selection sets",
         Edit::SetSelectionSets {
@@ -100,6 +101,7 @@ fn selection_sets_that_cannot_be_read_are_repaired_and_reported() {
         .iter()
         .map(|set| set.name.as_str())
         .collect();
+
     assert_eq!(names, ["Bolts", "bolts 2", "Set 3"]);
     assert_eq!(
         loaded.document.selection_sets().sets[0].members,

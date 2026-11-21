@@ -5,7 +5,7 @@ use crate::commands::{Command, Offer, Reason};
 pub const NOTHING_TO_REPEAT: &str =
     "Run a modelling or sketch command first; there is nothing to repeat yet";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RepeatRefusal {
     #[error("{NOTHING_TO_REPEAT}")]
     NothingYet,
@@ -22,12 +22,12 @@ impl Reason for RepeatRefusal {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Repetition {
     last: Option<Command>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Repeat {
     Again(Command),
     Refused(RepeatRefusal),
@@ -41,6 +41,7 @@ impl Repetition {
         offers: &mut Vec<Offer>,
     ) -> Option<Repeat> {
         let before = self.last;
+
         if let Some(command) = ran.iter().rev().find(|command| command.is_repeatable()) {
             self.last = Some(*command);
         }
@@ -73,6 +74,7 @@ impl Repetition {
                 },
             },
         };
+
         offers.push(offer);
         outcome
     }

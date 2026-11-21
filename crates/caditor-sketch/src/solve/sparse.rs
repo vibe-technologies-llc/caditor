@@ -24,6 +24,7 @@ pub(crate) type Row = Vec<(usize, f64)>;
 
 pub(crate) fn row(gradient: &Gradient, variables: &[usize]) -> Row {
     let mut merged: BTreeMap<usize, f64> = BTreeMap::new();
+
     for (variable, partial) in gradient {
         if let Ok(column) = variables.binary_search(variable) {
             *merged.entry(column).or_default() += partial;
@@ -61,11 +62,14 @@ pub(crate) fn minimal_norm_step(rows: &[Row], residuals: &[f64], width: usize) -
     if rows.is_empty() || width == 0 {
         return None;
     }
+
     let mut scaled = Vec::with_capacity(rows.len());
     let mut target = Vec::with_capacity(rows.len());
     let mut held_residuals_finite = true;
+
     for (row, residual) in rows.iter().zip(residuals) {
         let length = norm(row);
+
         if length == 0.0 {
             held_residuals_finite &= residual.is_finite();
             continue;
@@ -77,21 +81,26 @@ pub(crate) fn minimal_norm_step(rows: &[Row], residuals: &[f64], width: usize) -
         );
         target.push(-residual / length);
     }
+
     let finite = scaled
         .iter()
         .flatten()
         .map(|(_, value)| value)
         .chain(&target)
         .all(|value| value.is_finite());
+
     if !finite || !held_residuals_finite {
         return None;
     }
+
     let nonzeros: usize = scaled.iter().map(Vec::len).sum();
     let iteration = 2 * nonzeros + width;
     let most = GRAM_ITERATIONS.saturating_mul(iteration);
+
     let step = match Gram::factor(&scaled, width, &STEP_SHIFTS, most) {
         Ok(gram) => {
             let multipliers = gram.solve(&target);
+
             tally::add(nonzeros);
             transposed_times(&scaled, &multipliers, width)
         }
@@ -112,6 +121,7 @@ pub(crate) fn times(rows: &[Row], vector: &[f64]) -> Vec<f64> {
 
 pub(crate) fn transposed_times(rows: &[Row], vector: &[f64], width: usize) -> Vec<f64> {
     let mut result = vec![0.0; width];
+
     for (row, factor) in rows.iter().zip(vector) {
         for (column, value) in row {
             if let Some(slot) = result.get_mut(*column) {
@@ -130,24 +140,32 @@ fn conjugate_gradients(
 ) -> Vec<f64> {
     let mut step = vec![0.0; width];
     let mut remaining = target;
+
     let mut gradient = transposed_times(scaled, &remaining, width);
+
     let mut direction = gradient.clone();
     let mut gamma = squared(&gradient);
+
     let stop = STEP_TOLERANCE * gamma.sqrt();
     let limit = width
         .saturating_mul(ITERATIONS_PER_VARIABLE)
         .saturating_add(EXTRA_ITERATIONS);
+
     for _ in 0..limit {
         if gamma.sqrt() <= stop || gamma == 0.0 {
             break;
         }
         tally::add(iteration);
+
         let image = times(scaled, &direction);
         let curvature = squared(&image);
+
         if curvature <= 0.0 || !curvature.is_finite() {
             break;
         }
+
         let alpha = gamma / curvature;
+
         step.iter_mut()
             .zip(&direction)
             .for_each(|(value, delta)| *value += alpha * delta);
@@ -156,8 +174,10 @@ fn conjugate_gradients(
             .zip(&image)
             .for_each(|(value, delta)| *value -= alpha * delta);
         gradient = transposed_times(scaled, &remaining, width);
+
         let next = squared(&gradient);
         let beta = next / gamma;
+
         direction
             .iter_mut()
             .zip(&gradient)
@@ -167,13 +187,13 @@ fn conjugate_gradients(
     step
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct Gram {
     factored: Cholesky,
     work: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Unfactored {
     pub work: usize,
 }
@@ -186,6 +206,7 @@ impl Gram {
         most: usize,
     ) -> Result<Self, Unfactored> {
         let mut by_column: Vec<Row> = vec![Vec::new(); width];
+
         for (index, row) in rows.iter().enumerate() {
             for (column, entry) in row {
                 if let Some(slot) = by_column.get_mut(*column) {
@@ -193,20 +214,25 @@ impl Gram {
                 }
             }
         }
+
         let built: usize = by_column
             .iter()
             .map(|column| column.len() * column.len())
             .sum();
         let widest = by_column.iter().map(Vec::len).max().unwrap_or(0);
         let clique = widest.saturating_pow(3) / 3;
+
         if built.max(clique) > most {
             return Err(Unfactored { work: 0 });
         }
+
         let mut gram: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); rows.len()];
         let mut trace = 0.0;
+
         for column in &by_column {
             for (index, entry) in column {
                 trace += entry * entry;
+
                 let Some(slot) = gram.get_mut(*index) else {
                     continue;
                 };
@@ -216,6 +242,7 @@ impl Gram {
             }
         }
         tally::add(built);
+
         let gram: Vec<Row> = gram
             .into_iter()
             .map(|entries| entries.into_iter().collect())
@@ -223,6 +250,7 @@ impl Gram {
         let typical = trace / rows.len().max(1) as f64;
         let typical = if typical > 0.0 { typical } else { 1.0 };
         let mut work = built;
+
         for shift in shifts {
             let left = most.saturating_sub(work);
             let least_pivot = GRAM_LEAST_PIVOT * typical;
@@ -255,7 +283,7 @@ impl Gram {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct Triangular {
     columns: Vec<usize>,
     positions: Vec<usize>,
@@ -267,6 +295,7 @@ impl Triangular {
     pub fn ordered_for<'a>(width: usize, rows: impl IntoIterator<Item = &'a Row>) -> Self {
         let (columns, _) = fill_reducing_order(width, rows);
         let mut positions = vec![0; width];
+
         for (position, column) in columns.iter().enumerate() {
             if let Some(slot) = positions.get_mut(*column) {
                 *slot = position;
@@ -285,6 +314,7 @@ impl Triangular {
             .iter()
             .filter_map(|(column, value)| Some((*self.positions.get(*column)?, *value)))
             .collect();
+
         remainder.sort_by_key(|(position, _)| *position);
         loop {
             let Some(&(position, value)) = remainder.first() else {
@@ -318,6 +348,7 @@ impl Triangular {
             .iter()
             .map(|column| gradient.get(*column).copied().unwrap_or(0.0))
             .collect();
+
         for position in 0..width {
             let Some(load) = forward.get(position).copied() else {
                 continue;
@@ -327,12 +358,15 @@ impl Triangular {
                 _ => None,
             };
             let entry = pivot.map_or(0.0, |(_, entry)| entry);
+
             if let Some(slot) = forward.get_mut(position) {
                 *slot = entry;
             }
+
             let Some((row, entry)) = pivot.filter(|(_, entry)| *entry != 0.0) else {
                 continue;
             };
+
             tally::add(row.len());
             for (later, value) in row.iter().skip(1) {
                 if let Some(slot) = forward.get_mut(*later) {
@@ -340,7 +374,9 @@ impl Triangular {
                 }
             }
         }
+
         let mut solution = vec![0.0; width];
+
         for position in (0..width).rev() {
             let Some(Some(row)) = self.rows.get(position) else {
                 continue;
@@ -348,7 +384,9 @@ impl Triangular {
             let Some((_, diagonal)) = row.first() else {
                 continue;
             };
+
             tally::add(row.len());
+
             let sum: f64 = row
                 .iter()
                 .skip(1)
@@ -359,7 +397,9 @@ impl Triangular {
                 *slot = (load - sum) / diagonal;
             }
         }
+
         let mut by_column = vec![0.0; width];
+
         for (column, entry) in self.columns.iter().zip(solution) {
             if let Some(slot) = by_column.get_mut(*column) {
                 *slot = entry;
@@ -376,6 +416,7 @@ impl Triangular {
         let width = self.rows.len();
         let mut fixed = vec![true; width];
         let mut reaches_free = vec![false; width];
+
         for position in (0..width).rev() {
             let reaches = match self.rows.get(position) {
                 Some(Some(row)) => row.iter().skip(1).any(|(later, _)| {
@@ -393,12 +434,14 @@ impl Triangular {
                 *slot = reaches;
             }
         }
+
         let free: Vec<usize> = (0..width)
             .filter(|position| matches!(self.rows.get(*position), Some(None)))
             .collect();
         let reaching: Vec<usize> = (0..width)
             .filter(|position| reaches_free.get(*position).copied().unwrap_or(false))
             .collect();
+
         tally::add(width);
         if free.len() <= reaching.len() {
             let largest = self.null_space_extent(&free, &reaches_free, cancelled)?;
@@ -419,7 +462,9 @@ impl Triangular {
                 }
             }
         }
+
         let mut by_column = vec![false; width];
+
         for (column, is_fixed) in self.columns.iter().zip(fixed) {
             if let Some(slot) = by_column.get_mut(*column) {
                 *slot = is_fixed;
@@ -437,6 +482,7 @@ impl Triangular {
         let width = self.rows.len();
         let mut largest = vec![0.0_f64; width];
         let mut vector = vec![0.0; width];
+
         for &start in free {
             if cancelled() {
                 return Err(Cancelled);
@@ -449,19 +495,23 @@ impl Triangular {
                 if !reaches_free.get(position).copied().unwrap_or(false) {
                     continue;
                 }
+
                 let Some(Some(row)) = self.rows.get(position) else {
                     continue;
                 };
                 let Some((_, diagonal)) = row.first() else {
                     continue;
                 };
+
                 tally::add(row.len());
+
                 let sum: f64 = row
                     .iter()
                     .skip(1)
                     .map(|(later, entry)| entry * vector.get(*later).copied().unwrap_or(0.0))
                     .sum();
                 let entry = -sum / diagonal;
+
                 if let Some(slot) = vector.get_mut(position) {
                     *slot = entry;
                 }
@@ -475,6 +525,7 @@ impl Triangular {
 
     fn spans_unit(&self, position: usize, tolerance: f64) -> bool {
         let mut remainder = BTreeMap::from([(position, 1.0_f64)]);
+
         while let Some((current, value)) = remainder.pop_first() {
             if value.abs() <= NEGLIGIBLE {
                 continue;
@@ -485,6 +536,7 @@ impl Triangular {
                         continue;
                     };
                     let factor = value / diagonal;
+
                     tally::add(row.len());
                     for (later, entry) in row.iter().skip(1) {
                         *remainder.entry(*later).or_insert(0.0) -= factor * entry;
@@ -498,19 +550,19 @@ impl Triangular {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct Cholesky {
     columns: Vec<usize>,
     rows: Vec<Row>,
     work: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct NotDefinite {
     pub work: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Refused {
     NotDefinite { work: usize },
     Costly { work: usize },
@@ -549,12 +601,15 @@ impl Cholesky {
         let width = matrix.len();
         let (columns, ordering) = fill_reducing_order(width, pattern);
         let mut positions = vec![0; width];
+
         for (position, column) in columns.iter().enumerate() {
             if let Some(slot) = positions.get_mut(*column) {
                 *slot = position;
             }
         }
+
         let mut pending: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); width];
+
         for (column, entries) in matrix.iter().enumerate() {
             let Some(&position) = positions.get(column) else {
                 continue;
@@ -562,6 +617,7 @@ impl Cholesky {
             let Some(row) = pending.get_mut(position) else {
                 continue;
             };
+
             row.insert(position, shift);
             for (other, value) in entries {
                 let Some(&other_position) = positions.get(*other) else {
@@ -572,23 +628,28 @@ impl Cholesky {
                 }
             }
         }
+
         let mut rows = Vec::with_capacity(width);
         let mut work = ordering;
+
         for position in 0..width {
             let row = pending
                 .get_mut(position)
                 .map(std::mem::take)
                 .unwrap_or_default();
             let pivot = row.get(&position).copied().unwrap_or(0.0);
+
             if pivot.is_nan() || pivot <= least_pivot {
                 return Err(Refused::NotDefinite { work });
             }
+
             let root = pivot.sqrt();
             let factor_row: Row = row
                 .into_iter()
                 .map(|(later, value)| (later, value / root))
                 .collect();
             let row_work = factor_row.len() * factor_row.len();
+
             tally::add(row_work);
             work += row_work;
             if work > most {
@@ -626,6 +687,7 @@ impl Cholesky {
             .iter()
             .map(|column| load.get(*column).copied().unwrap_or(0.0))
             .collect();
+
         for (position, row) in self.rows.iter().enumerate() {
             let Some((_, diagonal)) = row.first() else {
                 continue;
@@ -633,6 +695,7 @@ impl Cholesky {
             let Some(entry) = forward.get(position).map(|value| value / diagonal) else {
                 continue;
             };
+
             if let Some(slot) = forward.get_mut(position) {
                 *slot = entry;
             }
@@ -643,12 +706,16 @@ impl Cholesky {
                 }
             }
         }
+
         let mut solution = vec![0.0; width];
+
         for (position, row) in self.rows.iter().enumerate().rev() {
             let Some((_, diagonal)) = row.first() else {
                 continue;
             };
+
             tally::add(row.len());
+
             let sum: f64 = row
                 .iter()
                 .skip(1)
@@ -659,7 +726,9 @@ impl Cholesky {
                 *slot = (load - sum) / diagonal;
             }
         }
+
         let mut by_column = vec![0.0; width];
+
         for (column, entry) in self.columns.iter().zip(solution) {
             if let Some(slot) = by_column.get_mut(*column) {
                 *slot = entry;
@@ -673,13 +742,17 @@ fn rotate(pivot_row: &mut Row, incoming: &[(usize, f64)]) -> Row {
     let (Some(&(_, diagonal)), Some(&(_, value))) = (pivot_row.first(), incoming.first()) else {
         return Vec::new();
     };
+
     let radius = diagonal.hypot(value);
     let (cosine, sine) = (diagonal / radius, value / radius);
+
     tally::add(pivot_row.len() + incoming.len());
+
     let mut rotated = Vec::with_capacity(pivot_row.len() + incoming.len());
     let mut remainder = Vec::with_capacity(pivot_row.len() + incoming.len());
     let mut pivot_entries = pivot_row.iter().skip(1).peekable();
     let mut incoming_entries = incoming.iter().skip(1).peekable();
+
     rotated.extend(pivot_row.first().map(|(position, _)| (*position, radius)));
     loop {
         let (position, kept, arriving) = match (pivot_entries.peek(), incoming_entries.peek()) {
@@ -706,8 +779,10 @@ fn rotate(pivot_row: &mut Row, incoming: &[(usize, f64)]) -> Row {
             }
             (None, None) => break,
         };
+
         let stays = cosine * kept + sine * arriving;
         let leaves = cosine * arriving - sine * kept;
+
         if stays.abs() > NEGLIGIBLE {
             rotated.push((position, stays));
         }
@@ -725,8 +800,10 @@ fn fill_reducing_order<'a>(
 ) -> (Vec<usize>, usize) {
     let mut neighbours: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); width];
     let mut work = 0;
+
     for row in rows {
         let pairs = row.len() * row.len();
+
         tally::add(pairs);
         work += pairs;
         for (column, _) in row {
@@ -739,19 +816,23 @@ fn fill_reducing_order<'a>(
             }
         }
     }
+
     let mut queue: BTreeSet<(usize, usize)> = neighbours
         .iter()
         .enumerate()
         .map(|(column, adjacent)| (adjacent.len(), column))
         .collect();
     let mut order = Vec::with_capacity(width);
+
     while let Some((degree, column)) = queue.pop_first() {
         order.push(column);
+
         let adjacent = neighbours
             .get_mut(column)
             .map(std::mem::take)
             .unwrap_or_default();
         let eliminated = degree * degree.min(CLIQUE_LIMIT) + 1;
+
         tally::add(eliminated);
         work += eliminated;
         for other in &adjacent {
@@ -759,6 +840,7 @@ fn fill_reducing_order<'a>(
                 continue;
             };
             let before = theirs.len();
+
             theirs.remove(&column);
             if degree <= CLIQUE_LIMIT {
                 theirs.extend(adjacent.iter().copied().filter(|next| next != other));
@@ -778,6 +860,7 @@ pub(crate) fn duplicates(
 ) -> Vec<ConstraintId> {
     let mut columns: BTreeSet<usize> = rows.iter().flatten().map(|(column, _)| *column).collect();
     let mut chosen = BTreeSet::new();
+
     for _ in 0..NEIGHBOURHOOD_HOPS {
         for (index, (_, row)) in earlier.iter().enumerate() {
             if row.iter().any(|(column, _)| columns.contains(column)) {
@@ -790,12 +873,14 @@ pub(crate) fn duplicates(
             }
         }
     }
+
     let local: Vec<usize> = columns
         .into_iter()
         .filter(|column| *column < width)
         .collect();
     let dense = |row: &Row| -> Vec<f64> {
         let mut values = vec![0.0; local.len()];
+
         for (column, value) in row {
             if let Ok(position) = local.binary_search(column)
                 && let Some(slot) = values.get_mut(position)

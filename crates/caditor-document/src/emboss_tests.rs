@@ -9,6 +9,7 @@ use crate::*;
 
 fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
     let mut sketch = Sketch::new(Plane::XY);
+
     add_rectangle(&mut sketch, min, max);
     sketch
 }
@@ -98,22 +99,29 @@ fn plate(label: Sketch, form: EmbossForm, depth: &str) -> Model {
 
 fn slab(outline: Sketch, label: Sketch, form: EmbossForm, depth: &str) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = extruded(outline, &mut transaction, "4 mm");
     let label = transaction.add_feature("Label", FeatureKind::from(label));
+
     document.apply(transaction.finish()).unwrap();
     embossed(document, base, label, top_face, form, depth)
 }
 
 fn rod(label: Sketch, form: EmbossForm, depth: &str) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut outline = Sketch::new(Plane::XY);
+
     outline.add_circle(Point2::new(0.0, 0.0), 10.0);
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = extruded(outline, &mut transaction, "30 mm");
     let label = transaction.add_feature("Label", FeatureKind::from(label));
+
     document.apply(transaction.finish()).unwrap();
     embossed(
         document,
@@ -134,9 +142,11 @@ fn embossed(
     depth: &str,
 ) -> Model {
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
     let faces = vec![face(evaluation.body(base).unwrap())];
     let mut transaction = document.transaction("Emboss");
+
     let depth = transaction.parse(depth).unwrap();
     let emboss = transaction.add_feature(
         "Emboss 1",
@@ -150,6 +160,7 @@ fn embossed(
             form,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -168,6 +179,7 @@ fn change(model: &mut Model, change: impl FnOnce(&mut Emboss)) {
         .emboss()
         .unwrap()
         .clone();
+
     change(&mut definition);
     model
         .document
@@ -196,8 +208,10 @@ fn suppress(model: &mut Model, suppressed: bool) {
 
 fn unembossed_volume(model: &mut Model) -> f64 {
     suppress(model, true);
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let found = volume(&evaluation, model.base);
+
     suppress(model, false);
     found
 }
@@ -237,7 +251,9 @@ fn a_recessed_outline_sinks_into_a_flat_face_by_its_depth() {
 #[test]
 fn the_counter_of_an_outline_stays_open() {
     let mut label = rectangle((1.0, 1.0), (9.0, 7.0));
+
     add_rectangle(&mut label, (3.0, 3.0), (7.0, 5.0));
+
     let mut model = plate(label, EmbossForm::Raised, "2 mm");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -253,7 +269,9 @@ fn raised_and_recessed_outlines_follow_the_depth_expression() {
         EmbossForm::Raised,
         "1 mm",
     );
+
     let deeper = model.document.parse("2.5 mm").unwrap();
+
     change(&mut model, |emboss| emboss.depth = deeper);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -276,6 +294,7 @@ fn region_at(sketch: &Sketch, x: f64) -> RegionReference {
 
 fn two_labels() -> Sketch {
     let mut label = rectangle((1.0, 1.0), (4.0, 3.0));
+
     add_rectangle(&mut label, (6.0, 4.0), (9.0, 7.0));
     label
 }
@@ -287,20 +306,25 @@ fn only_the_chosen_regions_of_the_sketch_are_embossed() {
     let mut model = plate(label, EmbossForm::Raised, "1 mm");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!((volume(&evaluation, model.base) - (plate_volume() + 6.0 + 9.0)).abs() < 1e-6);
 
     change(&mut model, |emboss| {
         emboss.regions = RegionChoice::Chosen(vec![large.clone()]);
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!((volume(&evaluation, model.base) - (plate_volume() + 9.0)).abs() < 1e-6);
 
     change(&mut model, |emboss| {
         emboss.regions = RegionChoice::Chosen(vec![small, large]);
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert!((volume(&evaluation, model.base) - (plate_volume() + 15.0)).abs() < 1e-6);
 }
 
@@ -309,6 +333,7 @@ fn a_recess_cuts_only_the_chosen_regions() {
     let label = two_labels();
     let small = region_at(&label, 2.0);
     let mut model = plate(label, EmbossForm::Recessed, "1 mm");
+
     change(&mut model, |emboss| {
         emboss.regions = RegionChoice::Chosen(vec![small]);
     });
@@ -322,16 +347,20 @@ fn a_recess_cuts_only_the_chosen_regions() {
 #[test]
 fn a_region_left_out_may_run_off_the_face() {
     let mut label = rectangle((1.0, 1.0), (4.0, 3.0));
+
     add_rectangle(&mut label, (6.0, 5.0), (12.0, 7.0));
+
     let small = region_at(&label, 2.0);
     let mut model = plate(label, EmbossForm::Raised, "1 mm");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(evaluation.failed_count(), 1);
 
     change(&mut model, |emboss| {
         emboss.regions = RegionChoice::Chosen(vec![small]);
     });
+
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(evaluation.failed_count(), 0);
@@ -341,9 +370,11 @@ fn a_region_left_out_may_run_off_the_face() {
 #[test]
 fn an_emboss_with_no_region_chosen_waits_for_regions_of_its_sketch() {
     let mut model = plate(two_labels(), EmbossForm::Raised, "1 mm");
+
     change(&mut model, |emboss| {
         emboss.regions = RegionChoice::Chosen(Vec::new());
     });
+
     let label = model
         .document
         .feature(model.emboss)
@@ -358,6 +389,7 @@ fn an_emboss_with_no_region_chosen_waits_for_regions_of_its_sketch() {
     let waiting = MissingInput::RegionsToEmboss {
         sketch: label.unwrap(),
     };
+
     assert_eq!(
         evaluation.feature(model.emboss).unwrap().state,
         FeatureState::Waiting(waiting)
@@ -373,6 +405,7 @@ fn an_emboss_with_no_region_chosen_waits_for_regions_of_its_sketch() {
 fn a_chosen_region_the_sketch_no_longer_has_fails_in_words() {
     let mut model = plate(two_labels(), EmbossForm::Raised, "1 mm");
     let gone = RegionReference::new(RegionKey::from_digest(0x1234), Default::default(), None);
+
     change(&mut model, |emboss| {
         emboss.regions = RegionChoice::Chosen(vec![gone]);
     });
@@ -392,9 +425,11 @@ fn a_chosen_region_that_changes_is_healed_and_said_so() {
     let label = two_labels();
     let small = region_at(&label, 2.0);
     let mut model = plate(label, EmbossForm::Raised, "1 mm");
+
     change(&mut model, |emboss| {
         emboss.regions = RegionChoice::Chosen(vec![small]);
     });
+
     let sketch = model
         .document
         .feature(model.emboss)
@@ -404,10 +439,13 @@ fn a_chosen_region_that_changes_is_healed_and_said_so() {
         .unwrap()
         .sketch
         .unwrap();
+
     evaluate(&model.document, &mut model.engine);
 
     let mut transaction = model.document.transaction("Draw a hole");
+
     let centre = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(2.5, 2.0)));
+
     transaction.add_sketch_entity(
         sketch,
         Entity::Circle {
@@ -416,6 +454,7 @@ fn a_chosen_region_that_changes_is_healed_and_said_so() {
         },
     );
     model.document.apply(transaction.finish()).unwrap();
+
     let after = evaluate(&model.document, &mut model.engine);
 
     let healing = after
@@ -424,21 +463,27 @@ fn a_chosen_region_that_changes_is_healed_and_said_so() {
         .healing
         .clone()
         .unwrap();
+
     assert_eq!(
         healing.reason(),
         "After an upstream change, a chosen region of Label was matched to the most similar \
          geometry."
     );
+
     let grown = volume(&after, model.base) - plate_volume();
+
     assert!(
         (grown - (6.0 - std::f64::consts::PI * 0.25)).abs() < 2e-2,
         "{grown}"
     );
+
     model
         .document
         .apply(healing.update(&model.document).unwrap())
         .unwrap();
+
     let updated = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(updated.feature(model.emboss).unwrap().healing, None);
 }
 
@@ -498,7 +543,9 @@ fn a_depth_of_nothing_fails_in_words() {
 #[test]
 fn a_sketch_standing_across_the_face_fails_in_words() {
     let mut tilted = Sketch::new(Plane::XZ);
+
     add_rectangle(&mut tilted, (2.0, 0.0), (6.0, 3.0));
+
     let mut model = plate(tilted, EmbossForm::Raised, "1 mm");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -513,7 +560,9 @@ fn a_sketch_standing_across_the_face_fails_in_words() {
 #[test]
 fn a_sketch_without_a_closed_outline_fails_in_words() {
     let mut open = Sketch::new(Plane::XY);
+
     open.add_line(Point2::new(1.0, 1.0), Point2::new(5.0, 4.0));
+
     let mut model = plate(open, EmbossForm::Raised, "1 mm");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -526,7 +575,9 @@ fn a_sketch_without_a_closed_outline_fails_in_words() {
 
 fn lettered_plate() -> (Document, FeatureId, FeatureId) {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
@@ -534,6 +585,7 @@ fn lettered_plate() -> (Document, FeatureId, FeatureId) {
     let base = extruded(outline, &mut transaction, "4 mm");
     let label = transaction.add_feature("Label", FeatureKind::from(Sketch::new(Plane::XY)));
     let anchor = transaction.add_sketch_entity(label, Entity::Point(Point2::new(2.0, 2.0)));
+
     transaction.add_sketch_constraint(
         label,
         Constraint::Fix {
@@ -560,6 +612,7 @@ fn lettered_plate() -> (Document, FeatureId, FeatureId) {
 #[test]
 fn text_embosses_with_its_counters_open() {
     let (document, base, label) = lettered_plate();
+
     let mut model = embossed(document, base, label, top_face, EmbossForm::Raised, "1 mm");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -585,7 +638,9 @@ fn an_emboss_waits_for_its_faces_and_its_sketch() {
         EmbossForm::Raised,
         "1 mm",
     );
+
     change(&mut model, |emboss| emboss.sketch = None);
+
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(
@@ -594,6 +649,7 @@ fn an_emboss_waits_for_its_faces_and_its_sketch() {
     );
 
     change(&mut model, |emboss| emboss.faces.clear());
+
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(
@@ -608,6 +664,7 @@ fn tangent_sketch(offset: f64) -> Sketch {
 
 fn patch() -> Sketch {
     let mut sketch = tangent_sketch(10.0);
+
     add_rectangle(&mut sketch, (10.0, -5.0), (22.0, 5.0));
     sketch
 }
@@ -615,6 +672,7 @@ fn patch() -> Sketch {
 #[test]
 fn a_raised_outline_wraps_round_a_cylinder_by_its_depth() {
     let mut model = rod(patch(), EmbossForm::Raised, "1 mm");
+
     let plain = unembossed_volume(&mut model);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -627,6 +685,7 @@ fn a_raised_outline_wraps_round_a_cylinder_by_its_depth() {
 #[test]
 fn a_recessed_outline_wraps_into_a_cylinder_by_its_depth() {
     let mut model = rod(patch(), EmbossForm::Recessed, "1 mm");
+
     let plain = unembossed_volume(&mut model);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -639,6 +698,7 @@ fn a_recessed_outline_wraps_into_a_cylinder_by_its_depth() {
 #[test]
 fn a_wrapped_outline_may_be_deeper_than_a_quarter_of_the_radius() {
     let mut model = rod(patch(), EmbossForm::Raised, "4 mm");
+
     let plain = unembossed_volume(&mut model);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -666,7 +726,9 @@ fn a_wrapped_outline_deeper_than_the_radius_fails_in_words() {
 #[test]
 fn a_wrapped_outline_across_the_axis_fails_in_words() {
     let mut label = Sketch::new(Plane::XY);
+
     add_rectangle(&mut label, (10.0, -5.0), (22.0, 5.0));
+
     let mut model = rod(label, EmbossForm::Raised, "1 mm");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -680,13 +742,17 @@ fn a_wrapped_outline_across_the_axis_fails_in_words() {
 
 fn tube(label: Sketch, form: EmbossForm, depth: &str) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mut outline = Sketch::new(Plane::XY);
+
     outline.add_circle(Point2::new(0.0, 0.0), 10.0);
     outline.add_circle(Point2::new(0.0, 0.0), 6.0);
+
     let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = extruded(outline, &mut transaction, "30 mm");
     let label = transaction.add_feature("Label", FeatureKind::from(label));
+
     document.apply(transaction.finish()).unwrap();
     embossed(
         document,
@@ -708,6 +774,7 @@ fn tube(label: Sketch, form: EmbossForm, depth: &str) -> Model {
 
 fn bore_patch() -> Sketch {
     let mut sketch = tangent_sketch(6.0);
+
     add_rectangle(&mut sketch, (10.0, -3.0), (22.0, 3.0));
     sketch
 }
@@ -715,6 +782,7 @@ fn bore_patch() -> Sketch {
 #[test]
 fn a_raised_outline_wraps_into_a_bore_towards_its_axis() {
     let mut model = tube(bore_patch(), EmbossForm::Raised, "1 mm");
+
     let plain = unembossed_volume(&mut model);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -727,6 +795,7 @@ fn a_raised_outline_wraps_into_a_bore_towards_its_axis() {
 #[test]
 fn a_recessed_outline_wraps_into_the_wall_of_a_bore() {
     let mut model = tube(bore_patch(), EmbossForm::Recessed, "1 mm");
+
     let plain = unembossed_volume(&mut model);
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -738,8 +807,10 @@ fn a_recessed_outline_wraps_into_the_wall_of_a_bore() {
 
 fn cone(label: Sketch, form: EmbossForm, depth: &str) -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mm = |text: &str| Expression::parse_stored(text).unwrap();
+
     let base = transaction.add_feature(
         "Cone",
         FeatureKind::Primitive(Primitive {
@@ -756,6 +827,7 @@ fn cone(label: Sketch, form: EmbossForm, depth: &str) -> Model {
         }),
     );
     let label = transaction.add_feature("Label", FeatureKind::from(label));
+
     document.apply(transaction.finish()).unwrap();
     embossed(
         document,
@@ -776,6 +848,7 @@ fn cone(label: Sketch, form: EmbossForm, depth: &str) -> Model {
 
 fn cone_patch() -> Sketch {
     let mut sketch = tangent_sketch(8.0);
+
     add_rectangle(&mut sketch, (8.0, -2.0), (14.0, 2.0));
     sketch
 }
@@ -783,15 +856,20 @@ fn cone_patch() -> Sketch {
 #[test]
 fn a_raised_outline_wraps_round_a_cone_and_a_recessed_one_into_it() {
     let mut raised = cone(cone_patch(), EmbossForm::Raised, "1 mm");
+
     let plain = unembossed_volume(&mut raised);
     let evaluation = evaluate(&raised.document, &mut raised.engine);
+
     let grown = volume(&evaluation, raised.base) - plain;
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!(grown > 20.0 && grown < 45.0, "{grown}");
 
     let mut recessed = cone(cone_patch(), EmbossForm::Recessed, "1 mm");
+
     let evaluation = evaluate(&recessed.document, &mut recessed.engine);
     let cut = plain - volume(&evaluation, recessed.base);
+
     assert_eq!(evaluation.failed_count(), 0);
     assert!(cut > 20.0 && cut < 45.0, "{cut}");
 }
@@ -799,8 +877,10 @@ fn a_raised_outline_wraps_round_a_cone_and_a_recessed_one_into_it() {
 #[test]
 fn a_sphere_cannot_be_embossed_and_says_why() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
     let mm = |text: &str| Expression::parse_stored(text).unwrap();
+
     let base = transaction.add_feature(
         "Ball",
         FeatureKind::Primitive(Primitive {
@@ -815,7 +895,9 @@ fn a_sphere_cannot_be_embossed_and_says_why() {
         }),
     );
     let label = transaction.add_feature("Label", FeatureKind::from(bore_patch()));
+
     document.apply(transaction.finish()).unwrap();
+
     let mut model = embossed(
         document,
         base,
@@ -840,7 +922,9 @@ fn a_sphere_cannot_be_embossed_and_says_why() {
 fn repeat(model: &mut Model, kind: PatternKind) -> FeatureId {
     let pattern = Pattern::new(model.base, kind).repeating(vec![model.emboss]);
     let mut transaction = model.document.transaction("Pattern");
+
     let feature = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+
     model.document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -857,6 +941,7 @@ fn a_linear_pattern_repeats_a_raised_emboss() {
         EmbossForm::Raised,
         "1 mm",
     );
+
     let pattern = repeat(
         &mut model,
         PatternKind::Linear {
@@ -876,8 +961,10 @@ fn a_linear_pattern_repeats_a_raised_emboss() {
     assert_eq!(evaluation.failed_count(), 0);
     assert_eq!(evaluation.cuts(pattern).len(), 0);
     assert!((volume(&evaluation, model.base) - (2400.0 + 3.0 * 12.0)).abs() < 1e-6);
+
     let solid = evaluation.body(model.base).unwrap();
     let bounds = solid.bounding_box().unwrap();
+
     assert!((bounds.max().z - 5.0).abs() < 1e-6);
     assert_eq!(solid.shells().count(), 1);
 }
@@ -890,6 +977,7 @@ fn a_circular_pattern_repeats_a_raised_emboss() {
         EmbossForm::Raised,
         "1 mm",
     );
+
     repeat(
         &mut model,
         PatternKind::Circular(CircularPattern {
@@ -914,10 +1002,13 @@ fn a_mirror_repeats_a_recessed_emboss() {
         EmbossForm::Recessed,
         "1 mm",
     );
+
     let mirrored = Mirror::new(model.base, PlaneReference::Principal(PrincipalPlane::Yz))
         .mirroring(vec![model.emboss]);
     let mut transaction = model.document.transaction("Mirror");
+
     let mirror = transaction.add_feature("Mirror 1", FeatureKind::Mirror(mirrored));
+
     model.document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -942,7 +1033,9 @@ fn an_emboss_is_repeatable_on_its_body() {
 
 fn drafted(form: EmbossForm, depth: &str, draft: &str) -> Model {
     let mut model = plate(rectangle((2.0, 2.0), (6.0, 5.0)), form, depth);
+
     let draft = model.document.parse(draft).unwrap();
+
     change(&mut model, |emboss| emboss.draft = draft);
     model
 }
@@ -982,6 +1075,7 @@ fn a_drafted_outline_keeps_the_names_of_its_top_and_sides() {
     let names = |model: &mut Model| {
         let evaluation = evaluate(&model.document, &mut model.engine);
         let emboss = model.emboss.raw();
+
         let mut names: Vec<FaceName> = evaluation
             .body(model.base)
             .unwrap()
@@ -992,6 +1086,7 @@ fn a_drafted_outline_keeps_the_names_of_its_top_and_sides() {
             })
             .map(|(_, face)| face.name())
             .collect();
+
         names.sort();
         names
     };
@@ -1031,12 +1126,14 @@ fn a_draft_closing_the_outline_before_its_depth_fails_in_words() {
 
 fn lean_wrapped(model: &mut Model, draft: &str) {
     let draft = model.document.parse(draft).unwrap();
+
     change(model, |emboss| emboss.draft = draft);
 }
 
 fn wrapped_material(model: &mut Model) -> f64 {
     let plain = unembossed_volume(model);
     let evaluation = evaluate(&model.document, &mut model.engine);
+
     assert_eq!(evaluation.failed_count(), 0);
     (volume(&evaluation, model.base) - plain).abs()
 }
@@ -1059,12 +1156,14 @@ fn drafted_patch(radius: f64, depth: f64, degrees: f64, towards_axis: f64) -> f6
 fn a_drafted_raised_outline_wrapped_round_a_cylinder_narrows_away_from_it() {
     let mut straight = rod(patch(), EmbossForm::Raised, "2 mm");
     let mut leaning = rod(patch(), EmbossForm::Raised, "2 mm");
+
     lean_wrapped(&mut leaning, "10 deg");
 
     let plain = wrapped_material(&mut straight);
     let drafted = wrapped_material(&mut leaning);
 
     let expected = drafted_patch(10.0, 2.0, 10.0, 1.0);
+
     assert!(drafted < plain - 5.0, "{drafted} {plain}");
     assert!(
         (drafted - expected).abs() < expected * 0.01,
@@ -1075,11 +1174,13 @@ fn a_drafted_raised_outline_wrapped_round_a_cylinder_narrows_away_from_it() {
 #[test]
 fn a_drafted_recess_wrapped_into_a_cylinder_narrows_towards_its_floor() {
     let mut leaning = rod(patch(), EmbossForm::Recessed, "2 mm");
+
     lean_wrapped(&mut leaning, "10 deg");
 
     let drafted = wrapped_material(&mut leaning);
 
     let expected = drafted_patch(10.0, 2.0, 10.0, -1.0);
+
     assert!(
         (drafted - expected).abs() < expected * 0.01,
         "{drafted} {expected}"
@@ -1091,7 +1192,9 @@ fn drafted_outlines_wrap_into_a_bore_and_round_a_cone() {
     for form in [EmbossForm::Raised, EmbossForm::Recessed] {
         let mut bore = tube(bore_patch(), form, "1 mm");
         let mut round = cone(cone_patch(), form, "1 mm");
+
         let straight = [wrapped_material(&mut bore), wrapped_material(&mut round)];
+
         lean_wrapped(&mut bore, "8 deg");
         lean_wrapped(&mut round, "8 deg");
 
@@ -1105,6 +1208,7 @@ fn drafted_outlines_wrap_into_a_bore_and_round_a_cone() {
 #[test]
 fn a_wrapped_draft_closing_the_outline_before_its_depth_fails_in_words() {
     let mut model = rod(patch(), EmbossForm::Raised, "6 mm");
+
     lean_wrapped(&mut model, "44 deg");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -1120,6 +1224,7 @@ fn a_wrapped_draft_closing_the_outline_before_its_depth_fails_in_words() {
 #[test]
 fn drafted_text_leans_its_walls_in() {
     let (document, base, label) = lettered_plate();
+
     let mut straight = embossed(
         document.clone(),
         base,
@@ -1129,7 +1234,9 @@ fn drafted_text_leans_its_walls_in() {
         "1 mm",
     );
     let mut leaning = embossed(document, base, label, top_face, EmbossForm::Raised, "1 mm");
+
     let draft = leaning.document.parse("8 deg").unwrap();
+
     change(&mut leaning, |emboss| emboss.draft = draft);
 
     let straight_evaluation = evaluate(&straight.document, &mut straight.engine);

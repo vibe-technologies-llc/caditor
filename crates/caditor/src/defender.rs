@@ -13,12 +13,12 @@ pub const DISMISS: &str = "Dismiss the reminder";
 const WIDTH: f32 = 420.0;
 const BOTTOM_CLEARANCE: f32 = 16.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Reminder<'a> {
     pub folder: Option<&'a Path>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Dismiss,
     ReadMore,
@@ -66,18 +66,22 @@ pub fn show(ctx: &egui::Context, viewport: Rect, reminder: Reminder<'_>) -> Opti
             widgets::dialog_frame(ctx)
                 .show(ui, |ui| {
                     ui.set_width(widgets::fitting_width(ctx, WIDTH));
+
                     let closed = Sides::new()
                         .show(
                             ui,
                             |ui| {
                                 let accent = appearance::tokens(ui).accent_text;
+
                                 widgets::icon_label(ui, icons::DEFENDER, accent);
                                 ui.label(widgets::section_title(TITLE));
                             },
                             |ui| widgets::icon_button(ui, icons::CLOSE, DISMISS).clicked(),
                         )
                         .1;
+
                     ui.add(Label::new(text(reminder)).wrap());
+
                     let chosen = widgets::footer_split(
                         ui,
                         |ui| {
@@ -109,6 +113,7 @@ mod tests {
     #[test]
     fn the_reminder_comes_once_after_a_save_on_windows_and_whenever_asked() {
         let folder = Path::new("models");
+
         assert_eq!(
             due(true, false, false, Some(folder)),
             Some(Reminder {

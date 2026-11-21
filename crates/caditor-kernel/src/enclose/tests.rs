@@ -53,12 +53,16 @@ fn faces_of(solid: &Solid, feature: u64) -> Vec<FaceId> {
 fn check(enclosure: &Enclosure, bounds: Bounds, expected: f64) {
     assert_eq!(enclosure.bounds, bounds);
     assert_eq!(enclosure.solid.validate(), Ok(()));
+
     let tolerance = enclosure.solid.default_tolerance();
+
     assert_watertight(
         "enclosure",
         &enclosure.solid.tessellate(&tolerance).unwrap(),
     );
+
     let found = volume(&enclosure.solid);
+
     assert!(
         (found - expected).abs() <= 2e-3 * expected,
         "volume {found} instead of {expected}"
@@ -69,13 +73,16 @@ fn check(enclosure: &Enclosure, bounds: Bounds, expected: f64) {
 fn a_pocket_s_walls_and_floor_close_into_the_cavity_they_bound() {
     let body = block((0.0, 0.0), (10.0, 10.0), 0.0, 5.0, 1);
     let tool = block((3.0, 3.0), (7.0, 7.0), 2.0, 4.0, TOOL);
+
     let pocketed = boolean(&body, &tool, BooleanOperation::Difference).unwrap();
 
     let pocket = faces_of(&pocketed, TOOL);
     let enclosure = enclose_faces(&pocketed, &pocket, FEATURE).unwrap();
 
     assert_eq!(pocket.len(), 5);
+
     check(&enclosure, Bounds::Cavity, 48.0);
+
     assert_eq!(enclosure.solid.faces().count(), 6);
     assert!(
         enclosure
@@ -89,12 +96,14 @@ fn a_pocket_s_walls_and_floor_close_into_the_cavity_they_bound() {
 fn a_boss_s_walls_and_top_close_into_the_material_they_bound() {
     let body = block((0.0, 0.0), (10.0, 10.0), 0.0, 5.0, 1);
     let tool = block((3.0, 3.0), (7.0, 7.0), 5.0, 3.0, TOOL);
+
     let bossed = boolean(&body, &tool, BooleanOperation::Union).unwrap();
 
     let boss = faces_of(&bossed, TOOL);
     let enclosure = enclose_faces(&bossed, &boss, FEATURE).unwrap();
 
     assert_eq!(boss.len(), 5);
+
     check(&enclosure, Bounds::Material, 48.0);
 }
 
@@ -110,6 +119,7 @@ fn a_through_hole_s_wall_closes_at_both_ends() {
     let enclosure = enclose_faces(&body, &wall, FEATURE).unwrap();
 
     assert_eq!(wall.len(), 1);
+
     check(&enclosure, Bounds::Cavity, PI * 4.0 * 5.0);
 }
 
@@ -187,6 +197,7 @@ fn enclosed_tool(
 ) -> (Solid, Enclosure) {
     let body = cylinder(RADIUS, CYLINDER_HEIGHT);
     let tool = block(min, max, 3.0, SLOT_DEPTH, TOOL);
+
     let shaped = boolean(&body, &tool, operation).unwrap();
 
     let chosen = faces_of(&shaped, TOOL);
@@ -230,6 +241,7 @@ fn a_pocket_in_a_cylinder_s_wall_closes_with_a_patch_of_the_wall_and_mirrors() {
     let mirrored = mirrored_across_xz(&pocketed, &enclosure);
 
     check(&enclosure, Bounds::Cavity, pocket);
+
     assert_eq!(enclosure.solid.faces().count(), 6);
     assert_eq!(round_faces(&enclosure), 1);
     assert!(
@@ -247,6 +259,7 @@ fn a_boss_on_a_cylinder_closes_with_a_patch_of_the_wall_and_mirrors() {
     let mirrored = mirrored_across_xz(&bossed, &enclosure);
 
     check(&enclosure, Bounds::Material, boss);
+
     assert_eq!(enclosure.solid.faces().count(), 6);
     assert_eq!(round_faces(&enclosure), 1);
     assert!(
@@ -268,6 +281,7 @@ fn a_pocket_across_a_cylinder_s_seam_closes_with_a_patch_of_the_wall() {
         Bounds::Cavity,
         SLOT_DEPTH * (under_arc() - 2.0 * SLOT_FLOOR),
     );
+
     assert_eq!(round_faces(&enclosure), 1);
 }
 
@@ -303,6 +317,7 @@ fn a_collar_whose_openings_run_around_the_cylinder_is_refused() {
 fn a_round_boss_on_a_cylinder_closes_with_a_patch_of_the_wall() {
     let lay = RigidTransform::rotation_about(Point3::ZERO, Vector3::X, -PI / 2.0).unwrap();
     let raise = RigidTransform::translation(Vector3::new(0.0, 0.0, 5.0)).unwrap();
+
     let peg = cylinder(1.0, 7.0).transformed(&lay.then(&raise)).unwrap();
     let pegged = boolean(
         &cylinder(RADIUS, CYLINDER_HEIGHT),

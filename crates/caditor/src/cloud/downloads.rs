@@ -15,7 +15,7 @@ const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0100_0000_01b3;
 pub const KEPT_DESIGNS: usize = 40;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
     pub designs: usize,
     pub bytes: u64,
@@ -110,6 +110,7 @@ fn is_device_name(stem: &str) -> bool {
 
 pub fn usage(dir: &Path) -> io::Result<Usage> {
     let mut usage = Usage::default();
+
     for design in design_folders(dir)? {
         usage.designs += 1;
         usage.bytes = usage.bytes.saturating_add(folder_bytes(&design.path));
@@ -126,6 +127,7 @@ pub fn clear(dir: &Path) -> io::Result<()> {
 
 pub fn prune(dir: &Path, keep: usize) -> io::Result<()> {
     let mut designs = design_folders(dir)?;
+
     designs.sort_by_key(|design| std::cmp::Reverse(design.modified));
     for stale in designs.into_iter().skip(keep) {
         fs::remove_dir_all(&stale.path)?;
@@ -196,6 +198,7 @@ mod tests {
 
     fn keep(dir: &Path, design: &ImportItem, bytes: usize) -> PathBuf {
         let path = path_for(dir, design);
+
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, vec![0_u8; bytes]).unwrap();
         path
@@ -267,6 +270,7 @@ mod tests {
             modified: None,
             has_parts: true,
         };
+
         let part = |id: &str, name: &str| {
             path_for(
                 dir,
@@ -319,7 +323,9 @@ mod tests {
         assert_eq!(name.len(), MAX_NAME_BYTES + ".step".len());
         assert!(name.starts_with(&"\u{e9}".repeat(100)));
         assert!(temporary.file_name().unwrap().len() <= 255);
+
         let emoji = path_for(Path::new("d"), &design("i", &"\u{1f600}".repeat(100)));
+
         assert!(emoji.file_stem().unwrap().to_str().unwrap().len() <= MAX_NAME_BYTES);
         assert!(temporary_for(&emoji).file_name().unwrap().len() <= 255);
     }
@@ -362,6 +368,7 @@ mod tests {
     #[test]
     fn usage_counts_designs_and_bytes_and_clearing_removes_them() {
         let dir = TempDir::new().unwrap();
+
         keep(dir.path(), &design("1", "A"), 10);
         keep(dir.path(), &design("2", "B"), 25);
 
@@ -383,6 +390,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
 
         assert_eq!(usage(&dir.path().join("none")).unwrap(), Usage::default());
+
         clear(&dir.path().join("none")).unwrap();
         prune(&dir.path().join("none"), 1).unwrap();
     }
@@ -393,10 +401,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let old = keep(dir.path(), &design("old", "Old"), 1);
         let aged = SystemTime::now() - std::time::Duration::from_secs(3600);
+
         fs::File::open(old.parent().unwrap())
             .unwrap()
             .set_modified(aged)
             .unwrap();
+
         let fresh = keep(dir.path(), &design("fresh", "Fresh"), 1);
 
         prune(dir.path(), 1).unwrap();

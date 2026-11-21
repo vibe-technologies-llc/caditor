@@ -125,6 +125,7 @@ fn finishing_the_sign_in_trades_the_code_and_verifier_without_a_secret() {
         .unwrap();
 
     let pairs = form_of(net.requests().first().unwrap());
+
     assert_eq!(
         field(&pairs, "grant_type").as_deref(),
         Some("authorization_code")
@@ -153,6 +154,7 @@ fn a_refresh_keeps_the_old_refresh_token_when_the_answer_has_none() {
     let renewed = onshape().refresh(&net, &session(), NOW).unwrap();
 
     let pairs = form_of(net.requests().first().unwrap());
+
     assert_eq!(
         field(&pairs, "grant_type").as_deref(),
         Some("refresh_token")
@@ -265,6 +267,7 @@ fn the_scopes_are_the_account_views_then_its_companies_and_teams() {
         .iter()
         .map(|workspace| (workspace.id.as_str(), workspace.name.as_str()))
         .collect();
+
     assert_eq!(
         listed,
         [
@@ -296,6 +299,7 @@ fn an_account_without_company_or_team_access_still_lists_its_own_scopes() {
         .iter()
         .map(|workspace| workspace.id.as_str())
         .collect();
+
     assert_eq!(ids, ["documents", "recent", "shared", "public"]);
 }
 
@@ -358,6 +362,7 @@ fn a_scope_that_is_not_ours_is_not_found() {
             Err(Error::NotFound { .. })
         ));
     }
+
     assert!(net.requests().is_empty());
 }
 
@@ -378,6 +383,7 @@ fn only_documents_are_projects_when_a_listing_holds_folders_and_labels() {
     let projects = onshape().projects(&net, &session(), &mine()).unwrap();
 
     let ids: Vec<_> = projects.iter().map(|project| project.id.as_str()).collect();
+
     assert_eq!(ids, ["d1", "d2"]);
 }
 
@@ -408,6 +414,7 @@ fn documents_are_the_projects_and_paging_follows_next_inside_onshape() {
         .iter()
         .map(|project| project.name.as_str())
         .collect();
+
     assert_eq!(names, ["Bracket", "Untitled", "Gear"]);
     assert_eq!(projects[0].id.as_str(), "d1");
     assert_eq!(net.requests().len(), 2);
@@ -473,11 +480,13 @@ fn a_document_lists_its_part_studios_and_assemblies_from_its_default_workspace()
     let root = onshape().root(&net, &session(), &project()).unwrap();
 
     assert!(root.folders.is_empty());
+
     let designs: Vec<_> = root
         .designs
         .iter()
         .map(|design| (design.name.as_str(), design.id.as_str()))
         .collect();
+
     assert_eq!(
         designs,
         [
@@ -535,6 +544,7 @@ fn a_document_offers_its_other_branches_and_its_versions_newest_first() {
         .iter()
         .map(|entry| (entry.name.as_str(), entry.reference.folder.as_str()))
         .collect();
+
     assert_eq!(
         folders,
         [
@@ -592,16 +602,19 @@ fn a_branch_and_a_version_list_their_own_elements_and_import_from_them() {
 
     assert!(branch.folders.is_empty() && version.folders.is_empty());
     assert_eq!(branch.designs[0].id.as_str(), "partstudios/w/ws3/e1");
+
     let ids: Vec<_> = version
         .designs
         .iter()
         .map(|design| design.id.as_str())
         .collect();
+
     assert_eq!(ids, ["partstudios/v/v3/e2", "assemblies/v/v3/e7"]);
 
     let translation = onshape()
         .start_conversion(&net, &session(), &version.designs[1], None)
         .unwrap();
+
     assert_eq!(translation.source, "doc1/tr9");
 }
 
@@ -614,6 +627,7 @@ fn a_folder_that_is_not_ours_is_not_found() {
             project: ProjectId::new("doc1"),
             folder: FolderId::new(folder),
         };
+
         assert!(matches!(
             onshape().folder(&net, &session(), &reference),
             Err(Error::NotFound {
@@ -621,6 +635,7 @@ fn a_folder_that_is_not_ours_is_not_found() {
             })
         ));
     }
+
     assert!(net.requests().is_empty());
 }
 
@@ -684,12 +699,16 @@ fn starting_a_conversion_asks_for_step_kept_outside_the_document() {
         .unwrap();
 
     assert_eq!(translation.source, "doc1/tr1");
+
     let request = net.requests().into_iter().next().unwrap();
+
     assert_eq!(request.bearer.as_deref(), Some("access-1"));
+
     let Body::Json(body) = request.body else {
         panic!("expected a JSON body");
     };
     let sent: serde_json::Value = serde_json::from_str(&body).unwrap();
+
     assert_eq!(sent["formatName"], "STEP");
     assert_eq!(sent["storeInDocument"], false);
 }
@@ -745,7 +764,9 @@ fn a_part_studio_lists_its_parts_from_the_documented_endpoint() {
             },
         ]
     );
+
     let request = net.requests().into_iter().next().unwrap();
+
     assert_eq!(request.bearer.as_deref(), Some("access-1"));
     assert_eq!(request.url, url);
 }
@@ -792,6 +813,7 @@ fn a_failing_part_list_is_worded_and_a_bad_id_is_not_found() {
     ));
 
     let unreadable = ScriptedTransport::new().route(Method::Get, &url, 200, r#"{"parts":[]}"#);
+
     assert!(matches!(
         onshape().parts(&unreadable, &session(), &design("partstudios/w/ws9/e1")),
         Err(Error::Unreadable {
@@ -821,12 +843,16 @@ fn a_part_converts_through_the_part_studio_translation_with_its_part_id() {
         .unwrap();
 
     assert_eq!(translation.source, "doc1/tr3");
+
     let request = net.requests().into_iter().next().unwrap();
+
     assert_eq!(request.bearer.as_deref(), Some("access-1"));
+
     let Body::Json(body) = request.body else {
         panic!("expected a JSON body");
     };
     let sent: serde_json::Value = serde_json::from_str(&body).unwrap();
+
     assert_eq!(sent["formatName"], "STEP");
     assert_eq!(sent["storeInDocument"], false);
     assert_eq!(sent["partIds"], "JHD");
@@ -845,6 +871,7 @@ fn a_whole_part_studio_conversion_names_no_parts() {
         panic!("expected a JSON body");
     };
     let sent: serde_json::Value = serde_json::from_str(&body).unwrap();
+
     assert!(sent.get("partIds").is_none());
 }
 
@@ -889,6 +916,7 @@ fn only_part_studios_are_marked_as_having_parts() {
         .iter()
         .map(|design| (design.name.as_str(), design.has_parts))
         .collect();
+
     assert_eq!(marked, vec![("Frame", true), ("Rig", false)]);
 }
 
@@ -912,6 +940,7 @@ fn a_design_id_that_is_not_ours_is_not_found() {
             })
         ));
     }
+
     assert!(net.requests().is_empty());
 }
 
@@ -1046,6 +1075,7 @@ fn the_status_codes_of_a_listing_map_to_typed_errors() {
             Error::Refused { .. } => "refused",
             _ => "other",
         };
+
         assert_eq!(kind, expected);
     }
 }
@@ -1121,11 +1151,15 @@ fn a_model_is_uploaded_as_a_new_blob_element_of_the_workspace() {
     assert_eq!(seen.last(), Some(&(13, Some(13))));
     assert!(seen.iter().all(|(_, total)| *total == Some(13)));
     assert!(seen.is_sorted());
+
     let requests = net.requests();
     let post = requests.last().unwrap();
+
     assert_eq!(post.method, Method::Post);
     assert_eq!(post.bearer.as_deref(), Some("access-1"));
+
     let upload = upload_of(post);
+
     assert_eq!(upload.file_name(), "plate.step");
     assert_eq!(upload.file_bytes(), b"ISO-10303-21;");
     assert_eq!(
@@ -1187,12 +1221,15 @@ fn a_name_with_quotes_or_accents_cannot_break_out_of_the_upload_headers() {
 
     let requests = net.requests();
     let upload = upload_of(requests.last().unwrap());
+
     assert_eq!(upload.file_name(), "pla\"te é.step");
     assert_eq!(
         field(upload.fields(), "encodedFilename").as_deref(),
         Some("pla%22te%20%C3%A9.step")
     );
+
     let body = String::from_utf8_lossy(&upload.encoded()).into_owned();
+
     assert!(body.contains("filename=\"pla%22te%20%C3%A9.step\""));
     assert!(!body.contains("filename=\"pla\"te"));
 }
@@ -1227,6 +1264,7 @@ fn nothing_is_sent_into_a_saved_version_or_a_folder_that_is_not_ours() {
         );
         assert!(result.is_err());
     }
+
     assert!(net.requests().is_empty());
 }
 
@@ -1334,11 +1372,13 @@ fn uploaded_files_are_listed_with_their_place_and_download_as_blobs() {
     let root = onshape().root(&net, &session(), &project()).unwrap();
 
     assert_eq!(root.place, Some(workspace_place()));
+
     let uploads: Vec<_> = root
         .uploads
         .iter()
         .map(|upload| (upload.name.as_str(), upload.format, upload.id.as_str()))
         .collect();
+
     assert_eq!(
         uploads,
         [
@@ -1353,6 +1393,7 @@ fn uploaded_files_are_listed_with_their_place_and_download_as_blobs() {
         .find(|upload| upload.format == UploadFormat::Step)
         .unwrap();
     let mut sink = Vec::new();
+
     let bytes = onshape()
         .fetch_upload(&net, &session(), step, &mut sink, &mut |_, _| true)
         .unwrap();
@@ -1474,13 +1515,17 @@ fn a_model_sent_as_a_part_studio_is_uploaded_for_translation_and_the_translation
     assert_eq!(translation.source, "doc1/tr5");
     assert_eq!(seen.first(), Some(&(0, Some(13))));
     assert_eq!(seen.last(), Some(&(13, Some(13))));
+
     let requests = net.requests();
+
     assert!(
         requests
             .iter()
             .all(|request| request.method == Method::Post)
     );
+
     let upload = upload_of(requests.last().unwrap());
+
     assert_eq!(upload.file_name(), "plate.step");
     assert_eq!(upload.file_bytes(), b"ISO-10303-21;");
     for (name, value) in [
@@ -1611,6 +1656,7 @@ fn a_failed_translation_or_one_that_made_nothing_is_a_failure_to_make_a_part_stu
             Err(Error::PartStudioFailed { .. })
         ));
     }
+
     assert!(matches!(
         onshape().poll_part_studio(
             &ScriptedTransport::new(),
@@ -1671,6 +1717,7 @@ fn a_blob_is_dated_by_the_history_entry_of_its_microversion() {
             )
         })
         .collect();
+
     assert_eq!(
         dated,
         [
@@ -1741,6 +1788,7 @@ fn the_history_is_asked_only_for_a_workspace_that_holds_a_blob_to_date() {
     onshape()
         .folder(&without_blobs, &session(), &workspace_place())
         .unwrap();
+
     let kept = onshape().folder(&in_version, &session(), &version).unwrap();
 
     assert!(

@@ -20,7 +20,7 @@ use crate::{WORK_BUDGET, interrupt_after};
 const MOST_STEPS: usize = 24;
 const LABEL: &str = "Fuzzed";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Generator {
     Addition,
     Parameter,
@@ -97,6 +97,7 @@ fn generators(transaction: &Transaction) -> String {
         .iter()
         .map(|edit| Generator::of(edit).to_string())
         .collect();
+
     names.dedup();
     names.join(", ")
 }
@@ -124,24 +125,29 @@ pub fn check_inverse(document: &Document, transaction: &Transaction) {
     match applied.apply(transaction.clone()) {
         Ok(inverse) => {
             let mut restored = applied.clone();
+
             if let Err(error) = restored.apply(inverse) {
                 panic!(
                     "the inverse of a change from {} could not be applied: {error}\n{transaction:#?}",
                     generators(transaction)
                 );
             }
+
             assert!(
                 restored.same_content(document),
                 "undoing a change from {} did not restore the document",
                 generators(transaction)
             );
+
             let mut rebuilt = document.clone();
+
             if let Err(error) = rebuilt.apply(document.transaction_to(&applied, "Restore")) {
                 panic!(
                     "a transaction between two states after {} could not be applied: {error}",
                     generators(transaction)
                 );
             }
+
             assert!(
                 rebuilt.same_content(&applied),
                 "a transaction between two states after {} did not reach the target",
@@ -176,6 +182,7 @@ pub fn run_steps(
         if input.is_empty() {
             break;
         }
+
         let scene = Scene {
             document: editor.document(),
             references,
@@ -186,6 +193,7 @@ pub fn run_steps(
         let entry = match step {
             Step::Apply(transaction) => {
                 check_inverse(editor.document(), &transaction);
+
                 let entry = JournalEntry::Apply(transaction.clone());
                 editor
                     .apply(transaction)

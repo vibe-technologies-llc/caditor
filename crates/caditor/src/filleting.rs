@@ -56,7 +56,7 @@ const LENGTH: Expected = Expected {
     non_negative: false,
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CornerCut {
     #[default]
     Round,
@@ -93,7 +93,7 @@ impl CornerCut {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Aim {
     Corner(Corner),
     Crossing([Pick; 2]),
@@ -122,7 +122,7 @@ impl Aim {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Cut {
     Round(Rounding),
     Bevel(Bevel),
@@ -151,19 +151,19 @@ impl Cut {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Size {
     Radius(Value),
     Chamfer(ChamferSize),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Shown {
     Radius(f64),
     Chamfer(ChamferSize),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ChamferError {
     #[error(
         "Type a distance such as 5, two distances such as 5, 3, or a distance and an angle such \
@@ -176,7 +176,7 @@ pub enum ChamferError {
     Angle(patterning::PatternTextError),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum FilletingError {
     #[error("{}: Choose the corner first.", .tool.label())]
     ChooseFirst { tool: Tool },
@@ -190,7 +190,7 @@ pub enum FilletingError {
     Chamfer(#[from] ChamferError),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 enum LeftOutReason {
     #[error(transparent)]
     Fillet(#[from] FilletError),
@@ -198,7 +198,7 @@ enum LeftOutReason {
     Alone { curve: EntityId, label: String },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct LeftOut {
     count: usize,
     reason: LeftOutReason,
@@ -236,7 +236,7 @@ impl Deref for Working<'_> {
 
 type Join = Result<(Arc<Sketch>, Vec<Corner>), FilletError>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum JoinKey {
     Aim(Aim),
     Plan(Result<CrossingPlan, FilletError>),
@@ -254,14 +254,14 @@ impl JoinKey {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Joined {
     version: SketchVersion,
     keys: Vec<JoinKey>,
     outcome: Join,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Filleting {
     cut: CornerCut,
     chosen: Option<Aim>,
@@ -331,6 +331,7 @@ impl Filleting {
             Aim::Corner(corner) => still(corner),
             Aim::Crossing(picks) => picks.iter().all(|pick| sketch.entity(pick.curve).is_some()),
         };
+
         self.chosen = self.chosen.filter(aim_still);
         self.highlight = self.highlight.filter(still);
         self.pending = self
@@ -354,14 +355,17 @@ impl Filleting {
         aims: &[Aim],
     ) -> Result<(Working<'a>, Vec<Corner>), FilletError> {
         let corners: Option<Vec<Corner>> = aims.iter().map(|aim| aim.corner()).collect();
+
         if let Some(corners) = corners {
             return Ok((Working::Displayed(sketch), corners));
         }
+
         let keys = JoinKey::of(sketch, aims);
         let kept = self
             .joined
             .as_ref()
             .filter(|joined| Some(joined.version) == version && joined.keys == keys);
+
         let outcome = match kept {
             Some(joined) => joined.outcome.clone(),
             None => {
@@ -369,7 +373,9 @@ impl Filleting {
                 {
                     self.joins += 1;
                 }
+
                 let outcome = join(sketch, aims, &keys);
+
                 self.joined = version.map(|version| Joined {
                     version,
                     keys,
@@ -391,6 +397,7 @@ impl Filleting {
             return (None, None);
         };
         let corner = end_under(sketch, screen, pointer).map(|point| sketch.corner_at(point));
+
         if self.pending.is_none()
             && let Some(Ok(corner)) = corner
         {
@@ -418,6 +425,7 @@ impl Filleting {
         self.pointer = pointer.map(|pointer| pointer.sketch);
         (self.hover, self.under) = self.hovered((sketch, version), screen, pointer);
         self.at = None;
+
         let aims = self.aims();
         let (working, corners) = match self.joined(sketch, version, &aims) {
             Ok(prepared) => prepared,
@@ -426,7 +434,9 @@ impl Filleting {
                 return;
             }
         };
+
         self.at = corners.first().map(|corner| corner.position);
+
         let aim = corners
             .first()
             .filter(|_| self.chosen.is_some())
@@ -446,6 +456,7 @@ impl Filleting {
                     .map(|distance| Shown::Chamfer(pointed(distance))),
             },
         };
+
         self.rounding = shown.filter(|_| !corners.is_empty()).map(|shown| {
             corners
                 .iter()
@@ -513,6 +524,7 @@ impl Filleting {
             snap: self.at,
             ..Preview::default()
         };
+
         if let Some(Ok(cuts)) = &self.rounding {
             for cut in cuts {
                 preview.curves.push(cut.faceted(faceting));
@@ -534,6 +546,7 @@ impl Filleting {
         let aims = self.aims();
         let left_out = self.left_out.as_ref().map(LeftOut::words);
         let verb = capitalized(self.cut.verb());
+
         let subject = match (aims.as_slice(), &self.hover) {
             ([], Some(Err(error))) => return Some(capitalized(&error.to_string())),
             ([], _) => {
@@ -713,9 +726,11 @@ impl Filleting {
     ) -> Result<Transaction, FilletingError> {
         let cut = self.cut;
         let aims = self.aims();
+
         if aims.is_empty() {
             return Err(FilletingError::ChooseFirst { tool: cut.tool() });
         }
+
         let label = match (cut, aims.len()) {
             (CornerCut::Round, 1) => TRANSACTION,
             (CornerCut::Round, _) => CORNERS_TRANSACTION,
@@ -726,9 +741,11 @@ impl Filleting {
             tool: cut.tool(),
             error,
         };
+
         let rounded = trimming::reshape(model, feature, label.to_owned(), |sketch| {
             for aim in &aims {
                 let current = aim.found_in(sketch).map_err(refused)?;
+
                 match (cut, &size) {
                     (CornerCut::Round, Size::Radius(value)) => sketch
                         .fillet(&current, value.millimetres, value.expression.clone())
@@ -742,6 +759,7 @@ impl Filleting {
             }
             Ok::<_, FilletingError>(())
         })?;
+
         self.chosen = None;
         self.more.clear();
         self.left_out = None;
@@ -777,9 +795,11 @@ impl Filleting {
     pub fn step(&mut self, sketch: &Sketch, step: isize) {
         let corners = sketch.fillet_corners();
         let count = corners.len() as isize;
+
         if count == 0 {
             return;
         }
+
         let current = self
             .highlight
             .or(self.chosen.and_then(Aim::corner))
@@ -793,6 +813,7 @@ impl Filleting {
             None if step < 0 => count - 1,
             None => 0,
         };
+
         self.highlight = usize::try_from(next)
             .ok()
             .and_then(|next| corners.get(next).copied());
@@ -828,6 +849,7 @@ impl Filleting {
 fn same_corner(first: &Corner, second: &Corner) -> bool {
     let mut one = first.curves;
     let mut other = second.curves;
+
     one.sort();
     other.sort();
     one == other && first.position.distance(second.position) <= SAME_CORNER
@@ -839,6 +861,7 @@ fn same_aim(first: &Aim, second: &Aim) -> bool {
         (Aim::Crossing(_), Aim::Crossing(_)) => {
             let mut one = first.curves();
             let mut other = second.curves();
+
             one.sort();
             other.sort();
             one == other
@@ -851,7 +874,9 @@ fn join(sketch: &Sketch, aims: &[Aim], keys: &[JoinKey]) -> Join {
     if let Some(JoinKey::Plan(Err(error))) = keys.first() {
         return Err(error.clone());
     }
+
     let mut working = sketch.clone();
+
     let corners = aims
         .iter()
         .zip(keys)
@@ -892,6 +917,7 @@ fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Aim>, Option<LeftOut
         .iter()
         .copied()
         .partition(|entity| sketch.point(*entity).is_some());
+
     for point in points {
         match sketch.corner_at(point) {
             Ok(corner) => take(corner),
@@ -903,11 +929,13 @@ fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Aim>, Option<LeftOut
         .into_iter()
         .filter(|corner| corner.curves.iter().all(|curve| curves.contains(curve)))
         .for_each(&mut take);
+
     let lonely: Vec<EntityId> = curves
         .into_iter()
         .filter(|curve| !corners.iter().any(|corner| corner.curves.contains(curve)))
         .collect();
     let mut aims: Vec<Aim> = corners.into_iter().map(Aim::Corner).collect();
+
     match lonely.as_slice() {
         [first, second] => match crossing(sketch, *first, *second) {
             Ok(aim) => aims.push(aim),
@@ -922,6 +950,7 @@ fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Aim>, Option<LeftOut
             }
         }
     }
+
     let left_out = refused.first().map(|reason| LeftOut {
         count: refused.len(),
         reason: reason.clone(),
@@ -931,6 +960,7 @@ fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Aim>, Option<LeftOut
 
 fn crossing(sketch: &Sketch, first: EntityId, second: EntityId) -> Result<Aim, FilletError> {
     let aim = Aim::Crossing(sketch.crossing_picks(first, second)?);
+
     aim.found_in(&mut sketch.clone())?;
     Ok(aim)
 }
@@ -996,6 +1026,7 @@ fn parse_chamfer(model: &Model, text: &str) -> Result<ChamferSize, ChamferError>
         },
         [first, second] => {
             let plain = |term: &&str| typed_point::polar(term).len() == 1;
+
             if !(plain(first) && plain(second)) {
                 return Err(ChamferError::Forms);
             }
@@ -1041,9 +1072,13 @@ mod tests {
 
     fn crossed() -> (Sketch, Filleting) {
         let mut sketch = Sketch::new(Plane::XY);
+
         let across = sketch.add_line(Point2::new(-50.0, 0.0), Point2::new(50.0, 0.0));
+
         sketch.add_line(Point2::new(0.0, -50.0), Point2::new(0.0, 50.0));
+
         let mut filleting = Filleting::new(CornerCut::Round, None);
+
         filleting.pending = Some(Pick {
             curve: across,
             near: Point2::new(-30.0, 0.0),
@@ -1056,20 +1091,25 @@ mod tests {
         let (sketch, mut filleting) = crossed();
 
         filleting.hover(&sketch, version(1), &Flat, pointer(0.0, 30.0));
+
         assert!(matches!(filleting.hover, Some(Ok(Aim::Crossing(_)))));
         assert_eq!(filleting.joins, 1);
 
         filleting.hover(&sketch, version(1), &Flat, pointer(0.0, 30.0));
+
         assert_eq!(filleting.joins, 1);
 
         filleting.hover(&sketch, version(2), &Flat, pointer(0.0, 30.0));
+
         assert_eq!(filleting.joins, 2);
 
         filleting.hover(&sketch, version(2), &Flat, pointer(0.0, -30.0));
+
         assert_eq!(filleting.joins, 3);
 
         filleting.hover(&sketch, None, &Flat, pointer(0.0, -30.0));
         filleting.hover(&sketch, None, &Flat, pointer(0.0, -30.0));
+
         assert_eq!(filleting.joins, 7);
     }
 
@@ -1079,27 +1119,35 @@ mod tests {
 
         for along in [30.0, 25.0, 20.0, 12.0, 4.0] {
             filleting.hover(&sketch, version(1), &Flat, pointer(0.0, along));
+
             assert!(matches!(filleting.hover, Some(Ok(Aim::Crossing(_)))));
         }
+
         assert_eq!(filleting.joins, 1);
 
         filleting.hover(&sketch, version(1), &Flat, pointer(0.0, -20.0));
         filleting.hover(&sketch, version(1), &Flat, pointer(0.0, -35.0));
+
         assert_eq!(filleting.joins, 2);
     }
 
     #[test]
     fn dragging_the_radius_of_a_chosen_crossing_joins_the_sketch_once() {
         let (sketch, mut filleting) = crossed();
+
         filleting.hover(&sketch, version(1), &Flat, pointer(0.0, 30.0));
+
         let Some(Ok(aim)) = filleting.hover else {
             panic!("the two lines cross");
         };
+
         filleting.choose(aim);
 
         for step in 0..5 {
             let along = 2.0 + f64::from(step);
+
             filleting.hover(&sketch, version(1), &Flat, pointer(-along, along));
+
             assert!(matches!(filleting.rounding, Some(Ok(_))));
         }
 

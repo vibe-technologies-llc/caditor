@@ -32,7 +32,7 @@ pub const CANCEL_TRANSLATING_HOVER: &str =
     "Stop waiting; the service may still finish adding the Part Studio to the document";
 pub const CANCEL_PREPARING_HOVER: &str = "Stop preparing the file; nothing is sent";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SendChoice {
     Cloud(CloudCommand),
     Again(Destination),
@@ -91,6 +91,7 @@ pub fn tile_with_menu(
 ) -> bool {
     let side = ui.spacing().interact_size.y;
     let response = drawn_tile(ui, width, tile, side);
+
     let place = Rect::from_center_size(
         pos2(
             response.rect.right() - SPACE_S - side / 2.0,
@@ -99,7 +100,9 @@ pub fn tile_with_menu(
         Vec2::splat(side),
     );
     let mut over = ui.new_child(UiBuilder::new().max_rect(place));
+
     let button = widgets::named(widgets::icon_button(&mut over, icons::MORE, more), more);
+
     Popup::menu(&button).show(|ui| widgets::fitted_menu(ui, &mut menu));
     response.context_menu(|ui| widgets::fitted_menu(ui, &mut menu));
     tile.enabled && response.clicked()
@@ -113,8 +116,10 @@ fn drawn_tile(ui: &mut Ui, width: f32, tile: &Tile<'_>, trailing: f32) -> Respon
         Sense::hover()
     };
     let (rect, response) = ui.allocate_exact_size(vec2(width, TILE_HEIGHT), sense);
+
     if ui.is_rect_visible(rect) {
         let radius = CornerRadius::same(CARD_RADIUS);
+
         ui.painter().rect_filled(rect, radius, tokens.raised);
         if appearance::is_high_contrast(ui) {
             ui.painter().rect_stroke(
@@ -132,6 +137,7 @@ fn drawn_tile(ui: &mut Ui, width: f32, tile: &Tile<'_>, trailing: f32) -> Respon
                 StrokeKind::Inside,
             );
         }
+
         let mut child = ui.new_child(
             UiBuilder::new()
                 .max_rect(
@@ -140,18 +146,21 @@ fn drawn_tile(ui: &mut Ui, width: f32, tile: &Tile<'_>, trailing: f32) -> Respon
                 )
                 .layout(Layout::left_to_right(Align::Center)),
         );
+
         child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
         match tile.picture {
             Some(texture) => {
                 let natural = texture.size_vec2();
                 let fitted = (TILE_PICTURE_SIDE / natural.y.max(1.0))
                     .min(TILE_PICTURE_WIDTH / natural.x.max(1.0));
+
                 let side = natural * fitted;
                 let picture = child.add(
                     Image::new(SizedTexture::new(texture.id(), side))
                         .fit_to_exact_size(side)
                         .corner_radius(CornerRadius::same(CARD_RADIUS / 2)),
                 );
+
                 widgets::decorative(&child, &picture);
             }
             None => {
@@ -168,23 +177,28 @@ fn drawn_tile(ui: &mut Ui, width: f32, tile: &Tile<'_>, trailing: f32) -> Respon
                     )
                     .selectable(false),
                 );
+
                 widgets::decorative(&child, &glyph);
             }
         }
+
         let text_height =
             2.0 * child.text_style_height(&TextStyle::Body) + child.spacing().item_spacing.y;
         let text_size = vec2(child.available_width(), text_height);
+
         child.allocate_ui_with_layout(text_size, Layout::top_down(Align::Min), |ui| {
             ui.add(Label::new(widgets::strong(tile.title)).selectable(false));
             ui.add(Label::new(widgets::muted(tile.detail, ui)).selectable(false));
         });
     }
+
     let response = widgets::named(response, tile.name).on_hover_text(tile.hover);
     let response = if tile.enabled {
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
     } else {
         response
     };
+
     if response.has_focus() {
         widgets::paint_focus_ring(ui, rect);
     }
@@ -200,9 +214,11 @@ pub fn tiles(
     let available = ui.available_width();
     let columns = (((available + TILE_GAP) / (least_width + TILE_GAP)).floor() as usize).max(1);
     let gaps = (columns - 1) as f32 * TILE_GAP;
+
     let width = ((available - gaps) / columns as f32).max(0.0);
     let mut chosen = None;
     let mut first = 0;
+
     while first < count {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = TILE_GAP;
@@ -245,12 +261,15 @@ pub fn modified_text(modified: Option<Timestamp>, now: Timestamp) -> String {
 
 pub fn size_text(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "kB", "MB", "GB"];
+
     let mut value = bytes as f64;
     let mut unit = 0;
+
     while value >= 1000.0 && unit + 1 < UNITS.len() {
         value /= 1000.0;
         unit += 1;
     }
+
     let name = UNITS.get(unit).copied().unwrap_or("B");
     if unit == 0 {
         format!("{bytes} {name}")
@@ -267,6 +286,7 @@ pub fn link_pill(ui: &mut Ui, link: &Link) {
         Link::SigningIn(_) => (Tone::Info, "Signing in"),
         Link::Linked(_) => (Tone::Success, "Signed in"),
     };
+
     widgets::status_pill(ui, tone, text);
 }
 
@@ -284,6 +304,7 @@ pub fn import_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<C
         Stage::Failed(failure) => {
             let summary = format!("Could not import “{name}” from {service}.");
             let mut command = None;
+
             widgets::callout(ui, Tone::Warning, |ui| {
                 ui.add(Label::new(format!("{summary} {failure}")).wrap());
                 ui.horizontal(|ui| {
@@ -330,6 +351,7 @@ pub const COPY_LINK: &str = "Copy link";
 pub fn unopened_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<CloudCommand> {
     let unopened = linked.unopened.as_ref()?;
     let mut dismissed = None;
+
     widgets::callout(ui, Tone::Warning, |ui| {
         ui.add(
             Label::new(format!(
@@ -341,6 +363,7 @@ pub fn unopened_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option
         );
         ui.horizontal(|ui| {
             let copy = widgets::small_button(ui, icons::COPY, COPY_LINK);
+
             if ui.add(copy).clicked() {
                 ui.ctx().copy_text(unopened.link.clone());
             }
@@ -359,6 +382,7 @@ pub fn send_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<Sen
         SendStage::Failed(failure) => {
             let summary = format!("Could not send “{name}” to {service}.");
             let mut choice = None;
+
             widgets::callout(ui, Tone::Warning, |ui| {
                 ui.add(Label::new(format!("{summary} {failure}")).wrap());
                 ui.horizontal(|ui| {

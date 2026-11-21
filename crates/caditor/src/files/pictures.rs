@@ -41,6 +41,7 @@ impl Files {
         };
         let session = model.session();
         let failed = (path.clone(), target.clone());
+
         self.spawn_own(
             "import",
             move || Event::PictureRead {
@@ -73,6 +74,7 @@ impl Files {
         if session != model.session() {
             return;
         }
+
         let name = display_name(Some(&path));
         let read = match result {
             Ok(read) => read,
@@ -84,12 +86,15 @@ impl Files {
             }
         };
         let digest = read.picture.digest();
+
         match read.texture {
             Ok(texture) => model.pictures_mut().keep(digest, texture),
             Err(reason) => log::warn!("the picture “{name}” cannot be shown: {reason}"),
         }
+
         let (transaction, feature) = image_tools::create(model, &target, read.picture, &path);
         let before = model.revision();
+
         model.perform(Action::Apply(transaction));
         if model.revision() == before {
             return;
@@ -97,10 +102,12 @@ impl Files {
         if editing.feature().is_none() {
             editing.perform(EditingCommand::OpenSolid(feature), model);
         }
+
         let feature_name = model
             .document()
             .feature(feature)
             .map_or_else(|| name.clone(), |feature| feature.name.clone());
+
         model.set_notice(Notice::success(format!(
             "Inserted “{name}” as {feature_name}; calibrate it or type its width to size it."
         )));

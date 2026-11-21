@@ -15,6 +15,7 @@ fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketch {
         Point2::new(max.0, max.1),
         Point2::new(min.0, max.1),
     ];
+
     for (index, corner) in corners.iter().enumerate() {
         sketch.add_line(*corner, corners[(index + 1) % 4]);
     }
@@ -68,12 +69,15 @@ struct Block {
 
 fn block() -> Block {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Base");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
     );
+
     let base = transaction.add_feature(
         "Base",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -88,12 +92,15 @@ fn block() -> Block {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let solid = evaluate(&document, &mut engine).body(base).unwrap().clone();
     let edge = top_front_edge(&solid, 4.0);
     let mut transaction = document.transaction("Side");
+
     let side = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
     let line = transaction.add_projection(
         side,
@@ -103,6 +110,7 @@ fn block() -> Block {
         },
         &edge_outline(&solid, edge, &Plane::XZ).unwrap(),
     );
+
     document.apply(transaction.finish()).unwrap();
     Block {
         document,
@@ -116,7 +124,9 @@ fn block() -> Block {
 
 fn ends(sketch: &Sketch, line: EntityId) -> [Point2; 2] {
     let (start, end) = sketch.line_endpoints(line).unwrap();
+
     let mut ends = [start, end];
+
     ends.sort_by(|a, b| a.x.total_cmp(&b.x));
     ends
 }
@@ -144,6 +154,7 @@ fn a_projected_edge_follows_its_body_and_adds_no_freedom() {
     ));
     assert!(first.is_projected(block.line));
     assert_eq!(solution.degrees_of_freedom(), 0);
+
     for (found, expected) in ends(&first, block.line)
         .iter()
         .zip([on_side(0.0, 4.0), on_side(10.0, 4.0)])
@@ -161,7 +172,9 @@ fn a_projected_edge_follows_its_body_and_adds_no_freedom() {
             expression: Expression::parse_stored("6 mm").unwrap(),
         },
     );
+
     block.document.apply(taller).unwrap();
+
     let moved = solved(&evaluate(&block.document, &mut block.engine), block.side);
 
     for (found, expected) in ends(&moved, block.line)
@@ -178,6 +191,7 @@ fn a_projected_edge_follows_its_body_and_adds_no_freedom() {
 #[test]
 fn deleting_a_projected_line_takes_its_points_and_undo_restores_the_projection() {
     let mut block = block();
+
     let definition = |document: &Document| -> SketchFeature {
         match &document.feature(block.side).unwrap().kind {
             FeatureKind::Sketch(sketch) => sketch.clone(),
@@ -187,7 +201,9 @@ fn deleting_a_projected_line_takes_its_points_and_undo_restores_the_projection()
     let before = definition(&block.document);
 
     let mut transaction = block.document.transaction("Delete");
+
     transaction.remove_sketch_items(block.side, [block.line], []);
+
     let undo = block.document.apply(transaction.finish()).unwrap();
     let removed = definition(&block.document);
 
@@ -195,6 +211,7 @@ fn deleting_a_projected_line_takes_its_points_and_undo_restores_the_projection()
     assert!(removed.projections.is_empty());
 
     block.document.apply(undo).unwrap();
+
     let restored = definition(&block.document);
 
     assert_eq!(restored, before);
@@ -235,6 +252,7 @@ fn a_body_deleted_from_under_a_projection_fails_its_sketch() {
             Edit::RemoveFeature { id: block.base },
         ))
         .unwrap();
+
     let evaluation = evaluate(&block.document, &mut block.engine);
 
     assert!(matches!(
@@ -246,9 +264,12 @@ fn a_body_deleted_from_under_a_projection_fails_its_sketch() {
 #[test]
 fn a_projection_must_come_from_a_feature_above_its_sketch() {
     let mut block = block();
+
     let below = {
         let mut transaction = block.document.transaction("Below");
+
         let below = transaction.add_feature("Below", FeatureKind::from(Sketch::new(Plane::XY)));
+
         block.document.apply(transaction.finish()).unwrap();
         below
     };
@@ -272,11 +293,14 @@ fn a_projection_must_come_from_a_feature_above_its_sketch() {
 fn a_circle_projected_from_another_sketch_follows_its_radius() {
     let mut document = Document::default();
     let mut source = Sketch::new(Plane::XY);
+
     let circle = source.add_circle(Point2::new(3.0, 2.0), 5.0);
     let mut transaction = document.transaction("Sketches");
+
     let below = transaction.add_feature("Ring", FeatureKind::from(source.clone()));
     let lifted = Plane::from_frame(Point3::new(0.0, 0.0, 7.0), Vector3::Z, Vector3::X).unwrap();
     let above = transaction.add_feature("Lid", FeatureKind::from(Sketch::new(lifted)));
+
     let projected = transaction.add_projection(
         above,
         ProjectionSource::SketchEntity {
@@ -285,7 +309,9 @@ fn a_circle_projected_from_another_sketch_follows_its_radius() {
         },
         &sketch_outline(&source, circle, &lifted).unwrap(),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let first = solved(&evaluate(&document, &mut engine), above);
@@ -295,6 +321,7 @@ fn a_circle_projected_from_another_sketch_follows_its_radius() {
     let Some(Entity::Circle { center, .. }) = source.entity(circle).cloned() else {
         panic!("expected a circle");
     };
+
     document
         .apply(Transaction::single(
             "Grow",
@@ -308,13 +335,16 @@ fn a_circle_projected_from_another_sketch_follows_its_radius() {
             },
         ))
         .unwrap();
+
     let grown = solved(&evaluate(&document, &mut engine), above);
 
     assert_eq!(grown.circle(projected), Some((Point2::new(3.0, 2.0), 9.0)));
 
     let mut transaction = document.transaction("Delete ring");
+
     transaction.remove_sketch_items(below, [circle], []);
     document.apply(transaction.finish()).unwrap();
+
     let error = failure(&evaluate(&document, &mut engine), above);
 
     assert_eq!(
@@ -327,6 +357,7 @@ fn a_circle_projected_from_another_sketch_follows_its_radius() {
 #[test]
 fn a_circle_seen_at_an_angle_is_projected_as_a_spline_through_its_outline() {
     let mut source = Sketch::new(Plane::XY);
+
     let circle = source.add_circle(Point2::ZERO, 4.0);
     let tilted = Plane::from_frame(Point3::ZERO, Vector3::new(0.0, -1.0, 1.0), Vector3::X).unwrap();
 
@@ -338,12 +369,15 @@ fn a_circle_seen_at_an_angle_is_projected_as_a_spline_through_its_outline() {
     else {
         panic!("expected a spline, found {outline:?}");
     };
+
     assert_eq!(control.len(), PROJECTED_SPLINE_POINTS);
+
     let spline = caditor_sketch::BSpline::clamped(control).unwrap();
     let minor = 4.0 * std::f64::consts::FRAC_1_SQRT_2;
     for step in 0..=20 {
         let point = spline.point_at(f64::from(step) / 20.0);
         let on_ellipse = (point.x / 4.0).powi(2) + (point.y / minor).powi(2);
+
         assert!(
             (on_ellipse - 1.0).abs() < 1e-3,
             "{point} is off the ellipse"
@@ -355,6 +389,7 @@ fn a_circle_seen_at_an_angle_is_projected_as_a_spline_through_its_outline() {
 fn an_ellipse_and_an_elliptical_arc_project_onto_a_parallel_plane_as_themselves() {
     let mut document = Document::default();
     let mut source = Sketch::new(Plane::XY);
+
     let ellipse = source.add_ellipse(Point2::new(3.0, 2.0), Point2::new(9.0, 2.0), 2.0);
     let arc = source.add_elliptical_arc(
         Point2::new(-10.0, 0.0),
@@ -364,9 +399,11 @@ fn an_ellipse_and_an_elliptical_arc_project_onto_a_parallel_plane_as_themselves(
         Point2::new(-13.0, 0.0),
     );
     let mut transaction = document.transaction("Sketches");
+
     let below = transaction.add_feature("Oval", FeatureKind::from(source.clone()));
     let flipped = Plane::from_frame(Point3::new(0.0, 0.0, 7.0), -Vector3::Z, Vector3::X).unwrap();
     let above = transaction.add_feature("Lid", FeatureKind::from(Sketch::new(flipped)));
+
     let [projected_ellipse, projected_arc] = [ellipse, arc].map(|entity| {
         transaction.add_projection(
             above,
@@ -377,12 +414,15 @@ fn an_ellipse_and_an_elliptical_arc_project_onto_a_parallel_plane_as_themselves(
             &sketch_outline(&source, entity, &flipped).unwrap(),
         )
     });
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let lid = solved(&evaluate(&document, &mut engine), above);
 
     let whole = lid.ellipse(projected_ellipse).unwrap();
+
     assert!(matches!(
         lid.entity(projected_ellipse),
         Some(Entity::Ellipse { .. })
@@ -390,17 +430,22 @@ fn an_ellipse_and_an_elliptical_arc_project_onto_a_parallel_plane_as_themselves(
     assert!(whole.center.distance(Point2::new(3.0, -2.0)) < EXACT);
     assert!((whole.major_radius() - 6.0).abs() < EXACT);
     assert!((whole.minor_radius - 2.0).abs() < EXACT);
+
     let part = lid.ellipse(projected_arc).unwrap();
     let drawn = source.ellipse(arc).unwrap();
+
     assert!((part.sweep - drawn.sweep).abs() < 1e-9);
+
     let middle = part.point_at(part.start + part.sweep / 2.0);
     let expected = drawn.point_at(drawn.start + drawn.sweep / 2.0);
+
     assert!(middle.distance(Point2::new(expected.x, -expected.y)) < 1e-9);
 }
 
 #[test]
 fn an_ellipse_seen_at_an_angle_is_still_projected_as_a_spline() {
     let mut source = Sketch::new(Plane::XY);
+
     let ellipse = source.add_ellipse(Point2::ZERO, Point2::new(6.0, 0.0), 2.0);
     let tilted = Plane::from_frame(Point3::ZERO, Vector3::new(0.0, -1.0, 1.0), Vector3::X).unwrap();
 
@@ -413,8 +458,11 @@ fn an_ellipse_seen_at_an_angle_is_still_projected_as_a_spline() {
 fn an_elliptical_edge_of_a_body_projects_onto_a_parallel_plane_as_an_ellipse() {
     let mut document = Document::default();
     let mut oval = Sketch::new(Plane::XY);
+
     oval.add_ellipse(Point2::new(2.0, 1.0), Point2::new(8.0, 1.0), 3.0);
+
     let mut transaction = document.transaction("Base");
+
     let outline = transaction.add_feature("Oval", FeatureKind::from(oval));
     let base = transaction.add_feature(
         "Base",
@@ -430,8 +478,11 @@ fn an_elliptical_edge_of_a_body_projects_onto_a_parallel_plane_as_an_ellipse() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let solid = evaluate(&document, &mut engine).body(base).unwrap().clone();
     let above = Plane::from_frame(Point3::new(0.0, 0.0, 9.0), Vector3::Z, Vector3::X).unwrap();
     let top = solid
@@ -453,6 +504,7 @@ fn an_elliptical_edge_of_a_body_projects_onto_a_parallel_plane_as_an_ellipse() {
     else {
         panic!("expected an ellipse, found {outline:?}");
     };
+
     assert!(center.distance(Point2::new(2.0, 1.0)) < 1e-9);
     assert!((center.distance(major) - 6.0).abs() < 1e-9);
     assert!((minor_radius - 3.0).abs() < 1e-9);
@@ -461,13 +513,19 @@ fn an_elliptical_edge_of_a_body_projects_onto_a_parallel_plane_as_an_ellipse() {
 #[test]
 fn a_crossing_line_reaching_no_length_is_refused() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Sketch");
+
     let sketch = transaction.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
+
     document.apply(transaction.finish()).unwrap();
+
     let point = EntityId::from_raw(0);
     let mut transaction = document.transaction("Point");
+
     transaction.add_sketch_entity(sketch, Entity::Point(Point2::ZERO));
     document.apply(transaction.finish()).unwrap();
+
     let project = |reach| {
         Transaction::single(
             "Project",
@@ -519,15 +577,20 @@ fn undoing_a_line_projection_keeps_its_end_point_projected_on_its_own() {
     let mut document = Document::default();
 
     let mut source = Sketch::new(Plane::XY);
+
     let line = source.add_line(Point2::new(0.0, 0.0), Point2::new(4.0, 0.0));
     let end = EntityId::from_raw(1);
     let mut transaction = document.transaction("Sketch");
+
     let sketch = transaction.add_feature("Sketch", FeatureKind::from(source));
+
     document.apply(transaction.finish()).unwrap();
     document.apply(principal_projection(sketch, end)).unwrap();
+
     let before = document.clone();
 
     let inverse = document.apply(principal_projection(sketch, line)).unwrap();
+
     document.apply(inverse).unwrap();
 
     assert_eq!(projected_flags(&document, sketch), vec![end]);
@@ -539,10 +602,12 @@ fn unprojecting_one_of_two_lines_keeps_their_shared_point_projected() {
     let mut document = Document::default();
 
     let mut source = Sketch::new(Plane::XY);
+
     let first = source.add_line(Point2::new(0.0, 0.0), Point2::new(4.0, 0.0));
     let shared = EntityId::from_raw(1);
     let far = source.add_point(Point2::new(4.0, 3.0));
     let second = EntityId::from_raw(4);
+
     source
         .insert_entity(
             second,
@@ -552,8 +617,11 @@ fn unprojecting_one_of_two_lines_keeps_their_shared_point_projected() {
             },
         )
         .unwrap();
+
     let mut transaction = document.transaction("Sketch");
+
     let sketch = transaction.add_feature("Sketch", FeatureKind::from(source));
+
     document.apply(transaction.finish()).unwrap();
     document.apply(principal_projection(sketch, first)).unwrap();
     document
@@ -582,6 +650,7 @@ fn undoing_the_removal_of_a_constraint_whose_points_were_projected_since_restore
     let mut document = Document::default();
 
     let mut source = Sketch::new(Plane::XY);
+
     let circle = source.add_circle(Point2::new(4.0, 2.0), 3.0);
     let centre = EntityId::from_raw(0);
     let offset = source
@@ -592,11 +661,14 @@ fn undoing_the_removal_of_a_constraint_whose_points_were_projected_since_restore
         })
         .unwrap();
     let mut transaction = document.transaction("Sketch");
+
     let sketch = transaction.add_feature("Sketch", FeatureKind::from(source));
+
     document.apply(transaction.finish()).unwrap();
     document
         .apply(principal_projection(sketch, circle))
         .unwrap();
+
     let before = document.clone();
 
     let inverse = document
@@ -608,6 +680,7 @@ fn undoing_the_removal_of_a_constraint_whose_points_were_projected_since_restore
             },
         ))
         .unwrap();
+
     document.apply(inverse).unwrap();
 
     assert_eq!(projected_flags(&document, sketch), vec![centre, circle]);
@@ -637,6 +710,7 @@ fn datums() -> Datums {
     let mut document = Document::default();
     let side = PrincipalPlane::Xz.plane();
     let mut transaction = document.transaction("Datums");
+
     let point = transaction.add_feature(
         "Spot",
         FeatureKind::Datum(datum_point_at(&document, "10 mm")),
@@ -658,6 +732,7 @@ fn datums() -> Datums {
     );
     let sketch = transaction.add_feature("Side", FeatureKind::from(Sketch::new(side)));
     let post = Ray::new(Point3::new(10.0, 5.0, 0.0), Vector3::Z).unwrap();
+
     let line = transaction.add_projection(
         sketch,
         ProjectionSource::DatumAxis {
@@ -684,6 +759,7 @@ fn datums() -> Datums {
         },
         &axis_outline(&PrincipalAxis::Y.ray().unwrap(), &side, 20.0).unwrap(),
     );
+
     document.apply(transaction.finish()).unwrap();
     Datums {
         document,
@@ -742,6 +818,7 @@ fn datum_axes_points_principal_axes_and_the_origin_project_and_follow_their_datu
             },
         ))
         .unwrap();
+
     let moved = solved(&evaluate(&model.document, &mut engine), model.sketch);
     let [start, end] = ends(&moved, model.line);
 
@@ -794,6 +871,7 @@ fn a_projected_datum_must_be_of_its_kind_and_one_deleted_fails_the_sketch_in_wor
             Edit::RemoveFeature { id: model.axis },
         ))
         .unwrap();
+
     let error = failure(&evaluate(&model.document, &mut engine), model.sketch);
 
     assert_eq!(error.reason(), "It uses a feature that no longer exists.");
@@ -817,6 +895,7 @@ fn a_projected_axis_turned_end_on_fails_its_sketch_naming_the_axis() {
             },
         ))
         .unwrap();
+
     let error = failure(&evaluate(&model.document, &mut engine), model.sketch);
 
     assert_eq!(
@@ -836,11 +915,13 @@ fn with_projected_outline(block: &mut Block) -> (FeatureId, Vec<EntityId>) {
         .clone();
     let pieces = body_outline(&solid, block.base, &Plane::XZ).unwrap();
     let mut transaction = block.document.transaction("Outline of Base");
+
     let outlined = transaction.add_feature("Outlined", FeatureKind::from(Sketch::new(Plane::XZ)));
     let lines = pieces
         .iter()
         .map(|(source, outline)| transaction.add_projection(outlined, source.clone(), outline))
         .collect();
+
     block.document.apply(transaction.finish()).unwrap();
     (outlined, lines)
 }
@@ -858,6 +939,7 @@ fn tallest(sketch: &Sketch, lines: &[EntityId]) -> f64 {
 #[test]
 fn a_projected_outline_is_four_lines_that_follow_the_body_and_keep_their_ids() {
     let mut block = block();
+
     let (outlined, lines) = with_projected_outline(&mut block);
 
     let first = solved(&evaluate(&block.document, &mut block.engine), outlined);
@@ -873,7 +955,9 @@ fn a_projected_outline_is_four_lines_that_follow_the_body_and_keep_their_ids() {
             expression: Expression::parse_stored("6 mm").unwrap(),
         },
     );
+
     block.document.apply(taller).unwrap();
+
     let moved = solved(&evaluate(&block.document, &mut block.engine), outlined);
 
     assert!((tallest(&moved, &lines) - 6.0).abs() < 1e-9);
@@ -882,8 +966,10 @@ fn a_projected_outline_is_four_lines_that_follow_the_body_and_keep_their_ids() {
 #[test]
 fn an_outline_cut_into_more_curves_fails_the_sketch_alone_naming_it() {
     let mut block = block();
+
     let (outlined, _) = with_projected_outline(&mut block);
     let mut transaction = block.document.transaction("Notch");
+
     let notch = transaction.add_feature(
         "Notch outline",
         FeatureKind::from(rectangle(
@@ -906,6 +992,7 @@ fn an_outline_cut_into_more_curves_fails_the_sketch_alone_naming_it() {
             direction: None,
         })),
     );
+
     transaction.edit(Edit::MoveFeature {
         id: outlined,
         index: 5,
@@ -933,8 +1020,11 @@ fn an_outline_cut_into_more_curves_fails_the_sketch_alone_naming_it() {
 fn the_outline_of_a_cylinder_keeps_its_silhouette_lines_apart() {
     let mut document = Document::default();
     let mut drawn = Sketch::new(Plane::XY);
+
     drawn.add_circle(Point2::ZERO, 3.0);
+
     let mut transaction = document.transaction("Round");
+
     let outline = transaction.add_feature("Circle", FeatureKind::from(drawn));
     let round = transaction.add_feature(
         "Round",
@@ -950,8 +1040,11 @@ fn the_outline_of_a_cylinder_keeps_its_silhouette_lines_apart() {
             direction: None,
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let solid = evaluate(&document, &mut engine)
         .body(round)
         .unwrap()
@@ -977,10 +1070,13 @@ fn the_outline_of_a_cylinder_keeps_its_silhouette_lines_apart() {
             .iter()
             .all(|(_, outline)| matches!(outline, Outline::Line { .. }))
     );
+
     let (first, second) = (pieces.first().unwrap(), pieces.get(1).unwrap());
+
     assert!(!first.0.is_same_source(&second.0));
 
     let circle = body_outline(&solid, round, &Plane::XY).unwrap();
+
     assert_eq!(circle.len(), 1);
     assert!(matches!(circle.first().unwrap().1, Outline::Circle { .. }));
 }

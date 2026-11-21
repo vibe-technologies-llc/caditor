@@ -3,8 +3,10 @@ const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
 pub fn base64_url(bytes: &[u8]) -> String {
     let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
+
     for chunk in bytes.chunks(3) {
         let [first, second, third] = [0, 1, 2].map(|at| chunk.get(at).copied().unwrap_or(0));
+
         let group = (u32::from(first) << 16) | (u32::from(second) << 8) | u32::from(third);
         for index in 0..=chunk.len() {
             let sextet = (group >> (18 - 6 * index)) & 0x3f;
@@ -12,6 +14,7 @@ pub fn base64_url(bytes: &[u8]) -> String {
                 .ok()
                 .and_then(|at| BASE64_URL.get(at))
                 .copied();
+
             text.extend(symbol.map(char::from));
         }
     }
@@ -20,6 +23,7 @@ pub fn base64_url(bytes: &[u8]) -> String {
 
 pub fn percent_encode(text: &str) -> String {
     let mut encoded = String::with_capacity(text.len());
+
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
             encoded.push(char::from(byte));
@@ -27,6 +31,7 @@ pub fn percent_encode(text: &str) -> String {
             encoded.push('%');
             for nibble in [byte >> 4, byte & 0x0f] {
                 let digit = HEX.get(usize::from(nibble)).copied().unwrap_or(b'0');
+
                 encoded.push(char::from(digit));
             }
         }
@@ -37,12 +42,14 @@ pub fn percent_encode(text: &str) -> String {
 pub fn percent_decode(text: &str) -> Option<String> {
     let mut bytes = Vec::with_capacity(text.len());
     let mut rest = text.bytes();
+
     while let Some(byte) = rest.next() {
         match byte {
             b'+' => bytes.push(b' '),
             b'%' => {
                 let high = rest.next().and_then(hex_value)?;
                 let low = rest.next().and_then(hex_value)?;
+
                 bytes.push((high << 4) | low);
             }
             other => bytes.push(other),

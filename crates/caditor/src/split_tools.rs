@@ -22,7 +22,7 @@ use crate::{
 pub const TITLE: &str = "Split body";
 const NO_BODY: &str = "Select a face or edge of the body to split";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SplitError {
     #[error("Select a plane, face, sketch curve or another body made before this feature")]
     NoTool,
@@ -62,7 +62,7 @@ impl Reason for SplitError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SplitSource {
     pub body: FeatureId,
     pub along: Option<SplitAlong>,
@@ -102,6 +102,7 @@ pub fn choices(model: &Model, feature: FeatureId, split: &Split) -> Vec<SplitAlo
         .into_iter()
         .filter(|body| *body != split.body)
         .map(SplitAlong::Body);
+
     let sketches = document
         .features()
         .take(index)
@@ -117,6 +118,7 @@ fn chosen_sketch(
 ) -> Result<Option<SplitAlong>, SplitError> {
     let document = model.document();
     let mut sketches: Vec<FeatureId> = Vec::new();
+
     for pickable in selection.iter() {
         if let Pickable::SketchEntity { feature, .. } | Pickable::SketchRegion { feature, .. } =
             pickable
@@ -180,16 +182,19 @@ pub fn source(
 ) -> Result<SplitSource, SplitError> {
     let index = model.document().bar_index();
     let chosen = chosen_along(model, selection, index)?;
+
     if chosen.is_none()
         && tree.is_empty()
         && let [body, tool] = body_selection::bodies_in(selection).as_slice()
     {
         let body = move_tools::chosen_body(model, &Selection::default(), &[*body], NO_BODY)?;
+
         return Ok(SplitSource {
             body,
             along: Some(SplitAlong::Body(*tool)),
         });
     }
+
     let face = chosen.as_ref().and_then(|(_, face)| *face);
     let body = move_tools::chosen_or_only_body(model, selection, tree, face, NO_BODY)?;
     Ok(SplitSource {
@@ -213,6 +218,7 @@ pub fn source_for(
 pub fn create(document: &Document, source: &SplitSource) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, "Split");
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(
         name,
         FeatureKind::Split(Split {
@@ -268,6 +274,7 @@ pub fn along_change(
     let index = document
         .feature_index(feature)
         .ok_or(SplitError::Gone { feature })?;
+
     let along = match chosen_along(model, selection, index)? {
         Some((along, _)) => along,
         None => {
@@ -283,6 +290,7 @@ pub fn along_change(
             }
         }
     };
+
     if along == split.along {
         return Err(SplitError::Already);
     }

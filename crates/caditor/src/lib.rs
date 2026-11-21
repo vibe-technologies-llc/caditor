@@ -290,6 +290,7 @@ use crate::{
 pub fn run() -> Result<ExitCode> {
     #[cfg(windows)]
     caditor_windows::attach_parent_console();
+
     let open = match Invocation::parse(std::env::args_os().skip(1)) {
         Invocation::Run { open } => open,
         Invocation::Convert(conversion) => return headless::run(&conversion),
@@ -307,7 +308,9 @@ pub fn run() -> Result<ExitCode> {
     };
     let state_dir = caditor_file::state_dir();
     let logging = Logging::start(state_dir.as_deref());
+
     let result = run_session(open, state_dir, &logging);
+
     if let Err(error) = &result {
         log::error!("{error:#}");
         logging::show_failure(&logging::failure_text(error, logging.path()));
@@ -318,6 +321,7 @@ pub fn run() -> Result<ExitCode> {
 
 fn refused(reason: &str) -> ExitCode {
     let logging = Logging::start(caditor_file::state_dir().as_deref());
+
     log::error!("{reason}");
     logging::show_failure(&logging::refusal_text(reason));
     logging.end();
@@ -326,6 +330,7 @@ fn refused(reason: &str) -> ExitCode {
 
 fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logging) -> Result<()> {
     let panic_flush = PanicFlush::default();
+
     caditor_file::crash::protect(&panic_flush, logging.ending());
 
     match &state_dir {
@@ -334,6 +339,7 @@ fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logg
             log::warn!("no state directory, so unsaved work cannot be protected against a crash");
         }
     }
+
     let recovery_dir = state_dir.as_deref().map(caditor_file::recovery_dir);
     let stopped_before = state_dir
         .as_deref()
@@ -351,10 +357,12 @@ fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logg
             panic_flush,
         },
     );
+
     model.draw_previews_on_save();
     if let Some(log) = &stopped_before {
         model.set_notice(Notice::warning(logging::unexpected_end_notice(log)));
     }
+
     let config_dir = caditor_file::config_dir();
     let files = Files::new(
         FilesConfig {
@@ -369,11 +377,14 @@ fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logg
         .as_deref()
         .map(caditor_file::Settings::load_reporting)
         .unwrap_or_default();
+
     if let Some(problem) = &problem {
         model.set_notice(preferences::unreadable_notice(problem));
     }
+
     let preferences = Preferences::from_settings(settings);
     let mut app = App::new(model, files, preferences, open, event_loop.create_proxy());
+
     event_loop.run_app(&mut app)?;
     app.finish()
 }

@@ -86,7 +86,9 @@ impl Panel<'_> {
         let document = self.model.document();
         let before = document.feature_index(self.id()).unwrap_or(0);
         let current = self.rib.sketch;
+
         widgets::caption(ui, SKETCH);
+
         let name = document.feature(current).map(|sketch| sketch.name.as_str());
         let chosen = ui
             .horizontal(|ui| {
@@ -116,6 +118,7 @@ impl Panel<'_> {
                 })
             })
             .inner;
+
         ui.end_row();
         self.actions.extend(chosen);
     }
@@ -124,7 +127,9 @@ impl Panel<'_> {
         let document = self.model.document();
         let bodies = document.bodies_before_in(self.id(), self.model.evaluation());
         let current = self.rib.body;
+
         widgets::caption(ui, BODY);
+
         let name = document.body_label(current);
         let chosen = ui
             .horizontal(|ui| {
@@ -148,6 +153,7 @@ impl Panel<'_> {
                 })
             })
             .inner;
+
         ui.end_row();
         self.actions.extend(chosen);
     }
@@ -170,6 +176,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, DIRECTION, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -186,10 +193,12 @@ impl Panel<'_> {
             thickness,
             ..rib.clone()
         };
+
         let drafting =
             feature_fields::expression_row_drafting(ui, self.model, THICKNESS, quantity, |value| {
                 rib_tools::change(self.model, self.id(), changed(value))
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
@@ -206,10 +215,12 @@ impl Panel<'_> {
             draft,
             ..rib.clone()
         };
+
         let drafting =
             feature_fields::expression_row_drafting(ui, self.model, DRAFT, quantity, |value| {
                 rib_tools::change(self.model, self.id(), changed(value))
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
@@ -225,12 +236,14 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, ENDS, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
     fn side_row(&mut self, ui: &mut Ui) {
         let current = self.rib.side;
         let direction = self.rib.direction;
+
         let segments = SIDES
             .into_iter()
             .map(|side| Segment {
@@ -241,6 +254,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, SIDE, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -251,6 +265,7 @@ impl Panel<'_> {
         };
         if feature_fields::reverse_row(ui, label, self.rib.reversed).is_some() {
             let change = self.change(rib_tools::reversed(self.rib));
+
             self.actions
                 .push(feature_fields::applied(&self.feature.name, change));
         }
@@ -264,6 +279,7 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Fea
         rib,
         actions,
     };
+
     widgets::properties(ui, ("rib-properties", feature.id()), |ui| {
         panel.sketch_row(ui);
         panel.body_row(ui);

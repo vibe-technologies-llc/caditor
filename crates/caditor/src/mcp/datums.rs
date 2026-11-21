@@ -24,7 +24,7 @@ use crate::{
 
 const FLAT_FACE: &str = "is flat; give a curved face to touch, or use it as a plane";
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatumPlaning {
     pub base: Option<PlaneChoice>,
@@ -43,7 +43,7 @@ pub struct DatumPlaning {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatumAxising {
     pub along: Option<AxisChoice>,
@@ -55,7 +55,7 @@ pub struct DatumAxising {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatumPointing {
     pub at: Option<PointChoice>,
@@ -71,7 +71,7 @@ pub struct DatumPointing {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Framing {
     pub origin: Option<PointChoice>,
@@ -82,7 +82,7 @@ pub struct Framing {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum DatumError {
     #[error("place the datum {datum} one way: {first} and {second} are two different ways")]
     TwoWays {
@@ -113,6 +113,7 @@ fn chosen_way<W: Copy + PartialEq>(
     kept: Option<W>,
 ) -> Result<Option<W>, DatumError> {
     let mut chosen: Option<&Way<W>> = None;
+
     for way in ways.iter().filter(|way| way.given) {
         match chosen {
             Some(first) if first.way != way.way => {
@@ -170,11 +171,13 @@ fn curved_face(
     toward: PointReference,
 ) -> Result<FaceTangent, ToolError> {
     let (at, face) = places::face_at_bar(document, evaluation, on)?;
+
     let flat = face
         .resolve(at.state)
         .ok()
         .and_then(|found| at.state.face(found))
         .is_some_and(|found| matches!(found.surface(), Surface::Plane(_)));
+
     if flat {
         return Err(PlaceError::UnusableFace {
             body: body_label(document, at.body),
@@ -190,7 +193,7 @@ fn curved_face(
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PlaneWay {
     Offset,
     Points,
@@ -232,6 +235,7 @@ fn offset_plane(
 ) -> Result<DatumPlane, ToolError> {
     let document = session.document();
     let evaluation = session.evaluation();
+
     let base = part(
         asked.base.as_ref(),
         kept.map(|kept| kept.base.clone()),
@@ -247,6 +251,7 @@ fn offset_plane(
         let angle = values
             .angle
             .or_else(|| kept_rotation.map(|kept| kept.angle.clone()));
+
         let (Some(axis), Some(angle)) = (axis, angle) else {
             return Err(FeatureError::HalfAnAxisTurn.into());
         };
@@ -272,6 +277,7 @@ fn through_plane(
 ) -> Result<PlaneThrough, ToolError> {
     let document = session.document();
     let evaluation = session.evaluation();
+
     let plane = |choice: &PlaneChoice| places::plane(document, evaluation, choice);
     let axis = |choice: &AxisChoice| places::axis(document, evaluation, choice);
     let point = |choice: &PointChoice| places::point(document, evaluation, choice);
@@ -325,6 +331,7 @@ fn through_plane(
             } else {
                 (asked.square_to_axis.as_ref(), "square_to_axis")
             };
+
             let held = part(
                 asked_axis,
                 kept_axis_and_point.as_ref().map(|(axis, _)| axis.clone()),
@@ -370,6 +377,7 @@ fn through_plane(
             let distance = distance
                 .or_else(|| kept.map(|kept| kept.distance.clone()))
                 .unwrap_or_else(zero_length);
+
             let station = match &asked.square_to_edge {
                 Some(on) => places::station(document, evaluation, on, distance)?,
                 None => caditor_document::CurveStation {
@@ -400,7 +408,9 @@ pub fn datum_plane_built(
             signed_length(session, "distance", distance)
         })?,
     };
+
     session.evaluate(work)?;
+
     let offset_given = asked.base.is_some()
         || asked.offset.is_some()
         || asked.turn_axis.is_some()
@@ -448,6 +458,7 @@ pub fn datum_plane_built(
         },
     ];
     let way = chosen_way("plane", &ways, base.and_then(plane_way))?.unwrap_or(PlaneWay::Offset);
+
     shared(
         asked.point.is_some(),
         matches!(
@@ -463,6 +474,7 @@ pub fn datum_plane_built(
         "distance",
         "square_to_edge",
     )?;
+
     let kept = base.filter(|base| plane_way(base) == Some(way));
     let datum = match way {
         PlaneWay::Offset => {
@@ -497,7 +509,7 @@ pub fn datum_plane(
     added(session, work, built)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AxisWay {
     Along,
     Planes,
@@ -523,6 +535,7 @@ pub fn datum_axis_built(
     base: Option<&DatumAxis>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
     let ways = [
@@ -553,12 +566,14 @@ pub fn datum_axis_built(
         },
     ];
     let way = chosen_way("axis", &ways, base.map(axis_way))?.ok_or(DatumError::NoDatumAxis)?;
+
     shared(
         asked.point.is_some(),
         matches!(way, AxisWay::SquareToPlane | AxisWay::SquareToFace),
         "point",
         "square_to_plane or square_to_face",
     )?;
+
     let kept = base.filter(|base| axis_way(base) == way);
     let plane = |choice: &PlaneChoice| places::plane(document, evaluation, choice);
     let point = |choice: &PointChoice| places::point(document, evaluation, choice);
@@ -628,6 +643,7 @@ pub fn datum_axis_built(
                 "point",
                 point,
             )?;
+
             let tangent = match &asked.square_to_face {
                 Some(on) => curved_face(document, evaluation, on, toward)?,
                 None => FaceTangent {
@@ -650,7 +666,7 @@ pub fn datum_axis(
     added(session, work, built)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PointWay {
     At,
     Lines,
@@ -705,6 +721,7 @@ fn point_by(
 ) -> Result<PointBy, ToolError> {
     let document = session.document();
     let evaluation = session.evaluation();
+
     let plane = |choice: &PlaneChoice| places::plane(document, evaluation, choice);
     let axis = |choice: &AxisChoice| places::axis(document, evaluation, choice);
     Ok(match way {
@@ -757,6 +774,7 @@ fn point_by(
             let distance = distance
                 .or_else(|| kept.map(|kept| kept.distance.clone()))
                 .unwrap_or_else(zero_length);
+
             let station = match &asked.along_edge {
                 Some(on) => places::station(document, evaluation, on, distance)?,
                 None => caditor_document::CurveStation {
@@ -773,6 +791,7 @@ fn point_by(
             };
             part(asked.middle_of.as_ref(), kept, "middle_of", |on| {
                 let (at, edge) = places::edge_at_bar(document, evaluation, on)?;
+
                 let edge =
                     caditor_kernel::EdgeReference::capture(at.state, edge).ok_or_else(|| {
                         PlaceError::NoEdge {
@@ -813,7 +832,9 @@ pub fn datum_point_built(
     let distance = parsed(session, asked.distance.as_ref(), |session, distance| {
         signed_length(session, "distance", distance)
     })?;
+
     session.evaluate(work)?;
+
     let ways = [
         Way {
             given: asked.at.is_some() || asked.offset.is_some(),
@@ -852,12 +873,14 @@ pub fn datum_point_built(
         },
     ];
     let way = chosen_way("point", &ways, base.and_then(point_way))?.unwrap_or(PointWay::At);
+
     shared(
         asked.distance.is_some(),
         way == PointWay::Along,
         "distance",
         "along_edge",
     )?;
+
     let kept = base.filter(|base| point_way(base) == Some(way));
     let datum = match (way, kept) {
         (PointWay::At, kept) => {
@@ -912,8 +935,10 @@ pub fn coordinate_system_built(
     base: Option<&DatumFrame>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
+
     let origin = match (&asked.origin, base) {
         (Some(choice), _) => places::point(document, evaluation, choice)?,
         (None, Some(base)) => base.origin.clone(),
@@ -927,6 +952,7 @@ pub fn coordinate_system_built(
         Some(choice) => Some(places::plane(document, evaluation, choice)?),
         None => base.map(|base| base.plane.clone()),
     };
+
     let x_axis = x_axis.unwrap_or_else(|| {
         let normal = plane.as_ref().and_then(principal_normal);
         let flattest = datum_tools::least_steep(
@@ -943,6 +969,7 @@ pub fn coordinate_system_built(
         );
         PlaneReference::Principal(holding.unwrap_or(PrincipalPlane::Xy))
     });
+
     let frame = DatumFrame {
         origin,
         x_axis,

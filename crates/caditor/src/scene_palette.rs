@@ -25,7 +25,7 @@ pub fn color32(colour: Color) -> egui::Color32 {
     egui::Color32::from_rgb(byte(colour.red), byte(colour.green), byte(colour.blue))
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Contrast {
     #[default]
     Standard,
@@ -70,7 +70,7 @@ pub const GRID_SEEN: f32 = 1.5;
 pub const BODY_SEEN: f32 = 1.5;
 pub const HIGH_CONTRAST_GRID_SEEN: f32 = 3.0;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Canvas {
     #[default]
     Dark,
@@ -186,7 +186,7 @@ fn hex(colour: egui::Color32) -> String {
     format!("#{:02x}{:02x}{:02x}", colour.r(), colour.g(), colour.b())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnseenGrid {
     pub colour: egui::Color32,
     pub canvas: Canvas,
@@ -245,7 +245,7 @@ pub fn seen_grid(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnseenBody {
     pub colour: egui::Color32,
     pub canvas: Canvas,
@@ -280,7 +280,7 @@ impl UnseenBody {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnseenBackdrop {
     pub colour: egui::Color32,
     pub body: egui::Color32,
@@ -332,6 +332,7 @@ pub fn seen_backdrop(
 
 fn capitalised(reason: &str) -> String {
     let mut letters = reason.chars();
+
     let capital: String = letters
         .next()
         .into_iter()
@@ -388,7 +389,7 @@ pub fn shown_grid(
     chosen.unwrap_or_else(|| on_canvas(contrast.palette(canvas).grid, canvas))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SketchState {
     UnderConstrained,
     FullyConstrained,
@@ -412,19 +413,19 @@ impl SketchState {
     ];
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Weight {
     Regular,
     Heavy,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointFill {
     Solid,
     Hollow,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
     pub curve: Color,
     pub point: Color,
@@ -452,14 +453,14 @@ impl Look {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Highlights {
     pub hovered: Color,
     pub selected: Color,
     pub hovered_selected: Color,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bands {
     pub drafted: Color,
     pub too_little_draft: Color,
@@ -469,7 +470,7 @@ pub struct Bands {
     pub curvature: [Color; 5],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CombLook {
     pub teeth: Color,
     pub envelope: Color,
@@ -479,7 +480,7 @@ pub struct CombLook {
     pub isocurve_width: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ScenePalette {
     pub grid: Color,
     pub origin: Color,
@@ -1178,6 +1179,7 @@ mod tests {
 
     fn assert_visible(what: &str, color: Color, below: Color32) {
         let ratio = contrast_ratio(over(color, below), below);
+
         assert!(
             ratio >= VISIBLE,
             "{what} on {below:?} is {ratio:.2}:1, below {VISIBLE}:1"
@@ -1187,8 +1189,10 @@ mod tests {
     #[test]
     fn each_contrast_and_canvas_has_its_own_palette() {
         let every = every_palette();
+
         for (index, (palette, canvas)) in every.iter().enumerate() {
             let high = index >= Canvas::ALL.len();
+
             assert_eq!(palette.troubled_edges_dashed, high, "{canvas:?}");
             for (other, other_canvas) in every.iter().skip(index + 1) {
                 assert!(
@@ -1203,6 +1207,7 @@ mod tests {
                 assert_ne!(canvas.colour(), other.colour(), "{canvas:?} and {other:?}");
             }
         }
+
         assert_eq!(Canvas::Dark.colour(), Color32::from_rgb(27, 28, 31));
         assert_eq!(Canvas::Light.colour(), Color32::from_rgb(226, 229, 234));
         assert_eq!(Canvas::from_key("sepia"), None);
@@ -1242,6 +1247,7 @@ mod tests {
             .filter(|canvas| *canvas != Canvas::Dark)
         {
             let lightness = appearance::contrast_ratio(canvas.colour(), Color32::BLACK);
+
             assert!(lightness > darkest * 1.5, "{canvas:?}");
             assert_eq!(
                 canvas.chrome() == &canvas::DARK_CHROME,
@@ -1272,6 +1278,7 @@ mod tests {
         );
 
         let grey = Color32::from_rgb(80, 80, 80);
+
         assert_eq!(seen_grid(grey, Canvas::Dark, Contrast::Standard), Ok(grey));
         assert!(seen_grid(grey, Canvas::Dark, Contrast::High).is_err());
         assert!(seen_grid(Color32::WHITE, Canvas::White, Contrast::Standard).is_err());
@@ -1291,13 +1298,17 @@ mod tests {
         }
         for canvas in Canvas::ALL {
             let same = canvas.colour();
+
             assert!(
                 seen_body(same, canvas, Contrast::Standard).is_err(),
                 "{canvas:?}"
             );
         }
+
         let black = Color32::BLACK;
+
         assert_eq!(seen_body(black, Canvas::Dark, Contrast::High), Ok(black));
+
         let unseen = seen_body(
             Color32::from_rgb(34, 36, 40),
             Canvas::Dark,
@@ -1331,6 +1342,7 @@ mod tests {
                 Contrast::Standard
             };
             let shown = over(palette.grid, canvas.colour());
+
             assert_eq!(
                 seen_grid(shown, canvas, contrast),
                 Ok(shown),
@@ -1378,8 +1390,10 @@ mod tests {
                 ("preview point", palette.preview_point),
                 ("trimmed curve", palette.trimmed_curve),
             ];
+
             for state in SketchState::ALL {
                 let look = palette.look(state);
+
                 drawn_over_bodies.push(("sketch curve", look.curve));
                 drawn_over_bodies.push(("sketch point", look.point));
             }
@@ -1409,6 +1423,7 @@ mod tests {
     fn every_standard_canvas_keeps_its_sketch_states_and_grid_visible() {
         for (palette, canvas) in standard_palettes() {
             let canvas = canvas.colour();
+
             for state in SketchState::ALL
                 .into_iter()
                 .filter(|state| *state != SketchState::Background)
@@ -1426,6 +1441,7 @@ mod tests {
             ] {
                 assert_visible(what, color, canvas);
             }
+
             assert!(contrast_ratio(over(palette.grid, canvas), canvas) >= GRID_SEEN);
         }
     }
@@ -1452,9 +1468,11 @@ mod tests {
                 };
                 for axis in Axis::ALL {
                     assert_visible(axis.name(), palette.axis(axis), canvas.colour());
+
                     let letter = palette.axis_colour(axis);
                     for below in &below {
                         let ratio = contrast_ratio(letter, below.blend(backdrop));
+
                         assert!(
                             ratio >= readable,
                             "{} letter on the {contrast:?} {canvas:?} backdrop over {below:?} is {ratio:.2}:1",
@@ -1485,6 +1503,7 @@ mod tests {
                 ("Outdated", palette.outdated_body),
                 ("Failed", palette.failed_body),
             ]);
+
             for (body_name, painted) in bodies {
                 let shown = opaque32(palette.body(painted));
                 for (what, color) in [
@@ -1497,12 +1516,15 @@ mod tests {
                     assert_visible(&format!("{what} on {body_name}"), color, shown);
                 }
             }
+
             assert_eq!(opaque32(palette.body(opaque(body()))), body());
+
             assert_visible(
                 "edge on a drawing face",
                 palette.body_edge,
                 opaque32(palette.drawing_face),
             );
+
             assert!(palette.body_edge_width > STANDARD.body_edge_width);
         }
     }
@@ -1513,6 +1535,7 @@ mod tests {
             for swatch in &SWATCHES {
                 let colour =
                     Color::from_rgb8(swatch.colour.red, swatch.colour.green, swatch.colour.blue);
+
                 assert_eq!(palette.body(colour), colour, "{}", swatch.name);
             }
         }
@@ -1522,6 +1545,7 @@ mod tests {
     fn the_centre_of_mass_marker_stands_out_from_its_outline_and_the_outline_from_a_body() {
         for (palette, _) in every_palette() {
             let outline = opaque32(palette.outline);
+
             for (what, color) in [
                 ("centre of mass", palette.centre_of_mass),
                 ("hovered centre of mass", palette.lines.hovered),
@@ -1555,15 +1579,18 @@ mod tests {
             let dimmed = opaque32(palette.background_body);
             let edge = opaque32(palette.background_body_edge);
             let edge_seen = if high { VISIBLE } else { DIMMED_BODY_SEEN };
+
             let mut required = vec![
                 ("dimmed body edge", edge, dimmed, edge_seen),
                 ("dimmed body edge", edge, canvas_colour, edge_seen),
             ];
+
             if !high || canvas.is_dark() {
                 required.push(("dimmed body", dimmed, canvas_colour, DIMMED_BODY_SEEN));
             }
             for (what, above, below, wanted) in required {
                 let ratio = contrast_ratio(above, below);
+
                 assert!(
                     ratio >= wanted,
                     "{what} {above:?} on {below:?} ({canvas:?}, high contrast {high}) is {ratio:.2}:1, below {wanted}:1"
@@ -1583,6 +1610,7 @@ mod tests {
                 ("too tight", bands.too_tight),
                 ("blocked", bands.blocked),
             ];
+
             for (what, color) in all {
                 assert_visible(what, color, canvas.colour());
             }
@@ -1611,6 +1639,7 @@ mod tests {
     fn the_curvature_comb_stands_out_from_its_outline_and_the_outline_from_a_body() {
         for (palette, canvas) in every_palette() {
             let outline = opaque32(palette.outline);
+
             for (what, color) in [
                 ("comb teeth", palette.comb.teeth),
                 ("comb envelope", palette.comb.envelope),
@@ -1620,6 +1649,7 @@ mod tests {
                 assert_visible(what, color, canvas.colour());
             }
             assert_visible("comb outline", palette.outline, body());
+
             assert!(palette.comb.envelope_width > palette.comb.tooth_width);
         }
     }
@@ -1633,6 +1663,7 @@ mod tests {
             assert_ne!(free.weight, fixed.weight);
             assert_ne!(free.fill, fixed.fill);
             assert_eq!(free.fill, PointFill::Hollow);
+
             for state in [
                 SketchState::FullyConstrained,
                 SketchState::Conflicting,
@@ -1642,6 +1673,7 @@ mod tests {
                 assert_eq!(palette.look(state).weight, Weight::Heavy, "{state:?}");
                 assert_eq!(palette.look(state).fill, PointFill::Solid, "{state:?}");
             }
+
             assert!(
                 palette.curve_width(Weight::Heavy) >= palette.curve_width(Weight::Regular) + 1.0
             );
@@ -1649,6 +1681,7 @@ mod tests {
                 palette.hole_diameter > 0.0
                     && palette.hole_diameter <= palette.point_diameter - 4.0
             );
+
             assert_visible("a hollow point's ring", free.point, opaque32(palette.hole));
         }
     }
@@ -1658,11 +1691,13 @@ mod tests {
         for (palette, _) in standard_palettes() {
             for state in SketchState::ALL {
                 let look = palette.look(state);
+
                 assert_eq!(
                     (look.weight, look.fill),
                     (Weight::Regular, PointFill::Solid)
                 );
             }
+
             assert_eq!(
                 palette.curve_width(Weight::Heavy),
                 palette.curve_width(Weight::Regular)

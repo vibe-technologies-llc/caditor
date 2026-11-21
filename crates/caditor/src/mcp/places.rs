@@ -21,7 +21,7 @@ const EDGE_KEY_DIGITS: usize = 32;
 const CORNER_TOLERANCE: f64 = 1e-6;
 const NOT_FOUND_AT_THE_BAR: &str = "is not found where the new feature sits in the tree";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PlaceError {
     #[error("“{0}” is not an edge key; use one list_edges gives")]
     UnreadableEdgeKey(String),
@@ -65,7 +65,7 @@ pub enum PlaceError {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 pub enum AxisName {
     X,
     Y,
@@ -90,48 +90,48 @@ pub fn principal_plane(name: PlaneName) -> PrincipalPlane {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OnFace {
     pub body: Named,
     pub face: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OnEdge {
     pub body: Named,
     pub edge: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SketchLine {
     pub sketch: Named,
     pub line: EntityName,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatumNamed {
     pub datum: Named,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FramePlane {
     pub frame: Named,
     pub plane: PlaneName,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FrameAxis {
     pub frame: Named,
     pub axis: AxisName,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum PlaneChoice {
     Principal(PlaneName),
@@ -140,7 +140,7 @@ pub enum PlaneChoice {
     Frame(FramePlane),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum AxisChoice {
     Principal(AxisName),
@@ -151,27 +151,27 @@ pub enum AxisChoice {
     Frame(FrameAxis),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 pub enum OriginName {
     #[serde(rename = "origin")]
     Origin,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OnCorner {
     pub body: Named,
     pub corner: [f64; 3],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SketchPoint {
     pub sketch: Named,
     pub point: EntityName,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum PointChoice {
     Origin(OriginName),
@@ -189,9 +189,11 @@ pub fn edge_key_text(name: EdgeName) -> String {
 pub fn edge_key(text: &str) -> Result<EdgeName, PlaceError> {
     let unreadable = || PlaceError::UnreadableEdgeKey(text.to_owned());
     let digits = text.trim();
+
     if digits.is_empty() || digits.len() > EDGE_KEY_DIGITS {
         return Err(unreadable());
     }
+
     let digest = u128::from_str_radix(digits, 16).map_err(|_| unreadable())?;
     Ok(EdgeName::from_digest(digest))
 }
@@ -208,6 +210,7 @@ pub fn edge<'e>(
         edge: text.to_owned(),
     };
     let shown = bodies::shown(evaluation, body).ok_or_else(missing)?;
+
     let found = bodies::find_edge(shown, name).ok_or_else(missing)?;
     Ok((name, found, shown))
 }
@@ -240,6 +243,7 @@ fn datum_of(
         }
         .into());
     };
+
     before_the_bar(document, found.id(), &found.name)?;
     Ok((found.id(), kind))
 }
@@ -292,6 +296,7 @@ pub fn plane_or_round_face(
         return flat;
     };
     let body = references::body(document, evaluation, &on.body)?;
+
     let (key, _, _) = references::face(document, evaluation, body, &on.face)?;
     sketch_placement::surface_in(
         document,
@@ -315,6 +320,7 @@ pub fn on_face(
 ) -> Result<FacePlace, ToolError> {
     let body = references::body(document, evaluation, &on.body)?;
     let (key, face, shown) = references::face(document, evaluation, body, &on.face)?;
+
     let (attachment, frame) = sketch_placement::attachment_in(
         document,
         evaluation,
@@ -348,9 +354,11 @@ pub fn axis(
             let no_axis = || PlaceError::NoAxis {
                 what: format!("edge {} of {}", on.edge, body_label(document, body)),
             };
+
             let reference = EdgeReference::capture(&shown.solid, found).ok_or_else(no_axis)?;
             let state = sketch_placement::body_state_in(document, evaluation, body, index)
                 .map_err(|_| no_axis())?;
+
             let there = reference.resolve(state).map_err(|_| no_axis())?;
             Ok(AxisReference::capture_edge(body, state, there).ok_or_else(no_axis)?)
         }
@@ -360,15 +368,19 @@ pub fn axis(
             let no_axis = || PlaceError::NoAxis {
                 what: format!("face {} of {}", on.face, body_label(document, body)),
             };
+
             let reference = FaceReference::capture(&shown.solid, found).ok_or_else(no_axis)?;
             let state = sketch_placement::body_state_in(document, evaluation, body, index)
                 .map_err(|_| no_axis())?;
+
             let there = reference.resolve(state).map_err(|_| no_axis())?;
             Ok(AxisReference::capture_face(body, state, there).ok_or_else(no_axis)?)
         }
         AxisChoice::Sketch(line) => {
             let (feature, sketch) = references::sketch(document, &line.sketch)?;
+
             let entity = references::entity(&feature.name, sketch, &line.line)?;
+
             if sketch.line_endpoints(entity).is_none() {
                 return Err(PlaceError::NoAxis {
                     what: format!("entity {} of {}", line.line, feature.name),
@@ -415,8 +427,10 @@ pub fn face_at_bar<'e>(
         face: on.face.clone(),
         reason: NOT_FOUND_AT_THE_BAR,
     };
+
     let seen = FaceReference::capture(&shown.solid, found).ok_or_else(lost)?;
     let at = state_at_bar(document, evaluation, body, lost)?;
+
     let there = seen.resolve(at.state).map_err(|_| lost())?;
     let reference = FaceReference::capture(at.state, there).ok_or_else(lost)?;
     Ok((at, reference))
@@ -433,8 +447,10 @@ pub fn edge_at_bar<'e>(
         body: body_label(document, body),
         edge: on.edge.clone(),
     };
+
     let seen = EdgeReference::capture(&shown.solid, found).ok_or_else(lost)?;
     let at = state_at_bar(document, evaluation, body, lost)?;
+
     let there = seen.resolve(at.state).map_err(|_| lost())?;
     Ok((at, there))
 }
@@ -462,6 +478,7 @@ fn corner(
 ) -> Result<PointReference, ToolError> {
     let body = references::body(document, evaluation, &on.body)?;
     let [x, y, z] = on.corner;
+
     let wanted = Point3::new(x, y, z);
     let missing = || PlaceError::NoCorner {
         body: body_label(document, body),
@@ -471,6 +488,7 @@ fn corner(
     };
     let shown = bodies::shown(evaluation, body).ok_or_else(missing)?;
     let reach = CORNER_TOLERANCE * wanted.length().max(1.0);
+
     let found = shown
         .solid
         .vertices()
@@ -484,10 +502,12 @@ fn corner(
         .copied()
         .ok_or_else(missing)?;
     let at = state_at_bar(document, evaluation, body, missing)?;
+
     let named = vertex_names(at.state)
         .values()
         .filter(|there| **there == name)
         .count();
+
     if named != 1 {
         return Err(missing().into());
     }
@@ -525,13 +545,16 @@ pub fn point(
             let no_centre = || PlaceError::NoCentre {
                 what: format!("face {} of {}", on.face, body_label(document, at.body)),
             };
+
             let there = face.resolve(at.state).map_err(|_| no_centre())?;
             PointReference::capture_surface_centre(at.body, at.state, there)
                 .ok_or_else(|| no_centre().into())
         }
         PointChoice::Sketch(on) => {
             let (feature, sketch) = references::sketch(document, &on.sketch)?;
+
             let entity = references::entity(&feature.name, sketch, &on.point)?;
+
             if sketch.point(entity).is_none() {
                 return Err(PlaceError::NotAPoint {
                     name: on.point.to_string(),

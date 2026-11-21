@@ -60,7 +60,9 @@ impl Panel<'_, '_> {
             opened,
         } = *self.row;
         let id = feature.id();
+
         widgets::caption(ui, "Faces to move");
+
         let evaluation = model.evaluation();
         let mut previewed = Vec::new();
         let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
@@ -77,6 +79,7 @@ impl Panel<'_, '_> {
             };
             ReferenceRows { summary, rows }
         });
+
         ui.vertical(|ui| {
             if moving.faces.is_empty() {
                 ui.label(widgets::muted("None: nothing moves", ui));
@@ -86,6 +89,7 @@ impl Panel<'_, '_> {
             for (index, text) in listed.rows.iter().enumerate() {
                 let text = widgets::muted(text, ui);
                 let row = widgets::removable_row_hovered(ui, text, "Leave this face out");
+
                 if row.hovered && opened {
                     previewed = bodies::input(evaluation, id)
                         .map(|input| {
@@ -99,11 +103,13 @@ impl Panel<'_, '_> {
                 }
                 if row.removed {
                     let mut changed = moving.clone();
+
                     changed.faces.remove(index);
                     self.actions
                         .push(feature_fields::applied(&feature.name, self.change(changed)));
                 }
             }
+
             let chosen = feature_fields::list_in_view(
                 ui,
                 opened,
@@ -138,6 +144,7 @@ impl Panel<'_, '_> {
             Reference::Direction => (DISTANCE, &moving.distance, Dimension::LENGTH, Rule::Any),
             Reference::Axis => (ANGLE, &moving.angle, Dimension::ANGLE, Rule::Any),
         };
+
         let quantity = Quantity {
             feature: id,
             id: Id::unique(("move-face-value", caption, id)),
@@ -152,6 +159,7 @@ impl Panel<'_, '_> {
             quantity,
             |value: Expression| {
                 let mut changed = moving.clone();
+
                 match reference {
                     Reference::Direction => changed.distance = value,
                     Reference::Axis => changed.angle = value,
@@ -159,6 +167,7 @@ impl Panel<'_, '_> {
                 self.change(changed)
             },
         );
+
         self.actions.extend(drafting.into_actions(id));
     }
 
@@ -186,6 +195,7 @@ impl Panel<'_, '_> {
                 NO_TILT,
             ),
         };
+
         let shown = Some(current.map_or_else(
             || unchosen.to_owned(),
             |axis| capitalized(&describe_axis(model.document(), axis)),
@@ -218,6 +228,7 @@ impl Panel<'_, '_> {
             std::iter::once(none).chain(axes).collect::<Vec<_>>()
         };
         let mut actions = Vec::new();
+
         feature_fields::axis_row(ui, model, row, Some(&listed), &mut actions);
         self.actions.extend(actions);
     }
@@ -225,7 +236,9 @@ impl Panel<'_, '_> {
 
 pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {
     let mut panel = Panel { row, actions };
+
     let id = panel.id();
+
     widgets::properties(ui, ("move-face-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
         panel.faces_row(ui, cache);

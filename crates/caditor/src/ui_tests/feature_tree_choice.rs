@@ -30,10 +30,12 @@ fn fail_with_no_length(harness: &mut Harness, feature: FeatureId) {
         panic!("an extrusion to fail");
     };
     let zero = Expression::parse_stored("0 mm").unwrap();
+
     let failing = caditor_document::Extrude {
         extent: ExtrudeExtent::one_side(zero, false),
         ..extrude
     };
+
     harness.perform(Action::Apply(Transaction::single(
         "Fail",
         Edit::SetFeatureKind {
@@ -70,9 +72,12 @@ fn top_face_colour(harness: &mut Harness, top: Pickable) -> caditor_render::Colo
 #[test]
 fn a_shift_click_in_a_filtered_tree_chooses_only_the_rows_shown() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let mut second = Sketch::new(Plane::XY);
+
     rectangle(&mut second, Point2::new(60.0, 0.0), Point2::new(70.0, 10.0));
+
     let later = harness.add_sketch(second);
     let plate = feature_named(&harness, "Plate");
     let later_name = harness.document().feature(later).unwrap().name.clone();
@@ -84,6 +89,7 @@ fn a_shift_click_in_a_filtered_tree_chooses_only_the_rows_shown() {
     click_with(&mut harness, &later_name, Modifiers::SHIFT);
 
     let range = chosen(&harness);
+
     assert!(range.contains(&plate) && range.contains(&later));
     assert!(
         !range.contains(&extrude),
@@ -94,7 +100,9 @@ fn a_shift_click_in_a_filtered_tree_chooses_only_the_rows_shown() {
 #[test]
 fn a_failure_the_feature_fixes_itself_offers_to_edit_it_until_it_is_open() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
+
     fail_with_no_length(&mut harness, extrude);
     harness.frame();
 
@@ -107,6 +115,7 @@ fn a_failure_the_feature_fixes_itself_offers_to_edit_it_until_it_is_open() {
         Some(caditor_document::FeatureState::Failed(error)) => error.reason(),
         other => panic!("the extrusion fails, found {other:?}"),
     };
+
     assert!(harness.shows(&reason), "{reason}");
     assert!(harness.shows("Edit Extrude 1"));
     assert!(!harness.shows("Go to Extrude 1"));
@@ -121,18 +130,23 @@ fn a_failure_the_feature_fixes_itself_offers_to_edit_it_until_it_is_open() {
 #[test]
 fn the_card_of_a_suppressed_or_rolled_back_feature_says_why_and_brings_it_back() {
     let mut harness = Harness::new();
+
     let side = feature_named(&harness, "Side sketch");
     let suppressed = harness
         .document()
         .suppression(&[side], true, "Suppress Side sketch");
+
     harness.perform(Action::Apply(suppressed));
     harness.settle();
 
     harness.click_button("Show details of Side sketch");
     harness.frame();
+
     assert!(harness.shows("Side sketch is suppressed; unsuppress it to edit it."));
+
     harness.click("Unsuppress");
     harness.settle();
+
     assert!(!harness.document().feature(side).unwrap().suppressed);
     assert_eq!(harness.model.undo_label(), Some("Unsuppress Side sketch"));
 
@@ -140,25 +154,31 @@ fn the_card_of_a_suppressed_or_rolled_back_feature_says_why_and_brings_it_back()
     harness.click("Roll back to here");
     harness.settle();
     harness.frame();
+
     assert!(
         harness.shows("Side sketch is below the rollback bar; roll forward past it to edit it.")
     );
+
     harness.click("Roll forward to here");
     harness.settle();
+
     assert!(!harness.document().is_rolled_back(side));
 }
 
 #[test]
 fn hiding_takes_the_rows_chosen_in_the_tree_and_the_row_menu_shows_them_all() {
     let mut harness = Harness::new();
+
     let base = feature_named(&harness, "Base sketch");
     let side = feature_named(&harness, "Side sketch");
+
     harness.select([]);
 
     harness.click("Base sketch");
     click_with(&mut harness, "Side sketch", Modifiers::COMMAND);
     harness.key(Key::H, Modifiers::NONE);
     harness.settle();
+
     let both_hidden = is_hidden(&harness, base) && is_hidden(&harness, side);
     let hide_label = harness.model.undo_label().map(str::to_owned);
 
@@ -173,14 +193,17 @@ fn hiding_takes_the_rows_chosen_in_the_tree_and_the_row_menu_shows_them_all() {
 
     run_from_palette(&mut harness, "hide or show feature");
     harness.settle();
+
     assert!(is_hidden(&harness, base) && is_hidden(&harness, side));
 }
 
 #[test]
 fn hiding_everything_else_keeps_the_body_of_the_row_chosen() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let base = feature_named(&harness, "Base sketch");
+
     harness.select([]);
 
     harness.workspace.panels.choose_only(extrude);
@@ -199,17 +222,21 @@ fn hiding_everything_else_keeps_the_body_of_the_row_chosen() {
 #[test]
 fn escape_or_a_click_on_nothing_with_nothing_selected_lets_go_of_the_tree_rows() {
     let mut harness = Harness::new();
+
     let base = feature_named(&harness, "Base sketch");
+
     harness.select([]);
 
     harness.workspace.panels.choose_only(base);
     harness.frame();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let after_escape = chosen(&harness);
 
     harness.workspace.panels.choose_only(base);
     harness.frame();
+
     let empty = harness
         .workspace
         .viewport
@@ -217,8 +244,10 @@ fn escape_or_a_click_on_nothing_with_nothing_selected_lets_go_of_the_tree_rows()
         .expect("the view is laid out")
         .left_bottom()
         + egui::vec2(40.0, -40.0);
+
     harness.click_screen(empty);
     harness.frame();
+
     let after_click = chosen(&harness);
 
     assert!(after_escape.is_empty());
@@ -228,6 +257,7 @@ fn escape_or_a_click_on_nothing_with_nothing_selected_lets_go_of_the_tree_rows()
 #[test]
 fn bodies_are_chosen_several_at_a_time_with_ctrl_and_shift() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let block = add_block(
         &mut harness,
@@ -235,15 +265,21 @@ fn bodies_are_chosen_several_at_a_time_with_ctrl_and_shift() {
         [Point2::new(60.0, 0.0), Point2::new(80.0, 20.0)],
         "10 mm",
     );
+
     harness.click("Bodies (2)");
     harness.frame();
 
     harness.click("Extrude 1");
     click_with(&mut harness, "Block", Modifiers::COMMAND);
+
     let toggled = chosen(&harness);
+
     click_with(&mut harness, "Block", Modifiers::COMMAND);
+
     let untoggled = chosen(&harness);
+
     click_with(&mut harness, "Block", Modifiers::SHIFT);
+
     let ranged = chosen(&harness);
 
     assert_eq!(toggled, vec![plate, block]);
@@ -254,29 +290,37 @@ fn bodies_are_chosen_several_at_a_time_with_ctrl_and_shift() {
 #[test]
 fn the_row_menu_lists_what_a_feature_uses_and_what_uses_it() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let plate = feature_named(&harness, "Plate");
 
     harness.click_beside(icons::MORE, "Extrude 1");
     harness.hover("Uses");
+
     let listed = rightmost(&harness, "Plate");
+
     harness.click_screen(listed);
     harness.frame();
     harness.frame();
+
     assert_eq!(harness.workspace.panels.selected, Some(plate));
 
     harness.click_beside(icons::MORE, "Plate");
     harness.hover("Used by");
+
     let listed = rightmost(&harness, "Extrude 1");
+
     harness.click_screen(listed);
     harness.frame();
     harness.frame();
+
     assert_eq!(harness.workspace.panels.selected, Some(extrude));
 
     harness.click_beside(icons::MORE, "Extrude 1");
     harness.click(&Command::CopyFeatures.title());
     harness.settle();
     harness.frame();
+
     assert!(harness.shows("Copied “Extrude 1”."));
     assert!(
         harness
@@ -289,29 +333,38 @@ fn the_row_menu_lists_what_a_feature_uses_and_what_uses_it() {
 #[test]
 fn hovering_a_row_lights_its_body_and_hovering_a_fillet_edge_lights_the_edge() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.select([]);
     harness.frame();
+
     let plain = top_face_colour(&mut harness, top);
 
     harness.hover("Extrude 1");
+
     let lit = top_face_colour(&mut harness, top);
+
     assert_ne!(lit, plain);
 
     let front = top_edge_along_x(&harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
         .solid()
         .expect("the fillet is open");
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let edge = Pickable::BlendEdge {
         feature: fillet,
         edge: front,
@@ -335,7 +388,9 @@ fn hovering_a_row_lights_its_body_and_hovering_a_fillet_edge_lights_the_edge() {
         .find(|(text, _)| text.starts_with("Edge between"))
         .map(|(text, _)| text.clone())
         .expect("the fillet lists its edge");
+
     harness.hover(&row);
+
     let hovered = edge_width(&mut harness);
 
     assert!(hovered > before, "{hovered} > {before}");
@@ -344,6 +399,7 @@ fn hovering_a_row_lights_its_body_and_hovering_a_fillet_edge_lights_the_edge() {
 #[test]
 fn f8_and_shift_f8_step_through_the_failed_features_and_the_filter_finds_them() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let block = add_block(
         &mut harness,
@@ -351,9 +407,11 @@ fn f8_and_shift_f8_step_through_the_failed_features_and_the_filter_finds_them() 
         [Point2::new(60.0, 0.0), Point2::new(80.0, 20.0)],
         "10 mm",
     );
+
     fail_with_no_length(&mut harness, plate);
     fail_with_no_length(&mut harness, block);
     harness.select([]);
+
     let step = |harness: &mut Harness, modifiers: Modifiers| {
         harness.key(Key::F8, modifiers);
         harness.frame();
@@ -380,9 +438,11 @@ fn f8_and_shift_f8_step_through_the_failed_features_and_the_filter_finds_them() 
     harness.workspace.panels.tree_filter = "failed".to_owned();
     harness.frame();
     harness.frame();
+
     let row = |harness: &Harness, name: &str| {
         harness.accessible_named(Role::Button, &format!("More actions for {name}"))
     };
+
     assert!(row(&harness, "Extrude 1") && row(&harness, "Block"));
     assert!(!row(&harness, "Base sketch"));
 }
@@ -390,13 +450,17 @@ fn f8_and_shift_f8_step_through_the_failed_features_and_the_filter_finds_them() 
 #[test]
 fn edit_feature_opens_the_feature_of_the_one_thing_selected_when_no_row_is_chosen() {
     let mut harness = Harness::new();
+
     let (extrude, top) = extruded_plate(&mut harness);
+
     harness.workspace.panels.selected = None;
 
     harness.select([top]);
     harness.key(Key::E, Modifiers::NONE);
     harness.settle();
+
     let opened = harness.workspace.editing.solid();
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
@@ -409,6 +473,7 @@ fn edit_feature_opens_the_feature_of_the_one_thing_selected_when_no_row_is_chose
         .and_then(|sketch| sketch.entities().next())
         .map(|(entity, _)| entity)
         .unwrap();
+
     harness.workspace.panels.selected = None;
     harness.select([Pickable::SketchEntity {
         feature: base,
@@ -424,9 +489,12 @@ fn edit_feature_opens_the_feature_of_the_one_thing_selected_when_no_row_is_chose
 #[test]
 fn the_tree_works_out_its_offers_once_until_the_model_or_the_choice_changes() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
+
     harness.workspace.panels.choose_only(extrude);
     harness.frame();
+
     let built = harness.workspace.panels.tree_offers.builds();
 
     harness.frame();
@@ -453,6 +521,7 @@ fn the_tree_works_out_its_offers_once_until_the_model_or_the_choice_changes() {
 #[test]
 fn features_an_undo_removed_leave_the_tree_s_choice() {
     let mut harness = Harness::new();
+
     let (extrude, _) = extruded_plate(&mut harness);
     let plate = feature_named(&harness, "Plate");
     let before = harness.document().features().len();
@@ -462,9 +531,12 @@ fn features_an_undo_removed_leave_the_tree_s_choice() {
     harness.events.push(Event::Copy);
     harness.settle();
     harness.frame();
+
     let copied = harness.clipboard.clone().unwrap();
+
     harness.events.push(Event::Paste(copied));
     harness.settle();
+
     let pasted = chosen(&harness);
 
     harness.perform(Action::Undo);
@@ -482,9 +554,12 @@ fn body_rows_far_out_of_view_are_not_laid_out_until_scrolled_to() {
     const BLOCKS: usize = 60;
 
     let mut harness = Harness::new();
+
     let mut transaction = harness.document().transaction("Add blocks");
+
     for index in 0..BLOCKS {
         let along = index as f64 * 20.0;
+
         block_into(
             &mut transaction,
             &format!("Block {index}"),
@@ -498,6 +573,7 @@ fn body_rows_far_out_of_view_are_not_laid_out_until_scrolled_to() {
     harness.context.enable_accesskit();
     harness.frame();
     harness.frame();
+
     let laid_out = |harness: &Harness, name: &str| {
         harness.accessible_named(Role::Button, &format!("Colour and material of {name}"))
     };
@@ -505,6 +581,7 @@ fn body_rows_far_out_of_view_are_not_laid_out_until_scrolled_to() {
     let last_laid_out = laid_out(&harness, &format!("Block {}", BLOCKS - 1));
 
     let over_the_tree = harness.position_of("Block 0");
+
     harness.wheel_until_shown(over_the_tree, "Block 40", Wheel::Down);
     harness.frame();
 
@@ -517,23 +594,28 @@ fn body_rows_far_out_of_view_are_not_laid_out_until_scrolled_to() {
 #[test]
 fn a_fillet_row_draws_the_body_before_it_as_a_ghost_lighting_the_edge_it_rounded() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
         .solid()
         .expect("the fillet is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
     harness.select([]);
     harness.frame();
+
     let ghosts = |harness: &mut Harness| harness.built().scene.translucent_meshes.len();
     let lines = |harness: &mut Harness| {
         harness
@@ -551,6 +633,7 @@ fn a_fillet_row_draws_the_body_before_it_as_a_ghost_lighting_the_edge_it_rounded
     harness.settle();
     harness.frame();
     harness.frame();
+
     let shown = ghosts(&mut harness);
     let drawn = lines(&mut harness);
     let dashed = drawn
@@ -575,5 +658,6 @@ fn a_fillet_row_draws_the_body_before_it_as_a_ghost_lighting_the_edge_it_rounded
     harness.settle();
     harness.frame();
     harness.frame();
+
     assert_eq!(ghosts(&mut harness), 0);
 }

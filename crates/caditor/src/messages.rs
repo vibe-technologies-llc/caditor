@@ -43,15 +43,19 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> bool {
                 ui,
             ));
             ui.add_space(SPACE_M);
+
             let tokens = appearance::tokens(ui);
             let mut any = false;
+
             widgets::DialogBody::default()
                 .list(ui.ctx(), LIST_HEIGHT)
                 .show(ui, |ui| {
                     for recorded in model.recorded_notices() {
                         any = true;
+
                         let kind = recorded.notice.kind;
                         let tone = kind.tone();
+
                         ui.horizontal_top(|ui| {
                             widgets::described_icon(
                                 ui,

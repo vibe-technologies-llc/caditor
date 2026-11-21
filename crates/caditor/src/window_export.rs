@@ -30,6 +30,7 @@ impl WindowExport {
         if self.named {
             return;
         }
+
         let Some(export) = self.export.as_mut() else {
             return;
         };

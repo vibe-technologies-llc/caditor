@@ -17,6 +17,7 @@ fn definition(sketch: Sketch) -> SketchFeature {
 #[test]
 fn loose_points_are_free_holes_in_the_order_they_were_placed() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let first = sketch.add_point(Point2::new(5.0, 5.0));
     let second = sketch.add_point(Point2::new(15.0, 5.0));
 
@@ -40,13 +41,19 @@ fn loose_points_are_free_holes_in_the_order_they_were_placed() {
 #[test]
 fn a_point_projected_from_the_origin_is_a_hole_placed_at_it_and_a_section_is_no_placement() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let point = sketch.add_point(Point2::ZERO);
+
     sketch.set_projected(point, true).unwrap();
+
     let mut at_origin = definition(sketch.clone());
+
     at_origin
         .projections
         .insert(point, ProjectionSource::Origin);
+
     let mut on_plane = definition(sketch);
+
     on_plane.projections.insert(
         point,
         ProjectionSource::PrincipalPlane {
@@ -68,14 +75,19 @@ fn a_point_projected_from_the_origin_is_a_hole_placed_at_it_and_a_section_is_no_
 #[test]
 fn a_sketch_drawn_by_hand_is_no_placement() {
     let mut with_line = Sketch::new(Plane::XY);
+
     with_line.add_point(Point2::new(5.0, 5.0));
     with_line.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+
     let mut with_constraint = Sketch::new(Plane::XY);
+
     let first = with_constraint.add_point(Point2::new(5.0, 5.0));
     let second = with_constraint.add_point(Point2::new(15.0, 5.0));
+
     with_constraint
         .add_constraint(Constraint::HorizontalPoints(first, second.into()))
         .unwrap();
+
     let empty = Sketch::new(Plane::XY);
 
     assert_eq!(of_sketch(&definition(with_line)), None);

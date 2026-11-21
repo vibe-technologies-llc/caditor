@@ -11,7 +11,7 @@ const POLE_TOLERANCE: f64 = 1e-12;
 const LONGEST_POSITIONAL_NUMBER: usize = 20;
 pub(crate) const STORED_REFERENCE: char = '$';
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum BinaryOperator {
     Add,
     Subtract,
@@ -58,7 +58,7 @@ impl BinaryOperator {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Precedence {
     Comparison,
     Sum,
@@ -68,7 +68,7 @@ enum Precedence {
     Atom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Arity {
     Exactly(usize),
     AtLeast(usize),
@@ -96,7 +96,7 @@ impl fmt::Display for Arity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Function {
     Sqrt,
     Abs,
@@ -231,7 +231,7 @@ impl fmt::Display for Function {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Constant {
     Pi,
     Tau,
@@ -265,7 +265,7 @@ impl Constant {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
     Add,
     Subtract,
@@ -273,7 +273,7 @@ pub enum Operation {
     Pair(Function),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum EvalError {
     #[error("it divides by zero")]
     DivisionByZero,
@@ -356,7 +356,7 @@ fn mismatch_message(operation: Operation, left: Dimension, right: Dimension) -> 
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Expression {
     Number(f64),
     Measure(f64, Unit),
@@ -412,6 +412,7 @@ impl Expression {
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         let mut found = BTreeSet::new();
+
         self.collect_parameters(&mut found);
         found
     }
@@ -435,6 +436,7 @@ impl Expression {
         replacement_of: &dyn Fn(ParameterId) -> Option<Self>,
     ) -> Result<Self, ParseError> {
         let mut substituted = self.clone();
+
         substituted.replace_parameters(replacement_of);
         Self::parse_stored(&substituted.to_stored_text())
     }
@@ -498,6 +500,7 @@ impl Expression {
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
         let result = self.evaluate(value_of)?;
+
         if expected == Dimension::ANGLE && result.dimension.is_plain() && !self.is_literal() {
             return Err(EvalError::PlainAngle);
         }
@@ -542,10 +545,13 @@ impl Expression {
                 }
                 Step::Done(result) => {
                     let value = finite(result?)?;
+
                     operands.truncate(current.first_operand);
+
                     let Some(parent) = parents.pop() else {
                         return Ok(value);
                     };
+
                     operands.push(value);
                     current = parent;
                 }
@@ -589,6 +595,7 @@ impl Expression {
             }
             Self::Call(function @ (Function::And | Function::Or), arguments) => {
                 let deciding = *function == Function::Or;
+
                 if let Some(latest) = gathered.last() {
                     match plain_number(*function, *latest) {
                         Ok(value) if (value != 0.0) == deciding => {
@@ -625,6 +632,7 @@ impl Expression {
             },
             number: display_number,
         };
+
         self.write(&mut text, &style);
         text
     }
@@ -638,6 +646,7 @@ impl Expression {
             },
             number: exact_number,
         };
+
         self.write(&mut text, &style);
         text
     }
@@ -645,6 +654,7 @@ impl Expression {
     pub(crate) fn depth(&self) -> usize {
         let mut deepest = 0;
         let mut pending = vec![(self, 1)];
+
         while let Some((expression, depth)) = pending.pop() {
             deepest = deepest.max(depth);
             match expression {
@@ -697,6 +707,7 @@ impl Expression {
                     **inner,
                     Self::Parameter(_) | Self::Constant(_) | Self::Call(..)
                 ) || matches!(**inner, Self::Number(value) if !value.is_sign_negative());
+
                 inner.write_wrapped(text, style, !bare);
                 text.push(' ');
                 text.push_str(unit.symbol());
@@ -736,6 +747,7 @@ impl Expression {
                         (left.precedence() <= own, right.precedence() <= own)
                     }
                 };
+
                 left.write_wrapped(text, style, left_parens);
                 text.push_str(operator.symbol());
                 right.write_wrapped(text, style, right_parens);
@@ -772,9 +784,11 @@ struct Style<'a> {
 
 fn display_number(value: f64) -> String {
     let positional = value.to_string();
+
     if positional.len() <= LONGEST_POSITIONAL_NUMBER {
         return positional;
     }
+
     let scientific = format!("{value:e}");
     if scientific.len() < positional.len() {
         scientific
@@ -854,7 +868,9 @@ fn binary(
         | BinaryOperator::Equal
         | BinaryOperator::NotEqual => {
             unify(Operation::Compare, left, right)?;
+
             let (a, b) = (left.value, right.value);
+
             let equal = (a - b).abs() <= EQUALITY_TOLERANCE * a.abs().max(b.abs()).max(1.0);
             let holds = match operator {
                 BinaryOperator::Less => a < b && !equal,
@@ -884,9 +900,11 @@ fn power(base: Quantity, exponent: Quantity) -> Result<Quantity, EvalError> {
         }
         return Ok(Quantity::plain(base.value.powf(exponent.value)));
     }
+
     let whole = exponent.value.fract() == 0.0
         && exponent.value >= f64::from(i8::MIN)
         && exponent.value <= f64::from(i8::MAX);
+
     if exponent.value.fract() == 0.0 && !whole {
         return Err(EvalError::TooComplex);
     }
@@ -895,6 +913,7 @@ fn power(base: Quantity, exponent: Quantity) -> Result<Quantity, EvalError> {
             base: base.dimension,
         });
     }
+
     let exponent = exponent.value as i8;
     Ok(Quantity::new(
         base.value.powi(i32::from(exponent)),
@@ -908,6 +927,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
     if !function.arity().accepts(arguments.len()) {
         return Err(EvalError::WrongArgumentCount { function });
     }
+
     let first = *arguments
         .first()
         .ok_or(EvalError::WrongArgumentCount { function })?;
@@ -921,6 +941,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
                     function,
                     found: first.dimension,
                 })?;
+
             if first.value < 0.0 {
                 return Err(EvalError::NegativeRoot);
             }
@@ -944,6 +965,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             match arguments.get(1) {
                 Some(step) => {
                     let dimension = unify(Operation::Pair(function), first, *step)?;
+
                     if step.value <= 0.0 {
                         return Err(EvalError::InvalidStep { function });
                     }
@@ -960,11 +982,14 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
                 .get(1)
                 .ok_or(EvalError::WrongArgumentCount { function })?;
             let dimension = unify(Operation::Pair(function), first, divisor)?;
+
             if divisor.value == 0.0 {
                 return Err(EvalError::DivisionByZero);
             }
+
             let quotient = first.value / divisor.value;
             let whole = snapped(quotient);
+
             let remainder = if whole == quotient {
                 first.value - divisor.value * quotient.floor()
             } else {
@@ -982,6 +1007,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
         Function::Exp => Ok(Quantity::plain(plain_number(function, first)?.exp())),
         Function::Ln | Function::Log10 | Function::Log2 => {
             let value = plain_number(function, first)?;
+
             if value <= 0.0 {
                 return Err(EvalError::NotPositive { function });
             }
@@ -1004,11 +1030,13 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
                 return Err(EvalError::WrongArgumentCount { function });
             };
             let dimension = unify(Operation::Pair(function), first, *low)?;
+
             let dimension = unify(
                 Operation::Pair(function),
                 Quantity::new(0.0, dimension),
                 *high,
             )?;
+
             if low.value > high.value {
                 return Err(EvalError::InvertedLimits);
             }
@@ -1025,6 +1053,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
         Function::Cos => Ok(Quantity::plain(radians(function, first)?.cos())),
         Function::Tan => {
             let angle = radians(function, first)?;
+
             if angle.cos().abs() < POLE_TOLERANCE {
                 return Err(EvalError::OutOfDomain { function });
             }
@@ -1032,9 +1061,11 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
         }
         Function::Asin | Function::Acos => {
             let value = plain_number(function, first)?;
+
             if !(-1.0..=1.0).contains(&value) {
                 return Err(EvalError::OutOfDomain { function });
             }
+
             let angle = if function == Function::Asin {
                 value.asin()
             } else {
@@ -1049,6 +1080,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             let x = *arguments
                 .get(1)
                 .ok_or(EvalError::WrongArgumentCount { function })?;
+
             unify(Operation::Pair(function), first, x)?;
             if first.value == 0.0 && x.value == 0.0 {
                 return Err(EvalError::OutOfDomain { function });

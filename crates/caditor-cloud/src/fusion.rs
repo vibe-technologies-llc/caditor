@@ -78,11 +78,13 @@ impl Fusion {
     ) -> Result<Vec<T>, Error> {
         let mut found = Vec::new();
         let mut next = Some(first);
+
         for _ in 0..MAX_PAGES {
             let Some(url) = next.take() else {
                 break;
             };
             let page: Page = self.get(net, session, url, subject)?;
+
             found.extend(each(&page));
             next = page
                 .links
@@ -112,6 +114,7 @@ impl Fusion {
         if let Some(version) = version {
             return Ok(base64_url(version.id.as_str().as_bytes()));
         }
+
         let url = format!(
             "{DATA_API}/projects/{}/items/{}/tip",
             percent_encode(design.project.as_str()),
@@ -145,6 +148,7 @@ impl Fusion {
             .and_then(|location| location.split_once('/'))
             .filter(|(bucket, object)| !bucket.is_empty() && !object.is_empty())
             .ok_or(Error::NoStoredFile { service: SERVICE })?;
+
         let url = format!(
             "{STORAGE_API}/buckets/{}/objects/{}/signeds3download?minutesExpiration={DOWNLOAD_LINK_MINUTES}",
             percent_encode(bucket),
@@ -170,6 +174,7 @@ impl Fusion {
             percent_encode(folder.folder.as_str())
         );
         let wanted = name.trim();
+
         let found = self.pages(net, session, url, Subject::Folder, |page| {
             page.data
                 .iter()
@@ -205,6 +210,7 @@ impl Fusion {
             "{DATA_API}/projects/{}/storage",
             percent_encode(folder.project.as_str())
         );
+
         let created: Created = self.write(net, session, url, body, Subject::Storage, name)?;
         Ok(created.data.id)
     }
@@ -225,6 +231,7 @@ impl Fusion {
                 service: SERVICE,
                 subject: Subject::Storage,
             })?;
+
         let address = format!(
             "{STORAGE_API}/buckets/{}/objects/{}/signeds3upload",
             percent_encode(bucket),
@@ -248,19 +255,23 @@ impl Fusion {
             service: SERVICE,
             subject: Subject::SignedUpload,
         };
+
         if signed.urls.len() != parts.len()
             || signed.urls.iter().any(|link| !link.starts_with("https://"))
         {
             return Err(unreadable);
         }
+
         let total = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let mut sent = 0_u64;
+
         if !progress(sent, Some(total)) {
             return Err(Error::Stopped);
         }
         for (part, link) in parts.iter().zip(signed.urls) {
             let request = Request::put(link, Body::Bytes(part.to_vec()));
             let response = net.send(&request)?;
+
             if !response.is_success() {
                 return Err(Error::UploadIncomplete { service: SERVICE });
             }
@@ -269,12 +280,14 @@ impl Fusion {
                 return Err(Error::Stopped);
             }
         }
+
         let finish = Request::post(
             address,
             Body::Json(json!({ "uploadKey": signed.upload_key }).to_string()),
         )
         .with_bearer(&session.access_token);
         let answer = net.send(&finish)?;
+
         if !answer.is_success() {
             return Err(Error::UploadIncomplete { service: SERVICE });
         }
@@ -318,11 +331,13 @@ impl Fusion {
             "{DATA_API}/projects/{}/items",
             percent_encode(folder.project.as_str())
         );
+
         let created: Created = self.write(net, session, url, body, Subject::Item, name)?;
         let version = created
             .included
             .iter()
             .find(|resource| resource.kind == "versions");
+
         let web_link = created
             .data
             .web_link()
@@ -363,6 +378,7 @@ impl Fusion {
             "{DATA_API}/projects/{}/versions",
             percent_encode(folder.project.as_str())
         );
+
         let created: Created = self.write(net, session, url, body, Subject::Item, name)?;
         Ok(Sent {
             name: name.to_owned(),
@@ -412,6 +428,7 @@ impl Fusion {
             percent_encode(folder.folder.as_str())
         );
         let project = folder.project.clone();
+
         let parts = self.pages(net, session, url, Subject::Folder, |page| {
             page.data
                 .iter()
@@ -422,6 +439,7 @@ impl Fusion {
             place: Some(folder.clone()),
             ..Folder::default()
         };
+
         for part in parts {
             match part {
                 Entry::Folder(entry) => contents.folders.push(entry),
@@ -443,8 +461,10 @@ impl Provider for Fusion {
         if self.client_id.is_empty() {
             return Err(Error::NoClientId { service: SERVICE });
         }
+
         let verifier = Verifier::generate()?;
         let state = pkce::state()?;
+
         let query = form(&[
             ("response_type", "code"),
             ("client_id", &self.client_id),
@@ -504,12 +524,14 @@ impl Provider for Fusion {
             Some(refresh) => (refresh, "refresh_token"),
             None => (&session.access_token, "access_token"),
         };
+
         let fields = form(&[
             ("token", token),
             ("token_type_hint", hint),
             ("client_id", &self.client_id),
         ]);
         let request = Request::post(REVOKE.to_owned(), Body::Form(fields));
+
         checked(SERVICE, net.send(&request)?, Subject::Token)?;
         Ok(())
     }
@@ -577,6 +599,7 @@ impl Provider for Fusion {
                     folders: several,
                     ..Folder::default()
                 };
+
                 root.newest_first();
                 Ok(root)
             }
@@ -606,6 +629,7 @@ impl Provider for Fusion {
         let mut versions = self.pages(net, session, url, Subject::Design, |page| {
             page.data.iter().filter_map(Resource::version).collect()
         })?;
+
         versions.sort_by_key(|version| std::cmp::Reverse(version.number));
         Ok(versions)
     }
@@ -624,6 +648,7 @@ impl Provider for Fusion {
         });
         let request = Request::post(format!("{DERIVATIVE_API}/job"), Body::Json(job.to_string()))
             .with_bearer(&session.access_token);
+
         checked(SERVICE, net.send(&request)?, Subject::Translation)?;
         Ok(Translation { source })
     }
@@ -682,6 +707,7 @@ impl Provider for Fusion {
             body: Vec::new(),
             retry_after_seconds: fetched.retry_after_seconds,
         };
+
         checked(SERVICE, answer, Subject::Upload)?;
         Ok(fetched.bytes)
     }
@@ -696,6 +722,7 @@ impl Provider for Fusion {
         let name = outgoing.name.trim();
         let existing = self.existing_item(net, session, outgoing.folder, name)?;
         let storage = self.create_storage(net, session, outgoing.folder, name)?;
+
         self.upload_bytes(net, session, &storage, outgoing.bytes, progress)?;
         match existing {
             Some(item) => self.create_version(net, session, outgoing.folder, name, &item, &storage),
@@ -715,9 +742,11 @@ impl Provider for Fusion {
         );
         let request = Request::get(url).with_bearer(&session.access_token);
         let response = net.send(&request)?;
+
         if matches!(response.status, 202 | 404) {
             return Ok(None);
         }
+
         let response = checked(SERVICE, response, Subject::Thumbnail)?;
         Ok((!response.body.is_empty()).then_some(response.body))
     }
@@ -742,6 +771,7 @@ impl Provider for Fusion {
             body: Vec::new(),
             retry_after_seconds: fetched.retry_after_seconds,
         };
+
         checked(SERVICE, answer, Subject::Download)?;
         Ok(fetched.bytes)
     }
@@ -749,9 +779,11 @@ impl Provider for Fusion {
 
 fn percent_of(progress: Option<&str>) -> Option<u8> {
     let text = progress?.trim();
+
     if text == "complete" {
         return Some(100);
     }
+
     let digits: String = text.chars().take_while(char::is_ascii_digit).collect();
     digits.parse::<u8>().ok().filter(|percent| *percent <= 100)
 }
@@ -869,7 +901,7 @@ struct ResourceLinks {
     web_view: Option<Link>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Default, Deserialize)]
 struct Attributes {
     name: Option<String>,
     #[serde(rename = "displayName")]
@@ -932,6 +964,7 @@ impl Resource {
         if self.kind != "hubs" {
             return None;
         }
+
         let kind = match self.extension() {
             Some(TEAM_HUB) => WorkspaceKind::Team,
             Some(PERSONAL_HUB) => WorkspaceKind::Personal,

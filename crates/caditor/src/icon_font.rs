@@ -131,7 +131,7 @@ const ICONS: [Icon; 7] = [
     },
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct OutlinePoint {
     x: i16,
     y: i16,
@@ -140,7 +140,7 @@ struct OutlinePoint {
 
 type Contour = Vec<OutlinePoint>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Winding {
     Filled,
     Hole,
@@ -172,6 +172,7 @@ fn circle((cx, cy): Point, radius: f32) -> Contour {
         .map(|step| {
             let angle = step as f32 * FRAC_PI_8;
             let reach = if step % 2 == 0 { radius } else { control };
+
             let (x, y) = to_font((cx + reach * angle.cos(), cy + reach * angle.sin()));
             OutlinePoint {
                 x,
@@ -194,6 +195,7 @@ fn signed_area(contour: &[OutlinePoint]) -> f32 {
 
 fn oriented(mut contour: Contour, winding: Winding) -> Contour {
     let clockwise = signed_area(&contour) < 0.0;
+
     if clockwise != (winding == Winding::Filled) {
         contour.reverse();
     }
@@ -202,6 +204,7 @@ fn oriented(mut contour: Contour, winding: Winding) -> Contour {
 
 fn normal((ax, ay): Point, (bx, by): Point) -> Option<Point> {
     let (dx, dy) = (bx - ax, by - ay);
+
     let length = dx.hypot(dy);
     (length > f32::EPSILON).then(|| (-dy / length * HALF_STROKE, dx / length * HALF_STROKE))
 }
@@ -256,6 +259,7 @@ fn ribbon(points: &[Point]) -> Contour {
                 (Some(before), None) => (*before, *point),
                 (None, None) => return None,
             };
+
             let (nx, ny) = normal(from, to)?;
             Some(((point.0 + nx, point.1 + ny), (point.0 - nx, point.1 - ny)))
         })
@@ -269,6 +273,7 @@ fn arrow_head(points: &[Point]) -> Vec<Contour> {
     let (Some(tip), Some(before)) = (points.last(), points.iter().rev().nth(1)) else {
         return Vec::new();
     };
+
     let heading = (tip.1 - before.1).atan2(tip.0 - before.0);
     let wing = |turn: f32| {
         let angle = heading + turn;
@@ -402,29 +407,38 @@ fn count(value: usize) -> u16 {
 
 fn simple_glyph(contours: &[Contour]) -> Vec<u8> {
     let mut data = Vec::new();
+
     if contours.is_empty() {
         return data;
     }
+
     let bounds = bounds(contours);
+
     data.i16(i16::try_from(contours.len()).unwrap_or(i16::MAX));
     data.i16(bounds.x_min);
     data.i16(bounds.y_min);
     data.i16(bounds.x_max);
     data.i16(bounds.y_max);
+
     let mut end = 0;
+
     for contour in contours {
         end += contour.len();
         data.u16(count(end.saturating_sub(1)));
     }
     data.u16(0);
+
     let points: Vec<OutlinePoint> = contours.iter().flatten().copied().collect();
+
     data.extend(points.iter().map(|point| u8::from(point.on_curve)));
+
     let mut previous = OutlinePoint {
         x: 0,
         y: 0,
         on_curve: true,
     };
     let mut ys = Vec::new();
+
     for point in &points {
         data.i16(point.x.wrapping_sub(previous.x));
         ys.i16(point.y.wrapping_sub(previous.y));
@@ -476,11 +490,14 @@ fn cmap() -> Vec<u8> {
         .zip(1u16..)
         .map(|(code, glyph)| (code, glyph.wrapping_sub(code)))
         .collect();
+
     segments.push((u16::MAX, 1));
+
     let segment_count = count(segments.len());
     let entry_selector = segment_count.ilog2() as u16;
     let search_range = 2 * (1u16 << entry_selector);
     let mut table = Vec::new();
+
     table.u16(0);
     table.u16(1);
     table.u16(3);
@@ -511,6 +528,7 @@ fn cmap() -> Vec<u8> {
 
 fn head(bounds: &Bounds) -> Vec<u8> {
     let mut table = Vec::new();
+
     table.u32(0x0001_0000);
     table.u32(0x0001_0000);
     table.u32(0);
@@ -532,6 +550,7 @@ fn head(bounds: &Bounds) -> Vec<u8> {
 
 fn hhea(glyph_count: u16, bounds: &Bounds) -> Vec<u8> {
     let mut table = Vec::new();
+
     table.u32(0x0001_0000);
     table.i16(ASCENT);
     table.i16(DESCENT);
@@ -551,6 +570,7 @@ fn hhea(glyph_count: u16, bounds: &Bounds) -> Vec<u8> {
 
 fn maxp(glyphs: &Glyphs) -> Vec<u8> {
     let mut table = Vec::new();
+
     table.u32(0x0001_0000);
     table.u16(count(glyphs.data.len()));
     table.u16(glyphs.points);
@@ -564,6 +584,7 @@ fn maxp(glyphs: &Glyphs) -> Vec<u8> {
 
 fn hmtx(glyphs: &Glyphs) -> Vec<u8> {
     let mut table = Vec::new();
+
     for _ in &glyphs.data {
         table.u16(UNITS_PER_EM);
         table.i16(0);
@@ -573,6 +594,7 @@ fn hmtx(glyphs: &Glyphs) -> Vec<u8> {
 
 fn post() -> Vec<u8> {
     let mut table = Vec::new();
+
     table.u32(0x0003_0000);
     table.u32(0);
     table.i16(-100);
@@ -584,6 +606,7 @@ fn post() -> Vec<u8> {
 fn checksum(table: &[u8]) -> u32 {
     table.chunks(4).fold(0u32, |sum, chunk| {
         let mut word = [0; 4];
+
         for (slot, byte) in word.iter_mut().zip(chunk) {
             *slot = *byte;
         }
@@ -595,11 +618,13 @@ pub fn font() -> Vec<u8> {
     let glyphs = glyphs();
     let mut glyf = Vec::new();
     let mut loca = Vec::new();
+
     for data in &glyphs.data {
         loca.u32(u32::try_from(glyf.len()).unwrap_or(u32::MAX));
         glyf.extend(data);
     }
     loca.u32(u32::try_from(glyf.len()).unwrap_or(u32::MAX));
+
     let glyph_count = count(glyphs.data.len());
     let tables: [(&[u8; 4], Vec<u8>); 8] = [
         (b"cmap", cmap()),
@@ -615,19 +640,24 @@ pub fn font() -> Vec<u8> {
     let entry_selector = table_count.ilog2() as u16;
     let search_range = 16 * (1u16 << entry_selector);
     let mut font = Vec::new();
+
     font.u32(0x0001_0000);
     font.u16(table_count);
     font.u16(search_range);
     font.u16(entry_selector);
     font.u16(table_count * 16 - search_range);
+
     let mut offset = 12 + 16 * tables.len();
     let mut bodies = Vec::new();
+
     for (tag, table) in &tables {
         font.extend_from_slice(*tag);
         font.u32(checksum(table));
         font.u32(u32::try_from(offset).unwrap_or(u32::MAX));
         font.u32(u32::try_from(table.len()).unwrap_or(u32::MAX));
+
         let mut padded = table.clone();
+
         padded.pad();
         offset += padded.len();
         bodies.extend(padded);

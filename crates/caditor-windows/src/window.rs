@@ -39,6 +39,7 @@ pub fn on_session_end(
             "a session end handler is already installed",
         )
     })?;
+
     let procedure: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT =
         session_procedure;
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
@@ -49,6 +50,7 @@ pub fn on_session_end(
             procedure as usize as isize,
         )
     };
+
     if previous == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -69,15 +71,18 @@ unsafe extern "system" fn session_procedure(
     {
         callback();
     }
+
     let previous = PREVIOUS_PROCEDURE.load(Ordering::Acquire);
+
     if previous == 0 {
         return unsafe { DefWindowProcW(window, message, wparam, lparam) };
     }
+
     let previous: WNDPROC = unsafe { std::mem::transmute::<isize, WNDPROC>(previous) };
     unsafe { CallWindowProcW(previous, window, message, wparam, lparam) }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DialogParent(NonZeroIsize);
 
 impl DialogParent {
@@ -104,6 +109,7 @@ impl HasDisplayHandle for DialogParent {
 pub fn show_error(title: &str, text: &str) -> bool {
     let title = wide(title);
     let text = wide(text);
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let shown = unsafe {
         MessageBoxW(

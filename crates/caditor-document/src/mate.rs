@@ -19,62 +19,62 @@ use crate::{
 
 pub const MAX_MATE_ANGLE_DEGREES: f64 = 180.0;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceMate {
     pub face: FaceReference,
     pub target: PlaneReference,
     pub distance: Expression,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AxisMate {
     pub axis: AxisReference,
     pub target: AxisReference,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceAxisMate {
     pub faces: FaceMate,
     pub axes: AxisMate,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FacePair {
     pub face: FaceReference,
     pub target: PlaneReference,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaceOnRound {
     pub face: FaceReference,
     pub round: FaceAttachment,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AngleSides {
     Faces(FacePair),
     Axes(AxisMate),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AngleMate {
     pub sides: AngleSides,
     pub angle: Expression,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PointTarget {
     Point(PointReference),
     Plane(PlaneReference),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PointMate {
     pub point: PointReference,
     pub target: PointTarget,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MatePair {
     Faces(Box<FaceMate>),
     Axes(Box<AxisMate>),
@@ -85,14 +85,14 @@ pub enum MatePair {
     FaceOnRound(Box<FaceOnRound>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Mate {
     pub body: FeatureId,
     pub pair: MatePair,
     pub flipped: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RoundFaceError {
     Missing,
     NotRound,
@@ -357,6 +357,7 @@ impl Mate {
             .into_iter()
             .filter_map(AxisReference::body)
             .collect();
+
         bodies.extend(self.planes().into_iter().filter_map(PlaneReference::body));
         bodies.extend(self.points().into_iter().filter_map(PointReference::body));
         bodies.extend(self.round_targets().into_iter().map(|round| round.body));
@@ -390,6 +391,7 @@ impl Mate {
             .into_iter()
             .filter_map(AxisReference::frame)
             .collect();
+
         frames.extend(self.planes().into_iter().filter_map(PlaneReference::frame));
         frames.extend(self.points().into_iter().filter_map(PointReference::frame));
         frames
@@ -401,12 +403,14 @@ impl Mate {
             .into_iter()
             .filter_map(AxisReference::sketch)
             .collect();
+
         sketches.extend(self.points().into_iter().filter_map(PointReference::sketch));
         sketches
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         used.extend(self.bodies());
         used.extend(self.plane_datums());
         used.extend(self.axis_datums());
@@ -421,6 +425,7 @@ impl Mate {
             .into_iter()
             .flat_map(origins::of_face)
             .collect();
+
         found.extend(
             self.planes()
                 .into_iter()
@@ -500,6 +505,7 @@ impl Placing<'_> {
 
     fn angle(&self, angle: &Expression) -> Result<f64, Failure> {
         let degrees = self.context.value(angle, Dimension::ANGLE, "angle")?;
+
         if !(0.0..=MAX_MATE_ANGLE_DEGREES).contains(&degrees) {
             return Err(self.context.error(MateCause::AngleRange { degrees }));
         }
@@ -530,6 +536,7 @@ impl Placing<'_> {
                 let distance = self.distance(&both.faces.distance)?;
                 let axis = resolver.axis(&both.axes.axis)?;
                 let along = resolver.axis(&both.axes.target)?;
+
                 let pair = FlushAndConcentric {
                     face: &face,
                     onto: &onto,
@@ -587,7 +594,7 @@ impl Placing<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum MateCause {
     MovingPlane {
         error: AttachmentError,
@@ -719,6 +726,7 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     let centre = solid
         .bounding_box()
         .map(|bounds| bounds.center())
@@ -738,9 +746,11 @@ pub(crate) fn evaluate(
     let placement = placing
         .placement(&definition.pair, definition.flipped)?
         .map_err(|unplaced| placing.unplaced(unplaced))?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let moved = solid
         .transformed(&placement)
         .map_err(|_| placing.unplaced(Unplaced::TooFar))?;

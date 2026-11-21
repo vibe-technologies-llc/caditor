@@ -14,20 +14,20 @@ pub(crate) const EARLIER_RESULTS_BUDGET: usize = 256 * 1024 * 1024;
 const SKETCH_ENTITY_BYTES: usize = 160;
 const HELIX_TURN_BYTES: usize = 1_600;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Kept {
     entry: Arc<CacheEntry>,
     held: Arc<[usize]>,
     used: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Holding {
     holders: usize,
     bytes: usize,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct Holdings {
     buffers: AHashMap<usize, Holding>,
     bytes: usize,
@@ -36,6 +36,7 @@ struct Holdings {
 impl Holdings {
     fn hold(&mut self, kept: &mut Kept) {
         let mut found = Vec::new();
+
         if let Some(result) = &kept.entry.result {
             result_buffers(result, &mut |buffer| found.push(buffer));
         }
@@ -49,6 +50,7 @@ impl Holdings {
                     holders: 0,
                     bytes: buffer.bytes(),
                 });
+
             if holding.holders == 0 {
                 self.bytes += holding.bytes;
             }
@@ -62,6 +64,7 @@ impl Holdings {
             let Some(holding) = self.buffers.get_mut(address) else {
                 continue;
             };
+
             holding.holders = holding.holders.saturating_sub(1);
             if holding.holders == 0 {
                 self.bytes = self.bytes.saturating_sub(holding.bytes);
@@ -71,7 +74,7 @@ impl Holdings {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct ResultHistory {
     features: BTreeMap<FeatureId, Vec<Kept>>,
     clock: u64,
@@ -113,9 +116,11 @@ impl ResultHistory {
         matches: impl Fn(&CacheEntry) -> bool,
     ) -> Option<&CacheEntry> {
         self.clock += 1;
+
         let clock = self.clock;
         let kept = self.features.get_mut(&feature)?;
         let at = kept.iter().position(|kept| matches(kept.entry.as_ref()))?;
+
         if at > 0 {
             if let Some(found) = kept.get_mut(at) {
                 self.earlier.release(found);
@@ -125,14 +130,18 @@ impl ResultHistory {
             }
         }
         kept.get_mut(..=at)?.rotate_right(1);
+
         let found = kept.first_mut()?;
+
         found.used = clock;
         Some(found.entry.as_ref())
     }
 
     pub(crate) fn insert(&mut self, feature: FeatureId, entry: CacheEntry) {
         self.clock += 1;
+
         let kept = self.features.entry(feature).or_default();
+
         if let Some(latest) = kept.first_mut() {
             self.earlier.hold(latest);
         }
@@ -152,26 +161,32 @@ impl ResultHistory {
 
     fn trim(&mut self) {
         let budget = self.budget.unwrap_or(EARLIER_RESULTS_BUDGET);
+
         if self.earlier.bytes <= budget {
             return;
         }
+
         let mut earlier: Vec<(u64, FeatureId)> = self
             .features
             .iter()
             .flat_map(|(feature, kept)| kept.iter().skip(1).map(move |kept| (kept.used, *feature)))
             .collect();
+
         earlier.sort_unstable();
         for (used, feature) in earlier {
             if self.earlier.bytes <= budget {
                 break;
             }
+
             let Some(kept) = self.features.get_mut(&feature) else {
                 continue;
             };
             let Some(at) = kept.iter().skip(1).position(|kept| kept.used == used) else {
                 continue;
             };
+
             let mut dropped = kept.remove(at + 1);
+
             self.earlier.release(&mut dropped);
         }
     }
@@ -189,8 +204,10 @@ impl ResultHistory {
 
     pub(crate) fn retain(&mut self, alive: impl Fn(&FeatureId) -> bool) {
         let earlier = &mut self.earlier;
+
         self.features.retain(|feature, kept| {
             let keep = alive(feature);
+
             if !keep {
                 for dropped in kept.iter_mut().skip(1) {
                     earlier.release(dropped);
@@ -232,6 +249,7 @@ impl ResultHistory {
     pub(crate) fn measured_earlier_bytes(&self) -> usize {
         let mut counted = ahash::AHashSet::new();
         let mut bytes = 0;
+
         for result in self
             .features
             .values()
@@ -255,6 +273,7 @@ impl ResultHistory {
             .filter_map(|kept| kept.entry.result.as_ref())
             .map(|result| {
                 let mut bytes = 0;
+
                 result_buffers(result, &mut |buffer| bytes += buffer.bytes());
                 bytes
             })

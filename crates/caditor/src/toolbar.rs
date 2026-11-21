@@ -58,7 +58,7 @@ const COMPACT_KEY: &str = "main-ribbon-is-compact";
 pub const SWEEP_HOVER: &str =
     "Carry the closed regions of a sketch along a path of sketch curves or body edges";
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 enum Blocked<R: Display> {
     #[error("{0}")]
     Refused(R),
@@ -81,7 +81,7 @@ pub struct ToolbarContext<'a> {
     pub toggles: ToggleStates,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum Group {
     History,
     Sketch,
@@ -236,10 +236,13 @@ pub fn show(
     let frame = ribbon::bar_frame(ui.style());
     let keymap = commands.keymap();
     let mut chosen = Vec::new();
+
     egui::Panel::top("toolbar").frame(frame).show(ui, |ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
+
         let full = ui.available_width();
         let widths = ribbon::remembered_widths(ui, RIBBON, &Group::ALL);
+
         let single = ribbon::rows(&widths, full, full);
         let labelled = if single.len() == 1 {
             single
@@ -247,6 +250,7 @@ pub fn show(
             ribbon::rows(&ribbon::with_arrows(&widths, |_| true), full, full)
         };
         let compact = ribbon::labelled_too_tall(ui, labelled.len());
+
         let (ribbon_name, rows) = if compact {
             let widths = ribbon::remembered_widths(ui, COMPACT_RIBBON, &Group::ALL);
             (
@@ -256,7 +260,9 @@ pub fn show(
         } else {
             (RIBBON, labelled)
         };
+
         ui.data_mut(|data| data.insert_temp(Id::unique(COMPACT_KEY), compact));
+
         let captions = !compact && rows.len() == 1;
         for (index, row) in rows.into_iter().enumerate() {
             if index > 0 {
@@ -267,6 +273,7 @@ pub fn show(
                     let title = (!compact).then(|| ribbon::caption_galley(ui, group.caption()));
                     let name = group.menu_name();
                     let contents = group.menu_contents();
+
                     let menu = GroupMenu {
                         id: Id::unique(("ribbon-group-menu", group)),
                         name: &name,
@@ -281,9 +288,11 @@ pub fn show(
                             .rect;
                         tools.width()
                     });
+
                     if let Some(trigger) = trigger {
                         let entries =
                             MenuEntries::new(context.last_offers, context.toggles, keymap);
+
                         chosen.extend(ribbon::group_menu(&trigger, entries, |ui, entries| {
                             ribbon::menu_sections(
                                 ui,
@@ -424,6 +433,7 @@ fn tool<R: Display>(
         Err(blocked) if commands.awaits(command) => {
             let queued = Ok::<_, Infallible>(queued_help(&blocked.to_string()));
             let response = ribbon::explained(ui.add(button), label, &queued);
+
             if response.clicked() {
                 commands.queue(command);
             }
@@ -454,17 +464,20 @@ fn sketch_buttons(
     actions: &mut Vec<Action>,
 ) {
     let editing = context.editing;
+
     if editing.is_choosing_plane() {
         let button =
             tool_button(ui, icons::command(Command::NewSketch), NEW_SKETCH_LABEL).selected(true);
         let help = Ok::<_, Infallible>(format!(
             "{CHOOSE_PLANE_PROMPT}, or click here to stop choosing (Esc)"
         ));
+
         if ribbon::explained(ui.add(button), NEW_SKETCH_LABEL, &help).clicked() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
         }
         return;
     }
+
     let target = context
         .offers
         .sketch_target
@@ -491,6 +504,7 @@ fn sketch_buttons(
             EditingCommand::NewSketch(None),
         ),
     };
+
     let help = match &target {
         Ok(_) => Ok(commands.with_keys(Command::NewSketch, &hover)),
         Err(reason) => Err(Blocked::Refused(reason)),
@@ -554,6 +568,7 @@ fn solid_buttons(
             Sweep::Extrude => solid_tools::NOTHING_TO_EXTRUDE,
             Sweep::Revolve => solid_tools::NOTHING_TO_REVOLVE,
         };
+
         let available = match (face, source.as_ref()) {
             (Some(Ok(_)), _) => Ok(()),
             (Some(Err(reason)), _) => Err(reason.to_string()),
@@ -595,9 +610,11 @@ fn solid_buttons(
             (None, Ok(None)) => Err(Blocked::Refused(missing.to_owned())),
         };
         let response = tool(ui, commands, command, sweep.label(), &help);
+
         if !(response.clicked() || invoked) {
             continue;
         }
+
         let created = match (face, &source) {
             (Some(Ok(profile)), _) => solid_tools::create_on_faces_actions(model, sweep, profile),
             (None, Ok(Some(source))) => solid_tools::create_actions(
@@ -608,6 +625,7 @@ fn solid_buttons(
             ),
             (Some(Err(_)), _) | (None, Err(_) | Ok(None)) => Vec::new(),
         };
+
         if sweep == Sweep::Extrude
             && invoked
             && !response.clicked()
@@ -772,6 +790,7 @@ fn blend_buttons(
                 reason,
             }),
         };
+
         let response = tool(ui, commands, command, kind.title(), &help);
         if (response.clicked() || invoked)
             && let Ok(source) = source
@@ -808,6 +827,7 @@ fn datum_buttons(
         Err(reason) => Err(Blocked::Sentence(*reason)),
     };
     let response = tool(ui, commands, Command::DatumPlane, PLANE_LABEL, &help);
+
     if (response.clicked() || invoked)
         && let Ok(plane) = plane
     {
@@ -828,6 +848,7 @@ fn datum_buttons(
         }),
     };
     let response = tool(ui, commands, Command::DatumAxis, AXIS_LABEL, &help);
+
     if (response.clicked() || invoked)
         && let Ok(axis) = axis
     {
@@ -1114,6 +1135,7 @@ fn move_button(
         }),
     };
     let response = tool(ui, commands, Command::Move, move_tools::TITLE, &help);
+
     if (response.clicked() || invoked)
         && let Ok(body) = body
     {
@@ -1157,6 +1179,7 @@ fn mirror_button(
         }),
     };
     let response = tool(ui, commands, Command::Mirror, mirror_tools::TITLE, &help);
+
     if (response.clicked() || invoked)
         && let Ok(start) = source
     {
@@ -1164,6 +1187,7 @@ fn mirror_button(
     }
 
     let faces = &context.offers.mirror_faces;
+
     if commands.invoke(Command::MirrorFaces, faces)
         && let Ok(faces) = faces
     {
@@ -1171,6 +1195,7 @@ fn mirror_button(
     }
 
     let split = &context.offers.split;
+
     if commands.invoke(Command::Split, split)
         && let Ok(split) = split
     {
@@ -1178,6 +1203,7 @@ fn mirror_button(
     }
 
     let mate = &context.offers.mate;
+
     if commands.invoke(Command::Mate, mate)
         && let Ok(mate) = mate
     {
@@ -1228,11 +1254,13 @@ fn combine_button(
             tool_button(ui, icons::command(Command::Combine), combine_tools::TITLE).selected(true);
         let help = Ok::<_, Infallible>(combine_tools::STOP_CHOOSING_HOVER.to_owned());
         let invoked = commands.invoke(Command::Combine, &Ok::<_, &'static str>(()));
+
         if ribbon::explained(ui.add(button), combine_tools::TITLE, &help).clicked() || invoked {
             actions.push(Action::Editing(EditingCommand::CancelCombine));
         }
         return;
     }
+
     let start = &context.offers.combine;
     let invoked = commands.invoke(Command::Combine, start);
     let help = match start {
@@ -1259,6 +1287,7 @@ fn pattern_buttons(
 ) {
     let document = model.document();
     let source = &context.offers.pattern;
+
     for shape in Shape::ON_RIBBON {
         let command = shape.command();
         let invoked = commands.invoke(command, source);
@@ -1295,6 +1324,7 @@ fn pattern_buttons(
                 reason,
             }),
         };
+
         let response = tool(ui, commands, command, shape.title(), &help);
         if (response.clicked() || invoked)
             && let Ok(source) = source
@@ -1341,6 +1371,7 @@ fn history_buttons(
             Some(label) => Ok(commands.with_keys(command, &format!("{verb} {label}"))),
             None => Err(Blocked::Refused(idle)),
         };
+
         let response = tool(ui, commands, command, &verb, &help);
         if response.clicked() || invoked {
             actions.push(action);

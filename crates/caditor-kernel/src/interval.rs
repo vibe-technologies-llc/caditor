@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Interval {
     start: f64,
     end: f64,
@@ -68,7 +68,7 @@ impl Interval {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Domain {
     start: f64,
     end: f64,
@@ -157,14 +157,18 @@ mod tests {
         assert!(Interval::new(1.0, 0.0).is_none());
         assert!(Interval::new(0.0, f64::INFINITY).is_none());
         assert!(Interval::new(f64::NAN, 1.0).is_none());
+
         let interval = Interval::new(2.0, 6.0).unwrap();
+
         assert_eq!(interval.length(), 4.0);
         assert_eq!(interval.middle(), 4.0);
         assert_eq!(interval.at(1.0), 6.0);
         assert_eq!(interval.clamp(f64::NAN), 2.0);
         assert_eq!(interval.clamp(9.0), 6.0);
         assert_eq!(interval.mirrored(0.0), Interval::new(-6.0, -2.0).unwrap());
+
         let points: Vec<f64> = interval.split(4).collect();
+
         assert_eq!(points, vec![2.0, 3.0, 4.0, 5.0, 6.0]);
     }
 
@@ -173,10 +177,14 @@ mod tests {
         assert!(Domain::UNBOUNDED.bounded().is_none());
         assert_eq!(Domain::UNBOUNDED.clamp(f64::NAN), 0.0);
         assert!(Domain::new(f64::INFINITY, f64::INFINITY).is_none());
+
         let half = Domain::new(1.0, f64::INFINITY).unwrap();
+
         assert_eq!(half.clamp(-5.0), 1.0);
         assert_eq!(half.clipped(2.0), Interval::new(1.0, 3.0).unwrap());
+
         let lower = Domain::new(f64::NEG_INFINITY, -1.0).unwrap();
+
         assert_eq!(lower.clipped(2.0), Interval::new(-5.0, -1.0).unwrap());
         assert_eq!(
             Domain::UNBOUNDED.clipped(1.0),

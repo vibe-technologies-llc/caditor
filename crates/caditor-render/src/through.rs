@@ -14,14 +14,14 @@ const PARALLEL: f64 = 1e-12;
 const NEAR_MARGIN: f64 = 1e-9;
 const CAP_TOLERANCE: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Found {
     hit: PickHit,
     depth: f64,
     rank: Rank,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Rank {
     Front,
     Model,
@@ -72,6 +72,7 @@ impl Scene {
             return Vec::new();
         };
         let pixels_per_point = f64::from(pixels_per_point);
+
         let mut probe = Probe {
             view,
             cursor,
@@ -86,6 +87,7 @@ impl Scene {
             cap_depth: f64::INFINITY,
             found: AHashMap::new(),
         };
+
         for instance in self
             .meshes
             .iter()
@@ -140,6 +142,7 @@ impl Probe<'_> {
     fn entry(&self) -> Option<f64> {
         let origin = self.eye_plane_origin();
         let direction = self.ray.direction();
+
         let toward = origin + direction;
         self.section
             .iter()
@@ -165,6 +168,7 @@ impl Probe<'_> {
         if self.section.is_empty() || !instance.mesh.is_closed() {
             return;
         }
+
         let Some(entry) = self.entry() else {
             return;
         };
@@ -179,6 +183,7 @@ impl Probe<'_> {
             if !opaque(face) {
                 continue;
             }
+
             let corners = match instance.placement {
                 Some(placement) => corners.map(|corner| placement.apply_point(corner)),
                 None => corners,
@@ -191,6 +196,7 @@ impl Probe<'_> {
                 continue;
             };
             let [a, b, c] = corners;
+
             let flat = (b - a).cross(c - a) * outward;
             let back = flat.dot(self.ray.direction()) > 0.0;
             if back
@@ -219,6 +225,7 @@ impl Probe<'_> {
 
     fn sorted(self) -> Vec<PickHit> {
         let mut found: Vec<Found> = self.found.into_values().collect();
+
         found.sort_by(|a, b| {
             a.rank
                 .cmp(&b.rank)
@@ -236,13 +243,16 @@ impl Probe<'_> {
 
     fn mesh(&mut self, instance: &MeshInstance) {
         let picks = |face: usize| instance.faces.get(face).and_then(|style| style.pick);
+
         if instance.faces.iter().all(|style| style.pick.is_none()) {
             return;
         }
+
         let Some(bounds) = instance.mesh.bounds() else {
             return;
         };
         let placed = Aabb::from_points(placed_corners(bounds, instance.placement));
+
         if !placed.is_some_and(|placed| crosses_box(&self.ray, &placed)) {
             return;
         }
@@ -254,6 +264,7 @@ impl Probe<'_> {
                 Some(placement) => corners.map(|corner| placement.apply_point(corner)),
                 None => corners,
             };
+
             self.triangle(id, corners, (Rank::Model, true));
         }
     }
@@ -270,6 +281,7 @@ impl Probe<'_> {
         let Some(depth) = self.in_view(position) else {
             return;
         };
+
         if self.is_cut_away(position, sectioned) {
             return;
         }
@@ -291,11 +303,14 @@ impl Probe<'_> {
         let Some([start, end]) = self.clipped(ends) else {
             return;
         };
+
         let (Some(from), Some(to)) = (self.view.project(start), self.view.project(end)) else {
             return;
         };
+
         let along = to - from;
         let length_squared = along.length_squared();
+
         let on_screen = if length_squared > 0.0 {
             ((self.cursor - from).dot(along) / length_squared).clamp(0.0, 1.0)
         } else {
@@ -303,9 +318,11 @@ impl Probe<'_> {
         };
         let distance = self.cursor.distance(from + along * on_screen);
         let offset = distance / self.pixels_per_point - f64::from(width) / 2.0;
+
         if offset > PICK_RADIUS_POINTS {
             return;
         }
+
         let in_space = if self.view.is_orthographic() {
             on_screen
         } else {
@@ -318,6 +335,7 @@ impl Probe<'_> {
         let Some(depth) = self.in_view(position) else {
             return;
         };
+
         if self.is_cut_away(position, layer.is_sectioned()) {
             return;
         }
@@ -339,6 +357,7 @@ impl Probe<'_> {
         let near = self.view.near_plane() * (1.0 + NEAR_MARGIN) + NEAR_MARGIN;
         let (start_depth, end_depth) = (self.view.view_depth(start), self.view.view_depth(end));
         let inside = |depth: f64| depth >= near;
+
         let cut = || start.lerp(end, (near - start_depth) / (end_depth - start_depth));
         match (inside(start_depth), inside(end_depth)) {
             (true, true) => Some([start, end]),
@@ -352,13 +371,16 @@ impl Probe<'_> {
         let Some(depth) = self.in_view(position) else {
             return;
         };
+
         if self.is_cut_away(position, layer.is_sectioned()) {
             return;
         }
+
         let Some(at) = self.view.project(position) else {
             return;
         };
         let offset = self.cursor.distance(at) / self.pixels_per_point - f64::from(diameter) / 2.0;
+
         if offset > PICK_RADIUS_POINTS {
             return;
         }
@@ -380,22 +402,30 @@ impl Probe<'_> {
 fn ray_meets_triangle(ray: &Ray, [a, b, c]: [Point3; 3]) -> Option<f64> {
     let (first, second) = (b - a, c - a);
     let direction = ray.direction();
+
     let across = direction.cross(second);
     let determinant = first.dot(across);
+
     if determinant.abs() <= PARALLEL * first.length() * second.length() {
         return None;
     }
+
     let inverse = 1.0 / determinant;
     let from_corner = ray.origin() - a;
+
     let u = from_corner.dot(across) * inverse;
+
     if !(0.0..=1.0).contains(&u) {
         return None;
     }
+
     let up = from_corner.cross(first);
     let v = direction.dot(up) * inverse;
+
     if v < 0.0 || u + v > 1.0 {
         return None;
     }
+
     let distance = second.dot(up) * inverse;
     (distance.is_finite() && distance >= 0.0).then_some(distance)
 }
@@ -406,15 +436,19 @@ fn crosses_box(ray: &Ray, bounds: &Aabb) -> bool {
     let direction = ray.direction();
     let mut entry = 0.0_f64;
     let mut exit = f64::INFINITY;
+
     for axis in 0..3 {
         let (start, toward, min, max) = (origin[axis], direction[axis], low[axis], high[axis]);
+
         if toward.abs() <= PARALLEL {
             if start < min || start > max {
                 return false;
             }
             continue;
         }
+
         let (near, far) = ((min - start) / toward, (max - start) / toward);
+
         entry = entry.max(near.min(far));
         exit = exit.min(near.max(far));
         if entry > exit {
@@ -562,9 +596,11 @@ mod tests {
         let centre = DVec2::new(200.0, 150.0);
         let moved = RigidTransform::translation(Vector3::new(40.0, 0.0, 0.0)).unwrap();
         let mut scene = stacked();
+
         scene.meshes[0].placement = Some(moved);
         Arc::make_mut(&mut scene.batches[0]).markers[0].layer = Layer::Front;
         Arc::make_mut(&mut scene.batches[0]).markers[0].position = Point3::new(0.0, 0.0, -50.0);
+
         let placed = view.project(Point3::new(40.0, 0.0, 0.0)).unwrap();
 
         let at_centre: Vec<PickId> = scene
@@ -587,6 +623,7 @@ mod tests {
         let view = view();
         let centre = DVec2::new(200.0, 150.0);
         let mut scene = stacked();
+
         scene.section = vec![SectionPlane {
             plane: Plane::new(Point3::new(0.0, 0.0, 1.0), Vector3::Z).unwrap(),
             cut_face: CutFace::Hatched,
@@ -673,6 +710,7 @@ mod tests {
     #[test]
     fn a_section_cap_leaves_front_geometry_and_what_is_in_front_of_it() {
         let mut scene = halved_cubes(true);
+
         scene.batches = vec![Arc::new(Batch {
             lines: Vec::new(),
             markers: vec![Marker {
@@ -716,6 +754,7 @@ mod tests {
     #[test]
     fn nothing_is_a_cap_while_the_eye_is_on_the_kept_side() {
         let mut scene = halved_cubes(true);
+
         scene.section = vec![SectionPlane {
             plane: Plane::new(Point3::new(0.0, 0.0, 500.0), Vector3::Z).unwrap(),
             cut_face: CutFace::Hatched,

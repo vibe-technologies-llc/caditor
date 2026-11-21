@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Constructing {
     pub sketch: Named,
@@ -23,7 +23,7 @@ pub struct Constructing {
     pub construction: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Splitting {
     pub sketch: Named,
@@ -31,14 +31,14 @@ pub struct Splitting {
     pub point: EntityName,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Breaking {
     pub sketch: Named,
     pub curves: Vec<EntityName>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InsertingPoints {
     pub sketch: Named,
@@ -46,7 +46,7 @@ pub struct InsertingPoints {
     pub point: Option<EntityName>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Handling {
     pub sketch: Named,
@@ -54,7 +54,7 @@ pub struct Handling {
     pub point: EntityName,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SplineDegreeing {
     pub sketch: Named,
@@ -62,7 +62,7 @@ pub struct SplineDegreeing {
     pub degree: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Respacing {
     pub sketch: Named,
@@ -75,6 +75,7 @@ pub(super) fn construction(
 ) -> Result<Planned, ToolError> {
     let items = target.entities(&asked.items)?;
     let shown = target.shown;
+
     let change = match asked.construction {
         None => ConstructionChange::of(shown, &items),
         Some(construction) => {
@@ -98,9 +99,12 @@ pub(super) fn construction(
         sketch: target.name.to_owned(),
     })?;
     let mut transaction = target.document.transaction(change.label(shown));
+
     writing::settled(&mut transaction, target.evaluation, target.feature);
     change.apply(&mut transaction, target.feature);
+
     let mut planned = Planned::of(transaction.finish());
+
     planned
         .details
         .insert("construction".to_owned(), json!(change.construction));
@@ -114,9 +118,11 @@ pub(super) fn split(target: &Target<'_>, asked: &Splitting) -> Result<Planned, T
     let curve = target.entity(&asked.curve)?;
     let point = target.point_of(&asked.point)?;
     let working = target.working();
+
     working
         .check_split(curve, point)
         .map_err(|error| ToolError::from(SketchEditError::Split(error)))?;
+
     let transaction = target.reshaped(SPLIT_TITLE.to_owned(), |sketch| {
         sketch
             .split_at(curve, point)
@@ -147,20 +153,25 @@ pub(super) fn insert_control_points(
         .as_ref()
         .map(|name| target.point_of(name))
         .transpose()?;
+
     if splines.is_empty() || (near.is_some() && splines.len() != 1) {
         return Err(SketchEditError::InsertionTargets {
             sketch: target.name.to_owned(),
         }
         .into());
     }
+
     let working = target.working();
+
     for spline in &splines {
         working
             .check_point_insertion(*spline)
             .map_err(|error| ToolError::from(SketchEditError::Insert(error)))?;
     }
+
     let transaction = target.reshaped(INSERT_TITLE.to_owned(), |sketch| {
         let near = near.and_then(|point| sketch.point(point));
+
         for spline in &splines {
             sketch
                 .insert_control_point(*spline, near)
@@ -169,6 +180,7 @@ pub(super) fn insert_control_points(
         Ok(())
     })?;
     let mut planned = Planned::of(transaction);
+
     planned
         .details
         .insert("refined".to_owned(), writing::ids(&splines));
@@ -180,12 +192,14 @@ pub(super) fn spline_degree(
     asked: &SplineDegreeing,
 ) -> Result<Planned, ToolError> {
     let splines = target.entities(&asked.splines)?;
+
     if splines.is_empty() {
         return Err(SketchEditError::DegreeTargets {
             sketch: target.name.to_owned(),
         }
         .into());
     }
+
     let unchanged = |result: Result<(), DegreeError>| match result {
         Err(DegreeError::Unchanged { .. }) => Ok(false),
         Err(error) => Err(ToolError::from(SketchEditError::Degree(error))),
@@ -193,11 +207,13 @@ pub(super) fn spline_degree(
     };
     let working = target.working();
     let mut changing = Vec::new();
+
     for spline in &splines {
         if unchanged(working.check_spline_degree(*spline, asked.degree))? {
             changing.push(*spline);
         }
     }
+
     let transaction = target.reshaped(DEGREE_TITLE.to_owned(), |sketch| {
         for spline in &changing {
             sketch
@@ -207,6 +223,7 @@ pub(super) fn spline_degree(
         Ok(())
     })?;
     let mut planned = Planned::of(transaction);
+
     planned
         .details
         .insert("regraded".to_owned(), writing::ids(&splines));
@@ -217,6 +234,7 @@ pub(super) fn tangent_handle(target: &Target<'_>, asked: &Handling) -> Result<Pl
     let spline = target.entity(&asked.curve)?;
     let point = target.point_of(&asked.point)?;
     let mut made = None;
+
     let transaction = target.reshaped(HANDLE_TITLE.to_owned(), |sketch| {
         made = Some(
             sketch
@@ -226,6 +244,7 @@ pub(super) fn tangent_handle(target: &Target<'_>, asked: &Handling) -> Result<Pl
         Ok(())
     })?;
     let mut planned = Planned::of(transaction);
+
     if let Some((line, _)) = made {
         planned
             .details
@@ -250,12 +269,14 @@ pub(super) fn respace(target: &Target<'_>, asked: &Respacing) -> Result<Planned,
                 )
         })
         .collect();
+
     if uneven.is_empty() {
         return Err(SketchEditError::NothingToRespace {
             sketch: target.name.to_owned(),
         }
         .into());
     }
+
     let transaction = target.reshaped(RESPACE_TITLE.to_owned(), |sketch| {
         for spline in &uneven {
             sketch
@@ -265,6 +286,7 @@ pub(super) fn respace(target: &Target<'_>, asked: &Respacing) -> Result<Planned,
         Ok(())
     })?;
     let mut planned = Planned::of(transaction);
+
     planned
         .details
         .insert("respaced".to_owned(), writing::ids(&uneven));

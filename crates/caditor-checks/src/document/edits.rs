@@ -55,6 +55,7 @@ fn single(edit: Edit) -> Option<Transaction> {
 pub fn text(input: &mut Unstructured) -> Result<String> {
     if input.ratio(1u8, 16)? {
         let chars = input.int_in_range(1..=LONG_TEXT_CHARS)?;
+
         return Ok("é".repeat(usize::from(chars)));
     }
     Ok((*input.choose(&TEXTS)?).to_owned())
@@ -84,6 +85,7 @@ fn chosen<T: Clone>(input: &mut Unstructured, items: &[T]) -> Result<Option<T>> 
 pub fn addition(input: &mut Unstructured, scene: &Scene) -> Result<Option<Transaction>> {
     let document = scene.document;
     let mut transaction = document.transaction(LABEL);
+
     if input.ratio(1u8, 12)? {
         return derived_chain(input, scene);
     }
@@ -92,18 +94,22 @@ pub fn addition(input: &mut Unstructured, scene: &Scene) -> Result<Option<Transa
         let Some(expression) = scene.expression(input)? else {
             return Ok(None);
         };
+
         if input.ratio(1u8, 3)? {
             let owner = owner(input, scene)?;
+
             transaction.add_owned_parameter(name, expression, owner);
         } else {
             transaction.add_parameter(name, expression);
         }
         return Ok(Some(transaction.finish()));
     }
+
     let family = *input.choose(&Family::ALL)?;
     let Some(kind) = feature_kind(input, scene, family)? else {
         return Ok(None);
     };
+
     transaction.add_feature(*input.choose(&NAMES)?, kind);
     Ok(Some(transaction.finish()))
 }
@@ -121,7 +127,9 @@ fn derived_chain(input: &mut Unstructured, scene: &Scene) -> Result<Option<Trans
     };
 
     let measured = transaction.add_parameter(CHAIN_MEASURED, measured_start);
+
     transaction.add_parameter(CHAIN_SPARE, divisor_start);
+
     let Ok(sum) = transaction.parse(&format!("{CHAIN_MEASURED} + {CHAIN_SPARE}")) else {
         return Ok(None);
     };
@@ -223,6 +231,7 @@ fn appearance(input: &mut Unstructured, scene: &Scene, body: FeatureId) -> Resul
         })
     };
     let mut faces = Vec::new();
+
     for _ in 0..input.int_in_range(0u8..=2)? {
         faces.push(FaceColour {
             face: scene.face(input, body)?,
@@ -257,6 +266,7 @@ fn appearance(input: &mut Unstructured, scene: &Scene, body: FeatureId) -> Resul
 
 fn features(input: &mut Unstructured, scene: &Scene) -> Result<Vec<FeatureId>> {
     let mut chosen = Vec::new();
+
     for _ in 0..input.int_in_range(1u8..=3)? {
         chosen.push(scene.feature(input)?);
     }
@@ -332,6 +342,7 @@ pub fn tree_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Trans
         11 => {
             let id = scene.feature(input)?;
             let mut stand_ins = PieceStandIns::default();
+
             for _ in 0..input.int_in_range(0u8..=2)? {
                 stand_ins = stand_ins.with(
                     EntityId::from_raw(input.int_in_range(0u64..=16)?),
@@ -498,12 +509,14 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
         })
     };
     let gears: Vec<EntityId> = sketch.gears().map(|(id, _)| id).collect();
+
     let new_gear = |input: &mut Unstructured| -> Result<Gear> {
         if input.ratio(1u8, 4)? {
             let driver = match chosen(input, &gears)? {
                 Some(id) => id,
                 None => some_entity(input)?,
             };
+
             return Ok(Gear::meshed(
                 some_entity(input)?,
                 driver,
@@ -609,6 +622,7 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
         10 => {
             let mut transaction = scene.document.transaction(LABEL);
             let source = projection_source(input, scene)?;
+
             transaction.add_projection(feature, source, &outline(input)?);
             Some(transaction.finish())
         }
@@ -616,6 +630,7 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
             let mut transaction = scene.document.transaction(LABEL);
             let removed = [some_entity(input)?];
             let constraints = [some_constraint(input, scene, feature)?];
+
             transaction.remove_sketch_items(feature, removed, constraints);
             Some(transaction.finish())
         }
@@ -671,8 +686,10 @@ fn saved_view(input: &mut Unstructured) -> Result<SavedView> {
 
 fn properties(input: &mut Unstructured, scene: &Scene) -> Result<ModelProperties> {
     let mut properties = scene.document.properties().clone();
+
     for _ in 0..input.int_in_range(1u8..=3)? {
         let property = *input.choose(&ModelProperty::ALL)?;
+
         *properties.get_mut(property) = text(input)?;
     }
     Ok(properties)
@@ -680,6 +697,7 @@ fn properties(input: &mut Unstructured, scene: &Scene) -> Result<ModelProperties
 
 fn views(input: &mut Unstructured, scene: &Scene) -> Result<SavedViews> {
     let mut views = scene.document.saved_views().clone();
+
     match input.int_in_range(0u8..=3)? {
         0 => views.named.push(NamedView {
             name: text(input)?,
@@ -687,6 +705,7 @@ fn views(input: &mut Unstructured, scene: &Scene) -> Result<SavedViews> {
         }),
         1 if !views.named.is_empty() => {
             let index = input.choose_index(views.named.len())?;
+
             views.named.remove(index);
         }
         2 => {
@@ -722,9 +741,11 @@ fn member(input: &mut Unstructured, scene: &Scene) -> Result<SetMember> {
 
 fn selection_sets(input: &mut Unstructured, scene: &Scene) -> Result<SelectionSets> {
     let mut sets = scene.document.selection_sets().clone();
+
     match input.int_in_range(0u8..=2)? {
         0 => {
             let mut members = Vec::new();
+
             for _ in 0..input.int_in_range(0..=MOST_MEMBERS)? {
                 members.push(member(input, scene)?);
             }
@@ -735,6 +756,7 @@ fn selection_sets(input: &mut Unstructured, scene: &Scene) -> Result<SelectionSe
         }
         1 if !sets.sets.is_empty() => {
             let index = input.choose_index(sets.sets.len())?;
+
             sets.sets.remove(index);
         }
         _ => {
@@ -789,12 +811,16 @@ fn configuration_id(input: &mut Unstructured, scene: &Scene) -> Result<Configura
 
 fn configurations(input: &mut Unstructured, scene: &Scene) -> Result<Configurations> {
     let mut values = Vec::new();
+
     for _ in 0..input.int_in_range(0u8..=2)? {
         values.push(configured_value(input, scene)?);
     }
+
     let mut rows = Vec::new();
+
     for _ in 0..input.int_in_range(0..=MOST_ROWS)? {
         let mut settings = BTreeMap::new();
+
         for value in &values {
             if input.ratio(3u8, 4)? {
                 settings.insert(*value, setting(input, scene, *value)?);
@@ -806,6 +832,7 @@ fn configurations(input: &mut Unstructured, scene: &Scene) -> Result<Configurati
             settings,
         });
     }
+
     let active = if input.arbitrary::<bool>()? {
         chosen(input, &rows)?.map(|row| row.id)
     } else {
@@ -824,6 +851,7 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
         DrawingId::from_raw(input.int_in_range(0u64..=6)?),
         text(input)?,
     );
+
     drawing.size = *input.choose(&SheetSize::ALL)?;
     drawing.orientation = *input.choose(&SheetOrientation::ALL)?;
     drawing.projection = *input.choose(&Projection::ALL)?;
@@ -861,6 +889,7 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
             Some(section) if input.arbitrary::<bool>()? => DetailParent::Section(section.letter),
             _ => DetailParent::Standard(*input.choose(&StandardView::ALL)?),
         };
+
         drawing.details.push(DetailView {
             letter: *input.choose(&VIEW_LETTERS)?,
             parent,
@@ -884,15 +913,18 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
 
 fn drawings(input: &mut Unstructured, scene: &Scene) -> Result<Drawings> {
     let mut drawings = scene.document.drawings().clone();
+
     match input.int_in_range(0u8..=2)? {
         0 => drawings.drawings.push(drawing(input, scene)?),
         1 if !drawings.drawings.is_empty() => {
             let index = input.choose_index(drawings.drawings.len())?;
+
             drawings.drawings.remove(index);
         }
         _ => {
             if let Some(first) = drawings.drawings.first_mut() {
                 let id = first.id;
+
                 *first = Drawing {
                     id,
                     ..drawing(input, scene)?
@@ -906,6 +938,7 @@ fn drawings(input: &mut Unstructured, scene: &Scene) -> Result<Drawings> {
 
 fn drawing_id(input: &mut Unstructured, scene: &Scene) -> Result<DrawingId> {
     let drawings = &scene.document.drawings().drawings;
+
     if drawings.is_empty() || input.ratio(1u8, 8)? {
         return Ok(DrawingId::from_raw(input.int_in_range(0u64..=8)?));
     }
@@ -971,6 +1004,7 @@ pub fn model_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tran
         }),
         14 => {
             let mut bodies = Vec::new();
+
             if input.arbitrary::<bool>()? {
                 bodies.push(scene.body(input)?);
             }

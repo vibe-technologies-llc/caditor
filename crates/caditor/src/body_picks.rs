@@ -12,7 +12,7 @@ use crate::{
     sketch_tools,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BodyPick {
     pub body: FeatureId,
     pub item: BodyItem,
@@ -46,7 +46,7 @@ pub fn selected(selection: &Selection, sketch: FeatureId) -> Vec<BodyPick> {
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Unstaged {
     #[error("That is not part of the sketch being edited")]
     NotEdited,
@@ -56,7 +56,7 @@ pub enum Unstaged {
     NoCentre,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Projections {
     added: Vec<(ProjectionSource, Outline)>,
     fixed: Vec<EntityId>,
@@ -74,7 +74,7 @@ impl Projections {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Staged {
     pub definition: Sketch,
     pub shown: Sketch,
@@ -100,6 +100,7 @@ impl Staged {
             return Err(Unstaged::NotEdited);
         };
         let shown = model.displayed_sketch(owner).ok_or(Unstaged::NotEdited)?;
+
         let mut staged = Self {
             definition: sketch.sketch.clone(),
             shown: Sketch::clone(&shown),
@@ -108,22 +109,27 @@ impl Staged {
             names: Vec::new(),
             bodies: Vec::new(),
         };
+
         if bodies.is_empty() {
             return Ok(staged);
         }
+
         let mut transaction = sketch_tools::settled_transaction(model, feature, String::new());
         let mut projected: Vec<(usize, EntityId)> = Vec::new();
+
         for pick in bodies {
             let gone = || Unstaged::Gone {
                 body: selection::body_name(model.document(), pick.body).to_owned(),
             };
             let target = snaps.find(pick.body, pick.item).ok_or_else(gone)?;
+
             let source = snaps.source(target).ok_or_else(gone)?;
             let known = projected
                 .iter()
                 .find(|(index, _)| *index == target.source)
                 .map(|(_, id)| *id)
                 .or_else(|| projecting::existing_projection(sketch, &source.projection));
+
             let curve = match known {
                 Some(id) => id,
                 None => {
@@ -132,6 +138,7 @@ impl Staged {
                         source.projection.clone(),
                         &source.outline,
                     );
+
                     for (id, entity) in added.entities {
                         staged.insert(id, entity);
                     }
@@ -142,11 +149,14 @@ impl Staged {
                     added.id
                 }
             };
+
             projected.push((target.source, curve));
+
             let id = match pick.item {
                 BodyItem::Corner(_) | BodyItem::Edge(_) => curve,
                 BodyItem::Centre(_) => centre_of(&staged.shown, curve).ok_or(Unstaged::NoCentre)?,
             };
+
             staged.names.push((
                 id,
                 pick.item
@@ -199,6 +209,7 @@ pub fn body_join(
         Some(id) => id,
         None => {
             let added = transaction.add_projected(feature, body.projection.clone(), &body.outline);
+
             for (id, entity) in added.entities {
                 let inserted = shadow
                     .insert_entity(id, entity)

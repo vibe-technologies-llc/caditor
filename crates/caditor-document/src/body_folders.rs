@@ -23,6 +23,7 @@ fn common_folder<'a>(mut folders: impl Iterator<Item = &'a [String]>) -> Vec<Str
         return Vec::new();
     };
     let mut shared = first.len();
+
     for folder in folders {
         shared = first
             .iter()
@@ -99,6 +100,7 @@ impl Document {
             .map(|body| (*body, self.body_folder(*body)))
             .collect();
         let mut parent = common_folder(folders.iter().map(|(_, folder)| folder.as_slice()));
+
         while !parent.is_empty()
             && listed
                 .iter()
@@ -107,6 +109,7 @@ impl Document {
         {
             parent.pop();
         }
+
         let folder: Vec<String> = parent
             .iter()
             .cloned()
@@ -153,9 +156,11 @@ impl Document {
         let Some(name) = folder.last() else {
             return Ok(Transaction::new(label, Vec::new()));
         };
+
         if is_within(into, folder) {
             return Err(EditError::BodyFolderIntoItself);
         }
+
         let moved: Vec<String> = into.iter().cloned().chain([name.clone()]).collect();
         self.moving_folder(folder, &moved, label)
     }
@@ -179,6 +184,7 @@ impl Document {
             .iter()
             .map(|body| {
                 let mut folder = self.body_folder(*body);
+
                 folder.pop();
                 (*body, folder)
             })
@@ -207,13 +213,16 @@ impl Document {
     ) -> Result<Transaction, EditError> {
         let mut edits = Vec::new();
         let mut seen = BTreeSet::new();
+
         for (body, folder) in moves {
             if !seen.insert(body) {
                 continue;
             }
+
             let appearance = self
                 .body_appearance(body)
                 .ok_or(EditError::MissingFeature)?;
+
             if appearance.folder == folder {
                 continue;
             }
@@ -225,7 +234,9 @@ impl Document {
                 },
             });
         }
+
         let transaction = Transaction::new(label, edits);
+
         self.check(&transaction)?;
         Ok(transaction)
     }

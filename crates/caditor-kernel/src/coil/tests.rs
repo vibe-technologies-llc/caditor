@@ -42,6 +42,7 @@ fn volume(solid: &Solid) -> f64 {
 
 fn assert_volume(name: &str, solid: &Solid, expected: f64) {
     let measured = volume(solid);
+
     assert!(
         (measured - expected).abs() < 1e-3 * expected,
         "{name}: {measured} mm³, expected {expected} mm³"
@@ -56,7 +57,9 @@ fn a_round_spring_has_the_volume_of_its_wire() {
     let expected = PI * 1.0 * TAU * 10.0 * 3.0;
 
     assert!((spec.volume() - expected).abs() < 1e-9);
+
     assert_volume("round", &made, expected);
+
     assert_eq!(made.faces().count(), 3 * 4 + 2);
 }
 
@@ -71,6 +74,7 @@ fn a_square_coil_sits_on_its_start_plane_inside_its_radius() {
     let bounds = extent(&made).unwrap().unwrap();
 
     assert_volume("square", &made, 4.0 * TAU * 9.0 * 2.5);
+
     assert!(bounds.min().z.abs() < 1e-6, "{bounds:?}");
     assert!((bounds.max().z - (10.0 + 2.0)).abs() < 1e-3, "{bounds:?}");
     assert!(bounds.max().x <= 10.0 + 1e-6, "{bounds:?}");
@@ -89,7 +93,9 @@ fn a_tapered_coil_widens_along_its_axis() {
     let expected = PI * TAU * 3.0 * (11.0 + 0.5 * rise);
 
     assert!((spec.volume() - expected).abs() < 1e-9);
+
     assert_volume("tapered", &made, expected);
+
     let square = coil(
         &CoilSpec {
             shape: CoilShape::Square,
@@ -98,6 +104,7 @@ fn a_tapered_coil_widens_along_its_axis() {
         FEATURE,
     )
     .unwrap();
+
     assert_volume(
         "tapered square",
         &square,
@@ -133,6 +140,7 @@ fn faces_are_named_by_turn_and_side() {
     for turn in 0..3 {
         for side in 0..4 {
             let part = COIL_PARTS.side(turn, side);
+
             assert!(names.contains(&FaceName::coil(FEATURE, part)));
             assert_eq!(
                 CoilFace::of_entity(part),
@@ -140,6 +148,7 @@ fn faces_are_named_by_turn_and_side() {
             );
         }
     }
+
     assert!(names.contains(&FaceName::coil(FEATURE, COIL_PARTS.start)));
     assert!(names.contains(&FaceName::coil(FEATURE, COIL_PARTS.end)));
     assert_eq!(CoilFace::of_entity(COIL_PARTS.end), Some(CoilFace::End));
@@ -161,6 +170,7 @@ fn a_coil_cuts_a_helical_groove_into_a_shaft() {
         ..spring(CoilShape::Round)
     };
     let tool = coil(&spec, FEATURE).unwrap();
+
     let cut = boolean(&shaft, &tool, BooleanOperation::Difference).unwrap();
 
     let removed = 0.5 * PI * TAU * 3.0 * (10.0 - 4.0 / (3.0 * PI));
@@ -232,12 +242,14 @@ fn a_helix_is_one_curve_a_turn_on_its_cylinder_rising_a_pitch_each_turn() {
     let turns = helix(&helix_spec(2.5, 0.0)).unwrap();
 
     assert_eq!(turns.len(), 3);
+
     for (index, turn) in turns.iter().enumerate() {
         let range = turn.range();
         for step in 0..=40 {
             let point = turn.curve().point(range.at(f64::from(step) / 40.0));
             let along = (index as f64 + f64::from(step) / 40.0) * 2.5 / 3.0;
             let angle = point.y.atan2_libm(point.x).rem_euclid(2.0 * PI);
+
             let expected = 4.0 * (along.floor() + angle / (2.0 * PI));
 
             assert!((point.truncate().length() - 10.0).abs() < 1e-9, "{point}");
@@ -247,9 +259,11 @@ fn a_helix_is_one_curve_a_turn_on_its_cylinder_rising_a_pitch_each_turn() {
             );
         }
     }
+
     let end = turns
         .last()
         .map(|turn| turn.curve().point(turn.range().end()));
+
     assert!(end.is_some_and(|end| (end.z - 10.0).abs() < 1e-9 && (end.x + 10.0).abs() < 1e-9));
 }
 
@@ -349,9 +363,11 @@ fn closed_ends_wind_at_their_own_pitch_and_change_to_the_body_pitch_smoothly() {
     let mut unwrapped = 0.0_f64;
     let mut previous: Option<Point3> = None;
     let mut last_tangent: Option<Vector3> = None;
+
     for turn in &turns {
         let range = turn.range();
         let first = turn.curve().evaluate(range.start()).first.normalize();
+
         if let Some(tangent) = last_tangent {
             assert!(
                 tangent.angle_between(first) < 1e-9,
@@ -360,11 +376,14 @@ fn closed_ends_wind_at_their_own_pitch_and_change_to_the_body_pitch_smoothly() {
         }
         for step in 0..=64 {
             let point = turn.curve().point(range.at(f64::from(step) / 64.0));
+
             if let Some(before) = previous {
                 let turned = point.y.atan2_libm(point.x) - before.y.atan2_libm(before.x);
+
                 unwrapped += (turned + PI).rem_euclid(2.0 * PI) - PI;
             }
             previous = Some(point);
+
             let expected = spec.point_at(unwrapped).unwrap();
 
             assert!((point.truncate().length() - 10.0).abs() < 1e-9, "{point}");
@@ -375,6 +394,7 @@ fn closed_ends_wind_at_their_own_pitch_and_change_to_the_body_pitch_smoothly() {
         }
         last_tangent = Some(turn.curve().evaluate(range.end()).first.normalize());
     }
+
     let end = previous.unwrap();
 
     assert!(end.distance(Point3::new(10.0, 0.0, 15.5)) < 1e-9, "{end}");
@@ -443,9 +463,11 @@ fn assert_follows_the_law(spec: &HelixSpec) {
     let mut unwrapped = 0.0_f64;
     let mut previous: Option<Point3> = None;
     let mut last_tangent: Option<Vector3> = None;
+
     for turn in &turns {
         let range = turn.range();
         let first = turn.curve().evaluate(range.start()).first.normalize();
+
         if let Some(tangent) = last_tangent {
             assert!(
                 tangent.angle_between(first) < 1e-9,
@@ -454,11 +476,14 @@ fn assert_follows_the_law(spec: &HelixSpec) {
         }
         for step in 0..=64 {
             let point = turn.curve().point(range.at(f64::from(step) / 64.0));
+
             if let Some(before) = previous {
                 let turned = point.y.atan2_libm(point.x) - before.y.atan2_libm(before.x);
+
                 unwrapped += (turned + PI).rem_euclid(2.0 * PI) - PI;
             }
             previous = Some(point);
+
             let expected = spec.point_at(unwrapped).unwrap();
 
             assert!((point.truncate().length() - 10.0).abs() < 1e-9, "{point}");
@@ -469,6 +494,7 @@ fn assert_follows_the_law(spec: &HelixSpec) {
         }
         last_tangent = Some(turn.curve().evaluate(range.end()).first.normalize());
     }
+
     let end = previous.unwrap();
 
     assert!(
@@ -483,6 +509,7 @@ fn a_progressive_helix_changes_its_pitch_evenly_from_one_end_to_the_other() {
     let spec = progressive_helix(6.0, 2.0, 6.0);
 
     assert_follows_the_law(&spec);
+
     assert!((spec.height() - 24.0).abs() < 1e-12, "{}", spec.height());
     assert!(
         spec.point_at(TAU * 6.0)
@@ -507,6 +534,7 @@ fn closed_ends_change_over_the_turns_asked_and_a_progressive_body_follows() {
     };
 
     assert_follows_the_law(&spec);
+
     assert!((spec.height() - 40.2).abs() < 1e-12, "{}", spec.height());
     assert!((spec.body_start() - TAU * 2.5).abs() < 1e-12);
 }
@@ -572,6 +600,7 @@ fn a_helix_follows_a_table_of_pitches_by_turn_and_keeps_the_last_one() {
     let spec = tabled_helix(6.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
 
     assert_follows_the_law(&spec);
+
     assert!((spec.height() - 24.0).abs() < 1e-12, "{}", spec.height());
     assert!(
         spec.point_at(TAU * 2.0)
@@ -663,6 +692,7 @@ fn a_table_between_closed_ends_counts_its_turns_from_the_start_of_the_body() {
     assert_follows_the_law(&spec);
 
     assert_eq!(spec.body_start(), TAU * 1.5);
+
     for (turns, rise) in [
         (1.0, 2.2),
         (1.5, 3.25),
@@ -674,6 +704,7 @@ fn a_table_between_closed_ends_counts_its_turns_from_the_start_of_the_body() {
     ] {
         assert!((at(turns) - rise).abs() < 1e-12, "{turns}: {}", at(turns));
     }
+
     assert!((spec.height() - 31.5).abs() < 1e-12);
 }
 

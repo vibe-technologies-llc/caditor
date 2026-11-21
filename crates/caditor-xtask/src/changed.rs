@@ -69,6 +69,7 @@ pub fn files(root: &Path, since: &str) -> Result<BTreeSet<String>, Error> {
 
 fn git(root: &Path) -> Command {
     let mut command = Command::new("git");
+
     command.current_dir(root);
     command
 }
@@ -81,12 +82,14 @@ pub fn members(root: &Path) -> Result<Vec<Member>, Error> {
     })?;
 
     let mut members = Vec::new();
+
     for entry in entries {
         let entry = entry.map_err(|source| Error::Read {
             path: crates.clone(),
             source,
         })?;
         let path = entry.path().join(MANIFEST);
+
         if !path.is_file() {
             continue;
         }
@@ -178,6 +181,7 @@ pub fn dependents(
     members: &[Member],
 ) -> Result<BTreeSet<String>, Error> {
     let mut command = Command::new("cargo");
+
     command.current_dir(root).args([
         "tree",
         "--workspace",
@@ -196,6 +200,7 @@ pub fn dependents(
 
     let listed = run::asked(&mut command, "cargo", Query::Dependents)?;
     let mut found = dependents_listed(&listed, members);
+
     found.extend(touched.iter().cloned());
     Ok(found)
 }

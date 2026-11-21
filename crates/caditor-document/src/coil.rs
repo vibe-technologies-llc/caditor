@@ -21,7 +21,7 @@ pub const COIL_SHAPE: &str = "coil";
 pub const DEFAULT_TURNS: f64 = 5.0;
 pub const DEFAULT_PITCH: f64 = 5.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum CoilTurning {
     CounterClockwise,
     Clockwise,
@@ -52,7 +52,7 @@ impl CoilTurning {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum CoilSizing {
     TurnsAndPitch,
     HeightAndTurns,
@@ -75,7 +75,7 @@ impl CoilSizing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CoilLength {
     TurnsAndPitch {
         turns: Expression,
@@ -91,7 +91,7 @@ pub enum CoilLength {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CoilSpan {
     pub height: f64,
     pub pitch: f64,
@@ -174,7 +174,7 @@ impl CoilLength {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Coil {
     pub axis: AxisReference,
     pub reversed: bool,
@@ -243,18 +243,21 @@ impl Coil {
 
     pub fn expressions(&self) -> Vec<&Expression> {
         let mut expressions = vec![&self.diameter, &self.size, &self.taper];
+
         expressions.extend(self.length.expressions());
         expressions
     }
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         let mut expressions = vec![&mut self.diameter, &mut self.size, &mut self.taper];
+
         expressions.extend(self.length.expressions_mut());
         expressions
     }
 
     pub fn lengths_mut(&mut self) -> Vec<&mut Expression> {
         let mut lengths = vec![&mut self.diameter, &mut self.size];
+
         lengths.extend(self.length.lengths_mut());
         lengths
     }
@@ -312,8 +315,10 @@ pub(crate) fn number(
     what: &str,
 ) -> Result<f64, Failure> {
     let value = context.value_as(expression, what, Dimension::NONE)?;
+
     if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&value) {
         let shape = context.shape();
+
         return Err(context.error(CoilCause::TurnsRange {
             shape: shape.to_owned(),
             what: what.to_owned(),
@@ -345,9 +350,12 @@ pub(crate) fn span(context: &Context<'_>, length: &CoilLength) -> Result<CoilSpa
         CoilLength::HeightAndPitch { height, pitch } => {
             let height = context.size(height, "height")?;
             let pitch = context.size(pitch, "pitch")?;
+
             let turns = height / pitch;
+
             if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&turns) {
                 let shape = context.shape();
+
                 return Err(context.error(CoilCause::HeightPitchTurns {
                     shape: shape.to_owned(),
                     height,
@@ -366,8 +374,10 @@ pub(crate) fn span(context: &Context<'_>, length: &CoilLength) -> Result<CoilSpa
 
 pub(crate) fn taper(context: &Context<'_>, expression: &Expression) -> Result<f64, Failure> {
     let degrees = context.value_as(expression, "taper angle", Dimension::ANGLE)?;
+
     if degrees.abs() >= MAX_COIL_TAPER_DEGREES {
         let shape = context.shape();
+
         return Err(context.error(CoilCause::TaperSteep {
             subject: format!("the {shape}"),
         }));
@@ -411,7 +421,7 @@ fn failure(
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum CoilCause {
     TurnsRange {
         shape: String,
@@ -765,14 +775,17 @@ pub(crate) fn evaluate(
     let span = span(&context, &definition.length)?;
     let taper = taper(&context, &definition.taper)?;
     let axis = context.resolver().axis(&definition.axis)?;
+
     let frame = definition.frame(axis).ok_or_else(|| {
         context.error(CoilCause::NoDirection {
             name: feature.name.clone(),
         })
     })?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let spec = CoilSpec {
         frame,
         radius: 0.5 * diameter,
@@ -786,6 +799,7 @@ pub(crate) fn evaluate(
     };
     let made = coil(&spec, feature.id().raw())
         .map_err(|error| failure(&context, feature, &spec, &error))?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }

@@ -9,33 +9,33 @@ const CLEARANCE_CURVES: [u64; 5] = [4, 5, 6, 7, 8];
 
 const SMALLEST_PIECE: f64 = 10.0 * LINEAR_RESOLUTION;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum SectionCurve {
     Line,
     Circle { center: Point2, radius: f64 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct SectionSide {
     pub curve: SectionCurve,
     pub inward: Vector2,
     pub normal: Vector2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Section {
     pub corner: Point2,
     pub sides: [SectionSide; 2],
     pub convex: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Miss {
     Short,
     Angle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Side {
     First,
     Second,
@@ -50,19 +50,19 @@ impl Side {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Cut {
     Fillet { center: Point2, radius: f64 },
     Chamfer,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Blend {
     pub feet: [Point2; 2],
     pub cut: Cut,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Offset {
     Line { origin: Point2, direction: Vector2 },
     Circle { center: Point2, radius: f64 },
@@ -105,11 +105,14 @@ impl SectionSide {
             SectionCurve::Line => Some(corner + self.inward * distance),
             SectionCurve::Circle { center, radius } => {
                 let half = distance / (2.0 * radius);
+
                 if half >= 1.0 {
                     return None;
                 }
+
                 let turn = 2.0 * half.asin_libm();
                 let from = corner - center;
+
                 let angle = if from.perp_dot(self.inward) >= 0.0 {
                     turn
                 } else {
@@ -192,6 +195,7 @@ fn intersections(first: Offset, second: Offset) -> Vec<Point2> {
             },
         ) => {
             let denominator = da.perp_dot(db);
+
             if denominator.abs() <= f64::EPSILON {
                 return Vec::new();
             }
@@ -202,10 +206,13 @@ fn intersections(first: Offset, second: Offset) -> Vec<Point2> {
             let offset = origin - center;
             let half_b = direction.dot(offset);
             let c = offset.length_squared() - radius * radius;
+
             let discriminant = half_b * half_b - c;
+
             if discriminant < 0.0 {
                 return Vec::new();
             }
+
             let root = discriminant.sqrt();
             vec![
                 origin + direction * (-half_b - root),
@@ -224,12 +231,15 @@ fn intersections(first: Offset, second: Offset) -> Vec<Point2> {
         ) => {
             let between = b - a;
             let distance = between.length();
+
             if distance <= f64::EPSILON || distance > ra + rb || distance < (ra - rb).abs() {
                 return Vec::new();
             }
+
             let along = (ra * ra - rb * rb + distance * distance) / (2.0 * distance);
             let across = (ra * ra - along * along).max(0.0).sqrt();
             let unit = between / distance;
+
             let middle = a + unit * along;
             vec![middle + unit.perp() * across, middle - unit.perp() * across]
         }
@@ -239,6 +249,7 @@ fn intersections(first: Offset, second: Offset) -> Vec<Point2> {
 impl Section {
     pub fn fillet(&self, radius: f64) -> Option<Blend> {
         let [first, second] = &self.sides;
+
         let offsets = (
             first.offset(self.corner, self.convex, radius)?,
             second.offset(self.corner, self.convex, radius)?,
@@ -268,6 +279,7 @@ impl Section {
 
     pub fn chamfer(&self, distances: [f64; 2]) -> Option<Blend> {
         let [first, second] = &self.sides;
+
         let feet = [
             first.along(self.corner, distances[0])?,
             second.along(self.corner, distances[1])?,
@@ -286,6 +298,7 @@ impl Section {
         angle: f64,
     ) -> Result<Blend, Miss> {
         let [first, second] = &self.sides;
+
         let (near, far) = match measured_on {
             Side::First => (first, second),
             Side::Second => (second, first),
@@ -294,17 +307,20 @@ impl Section {
             .along(self.corner, distance)
             .filter(|foot| near.reaches(self.corner, *foot))
             .ok_or(Miss::Short)?;
+
         let back = near.toward_corner(self.corner, foot).ok_or(Miss::Short)?;
         let turn = if back.perp_dot(far.inward) >= 0.0 {
             angle
         } else {
             -angle
         };
+
         let direction = Vector2::from_angle(turn).rotate(back);
         let cut = Offset::Line {
             origin: foot,
             direction,
         };
+
         let other = intersections(cut, far.whole(self.corner))
             .into_iter()
             .filter(|point| {
@@ -337,6 +353,7 @@ impl Section {
         let [first_foot, second_foot] = blend.feet;
         let [first_rise, first_run, bridge, second_run, second_rise] = CLEARANCE_CURVES;
         let first_corner = first.lifted(self.corner, self.corner, clearance)?;
+
         let first_lifted = first.lifted(self.corner, first_foot, clearance)?;
         let second_corner = second.lifted(self.corner, self.corner, clearance)?;
         let second_lifted = second.lifted(self.corner, second_foot, clearance)?;

@@ -19,7 +19,9 @@ fn an_svg_imports_its_text_as_outlines_into_a_new_sketch_leaving_out_the_layers_
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
     let plate = dir.path().join("plate.svg");
+
     std::fs::write(&plate, PLATE).unwrap();
+
     let features = harness.document().features().len();
 
     harness.answer_dialog(Some(plate));
@@ -52,6 +54,7 @@ fn an_svg_imports_its_text_as_outlines_into_a_new_sketch_leaving_out_the_layers_
             })
             .count()
     };
+
     assert_eq!(harness.document().feature(sketch).unwrap().name, "plate");
     assert_eq!((count(&harness, false), count(&harness, true)), (4, 0));
     assert!(!harness.shows_containing("text was left out"));

@@ -20,14 +20,14 @@ const TANGENT_SLACK: f64 = 0.1 * SMOOTH_TURN;
 const CUBIC: usize = 3;
 const BEZIER_KNOTS: [f64; 8] = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Rounding {
     pub(super) incoming_end: f64,
     pub(super) outgoing_start: f64,
     pub(super) segment: PathSegment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum End {
     Start,
     End,
@@ -51,6 +51,7 @@ pub(super) fn rounding(
 ) -> Result<Rounding, PipeError> {
     let leaving = incoming.end_tangent().ok_or_else(degenerate)?;
     let arriving = outgoing.start_tangent().ok_or_else(degenerate)?;
+
     let corner = Corner {
         incoming,
         outgoing,
@@ -110,6 +111,7 @@ impl Corner<'_> {
             End::Start => (range.start(), range.end()),
             End::End => (range.end(), range.start()),
         };
+
         if leg.curve.point(far).distance(self.point) < distance {
             return None;
         }
@@ -143,11 +145,14 @@ impl Corner<'_> {
         let across = self.normal.cross(self.incoming.end_tangent()?);
         let along = across.cross(self.normal);
         let allowed = LEAST_MISS.max(self.radius * RELATIVE_MISS);
+
         for _ in 0..NEWTON_STEPS {
             let miss = self.miss(incoming, outgoing)?;
+
             if miss.length() <= allowed {
                 return Some((incoming, outgoing));
             }
+
             let incoming_step = inside(
                 incoming_range,
                 incoming,
@@ -162,21 +167,27 @@ impl Corner<'_> {
                 (self.miss(incoming_step, outgoing)? - miss) / (incoming_step - incoming);
             let by_outgoing =
                 (self.miss(incoming, outgoing_step)? - miss) / (outgoing_step - outgoing);
+
             let [a, b, c, d] = [
                 by_incoming.dot(along),
                 by_outgoing.dot(along),
                 by_incoming.dot(across),
                 by_outgoing.dot(across),
             ];
+
             let determinant = a * d - b * c;
+
             if !determinant.is_normal() {
                 return None;
             }
+
             let (first, second) = (miss.dot(along), miss.dot(across));
+
             let next_incoming =
                 incoming_range.clamp(incoming - (d * first - b * second) / determinant);
             let next_outgoing =
                 outgoing_range.clamp(outgoing - (a * second - c * first) / determinant);
+
             if next_incoming == incoming && next_outgoing == outgoing {
                 return None;
             }
@@ -189,9 +200,11 @@ impl Corner<'_> {
         let (incoming, outgoing) = self.tangency()?;
         let centre = self.centre(self.incoming, incoming)?;
         let start = self.incoming.curve.point(incoming);
+
         let end = self.outgoing.curve.point(outgoing) - centre;
         let x_axis = (start - centre).try_normalize()?;
         let y_axis = self.normal.cross(x_axis);
+
         let sweep = end.dot(y_axis).atan2_libm(end.dot(x_axis)).rem_euclid(TAU);
         let arriving = x_axis * -sweep.sin_libm() + y_axis * sweep.cos_libm();
         let tangent = self
@@ -199,9 +212,11 @@ impl Corner<'_> {
             .tangent(incoming)?
             .angle_between(y_axis)
             .max(self.outgoing.tangent(outgoing)?.angle_between(arriving));
+
         if sweep <= SMOOTH_TURN || sweep >= TAU - SMOOTH_TURN || tangent > TANGENT_SLACK {
             return None;
         }
+
         let frame = Plane::from_frame(centre, self.normal, x_axis)?;
         let circle = Circle::new(frame, self.radius).ok()?;
         Some(Rounding {
@@ -219,8 +234,10 @@ impl Corner<'_> {
         let end = self.outgoing.curve.point(outgoing);
         let leaving = self.incoming.tangent(incoming)?;
         let arriving = self.outgoing.tangent(outgoing)?;
+
         let chord = start.distance(end);
         let angle = leaving.angle_between(arriving);
+
         let handle = if angle > SMOOTH_TURN {
             chord * 2.0 / 3.0 * (angle / 4.0).tan_libm() / (angle / 2.0).sin_libm()
         } else {

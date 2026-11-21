@@ -10,7 +10,7 @@ use crate::{
     topology::{CrossingCheck, EdgeId, FaceId, Solid, VertexId},
 };
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum OffsetError {
     #[error("the distance is not a finite number above 0.000001 mm")]
     InvalidDistance,
@@ -89,14 +89,19 @@ fn moved(solid: &Solid, faces: &[FaceId], distance: f64) -> Result<Solid, Offset
     for face in faces {
         solid.face(*face).ok_or(OffsetError::MissingFace(*face))?;
     }
+
     let offsets = Offsets::moving(solid, faces, -distance);
     let inner = inner_solid(&offsets, Naming::Kept)?;
+
     if let Some(face) = inner.dropped.iter().next() {
         return Err(OffsetError::Vanishes(*face));
     }
+
     let crossing = inner.solid.find_crossing()?;
+
     if let CrossingCheck::Crossing(crossing) = crossing {
         let [first, second] = crossing.faces;
+
         return Err(OffsetError::Crosses { first, second });
     }
     Ok(inner.solid)

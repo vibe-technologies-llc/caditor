@@ -22,6 +22,7 @@ fn nested(levels: usize) -> String {
 fn a_hundred_thousand_distinct_namespaces_are_interned_without_scanning_them_all() {
     let siblings = 100_000;
     let mut text = String::from("<root>");
+
     for sibling in 0..siblings {
         text.push_str(&format!("<p:a xmlns:p=\"urn:namespace:{sibling}\"/>"));
     }
@@ -30,11 +31,13 @@ fn a_hundred_thousand_distinct_namespaces_are_interned_without_scanning_them_all
     let (tree, comparisons) = tally::measure(|| parse(&text, NO_LIMIT).unwrap());
 
     let last = tree.nodes().last().unwrap();
+
     assert_eq!(last.namespace(), Some("urn:namespace:99999"));
     assert_eq!(tree.nodes().count(), siblings + 1);
 
     let tree_height = siblings.ilog(BTREE_FANOUT) as usize + 2;
     let searches_per_declaration = 2;
+
     assert!(comparisons <= siblings * searches_per_declaration * BTREE_NODE_KEYS * tree_height);
 }
 
@@ -135,6 +138,7 @@ fn elements_and_attributes_are_each_refused_one_past_their_own_budget() {
     let text = elements_of(100, 100);
     let elements = 1 + 100;
     let attributes = 100 * 100;
+
     let exact = Budget {
         elements,
         attributes,

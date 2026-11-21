@@ -25,7 +25,7 @@ pub const MAX_EDGES: usize = 2;
 const LOST_EDGE: &str = "An edge no longer found";
 const LOST_FEATURE: &str = "A feature no longer in the model";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum HolePlacementError {
     #[error("The hole no longer exists")]
     Gone,
@@ -95,12 +95,12 @@ pub enum HolePlacementError {
     Check(#[from] CheckError),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
     pub holes: Vec<PlacedHole>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PlacedHole {
     pub point: EntityId,
     pub at: Point2,
@@ -108,7 +108,7 @@ pub struct PlacedHole {
     pub along: [Option<Along>; 2],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Along {
     pub constraint: ConstraintId,
     pub value: Expression,
@@ -120,7 +120,7 @@ impl PlacedHole {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Driver {
     pub parameter: ParameterId,
     pub negated: bool,
@@ -140,7 +140,9 @@ pub fn driver(document: &Document, expression: &Expression) -> Option<Driver> {
                 if !seen.insert(*id) {
                     return None;
                 }
+
                 let parameter = document.parameter(*id)?;
+
                 if parameter.expression.parameters().is_empty() {
                     return Some(Driver {
                         parameter: *id,
@@ -156,8 +158,10 @@ pub fn driver(document: &Document, expression: &Expression) -> Option<Driver> {
 
 pub fn drivers(document: &Document, placed: &PlacedHole) -> Option<Vec<ParameterId>> {
     let mut found = Vec::new();
+
     for along in placed.along.iter().flatten() {
         let driven = driver(document, &along.value)?.parameter;
+
         if found.contains(&driven) {
             return None;
         }
@@ -174,7 +178,7 @@ pub fn signed(magnitude: &Expression, negative: bool) -> Expression {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Anchor {
     Free,
     Edges(Vec<EdgeDistance>),
@@ -182,14 +186,14 @@ pub enum Anchor {
     At(ProjectionSource),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Held {
     pub constraint: ConstraintId,
     pub curve: EntityId,
     pub source: ProjectionSource,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EdgeDistance {
     pub held: Held,
     pub value: Expression,
@@ -270,6 +274,7 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
     let mut curves: BTreeMap<EntityId, &ProjectionSource> = BTreeMap::new();
     let mut pinned: BTreeMap<EntityId, &ProjectionSource> = BTreeMap::new();
     let mut curve_points: BTreeSet<EntityId> = BTreeSet::new();
+
     for (id, source) in &definition.projections {
         if !places_holes(source) {
             return None;
@@ -285,12 +290,15 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
             _ => return None,
         }
     }
+
     let mut points: BTreeMap<EntityId, Point2> = BTreeMap::new();
+
     for (id, entity) in sketch.entities() {
         match entity {
             Entity::Point(_) if curve_points.contains(&id) => {}
             Entity::Point(at) => {
                 let projected = sketch.is_projected(id) && !pinned.contains_key(&id);
+
                 if sketch.is_construction(id) || projected {
                     return None;
                 }
@@ -303,6 +311,7 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
     if points.is_empty() {
         return None;
     }
+
     let held = |constraint: ConstraintId, curve: EntityId| {
         curves.get(&curve).map(|source| Held {
             constraint,
@@ -314,6 +323,7 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
     let mut concentric: BTreeMap<EntityId, Held> = BTreeMap::new();
     let mut along: BTreeMap<EntityId, [Option<Along>; 2]> = BTreeMap::new();
     let mut used: BTreeSet<EntityId> = BTreeSet::new();
+
     for (constraint, kind) in sketch.constraints() {
         if !sketch.is_active(constraint) {
             return None;
@@ -326,6 +336,7 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
                     (*to, *from)
                 };
                 let straight = matches!(sketch.entity(line), Some(Entity::Line { .. }));
+
                 if !points.contains_key(&point) || !straight || !used.insert(line) {
                     return None;
                 }
@@ -341,10 +352,13 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
                     (EntityId::ORIGIN, point) | (point, EntityId::ORIGIN) => point,
                     _ => return None,
                 };
+
                 if !points.contains_key(&point) {
                     return None;
                 }
+
                 let slot = along.entry(point).or_default().get_mut(axis)?;
+
                 if slot.is_some() {
                     return None;
                 }
@@ -363,6 +377,7 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
                     .keys()
                     .copied()
                     .find(|curve| sketch.center_of(*curve) == Some(centre))?;
+
                 if !points.contains_key(&point)
                     || !used.insert(curve)
                     || concentric.contains_key(&point)
@@ -377,6 +392,7 @@ pub fn of_sketch(definition: &SketchFeature) -> Option<Placement> {
     if used.len() != curves.len() {
         return None;
     }
+
     let holes = points
         .into_iter()
         .map(|(point, at)| {
@@ -444,6 +460,7 @@ pub fn solved_point(model: &Model, sketch: FeatureId, hole: &PlacedHole) -> Poin
 pub fn source_words(model: &Model, sketch: FeatureId, source: &ProjectionSource) -> String {
     let document = model.document();
     let named = |feature: FeatureId| document.feature(feature).map(|found| found.name.clone());
+
     let words = match source {
         ProjectionSource::Edge { body, edge } => model
             .evaluation()
@@ -509,9 +526,11 @@ fn projected(
     nothing: HolePlacementError,
 ) -> Result<(ProjectionSource, Outline), HolePlacementError> {
     let pickable = picked(selection, nothing)?;
+
     if let Pickable::Edge { body, edge } = pickable {
         return projected_edge(model, hole, (body, edge));
     }
+
     let plane = scene::sketch_plane(model.document(), model.evaluation(), hole.sketch)
         .ok_or(HolePlacementError::Gone)?;
     let mut found = projecting::projections_of(model, hole.sketch, &plane, pickable)?;
@@ -579,26 +598,32 @@ pub fn edge_change(
         Anchor::Edges(edges) => edges.as_slice(),
         Anchor::Concentric(_) | Anchor::At(_) => return Err(HolePlacementError::Concentric),
     };
+
     if measured.len() >= MAX_EDGES {
         return Err(HolePlacementError::TwoEdges);
     }
+
     let (source, outline) = projected(model, hole, selection, HolePlacementError::NoLine)?;
     let (start, end) = match outline {
         Outline::Line { start, end } => (start, end),
         Outline::Point(_) => return Err(HolePlacementError::EndOn),
         _ => return Err(HolePlacementError::NotStraight),
     };
+
     if measured
         .iter()
         .any(|distance| distance.held.source.is_same_source(&source))
     {
         return Err(HolePlacementError::SameEdge);
     }
+
     let along = end - start;
     let length = along.length();
+
     if length <= LINEAR_RESOLUTION {
         return Err(HolePlacementError::EndOn);
     }
+
     let solved_sketch = solved(model, hole.sketch);
     let crossed = measured.iter().all(|distance| {
         solved_sketch
@@ -611,17 +636,24 @@ pub fn edge_change(
                     > ANGULAR_RESOLUTION
             })
     });
+
     if !crossed {
         return Err(HolePlacementError::Parallel);
     }
+
     let at = solved_point(model, hole.sketch, &placed);
     let distance = along.perp_dot(at - start).abs() / length;
+
     if distance <= LINEAR_RESOLUTION {
         return Err(HolePlacementError::OnEdge);
     }
+
     let mut transaction = document.transaction(format!("Place {name} from an edge"));
+
     transaction.remove_sketch_items(hole.sketch, [], placed.along_constraints());
+
     let projected = transaction.add_projected(hole.sketch, source, &outline);
+
     transaction.edit(Edit::SetSketchConstruction {
         feature: hole.sketch,
         id: projected.id,
@@ -648,14 +680,17 @@ pub fn concentric_change(
     let document = model.document();
     let Target { name, placed, .. } = target(document, feature, hole, point)?;
     let (source, outline) = projected(model, hole, selection, HolePlacementError::NoCentre)?;
+
     let already = match &placed.anchor {
         Anchor::Concentric(held) => held.source.is_same_source(&source),
         Anchor::At(pinned) => pinned.is_same_source(&source),
         Anchor::Free | Anchor::Edges(_) => false,
     };
+
     if already {
         return Err(HolePlacementError::AlreadyConcentric);
     }
+
     let centre = match outline {
         Outline::Circle { center, .. } | Outline::Arc { center, .. } | Outline::Point(center) => {
             center
@@ -670,6 +705,7 @@ pub fn concentric_change(
     };
     let mut transaction = document.transaction(format!("Make {name} {words}"));
     let held = placed.anchor.held();
+
     transaction.remove_sketch_items(
         hole.sketch,
         held.iter().map(|held| held.curve),
@@ -697,6 +733,7 @@ pub fn concentric_change(
         });
         return field::checked(document, transaction.finish());
     }
+
     let projected = transaction.add_projected(hole.sketch, source, &outline);
     let centre_point = projected
         .entities
@@ -706,6 +743,7 @@ pub fn concentric_change(
             _ => None,
         })
         .ok_or(HolePlacementError::NotRound)?;
+
     transaction.edit(Edit::SetSketchConstruction {
         feature: hole.sketch,
         id: projected.id,
@@ -722,6 +760,7 @@ pub fn unpinned(
     point: EntityId,
 ) -> Result<Transaction, HolePlacementError> {
     let Target { name, placed, .. } = target(document, feature, hole, point)?;
+
     if !matches!(placed.anchor, Anchor::At(_)) {
         return Err(HolePlacementError::NoPoint);
     }
@@ -753,6 +792,7 @@ pub fn released(
         .held(constraint)
         .ok_or(HolePlacementError::NoPoint)?;
     let mut transaction = document.transaction(format!("Free {name} from {}", held.what()));
+
     transaction.remove_sketch_items(hole.sketch, [held.curve], [held.constraint]);
     field::checked(document, transaction.finish())
 }
@@ -769,6 +809,7 @@ pub fn distance_change(
         .ok_or(HolePlacementError::Gone)?
         .name;
     let placement = read(document, hole).ok_or(HolePlacementError::NotPlaced)?;
+
     placement
         .held(constraint)
         .ok_or(HolePlacementError::NoPoint)?;
@@ -794,6 +835,7 @@ pub fn slid(
 ) -> Result<Transaction, HolePlacementError> {
     let document = model.document();
     let Target { name, placed, .. } = target(document, feature, hole, point)?;
+
     match &placed.anchor {
         Anchor::Edges(edges) if edges.len() == 1 => {}
         _ => return Err(HolePlacementError::NotSliding),
@@ -822,18 +864,22 @@ pub fn dragged(
     let document = model.document();
     let unit = model.units().length;
     let Target { name, placed, .. } = target(document, feature, hole, point)?;
+
     if placed.anchor != Anchor::Free {
         return Err(HolePlacementError::NotFree);
     }
     drivers(document, &placed).ok_or(HolePlacementError::Driven)?;
+
     let mut at = solved_point(model, hole.sketch, &placed);
     let mut transaction = document.transaction(format!("Move {name}"));
+
     for (axis, held) in placed.along.iter().enumerate() {
         let (was, now) = if axis == 0 {
             (from.x, to.x)
         } else {
             (from.y, to.y)
         };
+
         if was == now {
             continue;
         }
@@ -845,6 +891,7 @@ pub fn dragged(
         if let Some(held) = held {
             let driver = driver(document, &held.value).ok_or(HolePlacementError::Driven)?;
             let magnitude = now.abs();
+
             transaction.edit(Edit::SetParameterExpression {
                 id: driver.parameter,
                 expression: unit.measured(if driver.negated {
@@ -872,13 +919,16 @@ pub fn positioned(
 ) -> Result<Transaction, HolePlacementError> {
     let document = model.document();
     let Target { name, placed, .. } = target(document, feature, hole, point)?;
+
     if placed.anchor != Anchor::Free {
         return Err(HolePlacementError::NotFree);
     }
+
     let parameters = model.parameters();
     let mut at = solved_point(model, hole.sketch, &placed);
     let mut dimensions = Vec::new();
     let mut freed = Vec::new();
+
     for (axis, (value, held)) in typed.into_iter().zip(&placed.along).enumerate() {
         let Some(value) = value else {
             continue;
@@ -887,11 +937,13 @@ pub fn positioned(
             .evaluate_expression(value)
             .map_err(ExpressionError::Unevaluable)?
             .value;
+
         if axis == 0 {
             at.x = millimetres;
         } else {
             at.y = millimetres;
         }
+
         let magnitude = signed(value, millimetres < 0.0);
         match (value.parameters().is_empty(), held) {
             (true, None) => {}
@@ -902,7 +954,9 @@ pub fn positioned(
             }
         }
     }
+
     let mut transaction = document.transaction(format!("Move {name}"));
+
     transaction.remove_sketch_items(hole.sketch, [], freed);
     transaction.edit(Edit::SetSketchEntity {
         feature: hole.sketch,
@@ -958,11 +1012,14 @@ pub fn removed(
         placement,
         placed,
     } = target(document, feature, hole, point)?;
+
     if placement.holes.len() <= 1 {
         return Err(HolePlacementError::LastHole);
     }
+
     let held = placed.anchor.held();
     let mut transaction = document.transaction(format!("Remove a hole from {name}"));
+
     transaction.remove_sketch_items(
         hole.sketch,
         held.iter()
@@ -993,11 +1050,14 @@ fn added_at(
         .ok_or(HolePlacementError::Gone)?;
     let shown =
         bodies::shown(model.evaluation(), face.body).ok_or(HolePlacementError::NotOnFace)?;
+
     let id = bodies::find_face(shown, face.face).ok_or(HolePlacementError::NotOnFace)?;
     let lies_on = face_plane(&shown.solid, id).ok_or(HolePlacementError::NotOnFace)?;
+
     if !solid_tools::same_plane(&lies_on, &plane) {
         return Err(HolePlacementError::NotOnFace);
     }
+
     let at = match ray {
         Some(ray) => plane.to_local(
             ray.at(ray
@@ -1008,6 +1068,7 @@ fn added_at(
             .ok_or(HolePlacementError::NoRoom)?,
     };
     let mut transaction = document.transaction(format!("Add a hole to {name}"));
+
     transaction.add_sketch_entity(hole.sketch, Entity::Point(at));
     field::checked(document, transaction.finish())
 }

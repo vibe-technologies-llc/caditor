@@ -7,7 +7,7 @@ const FINEST: i32 = -40;
 const COARSEST: i32 = 40;
 const WITHOUT_A_VIEW: i32 = -5;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FacetLevel(i32);
 
 impl FacetLevel {
@@ -78,9 +78,11 @@ mod tests {
     fn a_level_is_the_largest_power_of_two_not_above_the_wanted_chord() {
         for chord in [1e-5, 0.003, 0.25, 0.3, 1.0, 7.9, 4096.0] {
             let level = FacetLevel::fitting(chord);
+
             assert!(level.chord() <= chord);
             assert!(level.chord() * 2.0 > chord);
         }
+
         assert_eq!(FacetLevel::fitting(0.0), FacetLevel(FINEST));
         assert_eq!(FacetLevel::fitting(f64::NAN), FacetLevel(FINEST));
         assert_eq!(FacetLevel::fitting(f64::INFINITY), FacetLevel(COARSEST));
@@ -106,8 +108,10 @@ mod tests {
     fn changes_over(distances: impl Iterator<Item = f64>) -> u32 {
         let mut level = None;
         let mut changes = 0;
+
         for distance in distances {
             let next = FacetLevel::following(level, FacetLevel::wanted_chord(&view_at(distance)));
+
             if level.is_some_and(|level| level != next) {
                 changes += 1;
             }

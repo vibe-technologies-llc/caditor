@@ -30,9 +30,11 @@ use crate::{
 fn number_preferences_round_the_readouts_drop_trailing_zeros_and_are_remembered() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let (body, _) = extruded_plate(&mut harness);
     let corner = vertex_at(&harness, body, Point3::ZERO);
     let far = vertex_at(&harness, body, Point3::new(40.0, 40.0, 10.0));
+
     harness.key(Key::I, Modifiers::NONE);
     harness.frame();
     harness.select([corner, far]);
@@ -54,6 +56,7 @@ fn number_preferences_round_the_readouts_drop_trailing_zeros_and_are_remembered(
         angles: Decimals::Fixed(0),
         trailing_zeros: TrailingZeros::Hidden,
     };
+
     assert_eq!(harness.workspace.preferences.numbers, numbers);
     assert!(harness.shows("57.4 mm"));
     assert!(harness.shows("40 mm"));
@@ -61,8 +64,11 @@ fn number_preferences_round_the_readouts_drop_trailing_zeros_and_are_remembered(
     assert_eq!(harness.model.units().angle_text(44.6), "45°");
 
     wait_until_stored(&mut harness, dir.path(), |stored| stored.numbers == numbers);
+
     let mut again = reopened(dir.path());
+
     app::apply_preferences(&mut again.model, &again.workspace.preferences);
+
     assert_eq!(again.workspace.preferences.numbers, numbers);
     assert_eq!(again.model.units().measured_length(12.04), "12 mm");
 }
@@ -87,34 +93,43 @@ fn place_cube(harness: &mut Harness, placement: CubePlacement) {
 fn the_view_cube_takes_any_size_and_corner_with_the_overlays_clear_of_it_and_is_remembered() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     harness.draw_on_new_sketch();
     harness.use_tool(Key::R);
     harness.frame();
+
     let own = ["Top", "Bottom", "Front", "Back", "Right", "Left", "Fit all"];
 
     for size in CubeSize::ALL.iter().copied() {
         for corner in Corner::ALL {
             let placement = CubePlacement { size, corner };
+
             place_cube(&mut harness, placement);
+
             let view = harness.workspace.viewport.rect().unwrap();
             let cube = placement.area(view);
 
             assert!(view.contains_rect(cube), "{placement:?}");
             assert!(harness.shows("Click the rectangle's first corner"));
+
             let fit = harness
                 .texts
                 .iter()
                 .find(|(text, _)| text == "Fit all")
                 .map(|(_, rect)| *rect)
                 .expect("Fit all is shown");
+
             assert!(cube.contains_rect(fit), "{placement:?}");
+
             for (text, rect) in &harness.texts {
                 let its_own = own.contains(&text.as_str()) || is_glyph(text);
+
                 assert!(
                     its_own || !rect.intersects(cube),
                     "'{text}' runs under the view cube at {placement:?}"
                 );
             }
+
             assert!(harness.shows("Scroll"), "the mouse hints at {placement:?}");
             for axis in ["X", "Y", "Z"] {
                 assert!(harness.shows(axis), "the {axis} axis at {placement:?}");
@@ -128,16 +143,20 @@ fn the_view_cube_takes_any_size_and_corner_with_the_overlays_clear_of_it_and_is_
     harness.click(CubeSize::Large.label());
     harness.click(Corner::BottomLeft.label());
     close_preferences(&mut harness);
+
     let chosen = CubePlacement {
         size: CubeSize::Large,
         corner: Corner::BottomLeft,
     };
+
     assert_eq!(harness.workspace.preferences.view_details.cube, chosen);
 
     wait_until_stored(&mut harness, dir.path(), |stored| {
         stored.view_details.cube == chosen
     });
+
     let again = reopened(dir.path());
+
     assert_eq!(again.workspace.preferences.view_details.cube, chosen);
 }
 
@@ -147,6 +166,7 @@ fn versions_after_saves(retention: Retention) -> (usize, Retention) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("plate.caditor");
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     open_tab(&mut harness, PreferencesTab::General);
     harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "old versions");
     harness.click(retention.label());
@@ -164,6 +184,7 @@ fn versions_after_saves(retention: Retention) -> (usize, Retention) {
             !harness.model.is_dirty() && !harness.model.is_saving()
         });
     }
+
     let versions = caditor_file::history(&path).unwrap().versions.len();
 
     wait_until_stored(&mut harness, dir.path(), |stored| {
@@ -205,8 +226,11 @@ fn drawn(colour: Rgb) -> caditor_render::Color {
 fn a_chosen_body_colour_draws_bodies_without_their_own_refuses_an_unseen_one_and_is_remembered() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     let (plate, _) = extruded_plate(&mut harness);
+
     harness.frame();
+
     assert_eq!(drawn_body(&mut harness), drawn(DEFAULT_COLOUR));
 
     harness.perform(Action::Preferences(PreferencesCommand::Tab(
@@ -221,17 +245,21 @@ fn a_chosen_body_colour_draws_bodies_without_their_own_refuses_an_unseen_one_and
     harness.frame();
 
     let steel = Rgb::new(70, 130, 180);
+
     assert_eq!(
         harness.workspace.preferences.appearance.body,
         BodyColour::Custom(steel)
     );
     assert_eq!(drawn_body(&mut harness), drawn(steel));
     assert_eq!(canvas::body_colour(&harness.context), steel);
+
     let appearance = &harness.document().feature(plate).unwrap().appearance;
+
     assert_eq!(appearance.colour, None);
     assert_eq!(OwnedLook::of(appearance), None);
 
     let hex = colour_selector::hex_id(Id::unique(preferences::BODY_SELECTOR));
+
     harness.click_button(preferences::CUSTOM_BODY);
     harness.frame();
     harness.type_into_field(hex, "#1c1d20");
@@ -247,7 +275,9 @@ fn a_chosen_body_colour_draws_bodies_without_their_own_refuses_an_unseen_one_and
     harness.click_button(preferences::DEFAULT_BODY);
     harness.frame();
     harness.frame();
+
     assert_eq!(drawn_body(&mut harness), drawn(DEFAULT_COLOUR));
+
     wait_until_stored(&mut harness, dir.path(), |stored| {
         stored.appearance.body == BodyColour::Default
     });
@@ -258,9 +288,12 @@ fn a_chosen_body_colour_draws_bodies_without_their_own_refuses_an_unseen_one_and
     wait_until_stored(&mut harness, dir.path(), |stored| {
         stored.appearance.body == BodyColour::Custom(steel)
     });
+
     let mut again = reopened(dir.path());
+
     extruded_plate(&mut again);
     again.frame();
+
     assert_eq!(
         again.workspace.preferences.appearance.body,
         BodyColour::Custom(steel)
@@ -289,10 +322,14 @@ fn export_plate(harness: &mut Harness, to: PathBuf, format: Option<&str>) {
 fn export_choices_and_folders_are_remembered_across_restarts_unless_kept_for_the_session() {
     let dir = TempDir::new().unwrap();
     let out = dir.path().join("out");
+
     std::fs::create_dir_all(&out).unwrap();
+
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     extruded_plate(&mut harness);
     export_plate(&mut harness, out.join("plate"), Some("OBJ"));
+
     assert!(out.join("plate.obj").exists());
 
     wait_until_stored(&mut harness, dir.path(), |stored| {
@@ -302,15 +339,20 @@ fn export_choices_and_folders_are_remembered_across_restarts_unless_kept_for_the
 
     let settings = Settings::load(&dir.path().join("config"));
     let mut preferences = Preferences::from_settings(settings.clone());
+
     preferences.onboarding = Onboarding::finished();
+
     let mut again = Harness::starting_with(
         Some(dir.path()),
         sample_document().unwrap(),
         Workspace::with_preferences(preferences),
         |files| files.settings_loaded(settings),
     );
+
     extruded_plate(&mut again);
+
     let elsewhere = dir.path().join("elsewhere");
+
     std::fs::create_dir_all(&elsewhere).unwrap();
     export_plate(&mut again, elsewhere.join("again"), None);
 
@@ -326,6 +368,7 @@ fn export_choices_and_folders_are_remembered_across_restarts_unless_kept_for_the
     wait_until_stored(&mut again, dir.path(), |stored| {
         stored.export_memory == ExportMemory::SessionOnly && stored.exports.is_empty()
     });
+
     assert_eq!(
         Settings::load(&dir.path().join("config")).keys_under("export.folder"),
         Vec::<String>::new()

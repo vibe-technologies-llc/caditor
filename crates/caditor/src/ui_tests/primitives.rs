@@ -23,11 +23,13 @@ fn drawn_length(harness: &mut Harness) -> Option<f64> {
 #[test]
 fn a_box_length_being_typed_is_drawn_before_it_is_entered() {
     let mut harness = Harness::new();
+
     harness.select([]);
     run_from_palette(&mut harness, "Box");
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let made = harness.workspace.editing.solid().expect("the box is open");
     let length = Id::unique(("primitive-field", made, ("size", 0)));
 
@@ -47,19 +49,23 @@ fn a_box_length_being_typed_is_drawn_before_it_is_entered() {
 
     assert_eq!(harness.model.undo_label(), Some("Edit Box 1"));
     assert!(near(harness.body_volume(made), 45.0 * 20.0 * 10.0));
+
     harness.wait_until("the preview gives way to the result", |harness| {
         harness.model.draft_evaluation().is_none()
     });
+
     assert!(drawn_length(&mut harness).is_some_and(|drawn| near(drawn, 45.0)));
 }
 
 #[test]
 fn a_prism_and_a_cone_are_made_from_the_palette_and_sized_in_their_panel() {
     let mut harness = Harness::new();
+
     harness.select([]);
 
     run_from_palette(&mut harness, "Prism");
     harness.settle();
+
     let prism = harness
         .workspace
         .editing
@@ -75,8 +81,10 @@ fn a_prism_and_a_cone_are_made_from_the_palette_and_sized_in_their_panel() {
     assert!(near(harness.body_volume(prism), hexagon));
 
     let sides = Id::unique(("primitive-field", prism, ("size", 0)));
+
     harness.type_into_field(sides, "8");
     harness.settle();
+
     let octagon = 2.0 * 2.0_f64.sqrt() * 100.0 * 10.0;
 
     assert!(near(harness.body_volume(prism), octagon));
@@ -96,6 +104,7 @@ fn a_prism_and_a_cone_are_made_from_the_palette_and_sized_in_their_panel() {
     harness.select([]);
     run_from_palette(&mut harness, "Cone");
     harness.settle();
+
     let cone = harness.workspace.editing.solid().expect("the cone is open");
 
     assert_eq!(harness.model.undo_label(), Some("Create Cone 1"));

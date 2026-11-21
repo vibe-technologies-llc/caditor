@@ -30,20 +30,20 @@ use crate::{
 
 const THROUGH_ALL: [&str; 3] = ["through all", "through_all", "through"];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NextFace {
     Next,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum UpTo {
     Next(NextFace),
     Plane(PlaneChoice),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WallName {
     Inside,
@@ -61,20 +61,20 @@ impl WallName {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SquareName {
     Square,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum DirectionAsk {
     Square(SquareName),
     Axis(AxisChoice),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SecondEnd {
     pub distance: Option<Amount>,
@@ -84,7 +84,7 @@ pub struct SecondEnd {
     pub end_offset: Option<Amount>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Extrusion {
     pub sketch: Option<Named>,
@@ -122,7 +122,7 @@ impl Extrusion {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StyleName {
     Plain,
@@ -142,21 +142,21 @@ impl StyleName {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShapeName {
     Round,
     Slot,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BottomName {
     Flat,
     DrillPoint,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SizingName {
     Typed,
@@ -174,14 +174,14 @@ impl SizingName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StepAsk {
     pub diameter: Amount,
     pub depth: Amount,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FitName {
     Close,
@@ -206,7 +206,7 @@ impl FitName {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FormName {
     Modelled,
@@ -222,7 +222,7 @@ impl FormName {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HandName {
     Right,
@@ -238,7 +238,7 @@ impl HandName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Drilling {
     pub sketch: Option<Named>,
@@ -291,6 +291,7 @@ fn end_asked(
         + usize::from(ask.through_all)
         + usize::from(ask.up_to.is_some())
         + usize::from(ask.surface.is_some());
+
     if given > 1 {
         return Err(ModellingError::TwoEnds.into());
     }
@@ -443,15 +444,19 @@ pub fn extrude_built(
         asked.operation,
         Some(OperationName::Remove | OperationName::Intersect)
     );
+
     if through_all && asked.operation.is_some() && !cuts {
         return Err(ModellingError::ThroughAllAdds.into());
     }
+
     let distance = parsed(session, asked.distance.as_ref(), |session, distance| {
         length(session, "distance", distance)
     })?;
+
     if asked.second_distance.is_some() && asked.second_end.is_some() {
         return Err(ModellingError::TwoSecondEnds.into());
     }
+
     let second_ask = asked.second_end.as_ref();
     let second = parsed(
         session,
@@ -480,7 +485,9 @@ pub fn extrude_built(
         asked.thin_wall.as_ref().and_then(WallAsk::thickness),
         |session, wall| length(session, "thin_wall", wall),
     )?;
+
     session.evaluate(work)?;
+
     let values = session.parameters();
     let document = session.document();
     let evaluation = session.evaluation();
@@ -489,6 +496,7 @@ pub fn extrude_built(
         asked.sketch.as_ref(),
         base.map(|base| base.sketch),
     )?;
+
     let end = end_asked(
         document,
         evaluation,
@@ -586,6 +594,7 @@ pub fn extrude_built(
         .map(|body| references::body(document, evaluation, body))
         .transpose()?;
     let standing_on = solid_tools::face_body(document, sketch);
+
     let (solid, told) = match (asked.operation, base) {
         (None, Some(base)) => {
             let operation = match (chosen, base.operation) {
@@ -636,6 +645,7 @@ pub fn extrude_built(
                 operation,
                 ..template
             };
+
             if base.is_none()
                 && asked.reversed.is_none()
                 && let ExtrudeExtent::OneSide { reversed, .. } = &mut solid.extent
@@ -646,6 +656,7 @@ pub fn extrude_built(
         }
     };
     let operation = solid.operation;
+
     let mut built = Built::new(
         FeatureKind::Solid(SolidFeature::Extrude(solid)),
         Sweep::Extrude.label(),
@@ -653,6 +664,7 @@ pub fn extrude_built(
     )
     .hiding(sketch)
     .telling("operation", json!(operation_words(document, operation)));
+
     if let Some(told) = told {
         built = built.telling("note", json!(told));
     }
@@ -678,6 +690,7 @@ fn headed(style: &mut HoleStyle, head: Head) -> Result<(), ModellingError> {
     let refused = |size: &'static str, style: &'static str| {
         Err(ModellingError::HeadWithoutStyle { size, style })
     };
+
     match style {
         HoleStyle::Counterbore { diameter, depth } => {
             if head.angle.is_some() {
@@ -721,7 +734,9 @@ fn shaped(
     asked: (Option<ShapeName>, Option<Expression>, Option<Expression>),
 ) -> Result<(), ModellingError> {
     let (name, length, angle) = asked;
+
     let sized = length.is_some() || angle.is_some();
+
     if name == Some(ShapeName::Round) {
         if sized {
             return Err(ModellingError::SlotSizeOnRound);
@@ -796,6 +811,7 @@ fn standardised(
         }
         (None, None) => None,
     };
+
     if let Some(standard) = chosen {
         *hole = hole_tools::with_standard(hole, standard, unit);
     }
@@ -811,6 +827,7 @@ pub fn drill_built(
     if asked.diameter.is_some() && asked.standard.is_some() {
         return Err(ModellingError::DiameterAndStandard.into());
     }
+
     let diameter = parsed(session, asked.diameter.as_ref(), |session, diameter| {
         length(session, "diameter", diameter)
     })?;
@@ -866,7 +883,9 @@ pub fn drill_built(
     let point_angle = parsed(session, asked.point_angle.as_ref(), |session, angle| {
         amount(session, "point_angle", angle, Dimension::ANGLE, true)
     })?;
+
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
     let (sketch, sketch_name, definition) = sketch_of(
@@ -875,12 +894,14 @@ pub fn drill_built(
         base.map(|base| base.sketch),
     )?;
     let centres = hole_centres(definition).len();
+
     if centres == 0 && (asked.sketch.is_some() || base.is_none()) {
         return Err(ModellingError::NothingToDrill {
             sketch: sketch_name.to_owned(),
         }
         .into());
     }
+
     let body = match (&asked.body, base) {
         (Some(named), _) => references::body(document, evaluation, named)?,
         (None, Some(base)) => base.body,
@@ -888,9 +909,11 @@ pub fn drill_built(
             .or_else(|| document.bodies_standing().last().copied())
             .ok_or(ModellingError::NoBodyToDrill)?,
     };
+
     if base.is_none() && diameter.is_none() && asked.standard.is_none() {
         return Err(ModellingError::NoDiameter.into());
     }
+
     let end = end_asked(
         document,
         evaluation,
@@ -901,13 +924,16 @@ pub fn drill_built(
             surface: None,
         },
     )?;
+
     if base.is_none() && end.is_none() {
         return Err(ModellingError::NoDepth.into());
     }
+
     let mut kind = match base {
         Some(base) => FeatureKind::Hole(base.clone()),
         None => hole_tools::new_hole(sketch, body, &Starts::defaults(LengthUnit::Millimetre)),
     };
+
     if let FeatureKind::Hole(hole) = &mut kind {
         hole.sketch = sketch;
         hole.body = body;
@@ -947,8 +973,10 @@ pub fn drill_built(
         if let Some(sizing) = asked.sizing {
             hole.sizing = sizing.sizing();
         }
+
         let threads =
             asked.thread_form.is_some() || asked.thread_hand.is_some() || thread_depth.is_some();
+
         if threads {
             if !hole.standard.is_some_and(HoleStandard::is_threaded) {
                 return Err(ModellingError::NotTapped.into());

@@ -21,7 +21,7 @@ use crate::{
     save::{sweep_orphaned_temporaries, sync_parent, write_atomically},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Recovered {
     pub journal: PathBuf,
     pub file: Option<PathBuf>,
@@ -41,7 +41,7 @@ impl Recovered {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Inspection {
     Recoverable(Box<Recovered>),
     Removed,
@@ -50,7 +50,7 @@ pub enum Inspection {
     SetAside(PathBuf),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Unreadable {
     Keep,
     SetAside,
@@ -82,6 +82,7 @@ fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> 
     };
     let replayed = replay(contents.base.clone(), contents.entries);
     let document = replayed.editor.document();
+
     let unapplied = contents.unreadable_entries + usize::from(replayed.stopped_early);
     let unchanged = || contents.folded == 0 && document.same_content(&contents.base);
     let already_saved = || {
@@ -91,11 +92,13 @@ fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> 
             .and_then(|file| load(file).ok())
             .is_some_and(|loaded| loaded.issues.is_empty() && loaded.document == *document)
     };
+
     if unapplied == 0 && (unchanged() || already_saved()) {
         return remove_locked(&file, journal);
     }
 
     let mut issues = contents.issues;
+
     if contents.entries_over_budget {
         issues.push(
             "The most recent changes hold more than caditor unpacks at once and could not be \
@@ -144,10 +147,12 @@ pub fn scan(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Recovered> {
         .iter()
         .filter_map(|file| paths::adjacent_journal(file));
     let marked = recovery_dir.map(marked_journals).unwrap_or_default();
+
     prune_set_aside(recovery_dir, recent);
     if let Some(dir) = recovery_dir {
         sweep_orphaned_temporaries(dir);
     }
+
     let set_aside = set_aside_journals(recovery_dir, recent);
     let candidates: BTreeSet<PathBuf> = in_recovery_dir
         .chain(next_to_recent)
@@ -173,6 +178,7 @@ pub fn scan(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Recovered> {
             }
         })
         .collect();
+
     recovered.sort_by_key(|recovered| Reverse(recovered.modified));
     recovered
 }
@@ -198,6 +204,7 @@ fn set_aside_from(journal: &Path) -> Vec<SetAside> {
         return Vec::new();
     };
     let mut prefix = name.to_os_string();
+
     prefix.push(".");
     set_aside_in(dir, Some(prefix.as_encoded_bytes()))
 }
@@ -212,6 +219,7 @@ fn set_aside_in(dir: &Path, prefix: Option<&[u8]>) -> Vec<SetAside> {
             let name = entry.file_name();
             let named_as_wanted =
                 prefix.is_none_or(|prefix| name.as_encoded_bytes().starts_with(prefix));
+
             let at = paths::set_aside_at(&name).filter(|_| named_as_wanted)?;
             Some(SetAside {
                 path: entry.path(),
@@ -247,6 +255,7 @@ fn set_aside_journals(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Pa
 pub(crate) fn mark_journal(journal: &Path, recovery_dir: &Path) -> io::Result<()> {
     let journal = std::path::absolute(journal)?;
     let marker = paths::journal_marker(&journal, recovery_dir);
+
     if marker.exists() {
         return Ok(());
     }
@@ -298,7 +307,7 @@ fn marked_journals(recovery_dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum FileJournal {
     None,
     InUse,
@@ -308,6 +317,7 @@ pub enum FileJournal {
 
 pub fn journal_for(file: &Path, recovery_dir: Option<&Path>) -> FileJournal {
     let mut set_aside = Vec::new();
+
     for journal in paths::journals_for(file, recovery_dir) {
         if !journal.is_file() {
             continue;
@@ -338,6 +348,7 @@ fn readable_set_aside(file: &Path, recovery_dir: Option<&Path>) -> Option<Box<Re
         .iter()
         .flat_map(|journal| set_aside_from(journal))
         .collect();
+
     earlier.sort_by_key(|set_aside| Reverse(set_aside.at));
     earlier
         .iter()
@@ -377,6 +388,7 @@ fn set_aside_locked(file: &File, journal: &Path) -> io::Result<Inspection> {
         Location::Replaced => Ok(Inspection::InUse),
         Location::Here => {
             let kept = paths::unreadable_journal(journal);
+
             fs::rename(journal, &kept)?;
             if let Err(error) = sync_parent(&kept) {
                 log::warn!("could not sync the folder of {}: {error}", kept.display());
@@ -386,7 +398,7 @@ fn set_aside_locked(file: &File, journal: &Path) -> io::Result<Inspection> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum DiscardError {
     #[error("they are open in another caditor window")]
     InUse,

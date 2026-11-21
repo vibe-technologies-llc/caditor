@@ -57,7 +57,7 @@ const RIB_SIDES: [RibSide; 3] = [RibSide::OneSide, RibSide::OtherSide, RibSide::
 const RIB_DIRECTIONS: [RibDirection; 2] = [RibDirection::Parallel, RibDirection::Square];
 const RIB_ENDS: [RibEnds; 2] = [RibEnds::Straight, RibEnds::RoundArcs];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Family {
     Sketch,
     Solid,
@@ -424,7 +424,9 @@ pub fn feature_kind(
 fn reference_image(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>> {
     let mut bytes = PNG_SIGNATURE.to_vec();
     let length = usize::from(input.int_in_range(0u8..=32)?);
+
     bytes.extend(input.bytes(length)?);
+
     let size = PixelSize {
         width: input.int_in_range(1..=MOST_PICTURE_SIDE)?,
         height: input.int_in_range(1..=MOST_PICTURE_SIDE)?,
@@ -482,6 +484,7 @@ fn sketch_kind(input: &mut Unstructured, scene: &Scene) -> Result<FeatureKind> {
         _ => None,
     };
     let mut feature = SketchFeature::from(drawn);
+
     feature.attachment = attachment;
     Ok(FeatureKind::Sketch(feature))
 }
@@ -537,6 +540,7 @@ fn regions(
     if !input.ratio(1u8, 4)? {
         return Ok(RegionChoice::All);
     }
+
     let drawn = sketch
         .and_then(|sketch| scene.document.feature(sketch))
         .and_then(|feature| feature.kind.sketch());
@@ -545,6 +549,7 @@ fn regions(
         .and_then(std::result::Result::ok)
         .unwrap_or_default();
     let mut chosen = Vec::new();
+
     for region in found.iter().take(MOST_REGIONS) {
         if input.arbitrary::<bool>()? {
             let anchor = if input.arbitrary::<bool>()? {
@@ -552,6 +557,7 @@ fn regions(
             } else {
                 None
             };
+
             chosen.push(RegionReference::capture(region, anchor));
         }
     }
@@ -560,6 +566,7 @@ fn regions(
 
 fn loft(input: &mut Unstructured, scene: &Scene) -> Result<Loft> {
     let mut profiles = Vec::new();
+
     for _ in 0..input.int_in_range(0..=MOST_LOFT_PROFILES)? {
         let Some(sketch) = scene.existing_sketch(input)? else {
             break;
@@ -568,6 +575,7 @@ fn loft(input: &mut Unstructured, scene: &Scene) -> Result<Loft> {
             RegionChoice::Chosen(chosen) => chosen.into_iter().next(),
             RegionChoice::All => None,
         };
+
         profiles.push(LoftSection { sketch, region });
     }
     Ok(Loft {
@@ -664,6 +672,7 @@ fn sweep_path(input: &mut Unstructured, scene: &Scene) -> Result<SweepPath> {
             Some(path) => {
                 let lines = scene.sketch_lines(path);
                 let mut curves = Vec::new();
+
                 for _ in 0..input.int_in_range(1u8..=3)? {
                     curves.push(if lines.is_empty() || input.ratio(1u8, 8)? {
                         EntityId::from_raw(input.int_in_range(0u64..=32)?)
@@ -704,6 +713,7 @@ fn solid(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>>
         Vec::new()
     };
     let wall = wall(input, scene)?;
+
     if input.ratio(1u8, 4)? {
         return Ok(Some(FeatureKind::Solid(SolidFeature::Sweep(Sweep {
             sketch,
@@ -717,6 +727,7 @@ fn solid(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>>
             other_bodies,
         }))));
     }
+
     let solid = if input.arbitrary::<bool>()? {
         let extent = match input.int_in_range(0u8..=2)? {
             0 => ExtrudeExtent::OneSide {
@@ -815,6 +826,7 @@ fn blend(input: &mut Unstructured, scene: &Scene) -> Result<Blend> {
     };
     let chord_sized = kind == BlendKind::Fillet && input.arbitrary::<bool>()?;
     let mut groups = Vec::new();
+
     for _ in 0..input.int_in_range(0u8..=2)? {
         groups.push(match input.int_in_range(0u8..=4)? {
             0 => EdgeGroup::Face(scene.face(input, body)?),
@@ -1018,6 +1030,7 @@ fn hole_style(input: &mut Unstructured, scene: &Scene) -> Result<HoleStyle> {
         },
         _ => {
             let mut steps = Vec::new();
+
             for _ in 0..input.int_in_range(0..=MOST_STEPS)? {
                 steps.push(HoleStep {
                     diameter: scene.distance(input)?,
@@ -1033,6 +1046,7 @@ fn hole_standard(input: &mut Unstructured) -> Result<Option<HoleStandard>> {
     if input.arbitrary::<bool>()? {
         return Ok(None);
     }
+
     let fit = match input.int_in_range(0u8..=5)? {
         0 => HoleFit::Close,
         1 => HoleFit::Normal,
@@ -1156,6 +1170,7 @@ fn pattern(input: &mut Unstructured, scene: &Scene) -> Result<Pattern> {
         }),
     };
     let mut skipped = BTreeSet::new();
+
     for _ in 0..input.int_in_range(0..=MOST_SKIPPED)? {
         skipped.insert([input.int_in_range(0u32..=3)?, input.int_in_range(0u32..=3)?]);
     }
@@ -1289,6 +1304,7 @@ fn imported_block() -> Option<(Arc<Solid>, StepText)> {
                 .select(&Selection::EvenDepth)
                 .ok()?;
             let extent = LinearExtent::one_side(IMPORT_SIDE).ok()?;
+
             let solid = extrude(&Plane::XY, &regions, extent, IMPORT_FEATURE).ok()?;
             let body = StepBody {
                 name: "Block",
@@ -1320,7 +1336,9 @@ fn import(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>
         scale: scene.factor(input)?,
     };
     let source = *input.choose(&IMPORT_SOURCES)?;
+
     let mut imported = Import::shared(source, solid, step);
+
     if input.arbitrary::<bool>()? {
         imported = imported.from_file(std::path::PathBuf::from("/models").join(source));
     }

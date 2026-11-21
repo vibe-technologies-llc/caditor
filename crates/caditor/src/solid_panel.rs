@@ -107,7 +107,7 @@ const CUT_SELECTED_BODIES: &str = "Cut the selected body too";
 const START_BY_OFFSET: &str = "Sketch plane, offset";
 const START_ON_FACE: &str = "Face or plane";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TargetError {
     #[error("The feature no longer exists")]
     FeatureGone { feature: FeatureId },
@@ -127,7 +127,7 @@ pub enum TargetError {
     Placement(crate::sketch_placement::AttachmentError),
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SolidChangeError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
@@ -202,7 +202,7 @@ struct Panel<'a> {
     actions: &'a mut Vec<Action>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EndKind {
     Distance,
     ThroughAll,
@@ -275,6 +275,7 @@ fn extent_captioned(extent: &ExtrudeExtent) -> Vec<(&'static str, &Expression)> 
         ExtrudeExtent::Symmetric { distance } => vec![(TOTAL_DISTANCE, distance)],
         ExtrudeExtent::TwoSides { forward, backward } => {
             let mut fields = end_captioned(forward, FORWARD_DISTANCE, FORWARD_END_OFFSET);
+
             fields.extend(end_captioned(
                 backward,
                 BACKWARD_DISTANCE,
@@ -337,6 +338,7 @@ impl Panel<'_> {
         let model = self.model;
         let feature = self.id();
         let mut actions = Vec::new();
+
         let removed = plane_selector::row(
             ui,
             model,
@@ -351,6 +353,7 @@ impl Panel<'_> {
             |plane| self.change(rebuild(plane.clone())),
             &mut actions,
         );
+
         self.actions.extend(actions);
         removed
     }
@@ -365,6 +368,7 @@ impl Panel<'_> {
         let chosen = feature_fields::combo(ui, Id::unique((salt, self.id())), selected, || {
             options(self)
         });
+
         self.actions.extend(chosen);
     }
 
@@ -386,6 +390,7 @@ impl Panel<'_> {
             dimension,
             rule,
         };
+
         let drafting =
             feature_fields::expression_row_drafting(ui, model, caption, quantity, |parsed| {
                 change(model, id, rebuild(parsed))
@@ -394,18 +399,22 @@ impl Panel<'_> {
             .committed
             .as_ref()
             .and_then(|committed| reversing::announcement(model.document(), committed));
+
         self.actions.extend(drafting.into_actions(id));
         self.actions.extend(announced.map(Action::Inform));
     }
 
     fn sketch_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, "Sketch");
+
         let current = self.solid.sketch();
         let model = self.model;
+
         ui.horizontal(|ui| {
             let name = feature_fields::feature_name(model.document(), current);
             let name_exists = name.is_some();
             let text = feature_fields::combo_text(ui, name, MISSING_SKETCH);
+
             self.combo(ui, "sketch", text, |panel| {
                 let end = panel.document().feature_index(panel.id()).unwrap_or(0);
                 panel
@@ -435,15 +444,18 @@ impl Panel<'_> {
 
     fn regions_row(&mut self, ui: &mut Ui, opened: bool) {
         widgets::caption(ui, "Regions");
+
         let model = self.model;
         let document = model.document();
         let evaluation = model.evaluation();
+
         let regions = selection::swept_regions(document, evaluation, self.id());
         let all = matches!(self.solid.regions(), RegionChoice::All);
         let chosen_count = regions.map_or(0, |(_, regions)| {
             scene::chosen_regions(self.solid.regions(), regions).len()
         });
         let mut change = None;
+
         ui.vertical(|ui| {
             let choices = [
                 (
@@ -452,6 +464,7 @@ impl Panel<'_> {
                 ),
                 ("Chosen", "Sweep only the regions you choose in the view"),
             ];
+
             match widgets::segmented(ui, &choices, usize::from(!all)) {
                 Some(0) => {
                     change =
@@ -460,6 +473,7 @@ impl Panel<'_> {
                 Some(_) => {
                     if let Some((_, regions)) = regions {
                         let keys = scene::chosen_regions(&RegionChoice::All, regions);
+
                         change = Some(self.change(solid_tools::with_regions(
                             self.solid,
                             RegionChoice::Chosen(scene::region_references(&keys, regions)),
@@ -471,7 +485,9 @@ impl Panel<'_> {
             ui.horizontal(|ui| {
                 if !all {
                     let chosen = format!("{} chosen", count(chosen_count, "region", "regions"));
+
                     ui.label(widgets::muted(chosen, ui));
+
                     let every = widgets::small_button(
                         ui,
                         icons::command(Command::SelectAllRegions),
@@ -502,6 +518,7 @@ impl Panel<'_> {
                     }
                 }
             });
+
             let chosen = feature_fields::list_in_view(
                 ui,
                 opened,
@@ -588,11 +605,14 @@ impl Panel<'_> {
         rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
     ) {
         widgets::caption(ui, rows.end);
+
         let salt = format!("{}-end", rows.salt);
+
         self.combo(ui, &salt, EndKind::of(end).label(), |panel| {
             panel.end_choices(extrude, end, rows.side, rebuild)
         });
         ui.end_row();
+
         let slot = Slot::ExtrudeTarget(rows.side);
         let kept_offset = end.offset().cloned();
         let picker = Picker {
@@ -607,9 +627,11 @@ impl Panel<'_> {
             ),
             hover: "Run up to the selected face or plane instead",
         };
+
         match end {
             ExtrudeEnd::Distance(distance) => {
                 let model = self.model;
+
                 self.expression(
                     ui,
                     rows.distance,
@@ -635,6 +657,7 @@ impl Panel<'_> {
                     picker,
                     remove: None,
                 };
+
                 self.plane_row(ui, row, |plane| {
                     with_extent_of(
                         extrude,
@@ -649,6 +672,7 @@ impl Panel<'_> {
                     self.document(),
                     face.face.origin(),
                 )));
+
                 feature_fields::reference_row(
                     ui,
                     self.model,
@@ -671,6 +695,7 @@ impl Panel<'_> {
                 picker,
                 remove: None,
             };
+
             self.plane_row(ui, row, |plane| {
                 with_extent_of(
                     extrude,
@@ -690,6 +715,7 @@ impl Panel<'_> {
             return false;
         };
         let evaluation = self.model.evaluation();
+
         let size = std::iter::once(target)
             .chain(extrude.other_bodies.iter().copied())
             .filter_map(|body| evaluation.body_seen_by(self.id(), body)?.bounding_box())
@@ -705,13 +731,16 @@ impl Panel<'_> {
         rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
     ) {
         ui.label("");
+
         let through = widgets::callout(ui, widgets::Tone::Info, |ui| {
             ui.add(egui::Label::new(FAR_PAST_THE_BODY).wrap());
             ui.add(widgets::button(CUT_THROUGH_ALL)).clicked()
         });
+
         ui.end_row();
         if through {
             let change = self.change(with_extent_of(extrude, rebuild(ExtrudeEnd::ThroughAll)));
+
             self.actions
                 .push(feature_fields::applied(&self.feature.name, change));
         }
@@ -730,6 +759,7 @@ impl Panel<'_> {
             .cloned()
             .unwrap_or_else(|| self.model.length_unit().default_length(0.0));
         let salt = format!("{}-offset", rows.salt);
+
         self.expression(
             ui,
             rows.offset,
@@ -746,6 +776,7 @@ impl Panel<'_> {
     fn extent_row(&mut self, ui: &mut Ui, extrude: &Extrude) {
         let fallback = self.default_distance();
         let current = extent_name(&extrude.extent);
+
         let segments = [Shape::OneSide, Shape::Symmetric, Shape::TwoSides]
             .into_iter()
             .map(|shape| {
@@ -762,6 +793,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Extent", &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -778,6 +810,7 @@ impl Panel<'_> {
                     side: Side::One,
                     rule: Rule::FlipWhenNegative,
                 };
+
                 self.end_rows(ui, &rows, extrude, end, &|end| ExtrudeExtent::OneSide {
                     end,
                     reversed,
@@ -791,6 +824,7 @@ impl Panel<'_> {
                             reversed: flipped,
                         },
                     );
+
                     self.apply(flipped);
                 }
             }
@@ -819,12 +853,14 @@ impl Panel<'_> {
                     side: Side::Forward,
                     rule: Rule::AboveZero,
                 };
+
                 self.end_rows(ui, &forward_rows, extrude, forward, &|end| {
                     ExtrudeExtent::TwoSides {
                         forward: end,
                         backward: backward.clone(),
                     }
                 });
+
                 let backward_rows = EndRows {
                     end: "Backward end",
                     distance: BACKWARD_DISTANCE,
@@ -834,6 +870,7 @@ impl Panel<'_> {
                     side: Side::Backward,
                     rule: Rule::AboveZero,
                 };
+
                 self.end_rows(ui, &backward_rows, extrude, backward, &|end| {
                     ExtrudeExtent::TwoSides {
                         forward: forward.clone(),
@@ -849,6 +886,7 @@ impl Panel<'_> {
     fn direction_rows(&mut self, ui: &mut Ui, extrude: &Extrude) {
         let id = self.id();
         let along = extrude.direction.as_deref();
+
         widgets::caption(ui, "Direction");
         self.combo(
             ui,
@@ -880,6 +918,7 @@ impl Panel<'_> {
             },
         );
         ui.end_row();
+
         let shown = match along {
             Some(axis) => Shown::Named(capitalized(&describe_axis(self.document(), axis))),
             None if self.picking(ui, Slot::ExtrudeDirection) => Shown::NoneChosen,
@@ -897,6 +936,7 @@ impl Panel<'_> {
             ),
             hover: "Run along the selected edge, axis or line instead",
         };
+
         let removed = feature_fields::reference_row(
             ui,
             self.model,
@@ -920,6 +960,7 @@ impl Panel<'_> {
             .as_deref()
             .cloned()
             .unwrap_or_else(|| solid_tools::degrees(0.0));
+
         self.expression(
             ui,
             TAPER,
@@ -945,6 +986,7 @@ impl Panel<'_> {
         let solid = self.solid;
         let wall = solid.wall();
         let thin = solid_tools::default_wall(&Starts::of(self.model));
+
         let segments = vec![
             Segment {
                 label: "Solid",
@@ -962,10 +1004,13 @@ impl Panel<'_> {
             },
         ];
         let chosen = feature_fields::segmented_row(ui, "Fill", &self.feature.name, segments);
+
         self.actions.extend(chosen);
+
         let Some(wall) = wall else {
             return;
         };
+
         self.expression(
             ui,
             WALL_THICKNESS,
@@ -982,6 +1027,7 @@ impl Panel<'_> {
                 )
             },
         );
+
         let segments = [
             (WallSide::Inside, "Inside", WALL_INSIDE),
             (WallSide::Outside, "Outside", WALL_OUTSIDE),
@@ -1003,6 +1049,7 @@ impl Panel<'_> {
         })
         .collect();
         let chosen = feature_fields::segmented_row(ui, "Wall", &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -1030,7 +1077,9 @@ impl Panel<'_> {
 
     fn turn_row(&mut self, ui: &mut Ui, revolve: &Revolve) {
         widgets::caption(ui, "Extent");
+
         let current = turn_name(&revolve.extent);
+
         self.combo(ui, "revolve-extent", current, |panel| {
             let angle = match &revolve.extent {
                 RevolveExtent::Full
@@ -1050,6 +1099,7 @@ impl Panel<'_> {
                 | RevolveExtent::UpToNext { .. }
                 | RevolveExtent::UpToSurface { .. } => panel.two_angles(&angle),
             };
+
             let mut choices: Vec<Choice<Action, SolidChangeError>> = [
                 RevolveExtent::Full,
                 RevolveExtent::OneSide {
@@ -1089,6 +1139,7 @@ impl Panel<'_> {
                     .map(Action::Apply),
                 None => Err(SolidChangeError::UpToNextNeedsABody),
             };
+
             choices.push(Choice {
                 label: TURN_UP_TO_NEXT.to_owned(),
                 selected: current == TURN_UP_TO_NEXT,
@@ -1107,6 +1158,7 @@ impl Panel<'_> {
     fn start_rows(&mut self, ui: &mut Ui, start: Option<&SolidStart>) {
         let solid = self.solid;
         let on_face = start.and_then(SolidStart::target);
+
         widgets::caption(ui, "Start");
         self.combo(
             ui,
@@ -1140,6 +1192,7 @@ impl Panel<'_> {
             },
         );
         ui.end_row();
+
         let picker = Picker {
             feature: self.id(),
             slot: Slot::StartPlane,
@@ -1152,6 +1205,7 @@ impl Panel<'_> {
             ),
             hover: "Start from the selected flat face or plane instead",
         };
+
         if on_face.is_some() || self.picking(ui, Slot::StartPlane) {
             let row = PlaneRow {
                 caption: "Starts at",
@@ -1162,6 +1216,7 @@ impl Panel<'_> {
             let removed = self.plane_row(ui, row, |plane| {
                 solid_tools::with_start(solid, Some(SolidStart::Plane(plane)))
             });
+
             if removed {
                 self.apply(solid_tools::with_start(solid, None));
             }
@@ -1169,10 +1224,12 @@ impl Panel<'_> {
                 return;
             }
         }
+
         let distance = start
             .and_then(SolidStart::distance)
             .cloned()
             .unwrap_or_else(|| self.model.length_unit().default_length(0.0));
+
         self.expression(
             ui,
             START_OFFSET,
@@ -1195,6 +1252,7 @@ impl Panel<'_> {
         let sketch = document
             .feature(revolve.sketch)
             .and_then(|feature| feature.kind.sketch());
+
         let row = AxisRow {
             caption: AXIS,
             shown: Some(solid_tools::axis_name(
@@ -1253,6 +1311,7 @@ impl Panel<'_> {
             lines.chain(model_axes).collect()
         };
         let mut actions = Vec::new();
+
         feature_fields::axis_row(ui, model, row, Some(&listed), &mut actions);
         self.actions.extend(actions);
     }
@@ -1268,6 +1327,7 @@ impl Panel<'_> {
             .side
             .or_else(|| larger_side(self.model, self.id(), revolve))
             .unwrap_or(AxisSide::Left);
+
         let segments = vec![
             Segment {
                 label: "Whole",
@@ -1284,6 +1344,7 @@ impl Panel<'_> {
             },
         ];
         let chosen = feature_fields::segmented_row(ui, "Profile", &self.feature.name, segments);
+
         self.actions.extend(chosen);
         if let Some(side) = revolve.side
             && feature_fields::reverse_row(ui, KEEP_OTHER_SIDE, side == AxisSide::Right).is_some()
@@ -1318,6 +1379,7 @@ impl Panel<'_> {
             }
             RevolveExtent::OneSide { angle, reversed } => {
                 let reversed = *reversed;
+
                 self.expression(
                     ui,
                     ANGLE,
@@ -1340,6 +1402,7 @@ impl Panel<'_> {
                         },
                         ..revolve.clone()
                     });
+
                     self.apply(flipped);
                 }
             }
@@ -1362,6 +1425,7 @@ impl Panel<'_> {
                 let beside =
                     |other: &Expression| Rule::TurnBeside(self.degrees_of(other).unwrap_or(0.0));
                 let (forward_rule, backward_rule) = (beside(backward), beside(forward));
+
                 self.expression(
                     ui,
                     FORWARD_ANGLE,
@@ -1417,6 +1481,7 @@ impl Panel<'_> {
             .offset()
             .cloned()
             .unwrap_or_else(|| solid_tools::degrees(0.0));
+
         self.expression(
             ui,
             END_OFFSET,
@@ -1459,6 +1524,7 @@ impl Panel<'_> {
             face.face.origin(),
         )));
         let picker = self.revolve_target_picker(ui, revolve);
+
         feature_fields::reference_row(ui, self.model, "Up to", shown, picker, None, self.actions);
     }
 
@@ -1471,6 +1537,7 @@ impl Panel<'_> {
         if target.is_none() && !self.picking(ui, Slot::RevolveTarget) {
             return;
         }
+
         let picker = self.revolve_target_picker(ui, revolve);
         let reversed = revolve.extent.reversed_up_to();
         let row = PlaneRow {
@@ -1479,6 +1546,7 @@ impl Panel<'_> {
             picker,
             remove: None,
         };
+
         self.plane_row(ui, row, |plane| {
             SolidFeature::Revolve(Revolve {
                 extent: RevolveExtent::up_to(plane, reversed)
@@ -1494,6 +1562,7 @@ impl Panel<'_> {
             .document()
             .bodies_before_in(self.id(), self.model.evaluation());
         let fallback = bodies.last().copied();
+
         widgets::caption(ui, "Result");
         self.combo(ui, "operation", operation_name(operation), |panel| {
             let target = operation.target().or(fallback);
@@ -1516,15 +1585,20 @@ impl Panel<'_> {
                 .collect()
         });
         ui.end_row();
+
         let Some(target) = operation.target() else {
             self.pieces_row(ui);
             return;
         };
+
         widgets::caption(ui, "Body");
+
         let model = self.model;
+
         ui.horizontal(|ui| {
             let name = model.document().body_label(target);
             let text = feature_fields::combo_text(ui, name.as_deref(), MISSING_BODY);
+
             self.combo(ui, "body", text, |panel| {
                 bodies
                     .iter()
@@ -1546,6 +1620,7 @@ impl Panel<'_> {
         });
         ui.end_row();
         ui.label("");
+
         let picker = Picker {
             feature: self.id(),
             slot: Slot::OperationBody,
@@ -1558,6 +1633,7 @@ impl Panel<'_> {
             ),
             hover: USE_SELECTED_BODY,
         };
+
         ui.vertical(|ui| {
             feature_fields::reference_picker(ui, self.model, picker, self.actions);
         });
@@ -1569,6 +1645,7 @@ impl Panel<'_> {
 
     fn pieces_row(&mut self, ui: &mut Ui) {
         let current = self.feature.pieces;
+
         widgets::caption(ui, SEPARATE_PIECES);
         self.combo(ui, "pieces", current.words(), |panel| {
             Pieces::ALL
@@ -1587,15 +1664,18 @@ impl Panel<'_> {
 
     fn other_body_rows(&mut self, ui: &mut Ui, bodies: &[FeatureId], target: FeatureId) {
         let others = self.solid.other_bodies().to_vec();
+
         for (index, other) in others.iter().enumerate() {
             if index == 0 {
                 widgets::caption(ui, ALSO_CUTS);
             } else {
                 ui.label("");
             }
+
             let name = feature_fields::feature_name(self.document(), *other);
             let hover = format!("Stop cutting {}", name.unwrap_or("the missing body"));
             let mut dropped = false;
+
             ui.horizontal(|ui| {
                 match &name {
                     Some(name) => {
@@ -1612,15 +1692,18 @@ impl Panel<'_> {
                     .copied()
                     .filter(|kept| kept != other)
                     .collect();
+
                 self.apply(solid_tools::with_other_bodies(self.solid, kept));
             }
         }
+
         let candidates: Vec<FeatureId> = bodies
             .iter()
             .copied()
             .filter(|body| *body != target && !others.contains(body))
             .collect();
         let choosing = self.picking(ui, Slot::AlsoCutBody);
+
         if candidates.is_empty() && !choosing {
             return;
         }
@@ -1636,6 +1719,7 @@ impl Panel<'_> {
         }
         ui.end_row();
         ui.label("");
+
         let picker = Picker {
             feature: self.id(),
             slot: Slot::AlsoCutBody,
@@ -1648,6 +1732,7 @@ impl Panel<'_> {
             ),
             hover: CUT_SELECTED_BODIES,
         };
+
         ui.vertical(|ui| {
             feature_fields::reference_picker(ui, self.model, picker, self.actions);
         });
@@ -1661,6 +1746,7 @@ impl Panel<'_> {
                 .filter_map(|body| {
                     let label = panel.document().body_label(*body)?;
                     let mut chosen = others.to_vec();
+
                     chosen.push(*body);
                     Some(Choice {
                         label,
@@ -1693,6 +1779,7 @@ impl Panel<'_> {
             ),
             hover: FOLLOW_SELECTED_PATH,
         };
+
         let removed = feature_fields::reference_row(
             ui,
             self.model,
@@ -1732,6 +1819,7 @@ impl Panel<'_> {
             },
         ];
         let chosen = feature_fields::segmented_row(ui, ORIENTATION, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -1783,6 +1871,7 @@ impl Panel<'_> {
                 } else {
                     Rule::AboveZero
                 };
+
                 self.expression(
                     ui,
                     &caption,
@@ -1791,6 +1880,7 @@ impl Panel<'_> {
                     (dimension, rule),
                     |value| {
                         let mut rows = sweep.shape_law.clone();
+
                         if let Some(row) = rows.get_mut(index) {
                             match which {
                                 0 => row.fraction = value,
@@ -1806,24 +1896,30 @@ impl Panel<'_> {
                 );
             }
         }
+
         let mut change = None;
+
         ui.label("");
         ui.horizontal_wrapped(|ui| {
             let add = widgets::small_button(ui, icons::ADD, ADD_SHAPE_ROW);
+
             if ui
                 .add_enabled(sweep.shape_law.len() < MAX_SHAPE_ROWS, add)
                 .on_disabled_hover_text(format!("A sweep has at most {MAX_SHAPE_ROWS} rows"))
                 .clicked()
             {
                 let mut rows = sweep.shape_law.clone();
+
                 rows.push(self.next_shape_row(sweep));
                 change = Some(SolidFeature::Sweep(Sweep {
                     shape_law: rows,
                     ..sweep.clone()
                 }));
             }
+
             let remove = widgets::small_button(ui, icons::SUBTRACT, REMOVE_SHAPE_ROW);
             let mut rows = sweep.shape_law.clone();
+
             let popped = rows.pop().is_some();
             if ui
                 .add_enabled(popped, remove)
@@ -1869,6 +1965,7 @@ impl Panel<'_> {
 
     fn apply(&mut self, solid: SolidFeature) {
         let change = self.change(solid);
+
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
@@ -1888,7 +1985,7 @@ fn with_extent_of(extrude: &Extrude, extent: ExtrudeExtent) -> SolidFeature {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shape {
     OneSide,
     Symmetric,
@@ -1985,6 +2082,7 @@ pub fn selected_target(
         .ok_or(TargetError::FeatureGone { feature })?;
     let mut targets = Vec::new();
     let mut refused = None;
+
     for pickable in selection.iter() {
         match datum_tools::plane_reference(model, pickable, index) {
             Some(target) => targets.push(target),
@@ -2028,6 +2126,7 @@ fn selected_surface(
         .document()
         .feature_index(feature)
         .ok_or(TargetError::FeatureGone { feature })?;
+
     let choice = FaceChoice {
         body: *body,
         face: *face,
@@ -2078,6 +2177,7 @@ pub fn target_change(
         .cloned();
     let end = selected_end(model, selection, feature, kept)?;
     let extent = with_end_on(&extrude.extent, side, end).ok_or(SolidChangeError::SidesChanged)?;
+
     if extent == extrude.extent {
         return Err(SolidChangeError::EndAlreadyUpToTarget);
     }
@@ -2111,6 +2211,7 @@ pub fn up_to_selected_change(
             backward: backward.clone(),
         },
     };
+
     if extent == extrude.extent {
         return Err(SolidChangeError::ExtrusionAlreadyUpToTarget);
     }
@@ -2127,6 +2228,7 @@ pub fn direction_change(
     let axis = datum_tools::only_axis(model, selection, index)
         .map_err(SolidChangeError::SelectedAxis)?
         .ok_or(SolidChangeError::NoDirectionSelected)?;
+
     if extrude.direction.as_deref() == Some(&axis) {
         return Err(SolidChangeError::ExtrusionAlreadyAlongAxis);
     }
@@ -2155,6 +2257,7 @@ pub fn revolve_target_change(
         ),
     }
     .with_offset(revolve.extent.offset().cloned());
+
     if extent == revolve.extent {
         return Err(SolidChangeError::RevolutionAlreadyUpToTarget);
     }
@@ -2177,7 +2280,9 @@ pub fn start_change(
     if let SolidFeature::Sweep(_) = solid {
         return Err(SolidChangeError::SweepStartsAtProfile);
     }
+
     let target = selected_target(model, selection, feature)?;
+
     if solid.start().and_then(SolidStart::target) == Some(&target) {
         return Err(SolidChangeError::AlreadyStartsFromTarget);
     }
@@ -2252,10 +2357,13 @@ pub fn operation_body_change(
     solid: &SolidFeature,
 ) -> Result<Transaction, SolidChangeError> {
     let operation = solid.operation();
+
     if operation.target().is_none() {
         return Err(SolidChangeError::NewBodyChangesNone);
     }
+
     let body = selected_body(model, selection, feature)?;
+
     if operation.target() == Some(body) {
         return Err(SolidChangeError::AlreadyTheBody {
             name: body_name(model, body),
@@ -2276,6 +2384,7 @@ pub fn added_cut_bodies(
 ) -> Result<Transaction, SolidChangeError> {
     let (target, mut others) = cut_bodies(solid)?;
     let body = selected_body(model, selection, feature)?;
+
     if body == target {
         return Err(SolidChangeError::AlreadyTheBody {
             name: body_name(model, body),
@@ -2302,6 +2411,7 @@ pub fn toggled_cut_body(
 ) -> Result<Transaction, SolidChangeError> {
     let (target, mut others) = cut_bodies(solid)?;
     let body = selected_body(model, selection, feature)?;
+
     if body == target {
         return Err(SolidChangeError::AlreadyTheBody {
             name: body_name(model, body),
@@ -2335,6 +2445,7 @@ fn off_sketch_plane(
     axis: &AxisReference,
 ) -> Option<SolidChangeError> {
     let (document, evaluation) = (model.document(), model.evaluation());
+
     let plane = scene::sketch_plane(document, evaluation, sketch)?;
     let ray = displayed_axis(evaluation, feature, axis)?;
     let sketch_name = feature_fields::feature_name(document, sketch).unwrap_or("the sketch");
@@ -2346,6 +2457,7 @@ fn off_sketch_plane(
 
 fn larger_side(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<AxisSide> {
     let (document, evaluation) = (model.document(), model.evaluation());
+
     let plane = scene::sketch_plane(document, evaluation, revolve.sketch)?;
     let (origin, toward) = match &revolve.axis {
         RevolveAxis::Sketch(line) => match line.reference() {
@@ -2368,9 +2480,11 @@ fn larger_side(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<A
             )
         }
     };
+
     let direction = (toward - origin).try_normalize()?;
     let (_, regions) = selection::swept_regions(document, evaluation, feature)?;
     let chosen = scene::chosen_regions(&revolve.regions, regions);
+
     let leftward: f64 = regions
         .iter()
         .filter(|region| chosen.contains(&region.region.key()))
@@ -2378,7 +2492,9 @@ fn larger_side(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<A
         .flat_map(|mesh| {
             mesh.triangles.iter().filter_map(|triangle| {
                 let [a, b, c] = triangle.map(|index| mesh.points.get(index as usize).copied());
+
                 let [a, b, c] = [a?, b?, c?];
+
                 let area = 0.5 * (b - a).perp_dot(c - a).abs();
                 let side = direction.perp_dot((a + b + c) / 3.0 - origin).signum();
                 Some(area * side)
@@ -2473,6 +2589,7 @@ pub fn show(
         solid,
         actions,
     };
+
     widgets::properties(ui, ("solid-properties", feature.id()), |ui| {
         match solid {
             SolidFeature::Extrude(extrude) => panel.extent_row(ui, extrude),

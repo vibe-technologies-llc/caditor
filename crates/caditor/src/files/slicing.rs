@@ -21,7 +21,7 @@ pub const SEARCH_FAILED: &str = "Looking for OrcaSlicer on this computer failed,
 pub const HINT: &str = "Export the selected bodies, else the ones chosen in the Export dialog, as 3MF, \
                         without asking for a file, and open them in OrcaSlicer";
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SlicerRefusal {
     #[error(transparent)]
     Missing(#[from] FindError),
@@ -98,6 +98,7 @@ impl Files {
         only: &[FeatureId],
     ) -> Result<(), SlicerRefusal> {
         let slicer = Slicer::SUPPORTED;
+
         if let Some(missing) = self.slicer_missing() {
             return Err(missing.clone().into());
         }
@@ -131,6 +132,7 @@ impl Files {
         let finder = Arc::clone(&self.slicing.finder);
         let chosen = self.slicing.chosen.clone();
         let asked = chosen.clone();
+
         self.spawn(
             move || Event::SlicerFound {
                 result: finder(Slicer::SUPPORTED, chosen.as_deref()),
@@ -158,6 +160,7 @@ impl Files {
                 return;
             }
         }
+
         let finder = Arc::clone(&self.slicing.finder);
         let chosen = self.slicing.chosen.clone();
         let folder = self
@@ -166,6 +169,7 @@ impl Files {
             .as_ref()
             .map(|dir| dir.join(slicer::FOLDER));
         let session = model.session();
+
         self.slicing.sending = Some(Sending::Preparing);
         self.slicing.only = only;
         self.spawn(
@@ -195,6 +199,7 @@ impl Files {
         model: &mut Model,
     ) {
         self.slicing.sending = None;
+
         let slicer = Slicer::SUPPORTED;
         let prepared = match result {
             Ok(prepared) => prepared,
@@ -208,6 +213,7 @@ impl Files {
                 return;
             }
         };
+
         self.slicer_found(chosen, Ok(prepared.installation.clone()));
         if session != model.session() {
             model.set_notice(Notice::info(format!(
@@ -215,19 +221,25 @@ impl Files {
             )));
             return;
         }
+
         let only = std::mem::take(&mut self.slicing.only);
+
         if let Err(refusal) = self.slicer_availability(model, &only) {
             model.set_notice(Notice::warning(format!("{refusal}.")));
             return;
         }
+
         let path = prepared
             .folder
             .join(export::named_for(model, ExportFormat::ThreeMf));
+
         self.slicing.sending = Some(Sending::Exporting {
             path: path.clone(),
             installation: prepared.installation,
         });
+
         let finished = self.export_finished();
+
         self.exporter.start_among(
             path,
             ExportFormat::ThreeMf,

@@ -24,24 +24,30 @@ fn top_corner(harness: &Harness, body: caditor_document::FeatureId) -> caditor_g
 #[test]
 fn scale_model_resizes_the_whole_model_from_the_palette_as_one_undoable_change() {
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let before = top_corner(&harness, body);
 
     run_from_palette(&mut harness, "Scale model");
+
     assert!(harness.workspace.scale_model.is_some());
     assert!(harness.shows(scale_model::PLAIN_VALUES));
+
     harness.type_text("0");
     harness.click_lowest(scale_model::SCALE_LABEL);
     harness.frame();
+
     assert!(harness.shows_containing("The factor must be more than zero"));
 
     harness.type_into_field(scale_model::factor_field_id(), "5 mm");
     harness.frame();
+
     assert!(harness.shows_containing("a plain number is needed"));
     assert!(harness.workspace.scale_model.is_some());
 
     harness.type_into_field(scale_model::factor_field_id(), "2");
     harness.settle();
+
     let after = top_corner(&harness, body);
 
     assert!(harness.workspace.scale_model.is_none());
@@ -53,19 +59,23 @@ fn scale_model_resizes_the_whole_model_from_the_palette_as_one_undoable_change()
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!((top_corner(&harness, body) - before).length() < CLOSE);
 
     run_from_palette(&mut harness, "Scale model");
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     assert!(harness.workspace.scale_model.is_none());
 }
 
 #[test]
 fn scaling_about_a_point_off_a_mirror_plane_moves_the_mirror_onto_new_datums() {
     let mut harness = Harness::new();
+
     let (body, _) = extruded_plate(&mut harness);
     let mut transaction = harness.document().transaction("Point and mirror");
+
     let point = transaction.add_feature(
         "Point 1",
         FeatureKind::Datum(Datum::Point(DatumPoint {
@@ -88,8 +98,10 @@ fn scaling_about_a_point_off_a_mirror_plane_moves_the_mirror_onto_new_datums() {
             faces: Vec::new(),
         }),
     );
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
+
     let before = harness.document().features().count();
 
     run_from_palette(&mut harness, "Scale model");
@@ -102,6 +114,7 @@ fn scaling_about_a_point_off_a_mirror_plane_moves_the_mirror_onto_new_datums() {
 
     harness.type_into_field(scale_model::factor_field_id(), "2");
     harness.settle();
+
     let plane = harness
         .document()
         .feature(mirror)

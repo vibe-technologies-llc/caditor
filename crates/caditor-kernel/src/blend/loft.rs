@@ -14,7 +14,7 @@ use crate::{
 const CUBIC: usize = 3;
 const RULED_KNOTS: [f64; 4] = [0.0, 0.0, 1.0, 1.0];
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum LoftError {
     #[error("a lofted curve or surface is invalid: {0}")]
     Geometry(#[from] GeometryError),
@@ -24,7 +24,7 @@ pub enum LoftError {
     TooFewSections,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Outline {
     pub chord: [Point3; 2],
     pub apex: Point3,
@@ -40,7 +40,7 @@ impl Outline {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Segment {
     pub params: Vec<f64>,
     pub outlines: Vec<Outline>,
@@ -58,6 +58,7 @@ pub(super) fn rows(segment: &Segment) -> Result<[BSplineCurve; 3], LoftError> {
     if segment.outlines.len() <= CUBIC || segment.params.len() != segment.outlines.len() {
         return Err(LoftError::TooFewSections);
     }
+
     let row = |pick: fn(&Outline) -> Point3| -> Result<BSplineCurve, LoftError> {
         let points: Vec<Point3> = segment.outlines.iter().map(pick).collect();
         Ok(BSpline::interpolating_at(CUBIC, &segment.params, &points)?)
@@ -96,9 +97,11 @@ struct Joint {
 
 fn joint(builder: &mut SolidBuilder, outline: &Outline) -> Result<Joint, LoftError> {
     let mut vertices = Vec::with_capacity(3);
+
     for corner in outline.corners() {
         vertices.push(builder.vertex(corner)?);
     }
+
     let &[a, b, p] = vertices.as_slice() else {
         return Err(LoftError::TooFewSections);
     };
@@ -120,6 +123,7 @@ fn named_face(
     name: Named,
 ) -> Result<FaceId, LoftError> {
     let face = builder.face(shell, surface, sense)?;
+
     builder.set_face_name(face, name.name)?;
     if let Some(origin) = name.origin {
         builder.set_face_origin(face, origin)?;
@@ -148,9 +152,11 @@ fn planar_face(
         .ok_or(GeometryError::ZeroDirection)?;
     let first = *points.first().ok_or(LoftError::TooFewSections)?;
     let centroid = points.iter().copied().sum::<Point3>() / points.len() as f64;
+
     let outward = (centroid - interior).dot(normal) > 0.0;
     let normal = if outward { normal } else { -normal };
     let second = *points.get(1).ok_or(LoftError::TooFewSections)?;
+
     let frame =
         Plane::with_x_axis(first, normal, second - first).ok_or(GeometryError::ZeroDirection)?;
     let face = named_face(
@@ -172,6 +178,7 @@ fn planar_face(
             .map(|(edge, sense, _)| (*edge, sense.reversed()))
             .collect()
     };
+
     builder.add_loop(face, &coedges)?;
     Ok(())
 }
@@ -212,15 +219,19 @@ pub(super) fn loft(loft: &Loft<'_>) -> Result<Solid, LoftError> {
     let start_outline = *first.outlines.first().ok_or(LoftError::TooFewSections)?;
     let end_outline = *last.outlines.last().ok_or(LoftError::TooFewSections)?;
     let mut builder = SolidBuilder::new();
+
     let shell = builder.shell()?;
     let mut joints = Vec::with_capacity(segments.len() + 1);
+
     for segment in segments {
         let outline = segment.outlines.first().ok_or(LoftError::TooFewSections)?;
+
         joints.push(joint(&mut builder, outline)?);
     }
     if !loft.closed {
         joints.push(joint(&mut builder, &end_outline)?);
     }
+
     let count = joints.len();
     let along = segments
         .first()
@@ -230,11 +241,13 @@ pub(super) fn loft(loft: &Loft<'_>) -> Result<Solid, LoftError> {
         })
         .ok_or(GeometryError::ZeroDirection)?;
     let winding = outline_normal(&start_outline).ok_or(GeometryError::ZeroDirection)?;
+
     let sense = if winding.dot(along) < 0.0 {
         Sense::Same
     } else {
         Sense::Reversed
     };
+
     for (index, segment) in segments.iter().enumerate() {
         let (Some(start), Some(end)) = (joints.get(index), joints.get((index + 1) % count)) else {
             return Err(LoftError::TooFewSections);
@@ -242,15 +255,18 @@ pub(super) fn loft(loft: &Loft<'_>) -> Result<Solid, LoftError> {
         let [a_row, b_row, p_row] = rows(segment)?;
         let domain = a_row.domain();
         let mut row_edges = Vec::with_capacity(3);
+
         for (row, (from, to)) in [&a_row, &b_row, &p_row]
             .into_iter()
             .zip(start.vertices.into_iter().zip(end.vertices))
         {
             row_edges.push(builder.edge(Curve::BSpline(row.clone()), domain, from, to)?);
         }
+
         let &[a_edge, b_edge, p_edge] = row_edges.as_slice() else {
             return Err(LoftError::TooFewSections);
         };
+
         let faces = [
             (&a_row, &b_row, a_edge, b_edge, 0, segment.name),
             (&b_row, &p_row, b_edge, p_edge, 1, loft.sides[1]),
@@ -264,6 +280,7 @@ pub(super) fn loft(loft: &Loft<'_>) -> Result<Solid, LoftError> {
                 return Err(LoftError::TooFewSections);
             };
             let face = named_face(&mut builder, shell, ruled(bottom, top)?, sense, name)?;
+
             let coedges = match sense {
                 Sense::Same => [
                     (bottom_edge, Sense::Same),
@@ -278,6 +295,7 @@ pub(super) fn loft(loft: &Loft<'_>) -> Result<Solid, LoftError> {
                     (bottom_edge, Sense::Reversed),
                 ],
             };
+
             builder.add_loop(face, &coedges)?;
         }
     }
@@ -292,6 +310,7 @@ pub(super) fn loft(loft: &Loft<'_>) -> Result<Solid, LoftError> {
             .nth(1)
             .and_then(|before| (before.centroid() - end_outline.centroid()).try_normalize())
             .ok_or(GeometryError::ZeroDirection)?;
+
         close_end(
             &mut builder,
             shell,

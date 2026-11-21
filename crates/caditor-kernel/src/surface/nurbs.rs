@@ -30,7 +30,7 @@ pub(crate) mod counting {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BSplineSurface {
     u_degree: usize,
     v_degree: usize,
@@ -49,13 +49,13 @@ pub struct BSplineSurface {
     poles: [Option<Pole>; 2],
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct SpanIndex {
     tree: BoxTree,
     spans: Vec<Span>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Span {
     hull: Aabb,
     u: Interval,
@@ -64,14 +64,14 @@ struct Span {
     first_row: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct GridBlock {
     bounds: Aabb,
     rows: Range<usize>,
     columns: Range<usize>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct SampleGrid {
     width: usize,
     samples: Vec<(Point2, Point3)>,
@@ -83,6 +83,7 @@ impl SampleGrid {
         let height = samples.len().checked_div(width).unwrap_or(0);
         let starts = |count: usize| (0..count).step_by(BLOCK_SIZE);
         let mut blocks = Vec::new();
+
         for row in starts(height) {
             for column in starts(width) {
                 blocks.push(GridBlock {
@@ -92,11 +93,13 @@ impl SampleGrid {
                 });
             }
         }
+
         let mut grid = Self {
             width,
             samples,
             blocks,
         };
+
         grid.bound_blocks();
         grid
     }
@@ -139,6 +142,7 @@ impl SampleGrid {
                 .collect(),
             blocks: self.blocks.clone(),
         };
+
         moved.bound_blocks();
         moved
     }
@@ -152,10 +156,14 @@ impl SampleGrid {
                 (clamped.distance_squared(point), block)
             })
             .collect();
+
         blocks.sort_by(|a, b| a.0.total_cmp(&b.0));
+
         let mut nearest: Vec<(f64, usize)> = Vec::with_capacity(count + 1);
+
         for (lower, block) in blocks {
             let full = nearest.len() >= count;
+
             if full && nearest.last().is_some_and(|(worst, _)| lower > *worst) {
                 break;
             }
@@ -165,10 +173,13 @@ impl SampleGrid {
                 };
                 let candidate = (sample.distance_squared(point), index);
                 let full = nearest.len() >= count;
+
                 if full && nearest.last().is_some_and(|worst| candidate >= *worst) {
                     continue;
                 }
+
                 let at = nearest.partition_point(|known| *known <= candidate);
+
                 nearest.insert(at, candidate);
                 nearest.truncate(count);
             }
@@ -190,7 +201,7 @@ struct BasisValues<const WIDTH: usize> {
     values: [f64; WIDTH],
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Basis<const WIDTH: usize> {
     first: usize,
     values: [[f64; WIDTH]; 3],
@@ -199,11 +210,14 @@ struct Basis<const WIDTH: usize> {
 fn seam_pieces(range: Interval, domain: Interval, closed: bool) -> Option<Vec<Interval>> {
     let period = domain.length();
     let inside = range.start() >= domain.start() && range.end() <= domain.end();
+
     if !closed || inside || period.is_nan() || period <= 0.0 || range.length() >= period {
         return None;
     }
+
     let start = domain.start() + (range.start() - domain.start()).rem_euclid(period);
     let end = start + range.length();
+
     if end <= domain.end() {
         return Some(vec![Interval::new(start, end)?]);
     }
@@ -249,7 +263,9 @@ impl BSplineSurface {
                 return Err(GeometryError::SplineDegree(degree));
             }
         }
+
         let rows = control_points.len().checked_div(columns).unwrap_or(0);
+
         if columns * rows != control_points.len() || columns <= u_degree || rows <= v_degree {
             return Err(GeometryError::TooFewControlPoints {
                 degree: u_degree.max(v_degree),
@@ -268,6 +284,7 @@ impl BSplineSurface {
         if !control_points.iter().all(|point| point.is_finite()) {
             return Err(GeometryError::NonFinite);
         }
+
         let weights = match weights {
             Some(weights) if weights.len() != control_points.len() => {
                 return Err(GeometryError::WeightCount {
@@ -291,6 +308,7 @@ impl BSplineSurface {
         };
         let u_domain = clamped_domain(&u_knots, u_degree).ok_or(GeometryError::Knots)?;
         let v_domain = clamped_domain(&v_knots, v_degree).ok_or(GeometryError::Knots)?;
+
         let mut surface = Self {
             u_degree,
             v_degree,
@@ -308,6 +326,7 @@ impl BSplineSurface {
             spans: Arc::default(),
             poles: [None; 2],
         };
+
         surface.u_closed = surface.boundaries_meet(true);
         surface.v_closed = surface.boundaries_meet(false);
         surface.grid = Arc::new(surface.sample_grid());
@@ -390,9 +409,11 @@ impl BSplineSurface {
     pub fn transposed(&self) -> Self {
         let mut points = Vec::with_capacity(self.control_points.len());
         let mut weights = Vec::with_capacity(self.control_points.len());
+
         for column in 0..self.columns {
             for row in 0..self.rows {
                 let index = row * self.columns + column;
+
                 points.push(
                     self.control_points
                         .get(index)
@@ -402,6 +423,7 @@ impl BSplineSurface {
                 weights.push(self.weight(index));
             }
         }
+
         let mut transposed = Self {
             u_degree: self.v_degree,
             v_degree: self.u_degree,
@@ -419,6 +441,7 @@ impl BSplineSurface {
             spans: Arc::default(),
             poles: [None; 2],
         };
+
         transposed.grid = Arc::new(transposed.sample_grid());
         transposed.spans = Arc::new(transposed.span_index());
         transposed.poles = transposed.find_poles();
@@ -435,13 +458,16 @@ impl BSplineSurface {
             .iter()
             .map(|point| map(*point))
             .collect();
+
         if !points.iter().all(|point| point.is_finite()) {
             return Err(GeometryError::NonFinite);
         }
+
         let mut moved = Self {
             control_points: points.into(),
             ..self.clone()
         };
+
         moved.grid = Arc::new(self.grid.mapped(&map));
         moved.spans = Arc::new(moved.span_index());
         moved.poles = moved.find_poles();
@@ -538,6 +564,7 @@ impl BSplineSurface {
     pub(crate) fn point(&self, u: f64, v: f64) -> Point3 {
         #[cfg(test)]
         counting::POINTS.with(|count| count.set(count.get() + 1));
+
         let (u, v) = self.wrap(u, v);
         let degree = self.u_degree.max(self.v_degree);
         if degree < CUBIC_WIDTH {
@@ -557,6 +584,7 @@ impl BSplineSurface {
             return Point3::ZERO;
         };
         let (mut sum, mut weight_sum) = (Vector3::ZERO, 0.0);
+
         for (j, v_value) in along_v.values.iter().take(self.v_degree + 1).enumerate() {
             let row = along_v.first + j;
             for (i, u_value) in along_u.values.iter().take(self.u_degree + 1).enumerate() {
@@ -565,6 +593,7 @@ impl BSplineSurface {
                     continue;
                 };
                 let factor = u_value * v_value * self.weight(index);
+
                 sum += *point * factor;
                 weight_sum += factor;
             }
@@ -577,6 +606,7 @@ impl BSplineSurface {
 
     pub(crate) fn with_knots(&self, u_parameters: &[f64], v_parameters: &[f64]) -> Option<Self> {
         let mut grid = self.homogeneous_grid();
+
         let u_knots = insert_into_lines(
             &mut grid,
             &self.u_knots,
@@ -585,6 +615,7 @@ impl BSplineSurface {
             u_parameters,
         )?;
         let mut columns: Vec<Vec<[f64; 4]>> = transpose(&grid);
+
         let v_knots = insert_into_lines(
             &mut columns,
             &self.v_knots,
@@ -652,6 +683,7 @@ impl BSplineSurface {
             self.u_domain,
             u_sides.map(|side| if side { fraction } else { 0.0 }),
         )?;
+
         let (v_knots, columns) = extend_lines(
             transpose(&grid),
             &self.v_knots,
@@ -691,6 +723,7 @@ impl BSplineSurface {
         if self.u_degree != 1 {
             return Some(self.clone());
         }
+
         let lines: Option<Vec<Vec<[f64; 4]>>> = self
             .homogeneous_grid()
             .iter()
@@ -715,6 +748,7 @@ impl BSplineSurface {
             SurfaceSide::VStart | SurfaceSide::VEnd => (self.u_degree, self.u_knots.to_vec()),
             SurfaceSide::UStart | SurfaceSide::UEnd => (self.v_degree, self.v_knots.to_vec()),
         };
+
         let curve = match self.weights {
             Some(_) => BSpline::rational(
                 degree,
@@ -733,11 +767,14 @@ impl BSplineSurface {
             SurfaceSide::VStart | SurfaceSide::VEnd => &self.u_knots,
             SurfaceSide::UStart | SurfaceSide::UEnd => &self.v_knots,
         };
+
         if curve.knots() != &knots[..] || curve.control_points().len() != indices.len() {
             return None;
         }
+
         let mut points = self.control_points.to_vec();
         let mut weights: Option<Vec<f64>> = self.weights.as_ref().map(|weights| weights.to_vec());
+
         for (offset, index) in indices.iter().enumerate() {
             *points.get_mut(*index)? = *curve.control_points().get(offset)?;
             if let Some(weights) = weights.as_mut() {
@@ -822,6 +859,7 @@ impl BSplineSurface {
     pub(crate) fn evaluate(&self, u: f64, v: f64) -> SurfaceDerivatives {
         #[cfg(test)]
         counting::DERIVATIVES.with(|count| count.set(count.get() + 1));
+
         let (u, v) = self.wrap(u, v);
         self.derivatives_at(u, v)
     }
@@ -859,6 +897,7 @@ impl BSplineSurface {
             };
         };
         let mut sums = [[(Vector3::ZERO, 0.0); 3]; 3];
+
         for (j, v_values) in (0..=self.v_degree).map(|j| (j, column_of(&along_v, j))) {
             let row = along_v.first + j;
             for i in 0..=self.u_degree {
@@ -874,6 +913,7 @@ impl BSplineSurface {
                         if k + l > 2 {
                             continue;
                         }
+
                         let factor = u_value * v_value * weight;
                         if let Some(slot) = sums.get_mut(k).and_then(|row| row.get_mut(l)) {
                             slot.0 += *point * factor;
@@ -883,6 +923,7 @@ impl BSplineSurface {
                 }
             }
         }
+
         let get = |k: usize, l: usize| {
             sums.get(k)
                 .and_then(|row| row.get(l))
@@ -890,6 +931,7 @@ impl BSplineSurface {
                 .unwrap_or((Vector3::ZERO, 0.0))
         };
         let (a, w) = get(0, 0);
+
         if w <= 0.0 {
             return SurfaceDerivatives {
                 point: Point3::ZERO,
@@ -900,12 +942,14 @@ impl BSplineSurface {
                 dvv: Vector3::ZERO,
             };
         }
+
         let (a_u, w_u) = get(1, 0);
         let (a_v, w_v) = get(0, 1);
         let (a_uu, w_uu) = get(2, 0);
         let (a_uv, w_uv) = get(1, 1);
         let (a_vv, w_vv) = get(0, 2);
         let point = a / w;
+
         let du = (a_u - point * w_u) / w;
         let dv = (a_v - point * w_v) / w;
         SurfaceDerivatives {
@@ -932,6 +976,7 @@ impl BSplineSurface {
                 .filter_map(|index| self.spans.spans.get(index))
                 .all(|span| self.span_misses(span.first_column, span.first_row, bounds));
         }
+
         let columns = knot_spans(&self.u_knots, self.u_degree, self.columns, self.u_domain);
         let rows = knot_spans(&self.v_knots, self.v_degree, self.rows, self.v_domain);
         rows.iter().all(|(first_row, _)| {
@@ -953,11 +998,14 @@ impl BSplineSurface {
             return true;
         };
         let (low, high) = (hull.min().max(bounds.min()), hull.max().min(bounds.max()));
+
         if (high - low).min_element() < 0.0 {
             return true;
         }
+
         let (last_column, last_row) = (first_column + self.u_degree, first_row + self.v_degree);
         let corner = |column: usize, row: usize| self.control_point(column, row);
+
         let (Some(start), Some(across), Some(along), Some(end)) = (
             corner(first_column, first_row),
             corner(last_column, first_row),
@@ -966,6 +1014,7 @@ impl BSplineSurface {
         ) else {
             return false;
         };
+
         let Some(normal) = (end - start).cross(across - along).try_normalize() else {
             return false;
         };
@@ -997,6 +1046,7 @@ impl BSplineSurface {
                 Some((nearest_squared(&span.hull, point).sqrt(), index))
             })
             .collect();
+
         if near.len() > MAX_SPAN_SEARCHES {
             near.select_nth_unstable_by(MAX_SPAN_SEARCHES, |a, b| a.0.total_cmp(&b.0));
             near.truncate(MAX_SPAN_SEARCHES);
@@ -1063,6 +1113,7 @@ impl BSplineSurface {
                 .reduce(Aabb::union)
                 .unwrap_or_else(|| Aabb::from_point(Point3::ZERO));
         }
+
         let wraps = |range: Interval, domain: Interval, closed: bool| {
             closed && (range.start() < domain.start() || range.end() > domain.end())
         };
@@ -1075,12 +1126,14 @@ impl BSplineSurface {
             if whole {
                 return (0, count - 1);
             }
+
             let low = domain.clamp(range.start());
             let high = domain.clamp(range.end());
             let first = span_of(knots, degree, count, low).saturating_sub(degree);
             let last = span_of(knots, degree, count, high).min(count - 1);
             (first, last)
         };
+
         let (u_first, u_last) = span_indices(
             &self.u_knots,
             self.u_degree,
@@ -1097,6 +1150,7 @@ impl BSplineSurface {
             self.v_domain,
             wraps(v_range, self.v_domain, self.v_closed),
         );
+
         let hull = || {
             let points = (v_first..=v_last).flat_map(|row| {
                 (u_first..=u_last).filter_map(move |column| self.control_point(column, row))
@@ -1105,9 +1159,11 @@ impl BSplineSurface {
         };
         let whole_u = wraps(u_range, self.u_domain, self.u_closed);
         let whole_v = wraps(v_range, self.v_domain, self.v_closed);
+
         if whole_u || whole_v {
             return hull();
         }
+
         let restricted = self.restricted_net(
             (
                 u_first,
@@ -1147,19 +1203,24 @@ impl BSplineSurface {
         let u_knots = self.u_knots.get(u_first..=u_last + self.u_degree + 1)?;
         let v_knots = self.v_knots.get(v_first..=v_last + self.v_degree + 1)?;
         let mut rows = Vec::with_capacity(v_last - v_first + 1);
+
         for row in v_first..=v_last {
             let points = (u_first..=u_last)
                 .map(|column| homogeneous(column, row))
                 .collect::<Option<Vec<_>>>()?;
+
             rows.push(restrict(u_knots, self.u_degree, points, u_low, u_high)?);
         }
+
         let width = rows.first()?.len();
         let mut net = Vec::with_capacity(width * rows.len());
+
         for column in 0..width {
             let points = rows
                 .iter()
                 .map(|row| row.get(column).copied())
                 .collect::<Option<Vec<_>>>()?;
+
             net.extend(restrict(v_knots, self.v_degree, points, v_low, v_high)?);
         }
         Some(net)
@@ -1169,9 +1230,11 @@ impl BSplineSurface {
         let columns = knot_spans(&self.u_knots, self.u_degree, self.columns, self.u_domain);
         let rows = knot_spans(&self.v_knots, self.v_degree, self.rows, self.v_domain);
         let sampled_by_grid = |spans: usize| spans * SAMPLES_PER_SPAN <= MAX_GRID_SAMPLES;
+
         if sampled_by_grid(columns.len()) && sampled_by_grid(rows.len()) {
             return SpanIndex::default();
         }
+
         let spans: Vec<Span> = rows
             .iter()
             .flat_map(|(first_row, v)| {
@@ -1200,7 +1263,9 @@ impl BSplineSurface {
                 .copied()
                 .filter(|knot| domain.contains(*knot))
                 .collect();
+
             breaks.dedup();
+
             let spans = breaks.len().saturating_sub(1).max(1);
             (spans * SAMPLES_PER_SPAN).clamp(2, MAX_GRID_SAMPLES)
         };
@@ -1208,11 +1273,14 @@ impl BSplineSurface {
             steps(&self.u_knots, self.u_domain),
             steps(&self.v_knots, self.v_domain),
         );
+
         let mut grid = Vec::with_capacity((columns + 1) * (rows + 1));
+
         for row in 0..=rows {
             let v = self.v_domain.at(row as f64 / rows as f64);
             for column in 0..=columns {
                 let u = self.u_domain.at(column as f64 / columns as f64);
+
                 grid.push((Point2::new(u, v), self.evaluate(u, v).point));
             }
         }
@@ -1258,14 +1326,17 @@ fn restrict(
     if low.is_nan() || high.is_nan() || low >= high || degree == 0 {
         return None;
     }
+
     let mut knots = knots.to_vec();
     let mut points = points;
+
     for parameter in [low, high] {
         let present = knots.iter().filter(|knot| **knot == parameter).count();
         for _ in present..degree {
             insert_knot(&mut knots, &mut points, degree, parameter)?;
         }
     }
+
     let count = points.len();
     let first = knots
         .partition_point(|knot| *knot <= low)
@@ -1292,6 +1363,7 @@ fn insert_knot(
         .checked_sub(1)?
         .clamp(degree, count.checked_sub(1)?);
     let mut inserted = Vec::with_capacity(count + 1);
+
     for index in 0..=count {
         let point = if index + degree <= span {
             *points.get(index)?
@@ -1299,6 +1371,7 @@ fn insert_knot(
             *points.get(index - 1)?
         } else {
             let (start, end) = (*knots.get(index)?, *knots.get(index + degree)?);
+
             let along = if end > start {
                 (parameter - start) / (end - start)
             } else {
@@ -1310,6 +1383,7 @@ fn insert_knot(
                 a.zip(b).map_or(f64::NAN, |(a, b)| a + (b - a) * along)
             })
         };
+
         inserted.push(point);
     }
     knots.insert(span + 1, parameter);
@@ -1325,16 +1399,21 @@ fn insert_into_lines(
     parameters: &[f64],
 ) -> Option<Vec<f64>> {
     let mut knots = knots.to_vec();
+
     for parameter in parameters {
         let inside = domain.start() < *parameter && *parameter < domain.end();
         let present = knots.iter().filter(|knot| **knot == *parameter).count();
+
         if !inside || present >= degree {
             continue;
         }
+
         let mut inserted = None;
+
         for line in lines.iter_mut() {
             let mut line_knots = knots.clone();
             let mut points = std::mem::take(line);
+
             insert_knot(&mut line_knots, &mut points, degree, *parameter)?;
             *line = points;
             inserted = Some(line_knots);
@@ -1358,15 +1437,20 @@ fn restrict_lines(
     range: Interval,
 ) -> Option<(Vec<f64>, Lines)> {
     let (low, high) = (domain.clamp(range.start()), domain.clamp(range.end()));
+
     if low >= high {
         return None;
     }
+
     let mut parameters = vec![low; degree];
+
     parameters.extend(std::iter::repeat_n(high, degree));
+
     let knots = insert_into_lines(&mut lines, knots, degree, domain, &parameters)?;
     let occurrences = |value: f64| knots.iter().filter(|knot| **knot == value).count();
     let first_low = knots.iter().position(|knot| *knot == low)?;
     let first_high = knots.iter().position(|knot| *knot == high)?;
+
     let first = (first_low + occurrences(low)).checked_sub(degree + 1)?;
     let last = first_high.checked_sub(1)?;
     let interior = knots.iter().filter(|knot| **knot > low && **knot < high);
@@ -1374,6 +1458,7 @@ fn restrict_lines(
         .chain(interior.copied())
         .chain(std::iter::repeat_n(high, degree + 1))
         .collect();
+
     let kept: Option<Lines> = lines
         .iter()
         .map(|line| line.get(first..=last).map(<[_]>::to_vec))
@@ -1390,15 +1475,18 @@ fn extend_lines(
 ) -> Option<(Vec<f64>, Lines)> {
     let (start, end) = (domain.start(), domain.end());
     let occurrences = |value: f64| knots.iter().filter(|knot| **knot == value).count();
+
     if fractions == [0.0; 2] {
         return Some((knots.to_vec(), lines));
     }
     if occurrences(start) <= degree || occurrences(end) <= degree {
         return None;
     }
+
     let after_start = knots.iter().copied().find(|knot| *knot > start)?;
     let before_end = knots.iter().copied().rev().find(|knot| *knot < end)?;
     let mut parameters = Vec::new();
+
     for (fraction, inner) in fractions.into_iter().zip([after_start, before_end]) {
         if fraction > 0.0 && inner > start && inner < end {
             parameters.extend(std::iter::repeat_n(
@@ -1407,9 +1495,12 @@ fn extend_lines(
             ));
         }
     }
+
     let mut lines = lines;
+
     let mut knots = insert_into_lines(&mut lines, knots, degree, domain, &parameters)?;
     let mut reaches = [0.0; 2];
+
     for (side, fraction) in fractions.into_iter().enumerate() {
         let span = if side == 0 {
             after_start - start
@@ -1433,8 +1524,10 @@ fn extend_lines(
             }
         }
     }
+
     let count = knots.len();
     let [start_by, end_by] = reaches;
+
     for (index, knot) in knots.iter_mut().enumerate() {
         if index <= degree {
             *knot -= start_by;
@@ -1452,6 +1545,7 @@ fn extend_line(
     beyond: f64,
 ) -> Option<Vec<[f64; 4]>> {
     let mut extended = line.to_vec();
+
     if at_start {
         let first = line.get(..=degree)?;
         for (slot, point) in extended.iter_mut().zip(bezier_after(first, -beyond)) {
@@ -1476,6 +1570,7 @@ fn extend_line(
 
 fn casteljau_levels(points: &[[f64; 4]], along: f64) -> Vec<Vec<[f64; 4]>> {
     let mut levels = vec![points.to_vec()];
+
     while let Some(level) = levels.last().filter(|level| level.len() > 1) {
         let next = level
             .windows(2)
@@ -1487,6 +1582,7 @@ fn casteljau_levels(points: &[[f64; 4]], along: f64) -> Vec<Vec<[f64; 4]>> {
                 _ => [f64::NAN; 4],
             })
             .collect();
+
         levels.push(next);
     }
     levels
@@ -1509,17 +1605,21 @@ fn bezier_after(points: &[[f64; 4]], along: f64) -> Vec<[f64; 4]> {
 
 fn cubic_line(line: &[[f64; 4]]) -> Option<Vec<[f64; 4]>> {
     let mut points = vec![*line.first()?];
+
     for pair in line.windows(2) {
         let [start, end] = pair else {
             return None;
         };
+
         let mix = |along: f64| {
             let mut mixed = *start;
+
             for (slot, target) in mixed.iter_mut().zip(end) {
                 *slot += (target - *slot) * along;
             }
             mixed
         };
+
         points.extend([mix(1.0 / 3.0), mix(2.0 / 3.0), *end]);
     }
     Some(points)
@@ -1527,7 +1627,9 @@ fn cubic_line(line: &[[f64; 4]]) -> Option<Vec<[f64; 4]>> {
 
 fn cubic_knots(knots: &[f64]) -> Vec<f64> {
     let mut distinct = knots.to_vec();
+
     distinct.dedup();
+
     let last = distinct.len().saturating_sub(1);
     distinct
         .iter()
@@ -1569,19 +1671,25 @@ fn basis_table<const WIDTH: usize>(
     let mut table = [[0.0f64; WIDTH]; WIDTH];
     let mut left = [0.0f64; WIDTH];
     let mut right = [0.0f64; WIDTH];
+
     *table.get_mut(0)?.get_mut(0)? = 1.0;
     for j in 1..=degree {
         *left.get_mut(j)? = parameter - knot(span + 1 - j);
         *right.get_mut(j)? = knot(span + j) - parameter;
+
         let mut saved = 0.0;
+
         for r in 0..j {
             let lower = *right.get(r + 1)? + *left.get(j - r)?;
+
             *table.get_mut(j)?.get_mut(r)? = lower;
+
             let temp = if lower != 0.0 {
                 *table.get(r)?.get(j - 1)? / lower
             } else {
                 0.0
             };
+
             *table.get_mut(r)?.get_mut(j)? = saved + *right.get(r + 1)? * temp;
             saved = *left.get(j - r)? * temp;
         }
@@ -1598,6 +1706,7 @@ fn basis_values<const WIDTH: usize>(
 ) -> Option<BasisValues<WIDTH>> {
     let BasisTable { span, table } = basis_table::<WIDTH>(knots, degree, count, parameter)?;
     let mut values = [0.0f64; WIDTH];
+
     for (j, value) in values.iter_mut().enumerate().take(degree + 1) {
         *value = *table.get(j)?.get(degree)?;
     }
@@ -1615,17 +1724,22 @@ fn basis<const WIDTH: usize>(
 ) -> Option<Basis<WIDTH>> {
     let BasisTable { span, table } = basis_table::<WIDTH>(knots, degree, count, parameter)?;
     let mut values = [[0.0f64; WIDTH]; 3];
+
     for j in 0..=degree {
         *values.get_mut(0)?.get_mut(j)? = *table.get(j)?.get(degree)?;
     }
+
     let mut a = [[0.0f64; WIDTH]; 2];
+
     for r in 0..=degree {
         let (mut s1, mut s2) = (0usize, 1usize);
+
         *a.get_mut(0)?.get_mut(0)? = 1.0;
         for k in 1..=2usize.min(degree) {
             let mut d = 0.0;
             let rk = r as isize - k as isize;
             let pk = degree - k;
+
             if rk >= 0 {
                 let rk = rk as usize;
                 let denominator = *table.get(pk + 1)?.get(rk)?;
@@ -1634,15 +1748,18 @@ fn basis<const WIDTH: usize>(
                 } else {
                     0.0
                 };
+
                 *a.get_mut(s2)?.get_mut(0)? = value;
                 d = value * *table.get(rk)?.get(pk)?;
             }
+
             let j1 = if rk >= -1 { 1 } else { (-rk) as usize };
             let j2 = if r as isize - 1 <= pk as isize {
                 k - 1
             } else {
                 degree - r
             };
+
             for j in j1..=j2 {
                 let index = (rk + j as isize) as usize;
                 let denominator = *table.get(pk + 1)?.get(index)?;
@@ -1651,6 +1768,7 @@ fn basis<const WIDTH: usize>(
                 } else {
                     0.0
                 };
+
                 *a.get_mut(s2)?.get_mut(j)? = value;
                 d += value * *table.get(index)?.get(pk)?;
             }
@@ -1661,6 +1779,7 @@ fn basis<const WIDTH: usize>(
                 } else {
                     0.0
                 };
+
                 *a.get_mut(s2)?.get_mut(k)? = value;
                 d += value * *table.get(r)?.get(pk)?;
             }
@@ -1668,7 +1787,9 @@ fn basis<const WIDTH: usize>(
             std::mem::swap(&mut s1, &mut s2);
         }
     }
+
     let mut factor = degree as f64;
+
     for k in 1..=2usize.min(degree) {
         for j in 0..=degree {
             *values.get_mut(k)?.get_mut(j)? *= factor;
@@ -1695,9 +1816,11 @@ mod tests {
 
     fn wavy() -> BSplineSurface {
         let mut points = Vec::new();
+
         for row in 0..5 {
             for column in 0..6 {
                 let height = ((row * 7 + column * 3) % 5) as f64 - 2.0;
+
                 points.push(Point3::new(column as f64 * 2.0, row as f64 * 3.0, height));
             }
         }
@@ -1725,6 +1848,7 @@ mod tests {
         ];
         let mut points = Vec::new();
         let mut weights = Vec::new();
+
         for height in [0.0, 10.0] {
             for (point, weight) in arc {
                 points.push(point + Vector3::Z * height);
@@ -1746,9 +1870,11 @@ mod tests {
     fn bumpy(rational: bool) -> BSplineSurface {
         let size = 14;
         let mut points = Vec::new();
+
         for row in 0..size {
             for column in 0..size {
                 let (x, y) = (column as f64 * 4.0, row as f64 * 4.0);
+
                 points.push(Point3::new(
                     x,
                     y,
@@ -1756,6 +1882,7 @@ mod tests {
                 ));
             }
         }
+
         let knots: Vec<f64> = std::iter::repeat_n(0.0, 4)
             .chain((1..size - 3).map(|index| index as f64 / (size - 3) as f64))
             .chain(std::iter::repeat_n(1.0, 4))
@@ -1806,10 +1933,13 @@ mod tests {
             for row in 0..=12 {
                 for column in 0..=12 {
                     let (s, t) = (column as f64 / 12.0, row as f64 / 12.0);
+
                     let inside = surface.evaluate(u.at(s), v.at(t)).point;
                     let (outer_u, outer_v) = (wide_u.at(s), wide_v.at(t));
+
                     let continued = surface.extended_evaluate(outer_u, outer_v).point;
                     let gap = extended.evaluate(u.at(s), v.at(t)).point.distance(inside);
+
                     assert!(
                         gap < 1e-9,
                         "{index} {s} {t} {gap} {u:?} {v:?} {wide_u:?} {wide_v:?}"
@@ -1831,10 +1961,12 @@ mod tests {
     fn a_closed_or_pinched_side_is_not_extended() {
         let size = 6;
         let mut points = Vec::new();
+
         for row in 0..size {
             for column in 0..size {
                 let angle = column as f64 / (size - 1) as f64 * std::f64::consts::PI;
                 let radius = row as f64;
+
                 points.push(Point3::new(
                     radius * angle.cos_libm(),
                     radius * angle.sin_libm(),
@@ -1842,6 +1974,7 @@ mod tests {
                 ));
             }
         }
+
         let knots: Vec<f64> = std::iter::repeat_n(0.0, 4)
             .chain([0.4, 0.6])
             .chain(std::iter::repeat_n(1.0, 4))
@@ -1863,7 +1996,9 @@ mod tests {
             let (u, v) = (spline.u_domain, spline.v_domain);
             for _ in 0..200 {
                 let (s, t) = (random.between(-0.2, 1.2), random.between(-0.2, 1.2));
+
                 let (s, t) = (u.at(s), v.at(t));
+
                 assert_eq!(
                     spline.point(s, t),
                     spline.evaluate(s, t).point,
@@ -1881,10 +2016,12 @@ mod tests {
                     let found = surface.project(point, hint);
                     let at = surface.evaluate(found.x, found.y);
                     let offset = at.point - point;
+
                     let tangential = offset
                         .dot(at.du.normalize())
                         .abs()
                         .max(offset.dot(at.dv.normalize()).abs());
+
                     assert!(tangential < 1e-12, "{point} with {hint:?}: {tangential}");
                     assert!((found - uv).length() < 1e-9, "{point}: {found} vs {uv}");
                 }
@@ -1902,9 +2039,11 @@ mod tests {
                 for (point, uv) in &points {
                     surface.project(*point, hinted.then_some(*uv + Point2::splat(0.01)));
                 }
+
                 let per_projection = |count: usize| count as f64 / points.len() as f64;
                 let derivatives = per_projection(counting::DERIVATIVES.with(Cell::get));
                 let evaluated_points = per_projection(counting::POINTS.with(Cell::get));
+
                 assert!(derivatives < 20.0, "{derivatives} derivative evaluations");
                 assert!(
                     evaluated_points < 26.0,
@@ -1918,13 +2057,16 @@ mod tests {
     fn a_small_box_is_bounded_tightly_and_still_contains_its_surface() {
         for surface in [wavy(), quarter_cylinder()] {
             let (u, v) = (surface.u_domain, surface.v_domain);
+
             let whole = surface.bounds(u, v);
             for (low, high) in [(0.1, 0.2), (0.45, 0.55), (0.8, 0.95)] {
                 let (u_box, v_box) = (
                     Interval::new(u.at(low), u.at(high)).unwrap(),
                     Interval::new(v.at(low), v.at(high)).unwrap(),
                 );
+
                 let bounds = surface.bounds(u_box, v_box);
+
                 assert!(bounds.diagonal() < 0.5 * whole.diagonal(), "{bounds:?}");
                 for row in 0..=8 {
                     for column in 0..=8 {
@@ -1932,8 +2074,10 @@ mod tests {
                             .evaluate(u_box.at(column as f64 / 8.0), v_box.at(row as f64 / 8.0))
                             .point;
                         let margin = bounds.expanded(1e-9);
+
                         let inside =
                             point.cmpge(margin.min()).all() && point.cmple(margin.max()).all();
+
                         assert!(inside, "{point} is outside {bounds:?}");
                     }
                 }
@@ -1971,21 +2115,29 @@ mod tests {
     #[test]
     fn a_rational_patch_is_an_exact_cylinder_with_outward_normals() {
         let surface = quarter_cylinder();
+
         for step in 0..=10 {
             let u = step as f64 / 10.0;
             let at = surface.evaluate(u, 0.5);
             let radial = Vector3::new(at.point.x, at.point.y, 0.0);
+
             assert!((radial.length() - 5.0).abs() < 1e-12);
             assert!((at.point.z - 5.0).abs() < 1e-12);
+
             let normal = at.normal().unwrap();
+
             assert!(normal.dot(radial.normalize()) > 1.0 - 1e-12);
         }
+
         assert_eq!(surface.u_period(), None);
         assert!(surface.poles().is_empty());
+
         let wrapped = Surface::from(surface);
         let point = Point3::new(6.0 * FRAC_1_SQRT_2, 6.0 * FRAC_1_SQRT_2, 3.0);
+
         let uv = wrapped.project(point, None);
         let foot = wrapped.point_at(uv);
+
         assert!(foot.distance(Point3::new(5.0 * FRAC_1_SQRT_2, 5.0 * FRAC_1_SQRT_2, 3.0)) < 1e-9);
         assert!((wrapped.distance(point) - 1.0).abs() < 1e-9);
     }
@@ -1994,7 +2146,9 @@ mod tests {
     fn the_nearest_grid_samples_match_a_full_scan() {
         let surface = wavy();
         let grid = &surface.grid;
+
         assert!(grid.blocks.len() > 1);
+
         let mut random = crate::test_support::Random::new(7);
         for _ in 0..200 {
             let point = random.point(15.0) + Vector3::new(5.0, 6.0, 0.0);
@@ -2004,12 +2158,15 @@ mod tests {
                 .enumerate()
                 .map(|(index, (_, sample))| (sample.distance_squared(point), index))
                 .collect();
+
             scanned.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+
             let expected: Vec<Point2> = scanned
                 .iter()
                 .take(PROJECTION_SEEDS)
                 .map(|(_, index)| grid.samples[*index].0)
                 .collect();
+
             assert_eq!(grid.nearest(point, PROJECTION_SEEDS), expected);
         }
     }
@@ -2026,11 +2183,14 @@ mod tests {
             let at = surface.evaluate(u, v);
             let point = at.point + at.normal().unwrap() * lift;
             let uv = surface.project(point, None);
+
             assert!(
                 (uv - Point2::new(u, v)).length() < 1e-6,
                 "{uv} vs ({u}, {v})"
             );
+
             let hinted = surface.project(point, Some(Point2::new(u + 0.01, v - 0.01)));
+
             assert!((hinted - Point2::new(u, v)).length() < 1e-6);
         }
     }
@@ -2039,6 +2199,7 @@ mod tests {
     fn projection_finds_points_on_a_dense_rough_net() {
         let size = 60;
         let mut random = crate::test_support::Random::new(11);
+
         let points = (0..size * size)
             .map(|index| {
                 Point3::new(
@@ -2051,17 +2212,21 @@ mod tests {
         let knots = |count: usize| {
             let inner = count - 3;
             let mut knots = vec![0.0; 4];
+
             knots.extend((1..inner).map(|knot| knot as f64 / inner as f64));
             knots.extend([1.0; 4]);
             knots
         };
+
         let rough =
             BSplineSurface::new(3, 3, knots(size), knots(size), size, points, None).unwrap();
         let surface = Surface::from(rough);
 
         let mut missed = 0;
+
         for _ in 0..2000 {
             let (u, v) = (random.unit(), random.unit());
+
             let point = surface.point_at(Point2::new(u, v));
             let found = surface.point_at(surface.project(point, None));
             if found.distance(point) > LINEAR_RESOLUTION {
@@ -2086,6 +2251,7 @@ mod tests {
         ];
         let mut points = Vec::new();
         let mut weights = Vec::new();
+
         for height in [0.0, 6.0] {
             for (x, y, weight) in ring {
                 points.push(Point3::new(x * 4.0, y * 4.0, height));
@@ -2116,12 +2282,15 @@ mod tests {
         let whole = tube.bounds(Interval::new(-0.5, 0.5).unwrap(), heights);
 
         assert_eq!(tube.u_period(), Some(1.0));
+
         for uv in [(-0.01, 0.0), (0.0, 1.0), (0.01, 0.5)] {
             let point = tube.evaluate(uv.0, uv.1).point;
             let inside =
                 point.cmpge(across.min() - 1e-9).all() && point.cmple(across.max() + 1e-9).all();
+
             assert!(inside, "{point}");
         }
+
         assert!(
             across.min().x > 3.9 && across.max().y - across.min().y < 1.0,
             "{across:?}"
@@ -2148,12 +2317,14 @@ mod tests {
         ];
         let mut points = Vec::new();
         let mut weights = Vec::new();
+
         for (radius, height) in [(0.0, 0.0), (4.0, 0.0), (4.0, 6.0)] {
             for (x, y, weight) in ring {
                 points.push(Point3::new(x * radius, y * radius, height));
                 weights.push(weight);
             }
         }
+
         let knots = vec![
             0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
         ];
@@ -2167,9 +2338,12 @@ mod tests {
             Some(weights),
         )
         .unwrap();
+
         assert_eq!(cup.u_period(), Some(1.0));
         assert_eq!(cup.v_period(), None);
+
         let poles = cup.poles();
+
         assert_eq!(poles.len(), 1);
         assert_eq!(poles[0].v, 0.0);
         assert!(
@@ -2178,13 +2352,17 @@ mod tests {
                 .distance(cup.evaluate(0.25, 0.5).point)
                 < 1e-12
         );
+
         let surface = Surface::from(cup.clone());
         let near_seam = surface.project(
             cup.evaluate(0.999, 0.7).point,
             Some(Point2::new(-0.01, 0.7)),
         );
+
         assert!((near_seam.x + 0.001).abs() < 1e-6, "{near_seam}");
+
         let turned = cup.transposed();
+
         assert_eq!(turned.v_period(), Some(1.0));
         assert!(turned.degenerate_column(0));
         assert!(
@@ -2194,12 +2372,14 @@ mod tests {
                 .distance(cup.evaluate(0.25, 0.5).point)
                 < 1e-12
         );
+
         let _ = FRAC_PI_2;
     }
 
     #[test]
     fn bad_input_is_refused() {
         let points = vec![Point3::ZERO; 4];
+
         assert!(
             BSplineSurface::new(
                 1,

@@ -42,13 +42,17 @@ const LARGEST_ESCAPED: u32 = 0xFFFF;
 
 pub(super) fn encode(figure: &Figure) -> String {
     let mut writer = Writer::default();
+
     writer.header();
+
     let layers = figure.layers();
+
     if layers.iter().any(|layer| layer.is_on_sheet()) {
         writer.sheet_tables(&layers);
     } else if layers.contains(&Layer::Construction) {
         writer.dashed_tables();
     }
+
     let dimensions: Vec<&Dimension> = figure
         .shapes
         .iter()
@@ -57,6 +61,7 @@ pub(super) fn encode(figure: &Figure) -> String {
             _ => None,
         })
         .collect();
+
     if !dimensions.is_empty() {
         writer.blocks(&dimensions);
     }
@@ -105,6 +110,7 @@ impl Writer {
         self.pair(0, "SECTION");
         self.pair(2, "TABLES");
         self.linetypes(HIDDEN_DASH, HIDDEN_GAP, true);
+
         let described: Vec<(Layer, u32, &str, Option<u32>)> = layers
             .iter()
             .filter_map(|layer| match layer {
@@ -117,6 +123,7 @@ impl Writer {
                 _ => None,
             })
             .collect();
+
         self.pair(0, "TABLE");
         self.pair(2, "LAYER");
         self.pair(70, described.len());
@@ -254,6 +261,7 @@ impl Writer {
         self.pair(2, "BLOCKS");
         for (index, dimension) in dimensions.iter().enumerate() {
             let name = block_name(index + 1);
+
             self.pair(0, "BLOCK");
             self.pair(8, Layer::Sketch.name());
             self.pair(2, &name);
@@ -272,6 +280,7 @@ impl Writer {
 
     fn dimension(&mut self, layer: Layer, dimension: &Dimension) {
         self.dimensions += 1;
+
         let kind = match dimension.measure {
             Measure::Linear { .. } => ROTATED_DIMENSION,
             Measure::Angular { .. } => ANGULAR_DIMENSION,
@@ -284,6 +293,7 @@ impl Writer {
             Measure::Radius { center, .. } => center,
             Measure::Diameter { far, .. } => far,
         };
+
         self.pair(0, "DIMENSION");
         self.pair(100, "AcDbEntity");
         self.pair(8, layer.name());
@@ -337,6 +347,7 @@ impl Writer {
         } else {
             (ellipse.start.rem_euclid(TAU), ellipse.end.rem_euclid(TAU))
         };
+
         self.entity("ELLIPSE", layer);
         self.location(10, ellipse.center);
         self.location(11, ellipse.major);
@@ -350,6 +361,7 @@ impl Writer {
             Some(_) => PLANAR_SPLINE | RATIONAL_SPLINE,
             None => PLANAR_SPLINE,
         };
+
         self.entity("SPLINE", layer);
         self.pair(70, flags);
         self.pair(71, spline.degree);
@@ -389,6 +401,7 @@ fn block_name(number: usize) -> String {
 
 fn escaped(content: &str) -> String {
     let mut escaped = String::with_capacity(content.len());
+
     for character in content.chars() {
         match character {
             '%' => escaped.push_str("%%%"),

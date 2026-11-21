@@ -26,6 +26,7 @@ struct Floating {
 
 fn floating_rectangle() -> Floating {
     let mut sketch = Sketch::new(Plane::XY);
+
     let lines = [
         sketch.add_line(Point2::new(3.0, 2.0), Point2::new(43.0, 2.0)),
         sketch.add_line(Point2::new(43.0, 2.0), Point2::new(43.0, 22.0)),
@@ -33,13 +34,17 @@ fn floating_rectangle() -> Floating {
         sketch.add_line(Point2::new(3.0, 22.0), Point2::new(3.0, 2.0)),
     ];
     let ends: Vec<(EntityId, EntityId)> = lines.iter().map(|line| ends(&sketch, *line)).collect();
+
     for (index, (_, end)) in ends.iter().enumerate() {
         let next = ends.get((index + 1) % 4).unwrap().0;
+
         sketch
             .add_constraint(Constraint::Coincident(*end, next))
             .unwrap();
     }
+
     let [bottom, right, top, left] = lines;
+
     for constraint in [
         Constraint::Horizontal(bottom),
         Constraint::Vertical(right),
@@ -53,6 +58,7 @@ fn floating_rectangle() -> Floating {
     ] {
         sketch.add_constraint(constraint).unwrap();
     }
+
     let corners = [0, 1, 2, 3].map(|index| ends.get(index).unwrap().0);
     Floating {
         sketch,
@@ -111,6 +117,7 @@ fn a_width_driven_by_a_parameter_is_determined_like_its_value_and_unknown_withou
     let forty = |_: ParameterId| Ok(Quantity::length(40.0));
     let missing = |_: ParameterId| Err(EvalError::ParameterMissing);
     let solved = solved(&sketch);
+
     let determines = |parameters: &dyn Fn(ParameterId) -> Result<Quantity, EvalError>, line| {
         solved
             .geometry
@@ -138,6 +145,7 @@ fn an_equal_length_carries_the_dimension_round_a_corner() {
         mut sketch, lines, ..
     } = floating_rectangle();
     let [bottom, right, _, left] = lines;
+
     sketch
         .add_constraint(Constraint::Equal(bottom, right))
         .unwrap();
@@ -158,6 +166,7 @@ fn a_diagonal_still_free_to_stretch_is_not_determined() {
         to: third,
         value: mm(1.0),
     };
+
     let diagonal = Constraint::Distance {
         from: first,
         to: third,
@@ -190,6 +199,7 @@ fn a_horizontal_distance_along_the_dimensioned_side_is_determined() {
 
 fn pinned_spline() -> (Sketch, EntityId) {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(
         &[
             Point2::new(0.0, 0.0),
@@ -202,8 +212,10 @@ fn pinned_spline() -> (Sketch, EntityId) {
     let Some(Entity::Spline { points, .. }) = sketch.entity(spline).cloned() else {
         panic!("expected a spline");
     };
+
     for point in points {
         let at = sketch.point(point).unwrap();
+
         sketch
             .add_constraint(Constraint::Fix { point, at })
             .unwrap();
@@ -215,12 +227,14 @@ fn pinned_spline() -> (Sketch, EntityId) {
 fn a_distance_from_a_pinned_spline_to_a_pinned_point_is_determined_though_it_brings_a_parameter() {
     let (mut sketch, spline) = pinned_spline();
     let away = sketch.add_point(Point2::new(15.0, 12.0));
+
     sketch
         .add_constraint(Constraint::Fix {
             point: away,
             at: Point2::new(15.0, 12.0),
         })
         .unwrap();
+
     let measuring = Constraint::Distance {
         from: away,
         to: spline,
@@ -242,6 +256,7 @@ fn a_distance_from_a_pinned_spline_to_a_pinned_point_is_determined_though_it_bri
 fn a_distance_from_a_pinned_spline_to_a_free_point_is_not_determined() {
     let (mut sketch, spline) = pinned_spline();
     let away = sketch.add_point(Point2::new(15.0, 12.0));
+
     let measuring = Constraint::Distance {
         from: away,
         to: spline,

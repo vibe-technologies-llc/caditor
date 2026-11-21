@@ -21,7 +21,7 @@ const CURVATURE_SAMPLES: usize = 720;
 const COLLAPSE_SHARE: f64 = 1e-6;
 const CROSSING_SEGMENT_ANGLE: f64 = PI / 90.0;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Free {
     Ellipse(EllipseGeometry),
     Spline { curve: BSpline, closed: bool },
@@ -71,6 +71,7 @@ impl Free {
             }
         };
         let speed = tangent.length();
+
         if speed <= f64::MIN_POSITIVE {
             return 0.0;
         }
@@ -131,7 +132,7 @@ impl Free {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Around {
     pub curve: EntityId,
     shape: Free,
@@ -175,13 +176,16 @@ impl Around {
         if !(distance.is_finite() && distance > 0.0) {
             return Err(OffsetError::NotPositive);
         }
+
         let by = side.sign() * distance;
+
         if self.shape.collapses_under(by) {
             return Err(OffsetError::Collapses {
                 entity: self.curve,
                 label: label.to_owned(),
             });
         }
+
         let closed = self.closed();
         let mut count = self.shape.first_fit_points();
         let tolerance = FIT_TOLERANCE * self.shape.reach();
@@ -193,6 +197,7 @@ impl Around {
             let within = curve
                 .as_ref()
                 .is_some_and(|curve| self.strays(curve, count, distance) <= tolerance);
+
             if within || count >= MAX_FIT_POINTS {
                 if self.shape.may_cross_itself()
                     && curve
@@ -270,10 +275,12 @@ impl Sketch {
         let closed = around.closed();
         let source = around.curve;
         let points = points.iter().map(|point| self.add_point(*point)).collect();
+
         let spline = self.add_entity(Entity::Spline {
             points,
             kind: SplineKind::fit(closed),
         })?;
+
         if self.is_construction(source) {
             self.set_construction(spline, true)?;
         }

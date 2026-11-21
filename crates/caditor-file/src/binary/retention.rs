@@ -72,7 +72,7 @@ const TIERS: [Tier; 4] = [
     },
 ];
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Retention {
     More,
     #[default]
@@ -100,7 +100,7 @@ impl Retention {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Candidate {
     pub saved_at: Option<u64>,
     pub kept: bool,
@@ -116,7 +116,9 @@ pub(super) fn retained(candidates: &[Candidate], now: u64, retention: Retention)
             let Some(saved) = candidate.saved_at else {
                 return true;
             };
+
             listed += 1;
+
             let age = now.saturating_sub(saved);
             let slot = retention
                 .tiers()
@@ -160,10 +162,13 @@ mod tests {
     #[test]
     fn the_newest_versions_are_always_kept() {
         let within_a_minute: Vec<Option<u64>> = (0..10).map(|second| Some(NOW - second)).collect();
+
         assert_eq!(kept(&within_a_minute), 10);
 
         let mut more = within_a_minute.clone();
+
         more.extend((10..30).map(|second| Some(NOW - second)));
+
         assert_eq!(
             retained(&plain(&more), NOW, Retention::Standard)[..10],
             [true; 10]
@@ -176,6 +181,7 @@ mod tests {
         let every_ten_minutes: Vec<Option<u64>> =
             (0..6 * 48).map(|step| Some(NOW - step * 600)).collect();
         let kept_count = kept(&every_ten_minutes);
+
         assert!(
             (10 + 24..=10 + 24 + 2 + 2).contains(&kept_count),
             "{kept_count}"
@@ -185,6 +191,7 @@ mod tests {
             .map(|step| Some(NOW - step * HOUR))
             .collect();
         let kept_count = kept(&hourly_for_two_years);
+
         assert!(
             (24 + 29 + 47 + 12..=24 + 30 + 49 + 14).contains(&kept_count),
             "{kept_count}"
@@ -192,6 +199,7 @@ mod tests {
 
         let decisions = retained(&plain(&hourly_for_two_years), NOW, Retention::Standard);
         let oldest_kept = decisions.iter().rposition(|kept| *kept).unwrap();
+
         assert!(oldest_kept + 31 * 24 >= hourly_for_two_years.len());
     }
 
@@ -201,6 +209,7 @@ mod tests {
             .map(|step| Some(NOW - 2 * HOUR - step * 60))
             .collect();
         let decisions = retained(&plain(&saved_at), NOW, Retention::Standard);
+
         assert_eq!(decisions.iter().filter(|kept| **kept).count(), 10);
         assert!(decisions[..10].iter().all(|kept| *kept));
     }
@@ -208,7 +217,9 @@ mod tests {
     #[test]
     fn unlisted_versions_and_times_in_the_future_are_kept() {
         let mut saved_at: Vec<Option<u64>> = (0..10).map(|step| Some(NOW - step)).collect();
+
         saved_at.extend([None, Some(NOW + YEAR), None, Some(NOW + YEAR + 1)]);
+
         assert_eq!(
             retained(&plain(&saved_at), NOW, Retention::Standard)[10..],
             [true, true, true, false]
@@ -221,6 +232,7 @@ mod tests {
             .map(|step| Some(NOW - step * HOUR))
             .collect();
         let marked = [40, 41, 500, 5_000, 17_000];
+
         let candidates: Vec<Candidate> = hourly_for_two_years
             .iter()
             .enumerate()
@@ -233,9 +245,11 @@ mod tests {
         let decisions = retained(&candidates, NOW, Retention::Standard);
 
         assert!(marked.iter().all(|position| decisions[*position]));
+
         let unmarked = retained(&plain(&hourly_for_two_years), NOW, Retention::Standard);
         let extra = decisions.iter().filter(|kept| **kept).count()
             - unmarked.iter().filter(|kept| **kept).count();
+
         assert!(extra <= marked.len(), "{extra}");
     }
 
@@ -243,20 +257,26 @@ mod tests {
     fn a_kept_version_in_a_slot_holds_it_so_older_ones_in_it_still_thin_out() {
         let newest: Vec<Option<u64>> = (0..10).map(|second| Some(NOW - second)).collect();
         let in_one_day = [Some(NOW - 3 * DAY - HOUR), Some(NOW - 3 * DAY - 2 * HOUR)];
+
         let saved_at: Vec<Option<u64>> = newest.into_iter().chain(in_one_day).collect();
 
         let unmarked = retained(&plain(&saved_at), NOW, Retention::Standard);
+
         assert_eq!(unmarked[10..], [true, false]);
 
         let mut older_marked = plain(&saved_at);
+
         older_marked[11].kept = true;
+
         assert_eq!(
             retained(&older_marked, NOW, Retention::Standard)[10..],
             [true, true]
         );
 
         let mut newer_marked = plain(&saved_at);
+
         newer_marked[10].kept = true;
+
         assert_eq!(
             retained(&newer_marked, NOW, Retention::Standard)[10..],
             [true, false]
@@ -277,6 +297,7 @@ mod tests {
         assert!(fewer * 2 < standard, "{fewer} {standard}");
 
         let newest: Vec<Option<u64>> = (0..40).map(|second| Some(NOW - second)).collect();
+
         assert_eq!(kept_with(&newest, Retention::More), MORE_ALWAYS_KEPT);
         assert_eq!(kept_with(&newest, Retention::Standard), ALWAYS_KEPT);
         assert_eq!(kept_with(&newest, Retention::Fewer), FEWER_ALWAYS_KEPT);
@@ -285,12 +306,14 @@ mod tests {
     #[test]
     fn every_preset_keeps_marked_and_unlisted_versions() {
         let mut candidates = plain(&[None; 3]);
+
         candidates.extend((0..40_u64).map(|step| Candidate {
             saved_at: Some(NOW - step),
             kept: step == 39,
         }));
         for retention in Retention::ALL {
             let decisions = retained(&candidates, NOW, retention);
+
             assert!(decisions[..3].iter().all(|kept| *kept), "{retention:?}");
             assert_eq!(decisions.last(), Some(&true), "{retention:?}");
         }

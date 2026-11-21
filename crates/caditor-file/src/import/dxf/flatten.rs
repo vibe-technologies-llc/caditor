@@ -127,6 +127,7 @@ fn flatten_from(
         curves: Vec::new(),
         tally: Tally::default(),
     };
+
     while !fitting.stopped() {
         let index = next.fetch_add(1, Ordering::Relaxed);
         let Some(shape) = shapes.get(index) else {
@@ -167,6 +168,7 @@ fn flatten_all(shapes: &[Shape], tolerance: f64, fitting: &Fitting) -> Flattened
             })
             .collect();
         let mut flattened = flatten_from(shapes, &next, tolerance, fitting);
+
         for helper in spawned {
             match helper.join() {
                 Ok(helped) => {
@@ -189,6 +191,7 @@ pub(in crate::import) fn flatten(
 ) -> Result<Drawing, ImportError> {
     let points: Vec<Point3> = shapes.iter().flat_map(Shape::defining_points).collect();
     let extent = extent(&points);
+
     if let (Some(low), Some(high)) = (
         points.iter().map(|point| point.z).reduce(f64::min),
         points.iter().map(|point| point.z).reduce(larger),
@@ -196,6 +199,7 @@ pub(in crate::import) fn flatten(
     {
         notes.push("The drawing is not flat, so it was projected onto its XY plane.".to_owned());
     }
+
     let tolerance = (extent * RELATIVE_FIT_TOLERANCE).max(MIN_FIT_TOLERANCE);
     let bound = if current_interrupt().is_some() {
         Bound::Interrupt
@@ -203,11 +207,15 @@ pub(in crate::import) fn flatten(
         Bound::Work
     };
     let fitting = Fitting::new(bound);
+
     let flattened = flatten_all(shapes, tolerance, &fitting);
+
     fitting.outcome()?;
+
     let mut curves = Vec::new();
     let mut curve_layers = Vec::new();
     let mut construction = BTreeSet::new();
+
     for (index, curve) in flattened.curves {
         if dashed.contains(&index) && !matches!(curve, DrawingCurve::Point(_)) {
             construction.insert(curves.len());
@@ -256,6 +264,7 @@ fn flatten_shape(
         Shape::Point(point) => Some(DrawingCurve::Point(point2(*point))),
         Shape::Line(start, end) => {
             let (start, end) = (point2(*start), point2(*end));
+
             if start == end {
                 tally.collapsed += 1;
                 return None;
@@ -276,6 +285,7 @@ fn flatten_shape(
                         radius: circle.radius,
                     });
                 }
+
                 let at = |angle: f64| circle.center + Vector2::from_angle(angle) * circle.radius;
                 let (from, to) = if circle.counter_clockwise {
                     let from = circle.start_angle + start;
@@ -284,6 +294,7 @@ fn flatten_shape(
                     let to = circle.start_angle - start;
                     (to - sweep, to)
                 };
+
                 return Some(DrawingCurve::Arc {
                     center: circle.center,
                     start: at(from),
@@ -315,12 +326,15 @@ fn flatten_shape(
                 tally.rebuilt += 1;
                 return Some(curve);
             }
+
             let mut points: Vec<Point2> = fit.points.iter().map(|point| point2(*point)).collect();
+
             points.dedup();
             if fit.closed && points.len() > MIN_CLOSED_FIT_POINTS && points.first() == points.last()
             {
                 points.pop();
             }
+
             let closed = fit.closed && points.len() >= MIN_CLOSED_FIT_POINTS;
             match points.as_slice() {
                 [] | [_] => {
@@ -345,11 +359,13 @@ fn flatten_shape(
                     {
                         return None;
                     }
+
                     let Some(fit) = BSpline::through(&points, tolerance, MAX_FIT_CONTROL_POINTS)
                     else {
                         tally.collapsed += 1;
                         return None;
                     };
+
                     tally.rebuilt += 1;
                     tally.deviation = tally.deviation.max(fit.deviation);
                     Some(DrawingCurve::Spline {
@@ -372,6 +388,7 @@ fn spline(
         .iter()
         .map(|point| Point2::new(point.x, point.y))
         .collect();
+
     if nurbs.weights.is_none()
         && let Some(native) = BSpline::clamped(control_points.clone())
         && native.degree() == nurbs.degree
@@ -385,7 +402,9 @@ fn spline(
             _ => DrawingCurve::Spline { control_points },
         });
     }
+
     let curve = sampled(nurbs, tolerance, tally, fitting);
+
     if curve.is_some() {
         tally.splines += 1;
     }
@@ -403,14 +422,18 @@ fn sampled(
     let found = canonical
         .as_ref()
         .and_then(|canonical| fitting.cache.lock().find(canonical, tolerance));
+
     if let Some((control_points, deviation)) = found {
         tally.deviation = tally.deviation.max(deviation);
         return Some(DrawingCurve::Spline { control_points });
     }
+
     let count = (nurbs.spans() * SAMPLES_PER_SPAN).clamp(MIN_SAMPLES, MAX_SAMPLES);
+
     if !fitting.charge(BSpline::fit_work(count + 1, MAX_FIT_CONTROL_POINTS)) {
         return None;
     }
+
     let samples: Vec<Point2> = (0..=count)
         .map(|index| {
             let parameter = start + (end - start) * index as f64 / count as f64;
@@ -421,6 +444,7 @@ fn sampled(
         .collect::<Option<_>>()?;
     let fit = fitted(&samples, tolerance, tally)?;
     let control_points = fit.spline.control_points().to_vec();
+
     if let Some(canonical) = canonical {
         fitting
             .cache
@@ -434,6 +458,7 @@ fn same_knots(native: &[f64], given: &[f64]) -> bool {
     let (Some(first), Some(last)) = (given.first(), given.last()) else {
         return false;
     };
+
     let width = last - first;
     native.len() == given.len()
         && width > 0.0
@@ -452,8 +477,10 @@ fn planar_ellipse(
     let turn =
         0.5 * (2.0 * first.dot(second)).atan2(first.length_squared() - second.length_squared());
     let (sin, cos) = turn.sin_cos();
+
     let along = first * cos + second * sin;
     let across = second * cos - first * sin;
+
     let (major, minor_radius) = if along.length() >= across.length() {
         (along, across.length())
     } else {
@@ -481,6 +508,7 @@ fn fitted(samples: &[Point2], tolerance: f64, tally: &mut Tally) -> Option<Fitte
         tally.collapsed += 1;
         return None;
     };
+
     tally.deviation = tally.deviation.max(fit.deviation);
     Some(fit)
 }
@@ -488,11 +516,13 @@ fn fitted(samples: &[Point2], tolerance: f64, tally: &mut Tally) -> Option<Fitte
 impl Tally {
     fn report(&self, tolerance: f64, notes: &mut Vec<String>) {
         let mut converted = Vec::new();
+
         if self.splines > 0 {
             converted.push(counted(self.splines, "spline", "splines"));
         }
         if !converted.is_empty() {
             let deviation = self.deviation.max(tolerance);
+
             notes.push(format!(
                 "{} {} converted to sketch splines that stay within {} of the original.",
                 list(&converted),

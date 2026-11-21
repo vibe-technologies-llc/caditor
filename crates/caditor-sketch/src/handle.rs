@@ -16,7 +16,7 @@ const ARM_SHARE: f64 = 1.0 / 3.0;
 const SINGULAR_SHARE: f64 = 1e-12;
 const SEAM_SNAP: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FitHandle {
     pub constraint: ConstraintId,
     pub index: usize,
@@ -24,13 +24,13 @@ pub struct FitHandle {
     pub end: EntityId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Row {
     Point(usize),
     Slope(usize),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HandledLayout {
     pub degree: usize,
     pub knots: Vec<f64>,
@@ -50,6 +50,7 @@ impl HandledLayout {
             .or_else(|| FitLayout::of(points, closed, FitSpacing::Even))?;
         let mut rows = Vec::with_capacity(points.len() + handled.len());
         let mut sites = Vec::with_capacity(points.len() + handled.len());
+
         for (index, parameter) in base.parameters.iter().enumerate() {
             rows.push(Row::Point(index));
             sites.push(*parameter);
@@ -58,6 +59,7 @@ impl HandledLayout {
                 sites.push(*parameter);
             }
         }
+
         let (degree, knots) = if closed {
             (
                 MAX_SPLINE_DEGREE,
@@ -79,6 +81,7 @@ impl HandledLayout {
     pub fn arm(&self, index: usize) -> f64 {
         let count = self.parameters.len();
         let at = |offset: usize| self.parameters.get(offset).copied();
+
         let gap = if self.closed {
             let before = (index + count).checked_sub(1).map(|before| before % count);
             match (
@@ -141,8 +144,10 @@ impl HandledLayout {
         let count = self.rows.len();
         let mut matrix = vec![vec![0.0; count]; count];
         let mut right = Vec::with_capacity(count);
+
         for (row, kind) in matrix.iter_mut().zip(&self.rows) {
             let (first, weights) = self.row_weights(*kind)?;
+
             for (offset, weight) in weights.iter().enumerate() {
                 *row.get_mut((first + offset) % count)? += *weight;
             }
@@ -155,12 +160,14 @@ impl HandledLayout {
                     .to_array(),
             });
         }
+
         let solved = solve_dense(matrix, right)?;
         Some(solved.iter().map(|[x, y]| Point2::new(*x, *y)).collect())
     }
 
     pub fn curve(&self, points: &[Point2], reaches: &[(usize, Vector2)]) -> Option<BSpline> {
         let controls = self.controls(points, reaches)?;
+
         if self.closed {
             return BSpline::periodic_clamped(self.degree, &self.knots, &self.wrapped(&controls)?);
         }
@@ -183,6 +190,7 @@ fn looped_averaged_knots(sites: &[f64], degree: usize) -> Option<Vec<f64>> {
         let within = usize::try_from(index.rem_euclid(count)).ok()?;
         Some(sites.get(within)? + index.div_euclid(count) as f64)
     };
+
     let knot = |index: isize| -> Option<f64> {
         let total =
             (index - lead..index - lead + window).try_fold(0.0, |sum, at| Some(sum + site(at)?))?;
@@ -195,12 +203,14 @@ fn looped_averaged_knots(sites: &[f64], degree: usize) -> Option<Vec<f64>> {
         })
     };
     let mut start = 0;
+
     while knot(start)? > 0.0 {
         start -= 1;
     }
     while knot(start + 1)? <= 0.0 {
         start += 1;
     }
+
     let first = start - window;
     let length = count + 2 * window + 2;
     (first..first + length).map(knot).collect()
@@ -212,6 +222,7 @@ fn solve_dense(mut matrix: Vec<Vec<f64>>, mut right: Vec<[f64; 2]>) -> Option<Ve
         .iter()
         .flatten()
         .fold(0.0_f64, |largest, entry| larger(largest, entry.abs()));
+
     for column in 0..size {
         let pivot_row = (column..size).max_by(|a, b| {
             let entry = |row: usize| {
@@ -222,23 +233,29 @@ fn solve_dense(mut matrix: Vec<Vec<f64>>, mut right: Vec<[f64; 2]>) -> Option<Ve
             };
             entry(*a).total_cmp(&entry(*b))
         })?;
+
         matrix.swap(column, pivot_row);
         right.swap(column, pivot_row);
+
         let pivot_values = matrix.get(column)?.clone();
         let pivot = *pivot_values.get(column)?;
+
         if !pivot.is_finite() || pivot.abs() <= SINGULAR_SHARE * largest {
             return None;
         }
+
         let pivot_right = *right.get(column)?;
         for row in column + 1..size {
             let values = matrix.get_mut(row)?;
             let factor = *values.get(column)? / pivot;
+
             if factor == 0.0 {
                 continue;
             }
             for (value, above) in values.iter_mut().zip(&pivot_values).skip(column) {
                 *value -= factor * above;
             }
+
             let target = right.get_mut(row)?;
             for (value, above) in target.iter_mut().zip(pivot_right) {
                 *value -= factor * above;
@@ -248,6 +265,7 @@ fn solve_dense(mut matrix: Vec<Vec<f64>>, mut right: Vec<[f64; 2]>) -> Option<Ve
     for row in (0..size).rev() {
         let values = matrix.get(row)?;
         let mut value = *right.get(row)?;
+
         for column in row + 1..size {
             let known = *right.get(column)?;
             let coefficient = *values.get(column)?;
@@ -255,7 +273,9 @@ fn solve_dense(mut matrix: Vec<Vec<f64>>, mut right: Vec<[f64; 2]>) -> Option<Ve
                 *entry -= coefficient * known;
             }
         }
+
         let pivot = *values.get(row)?;
+
         for entry in &mut value {
             *entry /= pivot;
         }
@@ -277,6 +297,7 @@ impl Sketch {
             return Vec::new();
         };
         let mut handles: Vec<FitHandle> = Vec::new();
+
         for (constraint, held) in self.active_constraints() {
             let Constraint::SplineHandle {
                 spline: handled,
@@ -285,9 +306,11 @@ impl Sketch {
             else {
                 continue;
             };
+
             if handled != spline {
                 continue;
             }
+
             let Some((index, anchor, end)) = self.handle_site(points, line) else {
                 continue;
             };
@@ -318,6 +341,7 @@ impl Sketch {
                 _ => None,
             })
             .collect();
+
         for constraint in copied {
             self.add_constraint(constraint)?;
         }
@@ -380,9 +404,11 @@ impl Sketch {
             .map(|own| self.point(*own))
             .collect::<Option<Vec<_>>>()?;
         let curve = self.spline(spline)?;
+
         let layout = HandledLayout::of(&positions, *closed, *spacing, &[])?;
         let parameter = layout.parameter(index)?;
         let [slope, _] = curve.derivatives(parameter);
+
         let reach = slope * layout.arm(index);
         (reach.is_finite() && reach.length() > 0.0).then_some(reach)
     }
@@ -397,6 +423,7 @@ impl Sketch {
             Some(Entity::Spline { points, kind: SplineKind::Fit { .. } })
                 if points.contains(&point)
         );
+
         if !fit_point {
             return Err(SketchError::NotAFitPoint {
                 point,
@@ -404,6 +431,7 @@ impl Sketch {
                 spline: self.entity_label(spline),
             });
         }
+
         let anchor = self.point(point).ok_or(SketchError::MissingEntity(point))?;
         let reach =
             self.spline_handle_reach(spline, point)
@@ -412,10 +440,14 @@ impl Sketch {
                     label: self.entity_label(point),
                 })?;
         let mut working = self.clone();
+
         let end = working.add_point(anchor + reach);
         let line = working.insert(Entity::Line { start: point, end });
+
         working.set_construction(line, true)?;
+
         let constraint = working.add_constraint(Constraint::SplineHandle { spline, line })?;
+
         *self = working;
         Ok((line, constraint))
     }
@@ -453,6 +485,7 @@ impl Sketch {
                 second: self.entity_label(line),
             });
         };
+
         if refuse_second
             && self
                 .spline_handles(spline)

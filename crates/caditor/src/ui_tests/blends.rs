@@ -16,15 +16,18 @@ use crate::{model::Action, selection::Pickable};
 #[test]
 fn a_fillet_radius_being_typed_is_previewed_before_it_is_entered() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
     let spandrel = |radius: f64| (1.0 - std::f64::consts::PI / 4.0) * radius * radius;
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
@@ -38,10 +41,13 @@ fn a_fillet_radius_being_typed_is_previewed_before_it_is_entered() {
     });
 
     let removed = 16000.0 - draft_volume(&harness, plate).unwrap();
+
     assert!((removed - 40.0 * spandrel(3.0)).abs() < 0.1 * 40.0 * spandrel(3.0));
     assert_eq!(harness.model.undo_label(), Some("Create Fillet 1"));
     assert!(removed_about(&harness, plate, 40.0 * spandrel(1.0)));
+
     let built = harness.built_with_meshes(1);
+
     assert!(built.scene.meshes.iter().any(|mesh| {
         mesh.mesh.face_count() == 7 && mesh.faces.iter().all(|face| face.pick.is_none())
     }));
@@ -49,6 +55,7 @@ fn a_fillet_radius_being_typed_is_previewed_before_it_is_entered() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert!(harness.model.draft_evaluation().is_none());
     assert_eq!(harness.model.undo_label(), Some("Create Fillet 1"));
 
@@ -59,8 +66,10 @@ fn a_fillet_radius_being_typed_is_previewed_before_it_is_entered() {
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Edit Fillet 1"));
     assert!(removed_about(&harness, plate, 40.0 * spandrel(2.0)));
+
     harness.wait_until("the preview gives way to the result", |harness| {
         harness.model.draft_evaluation().is_none()
     });
@@ -69,6 +78,7 @@ fn a_fillet_radius_being_typed_is_previewed_before_it_is_entered() {
 #[test]
 fn an_open_fillet_listing_long_edge_names_keeps_the_side_panel_width() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
     let view = harness
@@ -84,6 +94,7 @@ fn an_open_fillet_listing_long_edge_names_keeps_the_side_panel_width() {
     harness.click("Fillet");
     harness.settle();
     harness.let_animations_finish();
+
     let opened = harness
         .workspace
         .viewport
@@ -100,12 +111,15 @@ fn an_open_fillet_listing_long_edge_names_keeps_the_side_panel_width() {
 #[test]
 fn a_fillet_started_with_nothing_selected_waits_on_the_only_body_for_the_edges_clicked_after() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let back = top_edge_along_x(&harness, plate, 40.0);
+
     harness.select([]);
 
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
@@ -120,6 +134,7 @@ fn a_fillet_started_with_nothing_selected_waits_on_the_only_body_for_the_edges_c
             .map(|status| &status.state),
         Some(FeatureState::Waiting(MissingInput::Edges { .. }))
     );
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.click_pickable(
@@ -142,6 +157,7 @@ fn a_fillet_started_with_nothing_selected_waits_on_the_only_body_for_the_edges_c
 #[test]
 fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_view() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
     let back = top_edge_along_x(&harness, plate, 40.0);
@@ -153,11 +169,13 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
         .solid()
         .expect("the fillet is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Fillet 1"));
     assert_eq!(blend_of(&harness, fillet).edges.len(), 1);
     assert!(removed_about(&harness, plate, 40.0 * spandrel(1.0)));
@@ -165,6 +183,7 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
     assert!(harness.shows("Radius"));
 
     let built = harness.built_with_meshes(1);
+
     assert_eq!(built.scene.meshes.len(), 1);
     assert_eq!(built.scene.meshes[0].mesh.face_count(), 7);
     assert!(
@@ -173,11 +192,13 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
             .iter()
             .all(|face| face.pick.is_none())
     );
+
     let blend_edges = built
         .picks
         .pickables()
         .filter(|pickable| matches!(pickable, Pickable::BlendEdge { .. }))
         .count();
+
     assert_eq!(blend_edges, 12);
 
     harness.workspace.viewport.advance(CAMERA_SETTLE);
@@ -191,15 +212,18 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
         },
     );
     harness.settle();
+
     assert_eq!(blend_of(&harness, fillet).edges.len(), 2);
     assert_eq!(harness.model.undo_label(), Some("Add an edge to Fillet 1"));
     assert!(removed_about(&harness, plate, 80.0 * spandrel(1.0)));
 
     harness.type_into_field(Id::unique(("blend-size", fillet)), "2 mm");
     harness.settle();
+
     assert!(removed_about(&harness, plate, 80.0 * spandrel(2.0)));
 
     harness.type_into_field(Id::unique(("blend-size", fillet)), "0 mm");
+
     assert!(harness.shows(crate::feature_fields::ABOVE_ZERO));
     assert_eq!(harness.workspace.editing.solid(), Some(fillet));
 
@@ -212,6 +236,7 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
         },
     );
     harness.settle();
+
     assert_eq!(blend_of(&harness, fillet).edges.len(), 1);
     assert_eq!(
         harness.model.undo_label(),
@@ -221,6 +246,7 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
     harness.click_leftmost("Fillet");
     harness.click_leftmost("Chamfer");
     harness.settle();
+
     assert_eq!(
         blend_of(&harness, fillet).kind,
         caditor_document::BlendKind::Chamfer
@@ -230,7 +256,9 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert_eq!(harness.workspace.editing.solid(), None);
+
     let chamfer_face = harness
         .built()
         .picks
@@ -240,20 +268,24 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
                 == "Extrude 1 › Fillet 1 face"
         })
         .expect("the chamfer face is pickable and named after its feature");
+
     assert!(matches!(chamfer_face, Pickable::Face { .. }));
 }
 
 #[test]
 fn a_chamfer_takes_two_distances_or_an_angle_and_flips_from_its_panel_or_the_palette() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Chamfer");
     harness.settle();
+
     let chamfer = harness
         .workspace
         .editing
@@ -266,38 +298,51 @@ fn a_chamfer_takes_two_distances_or_an_angle_and_flips_from_its_panel_or_the_pal
 
     harness.click("Two");
     harness.settle();
+
     assert_eq!(form(&harness), crate::blend_tools::FormChoice::TwoDistances);
     assert!(harness.shows("First distance"));
     assert!(harness.shows("Second distance"));
     assert!(removed_about(&harness, plate, 40.0 * 0.5));
+
     harness.type_into_field(value, "3 mm");
     harness.settle();
+
     assert!(removed_about(&harness, plate, 40.0 * 1.5));
+
     harness.click("Measure from the other face");
     harness.settle();
+
     assert!(blend_of(&harness, chamfer).flipped);
     assert!(removed_about(&harness, plate, 40.0 * 1.5));
 
     run_from_palette(&mut harness, "Chamfer by a distance and an angle");
     harness.settle();
+
     assert_eq!(
         form(&harness),
         crate::blend_tools::FormChoice::DistanceAngle
     );
     assert!(harness.shows("Angle"));
     assert!(removed_about(&harness, plate, 40.0 * 0.5));
+
     harness.type_into_field(value, "30 deg");
     harness.settle();
+
     assert!(removed_about(&harness, plate, 40.0 * 0.5 * tangent));
+
     run_from_palette(&mut harness, "Flip the chamfer");
     harness.settle();
+
     assert!(!blend_of(&harness, chamfer).flipped);
     assert_eq!(harness.model.undo_label(), Some("Edit Chamfer 1"));
+
     harness.type_into_field(value, "180 deg");
+
     assert!(harness.shows("Enter an angle above 0° and below 180°"));
 
     run_from_palette(&mut harness, "Chamfer by one distance");
     harness.settle();
+
     assert_eq!(form(&harness), crate::blend_tools::FormChoice::Equal);
     assert!(!harness.shows("Measure from the other face"));
     assert!(removed_about(&harness, plate, 40.0 * 0.5));
@@ -306,38 +351,47 @@ fn a_chamfer_takes_two_distances_or_an_angle_and_flips_from_its_panel_or_the_pal
 #[test]
 fn a_fillet_is_sized_by_chord_length_from_its_panel_or_the_palette() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
     let spandrel = |radius: f64| (1.0 - std::f64::consts::PI / 4.0) * radius * radius;
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
         .solid()
         .expect("the fillet is open");
     let size = Id::unique(("blend-size", fillet));
+
     assert!(harness.shows("Sized by"));
     assert!(harness.shows("Radius"));
 
     harness.click("Chord length");
     harness.settle();
+
     assert_eq!(
         blend_of(&harness, fillet).sizing,
         caditor_document::FilletSizing::ChordLength
     );
     assert!(harness.shows("Chord length"));
+
     harness.type_into_field(size, "4 mm");
     harness.settle();
+
     let radius = 4.0 / 2.0_f64.sqrt();
+
     assert!(removed_about(&harness, plate, 40.0 * spandrel(radius)));
 
     run_from_palette(&mut harness, "Size the fillet by its radius");
     harness.settle();
+
     assert_eq!(
         blend_of(&harness, fillet).sizing,
         caditor_document::FilletSizing::Radius
@@ -349,15 +403,18 @@ fn a_fillet_is_sized_by_chord_length_from_its_panel_or_the_palette() {
 #[test]
 fn enter_confirms_a_fillet_whose_row_then_closes_and_choosing_in_the_view_keeps_the_selection() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
     let back = top_edge_along_x(&harness, plate, 40.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
@@ -400,14 +457,17 @@ fn enter_confirms_a_fillet_whose_row_then_closes_and_choosing_in_the_view_keeps_
 #[test]
 fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
@@ -427,10 +487,14 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
     )
     .unwrap();
     let mut slot = Sketch::new(top);
+
     rectangle(&mut slot, Point2::new(18.0, -5.0), Point2::new(22.0, 45.0));
+
     let last = harness.document().features().len() + 1;
     let mut transaction = harness.document().transaction("Cut a slot");
+
     let sketch = transaction.add_feature("Slot sketch", FeatureKind::from(slot));
+
     transaction.add_feature(
         "Slot",
         FeatureKind::Solid(SolidFeature::Extrude(caditor_document::Extrude {
@@ -451,11 +515,13 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
     });
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
+
     let input = crate::bodies::input(harness.model.evaluation(), fillet).unwrap();
     let pieces = blend_of(&harness, fillet).resolutions(harness.document(), &input.solid);
     let [caditor_document::Resolution::Pieces(pieces)] = pieces.as_slice() else {
         panic!("the slot splits the chosen edge in two: {pieces:?}");
     };
+
     let split = format!(
         "{}, split into 2 pieces",
         crate::bodies::describe_edge_id(harness.document(), input, pieces[0])
@@ -469,6 +535,7 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(harness.shows(&whole));
     assert!(!harness.shows(&split));
 }
@@ -476,20 +543,24 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
 #[test]
 fn a_fillet_takes_every_convex_edge_by_a_rule_chosen_in_its_panel_and_keeps_the_rule() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
     let spandrel = |radius: f64| (1.0 - std::f64::consts::PI / 4.0) * radius * radius;
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Fillet");
     harness.settle();
+
     let fillet = harness
         .workspace
         .editing
         .solid()
         .expect("the fillet is open");
+
     assert!(removed_about(&harness, plate, 40.0 * spandrel(1.0)));
 
     choose(
@@ -515,14 +586,17 @@ fn a_fillet_takes_every_convex_edge_by_a_rule_chosen_in_its_panel_and_keeps_the_
 #[test]
 fn the_palette_adds_every_convex_edge_to_an_open_chamfer() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let front = top_edge_along_x(&harness, plate, 0.0);
+
     harness.select([Pickable::Edge {
         body: plate,
         edge: front,
     }]);
     harness.click("Chamfer");
     harness.settle();
+
     let chamfer = harness
         .workspace
         .editing

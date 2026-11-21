@@ -18,12 +18,15 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let outline = transaction.add_feature(
         "Plate outline",
         FeatureKind::from(rectangle((-10.0, -5.0), (10.0, 5.0))),
     );
+
     let plate = transaction.add_feature(
         "Plate",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -39,6 +42,7 @@ fn model() -> Model {
         })),
     );
     let peg = block(&mut transaction, "Peg", (20.0, 0.0), (30.0, 5.0), "6 mm");
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -89,6 +93,7 @@ fn mate_faces(
 
 fn add_mate(model: &mut Model, pair: MatePair, flipped: bool) -> FeatureId {
     let mut transaction = model.document.transaction("Mate");
+
     let mate = transaction.add_feature(
         "Mate 1",
         FeatureKind::Mate(Mate {
@@ -97,6 +102,7 @@ fn add_mate(model: &mut Model, pair: MatePair, flipped: bool) -> FeatureId {
             flipped,
         }),
     );
+
     model.document.apply(transaction.finish()).unwrap();
     mate
 }
@@ -134,6 +140,7 @@ fn names(solid: &Solid) -> BTreeSet<FaceName> {
 #[test]
 fn a_face_mated_flush_onto_another_sits_on_it_and_follows_it_when_it_moves() {
     let mut model = model();
+
     let before = names(
         evaluate(&model.document, &mut Recompute::default())
             .body(model.peg)
@@ -146,6 +153,7 @@ fn a_face_mated_flush_onto_another_sits_on_it_and_follows_it_when_it_moves() {
         -Vector3::Z,
         Point3::ZERO,
     );
+
     let mate = transaction.add_feature(
         "Mate 1",
         FeatureKind::Mate(Mate {
@@ -158,13 +166,17 @@ fn a_face_mated_flush_onto_another_sits_on_it_and_follows_it_when_it_moves() {
             flipped: false,
         }),
     );
+
     model.document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
 
     let evaluation = evaluate(&model.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(20.0, 0.0, 4.0)), "{low:?}");
     assert!(near(high, Point3::new(30.0, 5.0, 10.0)), "{high:?}");
     assert_eq!(names(evaluation.body(model.peg).unwrap()), before);
@@ -174,6 +186,7 @@ fn a_face_mated_flush_onto_another_sits_on_it_and_follows_it_when_it_moves() {
     );
 
     let expression = model.document.parse("9 mm").unwrap();
+
     model
         .document
         .apply(Transaction::single(
@@ -184,18 +197,23 @@ fn a_face_mated_flush_onto_another_sits_on_it_and_follows_it_when_it_moves() {
             },
         ))
         .unwrap();
+
     let evaluation = evaluate(&model.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let (low, _) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(20.0, 0.0, 9.0)), "{low:?}");
 }
 
 #[test]
 fn a_face_mated_at_a_distance_stands_off_along_the_target_normal() {
     let mut model = model();
+
     let target = plate_top(&model);
     let evaluation = evaluate(&model.document, &mut Recompute::default());
+
     let pair = MatePair::Faces(Box::new(FaceMate {
         face: face(
             evaluation.body(model.peg).unwrap(),
@@ -205,11 +223,13 @@ fn a_face_mated_at_a_distance_stands_off_along_the_target_normal() {
         target,
         distance: Expression::parse_stored("2 mm").unwrap(),
     }));
+
     add_mate(&mut model, pair, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(20.0, 0.0, 6.0)), "{low:?}");
     assert!(near(high, Point3::new(30.0, 5.0, 12.0)), "{high:?}");
 }
@@ -217,8 +237,10 @@ fn a_face_mated_at_a_distance_stands_off_along_the_target_normal() {
 #[test]
 fn a_flipped_face_mate_lines_the_faces_up_facing_the_same_way() {
     let mut model = model();
+
     let target = plate_top(&model);
     let evaluation = evaluate(&model.document, &mut Recompute::default());
+
     let pair = MatePair::Faces(Box::new(FaceMate {
         face: face(
             evaluation.body(model.peg).unwrap(),
@@ -228,11 +250,13 @@ fn a_flipped_face_mate_lines_the_faces_up_facing_the_same_way() {
         target,
         distance: Expression::parse_stored("0 mm").unwrap(),
     }));
+
     add_mate(&mut model, pair, true);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(20.0, 0.0, -2.0)), "{low:?}");
     assert!(near(high, Point3::new(30.0, 5.0, 4.0)), "{high:?}");
 }
@@ -240,6 +264,7 @@ fn a_flipped_face_mate_lines_the_faces_up_facing_the_same_way() {
 #[test]
 fn a_side_face_mated_onto_a_top_face_turns_the_body_to_lie_on_it() {
     let mut model = model();
+
     let mate = mate_faces(
         &mut model,
         (Vector3::X, Point3::new(30.0, 0.0, 0.0)),
@@ -250,7 +275,9 @@ fn a_side_face_mated_onto_a_top_face_turns_the_body_to_lie_on_it() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0, "{mate:?}");
+
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!((low.z - 4.0).abs() < 1e-6, "{low:?}");
     assert!((high.z - 14.0).abs() < 1e-6, "{high:?}");
     assert!((high.x - low.x - 6.0).abs() < 1e-6);
@@ -259,6 +286,7 @@ fn a_side_face_mated_onto_a_top_face_turns_the_body_to_lie_on_it() {
 #[test]
 fn an_axis_mated_onto_another_puts_the_body_on_that_line() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document, &mut Recompute::default());
     let peg = evaluation.body(model.peg).unwrap();
     let (edge, _) = peg
@@ -271,17 +299,21 @@ fn an_axis_mated_onto_another_puts_the_body_on_that_line() {
             })
         })
         .unwrap();
+
     let axis = AxisReference::capture_edge(model.peg, peg, edge).unwrap();
     let pair = MatePair::Axes(Box::new(AxisMate {
         axis,
         target: AxisReference::Principal(PrincipalAxis::Z),
     }));
+
     add_mate(&mut model, pair, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(0.0, 0.0, 0.0)), "{low:?}");
     assert!(near(high, Point3::new(10.0, 5.0, 6.0)), "{high:?}");
 }
@@ -289,6 +321,7 @@ fn an_axis_mated_onto_another_puts_the_body_on_that_line() {
 #[test]
 fn a_face_no_longer_on_the_moving_body_fails_the_mate_alone_in_words() {
     let mut model = model();
+
     let evaluation = evaluate(&model.document, &mut Recompute::default());
     let pair = MatePair::Faces(Box::new(FaceMate {
         face: face(
@@ -304,6 +337,7 @@ fn a_face_no_longer_on_the_moving_body_fails_the_mate_alone_in_words() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (failed, error) = evaluation.failures().next().unwrap();
+
     assert_eq!(failed, mate);
     assert!(
         error
@@ -312,7 +346,9 @@ fn a_face_no_longer_on_the_moving_body_fails_the_mate_alone_in_words() {
         "{}",
         error.reason()
     );
+
     let (low, _) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(20.0, 0.0, 0.0)));
 }
 
@@ -364,6 +400,7 @@ fn replace_pair(model: &mut Model, mate: FeatureId, pair: MatePair) {
         .mate()
         .unwrap()
         .clone();
+
     changed.pair = pair;
     model
         .document
@@ -380,13 +417,17 @@ fn replace_pair(model: &mut Model, mate: FeatureId, pair: MatePair) {
 #[test]
 fn a_face_and_axis_mate_makes_the_body_flush_and_concentric_in_one_feature() {
     let mut model = model();
+
     let pair = flush_and_concentric(&model, AxisReference::Principal(PrincipalAxis::Z));
+
     add_mate(&mut model, pair, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(0.0, 0.0, 4.0)), "{low:?}");
     assert!(near(high, Point3::new(10.0, 5.0, 10.0)), "{high:?}");
 }
@@ -394,12 +435,15 @@ fn a_face_and_axis_mate_makes_the_body_flush_and_concentric_in_one_feature() {
 #[test]
 fn a_face_and_axis_mate_whose_axis_runs_along_the_plane_fails_in_words() {
     let mut model = model();
+
     let pair = flush_and_concentric(&model, AxisReference::Principal(PrincipalAxis::X));
+
     add_mate(&mut model, pair, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let reason = first_failure(&evaluation);
+
     assert!(
         reason.contains("runs along the plane it mates onto"),
         "{reason}"
@@ -419,21 +463,27 @@ fn side_at_angle(model: &Model, angle: &str) -> MatePair {
 #[test]
 fn an_angle_mate_turns_the_body_about_the_line_where_the_planes_meet() {
     let mut model = model();
+
     let square = side_at_angle(&model, "90 deg");
     let mate = add_mate(&mut model, square, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(20.0, 0.0, 0.0)), "{low:?}");
     assert!(near(high, Point3::new(30.0, 5.0, 6.0)), "{high:?}");
 
     let facing = side_at_angle(&model, "0 deg");
+
     replace_pair(&mut model, mate, facing);
+
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(26.0, 0.0, 4.0)), "{low:?}");
     assert!(near(high, Point3::new(32.0, 5.0, 14.0)), "{high:?}");
 }
@@ -441,17 +491,21 @@ fn an_angle_mate_turns_the_body_about_the_line_where_the_planes_meet() {
 #[test]
 fn an_angle_past_a_half_turn_fails_the_mate_in_words() {
     let mut model = model();
+
     let pair = side_at_angle(&model, "200 deg");
+
     add_mate(&mut model, pair, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let reason = first_failure(&evaluation);
+
     assert!(reason.contains("outside 0 to 180 deg"), "{reason}");
 }
 
 fn round_body(model: &mut Model, shape: PrimitiveShape, x: f64) -> (FeatureId, FaceReference) {
     let mut transaction = model.document.transaction("Round");
+
     let body = transaction.add_feature(
         "Round",
         FeatureKind::Primitive(Primitive {
@@ -466,6 +520,7 @@ fn round_body(model: &mut Model, shape: PrimitiveShape, x: f64) -> (FeatureId, F
             operation: BodyOperation::NewBody,
         }),
     );
+
     model.document.apply(transaction.finish()).unwrap();
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
@@ -480,6 +535,7 @@ fn round_body(model: &mut Model, shape: PrimitiveShape, x: f64) -> (FeatureId, F
 fn rest_on_plate(model: &mut Model, body: FeatureId, face: FaceReference, flipped: bool) {
     let target = plate_top(model);
     let mut transaction = model.document.transaction("Mate");
+
     transaction.add_feature(
         "Mate 1",
         FeatureKind::Mate(Mate {
@@ -500,24 +556,31 @@ fn ball() -> PrimitiveShape {
 #[test]
 fn a_tangent_mate_rests_a_sphere_on_a_plane_on_either_side() {
     let mut model = model();
+
     let (body, face) = round_body(&mut model, ball(), 50.0);
+
     rest_on_plate(&mut model, body, face, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let (low, high) = bounds(&evaluation, body);
+
     assert!((low.z - 4.0).abs() < 1e-6, "{low:?}");
     assert!((high.z - 14.0).abs() < 1e-6, "{high:?}");
     assert!((low.x - 45.0).abs() < 1e-6, "{low:?}");
 
     let mut below = self::model();
+
     let (body, face) = round_body(&mut below, ball(), 50.0);
+
     rest_on_plate(&mut below, body, face, true);
 
     let evaluation = evaluate(&below.document, &mut Recompute::default());
 
     let (_, high) = bounds(&evaluation, body);
+
     assert!((high.z - 4.0).abs() < 1e-6, "{high:?}");
 }
 
@@ -528,13 +591,17 @@ fn a_tangent_mate_lays_a_cylinder_down_along_the_plane() {
         diameter: Expression::parse_stored("4 mm").unwrap(),
         height: Expression::parse_stored("10 mm").unwrap(),
     };
+
     let (body, face) = round_body(&mut model, rod, 50.0);
+
     rest_on_plate(&mut model, body, face, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let (low, high) = bounds(&evaluation, body);
+
     assert!((low.z - 4.0).abs() < 1e-6, "{low:?}");
     assert!((high.z - 8.0).abs() < 1e-6, "{high:?}");
 }
@@ -542,13 +609,16 @@ fn a_tangent_mate_lays_a_cylinder_down_along_the_plane() {
 #[test]
 fn a_tangent_mate_on_a_flat_face_fails_naming_it() {
     let mut model = model();
+
     let face = peg_face(&model, -Vector3::Z, Point3::ZERO);
     let peg = model.peg;
+
     rest_on_plate(&mut model, peg, face, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let reason = first_failure(&evaluation);
+
     assert!(
         reason.contains("no longer a whole cylinder or sphere"),
         "{reason}"
@@ -563,6 +633,7 @@ fn peg_corner(model: &Model, point: Point3) -> PointReference {
         .vertices()
         .find(|(_, vertex)| vertex.point().distance(point) < 1e-9)
         .unwrap();
+
     let vertex = names
         .iter()
         .find(|(vertex, _)| **vertex == id)
@@ -577,6 +648,7 @@ fn peg_corner(model: &Model, point: Point3) -> PointReference {
 #[test]
 fn a_point_mate_puts_a_corner_on_a_point_or_onto_a_plane() {
     let mut model = model();
+
     let corner = peg_corner(&model, Point3::new(20.0, 0.0, 0.0));
     let pair = MatePair::Point(Box::new(PointMate {
         point: corner.clone(),
@@ -587,7 +659,9 @@ fn a_point_mate_puts_a_corner_on_a_point_or_onto_a_plane() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     assert_eq!(evaluation.failed_count(), 0);
+
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::ZERO), "{low:?}");
     assert!(near(high, Point3::new(10.0, 5.0, 6.0)), "{high:?}");
 
@@ -595,10 +669,13 @@ fn a_point_mate_puts_a_corner_on_a_point_or_onto_a_plane() {
         point: corner,
         target: PointTarget::Plane(plate_top(&model)),
     }));
+
     replace_pair(&mut model, mate, onto_plane);
+
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (low, _) = bounds(&evaluation, model.peg);
+
     assert!(near(low, Point3::new(20.0, 0.0, 4.0)), "{low:?}");
     assert_eq!(
         model.document.feature(mate).unwrap().kind.features(),
@@ -608,18 +685,22 @@ fn a_point_mate_puts_a_corner_on_a_point_or_onto_a_plane() {
 
 fn rest_peg_on(model: &mut Model, face: FaceReference, round: FaceAttachment, flipped: bool) {
     let pair = MatePair::FaceOnRound(Box::new(FaceOnRound { face, round }));
+
     add_mate(model, pair, flipped);
 }
 
 #[test]
 fn a_flat_face_rests_on_a_sphere_of_another_body_on_either_side() {
     let mut model = model();
+
     let (ball_body, ball_face) = round_body(&mut model, ball(), 50.0);
     let bottom = peg_face(&model, -Vector3::Z, Point3::ZERO);
+
     let round = FaceAttachment {
         body: ball_body,
         face: ball_face,
     };
+
     rest_peg_on(&mut model, bottom, round, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
@@ -630,25 +711,33 @@ fn a_flat_face_rests_on_a_sphere_of_another_body_on_either_side() {
         "{:?}",
         evaluation.failures().next()
     );
+
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!((low.z - 5.0).abs() < 1e-6, "{low:?}");
     assert!((high.z - 11.0).abs() < 1e-6, "{high:?}");
     assert!((low.x - 20.0).abs() < 1e-6, "{low:?}");
+
     let mate = model.document.features().last().unwrap();
+
     assert!(mate.kind.bodies_used().contains(&ball_body));
 
     let mut below = self::model();
+
     let (ball_body, ball_face) = round_body(&mut below, ball(), 50.0);
     let bottom = peg_face(&below, -Vector3::Z, Point3::ZERO);
+
     let round = FaceAttachment {
         body: ball_body,
         face: ball_face,
     };
+
     rest_peg_on(&mut below, bottom, round, true);
 
     let evaluation = evaluate(&below.document, &mut Recompute::default());
 
     let (low, _) = bounds(&evaluation, below.peg);
+
     assert!((low.z + 5.0).abs() < 1e-6, "{low:?}");
 }
 
@@ -659,12 +748,15 @@ fn a_flat_face_rests_along_a_cylinder_of_another_body() {
         diameter: Expression::parse_stored("4 mm").unwrap(),
         height: Expression::parse_stored("10 mm").unwrap(),
     };
+
     let (rod_body, rod_face) = round_body(&mut model, rod, 50.0);
     let side = peg_face(&model, -Vector3::Y, Point3::ZERO);
+
     let round = FaceAttachment {
         body: rod_body,
         face: rod_face,
     };
+
     rest_peg_on(&mut model, side, round, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
@@ -675,7 +767,9 @@ fn a_flat_face_rests_along_a_cylinder_of_another_body() {
         "{:?}",
         evaluation.failures().next()
     );
+
     let (low, high) = bounds(&evaluation, model.peg);
+
     assert!((low.y - 2.0).abs() < 1e-6, "{low:?}");
     assert!((high.y - 7.0).abs() < 1e-6, "{high:?}");
     assert!((low.z).abs() < 1e-6, "{low:?}");
@@ -684,16 +778,19 @@ fn a_flat_face_rests_along_a_cylinder_of_another_body() {
 #[test]
 fn a_flat_face_resting_on_a_face_that_is_not_round_fails_naming_it() {
     let mut model = model();
+
     let bottom = peg_face(&model, -Vector3::Z, Point3::ZERO);
     let round = match plate_top(&model) {
         PlaneReference::Face(attachment) => attachment,
         other => panic!("expected a face, found {other:?}"),
     };
+
     rest_peg_on(&mut model, bottom, round, false);
 
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let reason = first_failure(&evaluation);
+
     assert!(
         reason.contains("which it rests on, is no longer a whole cylinder or sphere"),
         "{reason}"

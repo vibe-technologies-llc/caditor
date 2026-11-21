@@ -14,7 +14,7 @@ pub(super) const SEGMENT_ANGLE: f64 = 5.0 * PI / 180.0;
 const TEXT_WIDTH_PER_HEIGHT: f64 = 0.6;
 const LETTER_SEGMENTS: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Layer {
     Sketch,
     Construction,
@@ -58,7 +58,7 @@ impl Layer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Spline {
     pub(super) degree: usize,
     pub(super) knots: Vec<f64>,
@@ -67,7 +67,7 @@ pub(super) struct Spline {
     pub(super) polyline: Vec<Point2>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Ellipse {
     pub(super) center: Point2,
     pub(super) major: Vector2,
@@ -78,6 +78,7 @@ pub(super) struct Ellipse {
 
 fn drawn_ellipse(ellipse: &EllipseGeometry) -> Ellipse {
     let (major, minor) = (ellipse.major_radius(), ellipse.minor_radius);
+
     let (along, ratio, turn) = if minor > major {
         (ellipse.axis().perp() * minor, major / minor, FRAC_PI_2)
     } else {
@@ -113,13 +114,13 @@ impl Ellipse {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Anchor {
     Start,
     Middle,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Text {
     pub(super) at: Point2,
     pub(super) height: f64,
@@ -177,7 +178,7 @@ impl Text {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Measure {
     Linear {
         first: Point2,
@@ -238,14 +239,14 @@ impl Measure {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Dimension {
     pub(super) measure: Measure,
     pub(super) marks: Vec<Shape>,
     pub(super) text: Text,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Motion {
     pub(super) turn: f64,
     pub(super) offset: Vector2,
@@ -286,7 +287,7 @@ impl Motion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Shape {
     Point(Point2),
     Line(Point2, Point2),
@@ -422,7 +423,7 @@ fn sweep_angles(start: f64, end: f64) -> impl Iterator<Item = f64> {
     (0..=steps).map(move |step| start + (end - start) * step as f64 / steps as f64)
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Figure {
     pub(super) shapes: Vec<(Layer, Shape)>,
 }
@@ -465,6 +466,7 @@ impl Figure {
             .chain(sketch.texts().map(|(_, text)| text.anchor))
             .chain(sketch.gears().map(|(_, gear)| gear.centre))
             .collect();
+
         for (id, entity) in sketch.entities() {
             let layer = match (sketch.is_construction(id), construction) {
                 (false, _) => Layer::Sketch,
@@ -514,6 +516,7 @@ impl Figure {
             let Some(shape) = shape else {
                 continue;
             };
+
             match (layer, &shape) {
                 (Layer::Construction, _) => exported.construction += 1,
                 (_, Shape::Point(_)) => exported.points += 1,
@@ -534,6 +537,7 @@ impl Figure {
             let Some(outline) = sketch.toothed_outline(id) else {
                 continue;
             };
+
             for piece in outline.pieces() {
                 exported.curves += 1;
                 figure.push(Layer::Sketch, gear_shape(piece));
@@ -584,6 +588,7 @@ fn gear_shape(piece: &GearPiece) -> Shape {
                 (*to, *from)
             };
             let angle_of = |point: Point2| (point.y - center.y).atan2(point.x - center.x);
+
             let start_angle = angle_of(start);
             Shape::Arc {
                 center: *center,

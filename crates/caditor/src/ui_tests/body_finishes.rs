@@ -14,6 +14,7 @@ const MOST_TABS: usize = 16;
 
 fn open_card(harness: &mut Harness) -> (FeatureId, crate::selection::Pickable) {
     let (plate, top) = extruded_plate(harness);
+
     harness.select([top]);
     run_from_palette(harness, "body colour and material");
     harness.settle();
@@ -55,6 +56,7 @@ fn focused_label(harness: &Harness) -> Option<String> {
 #[test]
 fn a_finish_chosen_on_the_body_card_shades_every_face_but_a_selected_one_and_undoes_in_one_step() {
     let mut harness = Harness::new();
+
     let (plate, top) = open_card(&mut harness);
 
     assert!(harness.captioned(Role::ComboBox, FINISH_CAPTION));
@@ -62,13 +64,17 @@ fn a_finish_chosen_on_the_body_card_shades_every_face_but_a_selected_one_and_und
     assert!(drawn_finishes(&mut harness).iter().all(Option::is_none));
 
     open_combo(&mut harness, FINISH_CAPTION);
+
     assert!(harness.accessible_named(Role::Button, Finish::PolishedMetal.name()));
+
     harness.click(Finish::Satin.name());
     harness.settle();
 
     assert_eq!(finish_of(&harness, plate), Some(Finish::Satin));
     assert_eq!(harness.model.undo_label(), Some(FINISH_UNDO));
+
     let drawn = drawn_finishes(&mut harness);
+
     assert_eq!(drawn.len(), 6);
     assert!(
         drawn
@@ -76,10 +82,14 @@ fn a_finish_chosen_on_the_body_card_shades_every_face_but_a_selected_one_and_und
             .all(|finish| *finish == Some(surface(Finish::Satin))),
         "{drawn:?}"
     );
+
     harness.select([top]);
     harness.frame();
+
     let selected = drawn_finishes(&mut harness);
+
     assert_eq!(selected.iter().filter(|finish| finish.is_none()).count(), 1);
+
     harness.select([]);
 
     harness.perform(Action::Undo);
@@ -92,6 +102,7 @@ fn a_finish_chosen_on_the_body_card_shades_every_face_but_a_selected_one_and_und
 #[test]
 fn the_finish_list_is_reached_and_chosen_from_the_keyboard() {
     let mut harness = Harness::new();
+
     let (plate, _) = open_card(&mut harness);
     let combo = harness
         .accessible
@@ -121,7 +132,9 @@ fn the_finish_list_is_reached_and_chosen_from_the_keyboard() {
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
     harness.frame();
+
     let wanted = Finish::PolishedMetal.name();
+
     for _ in 0..MOST_TABS {
         if focused_label(&harness).as_deref() == Some(wanted) {
             break;
@@ -129,7 +142,9 @@ fn the_finish_list_is_reached_and_chosen_from_the_keyboard() {
         harness.key(Key::Tab, Modifiers::NONE);
         harness.frame();
     }
+
     assert_eq!(focused_label(&harness).as_deref(), Some(wanted));
+
     harness.key(Key::Enter, Modifiers::NONE);
     harness.settle();
 
@@ -140,6 +155,7 @@ fn the_finish_list_is_reached_and_chosen_from_the_keyboard() {
 #[test]
 fn a_material_brings_its_finish_and_high_contrast_draws_the_body_without_one() {
     let mut harness = Harness::new();
+
     let (plate, _) = open_card(&mut harness);
 
     open_combo(&mut harness, crate::body_appearance::MATERIAL_CAPTION);

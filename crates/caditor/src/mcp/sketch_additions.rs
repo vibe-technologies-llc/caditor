@@ -31,7 +31,7 @@ const DEFAULT_ROOT_FILLET: &str = "0.75 mm";
 const DEFAULT_TEXT_HEIGHT: &str = "5 mm";
 const DEFAULT_TEXT_ANGLE: &str = "0 deg";
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TangentCircling {
     pub sketch: Named,
@@ -40,21 +40,21 @@ pub struct TangentCircling {
     pub near: Option<[f64; 2]>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Smoothness {
     Tangent,
     Curvature,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlendOn {
     pub curve: EntityName,
     pub end: EntityName,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Blending {
     pub sketch: Named,
@@ -63,7 +63,7 @@ pub struct Blending {
     pub continuity: Option<Smoothness>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GearShape {
     Gear,
@@ -71,7 +71,7 @@ pub enum GearShape {
     Sprocket,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Gearing {
     pub sketch: Named,
@@ -90,7 +90,7 @@ pub struct Gearing {
     pub chain: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GearEditing {
     pub sketch: Named,
@@ -106,7 +106,7 @@ pub struct GearEditing {
     pub chain: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Alignment {
     Left,
@@ -125,7 +125,7 @@ impl Alignment {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Lettered {
     pub sketch: Named,
@@ -141,7 +141,7 @@ pub struct Lettered {
     pub at: Option<[f64; 2]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextEditing {
     pub sketch: Named,
@@ -154,7 +154,7 @@ pub struct TextEditing {
     pub align: Option<Alignment>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Copying {
     pub sketch: Named,
@@ -176,6 +176,7 @@ pub(super) fn tangent_circle(
         .map(|text| amount(session, "radius", text, Dimension::LENGTH))
         .transpose()?;
     let near = asked.near.map(point).transpose()?;
+
     let transaction = target.reshaped(tangent_circling::TRANSACTION.to_owned(), |sketch| {
         sketch
             .tangent_circle(&curves, radius.as_ref(), near)
@@ -199,6 +200,7 @@ pub(super) fn blend(target: &Target<'_>, asked: &Blending) -> Result<Planned, To
         None | Some(Smoothness::Tangent) => Continuity::Tangent,
         Some(Smoothness::Curvature) => Continuity::Curvature,
     };
+
     let transaction = target.reshaped(blend_curving::TRANSACTION.to_owned(), |sketch| {
         sketch
             .blend(first, second, continuity)
@@ -250,6 +252,7 @@ fn chain_named_strictly(name: &str) -> Result<ChainSize, ToolError> {
 fn part_of(session: &Session, asked: &Gearing) -> Result<Part, ToolError> {
     let teeth = asked.teeth.unwrap_or(DEFAULT_TEETH);
     let shape = asked.shape.unwrap_or(GearShape::Gear);
+
     if shape == GearShape::Sprocket {
         return Ok(Part::Sprocket(Box::new(StoredSprocket::literal(
             Sprocket {
@@ -259,6 +262,7 @@ fn part_of(session: &Session, asked: &Gearing) -> Result<Part, ToolError> {
             },
         ))));
     }
+
     let gear = SpurGear {
         module: length_or(session, "module", asked.module.as_ref(), DEFAULT_MODULE)?,
         teeth,
@@ -314,6 +318,7 @@ pub(super) fn gear(
         (None, None) => GearCentre::Point(EntityId::ORIGIN),
         (Some(_), Some(_)) => return Err(SketchEditError::GearCentre.into()),
     };
+
     let transaction = target.reshaped(part.transaction().to_owned(), |sketch| {
         part.drawn_into(sketch, centre)
             .map_err(|error| SketchEditError::Gear(error).into())
@@ -342,12 +347,14 @@ pub(super) fn edit_gear(
     let parameters = session.parameters();
     let value_of = |parameter| parameters.value(parameter);
     let mut changed = false;
+
     let mut set = |slot: &mut Expression, change: Option<Dimensioned>| {
         if let Some(change) = change {
             *slot = change.expression;
             changed = true;
         }
     };
+
     set(
         &mut gear.teeth,
         given(session, "teeth", asked.teeth.as_ref(), Dimension::NONE)?,
@@ -356,6 +363,7 @@ pub(super) fn edit_gear(
         &mut gear.bore,
         given(session, "bore", asked.bore.as_ref(), Dimension::LENGTH)?,
     );
+
     let direction = given(
         session,
         "direction",
@@ -405,9 +413,11 @@ pub(super) fn edit_gear(
         .as_deref()
         .map(chain_named_strictly)
         .transpose()?;
+
     match (gear.meshing.as_mut(), gear.chain) {
         (Some(meshing), _) => {
             let driver = meshing.driver;
+
             if let Some((field, _)) = followed.iter().find(|(_, change)| change.is_some()) {
                 return Err(SketchEditError::Followed {
                     gear: label,
@@ -425,14 +435,17 @@ pub(super) fn edit_gear(
             if direction.is_some() {
                 return Err(SketchEditError::NoDirection { gear: label }.into());
             }
+
             let [module, pressure_angle, profile_shift, root_fillet, turn] =
                 followed.map(|(_, change)| change);
+
             let spur_only = [
                 ("module", &module),
                 ("pressure_angle", &pressure_angle),
                 ("profile_shift", &profile_shift),
                 ("root_fillet", &root_fillet),
             ];
+
             if let Some((field, _)) = spur_only.iter().find(|(_, change)| change.is_some()) {
                 return Err(SketchEditError::SprocketHas { gear: label, field }.into());
             }
@@ -449,8 +462,10 @@ pub(super) fn edit_gear(
             if chain.is_some() {
                 return Err(SketchEditError::NoChain { gear: label }.into());
             }
+
             let [module, pressure_angle, profile_shift, root_fillet, turn] =
                 followed.map(|(_, change)| change);
+
             set(&mut gear.module, module);
             set(&mut gear.pressure_angle, pressure_angle);
             set(&mut gear.profile_shift, profile_shift);
@@ -465,14 +480,18 @@ pub(super) fn edit_gear(
         .into());
     }
     check_gear_values(target.definition, &gear, &value_of)?;
+
     let name = if gear.is_sprocket() {
         gearing::EDIT_SPROCKET_TRANSACTION
     } else {
         gearing::EDIT_TRANSACTION
     };
     let mut transaction = target.document.transaction(name);
+
     transaction.set_sketch_gear(target.feature, id, gear);
+
     let mut planned = Planned::of(transaction.finish());
+
     planned.details.insert("gear".to_owned(), json!(id.raw()));
     Ok(planned)
 }
@@ -498,6 +517,7 @@ pub(super) fn text(
     asked: &Lettered,
 ) -> Result<Planned, ToolError> {
     Text::check_content(&asked.content).map_err(SketchEditError::TextValues)?;
+
     let height_text = asked
         .height
         .as_ref()
@@ -514,6 +534,7 @@ pub(super) fn text(
         (None, None) => TextAnchor::Point(EntityId::ORIGIN),
         (Some(_), Some(_)) => return Err(SketchEditError::TextAnchor.into()),
     };
+
     let lettering = Lettering {
         content: asked.content.clone(),
         height,
@@ -523,10 +544,12 @@ pub(super) fn text(
         align: asked.align.map_or(TextAlign::Left, Alignment::text_align),
     };
     let parameters = session.parameters();
+
     lettering
         .text(EntityId::ORIGIN)
         .size(&|parameter| parameters.value(parameter))
         .map_err(SketchEditError::TextValues)?;
+
     let transaction = target.reshaped(texting::TRANSACTION.to_owned(), |sketch| {
         texting::write_into(sketch, &lettering, anchor)
             .map(|_| ())
@@ -544,12 +567,14 @@ pub(super) fn edit_text(
     let mut text = held.clone();
     let height = given(session, "height", asked.height.as_ref(), Dimension::LENGTH)?;
     let angle = given(session, "angle", asked.angle.as_ref(), Dimension::ANGLE)?;
+
     let changed = asked.content.is_some()
         || height.is_some()
         || angle.is_some()
         || asked.bold.is_some()
         || asked.italic.is_some()
         || asked.align.is_some();
+
     if !changed {
         return Err(SketchEditError::NothingToEdit {
             sketch: target.name.to_owned(),
@@ -575,12 +600,18 @@ pub(super) fn edit_text(
     if let Some(align) = asked.align {
         text.align = align.text_align();
     }
+
     let parameters = session.parameters();
+
     text.size(&|parameter| parameters.value(parameter))
         .map_err(SketchEditError::TextValues)?;
+
     let mut transaction = target.document.transaction(texting::EDIT_TRANSACTION);
+
     transaction.set_sketch_text(target.feature, id, text);
+
     let mut planned = Planned::of(transaction.finish());
+
     planned.details.insert("text".to_owned(), json!(id.raw()));
     Ok(planned)
 }
@@ -590,18 +621,21 @@ pub(super) fn copy(target: &Target<'_>, asked: &Copying) -> Result<Planned, Tool
     let (source_name, source) = match &asked.from_sketch {
         Some(named) => {
             let (feature, definition) = references::sketch(document, named)?;
+
             let shown = crate::sketch_status::up_to_date_result(target.evaluation, feature.id())
                 .map_or(definition, |result| &result.geometry);
             (feature.name.as_str(), shown)
         }
         None => (target.name, target.shown),
     };
+
     if asked.items.is_empty() {
         return Err(writing::SketchingError::Nothing.into());
     }
     if asked.items.len() > writing::MOST_ITEMS {
         return Err(writing::SketchingError::TooMany.into());
     }
+
     let items = asked
         .items
         .iter()
@@ -609,6 +643,7 @@ pub(super) fn copy(target: &Target<'_>, asked: &Copying) -> Result<Planned, Tool
         .collect::<Result<Vec<_>, _>>()?;
     let clip = source.clip(&items).map_err(SketchEditError::Clip)?;
     let same_sketch = asked.from_sketch.is_none();
+
     let offset = match (asked.by, asked.to) {
         (Some([x, y]), None) => Vector2::new(writing::coordinate(x)?, writing::coordinate(y)?),
         (None, Some(to)) => {
@@ -621,6 +656,7 @@ pub(super) fn copy(target: &Target<'_>, asked: &Copying) -> Result<Planned, Tool
     };
     let mut placed = Vec::new();
     let label = format!("Paste {}", clipboard::described(&clip));
+
     let transaction = target.reshaped(label, |sketch| {
         placed = sketch
             .paste(&clip, offset)
@@ -628,6 +664,7 @@ pub(super) fn copy(target: &Target<'_>, asked: &Copying) -> Result<Planned, Tool
         Ok(())
     })?;
     let mut planned = Planned::of(transaction);
+
     planned
         .details
         .insert("pasted".to_owned(), writing::ids(&placed));

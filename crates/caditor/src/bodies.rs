@@ -38,7 +38,7 @@ use crate::{
 
 const SHOWN_TOGETHER_FOR: Duration = Duration::from_millis(750);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FaceKey {
     pub name: FaceName,
     pub occurrence: u32,
@@ -54,13 +54,14 @@ pub fn face_keys(solid: &Solid) -> Vec<(FaceId, FaceKey)> {
                 name: face.name(),
                 occurrence: *count,
             };
+
             *count = count.saturating_add(1);
             (id, key)
         })
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VertexKey {
     pub name: VertexName,
     pub occurrence: u32,
@@ -95,7 +96,7 @@ pub fn find_vertex(body: &SolidResult, key: VertexKey) -> Option<VertexId> {
         .copied()
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ShownCut<'a> {
     Clipping,
     Shown(&'a Arc<FeatureResult>),
@@ -166,6 +167,7 @@ fn edge_faces(solid: &Solid, edge: EdgeId) -> Vec<FaceId> {
         .iter()
         .filter_map(|coedge| solid.coedge_face(*coedge))
         .collect();
+
     faces.dedup();
     faces
 }
@@ -174,14 +176,14 @@ pub fn is_seam(solid: &Solid, edge: EdgeId) -> bool {
     edge_faces(solid, edge).len() == 1
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BodyFace {
     pub key: FaceKey,
     pub openable: bool,
     pub bounds: Option<Aabb>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BodyEdge {
     pub name: EdgeName,
     polyline: usize,
@@ -193,19 +195,19 @@ impl BodyEdge {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyVertex {
     pub key: VertexKey,
     pub position: Point3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MassAccuracy {
     Exact,
     Mesh { chord: f64, volume_within: f64 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyMass {
     pub properties: MassProperties,
     pub accuracy: MassAccuracy,
@@ -246,6 +248,7 @@ impl BodyMass {
                 (mesh.mass_properties(), within(&|_| true), BTreeMap::new())
             }
         };
+
         let bounds = match extent(solid) {
             Ok(Some(bounds)) => Some(bounds),
             Err(MeasureError::Cancelled(interrupted)) => return Err(interrupted),
@@ -269,7 +272,7 @@ impl BodyMass {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MassReading {
     pub mass: BodyMass,
     face_areas: BTreeMap<FaceKey, f64>,
@@ -280,8 +283,10 @@ impl MassReading {
         let Some((body, mesh)) = source.solid().and_then(|body| Some((body, body.mesh()?))) else {
             return Ok(None);
         };
+
         let (mass, areas) = BodyMass::with_face_areas(&body.solid, mesh)?;
         let keys: BTreeMap<FaceId, FaceKey> = face_keys(&body.solid).into_iter().collect();
+
         let face_areas = areas
             .into_iter()
             .filter_map(|(face, area)| Some((*keys.get(&face)?, area)))
@@ -328,6 +333,7 @@ impl MassSlot {
         if self.reading.get().is_some() {
             return;
         }
+
         let stopped = Arc::clone(&self.stopped);
         #[cfg(test)]
         let hold = self
@@ -335,6 +341,7 @@ impl MassSlot {
             .upgrade()
             .map(|pool| pool.holds.lock().measures.clone())
             .unwrap_or_default();
+
         let measured = interruptible(Arc::new(move || stopped.load(Ordering::Acquire)), || {
             panic::catch_unwind(AssertUnwindSafe(|| {
                 #[cfg(test)]
@@ -374,7 +381,7 @@ impl MassSlot {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct BodyMesh {
     source: Arc<FeatureResult>,
     pub mesh: Arc<ShadedMesh>,
@@ -408,6 +415,7 @@ impl BodyMesh {
             .iter()
             .filter(|face| keys.contains_key(&face.face))
             .collect();
+
         let faces = shown
             .iter()
             .filter_map(|face| {
@@ -534,7 +542,7 @@ impl BodyMesh {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct EdgePoints<'a> {
     mesh: Option<&'a Mesh>,
     positions: slice::Iter<'a, u32>,
@@ -617,6 +625,7 @@ fn copied_mesh(mesh: &Mesh, faces: &[&FaceTriangles]) -> ShadedMesh {
     ShadedMesh::new(faces.iter().map(|face| {
         let mut corners: BTreeMap<u32, u32> = BTreeMap::new();
         let mut drawn = MeshFace::default();
+
         for triangle in mesh
             .triangles()
             .get(face.triangles.clone())
@@ -641,8 +650,10 @@ fn local_corner(
     if let Some(index) = corners.get(&vertex) {
         return Some(*index);
     }
+
     let source = mesh.vertices().get(vertex as usize)?;
     let index = u32::try_from(drawn.points.len()).ok()?;
+
     drawn.points.push(MeshPoint {
         position: mesh.position(source.position)?,
         normal: source.normal.vector(),
@@ -651,7 +662,7 @@ fn local_corner(
     Some(index)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FaceChoice {
     Opening,
     Moving { tangent: bool },
@@ -660,7 +671,7 @@ pub enum FaceChoice {
     Splitting,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum OpenChoice {
     Edges {
         references: Vec<EdgeReference>,
@@ -838,7 +849,7 @@ impl OpenChoice {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct BodyBefore {
     pub feature: FeatureId,
     pub body: FeatureId,
@@ -846,7 +857,7 @@ pub struct BodyBefore {
     pub choice: OpenChoice,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Ghost {
     pub feature: FeatureId,
     pub body: FeatureId,
@@ -854,7 +865,7 @@ pub struct Ghost {
     pub edges: Vec<EdgeName>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct OpenDraft<'a> {
     pub evaluation: Option<&'a Evaluation>,
     pub result: Option<(FeatureId, &'a Arc<FeatureResult>)>,
@@ -862,14 +873,14 @@ pub struct OpenDraft<'a> {
     pub moved: Option<(FeatureId, RigidTransform)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct DraftShown {
     pub body: FeatureId,
     pub mesh: Arc<BodyMesh>,
     pub computed: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BodyMeshes {
     bodies: BTreeMap<FeatureId, Arc<BodyMesh>>,
     open: Option<BodyBefore>,
@@ -948,15 +959,18 @@ impl BodyMeshes {
     ) {
         self.show_draft(meshing, feature, draft);
         self.show_ghosts(evaluation, meshing, ghosted);
+
         let shown_before = self.open.clone();
         let previous = self
             .open
             .take()
             .filter(|open| Some(open.feature) == feature);
+
         self.open = feature.and_then(|feature| {
             let input = evaluation.body_before(feature)?;
             let solid = input.solid()?;
             let kind = document.feature(feature).map(|owner| &owner.kind);
+
             let (before, choice) = match (previous, meshing.lookup(input)) {
                 (Some(open), _) if Arc::ptr_eq(&open.before.source, input) => {
                     let choice = OpenChoice::of(document, kind, &solid.solid, Some(open.choice));
@@ -979,6 +993,7 @@ impl BodyMeshes {
                 choice,
             })
         });
+
         let wanted = match (feature, draft.cuts) {
             (Some(feature), Some(drafted)) => shown_cuts(
                 document,
@@ -996,6 +1011,7 @@ impl BodyMeshes {
             ShownCut::Shown(cut) => matches!(meshing.lookup(cut), Converted::Pending),
             ShownCut::Hidden => false,
         });
+
         let cuts: Vec<Arc<BodyMesh>> = if pending && self.cuts_of == feature {
             self.cuts.clone()
         } else {
@@ -1015,11 +1031,13 @@ impl BodyMeshes {
                 .iter()
                 .zip(&self.cuts)
                 .all(|(new, old)| Arc::ptr_eq(new, old));
+
         self.cuts = cuts;
         self.cuts_of = feature;
         if !same_cuts {
             self.changed();
         }
+
         let same = match (&shown_before, &self.open) {
             (Some(shown), Some(open)) => {
                 shown.feature == open.feature
@@ -1063,6 +1081,7 @@ impl BodyMeshes {
             && ghosts.iter().zip(&self.ghosts).all(|(new, old)| {
                 new.feature == old.feature && Arc::ptr_eq(&new.before, &old.before)
             });
+
         self.ghosts = ghosts;
         if !same {
             self.changed();
@@ -1106,8 +1125,11 @@ impl BodyMeshes {
             (None, None) => true,
             (Some(_), None) | (None, Some(_)) => false,
         };
+
         self.draft = shown;
+
         let same_move = self.moved == draft.moved;
+
         self.moved = draft.moved;
         if !same_draft || !same_move {
             self.changed();
@@ -1129,11 +1151,13 @@ impl BodyMeshes {
     pub fn update(&mut self, evaluation: &Evaluation, meshing: &BodyMeshing) {
         let mut previous = std::mem::take(&mut self.bodies);
         let mut changed = false;
+
         for (body, _) in evaluation.bodies() {
             let Some(result) = evaluation.body_result(body) else {
                 continue;
             };
             let held = previous.remove(&body);
+
             let current = match &held {
                 Some(cached) if Arc::ptr_eq(&cached.source, result) => held.clone(),
                 _ => match meshing.lookup(result) {
@@ -1142,6 +1166,7 @@ impl BodyMeshes {
                     Converted::Missing => None,
                 },
             };
+
             changed |= match (&held, &current) {
                 (Some(held), Some(current)) => !Arc::ptr_eq(held, current),
                 (None, None) => false,
@@ -1167,7 +1192,7 @@ impl BodyMeshes {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Converted<'a> {
     Ready(&'a Arc<BodyMesh>),
     Pending,
@@ -1185,7 +1210,7 @@ enum Task {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Hold(Arc<AtomicBool>);
 
 #[cfg(test)]
@@ -1208,7 +1233,7 @@ impl Hold {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Holds {
     pub converts: Hold,
     pub measures: Hold,
@@ -1261,13 +1286,17 @@ struct Pool {
 impl Pool {
     fn push(self: &Arc<Self>, task: Task) -> bool {
         let mut tasks = self.tasks.lock();
+
         if tasks.closed {
             return false;
         }
+
         let measure = matches!(task, Task::Measure(_));
+
         match task {
             Task::Convert(source) => {
                 let run = self.stops.load(Ordering::Acquire);
+
                 tasks.converts.push_back((source, run));
             }
             Task::Measure(slot) => {
@@ -1275,7 +1304,9 @@ impl Pool {
                 tasks.measuring += 1;
             }
         }
+
         let spawn = tasks.waiting() > tasks.idle && tasks.started < self.limit;
+
         if spawn {
             tasks.started += 1;
         }
@@ -1284,6 +1315,7 @@ impl Pool {
         if !spawn {
             return true;
         }
+
         let pool = Arc::clone(self);
         let spawned = thread::Builder::new()
             .name("body meshes".to_owned())
@@ -1292,9 +1324,13 @@ impl Pool {
             Ok(_) => true,
             Err(error) => {
                 log::error!("could not start a body mesh worker: {error}");
+
                 let mut tasks = self.tasks.lock();
+
                 tasks.started = tasks.started.saturating_sub(1);
+
                 let served = tasks.started > 0;
+
                 if measure && !served {
                     tasks.measuring = tasks.measuring.saturating_sub(1);
                 }
@@ -1329,6 +1365,7 @@ impl Pool {
                     Done::Measured
                 }
             };
+
             if self.done.send(done).is_err() {
                 return;
             }
@@ -1503,13 +1540,16 @@ impl BodyMeshing {
             || self.stopped.contains_key(&at)
             || self.held.contains_key(&at)
             || self.converted.contains_key(&at);
+
         if !meshed || known {
             return;
         }
+
         #[cfg(test)]
         let holds = &self.holds;
         let converter = self.converter.get_or_insert_with(|| {
             let converter = Converter::new(wake());
+
             #[cfg(test)]
             converter.pool.holds.lock().clone_from(holds);
             converter
@@ -1530,6 +1570,7 @@ impl BodyMeshing {
             return false;
         };
         let mut arrived = false;
+
         while let Ok(done) = converter.done.try_recv() {
             match done {
                 Done::Converted(conversion) => {
@@ -1540,16 +1581,19 @@ impl BodyMeshing {
                 }
                 Done::Measured => {
                     let mut tasks = converter.pool.tasks.lock();
+
                     tasks.measuring = tasks.measuring.saturating_sub(1);
                     self.measured = self.measured.wrapping_add(1);
                     arrived = true;
                 }
             }
         }
+
         let due = self.pending.is_empty()
             || self
                 .shown_at
                 .is_none_or(|shown| shown.elapsed() >= SHOWN_TOGETHER_FOR);
+
         if due && !self.held.is_empty() {
             self.converted.append(&mut self.held);
             self.conversions = self.conversions.wrapping_add(1);
@@ -1563,7 +1607,9 @@ impl BodyMeshing {
         self.pending.retain(|_, pending| keep(pending));
         self.stopped.retain(|_, stopped| keep(stopped));
         self.held.retain(|_, conversion| keep(&conversion.source));
+
         let before = self.converted.len();
+
         self.converted
             .retain(|_, conversion| keep(&conversion.source));
         if self.converted.len() != before {
@@ -1625,8 +1671,10 @@ pub fn describe_vertex(document: &Document, body: &SolidResult, key: VertexKey) 
         .filter(|(_, edge)| edge.start() == vertex || edge.end() == vertex)
         .flat_map(|(id, _)| edge_faces(&body.solid, id))
         .collect();
+
     faces.sort_unstable();
     faces.dedup();
+
     let described: Vec<String> = faces
         .into_iter()
         .map(|face| describe_face_id(document, body, face))
@@ -1712,6 +1760,7 @@ mod tests {
                 Instant::now() < deadline,
                 "the body mesh was never prepared"
             );
+
             meshing.poll();
             thread::yield_now();
         }
@@ -1736,6 +1785,7 @@ mod tests {
 
         wait_for(&mut meshing);
         meshes.update(&evaluation, &meshing);
+
         let shown = meshes.get(body).unwrap();
         let direct = BodyMesh::of(&source, Weak::new()).unwrap();
 
@@ -1761,6 +1811,7 @@ mod tests {
             let shown = BodyMesh::of(&source, Weak::new()).unwrap();
 
             let shared = shared.unwrap_or_else(|| panic!("{sample:?} is not laid out by face"));
+
             assert_eq!(shared, copied_mesh(mesh, &faces), "{sample:?}");
             assert_eq!(*shown.mesh, shared, "{sample:?}");
             assert_eq!(shown.faces.len(), faces.len());
@@ -1823,12 +1874,15 @@ mod tests {
             let document = sample.document().unwrap();
             let evaluation = evaluate(&mut Recompute::default(), &document);
             let (body, _) = only_body(&evaluation);
+
             let shown = super::shown(&evaluation, body).unwrap();
 
             for (id, key) in face_keys(&shown.solid) {
                 assert_eq!(find_face(shown, key), Some(id));
+
                 let parts = shown.names().faces_named(key.name).len();
                 let described = describe_face_id(&document, shown, id);
+
                 assert_eq!(
                     described.ends_with(&format!("part {} of {parts}", key.occurrence + 1)),
                     parts > 1,
@@ -1837,13 +1891,16 @@ mod tests {
             }
             for (id, edge) in shown.solid.edges() {
                 let found = find_edge(shown, edge.name()).unwrap();
+
                 assert_eq!(shown.solid.edge(found).unwrap().name(), edge.name());
                 assert!(found <= id);
             }
+
             let missing = FaceKey {
                 name: FaceName::NONE,
                 occurrence: 0,
             };
+
             assert_eq!(find_face(shown, missing), None);
         }
     }
@@ -1857,14 +1914,21 @@ mod tests {
         let mut meshes = BodyMeshes::default();
 
         meshes.update(&evaluation, &meshing);
+
         let pending = meshes.generation();
+
         meshing.request(&source, no_wake);
         wait_for(&mut meshing);
         meshes.update(&evaluation, &meshing);
+
         let arrived = meshes.generation();
+
         meshes.update(&evaluation, &meshing);
+
         let again = meshes.generation();
+
         meshes.update(&Evaluation::default(), &meshing);
+
         let gone = meshes.generation();
 
         assert_eq!(pending, BodyMeshes::default().generation());
@@ -1877,16 +1941,20 @@ mod tests {
     fn a_changed_body_keeps_its_previous_mesh_until_the_new_one_is_ready() {
         let mut document = Sample::Spool.document().unwrap();
         let mut recompute = Recompute::default();
+
         let first = evaluate(&mut recompute, &document);
         let (body, old) = only_body(&first);
         let mut meshing = BodyMeshing::default();
         let mut meshes = BodyMeshes::default();
+
         meshing.request(&old, no_wake);
         wait_for(&mut meshing);
         meshes.update(&first, &meshing);
+
         let old_bounds = meshes.get(body).unwrap().bounds().unwrap();
 
         let height = document.parameter_named("height").unwrap().id();
+
         document
             .apply(Transaction::single(
                 "Taller",
@@ -1896,8 +1964,10 @@ mod tests {
                 },
             ))
             .unwrap();
+
         let second = evaluate(&mut recompute, &document);
         let (_, new) = only_body(&second);
+
         meshing.retain(|source| Arc::ptr_eq(source, &new));
         meshing.request(&new, no_wake);
         meshes.update(&second, &meshing);
@@ -1908,6 +1978,7 @@ mod tests {
 
         wait_for(&mut meshing);
         meshes.update(&second, &meshing);
+
         let taller = meshes.get(body).unwrap().bounds().unwrap();
 
         assert!(Arc::ptr_eq(&meshes.bodies[&body].source, &new));

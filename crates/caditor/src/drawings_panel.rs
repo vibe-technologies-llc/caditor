@@ -91,7 +91,7 @@ const THIN_WIDTH: f32 = 1.0;
 const CHAIN_DASHES: [f32; 2] = [12.0, 0.5];
 const CHAIN_GAPS: [f32; 2] = [3.0, 3.0];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum SheetRefusal {
     #[error("The model has no drawings; New drawing makes one")]
     NoDrawing,
@@ -107,7 +107,7 @@ impl Reason for SheetRefusal {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct SheetCamera {
     zoom: f32,
     pan: Vec2,
@@ -169,6 +169,7 @@ impl DrawingsTool {
             self.sheet = SheetViews::default();
             return;
         };
+
         if self.chosen != Some(drawing.id) {
             self.chosen = Some(drawing.id);
             self.camera = SheetCamera::default();
@@ -195,9 +196,11 @@ impl DrawingsTool {
     pub fn job(&self, model: &Model) -> Result<SheetJob, SheetRefusal> {
         let document = model.document();
         let drawing = self.current(document).ok_or(SheetRefusal::NoDrawing)?;
+
         if !self.sheet.is_ready() || self.sheet.drawing != Some(drawing.id) {
             return Err(SheetRefusal::Working);
         }
+
         let plan = plan_of(document, &model.display_name(), drawing, &self.sheet);
         let views = plan
             .views
@@ -281,15 +284,18 @@ pub fn commands(
     if commands.available(Command::Drawings) {
         tool.toggle();
     }
+
     let drawings = &model.document().drawings().drawings;
     let room = if drawings.len() >= MAX_DRAWINGS {
         Err(SheetRefusal::TooMany)
     } else {
         Ok(())
     };
+
     if commands.invoke(Command::NewDrawing, &room) {
         new_drawing(model, tool, bodies, actions);
     }
+
     let exportable = if drawings.is_empty() {
         Err(SheetRefusal::NoDrawing)
     } else {
@@ -320,10 +326,13 @@ pub fn export_when_ready(model: &Model, tool: &mut DrawingsTool, actions: &mut V
 
 fn drawing_choice(ui: &mut Ui, document: &Document, current: &Drawing) -> Option<DrawingId> {
     let drawings = &document.drawings().drawings;
+
     if drawings.len() < 2 {
         return None;
     }
+
     let mut chosen = None;
+
     widgets::property(ui, "Drawing", |ui| {
         widgets::combo("drawing-choice", current.name.as_str())
             .hover("The drawing shown and changed below")
@@ -350,6 +359,7 @@ fn renaming_row(
     };
     let mut done = false;
     let mut cancelled = false;
+
     ui.horizontal(|ui| {
         let field = widgets::text_field(ui, |ui| {
             ui.add(
@@ -360,6 +370,7 @@ fn renaming_row(
         });
         let field = widgets::named(field, "Drawing name");
         let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
+
         cancelled = widgets::escape_cancels(ui, &field);
         done = widgets::icon_button(ui, icons::DONE, "Rename the drawing").clicked() || enter;
         cancelled |= widgets::icon_button(ui, icons::CLOSE, "Keep the name (Esc)").clicked();
@@ -398,9 +409,11 @@ fn scale_label(scale: DrawingScale) -> String {
 
 fn settings(ui: &mut Ui, model: &Model, drawing: &Drawing, actions: &mut Vec<Action>) {
     let id = drawing.id;
+
     widgets::properties(ui, "drawing-settings", |ui| {
         widgets::property(ui, "Sheet", |ui| {
             let mut chosen = None;
+
             widgets::combo("drawing-size", drawing.size.name())
                 .hover("The ISO 216 sheet the drawing is laid out on")
                 .show(ui, |ui| {
@@ -469,6 +482,7 @@ fn settings(ui: &mut Ui, model: &Model, drawing: &Drawing, actions: &mut Vec<Act
         });
         widgets::property(ui, "Scale", |ui| {
             let mut chosen = None;
+
             widgets::combo("drawing-scale", scale_label(drawing.scale))
                 .hover("Sheet length to model length; fitting takes the largest ISO 5455 scale the sheet holds")
                 .show(ui, |ui| {
@@ -519,6 +533,7 @@ fn settings(ui: &mut Ui, model: &Model, drawing: &Drawing, actions: &mut Vec<Act
             }
         }
     });
+
     let mut hidden = drawing.hidden_lines;
     if widgets::checkbox(ui, &mut hidden, HIDDEN_LINES)
         .on_hover_text("Draw edges behind the bodies dashed")
@@ -554,7 +569,9 @@ fn offset_row(
     let parameters = model.parameters();
     let units = model.units();
     let letter = section.letter;
+
     widgets::caption(ui, DISTANCE);
+
     let field = field::value_field(
         ui,
         offset_field_id(drawing, letter),
@@ -574,6 +591,7 @@ fn offset_row(
             )
         },
     );
+
     field.response.on_hover_text(format!(
         "How far the plane stands from the origin along {}; units and parameters may be typed",
         section.plane.axis_name()
@@ -619,9 +637,11 @@ fn section_settings(
             actions,
         );
     };
+
     widgets::properties(ui, ("drawing-section", drawing.raw(), letter), |ui| {
         widgets::property(ui, CUT_ON, |ui| {
             let mut chosen = None;
+
             widgets::combo(
                 ("drawing-section-parent", drawing.raw(), letter),
                 format!("{} view", section.parent.name()),
@@ -652,6 +672,7 @@ fn section_settings(
                 .iter()
                 .map(|plane| format!("Cut square to {}", plane.axis_name()))
                 .collect();
+
             let choices: Vec<(&str, &str)> = planes
                 .iter()
                 .zip(&hovers)
@@ -684,6 +705,7 @@ fn section_settings(
                 }),
                 Some(1) => {
                     let start = model.units().measured(cut_at.unwrap_or(0.0));
+
                     edit("Move section plane", actions, &|section| {
                         section.place = SectionPlace::Offset(start.clone());
                     });
@@ -695,6 +717,7 @@ fn section_settings(
             offset_row(ui, model, drawing, section, offset, actions);
         }
     });
+
     let mut reversed = section.reversed;
     if widgets::checkbox(ui, &mut reversed, LOOK_BACK)
         .on_hover_text("Keep the other side of the plane and look at it from this side")
@@ -718,12 +741,16 @@ fn sections_rows(
     if drawing.sections.is_empty() {
         ui.label(NO_SECTIONS);
     }
+
     let cuts = sheet.cuts();
+
     for section in &drawing.sections {
         let letter = section.letter;
+
         ui.add_space(SPACE_S);
         ui.horizontal(|ui| {
             widgets::label_before_icon_buttons(ui, &format!("Section {}", section.label()), 1);
+
             let delete = format!("Delete section {}", section.label());
             if widgets::icon_button(ui, icons::DELETE, &delete).clicked() {
                 change(
@@ -740,12 +767,15 @@ fn sections_rows(
                 );
             }
         });
+
         let cut_at = cuts
             .get(&letter)
             .map(|cutting| cutting.origin().dot(section.plane.normal()));
+
         section_settings(ui, model, drawing.id, section, cut_at, actions);
     }
     ui.add_space(SPACE_S);
+
     let room = drawing.unused_letter().is_some();
     let add = small_enabled(ui, room, icons::ADD, ADD_SECTION)
         .on_hover_text(
@@ -779,7 +809,9 @@ fn length_row(
     let document = model.document();
     let parameters = model.parameters();
     let units = model.units();
+
     widgets::caption(ui, caption);
+
     let field = field::value_field(
         ui,
         id,
@@ -804,6 +836,7 @@ fn length_row(
                 .map_err(ExpressionError::Unevaluable)
         },
     );
+
     field.response.on_hover_text(hover);
     ui.end_row();
     if let Some(error) = field.error {
@@ -842,6 +875,7 @@ fn detail_settings(
 ) {
     let letter = detail.letter;
     let id = drawing.id;
+
     let edit = |label: &str, actions: &mut Vec<Action>, apply: &dyn Fn(&mut DetailView)| {
         change(
             model,
@@ -855,9 +889,11 @@ fn detail_settings(
             actions,
         );
     };
+
     widgets::properties(ui, ("drawing-detail", id.raw(), letter), |ui| {
         widgets::property(ui, ENLARGES, |ui| {
             let mut chosen = None;
+
             widgets::combo(
                 ("drawing-detail-parent", id.raw(), letter),
                 parent_label(detail.parent),
@@ -878,6 +914,7 @@ fn detail_settings(
                 });
             }
         });
+
         let across = length_row(
             ui,
             model,
@@ -888,11 +925,13 @@ fn detail_settings(
             "Where the circle's centre stands across the view, in model lengths; units and \
              parameters may be typed",
         );
+
         if let Some(x) = across {
             edit("Move detail circle", actions, &|detail| {
                 detail.centre.x = x;
             });
         }
+
         let up = length_row(
             ui,
             model,
@@ -903,11 +942,13 @@ fn detail_settings(
             "Where the circle's centre stands up the view, in model lengths; units and \
              parameters may be typed",
         );
+
         if let Some(y) = up {
             edit("Move detail circle", actions, &|detail| {
                 detail.centre.y = y;
             });
         }
+
         let radius = length_row(
             ui,
             model,
@@ -917,6 +958,7 @@ fn detail_settings(
             true,
             "The circle's radius, in model lengths; units and parameters may be typed",
         );
+
         if let Some(radius) = radius {
             edit("Resize detail circle", actions, &|detail| {
                 detail.radius = radius;
@@ -924,6 +966,7 @@ fn detail_settings(
         }
         widgets::property(ui, DETAIL_SCALE, |ui| {
             let mut chosen = None;
+
             widgets::combo(
                 ("drawing-detail-scale", id.raw(), letter),
                 detail.scale.label(),
@@ -983,9 +1026,11 @@ fn details_rows(
     }
     for detail in &drawing.details {
         let letter = detail.letter;
+
         ui.add_space(SPACE_S);
         ui.horizontal(|ui| {
             widgets::label_before_icon_buttons(ui, &format!("Detail {letter}"), 1);
+
             let delete = format!("Delete detail {letter}");
             if widgets::icon_button(ui, icons::DELETE, &delete).clicked() {
                 change(
@@ -1000,6 +1045,7 @@ fn details_rows(
         detail_settings(ui, model, drawing, detail, actions);
     }
     ui.add_space(SPACE_S);
+
     let room = drawing.unused_letter().is_some();
     let add = small_enabled(ui, room, icons::ADD, ADD_DETAIL)
         .on_hover_text("Enlarge a circle of one of the views and lay it out beside the views")
@@ -1007,6 +1053,7 @@ fn details_rows(
     if add.clicked() {
         let parent = drawing.default_detail_parent();
         let (centre, radius) = default_circle(sheet, parent);
+
         apply_or_say(
             model
                 .document()
@@ -1027,19 +1074,23 @@ fn bodies_row(
 ) {
     ui.add_space(SPACE_S);
     ui.label(widgets::section_title("Bodies"));
+
     let shown = if drawing.bodies.is_empty() {
         EVERY_BODY.to_owned()
     } else {
         format!("{} chosen", count(drawing.bodies.len(), "body", "bodies"))
     };
+
     ui.label(shown);
     ui.horizontal_wrapped(|ui| {
         let usable = !selected.is_empty() && selected != drawing.bodies.as_slice();
         let pick = small_enabled(ui, usable, icons::SELECT, USE_SELECTED)
             .on_hover_text("Draw only the bodies selected in the view or the tree")
             .on_disabled_hover_text("Select bodies in the view or the tree to draw only those");
+
         if pick.clicked() {
             let bodies = selected.to_vec();
+
             change(
                 model,
                 drawing.id,
@@ -1094,8 +1145,10 @@ fn reason(error: &DrawingViewError) -> String {
 
 fn status(ui: &mut Ui, sheet: &SheetViews, plan: &SheetPlan) {
     let working = sheet.working();
+
     if working > 0 {
         let total = sheet.views.len();
+
         widgets::progress(WORKING)
             .count(total - working, total)
             .wrapping()
@@ -1110,6 +1163,7 @@ fn status(ui: &mut Ui, sheet: &SheetViews, plan: &SheetPlan) {
                 reason(error)
             ))
         });
+
         widgets::announced(ui, &response, true);
         ui.add_space(SPACE_S);
     }
@@ -1201,6 +1255,7 @@ fn view_lines(
 
 fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_lines: bool) {
     let tokens = appearance::tokens(ui);
+
     ui.horizontal_wrapped(|ui| {
         if small(ui, icons::ZOOM_IN, ZOOM_IN).clicked() {
             tool.camera.zoom_by(ZOOM_STEP);
@@ -1213,23 +1268,29 @@ fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_l
         }
     });
     ui.add_space(SPACE_S);
+
     let width = ui.available_width().max(1.0);
     let height = width * (plan.height / plan.width.max(1.0)) as f32;
+
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click_and_drag());
     let response = widgets::named(response, SHEET).on_hover_text(
         "Drag to move the sheet, pinch or Ctrl and scroll to zoom; with the sheet focused, the \
          arrow keys move it",
     );
     let fit = width / plan.width.max(1.0) as f32;
+
     if response.hovered() {
         let zoom = ui.input(|input| input.zoom_delta());
         if (zoom - 1.0).abs() > f32::EPSILON {
             tool.camera.zoom_by(zoom);
         }
     }
+
     let scale = fit * tool.camera.zoom;
+
     if response.dragged() {
         let moved = response.drag_delta() / scale;
+
         tool.camera.pan += vec2(-moved.x, moved.y);
     }
     if response.has_focus() {
@@ -1246,6 +1307,7 @@ fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_l
             }
         }
     }
+
     let mapping = Mapping {
         rect,
         centre: Point2::new(
@@ -1255,11 +1317,14 @@ fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_l
         scale,
     };
     let painter = ui.painter_at(rect);
+
     painter.rect_filled(rect, 0.0, tokens.sunken);
+
     let paper = Rect::from_two_pos(
         mapping.screen(Point2::new(0.0, 0.0)),
         mapping.screen(Point2::new(plan.width, plan.height)),
     );
+
     painter.rect_filled(paper, 0.0, tokens.raised);
     painter.rect_stroke(
         paper,
@@ -1286,14 +1351,17 @@ fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_l
     }
     for text in &plan.texts {
         let size = text.height as f32 * scale / CAP_HEIGHT;
+
         if size < SMALLEST_TEXT {
             continue;
         }
+
         let at = mapping.screen(text.at);
         let (at, align) = match text.anchor {
             TextAnchor::Start => (at + vec2(0.0, size * DESCENT), Align2::LEFT_BOTTOM),
             TextAnchor::Middle => (at, Align2::CENTER_CENTER),
         };
+
         painter.text(
             at,
             align,
@@ -1306,6 +1374,7 @@ fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_l
         let chain = [mapping.screen(line.chain.0), mapping.screen(line.chain.1)];
         let dashes = CHAIN_DASHES.map(|length| (length * scale).max(1.0));
         let gaps = CHAIN_GAPS.map(|length| (length * scale).max(1.0));
+
         painter.extend(Shape::dashed_line_with_offset(
             &chain,
             Stroke::new(THIN_WIDTH, tokens.text),
@@ -1352,6 +1421,7 @@ pub fn show(
     let current = tool.current(document).cloned();
     let plan = tool.plan(model);
     let mut export = false;
+
     let panel = widgets::side_panel(
         ui,
         room,
@@ -1368,6 +1438,7 @@ pub fn show(
                 return;
             };
             let mut chosen = None;
+
             widgets::properties(ui, "drawing-choice-grid", |ui| {
                 chosen = drawing_choice(ui, document, drawing);
             });
@@ -1399,7 +1470,9 @@ pub fn show(
             bodies_row(ui, model, drawing, context.selected, &tool.sheet, actions);
             ui.add_space(SPACE_M);
             status(ui, &tool.sheet, plan);
+
             let ready = tool.is_ready();
+
             export = ui
                 .add_enabled(ready, widgets::primary_button(ui, EXPORT))
                 .on_hover_text("Export the sheet as PDF, SVG or DXF")
@@ -1409,6 +1482,7 @@ pub fn show(
             sheet_canvas(ui, tool, plan, drawing.hidden_lines);
         },
     );
+
     if export {
         tool.export_pending = true;
     }

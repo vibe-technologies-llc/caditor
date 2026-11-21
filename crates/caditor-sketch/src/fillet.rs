@@ -26,7 +26,7 @@ const ELLIPSE_SAMPLES: usize = 256;
 const BISECTIONS: usize = 60;
 const RADIUS_SLACK: f64 = 1e-6;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum FilletError {
     #[error("{label} is not where two lines, arcs, elliptical arcs or splines meet")]
     NotACorner { point: EntityId, label: String },
@@ -78,7 +78,7 @@ pub enum FilletError {
     Edit(SketchError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Corner {
     pub point: EntityId,
     pub position: Point2,
@@ -86,7 +86,7 @@ pub struct Corner {
     ends: [EntityId; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rounding {
     pub center: Point2,
     pub radius: f64,
@@ -101,13 +101,13 @@ impl Rounding {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bevel {
     pub distances: [f64; 2],
     pub touches: [Point2; 2],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ChamferSize {
     Equal(Dimensioned),
     Distances {
@@ -120,7 +120,7 @@ pub enum ChamferSize {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Leg {
     Line {
         far: Point2,
@@ -158,12 +158,16 @@ fn along_ellipse(ellipse: &EllipseGeometry, corner_at_start: bool, turned: f64) 
 fn first_root(span: f64, level: impl Fn(f64) -> f64) -> Option<f64> {
     let step = span / ELLIPSE_SAMPLES as f64;
     let mut low = 0.0;
+
     let mut at_low = level(low);
+
     for index in 1..=ELLIPSE_SAMPLES {
         let high = step * index as f64;
         let at_high = level(high);
+
         if at_low * at_high < 0.0 {
             let (mut low, mut high, mut at_low) = (low, high, at_low);
+
             for _ in 0..BISECTIONS {
                 let middle = 0.5 * (low + high);
                 let at_middle = level(middle);
@@ -180,7 +184,7 @@ fn first_root(span: f64, level: impl Fn(f64) -> f64) -> Option<f64> {
     None
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Side {
     curve: EntityId,
     leg: Leg,
@@ -289,9 +293,11 @@ impl Side {
                 corner_at_start,
             } => {
                 let half_chord = distance / (2.0 * arc.radius);
+
                 if !(half_chord.is_finite() && half_chord < 1.0) {
                     return None;
                 }
+
                 let turn = 2.0 * half_chord.asin();
                 let from = direction_angle(corner - arc.center);
                 let along = if corner_at_start { turn } else { -turn };
@@ -384,6 +390,7 @@ impl Side {
             } => {
                 let at = direction_angle(touch - arc.center);
                 let from = direction_angle(corner - arc.center);
+
                 let turned = if corner_at_start {
                     (at - from).rem_euclid(TAU)
                 } else {
@@ -466,13 +473,17 @@ impl Side {
 impl Sketch {
     pub fn fillet_corners(&self) -> Vec<Corner> {
         let mut ends = self.curve_ends();
+
         ends.sort_by(|a, b| a.2.x.total_cmp(&b.2.x));
+
         let mut taken = vec![false; ends.len()];
         let mut corners = Vec::new();
+
         for (index, (_, _, position)) in ends.iter().enumerate() {
             if taken.get(index).copied().unwrap_or(true) {
                 continue;
             }
+
             let tolerance = tolerance_at(*position);
             let near: Vec<usize> = (index..ends.len())
                 .take_while(|other| {
@@ -484,24 +495,29 @@ impl Sketch {
                         .is_some_and(|(_, _, at)| at.distance(*position) <= tolerance)
                 })
                 .collect();
+
             for other in &near {
                 if let Some(flag) = taken.get_mut(*other) {
                     *flag = true;
                 }
             }
+
             let here: Vec<&(EntityId, EntityId, Point2)> =
                 near.iter().filter_map(|other| ends.get(*other)).collect();
             let (Some(first), Some(second), 2) = (here.first(), here.get(1), here.len()) else {
                 continue;
             };
+
             if first.0 == second.0 {
                 continue;
             }
+
             let ([first, second], point) = if first.0 < second.0 {
                 ([first, second], first.1)
             } else {
                 ([second, first], second.1)
             };
+
             let corner = Corner {
                 point,
                 position: *position,
@@ -523,13 +539,16 @@ impl Sketch {
             label: label(),
         })?;
         let tolerance = tolerance_at(position);
+
         let mut here: Vec<(EntityId, EntityId)> = self
             .curve_ends()
             .into_iter()
             .filter(|(_, _, at)| at.distance(position) <= tolerance)
             .map(|(curve, end, _)| (curve, end))
             .collect();
+
         here.sort_by_key(|(curve, end)| (*end != point, *curve));
+
         let curves: std::collections::BTreeSet<EntityId> =
             here.iter().map(|(curve, _)| *curve).collect();
         let (first, second) = match (here.as_slice(), curves.len()) {
@@ -555,6 +574,7 @@ impl Sketch {
                 });
             }
         };
+
         for (curve, _) in [first, second] {
             if self.is_projected(curve) {
                 return Err(FilletError::Projected {
@@ -576,6 +596,7 @@ impl Sketch {
             first: self.entity_label(first),
             second: self.entity_label(second),
         };
+
         for curve in [first, second] {
             if !matches!(
                 self.entity(curve),
@@ -592,6 +613,7 @@ impl Sketch {
                 });
             }
         }
+
         let ends = self.curve_ends();
         let of = |curve: EntityId| {
             ends.iter()
@@ -614,8 +636,10 @@ impl Sketch {
         if !(radius.is_finite() && radius > 0.0) {
             return Err(FilletError::NotPositive);
         }
+
         let [first, second] = self.corner_sides(corner)?;
         let at = corner.position;
+
         let turn = first.leaving.perp_dot(second.leaving);
         let first_inside = first.leaving.perp() * turn.signum();
         let second_inside = second.leaving.perp() * -turn.signum();
@@ -628,6 +652,7 @@ impl Sketch {
             second: self.entity_label(second.curve),
         };
         let tolerance = TOLERANCE * at.abs().max_element().max(radius).max(1.0);
+
         let center = match (first.rolls(), second.rolls()) {
             (true, _) => {
                 rolled_center((&first, first_inside), (&second, second_inside), at, radius)
@@ -651,6 +676,7 @@ impl Sketch {
             }
         };
         let touches = [first.touch(at, center), second.touch(at, center)];
+
         for (side, touch) in [&first, &second].into_iter().zip(touches) {
             if !side.reaches(at, touch, tolerance)
                 || !side.holds_radius(center, radius, tolerance.max(RADIUS_SLACK * radius))
@@ -658,8 +684,10 @@ impl Sketch {
                 return Err(too_large(side));
             }
         }
+
         let [a, b] = touches;
         let from = direction_angle(a - center);
+
         let sweep = (direction_angle(b - center) - from).rem_euclid(TAU);
         let (arc, starts_on_first) = if sweep <= PI {
             (
@@ -714,6 +742,7 @@ impl Sketch {
     ) -> Result<Bevel, FilletError> {
         let at = corner.position;
         let mut touches = [at; 2];
+
         for ((touch, side), distance) in touches.iter_mut().zip(sides).zip(distances) {
             *touch = self.touch_at(side, at, distance)?;
         }
@@ -724,6 +753,7 @@ impl Sketch {
         if !(distance.is_finite() && distance > 0.0) {
             return Err(FilletError::DistanceNotPositive);
         }
+
         let tolerance = TOLERANCE * at.abs().max_element().max(distance).max(1.0);
         let too_far = || FilletError::TooFar {
             entity: side.curve,
@@ -747,12 +777,15 @@ impl Sketch {
         if !(degrees.is_finite() && degrees > 0.0 && degrees < 180.0) {
             return Err(FilletError::AngleOutOfRange);
         }
+
         let [first, second] = sides;
         let at = corner.position;
+
         let first_touch = self.touch_at(first, at, distance)?;
         let toward_corner = first.heading_back(first_touch);
         let side = (at - first_touch).perp_dot(second.leaving);
         let turn = degrees.to_radians() * if side < 0.0 { -1.0 } else { 1.0 };
+
         let direction = Vector2::from_angle(turn).rotate(toward_corner);
         let tolerance = TOLERANCE * at.abs().max_element().max(distance).max(1.0);
         let misses = || FilletError::AngleMisses {
@@ -763,12 +796,14 @@ impl Sketch {
             through: first_touch,
             direction,
         };
+
         let second_touch = second
             .ray_crossings(at, ray, tolerance)
             .into_iter()
             .filter(|found| (*found - first_touch).dot(direction) > tolerance)
             .min_by(|a, b| a.distance(first_touch).total_cmp(&b.distance(first_touch)))
             .ok_or_else(misses)?;
+
         if !second.reaches(at, second_touch, tolerance) {
             return Err(FilletError::TooFar {
                 entity: second.curve,
@@ -783,9 +818,11 @@ impl Sketch {
 
     pub fn distance_through(&self, corner: &Corner, point: Point2) -> Option<f64> {
         let [first, second] = self.corner_sides(corner).ok()?;
+
         let middle = (first.leaving + second.leaving) / 2.0;
         let reach = middle.length();
         let along = (point - corner.position).dot(middle.try_normalize()?);
+
         let distance = along / reach;
         (distance.is_finite() && distance > 0.0).then_some(distance)
     }
@@ -796,26 +833,33 @@ impl Sketch {
         size: &ChamferSize,
     ) -> Result<EntityId, FilletError> {
         let current = self.corner_at(corner.point)?;
+
         if current.curves != corner.curves {
             return Err(FilletError::NotJoined {
                 first: self.entity_label(corner.curves[0]),
                 second: self.entity_label(corner.curves[1]),
             });
         }
+
         let bevel = self.bevel(&current, size)?;
         let mut working = self.clone();
+
         let line = working.cut_corner(&current, &bevel, size)?;
+
         *self = working;
         Ok(line)
     }
 
     pub fn radius_through(&self, corner: &Corner, point: Point2) -> Option<f64> {
         let [first, second] = self.corner_sides(corner).ok()?;
+
         let half = first.leaving.angle_to(second.leaving).abs() / 2.0;
         let sine = half.sin();
+
         if !(sine > 0.0 && sine < 1.0) {
             return None;
         }
+
         let radius = point.distance(corner.position) * sine / (1.0 - sine);
         (radius.is_finite() && radius > 0.0).then_some(radius)
     }
@@ -827,17 +871,21 @@ impl Sketch {
         value: Expression,
     ) -> Result<EntityId, FilletError> {
         let current = self.corner_at(corner.point)?;
+
         if current.curves != corner.curves {
             return Err(FilletError::NotJoined {
                 first: self.entity_label(corner.curves[0]),
                 second: self.entity_label(corner.curves[1]),
             });
         }
+
         let rounding = self.rounding(&current, radius)?;
         let mut working = self.clone();
+
         let arc = working
             .round_corner(&current, &rounding, value)
             .map_err(FilletError::Edit)?;
+
         *self = working;
         Ok(arc)
     }
@@ -885,6 +933,7 @@ impl Sketch {
                     let radial = (corner.position - arc.center)
                         .try_normalize()
                         .ok_or_else(not_line_or_arc)?;
+
                     let leaving = if corner_at_start {
                         radial.perp()
                     } else {
@@ -902,6 +951,7 @@ impl Sketch {
                 Entity::EllipticalArc { start, .. } => {
                     let ellipse = self.ellipse(curve).ok_or_else(not_line_or_arc)?;
                     let corner_at_start = *start == end;
+
                     let tangent = if corner_at_start {
                         ellipse.tangent_at(ellipse.start)
                     } else {
@@ -923,6 +973,7 @@ impl Sketch {
                         .and_then(Entity::spline_ends)
                         .ok_or_else(not_line_or_arc)?;
                     let corner_at_start = first == end;
+
                     let leaving =
                         spline::leaving(&spline, corner_at_start).ok_or_else(not_line_or_arc)?;
                     Ok(Side {
@@ -941,6 +992,7 @@ impl Sketch {
         };
         let first = side(corner.curves[0], corner.ends[0])?;
         let second = side(corner.curves[1], corner.ends[1])?;
+
         if first.leaving.perp_dot(second.leaving).abs() <= SMOOTH_ANGLE {
             return Err(FilletError::NoCorner {
                 first: self.entity_label(first.curve),
@@ -965,6 +1017,7 @@ impl Sketch {
             .shorten_to(corner, bevel.touches)
             .map_err(FilletError::Edit)?;
         let line = EntityId::from_raw(self.next_id());
+
         self.insert_entity(
             line,
             Entity::Line {
@@ -981,12 +1034,14 @@ impl Sketch {
             self.add_constraint(Constraint::Coincident(kept, curve))
                 .map_err(FilletError::Edit)?;
         }
+
         let held = |touch: EntityId, value: &Dimensioned| Constraint::Distance {
             from: kept,
             to: touch,
             value: value.expression.clone(),
         };
         let mut dimensions = Vec::new();
+
         match size {
             ChamferSize::Equal(distance) => {
                 dimensions.push(held(first_touch, distance));
@@ -1046,8 +1101,10 @@ impl Sketch {
     ) -> Result<[EntityId; 2], SketchError> {
         let kept = corner.point;
         let [first, second] = corner.curves;
+
         let equal = self.detach_equal_lines(first, second)?;
         let mut shortened = [kept; 2];
+
         for (((curve, end), touch), slot) in corner
             .curves
             .iter()
@@ -1060,11 +1117,13 @@ impl Sketch {
                 .entity(*curve)
                 .cloned()
                 .ok_or(SketchError::NoSuchEntity(*curve))?;
+
             if matches!(entity, Entity::Spline { .. }) {
                 self.cut_spline_end(*curve, end, moved)?;
                 *slot = moved;
                 continue;
             }
+
             let is_line = matches!(entity, Entity::Line { .. });
             let reshaped = match entity {
                 Entity::Line { start, end: last } if start == end => Entity::Line {
@@ -1114,6 +1173,7 @@ impl Sketch {
                 },
                 other => other,
             };
+
             self.restructure(*curve, reshaped, &[], |constraint| {
                 if is_line {
                     keeps_length(constraint)
@@ -1148,6 +1208,7 @@ impl Sketch {
         let first_end = self.add_point(rounding.arc.point_at(rounding.arc.start_angle));
         let last_end = self.add_point(rounding.arc.point_at(rounding.arc.end_angle()));
         let arc = EntityId::from_raw(self.next_id());
+
         self.insert_entity(
             arc,
             Entity::Arc {
@@ -1159,22 +1220,26 @@ impl Sketch {
         if construction {
             self.set_construction(arc, true)?;
         }
+
         let (on_first, on_second) = if rounding.starts_on_first {
             (first_end, last_end)
         } else {
             (last_end, first_end)
         };
         let [first_touch, second_touch] = shortened;
+
         self.add_constraint(Constraint::Coincident(first_touch, on_first))?;
         self.add_constraint(Constraint::Coincident(second_touch, on_second))?;
         for curve in corner.curves {
             self.add_constraint(Constraint::Tangent(curve, arc))?;
         }
         self.add_constraint(Constraint::Radius { entity: arc, value })?;
+
         let carried = self.carried_curves(corner);
         let sharp_is_unheld = carried.len() < corner.curves.len()
             && self.constraints_using(kept).is_empty()
             && self.entities_using(kept).is_empty();
+
         if sharp_is_unheld {
             self.remove_unused_entity(kept)?;
             return Ok(arc);
@@ -1242,6 +1307,7 @@ pub(crate) fn centers(first: Carrier, second: Carrier, tolerance: f64) -> Vec<Po
             },
         ) => {
             let turn = direction.perp_dot(other_direction);
+
             if turn.abs() <= SMOOTH_ANGLE {
                 return Vec::new();
             }

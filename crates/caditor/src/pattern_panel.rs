@@ -126,9 +126,11 @@ pub fn respaced(direction: &LinearDirection, measured: LinearSpacing) -> Express
         return direction.spacing.clone();
     };
     let steps = count - 1.0;
+
     if steps < 1.0 || steps.fract() != 0.0 {
         return direction.spacing.clone();
     }
+
     let divided = match &direction.spacing {
         Expression::Measure(value, unit) => {
             exact_quotient(*value, steps).map(|each| Expression::measure(each, *unit))
@@ -159,15 +161,18 @@ fn exact_quotient(value: f64, steps: f64) -> Option<f64> {
     if !value.is_finite() || steps < 1.0 || steps.fract() != 0.0 {
         return None;
     }
+
     let written = value.abs().to_string();
     let (whole, fraction) = written.split_once('.').unwrap_or((&written, ""));
     let mut numerator: u128 = format!("{whole}{fraction}").parse().ok()?;
     let written_digits = u32::try_from(fraction.len()).ok()?;
     let divisor = steps as u128;
+
     for extra in 0..=MOST_QUOTIENT_DIGITS {
         if numerator.is_multiple_of(divisor) {
             let sign = if value < 0.0 { "-" } else { "" };
             let digits = written_digits + extra;
+
             return format!("{sign}{}e-{digits}", numerator / divisor)
                 .parse()
                 .ok();
@@ -188,6 +193,7 @@ fn instance_hover(instance: Instance, kept: bool) -> String {
 
 fn grid_order(count: u32, descending: bool) -> Vec<u32> {
     let mut order: Vec<u32> = (0..count).collect();
+
     if descending {
         order.reverse();
     }
@@ -265,6 +271,7 @@ impl Panel<'_> {
             .collect();
         let chosen =
             feature_fields::segmented_row(ui, captions.measure, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -272,13 +279,17 @@ impl Panel<'_> {
         let Some([columns, rows]) = self.pattern.instances(self.model.parameters()) else {
             return;
         };
+
         if columns * rows < 2 {
             return;
         }
         widgets::caption(ui, INSTANCES);
+
         let mut toggled = None;
+
         ui.vertical(|ui| {
             let (columns_reversed, rows_reversed) = self.pattern.reversed_directions();
+
             for row in grid_order(rows, !rows_reversed) {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = ui.spacing().item_spacing.y;
@@ -286,8 +297,10 @@ impl Panel<'_> {
                         let instance = [column, row];
                         let kept = !self.pattern.is_skipped(instance);
                         let name = capitalized(&instance_name(instance));
+
                         let hover = instance_hover(instance, kept);
                         let original = instance == ORIGINAL_INSTANCE;
+
                         let response = ui
                             .add_enabled_ui(!original, |ui| {
                                 widgets::instance_toggle(ui, kept, &name, &hover)
@@ -299,17 +312,20 @@ impl Panel<'_> {
                     }
                 });
             }
+
             let left_out = self.pattern.skipped_within([columns, rows]);
             let summary = match left_out {
                 0 => INSTANCES_HINT.to_owned(),
                 1 => "1 copy is left out.".to_owned(),
                 count => format!("{count} copies are left out."),
             };
+
             ui.label(widgets::muted(summary, ui));
         });
         ui.end_row();
         if let Some(pattern) = toggled.and_then(|instance| self.pattern.toggled(instance)) {
             let change = pattern_tools::change(self.model, self.id(), pattern);
+
             self.apply(change);
         }
     }
@@ -317,6 +333,7 @@ impl Panel<'_> {
     fn repeats_rows(&mut self, ui: &mut Ui) {
         let document = self.model.document();
         let repeated = self.pattern.repeated.clone();
+
         widgets::caption(ui, REPEATS);
         if repeated.is_empty() {
             ui.label(WHOLE_BODY);
@@ -326,9 +343,11 @@ impl Panel<'_> {
             if index > 0 {
                 ui.label("");
             }
+
             let name = feature_fields::feature_name(document, *feature);
             let hover = format!("Stop repeating {}", name.unwrap_or("the missing feature"));
             let mut dropped = false;
+
             ui.horizontal(|ui| {
                 match name {
                     Some(name) => {
@@ -346,12 +365,16 @@ impl Panel<'_> {
                     .filter(|kept| kept != feature)
                     .collect();
                 let change = pattern_tools::repeating(self.model, self.id(), self.pattern, kept);
+
                 self.apply(change);
             }
         }
+
         let offered = pattern_tools::repeatable(document, self.chosen)
             .filter(|(body, chosen)| *body == self.pattern.body && *chosen != repeated);
+
         ui.label("");
+
         let button = widgets::small_button(ui, icons::ADD, REPEAT_CHOSEN);
         let hover = match &offered {
             Some((body, chosen)) => format!(
@@ -361,14 +384,17 @@ impl Panel<'_> {
             ),
             None => REPEAT_CHOSEN_HINT.to_owned(),
         };
+
         let clicked = ui
             .add_enabled(offered.is_some(), button)
             .on_hover_text(&hover)
             .on_disabled_hover_text(&hover)
             .clicked();
+
         ui.end_row();
         if clicked && let Some((_, chosen)) = offered {
             let change = pattern_tools::repeating(self.model, self.id(), self.pattern, chosen);
+
             self.apply(change);
         }
     }
@@ -377,6 +403,7 @@ impl Panel<'_> {
         if self.pattern.repeats_features() {
             return;
         }
+
         let current = self.pattern.outcome;
         let segments = PatternOutcome::ALL
             .into_iter()
@@ -396,6 +423,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, RESULT, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -418,6 +446,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Shape", &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 
@@ -490,6 +519,7 @@ impl Panel<'_> {
         };
         let mut actions = Vec::new();
         let listed = || self.axis_choices(reference, axis);
+
         feature_fields::axis_row(ui, self.model, row, Some(&listed), &mut actions);
         self.actions.extend(actions);
     }
@@ -514,6 +544,7 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, self.model, caption, quantity, |parsed| {
                 self.change(rebuild(parsed))
             });
+
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
@@ -526,6 +557,7 @@ impl Panel<'_> {
     ) {
         if let Some(flipped) = feature_fields::reverse_row(ui, label, reversed) {
             let change = self.change(rebuild(flipped));
+
             self.apply(change);
         }
     }
@@ -538,6 +570,7 @@ impl Panel<'_> {
         rebuild: &dyn Fn(LinearDirection) -> PatternKind,
     ) {
         let salt = format!("{}count", captions.salt);
+
         self.expression(
             ui,
             captions.count,
@@ -552,11 +585,13 @@ impl Panel<'_> {
             },
         );
         self.measure_row(ui, direction, captions, rebuild);
+
         let salt = format!("{}spacing", captions.salt);
         let caption = match direction.measured {
             LinearSpacing::BetweenCopies => captions.spacing,
             LinearSpacing::Total => captions.total,
         };
+
         self.expression(
             ui,
             caption,
@@ -591,7 +626,9 @@ impl Panel<'_> {
             (Reference::First, Slot::PatternDirection),
             "Repeat along the selected edge, round face or axis",
         );
+
         let kept = second.cloned();
+
         self.direction_rows(ui, first, &FIRST, &|first| PatternKind::Linear {
             first,
             second: kept.clone(),
@@ -605,6 +642,7 @@ impl Panel<'_> {
         );
         if let Some(second) = second {
             let first = first.clone();
+
             self.direction_rows(ui, second, &SECOND, &|second| PatternKind::Linear {
                 first: first.clone(),
                 second: Some(second),
@@ -621,9 +659,12 @@ impl Panel<'_> {
     ) {
         let shape = Shape::of(&self.pattern.kind);
         let document = self.model.document();
+
         widgets::caption(ui, caption);
+
         let before = document.feature_index(self.id()).unwrap_or(0);
         let id = Id::unique(("pattern-sketch", self.id()));
+
         ui.vertical(|ui| {
             let name = match current {
                 Some(current) => feature_fields::feature_name(document, current),
@@ -647,9 +688,12 @@ impl Panel<'_> {
                     })
                     .collect()
             });
+
             self.actions.extend(chosen);
+
             let (model, selection, feature, pattern) =
                 (self.model, self.selection, self.id(), self.pattern);
+
             let picker = Picker {
                 feature,
                 slot: Slot::PatternPath,
@@ -662,6 +706,7 @@ impl Panel<'_> {
                 ),
                 hover,
             };
+
             feature_fields::reference_picker(ui, model, picker, self.actions);
         });
         ui.end_row();
@@ -669,10 +714,13 @@ impl Panel<'_> {
 
     fn edges_row(&mut self, ui: &mut Ui, path: &CurvePatternPath) {
         widgets::caption(ui, EDGES);
+
         let (model, selection, feature, pattern) =
             (self.model, self.selection, self.id(), self.pattern);
+
         ui.vertical(|ui| {
             ui.label(edges_words(model.document(), path));
+
             let picker = Picker {
                 feature,
                 slot: Slot::PatternEdges,
@@ -686,6 +734,7 @@ impl Panel<'_> {
                 hover: "Follow the selected edges of a body, joined end to end, instead of a \
                         sketch",
             };
+
             feature_fields::reference_picker(ui, model, picker, self.actions);
         });
         ui.end_row();
@@ -705,6 +754,7 @@ impl Panel<'_> {
                 ..curve.clone()
             })
         });
+
         let segments = [
             (CurveSpacing::Spread, SPREAD_EVENLY),
             (CurveSpacing::Distance, BY_DISTANCE),
@@ -722,6 +772,7 @@ impl Panel<'_> {
         })
         .collect();
         let chosen = feature_fields::segmented_row(ui, SPACED, &self.feature.name, segments);
+
         self.actions.extend(chosen);
         if curve.measured == CurveSpacing::Distance {
             self.expression(
@@ -738,6 +789,7 @@ impl Panel<'_> {
                 },
             );
         }
+
         let segments = [
             (CopyOrientation::Kept, KEPT),
             (CopyOrientation::Following, FOLLOWING),
@@ -755,6 +807,7 @@ impl Panel<'_> {
         })
         .collect();
         let chosen = feature_fields::segmented_row(ui, ORIENTATION, &self.feature.name, segments);
+
         self.actions.extend(chosen);
         self.reverse_row(ui, REVERSE_DIRECTION, curve.reversed, |reversed| {
             PatternKind::Curve(CurvePattern {
@@ -772,10 +825,13 @@ impl Panel<'_> {
             "Place the copies at the lone points of the selected sketch",
         );
         widgets::caption(ui, BASE_POINT);
+
         let (model, selection, feature, pattern) =
             (self.model, self.selection, self.id(), self.pattern);
+
         ui.vertical(|ui| {
             ui.label(capitalized(&describe_point(model.document(), &points.base)));
+
             let picker = Picker {
                 feature,
                 slot: Slot::PatternBase,
@@ -789,6 +845,7 @@ impl Panel<'_> {
                 hover: "Move the copies from the selected corner, round edge, sphere, sketch \
                         point or datum point",
             };
+
             feature_fields::reference_picker(ui, model, picker, self.actions);
             if points.base != PointReference::Origin {
                 let button = widgets::small_button(ui, icons::ORIGIN, USE_ORIGIN);
@@ -815,17 +872,21 @@ impl Panel<'_> {
 
     fn left_out_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, INSTANCES);
+
         let left_out = self.pattern.skipped.len();
         let mut brought_back = false;
+
         ui.vertical(|ui| {
             let summary = match left_out {
                 0 => POINTS_LEFT_OUT_HINT.to_owned(),
                 1 => "1 copy is left out.".to_owned(),
                 count => format!("{count} copies are left out."),
             };
+
             ui.label(widgets::muted(summary, ui));
             if left_out > 0 {
                 let button = widgets::small_button(ui, icons::ADD, BRING_BACK);
+
                 brought_back = ui
                     .add(button)
                     .on_hover_text("Make every copy left out again")
@@ -842,6 +903,7 @@ impl Panel<'_> {
                     ..self.pattern.clone()
                 },
             );
+
             self.apply(change);
         }
     }
@@ -915,6 +977,7 @@ pub fn show(
         pattern,
         actions,
     };
+
     widgets::properties(ui, ("pattern-properties", id), |ui| {
         panel.shape_row(ui);
         match &pattern.kind {
@@ -928,6 +991,7 @@ pub fn show(
         panel.result_row(ui);
         feature_fields::feature_row(ui, model.document(), "Body", pattern.body);
     });
+
     let hint = match pattern.kind {
         PatternKind::Linear { .. } => None,
         PatternKind::Circular(_) => Some(CIRCULAR_HINT),

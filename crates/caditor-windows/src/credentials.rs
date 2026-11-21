@@ -17,11 +17,14 @@ const NO_FLAGS: u32 = 0;
 pub fn read_credential(target: &str) -> io::Result<Option<Vec<u8>>> {
     let target = wide(target);
     let mut found: *mut CREDENTIALW = ptr::null_mut();
+
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let read = unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, NO_FLAGS, &raw mut found) };
+
     if read == 0 {
         return not_found_as_none(io::Error::last_os_error());
     }
+
     let credential = Found(found);
     Ok(Some(credential.blob()))
 }
@@ -34,6 +37,7 @@ pub fn write_credential(target: &str, user: &str, blob: &[u8]) -> io::Result<()>
     let mut target = wide(target);
     let mut user = wide(user);
     let mut blob = blob.to_vec();
+
     let credential = CREDENTIALW {
         Type: CRED_TYPE_GENERIC,
         TargetName: target.as_mut_ptr(),
@@ -45,6 +49,7 @@ pub fn write_credential(target: &str, user: &str, blob: &[u8]) -> io::Result<()>
     };
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let written = unsafe { CredWriteW(&raw const credential, NO_FLAGS) };
+
     if written == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -55,6 +60,7 @@ pub fn delete_credential(target: &str) -> io::Result<bool> {
     let target = wide(target);
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let deleted = unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, NO_FLAGS) };
+
     if deleted == 0 {
         return not_found_as_none(io::Error::last_os_error()).map(|_: Option<()>| false);
     }
@@ -78,9 +84,11 @@ impl Found {
             reason = "CredReadW returned a credential this guard owns"
         )]
         let credential = unsafe { &*self.0 };
+
         if credential.CredentialBlob.is_null() {
             return Vec::new();
         }
+
         let size = usize::try_from(credential.CredentialBlobSize).unwrap_or(0);
         #[expect(
             unsafe_code,

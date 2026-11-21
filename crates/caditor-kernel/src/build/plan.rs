@@ -46,7 +46,9 @@ fn root_of(parents: &mut [usize], mut item: usize) -> usize {
         if parent == item {
             break;
         }
+
         let grandparent = parents.get(parent).copied().unwrap_or(parent);
+
         if let Some(slot) = parents.get_mut(item) {
             *slot = grandparent;
         }
@@ -57,13 +59,14 @@ fn root_of(parents: &mut [usize], mut item: usize) -> usize {
 
 fn join_under_lowest(parents: &mut [usize], a: usize, b: usize) {
     let (a, b) = (root_of(parents, a), root_of(parents, b));
+
     let (low, high) = (a.min(b), a.max(b));
     if let Some(slot) = parents.get_mut(high) {
         *slot = low;
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub(crate) enum PlanError {
     #[error("the planned solid refers to a vertex, edge or face it does not contain")]
     Unassembled,
@@ -128,7 +131,7 @@ impl From<PlanError> for SweepError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PlanEdge {
     pub curve: Curve,
     pub interval: Interval,
@@ -137,7 +140,7 @@ pub(crate) struct PlanEdge {
     pub name: EdgeName,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PlanPcurve {
     Fitted,
     Straight(Point2, Point2),
@@ -145,7 +148,7 @@ pub(crate) enum PlanPcurve {
     Settled(Pcurve),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PlanCoedge {
     pub edge: usize,
     pub sense: Sense,
@@ -186,7 +189,7 @@ impl PlanCoedge {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PlanFace {
     pub surface: Surface,
     pub sense: Sense,
@@ -195,7 +198,7 @@ pub(crate) struct PlanFace {
     pub loops: Vec<Vec<PlanCoedge>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Plan {
     vertices: Vec<Point3>,
     edges: Vec<PlanEdge>,
@@ -238,6 +241,7 @@ impl Plan {
         let (Some(from), Some(to)) = (self.point(start), self.point(end)) else {
             return Err(SweepError::Unassembled);
         };
+
         let line = Line::through(from, to)?;
         let interval = Interval::new(0.0, from.distance(to)).ok_or(SweepError::Unassembled)?;
         Ok(self.edge(line.into(), interval, (start, end), name))
@@ -249,6 +253,7 @@ impl Plan {
 
     fn users(&self) -> Vec<Vec<(usize, Sense)>> {
         let mut users = vec![Vec::new(); self.edges.len()];
+
         for (index, face) in self.faces.iter().enumerate() {
             for coedge in face.loops.iter().flatten() {
                 if let Some(list) = users.get_mut(coedge.edge) {
@@ -262,6 +267,7 @@ impl Plan {
     fn disambiguate(&mut self) {
         let users = self.users();
         let mut around: Vec<BTreeSet<FaceName>> = vec![BTreeSet::new(); self.vertices.len()];
+
         for (edge, list) in self.edges.iter().zip(&users) {
             for (face, _) in list {
                 let Some(face) = self.faces.get(*face) else {
@@ -274,16 +280,20 @@ impl Plan {
                 }
             }
         }
+
         let vertex_names: Vec<VertexName> = around.into_iter().map(VertexName::of_faces).collect();
         let mut groups: BTreeMap<EdgeName, Vec<usize>> = BTreeMap::new();
+
         for (index, edge) in self.edges.iter().enumerate() {
             groups.entry(edge.name).or_default().push(index);
         }
+
         let face_name = |face: Option<&(usize, Sense)>| {
             face.and_then(|(face, _)| self.faces.get(*face))
                 .map_or(FaceName::NONE, |face| face.name)
         };
         let mut renamed: Vec<(usize, EdgeName)> = Vec::new();
+
         for members in groups.values().filter(|members| members.len() > 1) {
             let mut named: Vec<(usize, EdgeName)> = members
                 .iter()
@@ -298,19 +308,24 @@ impl Plan {
                 })
                 .collect();
             let mut counts: BTreeMap<EdgeName, usize> = BTreeMap::new();
+
             for (_, name) in &named {
                 *counts.entry(*name).or_default() += 1;
             }
+
             let midpoint = |index: usize| {
                 self.edges.get(index).map_or(Vector3::ZERO, |edge| {
                     edge.curve.point(edge.interval.middle())
                 })
             };
+
             named.sort_by_key(|(index, _)| occurrence_order(midpoint(*index)));
+
             let mut occurrences: BTreeMap<EdgeName, u32> = BTreeMap::new();
             for (index, name) in named {
                 if counts.get(&name).copied().unwrap_or(0) > 1 {
                     let occurrence = occurrences.entry(name).or_insert(0);
+
                     renamed.push((index, EdgeName::occurrence(name, *occurrence)));
                     *occurrence += 1;
                 } else {
@@ -327,8 +342,10 @@ impl Plan {
 
     fn shells(&self) -> Vec<Vec<usize>> {
         let mut root: Vec<usize> = (0..self.faces.len()).collect();
+
         for list in self.users() {
             let mut faces = list.iter().map(|(face, _)| *face);
+
             let Some(first) = faces.next() else {
                 continue;
             };
@@ -336,7 +353,9 @@ impl Plan {
                 join_under_lowest(&mut root, first, other);
             }
         }
+
         let mut shells: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+
         for face in 0..self.faces.len() {
             shells
                 .entry(root_of(&mut root, face))
@@ -349,6 +368,7 @@ impl Plan {
     pub(super) fn merge_coincident_vertices(&mut self) {
         let shells = self.shells();
         let mut shell_of_face = vec![usize::MAX; self.faces.len()];
+
         for (shell, faces) in shells.iter().enumerate() {
             for face in faces {
                 if let Some(slot) = shell_of_face.get_mut(*face) {
@@ -356,7 +376,9 @@ impl Plan {
                 }
             }
         }
+
         let mut members: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); shells.len()];
+
         for (edge, list) in self.edges.iter().zip(self.users()) {
             for (face, _) in list {
                 if let Some(set) = shell_of_face
@@ -367,7 +389,9 @@ impl Plan {
                 }
             }
         }
+
         let mut representative: Vec<usize> = (0..self.vertices.len()).collect();
+
         for members in members {
             let mut cells: BTreeMap<VertexCell, Vec<(Point3, usize)>> = BTreeMap::new();
             for vertex in members {
@@ -375,12 +399,14 @@ impl Plan {
                     continue;
                 };
                 let cell = vertex_cell(point);
+
                 let earlier = neighbour_cells(cell)
                     .filter_map(|neighbour| cells.get(&neighbour))
                     .flatten()
                     .filter(|(other, _)| other.distance(point) <= LINEAR_RESOLUTION)
                     .map(|(_, id)| *id)
                     .min();
+
                 if let Some(earlier) = earlier {
                     join_under_lowest(&mut representative, vertex, earlier);
                 }
@@ -403,6 +429,7 @@ impl Plan {
 
     fn labels_of(&self, faces: &[usize]) -> Vec<u64> {
         let mut labels = BTreeSet::new();
+
         for face in faces {
             let reached = self.labels.partition_point(|(first, _)| first <= face);
             if let Some((_, own)) = reached.checked_sub(1).and_then(|at| self.labels.get(at)) {
@@ -434,17 +461,21 @@ impl Plan {
             .flat_map(|edge| [edge.start, edge.end])
             .collect();
         let mut vertices = BTreeMap::new();
+
         for index in used {
             let point = self
                 .vertices
                 .get(index)
                 .copied()
                 .ok_or(PlanError::Unassembled)?;
+
             vertices.insert(index, builder.vertex(point)?);
         }
+
         let vertex = |index: usize| vertices.get(&index).copied().ok_or(PlanError::Unassembled);
         let users = self.users();
         let mut edges: Vec<EdgeId> = Vec::with_capacity(self.edges.len());
+
         for (index, edge) in self.edges.iter().enumerate() {
             let users_of_edge = || {
                 users
@@ -462,23 +493,29 @@ impl Plan {
                     vertex(edge.end)?,
                 )
                 .map_err(|error| Culprit::at(error, users_of_edge()))?;
+
             builder
                 .set_edge_name(id, edge.name)
                 .map_err(|error| Culprit::at(error, users_of_edge()))?;
             edges.push(id);
         }
+
         let mut placed: BTreeMap<FaceId, usize> = BTreeMap::new();
+
         for shell_faces in self.shells() {
             let shell = builder.shell()?;
             for index in shell_faces {
                 interrupt::check().map_err(BuildError::from)?;
+
                 let Some(face) = self.faces.get(index) else {
                     continue;
                 };
                 let blame = |error: BuildError| Culprit::at(error, vec![index]);
+
                 let id = builder
                     .face(shell, face.surface.clone(), face.sense)
                     .map_err(blame)?;
+
                 placed.insert(id, index);
                 builder.set_face_name(id, face.name).map_err(blame)?;
                 if let Some(origin) = face.origin {
@@ -524,18 +561,23 @@ impl Plan {
         let straight = resolved
             .iter()
             .all(|(_, coedge)| matches!(coedge.pcurve, PlanPcurve::Straight(..)));
+
         if !given && !straight {
             let plain: Vec<(EdgeId, Sense)> = resolved
                 .iter()
                 .map(|(id, coedge)| (*id, coedge.sense))
                 .collect();
+
             builder.add_loop(face_id, &plain)?;
             return Ok(());
         }
+
         let mut with_pcurves: Vec<(EdgeId, Sense, Pcurve)> = Vec::with_capacity(resolved.len());
+
         for (id, coedge) in resolved {
             let edge = self.edges.get(coedge.edge).ok_or(PlanError::Unassembled)?;
             let hint = with_pcurves.last().map(|(_, _, pcurve)| pcurve.end());
+
             let pcurve = match &coedge.pcurve {
                 PlanPcurve::Given(pcurve) | PlanPcurve::Settled(pcurve) => Ok(pcurve.clone()),
                 PlanPcurve::Straight(at_start, at_end) => {
@@ -550,13 +592,16 @@ impl Plan {
                 ),
             }
             .map_err(|error| BuildError::pcurve(id, error))?;
+
             with_pcurves.push((id, coedge.sense, pcurve));
         }
+
         let settled: Vec<bool> = coedges
             .iter()
             .map(|coedge| matches!(coedge.pcurve, PlanPcurve::Settled(_)))
             .collect();
         let face_loop = builder.add_loop_with_pcurves(face_id, with_pcurves)?;
+
         builder.settle(face_loop, &settled);
         Ok(())
     }
@@ -587,6 +632,7 @@ fn straight_pcurve(
         parameter: interval.end(),
         uv: at_end,
     };
+
     let samples = if sense.is_same() {
         vec![first, last]
     } else {

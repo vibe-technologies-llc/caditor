@@ -31,7 +31,7 @@ const RAY_START: f64 = 4.0 * LINEAR_RESOLUTION;
 const MAX_START_PROBES: usize = 64;
 const AXIS_CLEARANCE: f64 = 1e-3;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Heights {
     pub least: f64,
     pub most: f64,
@@ -50,22 +50,24 @@ pub fn heights_along(
     direction: Vector3,
 ) -> Result<Heights, SweepError> {
     let rise = direction.dot(plane.normal());
+
     if !rise.is_finite() || rise.abs() <= LINEAR_RESOLUTION * direction.length() {
         return Err(SweepError::DirectionAlongSketch);
     }
+
     let level = Level::along(plane, direction / rise, LinearBound::Plane(*target))?;
     let (least, most) = span(&level, regions).ok_or(SweepError::NoRegions)?;
     Ok(Heights { least, most })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NextFace {
     pub face: FaceId,
     pub plane: Plane,
     pub entering: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum ReachError {
     #[error("no region is chosen")]
     NoRegions,
@@ -107,9 +109,11 @@ fn centroids([a, b, c]: [Point2; 3], divisions: usize) -> Vec<Point2> {
     let steps = divisions as f64;
     let at = |along: f64, across: f64| a + (b - a) * (along / steps) + (c - a) * (across / steps);
     let mut points = Vec::with_capacity(divisions * divisions);
+
     for along in 0..divisions {
         for across in 0..divisions - along {
             let (along_step, across_step) = (along as f64, across as f64);
+
             points.push(at(along_step + 1.0 / 3.0, across_step + 1.0 / 3.0));
             if along + across + 1 < divisions {
                 points.push(at(along_step + 2.0 / 3.0, across_step + 2.0 / 3.0));
@@ -136,10 +140,13 @@ fn ray_origins(regions: &[Region]) -> Vec<Point2> {
         })
         .collect();
     let area = |[a, b, c]: &[Point2; 3]| 0.5 * (b - a).perp_dot(c - a).abs();
+
     let total: f64 = triangles.iter().map(area).sum();
+
     if total.is_nan() || total <= 0.0 {
         return Vec::new();
     }
+
     let origins: Vec<Point2> = triangles
         .iter()
         .flat_map(|triangle| {
@@ -201,6 +208,7 @@ pub fn next_face_along(
     reversed: bool,
 ) -> Result<NextFace, ReachError> {
     let rise = direction.dot(plane.normal());
+
     if !rise.is_finite() || rise.abs() <= LINEAR_RESOLUTION * direction.length() {
         return Err(ReachError::AlongSketch);
     }
@@ -216,13 +224,16 @@ fn reach_next(
 ) -> Result<NextFace, ReachError> {
     let direction = if reversed { -travel } else { travel };
     let mut origins = ray_origins(regions);
+
     if origins.is_empty() {
         return Err(ReachError::NoRegions);
     }
     origins.extend(vertex_origins(solid, plane, regions, travel));
+
     let classifier = solid.classifier();
     let mut met: Vec<(FaceId, bool)> = Vec::new();
     let (mut decided, mut missed) = (0_usize, 0_usize);
+
     for origin in origins {
         interrupt::check()?;
         match classifier.first_crossing(plane.to_world(origin), direction, RAY_START) {
@@ -249,7 +260,9 @@ fn reach_next(
     if missed > 0 {
         return Err(ReachError::Partly);
     }
+
     let mut groups: Vec<(FaceId, Option<Plane>, bool)> = Vec::new();
+
     for (face, entering) in met {
         let plane = flat_plane(solid, face);
         let joins = groups.iter().any(|(_, known, _)| match (known, &plane) {
@@ -273,7 +286,7 @@ fn reach_next(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum StopError {
     #[error("no region is chosen")]
     NoRegions,
@@ -293,7 +306,7 @@ pub enum StopError {
     Cancelled(#[from] Interrupted),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Stopped {
     pub solid: Solid,
     pub entering: bool,
@@ -314,6 +327,7 @@ pub fn stop_at_body(
     };
     let entering = entering_from(body, plane, regions, direction)?;
     let piece = cut_back(tool, body, entering)?;
+
     let spans = piece.shell_spans(plane.origin(), direction)?;
     let solid = kept_from_start(&piece, &spans, far)?;
     Ok(Stopped { solid, entering })
@@ -330,6 +344,7 @@ pub fn stop_turning_at_body(
     let turning = Turning::of(plane, regions, axis, turn)?;
     let entering = entering_from(body, plane, regions, turning.onward)?;
     let piece = cut_back(tool, body, entering)?;
+
     let spans = piece.shell_spans_by(
         |point| turning.arc(point).map(|(angle, radius)| angle * radius),
         |point| {
@@ -364,6 +379,7 @@ impl Turning {
         let origin = plane.to_world(axis.origin());
         let along = plane.to_world(axis.origin() + axis.direction()) - origin;
         let left = plane.to_world(axis.origin() + axis.direction().perp()) - origin;
+
         let (outward, onward) = if side < 0.0 {
             (-left, -plane.normal())
         } else {
@@ -385,9 +401,11 @@ impl Turning {
         let offset = point - self.origin;
         let radial = offset - self.along * offset.dot(self.along);
         let radius = radial.length();
+
         if radius <= self.near_axis {
             return None;
         }
+
         let angle = radial
             .dot(self.onward)
             .atan2_libm(radial.dot(self.outward))
@@ -408,12 +426,15 @@ fn entering_from(
     direction: Vector3,
 ) -> Result<bool, StopError> {
     let origins = ray_origins(regions);
+
     if origins.is_empty() {
         return Err(StopError::NoRegions);
     }
+
     let stride = origins.len().div_ceil(MAX_START_PROBES).max(1);
     let classifier = body.classifier();
     let (mut inside, mut outside) = (0_usize, 0_usize);
+
     for origin in origins.into_iter().step_by(stride) {
         interrupt::check()?;
         match classifier.classify(plane.to_world(origin) + direction * RAY_START) {
@@ -451,11 +472,13 @@ fn kept_from_start(
     if spans.values().any(|span| span.void) {
         return Err(StopError::Enclosed);
     }
+
     let kept: BTreeSet<ShellId> = spans
         .iter()
         .filter(|(_, span)| span.least <= RAY_START)
         .map(|(shell, _)| *shell)
         .collect();
+
     if kept
         .iter()
         .filter_map(|shell| spans.get(shell))
@@ -469,7 +492,7 @@ fn kept_from_start(
     piece.keeping_shells(&kept).ok_or(StopError::Nothing)
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum EndMoveError {
     #[error("the end moves farther than the tool is long")]
     Detached,
@@ -491,6 +514,7 @@ pub fn move_end(
 ) -> Result<Solid, EndMoveError> {
     let (plane, regions) = start;
     let onward = onward.normalize_or_zero();
+
     let origins: Vec<Point3> = {
         let origins = ray_origins(regions);
         let stride = origins.len().div_ceil(MAX_START_PROBES).max(1);
@@ -506,14 +530,17 @@ pub fn move_end(
         (shift.inverse(), BooleanOperation::Intersection)
     };
     let moved = placed_once(tool, copy.into(), feature)?;
+
     let combined = match boolean(tool, &moved, operation) {
         Ok(combined) => combined,
         Err(BooleanError::Empty) => return Err(EndMoveError::Detached),
         Err(error) => return Err(error.into()),
     };
     let classifier = combined.classifier();
+
     for origin in origins {
         interrupt::check()?;
+
         let probe = if grow {
             shift.apply_point(origin) - shift.apply_vector(onward) * RAY_START
         } else {

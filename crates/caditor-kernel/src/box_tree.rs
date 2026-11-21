@@ -4,7 +4,7 @@ use crate::{intersect::boxes_overlap, tally};
 
 const LEAF_SIZE: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Node {
     bounds: Aabb,
     first: usize,
@@ -12,7 +12,7 @@ struct Node {
     children: Option<[usize; 2]>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct BoxTree {
     nodes: Vec<Node>,
     items: Vec<(usize, Aabb)>,
@@ -46,6 +46,7 @@ fn build(nodes: &mut Vec<Node>, items: &mut [(usize, Aabb)], first: usize) -> Op
         .map(|(_, bounds)| *bounds)
         .reduce(Aabb::union)?;
     let index = nodes.len();
+
     nodes.push(Node {
         bounds,
         first,
@@ -55,10 +56,13 @@ fn build(nodes: &mut Vec<Node>, items: &mut [(usize, Aabb)], first: usize) -> Op
     if items.len() > LEAF_SIZE {
         let axis = widest_axis(items);
         let middle = items.len() / 2;
+
         items.select_nth_unstable_by(middle, |a, b| {
             coordinate(a.1.center(), axis).total_cmp(&coordinate(b.1.center(), axis))
         });
+
         let (low, high) = items.split_at_mut(middle);
+
         let children = build(nodes, low, first).zip(build(nodes, high, first + middle));
         if let Some(node) = nodes.get_mut(index) {
             node.children = children.map(|(left, right)| [left, right]);
@@ -70,7 +74,9 @@ fn build(nodes: &mut Vec<Node>, items: &mut [(usize, Aabb)], first: usize) -> Op
 impl BoxTree {
     pub fn new(boxes: impl IntoIterator<Item = Aabb>) -> Self {
         let mut items: Vec<(usize, Aabb)> = boxes.into_iter().enumerate().collect();
+
         let mut nodes = Vec::with_capacity(2 * items.len() / LEAF_SIZE + 1);
+
         build(&mut nodes, &mut items, 0);
         Self { nodes, items }
     }
@@ -98,6 +104,7 @@ impl BoxTree {
     ) -> Vec<usize> {
         let mut found = Vec::new();
         let mut pending = Vec::new();
+
         if !self.nodes.is_empty() {
             pending.push(0);
         }
@@ -105,6 +112,7 @@ impl BoxTree {
             let Some(node) = self.nodes.get(index) else {
                 continue;
             };
+
             tally::add(1);
             if !test(&node.bounds) {
                 continue;
@@ -113,10 +121,12 @@ impl BoxTree {
                 pending.extend(children);
                 continue;
             }
+
             let members = self
                 .items
                 .get(node.first..node.first + node.count)
                 .unwrap_or_default();
+
             found.extend(
                 members
                     .iter()
@@ -140,6 +150,7 @@ impl BoxTree {
     ) -> Vec<usize> {
         let mut reach = f64::INFINITY;
         let mut pending = Vec::new();
+
         if !self.nodes.is_empty() {
             pending.push(0);
         }
@@ -147,6 +158,7 @@ impl BoxTree {
             let Some(node) = self.nodes.get(index) else {
                 continue;
             };
+
             tally::add(1);
             if nearest_squared(&node.bounds, point) > reach {
                 continue;
@@ -162,9 +174,11 @@ impl BoxTree {
                 } else {
                     (right, left)
                 };
+
                 pending.extend([far, near]);
                 continue;
             }
+
             let members = self
                 .items
                 .get(node.first..node.first + node.count)
@@ -173,6 +187,7 @@ impl BoxTree {
                 reach = reach.min(farthest_squared(bounds, point));
             }
         }
+
         let reach = reach.sqrt() + slack;
         let reach = reach * reach;
         self.matching_among(|bounds| nearest_squared(bounds, point) <= reach, accept)
@@ -231,6 +246,7 @@ mod tests {
                 .filter(|(_, bounds)| boxes_overlap(bounds, &query, 1e-6))
                 .map(|(index, _)| index)
                 .collect();
+
             assert_eq!(tree.overlapping(&query, 1e-6), expected);
         }
     }
@@ -260,6 +276,7 @@ mod tests {
                 .filter(|(_, bounds)| passes(bounds))
                 .map(|(index, _)| index)
                 .collect();
+
             assert_eq!(tree.matching(passes), expected);
         }
     }
@@ -307,6 +324,7 @@ mod tests {
     #[test]
     fn an_empty_tree_finds_nothing() {
         let tree = BoxTree::new(std::iter::empty());
+
         assert!(tree.overlapping(&cube(0.0, 0.0, 0.0, 1.0), 0.0).is_empty());
     }
 }

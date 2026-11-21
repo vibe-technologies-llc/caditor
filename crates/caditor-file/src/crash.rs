@@ -23,6 +23,7 @@ pub fn protect(panic_flush: &PanicFlush, log: Option<Arc<SessionLog>>) {
 
 fn install_panic_hook(panic_flush: PanicFlush) {
     let previous = std::panic::take_hook();
+
     std::panic::set_hook(Box::new(move |info| {
         flush_journal(&panic_flush);
         log::error!("caditor panicked: {info}\n{}", Backtrace::force_capture());
@@ -47,6 +48,7 @@ fn flush_on_termination(panic_flush: PanicFlush, log: Option<Arc<SessionLog>>) {
             return;
         }
     };
+
     let spawned = thread::Builder::new()
         .name("signals".to_owned())
         .spawn(move || {
@@ -72,6 +74,7 @@ fn flush_on_termination(panic_flush: PanicFlush, log: Option<Arc<SessionLog>>) {
     if STOPPING.set((panic_flush, log)).is_err() {
         return;
     }
+
     let stopping = || {
         flush_before_stopping("the console it runs in is closing");
         std::process::exit(CONSOLE_STOP_EXIT);

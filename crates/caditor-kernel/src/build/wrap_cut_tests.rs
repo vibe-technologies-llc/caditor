@@ -124,10 +124,15 @@ fn divided(body: &Solid, plane: &Plane, curves: &[ProfileCurve]) -> Divided {
         .iter()
         .map(|face| body.face(*face).unwrap().name())
         .collect();
+
     let tool = wrap_chain(plane, curves, &surface, body, &faces, TOOL).unwrap();
+
     assert_eq!(tool.validate(), Ok(()));
+
     let split = split_faces(body, &faces, &tool, SPLIT).unwrap();
+
     assert_eq!(split.validate(), Ok(()));
+
     let areas = |piece: SplitPiece| -> Vec<f64> {
         let names: Vec<FaceName> = originals
             .iter()
@@ -281,6 +286,7 @@ fn a_rectangle_wraps_onto_a_cone_keeping_its_area() {
     let body = cone();
     let (faces, surface) = curved(&body);
     let plane = Plane::from_frame(Point3::new(9.0, 0.0, 0.0), Vector3::X, Vector3::Y).unwrap();
+
     let original = body.face(faces[0]).unwrap().name();
 
     let tool = wrap_regions(
@@ -292,6 +298,7 @@ fn a_rectangle_wraps_onto_a_cone_keeping_its_area() {
     .unwrap();
     let split = split_faces(&body, &faces, &tool, SPLIT).unwrap();
     let inside = FaceName::split(SPLIT, original, SplitPiece::Inside);
+
     let patch: f64 = split
         .faces()
         .filter(|(_, face)| face.name() == inside)

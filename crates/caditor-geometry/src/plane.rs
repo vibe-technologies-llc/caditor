@@ -2,7 +2,7 @@ use crate::{Point2, Point3, RigidTransform, Similarity, Vector3};
 
 const FRAME_TOLERANCE: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Plane {
     origin: Point3,
     normal: Vector3,
@@ -36,11 +36,14 @@ impl Plane {
         if !origin.is_finite() {
             return None;
         }
+
         let normal = normal.try_normalize()?;
         let in_plane = x_direction.reject_from_normalized(normal);
+
         if in_plane.length() <= FRAME_TOLERANCE * x_direction.length() {
             return None;
         }
+
         let first_pass = in_plane.try_normalize()?;
         let x_axis = if first_pass.dot(normal).abs() <= FRAME_TOLERANCE {
             first_pass
@@ -139,6 +142,7 @@ mod tests {
             assert!(plane.x_axis().is_normalized());
             assert_eq!(plane.x_axis().cross(plane.y_axis()), plane.normal());
         }
+
         assert_eq!(Plane::XY.y_axis(), Vector3::Y);
         assert_eq!(Plane::XZ.y_axis(), Vector3::Z);
         assert_eq!(Plane::YZ.y_axis(), Vector3::Z);
@@ -147,6 +151,7 @@ mod tests {
     #[test]
     fn new_normalizes_and_rejects_degenerate_normals() {
         let plane = Plane::new(Point3::ONE, Vector3::new(0.0, 0.0, 5.0)).unwrap();
+
         assert_eq!(plane.normal(), Vector3::Z);
         assert!(plane.x_axis().dot(plane.normal()).abs() < 1e-12);
         assert!(Plane::new(Point3::ONE, Vector3::ZERO).is_none());
@@ -194,6 +199,7 @@ mod tests {
         assert_eq!(planes.len(), 40);
         for plane in planes {
             let restored = Plane::from_frame(plane.origin(), plane.normal(), plane.x_axis());
+
             assert_eq!(restored, Some(plane));
         }
     }
@@ -202,10 +208,12 @@ mod tests {
     fn from_frame_keeps_an_orthonormal_frame_exactly_and_repairs_others() {
         let tilted = Plane::new(Point3::ONE, Vector3::new(1.0, 2.0, 3.0)).unwrap();
         let restored = Plane::from_frame(tilted.origin(), tilted.normal(), tilted.x_axis());
+
         assert_eq!(restored, Some(tilted));
 
         let repaired =
             Plane::from_frame(Point3::ZERO, Vector3::Z * 2.0, Vector3::new(1.0, 0.0, 1.0));
+
         assert_eq!(repaired, Some(Plane::XY));
         assert_eq!(
             Plane::from_frame(Point3::ZERO, Vector3::Z, Vector3::Z),
@@ -221,6 +229,7 @@ mod tests {
     fn local_and_world_coordinates_round_trip() {
         let plane = Plane::new(Point3::new(3.0, -2.0, 7.0), Vector3::new(1.0, 1.0, 1.0)).unwrap();
         let local = Point2::new(4.5, -1.25);
+
         let world = plane.to_world(local);
 
         assert!(plane.signed_distance(world).abs() < 1e-12);
@@ -230,6 +239,7 @@ mod tests {
     #[test]
     fn flipping_keeps_the_x_axis_and_mirrors_the_y_axis() {
         let flipped = Plane::XY.flipped();
+
         assert_eq!(flipped.normal(), Vector3::NEG_Z);
         assert_eq!(flipped.x_axis(), Vector3::X);
         assert_eq!(flipped.y_axis(), Vector3::NEG_Y);
@@ -242,6 +252,7 @@ mod tests {
                 .unwrap()
                 .then(&RigidTransform::translation(Vector3::new(0.0, 0.0, 5.0)).unwrap());
         let moved = Plane::XY.transformed(&turn);
+
         assert!(moved.origin().distance(Point3::new(0.0, 0.0, 5.0)) < 1e-12);
         assert!(moved.normal().distance(Vector3::NEG_Y) < 1e-12);
         assert!(moved.x_axis().distance(Vector3::X) < 1e-12);
@@ -251,6 +262,7 @@ mod tests {
     fn mapping_by_a_reflection_keeps_the_normal_and_mirrors_the_y_axis() {
         let mirror = Similarity::reflection(&Plane::YZ).unwrap();
         let frame = Plane::with_x_axis(Point3::new(2.0, 1.0, 0.0), Vector3::X, Vector3::Y).unwrap();
+
         let mapped = frame.mapped(&mirror);
 
         assert!(mapped.origin().distance(Point3::new(-2.0, 1.0, 0.0)) < 1e-12);

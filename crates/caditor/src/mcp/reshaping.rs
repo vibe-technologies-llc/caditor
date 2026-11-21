@@ -26,19 +26,19 @@ use crate::{
 
 const SPLIT_TITLE: &str = "Split";
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AlongSketch {
     pub sketch: Named,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AlongBody {
     pub tool: Named,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum AlongChoice {
     Plane(PlaneChoice),
@@ -46,21 +46,21 @@ pub enum AlongChoice {
     Body(AlongBody),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CarryName {
     Square,
     Wrapped,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum CarryChoice {
     Named(CarryName),
     Along(AxisChoice),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceSplitting {
     pub body: Option<Named>,
@@ -70,7 +70,7 @@ pub struct FaceSplitting {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceDeleting {
     pub body: Option<Named>,
@@ -78,7 +78,7 @@ pub struct FaceDeleting {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceReplacing {
     pub body: Option<Named>,
@@ -87,7 +87,7 @@ pub struct FaceReplacing {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EmbossFormName {
     Raise,
@@ -103,7 +103,7 @@ impl EmbossFormName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Embossing {
     pub body: Option<Named>,
@@ -116,33 +116,33 @@ pub struct Embossing {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DirectionName {
     Normal,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum DirectionChoice {
     Named(DirectionName),
     Along(AxisChoice),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TiltName {
     None,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum TiltChoice {
     Named(TiltName),
     About(AxisChoice),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceMoving {
     pub body: Option<Named>,
@@ -154,21 +154,21 @@ pub struct FaceMoving {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum BeyondAsk {
     Off(OffName),
     Angle(Amount),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OwnAngle {
     pub face: String,
     pub angle: Amount,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceDrafting {
     pub body: Option<Named>,
@@ -182,7 +182,7 @@ pub struct FaceDrafting {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Splitting {
     pub body: Option<Named>,
@@ -191,7 +191,7 @@ pub struct Splitting {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Scaling {
     pub body: Option<Named>,
@@ -200,7 +200,7 @@ pub struct Scaling {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ReshapeError {
     #[error("give the faces to {verb}, as keys from list_faces")]
     NoFaces { verb: &'static str },
@@ -227,6 +227,7 @@ fn along(
         }
         AlongChoice::Body(asked) => {
             let tool = references::body(document, evaluation, &asked.tool)?;
+
             if tool == body {
                 return Err(ReshapeError::AlongItself {
                     body: body_label(document, body),
@@ -270,6 +271,7 @@ pub fn split_face_built(
     base: Option<&SplitFace>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let faces = faces_of(
         session,
@@ -296,6 +298,7 @@ pub fn split_face_built(
             choice,
         )?))),
     };
+
     if carry
         .as_ref()
         .is_some_and(|carry| *carry != SplitCarry::Square)
@@ -303,6 +306,7 @@ pub fn split_face_built(
     {
         return Err(ReshapeError::CarryWithoutSketch.into());
     }
+
     let mut split = match base {
         Some(base) => SplitFace {
             body,
@@ -316,9 +320,11 @@ pub fn split_face_built(
             carry: SplitCarry::Square,
         },
     };
+
     if let Some(carry) = carry {
         split.carry = carry;
     }
+
     let label = body_label(session.document(), body);
     Ok(Built::new(
         FeatureKind::SplitFace(split),
@@ -344,6 +350,7 @@ pub fn delete_face_built(
     base: Option<&DeleteFace>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let faces = faces_of(
         session,
@@ -370,6 +377,7 @@ pub fn replace_face_built(
     base: Option<&ReplaceFace>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let faces = faces_of(
         session,
@@ -422,7 +430,9 @@ pub fn emboss_built(
     let draft = parsed(session, asked.draft.as_ref(), |session, draft| {
         turn(session, "draft", draft)
     })?;
+
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let faces = faces_of(
         session,
@@ -438,6 +448,7 @@ pub fn emboss_built(
         asked.sketch.as_ref(),
         base.and_then(|base| base.sketch),
     )?;
+
     let regions = regions_chosen(
         session.evaluation(),
         (sketch, sketch_name),
@@ -506,7 +517,9 @@ pub fn move_face_built(
     let angle = parsed(session, asked.angle.as_ref(), |session, angle| {
         turn(session, "angle", angle)
     })?;
+
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let faces = faces_of(
         session,
@@ -527,6 +540,7 @@ pub fn move_face_built(
         Some(TiltChoice::Named(TiltName::None)) => None,
         Some(TiltChoice::About(choice)) => Some(axis_of(session, choice)?),
     };
+
     let moving = MoveFace {
         body,
         faces,
@@ -580,7 +594,9 @@ pub fn draft_built(
                 .collect::<Result<Vec<_>, ToolError>>()
         })
         .transpose()?;
+
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let own = match (&asked.own_angles, own_angles) {
         (Some(owns), Some(angles)) => owns
@@ -601,6 +617,7 @@ pub fn draft_built(
             .collect::<Result<Vec<_>, ToolError>>()?,
         _ => base.map(|base| base.own.clone()).unwrap_or_default(),
     };
+
     let faces = match (asked.faces.as_deref(), base, own.is_empty()) {
         (None, None, false) => Vec::new(),
         _ => faces_of(
@@ -621,6 +638,7 @@ pub fn draft_built(
                 .chain(own.iter().map(|own| &own.face))
                 .cloned()
                 .collect();
+
             let flipped =
                 draft_tools::flipped_on_shown(session.evaluation(), body, &chosen, &neutral);
             (neutral, flipped)
@@ -635,6 +653,7 @@ pub fn draft_built(
             draft_tools::default_neutral_on(session.evaluation(), body, &chosen)
         }
     };
+
     let draft = Draft {
         body,
         faces,
@@ -676,6 +695,7 @@ pub fn split_built(
     base: Option<&Split>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let along = kept_along(
         session,
@@ -683,6 +703,7 @@ pub fn split_built(
         asked.along.as_ref(),
         base.map(|base| &base.along),
     )?;
+
     let split = Split {
         body,
         along,
@@ -724,9 +745,12 @@ pub fn scale_built(
         ]),
         None => None,
     };
+
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let zero = || LengthUnit::Millimetre.default_length(0.0);
+
     let scale = Scale {
         body,
         factor: match (factor, base) {

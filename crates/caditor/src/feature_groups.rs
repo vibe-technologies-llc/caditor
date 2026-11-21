@@ -13,7 +13,7 @@ pub const UNGROUP_LABEL: &str = "Ungroup";
 pub const RENAME_GROUP_LABEL: &str = "Rename group";
 const GROUP_MORE_HINT: &str = "Rename or ungroup";
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum GroupError {
     #[error("Select features in the tree to group them")]
     NothingToGroup,
@@ -39,6 +39,7 @@ pub fn grouping(document: &Document, features: &[FeatureId]) -> Result<Transacti
     if features.is_empty() {
         return Err(GroupError::NothingToGroup);
     }
+
     let name = document.unused_group_name();
     let label = format!(
         "Group {}",
@@ -84,13 +85,16 @@ pub fn header(
     let wanted = run
         .iter()
         .any(|id| state.revealing(*id) || state.wants_focus(Focus::Feature(*id)));
+
     if renaming.is_some() || wanted {
         collapsing.set_open(true);
     }
+
     let open = collapsing.is_open();
     let chosen = state.chosen();
     let selected = run.iter().all(|id| chosen.contains(id));
     let muted = appearance::tokens(ui).text_muted;
+
     let shown = tree_row::show(
         ui,
         Look {
@@ -99,7 +103,9 @@ pub fn header(
         },
         |ui| {
             let toggle = tree_row::chevron(ui, open, name);
+
             widgets::icon_label(ui, icons::FEATURE_GROUP, muted);
+
             let named = match renaming {
                 Some(renaming) => Name::Renaming(rename_field(ui, document, run, name, renaming)),
                 None => {
@@ -122,6 +128,7 @@ pub fn header(
                     widgets::icon_button(ui, icons::MORE, GROUP_MORE_HINT),
                     &format!("More actions for {name}"),
                 );
+
                 Popup::menu(&response).show(|ui| {
                     widgets::fitted_menu(ui, |ui| menu(ui, document, state, actions, first));
                 });
@@ -129,6 +136,7 @@ pub fn header(
         },
     );
     let (toggled, named) = shown.leading;
+
     if toggled {
         collapsing.toggle(ui);
     }
@@ -137,7 +145,9 @@ pub fn header(
             if response.has_focus() {
                 tree_row::focus_outline(ui, shown.rect);
             }
+
             let enter = ui.input(|input| input.key_pressed(Key::Enter));
+
             if response.clicked() || response.gained_focus() {
                 state.choose_all(run);
             }

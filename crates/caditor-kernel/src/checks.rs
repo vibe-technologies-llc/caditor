@@ -56,6 +56,7 @@ pub(crate) fn size(value: f64) -> Result<f64, GeometryError> {
 pub(crate) fn checked_frame(frame: Plane) -> Result<Plane, GeometryError> {
     let finite =
         frame.origin().is_finite() && frame.normal().is_finite() && frame.x_axis().is_finite();
+
     if !finite {
         return Err(GeometryError::NonFinite);
     }

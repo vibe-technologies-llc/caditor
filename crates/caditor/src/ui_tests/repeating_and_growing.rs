@@ -32,12 +32,14 @@ fn plate_faces(harness: &Harness, plate: FeatureId) -> usize {
 #[test]
 fn repeating_the_last_command_runs_it_again_on_the_new_selection() {
     let mut harness = Harness::new();
+
     harness.select([]);
     run_from_palette(&mut harness, "Box");
     harness.settle();
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     let offered = harness
         .workspace
         .last_offers
@@ -76,6 +78,7 @@ fn repeating_with_nothing_run_says_so() {
 #[test]
 fn repeat_is_reached_from_the_palette_too() {
     let mut harness = Harness::new();
+
     harness.select([]);
     run_from_palette(&mut harness, "Box");
     harness.settle();
@@ -92,8 +95,10 @@ fn repeat_is_reached_from_the_palette_too() {
 #[test]
 fn inverting_the_selection_swaps_the_selected_faces_for_the_others() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let faces = plate_faces(&harness, plate);
+
     harness
         .workspace
         .viewport
@@ -102,8 +107,10 @@ fn inverting_the_selection_swaps_the_selected_faces_for_the_others() {
 
     harness.key(Key::I, Modifiers::COMMAND | Modifiers::SHIFT);
     harness.frame();
+
     let inverted = selected_of(&harness, is_face);
     let kept_top = harness.workspace.viewport.selection().contains(top);
+
     harness.key(Key::I, Modifiers::COMMAND | Modifiers::SHIFT);
     harness.frame();
 
@@ -116,7 +123,9 @@ fn inverting_the_selection_swaps_the_selected_faces_for_the_others() {
 #[test]
 fn inverting_with_nothing_of_a_kind_to_go_by_asks_for_one() {
     let mut harness = Harness::new();
+
     let (_, _) = extruded_plate(&mut harness);
+
     harness.select([]);
 
     run_from_palette(&mut harness, "Invert the selection");
@@ -130,6 +139,7 @@ fn inverting_with_nothing_of_a_kind_to_go_by_asks_for_one() {
 #[test]
 fn the_faces_of_one_feature_are_selected_together_and_not_those_of_another_body() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let faces = plate_faces(&harness, plate);
     let block = add_block(
@@ -138,6 +148,7 @@ fn the_faces_of_one_feature_are_selected_together_and_not_those_of_another_body(
         [Point2::new(60.0, 0.0), Point2::new(80.0, 20.0)],
         "10 mm",
     );
+
     harness.select([top]);
 
     harness.key(Key::F, Modifiers::ALT | Modifiers::SHIFT);
@@ -150,6 +161,7 @@ fn the_faces_of_one_feature_are_selected_together_and_not_those_of_another_body(
         .iter()
         .filter(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == block))
         .count();
+
     assert_eq!(selected_of(&harness, is_face), faces);
     assert_eq!(others, 0);
 }
@@ -157,11 +169,13 @@ fn the_faces_of_one_feature_are_selected_together_and_not_those_of_another_body(
 #[test]
 fn the_loop_of_an_edge_needs_a_face_it_bounds() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let edge = Pickable::Edge {
         body: plate,
         edge: top_edge_along_x(&harness, plate, 0.0),
     };
+
     harness.select([edge]);
 
     run_from_palette(&mut harness, "Select the loop of the selected edge");
@@ -176,11 +190,13 @@ fn the_loop_of_an_edge_needs_a_face_it_bounds() {
 #[test]
 fn the_loop_of_an_edge_is_the_loop_of_the_selected_face_holding_it() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let edge = Pickable::Edge {
         body: plate,
         edge: top_edge_along_x(&harness, plate, 0.0),
     };
+
     harness.select([edge, top]);
 
     harness.key(Key::G, Modifiers::ALT | Modifiers::SHIFT);

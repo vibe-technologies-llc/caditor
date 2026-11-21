@@ -14,7 +14,7 @@ use crate::{
 
 const BOUNDARY_KEY: u8 = 0x30;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FaceKey {
     pub tolerance: SamplingTolerance,
     pub density: Option<Density>,
@@ -29,6 +29,7 @@ impl FaceKey {
         loops: &[Vec<BoundaryPoint>],
     ) -> Self {
         let mut digest = Digest::new(BOUNDARY_KEY);
+
         digest.count(loops.len());
         for points in loops {
             digest.count(points.len());
@@ -50,8 +51,10 @@ fn relabelling(earlier: &[u32], later: &[u32]) -> Option<BTreeMap<u32, u32>> {
     if earlier.len() != later.len() {
         return None;
     }
+
     let mut forward = BTreeMap::new();
     let mut backward = BTreeMap::new();
+
     for (earlier, later) in earlier.iter().zip(later) {
         let onto = *forward.entry(*earlier).or_insert(*later);
         let from = *backward.entry(*later).or_insert(*earlier);
@@ -62,7 +65,7 @@ fn relabelling(earlier: &[u32], later: &[u32]) -> Option<BTreeMap<u32, u32>> {
     Some(forward)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct MeshedFace {
     name: FaceName,
     slot: usize,
@@ -81,7 +84,7 @@ impl MeshedFace {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct KeptFace {
     pub name: FaceName,
     pub key: FaceKey,
@@ -89,13 +92,13 @@ pub(crate) struct KeptFace {
     pub shape: PatchShape,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct MeshedSolid<'a> {
     pub solid: &'a Solid,
     pub mesh: &'a DisplayMesh,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct DisplayMesh {
     mesh: Mesh,
     faces: Vec<MeshedFace>,
@@ -112,6 +115,7 @@ impl DisplayMesh {
     ) -> Self {
         let mut boundaries =
             Vec::with_capacity(kept.iter().map(|face| face.key.positions.len()).sum());
+
         let mut faces: Vec<MeshedFace> = kept
             .into_iter()
             .map(
@@ -122,6 +126,7 @@ impl DisplayMesh {
                      shape,
                  }| {
                     let first = boundaries.len();
+
                     boundaries.extend(key.positions.iter().map(|position| {
                         renumbered
                             .and_then(|renumbered| renumbered.get(*position as usize))
@@ -140,6 +145,7 @@ impl DisplayMesh {
                 },
             )
             .collect();
+
         faces.sort_by_key(|face| face.name);
         Self {
             mesh,
@@ -184,9 +190,11 @@ impl DisplayMesh {
             .filter(|meshed| meshed.matches(key))
             .find_map(|meshed| {
                 let earlier = solid.face(self.mesh.faces.get(meshed.slot)?.face)?;
+
                 if earlier.sense() != face.sense() || earlier.surface() != face.surface() {
                     return None;
                 }
+
                 let positions = self.boundaries.get(meshed.positions.clone())?;
                 let relabelling = relabelling(positions, &key.positions)?;
                 self.extract(meshed, &relabelling)
@@ -204,23 +212,29 @@ impl DisplayMesh {
             return Some(patch);
         };
         let mut first_interior = None;
+
         for triangle in triangles {
             let mut local = [0u32; 3];
+
             for (slot, corner) in local.iter_mut().zip(triangle) {
                 *slot = corner.checked_sub(first_vertex)?;
+
                 let created = patch.vertices.len();
+
                 if (*slot as usize) < created {
                     continue;
                 }
                 if *slot as usize != created {
                     return None;
                 }
+
                 let vertex = self.mesh.vertices.get(*corner as usize)?;
                 let position = match relabelling.get(&vertex.position) {
                     Some(position) => PatchPosition::Boundary(*position),
                     None => {
                         let first = *first_interior.get_or_insert(vertex.position);
                         let expected = u32::try_from(patch.interior.len()).ok()?;
+
                         if vertex.position.checked_sub(first)? != expected {
                             return None;
                         }
@@ -229,6 +243,7 @@ impl DisplayMesh {
                             .ok()?
                     }
                 };
+
                 patch
                     .push_vertex(PatchVertex {
                         position,

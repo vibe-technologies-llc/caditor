@@ -13,7 +13,7 @@ use crate::{
     values::ParameterValues,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MoveAxis {
     X,
     Y,
@@ -75,7 +75,7 @@ impl MoveAxis {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum TurnCentre {
     #[default]
     Origin,
@@ -102,13 +102,13 @@ impl TurnCentre {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AxisTurn {
     pub axis: AxisReference,
     pub angle: Expression,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Pivot {
     Point(Point3),
     Axis(Ray),
@@ -123,7 +123,7 @@ impl Pivot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Move {
     pub body: FeatureId,
     pub offset: [Expression; 3],
@@ -165,6 +165,7 @@ impl Move {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+
         used.extend(self.axis_datum());
         used.extend(self.axis_body());
         used.extend(self.axis_sketch());
@@ -239,7 +240,7 @@ impl Move {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BodyPlacement {
     pub offset: [Expression; 3],
     pub turn: [Expression; 3],
@@ -396,6 +397,7 @@ pub(crate) fn placement_transform(
 ) -> Result<RigidTransform, Failure> {
     let context = Context { feature, inputs };
     let unusable = || context.error(MoveCause::PlacementUnusable);
+
     let local = placed(
         Placing::at_origin(&placement.offset, &placement.turn),
         |expression, dimension, what| context.value(expression, dimension, what),
@@ -421,24 +423,33 @@ fn placed<E>(
     unusable: impl Fn() -> E,
 ) -> Result<RigidTransform, E> {
     let mut placed = RigidTransform::IDENTITY;
+
     if let (Pivot::Axis(axis), Some(angle)) = (pivot, angle) {
         let angle = value(angle, Dimension::ANGLE, "turn about its axis")?.to_radians();
+
         placed = RigidTransform::rotation_about(axis.origin(), axis.direction(), angle)
             .ok_or_else(&unusable)?;
     }
+
     let centre = pivot.point();
+
     for axis in MoveAxis::ALL {
         let what = format!("turn about {}", axis.name());
         let angle = value(axis.of(turn), Dimension::ANGLE, &what)?.to_radians();
         let turned = RigidTransform::rotation_about(centre, axis.direction_in(frame), angle)
             .ok_or_else(&unusable)?;
+
         placed = placed.then(&turned);
     }
+
     let mut shift = Vector3::ZERO;
+
     for axis in MoveAxis::ALL {
         let what = format!("distance along {}", axis.name());
+
         shift += axis.direction_in(frame) * value(axis.of(offset), Dimension::LENGTH, &what)?;
     }
+
     let shifted = RigidTransform::translation(shift).ok_or_else(&unusable)?;
     Ok(placed.then(&shifted))
 }
@@ -470,6 +481,7 @@ pub(crate) fn evaluate(
         Some(frame) => Some(resolver.frame(frame)?),
         None => None,
     };
+
     let pivot = definition
         .pivot(solid, axis, frame.as_ref())
         .ok_or_else(|| {
@@ -478,9 +490,11 @@ pub(crate) fn evaluate(
             })
         })?;
     let placement = transform(&context, definition, pivot, frame.as_ref())?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let moved = solid.transformed(&placement).map_err(|_| {
         context.error(MoveCause::TooFar {
             body: body_name.clone(),
@@ -494,7 +508,7 @@ pub(crate) fn evaluate(
     Ok(FeatureResult::Solid(SolidResult::new(placed, moved)))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum MoveCause {
     PlacementUnusable,
     MoveUnusable,

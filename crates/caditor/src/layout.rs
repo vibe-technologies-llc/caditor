@@ -28,7 +28,7 @@ pub const MIN_RIGHT_WIDTH: f32 = 240.0;
 const CAPPED_SLACK: f32 = 1.0;
 const RESIZED_BY: f32 = 0.5;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LogicalSize {
     pub width: f64,
     pub height: f64,
@@ -50,7 +50,7 @@ impl LogicalSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Position {
     pub x: i32,
     pub y: i32,
@@ -66,7 +66,7 @@ impl Position {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MonitorArea {
     pub x: i32,
     pub y: i32,
@@ -98,7 +98,7 @@ impl MonitorArea {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WindowPlacement {
     pub size: Option<LogicalSize>,
     pub position: Option<Position>,
@@ -156,7 +156,7 @@ impl WindowPlacement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PanelLayout {
     pub side_width: f32,
     pub right_width: Option<f32>,
@@ -209,7 +209,7 @@ pub fn panel_widths(room: f32, least: f32) -> Rangef {
     Rangef::new(min, room.max(min))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RightPanel {
     pub id: &'static str,
 }
@@ -219,6 +219,7 @@ impl RightPanel {
         let ctx = ui.ctx().clone();
         let id = ui.scope_id().with(self.id);
         let widths = panel_widths(room, MIN_RIGHT_WIDTH);
+
         follow_resizing(&ctx, id, widths);
         egui::Panel::right(self.id)
             .resizable(true)
@@ -237,14 +238,17 @@ pub fn within_width<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
             .max_rect(bounds)
             .layout(*ui.layout()),
     );
+
     let inner = add(&mut contents);
     let used = contents.min_rect();
+
     ui.advance_cursor_after_rect(Rect::from_x_y_ranges(bounds.x_range(), used.y_range()));
     inner
 }
 
 pub fn share_right_width(ctx: &egui::Context, width: Option<f32>) {
     let key = Id::unique(SHARED_RIGHT_WIDTH);
+
     ctx.data_mut(|data| match width {
         Some(width) => {
             data.insert_temp(key, width);
@@ -262,8 +266,10 @@ fn follow_resizing(ctx: &egui::Context, id: Id, widths: Rangef) {
         return;
     };
     let seen_key = id.with(SEEN_RIGHT_WIDTH);
+
     let seen = ctx.data_mut(|data| {
         let seen = data.get_temp::<f32>(seen_key);
+
         data.insert_temp(seen_key, width);
         seen
     });
@@ -300,6 +306,7 @@ mod tests {
             maximized: true,
         };
         let mut settings = Settings::default();
+
         placement.write(&mut settings);
 
         assert_eq!(WindowPlacement::from_settings(&settings), placement);
@@ -315,6 +322,7 @@ mod tests {
         settings.set_number(HEIGHT_KEY, 2.0);
         settings.set_number(X_KEY, 1e12);
         settings.set_text(MAXIMIZED_KEY, "yes");
+
         let read = WindowPlacement::from_settings(&settings);
 
         assert_eq!(
@@ -387,12 +395,14 @@ mod tests {
             parameters_open: true,
         };
         let mut settings = Settings::default();
+
         layout.write(&mut settings);
 
         assert_eq!(PanelLayout::from_settings(&settings), layout);
 
         settings.set_number(SIDE_WIDTH_KEY, 5.0);
         settings.set_number(RIGHT_WIDTH_KEY, 5.0);
+
         assert_eq!(
             PanelLayout::from_settings(&settings).side_width,
             MIN_SIDE_WIDTH
@@ -401,7 +411,9 @@ mod tests {
             PanelLayout::from_settings(&settings).right_width,
             Some(MIN_RIGHT_WIDTH)
         );
+
         settings.set_number(SIDE_WIDTH_KEY, 1e7);
+
         assert_eq!(
             PanelLayout::from_settings(&settings).side_width,
             MAX_SIDE_WIDTH
@@ -419,9 +431,11 @@ mod tests {
         const PANEL: RightPanel = RightPanel {
             id: "wide-contents",
         };
+
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(700.0, 500.0));
         let ctx = egui::Context::default();
         let mut central = None;
+
         for _ in 0..3 {
             let input = egui::RawInput {
                 screen_rect: Some(screen),
@@ -433,8 +447,10 @@ mod tests {
                 });
                 egui::CentralPanel::no_frame().show(ui, |ui| central = Some(ui.max_rect()));
             });
+
             output.textures_delta.clear();
         }
+
         let panel = PanelState::load(&ctx, egui::ViewportId::ROOT.root_ui_id().with(PANEL.id))
             .expect("the panel was shown")
             .outer_rect;

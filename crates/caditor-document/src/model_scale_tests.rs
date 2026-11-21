@@ -59,12 +59,14 @@ fn outline() -> (Sketch, ConstraintId) {
         Point2::new(10.0, 8.0),
         Point2::new(0.0, 8.0),
     ];
+
     let lines: Vec<_> = (0..4)
         .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]))
         .collect();
     let Some(Entity::Line { start, end }) = sketch.entity(lines[0]).cloned() else {
         panic!("the first side is a line");
     };
+
     let dimension = sketch
         .add_constraint(Constraint::Distance {
             from: start,
@@ -72,6 +74,7 @@ fn outline() -> (Sketch, ConstraintId) {
             value: Expression::parse_stored("10 mm").unwrap(),
         })
         .unwrap();
+
     sketch
         .set_label_offset(dimension, Some(Vector2::new(0.0, -3.0)))
         .unwrap();
@@ -86,10 +89,13 @@ fn outline() -> (Sketch, ConstraintId) {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let height = transaction.add_parameter("height", transaction.parse("4 mm").unwrap());
     let (sketch, dimension) = outline();
     let outline = transaction.add_feature("Outline", FeatureKind::from(sketch));
+
     let base = transaction.add_feature(
         "Base",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -112,7 +118,9 @@ fn model() -> Model {
             offset: transaction.parse("5 mm").unwrap(),
         })),
     );
+
     document.apply(transaction.finish()).unwrap();
+
     let evaluation = evaluate(&document);
     let solid = evaluation.body(base).unwrap();
     let edges = vec![
@@ -120,6 +128,7 @@ fn model() -> Model {
         edge_at(solid, Point3::new(0.0, 4.0, 4.0)),
     ];
     let mut transaction = document.transaction("Fillet");
+
     let fillet = transaction.add_feature(
         "Fillet 1",
         FeatureKind::Blend(Blend {
@@ -133,6 +142,7 @@ fn model() -> Model {
             sizing: FilletSizing::Radius,
         }),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -179,6 +189,7 @@ fn near(found: Point3, expected: [f64; 3]) -> bool {
 #[test]
 fn scaling_the_model_by_two_multiplies_the_volume_by_eight_keeping_ids_and_names() {
     let mut model = model();
+
     let original = model.document.clone();
     let before = evaluate(&model.document);
     let ids: Vec<FeatureId> = model.document.features().map(Feature::id).collect();
@@ -245,6 +256,7 @@ fn scaling_the_model_by_two_multiplies_the_volume_by_eight_keeping_ids_and_names
     assert!(scaled.summary.kept.is_empty());
 
     model.document.apply(undo).unwrap();
+
     let back = evaluate(&model.document);
 
     assert!(model.document.same_content(&original));
@@ -259,7 +271,9 @@ fn scaling_plain_values_leaves_parameters_and_says_which_features_follow_them() 
         .document
         .scaled(&scale(2.0, Point3::ZERO, ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
+
     let after = evaluate(&model.document);
     let (low, high) = bounds(&after, model.base);
 
@@ -279,7 +293,9 @@ fn scaling_plain_values_leaves_parameters_and_says_which_features_follow_them() 
 #[test]
 fn a_named_value_scales_with_the_plain_values() {
     let mut model = model();
+
     let mut transaction = model.document.transaction("Name");
+
     let named = transaction.add_owned_parameter(
         "radius",
         transaction.parse("1 mm").unwrap(),
@@ -294,6 +310,7 @@ fn a_named_value_scales_with_the_plain_values() {
         .and_then(|feature| feature.kind.blend())
         .unwrap()
         .clone();
+
     blend.size = Expression::Parameter(named);
     transaction.edit(Edit::SetFeatureKind {
         id: model.fillet,
@@ -305,6 +322,7 @@ fn a_named_value_scales_with_the_plain_values() {
         .document
         .scaled(&scale(3.0, Point3::ZERO, ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
 
     assert_eq!(
@@ -322,11 +340,17 @@ fn two_heights(model: &mut Model) -> (ConfigurationId, ConfigurationId) {
         .document
         .configuring(ConfiguredValue::Parameter(model.height))
         .unwrap();
+
     model.document.apply(configure).unwrap();
+
     let (short, short_id) = model.document.adding_configuration(Some("Short"));
+
     model.document.apply(short).unwrap();
+
     let (tall, tall_id) = model.document.adding_configuration(Some("Tall"));
+
     model.document.apply(tall).unwrap();
+
     let twelve = model.document.transaction("Parse").parse("12 mm").unwrap();
     let change = model
         .document
@@ -336,6 +360,7 @@ fn two_heights(model: &mut Model) -> (ConfigurationId, ConfigurationId) {
             Setting::Expression(twelve),
         )
         .unwrap();
+
     model.document.apply(change).unwrap();
     (short_id, tall_id)
 }
@@ -353,32 +378,40 @@ fn configured_height(model: &Model, row: ConfigurationId) -> String {
 #[test]
 fn scaling_the_model_scales_the_other_configurations_too() {
     let mut model = model();
+
     let (short, tall) = two_heights(&mut model);
 
     let scaled = model
         .document
         .scaled(&scale(2.0, Point3::ZERO, ScaledValues::AndParameters))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
 
     assert_eq!(configured_height(&model, short), "8 mm");
     assert_eq!(configured_height(&model, tall), "24 mm");
+
     let switch = model.document.activating(tall).unwrap();
+
     model.document.apply(switch).unwrap();
+
     let after = evaluate(&model.document);
     let (_, high) = bounds(&after, model.base);
+
     assert!(near(high, [20.0, 16.0, 24.0]), "{high:?}");
 }
 
 #[test]
 fn scaling_only_plain_values_leaves_the_cells_of_parameters_it_does_not_scale() {
     let mut model = model();
+
     let (_, tall) = two_heights(&mut model);
 
     let scaled = model
         .document
         .scaled(&scale(2.0, Point3::ZERO, ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
 
     assert_eq!(configured_height(&model, tall), "12 mm");
@@ -387,7 +420,9 @@ fn scaling_only_plain_values_leaves_the_cells_of_parameters_it_does_not_scale() 
 #[test]
 fn scaling_plain_values_scales_the_cells_of_a_named_value_in_the_other_configurations() {
     let mut model = model();
+
     let mut transaction = model.document.transaction("Name");
+
     let named = transaction.add_owned_parameter(
         "radius",
         transaction.parse("1 mm").unwrap(),
@@ -396,16 +431,24 @@ fn scaling_plain_values_scales_the_cells_of_a_named_value_in_the_other_configura
             value: "Radius".to_owned(),
         },
     );
+
     model.document.apply(transaction.finish()).unwrap();
+
     let configure = model
         .document
         .configuring(ConfiguredValue::Parameter(named))
         .unwrap();
+
     model.document.apply(configure).unwrap();
+
     let (first, _) = model.document.adding_configuration(Some("Fine"));
+
     model.document.apply(first).unwrap();
+
     let (second, wide) = model.document.adding_configuration(Some("Wide"));
+
     model.document.apply(second).unwrap();
+
     let two = model.document.transaction("Parse").parse("2 mm").unwrap();
     let change = model
         .document
@@ -415,12 +458,14 @@ fn scaling_plain_values_scales_the_cells_of_a_named_value_in_the_other_configura
             Setting::Expression(two),
         )
         .unwrap();
+
     model.document.apply(change).unwrap();
 
     let scaled = model
         .document
         .scaled(&scale(3.0, Point3::ZERO, ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
 
     let cell = model
@@ -429,12 +474,14 @@ fn scaling_plain_values_scales_the_cells_of_a_named_value_in_the_other_configura
     let Some(Setting::Expression(expression)) = cell else {
         panic!("an expression was expected");
     };
+
     assert_eq!(text(&model.document, &expression), "6 mm");
 }
 
 #[test]
 fn a_thin_wall_thickens_with_the_model() {
     let mut model = model();
+
     let mut extrude = match model
         .document
         .feature(model.base)
@@ -444,6 +491,7 @@ fn a_thin_wall_thickens_with_the_model() {
         other => panic!("an extrusion was expected, found {other:?}"),
     };
     let mut transaction = model.document.transaction("Wall");
+
     extrude.wall = Some(Box::new(Wall {
         thickness: transaction.parse("0.5 mm").unwrap(),
         side: WallSide::Inside,
@@ -458,6 +506,7 @@ fn a_thin_wall_thickens_with_the_model() {
         .document
         .scaled(&scale(2.0, Point3::ZERO, ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
 
     let thickness = match model
@@ -468,6 +517,7 @@ fn a_thin_wall_thickens_with_the_model() {
         Some(SolidFeature::Extrude(extrude)) => extrude.wall.as_ref().unwrap().thickness.clone(),
         other => panic!("an extrusion was expected, found {other:?}"),
     };
+
     assert_eq!(text(&model.document, &thickness), "1 mm");
 }
 
@@ -475,6 +525,7 @@ fn a_thin_wall_thickens_with_the_model() {
 fn ellipses_keep_their_shape_as_the_model_grows() {
     let mut document = Document::default();
     let mut sketch = Sketch::new(Plane::XY);
+
     let ellipse = sketch.add_ellipse(Point2::new(1.0, 2.0), Point2::new(5.0, 2.0), 2.0);
     let arc = sketch.add_elliptical_arc(
         Point2::ZERO,
@@ -484,12 +535,15 @@ fn ellipses_keep_their_shape_as_the_model_grows() {
         Point2::new(0.0, 1.0),
     );
     let mut transaction = document.transaction("Ovals");
+
     let feature = transaction.add_feature("Ovals", FeatureKind::from(sketch));
+
     document.apply(transaction.finish()).unwrap();
 
     let scaled = document
         .scaled(&scale(2.0, Point3::ZERO, ScaledValues::Plain))
         .unwrap();
+
     document.apply(scaled.transaction).unwrap();
 
     let sketch = document
@@ -511,6 +565,7 @@ fn ellipses_keep_their_shape_as_the_model_grows() {
     else {
         panic!("the elliptical arc is kept");
     };
+
     assert_eq!(minor_radius, 4.0);
     assert_eq!(arc_minor, 2.0);
     assert_eq!(sketch.point(center), Some(Point2::new(2.0, 4.0)));
@@ -529,7 +584,9 @@ fn scaling_about_a_point_keeps_that_point_in_place() {
             ScaledValues::AndParameters,
         ))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
+
     let after = evaluate(&model.document);
     let (low, high) = bounds(&after, model.base);
 
@@ -546,7 +603,9 @@ fn image(centre: Point3, point: Point3) -> Point3 {
 #[test]
 fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() {
     let mut model = model();
+
     let mut transaction = model.document.transaction("Users");
+
     let block = transaction.add_feature(
         "Block",
         FeatureKind::Primitive(Primitive {
@@ -565,6 +624,7 @@ fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() 
             operation: BodyOperation::NewBody,
         }),
     );
+
     transaction.add_feature(
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
@@ -576,6 +636,7 @@ fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() 
             faces: Vec::new(),
         }),
     );
+
     let axis = transaction.add_feature(
         "Axis 1",
         FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Principal(
@@ -586,7 +647,9 @@ fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() 
         "Frame 1",
         FeatureKind::Datum(Datum::Frame(Box::new(DatumFrame::world()))),
     );
+
     model.document.apply(transaction.finish()).unwrap();
+
     let original = model.document.clone();
     let before = evaluate(&model.document);
     let centre = Point3::new(5.0, 3.0, 2.0);
@@ -646,10 +709,13 @@ fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() 
 
     assert_eq!(after.failed_count(), 0);
     assert_eq!(names, ["Origin, scaled", "Axes and planes, scaled"]);
+
     for body in [model.base, block] {
         let (low, high) = bounds(&before, body);
         let (scaled_low, scaled_high) = bounds(&after, body);
+
         let expected = (image(centre, low), image(centre, high));
+
         assert!(
             near(scaled_low, expected.0.to_array()),
             "{scaled_low:?} {expected:?}"
@@ -659,6 +725,7 @@ fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() 
             "{scaled_high:?} {expected:?}"
         );
     }
+
     assert!((axis_ray.direction() - Vector3::Z).length() < 1e-9);
     assert!((axis_ray.origin() - landed).cross(Vector3::Z).length() < 1e-9);
     assert!(near(frame_plane.origin(), landed.to_array()));
@@ -671,7 +738,9 @@ fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() 
 #[test]
 fn a_centre_on_the_principal_geometry_adds_no_datum() {
     let mut model = model();
+
     let mut transaction = model.document.transaction("Mirror");
+
     transaction.add_feature(
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
@@ -703,21 +772,27 @@ fn a_centre_on_the_principal_geometry_adds_no_datum() {
 #[test]
 fn a_projected_principal_plane_moves_onto_a_datum_plane_where_it_lands() {
     let mut model = model();
+
     let mut transaction = model.document.transaction("Sketch");
+
     let sketch = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
     let source = ProjectionSource::PrincipalPlane {
         plane: PrincipalPlane::Xy,
         reach: 20.0,
     };
     let outline = datum_outline(&Plane::XY, &Plane::XZ, 20.0).unwrap();
+
     let line = transaction.add_projection(sketch, source, &outline);
+
     model.document.apply(transaction.finish()).unwrap();
 
     let scaled = model
         .document
         .scaled(&scale(2.0, Point3::new(0.0, 0.0, 5.0), ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
+
     let after = evaluate(&model.document);
     let solved = after
         .feature(sketch)
@@ -737,7 +812,9 @@ fn a_projected_principal_plane_moves_onto_a_datum_plane_where_it_lands() {
 #[test]
 fn a_projected_principal_axis_and_origin_move_onto_datums_where_they_land() {
     let mut model = model();
+
     let mut transaction = model.document.transaction("Sketch");
+
     let sketch = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
     let line = transaction.add_projection(
         sketch,
@@ -752,7 +829,9 @@ fn a_projected_principal_axis_and_origin_move_onto_datums_where_they_land() {
         ProjectionSource::Origin,
         &point_outline(Point3::ZERO, &Plane::XZ),
     );
+
     model.document.apply(transaction.finish()).unwrap();
+
     let centre = Point3::new(0.0, 0.0, 5.0);
 
     let displaced = model.document.displaced_by_scale(centre);
@@ -760,7 +839,9 @@ fn a_projected_principal_axis_and_origin_move_onto_datums_where_they_land() {
         .document
         .scaled(&scale(2.0, centre, ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
+
     let after = evaluate(&model.document);
     let solved = after
         .feature(sketch)
@@ -838,21 +919,28 @@ fn a_factor_that_is_not_above_zero_or_is_one_is_refused() {
 #[test]
 fn an_import_is_scaled_and_moved_with_the_model() {
     let mut model = model();
+
     let solid = evaluate(&model.document).body(model.base).unwrap().clone();
     let mut placement = BodyPlacement::default();
+
     placement.offset[0] = model.document.parse("30 mm").unwrap();
+
     let mut transaction = model.document.transaction("Import");
+
     let imported = transaction.add_feature(
         "Bracket",
         FeatureKind::Import(Import::new("bracket.step", solid, "text").placed(placement)),
     );
+
     model.document.apply(transaction.finish()).unwrap();
 
     let scaled = model
         .document
         .scaled(&scale(0.5, Point3::new(0.0, 0.0, 4.0), ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
+
     let after = evaluate(&model.document);
     let (low, high) = bounds(&after, imported);
     let import = model
@@ -882,6 +970,7 @@ fn saved_views_follow_the_model() {
         }],
         home: None,
     };
+
     model
         .document
         .apply(Transaction::single(
@@ -896,7 +985,9 @@ fn saved_views_follow_the_model() {
         .document
         .scaled(&scale(2.0, Point3::ZERO, ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
+
     let kept = &model.document.saved_views().named[0].view;
 
     assert!(near(kept.target, [10.0, 8.0, 4.0]));
@@ -908,14 +999,18 @@ fn a_sketch_on_an_offset_datum_plane_lands_on_the_scaled_points_for_a_centre_off
     let mut model = model();
     let placed = Plane::from_frame(Point3::new(0.0, 0.0, 5.0), Vector3::Z, Vector3::X).unwrap();
     let mut sketch = Sketch::new(placed);
+
     let corner = sketch.add_point(Point2::new(3.0, 2.0));
     let far = sketch.add_point(Point2::new(-4.0, 7.0));
     let mut transaction = model.document.transaction("Sketch");
+
     let held = transaction.add_feature(
         "On plane",
         FeatureKind::Sketch(SketchFeature::on_datum(sketch, model.datum)),
     );
+
     model.document.apply(transaction.finish()).unwrap();
+
     let centre = Point3::new(5.0, 3.0, 2.0);
     let before = evaluate(&model.document);
     let world = |evaluation: &Evaluation, point| {
@@ -932,13 +1027,16 @@ fn a_sketch_on_an_offset_datum_plane_lands_on_the_scaled_points_for_a_centre_off
         .document
         .scaled(&scale(2.0, centre, ScaledValues::Plain))
         .unwrap();
+
     model.document.apply(scaled.transaction).unwrap();
+
     let after = evaluate(&model.document);
 
     assert_eq!(after.failed_count(), 0);
     for point in [corner, far] {
         let expected = image(centre, world(&before, point));
         let found = world(&after, point);
+
         assert!(near(found, expected.to_array()), "{found:?} {expected:?}");
     }
 }

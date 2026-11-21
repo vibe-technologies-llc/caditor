@@ -63,13 +63,13 @@ const RISE_SAMPLES_PER_SPAN: usize = 16;
 const CLOSING_SLACK: f64 = 1e-4;
 const TILT_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindingAxis {
     pub origin: Point3,
     pub direction: Vector3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PathSegment {
     curve: Curve,
     range: Interval,
@@ -112,21 +112,21 @@ impl PathSegment {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SweepOrientation {
     #[default]
     Square,
     Parallel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShapeStop {
     pub fraction: f64,
     pub twist: f64,
     pub scale: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SweepShape {
     pub twist: f64,
     pub scale: f64,
@@ -162,6 +162,7 @@ impl SweepShape {
 
     fn ordered(&self) -> Result<(), PathSweepError> {
         let mut before = 0.0;
+
         for stop in &self.law {
             if !(stop.fraction > before && stop.fraction < 1.0) {
                 return Err(PathSweepError::ShapeLawOrder {
@@ -197,7 +198,7 @@ impl Default for SweepShape {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum PathSweepError {
     #[error("no path is chosen to sweep along")]
     NoPath,
@@ -283,6 +284,7 @@ impl PathSweepError {
             | Self::CornerTooSharp { segments }
             | Self::ShapedCorner { segments } => {
                 let mut named = segments.to_vec();
+
                 named.dedup();
                 named
             }
@@ -323,6 +325,7 @@ impl Outline {
         let sampling = SamplingTolerance::for_extent(size);
         let mut samples = Vec::new();
         let mut control_points = Vec::new();
+
         for piece in regions.iter().flat_map(Region::pieces) {
             samples.extend(
                 piece
@@ -365,7 +368,7 @@ fn piece_spline(plane: &Plane, piece: &Piece) -> Result<BSplineCurve, PathSweepE
     Ok(flat.map_points(|point| plane.to_world(point))?)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Motion {
     Straight {
         direction: Vector3,
@@ -383,7 +386,7 @@ enum Motion {
     Fitted(Stations),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Stage {
     leg: Leg,
     start: RigidTransform,
@@ -400,6 +403,7 @@ impl Stage {
             } else {
                 stations.middle()
             };
+
             return frame.ok_or_else(degenerate);
         }
         self.rigid_at(fraction).map(Similarity::from)
@@ -437,7 +441,7 @@ impl Stage {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Section {
     Placed(Similarity),
     Mitre {
@@ -505,7 +509,7 @@ struct Course {
     bends_freely: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Shaping {
     centre: Point3,
     axis: Vector3,
@@ -523,7 +527,9 @@ fn flat_or_between(left: f64, right: f64, widths: (f64, f64)) -> f64 {
     if left * right <= 0.0 {
         return 0.0;
     }
+
     let (before, after) = widths;
+
     let first = 2.0 * after + before;
     let second = after + 2.0 * before;
     (first + second) / (first / left + second / right)
@@ -531,6 +537,7 @@ fn flat_or_between(left: f64, right: f64, widths: (f64, f64)) -> f64 {
 
 fn leaning(first: f64, second: f64, widths: (f64, f64)) -> f64 {
     let (near, far) = widths;
+
     let slope = ((2.0 * near + far) * first - near * second) / (near + far);
     if slope * first <= 0.0 {
         0.0
@@ -552,6 +559,7 @@ fn smooth_slopes(points: &[(f64, f64)]) -> Vec<f64> {
         .zip(points.iter().skip(1))
         .map(|(from, to)| to.0 - from.0)
         .collect();
+
     let at = |index: usize| {
         (
             secants.get(index).copied().unwrap_or(0.0),
@@ -614,6 +622,7 @@ impl Shaping {
         let (Some(from), Some(to)) = (self.knots.get(index), self.knots.get(index + 1)) else {
             return (0.0, 1.0);
         };
+
         let width = to.fraction - from.fraction;
         let along = ((fraction - from.fraction) / width).clamp(0.0, 1.0);
         let slopes = |all: &[f64]| {
@@ -651,6 +660,7 @@ impl Shaping {
         let (from, to) = (before / self.total, (before + length) / self.total);
         let mut turned = 0.0;
         let mut at = (from, self.state_at(from).0);
+
         for knot in &self.knots {
             if knot.fraction > from && knot.fraction < to {
                 turned += (knot.twist - at.1).abs();
@@ -662,7 +672,7 @@ impl Shaping {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Closing {
     Exact,
     Corrected,
@@ -675,9 +685,11 @@ fn travelled(leg: &Leg, parameter: f64) -> f64 {
 
 fn turned_by(plane: &Plane, axis: Vector3, end: &Similarity) -> Option<f64> {
     let normal = end.apply_direction(plane.normal());
+
     if normal.dot(plane.normal()) < 1.0 - TILT_SLACK {
         return None;
     }
+
     let x_axis = end.apply_direction(plane.x_axis());
     let angle = x_axis
         .dot(plane.y_axis())
@@ -715,16 +727,20 @@ pub fn sweep_shaped(
         return Err(PathSweepError::UnusableShape);
     }
     shape.ordered()?;
+
     let outline = Outline::of(plane, regions)?;
     let reach = path
         .iter()
         .map(|segment| segment.curve.bounding_box(segment.range).diagonal())
         .fold(0.0, larger);
+
     let tolerance = outline.tolerance.max(reach * RELATIVE_TOLERANCE);
     let chain = path::chain(path, plane, outline.centre, tolerance)?;
+
     if chain.closed && shape.scale != 1.0 {
         return Err(PathSweepError::ClosedPathScales);
     }
+
     let planned = Course::plan(
         (plane, regions, &outline),
         &chain,
@@ -749,6 +765,7 @@ pub fn sweep_shaped(
         other => other?,
     };
     let solid = course.build(plane, regions, feature)?;
+
     if course.may_cross_itself()
         && let CrossingCheck::Crossing(_) = solid.find_crossing()?
     {
@@ -769,6 +786,7 @@ fn bend_check(
     let tangent = derivatives.first.try_normalize().ok_or_else(degenerate)?;
     let bend = derivatives.curvature().unwrap_or(Vector3::ZERO);
     let normal = placement.apply_direction(plane.normal());
+
     for point in outline.placed(plane, placement) {
         let reach = point - derivatives.point;
         let stretch =
@@ -799,11 +817,14 @@ fn fold_check(
         .parameters()
         .windows(2)
         .zip(stations.frames().windows(2));
+
     for (parameters, frames) in steps {
         interrupt::check()?;
+
         let ([from, to], [here, there]) = (parameters, frames) else {
             continue;
         };
+
         let travel = path.point(*to).distance(path.point(*from));
         let normal = here.apply_direction(plane.normal());
         for (start, end) in outline
@@ -830,6 +851,7 @@ fn rise_check(
         Curve::BSpline(spline) => spline.breakpoints().len().max(2) - 1,
         Curve::Line(_) | Curve::Circle(_) | Curve::Ellipse(_) | Curve::Intersection(_) => 4,
     };
+
     for parameter in range.split(spans * RISE_SAMPLES_PER_SPAN) {
         let tangent = curve
             .evaluate(parameter)
@@ -866,9 +888,11 @@ impl Course {
                 segment: first.segment,
             })?
             .dot(plane.normal());
+
         if rise.abs() < LEAST_RISE {
             return Err(PathSweepError::StartsAlongProfile);
         }
+
         let facing = rise.signum();
         let axis = plane.normal() * facing;
         let total: f64 = chain
@@ -876,6 +900,7 @@ impl Course {
             .iter()
             .map(|leg| leg.curve.length(leg.range))
             .sum();
+
         let shaping = (!shape.is_none()).then(|| {
             Shaping::new(
                 plane.to_world(plane.to_local(first.start_point())),
@@ -890,15 +915,21 @@ impl Course {
         let mut sections = vec![Section::Placed(Similarity::IDENTITY)];
         let mut stages: Vec<Stage> = Vec::with_capacity(chain.legs.len());
         let count = chain.legs.len();
+
         for (index, leg) in chain.legs.iter().enumerate() {
             interrupt::check()?;
+
             let carried = (plane, outline, leg, &placement);
+
             bends_freely |= bends_freely_along(carried);
+
             let motion = match &shaping {
                 Some(shaping) => shaped_motion(carried, (orientation, facing), (shaping, before))?,
                 None => motion_of(carried, orientation, facing)?,
             };
+
             before += leg.curve.length(leg.range);
+
             let stage = Stage {
                 leg: leg.clone(),
                 start: placement,
@@ -913,11 +944,13 @@ impl Course {
             } else {
                 None
             };
+
             match next {
                 None => sections.push(Section::Placed(end)),
                 Some(next) => {
                     let incoming = leg.end_tangent().ok_or_else(degenerate)?;
                     let outgoing = next.start_tangent().ok_or_else(degenerate)?;
+
                     let turn = incoming.angle_between(outgoing);
                     let segments = [leg.segment, next.segment];
                     let winds_on = leg.winding.is_some() && leg.winding == next.winding;
@@ -933,17 +966,21 @@ impl Course {
                         if turn > MOST_MITRE_TURN {
                             return Err(PathSweepError::CornerTooSharp { segments });
                         }
+
                         let corner = leg.end_point();
                         let mitre = Plane::new(corner, *direction + outgoing)
                             .ok_or(PathSweepError::CornerTooSharp { segments })?;
+
                         sections.push(Section::Mitre {
                             incoming: plane.transformed(&stage.start),
                             direction: *direction,
                             mitre,
                         });
+
                         let swing =
                             RigidTransform::rotation_about(corner, direction.cross(outgoing), turn)
                                 .ok_or(PathSweepError::CornerTooSharp { segments })?;
+
                         placement = finish.then(&swing);
                     } else if shaping.is_some() && between_lines {
                         return Err(PathSweepError::ShapedCorner { segments });
@@ -971,11 +1008,13 @@ impl Course {
                         .placed(plane, &end)
                         .zip(outline.placed(plane, &Similarity::IDENTITY))
                         .any(|(back, start)| back.distance(start) > slack);
+
                     if twisted {
                         let turned = match closing {
                             Closing::Exact => turned_by(plane, axis, &end),
                             Closing::Corrected => None,
                         };
+
                         return Err(PathSweepError::ClosedPathTwists { turned });
                     }
                     if let Some(Stage {
@@ -988,12 +1027,14 @@ impl Course {
                 }
                 Some(Section::Mitre { .. }) | None => {
                     let last = chain.legs.last().map_or(0, |leg| leg.segment);
+
                     return Err(PathSweepError::Corner {
                         segments: [last, first.segment],
                     });
                 }
             }
         }
+
         let course = Self {
             stages,
             sections,
@@ -1003,6 +1044,7 @@ impl Course {
             tolerance: outline.tolerance,
             bends_freely,
         };
+
         course.check_mitres(plane, regions)?;
         Ok(course)
     }
@@ -1019,11 +1061,14 @@ impl Course {
                 continue;
             };
             let placed = plane.transformed(&stage.start);
+
             let start = self.section(index)?.level_on(&placed, direction)?;
             let end = self.section(index + 1)?.level_on(&placed, direction)?;
+
             if start.is_none() && end.is_none() {
                 continue;
             }
+
             let neighbour = if end.is_some() {
                 self.stages.get((index + 1) % self.stages.len())
             } else {
@@ -1072,24 +1117,29 @@ impl Course {
             .map(Stage::end)
             .transpose()?
             .unwrap_or(Similarity::IDENTITY);
+
         for region in regions {
             interrupt::check()?;
             plan.label(region.entities());
+
             let caps = Caps {
                 start: FaceName::start_cap(feature, region.key()),
                 end: FaceName::end_cap(feature, region.key()),
             };
             let mut start_loops = Vec::new();
             let mut end_loops = Vec::new();
+
             for profile_loop in region.loops() {
                 let (start_loop, end_loop) =
                     self.sweep_loop(&mut plan, plane, profile_loop.pieces(), &caps, feature)?;
+
                 start_loops.push(start_loop);
                 end_loops.push(end_loop);
             }
             if self.closed {
                 continue;
             }
+
             let start_plane = Plane::from_frame(
                 plane.origin(),
                 plane.normal() * -self.facing,
@@ -1103,6 +1153,7 @@ impl Course {
                 placed_end.x_axis(),
             )
             .ok_or_else(degenerate)?;
+
             plan.face(PlanFace {
                 surface: PlaneSurface::new(start_plane)?.into(),
                 sense: Sense::Same,
@@ -1136,6 +1187,7 @@ impl Course {
                 .get(index % self.stages.len().max(1))
                 .ok_or_else(degenerate)
         };
+
         let side = |stage: usize, piece: usize| -> Result<FaceName, PathSweepError> {
             let leg = &stage_at(stage)?.leg;
             Ok(FaceName::swept(
@@ -1148,14 +1200,17 @@ impl Course {
         let joints = self.sections.len();
         let legs = self.stages.len();
         let mut vertices: Vec<Vec<usize>> = Vec::with_capacity(joints);
+
         for joint in 0..joints {
             let section = self.section(joint)?;
             let mut row = Vec::with_capacity(count);
+
             for piece in pieces {
                 row.push(plan.vertex(section.point(plane, piece.start())?));
             }
             vertices.push(row);
         }
+
         let vertex = |joint: usize, index: usize| -> Result<usize, PathSweepError> {
             vertices
                 .get(joint % joints)
@@ -1165,15 +1220,19 @@ impl Course {
         };
         let whole_turn = self.whole_turn();
         let mut sections: Vec<Vec<Option<usize>>> = Vec::with_capacity(joints);
+
         for joint in 0..joints {
             interrupt::check()?;
+
             let section = self.section(joint)?;
             let mut row = Vec::with_capacity(count);
+
             for (index, piece) in pieces.iter().enumerate() {
                 if whole_turn && self.flat_in_turn(plane, piece)? {
                     row.push(None);
                     continue;
                 }
+
                 let name = if !self.closed && joint == 0 {
                     EdgeName::between(side(0, index)?, caps.start)
                 } else if !self.closed && joint == legs {
@@ -1185,15 +1244,18 @@ impl Course {
                 };
                 let (curve, range) = section.edge(plane, piece)?;
                 let (from, to) = (vertex(joint, index)?, vertex(joint, index + 1)?);
+
                 let ends = if piece.is_reversed() {
                     (to, from)
                 } else {
                     (from, to)
                 };
+
                 row.push(Some(plan.edge(curve, range, ends, name)));
             }
             sections.push(row);
         }
+
         let section_edge = |joint: usize, index: usize| -> Result<usize, PathSweepError> {
             sections
                 .get(joint % joints)
@@ -1202,16 +1264,21 @@ impl Course {
                 .flatten()
                 .ok_or_else(degenerate)
         };
+
         for (number, stage) in self.stages.iter().enumerate() {
             interrupt::check()?;
+
             let mut alongs = Vec::with_capacity(count);
+
             for index in 0..count {
                 let name =
                     EdgeName::between(side(number, index + count - 1)?, side(number, index)?);
                 let from = vertex(number, index)?;
                 let to = vertex(number + 1, index)?;
+
                 alongs.push(Self::along_edge(plan, stage, (from, to), name)?);
             }
+
             let along = |index: usize| {
                 alongs
                     .get(index % count.max(1))
@@ -1222,16 +1289,19 @@ impl Course {
                 let surface = self.surface_of(plane, stage, piece)?;
                 let middle = piece.range().middle();
                 let halfway = stage.placement_at(0.5)?;
+
                 let probe = halfway.apply_point(plane.to_world(piece.curve().point(middle)));
                 let outward = halfway.apply_direction(
                     lift(plane, traversal_tangent(piece, middle)).cross(plane.normal()),
                 );
+
                 let sense = outward_sense(&surface, probe, outward, None);
                 let name = side(number, index)?;
                 let origin = Some(FaceOrigin::Side {
                     feature,
                     entity: piece.entity(),
                 });
+
                 if whole_turn && self.flat_in_turn(plane, piece)? {
                     let rim = |at: usize| -> Result<(usize, Point3), PathSweepError> {
                         let point = plan.point(vertex(0, at)?).ok_or_else(degenerate)?;
@@ -1239,6 +1309,7 @@ impl Course {
                     };
                     let loops =
                         self.disc_loops((&surface, sense), [rim(index)?, rim(index + 1)?])?;
+
                     plan.face(PlanFace {
                         surface,
                         sense,
@@ -1248,6 +1319,7 @@ impl Course {
                     });
                     continue;
                 }
+
                 let travel = traversal_sense(piece);
                 let mut coedges = vec![
                     PlanCoedge::new(section_edge(number, index)?, travel),
@@ -1255,6 +1327,7 @@ impl Course {
                     PlanCoedge::new(section_edge(number + 1, index)?, travel.reversed()),
                     PlanCoedge::new(along(index)?, Sense::Reversed),
                 ];
+
                 if self.facing < 0.0 {
                     coedges = turned_over(coedges);
                 }
@@ -1267,11 +1340,14 @@ impl Course {
                 });
             }
         }
+
         let mut start_loop = Vec::new();
         let mut end_loop = Vec::new();
+
         if !self.closed {
             for (index, piece) in pieces.iter().enumerate() {
                 let travel = traversal_sense(piece);
+
                 start_loop.push(PlanCoedge::new(section_edge(0, index)?, travel));
                 end_loop.push(PlanCoedge::new(section_edge(legs, index)?, travel));
             }
@@ -1313,11 +1389,13 @@ impl Course {
         else {
             return Err(degenerate());
         };
+
         let radius = |point: Point3| {
             let offset = point - *origin;
             (offset - *axis * offset.dot(*axis)).length()
         };
         let [(first, first_point), (second, second_point)] = rims;
+
         let (outer, inner) = if radius(first_point) >= radius(second_point) {
             (first, second)
         } else {
@@ -1348,6 +1426,7 @@ impl Course {
             } => {
                 let centre = *origin + *axis * (start - *origin).dot(*axis);
                 let radial = start - centre;
+
                 let frame = Plane::from_frame(
                     centre,
                     *axis,
@@ -1430,6 +1509,7 @@ fn turn_frame(
 ) -> Result<Frame, PathSweepError> {
     let placed = plane.transformed(&stage.start);
     let along = Vector2::new(axis.dot(placed.x_axis()), axis.dot(placed.y_axis()));
+
     let line = Axis2::new(placed.to_local(origin), along)?;
     let toward = placed.to_local(stage.leg.start_point());
     if line.signed_distance(toward) >= 0.0 {
@@ -1480,7 +1560,9 @@ fn motion_of(
     match (&leg.curve, orientation) {
         (Curve::Line(_), _) => {
             let (from, to) = (leg.start_point(), leg.end_point());
+
             let direction = (to - from).try_normalize().ok_or_else(degenerate)?;
+
             if orientation == SweepOrientation::Parallel {
                 rise_check(&leg.curve, leg.range, plane.normal(), facing, segment)?;
             } else {
@@ -1500,10 +1582,12 @@ fn motion_of(
         }
         (Curve::Circle(circle), SweepOrientation::Square) => {
             bend_check(plane, outline, &leg.curve, start, facing, segment)?;
+
             let origin = circle.center();
             let axis = circle.frame().normal();
             let angle = leg.range.length();
             let placed = plane.transformed(placement);
+
             if meridian(&placed, outline, origin, axis) {
                 return Ok(Motion::Turn {
                     origin,
@@ -1511,10 +1595,12 @@ fn motion_of(
                     angle,
                 });
             }
+
             let from = leg.range.start();
             let frames =
                 |parameters: &[f64]| rotating((origin, axis), from, parameters, *placement);
             let initial = ((angle / STATION_TURN).ceil() as usize).max(4);
+
             let stations = Stations::fit(
                 leg.range,
                 initial,
@@ -1528,6 +1614,7 @@ fn motion_of(
             let path = Curve::BSpline(leg.spline()?);
             let frames = |parameters: &[f64]| winding(&path, axis, parameters, *placement);
             let initial = (spans_of(&path) * STATIONS_PER_SPAN).max(LEAST_STATIONS);
+
             let stations = Stations::fit(
                 leg.range,
                 initial,
@@ -1535,6 +1622,7 @@ fn motion_of(
                 &outline.control_points,
                 segment,
             )?;
+
             fold_check(plane, outline, &path, &stations, facing, segment)?;
             Ok(Motion::Fitted(stations))
         }
@@ -1542,6 +1630,7 @@ fn motion_of(
             let path = Curve::BSpline(leg.spline()?);
             let frames = |parameters: &[f64]| rotation_minimising(&path, parameters, *placement);
             let initial = (spans_of(&path) * STATIONS_PER_SPAN).max(LEAST_STATIONS);
+
             let stations = Stations::fit(
                 leg.range,
                 initial,
@@ -1549,6 +1638,7 @@ fn motion_of(
                 &outline.control_points,
                 segment,
             )?;
+
             for (parameter, frame) in stations.parameters().iter().zip(stations.frames()) {
                 bend_check(plane, outline, &path, (*parameter, frame), facing, segment)?;
             }
@@ -1569,6 +1659,7 @@ fn shaped_motion(
         Curve::Circle(_) => (leg.range.length() / STATION_TURN).ceil() as usize,
         Curve::Line(_) | Curve::Ellipse(_) | Curve::BSpline(_) | Curve::Intersection(_) => 0,
     };
+
     let initial = (spans_of(&path) * STATIONS_PER_SPAN)
         .max(LEAST_STATIONS)
         .max(turning)
@@ -1592,6 +1683,7 @@ fn shaped_motion(
                 bend_check(plane, outline, curve, (*parameter, frame), facing, segment)
             })
     };
+
     let stations = match (&leg.curve, orientation) {
         (_, SweepOrientation::Parallel) => {
             rise_check(&leg.curve, leg.range, plane.normal(), facing, segment)?;
@@ -1599,6 +1691,7 @@ fn shaped_motion(
         }
         (Curve::Line(_), SweepOrientation::Square) => {
             let starting = Similarity::from(*placement);
+
             bend_check(
                 plane,
                 outline,
@@ -1612,19 +1705,23 @@ fn shaped_motion(
         (Curve::Circle(circle), SweepOrientation::Square) => {
             let turning = (circle.center(), circle.frame().normal());
             let from = leg.range.start();
+
             let stations =
                 fit(&|parameters: &[f64]| rotating(turning, from, parameters, *placement))?;
+
             bent(&leg.curve, &stations)?;
             stations
         }
         (_, SweepOrientation::Square) if let Some(axis) = leg.winding => {
             let stations = fit(&|parameters: &[f64]| winding(&path, axis, parameters, *placement))?;
+
             fold_check(plane, outline, &path, &stations, facing, segment)?;
             stations
         }
         (_, SweepOrientation::Square) => {
             let stations =
                 fit(&|parameters: &[f64]| rotation_minimising(&path, parameters, *placement))?;
+
             bent(&path, &stations)?;
             stations
         }

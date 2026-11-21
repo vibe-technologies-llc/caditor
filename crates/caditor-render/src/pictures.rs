@@ -34,21 +34,27 @@ impl PictureTexture {
             .ok()?
             .checked_mul(usize::try_from(height).ok()?)?
             .checked_mul(RGBA)?;
+
         if width == 0 || height == 0 || rgba.len() != expected {
             return None;
         }
+
         let mut level = Level {
             width,
             height,
             rgba,
         };
+
         while level.width > MAX_PICTURE_TEXTURE_SIDE || level.height > MAX_PICTURE_TEXTURE_SIDE {
             level = level.halved();
         }
+
         let (width, height) = (level.width, level.height);
         let mut levels = Vec::new();
+
         loop {
             let next = (level.width > 1 || level.height > 1).then(|| level.halved());
+
             levels.push(level.rgba);
             match next {
                 Some(halved) => level = halved,
@@ -84,6 +90,7 @@ impl PictureTexture {
         let at = (usize::try_from(y).ok()? * usize::try_from(self.width).ok()?
             + usize::try_from(x).ok()?)
             * RGBA;
+
         let texel = first.get(at..at + RGBA)?;
         texel.try_into().ok()
     }
@@ -110,15 +117,19 @@ impl Level {
                     .unwrap_or_default(),
             )
         };
+
         let mut rgba = Vec::with_capacity(width as usize * height as usize * RGBA);
+
         for y in 0..height {
             for x in 0..width {
                 let (left, top) = (x * self.width / width, y * self.height / height);
                 let right = ((x + 1) * self.width / width).max(left + 1);
                 let bottom = ((y + 1) * self.height / height).max(top + 1);
+
                 let count = (right - left) * (bottom - top);
                 for channel in 0..RGBA {
                     let mut sum = 0;
+
                     for sample_y in top..bottom {
                         for sample_x in left..right {
                             sum += texel(sample_x, sample_y, channel);
@@ -136,7 +147,7 @@ impl Level {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ScenePicture {
     pub texture: Arc<PictureTexture>,
     pub corners: [Point3; 4],
@@ -230,13 +241,16 @@ impl PictureCache {
     ) -> PicturesPrepared {
         let mut prepared = PicturesPrepared::default();
         let kept_before = self.textures.len();
+
         self.textures.retain(|texture| {
             pictures
                 .iter()
                 .any(|picture| Arc::ptr_eq(&picture.texture, &texture.source))
         });
         prepared.changed |= self.textures.len() != kept_before;
+
         let largest_side = device.limits().max_texture_dimension_2d;
+
         for picture in pictures {
             if !self
                 .textures
@@ -246,7 +260,9 @@ impl PictureCache {
                 let (view, error) = gpu::scoped(device, || {
                     upload(device, queue, &picture.texture, largest_side)
                 });
+
                 let view = view.filter(|_| error.is_none());
+
                 if let Some(error) = error {
                     log::warn!("the graphics device refused a reference image: {error}");
                 }
@@ -262,7 +278,9 @@ impl PictureCache {
             self.pictures.truncate(pictures.len());
             prepared.changed = true;
         }
+
         let held_before = self.pictures.len();
+
         self.pictures.retain(|kept| {
             pictures
                 .iter()
@@ -275,6 +293,7 @@ impl PictureCache {
                 .pictures
                 .get(index)
                 .is_none_or(|kept| !Arc::ptr_eq(&kept.source, &picture.texture));
+
             if rebind {
                 let view = self
                     .textures
@@ -282,6 +301,7 @@ impl PictureCache {
                     .find(|texture| Arc::ptr_eq(&texture.source, &picture.texture))
                     .and_then(|texture| texture.view.as_ref());
                 let made = self.make(device, view, picture);
+
                 if index < self.pictures.len() {
                     if let Some(slot) = self.pictures.get_mut(index) {
                         *slot = made;
@@ -330,6 +350,7 @@ impl PictureCache {
                 bound: false,
             };
         };
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("picture"),
             layout: &self.layout,
@@ -425,6 +446,7 @@ fn upload(
     })?;
     let (width, height) = texture.level_size(first);
     let levels = texture.levels.get(first..)?;
+
     let made = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("picture"),
         size: wgpu::Extent3d {
@@ -439,8 +461,10 @@ fn upload(
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
+
     for (offset, rgba) in levels.iter().enumerate() {
         let (level_width, level_height) = texture.level_size(first + offset);
+
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &made,
@@ -466,17 +490,20 @@ fn upload(
 
 fn uniform_bytes(picture: &ScenePicture, anchor: Point3) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(UNIFORM_SIZE as usize);
+
     for corner in picture.corners.iter().take(CORNERS) {
         let relative = relative_to_eye(*corner, anchor);
         for value in [relative.x, relative.y, relative.z, 1.0] {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
     }
+
     let alpha = if picture.alpha.is_finite() {
         picture.alpha.clamp(0.0, 1.0)
     } else {
         1.0
     };
+
     for value in [alpha, f32::from(u8::from(picture.in_front)), 0.0, 0.0] {
         bytes.extend_from_slice(&value.to_le_bytes());
     }

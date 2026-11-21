@@ -27,15 +27,20 @@ const LAYERS: usize = 4;
 
 fn at_scale(scale: f32, dir: &TempDir) -> Harness {
     let mut workspace = Workspace::new();
+
     workspace.preferences.appearance.scale = scale;
+
     let mut harness = Harness::starting(Some(dir.path()), Document::default(), workspace);
+
     harness.settle();
     harness
 }
 
 fn with_sample(scale: f32, dir: &TempDir, sample: Sample) -> Harness {
     let mut harness = at_scale(scale, dir);
+
     let session = harness.model.session();
+
     harness.command(FileCommand::OpenSample(sample));
     harness.wait_until("the sample opens", |harness| {
         harness.model.session() != session
@@ -84,6 +89,7 @@ fn panel_problems(harness: &Harness, id: &str) -> Vec<String> {
         .rect()
         .expect("the 3D view is shown");
     let shown = shown_within(harness, panel);
+
     let outside = (!screen.expand(SLACK).contains_rect(panel))
         .then(|| format!("the {id} panel {panel:?} runs off the window {screen:?}"));
     let covered = (view.intersect(panel).width() > SLACK)
@@ -107,6 +113,7 @@ fn assert_fits_beside_the_view(harness: &Harness, ids: &[&str]) {
         .iter()
         .flat_map(|id| panel_problems(harness, id))
         .collect();
+
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
@@ -157,7 +164,9 @@ fn a_right_hand_panel_reserves_the_width_it_paints_and_its_findings_wrap_at_the_
         harness.shows("1 pair overlaps and 1 pair touches.")
     });
     harness.let_animations_finish();
+
     let panel = harness.panel_rect("interference");
+
     harness.wheel_until_shown(panel.center(), interference_panel::SHOW_PLACE, Wheel::Down);
 
     assert_fits_beside_the_view(&harness, &["model", "interference"]);
@@ -167,6 +176,7 @@ fn a_right_hand_panel_reserves_the_width_it_paints_and_its_findings_wrap_at_the_
 fn every_right_hand_panel_fits_beside_the_view_at_the_largest_size() {
     let dir = TempDir::new().unwrap();
     let mut harness = with_sample(LARGEST, &dir, Sample::Bracket);
+
     let body = harness
         .document()
         .features()
@@ -241,6 +251,7 @@ fn going_to_a_failed_feature_at_the_largest_size_brings_its_remedy_into_view() {
     harness.key(Key::F8, Modifiers::NONE);
     harness.frame();
     harness.let_animations_finish();
+
     let tree = harness.panel_rect("model");
 
     assert!(harness.fully_shown("Show where"));
@@ -265,6 +276,7 @@ fn a_dialog_taller_than_the_window_keeps_its_title_and_footer_on_screen() {
     harness.let_animations_finish();
 
     assert!(harness.shows_containing("F is used by Undo"));
+
     assert_clear_of_the_window_controls(
         &harness,
         "Keyboard shortcuts",
@@ -279,6 +291,7 @@ fn the_export_dialog_keeps_its_buttons_on_screen_with_every_choice_at_the_larges
 
     for name in ["M4", "M6"] {
         let (added, _) = harness.document().adding_configuration(Some(name));
+
         harness.perform(Action::Apply(added));
     }
     harness.settle();
@@ -289,6 +302,7 @@ fn the_export_dialog_keeps_its_buttons_on_screen_with_every_choice_at_the_larges
     harness.let_animations_finish();
 
     assert!(harness.shows("Format"));
+
     assert_clear_of_the_window_controls(&harness, "Export", &["Export…", "Cancel"]);
 }
 
@@ -302,7 +316,9 @@ fn a_dialog_body_taller_than_the_window_scrolls_under_a_footer_that_stays_on_scr
             format!("0\nLINE\n8\nLayer {layer}\n10\n0\n20\n{layer}\n11\n40\n21\n{layer}\n")
         })
         .collect();
+
     write_drawing(&plan, Some(4), &entities);
+
     let title = "Import “plan.dxf”";
     let summary = "4 curves drawn, 40.000 mm wide and 3.000 mm high.";
 
@@ -312,12 +328,15 @@ fn a_dialog_body_taller_than_the_window_scrolls_under_a_footer_that_stays_on_scr
     harness.let_animations_finish();
 
     assert!(!harness.fully_shown(summary));
+
     assert_clear_of_the_window_controls(&harness, title, &["Import", "Cancel"]);
 
     let units = text_rect(&harness, "Units").center();
+
     harness.wheel_until_shown(units, summary, Wheel::Down);
 
     assert!(harness.fully_shown(summary));
+
     assert_clear_of_the_window_controls(&harness, title, &["Import", "Cancel"]);
 }
 
@@ -330,6 +349,7 @@ fn the_ribbon_drops_its_labels_in_a_short_window_and_keeps_them_otherwise() {
     usual.draw_on_new_sketch();
     large.draw_on_new_sketch();
     large.let_animations_finish();
+
     let view = large
         .workspace
         .viewport
@@ -339,7 +359,9 @@ fn the_ribbon_drops_its_labels_in_a_short_window_and_keeps_them_otherwise() {
 
     assert!(usual.shows("Extrude"));
     assert!(!large.shows("Extrude"));
+
     large.button_rect("Extrude");
+
     assert!(
         view.height() > 0.3 * window.height(),
         "{view:?} in {window:?}"
@@ -353,6 +375,7 @@ fn the_sketch_bar_folds_into_rows_of_named_icons_at_the_largest_size() {
 
     large.draw_on_new_sketch();
     large.let_animations_finish();
+
     let bar = super::sketch_bar(&large);
     let window = large.context.content_rect();
     let line = large.button_rect("Line");
@@ -375,16 +398,19 @@ fn readouts_in_a_short_sketch_view_give_way_to_the_prompt() {
 
     harness.draw_on_new_sketch();
     harness.use_tool(Key::R);
+
     let view = harness
         .workspace
         .viewport
         .rect()
         .expect("the 3D view is shown");
     let left_of_the_cube = view.lerp_inside(egui::vec2(0.3, 0.5));
+
     harness
         .events
         .push(egui::Event::PointerMoved(left_of_the_cube));
     harness.let_animations_finish();
+
     let view = harness
         .workspace
         .viewport
@@ -408,6 +434,7 @@ const LONG_NAME: &str = "front_suspension_bracket_thickness_after_the_second_rev
 fn add_parameter_named(harness: &mut Harness, name: &str) {
     let document = harness.document();
     let mut transaction = document.transaction(format!("Add {name}"));
+
     transaction.add_parameter(
         name,
         caditor_expression::Expression::parse("5 mm", &|_| None).unwrap(),
@@ -434,26 +461,33 @@ fn parameter_names_of_normal_length_show_whole_from_75_to_200_percent() {
     for scale in SCALES {
         let dir = TempDir::new().unwrap();
         let mut harness = with_sample(scale, &dir, Sample::Bracket);
+
         let wide = harness.panel_rect("model");
+
         drag_screen(
             &mut harness,
             Pos2::new(wide.max.x - 1.0, 300.0),
             Pos2::new(60.0, 300.0),
         );
         harness.let_animations_finish();
+
         let panel = harness.panel_rect("model");
+
         harness.wheel_until_shown(panel.center(), "hole", Wheel::Down);
 
         assert!(panel.width() < wide.width());
+
         harness.read_screen();
         for name in ["leg", "width", "thickness", "hole"] {
             let field = name_field(&harness, name);
             let text = text_rect(&harness, name);
+
             assert!(
                 text.max.x <= field.max.x - NAME_INSET,
                 "{name} {text:?} runs out of its field {field:?} at {scale}"
             );
         }
+
         assert!(!harness.shows(ELLIPSIS), "a name is shortened at {scale}");
     }
 }
@@ -462,8 +496,11 @@ fn parameter_names_of_normal_length_show_whole_from_75_to_200_percent() {
 fn a_parameter_name_longer_than_its_column_ends_in_an_ellipsis_and_shows_whole_on_hover() {
     let dir = TempDir::new().unwrap();
     let mut harness = with_sample(LARGEST, &dir, Sample::Bracket);
+
     add_parameter_named(&mut harness, LONG_NAME);
+
     let panel = harness.panel_rect("model");
+
     harness.events.push(Event::PointerMoved(panel.center()));
     harness.frame();
     for _ in 0..super::WHEEL_TRIES {
@@ -484,6 +521,7 @@ fn a_parameter_name_longer_than_its_column_ends_in_an_ellipsis_and_shows_whole_o
     assert_eq!(harness.count_shown(LONG_NAME), 1);
 
     let field = text_rect(&harness, LONG_NAME);
+
     harness.events.push(Event::PointerMoved(egui::pos2(
         field.min.x + 4.0,
         field.center().y,

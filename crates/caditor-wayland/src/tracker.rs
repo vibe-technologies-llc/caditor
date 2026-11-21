@@ -1,16 +1,16 @@
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DropEvent {
     Hovered(Vec<PathBuf>),
     Left,
     Dropped(Vec<PathBuf>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Ticket(u64);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Step<O> {
     Accept { offer: O, serial: u32 },
     Refuse { offer: O, serial: u32 },
@@ -20,7 +20,7 @@ pub(crate) enum Step<O> {
     Emit(DropEvent),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Entered {
     pub(crate) ours: bool,
     pub(crate) lists_files: bool,
@@ -76,12 +76,15 @@ impl<O: Clone> Tracker<O> {
             lists_files,
             serial,
         } = entered;
+
         if !ours {
             steps.push(Step::Discard(offer));
             return steps;
         }
+
         let list = if lists_files {
             let ticket = self.ticket();
+
             steps.push(Step::Accept {
                 offer: offer.clone(),
                 serial,
@@ -98,6 +101,7 @@ impl<O: Clone> Tracker<O> {
             });
             List::NotFiles
         };
+
         self.hover = Some(Hover {
             offer,
             serial,
@@ -112,6 +116,7 @@ impl<O: Clone> Tracker<O> {
         };
         let shown = matches!(hover.list, List::Read(_));
         let mut steps = vec![Step::Discard(hover.offer)];
+
         if shown {
             steps.push(Step::Emit(DropEvent::Left));
         }
@@ -136,6 +141,7 @@ impl<O: Clone> Tracker<O> {
             }
             List::Unread => {
                 let ticket = self.ticket();
+
                 self.landing.push(Landing {
                     offer: hover.offer.clone(),
                     ticket,
@@ -173,6 +179,7 @@ impl<O: Clone> Tracker<O> {
                 }
             };
         }
+
         let Some(at) = self
             .landing
             .iter()
@@ -357,7 +364,9 @@ mod tests {
         let mut tracker = Tracker::default();
 
         let ticket = read_ticket(&tracker.entered(Some(1), OVER_US));
+
         tracker.read(ticket, Some(paths()));
+
         let entered = tracker.entered(Some(2), OVER_US);
 
         assert_eq!(entered.first(), Some(&Step::Discard(1)));

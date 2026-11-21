@@ -40,7 +40,7 @@ const RENAME_PAUSE: Duration = Duration::from_millis(100);
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SaveError {
     #[error("{0}")]
     Writing(WriteFailure),
@@ -112,7 +112,7 @@ impl SaveError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum KeepVersionError {
     #[error("{0}")]
     Writing(WriteFailure),
@@ -184,7 +184,9 @@ pub(crate) fn keep_version_interleaved(
     while_rewriting: impl FnOnce(),
 ) -> Result<(), KeepVersionError> {
     let target = resolve_links(path).map_err(|error| KeepVersionError::writing(&error))?;
+
     ensure_replaceable(&target).map_err(|error| KeepVersionError::writing(&error))?;
+
     let previous = Previous::open(&target).map_err(|error| {
         log::warn!(
             "could not read the versions in {}: {error}",
@@ -199,13 +201,16 @@ pub(crate) fn keep_version_interleaved(
             failure: ReadFailure::of(&error),
         }
     })?;
+
     if let Some(expected) = unless_changed_from
         && binary::head_digest(&previous.bytes).as_ref() != Some(expected)
     {
         return Err(KeepVersionError::ChangedOnDisk);
     }
+
     let rewritten = binary::with_version_kept(&previous.bytes, index, digest, kept)
         .map_err(KeepVersionError::rewriting)?;
+
     while_rewriting();
     replace_checked(
         &target,
@@ -242,7 +247,7 @@ pub fn encode(document: &Document) -> Result<Vec<u8>, SaveError> {
     binary::encode(document).map_err(|error| SaveError::encoding(&error))
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SaveOptions<'a> {
     pub keep_original: bool,
     pub history_from: Option<&'a Path>,
@@ -252,7 +257,7 @@ pub struct SaveOptions<'a> {
     pub preview: Option<&'a PreviewSlot>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Saved {
     pub backup: Option<PathBuf>,
     pub dropped_for_size: usize,
@@ -289,7 +294,9 @@ pub(crate) fn save_interleaved(
     while_encoding: impl FnOnce(),
 ) -> Result<Saved, SaveError> {
     let target = resolve_links(path).map_err(|error| SaveError::writing(&error))?;
+
     ensure_replaceable(&target).map_err(|error| SaveError::writing(&error))?;
+
     let previous = options
         .history_from
         .map(read_previous)
@@ -298,11 +305,13 @@ pub(crate) fn save_interleaved(
     let guarded = options
         .unless_changed_from
         .filter(|_| reads_target(options, &target));
+
     if let (Some(expected), Some(previous)) = (guarded, &previous)
         && binary::head_digest(&previous.bytes).as_ref() != Some(expected)
     {
         return Err(SaveError::ChangedOnDisk);
     }
+
     let encoded = binary::encode_keeping(
         document,
         previous.as_ref().map(|previous| previous.bytes.as_slice()),
@@ -322,6 +331,7 @@ pub(crate) fn save_interleaved(
         dropped_for_size,
         fresh_versions,
     } = encoded;
+
     while_encoding();
 
     let ensure_unchanged = |previous: Option<&Watched>| match guarded {
@@ -329,8 +339,10 @@ pub(crate) fn save_interleaved(
         None => Ok(()),
     };
     let damaged_in_place = previous_damaged && reads_target(options, &target);
+
     let backup = if (options.keep_original || damaged_in_place) && target.exists() {
         ensure_unchanged(previous.as_ref()).map_err(|_| SaveError::ChangedOnDisk)?;
+
         let untouched = previous
             .as_ref()
             .is_some_and(|previous| !previous.changed_since_read());
@@ -356,6 +368,7 @@ pub(crate) fn save_interleaved(
         ),
         _ => replace_checked(&target, |file| write_whole(file, bytes), reads_back),
     };
+
     written.map_err(|error| {
         if changed_meanwhile(&error) {
             SaveError::ChangedOnDisk
@@ -380,6 +393,7 @@ fn reads_target(options: &SaveOptions<'_>, target: &Path) -> bool {
 fn check_reads_back(file: &File, digest: &FileDigest, fresh: &[FreshVersion]) -> io::Result<()> {
     let length = usize::try_from(file.metadata()?.len()).map_err(io::Error::other)?;
     let mut written = zeroed(length)?;
+
     os::read_exact_at(file, &mut written, 0)?;
     binary::reads_back(&written, digest, fresh).map_err(|error| {
         log::error!("a saved model did not decode back to what was written: {error}");
@@ -389,6 +403,7 @@ fn check_reads_back(file: &File, digest: &FileDigest, fresh: &[FreshVersion]) ->
 
 fn zeroed(length: usize) -> io::Result<Vec<u8>> {
     let mut buffer = Vec::new();
+
     buffer
         .try_reserve_exact(length)
         .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
@@ -464,6 +479,7 @@ fn read_previous(path: &Path) -> Result<Option<Previous>, SaveError> {
                 "could not read the earlier versions in {}: {error}",
                 path.display()
             );
+
             let name = path.file_name().unwrap_or(path.as_os_str()).display();
             Err(SaveError::EarlierVersionsUnreadable {
                 name: name.to_string(),
@@ -485,18 +501,24 @@ fn write_sharing(
 ) -> io::Result<()> {
     let bytes = bytes.as_slice();
     let mut cloned = Vec::new();
+
     for range in shared {
         let copied = copy_range(&source.file, file, range);
+
         if copied > 0 {
             cloned.push(Shared {
                 length: copied,
                 ..*range
             });
         }
+
         let rest = range.at + copied;
+
         write_range(file, bytes, rest, range.at + range.length)?;
     }
+
     let mut position = 0;
+
     for range in shared {
         write_range(file, bytes, position, range.at)?;
         position = range.at + range.length;
@@ -545,7 +567,7 @@ pub fn write_privately(path: &Path, contents: &[u8]) -> io::Result<()> {
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Privacy {
     AsTheTargetWas,
     OwnerOnly,
@@ -609,11 +631,14 @@ fn replace_checked_with(
     check: impl FnOnce(&File) -> io::Result<()>,
 ) -> io::Result<()> {
     let target = resolve_links(path)?;
+
     ensure_replaceable(&target)?;
+
     let temporary = temporary_sibling(&target)?;
 
     if let Err(error) = write_and_sync(&temporary, &target, privacy, fill, check) {
         let _ = fs::remove_file(&temporary);
+
         return Err(error);
     }
     (moves.replace)(&temporary, &target)
@@ -647,12 +672,14 @@ fn after_failed_replace(
                  its place",
                 target.display()
             );
+
             let rescued = match state.kind() {
                 io::ErrorKind::NotFound => rescue(temporary, target),
                 _ => Err(state),
             };
             rescued.map_err(|rescue_error| {
                 let kept = keep_under_kept_name(temporary, target);
+
                 log::error!(
                     "the saved copy could not take the place of {}, so it is kept as {}: \
                      {rescue_error}",
@@ -699,7 +726,9 @@ fn move_aside(temporary: &Path, candidates: &[PathBuf]) -> io::Result<Option<Pat
         Ok(None) => Ok(None),
         Err(error) => {
             log::warn!("could not rename {}: {error}", temporary.display());
+
             let kept = keep_copy(temporary, candidates.to_vec())?;
+
             if kept.is_some() {
                 remove_placed(temporary);
             }
@@ -710,6 +739,7 @@ fn move_aside(temporary: &Path, candidates: &[PathBuf]) -> io::Result<Option<Pat
 
 fn put_in_place(temporary: &Path, target: &Path) -> io::Result<()> {
     let mut attempt = 1;
+
     loop {
         match fs::rename(temporary, target) {
             Ok(()) => return Ok(()),
@@ -738,6 +768,7 @@ fn copy_into_place(temporary: &Path, target: &Path) -> io::Result<()> {
     let mut placed = File::create_new(target)?;
 
     let copied = io::copy(&mut source, &mut placed).and_then(|_| placed.sync_all());
+
     drop(placed);
 
     if copied.is_err() {
@@ -775,6 +806,7 @@ fn ensure_replaceable(target: &Path) -> io::Result<()> {
 
 pub(crate) fn resolve_links(path: &Path) -> io::Result<PathBuf> {
     let mut resolved = path.to_path_buf();
+
     for _ in 0..MAX_LINK_DEPTH {
         match fs::symlink_metadata(&resolved) {
             Ok(metadata) if metadata.file_type().is_symlink() => {}
@@ -782,7 +814,9 @@ pub(crate) fn resolve_links(path: &Path) -> io::Result<PathBuf> {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(resolved),
             Err(error) => return Err(error),
         }
+
         let target = fs::read_link(&resolved)?;
+
         resolved = match resolved.parent() {
             Some(parent) => parent.join(target),
             None => target,
@@ -798,6 +832,7 @@ pub(crate) fn remove_orphaned_temporaries(path: &Path) {
         return;
     };
     let prefix = temporary_prefix(name);
+
     remove_orphans_in(parent, Some(prefix.as_encoded_bytes()));
 }
 
@@ -807,9 +842,11 @@ pub(crate) fn sweep_orphaned_temporaries(dir: &Path) {
 
 fn remove_orphans_in(dir: &Path, prefix: Option<&[u8]>) {
     let host = Host::current();
+
     if host.boot == UNKNOWN_TAG || !os::processes_known() {
         return;
     }
+
     let dir = if dir.as_os_str().is_empty() {
         Path::new(".")
     } else {
@@ -823,6 +860,7 @@ fn remove_orphans_in(dir: &Path, prefix: Option<&[u8]>) {
         let file_name = entry.file_name();
         let name = file_name.as_encoded_bytes();
         let named_as_wanted = prefix.is_none_or(|prefix| name.starts_with(prefix));
+
         let orphaned = named_as_wanted
             && temporary_tag(name).is_some_and(|tag| host.orphaned(tag, ours, os::process_running));
         if orphaned {
@@ -842,7 +880,7 @@ fn temporary_tag(name: &[u8]) -> Option<&str> {
     Some(tag)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Host<'a> {
     machine: &'a str,
     boot: &'a str,
@@ -867,12 +905,15 @@ impl Host<'_> {
         };
         let digits =
             |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+
         if !digits(counter) || !digits(owner) {
             return false;
         }
+
         let Ok(owner) = owner.parse::<u32>() else {
             return false;
         };
+
         match machine {
             Some(machine) if machine != self.machine => return false,
             Some(_) if boot != self.boot => return self.machine != UNKNOWN_TAG,
@@ -894,6 +935,7 @@ fn write_and_sync(
         Ok(existing) => {
             let file = os::private(OpenOptions::new().read(true).write(true).create_new(true))
                 .open(temporary)?;
+
             os::take_ownership_and_attributes(&file, target, &existing);
             if privacy == Privacy::AsTheTargetWas {
                 file.set_permissions(existing.permissions())?;
@@ -902,6 +944,7 @@ fn write_and_sync(
         }
         Err(_) => {
             let mut options = OpenOptions::new();
+
             options.read(true).write(true).create_new(true);
             if privacy == Privacy::OwnerOnly {
                 os::private(&mut options);
@@ -909,6 +952,7 @@ fn write_and_sync(
             options.open(temporary)?
         }
     };
+
     fill(&mut file)?;
     file.sync_all()?;
     check(&file)
@@ -919,6 +963,7 @@ pub(crate) fn temporary_sibling(path: &Path) -> io::Result<PathBuf> {
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the path has no file name"))?;
     let mut temporary = temporary_prefix(name);
+
     temporary.push(format!(
         "{}-{}-{}-{}{TEMPORARY_SUFFIX}",
         machine_tag(),
@@ -931,6 +976,7 @@ pub(crate) fn temporary_sibling(path: &Path) -> io::Result<PathBuf> {
 
 fn temporary_prefix(name: &OsStr) -> OsString {
     let mut prefix = OsString::from(".");
+
     prefix.push(fitting(name, TEMPORARY_STEM_LIMIT));
     prefix.push(".");
     prefix
@@ -987,6 +1033,7 @@ fn marked_siblings(path: &Path, marker: &str) -> Vec<PathBuf> {
     (1..=MAX_BACKUP_ATTEMPTS)
         .map(|attempt| {
             let mut name = stem.clone();
+
             name.push(match attempt {
                 1 => format!(".{marker}"),
                 _ => format!(".{marker}-{attempt}"),
@@ -1038,6 +1085,7 @@ fn keep_by_copying(source: &Path, candidates: &[PathBuf]) -> io::Result<Option<P
     };
     let temporary = temporary_sibling(first)?;
     let kept = copy_then_place(source, &temporary, candidates);
+
     if !matches!(kept, Ok(Some(_))) {
         let _ = fs::remove_file(&temporary);
     }
@@ -1051,7 +1099,9 @@ fn copy_then_place(
 ) -> io::Result<Option<PathBuf>> {
     fs::copy(source, temporary)?;
     OpenOptions::new().write(true).open(temporary)?.sync_all()?;
+
     let placed = rename_to_first_free(temporary, candidates)?;
+
     if let Some(placed) = &placed {
         sync_parent(placed)?;
     }
@@ -1065,6 +1115,7 @@ fn rename_to_first_free(source: &Path, candidates: &[PathBuf]) -> io::Result<Opt
                 drop(placeholder);
                 if let Err(error) = fs::rename(source, candidate) {
                     let _ = fs::remove_file(candidate);
+
                     return Err(error);
                 }
                 return Ok(Some(candidate.clone()));
@@ -1094,10 +1145,13 @@ mod tests {
         let mut bytes = pattern(BLOCK + 100, 7);
         let middle = previous.len() / BLOCK / 2 * BLOCK;
         let first_at = 2 * BLOCK;
+
         bytes.resize(first_at, 1);
         bytes.extend_from_slice(&previous[BLOCK..middle]);
         bytes.extend_from_slice(&pattern(3 * BLOCK + 17, 9));
+
         let second_at = bytes.len().next_multiple_of(BLOCK);
+
         bytes.resize(second_at, 2);
         bytes.extend_from_slice(&previous[middle..]);
         bytes.extend_from_slice(&pattern(BLOCK / 2, 11));
@@ -1127,6 +1181,7 @@ mod tests {
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
             .collect();
+
         names.sort();
         names
     }
@@ -1160,7 +1215,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("model.caditor");
         let original = pattern(3 * BLOCK + 5, 1);
+
         fs::write(&target, &original).unwrap();
+
         let replacement = pattern(5 * BLOCK, 2);
 
         let error = replace_checked(
@@ -1183,7 +1240,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("model.caditor");
         let original = pattern(2 * BLOCK + 9, 4);
+
         fs::write(&target, &original).unwrap();
+
         let replacement = pattern(4 * BLOCK, 6);
 
         let error = replace_checked(
@@ -1228,7 +1287,9 @@ mod tests {
     fn a_replace_that_loses_the_target_puts_the_saved_copy_in_its_place() {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("model.caditor");
+
         fs::write(&target, "old").unwrap();
+
         let moves = Moves {
             replace: replace_losing_the_target,
             ..SYSTEM_MOVES
@@ -1244,7 +1305,9 @@ mod tests {
     fn a_saved_copy_that_cannot_take_the_lost_targets_place_is_kept_and_named() {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("model.caditor");
+
         fs::write(&target, "old").unwrap();
+
         let moves = Moves {
             replace: replace_losing_the_target,
             rescue: refused,
@@ -1275,7 +1338,9 @@ mod tests {
 
     fn with_length(text: &str) -> Document {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Length");
+
         transaction.add_parameter("length", transaction.parse(text).unwrap());
         document.apply(transaction.finish()).unwrap();
         document
@@ -1287,8 +1352,10 @@ mod tests {
         let target = dir.path().join("model.caditor");
         let earlier = with_length("10 mm");
         let later = with_length("20 mm");
+
         save(&earlier, &target, false).unwrap();
         save(&later, &target, false).unwrap();
+
         let with_versions = fs::read(&target).unwrap();
         let moves = Moves {
             replace: replace_losing_the_target,
@@ -1301,8 +1368,11 @@ mod tests {
         ));
 
         let first = replace_with(&target, moves, &with_versions).unwrap_err();
+
         save(&later, &target, false).unwrap();
+
         let second = replace_with(&target, moves, b"newer").unwrap_err();
+
         fs::write(&orphan, "partial").unwrap();
         save(&Document::default(), &target, false).unwrap();
 
@@ -1310,6 +1380,7 @@ mod tests {
         let kept_again = kept_aside(&second).unwrap().to_path_buf();
         let reopened = crate::load(&kept).unwrap();
         let history = crate::history(&kept).unwrap();
+
         let versions: Vec<Document> = (0..history.versions.len())
             .map(|index| crate::load_version(&kept, index).unwrap().document)
             .collect();
@@ -1338,7 +1409,9 @@ mod tests {
     fn a_replace_refused_with_the_target_still_there_leaves_the_file_as_it_was() {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("model.caditor");
+
         fs::write(&target, "old").unwrap();
+
         let moves = Moves {
             replace: refused,
             rescue: refused,
@@ -1357,6 +1430,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let temporary = dir.path().join(".model.caditor.tag.tmp");
         let target = dir.path().join("model.caditor");
+
         fs::write(&temporary, "new").unwrap();
 
         copy_into_place(&temporary, &target).unwrap();
@@ -1392,11 +1466,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let source = dir.path().join("before.caditor");
         let target = dir.path().join("after.caditor");
+
         fs::write(&source, pattern(9 * BLOCK + 1234, 3)).unwrap();
         fs::write(&target, "old").unwrap();
 
         let previous = Previous::open(&source).unwrap();
         let encoded = sharing_layout(&previous.bytes);
+
         replace_atomically(&target, |file| {
             write_sharing(
                 file,
@@ -1416,12 +1492,16 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let source = dir.path().join("before.caditor");
         let target = dir.path().join("after.caditor");
+
         fs::write(&source, pattern(9 * BLOCK + 1234, 3)).unwrap();
 
         let previous = Previous::open(&source).unwrap();
         let encoded = sharing_layout(&previous.bytes);
+
         fs::write(&source, pattern(10 * BLOCK, 5)).unwrap();
+
         assert!(previous.watched.changed_since_read());
+
         replace_atomically(&target, |file| {
             write_sharing(
                 file,
@@ -1439,9 +1519,13 @@ mod tests {
     fn a_copy_is_placed_whole_under_the_first_free_name_or_not_at_all() {
         let dir = TempDir::new().unwrap();
         let source = dir.path().join("model.caditor");
+
         fs::write(&source, "original").unwrap();
+
         let taken = dir.path().join("model.damaged.caditor");
+
         fs::write(&taken, "earlier").unwrap();
+
         let free = dir.path().join("model.damaged-2.caditor");
 
         let kept = keep_by_copying(&source, &[taken.clone(), free.clone()]).unwrap();
@@ -1452,8 +1536,11 @@ mod tests {
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
 
         let folder = dir.path().join("folder");
+
         fs::create_dir(&folder).unwrap();
+
         let wanted = dir.path().join("folder.damaged");
+
         assert!(keep_by_copying(&folder, std::slice::from_ref(&wanted)).is_err());
         assert!(!wanted.exists());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 4);

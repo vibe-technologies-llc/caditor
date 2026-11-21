@@ -6,7 +6,7 @@ use crate::{constraint::Constraint, entity::Entity, id::EntityId, sketch::Sketch
 
 const BEYOND_TOLERANCE: f64 = 1e-6;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PointBeyond {
     pub point: EntityId,
     pub curve: EntityId,
@@ -27,6 +27,7 @@ impl Sketch {
             .filter(|(point, curve)| self.lies_beyond(*point, *curve))
             .map(|(point, curve)| PointBeyond { point, curve })
             .collect();
+
         beyond.sort_unstable();
         beyond.dedup();
         beyond
@@ -43,6 +44,7 @@ impl Sketch {
             | Entity::Spline { .. }
             | Entity::Ellipse { .. } => return None,
         };
+
         let (start, end) = (self.point(start)?, self.point(end)?);
         Some(if at.distance(start) <= at.distance(end) {
             start
@@ -55,6 +57,7 @@ impl Sketch {
         if curve.is_reference() || self.is_construction(curve) {
             return false;
         }
+
         let Some(at) = self.point(point) else {
             return false;
         };
@@ -88,9 +91,11 @@ impl Sketch {
 fn beyond_segment(at: Point2, start: Point2, end: Point2) -> bool {
     let along = end - start;
     let length = along.length();
+
     if length <= BEYOND_TOLERANCE {
         return false;
     }
+
     let reach = (at - start).dot(along) / length;
     reach < -BEYOND_TOLERANCE || reach > length + BEYOND_TOLERANCE
 }
@@ -108,10 +113,12 @@ mod tests {
     #[test]
     fn a_point_on_a_line_past_its_end_is_beyond_it_and_one_between_its_ends_is_not() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let inside = sketch.add_point(Point2::new(4.0, 0.0));
         let past = sketch.add_point(Point2::new(13.0, 0.0));
         let before = sketch.add_point(Point2::new(-2.0, 0.0));
+
         sketch
             .add_constraint(Constraint::Coincident(inside, line))
             .unwrap();
@@ -144,9 +151,11 @@ mod tests {
     #[test]
     fn a_point_on_an_arc_outside_its_sweep_is_beyond_it() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let arc = sketch.add_arc(Point2::ZERO, Point2::new(5.0, 0.0), Point2::new(0.0, 5.0));
         let inside = sketch.add_point(Point2::new(5.0, 5.0).normalize() * 5.0);
         let outside = sketch.add_point(Point2::new(-5.0, 0.0));
+
         sketch
             .add_constraint(Constraint::Coincident(inside, arc))
             .unwrap();
@@ -166,20 +175,26 @@ mod tests {
     #[test]
     fn construction_lines_axes_and_disabled_constraints_are_left_out() {
         let mut sketch = Sketch::new(Plane::XY);
+
         let centreline = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+
         sketch.set_construction(centreline, true).unwrap();
+
         let line = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0));
         let point = sketch.add_point(Point2::new(20.0, 0.0));
         let other = sketch.add_point(Point2::new(30.0, 5.0));
+
         sketch
             .add_constraint(Constraint::Coincident(point, centreline))
             .unwrap();
         sketch
             .add_constraint(Constraint::Coincident(point, EntityId::HORIZONTAL_AXIS))
             .unwrap();
+
         let disabled = sketch
             .add_constraint(Constraint::Coincident(other, line))
             .unwrap();
+
         sketch.set_active(disabled, false).unwrap();
 
         assert!(sketch.points_beyond_curves().is_empty());

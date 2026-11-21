@@ -15,7 +15,7 @@ use parking_lot::{Condvar, Mutex};
 
 use crate::{body_snap::BodyPart, model::Waker};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DragCommand {
     Move {
         feature: FeatureId,
@@ -28,7 +28,7 @@ pub enum DragCommand {
     Cancel,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Join {
     pub point: EntityId,
     pub at: Point2,
@@ -37,14 +37,14 @@ pub struct Join {
     pub rim_of: Option<EntityId>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BodyJoin {
     pub projection: ProjectionSource,
     pub outline: Outline,
     pub part: BodyPart,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Finished {
     pub feature: FeatureId,
     pub label: String,
@@ -61,7 +61,7 @@ pub struct Polled {
     pub blocked: Option<Blocking>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Blocking {
     #[default]
     Clear,
@@ -133,6 +133,7 @@ impl Worker {
         let shared = Arc::new(Shared::default());
         let (sender, done) = mpsc::channel();
         let working = Arc::clone(&shared);
+
         let spawned = thread::Builder::new()
             .name("sketch drags".to_owned())
             .spawn(move || serve(&working, &sender, &wake));
@@ -179,7 +180,9 @@ fn serve(shared: &Shared, sender: &Sender<Solution>, wake: &Waker) {
         };
         let continued = previous.take().filter(|previous| previous.drag == job.drag);
         let wanted = || job.drag >= shared.wanted_from.load(Ordering::Relaxed);
+
         let solution = solve(&job, continued.as_ref(), &|| !wanted());
+
         previous = match &solution {
             Ok((sketch, memo)) => Some(Previous {
                 drag: job.drag,
@@ -191,11 +194,13 @@ fn serve(shared: &Shared, sender: &Sender<Solution>, wake: &Waker) {
         if !wanted() {
             continue;
         }
+
         let sent = sender.send(Solution {
             drag: job.drag,
             sequence: job.sequence,
             solved: solution.map(|(sketch, _)| sketch),
         });
+
         if sent.is_err() {
             return;
         }
@@ -212,6 +217,7 @@ fn solve(
         Some(previous) => (&previous.sketch, Some(&previous.memo)),
         None => (&job.start, None),
     };
+
     let solved = panic::catch_unwind(AssertUnwindSafe(|| {
         from.solve_geometry_from(&|id| job.parameters.value(id), cancelled, &job.drags, memo)
     }));
@@ -293,6 +299,7 @@ impl SketchDragging {
                 let Some(active) = &mut self.active else {
                     return Polled::default();
                 };
+
                 active.join = join;
                 if active.revision != start.revision {
                     self.cancel();
@@ -316,6 +323,7 @@ impl SketchDragging {
 
     pub fn cancel_held(&mut self) -> bool {
         let held = self.active.as_ref().is_some_and(|active| !active.finishing);
+
         if held {
             self.cancel();
         }
@@ -330,13 +338,16 @@ impl SketchDragging {
 
     pub fn poll(&mut self) -> Polled {
         let mut polled = Polled::default();
+
         #[cfg(test)]
         if self.results_held {
             return polled;
         }
+
         let Some(worker) = &self.worker else {
             return polled;
         };
+
         while let Ok(solution) = worker.done.try_recv() {
             let Some(active) = self
                 .active
@@ -345,6 +356,7 @@ impl SketchDragging {
             else {
                 continue;
             };
+
             active.received = active.received.max(solution.sequence);
             match solution.solved {
                 Ok(solved) => {
@@ -375,11 +387,14 @@ impl SketchDragging {
         let continues = self.active.as_ref().is_some_and(|active| {
             active.feature == feature && active.revision == start.revision && !active.finishing
         });
+
         if !continues {
             self.cancel();
+
             let Some(sketch) = (start.shown)(feature) else {
                 return Polled::default();
             };
+
             self.next_drag = self.next_drag.saturating_add(1);
             self.active = Some(Active {
                 drag: self.next_drag,
@@ -399,10 +414,13 @@ impl SketchDragging {
         if self.worker.is_none() {
             self.worker = Worker::spawn((start.wake)());
         }
+
         let Some(active) = self.active.as_mut() else {
             return Polled::default();
         };
+
         active.sent = active.sent.saturating_add(1);
+
         let job = Job {
             drag: active.drag,
             sequence: active.sent,
@@ -418,6 +436,7 @@ impl SketchDragging {
             None => {
                 let continued = active.previous.take();
                 let solution = solve(&job, continued.as_ref(), &|| false);
+
                 active.received = job.sequence;
                 active.previous = match solution {
                     Ok((sketch, memo)) => {
@@ -468,6 +487,7 @@ mod tests {
 
     fn line_from_origin() -> (Arc<Sketch>, EntityId, EntityId) {
         let mut sketch = Sketch::new(Plane::XY);
+
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
         let Some((start, end)) = sketch.entity(line).map(|line| {
             let points = line.points();
@@ -475,6 +495,7 @@ mod tests {
         }) else {
             panic!("the line has its points");
         };
+
         sketch
             .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
             .unwrap();
@@ -487,7 +508,9 @@ mod tests {
             if let Some(finished) = dragging.poll().finished {
                 return finished;
             }
+
             assert!(Instant::now() < deadline, "the drag never finished");
+
             thread::sleep(Duration::from_millis(1));
         }
     }
@@ -507,11 +530,14 @@ mod tests {
 
     fn feature() -> FeatureId {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Add sketch");
+
         let feature = transaction.add_feature(
             "Sketch",
             caditor_document::FeatureKind::from(Sketch::new(Plane::XY)),
         );
+
         document.apply(transaction.finish()).unwrap();
         feature
     }
@@ -522,6 +548,7 @@ mod tests {
         let feature = feature();
         let parameters = ParameterValues::default();
         let shown = move |_| Some(Arc::clone(&sketch));
+
         let start = start(1, &parameters, &shown);
         let mut dragging = SketchDragging::default();
 
@@ -538,12 +565,14 @@ mod tests {
                 &start,
             );
         }
+
         let immediately = dragging
             .perform(DragCommand::Finish { join: None }, &start)
             .finished;
         let finished = immediately.unwrap_or_else(|| until_finished(&mut dragging));
 
         let solved = finished.sketch.unwrap();
+
         assert_eq!(finished.label, "Drag Line");
         assert_eq!(finished.feature, feature);
         assert!(solved.point(end).unwrap().distance(Point2::new(16.0, 3.0)) < 1e-9);
@@ -557,6 +586,7 @@ mod tests {
         let parameters = ParameterValues::default();
         let shown = move |_| Some(Arc::clone(&sketch));
         let mut dragging = SketchDragging::default();
+
         let moved = DragCommand::Move {
             feature,
             label: "Drag Line".to_owned(),
@@ -567,18 +597,23 @@ mod tests {
         };
 
         dragging.perform(moved.clone(), &start(1, &parameters, &shown));
+
         let stale = dragging.perform(
             DragCommand::Finish { join: None },
             &start(2, &parameters, &shown),
         );
+
         assert!(stale.finished.is_none());
         assert!(stale.abandoned);
         assert!(!dragging.is_dragging());
 
         dragging.perform(moved, &start(2, &parameters, &shown));
         dragging.perform(DragCommand::Cancel, &start(2, &parameters, &shown));
+
         assert!(!dragging.is_dragging());
+
         thread::sleep(Duration::from_millis(20));
+
         assert!(dragging.poll().finished.is_none());
     }
 

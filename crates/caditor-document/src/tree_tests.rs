@@ -13,6 +13,7 @@ fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketch {
         Point2::new(max.0, max.1),
         Point2::new(min.0, max.1),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
@@ -80,7 +81,9 @@ struct Model {
 
 fn model() -> Model {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let outline = transaction.add_feature(
         "Outline",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
@@ -91,6 +94,7 @@ fn model() -> Model {
         "Hole sketch",
         FeatureKind::from(rectangle(top, (2.0, 2.0), (4.0, 4.0))),
     );
+
     let pocket = transaction.add_feature(
         "Pocket",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -114,6 +118,7 @@ fn model() -> Model {
         "Note",
         FeatureKind::from(rectangle(Plane::XZ, (0.0, 0.0), (1.0, 1.0))),
     );
+
     document.apply(transaction.finish()).unwrap();
     Model {
         document,
@@ -140,14 +145,20 @@ fn a_suppressed_feature_is_skipped_and_its_dependents_fail_naming_it_until_unsup
                 .suppression(&[model.lug], true, "Suppress Lug sketch"),
         )
         .unwrap();
+
     let suppressed = evaluate(editor.document(), &mut engine);
+
     editor.undo().unwrap();
+
     let restored = evaluate(editor.document(), &mut engine);
+
     editor.redo().unwrap();
 
     assert_eq!(state(&suppressed, model.lug), &FeatureState::Suppressed);
     assert!(suppressed.feature(model.lug).unwrap().result.is_none());
+
     let error = failure(&suppressed, model.boss);
+
     assert_eq!(error.reason(), "It uses Lug sketch, which is suppressed.");
     assert_eq!(
         error.remedy(),
@@ -173,6 +184,7 @@ fn a_suppressed_change_to_a_body_leaves_later_features_building_on_the_body_with
     document
         .apply(document.suppression(&[model.pocket], true, "Suppress"))
         .unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
@@ -186,15 +198,19 @@ fn a_suppressed_body_is_gone_rather_than_shown_stale() {
     let model = model();
     let mut document = model.document.clone();
     let mut engine = Recompute::default();
+
     let whole = evaluate(&document, &mut engine);
 
     document
         .apply(document.suppression(&[model.base], true, "Suppress Base"))
         .unwrap();
+
     let evaluation = evaluate(&document, &mut engine);
+
     document
         .apply(document.suppression(&[model.base], false, "Unsuppress Base"))
         .unwrap();
+
     let back = evaluate(&document, &mut engine);
 
     assert!((volume(&whole, model.base) - WHOLE).abs() < 0.05);
@@ -215,6 +231,7 @@ fn features_below_the_rollback_bar_are_not_computed_and_rolling_forward_reuses_t
     let model = model();
     let mut editor = Editor::new(model.document.clone());
     let mut engine = Recompute::default();
+
     evaluate(editor.document(), &mut engine);
 
     editor
@@ -224,19 +241,25 @@ fn features_below_the_rollback_bar_are_not_computed_and_rolling_forward_reuses_t
                 .roll_to(RollbackBar::Before(model.hole), "Roll back"),
         )
         .unwrap();
+
     let rolled_back = evaluate(editor.document(), &mut engine);
     let bar = editor.document().bar_index();
+
     editor.undo().unwrap();
+
     let forward = evaluate(editor.document(), &mut engine);
+
     editor.redo().unwrap();
 
     assert_eq!(bar, 2);
+
     for below in [model.hole, model.pocket, model.lug, model.boss, model.note] {
         assert_eq!(state(&rolled_back, below), &FeatureState::RolledBack);
         assert!(rolled_back.feature(below).unwrap().result.is_none());
         assert!(editor.document().is_rolled_back(below));
         assert!(!editor.document().is_active(below));
     }
+
     assert!(editor.document().is_active(model.base));
     assert!(rolled_back.is_complete());
     assert!((volume(&rolled_back, model.base) - 320.0).abs() < 0.05);
@@ -254,6 +277,7 @@ fn features_below_the_rollback_bar_are_not_computed_and_rolling_forward_reuses_t
 fn new_features_go_in_right_above_the_rollback_bar_which_stays_below_them() {
     let model = model();
     let mut editor = Editor::new(model.document.clone());
+
     editor
         .apply(
             editor
@@ -263,6 +287,7 @@ fn new_features_go_in_right_above_the_rollback_bar_which_stays_below_them() {
         .unwrap();
 
     let mut transaction = editor.document().transaction("Add");
+
     let first = transaction.add_feature(
         "Rib sketch",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 6.0), (10.0, 9.0))),
@@ -271,10 +296,14 @@ fn new_features_go_in_right_above_the_rollback_bar_which_stays_below_them() {
         "Rib",
         extrude(first, "4 mm", BodyOperation::Add(model.base)),
     );
+
     editor.apply(transaction.finish()).unwrap();
+
     let inserted = editor.document().clone();
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&inserted, &mut engine);
+
     editor.undo().unwrap();
 
     assert_eq!(
@@ -294,10 +323,13 @@ fn new_features_go_in_right_above_the_rollback_bar_which_stays_below_them() {
     assert_eq!(inserted.bar_index(), 4);
     assert!(inserted.is_active(first) && inserted.is_active(second));
     assert!((volume(&evaluation, model.base) - 360.0).abs() < 0.05);
+
     let mut rolled = model.document.clone();
+
     rolled
         .apply(rolled.roll_to(RollbackBar::Before(model.hole), "Roll back"))
         .unwrap();
+
     assert!(editor.document().same_content(&rolled));
 }
 
@@ -311,12 +343,16 @@ fn deleting_a_feature_can_take_its_dependents_along_or_leave_them_failing_until_
     editor
         .apply(model.document.deletion(&[model.outline], "Delete Outline"))
         .unwrap();
+
     let kept = evaluate(editor.document(), &mut engine);
+
     editor.undo().unwrap();
+
     let undone = evaluate(editor.document(), &mut engine);
     let everything: Vec<FeatureId> = std::iter::once(model.outline)
         .chain(dependents.iter().copied())
         .collect();
+
     editor
         .apply(
             model
@@ -324,14 +360,18 @@ fn deleting_a_feature_can_take_its_dependents_along_or_leave_them_failing_until_
                 .deletion(&everything, "Delete Outline and its dependents"),
         )
         .unwrap();
+
     let remaining: Vec<String> = names(editor.document())
         .into_iter()
         .map(str::to_owned)
         .collect();
+
     editor.undo().unwrap();
 
     assert_eq!(dependents, [model.base, model.pocket, model.boss]);
+
     let base = failure(&kept, model.base);
+
     assert_eq!(base.reason(), "It uses a feature that no longer exists.");
     assert_eq!(
         base.remedy(),
@@ -352,20 +392,25 @@ fn deleting_a_feature_can_take_its_dependents_along_or_leave_them_failing_until_
 fn deleting_the_feature_below_the_rollback_bar_keeps_the_bar_where_it_was() {
     let model = model();
     let mut document = model.document.clone();
+
     document
         .apply(document.roll_to(RollbackBar::Before(model.hole), "Roll back"))
         .unwrap();
+
     let direct = document.check(&Transaction::single(
         "Delete",
         Edit::RemoveFeature { id: model.hole },
     ));
 
     let mut editor = Editor::new(document.clone());
+
     editor
         .apply(document.deletion(&[model.hole, model.pocket], "Delete"))
         .unwrap();
+
     let after = editor.document().rollback_bar();
     let last = editor.document().deletion(&[model.note], "Delete Note");
+
     editor
         .apply(
             editor
@@ -373,7 +418,9 @@ fn deleting_the_feature_below_the_rollback_bar_keeps_the_bar_where_it_was() {
                 .roll_to(RollbackBar::Before(model.note), "Roll"),
         )
         .unwrap();
+
     let at_the_end = editor.document().deletion(&[model.note], "Delete Note");
+
     editor.apply(at_the_end).unwrap();
 
     assert_eq!(
@@ -383,9 +430,11 @@ fn deleting_the_feature_below_the_rollback_bar_keeps_the_bar_where_it_was() {
     assert_eq!(after, RollbackBar::Before(model.lug));
     assert_eq!(last.edits().len(), 1);
     assert_eq!(editor.document().rollback_bar(), RollbackBar::AtEnd);
+
     editor.undo().unwrap();
     editor.undo().unwrap();
     editor.undo().unwrap();
+
     assert_eq!(editor.document(), &document);
 }
 
@@ -393,9 +442,11 @@ fn deleting_the_feature_below_the_rollback_bar_keeps_the_bar_where_it_was() {
 fn rows_move_only_where_dependencies_allow_and_crossing_the_bar_rolls_them_back_or_forward() {
     let model = model();
     let mut document = model.document.clone();
+
     document
         .apply(document.roll_to(RollbackBar::Before(model.lug), "Roll back"))
         .unwrap();
+
     let rows = document.tree_rows();
     let bar_row = rows.iter().position(|row| *row == TreeRow::Bar).unwrap();
 
@@ -435,12 +486,18 @@ fn rows_move_only_where_dependencies_allow_and_crossing_the_bar_rolls_them_back_
             index: 0
         }]
     );
+
     let mut moved = document.clone();
+
     moved.apply(note_to_top).unwrap();
+
     assert_eq!(moved.rollback_bar(), RollbackBar::Before(model.lug));
     assert!(moved.is_active(model.note));
+
     let mut crossed = document.clone();
+
     let undo = crossed.apply(pocket_below_bar).unwrap();
+
     assert_eq!(
         names(&crossed),
         [
@@ -455,7 +512,9 @@ fn rows_move_only_where_dependencies_allow_and_crossing_the_bar_rolls_them_back_
     );
     assert_eq!(crossed.rollback_bar(), RollbackBar::Before(model.pocket));
     assert!(crossed.is_rolled_back(model.pocket));
+
     crossed.apply(undo).unwrap();
+
     assert_eq!(crossed, document);
     assert_eq!(
         bar_to_top.edits(),
@@ -469,25 +528,31 @@ fn rows_move_only_where_dependencies_allow_and_crossing_the_bar_rolls_them_back_
 fn restoring_another_version_carries_its_rollback_bar_and_suppressed_features() {
     let model = model();
     let mut target = model.document.clone();
+
     target
         .apply(target.suppression(&[model.lug, model.boss], true, "Suppress"))
         .unwrap();
     target
         .apply(target.roll_to(RollbackBar::Before(model.pocket), "Roll back"))
         .unwrap();
+
     let mut current = model.document.clone();
+
     current
         .apply(current.roll_to(RollbackBar::Before(model.base), "Roll back"))
         .unwrap();
 
     let mut editor = Editor::new(current.clone());
+
     editor
         .apply(current.transaction_to(&target, "Restore"))
         .unwrap();
 
     assert!(editor.document().same_content(&target));
     assert!(editor.document().feature(model.boss).unwrap().suppressed);
+
     editor.undo().unwrap();
+
     assert!(editor.document().same_content(&current));
 }
 
@@ -500,6 +565,7 @@ fn a_feature_using_one_that_is_gone_can_be_inserted_and_its_id_is_never_handed_o
         "Base".to_owned(),
         extrude(gone, "4 mm", BodyOperation::NewBody),
     );
+
     document
         .apply(Transaction::single(
             "Load",
@@ -509,10 +575,15 @@ fn a_feature_using_one_that_is_gone_can_be_inserted_and_its_id_is_never_handed_o
             },
         ))
         .unwrap();
+
     let mut transaction = document.transaction("Add");
+
     let added = transaction.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
+
     document.apply(transaction.finish()).unwrap();
+
     let mut engine = Recompute::default();
+
     let evaluation = evaluate(&document, &mut engine);
 
     let later = Feature::new(
@@ -540,9 +611,11 @@ fn a_feature_using_one_that_is_gone_can_be_inserted_and_its_id_is_never_handed_o
 fn undoing_a_move_above_a_face_user_brings_back_the_order_it_was_inserted_in() {
     let model = model();
     let mut document = model.document.clone();
+
     document
         .apply(document.roll_to(RollbackBar::Before(model.hole), "Roll back"))
         .unwrap();
+
     let made_by_note = FaceReference::new(
         FaceName::from_digest(1),
         Some(FaceOrigin::EndCap {
@@ -551,6 +624,7 @@ fn undoing_a_move_above_a_face_user_brings_back_the_order_it_was_inserted_in() {
         [],
     );
     let mut transaction = document.transaction("Shell");
+
     transaction.add_feature(
         "Shell",
         FeatureKind::Shell(Shell {
@@ -562,6 +636,7 @@ fn undoing_a_move_above_a_face_user_brings_back_the_order_it_was_inserted_in() {
         }),
     );
     document.apply(transaction.finish()).unwrap();
+
     let inserted = document.clone();
 
     let undo = document
@@ -596,6 +671,7 @@ fn a_dependent_says_why_it_fails_when_what_it_uses_goes_from_failing_to_suppress
     let model = model();
     let mut document = model.document.clone();
     let mut engine = Recompute::default();
+
     document
         .apply(Transaction::single(
             "Flatten",
@@ -605,11 +681,13 @@ fn a_dependent_says_why_it_fails_when_what_it_uses_goes_from_failing_to_suppress
             },
         ))
         .unwrap();
+
     let failing = evaluate(&document, &mut engine);
 
     document
         .apply(document.suppression(&[model.base], true, "Suppress Base"))
         .unwrap();
+
     let suppressed = evaluate(&document, &mut engine);
 
     assert_eq!(
@@ -646,6 +724,7 @@ fn several_features_move_together_keeping_their_order_and_undo_as_one_step() {
         .unwrap();
 
     let mut moved = document.clone();
+
     moved.apply(to_the_end).unwrap();
 
     assert_eq!(
@@ -662,6 +741,7 @@ fn several_features_move_together_keeping_their_order_and_undo_as_one_step() {
     );
 
     let mut moved = document.clone();
+
     moved.apply(up_together).unwrap();
 
     assert_eq!(
@@ -678,6 +758,7 @@ fn several_features_move_together_keeping_their_order_and_undo_as_one_step() {
     );
 
     let mut moved = document.clone();
+
     let undo = moved.apply(both_ways).unwrap();
 
     assert_eq!(
@@ -710,6 +791,7 @@ fn several_features_move_together_keeping_their_order_and_undo_as_one_step() {
 fn features_moved_together_across_the_rollback_bar_roll_back_together() {
     let model = model();
     let mut document = model.document.clone();
+
     document
         .apply(document.roll_to(RollbackBar::Before(model.boss), "Roll back"))
         .unwrap();
@@ -717,6 +799,7 @@ fn features_moved_together_across_the_rollback_bar_roll_back_together() {
     let below_the_bar = document
         .move_features(&[model.hole, model.pocket], 8, "Move 2 features")
         .unwrap();
+
     document.apply(below_the_bar).unwrap();
 
     assert_eq!(
@@ -740,21 +823,27 @@ fn features_moved_together_across_the_rollback_bar_roll_back_together() {
 #[test]
 fn a_feature_moved_up_with_what_it_uses_never_passes_it_on_the_way() {
     let mut document = Document::default();
+
     let mut transaction = document.transaction("Build");
+
     let profile = transaction.add_feature(
         "Profile",
         FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
     );
+
     transaction.add_feature(
         "Spare",
         FeatureKind::from(rectangle(Plane::XZ, (0.0, 0.0), (1.0, 1.0))),
     );
+
     let block = transaction.add_feature("Block", extrude(profile, "4 mm", BodyOperation::NewBody));
+
     document.apply(transaction.finish()).unwrap();
 
     let together = document
         .move_features(&[profile, block], 1, "Move 2 features")
         .unwrap();
+
     document.apply(together).unwrap();
 
     assert_eq!(names(&document), ["Profile", "Block", "Spare"]);
@@ -763,10 +852,13 @@ fn a_feature_moved_up_with_what_it_uses_never_passes_it_on_the_way() {
 #[test]
 fn a_feature_cannot_be_inserted_using_itself() {
     let mut document = Document::default();
+
     let own = FeatureId::from_raw(document.next_feature_id());
 
     let mut transaction = document.transaction("Remove");
+
     transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: own }));
+
     let refused = document.apply(transaction.finish());
 
     assert_eq!(refused, Err(EditError::MissingFeature));

@@ -47,7 +47,7 @@ const HUE_NAMES: [(f32, &str); 8] = [
     (335.0, "pink"),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Hsv {
     pub hue: f32,
     pub saturation: f32,
@@ -58,8 +58,10 @@ impl Hsv {
     pub fn of(colour: Rgb) -> Self {
         let [red, green, blue] =
             [colour.red, colour.green, colour.blue].map(|channel| f32::from(channel) / 255.0);
+
         let high = red.max(green).max(blue);
         let low = red.min(green).min(blue);
+
         let spread = high - low;
         let sector = if spread == 0.0 {
             0.0
@@ -80,6 +82,7 @@ impl Hsv {
     pub fn colour(self) -> Rgb {
         let chroma = self.value * self.saturation;
         let sector = self.hue.rem_euclid(HUE_TURN) / 60.0;
+
         let second = chroma * (1.0 - (sector % 2.0 - 1.0).abs());
         let (red, green, blue) = match sector as u8 {
             0 => (chroma, second, 0.0),
@@ -115,6 +118,7 @@ impl Hsv {
 
 pub fn name_of(colour: Rgb) -> String {
     let hsv = Hsv::of(colour);
+
     if hsv.value < BLACK_VALUE {
         return "black".to_owned();
     }
@@ -127,6 +131,7 @@ pub fn name_of(colour: Rgb) -> String {
         }
         .to_owned();
     }
+
     let family = HUE_NAMES
         .iter()
         .find(|(limit, _)| hsv.hue < *limit)
@@ -144,7 +149,7 @@ pub fn describe(colour: Rgb) -> String {
     format!("{}, {}", name_of(colour), colour.hex())
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct State {
     open: bool,
     hsv: Hsv,
@@ -164,6 +169,7 @@ pub fn is_open(ui: &Ui, id: Id) -> bool {
 pub fn toggle(ui: &Ui, id: Id, from: Rgb) {
     let opened = !is_open(ui, id);
     let kept = state(ui, id).map_or_else(|| Hsv::of(from), |state| state.hsv);
+
     ui.data_mut(|data| {
         data.insert_temp(
             id,
@@ -199,6 +205,7 @@ pub fn strip_id(id: Id) -> Id {
 fn gradient(painter: &Painter, rect: Rect, corners: [Color32; 4]) {
     let mut mesh = Mesh::default();
     let [top_left, top_right, bottom_right, bottom_left] = corners;
+
     mesh.colored_vertex(rect.left_top(), top_left);
     mesh.colored_vertex(rect.right_top(), top_right);
     mesh.colored_vertex(rect.right_bottom(), bottom_right);
@@ -211,6 +218,7 @@ fn gradient(painter: &Painter, rect: Rect, corners: [Color32; 4]) {
 fn handle_rings(ui: &Ui, centre: egui::Pos2, fill: Color32) {
     let tokens = appearance::tokens(ui);
     let painter = ui.painter();
+
     painter.circle_filled(centre, HANDLE_RADIUS, fill);
     painter.circle_stroke(centre, HANDLE_RADIUS, Stroke::new(HANDLE_RING, tokens.text));
     painter.circle_stroke(
@@ -285,6 +293,7 @@ fn pointer_inside(response: &Response, rect: Rect) -> Option<Vec2> {
 fn square(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
     let (rect, _) = ui.allocate_exact_size(vec2(width, SQUARE_HEIGHT), Sense::hover());
     let response = ui.interact(rect, square_id(id), Sense::click_and_drag());
+
     lock_arrows(ui, &response);
     if state.focus_pending {
         response.request_focus();
@@ -295,17 +304,21 @@ fn square(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
         state.hsv.saturation = inside.x;
         state.hsv.value = 1.0 - inside.y;
     }
+
     let nudge = arrows(ui, &response);
+
     if nudge != Vec2::ZERO {
         state.hsv.saturation = (state.hsv.saturation + nudge.x).clamp(0.0, 1.0);
         state.hsv.value = (state.hsv.value + nudge.y).clamp(0.0, 1.0);
         state.edited = true;
     }
+
     let name = format!(
         "saturation {}%, brightness {}%",
         (state.hsv.saturation * 100.0).round(),
         (state.hsv.value * 100.0).round()
     );
+
     response.widget_info(|| WidgetInfo {
         current_text_value: Some(name.clone()),
         ..WidgetInfo::labeled(Role::Unknown, true, SQUARE_NAME)
@@ -313,6 +326,7 @@ fn square(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         let hue = color32(Hsv::pure(state.hsv.hue));
+
         gradient(painter, rect, [Color32::WHITE, hue, hue, Color32::WHITE]);
         gradient(
             painter,
@@ -330,10 +344,12 @@ fn square(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
             Stroke::new(BORDER_WIDTH, appearance::tokens(ui).field_border),
             StrokeKind::Inside,
         );
+
         let centre = pos2(
             rect.left() + state.hsv.saturation * rect.width(),
             rect.top() + (1.0 - state.hsv.value) * rect.height(),
         );
+
         handle_rings(ui, centre, color32(state.hsv.colour()));
         if response.has_focus() {
             widgets::paint_focus_ring(ui, rect);
@@ -345,16 +361,21 @@ fn square(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
 fn strip(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
     let (rect, _) = ui.allocate_exact_size(vec2(width, STRIP_HEIGHT), Sense::hover());
     let response = ui.interact(rect, strip_id(id), Sense::click_and_drag());
+
     lock_arrows(ui, &response);
     if let Some(inside) = pointer_inside(&response, rect) {
         state.hsv.hue = inside.x * HUE_TURN;
     }
+
     let nudge = hue_arrows(ui, &response);
+
     if nudge != 0.0 {
         state.hsv.hue = (state.hsv.hue + nudge).clamp(0.0, HUE_TURN);
         state.edited = true;
     }
+
     let name = format!("hue {} degrees", state.hsv.hue.round());
+
     response.widget_info(|| WidgetInfo {
         current_text_value: Some(name.clone()),
         ..WidgetInfo::slider(true, f64::from(state.hsv.hue), HUE_NAME)
@@ -362,6 +383,7 @@ fn strip(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         let sector_width = rect.width() / HUE_SECTORS as f32;
+
         for sector in 0..HUE_SECTORS {
             let left = rect.left() + sector as f32 * sector_width;
             let part = Rect::from_min_max(
@@ -370,6 +392,7 @@ fn strip(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
             );
             let start = color32(Hsv::pure(sector as f32 * 60.0));
             let end = color32(Hsv::pure((sector + 1) as f32 * 60.0));
+
             gradient(painter, part, [start, end, end, start]);
         }
         painter.rect_stroke(
@@ -378,6 +401,7 @@ fn strip(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
             Stroke::new(BORDER_WIDTH, appearance::tokens(ui).field_border),
             StrokeKind::Inside,
         );
+
         let x = rect.left() + state.hsv.hue / HUE_TURN * rect.width();
         let thumb = Rect::from_center_size(
             pos2(x, rect.center().y),
@@ -385,6 +409,7 @@ fn strip(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
         );
         let tokens = appearance::tokens(ui);
         let radius = CornerRadius::same(WIDGET_RADIUS / 2);
+
         painter.rect_filled(thumb, radius, color32(Hsv::pure(state.hsv.hue)));
         painter.rect_stroke(
             thumb,
@@ -409,10 +434,12 @@ fn preview(ui: &mut Ui, caption: &str, colour: Rgb) {
     let side = PREVIEW_SIDE.max(ui.spacing().interact_size.y);
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::hover());
     let label = format!("{caption} colour, {}", describe(colour));
+
     response.widget_info(|| WidgetInfo::labeled(Role::Image, true, &label));
     if ui.is_rect_visible(rect) {
         let radius = CornerRadius::same(WIDGET_RADIUS);
         let painter = ui.painter();
+
         painter.rect_filled(rect, radius, color32(colour));
         painter.rect_stroke(
             rect,
@@ -426,14 +453,21 @@ fn preview(ui: &mut Ui, caption: &str, colour: Rgb) {
 
 pub fn show(ui: &mut Ui, id: Id, current: Rgb) -> Option<Rgb> {
     let mut state = state(ui, id).filter(|state| state.open)?;
+
     if !state.busy && !state.edited && state.hsv.colour() != current {
         state.hsv = state.hsv.following(current);
     }
+
     let width = ui.available_width().min(SQUARE_MAX_WIDTH);
+
     ui.add_space(SPACE_S);
+
     let square = square(ui, id, width, &mut state);
+
     ui.add_space(SPACE_S);
+
     let strip = strip(ui, id, width, &mut state);
+
     ui.add_space(SPACE_S);
     ui.horizontal(|ui| {
         preview(ui, CURRENT_CAPTION, current);
@@ -447,12 +481,14 @@ pub fn show(ui: &mut Ui, id: Id, current: Rgb) -> Option<Rgb> {
         || strip.drag_stopped()
         || (state.edited && (square.lost_focus() || strip.lost_focus()));
     let mut chosen = settled.then(|| state.hsv.colour());
+
     if settled {
         state.edited = false;
     }
 
     let typed = widgets::properties(ui, ("custom-colour", id), |ui| {
         widgets::caption(ui, HEX_CAPTION);
+
         let field = field::commit_field(
             ui,
             hex_id(id),
@@ -461,12 +497,14 @@ pub fn show(ui: &mut Ui, id: Id, current: Rgb) -> Option<Rgb> {
             false,
             |text| Rgb::from_hex(text).ok_or_else(|| HEX_HINT.to_owned()),
         );
+
         ui.end_row();
         if let Some(error) = field.error {
             widgets::error_row(ui, &error);
         }
         field.committed
     });
+
     if let Some(colour) = typed {
         state.hsv = state.hsv.following(colour);
         chosen = Some(colour);

@@ -75,7 +75,9 @@ impl Panel<'_> {
 
     fn plane_rows(&mut self, ui: &mut Ui) {
         let document = self.model.document();
+
         widgets::caption(ui, "Mirror across");
+
         let chosen = plane_selector::combo(
             ui,
             Id::unique(("mirror-plane", self.id())),
@@ -89,9 +91,11 @@ impl Panel<'_> {
                 })
             },
         );
+
         ui.end_row();
         self.actions.extend(chosen);
         ui.label("");
+
         let picker = Picker {
             feature: self.id(),
             slot: Slot::MirrorPlane,
@@ -104,6 +108,7 @@ impl Panel<'_> {
             ),
             hover: PICK_HOVER,
         };
+
         ui.vertical(|ui| {
             feature_fields::reference_picker(ui, self.model, picker, self.actions);
         });
@@ -113,6 +118,7 @@ impl Panel<'_> {
     fn mirrors_rows(&mut self, ui: &mut Ui) {
         let document = self.model.document();
         let mirrored = self.mirror.mirrored.clone();
+
         widgets::caption(ui, MIRRORS);
         if self.mirror.mirrors_faces() {
             self.face_rows(ui);
@@ -124,9 +130,11 @@ impl Panel<'_> {
             if index > 0 {
                 ui.label("");
             }
+
             let name = feature_fields::feature_name(document, *feature);
             let hover = format!("Stop mirroring {}", name.unwrap_or("the missing feature"));
             let mut dropped = false;
+
             ui.horizontal(|ui| {
                 match name {
                     Some(name) => {
@@ -144,12 +152,16 @@ impl Panel<'_> {
                     .filter(|kept| kept != feature)
                     .collect();
                 let change = mirror_tools::mirroring(self.model, self.id(), self.mirror, kept);
+
                 self.apply(change);
             }
         }
+
         let offered = pattern_tools::repeatable(document, self.chosen)
             .filter(|(body, chosen)| *body == self.mirror.body && *chosen != mirrored);
+
         ui.label("");
+
         let button = widgets::small_button(ui, icons::ADD, MIRROR_CHOSEN);
         let hover = match &offered {
             Some((body, chosen)) => format!(
@@ -159,14 +171,17 @@ impl Panel<'_> {
             ),
             None => MIRROR_CHOSEN_HINT.to_owned(),
         };
+
         let clicked = ui
             .add_enabled(offered.is_some(), button)
             .on_hover_text(&hover)
             .on_disabled_hover_text(&hover)
             .clicked();
+
         ui.end_row();
         if clicked && let Some((_, chosen)) = offered {
             let change = mirror_tools::mirroring(self.model, self.id(), self.mirror, chosen);
+
             self.apply(change);
         }
         self.selected_faces_row(ui);
@@ -188,6 +203,7 @@ impl Panel<'_> {
             None => vec![FACE_NOT_FOUND.to_owned(); self.mirror.faces.len()],
         };
         let mut dropped = None;
+
         for (index, text) in rows.iter().enumerate() {
             if index > 0 {
                 ui.label("");
@@ -207,6 +223,7 @@ impl Panel<'_> {
                 .map(|(_, face)| face.clone())
                 .collect();
             let change = mirror_tools::mirroring_faces(self.model, self.id(), self.mirror, kept);
+
             self.apply(change);
         }
     }
@@ -214,7 +231,9 @@ impl Panel<'_> {
     fn selected_faces_row(&mut self, ui: &mut Ui) {
         let offered =
             mirror_tools::selected_faces(self.model, self.selection, self.id(), self.mirror);
+
         ui.label("");
+
         let button = widgets::small_button(ui, icons::ADD, MIRROR_SELECTED_FACES);
         let hover = match &offered {
             Ok(faces) => format!(
@@ -224,14 +243,17 @@ impl Panel<'_> {
             ),
             Err(reason) => format!("{MIRROR_FACES_HINT}. {reason}."),
         };
+
         let clicked = ui
             .add_enabled(offered.is_ok(), button)
             .on_hover_text(&hover)
             .on_disabled_hover_text(&hover)
             .clicked();
+
         ui.end_row();
         if clicked && let Ok(faces) = offered {
             let change = mirror_tools::mirroring_faces(self.model, self.id(), self.mirror, faces);
+
             self.apply(change);
         }
     }
@@ -241,6 +263,7 @@ impl Panel<'_> {
         let bodies: Vec<FeatureId> = self.mirror.bodies().collect();
         let only = bodies.len() == 1;
         let mut dropped = None;
+
         for (index, body) in bodies.iter().enumerate() {
             if index == 0 {
                 widgets::caption(ui, BODIES);
@@ -254,6 +277,7 @@ impl Panel<'_> {
                     } else {
                         STOP_MIRRORING_BODY
                     };
+
                     ui.add_enabled_ui(!only, |ui| {
                         if widgets::removable_row(ui, RichText::new(name), hover) {
                             dropped = Some(*body);
@@ -266,9 +290,11 @@ impl Panel<'_> {
         }
         if let Some(body) = dropped {
             let change = mirror_tools::without_body(self.model, self.id(), self.mirror, body);
+
             self.apply(change);
         }
         ui.label("");
+
         let picker = Picker {
             feature: self.id(),
             slot: Slot::MirrorBodies,
@@ -281,6 +307,7 @@ impl Panel<'_> {
             ),
             hover: ADD_BODIES_HOVER,
         };
+
         ui.vertical(|ui| {
             feature_fields::reference_picker(ui, self.model, picker, self.actions);
         });
@@ -308,6 +335,7 @@ impl Panel<'_> {
         if !self.mirror.mirrors_whole_body() {
             return;
         }
+
         let current = self.mirror.outcome;
         let segments = MirrorOutcome::ALL
             .into_iter()
@@ -327,6 +355,7 @@ impl Panel<'_> {
             })
             .collect();
         let chosen = feature_fields::segmented_row(ui, RESULT, &self.feature.name, segments);
+
         self.actions.extend(chosen);
     }
 }
@@ -347,6 +376,7 @@ pub fn show(
         mirror,
         actions,
     };
+
     widgets::properties(ui, ("mirror-properties", feature.id()), |ui| {
         let description = if mirror.mirrors_features() {
             FEATURES_DESCRIPTION
@@ -355,6 +385,7 @@ pub fn show(
         } else {
             DESCRIPTION
         };
+
         feature_fields::description_row(ui, description);
         panel.plane_rows(ui);
         panel.mirrors_rows(ui);

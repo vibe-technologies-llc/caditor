@@ -16,7 +16,7 @@ const GEMINI_CLI_KEY: &str = "assistant.cli.gemini";
 const CODEX_CLI_KEY: &str = "assistant.cli.codex";
 const FOLDERS_KEY: &str = "assistant.folders";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssistantPreferences {
     pub backend: Backend,
     pub claude_model: String,
@@ -131,6 +131,7 @@ impl AssistantPreferences {
 
     pub fn write(&self, settings: &mut Settings) {
         let default = Self::default();
+
         if self.backend == default.backend {
             settings.remove(BACKEND_KEY);
         } else {
@@ -177,6 +178,7 @@ impl AssistantPreferences {
                 .iter()
                 .map(|path| path.display().to_string())
                 .collect();
+
             settings.set_texts(FOLDERS_KEY, &entries);
         }
     }
@@ -205,7 +207,9 @@ mod tests {
     #[test]
     fn assistant_preferences_round_trip_and_omit_defaults() {
         let mut settings = Settings::default();
+
         AssistantPreferences::default().write(&mut settings);
+
         assert_eq!(settings.text(BACKEND_KEY), None);
         assert_eq!(settings.text(CLAUDE_MODEL_KEY), None);
 
@@ -221,8 +225,11 @@ mod tests {
             codex_cli: "/opt/codex".to_owned(),
             folders: vec![PathBuf::from("/tmp/cad-exports")],
         };
+
         custom.write(&mut settings);
+
         let loaded = AssistantPreferences::from_settings(&settings);
+
         assert_eq!(loaded, custom);
     }
 }

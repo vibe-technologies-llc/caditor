@@ -25,7 +25,7 @@ const CLEARANCE_POINTS: f64 = 2.0 * HEAD_HALF_POINTS;
 #[cfg(test)]
 const GRIP_FRACTION: f64 = 0.6;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Shown {
     gauge: Gauge,
     per_point: f64,
@@ -64,7 +64,7 @@ fn committed_kind(document: &Document, feature: FeatureId) -> Option<&FeatureKin
     Some(&document.feature(feature)?.kind)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ValueHandles {
     pub feature: FeatureId,
     shown: Vec<Shown>,
@@ -91,6 +91,7 @@ impl ValueHandles {
             feature,
             per_point: &per_point_at,
         };
+
         let shown: Vec<Shown> = builder
             .gauges(kind)
             .into_iter()
@@ -101,6 +102,7 @@ impl ValueHandles {
                 };
                 let per_point = per_point_at(probe.foot())?;
                 let sight = view.sight_at(probe.foot());
+
                 let seen = probe.direction().dot(sight).abs() < END_ON;
                 seen.then_some(Shown { per_point, ..probe })
             })
@@ -124,6 +126,7 @@ impl ValueHandles {
         let mut drawn: Vec<(Vector2, Vector2)> =
             taken.iter().copied().filter_map(on_screen).collect();
         let mut shown = Vec::with_capacity(self.shown.len());
+
         for found in self.shown {
             let Some(seen) = on_screen(found.segment()) else {
                 continue;
@@ -170,6 +173,7 @@ impl ValueHandles {
         self.all()
             .filter_map(|shown| {
                 let (from, to) = shown.segment();
+
                 let distance = segment_distance(view.project(from)?, view.project(to)?, cursor);
                 Some((distance, Handle::Value(shown.gauge.measured)))
             })
@@ -185,6 +189,7 @@ impl ValueHandles {
         };
         let shown = self.find(measured)?;
         let (from, tip) = shown.segment();
+
         let grip = from.lerp(tip, GRIP_FRACTION);
         match &shown.gauge.track {
             Track::Line { direction, .. } => Some(grip + *direction * along),
@@ -217,6 +222,7 @@ impl ValueHandles {
             } else {
                 palette.handle
             };
+
             Arrow {
                 from,
                 tip,
@@ -242,12 +248,14 @@ pub fn typing(model: &Model, feature: FeatureId, measured: Measured) -> Option<T
 pub fn primary(model: &Model, feature: FeatureId) -> Option<Measured> {
     let document = model.document();
     let measured = value_gauges::primary(committed_kind(document, feature)?)?;
+
     let free = held(document, feature, measured)?.driven().is_none();
     free.then_some(measured)
 }
 
 fn held(document: &Document, feature: FeatureId, measured: Measured) -> Option<Held> {
     let mut probe = committed_kind(document, feature)?.clone();
+
     let caption = measured.caption(&probe)?;
     Some(Held::of(
         document,
@@ -277,12 +285,13 @@ fn written_into(
     let document = model.document();
     let held = held(document, feature, measured)?;
     let mut named = Vec::new();
+
     held.set(measured.slot(&mut kind)?, value, &mut named);
     measured.tidy(&mut kind);
     manipulator::keeping_names(document, feature, kind, named)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Typing {
     pub feature: FeatureId,
     pub measured: Measured,
@@ -290,7 +299,7 @@ pub struct Typing {
     pub rule: Rule,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Follow {
     Line {
         base: Point3,
@@ -308,7 +317,7 @@ enum Follow {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ValueDrag {
     start: FeatureKind,
     measured: Measured,
@@ -333,6 +342,7 @@ impl ValueDrag {
         let gauge = &shown.gauge;
         let mut probe = start.clone();
         let parameters = model.parameters();
+
         let from = measured
             .slot(&mut probe)?
             .evaluate_as(measured.amount().dimension(), &|id| parameters.value(id))
@@ -392,6 +402,7 @@ impl ValueDrag {
             Follow::Turn { swing, last, swept } => {
                 swing.degrees_near(ray, Some(*last)).map(|now| {
                     let turned = (now - *last + 180.0).rem_euclid(360.0) - 180.0;
+
                     *last = now;
                     *swept += turned;
                     from_position + *swept
@@ -402,6 +413,7 @@ impl ValueDrag {
                 .map(|at| from_position + at - *grabbed),
         };
         let pulled = pulled_position.and_then(|position| self.mapping.value(position));
+
         let snapped = match (&self.follow, snap.filter(|_| !free)) {
             (
                 Follow::Line {
@@ -447,7 +459,9 @@ impl ValueDrag {
             }
         };
         let value = self.limited(wanted);
+
         let changed = value != self.value || snap != self.snapped;
+
         self.value = value;
         self.snapped = snap;
         changed
@@ -457,6 +471,7 @@ impl ValueDrag {
         if !self.reverses {
             return self.measured.accepts(value, self.step, &self.start);
         }
+
         let size = self.measured.accepts(value.abs(), self.step, &self.start);
         if value < 0.0 { -size } else { size }
     }

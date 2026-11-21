@@ -14,7 +14,7 @@ pub const MAX_SELECTION_SETS: usize = 64;
 pub const MAX_SET_MEMBERS: usize = 4096;
 const NUMBERED_NAME: &str = "Set";
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum SetMember {
     Body(FeatureId),
     Face {
@@ -42,13 +42,13 @@ impl SetMember {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SelectionSet {
     pub name: String,
     pub members: Vec<SetMember>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SelectionSets {
     pub sets: Vec<SelectionSet>,
 }
@@ -114,20 +114,20 @@ impl SelectionSets {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SetItem {
     Face { body: FeatureId, face: FaceId },
     Edge { body: FeatureId, edge: EdgeId },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetLoss {
     Body(FeatureId),
     Face(FeatureId),
     Edge(FeatureId),
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SetResolution {
     pub found: Vec<SetItem>,
     pub lost: Vec<SetLoss>,
@@ -146,6 +146,7 @@ impl SelectionSet {
         let mut resolved = SetResolution::default();
         let mut seen: BTreeSet<SetItem> = BTreeSet::new();
         let mut splits: Vec<(FeatureId, SplitEdges<'_>)> = Vec::new();
+
         for member in &self.members {
             let body = member.body();
             let Some(solid) = evaluation
@@ -158,6 +159,7 @@ impl SelectionSet {
                 }
                 continue;
             };
+
             let found = match member {
                 SetMember::Body(_) => every_face(body, solid),
                 SetMember::Face { face, .. } => candidates(face.resolve(solid))
@@ -173,6 +175,7 @@ impl SelectionSet {
                         }
                     };
                     let followed = split.map(|split| split.follow(edge));
+
                     if matches!(followed, Some(Followed::PartlyLost(_))) {
                         resolved.lost.push(SetLoss::Edge(body));
                     }
@@ -184,6 +187,7 @@ impl SelectionSet {
                         .collect()
                 }
             };
+
             if found.is_empty() {
                 resolved.lost.push(match member {
                     SetMember::Body(_) => SetLoss::Body(body),

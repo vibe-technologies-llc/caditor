@@ -34,8 +34,10 @@ impl Grid {
                 )
             },
         );
+
         let (width, height) = (high.x - low.x, high.y - low.y);
         let wanted = CELLS_PER_POINT * mapped.len() as f64;
+
         let side = (width * height / wanted)
             .sqrt()
             .max(width.max(height) / wanted);
@@ -78,6 +80,7 @@ impl Grid {
 
     fn centres_below(&self, y: f64) -> usize {
         let mut count = (((y - self.low.y) * self.per_side + 0.5) as usize).min(self.rows);
+
         if count > 0 && self.centre_y(count - 1) >= y {
             count -= 1;
         } else if count < self.rows && self.centre_y(count) < y {
@@ -102,6 +105,7 @@ pub(super) fn widest(
     };
     let mut distance = vec![f64::INFINITY; grid.cells()];
     let mut below = Vec::with_capacity(mapped.len());
+
     for (step, at) in mapped.iter().enumerate() {
         if step.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
@@ -109,9 +113,12 @@ pub(super) fn widest(
         grid.mark(&mut distance, *at);
         below.push(grid.centres_below(at.y));
     }
+
     let crossings = boundary(&grid, mapped, &below, outline, &mut distance)?;
     let inside = inside(&grid, crossings);
+
     chamfer(&grid, &mut distance)?;
+
     let widest = distance
         .iter()
         .zip(&inside)
@@ -130,10 +137,12 @@ fn boundary(
     distance: &mut [f64],
 ) -> Result<Vec<(usize, f64)>, Interrupted> {
     let mut crossings = Vec::new();
+
     for (step, (from, to)) in outline.segments.iter().enumerate() {
         if step.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
         }
+
         let (Some(a), Some(b), Some(under_a), Some(under_b)) = (
             mapped.get(*from),
             mapped.get(*to),
@@ -142,11 +151,14 @@ fn boundary(
         ) else {
             continue;
         };
+
         let (across, along) = ((b.x - a.x).abs(), (b.y - a.y).abs());
+
         if across.max(along) * MARKS_PER_CELL > grid.side {
             let marks = ((across + along) * MARKS_PER_CELL * grid.per_side).ceil() as usize;
             for mark in 1..marks {
                 let share = mark as f64 / marks as f64;
+
                 grid.mark(
                     distance,
                     PlanePoint::new(a.x + (b.x - a.x) * share, a.y + (b.y - a.y) * share),
@@ -155,6 +167,7 @@ fn boundary(
         }
         for row in *under_a.min(under_b)..*under_a.max(under_b) {
             let y = grid.centre_y(row);
+
             crossings.push((row, a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y)));
         }
     }
@@ -163,7 +176,9 @@ fn boundary(
 
 fn inside(grid: &Grid, mut crossings: Vec<(usize, f64)>) -> Vec<bool> {
     crossings.sort_unstable_by(|one, other| one.0.cmp(&other.0).then(one.1.total_cmp(&other.1)));
+
     let mut inside = vec![false; grid.cells()];
+
     for row in crossings.chunk_by(|one, other| one.0 == other.0) {
         for [(row, from), (_, to)] in row.as_chunks::<2>().0 {
             for column in grid.column(*from)..=grid.column(*to) {
@@ -182,8 +197,10 @@ fn inside(grid: &Grid, mut crossings: Vec<(usize, f64)>) -> Vec<bool> {
 
 fn chamfer(grid: &Grid, distance: &mut [f64]) -> Result<(), Interrupted> {
     let width = grid.width();
+
     for row in 1..=grid.rows {
         interrupt::check()?;
+
         let (before, after) = distance.split_at_mut(row * width);
         if let (Some(previous), Some(current)) = (
             before.get(before.len().saturating_sub(width)..),
@@ -195,6 +212,7 @@ fn chamfer(grid: &Grid, distance: &mut [f64]) -> Result<(), Interrupted> {
     }
     for row in (1..=grid.rows).rev() {
         interrupt::check()?;
+
         let (current, next) = distance.split_at_mut((row + 1) * width);
         if let (Some(next), Some(current)) = (
             next.get(..width),
@@ -261,8 +279,11 @@ mod tests {
     #[test]
     fn the_widest_gap_is_the_largest_empty_disc_within_the_face_give_or_take_a_cell() {
         let mut mapped = ring(PlanePoint::new(0.0, 0.0), 10.0, 400);
+
         let outer: Vec<usize> = (0..mapped.len()).collect();
+
         mapped.extend(lattice(|at| (2.5..9.0).contains(&at.x.hypot_libm(at.y)), 9));
+
         let outline = constrained::outline(&mapped, &[outer]);
         let side = Grid::over(&mapped).unwrap().side;
         let empty_radius = 2.0_f64.hypot_libm(2.0);
@@ -286,13 +307,20 @@ mod tests {
             PlanePoint::new(-16.0, 20.0),
             PlanePoint::new(-20.0, 20.0),
         ];
+
         let notched_loop: Vec<usize> = (0..notched.len()).collect();
+
         notched.extend(lattice(|at| at.x.min(at.y) < -16.0, 20));
+
         let mut holed = ring(PlanePoint::new(0.0, 0.0), 20.0, 200);
+
         let outer: Vec<usize> = (0..holed.len()).collect();
         let first = holed.len();
+
         holed.extend(ring(PlanePoint::new(0.0, 0.0), 12.0, 120).into_iter().rev());
+
         let inner: Vec<usize> = (first..holed.len()).collect();
+
         holed.extend(lattice(
             |at| (12.5..19.5).contains(&at.x.hypot_libm(at.y)),
             20,

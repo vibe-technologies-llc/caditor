@@ -57,6 +57,7 @@ impl Augmented {
     fn factor(&self, rows: &[Entries], least: f64, work: &mut ReachWork) -> Option<Cholesky> {
         let mut shift = least * self.steepest;
         let least_pivot = LEAST_PIVOT * self.steepest;
+
         for _ in 0..SHIFTS {
             match Cholesky::factor_counting(&self.matrix, shift, least_pivot, rows) {
                 Ok(factored) => {
@@ -88,6 +89,7 @@ impl Solver<'_> {
         let longest = MAX_STEP * part.context.scale;
         let mut gap = miss(aims, values);
         let mut fraction = 1.0_f64;
+
         for _ in 0..MAX_ITERATIONS {
             if (self.cancelled)() {
                 return Err(Cancelled);
@@ -95,17 +97,21 @@ impl Solver<'_> {
             if work.spent() {
                 break;
             }
+
             let Some(mut step) = self.far_step(part, aims, values, work) else {
                 break;
             };
             let largest = largest_move(&step);
+
             if largest > longest {
                 step.iter_mut()
                     .for_each(|delta| *delta *= longest / largest);
             }
             fraction = (fraction * 2.0).min(1.0);
+
             let start = self.start(part, values);
             let mut closer = None;
+
             for _ in 0..LINE_SEARCH_STEPS {
                 if work.spent() {
                     break;
@@ -121,10 +127,12 @@ impl Solver<'_> {
                 self.restore(part.component, &start, values);
                 fraction *= 0.5;
             }
+
             let Some(closer) = closer else {
                 break;
             };
             let gained = gap.sqrt() - closer.sqrt();
+
             gap = closer;
             if gained <= tolerance {
                 break;
@@ -142,8 +150,11 @@ impl Solver<'_> {
     ) -> Option<Vec<f64>> {
         let width = part.component.variables.len();
         let (rows, _) = self.structural_linearize(part, values);
+
         work.spend(rows.len());
+
         let mut pull = vec![0.0; width];
+
         for aim in aims {
             if let Some(slot) = pull.get_mut(aim.column) {
                 *slot = value(values, aim.variable) - aim.to;
@@ -152,6 +163,7 @@ impl Solver<'_> {
 
         let gram = factored_gram(&rows, width, work)?;
         let load: Vec<f64> = times(&rows, &pull).iter().map(|entry| -entry).collect();
+
         let multipliers = gram_solved(&gram, &load, work);
         let downhill: Vec<f64> = transposed_times(&rows, &multipliers, width)
             .iter()
@@ -181,8 +193,11 @@ impl Solver<'_> {
         work: &mut ReachWork,
     ) -> Augmented {
         let curvature = self.weighted_curvature(part, values, rows, weights);
+
         work.spend(curvature.work);
+
         let mut matrix: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); curvature.columns.len()];
+
         for (column, entries) in curvature.columns.iter().enumerate() {
             for (other, entry) in entries {
                 if let Some(slot) = matrix.get_mut(column) {
@@ -198,6 +213,7 @@ impl Solver<'_> {
                 *slot.entry(aim.column).or_default() += 1.0;
             }
         }
+
         let steepest = matrix
             .iter()
             .enumerate()
@@ -205,6 +221,7 @@ impl Solver<'_> {
             .fold(1.0_f64, |steepest, entry| larger(steepest, entry.abs()));
         let augmentation = AUGMENTATION * steepest;
         let mut product = 0;
+
         for row in rows {
             product += row.len() * row.len();
             for (column, entry) in row {
@@ -235,6 +252,7 @@ impl Solver<'_> {
     ) -> Result<bool, Cancelled> {
         let width = part.component.variables.len();
         let mut cost = self.squared_residuals(part, values);
+
         for _ in 0..RESTORING_STEPS {
             if self.closely_held(part, values) {
                 return Ok(true);
@@ -245,8 +263,11 @@ impl Solver<'_> {
             if work.spent() {
                 return Ok(false);
             }
+
             let (rows, residuals) = self.structural_linearize(part, values);
+
             work.spend(rows.len());
+
             let unit = vec![1.0; rows.len()];
             let metric = self.augmented(part, values, &rows, &unit, &[], work);
             let Some(factored) = metric.factor(&rows, RESTORING_SHIFT, work) else {
@@ -256,11 +277,15 @@ impl Solver<'_> {
                 .iter()
                 .map(|entry| -metric.augmentation * entry)
                 .collect();
+
             let correction = solved(&factored, &load, work);
             let start = self.start(part, values);
+
             self.place(part.component, &start, &correction, 1.0, values);
+
             let after = self.squared_residuals(part, values);
             let halved = after < RESTORING_FALL * cost;
+
             if !halved {
                 self.restore(part.component, &start, values);
                 return Ok(self.converged(part, values));

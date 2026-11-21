@@ -27,12 +27,15 @@ struct Plate {
 
 fn plate(harness: &mut Harness) -> Plate {
     harness.context.enable_accesskit();
+
     let (extrude, top) = extruded_plate(harness);
+
     harness.select([]);
     run_from_palette(harness, "fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     harness.frame();
+
     let bottom = harness
         .built()
         .picks
@@ -57,6 +60,7 @@ fn plate(harness: &mut Harness) -> Plate {
 
 fn hover_top(harness: &mut Harness, plate: &Plate) {
     let face = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
+
     harness.hover_pickable(face, Point2::new(20.0, 20.0), plate.top);
 }
 
@@ -87,6 +91,7 @@ fn point_at(harness: &mut Harness, position: Pos2) {
 
 fn selected(harness: &Harness) -> Vec<Pickable> {
     let mut items: Vec<Pickable> = harness.workspace.viewport.selection().iter().collect();
+
     items.sort();
     items
 }
@@ -124,6 +129,7 @@ fn has_entry(harness: &Harness, name: &str) -> bool {
 
 fn choose(harness: &mut Harness, name: &str) {
     let position = entry(harness, name).unwrap_or_else(|| panic!("no menu entry named '{name}'"));
+
     harness.click_screen(position);
     harness.show_new_windows();
 }
@@ -131,15 +137,19 @@ fn choose(harness: &mut Harness, name: &str) {
 #[test]
 fn a_right_click_on_an_unselected_face_selects_it_alone_and_its_menu_hides_the_body() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
+
     harness.select([plate.bottom]);
 
     hover_top(&mut harness, &plate);
     right_click(&mut harness, plate.spot);
+
     let opened = menu(&harness);
     let picked = selected(&harness);
     let edit = has_entry(&harness, "Edit Extrude 1");
     let unreadable = harness.unreadable_nodes();
+
     choose(&mut harness, view_menu::HIDE);
 
     assert_eq!(
@@ -160,14 +170,18 @@ fn a_right_click_on_an_unselected_face_selects_it_alone_and_its_menu_hides_the_b
 #[test]
 fn a_right_click_waiting_for_its_pick_selects_what_was_under_it_after_the_pointer_moves_on() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
     let empty = empty_spot(&harness);
+
     point_at(&mut harness, empty);
 
     harness.picks_held = true;
     point_at(&mut harness, plate.spot);
     right_click(&mut harness, plate.spot);
+
     let waiting = menu(&harness);
+
     point_at(&mut harness, empty);
     harness.picks_held = false;
     harness.frame();
@@ -188,20 +202,27 @@ fn a_right_click_waiting_for_its_pick_selects_what_was_under_it_after_the_pointe
 #[test]
 fn a_right_click_keeps_a_selection_it_lands_on_or_beside_and_escape_closes_the_menu_only() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
     let mut both = vec![plate.top, plate.bottom];
+
     both.sort();
     harness.select([plate.top, plate.bottom]);
 
     hover_top(&mut harness, &plate);
     right_click(&mut harness, plate.spot);
+
     let on_selected = (menu(&harness), selected(&harness));
+
     press(&mut harness, Key::Escape, Modifiers::NONE);
+
     let after_escape = (menu(&harness), selected(&harness));
 
     let empty = empty_spot(&harness);
+
     point_at(&mut harness, empty);
     right_click(&mut harness, empty);
+
     let in_space = menu(&harness);
     let space_entries = [
         view_menu::FIT_SELECTION,
@@ -210,6 +231,7 @@ fn a_right_click_keeps_a_selection_it_lands_on_or_beside_and_escape_closes_the_m
         "Paste features",
     ]
     .map(|name| has_entry(&harness, name));
+
     harness.press(empty - vec2(40.0, 0.0));
     harness.frame();
 
@@ -232,6 +254,7 @@ fn a_right_click_keeps_a_selection_it_lands_on_or_beside_and_escape_closes_the_m
 #[test]
 fn a_right_drag_orbits_in_every_input_mode_without_opening_the_menu_and_a_click_opens_it() {
     let mut harness = Harness::new();
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.let_animations_finish();
 
@@ -240,13 +263,19 @@ fn a_right_drag_orbits_in_every_input_mode_without_opening_the_menu_and_a_click_
             PreferenceChange::InputMode(mode),
         )));
         harness.frame();
+
         let centre = viewport_centre(&harness);
         let before = harness.workspace.viewport.destination();
+
         drag(&mut harness, centre, centre + vec2(80.0, 30.0));
+
         let after = harness.workspace.viewport.destination();
         let after_drag = menu(&harness);
+
         right_click(&mut harness, centre);
+
         let after_click = menu(&harness);
+
         press(&mut harness, Key::Escape, Modifiers::NONE);
 
         assert!(
@@ -270,6 +299,7 @@ fn drag(harness: &mut Harness, from: Pos2, to: Pos2) {
     harness.frame();
     for step in 1..=4 {
         let position = from + (to - from) * (step as f32 / 4.0);
+
         harness.events.push(Event::PointerMoved(position));
         harness.frame();
     }
@@ -286,11 +316,14 @@ fn drag(harness: &mut Harness, from: Pos2, to: Pos2) {
 #[test]
 fn a_change_to_the_model_closes_the_menu() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
 
     hover_top(&mut harness, &plate);
     right_click(&mut harness, plate.spot);
+
     let opened = menu(&harness).is_some();
+
     harness.key(Key::H, Modifiers::NONE);
     harness.frame();
     harness.frame();
@@ -303,8 +336,11 @@ fn a_change_to_the_model_closes_the_menu() {
 #[test]
 fn the_menu_key_opens_it_at_the_selection_with_its_first_entry_focused_for_the_arrows() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
+
     harness.select([plate.bottom]);
+
     let rect = harness.workspace.viewport.rect().unwrap();
     let centre_of_bottom = harness
         .workspace
@@ -314,11 +350,15 @@ fn the_menu_key_opens_it_at_the_selection_with_its_first_entry_focused_for_the_a
 
     press(&mut harness, Key::F10, Modifiers::SHIFT);
     harness.frame();
+
     let opened = menu(&harness);
     let anchor = harness.workspace.viewport.context_menu_anchor();
     let first = harness.focused();
+
     press(&mut harness, Key::ArrowDown, Modifiers::NONE);
+
     let second = harness.focused();
+
     press(&mut harness, Key::ArrowDown, Modifiers::NONE);
     press(&mut harness, Key::Enter, Modifiers::NONE);
     harness.frame();
@@ -343,10 +383,12 @@ fn the_menu_key_opens_it_at_the_selection_with_its_first_entry_focused_for_the_a
 #[test]
 fn a_face_offers_the_tools_that_take_it_and_suppressing_the_feature_that_made_it() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
 
     hover_top(&mut harness, &plate);
     right_click(&mut harness, plate.spot);
+
     let offered = [
         "New sketch",
         "Extrude",
@@ -359,12 +401,14 @@ fn a_face_offers_the_tools_that_take_it_and_suppressing_the_feature_that_made_it
     let body = has_entry(&harness, view_menu::BODY_TOOLS);
     let feature = ["Rename Extrude 1", "Delete Extrude 1"].map(|name| has_entry(&harness, name));
     let menus = open_menus(&harness);
+
     choose(&mut harness, "Suppress Extrude 1");
     harness.settle();
 
     for shown in menus {
         assert!(SCREEN.contains_rect(shown), "{shown:?}");
     }
+
     assert_eq!(offered, [true; 5]);
     assert_eq!(left_out, [false; 2]);
     assert!(body);
@@ -382,6 +426,7 @@ fn a_face_offers_the_tools_that_take_it_and_suppressing_the_feature_that_made_it
 #[test]
 fn an_edge_offers_fillet_and_chamfer_and_choosing_one_opens_it_on_the_edge() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
     let edge = harness
         .built()
@@ -392,12 +437,16 @@ fn an_edge_offers_fillet_and_chamfer_and_choosing_one_opens_it_on_the_edge() {
     let face = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
 
     let spot = harness.hover_pickable(face, Point2::new(20.0, 0.0), edge);
+
     right_click(&mut harness, spot);
+
     let picked = selected(&harness);
     let offered = ["Fillet", "Chamfer"].map(|name| has_entry(&harness, name));
     let left_out = ["Shell", "Offset face", "New sketch"].map(|name| has_entry(&harness, name));
+
     choose(&mut harness, "Fillet");
     harness.settle();
+
     let opened = harness
         .workspace
         .editing
@@ -414,12 +463,15 @@ fn an_edge_offers_fillet_and_chamfer_and_choosing_one_opens_it_on_the_edge() {
 #[test]
 fn a_whole_body_offers_the_body_tools_rather_than_the_face_tools() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
     let faces = body_selection::whole_bodies(&harness.model, &[plate.extrude], Kind::Faces);
+
     harness.select(faces);
 
     hover_top(&mut harness, &plate);
     right_click(&mut harness, plate.spot);
+
     let offered = ["Move body", "Copy body", "Scale body"].map(|name| has_entry(&harness, name));
     let left_out =
         ["Shell", "Offset face", view_menu::BODY_TOOLS].map(|name| has_entry(&harness, name));
@@ -433,6 +485,7 @@ fn a_whole_body_offers_the_body_tools_rather_than_the_face_tools() {
 #[test]
 fn renaming_from_the_menu_renames_the_feature_that_made_the_face() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
 
     hover_top(&mut harness, &plate);
@@ -448,8 +501,10 @@ fn renaming_from_the_menu_renames_the_feature_that_made_the_face() {
 #[test]
 fn with_nothing_selected_the_menu_key_opens_it_at_the_centre_of_the_view() {
     let mut harness = Harness::new();
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let rect = harness.workspace.viewport.rect().unwrap();
 
     run_from_palette(&mut harness, "show the context menu");
@@ -465,8 +520,11 @@ fn with_nothing_selected_the_menu_key_opens_it_at_the_centre_of_the_view() {
 #[test]
 fn in_a_sketch_the_menu_constrains_the_curve_clicked_and_mid_shape_it_finishes_the_shape() {
     let mut harness = Harness::new();
+
     harness.context.enable_accesskit();
+
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 4.0));
     let feature = edit_free_sketch(&mut harness, sketch);
 
@@ -475,15 +533,19 @@ fn in_a_sketch_the_menu_constrains_the_curve_clicked_and_mid_shape_it_finishes_t
         Point2::new(15.0, 2.0),
         sketch_entity(feature, line),
     );
+
     right_click(&mut harness, spot);
+
     let opened = menu(&harness);
     let picked = selected(&harness);
     let modify = has_entry(&harness, view_menu::MODIFY);
+
     if !has_entry(&harness, "Horizontal") {
         choose(&mut harness, view_menu::CONSTRAIN);
     }
     choose(&mut harness, "Horizontal");
     harness.settle();
+
     let horizontal = harness
         .sketch(feature)
         .constraints()
@@ -492,11 +554,15 @@ fn in_a_sketch_the_menu_constrains_the_curve_clicked_and_mid_shape_it_finishes_t
 
     harness.use_tool(Key::L);
     harness.click_at(Point2::new(5.0, 10.0));
+
     let pending = harness.on_screen(Point2::new(20.0, 14.0));
+
     point_at(&mut harness, pending);
     right_click(&mut harness, pending);
+
     let mid_shape = menu(&harness);
     let take_back = has_entry(&harness, "Take back the last point");
+
     choose(&mut harness, "Finish the shape");
 
     assert_eq!(opened, Some(Place::Sketch { on_item: true }));
@@ -512,19 +578,23 @@ fn in_a_sketch_the_menu_constrains_the_curve_clicked_and_mid_shape_it_finishes_t
 #[test]
 fn the_menu_stays_on_screen_near_the_corner_at_the_largest_interface_size() {
     let mut harness = Harness::new();
+
     let plate = plate(&mut harness);
+
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(2.0),
     )));
     harness.frame();
     harness.frame();
     harness.select([plate.top]);
+
     let visible = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / 2.0);
     let rect = harness.workspace.viewport.rect().unwrap();
     let corner = rect.right_bottom() - vec2(30.0, 30.0);
 
     point_at(&mut harness, corner);
     right_click(&mut harness, corner);
+
     let opened = menu(&harness).is_some();
     let menus = open_menus(&harness);
 

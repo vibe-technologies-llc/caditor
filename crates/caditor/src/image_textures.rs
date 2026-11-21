@@ -74,14 +74,17 @@ fn contained<T>(decode: impl FnOnce() -> Result<T, PictureFailure>) -> Result<T,
 impl ImageTextures {
     pub fn decoded_for(document: &Document) -> Self {
         let mut textures = Self::default();
+
         for feature in document.features() {
             let FeatureKind::ReferenceImage(image) = &feature.kind else {
                 continue;
             };
             let digest = image.picture.digest();
+
             if textures.entries.contains_key(&digest) {
                 continue;
             }
+
             let entry = match contained(|| decoded(&image.picture)) {
                 Ok(texture) => Entry::Ready(texture),
                 Err(reason) => {
@@ -92,6 +95,7 @@ impl ImageTextures {
                     Entry::Failed(reason)
                 }
             };
+
             textures.entries.insert(digest, entry);
         }
         textures.generation += 1;
@@ -137,6 +141,7 @@ impl ImageTextures {
             return;
         }
         self.wanted_for = Some(revision);
+
         let pictures: BTreeMap<PictureDigest, Arc<Picture>> = document
             .features()
             .filter_map(|feature| match &feature.kind {
@@ -148,6 +153,7 @@ impl ImageTextures {
             .collect();
         let wanted: BTreeSet<PictureDigest> = pictures.keys().copied().collect();
         let before = self.entries.len();
+
         self.entries
             .retain(|digest, entry| wanted.contains(digest) || matches!(entry, Entry::Decoding));
         if self.entries.len() != before {
@@ -158,8 +164,10 @@ impl ImageTextures {
                 continue;
             }
             self.entries.insert(digest, Entry::Decoding);
+
             let sender = self.sender.clone();
             let wake = make_waker();
+
             let work = move || {
                 let result = contained(|| decoded(&picture));
                 if sender.send((digest, result)).is_ok() {
@@ -179,6 +187,7 @@ impl ImageTextures {
 
     pub fn poll(&mut self) -> bool {
         let mut changed = false;
+
         while let Ok((digest, result)) = self.receiver.try_recv() {
             if !self.entries.contains_key(&digest) {
                 continue;

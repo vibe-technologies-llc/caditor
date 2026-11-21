@@ -30,7 +30,7 @@ const MAX_NAME_CHARACTERS: usize = 60;
 pub const NO_BODIES: &str = "it holds no solid bodies";
 pub const TOO_SHORT: &str = "every curve in it is too short to draw";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportReport {
     pub heading: String,
     pub notes: Vec<String>,
@@ -71,6 +71,7 @@ pub fn plan_drawing(
     };
     let label = format!("Import {}", display_name(Some(path)));
     let arranged = drawing.arranged(&arrangement.options);
+
     let import = drawing_transaction(document, &arranged, target, label);
     Box::new(DrawingPlan {
         drawing,
@@ -97,6 +98,7 @@ pub fn place_drawing(
             let ImportError::Empty { left_out } = error else {
                 return Placement::Done(None);
             };
+
             return Placement::Done(nothing_imported(model, &file, &reason, left_out));
         }
         Err(error) => {
@@ -115,9 +117,11 @@ pub fn place_drawing(
         session,
         prepared,
     } = *plan;
+
     if curves == 0 {
         return Placement::Done(nothing_imported(model, &file, TOO_SHORT, notes));
     }
+
     let prepared = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
@@ -127,14 +131,17 @@ pub fn place_drawing(
             return Placement::Done(None);
         }
     };
+
     if model.commit(session, prepared).is_err() {
         return Placement::Stale(drawing, arrangement);
     }
     editing.perform(EditingCommand::Enter(sketch), model);
+
     let sketch = model
         .document()
         .feature(sketch)
         .map_or_else(|| "the sketch".to_owned(), |feature| feature.name.clone());
+
     model.set_notice(Notice::success(format!(
         "Imported {} from “{file}” into {sketch}.",
         count(curves, "curve", "curves")
@@ -176,6 +183,7 @@ pub fn read_mesh_in(
 
 fn kept_from(path: &Path, mut imported: ModelImport) -> ModelImport {
     let kept = path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+
     for body in &mut imported.bodies {
         body.import = body.import.clone().from_file(kept.clone());
     }
@@ -187,7 +195,7 @@ pub struct KeptSource {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum KeptSourceError {
     #[error("The imported body no longer exists.")]
     Deleted,
@@ -200,7 +208,7 @@ pub enum KeptSourceError {
     PathNotKept { name: String, origin: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum BodiesRefusal {
     #[error("{NO_BODIES}")]
     NoBodies,
@@ -219,6 +227,7 @@ pub fn kept_source(document: &Document, feature: FeatureId) -> Result<KeptSource
             name: owner.name.clone(),
         });
     };
+
     let path = import
         .path
         .clone()
@@ -232,7 +241,7 @@ pub fn kept_source(document: &Document, feature: FeatureId) -> Result<KeptSource
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReplacementSource {
     Picked,
     Kept { name: String },
@@ -258,7 +267,7 @@ impl ReplacementSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SourceRefusal {
     #[error(
         "{name} cannot be reloaded: “{}” is no longer there. Use Replace from file to choose \
@@ -274,10 +283,12 @@ fn starts_like_step(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }
+
     let Ok(mut file) = std::fs::File::open(path) else {
         return false;
     };
     let mut start = [0u8; SNIFFED_BYTES];
+
     let read = std::io::Read::read(&mut file, &mut start).unwrap_or(0);
     let start = start.get(..read).unwrap_or_default();
     let trimmed = start
@@ -303,11 +314,14 @@ pub fn place_bodies(
             return None;
         }
     };
+
     if imported.bodies.is_empty() {
         return nothing_imported(model, &file, BodiesRefusal::NoBodies, imported.notes);
     }
+
     let transaction =
         bodies_transaction(model.document(), &imported.bodies, format!("Import {file}"));
+
     if outgrows(model.document(), &transaction, MAX_MODEL_RECORDS) {
         model.set_notice(Notice::failure(format!(
             "“{file}” was not imported: with it the model would hold more than the {} GiB a model \
@@ -327,7 +341,9 @@ pub fn place_bodies(
         )));
         return None;
     }
+
     let revision = model.revision();
+
     model.perform(Action::Apply(transaction));
     if model.revision() == revision {
         return None;
@@ -371,6 +387,7 @@ pub fn replace_body(
             return None;
         }
     };
+
     let body = match replacement(&imported.bodies, &name) {
         Ok(body) => body,
         Err(refusal) => {
@@ -393,9 +410,11 @@ pub fn replace_body(
         .features()
         .map(|feature| feature.kind.stored_text_len())
         .sum();
+
     let after = held
         .saturating_sub(held_before)
         .saturating_add(FeatureKind::Import(body.import.clone()).stored_text_len());
+
     if after > MAX_MODEL_RECORDS {
         model.set_notice(Notice::failure(format!(
             "{name} was not replaced from “{file}”: with it the model would hold more than the \
@@ -404,7 +423,9 @@ pub fn replace_body(
         )));
         return None;
     }
+
     let revision = model.revision();
+
     model.perform(Action::Apply(transaction));
     if model.revision() == revision {
         return None;
@@ -502,6 +523,7 @@ pub fn new_sketch_name(document: &Document, path: &Path) -> String {
         .chars()
         .take(MAX_NAME_CHARACTERS)
         .collect();
+
     if stem.is_empty() {
         return editing::next_sketch_name(document);
     }
@@ -520,6 +542,7 @@ mod tests {
 
     fn importing(document: &Document, name: &str, bytes: usize) -> Transaction {
         let mut transaction = document.transaction("Import");
+
         transaction.add_feature(
             name,
             FeatureKind::Import(Import::new(
@@ -534,6 +557,7 @@ mod tests {
     #[test]
     fn an_import_that_would_outgrow_what_a_model_file_holds_is_caught_before_it_lands() {
         let mut document = Document::default();
+
         document.apply(importing(&document, "First", 600)).unwrap();
 
         let fitting = importing(&document, "Second", 300);
@@ -548,9 +572,11 @@ mod tests {
         let document = Document::default();
         let part = Import::new("part.step", Solid::default(), "x".repeat(600));
         let mut transaction = document.transaction("Import");
+
         for name in ["Part", "Part 2", "Part 3"] {
             transaction.add_feature(name, FeatureKind::Import(part.clone()));
         }
+
         let copies = transaction.finish();
 
         assert!(!outgrows(&document, &copies, 1000));
@@ -564,15 +590,18 @@ mod tests {
     #[test]
     fn an_import_that_would_hold_more_features_than_a_model_opens_is_caught_before_it_lands() {
         let mut document = Document::default();
+
         document.apply(importing(&document, "First", 1)).unwrap();
 
         let mut two = document.transaction("Import");
+
         for name in ["Screw", "Screw 2"] {
             two.add_feature(
                 name,
                 FeatureKind::Import(Import::new("part.step", Solid::default(), "x".to_owned())),
             );
         }
+
         let two = two.finish();
 
         assert!(!outnumbers(&document, &two, 3));
@@ -581,7 +610,9 @@ mod tests {
 
     fn document_with_import_from(path: &Path) -> (Document, FeatureId) {
         let mut document = Document::default();
+
         let mut transaction = document.transaction("Import");
+
         let id = transaction.add_feature(
             "Bracket",
             FeatureKind::Import(
@@ -589,6 +620,7 @@ mod tests {
                     .from_file(path.to_path_buf()),
             ),
         );
+
         document.apply(transaction.finish()).unwrap();
         (document, id)
     }

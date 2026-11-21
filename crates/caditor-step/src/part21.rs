@@ -2,7 +2,7 @@ use std::{borrow::Cow, ops::Range};
 
 const MAX_NESTING: usize = 64;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Span {
     start: u32,
     len: u32,
@@ -33,13 +33,13 @@ impl Span {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Name {
     InText(Span),
     Uppercased(Span),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Value {
     Integer(i64),
     Real(f64),
@@ -53,7 +53,7 @@ enum Value {
     Binary,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Integer,
     Real,
@@ -106,7 +106,7 @@ impl Value {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Values {
     kinds: Vec<Kind>,
     payloads: Vec<u64>,
@@ -126,6 +126,7 @@ impl Values {
 
     fn push(&mut self, value: Value) {
         let (kind, payload) = value.encoded();
+
         self.kinds.push(kind);
         self.payloads.push(payload);
     }
@@ -141,31 +142,31 @@ impl Values {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Typed {
     name: Name,
     value: Value,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct StoredRecord {
     name: Name,
     parameters: Span,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Body {
     Simple(StoredRecord),
     Complex(Span),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Entry {
     id: u64,
     body: Body,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Exchange<'a> {
     text: &'a str,
     uppercased: String,
@@ -181,25 +182,25 @@ pub(crate) struct Exchange<'a> {
     pub cut_short: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Parameter<'a> {
     exchange: &'a Exchange<'a>,
     value: Value,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct List<'a> {
     exchange: &'a Exchange<'a>,
     span: Span,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Record<'a> {
     exchange: &'a Exchange<'a>,
     stored: &'a StoredRecord,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Instance<'a> {
     exchange: &'a Exchange<'a>,
     entry: &'a Entry,
@@ -439,9 +440,13 @@ impl<'a> Exchange<'a> {
             self.data = entries;
             return;
         }
+
         let mut numbered: Vec<(usize, Entry)> = entries.into_iter().enumerate().collect();
+
         numbered.sort_unstable_by_key(|(position, entry)| (entry.id, *position));
+
         let mut repeats = Vec::new();
+
         self.data = Vec::with_capacity(numbered.len());
         for (position, entry) in numbered {
             if self.data.last().is_some_and(|last| last.id == entry.id) {
@@ -471,7 +476,7 @@ impl<'a> Exchange<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Mark {
     uppercased: usize,
     values: usize,
@@ -479,14 +484,14 @@ struct Mark {
     records: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SyntaxError {
     NotStep,
     TooLarge,
     Damaged { line: usize },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Token {
     Keyword(Span),
     Reference(u64),
@@ -537,6 +542,7 @@ impl<'a> Lexer<'a> {
 
     fn skip_statement(&mut self) -> Result<(), SyntaxError> {
         let mut quoted = false;
+
         while let Some(byte) = self.bump() {
             if quoted {
                 quoted = byte != b'\'';
@@ -576,6 +582,7 @@ impl<'a> Lexer<'a> {
 
     fn skip_section(&mut self) -> Result<(), SyntaxError> {
         let mut quoted = false;
+
         while let Some(&byte) = self.bytes.get(self.position) {
             if byte == b'\n' {
                 self.line += 1;
@@ -600,6 +607,7 @@ impl<'a> Lexer<'a> {
                 }
                 b'E' if self.bytes.get(self.position..self.position + 6) == Some(b"ENDSEC") => {
                     let mut after = self.position + 6;
+
                     while self
                         .bytes
                         .get(after)
@@ -625,6 +633,7 @@ impl<'a> Lexer<'a> {
 
     fn bump(&mut self) -> Option<u8> {
         let byte = self.peek_byte()?;
+
         self.position += 1;
         if byte == b'\n' {
             self.line += 1;
@@ -658,12 +667,14 @@ impl<'a> Lexer<'a> {
 
     fn next(&mut self) -> Result<Option<Token>, SyntaxError> {
         let token = self.token();
+
         self.after_semicolon = matches!(token, Ok(Some(Token::Semicolon)));
         token
     }
 
     fn token(&mut self) -> Result<Option<Token>, SyntaxError> {
         self.skip_space()?;
+
         let Some(byte) = self.peek_byte() else {
             return Ok(None);
         };
@@ -677,6 +688,7 @@ impl<'a> Lexer<'a> {
             b'*' => self.single(Token::Star),
             b'#' => {
                 self.bump();
+
                 let digits = self.take_while(|byte| byte.is_ascii_digit());
                 Token::Reference(self.slice(digits).parse().map_err(|_| self.damaged())?)
             }
@@ -691,7 +703,9 @@ impl<'a> Lexer<'a> {
             }
             b'.' => {
                 self.bump();
+
                 let name = self.take_while(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+
                 if self.bump() != Some(b'.') {
                     return Err(self.damaged());
                 }
@@ -720,6 +734,7 @@ impl<'a> Lexer<'a> {
 
     fn take_while(&mut self, keep: impl Fn(u8) -> bool) -> Range<usize> {
         let start = self.position;
+
         while self.peek_byte().is_some_and(&keep) {
             self.bump();
         }
@@ -753,7 +768,9 @@ impl<'a> Lexer<'a> {
 
     fn text(&mut self) -> Result<Span, SyntaxError> {
         self.bump();
+
         let start = self.position;
+
         loop {
             match self.bump() {
                 Some(b'\'') if self.peek_byte() == Some(b'\'') => {
@@ -764,6 +781,7 @@ impl<'a> Lexer<'a> {
                 None => return Err(self.damaged()),
             }
         }
+
         let end = self.position.saturating_sub(1);
         self.span(start..end)
     }
@@ -773,6 +791,7 @@ pub(crate) fn unquote(quoted: &str) -> Cow<'_, str> {
     if !quoted.contains(['\'', '\\', '\n', '\r']) {
         return Cow::Borrowed(quoted);
     }
+
     let joined: String = quoted
         .replace("''", "'")
         .chars()
@@ -784,6 +803,7 @@ pub(crate) fn unquote(quoted: &str) -> Cow<'_, str> {
 pub(crate) fn decode_text(raw: &str) -> String {
     let mut out = String::new();
     let mut rest = raw;
+
     while let Some(index) = rest.find('\\') {
         out.push_str(rest.get(..index).unwrap_or_default());
         rest = rest.get(index..).unwrap_or_default();
@@ -798,11 +818,13 @@ pub(crate) fn decode_text(raw: &str) -> String {
                 .chunks(4)
                 .filter_map(|chunk| u16::from_str_radix(std::str::from_utf8(chunk).ok()?, 16).ok())
                 .collect();
+
             out.push_str(&String::from_utf16_lossy(&units));
             rest = after.get(end + 4..).unwrap_or_default();
         } else if let Some(after) = rest.strip_prefix("\\X4\\") {
             let end = after.find("\\X0\\").unwrap_or(after.len());
             let hex = after.get(..end).unwrap_or_default();
+
             out.extend(hex.as_bytes().chunks(8).filter_map(|chunk| {
                 char::from_u32(u32::from_str_radix(std::str::from_utf8(chunk).ok()?, 16).ok()?)
             }));
@@ -812,6 +834,7 @@ pub(crate) fn decode_text(raw: &str) -> String {
                 .get(..2)
                 .filter(|hex| hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
                 .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+
             out.push(code.map_or('?', char::from));
             rest = match code {
                 Some(_) => after.get(2..).unwrap_or_default(),
@@ -819,14 +842,18 @@ pub(crate) fn decode_text(raw: &str) -> String {
             };
         } else if let Some(after) = rest.strip_prefix("\\S\\") {
             let mut characters = after.chars();
+
             if let Some(character) = characters.next() {
                 out.push(char::from_u32(u32::from(character) + 128).unwrap_or('?'));
             }
             rest = characters.as_str();
         } else if let Some(after) = rest.strip_prefix("\\P") {
             let mut characters = after.chars();
+
             characters.next();
+
             let page = characters.as_str();
+
             rest = page.strip_prefix('\\').unwrap_or(page);
         } else {
             out.push('\\');
@@ -890,18 +917,23 @@ impl<'a> Parser<'a> {
 
     fn name(&mut self, span: Span) -> Result<Name, SyntaxError> {
         let word = self.lexer.word(span);
+
         if !word.bytes().any(|byte| byte.is_ascii_lowercase()) {
             return Ok(Name::InText(span));
         }
+
         let uppercased = &mut self.exchange.uppercased;
         let start = uppercased.len();
+
         uppercased.extend(word.chars().map(|character| character.to_ascii_uppercase()));
+
         let span = self.lexer.span(start..uppercased.len())?;
         Ok(Name::Uppercased(span))
     }
 
     fn record(&mut self, name: Span) -> Result<StoredRecord, SyntaxError> {
         self.expect(Token::Open)?;
+
         let name = self.name(name)?;
         let parameters = self.parameters(0)?;
         Ok(StoredRecord { name, parameters })
@@ -911,13 +943,16 @@ impl<'a> Parser<'a> {
         if depth > MAX_NESTING {
             return Err(self.lexer.damaged());
         }
+
         let base = self.pending.len();
+
         if self.peek()? == Some(Token::Close) {
             self.take()?;
             return self.close_list(base);
         }
         loop {
             let value = self.parameter(depth)?;
+
             self.pending.push(value);
             match self.take()? {
                 Token::Comma => {}
@@ -930,6 +965,7 @@ impl<'a> Parser<'a> {
     fn close_list(&mut self, base: usize) -> Result<Span, SyntaxError> {
         let values = &mut self.exchange.values;
         let start = values.len();
+
         for value in self.pending.drain(base..) {
             values.push(value);
         }
@@ -949,6 +985,7 @@ impl<'a> Parser<'a> {
             Token::Open => Value::List(self.parameters(depth + 1)?),
             Token::Keyword(name) => {
                 self.expect(Token::Open)?;
+
                 let name = self.name(name)?;
                 let inner = self.parameters(depth + 1)?;
                 let only = (inner.len == 1)
@@ -963,6 +1000,7 @@ impl<'a> Parser<'a> {
                 };
                 let index =
                     u32::try_from(self.exchange.typed.len()).map_err(|_| SyntaxError::TooLarge)?;
+
                 self.exchange.typed.push(Typed { name, value });
                 Value::Typed(index)
             }
@@ -978,7 +1016,9 @@ impl<'a> Parser<'a> {
         match self.take()? {
             Token::Reference(id) => {
                 self.expect(Token::Equals)?;
+
                 let body = self.instance()?;
+
                 self.expect(Token::Semicolon)?;
                 Ok(Statement::Instance(Entry { id, body }))
             }
@@ -994,11 +1034,14 @@ impl<'a> Parser<'a> {
         let start = self.exchange.records.len();
         loop {
             let name = self.keyword()?;
+
             if self.lexer.word(name).eq_ignore_ascii_case("ENDSEC") {
                 self.exchange.header = self.records_since(start)?;
                 return self.expect(Token::Semicolon);
             }
+
             let record = self.record(name)?;
+
             self.expect(Token::Semicolon)?;
             self.exchange.records.push(record);
         }
@@ -1027,18 +1070,21 @@ impl<'a> Parser<'a> {
                     match self.take()? {
                         Token::Keyword(name) => {
                             let record = self.record(name)?;
+
                             self.exchange.records.push(record);
                         }
                         Token::Close => break,
                         _ => return Err(self.lexer.damaged()),
                     }
                 }
+
                 let Exchange {
                     text,
                     uppercased,
                     records,
                     ..
                 } = &mut self.exchange;
+
                 if let Some(parts) = records.get_mut(start..) {
                     parts.sort_by(|a, b| {
                         name_in(text, uppercased, a.name).cmp(name_in(text, uppercased, b.name))
@@ -1053,7 +1099,9 @@ impl<'a> Parser<'a> {
     fn data(&mut self, entries: &mut Vec<Entry>) -> Result<bool, SyntaxError> {
         if self.peek()? == Some(Token::Open) {
             self.take()?;
+
             let mark = self.exchange.mark();
+
             self.parameters(0)?;
             self.exchange.restore(mark);
         }
@@ -1061,9 +1109,11 @@ impl<'a> Parser<'a> {
         loop {
             let line = self.next_line();
             let ended = matches!(self.peek(), Ok(None));
+
             if ended {
                 return Ok(false);
             }
+
             let mark = self.exchange.mark();
             match self.statement() {
                 Ok(Statement::Instance(entry)) => entries.push(entry),
@@ -1083,25 +1133,31 @@ impl<'a> Parser<'a> {
 
 pub(crate) fn parse(text: &str) -> Result<Exchange<'_>, SyntaxError> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+
     if u32::try_from(text.len()).is_err() {
         return Err(SyntaxError::TooLarge);
     }
+
     let mut parser = Parser::new(text);
+
     match parser.take() {
         Ok(token) if parser.lexer.is_keyword(token, "ISO-10303-21") => {}
         _ => return Err(SyntaxError::NotStep),
     }
     parser.expect(Token::Semicolon)?;
+
     let mut entries = Vec::new();
     loop {
         if parser.peek()?.is_none() {
             parser.exchange.trailer_missing = true;
             return Ok(parser.exchange.finish(entries));
         }
+
         let section = parser.keyword()?;
         let word = parser.lexer.word(section);
         if word.eq_ignore_ascii_case("HEADER") {
             parser.expect(Token::Semicolon)?;
+
             let section = parser.lexer.mark();
             let mark = parser.exchange.mark();
             if parser.header().is_err() {
@@ -1333,29 +1389,39 @@ mod tests {
     #[test]
     fn damage_is_located_and_other_files_are_refused() {
         assert_eq!(parse("solid cube\nfacet"), Err(SyntaxError::NotStep));
+
         let unterminated =
             parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=LINE('',#2,#3;\nENDSEC;");
+
         assert_eq!(unterminated.unwrap().unreadable, [5]);
+
         let mid_entity =
             parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=A(1);\n#2=LINE('',#2,'#3);\n")
                 .unwrap();
+
         assert!(mid_entity.cut_short && mid_entity.trailer_missing);
         assert_eq!(mid_entity.ids(), [1]);
         assert_eq!(mid_entity.unreadable, [6]);
+
         let without_endsec =
             parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=A(1);\n#2=A(2);\n").unwrap();
+
         assert!(without_endsec.cut_short);
         assert_eq!(without_endsec.ids(), [1, 2]);
         assert!(without_endsec.unreadable.is_empty());
+
         let mid_record = parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=A(1);\n#2=A(").unwrap();
+
         assert!(mid_record.cut_short);
         assert_eq!(mid_record.ids(), [1]);
+
         let deep = format!(
             "ISO-10303-21;DATA;#1=A({}{});ENDSEC;END-ISO-10303-21;",
             "(".repeat(200),
             ")".repeat(200)
         );
         let nested = parse(&deep).unwrap();
+
         assert!(nested.ids().is_empty());
         assert_eq!(nested.unreadable, [1]);
         assert!(nested.values.len() == 0 && nested.records.is_empty());
@@ -1366,6 +1432,7 @@ mod tests {
         let broken = "ISO-10303-21;\nHEADER;\nFILE_NAME('a;b','2026'\nFILE_SCHEMA(('x'));\nENDSEC;\n\
                       DATA;\n#1=A(1);\nENDSEC;\nEND-ISO-10303-21;\n";
         let exchange = parse(broken).unwrap();
+
         assert!(exchange.header_damaged && exchange.header().next().is_none());
         assert_eq!(exchange.ids(), [1]);
         assert!(!exchange.trailer_missing);
@@ -1373,12 +1440,14 @@ mod tests {
         let swallowed =
             "ISO-10303-21;\nHEADER;\nFILE_NAME('a'\nENDSEC;\nDATA;\n#1=A(1);\nENDSEC;\n";
         let exchange = parse(swallowed).unwrap();
+
         assert!(exchange.header_damaged && exchange.trailer_missing);
         assert_eq!(exchange.ids(), [1]);
 
         let intact =
             "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=A(1);\nENDSEC;\nEND-ISO-10303-21;\n";
         let exchange = parse(intact).unwrap();
+
         assert!(!exchange.header_damaged && !exchange.trailer_missing);
     }
 
@@ -1391,6 +1460,7 @@ mod tests {
                     #2=CARTESIAN_POINT('',(1.,0.,0.));\nENDSEC;\nSIGNATURE;\nabc\nENDSEC;\n\
                     END-ISO-10303-21;\n";
         let exchange = parse(text).unwrap();
+
         assert_eq!(exchange.ids().len(), 2);
         assert_eq!(
             parse("ISO-10303-21;\nANCHOR;\n<top>=#1;\n"),

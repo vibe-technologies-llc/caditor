@@ -17,6 +17,7 @@ const MID_TURN: Duration = Duration::from_millis(100);
 
 fn settled() -> Harness {
     let mut harness = Harness::new();
+
     settle_camera(&mut harness);
     harness
 }
@@ -62,6 +63,7 @@ fn drag_with(harness: &mut Harness, button: PointerButton, from: Pos2, to: Pos2)
     harness.frame();
     for step in 1..=4 {
         let position = from + (to - from) * (step as f32 / 4.0);
+
         harness.events.push(Event::PointerMoved(position));
         harness.frame();
     }
@@ -104,9 +106,12 @@ fn a_fit_during_a_turn_to_a_standard_view_keeps_the_view_it_was_turning_to() {
 
     press(&mut harness, Key::Num1, Modifiers::ALT);
     harness.workspace.viewport.advance(MID_TURN);
+
     let mid_turn = harness.workspace.viewport.viewpoint();
+
     press(&mut harness, Key::F, Modifiers::NONE);
     settle_camera(&mut harness);
+
     let fitted = harness.workspace.viewport.viewpoint();
 
     assert!(mid_turn.forward().distance(Vector3::Y) > 0.1);
@@ -120,8 +125,11 @@ fn a_key_nudge_during_a_turn_glides_on_from_the_view_it_was_turning_to() {
     press(&mut harness, Key::Num2, Modifiers::ALT);
     harness.workspace.viewport.advance(MID_TURN);
     press(&mut harness, Key::ArrowLeft, Modifiers::NONE);
+
     let gliding = harness.workspace.viewport.is_animating();
+
     settle_camera(&mut harness);
+
     let turned = harness.workspace.viewport.viewpoint();
 
     assert!(gliding);
@@ -135,12 +143,14 @@ fn a_key_nudge_during_a_turn_glides_on_from_the_view_it_was_turning_to() {
 #[test]
 fn a_key_orbit_turns_further_at_a_higher_orbit_speed() {
     let mut harness = settled();
+
     change(&mut harness, PreferenceChange::OrbitSpeed(2.0));
     press(&mut harness, Key::Num1, Modifiers::ALT);
     settle_camera(&mut harness);
 
     press(&mut harness, Key::ArrowLeft, Modifiers::NONE);
     settle_camera(&mut harness);
+
     let turned = harness.workspace.viewport.viewpoint().forward();
 
     assert!((turned.angle_between(Vector3::Y) - PI / 6.0).abs() < 1e-9);
@@ -149,6 +159,7 @@ fn a_key_orbit_turns_further_at_a_higher_orbit_speed() {
 #[test]
 fn the_navigation_hint_names_the_buttons_of_the_input_mode() {
     let mut harness = settled();
+
     let caditor = harness.shows_hint(InputMode::Caditor.navigation_hint());
 
     change(
@@ -165,30 +176,38 @@ fn the_navigation_hint_names_the_buttons_of_the_input_mode() {
 #[test]
 fn previous_view_steps_back_through_chosen_views_and_turns() {
     let mut harness = settled();
+
     let opened = heading(&harness);
 
     press(&mut harness, Key::Num2, Modifiers::ALT);
     settle_camera(&mut harness);
+
     let top = heading(&harness);
+
     press(&mut harness, Key::ArrowLeft, Modifiers::NONE);
     settle_camera(&mut harness);
+
     let nudged = heading(&harness);
     let centre = viewport_centre(&harness);
+
     drag_with(
         &mut harness,
         PointerButton::Secondary,
         centre,
         centre + egui::vec2(80.0, 30.0),
     );
+
     let dragged = heading(&harness);
 
     let mut stepped = Vec::new();
+
     for _ in 0..3 {
         press(&mut harness, Key::ArrowLeft, Modifiers::ALT);
         stepped.push(heading(&harness));
         settle_camera(&mut harness);
     }
     press(&mut harness, Key::ArrowLeft, Modifiers::ALT);
+
     let after_all = heading(&harness);
 
     assert!(!same_view(dragged, nudged));
@@ -207,16 +226,21 @@ fn previous_view_steps_back_through_chosen_views_and_turns() {
 #[test]
 fn next_view_steps_forward_again_until_the_view_is_changed() {
     let mut harness = settled();
+
     let opened = heading(&harness);
 
     press(&mut harness, Key::Num2, Modifiers::ALT);
     settle_camera(&mut harness);
+
     let top = heading(&harness);
+
     press(&mut harness, Key::Num1, Modifiers::ALT);
     settle_camera(&mut harness);
+
     let front = heading(&harness);
 
     press(&mut harness, Key::ArrowRight, Modifiers::ALT);
+
     assert!(
         harness
             .model
@@ -228,13 +252,17 @@ fn next_view_steps_forward_again_until_the_view_is_changed() {
     settle_camera(&mut harness);
     press(&mut harness, Key::ArrowLeft, Modifiers::ALT);
     settle_camera(&mut harness);
+
     let back_at_start = heading(&harness);
 
     press(&mut harness, Key::ArrowRight, Modifiers::ALT);
     settle_camera(&mut harness);
+
     let forward_once = heading(&harness);
+
     press(&mut harness, Key::ArrowRight, Modifiers::ALT);
     settle_camera(&mut harness);
+
     let forward_twice = heading(&harness);
 
     assert!(same_view(back_at_start, opened));
@@ -245,10 +273,13 @@ fn next_view_steps_forward_again_until_the_view_is_changed() {
 #[test]
 fn finishing_a_sketch_goes_back_to_the_view_before_it_with_one_key() {
     let mut harness = settled();
+
     let before = heading(&harness);
 
     harness.draw_on_new_sketch();
+
     let facing = heading(&harness);
+
     harness.perform(Action::Editing(EditingCommand::Finish));
     harness.settle();
     run_from_palette(&mut harness, "previous view");
@@ -262,8 +293,10 @@ fn finishing_a_sketch_goes_back_to_the_view_before_it_with_one_key() {
 #[test]
 fn dragging_the_view_cube_orbits_and_home_goes_to_the_isometric_view() {
     let mut harness = settled();
+
     press(&mut harness, Key::Num1, Modifiers::ALT);
     settle_camera(&mut harness);
+
     let front = heading(&harness);
     let (rect, _) = cube(&mut harness);
 
@@ -272,10 +305,13 @@ fn dragging_the_view_cube_orbits_and_home_goes_to_the_isometric_view() {
         rect.center(),
         rect.center() + egui::vec2(30.0, 0.0),
     );
+
     let orbited = heading(&harness);
     let selection_kept_empty = harness.workspace.viewport.selection().is_empty();
+
     harness.click_button(view_cube::HOME_NAME);
     settle_camera(&mut harness);
+
     let home = looking_from(heading(&harness));
 
     assert!(orbited.forward().z.abs() < 1e-9);
@@ -287,10 +323,12 @@ fn dragging_the_view_cube_orbits_and_home_goes_to_the_isometric_view() {
 #[test]
 fn the_view_cube_hover_names_the_keys_of_a_standard_view() {
     let mut harness = settled();
+
     press(&mut harness, Key::Num1, Modifiers::ALT);
     settle_camera(&mut harness);
 
     let (_, name) = cube(&mut harness);
+
     harness.hover_button(&name);
 
     assert!(harness.shows("View from front (Alt+1)"));
@@ -300,16 +338,20 @@ fn the_view_cube_hover_names_the_keys_of_a_standard_view() {
 fn a_middle_double_click_fits_the_view_in_every_input_mode() {
     for mode in InputMode::ALL {
         let mut harness = settled();
+
         change(&mut harness, PreferenceChange::InputMode(mode));
         press(&mut harness, Key::F, Modifiers::NONE);
         settle_camera(&mut harness);
+
         let fitted = heading(&harness);
         let centre = viewport_centre(&harness);
+
         harness.events.push(Event::PointerMoved(centre));
         harness.frame();
         press(&mut harness, Key::PageDown, Modifiers::NONE);
         press(&mut harness, Key::PageDown, Modifiers::NONE);
         settle_camera(&mut harness);
+
         let zoomed = heading(&harness);
 
         for _ in 0..2 {

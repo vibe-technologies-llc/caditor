@@ -12,22 +12,28 @@ use crate::{
 #[test]
 fn a_body_is_renamed_selected_whole_and_removed_from_the_palette() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.frame();
 
     run_from_palette(&mut harness, "rename body");
     harness.frame();
+
     let focused = harness.focused() == Some(crate::body_appearance::name_field_id(plate));
+
     harness.type_text("Base plate");
     harness.key(Key::Enter, Modifiers::NONE);
     harness.settle();
+
     let named = harness.document().body_name(plate).as_deref() == Some("Base plate");
     let listed = harness.shows("Base plate");
 
     harness.select([top]);
     run_from_palette(&mut harness, "select the whole body");
     harness.frame();
+
     let faces = harness
         .workspace
         .viewport
@@ -38,8 +44,10 @@ fn a_body_is_renamed_selected_whole_and_removed_from_the_palette() {
 
     run_from_palette(&mut harness, "remove body");
     harness.settle();
+
     let removed = harness.model.evaluation().body(plate).is_none();
     let told = harness.shows_containing("Removed Base plate with Remove 1");
+
     harness.perform(Action::Undo);
     harness.settle();
 
@@ -55,23 +63,29 @@ fn a_body_is_renamed_selected_whole_and_removed_from_the_palette() {
 #[test]
 fn copy_body_makes_a_placed_copy_beside_the_original() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let volume = harness.body_volume(plate);
+
     harness.select([top]);
     harness.frame();
 
     run_from_palette(&mut harness, "copy body");
     harness.settle();
+
     let copy = harness.workspace.editing.solid().expect("the copy is open");
+
     harness.type_into_field(Id::unique(("move-field", "offset", 1usize, copy)), "60 mm");
     harness.settle();
 
     let feature = harness.document().feature(copy).unwrap();
+
     assert_eq!(feature.name, "Copy 1");
     assert!(feature.makes_body());
     assert!(harness.shows(crate::move_panel::RESULT));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!((harness.body_volume(copy) - volume).abs() < 1e-6 * volume);
+
     let bounds = harness
         .model
         .evaluation()
@@ -79,7 +93,9 @@ fn copy_body_makes_a_placed_copy_beside_the_original() {
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!((bounds.min().y - 60.0).abs() < 1e-6);
+
     let original = harness
         .model
         .evaluation()
@@ -87,6 +103,7 @@ fn copy_body_makes_a_placed_copy_beside_the_original() {
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!(original.min().y.abs() < 1e-6);
 
     choose(
@@ -94,9 +111,11 @@ fn copy_body_makes_a_placed_copy_beside_the_original() {
         crate::move_panel::NEW_BODY,
         crate::move_panel::MOVE_BODY,
     );
+
     assert_eq!(harness.model.undo_label(), Some("Edit Copy 1"));
     assert!(!harness.document().feature(copy).unwrap().makes_body());
     assert!(harness.model.evaluation().body(copy).is_none());
+
     let moved = harness
         .model
         .evaluation()
@@ -104,10 +123,12 @@ fn copy_body_makes_a_placed_copy_beside_the_original() {
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!((moved.min().y - 60.0).abs() < 1e-6);
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(harness.document().feature(copy).unwrap().makes_body());
     assert!((harness.body_volume(copy) - volume).abs() < 1e-6 * volume);
 }
@@ -115,11 +136,13 @@ fn copy_body_makes_a_placed_copy_beside_the_original() {
 #[test]
 fn swept_sketches_hide_and_bodies_and_sketches_hide_and_show_again() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let sketch = feature_named(&harness, "Plate");
     let sketch_hidden_by_extrude = hidden(&harness, sketch);
     let pickables =
         |harness: &mut Harness| -> Vec<Pickable> { harness.built().picks.pickables().collect() };
+
     let sketch_pickable = pickables(&mut harness).iter().any(
         |pickable| matches!(pickable, Pickable::SketchEntity { feature, .. } if *feature == sketch),
     );
@@ -127,6 +150,7 @@ fn swept_sketches_hide_and_bodies_and_sketches_hide_and_show_again() {
     harness.let_animations_finish();
     harness.click_beside(crate::icons::HIDE, "Plate");
     harness.settle();
+
     let shown_from_tree = !hidden(&harness, sketch);
     let show_label = harness.model.undo_label().map(str::to_owned);
 
@@ -134,9 +158,11 @@ fn swept_sketches_hide_and_bodies_and_sketches_hide_and_show_again() {
         .into_iter()
         .find(|pickable| matches!(pickable, Pickable::Face { .. }))
         .expect("the body has faces");
+
     harness.select([face]);
     harness.key(Key::H, Modifiers::NONE);
     harness.settle();
+
     let body_hidden = hidden(&harness, plate);
     let faces_left = pickables(&mut harness)
         .iter()
@@ -155,18 +181,23 @@ fn swept_sketches_hide_and_bodies_and_sketches_hide_and_show_again() {
     assert!(selection_cleared);
     assert!(!hidden(&harness, plate) && !hidden(&harness, sketch));
     assert_eq!(harness.model.undo_label(), Some("Show everything"));
+
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(hidden(&harness, plate));
 }
 
 #[test]
 fn hiding_others_keeps_only_the_selected_body_and_undoes_in_one_step() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let sketch = feature_named(&harness, "Plate");
+
     harness.click_beside(crate::icons::HIDE, "Plate");
     harness.settle();
+
     let sketch_shown = !hidden(&harness, sketch);
 
     harness.select([top]);
@@ -180,28 +211,37 @@ fn hiding_others_keeps_only_the_selected_body_and_undoes_in_one_step() {
         harness.model.undo_label(),
         Some("Hide everything but Extrude 1")
     );
+
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(!hidden(&harness, sketch));
 }
 
 #[test]
 fn the_bodies_group_lists_every_body_and_hides_or_selects_one() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
+
     harness.settle();
 
     assert!(harness.shows("Bodies (2)"));
     assert_eq!(rows_named(&harness, "Peg").len(), 1);
+
     harness.click("Bodies (2)");
     harness.settle();
+
     let rows = rows_named(&harness, "Peg");
+
     assert_eq!(rows.len(), 2);
 
     let listed = rows[1];
+
     harness.click_screen(listed.center());
     harness.settle();
+
     assert_eq!(harness.workspace.panels.selected, Some(peg));
 
     let eye = harness
@@ -213,14 +253,17 @@ fn the_bodies_group_lists_every_body_and_hides_or_selects_one() {
         .map(|(_, rect)| rect.center())
         .next()
         .expect("the listed body has an eye");
+
     harness.click_screen(eye);
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Hide Peg"));
     assert!(hidden(&harness, peg));
     assert!(!hidden(&harness, plate));
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(!hidden(&harness, peg));
 }
 
@@ -234,24 +277,31 @@ fn body_row(harness: &Harness, name: &str) -> egui::Rect {
 #[test]
 fn a_double_click_on_a_body_row_opens_its_feature_or_renames_the_body_as_the_preference_says() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
+
     harness.settle();
     harness.click("Bodies (2)");
     harness.settle();
+
     let listed = body_row(&harness, "Peg");
 
     harness.click_screen(listed.center());
     harness.press(listed.center());
     harness.settle();
+
     let opened = harness.workspace.editing.solid();
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::DoubleClick(DoubleClick::Rename),
     )));
     harness.frame();
+
     let listed = body_row(&harness, "Peg");
+
     harness.click_screen(listed.center());
     harness.press(listed.center());
     harness.frame();
@@ -281,8 +331,11 @@ fn preparing_bodies_for_display_can_be_cancelled_leaving_the_rest_hidden_until_s
         converts: Hold::holding(),
         ..Holds::default()
     };
+
     harness.model.hold_body_work(&holds);
+
     let mut transaction = harness.document().transaction("Add two blocks");
+
     block_into(
         &mut transaction,
         "Left",
@@ -296,13 +349,17 @@ fn preparing_bodies_for_display_can_be_cancelled_leaving_the_rest_hidden_until_s
         "5 mm",
     );
     harness.perform(Action::Apply(transaction.finish()));
+
     let preparing = format!("{}…", status_bar::showing_bodies_text(0, 2));
+
     harness.wait_until("the bodies are being prepared", |harness| {
         harness.shows(&preparing)
     });
 
     harness.hover("Cancel");
+
     let explained = harness.shows_containing("stay hidden until Show the rest");
+
     harness.click("Cancel");
     harness.frame();
     harness.frame();
@@ -326,7 +383,9 @@ fn preparing_bodies_for_display_can_be_cancelled_leaving_the_rest_hidden_until_s
 #[test]
 fn a_bodys_edges_are_one_styled_run_over_its_mesh_polylines_not_a_line_per_segment() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
+
     harness.select([]);
     harness.frame();
 
@@ -337,6 +396,7 @@ fn a_bodys_edges_are_one_styled_run_over_its_mesh_polylines_not_a_line_per_segme
         .filter(|pickable| matches!(pickable, Pickable::Edge { body, .. } if *body == plate))
         .filter_map(|pickable| built.picks.id_of(pickable))
         .collect();
+
     let batch = built
         .scene
         .batches

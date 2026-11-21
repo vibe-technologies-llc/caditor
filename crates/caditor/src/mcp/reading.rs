@@ -41,11 +41,11 @@ const DEFAULT_SIZE: SurfaceSize = SurfaceSize {
 const MOST_FACES: usize = 300;
 const DECIMALS: f64 = 1e6;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Nothing {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OfBody {
     pub body: Named,
@@ -53,13 +53,13 @@ pub struct OfBody {
     pub before: Option<Named>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OfSketch {
     pub sketch: Named,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ViewName {
     Home,
@@ -72,7 +72,7 @@ pub enum ViewName {
     Left,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Picture {
     pub view: Option<ViewName>,
@@ -203,13 +203,16 @@ pub fn problems(document: &Document, evaluation: &Evaluation) -> Vec<(u64, Strin
 
 pub fn model(session: &mut Session, work: &Work<'_>) -> Result<Map<String, Value>, ToolError> {
     session.evaluate(work)?;
+
     let unprotected = session.unprotected().map(ToString::to_string);
     let document = session.document();
     let evaluation = session.evaluation();
+
     let failing: Vec<Value> = problems(document, evaluation)
         .into_iter()
         .map(|(id, name, words)| {
             let mut entry = Map::new();
+
             entry.insert("id".to_owned(), json!(id));
             entry.insert("name".to_owned(), json!(name));
             words.into_json(&mut entry);
@@ -222,6 +225,7 @@ pub fn model(session: &mut Session, work: &Work<'_>) -> Result<Map<String, Value
         .map(|folder| folder.display().to_string())
         .collect();
     let mut summary = Map::new();
+
     summary.insert(
         "file".to_owned(),
         json!(session.model().display().to_string()),
@@ -259,12 +263,15 @@ pub fn model(session: &mut Session, work: &Work<'_>) -> Result<Map<String, Value
 
 pub fn features(session: &mut Session, work: &Work<'_>) -> Result<Map<String, Value>, ToolError> {
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
+
     let listed: Vec<Value> = document
         .features()
         .map(|feature| {
             let mut entry = Map::new();
+
             entry.insert("id".to_owned(), json!(feature.id().raw()));
             entry.insert("name".to_owned(), json!(feature.name));
             entry.insert("kind".to_owned(), json!(kind_word(feature)));
@@ -277,12 +284,14 @@ pub fn features(session: &mut Session, work: &Work<'_>) -> Result<Map<String, Va
             }
             if feature.kind.sketch().is_some() {
                 let summary = SketchSummary::of(evaluation, feature.id());
+
                 entry.insert("sketch_status".to_owned(), json!(summary.status_text()));
             }
             Value::Object(entry)
         })
         .collect();
     let mut answer = Map::new();
+
     answer.insert("features".to_owned(), Value::Array(listed));
     Ok(answer)
 }
@@ -290,11 +299,13 @@ pub fn features(session: &mut Session, work: &Work<'_>) -> Result<Map<String, Va
 pub fn parameters(session: &Session) -> Map<String, Value> {
     let document = session.document();
     let values = session.parameters();
+
     let listed: Vec<Value> = document
         .parameters()
         .iter()
         .map(|parameter| {
             let mut entry = Map::new();
+
             entry.insert("id".to_owned(), json!(parameter.id().raw()));
             entry.insert("name".to_owned(), json!(parameter.name));
             entry.insert(
@@ -313,7 +324,9 @@ pub fn parameters(session: &Session) -> Map<String, Value> {
             if !parameter.note.is_empty() {
                 entry.insert("note".to_owned(), json!(parameter.note));
             }
+
             let users = document.parameter_users(parameter.id());
+
             if !users.is_empty() {
                 entry.insert("used_by".to_owned(), json!(users));
             }
@@ -321,21 +334,27 @@ pub fn parameters(session: &Session) -> Map<String, Value> {
         })
         .collect();
     let mut answer = Map::new();
+
     answer.insert("parameters".to_owned(), Value::Array(listed));
     answer
 }
 
 pub fn bodies(session: &mut Session, work: &Work<'_>) -> Result<Map<String, Value>, ToolError> {
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
     let standing: Vec<_> = evaluation.bodies().collect();
     let count = standing.len();
     let mut listed = Vec::with_capacity(count);
+
     for (index, (body, last)) in standing.into_iter().enumerate() {
         let label = body_label(document, body);
+
         work.progress(&format!("Measuring {label} ({} of {count})", index + 1));
+
         let mut entry = Map::new();
+
         entry.insert("id".to_owned(), json!(body.raw()));
         entry.insert("name".to_owned(), json!(label));
         if let Some(feature) = document.feature(last) {
@@ -346,7 +365,9 @@ pub fn bodies(session: &mut Session, work: &Work<'_>) -> Result<Map<String, Valu
         }
         listed.push(Value::Object(entry));
     }
+
     let mut answer = Map::new();
+
     answer.insert("bodies".to_owned(), Value::Array(listed));
     Ok(answer)
 }
@@ -357,9 +378,11 @@ fn measure_body(
     entry: &mut Map<String, Value>,
 ) -> Result<(), Cancelled> {
     let measured = interruptible(work.interrupt(), || result.exact_mass());
+
     match measured {
         Ok(mass) => {
             let properties = mass.properties;
+
             entry.insert("volume".to_owned(), rounded(properties.volume));
             entry.insert("surface_area".to_owned(), rounded(properties.area));
             entry.insert("centre_of_mass".to_owned(), point3(properties.centroid));
@@ -421,14 +444,17 @@ fn listed_faces(
 ) -> Result<Map<String, Value>, ToolError> {
     let document = session.document();
     let evaluation = session.evaluation();
+
     let body = references::body(document, evaluation, &of.body)?;
     let shown = bodies::shown(evaluation, body)
         .ok_or_else(|| references::ReferenceError::NoBody(of.body.clone()))?;
     let keys = bodies::face_keys(&shown.solid);
     let total = keys.len();
     let mut listed = Vec::with_capacity(total.min(MOST_FACES));
+
     for (face, key) in keys.into_iter().take(MOST_FACES) {
         let mut entry = Map::new();
+
         entry.insert("face".to_owned(), json!(face_key_text(key)));
         entry.insert(
             "description".to_owned(),
@@ -445,7 +471,9 @@ fn listed_faces(
         }
         listed.push(Value::Object(entry));
     }
+
     let mut answer = Map::new();
+
     answer.insert("body".to_owned(), json!(body_label(document, body)));
     answer.insert("faces".to_owned(), Value::Array(listed));
     if total > MOST_FACES {
@@ -516,14 +544,17 @@ pub fn sketch(
     of: &OfSketch,
 ) -> Result<Map<String, Value>, ToolError> {
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
     let (feature, definition) = references::sketch(document, &of.sketch)?;
+
     let result = up_to_date_result(evaluation, feature.id());
     let shown = result.map_or(definition, |result| &result.geometry);
     let summary = SketchSummary::of(evaluation, feature.id());
 
     let mut answer = Map::new();
+
     answer.insert("id".to_owned(), json!(feature.id().raw()));
     answer.insert("name".to_owned(), json!(feature.name));
     answer.insert("plane".to_owned(), plane(&shown.plane()));
@@ -537,17 +568,20 @@ pub fn sketch(
             "degrees_of_freedom".to_owned(),
             json!(result.solution.degrees_of_freedom()),
         );
+
         let redundant: Vec<String> = result
             .solution
             .redundancies()
             .iter()
             .map(|redundancy| definition.describe_constraint(redundancy.constraint))
             .collect();
+
         if !redundant.is_empty() {
             answer.insert("redundant".to_owned(), json!(redundant));
         }
         if !result.open_ends.is_empty() {
             let ends: Vec<Value> = result.open_ends.iter().map(|id| entity_name(*id)).collect();
+
             answer.insert("open_ends".to_owned(), Value::Array(ends));
         }
     }
@@ -556,6 +590,7 @@ pub fn sketch(
     {
         answer.insert("problem".to_owned(), json!(error.reason()));
         answer.insert("remedy".to_owned(), json!(error.remedy()));
+
         let conflicts: Vec<String> = error
             .constraints
             .iter()
@@ -566,11 +601,15 @@ pub fn sketch(
         }
     }
     answer.insert("entities".to_owned(), Value::Array(entities(shown)));
+
     let gears = gears(document, definition, shown);
+
     if !gears.is_empty() {
         answer.insert("gears".to_owned(), Value::Array(gears));
     }
+
     let texts = texts(document, definition, shown);
+
     if !texts.is_empty() {
         answer.insert("texts".to_owned(), Value::Array(texts));
     }
@@ -593,6 +632,7 @@ fn regions_listed(regions: &[SketchRegion]) -> Vec<Value> {
         .iter()
         .map(|region| {
             let mut entry = Map::new();
+
             if let Some(inside) = region.mesh.as_ref().and_then(RegionMesh::anchor) {
                 entry.insert("inside".to_owned(), point2(inside));
             }
@@ -621,6 +661,7 @@ fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
         .gears()
         .map(|(id, gear)| {
             let mut entry = Map::new();
+
             entry.insert("id".to_owned(), json!(id.raw()));
             entry.insert("label".to_owned(), json!(definition.entity_label(id)));
             entry.insert("center".to_owned(), entity_name(gear.centre));
@@ -630,6 +671,7 @@ fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
             if let Some(chain) = gear.chain {
                 entry.insert("chain".to_owned(), json!(chain.designation));
             }
+
             let expressions = match (&gear.meshing, gear.chain) {
                 (None, Some(_)) => vec![
                     ("teeth", &gear.teeth),
@@ -642,6 +684,7 @@ fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
                         .into_iter()
                         .map(|partner| partner.raw())
                         .collect();
+
                     if !partners.is_empty() {
                         entry.insert("meshing_gears".to_owned(), json!(partners));
                     }
@@ -664,6 +707,7 @@ fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
                     ]
                 }
             };
+
             for (name, expression) in expressions {
                 entry.insert(name.to_owned(), json!(document.expression_text(expression)));
             }
@@ -691,6 +735,7 @@ fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
                         })
                     }
                 };
+
                 if let (Some(placement), Some(map)) = (values.placement, derived.as_object_mut()) {
                     map.insert(
                         "centre_distance".to_owned(),
@@ -710,6 +755,7 @@ fn texts(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
         .texts()
         .map(|(id, text)| {
             let mut entry = Map::new();
+
             entry.insert("id".to_owned(), json!(id.raw()));
             entry.insert("label".to_owned(), json!(definition.entity_label(id)));
             entry.insert("anchor".to_owned(), entity_name(text.anchor));
@@ -727,11 +773,13 @@ fn texts(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
             );
             entry.insert("bold".to_owned(), json!(text.bold));
             entry.insert("italic".to_owned(), json!(text.italic));
+
             let align = match text.align {
                 TextAlign::Left => "left",
                 TextAlign::Centre => "centre",
                 TextAlign::Right => "right",
             };
+
             entry.insert("align".to_owned(), json!(align));
             if let Some(size) = shown.text_size(id) {
                 entry.insert(
@@ -749,6 +797,7 @@ fn entities(sketch: &Sketch) -> Vec<Value> {
         .entities()
         .map(|(id, entity)| {
             let mut entry = Map::new();
+
             entry.insert("id".to_owned(), entity_name(id));
             entry.insert("label".to_owned(), json!(sketch.entity_label(id)));
             match entity {
@@ -781,9 +830,12 @@ fn entities(sketch: &Sketch) -> Vec<Value> {
                 }
                 Entity::Spline { points, kind } => {
                     entry.insert("kind".to_owned(), json!("spline"));
+
                     let points_count = points.len();
                     let points: Vec<Value> = points.iter().map(|id| entity_name(*id)).collect();
+
                     entry.insert("points".to_owned(), Value::Array(points));
+
                     let form = match kind {
                         SplineKind::Control { .. } => "control",
                         SplineKind::Fit { .. } => "fit",
@@ -792,6 +844,7 @@ fn entities(sketch: &Sketch) -> Vec<Value> {
                         SplineKind::Knotted { .. } => "knotted",
                         SplineKind::Graded { .. } => "graded",
                     };
+
                     entry.insert("form".to_owned(), json!(form));
                     if let Some(degree) = kind.degree_of(points_count) {
                         entry.insert("degree".to_owned(), json!(degree));
@@ -804,6 +857,7 @@ fn entities(sketch: &Sketch) -> Vec<Value> {
                             FitSpacing::Even => "even",
                             FitSpacing::Centripetal => "centripetal",
                         };
+
                         entry.insert("spacing".to_owned(), json!(spacing));
                     }
                 }
@@ -852,6 +906,7 @@ fn constraints(
         .constraints()
         .map(|(id, constraint)| {
             let mut entry = Map::new();
+
             entry.insert("id".to_owned(), json!(id.raw()));
             entry.insert(
                 "description".to_owned(),
@@ -880,7 +935,9 @@ pub fn render(
     picture: &Picture,
 ) -> Result<Answer, ToolError> {
     let size = picture_size(picture.width, picture.height)?;
+
     session.evaluate(work)?;
+
     let document = session.document();
     let evaluation = session.evaluation();
     let home = snapshot::home_viewpoint(document);
@@ -893,7 +950,9 @@ pub fn render(
         )
         .unwrap_or(home),
     };
+
     work.progress("Preparing the bodies for drawing");
+
     let cancel = work.cancel_token();
     let snapshot = snapshot::looking_from(document, evaluation, size, starting, &cancel).map_err(
         |unmeshed| match unmeshed {
@@ -901,9 +960,12 @@ pub fn render(
             Unmeshed::TimedOut => RenderError::Unmeshed(unmeshed).into(),
         },
     )?;
+
     work.progress("Drawing the picture");
+
     let mut renderer =
         OffscreenRenderer::new(GraphicsSettings::default()).map_err(RenderError::NoAdapter)?;
+
     let bands = renderer
         .render(&ImageRequest {
             size,
@@ -914,10 +976,13 @@ pub fn render(
         })
         .map_err(RenderError::Drawing)?;
     let png = png_bytes(&mut RenderedRows(bands), &cancel).map_err(RenderError::Encoding)?;
+
     if work.is_cancelled() {
         return Err(Cancelled.into());
     }
+
     let mut data = Map::new();
+
     data.insert("width".to_owned(), json!(size.width));
     data.insert("height".to_owned(), json!(size.height));
     data.insert("bodies".to_owned(), json!(evaluation.bodies().count()));

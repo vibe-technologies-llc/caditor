@@ -16,13 +16,13 @@ const RULED_KNOTS: [f64; 4] = [0.0, 0.0, 1.0, 1.0];
 const FIRST_SPANS: usize = 24;
 const ROW_TOLERANCE: f64 = 1e-7;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Rung {
     pub height: f64,
     pub inset: f64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) struct Rise<'a> {
     pub plane: &'a Plane,
     pub direction: Vector3,
@@ -69,6 +69,7 @@ pub(super) fn offset_surface(
     overrun: [f64; 2],
 ) -> Result<Surface, SweepError> {
     let [low, high] = rungs;
+
     let rows = |nodes: &[f64]| -> Result<(BSplineCurve, BSplineCurve), GeometryError> {
         Ok((rise.row(bend, low, nodes)?, rise.row(bend, high, nodes)?))
     };
@@ -89,6 +90,7 @@ pub(super) fn offset_surface(
         deviations,
         ROW_TOLERANCE,
     );
+
     let (bottom, top) = rows(&nodes)?;
     Ok(ruled(&bottom, &top)?.into())
 }
@@ -112,7 +114,7 @@ fn ruled(bottom: &BSplineCurve, top: &BSplineCurve) -> Result<BSplineSurface, Ge
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Ring {
     pub height: f64,
     pub radius: f64,
@@ -132,11 +134,14 @@ pub(super) fn leaning_cone(
     {
         return Err(SweepError::Unassembled);
     }
+
     let middle_weight = FRAC_PI_4.cos_libm();
     let mut offsets = Vec::with_capacity(2 * QUARTERS + 1);
     let mut weights = Vec::with_capacity(2 * QUARTERS + 1);
+
     for quarter in 0..QUARTERS {
         let angle = seam + FRAC_PI_2 * quarter as f64;
+
         offsets.push(Point2::from_angle(angle));
         weights.push(1.0);
         offsets.push(Point2::from_angle(angle + FRAC_PI_4) / middle_weight);
@@ -144,12 +149,16 @@ pub(super) fn leaning_cone(
     }
     offsets.push(Point2::from_angle(seam));
     weights.push(1.0);
+
     let mut knots = vec![0.0; 3];
+
     for quarter in 1..QUARTERS {
         let knot = quarter as f64 / QUARTERS as f64;
+
         knots.extend([knot, knot]);
     }
     knots.extend([1.0; 3]);
+
     let columns = offsets.len();
     let points: Vec<Point3> = rings
         .iter()

@@ -25,7 +25,7 @@ const LIGHT_SUBTLE_SHARE: f32 = 0.16;
 const DARK_SURFACE_SHARE: f32 = 0.08;
 const LIGHT_SURFACE_SHARE: f32 = 0.07;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Theme {
     #[default]
     System,
@@ -127,7 +127,7 @@ impl Theme {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
     pub tokens: Tokens,
     pub dark: bool,
@@ -135,7 +135,7 @@ pub struct Look {
     pub grid: Option<Color32>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Accent {
     #[default]
     Theme,
@@ -207,7 +207,7 @@ impl Accent {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ViewChoice {
     #[default]
     Theme,
@@ -251,7 +251,7 @@ impl ViewChoice {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GridColour {
     #[default]
     Automatic,
@@ -286,7 +286,7 @@ impl GridColour {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BodyColour {
     #[default]
     Default,
@@ -347,16 +347,19 @@ fn with_accent(base: &Tokens, dark: bool, hue: Color32) -> Tokens {
     let readable = |foreground: Color32, background: Color32| {
         appearance::contrast_ratio(foreground, background) >= READABLE
     };
+
     tokens.accent = nudged(hue, Color32::BLACK, |colour| {
         readable(tokens.text_on_accent, colour)
     });
     tokens.accent_hover = mix(tokens.accent, Color32::BLACK, HOVER_SHADE);
     tokens.accent_pressed = mix(tokens.accent, Color32::BLACK, PRESSED_SHADE);
+
     let (subtle, surface) = if dark {
         (DARK_SUBTLE_SHARE, DARK_SURFACE_SHARE)
     } else {
         (LIGHT_SUBTLE_SHARE, LIGHT_SURFACE_SHARE)
     };
+
     tokens.accent_subtle = nudged(mix(base.panel, hue, subtle), base.panel, |colour| {
         readable(base.text, colour) && readable(base.text_muted, colour)
     });
@@ -365,7 +368,9 @@ fn with_accent(base: &Tokens, dark: bool, hue: Color32) -> Tokens {
             && readable(base.text_muted, colour)
             && appearance::contrast_ratio(base.field_border, colour) >= VISIBLE_OUTLINE
     });
+
     let away = if dark { Color32::WHITE } else { Color32::BLACK };
+
     tokens.accent_text = nudged(hue, away, |colour| {
         [
             tokens.accent_subtle,
@@ -380,7 +385,7 @@ fn with_accent(base: &Tokens, dark: bool, hue: Color32) -> Tokens {
     tokens
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Appearance {
     pub theme: Theme,
     pub accent: Accent,
@@ -435,6 +440,7 @@ impl Appearance {
     pub fn skin_of(&self, look: &Look) -> Skin {
         let canvas = self.view.canvas(look.canvas);
         let grid = self.grid_on(look, canvas);
+
         if self.high_contrast {
             return Skin {
                 canvas,
@@ -528,7 +534,7 @@ impl Appearance {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Resolved {
     pub skins: Skins,
     pub preference: ThemePreference,
@@ -563,7 +569,7 @@ impl Unusable {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UserTheme {
     pub key: String,
     pub name: String,
@@ -654,6 +660,7 @@ fn parse_hex(key: &str, value: &str, may_be_translucent: bool) -> Result<Color32
             .get(index..index + 2)
             .and_then(|pair| u8::from_str_radix(pair, 16).ok())
     };
+
     let colour = match digits.len() {
         6 => Color32::from_rgb(
             byte(0).ok_or_else(bad)?,
@@ -668,6 +675,7 @@ fn parse_hex(key: &str, value: &str, may_be_translucent: bool) -> Result<Color32
         ),
         _ => return Err(bad()),
     };
+
     if colour.a() < u8::MAX && !may_be_translucent {
         return Err(ThemeProblem::Translucent {
             key: key.to_owned(),
@@ -706,12 +714,15 @@ pub fn build(key: &str, file: &ThemeFile) -> Result<UserTheme, ThemeProblem> {
         .transpose()
         .map_err(ThemeProblem::UnseenGrid)?;
     let mut tokens = if dark { DARK } else { LIGHT };
+
     for (name, value) in &file.colours {
         let token =
             Token::from_key(name).ok_or_else(|| ThemeProblem::UnknownColour(name.clone()))?;
+
         token.set(&mut tokens, parse_colour(token, value)?);
     }
     appearance::check(&tokens, false).map_err(ThemeProblem::Contrast)?;
+
     let name = file
         .name
         .as_deref()
@@ -732,6 +743,7 @@ pub fn build(key: &str, file: &ThemeFile) -> Result<UserTheme, ThemeProblem> {
 pub fn sort(read: Vec<ReadTheme>) -> (Vec<UserTheme>, Vec<Refusal>) {
     let mut themes: Vec<UserTheme> = Vec::new();
     let mut refused = Vec::new();
+
     for theme in read {
         let key = theme.key();
         let file = theme.file_name();
@@ -805,6 +817,7 @@ impl UserThemes {
         if !self.listed {
             return Unusable::NotListedYet;
         }
+
         let file = format!("{key}.json");
         match self
             .refused
@@ -846,6 +859,7 @@ mod tests {
         for theme in Theme::SHIPPED {
             assert_eq!(Theme::from_key(&theme.key()), Some(theme));
         }
+
         assert_eq!(Theme::from_key("light"), Some(Theme::Light));
         assert_eq!(
             Theme::from_key("user:ocean"),
@@ -853,6 +867,7 @@ mod tests {
         );
         assert_eq!(Theme::from_key("user:"), None);
         assert_eq!(Theme::from_key("sepia"), None);
+
         for accent in Accent::ALL {
             assert_eq!(Accent::from_key(accent.key()), Some(accent));
         }
@@ -873,10 +888,13 @@ mod tests {
                 {
                     panic!("{accent:?} on {theme:?}: {}", failure.words());
                 }
+
                 let tokens = accent.applied(&look).unwrap();
+
                 assert!(appearance::check(&tokens, false).is_ok());
                 if accent != Accent::Theme {
                     assert!(!fills.contains(&tokens.accent), "{accent:?} on {theme:?}");
+
                     fills.push(tokens.accent);
                 }
             }
@@ -909,17 +927,23 @@ mod tests {
     #[test]
     fn a_theme_file_chooses_any_3d_view_and_a_grid_seen_on_it() {
         let mut studio = file("light", &[]);
+
         studio.view = Some("studio".to_owned());
         studio.grid = Some("#5a6070".to_owned());
+
         let built = build("studio", &studio).unwrap();
 
         assert_eq!(built.canvas, Canvas::Studio);
         assert_eq!(built.grid, Some(Color32::from_rgb(0x5a, 0x60, 0x70)));
+
         let skin = Appearance::default().skin_of(&built.look());
+
         assert_eq!(skin.grid, built.grid);
 
         studio.grid = Some("#c4c7cc".to_owned());
+
         let problem = build("studio", &studio).unwrap_err();
+
         assert!(matches!(problem, ThemeProblem::UnseenGrid(_)));
         assert!(
             problem
@@ -935,6 +959,7 @@ mod tests {
         );
 
         studio.grid = Some("#5a607080".to_owned());
+
         assert!(
             build("studio", &studio)
                 .unwrap_err()
@@ -944,7 +969,9 @@ mod tests {
 
         studio.grid = None;
         studio.view = Some("sepia".to_owned());
+
         let words = build("studio", &studio).unwrap_err().words();
+
         assert!(words.contains("“sepia”"), "{words}");
         assert!(words.contains("“blue_grey”"), "{words}");
     }
@@ -964,14 +991,18 @@ mod tests {
         assert_eq!(appearance.unseen_grid(Canvas::Dark), None);
 
         appearance.view = ViewChoice::Canvas(Canvas::Grey);
+
         assert_eq!(appearance.skin_of(&dark).grid, None);
+
         let unseen = appearance.unseen_grid(Canvas::Grey).unwrap();
+
         assert!(unseen.drawn_instead().ends_with(
             "so the 3D view's own grid colour is drawn. Choose another colour, or Automatic."
         ));
 
         appearance.view = ViewChoice::Theme;
         appearance.high_contrast = true;
+
         assert_eq!(appearance.skin_of(&dark).grid, None);
         assert!(appearance.unseen_grid(Canvas::Dark).is_some());
     }
@@ -981,9 +1012,11 @@ mod tests {
         assert_eq!(Theme::Studio.shipped().unwrap().canvas, Canvas::Studio);
         assert_eq!(Theme::Slate.shipped().unwrap().canvas, Canvas::Grey);
         assert!(!Theme::Studio.shipped().unwrap().dark);
+
         for view in ViewChoice::ALL {
             assert_eq!(ViewChoice::from_key(view.key()), Some(view));
         }
+
         assert_eq!(
             GridColour::from_key("#8a909c"),
             Some(GridColour::Custom(Rgb::new(0x8a, 0x90, 0x9c)))
@@ -1001,6 +1034,7 @@ mod tests {
         let problem = build("murky", &file("dark", &[("text_muted", "#3c3e46")])).unwrap_err();
 
         let words = problem.words();
+
         assert!(matches!(problem, ThemeProblem::Contrast(_)));
         assert!(words.contains("text_muted #3c3e46"), "{words}");
         assert!(words.contains("below the 4.5:1 it needs"), "{words}");
@@ -1011,6 +1045,7 @@ mod tests {
         let problem = build("murky", &file("dark", &[("sunken", "#3c4250")])).unwrap_err();
 
         let words = problem.words();
+
         assert!(matches!(problem, ThemeProblem::Contrast(_)));
         assert!(words.contains("text_muted"), "{words}");
         assert!(words.contains("sunken #3c4250"), "{words}");
@@ -1045,6 +1080,7 @@ mod tests {
             path: PathBuf::from("themes/Ocean.json"),
             result: Ok(file("dark", &[])),
         };
+
         let (themes, refused) = sort(vec![damaged, ocean, repeated]);
 
         assert_eq!(themes.len(), 1);
@@ -1077,7 +1113,9 @@ mod tests {
             path: PathBuf::from("config/themes/murky.json"),
             result: Ok(file("dark", &[("text_muted", "#3c3e46")])),
         }]);
+
         themes.listed(kept, refused);
+
         let words = appearance
             .resolve(&themes)
             .unwrap_err()
@@ -1088,11 +1126,13 @@ mod tests {
         assert!(words.ends_with("The previous theme stays."));
 
         themes.listed(Vec::new(), Vec::new());
+
         let missing = appearance
             .resolve(&themes)
             .unwrap_err()
             .words("murky")
             .unwrap();
+
         assert!(
             missing.contains("there is no murky.json in config"),
             "{missing}"
@@ -1109,13 +1149,16 @@ mod tests {
         };
 
         let skin = appearance.skin_of(&paper);
+
         assert_eq!(skin.canvas, Canvas::Light);
         assert!(!skin.dark);
         assert_ne!(skin.tokens.accent, PAPER.accent);
 
         appearance.view = ViewChoice::Canvas(Canvas::Dark);
         appearance.high_contrast = true;
+
         let skin = appearance.skin_of(&paper);
+
         assert_eq!(skin.canvas, Canvas::Dark);
         assert!(skin.high_contrast);
         assert_eq!(skin.tokens, appearance::LIGHT_HIGH_CONTRAST);
@@ -1123,6 +1166,7 @@ mod tests {
         let resolved = Appearance::default()
             .resolve(&UserThemes::default())
             .unwrap();
+
         assert_eq!(resolved.preference, ThemePreference::System);
         assert_eq!(resolved.skins.dark.tokens, DARK);
         assert_eq!(resolved.skins.light.tokens, LIGHT);

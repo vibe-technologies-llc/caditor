@@ -14,10 +14,13 @@ use crate::{model::Action, move_manipulator::Handle, selection::Pickable};
 #[test]
 fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Move body");
     harness.settle();
+
     let movement = harness.workspace.editing.solid().expect("the move is open");
 
     harness.draft_into_field(
@@ -29,6 +32,7 @@ fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
         .model
         .draft_placement()
         .expect("the move is previewed");
+
     assert_eq!(body, plate);
     assert!(
         placement
@@ -37,6 +41,7 @@ fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
             < 1e-9
     );
     assert_eq!(harness.model.undo_label(), Some("Create Move body 1"));
+
     let built = harness.built_with_meshes(2);
     let moved = built
         .scene
@@ -44,11 +49,13 @@ fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
         .iter()
         .find_map(|mesh| mesh.placement)
         .expect("the drawn body carries the preview's placement");
+
     assert_eq!(moved, placement);
 
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
     assert!(harness.model.draft_placement().is_none());
     assert!(
@@ -64,12 +71,15 @@ fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
 #[test]
 fn dragging_a_move_arrow_moves_the_body_along_it_in_one_change() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Move body");
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let movement = harness.workspace.editing.solid().expect("the move is open");
     let along_x = Handle::Along(MoveAxis::X);
     let from = harness
@@ -83,8 +93,10 @@ fn dragging_a_move_arrow_moves_the_body_along_it_in_one_change() {
         .handle_position(along_x, 15.0)
         .unwrap();
     let step = harness.workspace.viewport.manipulator_step().unwrap();
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
+
     assert!(harness.shows("Drag to move the body along X"));
 
     drag_screen(&mut harness, from, to);
@@ -92,6 +104,7 @@ fn dragging_a_move_arrow_moves_the_body_along_it_in_one_change() {
     harness.settle();
 
     assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+
     let Some(FeatureKind::Move(moved)) = harness
         .document()
         .feature(movement)
@@ -107,11 +120,14 @@ fn dragging_a_move_arrow_moves_the_body_along_it_in_one_change() {
             })
             .unwrap()
     };
+
     let x = value(&moved.offset[0]);
+
     assert!((x - 15.0).abs() <= step, "{x} with steps of {step}");
     assert!(((x / step).round() * step - x).abs() < 1e-9);
     assert_eq!(value(&moved.offset[1]), 0.0);
     assert_eq!(value(&moved.offset[2]), 0.0);
+
     let bounds = harness
         .model
         .evaluation()
@@ -119,10 +135,12 @@ fn dragging_a_move_arrow_moves_the_body_along_it_in_one_change() {
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!((bounds.min().x - x).abs() < 1e-6);
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Create Move body 1"));
 }
 
@@ -130,6 +148,7 @@ fn dragging_a_move_arrow_moves_the_body_along_it_in_one_change() {
 fn dragging_an_extrusion_arrow_changes_its_distance_in_one_change() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
@@ -137,6 +156,7 @@ fn dragging_an_extrusion_arrow_changes_its_distance_in_one_change() {
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let extrude = harness
         .workspace
         .editing
@@ -154,8 +174,10 @@ fn dragging_an_extrusion_arrow_changes_its_distance_in_one_change() {
         .handle_position(reach, 15.0)
         .unwrap();
     let step = harness.workspace.viewport.manipulator_step().unwrap();
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
+
     assert!(harness.shows("Drag to change the extrusion's distance"));
 
     drag_screen(&mut harness, from, to);
@@ -163,6 +185,7 @@ fn dragging_an_extrusion_arrow_changes_its_distance_in_one_change() {
     harness.settle();
 
     assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
+
     let top = harness
         .model
         .evaluation()
@@ -172,23 +195,28 @@ fn dragging_an_extrusion_arrow_changes_its_distance_in_one_change() {
         .unwrap()
         .max()
         .z;
+
     assert!((top - 25.0).abs() <= step, "{top} with steps of {step}");
     assert!(((top / step).round() * step - top).abs() < 1e-9);
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Create Extrude 1"));
 }
 
 #[test]
 fn dragging_a_hole_s_handles_moves_it_on_its_face_in_one_change() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
     let sketch = open_hole(&harness, hole).sketch;
     let point_of = |harness: &Harness| {
@@ -215,6 +243,7 @@ fn dragging_a_hole_s_handles_moves_it_on_its_face_in_one_change() {
         .handle_position(on_face, 8.0)
         .unwrap();
     let step = harness.workspace.viewport.manipulator_step().unwrap();
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
 
@@ -223,6 +252,7 @@ fn dragging_a_hole_s_handles_moves_it_on_its_face_in_one_change() {
     drag_screen(&mut harness, from, to);
     harness.frame();
     harness.settle();
+
     let moved = point_of(&harness);
 
     assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
@@ -247,9 +277,11 @@ fn dragging_a_hole_s_handles_moves_it_on_its_face_in_one_change() {
         .viewport
         .handle_position(along_y, -6.0)
         .unwrap();
+
     drag_screen(&mut harness, from, to);
     harness.frame();
     harness.settle();
+
     let again = point_of(&harness);
 
     assert!((again.x - moved.x).abs() < 1e-9, "{again:?}");
@@ -267,6 +299,7 @@ fn dragging_a_hole_s_handles_moves_it_on_its_face_in_one_change() {
 #[test]
 fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
     let mut harness = Harness::new();
+
     harness.select([]);
     harness.use_tool_with(Key::B, Modifiers::ALT);
     harness.settle();
@@ -274,6 +307,7 @@ fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let feature = harness.workspace.editing.solid().expect("the box is open");
     let on_plane = Handle::Place(crate::move_manipulator::PlaceGrip::OnPlane);
     let along_x = Handle::Place(crate::move_manipulator::PlaceGrip::AlongX);
@@ -283,6 +317,7 @@ fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
         "y = 4 mm",
     );
     harness.settle();
+
     let from = harness
         .workspace
         .viewport
@@ -294,6 +329,7 @@ fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
         .handle_position(on_plane, 12.0)
         .unwrap();
     let step = harness.workspace.viewport.manipulator_step().unwrap();
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
 
@@ -302,6 +338,7 @@ fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
     drag_screen(&mut harness, from, to);
     harness.frame();
     harness.settle();
+
     let centre = body_centre(&harness, feature);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Box 1"));
@@ -325,9 +362,11 @@ fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
         .viewport
         .handle_position(along_x, -5.0)
         .unwrap();
+
     drag_screen(&mut harness, from, to);
     harness.frame();
     harness.settle();
+
     let again = body_centre(&harness, feature);
 
     assert!(
@@ -340,11 +379,14 @@ fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
 #[test]
 fn dragging_a_hole_s_depth_arrow_changes_its_blind_depth() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
     harness.select([]);
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
 
     let step = drag_value_arrow(&mut harness, crate::value_gauges::Measured::HoleDepth, -4.0);
@@ -362,11 +404,14 @@ fn dragging_a_hole_s_depth_arrow_changes_its_blind_depth() {
 #[test]
 fn dragging_an_offset_face_arrow_changes_its_distance() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.use_tool_with(Key::Q, Modifiers::ALT);
     harness.settle();
     harness.select([]);
+
     let offset = harness
         .workspace
         .editing
@@ -395,9 +440,11 @@ fn dragging_an_offset_face_arrow_changes_its_distance() {
 #[test]
 fn dragging_a_datum_plane_s_arrow_changes_its_offset() {
     let mut harness = Harness::new();
+
     harness.select([]);
     harness.click("Plane");
     harness.settle();
+
     let plane = harness
         .workspace
         .editing
@@ -434,6 +481,7 @@ fn a_plane_s_arrow_dragged_over_holes_follows_the_pointer_instead_of_their_rims(
     for along in [-6.0, 6.0] {
         let mut harness = Harness::new();
         let mut holed = Sketch::new(Plane::XY);
+
         rectangle(
             &mut holed,
             Point2::new(-20.0, -20.0),
@@ -445,6 +493,7 @@ fn a_plane_s_arrow_dragged_over_holes_follows_the_pointer_instead_of_their_rims(
                     -15.0 + 6.0 * f64::from(column),
                     -15.0 + 6.0 * f64::from(row),
                 );
+
                 holed.add_circle(centre, 2.0);
             }
         }
@@ -457,6 +506,7 @@ fn a_plane_s_arrow_dragged_over_holes_follows_the_pointer_instead_of_their_rims(
         harness.select([]);
         harness.click("Plane");
         harness.settle();
+
         let plane = harness
             .workspace
             .editing
@@ -491,12 +541,15 @@ fn a_plane_s_arrow_dragged_over_holes_follows_the_pointer_instead_of_their_rims(
 #[test]
 fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the_origin() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Move body");
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let movement = harness.workspace.editing.solid().expect("the move is open");
     let about_z = Handle::Turn(MoveAxis::Z);
     let from = harness
@@ -509,8 +562,10 @@ fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the
         .viewport
         .handle_position(about_z, 12.0)
         .unwrap();
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
+
     let described = harness.shows("Drag to turn the body about Z through its centre");
 
     drag_screen(&mut harness, from, to);
@@ -519,6 +574,7 @@ fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the
 
     assert!(described);
     assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+
     let moved = |harness: &Harness| match harness
         .document()
         .feature(movement)
@@ -528,14 +584,18 @@ fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the
         other => panic!("the move is still a move: {other:?}"),
     };
     let turned = moved(&harness);
+
     assert_eq!(turned.about, caditor_document::TurnCentre::Body);
+
     let parameters = harness.model.parameters();
     let z = turned.turn[2]
         .evaluate_as(caditor_expression::Dimension::ANGLE, &|id| {
             parameters.value(id)
         })
         .unwrap();
+
     assert!((z - 45.0).abs() < 1e-9, "{z}");
+
     let bounds = harness
         .model
         .evaluation()
@@ -543,13 +603,17 @@ fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!((bounds.center().x - 20.0).abs() < 1e-6);
     assert!((bounds.max().x - bounds.min().x - 40.0 * 2.0_f64.sqrt()).abs() < 1e-6);
 
     assert!(harness.shows(crate::move_panel::TURN_ABOUT));
+
     harness.click(crate::move_panel::ABOUT_ORIGIN);
     harness.settle();
+
     assert_eq!(moved(&harness).about, caditor_document::TurnCentre::Origin);
+
     let bounds = harness
         .model
         .evaluation()
@@ -557,6 +621,7 @@ fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!(
         bounds.center().distance(caditor_geometry::Point3::new(
             0.0,
@@ -569,6 +634,7 @@ fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the
 #[test]
 fn a_move_switched_to_an_axis_turns_about_it_by_dragging_its_ring() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let movement = opened_move(&mut harness, top);
 
@@ -576,6 +642,7 @@ fn a_move_switched_to_an_axis_turns_about_it_by_dragging_its_ring() {
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let about = Handle::TurnAbout;
     let from = harness
         .workspace
@@ -591,8 +658,10 @@ fn a_move_switched_to_an_axis_turns_about_it_by_dragging_its_ring() {
         .workspace
         .viewport
         .handle_position(Handle::Turn(MoveAxis::X), 3.0);
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
+
     let described = harness.shows("Drag to turn the body about its axis");
     let captioned = harness.shows(crate::move_panel::ANGLE);
 
@@ -604,12 +673,15 @@ fn a_move_switched_to_an_axis_turns_about_it_by_dragging_its_ring() {
     assert!(captioned);
     assert_eq!(ring_about_x, None);
     assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+
     let turned = move_of(&harness, movement);
     let turn = turned.about.axis_turn().expect("it turns about an axis");
+
     assert_eq!(
         turn.axis,
         caditor_document::AxisReference::Principal(caditor_document::PrincipalAxis::Z)
     );
+
     let parameters = harness.model.parameters();
     let angle = turn
         .angle
@@ -617,7 +689,9 @@ fn a_move_switched_to_an_axis_turns_about_it_by_dragging_its_ring() {
             parameters.value(id)
         })
         .unwrap();
+
     assert!((angle - 45.0).abs() < 1e-9, "{angle}");
+
     let bounds = harness
         .model
         .evaluation()
@@ -625,6 +699,7 @@ fn a_move_switched_to_an_axis_turns_about_it_by_dragging_its_ring() {
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!(
         bounds.center().distance(caditor_geometry::Point3::new(
             0.0,
@@ -639,10 +714,13 @@ fn a_move_switched_to_an_axis_turns_about_it_by_dragging_its_ring() {
 #[test]
 fn a_move_turns_about_a_selected_edge_from_its_panel() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let movement = opened_move(&mut harness, top);
+
     harness.click_beside(crate::move_panel::ABOUT_AXIS, crate::move_panel::TURN_ABOUT);
     harness.settle();
+
     let edge = harness
         .model
         .evaluation()
@@ -666,6 +744,7 @@ fn a_move_turns_about_a_selected_edge_from_its_panel() {
         .axis_turn()
         .cloned()
         .expect("it turns about an axis");
+
     assert!(
         matches!(turn.axis, caditor_document::AxisReference::Edge { body, .. } if body == plate),
         "{:?}",
@@ -677,12 +756,15 @@ fn a_move_turns_about_a_selected_edge_from_its_panel() {
 #[test]
 fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
 
     harness.select([top]);
     harness.click("Move body");
     harness.settle();
+
     let movement = harness.workspace.editing.solid().expect("the move is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Move body 1"));
     assert!(harness.shows("Move along X"));
     assert!(harness.shows("Turn about Z"));
@@ -692,6 +774,7 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
         "5 mm",
     );
     harness.settle();
+
     let bounds = harness
         .model
         .evaluation()
@@ -699,8 +782,10 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!((bounds.min().x - 5.0).abs() < 1e-6, "{:?}", bounds.min());
     assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+
     let built = harness.built_with_meshes(2);
     let [moved] = &built.scene.meshes[..] else {
         panic!("the moved body is drawn solid");
@@ -708,6 +793,7 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
     let [ghost] = &built.scene.translucent_meshes[..] else {
         panic!("the body before the move is drawn see-through");
     };
+
     assert!(moved.faces.iter().all(|face| face.pick.is_some()));
     assert!(ghost.faces.iter().all(|face| face.pick.is_none()));
 
@@ -716,6 +802,7 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
         "90 deg",
     );
     harness.settle();
+
     let bounds = harness
         .model
         .evaluation()
@@ -723,12 +810,14 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!((bounds.min().x - 5.0).abs() < 1e-6, "{:?}", bounds.min());
 
     harness.type_into_field(
         Id::unique(("move-field", "offset", 1usize, movement)),
         "5 deg",
     );
+
     assert!(harness.shows_containing("length"));
     assert_eq!(harness.workspace.editing.solid(), Some(movement));
 
@@ -736,6 +825,7 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
     harness.perform(Action::Undo);
     harness.perform(Action::Undo);
     harness.settle();
+
     let bounds = harness
         .model
         .evaluation()
@@ -743,6 +833,7 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
         .unwrap()
         .bounding_box()
         .unwrap();
+
     assert!(bounds.min().x.abs() < 1e-6);
 }
 
@@ -750,6 +841,7 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
 fn dragging_a_revolve_s_angle_arrows_turns_it_further() {
     let mut harness = Harness::new();
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(
         &mut section,
         Point2::new(10.0, 0.0),
@@ -759,11 +851,14 @@ fn dragging_a_revolve_s_angle_arrows_turns_it_further() {
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
+
     choose(&mut harness, "Full turn", "Two angles");
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let angles = |harness: &Harness| match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => match &revolve.extent {
             caditor_document::RevolveExtent::TwoSides { forward, backward } => (
@@ -786,6 +881,7 @@ fn dragging_a_revolve_s_angle_arrows_turns_it_further() {
         .viewport
         .handle_position(handle, 30.0)
         .unwrap();
+
     harness.events.push(Event::PointerMoved(from));
     harness.frame();
 
@@ -794,6 +890,7 @@ fn dragging_a_revolve_s_angle_arrows_turns_it_further() {
     drag_screen(&mut harness, from, to);
     harness.frame();
     harness.settle();
+
     let (turned, kept) = angles(&harness);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Revolve 1"));
@@ -807,8 +904,10 @@ fn dragging_a_revolve_s_angle_arrows_turns_it_further() {
 #[test]
 fn an_extrusion_starting_at_a_face_shows_and_drags_its_arrow_where_it_ends() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let tower = extrusion_above_plate(&mut harness, 30.0);
+
     choose(&mut harness, "New body", "Add to body");
     open_combo(&mut harness, "Start");
     harness.click_lowest("Face or plane");
@@ -819,6 +918,7 @@ fn an_extrusion_starting_at_a_face_shows_and_drags_its_arrow_where_it_ends() {
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let reach = Handle::Reach(crate::move_manipulator::Reach::Only);
     let highest = |harness: &Harness| {
         harness
@@ -874,6 +974,7 @@ fn an_extrusion_starting_at_a_face_shows_and_drags_its_arrow_where_it_ends() {
 fn a_revolve_starting_off_its_sketch_plane_shows_and_drags_its_angle_arrows_there() {
     let mut harness = Harness::new();
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(
         &mut section,
         Point2::new(10.0, 0.0),
@@ -883,12 +984,15 @@ fn a_revolve_starting_off_its_sketch_plane_shows_and_drags_its_angle_arrows_ther
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
+
     choose(&mut harness, "Full turn", "Two angles");
     harness.type_into_field(Id::unique(("solid-field", "start", revolve)), "5 mm");
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let forward_angle = |harness: &Harness| match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => match &revolve.extent {
             caditor_document::RevolveExtent::TwoSides { forward, .. } => {
@@ -923,6 +1027,7 @@ fn a_revolve_starting_off_its_sketch_plane_shows_and_drags_its_angle_arrows_ther
     drag_screen(&mut harness, from, to);
     harness.frame();
     harness.settle();
+
     let turned = forward_angle(&harness);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Revolve 1"));
@@ -945,6 +1050,7 @@ fn length_or_angle(harness: &Harness, expression: &Expression) -> f64 {
 fn dragging_a_one_sided_revolve_s_arrow_back_past_its_sketch_reverses_it() {
     let mut harness = Harness::new();
     let mut section = Sketch::new(Plane::XZ);
+
     rectangle(
         &mut section,
         Point2::new(10.0, 0.0),
@@ -954,15 +1060,19 @@ fn dragging_a_one_sided_revolve_s_arrow_back_past_its_sketch_reverses_it() {
     harness.select([]);
     harness.click("Revolve");
     harness.settle();
+
     let revolve = open_solid(&harness);
     let SolidFeature::Revolve(mut turned) = harness.solid(revolve).clone() else {
         panic!("expected a revolve");
     };
+
     turned.extent = caditor_document::RevolveExtent::OneSide {
         angle: Expression::measure(90.0, caditor_expression::Unit::Degree),
         reversed: false,
     };
+
     let mut transaction = harness.document().transaction("Turn a quarter");
+
     transaction.edit(caditor_document::Edit::SetFeatureKind {
         id: revolve,
         kind: FeatureKind::Solid(SolidFeature::Revolve(turned)),
@@ -971,6 +1081,7 @@ fn dragging_a_one_sided_revolve_s_arrow_back_past_its_sketch_reverses_it() {
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let read = |harness: &Harness| match harness.solid(revolve) {
         SolidFeature::Revolve(revolve) => match &revolve.extent {
             caditor_document::RevolveExtent::OneSide { angle, reversed } => {
@@ -982,6 +1093,7 @@ fn dragging_a_one_sided_revolve_s_arrow_back_past_its_sketch_reverses_it() {
     };
     let (reversed, angle) = read(&harness);
     let handle = Handle::Revolve(crate::turn_handles::TurnEnd::Only);
+
     let path: Vec<Pos2> = (0..=12)
         .map(|step| {
             harness
@@ -1016,6 +1128,7 @@ fn dragging_a_one_sided_revolve_s_arrow_back_past_its_sketch_reverses_it() {
     });
     harness.frame();
     harness.settle();
+
     let (flipped, turned) = read(&harness);
 
     assert!(!reversed);

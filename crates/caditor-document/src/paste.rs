@@ -32,24 +32,24 @@ use crate::{
 
 const COPY_SUFFIX: &str = "copy";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PasteOrigin {
     ThisDocument,
     Elsewhere,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CarriedParameter {
     pub name: String,
     pub value: Option<Quantity>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct CarriedParameters {
     carried: BTreeMap<ParameterId, CarriedParameter>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CarryError {
     #[error(
         "it uses the parameter {name}, which this model does not have, and its value could not be \
@@ -62,7 +62,7 @@ pub enum CarryError {
     TooLong,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PasteRefusal {
     #[error(
         "it picks faces or edges of {name}, which was copied with it, and a copy cannot name them"
@@ -91,13 +91,13 @@ pub enum PasteRefusal {
     Parameter(#[from] CarryError),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LeftOut {
     pub name: String,
     pub reason: PasteRefusal,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeaturePaste {
     pub transaction: Transaction,
     pub pasted: Vec<FeatureId>,
@@ -105,7 +105,7 @@ pub struct FeaturePaste {
     pub inlined: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PasteError {
     #[error("nothing was copied")]
     NothingCopied,
@@ -124,6 +124,7 @@ impl CarriedParameters {
         ids: impl IntoIterator<Item = ParameterId>,
     ) -> Self {
         let mut carried = Self::default();
+
         for id in ids {
             if let Some(name) = document.parameter_name(id) {
                 carried.insert(
@@ -158,10 +159,12 @@ impl CarriedParameters {
     ) -> Result<Carried, CarryError> {
         let mut replacements = BTreeMap::new();
         let mut inlined = 0;
+
         for id in expression.parameters() {
             if origin == PasteOrigin::ThisDocument && target.parameter(id).is_some() {
                 continue;
             }
+
             let carried = self.carried.get(&id).ok_or(CarryError::Uncopied)?;
             let replacement = match target.parameter_named(&carried.name) {
                 Some(same_name) => Expression::Parameter(same_name.id()),
@@ -175,6 +178,7 @@ impl CarriedParameters {
                         })?
                 }
             };
+
             replacements.insert(id, replacement);
         }
         if replacements.is_empty() {
@@ -183,6 +187,7 @@ impl CarriedParameters {
                 inlined,
             });
         }
+
         let expression = expression
             .substituting(&|id| replacements.get(&id).cloned())
             .map_err(|_| CarryError::TooLong)?;
@@ -193,7 +198,7 @@ impl CarriedParameters {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Carried {
     pub expression: Expression,
     pub inlined: usize,
@@ -210,10 +215,12 @@ pub fn literal(value: Quantity) -> Option<Expression> {
 
 pub fn feature_parameters(feature: &Feature) -> BTreeSet<ParameterId> {
     let mut kind = feature.kind.clone();
+
     let mut used: BTreeSet<ParameterId> = expressions_mut(&mut kind)
         .into_iter()
         .flat_map(|expression| expression.parameters())
         .collect();
+
     if let FeatureKind::Sketch(sketch) = &feature.kind {
         used.extend(
             sketch
@@ -328,6 +335,7 @@ impl Document {
         if features.is_empty() {
             return Err(PasteError::NothingCopied);
         }
+
         let copied: BTreeMap<FeatureId, &str> = features
             .iter()
             .map(|feature| (feature.id(), feature.name.as_str()))
@@ -345,6 +353,7 @@ impl Document {
         let mut pasted = Vec::new();
         let mut left_out = Vec::new();
         let mut inlined = 0;
+
         for feature in features {
             let refused = |reason| LeftOut {
                 name: feature.name.clone(),
@@ -364,6 +373,7 @@ impl Document {
                     continue;
                 }
             };
+
             if !deep.is_empty() || !followers.is_empty() {
                 let so_far = Transaction::new(label.clone(), builder.edits.clone());
                 let copying = Copying {
@@ -380,9 +390,13 @@ impl Document {
                     Err(PickFailure::Cancelled) => return Err(PasteError::Cancelled),
                 }
             }
+
             let name = copy_name(&feature.name, &names);
+
             names.insert(name.clone());
+
             let mut copy = Feature::new(feature.id(), name, kind);
+
             copy.hidden = feature.hidden;
             copy.suppressed = feature.suppressed;
             copy.appearance = appearance;
@@ -390,7 +404,9 @@ impl Document {
             copy.piece_looks = piece_looks;
             copy.piece_stand_ins = feature.piece_stand_ins.clone();
             copy.group.clone_from(&feature.group);
+
             let id = builder.add_copied_feature(copy);
+
             renamed.insert(feature.id(), id);
             pasted.push(id);
             inlined += carried;
@@ -398,7 +414,9 @@ impl Document {
         if pasted.is_empty() {
             return Err(PasteError::NothingPasted { left_out });
         }
+
         let transaction = builder.finish();
+
         self.check(&transaction)?;
         Ok(FeaturePaste {
             transaction,
@@ -423,13 +441,17 @@ impl Document {
             .into_iter()
             .filter(|input| copied.contains_key(input))
             .collect();
+
         if let Some(missing) = inputs.iter().find(|input| !renamed.contains_key(input)) {
             return Err(PasteRefusal::LeftOutInput {
                 name: copied.get(missing).copied().unwrap_or_default().to_owned(),
             });
         }
+
         let mut kind = feature.kind.clone();
+
         let placeholders = Placeholders::new(&mut kind, inputs.len());
+
         kind.rename_features(&|id| {
             inputs
                 .iter()
@@ -437,14 +459,18 @@ impl Document {
                 .and_then(|index| placeholders.of(index, id.piece_key()))
                 .unwrap_or(id)
         });
+
         let unfollowed = kind.features();
+
         if let Some(input) = inputs.iter().find(|input| unfollowed.contains(input)) {
             return Err(PasteRefusal::Unfollowed {
                 name: copied.get(input).copied().unwrap_or_default().to_owned(),
             });
         }
+
         let dependencies = kind.dependencies();
         let picked_corners = paste_picks::vertex_bodies(&kind);
+
         let deep: Vec<FeatureId> = inputs
             .iter()
             .enumerate()
@@ -459,6 +485,7 @@ impl Document {
         let outside = dependencies.iter().filter(|dependency| {
             placeholders.index_of(**dependency).is_none() && !deep.contains(dependency)
         });
+
         for dependency in outside {
             match origin {
                 PasteOrigin::Elsewhere => return Err(PasteRefusal::OutsideFeature),
@@ -482,16 +509,21 @@ impl Document {
                 None => *copy,
             }
         });
+
         let mut appearance = feature.appearance.clone();
+
         let mut inlined = carry_values(&mut kind, &mut appearance, parameters, self, origin)?;
         let mut piece_looks = feature.piece_looks.clone();
+
         for look in piece_looks.appearances_mut() {
             if let Some(density) = &mut look.density {
                 let carried = parameters.carry(density, self, origin)?;
+
                 inlined += carried.inlined;
                 *density = carried.expression;
             }
         }
+
         let followers = match origin {
             PasteOrigin::ThisDocument => paste_picks::corner_followers(feature, features)
                 .into_iter()
@@ -517,11 +549,14 @@ struct Placeholders {
 impl Placeholders {
     fn new(kind: &mut FeatureKind, count: usize) -> Self {
         let followed = RefCell::new(BTreeSet::new());
+
         kind.rename_features(&|id| {
             followed.borrow_mut().insert(id.maker());
             id
         });
+
         let mut referenced = followed.into_inner();
+
         referenced.extend(
             kind.features()
                 .into_iter()
@@ -529,6 +564,7 @@ impl Placeholders {
                 .chain(paste_picks::vertex_bodies(kind))
                 .map(FeatureId::maker),
         );
+
         let makers = (0..FIRST_UNSTORABLE_ID)
             .map(FeatureId::from_raw)
             .filter(|id| !referenced.contains(id))
@@ -561,8 +597,10 @@ pub(crate) fn carry_values(
     origin: PasteOrigin,
 ) -> Result<usize, CarryError> {
     let mut inlined = 0;
+
     for expression in expressions_mut(kind) {
         let carried = parameters.carry(expression, target, origin)?;
+
         inlined += carried.inlined;
         *expression = carried.expression;
     }
@@ -574,6 +612,7 @@ pub(crate) fn carry_values(
             .collect();
         for (id, value) in dimensions {
             let carried = parameters.carry(&value, target, origin)?;
+
             inlined += carried.inlined;
             if carried.expression != value {
                 sketch.sketch.set_dimension(id, carried.expression).ok();
@@ -582,6 +621,7 @@ pub(crate) fn carry_values(
     }
     if let Some(density) = &mut appearance.density {
         let carried = parameters.carry(density, target, origin)?;
+
         inlined += carried.inlined;
         *density = carried.expression;
     }
@@ -590,6 +630,7 @@ pub(crate) fn carry_values(
 
 fn copy_name(name: &str, taken: &BTreeSet<String>) -> String {
     let first = format!("{name} {COPY_SUFFIX}");
+
     if !taken.contains(&first) {
         return first;
     }

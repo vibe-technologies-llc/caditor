@@ -24,7 +24,7 @@ use crate::{
     visibility,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pair {
     pub first: FeatureId,
     pub second: FeatureId,
@@ -39,14 +39,14 @@ impl Pair {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Overlap {
     pub mass: Option<BodyMass>,
     pub place: Point3,
     pub outline: Arc<Vec<Vec<Point3>>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Finding {
     Apart,
     Touching(Point3),
@@ -65,14 +65,14 @@ impl Finding {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     Everything,
     Chosen,
     AgainstTheRest(FeatureId),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bodies {
     pub scope: Scope,
     pub pairs: Vec<Pair>,
@@ -83,6 +83,7 @@ impl Bodies {
     pub fn of(model: &Model, selection: &Selection, tree: &[FeatureId]) -> Self {
         let evaluation = model.evaluation();
         let document = model.document();
+
         let shown: Vec<FeatureId> = evaluation
             .bodies()
             .map(|(body, _)| body)
@@ -142,6 +143,7 @@ impl Bodies {
 
 fn bodies_solid(model: &Model, body: FeatureId) -> Option<Arc<FeatureResult>> {
     let result = model.evaluation().body_result(body)?;
+
     result.solid()?;
     Some(Arc::clone(result))
 }
@@ -150,6 +152,7 @@ fn check(first: &FeatureResult, second: &FeatureResult, quality: &MeshQuality) -
     let (Some(first), Some(second)) = (first.solid(), second.solid()) else {
         return Finding::Apart;
     };
+
     if let (Some(one), Some(other)) = (first.bounding_box(), second.bounding_box())
         && apart(&one, &other)
     {
@@ -248,6 +251,7 @@ fn run_job(job: &Job, current: &AtomicU64, send: &mut dyn FnMut(Message) -> bool
         if current.load(Ordering::SeqCst) != ticket {
             return;
         }
+
         #[cfg(test)]
         let _ = job.hold.wait();
         let finding = contained_check(&task.first, &task.second, &job.quality);
@@ -273,6 +277,7 @@ impl Worker {
     fn spawn(wake: Waker, current: Arc<AtomicU64>) -> Option<Self> {
         let (jobs, queue) = mpsc::channel::<Job>();
         let (sender, done) = mpsc::channel();
+
         let spawned = thread::Builder::new()
             .name("interference".to_owned())
             .spawn(move || {
@@ -280,10 +285,13 @@ impl Worker {
                     while let Ok(newer) = queue.try_recv() {
                         job = newer;
                     }
+
                     let ticket = job.ticket;
                     let watched = Arc::clone(&current);
+
                     let interrupt = Arc::new(move || watched.load(Ordering::SeqCst) != ticket);
                     let mut alive = true;
+
                     interruptible(interrupt, || {
                         run_job(&job, &current, &mut |message| {
                             alive = sender.send(message).is_ok();
@@ -306,7 +314,7 @@ impl Worker {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Basis {
     bodies: Bodies,
     revision: u64,
@@ -326,7 +334,7 @@ impl Checked {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Report {
     pub bodies: Bodies,
     pub found: Vec<(Pair, Finding)>,
@@ -350,7 +358,7 @@ impl Report {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Inputs {
     selection: u64,
     tree: Vec<FeatureId>,
@@ -396,6 +404,7 @@ impl Interference {
             .basis
             .as_ref()
             .is_some_and(|basis| basis.quality == quality);
+
         if self.inputs.as_ref() != Some(&inputs) || !same_quality {
             let basis = Basis {
                 bodies: Bodies::of(model, selection, tree),
@@ -403,6 +412,7 @@ impl Interference {
                 evaluation: inputs.evaluation,
                 quality,
             };
+
             self.inputs = Some(inputs);
             if self.basis.as_ref() != Some(&basis) {
                 if !same_quality {
@@ -430,17 +440,20 @@ impl Interference {
         self.ticket = self.ticket.wrapping_add(1);
         self.current.store(self.ticket, Ordering::SeqCst);
         self.submitted.clear();
+
         let results: BTreeMap<FeatureId, Arc<FeatureResult>> = model
             .evaluation()
             .bodies()
             .filter_map(|(body, _)| Some((body, bodies_solid(model, body)?)))
             .collect();
+
         self.checked.retain(|pair, checked| {
             match (results.get(&pair.first), results.get(&pair.second)) {
                 (Some(first), Some(second)) => checked.holds(first, second),
                 _ => false,
             }
         });
+
         let tasks: Vec<Task> = basis
             .bodies
             .pairs
@@ -454,6 +467,7 @@ impl Interference {
                 })
             })
             .collect();
+
         for task in &tasks {
             self.submitted.insert(
                 task.pair,
@@ -478,6 +492,7 @@ impl Interference {
         if self.worker.is_none() {
             self.worker = Worker::spawn(model.waker(), Arc::clone(&self.current));
         }
+
         let refused = match &self.worker {
             Some(worker) => worker.jobs.send(job).err().map(|refused| refused.0),
             None => Some(job),
@@ -485,7 +500,9 @@ impl Interference {
         if let Some(job) = refused {
             log::error!("no interference worker, so bodies are checked on the UI thread");
             self.worker = None;
+
             let mut arrived = Vec::new();
+
             run_job(&job, &self.current, &mut |message| {
                 arrived.push(message);
                 true
@@ -535,6 +552,7 @@ impl Interference {
             };
         };
         let evaluation = model.evaluation();
+
         let found = basis
             .bodies
             .pairs

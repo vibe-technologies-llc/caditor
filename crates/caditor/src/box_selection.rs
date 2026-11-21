@@ -23,7 +23,7 @@ pub struct Seen {
     pub units_per_point: f64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Grid {
     origin: Vector2,
     cell: f64,
@@ -47,6 +47,7 @@ impl Grid {
             .ceil()
             .max(0.0)
             .min(self.rows as f64) as usize;
+
         let rows = if flat { 0..0 } else { first_row..last_row };
         rows.flat_map(move |row| {
             (first_column..last_column).filter_map(move |column| {
@@ -54,6 +55,7 @@ impl Grid {
                     self.origin + Vector2::new(column as f64 + 0.5, row as f64 + 0.5) * self.cell;
                 let weight_a = (b - centre).perp_dot(c - centre) / area;
                 let weight_b = (c - centre).perp_dot(a - centre) / area;
+
                 let weight_c = 1.0 - weight_a - weight_b;
                 let inside = weight_a >= 0.0 && weight_b >= 0.0 && weight_c >= 0.0;
                 inside.then_some((row * self.columns + column, [weight_a, weight_b, weight_c]))
@@ -63,9 +65,11 @@ impl Grid {
 
     fn index_of(self, at: Vector2) -> Option<usize> {
         let local = (at - self.origin) / self.cell;
+
         if local.x < 0.0 || local.y < 0.0 {
             return None;
         }
+
         let (column, row) = (local.x as usize, local.y as usize);
         (column < self.columns && row < self.rows).then_some(row * self.columns + column)
     }
@@ -103,11 +107,14 @@ impl Occlusion {
         area: &ScreenArea,
     ) -> Self {
         let (low, high) = area.bounds();
+
         let longest = (high - low).max_element().max(1.0);
         let cell = (longest / MAX_CELLS).max(1.0);
         let origin = low - Vector2::splat(cell);
+
         let columns = ((high.x - origin.x) / cell).ceil() as usize + 2;
         let rows = ((high.y - origin.y) / cell).ceil() as usize + 2;
+
         let mut occlusion = Self {
             grid: Grid {
                 origin,
@@ -117,6 +124,7 @@ impl Occlusion {
             },
             depths: vec![f64::INFINITY; columns * rows],
         };
+
         for mesh in meshes {
             let projected: Vec<Option<(Vector2, f64)>> = mesh
                 .positions()
@@ -175,11 +183,13 @@ impl Occlusion {
             .fold(0.0, larger);
         let slack = self.slack(units_per_point);
         let mut covered = false;
+
         for (index, weights) in self
             .grid
             .cells_inside(corners.each_ref().map(|seen| seen.at))
         {
             covered = true;
+
             let nearest = self.depths.get(index).copied().unwrap_or(f64::INFINITY);
             if depth_at(depths, weights) <= nearest + slack {
                 return Some(true);
@@ -189,7 +199,7 @@ impl Occlusion {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Catch {
     Faces,
     Edges,
@@ -213,6 +223,7 @@ impl Catch {
 
 pub fn is_a_box(area: &ScreenArea) -> bool {
     let (low, high) = area.bounds();
+
     let size = high - low;
     size.x >= SMALLEST_BOX || size.y >= SMALLEST_BOX
 }
@@ -302,6 +313,7 @@ fn samples<S: Fn(Point3) -> Option<Seen>>(
     let screen = |point: Point3| (looking.seen)(point).map(|seen| seen.at);
     let last = points.clone().last();
     let mut sampled = Vec::new();
+
     for (from, to) in points.segments() {
         let span = screen(from)
             .zip(screen(to))
@@ -309,6 +321,7 @@ fn samples<S: Fn(Point3) -> Option<Seen>>(
         let steps = (span / SAMPLE_POINTS)
             .ceil()
             .clamp(1.0, MAX_SEGMENT_SAMPLES) as usize;
+
         sampled.extend((0..steps).map(|step| from.lerp(to, step as f64 / steps as f64)));
     }
     sampled.extend(last);
@@ -332,14 +345,17 @@ fn polyline_caught<S: Fn(Point3) -> Option<Seen>>(
     let counted = |sample: &Option<(Vector2, bool, bool)>| {
         !any_within || sample.is_some_and(|(_, _, within)| within)
     };
+
     let counted_samples = judged.iter().filter(|sample| counted(sample)).count();
     let visible = judged
         .iter()
         .filter(|sample| counted(sample) && sample.is_some_and(|(_, shown, _)| shown))
         .count();
+
     if visible * 2 < counted_samples {
         return false;
     }
+
     let projected: Vec<Option<Vector2>> = judged
         .iter()
         .map(|sample| sample.and_then(|(at, shown, _)| shown.then_some(at)))
@@ -378,6 +394,7 @@ fn faces_within<S: Fn(Point3) -> Option<Seen>>(
         return Vec::new();
     };
     let keys: BTreeMap<_, _> = face_keys(&solid.solid).into_iter().collect();
+
     let projected: Vec<Option<Vector2>> = triangulated
         .positions()
         .iter()
@@ -402,9 +419,11 @@ fn faces_within<S: Fn(Point3) -> Option<Seen>>(
                 .triangles()
                 .get(face.triangles.clone())
                 .unwrap_or_default();
+
             if triangles.is_empty() {
                 return false;
             }
+
             let facing_in_space: Vec<([Vector2; 3], [Point3; 3])> = triangles
                 .iter()
                 .filter_map(
@@ -446,11 +465,13 @@ fn triangle_is_seen<S: Fn(Point3) -> Option<Seen>>(
     [a, b, c]: [Point3; 3],
 ) -> bool {
     let projected = [a, b, c].map(looking.seen);
+
     if let [Some(first), Some(second), Some(third)] = projected
         && let Some(seen) = looking.occlusion.sees_triangle(&[first, second, third])
     {
         return seen;
     }
+
     let middle = (a + b + c) / 3.0;
     [a, b, c, middle]
         .into_iter()
@@ -483,6 +504,7 @@ mod tests {
             to: Vector2::new(100.0, 100.0),
         });
         let mut occlusion = Occlusion::of(std::iter::empty(), &|_| None, &area);
+
         occlusion.fill([
             (Vector2::new(10.0, 10.0), 5.0),
             (Vector2::new(90.0, 10.0), 5.0),
@@ -509,6 +531,7 @@ mod tests {
             })
         };
         let mut covered = Occlusion::of(std::iter::empty(), &|_| None, &area);
+
         covered.fill([
             (Vector2::new(0.0, 0.0), 5.0),
             (Vector2::new(100.0, 0.0), 5.0),
@@ -519,6 +542,7 @@ mod tests {
             (Vector2::new(100.0, 100.0), 5.0),
             (Vector2::new(0.0, 100.0), 5.0),
         ]);
+
         let behind = [
             Point3::new(20.0, 20.0, 50.0),
             Point3::new(60.0, 20.0, 50.0),
@@ -553,11 +577,13 @@ mod tests {
             })
         };
         let mut covered = Occlusion::of(std::iter::empty(), &|_| None, &area);
+
         covered.fill([
             (Vector2::new(-100.0, -100.0), 5.0),
             (Vector2::new(300.0, -100.0), 5.0),
             (Vector2::new(-100.0, 300.0), 5.0),
         ]);
+
         let behind = [
             Point3::new(0.0, 0.0, 50.0),
             Point3::new(150.0, 0.0, 50.0),

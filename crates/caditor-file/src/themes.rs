@@ -15,7 +15,7 @@ pub const THEME_EXTENSION: &str = "json";
 pub const MAX_THEME_FILE: u64 = 64 << 10;
 pub const MAX_THEME_FILES: usize = 64;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThemeFile {
     #[serde(default)]
@@ -80,6 +80,7 @@ pub fn read_themes(folder: &Path) -> Vec<ReadTheme> {
         .map(|entry| entry.path())
         .filter(|path| is_theme(path))
         .collect();
+
     paths.sort_by_cached_key(|path| path.file_name().map(OsStr::to_ascii_lowercase));
     paths.truncate(MAX_THEME_FILES);
     paths
@@ -101,15 +102,18 @@ pub fn read_theme(path: &Path) -> Result<ThemeFile, ThemeFileError> {
     let bytes = fs::metadata(path)
         .map_err(|source| ThemeFileError::Unreadable { source })?
         .len();
+
     if bytes > MAX_THEME_FILE {
         return Err(ThemeFileError::TooLarge { bytes });
     }
+
     let read = read_file(path).map_err(|source| ThemeFileError::Unreadable { source })?;
     parse_theme(&read)
 }
 
 pub fn parse_theme(bytes: &[u8]) -> Result<ThemeFile, ThemeFileError> {
     let length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+
     if length > MAX_THEME_FILE {
         return Err(ThemeFileError::TooLarge { bytes: length });
     }
@@ -151,7 +155,9 @@ mod tests {
             parse_theme(br#"{"colour": {}}"#),
             Err(ThemeFileError::Malformed { .. })
         ));
+
         let large = vec![b' '; usize::try_from(MAX_THEME_FILE).unwrap() + 1];
+
         assert!(matches!(
             parse_theme(&large),
             Err(ThemeFileError::TooLarge { .. })
@@ -169,6 +175,7 @@ mod tests {
         fs::write(folder.join("b.json"), br#"{"name": "B"}"#).unwrap();
         fs::write(folder.join("A.JSON"), b"{ broken").unwrap();
         fs::write(folder.join("notes.txt"), b"ignored").unwrap();
+
         let read = read_themes(&folder);
 
         assert_eq!(read.len(), 2);

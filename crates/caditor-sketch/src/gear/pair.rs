@@ -5,7 +5,7 @@ use caditor_geometry::Point2;
 use super::{DrawnGear, Gear, GearCentre, GearError, GearOutline, Meshing, SpurGear};
 use crate::{Sketch, id::EntityId};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GearPair {
     pub driver: SpurGear,
     pub partner_teeth: u32,
@@ -13,13 +13,13 @@ pub struct GearPair {
     pub direction: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PairOutline {
     pub driver: GearOutline,
     pub partner: GearOutline,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DrawnPair {
     pub driver: DrawnGear,
     pub partner: DrawnGear,
@@ -91,6 +91,7 @@ impl Sketch {
                 ..driver
             })
             .map_err(GearError::Edit)?;
+
         let partner = self
             .add_parametric_gear(Gear {
                 centre: partner_centre,
@@ -109,6 +110,7 @@ impl Sketch {
         let at = self.wheel_centre_position(centre)?;
         let outlines = pair.outlines(at)?;
         let driver_centre = self.wheel_centre_point(centre, at)?;
+
         let driver = self.draw_toothed(
             driver_centre,
             &outlines.driver.pieces,

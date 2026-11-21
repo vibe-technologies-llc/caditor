@@ -3,20 +3,20 @@ use thiserror::Error;
 
 use crate::{error::GeometryError, interrupt::Interrupted, profile::RegionKey};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Neighbour {
     pub entity: u64,
     pub gap: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OpenEnd {
     pub entity: u64,
     pub point: Point2,
     pub nearest: Option<Neighbour>,
 }
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum ProfileError {
     #[error("the sketch has no closed profile")]
     NoClosedProfile { open_ends: Vec<OpenEnd> },
@@ -68,6 +68,7 @@ impl ProfileError {
                     .flat_map(|end| [Some(end.entity), end.nearest.map(|near| near.entity)])
                     .flatten()
                     .collect();
+
                 entities.sort_unstable();
                 entities.dedup();
                 entities

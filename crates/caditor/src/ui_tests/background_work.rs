@@ -15,13 +15,17 @@ use crate::{
 #[test]
 fn face_analysis_is_cancelled_and_asked_for_again_from_the_palette() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
+
     let hold = Hold::holding();
+
     harness
         .workspace
         .viewport
         .analyses_mut()
         .hold_on_a_thread(hold.clone());
+
     let palette = Contrast::Standard.palette(Canvas::Dark);
     let revision = harness.model.revision();
 
@@ -29,6 +33,7 @@ fn face_analysis_is_cancelled_and_asked_for_again_from_the_palette() {
     harness.wait_until("the faces are being analysed", |harness| {
         harness.shows(analysis_panel::WORKING)
     });
+
     let cancelling = offer(&harness, Command::CancelAnalysis).availability;
     let analysing_again = offer(&harness, Command::AnalyseAgain).availability;
 
@@ -36,6 +41,7 @@ fn face_analysis_is_cancelled_and_asked_for_again_from_the_palette() {
     harness.wait_until("the analysis stopped", |harness| {
         harness.shows(analysis_panel::ANALYSE_AGAIN)
     });
+
     let resuming = offer(&harness, Command::AnalyseAgain).availability;
     let cancelled = offer(&harness, Command::CancelAnalysis).availability;
 
@@ -65,11 +71,14 @@ fn face_analysis_is_cancelled_and_asked_for_again_from_the_palette() {
 #[test]
 fn mass_properties_are_cancelled_and_worked_out_again_from_the_palette() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
+
     let holds = Holds {
         measures: Hold::holding(),
         ..Holds::default()
     };
+
     harness.model.hold_body_work(&holds);
     harness.select([]);
 
@@ -77,6 +86,7 @@ fn mass_properties_are_cancelled_and_worked_out_again_from_the_palette() {
     harness.wait_until("the mass properties are being worked out", |harness| {
         harness.shows(measure_panel::WORKING_OUT_MASSES)
     });
+
     let cancelling = offer(&harness, Command::CancelMassProperties).availability;
     let working_out = offer(&harness, Command::WorkOutMassProperties).availability;
 
@@ -84,6 +94,7 @@ fn mass_properties_are_cancelled_and_worked_out_again_from_the_palette() {
     harness.wait_until("the mass properties stopped", |harness| {
         harness.shows(&measure_panel::stopped_masses_text(1)) && !harness.model.masses_pending()
     });
+
     let resuming = offer(&harness, Command::WorkOutMassProperties).availability;
 
     assert!(cancelling.is_ok());
@@ -107,8 +118,11 @@ fn preparing_bodies_is_cancelled_and_resumed_from_the_palette() {
         converts: Hold::holding(),
         ..Holds::default()
     };
+
     harness.model.hold_body_work(&holds);
+
     let mut transaction = harness.document().transaction("Add two blocks");
+
     block_into(
         &mut transaction,
         "Left",
@@ -122,16 +136,20 @@ fn preparing_bodies_is_cancelled_and_resumed_from_the_palette() {
         "5 mm",
     );
     harness.perform(Action::Apply(transaction.finish()));
+
     let preparing = format!("{}…", status_bar::showing_bodies_text(0, 2));
+
     harness.wait_until("the bodies are being prepared", |harness| {
         harness.shows(&preparing)
     });
+
     let cancelling = offer(&harness, Command::CancelPreparingBodies).availability;
     let showing_the_rest = offer(&harness, Command::ShowRestOfBodies).availability;
 
     run_from_palette(&mut harness, "cancel preparing bodies for display");
     harness.frame();
     harness.frame();
+
     let resuming = offer(&harness, Command::ShowRestOfBodies).availability;
 
     assert!(cancelling.is_ok());
@@ -153,8 +171,10 @@ fn preparing_bodies_is_cancelled_and_resumed_from_the_palette() {
 #[test]
 fn isocurves_are_cancelled_from_the_palette() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
     let hold = Hold::holding();
+
     harness.workspace.isocurves.hold_on_a_thread(hold.clone());
 
     run_from_palette(&mut harness, "show or hide isocurves");
@@ -163,12 +183,14 @@ fn isocurves_are_cancelled_from_the_palette() {
     harness.wait_until("the isocurves are being worked out", |harness| {
         harness.shows(isocurve_panel::WORKING)
     });
+
     let cancelling = offer(&harness, Command::CancelIsocurves).availability;
 
     run_from_palette(&mut harness, "cancel the isocurves");
     harness.wait_until("the isocurves stopped", |harness| {
         harness.shows(isocurve_panel::STOPPED)
     });
+
     let cancelled = offer(&harness, Command::CancelIsocurves).availability;
 
     assert!(cancelling.is_ok());
@@ -181,9 +203,12 @@ fn isocurves_are_cancelled_from_the_palette() {
 #[test]
 fn the_interference_check_is_cancelled_and_made_again_from_the_palette() {
     let mut harness = Harness::new();
+
     extruded_plate(&mut harness);
     add_peg(&mut harness);
+
     let hold = Hold::holding();
+
     harness
         .workspace
         .interference
@@ -195,6 +220,7 @@ fn the_interference_check_is_cancelled_and_made_again_from_the_palette() {
     harness.wait_until("the pair is being checked", |harness| {
         harness.shows(interference_panel::CHECKING)
     });
+
     let cancelling = offer(&harness, Command::CancelInterference).availability;
     let checking_again = offer(&harness, Command::CheckInterferenceAgain).availability;
 
@@ -202,6 +228,7 @@ fn the_interference_check_is_cancelled_and_made_again_from_the_palette() {
     harness.wait_until("the check stopped", |harness| {
         harness.shows(interference_panel::CHECK_AGAIN)
     });
+
     let resuming = offer(&harness, Command::CheckInterferenceAgain).availability;
 
     assert!(cancelling.is_ok());

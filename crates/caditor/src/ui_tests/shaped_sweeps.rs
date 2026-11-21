@@ -23,18 +23,24 @@ fn wall_of(extrude: &Extrude) -> Option<(f64, WallSide)> {
 #[test]
 fn an_extrude_panel_takes_a_taper_and_a_thin_wall() {
     let mut harness = Harness::new();
+
     let plate = extruded(&mut harness, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+
     assert!(harness.shows("Taper"));
     assert!(volume_about(&harness, plate, 16_000.0));
 
     harness.type_into_field(Id::unique(("solid-field", "taper", plate)), "5 deg");
     harness.settle();
+
     let taper = open_extrude(&harness, plate).taper;
+
     assert_eq!(
         taper.map(|angle| harness.document().expression_text(&angle)),
         Some("5 deg".to_owned())
     );
+
     let top = 40.0 - 20.0 * 5.0_f64.to_radians().tan();
+
     assert!(volume_about(
         &harness,
         plate,
@@ -43,10 +49,12 @@ fn an_extrude_panel_takes_a_taper_and_a_thin_wall() {
 
     harness.type_into_field(Id::unique(("solid-field", "taper", plate)), "0 deg");
     harness.settle();
+
     assert_eq!(open_extrude(&harness, plate).taper, None);
 
     harness.click("Thin wall");
     harness.settle();
+
     assert_eq!(
         wall_of(&open_extrude(&harness, plate)),
         Some((1.0, WallSide::Centred))
@@ -56,9 +64,11 @@ fn an_extrude_panel_takes_a_taper_and_a_thin_wall() {
 
     harness.type_into_field(Id::unique(("solid-field", "wall-thickness", plate)), "2 mm");
     harness.settle();
+
     assert!(volume_about(&harness, plate, 3_200.0));
 
     choose(&mut harness, "Centred", "Inside");
+
     assert_eq!(
         wall_of(&open_extrude(&harness, plate)),
         Some((2.0, WallSide::Inside))
@@ -67,6 +77,7 @@ fn an_extrude_panel_takes_a_taper_and_a_thin_wall() {
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     assert_eq!(
         wall_of(&open_extrude(&harness, plate)),
         Some((2.0, WallSide::Centred))
@@ -74,6 +85,7 @@ fn an_extrude_panel_takes_a_taper_and_a_thin_wall() {
 
     harness.click_lowest("Solid");
     harness.settle();
+
     assert_eq!(open_extrude(&harness, plate).wall, None);
     assert!(volume_about(&harness, plate, 16_000.0));
 }
@@ -82,6 +94,7 @@ fn an_extrude_panel_takes_a_taper_and_a_thin_wall() {
 fn extruding_an_open_sketch_makes_a_thin_wall_along_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(0.0, 10.0), Point2::new(0.0, 0.0));
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0));
     harness.add_sketch(sketch);
@@ -95,6 +108,7 @@ fn extruding_an_open_sketch_makes_a_thin_wall_along_it() {
         .editing
         .solid()
         .expect("the extrusion is open");
+
     assert_eq!(
         wall_of(&open_extrude(&harness, feature)),
         Some((1.0, WallSide::Centred))

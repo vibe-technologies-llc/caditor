@@ -32,6 +32,7 @@ pub(super) fn follows(
 fn angle_about(circle: &Circle, point: Point3, near: f64) -> f64 {
     let frame = circle.frame();
     let local = point - circle.center();
+
     let angle = local
         .dot(frame.y_axis())
         .atan2_libm(local.dot(frame.x_axis()));
@@ -40,6 +41,7 @@ fn angle_about(circle: &Circle, point: Point3, near: f64) -> f64 {
 
 fn parameter_near(curve: &Curve, point: Point3, near: f64, reach: f64) -> f64 {
     let (low, high) = (near - reach, near + reach);
+
     let window = match curve.period() {
         Some(_) => Interval::new(low, high),
         None => {
@@ -90,9 +92,11 @@ fn rebuilt(
             let center = circle.center() + axis * (from - circle.center()).dot(axis);
             let radial = from - center;
             let radius = radial.length();
+
             if radius <= LINEAR_RESOLUTION {
                 return Err(collapses());
             }
+
             let x_axis = radial.try_normalize().ok_or_else(collapses)?;
             let frame = Plane::from_frame(center, axis, x_axis).ok_or_else(collapses)?;
             let sweep = if edge.is_closed() {
@@ -117,13 +121,17 @@ fn rebuilt(
 fn window(surface: &Surface, points: &[Point3], reach: f64) -> Option<Aabb2> {
     let mut hint: Option<Point2> = None;
     let mut uvs = Vec::with_capacity(points.len());
+
     for point in points {
         let uv = surface.project(*point, hint);
+
         hint = Some(uv);
         uvs.push(uv);
     }
+
     let bounds = Aabb2::from_points(uvs)?;
     let (min, max, center) = (bounds.min(), bounds.max(), bounds.center());
+
     let speeds = [
         min,
         center,
@@ -140,10 +148,12 @@ fn window(surface: &Surface, points: &[Point3], reach: f64) -> Option<Aabb2> {
         period.map_or(margin, |period| margin.min(period))
     };
     let size = bounds.size();
+
     let (du, dv) = (
         margin(size.x, u_speed, surface.u_period()),
         margin(size.y, v_speed, surface.v_period()),
     );
+
     let grown = Aabb2::from_point(Point2::new(min.x - du, min.y - dv))
         .including(Point2::new(max.x + du, max.y + dv));
     grown.min().is_finite().then_some(grown)
@@ -170,9 +180,11 @@ fn piece_between(
             branch.curve.reversed_range(branch.range),
         )
     };
+
     let start = located(&curve, range, from)?;
     let end = located(&curve, range, to)?;
     let period = curve.period().filter(|_| branch.closed);
+
     let interval = match (period, closed) {
         (Some(period), true) => Interval::new(start, start + period),
         (Some(period), false) if end <= start => Interval::new(start, end + period),
@@ -191,27 +203,33 @@ fn crossing(
     let [first, second] = faces else {
         return Ok(None);
     };
+
     let surfaces = [offsets.surface(*first)?, offsets.surface(*second)?];
     let interval = edge.interval();
     let mut points: Vec<Point3> = interval
         .split(WINDOW_SAMPLES)
         .map(|parameter| edge.curve().point(parameter))
         .collect();
+
     points.extend([ends.0, ends.1]);
+
     let reach = WINDOW_REACH * offsets.reach;
     let [first_surface, second_surface] = &surfaces;
+
     let (Some(first_window), Some(second_window)) = (
         window(first_surface, &points, reach),
         window(second_surface, &points, reach),
     ) else {
         return Ok(None);
     };
+
     let (Ok(first_patch), Ok(second_patch)) = (
         SurfacePatch::new(first_surface, first_window),
         SurfacePatch::new(second_surface, second_window),
     ) else {
         return Ok(None);
     };
+
     let found = match intersect_surfaces(&first_patch, &second_patch) {
         Ok(found) => found,
         Err(IntersectionError::Cancelled(interrupted)) => {
@@ -276,6 +294,7 @@ pub(super) fn offset_edge(
         .edge(source)
         .ok_or(ShellError::UnsupportedEdge(source))?;
     let (back_from, back_to) = pulled_back(offsets, faces, (from, to));
+
     if !edge.is_closed() && reverses(edge, back_from, back_to) {
         return Err(ShellError::EdgeCollapses(source));
     }
@@ -285,11 +304,13 @@ pub(super) fn offset_edge(
     if let Some(carried) = carried(offsets, edge, faces, (from, to)) {
         return Ok(carried);
     }
+
     let moving = faces.iter().any(|face| offsets.motion(*face).is_some());
     let rebuilt = match rebuilt(edge, source, from, to) {
         Err(_) if moving => None,
         rebuilt => rebuilt?,
     };
+
     if let Some((curve, interval)) = rebuilt
         && follows(offsets, faces, &curve, interval)
     {

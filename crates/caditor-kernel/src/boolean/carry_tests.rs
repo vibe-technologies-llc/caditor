@@ -53,6 +53,7 @@ fn drill_at(center: (f64, f64), radius: f64, feature: u64) -> Solid {
 
 fn drill(index: usize, columns: usize) -> Solid {
     let (column, row) = (index % columns, index / columns);
+
     let center = (PITCH * (column as f64 + 0.5), PITCH * (row as f64 + 0.5));
     drill_at(center, PITCH / 4.0, 100 + index as u64)
 }
@@ -82,7 +83,9 @@ fn signature(solid: &Solid) -> Signature {
         .faces()
         .map(|(_, face)| (face.name(), face.origin(), face.loops().len()))
         .collect();
+
     faces.sort();
+
     let mut edges: Vec<_> = solid
         .edges()
         .map(|(_, edge)| {
@@ -93,10 +96,12 @@ fn signature(solid: &Solid) -> Signature {
                 .filter_map(|face| solid.face(face))
                 .map(|face| face.name())
                 .collect();
+
             around.sort();
             (edge.name(), around)
         })
         .collect();
+
     edges.sort();
     Signature {
         faces,
@@ -129,6 +134,7 @@ fn assert_same(name: &str, first: &Solid, second: &Solid, operation: BooleanOper
                 rebuilt.as_ref().err(),
                 "{name} {operation:?}"
             );
+
             return Solid::default();
         }
     };
@@ -140,7 +146,9 @@ fn assert_same(name: &str, first: &Solid, second: &Solid, operation: BooleanOper
         signature(&rebuilt),
         "{name} {operation:?}"
     );
+
     let (carried_volume, rebuilt_volume) = (volume(&carried), volume(&rebuilt));
+
     assert!(
         (carried_volume - rebuilt_volume).abs() <= 1e-6 * rebuilt_volume.abs().max(1.0),
         "{name} {operation:?}: {carried_volume} against {rebuilt_volume}"
@@ -165,6 +173,7 @@ fn holes_drilled_one_by_one_match_the_full_pipeline() {
 
     for index in 0..columns * columns {
         let tool = drill(index, columns);
+
         body = assert_same("hole", &body, &tool, BooleanOperation::Difference);
     }
 
@@ -180,6 +189,7 @@ fn holes_breaking_into_earlier_holes_match_the_full_pipeline() {
         .enumerate()
     {
         let tool = drill_at(center, 2.0, 200 + index as u64);
+
         body = assert_same(
             "overlapping hole",
             &body,
@@ -187,6 +197,7 @@ fn holes_breaking_into_earlier_holes_match_the_full_pipeline() {
             BooleanOperation::Difference,
         );
     }
+
     let boss = drill_at((25.0, 5.0), 3.5, 300);
 
     assert_same_in_every_operation("boss around a hole", &body, &boss);
@@ -236,6 +247,7 @@ fn separated_solids_skip_the_pipeline_with_the_same_result() {
     assert!(apart::combine_apart(&first, &second, BooleanOperation::Union).is_some());
     assert!(apart::combine_apart(&first, &far_ball, BooleanOperation::Difference).is_some());
     assert!(apart::combine_apart(&first, &first, BooleanOperation::Union).is_none());
+
     assert_same_in_every_operation("separated", &first, &second);
     assert_same_in_every_operation("separated reversed", &second, &first);
     assert_same_in_every_operation("separated ball", &first, &far_ball);
@@ -269,6 +281,7 @@ fn separated_solids_that_the_pipeline_would_rename_go_through_it() {
 
     assert!(apart::combine_apart(&first, &copy, BooleanOperation::Union).is_none());
     assert!(apart::combine_apart(&first, &steps, BooleanOperation::Union).is_none());
+
     assert_same_in_every_operation("copy", &first, &copy);
     assert_same_in_every_operation("split side", &first, &steps);
 }
@@ -286,6 +299,7 @@ fn carried_coedges_share_their_pcurves_with_the_operand() {
 
     let once = boolean(&body, &drill(0, 2), BooleanOperation::Difference).unwrap();
     let twice = boolean(&once, &drill(3, 2), BooleanOperation::Difference).unwrap();
+
     let (plate, drilled, redrilled) = (
         pcurve_buffers(&body),
         pcurve_buffers(&once),
@@ -308,9 +322,11 @@ fn holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time() {
     let columns = 12;
     let mut body = plate(columns, columns);
     let clock = Instant::now();
+
     for index in 0..columns * columns {
         let tool = drill(index, columns);
         let started = Instant::now();
+
         body = boolean(&body, &tool, BooleanOperation::Difference).unwrap();
         if matches!(index + 1, 1 | 12 | 36 | 72 | 144) {
             eprintln!(
@@ -325,13 +341,16 @@ fn holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time() {
         columns * columns,
         milliseconds(clock.elapsed())
     );
+
     assert_eq!(body.validate(), Ok(()));
 
     let count = 300;
     let mut joined = block_at(0);
     let clock = Instant::now();
+
     for index in 1..count {
         let started = Instant::now();
+
         joined = boolean(&joined, &block_at(index), BooleanOperation::Union).unwrap();
         if matches!(index + 1, 2 | 100 | 300) {
             eprintln!(
@@ -342,6 +361,7 @@ fn holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time() {
         }
     }
     eprintln!("{count} unions: {:.0} ms", milliseconds(clock.elapsed()));
+
     assert_eq!(joined.shells().count(), count);
 
     let last = 2.0 * PITCH * (count - 1) as f64;
@@ -352,9 +372,11 @@ fn holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time() {
     );
     let started = Instant::now();
     let grown = boolean(&joined, &overlapping, BooleanOperation::Union).unwrap();
+
     eprintln!(
         "a union touching one of {count} blocks: {:.2} ms",
         milliseconds(started.elapsed())
     );
+
     assert_eq!(grown.shells().count(), count);
 }

@@ -46,6 +46,7 @@ fn lies_on(piece: &BSpline, whole: &BSpline) {
         let off = whole
             .point_at(closest_spline_parameter(whole, point))
             .distance(point);
+
         assert!(off < EXACT, "{point} lies {off} off the spline");
     }
 }
@@ -56,9 +57,11 @@ fn assert_solves_in_place(sketch: &Sketch) {
     for (id, entity) in sketch.entities() {
         if let Entity::Point(position) = entity {
             let moved = solved.geometry.point(id).unwrap().distance(*position);
+
             assert!(moved < EXACT, "point {id:?} moved by {moved}");
         }
     }
+
     assert!(solved.solution.redundancies().is_empty());
 }
 
@@ -66,12 +69,14 @@ fn assert_solves_in_place(sketch: &Sketch) {
 fn a_closed_control_spline_takes_the_degree_chosen_for_it_and_stays_a_closed_loop() {
     for degree in DEGREES {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = sketch.add_spline_of(&ring(), SplineKind::Control { closed: true });
         let points = sketch.entity(spline).unwrap().points();
 
         sketch.set_spline_degree(spline, degree).unwrap();
 
         let curve = sketch.spline(spline).unwrap();
+
         assert_eq!(curve.degree(), degree);
         assert_eq!(sketch.spline_degree(spline), Some(degree));
         assert!(kind_of(&sketch, spline).is_closed());
@@ -81,6 +86,7 @@ fn a_closed_control_spline_takes_the_degree_chosen_for_it_and_stays_a_closed_loo
         if degree > 1 {
             let [start, _] = curve.derivatives(0.0);
             let [end, _] = curve.derivatives(1.0);
+
             assert!((start - end).length() < EXACT * start.length().max(1.0));
         }
     }
@@ -90,9 +96,12 @@ fn a_closed_control_spline_takes_the_degree_chosen_for_it_and_stays_a_closed_loo
 fn a_closed_spline_of_any_degree_is_the_same_loop_whichever_control_point_comes_first() {
     for degree in DEGREES {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = closed_at(&mut sketch, degree, &ring());
         let mut turned = ring();
+
         turned.rotate_left(3);
+
         let again = closed_at(&mut sketch, degree, &turned);
 
         lies_on(
@@ -109,6 +118,7 @@ fn a_closed_spline_of_any_degree_is_the_same_loop_whichever_control_point_comes_
 #[test]
 fn a_closed_spline_of_degree_one_is_the_polygon_of_its_control_points() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = closed_at(&mut sketch, 1, &ring());
     let polygon = sketch.spline(spline).unwrap();
 
@@ -116,6 +126,7 @@ fn a_closed_spline_of_degree_one_is_the_polygon_of_its_control_points() {
         let off = polygon
             .point_at(closest_spline_parameter(&polygon, corner))
             .distance(corner);
+
         assert!(off < EXACT, "{corner} lies {off} off the polygon");
     }
     for index in 0..ring().len() {
@@ -124,6 +135,7 @@ fn a_closed_spline_of_degree_one_is_the_polygon_of_its_control_points() {
         let off = polygon
             .point_at(closest_spline_parameter(&polygon, middle))
             .distance(middle);
+
         assert!(off < EXACT, "the middle of side {index} lies {off} off");
     }
 }
@@ -131,6 +143,7 @@ fn a_closed_spline_of_degree_one_is_the_polygon_of_its_control_points() {
 #[test]
 fn a_degree_of_three_is_the_plain_closed_control_spline_again() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&ring(), SplineKind::Control { closed: true });
     let before = sketch.spline(spline).unwrap();
 
@@ -141,12 +154,14 @@ fn a_degree_of_three_is_the_plain_closed_control_spline_again() {
         kind_of(&sketch, spline),
         SplineKind::Control { closed: true }
     );
+
     lies_on(&sketch.spline(spline).unwrap(), &before);
 }
 
 #[test]
 fn a_closed_spline_with_too_few_points_for_a_degree_is_refused_in_words_and_left_alone() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let triangle = sketch.add_spline_of(&ring()[..3], SplineKind::Control { closed: true });
     let square = sketch.add_spline_of(&ring()[..4], SplineKind::Control { closed: true });
     let before = sketch.clone();
@@ -175,9 +190,11 @@ fn a_closed_spline_with_too_few_points_for_a_degree_is_refused_in_words_and_left
 #[test]
 fn a_closed_spline_keeps_every_constraint_on_it_when_its_degree_changes() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = sketch.add_spline_of(&ring(), SplineKind::Control { closed: true });
     let on = sketch.spline(spline).unwrap().point_at(0.3);
     let point = sketch.add_point(on);
+
     sketch
         .add_constraint(Constraint::Coincident(point, spline))
         .unwrap();
@@ -195,9 +212,11 @@ fn a_closed_spline_keeps_every_constraint_on_it_when_its_degree_changes() {
 fn a_closed_spline_of_a_chosen_degree_solves_in_place_with_a_point_held_on_it() {
     for degree in DEGREES {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = closed_at(&mut sketch, degree, &ring());
         let on = sketch.spline(spline).unwrap().point_at(0.4);
         let point = sketch.add_point(on);
+
         sketch
             .add_constraint(Constraint::Coincident(point, spline))
             .unwrap();
@@ -211,6 +230,7 @@ fn a_point_added_to_a_closed_spline_of_a_chosen_degree_keeps_its_curve_and_its_d
     for degree in DEGREES {
         for share in [0.03, 0.2, 0.5, 0.77, 0.97] {
             let mut sketch = Sketch::new(Plane::XY);
+
             let spline = closed_at(&mut sketch, degree, &ring());
             let before = sketch.spline(spline).unwrap();
 
@@ -219,6 +239,7 @@ fn a_point_added_to_a_closed_spline_of_a_chosen_degree_keeps_its_curve_and_its_d
                 .unwrap();
 
             let after = sketch.spline(spline).unwrap();
+
             assert_eq!(point_count(&sketch, spline), ring().len() + 1);
             assert!(sketch.entity(spline).unwrap().points().contains(&added));
             assert!(matches!(
@@ -226,9 +247,11 @@ fn a_point_added_to_a_closed_spline_of_a_chosen_degree_keeps_its_curve_and_its_d
                 SplineKind::Graded { closed: true, degree: kept, .. } if kept == degree
             ));
             assert_eq!(after.degree(), degree);
+
             for step in 0..=SAMPLES {
                 let at = step as f64 / SAMPLES as f64;
                 let moved = before.point_at(at).distance(after.point_at(at));
+
                 assert!(moved < EXACT, "degree {degree}: moved {moved} at {at}");
             }
             assert_solves_in_place(&sketch);
@@ -239,16 +262,19 @@ fn a_point_added_to_a_closed_spline_of_a_chosen_degree_keeps_its_curve_and_its_d
 #[test]
 fn points_added_again_and_again_to_a_closed_spline_of_a_chosen_degree_keep_its_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = closed_at(&mut sketch, 5, &ring());
     let before = sketch.spline(spline).unwrap();
 
     for step in 0..6 {
         let near = before.point_at((0.09 + 0.29 * step as f64).fract());
+
         sketch.insert_control_point(spline, Some(near)).unwrap();
     }
     sketch.insert_control_point(spline, None).unwrap();
 
     assert_eq!(point_count(&sketch, spline), ring().len() + 7);
+
     lies_on(&sketch.spline(spline).unwrap(), &before);
     lies_on(&before, &sketch.spline(spline).unwrap());
 }
@@ -256,12 +282,15 @@ fn points_added_again_and_again_to_a_closed_spline_of_a_chosen_degree_keep_its_c
 #[test]
 fn a_closed_spline_of_a_chosen_degree_refuses_a_point_that_would_move_a_held_control_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = closed_at(&mut sketch, 5, &ring());
     let held = sketch.entity(spline).unwrap().points()[3];
     let at = sketch.point(held).unwrap();
+
     sketch
         .add_constraint(Constraint::Fix { point: held, at })
         .unwrap();
+
     let before = sketch.clone();
     let near = sketch.spline(spline).unwrap().point_at(0.15);
 
@@ -276,20 +305,25 @@ fn a_closed_spline_of_a_chosen_degree_refuses_a_point_that_would_move_a_held_con
 fn a_closed_spline_of_a_chosen_degree_cut_twice_opens_into_the_rest_of_its_loop_at_that_degree() {
     for degree in DEGREES {
         let mut sketch = Sketch::new(Plane::XY);
+
         let spline = closed_at(&mut sketch, degree, &ring());
         let whole = sketch.spline(spline).unwrap();
+
         sketch.add_line(Point2::new(125.0, 60.0), Point2::new(125.0, 200.0));
 
         let trimmed = sketch.trim(spline, Point2::new(160.0, 125.0));
 
         assert_eq!(trimmed, Ok(Trimmed::Opened), "degree {degree}");
+
         let opened = sketch.spline(spline).unwrap();
+
         assert!(!kind_of(&sketch, spline).is_closed());
         assert_eq!(
             opened.degree(),
             degree.min(point_count(&sketch, spline) - 1)
         );
         assert!(sketch.entity(spline).unwrap().spline_ends().is_some());
+
         lies_on(&opened, &whole);
         assert_solves_in_place(&sketch);
     }
@@ -298,8 +332,10 @@ fn a_closed_spline_of_a_chosen_degree_cut_twice_opens_into_the_rest_of_its_loop_
 #[test]
 fn a_closed_spline_with_points_added_at_a_chosen_degree_trims_along_its_own_curve() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let spline = closed_at(&mut sketch, 4, &ring());
     let whole = sketch.spline(spline).unwrap();
+
     for at in [0.15, 0.62] {
         sketch
             .insert_control_point(spline, Some(whole.point_at(at)))
@@ -311,12 +347,14 @@ fn a_closed_spline_with_points_added_at_a_chosen_degree_trims_along_its_own_curv
     sketch.trim(spline, Point2::new(100.0, 130.0)).unwrap();
 
     assert_eq!(sketch.spline(spline).unwrap().degree(), 4);
+
     lies_on(&sketch.spline(spline).unwrap(), &whole);
 }
 
 #[test]
 fn a_closed_spline_of_any_degree_is_added_only_with_points_and_spans_that_fit_it() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let points: Vec<EntityId> = ring()[..5]
         .iter()
         .map(|position| sketch.add_point(*position))
@@ -374,6 +412,7 @@ fn a_closed_spline_is_drawn_at_the_degree_its_points_can_carry() {
         assert_eq!(kind.degree_of(points), Some(drawn), "{degree} on {points}");
         assert!(points >= kind.fewest_points());
     }
+
     assert_eq!(
         SplineKind::drawn_loop(3, 6),
         SplineKind::Control { closed: true }

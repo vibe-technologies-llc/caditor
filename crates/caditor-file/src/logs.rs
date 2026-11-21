@@ -32,7 +32,9 @@ struct LogFile {
 impl SessionLog {
     pub fn create(state_dir: &Path) -> io::Result<Self> {
         let dir = state_dir.join(LOGS);
+
         fs::create_dir_all(&dir)?;
+
         let name = format!(
             "{PREFIX}{:020}-{}.{LOG_EXTENSION}",
             paths::now_seconds(),
@@ -56,10 +58,13 @@ impl SessionLog {
 
     pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
         let mut log = self.file.lock();
+
         if log.cut {
             return Ok(());
         }
+
         let length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+
         if log.written.saturating_add(length) > MAX_LOG_SIZE {
             log.cut = true;
             return writeln!(log.file, "{CUT}");
@@ -95,6 +100,7 @@ fn logs_in(state_dir: &Path) -> Vec<LogName> {
                 .strip_suffix(LOG_EXTENSION)?
                 .strip_suffix('.')?;
             let (seconds, process) = stem.split_once('-')?;
+
             seconds.parse::<u64>().ok()?;
             Some(LogName {
                 path: entry.path(),
@@ -102,6 +108,7 @@ fn logs_in(state_dir: &Path) -> Vec<LogName> {
             })
         })
         .collect();
+
     logs.sort_by(|a, b| b.path.cmp(&a.path));
     logs
 }
@@ -112,10 +119,15 @@ fn running(process: u32) -> bool {
 
 fn last_line(path: &Path) -> io::Result<String> {
     let mut file = open_file(path)?;
+
     let length = file.metadata()?.len();
+
     file.seek(SeekFrom::Start(length.saturating_sub(TAIL)))?;
+
     let mut tail = Vec::new();
+
     file.take(TAIL).read_to_end(&mut tail)?;
+
     let text = String::from_utf8_lossy(&tail);
     Ok(text
         .lines()
@@ -142,6 +154,7 @@ pub fn ended_unexpectedly(state_dir: &Path, own: &Path) -> Vec<PathBuf> {
 
 pub fn mark_reported(log: &Path) -> io::Result<()> {
     open_file(log)?;
+
     let mut file = OpenOptions::new().append(true).open(log)?;
     writeln!(file, "\n{REPORTED}")
 }

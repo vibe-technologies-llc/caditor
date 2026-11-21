@@ -32,6 +32,7 @@ pub fn stored_text(shortcut: &KeyboardShortcut) -> String {
 
 pub fn mcp_lines(bytes: &[u8]) -> usize {
     let mut decoded = 0;
+
     for line in bytes.split(|byte| *byte == b'\n') {
         let Ok(Some(Incoming::Request { method, params, .. })) = json_rpc::parse(line) else {
             continue;

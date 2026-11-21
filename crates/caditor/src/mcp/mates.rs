@@ -26,7 +26,7 @@ const NEITHER_FLAT_NOR_ROUND: &str =
     "is neither flat nor cylindrical or spherical, so nothing can be mated by it";
 const NOT_ROUND: &str = "is not cylindrical or spherical, so nothing can rest on it";
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mating {
     pub body: Option<Named>,
@@ -43,7 +43,7 @@ pub struct Mating {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum MateError {
     #[error(
         "say what to mate: a flat face of the body with to_plane (flush) or to_round (resting on \
@@ -60,13 +60,13 @@ pub enum MateError {
     KindKept { kind: &'static str },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum MovingFace {
     Flat(FaceReference),
     Round(FaceReference),
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct MateParts {
     face: Option<MovingFace>,
     axis: Option<AxisReference>,
@@ -172,6 +172,7 @@ fn paired(mut parts: MateParts) -> Option<MatePair> {
     if let Some(angle) = parts.angle.take() {
         return angled(parts, angle);
     }
+
     let distance = parts.distance.take().unwrap_or_else(zero_length);
     Some(match parts {
         MateParts {
@@ -253,12 +254,15 @@ fn moving_face(session: &Session, body: FeatureId, key: &str) -> Result<MovingFa
         body: Named::Id(body.raw()),
         face: key.to_owned(),
     };
+
     let (at, face) = places::face_at_bar(document, evaluation, &on)?;
+
     let flat = face
         .resolve(at.state)
         .ok()
         .and_then(|found| at.state.face(found))
         .is_some_and(|found| matches!(found.surface(), Surface::Plane(_)));
+
     if flat {
         return match places::plane(document, evaluation, &PlaneChoice::Face(on))? {
             PlaneReference::Face(attachment) => Ok(MovingFace::Flat(attachment.face)),
@@ -281,6 +285,7 @@ fn moving_face(session: &Session, body: FeatureId, key: &str) -> Result<MovingFa
 fn round_target(session: &Session, on: &OnFace) -> Result<FaceAttachment, ToolError> {
     let document = session.document();
     let (at, face) = places::face_at_bar(document, session.evaluation(), on)?;
+
     if round_face(at.state, &face).is_err() {
         return Err(PlaceError::UnusableFace {
             body: body_label(document, at.body),
@@ -329,36 +334,43 @@ fn asked_parts(
 ) -> Result<MateParts, ToolError> {
     let document = session.document();
     let evaluation = session.evaluation();
+
     if let Some(key) = &asked.face {
         parts.face = Some(moving_face(session, body, key)?);
     }
     if let Some(choice) = &asked.axis {
         let axis = places::axis(document, evaluation, choice)?;
+
         on_body(session, body, "axis", axis.body())?;
         parts.axis = Some(axis);
     }
     if let Some(choice) = &asked.point {
         let point = places::point(document, evaluation, choice)?;
+
         on_body(session, body, "point", point.body())?;
         parts.point = Some(point);
     }
     if let Some(choice) = &asked.to_plane {
         let target = places::plane(document, evaluation, choice)?;
+
         off_body(session, body, target.body())?;
         parts.to_plane = Some(target);
     }
     if let Some(choice) = &asked.to_axis {
         let target = places::axis(document, evaluation, choice)?;
+
         off_body(session, body, target.body())?;
         parts.to_axis = Some(target);
     }
     if let Some(choice) = &asked.to_point {
         let target = places::point(document, evaluation, choice)?;
+
         off_body(session, body, target.body())?;
         parts.to_point = Some(target);
     }
     if let Some(on) = &asked.to_round {
         let target = round_target(session, on)?;
+
         off_body(session, body, Some(target.body))?;
         parts.to_round = Some(target);
     }
@@ -377,20 +389,26 @@ pub fn mate_built(
     let angle = parsed(session, asked.angle.as_ref(), |session, angle| {
         turn(session, "angle", angle)
     })?;
+
     session.evaluate(work)?;
+
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let kept = base
         .filter(|base| base.body == body)
         .map(|base| parts_of(&base.pair))
         .unwrap_or_default();
+
     let mut parts = asked_parts(session, body, &asked, kept)?;
+
     if distance.is_some() {
         parts.distance = distance;
     }
     if angle.is_some() {
         parts.angle = angle;
     }
+
     let pair = paired(parts).ok_or(MateError::NoPair)?;
+
     if let Some(base) = base
         && mem::discriminant(&base.pair) != mem::discriminant(&pair)
     {
@@ -399,6 +417,7 @@ pub fn mate_built(
         }
         .into());
     }
+
     let mate = Mate {
         body,
         pair,

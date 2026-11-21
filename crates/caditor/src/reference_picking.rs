@@ -26,14 +26,14 @@ pub const STOP_HINT: &str = "Esc: stop choosing";
 const GONE: &str = "The feature no longer exists";
 const AXIS: &str = "an axis, straight edge or round face";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Side {
     One,
     Forward,
     Backward,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Slot {
     RevolveAxis,
     ExtrudeTarget(Side),
@@ -157,7 +157,7 @@ impl Slot {
 
 pub const MAX_HELD: usize = 2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Picking {
     pub feature: FeatureId,
     pub slot: Slot,
@@ -419,7 +419,7 @@ fn held_prompt(model: &Model, picking: Picking) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ChangeError {
     #[error("{}", GONE)]
     Gone { feature: FeatureId },
@@ -688,6 +688,7 @@ fn may_hold(model: &Model, picking: Picking, pickable: Pickable) -> bool {
     if picking.slot != Slot::DatumBase || picking.held_count() >= MAX_HELD {
         return false;
     }
+
     let index = model.document().feature_index(picking.feature).unwrap_or(0);
     let plane = || datum_tools::plane_reference(model, pickable, index).is_some();
     let axis = || datum_tools::axis_reference(model, pickable, index).is_some();
@@ -707,7 +708,9 @@ pub fn click(model: &Model, picking: Picking, pickable: Pickable) -> Vec<Action>
             picking.slot,
         )))];
     }
+
     let mut selection = Selection::default();
+
     for held in picking.held() {
         selection.toggle(held);
     }

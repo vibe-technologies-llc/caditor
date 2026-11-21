@@ -40,6 +40,7 @@ fn teeth_of(count: f64) -> impl Fn(ParameterId) -> Result<Quantity, EvalError> {
 #[test]
 fn a_gear_stands_on_a_point_that_cannot_go_while_the_gear_stays() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(3.0, 4.0));
 
     let gear = sketch.add_parametric_gear(spur_gear(centre)).unwrap();
@@ -52,12 +53,14 @@ fn a_gear_stands_on_a_point_that_cannot_go_while_the_gear_stays() {
     assert_eq!(sketch.entity_label(gear), format!("Gear {gear}"));
 
     sketch.remove_gear(gear).unwrap();
+
     assert!(sketch.remove_unused_entity(centre).is_ok());
 }
 
 #[test]
 fn a_gear_needs_a_point_to_stand_on() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let line = sketch.add_line(Point2::ZERO, Point2::X);
 
     let on_line = sketch.add_parametric_gear(spur_gear(line));
@@ -74,6 +77,7 @@ fn a_gear_needs_a_point_to_stand_on() {
 #[test]
 fn gears_share_the_sketch_numbering_and_keep_their_centre_when_edited() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let other = sketch.add_point(Point2::X);
     let gear = sketch.add_parametric_gear(spur_gear(centre)).unwrap();
@@ -99,13 +103,16 @@ fn gears_share_the_sketch_numbering_and_keep_their_centre_when_edited() {
 #[test]
 fn solving_works_out_the_values_from_parameters_and_the_centre_from_its_constraints() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(1.0, 2.0));
+
     sketch
         .add_constraint(Constraint::Fix {
             point: centre,
             at: Point2::new(10.0, 5.0),
         })
         .unwrap();
+
     let gear = sketch
         .add_parametric_gear(Gear {
             teeth: Expression::Parameter(TEETH),
@@ -130,7 +137,9 @@ fn solving_works_out_the_values_from_parameters_and_the_centre_from_its_constrai
 #[test]
 fn values_that_cannot_make_a_gear_are_refused_at_solve_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
+
     sketch
         .add_parametric_gear(Gear {
             teeth: Expression::Parameter(TEETH),
@@ -176,6 +185,7 @@ fn values_that_cannot_make_a_gear_are_refused_at_solve_in_words() {
 #[test]
 fn changing_a_gear_changes_the_geometry() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let gear = sketch.add_parametric_gear(spur_gear(centre)).unwrap();
     let before = sketch.clone();
@@ -197,6 +207,7 @@ fn changing_a_gear_changes_the_geometry() {
 #[test]
 fn curve_names_belong_to_their_gear_and_never_to_a_text_or_a_stored_entity() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::ZERO);
     let gear = sketch.add_parametric_gear(spur_gear(centre)).unwrap();
 
@@ -280,6 +291,7 @@ fn a_sharp_rooted_gear_names_every_piece_once() {
 #[test]
 fn a_copied_gear_is_pasted_on_a_copy_of_its_centre() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(1.0, 2.0));
     let gear = sketch.add_parametric_gear(spur_gear(centre)).unwrap();
 

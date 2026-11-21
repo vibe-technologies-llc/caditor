@@ -21,7 +21,7 @@ const AXIS_TOLERANCE: f64 = 1e-9;
 const FULL_TURN_DEGREES: f64 = 360.0;
 const HALF_TURN_DEGREES: f64 = 180.0;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum PatternError {
     #[error("select the geometry to pattern")]
     NothingSelected,
@@ -67,33 +67,33 @@ pub enum PatternError {
     Edit(SketchError),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Dimensioned {
     pub expression: Expression,
     pub value: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Heading {
     Angle(Dimensioned),
     Along { line: EntityId, square: bool },
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Sides {
     #[default]
     One,
     Both,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Distribution {
     #[default]
     Spacing,
     Extent,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PatternRow {
     pub count: usize,
     pub distance: Dimensioned,
@@ -144,7 +144,7 @@ impl PatternRow {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RectangularPattern {
     pub directions: Vec<PatternRow>,
     pub distribution: Distribution,
@@ -159,14 +159,14 @@ impl RectangularPattern {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Spread {
     FullTurn,
     Total(Dimensioned),
     Symmetric(Dimensioned),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CircularPattern {
     pub count: usize,
     pub spread: Spread,
@@ -181,13 +181,13 @@ impl CircularPattern {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PatternImage {
     pub curves: Vec<Vec<Point2>>,
     pub points: Vec<Point2>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Motion {
     Shift(Vector2),
     Turn { centre: Point2, radians: f64 },
@@ -204,33 +204,33 @@ impl Motion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Course {
     spacing: Dimensioned,
     heading: Heading,
     vector: Vector2,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Step {
     Shift(Course),
     Turn(Expression),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Instance {
     motion: Motion,
     from: Option<usize>,
     step: Step,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Chosen {
     curves: Vec<EntityId>,
     lone: Vec<EntityId>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Plan {
     curves: Vec<EntityId>,
     points: Vec<EntityId>,
@@ -247,6 +247,7 @@ impl Plan {
             .iter()
             .filter_map(|point| sketch.point(*point))
             .collect();
+
         let inside = self.instances.iter().all(|instance| {
             originals
                 .iter()
@@ -289,9 +290,11 @@ impl Sketch {
     ) -> Result<Vec<EntityId>, PatternError> {
         let plan = self.rectangular_plan(items, pattern)?;
         let mut working = self.clone();
+
         let copies = working
             .add_pattern(&plan, None)
             .map_err(PatternError::Edit)?;
+
         *self = working;
         Ok(copies)
     }
@@ -304,9 +307,11 @@ impl Sketch {
     ) -> Result<Vec<EntityId>, PatternError> {
         let plan = self.circular_plan(items, centre, pattern)?;
         let mut working = self.clone();
+
         let copies = working
             .add_pattern(&plan, Some(centre))
             .map_err(PatternError::Edit)?;
+
         *self = working;
         Ok(copies)
     }
@@ -324,10 +329,12 @@ impl Sketch {
             .filter_map(|curve| self.faceted(*curve, faceting))
             .collect();
         let mut image = PatternImage::default();
+
         for instance in &plan.instances {
             let moved = |points: &[Point2]| -> Vec<Point2> {
                 points.iter().map(|at| instance.motion.apply(*at)).collect()
             };
+
             image
                 .curves
                 .extend(outlines.iter().map(|outline| moved(outline)));
@@ -355,12 +362,14 @@ impl Sketch {
             .map(|row| self.pattern_course(row, pattern.distribution))
             .collect::<Result<Vec<Course>, PatternError>>()?;
         let instances = rectangular_instances(pattern, &courses)?;
+
         let plan = Plan {
             points: self.points_of(&chosen.curves, &chosen.lone),
             curves: chosen.curves,
             shared: Vec::new(),
             instances,
         };
+
         plan.positions_stay_in_reach(self)?;
         Ok(plan)
     }
@@ -374,6 +383,7 @@ impl Sketch {
         let centre_at = self.centre_position(centre)?;
         let chosen = self.pattern_items(items, Some(centre))?;
         let instances = circular_instances(centre_at, pattern)?;
+
         let reach = chosen
             .curves
             .iter()
@@ -392,19 +402,23 @@ impl Sketch {
             .into_iter()
             .filter(|curve| !self.is_centred_circle(*curve, &at_centre))
             .collect();
+
         let (shared, points): (Vec<EntityId>, Vec<EntityId>) = self
             .points_of(&curves, &chosen.lone)
             .into_iter()
             .partition(|point| at_centre(*point));
+
         if points.is_empty() {
             return Err(PatternError::NothingToTurn);
         }
+
         let plan = Plan {
             curves,
             points,
             shared,
             instances,
         };
+
         plan.positions_stay_in_reach(self)?;
         Ok(plan)
     }
@@ -415,7 +429,9 @@ impl Sketch {
         distribution: Distribution,
     ) -> Result<Course, PatternError> {
         counted(row.count)?;
+
         let spacing = row.spacing(distribution);
+
         if !spacing.value.is_finite() {
             return Err(PatternError::NotFinite);
         }
@@ -425,6 +441,7 @@ impl Sketch {
                 Distribution::Extent => PatternError::ZeroExtent,
             });
         }
+
         let unit = self.heading_direction(&row.heading)?;
         let unit = if row.reversed { -unit } else { unit };
         Ok(Course {
@@ -448,6 +465,7 @@ impl Sketch {
             entity: line,
             label: self.entity_label(line),
         };
+
         let along = match line.reference() {
             Some(Reference::HorizontalAxis) => Vector2::X,
             Some(Reference::VerticalAxis) => Vector2::Y,
@@ -457,12 +475,14 @@ impl Sketch {
                     let (Some(start), Some(end)) = (self.point(start), self.point(end)) else {
                         return Err(not_a_line());
                     };
+
                     let reach = start
                         .abs()
                         .max_element()
                         .max(end.abs().max_element())
                         .max(1.0);
                     let run = end - start;
+
                     if run.length() <= TOLERANCE * reach {
                         return Err(PatternError::NoDirection {
                             entity: line,
@@ -507,9 +527,11 @@ impl Sketch {
             .filter(|item| !item.is_reference() && Some(*item) != centre)
             .filter(|item| self.entity(*item).is_some())
             .collect();
+
         if chosen.is_empty() {
             return Err(PatternError::NothingSelected);
         }
+
         let (lone, curves): (Vec<EntityId>, Vec<EntityId>) = chosen
             .into_iter()
             .partition(|item| matches!(self.entity(*item), Some(Entity::Point(_))));
@@ -535,16 +557,21 @@ impl Sketch {
         let mut maps: Vec<BTreeMap<EntityId, EntityId>> = Vec::with_capacity(plan.instances.len());
         let mut equal = Vec::new();
         let mut curve_maps = Vec::with_capacity(plan.instances.len());
+
         for instance in &plan.instances {
             let mut curve_images = BTreeMap::new();
             let mut map: BTreeMap<EntityId, EntityId> =
                 plan.shared.iter().map(|point| (*point, *point)).collect();
+
             for point in &plan.points {
                 let position = self.point(*point).ok_or(SketchError::NotAPoint(*point))?;
                 let copy = self.add_point(instance.motion.apply(position));
+
                 map.insert(*point, copy);
             }
+
             let image_of = |point: EntityId| map.get(&point).copied().unwrap_or(point);
+
             for curve in &plan.curves {
                 let entity = self
                     .entity(*curve)
@@ -595,6 +622,7 @@ impl Sketch {
                 let round = self.copy_needs_equal(*curve);
 
                 let copy = EntityId::from_raw(self.next_id());
+
                 self.insert_entity(copy, image)?;
                 if self.is_construction(*curve) {
                     self.set_construction(copy, true)?;
@@ -606,15 +634,19 @@ impl Sketch {
                 copies.push(copy);
             }
             curve_maps.push(curve_images);
+
             let lone = plan
                 .points
                 .iter()
                 .filter(|point| !self.is_used_by(**point, &plan.curves))
                 .filter_map(|point| map.get(point).copied());
+
             copies.extend(lone);
             maps.push(map);
         }
+
         let implied = self.implied_gradients(&plan.curves);
+
         match centre {
             None => self.tie_shifts(plan, &maps, &implied)?,
             Some(centre) => self.tie_turns(plan, &maps, &implied, centre)?,
@@ -630,6 +662,7 @@ impl Sketch {
 
     fn implied_gradients(&self, curves: &[EntityId]) -> BTreeMap<EntityId, Vec<Vector2>> {
         let mut implied: BTreeMap<EntityId, Vec<Vector2>> = BTreeMap::new();
+
         for curve in curves {
             match self.entity(*curve) {
                 Some(&Entity::Arc { center, end, .. }) => {
@@ -647,6 +680,7 @@ impl Sketch {
                             (at - ellipse.center).dot(ellipse.axis().perp()).abs()
                         })
                     };
+
                     let minor_setter = ends
                         .into_iter()
                         .filter(|point| !self.lies_on_major_axis(*curve, *point))
@@ -664,6 +698,7 @@ impl Sketch {
                         let offset = at - ellipse.center;
                         let gradient = axis * (offset.dot(axis) / (major * major))
                             + axis.perp() * (offset.dot(axis.perp()) / (minor * minor));
+
                         implied.entry(point).or_default().push(gradient);
                     }
                 }
@@ -691,6 +726,7 @@ impl Sketch {
                 ) else {
                     continue;
                 };
+
                 let ties = shift_constraints(course, earlier, later);
                 let kept = kept_rows(implied.get(point), tie_directions(course));
                 for (index, constraint) in ties.into_iter().enumerate() {
@@ -711,17 +747,22 @@ impl Sketch {
         centre: EntityId,
     ) -> Result<(), SketchError> {
         let hub = self.hub_for(centre)?;
+
         for point in &plan.shared {
             if *point != centre && !self.held_on(*point, centre) {
                 self.add_constraint(Constraint::Coincident(*point, centre))?;
             }
         }
+
         let mut rays: BTreeMap<EntityId, EntityId> = BTreeMap::new();
+
         let mut ray_to = |sketch: &mut Self, point: EntityId| -> Result<EntityId, SketchError> {
             if let Some(ray) = rays.get(&point) {
                 return Ok(*ray);
             }
+
             let ray = EntityId::from_raw(sketch.next_id());
+
             sketch.insert_entity(
                 ray,
                 Entity::Line {
@@ -733,6 +774,7 @@ impl Sketch {
             rays.insert(point, ray);
             Ok(ray)
         };
+
         for (instance, map) in plan.instances.iter().zip(maps) {
             let Step::Turn(angle) = &instance.step else {
                 continue;
@@ -750,11 +792,14 @@ impl Sketch {
                     _ => Vector2::X,
                 };
                 let kept = kept_rows(implied.get(point), [outward, outward.perp()]);
+
                 if kept.is_empty() {
                     continue;
                 }
+
                 let from = ray_to(self, earlier)?;
                 let to = ray_to(self, later)?;
+
                 if kept.contains(&0) {
                     self.add_constraint(Constraint::Equal(from, to))?;
                 }
@@ -775,7 +820,9 @@ impl Sketch {
         if !centre.is_reference() {
             return Ok(centre);
         }
+
         let hub = self.add_point(Point2::ZERO);
+
         self.add_constraint(Constraint::Coincident(hub, centre))?;
         Ok(hub)
     }
@@ -811,17 +858,21 @@ fn rectangular_instances(
     if courses.is_empty() {
         return Err(PatternError::NoDirections);
     }
+
     let total = pattern.instances();
+
     if total > MAX_PATTERN_INSTANCES {
         return Err(PatternError::TooManyInstances {
             count: total,
             most: MAX_PATTERN_INSTANCES,
         });
     }
+
     let units: Vec<Vector2> = courses
         .iter()
         .map(|course| course.vector.normalize_or_zero())
         .collect();
+
     for (index, unit) in units.iter().enumerate() {
         if units
             .iter()
@@ -831,6 +882,7 @@ fn rectangular_instances(
             return Err(PatternError::ParallelDirections);
         }
     }
+
     let slots: Vec<Vec<i64>> = pattern
         .directions
         .iter()
@@ -839,6 +891,7 @@ fn rectangular_instances(
                 .flat_map(|step| {
                     earlier.iter().map(move |before| {
                         let mut slot = before.clone();
+
                         slot.push(step);
                         slot
                     })
@@ -867,13 +920,16 @@ fn rectangular_instances(
         .iter()
         .map(|offset| offset.length())
         .fold(1.0, larger);
+
     for (at, offset) in offsets.iter().enumerate() {
         let lands_on = |other: &Vector2| offset.distance(*other) <= TOLERANCE * reach;
         if lands_on(&Vector2::ZERO) || offsets.iter().skip(at + 1).any(lands_on) {
             return Err(PatternError::OverlappingCopies);
         }
     }
+
     let mut instances = Vec::with_capacity(slots.len());
+
     for (slot, offset) in slots.iter().zip(offsets) {
         let Some(along) = slot.iter().position(|step| *step != 0) else {
             continue;
@@ -882,6 +938,7 @@ fn rectangular_instances(
             continue;
         };
         let mut before = slot.clone();
+
         if let Some(shortened) = before.get_mut(along) {
             *shortened -= step.signum();
         }
@@ -899,13 +956,16 @@ fn circular_instances(
     pattern: &CircularPattern,
 ) -> Result<Vec<Instance>, PatternError> {
     counted(pattern.count)?;
+
     let total = pattern.instances();
+
     if total > MAX_PATTERN_INSTANCES {
         return Err(PatternError::TooManyInstances {
             count: total,
             most: MAX_PATTERN_INSTANCES,
         });
     }
+
     let (step_radians, step_angle) = match &pattern.spread {
         Spread::FullTurn => (
             TAU / pattern.count as f64,
@@ -1008,8 +1068,10 @@ fn shift_constraints(course: &Course, earlier: EntityId, later: EntityId) -> Vec
     let vector = course.vector;
     let literal = angle.expression.is_literal();
     let tolerance = AXIS_TOLERANCE * vector.length();
+
     let vertical = literal && vector.x.abs() <= tolerance;
     let horizontal = literal && vector.y.abs() <= tolerance;
+
     let across = if vertical {
         Constraint::VerticalPoints(earlier, later.into())
     } else {

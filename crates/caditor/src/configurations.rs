@@ -38,20 +38,20 @@ const DELETE_HOVER: &str = "Delete it";
 const DELETED_PARAMETER: &str = "a deleted parameter";
 const DELETED_FEATURE: &str = "a deleted feature";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Renaming {
     id: ConfigurationId,
     to: String,
     focus_pending: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ConfigurationsDraft {
     renaming: Option<Renaming>,
     problem: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Close,
     Apply(Transaction),
@@ -119,7 +119,7 @@ pub fn colour_name(colour: Option<Rgb>) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ConfigurationError {
     #[error(transparent)]
     Refused(EditError),
@@ -134,6 +134,7 @@ fn checked(
     built: Result<Transaction, EditError>,
 ) -> Result<Transaction, ConfigurationError> {
     let transaction = built.map_err(ConfigurationError::Refused)?;
+
     document
         .check(&transaction)
         .map_err(ConfigurationError::Rejected)?;
@@ -177,6 +178,7 @@ pub fn dialog(
         |ui| {
             ui.label(widgets::muted(EXPLANATION, ui));
             ui.add_space(SPACE_S);
+
             let outcome = widgets::dialog_body(ui, |ui| body(ui, model, draft));
             let footer = widgets::footer_split(
                 ui,
@@ -199,14 +201,17 @@ fn file_buttons(ui: &mut Ui, document: &Document) -> Option<Outcome> {
     let import = ui
         .add(widgets::button(table_files::IMPORT_LABEL))
         .on_hover_text(table_files::IMPORT_HINT);
+
     if import.clicked() {
         chosen = Some(Outcome::File(FileCommand::ImportConfigurations));
     }
+
     let exportable = !document.configurations().rows.is_empty();
     let export = ui
         .add_enabled(exportable, widgets::button(table_files::EXPORT_LABEL))
         .on_hover_text(table_files::EXPORT_HINT)
         .on_disabled_hover_text(table_files::NO_CONFIGURATIONS);
+
     if export.clicked() {
         chosen = Some(Outcome::File(FileCommand::ExportConfigurations));
     }
@@ -217,6 +222,7 @@ fn body(ui: &mut Ui, model: &Model, draft: &mut ConfigurationsDraft) -> Option<O
     let document = model.document();
     let configurations = document.configurations();
     let mut outcome = None;
+
     if configurations.rows.is_empty() {
         ui.label(widgets::muted(EMPTY, ui));
     } else {
@@ -226,6 +232,7 @@ fn body(ui: &mut Ui, model: &Model, draft: &mut ConfigurationsDraft) -> Option<O
             .copied()
             .filter(|value| shown(document, *value))
             .collect();
+
         if values.is_empty() {
             ui.label(widgets::muted(NO_VALUES, ui));
             ui.add_space(SPACE_S);
@@ -259,6 +266,7 @@ fn table(
 ) -> Option<Outcome> {
     let document = model.document();
     let mut outcome = None;
+
     Grid::new((DIALOG_ID, "grid"))
         .striped(true)
         .spacing([SPACE_M, SPACE_S])
@@ -268,8 +276,10 @@ fn table(
             ui.label("");
             for value in values {
                 let name = value_name(document, *value);
+
                 ui.horizontal(|ui| {
                     widgets::column_caption(ui, &name);
+
                     let hover = format!("Stop configuring {name}");
                     if widgets::icon_button(ui, icons::REMOVE, &hover).clicked() {
                         outcome =
@@ -299,11 +309,13 @@ fn table_row(
     let active = document.configurations().is_active(row.id);
     let mut outcome = None;
     let switch_hover = format!("Switch to {}", row.name);
+
     let switch = widgets::unlabelled_radio(ui, active, &switch_hover).on_hover_text(if active {
         "This is the model as it stands"
     } else {
         switch_hover.as_str()
     });
+
     if switch.clicked() && !active {
         outcome = applying(draft, switching(document, row.id));
     }
@@ -332,10 +344,12 @@ fn table_row(
             let built = document
                 .duplicating_configuration(row.id)
                 .map(|(transaction, _)| transaction);
+
             outcome = applying(draft, checked(document, built));
         }
         if widgets::icon_button(ui, icons::DELETE, DELETE_HOVER).clicked() {
             let built = document.deleting_configuration(row.id);
+
             outcome = applying(draft, checked(document, built));
         }
     });
@@ -376,7 +390,9 @@ fn cell(
                 .and_then(Setting::expression)
                 .map(|expression| document.expression_text(expression))
                 .unwrap_or_default();
+
             completion::editing_parameter(ui, cell_id(row.id, value), id);
+
             let response = field::value_field(
                 ui,
                 cell_id(row.id, value),
@@ -399,6 +415,7 @@ fn cell(
                 },
             );
             let response_label = widgets::named(response.response, &label);
+
             if let Some(error) = &response.error {
                 response_label.on_hover_text(error);
             }
@@ -406,9 +423,11 @@ fn cell(
         }
         (ConfiguredValue::Suppressed(_), setting) => {
             let mut suppressed = matches!(setting, Some(Setting::Suppressed(true)));
+
             let changed = widgets::unlabelled_checkbox(ui, &mut suppressed, &label)
                 .on_hover_text("Suppressed in this configuration")
                 .changed();
+
             if changed {
                 return applying(
                     draft,
@@ -423,6 +442,7 @@ fn cell(
                 _ => None,
             };
             let mut chosen = None;
+
             widgets::combo(cell_id(row.id, value), colour_name(current))
                 .width(CELL_WIDTH)
                 .show(ui, |ui| {
@@ -436,6 +456,7 @@ fn cell(
                         }
                     }
                 });
+
             let colour = chosen.filter(|colour| *colour != current)?;
             applying(
                 draft,
@@ -454,6 +475,7 @@ fn renaming_cell(
     let focus = std::mem::take(&mut renaming.focus_pending);
     let mut done = false;
     let mut cancelled = false;
+
     ui.horizontal(|ui| {
         let field = widgets::text_field(ui, |ui| {
             ui.add(
@@ -464,11 +486,14 @@ fn renaming_cell(
             )
         });
         let field = widgets::named(field, NAME_CAPTION);
+
         if focus {
             field.request_focus();
         }
+
         let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
         let escape = widgets::escape_cancels(ui, &field);
+
         done = widgets::icon_button(ui, icons::DONE, "Rename the configuration").clicked() || enter;
         cancelled =
             widgets::icon_button(ui, icons::CLOSE, "Keep the name (Esc)").clicked() || escape;
@@ -480,6 +505,7 @@ fn renaming_cell(
     if !done {
         return None;
     }
+
     let renaming = draft.renaming.take()?;
     let built = document.renaming_configuration(renaming.id, &renaming.to);
     applying(draft, checked(document, built))
@@ -487,17 +513,22 @@ fn renaming_cell(
 
 fn adding(ui: &mut Ui, document: &Document, draft: &mut ConfigurationsDraft) -> Option<Outcome> {
     let mut outcome = None;
+
     ui.horizontal_wrapped(|ui| {
         let add = widgets::small_button(ui, icons::command(Command::Configurations), ADD_LABEL);
+
         if ui.add(add).clicked() {
             let (transaction, _) = document.adding_configuration(None);
+
             outcome = applying(draft, checked(document, Ok(transaction)));
         }
         if document.configurations().rows.is_empty() {
             return;
         }
+
         let offered = offered_values(document);
         let mut chosen = None;
+
         ui.add_enabled_ui(!offered.is_empty(), |ui| {
             widgets::combo((DIALOG_ID, "configure"), CONFIGURE_LABEL).show(ui, |ui| {
                 for value in &offered {
@@ -509,6 +540,7 @@ fn adding(ui: &mut Ui, document: &Document, draft: &mut ConfigurationsDraft) -> 
         });
         if let Some(value) = chosen {
             let built = document.configuring(value);
+
             outcome = applying(draft, checked(document, built));
         }
     });

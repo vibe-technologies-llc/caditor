@@ -68,6 +68,7 @@ fn a_top_replaced_by_a_higher_plane_raises_the_sides_with_it() {
     let result = replaced(&block, &[top], &target);
 
     check("result", &result, 10.0 * 10.0 * 15.0);
+
     assert_eq!(names(&result), names(&block));
     assert!(lies_on(&result, &target));
 }
@@ -89,6 +90,7 @@ fn a_top_replaced_by_a_tilted_plane_slopes_and_trims_the_sides() {
         &result,
         10.0 * 10.0 * (8.0 + 5.0 * slope.tan_libm()),
     );
+
     assert_eq!(result.faces().count(), 6);
     assert!(lies_on(&result, &target));
 }
@@ -134,6 +136,7 @@ fn tops_of_separate_bosses_land_on_one_plane() {
         &polygon(&[(20.0, 2.0), (26.0, 2.0), (26.0, 8.0), (20.0, 8.0)]),
         12.0,
     );
+
     let body = boolean(&plate, &low, BooleanOperation::Union).unwrap();
     let body = boolean(&body, &high, BooleanOperation::Union).unwrap();
     let tops = [
@@ -160,8 +163,10 @@ fn a_bevel_replaced_by_a_plane_of_its_own_body_takes_the_square_corner() {
     let widened = replaced(&block, &[side], &plane((12.0, 0.0, 0.0), Vector3::X));
 
     check("merged", &merged, 100.0 * 10.0);
+
     assert_eq!(merged.faces().count(), 6);
     assert_eq!(merged.edges().count(), 12);
+
     check("widened", &widened, (120.0 - 8.0) * 10.0);
 }
 
@@ -215,11 +220,13 @@ fn stepped() -> Solid {
 fn a_step_levelled_up_merges_the_tops_and_drops_the_riser() {
     let step = stepped();
     let lower = face_facing(&step, Vector3::Y, Point3::new(15.0, 5.0, 5.0));
+
     let lower_name = step.face(lower).unwrap().name();
 
     let result = replaced(&step, &[lower], &plane((0.0, 10.0, 0.0), Vector3::Y));
 
     check("result", &result, 20.0 * 10.0 * 10.0);
+
     assert_eq!(result.faces().count(), 6);
     assert_eq!(result.edges().count(), 12);
     assert!(result.faces().any(|(_, face)| face.name() == lower_name));
@@ -233,6 +240,7 @@ fn a_step_levelled_down_merges_the_tops_and_drops_the_riser() {
     let result = replaced(&step, &[upper], &plane((0.0, 5.0, 0.0), Vector3::Y));
 
     check("result", &result, 20.0 * 5.0 * 10.0);
+
     assert_eq!(result.faces().count(), 6);
     assert_eq!(result.edges().count(), 12);
 }
@@ -265,6 +273,7 @@ fn two_slopes_of_a_roof_land_as_one_flat_top() {
     let result = replaced(&roof, &slopes, &plane((0.0, 12.0, 0.0), Vector3::Y));
 
     check("result", &result, 20.0 * 12.0 * 8.0);
+
     assert_eq!(result.faces().count(), 6);
     assert_eq!(result.edges().count(), 12);
 }
@@ -279,12 +288,14 @@ fn a_pocket_s_floor_levelled_with_the_top_fills_it() {
     let tool_mapped = tool
         .transformed(&RigidTransform::translation(Vector3::new(0.0, 0.0, 5.0)).unwrap())
         .unwrap();
+
     let pocketed = boolean(&base, &tool_mapped, BooleanOperation::Difference).unwrap();
     let floor = face_facing(&pocketed, Vector3::Z, Point3::new(10.0, 10.0, 5.0));
 
     let result = replaced(&pocketed, &[floor], &plane((0.0, 0.0, 10.0), Vector3::Z));
 
     check("result", &result, 4000.0);
+
     assert_eq!(result.faces().count(), 6);
     assert!(result.faces().all(|(_, face)| face.loops().len() == 1));
 }
@@ -295,12 +306,14 @@ fn a_blind_hole_s_floor_levelled_with_the_top_fills_it() {
     let bore = cylinder(3.0, 30.0)
         .transformed(&RigidTransform::translation(Vector3::new(10.0, 10.0, 4.0)).unwrap())
         .unwrap();
+
     let holed = boolean(&base, &bore, BooleanOperation::Difference).unwrap();
     let floor = face_facing(&holed, Vector3::Z, Point3::new(10.0, 10.0, 4.0));
 
     let result = replaced(&holed, &[floor], &plane((0.0, 0.0, 10.0), Vector3::Z));
 
     check("result", &result, 4000.0);
+
     assert_eq!(result.faces().count(), 6);
 }
 
@@ -324,6 +337,7 @@ fn levelling_a_tab_in_a_notch_drops_three_risers() {
     let result = replaced(&body, &[notch], &plane((0.0, 10.0, 0.0), Vector3::Y));
 
     check("result", &result, 30.0 * 10.0 * 10.0);
+
     assert_eq!(result.faces().count(), 6);
     assert_eq!(result.edges().count(), 12);
 }
@@ -361,6 +375,7 @@ fn a_drum_s_wall_onto_a_coaxial_cylinder_takes_its_radius() {
 
     check("wider", &wider, PI * 49.0 * 10.0);
     check("narrower", &narrower, PI * 9.0 * 10.0);
+
     assert_eq!(names(&wider), names(&drum));
 }
 
@@ -370,6 +385,7 @@ fn a_bore_onto_a_coaxial_cylinder_takes_its_radius() {
     let bore = cylinder(3.0, 30.0)
         .transformed(&RigidTransform::translation(Vector3::new(10.0, 10.0, -5.0)).unwrap())
         .unwrap();
+
     let plate = boolean(&base, &bore, BooleanOperation::Difference).unwrap();
     let wall = wall_of(&plate);
     let frame = Plane::from_frame(Point3::new(10.0, 10.0, 0.0), Vector3::Z, Vector3::X).unwrap();
@@ -386,6 +402,7 @@ fn a_drum_s_wall_onto_a_parallel_cylinder_of_its_radius_shifts_it() {
     let boss = cylinder(3.0, 9.0)
         .transformed(&RigidTransform::translation(Vector3::new(10.0, 10.0, 0.0)).unwrap())
         .unwrap();
+
     let body = boolean(&base, &boss, BooleanOperation::Union).unwrap();
     let wall = wall_of(&body);
     let frame =

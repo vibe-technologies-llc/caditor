@@ -22,7 +22,7 @@ const ARC_EDGE: i64 = 2;
 const ELLIPSE_EDGE: i64 = 3;
 const SPLINE_EDGE: i64 = 4;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Boundary {
     pub shapes: Vec<Shape>,
     pub sources: Vec<String>,
@@ -41,18 +41,22 @@ pub(super) fn boundaries(record: &Record) -> Option<Vec<Boundary>> {
         .position(|pair| !PATH_CODES.contains(&pair.code))
         .unwrap_or(rest.len());
     let mut boundaries = Vec::new();
+
     for path in groups(rest.get(..length)?, PATH_FLAGS) {
         let (flags, body) = path.split_first()?;
         let flags = flags.integer()?;
+
         if flags & TEXT_BOX_PATH != 0 {
             continue;
         }
+
         let (body, sources) = split_sources(body);
         let shapes = if flags & POLYLINE_PATH != 0 {
             polyline_path(body, elevation)?
         } else {
             edge_path(body, elevation)?
         };
+
         boundaries.push(Boundary {
             shapes: shapes
                 .iter()
@@ -102,6 +106,7 @@ fn split_sources<'a>(path: &'a [Pair<'a>]) -> (&'a [Pair<'a>], Vec<String>) {
 
 fn polyline_path(pairs: &[Pair], elevation: f64) -> Option<Vec<Shape>> {
     let mut vertices: Vec<(Point2, f64)> = Vec::new();
+
     for pair in pairs {
         match pair.code {
             10 => vertices.push((Point2::new(pair.real()?, 0.0), 0.0)),
@@ -185,13 +190,16 @@ fn spline_edge(fields: &[Pair], elevation: f64) -> Option<Shape> {
     let control_points: Vec<Point3> = fields.points(10).into_iter().map(at_elevation).collect();
     let weights = fields.reals(42);
     let weights = (!weights.is_empty()).then_some(weights);
+
     let controlled = usize::try_from(fields.flags(94))
         .ok()
         .filter(|_| !control_points.is_empty())
         .and_then(|degree| Nurbs::new(degree, fields.reals(40), control_points, weights));
+
     if let Some(nurbs) = controlled {
         return Some(Shape::Spline(nurbs));
     }
+
     let fit_points: Vec<Point3> = fields.points(11).into_iter().map(at_elevation).collect();
     let tangent = |code: i32| {
         Some(Vector3::new(

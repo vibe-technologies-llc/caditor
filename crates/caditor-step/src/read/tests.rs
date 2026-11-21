@@ -22,9 +22,12 @@ fn round_trip(name: &str, solid: &caditor_kernel::Solid) -> caditor_kernel::Soli
     )
     .unwrap();
     let mut model = read_step(&text).unwrap_or_else(|error| panic!("{name}: {error}"));
+
     assert!(model.notes.is_empty(), "{name}: {:?}", model.notes);
     assert_eq!(model.solids.len(), 1, "{name}");
+
     let read = model.solids.remove(0);
+
     assert_eq!(read.name, name);
     read.solid
 }
@@ -60,12 +63,16 @@ fn assert_same_shape(name: &str, original: &caditor_kernel::Solid, read: &cadito
             let point = mesh.position(corner).unwrap();
             let gap_from = |foot| surface.point_at(foot).distance(point);
             let hinted = hint.map(|hint| surface.project(point, Some(hint)));
+
             let foot = match hinted {
                 Some(foot) if gap_from(foot) <= caditor_kernel::LINEAR_RESOLUTION => foot,
                 _ => surface.project(point, None),
             };
+
             hint = Some(foot);
+
             let gap = gap_from(foot);
+
             assert!(
                 gap <= caditor_kernel::LINEAR_RESOLUTION,
                 "{name}: face {index} is {gap} mm off the original at {point}"
@@ -78,6 +85,7 @@ fn assert_same_shape(name: &str, original: &caditor_kernel::Solid, read: &cadito
 fn every_fixture_survives_a_round_trip() {
     for (name, solid) in fixtures::all() {
         let read = round_trip(name, &solid);
+
         assert_same_shape(name, &solid, &read);
     }
 }
@@ -85,7 +93,9 @@ fn every_fixture_survives_a_round_trip() {
 #[test]
 fn files_without_solids_are_refused_in_words() {
     assert_eq!(read_step("solid cube"), Err(ReadError::NotStep));
+
     let empty = "ISO-10303-21;HEADER;ENDSEC;DATA;#1=CARTESIAN_POINT('',(0.,0.,0.));ENDSEC;END-ISO-10303-21;";
+
     assert_eq!(read_step(empty), Err(ReadError::NoSolids(Held::default())));
     assert_eq!(
         read_step("ISO-10303-21;\nDATA;\n#1=X(;"),
@@ -121,7 +131,9 @@ fn a_file_cut_short_inside_its_data_reads_the_solids_before_the_cut() {
         "{:?}",
         model.notes
     );
+
     let halved = written.get(..written.len() / 2).unwrap();
+
     assert!(matches!(
         read_step(halved),
         Err(ReadError::NoSolids(_) | ReadError::NotRebuilt { .. })
@@ -146,6 +158,7 @@ fn a_file_with_a_damaged_header_and_no_closing_line_still_reads_its_solids() {
     )
     .unwrap();
     let (header, data) = written.split_once("DATA;").unwrap();
+
     let damaged = format!(
         "{}\nFILE_NAME('broken'\nENDSEC;\nDATA;{}",
         header.split_once("HEADER;").unwrap().0.to_owned() + "HEADER;",
@@ -166,6 +179,7 @@ fn sample(text: &str) -> crate::read::StepModel {
 
 fn assert_volume(solid: &caditor_kernel::Solid, expected: f64) {
     let volume = fixtures::volume(solid);
+
     assert!(
         (volume - expected).abs() < 1e-3 * expected,
         "{volume} vs {expected}"
@@ -175,25 +189,39 @@ fn assert_volume(solid: &caditor_kernel::Solid, expected: f64) {
 #[test]
 fn files_from_opencascade_import_with_their_volumes() {
     let tee = sample(include_str!("samples/tee.step"));
+
     assert_eq!(tee.solids.len(), 1);
+
     assert_volume(&tee.solids[0].solid, 9992.2416);
+
     let loft = sample(include_str!("samples/loft.step"));
+
     assert_volume(&loft.solids[0].solid, 4494.9012);
+
     let sphere = sample(include_str!("samples/sphere_nurbs.step"));
+
     assert_volume(
         &sphere.solids[0].solid,
         4.0 / 3.0 * std::f64::consts::PI * 125.0,
     );
+
     let cavity = sample(include_str!("samples/void.step"));
+
     assert_eq!(cavity.solids[0].solid.shells().count(), 2);
+
     assert_volume(
         &cavity.solids[0].solid,
         8000.0 - 4.0 / 3.0 * std::f64::consts::PI * 125.0,
     );
+
     let torus = sample(include_str!("samples/torus_part.step"));
+
     assert_volume(&torus.solids[0].solid, 1332.3966);
+
     let pair = sample(include_str!("samples/two_solids.step"));
+
     assert_eq!(pair.solids.len(), 2);
+
     assert_volume(&pair.solids[0].solid, 1000.0);
     assert_volume(&pair.solids[1].solid, std::f64::consts::PI * 9.0 * 10.0);
     for model in [&tee, &loft, &sphere, &cavity, &torus, &pair] {
@@ -214,6 +242,7 @@ fn a_void_written_facing_outward_is_turned_to_face_its_cavity() {
     assert_ne!(outward, original);
     assert!(cavity.notes.is_empty(), "{:?}", cavity.notes);
     assert_eq!(cavity.solids[0].solid.shells().count(), 2);
+
     assert_volume(
         &cavity.solids[0].solid,
         8000.0 - 4.0 / 3.0 * std::f64::consts::PI * 125.0,
@@ -228,11 +257,14 @@ fn assembly_parts_are_placed_and_named_after_their_products() {
         .iter()
         .map(|solid| solid.name.as_str())
         .collect();
+
     assert_eq!(names, ["Block", "Pin"]);
+
     let bounds = |index: usize| model.solids[index].solid.bounding_box().unwrap();
     let near = |a: caditor_geometry::Point3, b: [f64; 3]| {
         a.distance(caditor_geometry::Point3::from_array(b)) < 1e-9
     };
+
     assert!(near(bounds(0).min(), [80.0, 0.0, 0.0]) && near(bounds(0).max(), [100.0, 10.0, 5.0]));
     assert!(near(bounds(1).min(), [-2.0, 20.0, -2.0]) && near(bounds(1).max(), [2.0, 50.0, 2.0]));
 }
@@ -259,6 +291,7 @@ fn screws_and_a_bed(screws: usize) -> String {
         .iter()
         .position(|line| line.contains("NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','Screw'"))
         .unwrap();
+
     let placing = &lines[first..first + 5];
     let own: Vec<&str> = placing
         .iter()
@@ -267,12 +300,15 @@ fn screws_and_a_bed(screws: usize) -> String {
     let renumbered = |line: &str, copy: usize| {
         let mut out = String::new();
         let mut rest = line;
+
         while let Some(at) = rest.find('#') {
             out.push_str(&rest[..at]);
+
             let digits = rest[at + 1..]
                 .find(|character: char| !character.is_ascii_digit())
                 .map_or(rest.len(), |end| at + 1 + end);
             let reference = &rest[at..digits];
+
             match own.iter().position(|id| *id == reference) {
                 Some(index) => out.push_str(&format!("#{}", 1_000_000 + copy * 5 + index)),
                 None => out.push_str(reference),
@@ -282,6 +318,7 @@ fn screws_and_a_bed(screws: usize) -> String {
         out.push_str(rest);
         out
     };
+
     let copies: String = (1..screws)
         .flat_map(|copy| placing.iter().map(move |line| (copy, *line)))
         .map(|(copy, line)| renumbered(line, copy) + "\n")
@@ -348,6 +385,7 @@ fn assembly_parts_placed_by_scaling_or_mirroring_operators_are_scaled_or_mirrore
                 "ENDSEC;\nEND-ISO-10303-21;",
                 "#9100=DIRECTION('',(1.,0.,0.));\nENDSEC;\nEND-ISO-10303-21;",
             );
+
         assert!(text.contains("#9100="));
         sample(&text)
     };
@@ -367,7 +405,9 @@ fn assembly_parts_placed_by_scaling_or_mirroring_operators_are_scaled_or_mirrore
             assert_eq!(solid.solid.validate(), Ok(()), "{}", solid.name);
         }
     }
+
     let block = |model: &crate::read::StepModel| model.solids[0].solid.bounding_box().unwrap();
+
     assert!(
         near(block(&doubled).min(), [60.0, 0.0, 0.0]),
         "{:?}",
@@ -378,7 +418,9 @@ fn assembly_parts_placed_by_scaling_or_mirroring_operators_are_scaled_or_mirrore
         "{:?}",
         block(&doubled)
     );
+
     assert_volume(&doubled.solids[0].solid, 8.0 * block_volume);
+
     assert!(
         near(block(&mirrored).min(), [100.0, 0.0, 0.0]),
         "{:?}",
@@ -389,6 +431,7 @@ fn assembly_parts_placed_by_scaling_or_mirroring_operators_are_scaled_or_mirrore
         "{:?}",
         block(&mirrored)
     );
+
     assert_volume(&mirrored.solids[0].solid, block_volume);
 }
 
@@ -412,11 +455,14 @@ fn lengths_follow_the_unit_of_the_file() {
     .replace("SI_UNIT(.MILLI.,.METRE.)", "SI_UNIT(.CENTI.,.METRE.)");
     let model = sample(&text);
     let expected = fixtures::volume(&solid) * 1000.0;
+
     assert_volume(&model.solids[0].solid, expected);
+
     assert_eq!(
         model.notes,
         ["The file measures lengths in centimetres, so they were converted to millimetres."]
     );
+
     let inches = write_step(
         &[StepBody {
             name: "Plate",
@@ -442,16 +488,21 @@ fn lengths_follow_the_unit_of_the_file() {
          #9003=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n\
          ENDSEC;\nEND-ISO-10303-21;",
     );
+
     assert!(inches.contains("#9001="));
+
     let model = sample(&inches);
+
     assert_volume(
         &model.solids[0].solid,
         fixtures::volume(&solid) * 25.4_f64.powi(3),
     );
+
     assert_eq!(
         model.notes,
         ["The file measures lengths in inches, so they were converted to millimetres."]
     );
+
     let unnamed = write_step(
         &[StepBody {
             name: "Plate",
@@ -471,6 +522,7 @@ fn lengths_follow_the_unit_of_the_file() {
         "GLOBAL_UNIT_ASSIGNED_CONTEX(",
     );
     let model = sample(&unnamed);
+
     assert_eq!(
         model.notes,
         ["The file does not say which unit it uses, so its numbers were read as millimetres."]
@@ -508,6 +560,7 @@ fn bezier_and_uniform_curves_and_surfaces_are_read_with_the_standard_knots() {
         .map(|index| format!("#{index}"))
         .collect::<Vec<_>>()
         .join(",");
+
     data.push(format!(
         "#20=BEZIER_CURVE('',3,({list}),.UNSPECIFIED.,.F.,.F.);"
     ));
@@ -521,10 +574,13 @@ fn bezier_and_uniform_curves_and_surfaces_are_read_with_the_standard_knots() {
         "#23=(BEZIER_CURVE() BOUNDED_CURVE() B_SPLINE_CURVE(3,({list}),.UNSPECIFIED.,.F.,.F.) \
          CURVE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(''));"
     ));
+
     let grid = "((#1,#2,#3,#4),(#2,#3,#4,#5),(#3,#4,#5,#6),(#4,#5,#6,#7))";
+
     data.push(format!(
         "#30=BEZIER_SURFACE('',3,3,{grid},.UNSPECIFIED.,.F.,.F.,.F.);"
     ));
+
     let text = format!(
         "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
         data.join("\n")
@@ -535,17 +591,21 @@ fn bezier_and_uniform_curves_and_surfaces_are_read_with_the_standard_knots() {
         let (x, y, z) = points[index];
         Point3::new(x, y, z)
     };
+
     for id in [20, 23] {
         let Curve::BSpline(bezier) = geometry.curve(id).unwrap() else {
             panic!("a Bézier curve is a B-spline");
         };
         let domain = bezier.domain();
+
         let joint = bezier.point(domain.start() + domain.length() / 2.0);
+
         assert!(joint.distance(point(3)) < 1e-12, "#{id}: {joint}");
     }
     for id in [21, 22] {
         assert!(matches!(geometry.curve(id), Ok(Curve::BSpline(_))), "#{id}");
     }
+
     assert!(matches!(geometry.surface(30), Ok(Surface::BSpline(_))));
 }
 
@@ -566,15 +626,21 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
         SystemTime::UNIX_EPOCH,
     )
     .unwrap();
+
     assert_eq!(sample(&single).solids[0].name, "Body1");
+
     let from_elsewhere = single.replace(
         "MANIFOLD_SOLID_BREP('Body1'",
         "MANIFOLD_SOLID_BREP('Solid 7'",
     );
+
     assert_eq!(sample(&from_elsewhere).solids[0].name, "Body1");
+
     let product_named = single.replace("PRODUCT('Body1','Body1'", "PRODUCT('Bracket','Bracket'");
+
     assert!(product_named.contains("PRODUCT('Bracket'"));
     assert_eq!(sample(&product_named).solids[0].name, "Bracket");
+
     let pair = write_step(
         &[
             StepBody {
@@ -605,6 +671,7 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
         .into_iter()
         .map(|solid| solid.name)
         .collect();
+
     assert_eq!(names, ["Left", "Right"]);
 }
 
@@ -655,9 +722,12 @@ pub(super) fn faceted_cube(top: &str, missing_face: bool) -> String {
         [0, 4, 6, 2],
         [1, 3, 7, 5],
     ];
+
     let mut data = String::new();
+
     for index in 0..8 {
         let pick = |bit: usize| if index & bit == 0 { 0.0 } else { 10.0 };
+
         data.push_str(&format!(
             "#{}=CARTESIAN_POINT('',({:?},{:?},{:?}));\n",
             index + 1,
@@ -666,21 +736,26 @@ pub(super) fn faceted_cube(top: &str, missing_face: bool) -> String {
             pick(4)
         ));
     }
+
     let mut faces = Vec::new();
+
     for (face, corners) in FACES.iter().enumerate() {
         if missing_face && face == 5 {
             continue;
         }
+
         let mut points: Vec<String> = corners
             .iter()
             .map(|corner| format!("#{}", corner + 1))
             .collect();
+
         let orientation = if face == 3 {
             points.reverse();
             ".F."
         } else {
             ".T."
         };
+
         data.push_str(&format!(
             "#{}=POLY_LOOP('',({}));\n#{}=FACE_OUTER_BOUND('',#{},{orientation});\n#{}=FACE('',(#{}));\n",
             10 + face,
@@ -692,11 +767,13 @@ pub(super) fn faceted_cube(top: &str, missing_face: bool) -> String {
         ));
         faces.push(format!("#{}", 30 + face));
     }
+
     let shell = if missing_face {
         "OPEN_SHELL"
     } else {
         "CLOSED_SHELL"
     };
+
     data.push_str(&format!(
         "#40={shell}('',({}));\n#41={top};\n",
         faces.join(",")
@@ -715,7 +792,9 @@ fn a_solid_is_imported_past_an_entry_that_cannot_be_read_with_a_note() {
     let model = sample(&text);
 
     assert_eq!(model.solids.len(), 1);
+
     assert_volume(&model.solids[0].solid, 1000.0);
+
     assert!(
         model
             .notes
@@ -733,14 +812,18 @@ fn faceted_solids_and_closed_surface_models_are_imported() {
         "SHELL_BASED_SURFACE_MODEL('cube',(#40))",
     ] {
         let model = sample(&faceted_cube(top, false));
+
         assert_eq!(model.solids.len(), 1, "{top}");
         assert_eq!(model.solids[0].solid.faces().count(), 6, "{top}");
+
         assert_volume(&model.solids[0].solid, 1000.0);
     }
+
     let open = read_step(&faceted_cube(
         "SHELL_BASED_SURFACE_MODEL('open',(#40))",
         true,
     ));
+
     assert_eq!(
         open.map(|model| model.solids.len()),
         Err(ReadError::NoSolids(Held {
@@ -777,14 +860,18 @@ fn a_composite_curve_follows_its_trimmed_segments() {
     let geometry = Geometry::new(Graph::new(&exchange), Units::default(), Work::new(MAX_WORK));
     let curve = geometry.curve(14).unwrap();
     let range = curve.domain().bounded().unwrap();
+
     let ends = [curve.point(range.start()), curve.point(range.end())];
+
     assert!(ends[0].distance(Point3::ZERO) < 1e-9, "{}", ends[0]);
     assert!(
         ends[1].distance(Point3::new(10.0, 5.0, 0.0)) < 1e-9,
         "{}",
         ends[1]
     );
+
     let corner = curve.point(range.start() + 10.0);
+
     assert!(
         corner.distance(Point3::new(10.0, 0.0, 0.0)) < 1e-9,
         "{corner}"
@@ -804,15 +891,18 @@ fn composite_curves_nested_many_times_are_built_once_each_within_the_budget() {
 
     const LEVELS: u64 = 6;
     const SEGMENTS: usize = 20;
+
     let mut data = vec![
         "#1=CARTESIAN_POINT('',(0.,0.,0.));#2=DIRECTION('',(1.,0.,0.));".to_owned(),
         "#3=VECTOR('',#2,1.);#4=LINE('',#1,#3);".to_owned(),
         "#5=TRIMMED_CURVE('',#4,(PARAMETER_VALUE(0.)),(PARAMETER_VALUE(5.)),.T.,.PARAMETER.);"
             .to_owned(),
     ];
+
     for level in 1..=LEVELS {
         let next = if level == LEVELS { 5 } else { 100 + level + 1 };
         let segments = vec![format!("#{}", 200 + level); SEGMENTS].join(",");
+
         data.push(format!(
             "#{}=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#{next});",
             200 + level
@@ -822,6 +912,7 @@ fn composite_curves_nested_many_times_are_built_once_each_within_the_budget() {
             100 + level
         ));
     }
+
     let text = format!(
         "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
         data.join("\n")
@@ -887,20 +978,27 @@ fn spindle_tori_are_read_as_the_apple_or_the_lemon() {
     use std::f64::consts::PI;
 
     let (major, minor) = (2.0_f64, 5.0_f64);
+
     let beyond = minor * minor - major * major;
     let segment = minor * minor * (major / minor).acos() - major * beyond.sqrt();
+
     let reach = 2.0 * beyond.powf(1.5) / (3.0 * segment);
     let apple = sample(&spindle(major, minor, true));
+
     assert_eq!(apple.solids.len(), 1);
+
     assert_volume(
         &apple.solids[0].solid,
         2.0 * PI * (PI * minor * minor * major - segment * (major - reach)),
     );
+
     let lemon = sample(&spindle(major, minor, false));
+
     assert_volume(&lemon.solids[0].solid, 2.0 * PI * segment * (reach - major));
     for (name, model) in [("apple", &apple), ("lemon", &lemon)] {
         let solid = &model.solids[0].solid;
         let read = round_trip(name, solid);
+
         assert_eq!(read.faces().count(), solid.faces().count(), "{name}");
         assert_eq!(read.edges().count(), solid.edges().count(), "{name}");
     }
@@ -931,6 +1029,7 @@ fn a_torus_whose_tube_passes_its_axis_is_written_as_the_apple_and_read_back() {
     assert!(degenerate >= 1, "{text}");
     assert_eq!(text.matches("TOROIDAL_SURFACE(").count(), degenerate);
     assert_eq!(text.matches(",2.0,3.0,.T.)").count(), degenerate, "{text}");
+
     assert_same_shape("rimmed", &rimmed, &read);
 }
 
@@ -946,9 +1045,12 @@ fn horn_tori_are_read_as_the_whole_tube_turned_about_the_point_it_touches() {
     let inside = read_step(&spindle(radius, radius, false));
 
     assert_volume(solid, 2.0 * PI * PI * radius.powi(3));
+
     assert_eq!(solid.faces().count(), 1);
     assert_eq!(solid.vertices().count(), 1);
+
     assert_same_shape("horn", solid, &read);
+
     assert!(
         matches!(&inside, Err(error) if error.to_string().contains("holds no volume")),
         "{inside:?}"
@@ -1034,6 +1136,7 @@ fn a_face_on_an_offset_that_leaves_no_surface_is_lost_and_its_hole_closed_with_a
     let plate = fixtures::plate_with_hole();
     let collapsed = offset_of(&plate, "CYLINDRICAL_SURFACE", -6.0, ("5.0", "5.0"));
     let offset = offset_entity(&collapsed);
+
     let face = entity_using(&collapsed, "ADVANCED_FACE", &offset);
 
     let model = sample(&collapsed);
@@ -1048,6 +1151,7 @@ fn a_face_on_an_offset_that_leaves_no_surface_is_lost_and_its_hole_closed_with_a
              ones."
         )]
     );
+
     assert_volume(&model.solids[0].solid, 40.0 * 30.0 * 10.0);
 }
 
@@ -1056,6 +1160,7 @@ fn a_hollow_with_a_face_that_cannot_be_read_is_left_out_and_the_rest_kept_exact(
     let ring = fixtures::hollow_ring();
     let collapsed = offset_of(&ring, "TOROIDAL_SURFACE", -6.0, ("20.0,4.0", "20.0,4.0"));
     let offset = offset_entity(&collapsed);
+
     let face = entity_using(&collapsed, "ADVANCED_FACE", &offset);
 
     let model = sample(&collapsed);
@@ -1070,6 +1175,7 @@ fn a_hollow_with_a_face_that_cannot_be_read_is_left_out_and_the_rest_kept_exact(
         )]
     );
     assert_eq!(model.solids[0].solid.shells().count(), 1);
+
     assert_volume(
         &model.solids[0].solid,
         std::f64::consts::PI * (30.0f64.powi(2) - 10.0f64.powi(2)) * 20.0,
@@ -1116,6 +1222,7 @@ fn a_face_on_an_offset_of_an_extruded_spline_arc_is_fitted_within_the_resolution
         .find(|line| line.contains("=CYLINDRICAL_SURFACE("))
         .unwrap();
     let id = cylinder.split_once('=').unwrap().0;
+
     let offset = text
         .replace(cylinder, &format!("{id}=OFFSET_SURFACE('',#9100,2.,.F.);"))
         .replace("ENDSEC;\nEND-ISO-10303-21;", &arc);
@@ -1133,24 +1240,29 @@ fn a_face_on_an_offset_of_an_extruded_spline_arc_is_fitted_within_the_resolution
             }),
         Some(caditor_kernel::Curve::BSpline(_))
     ));
+
     let read = &model.solids[0].solid;
     let surfaces: Vec<&caditor_kernel::Surface> =
         prism.faces().map(|(_, face)| face.surface()).collect();
     let mesh = read
         .tessellate(&caditor_kernel::SamplingTolerance::new(0.05, 0.3).unwrap())
         .unwrap();
+
     for point in mesh.positions() {
         let gap = surfaces
             .iter()
             .map(|surface| surface.distance(*point))
             .fold(f64::INFINITY, f64::min);
+
         assert!(
             gap <= caditor_kernel::LINEAR_RESOLUTION,
             "{point} is {gap} mm off"
         );
     }
+
     assert_eq!(read.faces().count(), prism.faces().count());
     assert_eq!(read.edges().count(), prism.edges().count());
+
     assert_volume(read, std::f64::consts::PI * 25.0 / 2.0 * 10.0);
 }
 
@@ -1208,6 +1320,7 @@ fn replicas_of_points_curves_and_surfaces_are_their_parents_transformed() {
     let (cylinder, cylinder_id) = line_of(&text, "CYLINDRICAL_SURFACE");
     let (line, line_id) = line_of(&text, "LINE");
     let (vertex, vertex_id) = line_of(&text, "VERTEX_POINT");
+
     let corner = coordinates(&text, arguments(&text, vertex_id)[1]);
     let axis = arguments(&text, cylinder_id)[1];
     let [_, centre, along, reference] = arguments(&text, axis)[..] else {
@@ -1233,6 +1346,7 @@ fn replicas_of_points_curves_and_surfaces_are_their_parents_transformed() {
         centre[2],
         line.replacen(line_id, "#9300", 1),
     );
+
     extra.push_str(&replica_operator(9210, [3.0, 0.0, 0.0], false));
     extra.push_str(&replica_operator(9310, [0.0, 0.0, 0.0], false));
     extra.push_str(&replica_operator(9410, [1.0, -2.0, 0.5], false));
@@ -1246,6 +1360,7 @@ fn replicas_of_points_curves_and_surfaces_are_their_parents_transformed() {
         corner[1] + 2.0,
         corner[2] - 0.5,
     ));
+
     let replicated = text
         .replace(
             cylinder,
@@ -1260,6 +1375,7 @@ fn replicas_of_points_curves_and_surfaces_are_their_parents_transformed() {
 
     assert!(replicated.contains(",#9500,."), "{flipped_face}");
     assert!(model.notes.is_empty(), "{:?}", model.notes);
+
     assert_same_shape("replicas", &plate, &model.solids[0].solid);
 }
 
@@ -1317,6 +1433,7 @@ fn only_repairs_beyond_the_precision_of_the_file_are_reported() {
         .find_map(|line| line.strip_suffix("=CARTESIAN_POINT('',(0.0,0.0,0.0));"))
         .unwrap();
     let vertex = format!("VERTEX_POINT('',{corner})");
+
     let lifted = text
         .replacen(&vertex, "VERTEX_POINT('',#90000)", 1)
         .replacen(
@@ -1335,6 +1452,7 @@ fn only_repairs_beyond_the_precision_of_the_file_are_reported() {
         ["1 edge or corner that did not quite meet its faces was moved onto its faces."]
     );
     assert!(coarse.notes.is_empty(), "{:?}", coarse.notes);
+
     assert_volume(&coarse.solids[0].solid, fixtures::volume(&solid));
 }
 
@@ -1347,6 +1465,7 @@ fn faces_that_meet_only_as_closely_as_the_file_declares_import_as_facets() {
     let plain = read_step(&bent).unwrap_err().to_string();
     let model = read_step(&declared).unwrap();
     let tolerance = caditor_kernel::SamplingTolerance::new(0.01, 0.3).unwrap();
+
     let volume = fixtures::mesh_volume(&model.solids[0].solid.tessellate(&tolerance).unwrap());
 
     assert!(bent.contains("(10.0,10.0,10.0005)"));
@@ -1367,11 +1486,15 @@ fn faces_that_meet_only_as_closely_as_the_file_declares_import_as_facets() {
 fn renumbered(text: &str, by: u64) -> String {
     let mut out = String::new();
     let mut rest = text;
+
     while let Some(at) = rest.find('#') {
         let (before, after) = rest.split_at(at + 1);
+
         out.push_str(before);
+
         let digits = after.chars().take_while(char::is_ascii_digit).count();
         let (number, tail) = after.split_at(digits);
+
         out.push_str(&(number.parse::<u64>().unwrap() + by).to_string());
         rest = tail;
     }
@@ -1386,6 +1509,7 @@ fn a_shell_of_separate_pieces_imports_as_facets_in_one_body_of_several_lumps() {
         let body = text.split_once("DATA;\n").unwrap().1;
         body.split_once(shell).unwrap().0.to_owned()
     };
+
     let moved = data(&renumbered(&cube, 100), "#140=")
         .replace("('',(0.0,", "('',(20.0,")
         .replace("('',(10.0,", "('',(30.0,");
@@ -1413,7 +1537,9 @@ fn a_shell_of_separate_pieces_imports_as_facets_in_one_body_of_several_lumps() {
     );
     assert_eq!(model.solids.len(), 1);
     assert_eq!(solid.shells().count(), 2);
+
     assert_volume(solid, 2000.0);
+
     assert!(
         model
             .notes
@@ -1450,6 +1576,7 @@ fn a_curved_face_off_its_neighbour_is_continued_to_meet_it_with_a_note_beyond_th
     );
     for model in [&within, &beyond] {
         assert_eq!(model.solids.len(), 1);
+
         assert_volume(&model.solids[0].solid, 4494.9012);
     }
 }
@@ -1499,7 +1626,9 @@ fn a_surface_of_revolution_whose_profile_is_not_in_a_meridian_plane_is_refused()
         SystemTime::UNIX_EPOCH,
     )
     .unwrap();
+
     assert!(text.contains("SURFACE_OF_REVOLUTION"));
+
     assert_same_shape("vase", &vase, &round_trip("Vase", &vase));
 
     let placement = text
@@ -1565,6 +1694,7 @@ fn a_file_whose_only_solid_cannot_be_rebuilt_names_it_the_entity_and_the_reason(
     else {
         panic!("{error:?}");
     };
+
     assert_eq!(name, "cube");
     assert!(*entity > 0);
     assert!(fault.to_string().contains("meet only within"), "{fault}");
@@ -1601,10 +1731,12 @@ fn every_misplacement_says_what_was_left_out() {
             .len(),
         5
     );
+
     let error = ReadError::NotPlaced {
         name: "Arm".to_owned(),
         misplacement: Misplacement::InsideItself,
     };
+
     assert_eq!(
         error.to_string(),
         "“Arm” was left out, because the assembly places it inside itself"
@@ -1650,6 +1782,7 @@ fn a_colour_written_on_a_body_reads_back_and_uncoloured_bodies_have_none() {
             .unwrap()
             .colour
     };
+
     assert_eq!(colour("Red"), Some([255, 0, 51]));
     assert_eq!(colour("Plain"), None);
 }
@@ -1676,8 +1809,10 @@ fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_the_most_sha
         .filter_map(|line| line.split_once("=ADVANCED_FACE("))
         .map(|(id, _)| id)
         .collect();
+
     let styled = |colours: &[&str]| {
         let mut extra = String::from("#900001=DRAUGHTING_PRE_DEFINED_COLOUR('blue');\n");
+
         extra.push_str("#900002=FILL_AREA_STYLE_COLOUR('',#900001);\n");
         extra.push_str("#900003=FILL_AREA_STYLE('',(#900002));\n");
         extra.push_str("#900004=SURFACE_STYLE_FILL_AREA(#900003);\n");
@@ -1696,13 +1831,17 @@ fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_the_most_sha
                 .get(index % colours.len())
                 .copied()
                 .unwrap_or("#900007");
+
             extra.push_str(&format!(
                 "#{}=STYLED_ITEM('',({assignment}),{face});\n",
                 910_000 + index
             ));
         }
+
         let mut styled = text.clone();
+
         let end = styled.rfind("ENDSEC;").unwrap();
+
         styled.insert_str(end, &extra);
         read_step(&styled).unwrap().solids.remove(0)
     };
@@ -1713,8 +1852,10 @@ fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_the_most_sha
 
     assert_eq!((one.colour, one.faces.len()), (Some([0, 0, 255]), 0));
     assert_eq!(mixed.colour, Some([0, 0, 255]));
+
     let green: Vec<usize> = (0..faces.len()).filter(|face| face % 3 == 2).collect();
     let found: Vec<usize> = mixed.faces.iter().map(|look| look.face).collect();
+
     assert_eq!(found, green);
     assert!(
         mixed
@@ -1759,12 +1900,14 @@ fn styled_faces(
          #900026=SURFACE_STYLE_USAGE(.BOTH.,#900025);\n\
          #900027=PRESENTATION_STYLE_ASSIGNMENT((#900026));\n",
     );
+
     if let Some(style) = solid_style {
         let solid = text
             .lines()
             .find_map(|line| line.split_once("=MANIFOLD_SOLID_BREP("))
             .map(|(id, _)| id)
             .unwrap();
+
         extra.push_str(&format!("#900030=STYLED_ITEM('',({style}),{solid});\n"));
     }
     for (index, face) in faces.iter().enumerate() {
@@ -1776,8 +1919,11 @@ fn styled_faces(
             ));
         }
     }
+
     let mut styled = text.to_owned();
+
     let end = styled.rfind("ENDSEC;").unwrap();
+
     styled.insert_str(end, &extra);
     read_step(&styled).unwrap().solids.remove(0)
 }
@@ -1803,12 +1949,14 @@ fn faces_of_their_own_colour_or_see_through_carry_their_look_onto_the_imported_f
         (two_colours.colour, two_colours.opacity),
         (Some([0, 0, 255]), None)
     );
+
     let [top] = two_colours.faces.as_slice() else {
         panic!(
             "expected only the top face to differ: {:?}",
             two_colours.faces
         );
     };
+
     assert!(is_top(&two_colours.solid, top.face));
     assert_eq!((top.colour, top.opacity), (Some([255, 0, 0]), Some(50)));
     assert_eq!(overridden.colour, Some([0, 0, 255]));
@@ -1853,6 +2001,7 @@ fn an_opacity_written_on_a_body_reads_back_and_opaque_bodies_have_none() {
             .unwrap();
         (solid.colour, solid.opacity)
     };
+
     assert_eq!(look("Clear"), (Some([20, 40, 60]), Some(25)));
     assert_eq!(look("Smoked"), (Some([20, 40, 60]), Some(70)));
     assert_eq!(look("Solid"), (Some([20, 40, 60]), None));
@@ -1894,7 +2043,9 @@ fn plate_styled_model(side_style_elements: &str, entities: &str) -> crate::read:
          #900013=STYLED_ITEM('',(#900012),{solid});\n"
     );
     let mut styled = text.clone();
+
     let end = styled.rfind("ENDSEC;").unwrap();
+
     styled.insert_str(end, &extra);
     read_step(&styled).unwrap()
 }
@@ -1937,8 +2088,10 @@ fn a_transparency_outside_zero_to_one_is_named_as_not_understood_and_none_means_
 
     assert_eq!(transparent("0."), (None, Vec::new()));
     assert_eq!(transparent("1."), (Some(0), Vec::new()));
+
     for outside in ["-3.", "7."] {
         let (opacity, notes) = transparent(outside);
+
         assert_eq!(opacity, None);
         assert_eq!(
             notes,
@@ -1948,6 +2101,7 @@ fn a_transparency_outside_zero_to_one_is_named_as_not_understood_and_none_means_
             ]
         );
     }
+
     assert_eq!(plate_styled_by("#900004", FILL).opacity, None);
 }
 
@@ -1985,6 +2139,7 @@ fn a_layer_written_on_bodies_reads_back_on_each_and_unlayered_bodies_have_none()
             .layer
             .clone()
     };
+
     assert_eq!(text.matches("PRESENTATION_LAYER_ASSIGNMENT").count(), 1);
     assert_eq!(layer("Left").as_deref(), Some("Brackets"));
     assert_eq!(layer("Right").as_deref(), Some("Brackets"));
@@ -2014,7 +2169,9 @@ fn a_layer_holding_a_styled_item_puts_the_styled_body_on_it() {
         .map(|(id, _)| id.to_owned())
         .unwrap();
     let mut layered = text.clone();
+
     let end = layered.rfind("ENDSEC;").unwrap();
+
     layered.insert_str(
         end,
         &format!("#900001=PRESENTATION_LAYER_ASSIGNMENT('Parts','',({styled}));\n"),
@@ -2068,6 +2225,7 @@ fn an_edge_a_loop_runs_out_along_and_straight_back_is_left_out() {
     let first_use = arguments(&text, loop_id)[1];
     let used = arguments(&text, first_use);
     let edge = arguments(&text, used[3]);
+
     let start = if used[4] == ".T." { edge[1] } else { edge[2] };
     let start_point = arguments(&text, arguments(&text, start)[1]);
     let corner: Vec<f64> = start_point[1..]
@@ -2102,6 +2260,7 @@ fn an_edge_a_loop_runs_out_along_and_straight_back_is_left_out() {
     assert!(model.notes.is_empty(), "{:?}", model.notes);
     assert_eq!(model.solids.len(), 1);
     assert_eq!(model.solids[0].solid.edges().count(), solid.edges().count());
+
     assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
 }
 
@@ -2119,6 +2278,7 @@ fn thousands_of_fins_folded_around_a_loop_are_all_left_out() {
     let first_use = arguments(&text, loop_id)[1];
     let used = arguments(&text, first_use);
     let edge = arguments(&text, used[3]);
+
     let start = if used[4] == ".T." { edge[1] } else { edge[2] };
     let start_point = arguments(&text, arguments(&text, start)[1]);
     let corner: Vec<f64> = start_point[1..]
@@ -2141,8 +2301,10 @@ fn thousands_of_fins_folded_around_a_loop_are_all_left_out() {
     );
     let mut outward = Vec::with_capacity(folds);
     let mut back = Vec::with_capacity(folds);
+
     for fold in 0..folds {
         let edge = 10_000 + fold * 3;
+
         fin.push_str(&format!(
             "#{edge}=EDGE_CURVE('',{start},#9002,#9006,.T.);\n\
              #{}=ORIENTED_EDGE('',*,*,#{edge},.T.);#{}=ORIENTED_EDGE('',*,*,#{edge},.F.);\n",
@@ -2154,6 +2316,7 @@ fn thousands_of_fins_folded_around_a_loop_are_all_left_out() {
     }
     back.reverse();
     fin.push_str("ENDSEC;\nEND-ISO-10303-21;");
+
     let opening = format!("{loop_id}=EDGE_LOOP('',(");
     let uses_end = edge_loop.rfind("))").unwrap();
     let wrapped = format!(
@@ -2199,6 +2362,7 @@ fn a_loop_that_is_only_a_slit_inside_its_face_is_left_out() {
     assert!(model.notes.is_empty(), "{:?}", model.notes);
     assert_eq!(model.solids.len(), 1);
     assert_eq!(model.solids[0].solid.edges().count(), solid.edges().count());
+
     assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
 }
 
@@ -2214,15 +2378,18 @@ fn a_closed_spline_edge_whose_vertex_is_not_where_the_spline_closes_starts_at_th
     let normal = coordinates(&text, axes[2]);
     let edge = entity_using(&text, "EDGE_CURVE", circle);
     let vertex = coordinates(&text, arguments(&text, arguments(&text, &edge)[1])[1]);
+
     let start = (vertex[1] - centre[1]).atan2(vertex[0] - centre[0]) + std::f64::consts::PI;
     let turning = normal[2].signum();
     let half = std::f64::consts::FRAC_1_SQRT_2;
     let mut entities = String::new();
     let mut points = Vec::new();
+
     for index in 0..9 {
         let angle = start + turning * index as f64 * std::f64::consts::FRAC_PI_4;
         let reach = if index % 2 == 0 { 5.0 } else { 5.0 / half };
         let id = 9001 + index;
+
         entities.push_str(&format!(
             "#{id}=CARTESIAN_POINT('',({:?},{:?},{:?}));\n",
             centre[0] + reach * angle.cos(),
@@ -2231,6 +2398,7 @@ fn a_closed_spline_edge_whose_vertex_is_not_where_the_spline_closes_starts_at_th
         ));
         points.push(format!("#{id}"));
     }
+
     let weights: Vec<String> = (0..9)
         .map(|index| format!("{:?}", if index % 2 == 0 { 1.0 } else { half }))
         .collect();
@@ -2241,7 +2409,9 @@ fn a_closed_spline_edge_whose_vertex_is_not_where_the_spline_closes_starts_at_th
         points.join(","),
         weights.join(","),
     );
+
     entities.push_str("ENDSEC;\nEND-ISO-10303-21;");
+
     let restarted = text
         .replace(circle_line, &spline)
         .replace("ENDSEC;\nEND-ISO-10303-21;", &entities);
@@ -2250,6 +2420,7 @@ fn a_closed_spline_edge_whose_vertex_is_not_where_the_spline_closes_starts_at_th
     assert_ne!(restarted, text);
     assert!(model.notes.is_empty(), "{:?}", model.notes);
     assert_eq!(model.solids.len(), 1);
+
     assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
 }
 
@@ -2301,11 +2472,13 @@ fn box_with_top(top: impl Fn(&mut Entities) -> usize) -> String {
         [0, 4, 6, 2],
         [1, 3, 7, 5],
     ];
+
     let corner = |index: usize| {
         let pick = |bit: usize| if index & bit == 0 { 0.0 } else { 10.0 };
         caditor_geometry::Point3::new(pick(1), pick(2), pick(4))
     };
     let mut entities = Entities::default();
+
     let vertices: Vec<usize> = (0..8)
         .map(|index| {
             let at = entities.point(corner(index));
@@ -2314,14 +2487,17 @@ fn box_with_top(top: impl Fn(&mut Entities) -> usize) -> String {
         .collect();
     let mut edges = std::collections::BTreeMap::new();
     let mut faces = Vec::new();
+
     for (face, corners) in LOOPS.iter().enumerate() {
         let mut uses = Vec::new();
+
         for (index, from) in corners.iter().enumerate() {
             let to = corners[(index + 1) % 4];
             let key = (*from.min(&to), *from.max(&to));
             let edge = *edges.entry(key).or_insert_with(|| {
                 let (start, end) = (corner(key.0), corner(key.1));
                 let origin = entities.point(start);
+
                 let along = entities.direction((end - start).normalize());
                 let vector = entities.add(format!("VECTOR('',#{along},1.)"));
                 let line = entities.add(format!("LINE('',#{origin},#{vector})"));
@@ -2331,11 +2507,13 @@ fn box_with_top(top: impl Fn(&mut Entities) -> usize) -> String {
                 ))
             });
             let forward = if *from < to { ".T." } else { ".F." };
+
             uses.push(format!(
                 "#{}",
                 entities.add(format!("ORIENTED_EDGE('',*,*,#{edge},{forward})"))
             ));
         }
+
         let edge_loop = entities.add(format!("EDGE_LOOP('',({}))", uses.join(",")));
         let bound = entities.add(format!("FACE_OUTER_BOUND('',#{edge_loop},.T.)"));
         let points: Vec<_> = corners.iter().map(|index| corner(*index)).collect();
@@ -2354,12 +2532,15 @@ fn box_with_top(top: impl Fn(&mut Entities) -> usize) -> String {
             ));
             entities.add(format!("PLANE('',#{placement})"))
         };
+
         faces.push(format!(
             "#{}",
             entities.add(format!("ADVANCED_FACE('',(#{bound}),#{surface},.T.)"))
         ));
     }
+
     let shell = entities.add(format!("CLOSED_SHELL('',({}))", faces.join(",")));
+
     entities.add(format!("MANIFOLD_SOLID_BREP('box',#{shell})"));
     entities.text()
 }
@@ -2388,6 +2569,7 @@ fn box_with_a_split_top(step: f64, tilt: f64) -> (String, u64) {
         &[4, 5, 8, 9],
         &[5, 6, 7, 8],
     ];
+
     let raised_half = LOOPS.len() - 1;
     let corner = |index: usize| {
         let [x, y, z] = CORNERS[index];
@@ -2404,14 +2586,17 @@ fn box_with_a_split_top(step: f64, tilt: f64) -> (String, u64) {
         .collect();
     let mut edges = std::collections::BTreeMap::new();
     let mut faces = Vec::new();
+
     for (face, corners) in LOOPS.iter().enumerate() {
         let mut uses = Vec::new();
+
         for (index, from) in corners.iter().enumerate() {
             let to = corners[(index + 1) % corners.len()];
             let key = (*from.min(&to), *from.max(&to));
             let edge = *edges.entry(key).or_insert_with(|| {
                 let (start, end) = (corner(key.0), corner(key.1));
                 let origin = entities.point(start);
+
                 let along = entities.direction((end - start).normalize());
                 let vector = entities.add(format!("VECTOR('',#{along},1.)"));
                 let line = entities.add(format!("LINE('',#{origin},#{vector})"));
@@ -2421,11 +2606,13 @@ fn box_with_a_split_top(step: f64, tilt: f64) -> (String, u64) {
                 ))
             });
             let forward = if *from < to { ".T." } else { ".F." };
+
             uses.push(format!(
                 "#{}",
                 entities.add(format!("ORIENTED_EDGE('',*,*,#{edge},{forward})"))
             ));
         }
+
         let edge_loop = entities.add(format!("EDGE_LOOP('',({}))", uses.join(",")));
         let bound = entities.add(format!("FACE_OUTER_BOUND('',#{edge_loop},.T.)"));
         let points: Vec<Point3> = corners.iter().map(|index| corner(*index)).collect();
@@ -2453,11 +2640,13 @@ fn box_with_a_split_top(step: f64, tilt: f64) -> (String, u64) {
             "AXIS2_PLACEMENT_3D('',#{origin},#{axis},#{reference})"
         ));
         let surface = entities.add(format!("PLANE('',#{placement})"));
+
         faces.push(format!(
             "#{}",
             entities.add(format!("ADVANCED_FACE('',(#{bound}),#{surface},.T.)"))
         ));
     }
+
     let shell = entities.add(format!("CLOSED_SHELL('',({}))", faces.join(",")));
     let brep = entities.add(format!("MANIFOLD_SOLID_BREP('box',#{shell})")) as u64;
     let text = with_precision(
@@ -2520,6 +2709,7 @@ fn spline_cube_with_an_edge_ending_short(short: f64) -> (String, u64) {
         [0, 4, 6, 2],
         [1, 3, 7, 5],
     ];
+
     let corner = |index: usize| {
         Point3::new(
             if index & 1 == 0 { 0.0 } else { 10.0 },
@@ -2539,8 +2729,10 @@ fn spline_cube_with_an_edge_ending_short(short: f64) -> (String, u64) {
         .collect();
     let mut edges = std::collections::BTreeMap::new();
     let mut faces = Vec::new();
+
     for corners in LOOPS {
         let mut uses = Vec::new();
+
         for (index, from) in corners.iter().enumerate() {
             let to = corners[(index + 1) % corners.len()];
             let key = (*from.min(&to), *from.max(&to));
@@ -2561,11 +2753,13 @@ fn spline_cube_with_an_edge_ending_short(short: f64) -> (String, u64) {
                 ))
             });
             let forward = if *from < to { ".T." } else { ".F." };
+
             uses.push(format!(
                 "#{}",
                 entities.add(format!("ORIENTED_EDGE('',*,*,#{edge},{forward})"))
             ));
         }
+
         let edge_loop = entities.add(format!("EDGE_LOOP('',({}))", uses.join(",")));
         let bound = entities.add(format!("FACE_OUTER_BOUND('',#{edge_loop},.T.)"));
         let [first, second, third, fourth] = corners.map(|index| entities.point(corner(index)));
@@ -2573,11 +2767,13 @@ fn spline_cube_with_an_edge_ending_short(short: f64) -> (String, u64) {
             "B_SPLINE_SURFACE_WITH_KNOTS('',1,1,((#{first},#{fourth}),(#{second},#{third})),\
              .UNSPECIFIED.,.F.,.F.,.F.,(2,2),(2,2),(0.,1.),(0.,1.),.UNSPECIFIED.)"
         ));
+
         faces.push(format!(
             "#{}",
             entities.add(format!("ADVANCED_FACE('',(#{bound}),#{surface},.T.)"))
         ));
     }
+
     let shell = entities.add(format!("CLOSED_SHELL('',({}))", faces.join(",")));
     let brep = entities.add(format!("MANIFOLD_SOLID_BREP('cube',#{shell})")) as u64;
     let text = with_precision(
@@ -2626,6 +2822,7 @@ fn a_spline_edge_ending_short_of_its_vertex_within_a_few_precisions_meets_it_whe
 fn halves_of_a_split_face_apart_within_the_precision_are_moved_onto_one_plane_and_import_exact() {
     let step = 1e-4;
     let tilt = 2e-6;
+
     let (text, _) = box_with_a_split_top(step, tilt);
 
     let model = sample(&text);
@@ -2640,6 +2837,7 @@ fn halves_of_a_split_face_apart_within_the_precision_are_moved_onto_one_plane_an
         ]
     );
     assert_eq!(solid.faces().count(), 7);
+
     assert_volume(solid, 1000.0);
 }
 
@@ -2683,8 +2881,11 @@ fn a_flat_face_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_impor
         .unwrap();
     let side = format!("{placement}=AXIS2_PLACEMENT_3D('',{origin},{rest}");
     let moved = format!("{placement}=AXIS2_PLACEMENT_3D('',#90000,{rest}");
+
     let mut point = coordinates(&text, &origin);
+
     point[0] += gap;
+
     let off = text.replacen(&side, &moved, 1).replacen(
         "ENDSEC;\nEND-ISO",
         &format!(
@@ -2712,6 +2913,7 @@ fn a_flat_face_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_impor
         ]
     );
     assert_eq!(read.faces().count(), solid.faces().count());
+
     assert_volume(read, fixtures::volume(&solid));
 }
 
@@ -2744,6 +2946,7 @@ fn a_spline_face_ending_just_short_of_its_neighbours_is_continued_to_meet_them()
     let model = sample(&text);
 
     assert_eq!(model.solids.len(), 1);
+
     assert_volume(&model.solids[0].solid, 1000.0);
 }
 
@@ -2762,6 +2965,7 @@ fn built_with(
     let exchange = crate::part21::parse(text).unwrap();
     let graph = Graph::new(&exchange);
     let mut structure = Structure::read(&graph);
+
     let representation = structure.representation_of(solid).unwrap();
     let units = structure.units_of(&graph, representation);
     let geometry = Geometry::new(graph, units, Work::new(MAX_WORK));
@@ -2799,6 +3003,7 @@ fn a_spline_side_bowing_short_of_the_plane_it_meets_across_is_bent_onto_it() {
         ))
     });
     let brep = text.matches('\n').count() as u64 - 6;
+
     let declared = with_precision(&text, "ADVANCED_BREP_SHAPE_REPRESENTATION", brep, "1.E-2");
 
     let bent = built_with(&declared, brep, super::topology::Healing::Bent).unwrap();
@@ -2808,6 +3013,7 @@ fn a_spline_side_bowing_short_of_the_plane_it_meets_across_is_bent_onto_it() {
         "{text}"
     );
     assert_eq!(bent.bent.map(|bending| bending.faces), Some(1));
+
     assert_volume(&bent.solid, 1000.0);
 }
 
@@ -2834,8 +3040,10 @@ fn polyhedron(
         .collect();
     let mut edges = std::collections::BTreeMap::new();
     let mut faces = Vec::new();
+
     for (face, loop_corners) in loops.iter().enumerate() {
         let mut uses = Vec::new();
+
         for (index, from) in loop_corners.iter().enumerate() {
             let to = loop_corners[(index + 1) % loop_corners.len()];
             let key = (*from.min(&to), *from.max(&to));
@@ -2845,6 +3053,7 @@ fn polyhedron(
                     let curve = curve_of(key, &mut entities).unwrap_or_else(|| {
                         let (start, end) = (corner(key.0), corner(key.1));
                         let origin = entities.point(start);
+
                         let along = entities.direction((end - start).normalize());
                         let vector = entities.add(format!("VECTOR('',#{along},1.)"));
                         entities.add(format!("LINE('',#{origin},#{vector})"))
@@ -2853,16 +3062,19 @@ fn polyhedron(
                         "EDGE_CURVE('',#{},#{},#{curve},.T.)",
                         vertices[key.0], vertices[key.1]
                     ));
+
                     edges.insert(key, edge);
                     edge
                 }
             };
             let forward = if *from < to { ".T." } else { ".F." };
+
             uses.push(format!(
                 "#{}",
                 entities.add(format!("ORIENTED_EDGE('',*,*,#{edge},{forward})"))
             ));
         }
+
         let edge_loop = entities.add(format!("EDGE_LOOP('',({}))", uses.join(",")));
         let bound = entities.add(format!("FACE_OUTER_BOUND('',#{edge_loop},.T.)"));
         let surface = curved(face, &mut entities).unwrap_or_else(|| {
@@ -2879,11 +3091,13 @@ fn polyhedron(
             ));
             entities.add(format!("PLANE('',#{placement})"))
         });
+
         faces.push(format!(
             "#{}",
             entities.add(format!("ADVANCED_FACE('',(#{bound}),#{surface},.T.)"))
         ));
     }
+
     let shell = entities.add(format!("CLOSED_SHELL('',({}))", faces.join(",")));
     let brep = entities.add(format!("MANIFOLD_SOLID_BREP('solid',#{shell})")) as u64;
     let text = with_precision(
@@ -2987,18 +3201,23 @@ fn a_spline_tangent_to_its_neighbour_micrometres_off_is_bent_onto_it() {
     let model = read_step(&text).unwrap();
 
     assert!(exact.is_err());
+
     let bending = bent.bent.unwrap();
+
     assert!(bending.faces >= 1);
     assert!(
         bending.farthest >= 0.9 * gap && bending.farthest <= 1.1 * gap,
         "{bending:?}"
     );
+
     assert_volume(&bent.solid, 1000.0);
+
     assert!(
         has_spline_faces(&model.solids[0].solid),
         "{:?}",
         model.notes
     );
+
     assert_volume(&model.solids[0].solid, 1000.0);
 }
 
@@ -3007,6 +3226,7 @@ fn an_edge_along_a_spline_line_with_its_neighbours_feet_just_past_it_within_the_
  {
     let gap = 4e-6;
     let lean = 1e-4;
+
     let (text, brep) = polyhedron(
         &split_top_corners(lean),
         &SPLIT_TOP_LOOPS,
@@ -3037,6 +3257,7 @@ fn an_edge_along_a_spline_line_with_its_neighbours_feet_just_past_it_within_the_
     let bent = built_with(&text, brep, super::topology::Healing::Bent).unwrap();
 
     assert!(bent.bent.unwrap().faces >= 1);
+
     assert_volume(&bent.solid, 1000.0);
 }
 
@@ -3064,6 +3285,7 @@ fn a_spline_notched_into_an_l_shaped_face_is_bent_onto_it_and_the_l_keeps_its_sh
         &[4, 5, 6, 10, 8, 9],
         &[10, 6, 7, 8],
     ];
+
     let lift = 8e-6;
     let (text, brep) = polyhedron(
         &CORNERS,
@@ -3092,6 +3314,7 @@ fn a_spline_notched_into_an_l_shaped_face_is_bent_onto_it_and_the_l_keeps_its_sh
     let bent = built_with(&text, brep, super::topology::Healing::Bent).unwrap();
 
     assert!(bent.bent.unwrap().faces >= 1);
+
     assert_volume(&bent.solid, 1000.0);
 }
 
@@ -3103,6 +3326,7 @@ fn a_side_of_a_spline_closed_around_is_bent_onto_the_plane_it_meets() {
     let bow = 0.003;
     let height = 10.0;
     let lean = radius * std::f64::consts::FRAC_1_SQRT_2;
+
     let corners = [
         [0.0, 0.0, 0.0],
         [lean, lean, 0.0],
@@ -3118,6 +3342,7 @@ fn a_side_of_a_spline_closed_around_is_bent_onto_the_plane_it_meets() {
         &[0, 3, 5, 2],
         &[1, 2, 5, 4],
     ];
+
     let (text, brep) = polyhedron(
         &corners,
         &loops,
@@ -3182,6 +3407,7 @@ fn a_side_of_a_spline_closed_around_is_bent_onto_the_plane_it_meets() {
 
     assert_eq!(bent.bent.map(|bending| bending.faces), Some(1));
     assert!(has_spline_faces(&bent.solid));
+
     assert_volume(
         &bent.solid,
         std::f64::consts::FRAC_PI_4 * radius * radius * height,
@@ -3197,13 +3423,16 @@ fn vertices_sliding_past_each_other_along_a_near_tangency_keep_their_order_and_i
     let root = 0.003;
     let normal_at = written_at + 0.001;
     let inset = 1.0 - root * root / 2.0;
+
     let on_plane = |side: f64, y: f64| {
         let (sin, cos) = (side * normal_at).sin_cos();
+
         let (x0, y0) = (inset * cos, inset * sin);
         [x0 + (y0 - y) * sin / cos, y]
     };
     let [far_x, far_y] = on_plane(-1.0, -5.0);
     let (arc_sin, arc_cos) = written_at.sin_cos();
+
     let outline = [
         [far_x, far_y],
         [arc_cos, -arc_sin],
@@ -3223,7 +3452,9 @@ fn vertices_sliding_past_each_other_along_a_near_tangency_keep_their_order_and_i
         })
         .collect();
     let mut loops: Vec<&[usize]> = vec![&[5, 4, 3, 2, 1, 0], &[10, 11, 6, 7, 8, 9]];
+
     loops.extend(walls.iter().map(Vec::as_slice));
+
     let area = outline
         .iter()
         .zip(outline.iter().cycle().skip(1))
@@ -3244,6 +3475,7 @@ fn vertices_sliding_past_each_other_along_a_near_tangency_keep_their_order_and_i
         |face, entities| {
             let flat = |entities: &mut Entities, side: f64| {
                 let (sin, cos) = (side * normal_at).sin_cos();
+
                 let normal = Vector3::new(cos, sin, 0.0);
                 let placement = frame(
                     entities,
@@ -3282,6 +3514,7 @@ fn vertices_sliding_past_each_other_along_a_near_tangency_keep_their_order_and_i
             .faces()
             .any(|(_, face)| matches!(face.surface(), caditor_kernel::Surface::Cylinder(_)))
     );
+
     assert_volume(&exact.solid, area * height);
 }
 
@@ -3305,6 +3538,7 @@ fn a_cylinder_seam_with_a_vertex_micrometres_off_imports_exact_when_no_precision
                 .any(|line| line.starts_with(&format!("{curve}=CIRCLE(")))
         })
         .unwrap();
+
     let vertex = arguments(&text, circle_edge.split_once('=').unwrap().0)[1].to_owned();
     let point = arguments(&text, &vertex)[1].to_owned();
 
@@ -3321,7 +3555,9 @@ fn a_cylinder_seam_with_a_vertex_micrometres_off_imports_exact_when_no_precision
 
     assert_eq!(model.solids.len(), 1);
     assert!(healed.healed >= 1);
+
     assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
+
     assert!(
         model.solids[0]
             .solid
@@ -3341,12 +3577,15 @@ fn every_file_of_a_corpus_is_read_and_reported() {
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .collect();
+
     paths.sort();
+
     let only = std::env::var("STEP_CORPUS_ONLY").unwrap_or_default();
     for path in paths {
         if !path.to_string_lossy().contains(&only) {
             continue;
         }
+
         let bytes = std::fs::read(&path).unwrap();
         let text = String::from_utf8_lossy(&bytes);
         let start = std::time::Instant::now();
@@ -3359,6 +3598,7 @@ fn every_file_of_a_corpus_is_read_and_reported() {
                     .iter()
                     .map(|copy| fixtures::volume(&copy.solid) * copy.placement.scale().powi(3))
                     .collect();
+
                 volumes.sort_by(|a, b| b.total_cmp(a));
                 println!(
                     "OK {} copies={} {:.2}s total={:.4} {:?}",
@@ -3438,9 +3678,11 @@ fn with_surface_placed(text: &str, surface: [&str; 2], shift: [f64; 3]) -> Strin
     let placement = arguments(text, line.split_once('=').unwrap().0)[1];
     let at = arguments(text, placement);
     let mut origin = coordinates(text, at[1]);
+
     for (coordinate, by) in origin.iter_mut().zip(shift) {
         *coordinate += by;
     }
+
     let moved = line.replacen(&format!("{placement},"), "#90001,", 1);
     text.replacen(line, &moved, 1).replacen(
         "ENDSEC;\nEND-ISO",
@@ -3458,6 +3700,7 @@ fn a_cylinder_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_import
     let gap = 3e-6;
     let solid = s_curved_block();
     let text = written("Cam", &solid);
+
     let off = with_surface_placed(
         &text,
         ["=CYLINDRICAL_SURFACE('',", ",2.0);"],
@@ -3499,6 +3742,7 @@ fn a_cylinder_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_import
         "{small:?}"
     );
     assert_eq!(read.faces().count(), solid.faces().count());
+
     assert_volume(read, fixtures::volume(&solid));
 }
 
@@ -3507,6 +3751,7 @@ fn a_fillet_whose_axis_is_a_hair_off_the_shaft_s_is_moved_onto_it_and_imports_ex
     let gap = 2e-6;
     let solid = filleted_shaft();
     let text = written("Shaft", &solid);
+
     let off = with_surface_placed(&text, ["=TOROIDAL_SURFACE('',", ""], [gap, 0.0, 0.0]);
     let declared = off.replacen("LENGTH_MEASURE(1.E-6)", "LENGTH_MEASURE(1.E-2)", 1);
 
@@ -3526,6 +3771,7 @@ fn a_fillet_whose_axis_is_a_hair_off_the_shaft_s_is_moved_onto_it_and_imports_ex
         ]
     );
     assert_eq!(read.faces().count(), solid.faces().count());
+
     assert_volume(read, fixtures::volume(&solid));
 }
 
@@ -3550,6 +3796,7 @@ fn with_point_moved(text: &str, point: &str, shift: [f64; 3]) -> String {
         .find(|line| line.starts_with(&format!("{point}=CARTESIAN_POINT(")))
         .unwrap();
     let mut at = coordinates(text, point);
+
     for (coordinate, by) in at.iter_mut().zip(shift) {
         *coordinate += by;
     }
@@ -3573,6 +3820,7 @@ fn a_shaft_written_a_hair_off_its_fillet_is_moved_onto_it_and_its_seam_follows()
         .lines()
         .find(|line| line.contains("=CYLINDRICAL_SURFACE('',") && line.ends_with(",7.0);"))
         .unwrap();
+
     let placement = arguments(&text, &id_of(shaft))[1].to_owned();
     let shaft_origin = arguments(&text, &placement)[1].to_owned();
     let seam = text
@@ -3592,6 +3840,7 @@ fn a_shaft_written_a_hair_off_its_fillet_is_moved_onto_it_and_its_seam_follows()
         .unwrap();
     let shift = [gap, 0.0, 0.0];
     let moved_seam = seam.replacen(&format!("{seam_start},"), "#90000,", 1);
+
     let off = with_point_moved(
         &with_point_moved(&text, &shaft_origin, shift),
         &top_corner,
@@ -3627,5 +3876,6 @@ END-ISO",
     );
     assert_eq!(round_axes(read), [0.0; 3]);
     assert_eq!(read.faces().count(), solid.faces().count());
+
     assert_volume(read, fixtures::volume(&solid));
 }

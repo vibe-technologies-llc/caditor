@@ -15,7 +15,7 @@ use crate::{
     solid::SolidResult,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DeleteFace {
     pub body: FeatureId,
     pub faces: Vec<FaceReference>,
@@ -76,6 +76,7 @@ impl Context<'_> {
 
     fn describe_faces(&self, solid: &Solid, faces: &[FaceId]) -> Vec<String> {
         let mut names: Vec<String> = Vec::with_capacity(faces.len());
+
         for face in faces {
             let name = self.describe_face(solid, *face);
             if !names.contains(&name) {
@@ -112,7 +113,7 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DeleteFaceCause {
     FaceGone { body: String },
     Everything { body: String },
@@ -203,6 +204,7 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+
     let faces = definition.resolve(solid).map_err(|unresolved| {
         Failure::from(
             FeatureError::new(Unmatched {
@@ -213,9 +215,11 @@ pub(crate) fn evaluate(
             .fixing(FixTarget::Feature(feature.id())),
         )
     })?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let result = delete_faces(solid, &faces).map_err(|error| context.failure(solid, &error))?;
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,

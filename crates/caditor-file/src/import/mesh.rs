@@ -37,7 +37,7 @@ pub(super) const MAX_PLACED_TRIANGLES: usize = MAX_MODEL_ELEMENTS;
 pub(super) const MAX_MODEL_ELEMENTS: usize = 4_000_000;
 const LINES_BETWEEN_INTERRUPT_POLLS: usize = 4096;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MeshFormat {
     Stl,
     Obj,
@@ -75,16 +75,20 @@ pub fn read_mesh_file_in(
 ) -> Result<ModelImport, ImportError> {
     let format = MeshFormat::of(path).ok_or(ImportError::NotMesh)?;
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
+
     ensure_going(cancel)?;
+
     let source = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
     let stem = path
         .file_stem()
         .map_or_else(String::new, |stem| stem.to_string_lossy().trim().to_owned());
+
     let imported = interruptible(cancel.interrupt(), || {
         parse_mesh_in(&bytes, format, &source, &stem, chosen)
     });
+
     ensure_going(cancel)?;
     imported
 }
@@ -110,9 +114,11 @@ pub fn parse_mesh_in(
         MeshFormat::Obj => (read_obj(bytes)?, Vec::new()),
         MeshFormat::ThreeMf => (read_three_mf(bytes)?, Vec::new()),
     };
+
     if !mesh.positions.iter().all(|position| position.is_finite()) {
         return Err(damaged(format));
     }
+
     let unit = (format != MeshFormat::ThreeMf).then(|| UnitReading::of(&mesh, chosen));
     let (mesh, mut notes) = match &unit {
         Some(reading) => (reading.scale(mesh), vec![reading.note()]),
@@ -129,10 +135,13 @@ pub fn parse_mesh_in(
         }
         FacetedError::Cancelled(_) => ImportError::Cancelled,
     })?;
+
     notes.extend(reading_notes);
     notes.extend(repair_notes(&built.repairs));
+
     let name = if name.is_empty() { "Mesh" } else { name };
     let mut bodies = Vec::with_capacity(built.solids.len());
+
     for solid in &built.solids {
         let Some(lumps) = canonical(name, solid) else {
             notes.push(
@@ -142,6 +151,7 @@ pub fn parse_mesh_in(
             );
             continue;
         };
+
         bodies.extend(lumps.into_iter().map(|(stored, step)| ImportedBody {
             name: name.to_owned(),
             import: Import::new(source, stored, step),
@@ -165,6 +175,7 @@ pub fn parse_mesh_in(
 
 fn repair_notes(repairs: &MeshRepairs) -> Vec<String> {
     let mut notes = Vec::new();
+
     let mut say = |count: usize, one: &str, many: &str| {
         if count == 1 {
             notes.push(one.to_owned());
@@ -172,6 +183,7 @@ fn repair_notes(repairs: &MeshRepairs) -> Vec<String> {
             notes.push(many.replace("{}", &count.to_string()));
         }
     };
+
     say(
         repairs.degenerate,
         "1 triangle with no area was left out.",
@@ -242,6 +254,7 @@ fn read_stl(bytes: &[u8]) -> Result<(TriangleMesh, Vec<String>), ImportError> {
     let text = std::str::from_utf8(bytes)
         .ok()
         .filter(|text| text.trim_start().starts_with("solid"));
+
     if let (false, Some(text)) = (exact, text) {
         match read_text_stl(text) {
             Ok(mesh) => return Ok((mesh, Vec::new())),
@@ -249,6 +262,7 @@ fn read_stl(bytes: &[u8]) -> Result<(TriangleMesh, Vec<String>), ImportError> {
             Err(error) => return Err(error),
         }
     }
+
     let count = count.ok_or_else(|| damaged(MeshFormat::Stl))?;
     read_binary_stl(bytes, count)
 }
@@ -268,6 +282,7 @@ fn read_binary_stl(bytes: &[u8], count: usize) -> Result<(TriangleMesh, Vec<Stri
     let used = count.min(held);
 
     let mut mesh = TriangleMesh::default();
+
     mesh.positions.reserve(used.saturating_mul(3));
     mesh.triangles.reserve(used);
     for (index, record) in records.iter().take(used).enumerate() {
@@ -281,8 +296,10 @@ fn read_binary_stl(bytes: &[u8], count: usize) -> Result<(TriangleMesh, Vec<Stri
                 .ok_or_else(|| damaged(MeshFormat::Stl))
         };
         let start = mesh.positions.len();
+
         for corner in 0..3 {
             let at = 12 + corner * 12;
+
             mesh.positions
                 .push(Point3::new(float(at)?, float(at + 4)?, float(at + 8)?));
         }
@@ -293,6 +310,7 @@ fn read_binary_stl(bytes: &[u8], count: usize) -> Result<(TriangleMesh, Vec<Stri
     }
 
     let mut notes = Vec::new();
+
     if count > held {
         notes.push(format!(
             "Its header counts {count} triangles but its data holds {held}, so those were read."
@@ -320,6 +338,7 @@ fn within_budget(vertices: usize, triangles: usize) -> Result<(), ImportError> {
 fn read_text_stl(text: &str) -> Result<TriangleMesh, ImportError> {
     let mut mesh = TriangleMesh::default();
     let mut corners = Vec::with_capacity(3);
+
     for (line_number, line) in text.lines().enumerate() {
         poll_between_lines(line_number)?;
 
@@ -333,13 +352,17 @@ fn read_text_stl(text: &str) -> Result<TriangleMesh, ImportError> {
                 let [x, y, z] = values.as_slice() else {
                     return Err(damaged(MeshFormat::Stl));
                 };
+
                 corners.push(Point3::new(*x, *y, *z));
                 within_budget(mesh.positions.len() + corners.len(), mesh.triangles.len())?;
             }
             Some("endloop") => {
                 let start = mesh.positions.len();
+
                 mesh.positions.append(&mut corners);
+
                 let added = mesh.positions.len() - start;
+
                 for fan in 1..added.saturating_sub(1) {
                     mesh.triangles.push([start, start + fan, start + fan + 1]);
                 }
@@ -357,6 +380,7 @@ fn read_text_stl(text: &str) -> Result<TriangleMesh, ImportError> {
 fn read_obj(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
     let text = String::from_utf8_lossy(bytes);
     let mut mesh = TriangleMesh::default();
+
     for (line_number, line) in text.lines().enumerate() {
         poll_between_lines(line_number)?;
 
@@ -371,12 +395,14 @@ fn read_obj(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
                 let [x, y, z] = values.as_slice() else {
                     return Err(damaged(MeshFormat::Obj));
                 };
+
                 mesh.positions.push(Point3::new(*x, *y, *z));
                 within_budget(mesh.positions.len(), mesh.triangles.len())?;
             }
             Some("f") => {
                 let count = mesh.positions.len();
                 let fanned = words.clone().count().saturating_sub(2);
+
                 within_budget(count, mesh.triangles.len().saturating_add(fanned))?;
 
                 let corners: Vec<usize> = words
@@ -440,6 +466,7 @@ impl Transform {
 
     fn in_units(self, scale: f64) -> Self {
         let mut values = self.0;
+
         for value in values.iter_mut().skip(9) {
             *value *= scale;
         }
@@ -452,6 +479,7 @@ impl Transform {
             let moved = outer.apply(Point3::new(x, y, z)) - outer.apply(Point3::ZERO);
             [moved.x, moved.y, moved.z]
         };
+
         let [a, b, c] = row(m00, m01, m02);
         let [d, e, f] = row(m10, m11, m12);
         let [g, h, i] = row(m20, m21, m22);
@@ -510,8 +538,10 @@ pub(super) fn read_three_mf_within(
         placed_objects: 0,
         expanding: Vec::new(),
     };
+
     for item in build.iter() {
         let item = item.as_ref().map_err(Clone::clone)?;
+
         placement.add_reference(root, item, Transform::IDENTITY)?;
     }
     Ok(placement.mesh)
@@ -556,17 +586,21 @@ impl Package<'_> {
             Err(EntryError::TooLarge) => return Err(ImportError::PartUnpacksTooLarge),
             Err(EntryError::Missing | EntryError::Damaged) => return Ok(None),
         };
+
         self.bytes_left = self.bytes_left.saturating_sub(relationships.len());
         Ok(model_part(&relationships))
     }
 
     fn load(&mut self, path: &str) -> Result<usize, ImportError> {
         let key = path.to_ascii_lowercase();
+
         if let Some(&index) = self.loaded.get(key.as_str()) {
             return Ok(index);
         }
+
         let part = self.read_part(path)?;
         let index = self.parts.len();
+
         self.parts.push(part);
         self.loaded.insert(key, index);
         Ok(index)
@@ -575,6 +609,7 @@ impl Package<'_> {
     fn read_part(&mut self, path: &str) -> Result<Part, ImportError> {
         let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
         let name = format!("/{path}");
+
         let bytes = self
             .archive
             .read(path, self.bytes_left)
@@ -583,6 +618,7 @@ impl Package<'_> {
                 EntryError::Damaged => damaged(),
                 EntryError::TooLarge => ImportError::PartUnpacksTooLarge,
             })?;
+
         self.bytes_left = self.bytes_left.saturating_sub(bytes.len());
 
         let text = std::str::from_utf8(&bytes).map_err(|_| damaged())?;
@@ -594,6 +630,7 @@ impl Package<'_> {
             XmlError::Damaged { .. } => damaged(),
             XmlError::Cancelled => ImportError::Cancelled,
         })?;
+
         self.left = Budget {
             elements: self.left.elements.saturating_sub(tree.element_count()),
             attributes: self.left.attributes.saturating_sub(tree.attribute_count()),
@@ -605,6 +642,7 @@ impl Package<'_> {
         let root = tree.root().ok_or_else(damaged)?;
         let scale = unit_scale(root.attribute("unit")).ok_or_else(damaged)?;
         let directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
+
         let read = |node: Node<'_, '_>| read_reference(node, scale, directory);
 
         let mut objects = UntrustedMap::new();
@@ -613,28 +651,34 @@ impl Package<'_> {
             .filter(|node| node.name() == "resources")
             .flat_map(Node::children)
             .filter(|node| node.name() == "object");
+
         for (index, object) in declared.enumerate() {
             poll_between_lines(index)?;
 
             let Some(id) = object.attribute("id") else {
                 continue;
             };
+
             if objects.contains_key(id) {
                 continue;
             }
+
             let shape = object
                 .children()
                 .find(|child| child.name() == "mesh")
                 .map(|shape| read_shape(shape, scale));
+
             if matches!(shape, Some(Err(ImportError::Cancelled))) {
                 return Err(ImportError::Cancelled);
             }
+
             let mut components = Vec::new();
             let declared_components = object
                 .children()
                 .filter(|child| child.name() == "components")
                 .flat_map(Node::children)
                 .filter(|child| child.name() == "component");
+
             for (index, component) in declared_components.enumerate() {
                 poll_between_lines(index)?;
                 components.push(read(component));
@@ -647,6 +691,7 @@ impl Package<'_> {
                 },
             );
         }
+
         let build = root
             .children()
             .find(|node| node.name() == "build")
@@ -701,6 +746,7 @@ fn read_shape(shape: Node<'_, '_>, scale: f64) -> Result<Shape, ImportError> {
         .filter(|child| child.name() == "vertices")
         .flat_map(Node::children)
         .filter(|child| child.name() == "vertex");
+
     for (index, vertex) in vertices.enumerate() {
         poll_between_lines(index)?;
         positions.push(Point3::new(
@@ -717,8 +763,10 @@ fn read_shape(shape: Node<'_, '_>, scale: f64) -> Result<Shape, ImportError> {
         .filter(|child| child.name() == "triangles")
         .flat_map(Node::children)
         .filter(|child| child.name() == "triangle");
+
     for (index, triangle) in declared.enumerate() {
         poll_between_lines(index)?;
+
         let corner = |name: &str| -> Result<usize, ImportError> {
             triangle
                 .attribute(name)
@@ -726,6 +774,7 @@ fn read_shape(shape: Node<'_, '_>, scale: f64) -> Result<Shape, ImportError> {
                 .filter(|&index| index < count)
                 .ok_or_else(damaged)
         };
+
         triangles.push([corner("v1")?, corner("v2")?, corner("v3")?]);
     }
     Ok(Shape {
@@ -744,6 +793,7 @@ fn part_path(directory: &str, reference: &str) -> Result<String, ImportError> {
         directory
     };
     let mut segments = Vec::new();
+
     for segment in base.split('/').chain(reference.split('/')) {
         match segment {
             "" | "." => {}
@@ -779,12 +829,15 @@ impl Placement<'_> {
 
     fn add_object(&mut self, part: usize, id: &str, placed: Transform) -> Result<(), ImportError> {
         let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
+
         check_interrupt().map_err(|Interrupted| ImportError::Cancelled)?;
         self.placed_objects += 1;
         if self.placed_objects > MAX_PLACED_OBJECTS {
             return Err(ImportError::ModelPlacesTooMuch);
         }
+
         let home = self.package.parts.get(part).ok_or_else(damaged)?;
+
         if self
             .expanding
             .iter()
@@ -800,15 +853,19 @@ impl Placement<'_> {
         }
 
         let object = home.objects.get(id).ok_or_else(damaged)?;
+
         if let Some(shape) = &object.shape {
             let shape = shape.as_ref().map_err(Clone::clone)?;
+
             add_mesh(&mut self.mesh, shape, placed)?;
         }
+
         let components = Rc::clone(&object.components);
 
         self.expanding.push((part, id.to_owned()));
         for component in components.iter() {
             let component = component.as_ref().map_err(Clone::clone)?;
+
             self.add_reference(part, component, placed)?;
         }
         self.expanding.pop();
@@ -820,6 +877,7 @@ fn add_mesh(mesh: &mut TriangleMesh, shape: &Shape, placed: Transform) -> Result
     let start = mesh.positions.len();
     let placed_vertices = start.saturating_add(shape.positions.len());
     let placed_triangles = mesh.triangles.len().saturating_add(shape.triangles.len());
+
     if placed_vertices > MAX_PLACED_VERTICES || placed_triangles > MAX_PLACED_TRIANGLES {
         return Err(ImportError::ModelPlacesTooMuch);
     }

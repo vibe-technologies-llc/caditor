@@ -12,6 +12,7 @@ fn hidden(path: &Path) -> bool {
 fn folders_and_huge_files_are_refused_without_reading_them() {
     let dir = TempDir::new().unwrap();
     let huge = dir.path().join("huge.caditor");
+
     fs::File::create(&huge)
         .unwrap()
         .set_len(read::MAX_FILE_SIZE + 1)
@@ -21,6 +22,7 @@ fn folders_and_huge_files_are_refused_without_reading_them() {
         Err(LoadError::Unreadable(reason)) => reason.to_string(),
         other => panic!("expected a refusal, got {other:?}"),
     };
+
     assert_eq!(refusal(dir.path()), "it is a folder, not a file");
     assert_eq!(refusal(&huge), "it is larger than the 2 GiB caditor reads");
 }
@@ -30,10 +32,14 @@ fn a_journal_beside_its_model_is_hidden_and_never_read_only() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
     let base = sample();
+
     save(&base, &path, false).unwrap();
+
     let mut read_only = fs::metadata(&path).unwrap().permissions();
+
     read_only.set_readonly(true);
     fs::set_permissions(&path, read_only).unwrap();
+
     let start = Start {
         file: Some(path.clone()),
         on_disk: None,
@@ -42,15 +48,21 @@ fn a_journal_beside_its_model_is_hidden_and_never_read_only() {
 
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
     let mut editor = Editor::new(base);
+
     record_session(&storage, &mut editor);
+
     assert!(storage.flusher().flush(WAIT));
     assert!(storage.flusher().flush(WAIT));
 
     let journal = dir.path().join(".model.caditor.journal");
+
     assert!(hidden(&journal));
     assert!(!fs::metadata(&journal).unwrap().permissions().readonly());
+
     crash(storage);
+
     let recovered = scan(Some(&dir.path().join("recovery")), &[path]);
+
     assert_eq!(recovered.len(), 1);
     assert_eq!(recovered[0].editor.document(), editor.document());
 }
@@ -59,8 +71,11 @@ fn a_journal_beside_its_model_is_hidden_and_never_read_only() {
 fn saving_over_a_hidden_model_keeps_it_hidden_and_leaves_no_temporary_files() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
+
     save(&Document::default(), &path, false).unwrap();
+
     let previous = fs::read(&path).unwrap();
+
     fs::remove_file(&path).unwrap();
     std::fs::OpenOptions::new()
         .write(true)
@@ -103,11 +118,16 @@ fn every_spelling_of_a_model_shares_a_fallback_journal() {
     let path = dir.path().join("Model.caditor");
     let recovery = dir.path().join("recovery");
     let shouted = dir.path().join("MODEL.CADITOR");
+
     save(&sample(), &path, false).unwrap();
     crash_journal(&dir, &path, &sample());
+
     let journal = dir.path().join(".Model.caditor.journal");
+
     fs::create_dir_all(&recovery).unwrap();
+
     let fallback = paths::fallback_journal(&path, &recovery);
+
     fs::rename(&journal, &fallback).unwrap();
 
     let found = journal_for(&shouted, Some(&recovery));
@@ -124,6 +144,7 @@ fn crash_journal(dir: &TempDir, path: &Path, base: &Document) {
     };
     let storage = Storage::spawn(config(dir), start, || {}).unwrap();
     let mut editor = Editor::new(base.clone());
+
     record_session(&storage, &mut editor);
     crash(storage);
 }

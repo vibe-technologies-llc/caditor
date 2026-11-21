@@ -8,7 +8,7 @@ use crate::browser;
 
 pub type Revealer = Arc<dyn Fn(&Path) -> Result<(), RevealError> + Send + Sync>;
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RevealError {
     #[error("“{}” is in no folder that could be opened", .0.display())]
     NoFolder(PathBuf),
@@ -46,10 +46,14 @@ pub fn show(path: &Path) -> Result<(), RevealError> {
     if !path.exists() {
         return open_folder(path);
     }
+
     let mut selecting = OsString::from("/select,\"");
+
     selecting.push(path);
     selecting.push("\"");
+
     let mut explorer = Command::new("explorer.exe");
+
     explorer.raw_arg(selecting);
     browser::detach(explorer).map_err(|error| RevealError::Unavailable(error.kind()))
 }
@@ -67,6 +71,7 @@ mod freedesktop {
 
     pub fn file_uri(path: &Path) -> String {
         let mut uri = String::from("file://");
+
         for byte in path.as_os_str().as_bytes() {
             let plain = byte.is_ascii_alphanumeric() || b"-._~/".contains(byte);
             if plain {
@@ -84,6 +89,7 @@ mod freedesktop {
             let connection = Connection::session().await?;
             let manager =
                 Proxy::new(&connection, FILE_MANAGER, FILE_MANAGER_PATH, FILE_MANAGER).await?;
+
             manager
                 .call_method(SHOW_ITEMS, &(vec![uri.as_str()], NO_STARTUP_ID))
                 .await?;

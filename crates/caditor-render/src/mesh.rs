@@ -29,19 +29,19 @@ const UNSTYLED_FACE: FaceStyle = FaceStyle {
     finish: None,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MeshPoint {
     pub position: Point3,
     pub normal: Vector3,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MeshFace {
     pub points: Vec<MeshPoint>,
     pub triangles: Vec<[u32; 3]>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct GpuVertex {
     position: Vec3,
     normal: Vec3,
@@ -117,7 +117,7 @@ impl Storage {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ShadedMesh {
     origin: Point3,
     bounds: Option<Aabb>,
@@ -156,12 +156,14 @@ impl ShadedMesh {
         let origin = bounds.map_or(Point3::ZERO, |bounds| bounds.center());
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
+
         for (index, face) in faces.iter().enumerate() {
             let (Ok(face_index), Ok(first)) = (u32::try_from(index), u32::try_from(vertices.len()))
             else {
                 break;
             };
             let count = face.points.len();
+
             vertices.extend(
                 face.points
                     .iter()
@@ -210,6 +212,7 @@ impl ShadedMesh {
             curved: 0,
             closed: true,
         };
+
         mesh.curved = mesh.curved_triangles(0).count();
         mesh
     }
@@ -266,6 +269,7 @@ impl ShadedMesh {
             .iter()
             .filter_map(|corners| {
                 let [first, second, third] = corners.map(|index| self.vertex(index));
+
                 let (first, second, third) = (first?, second?, third?);
                 let world = |corner: GpuVertex| self.origin + corner.position.as_dvec3();
                 Some((
@@ -284,12 +288,16 @@ impl ShadedMesh {
             .iter()
             .filter_map(|corners| {
                 let [first, second, third] = corners.map(|index| self.vertex(index));
+
                 let vertices = [first?, second?, third?];
                 let world = |corner: GpuVertex| self.origin + corner.position.as_dvec3();
+
                 let [a, b, c] = vertices.map(world);
+
                 let flat = (b - a).cross(c - a);
                 let normal: glam::DVec3 =
                     vertices.iter().map(|vertex| vertex.normal.as_dvec3()).sum();
+
                 let outward = if flat.dot(normal) >= 0.0 { 1.0 } else { -1.0 };
                 Some((vertices[0].face as usize, [a, b, c], outward))
             })
@@ -308,6 +316,7 @@ impl ShadedMesh {
             .enumerate()
             .filter_map(move |(offset, corners)| {
                 let [first, second, third] = corners.map(|index| self.vertex(index));
+
                 let corners = [first?, second?, third?].map(|vertex| Corner {
                     position: vertex.position,
                     normal: vertex.normal,
@@ -329,21 +338,25 @@ impl ShadedMesh {
         let mut vertices: Vec<GpuVertex> = Vec::new();
         let mut vertex_of: BTreeMap<(u32, u32), u32> = BTreeMap::new();
         let mut indices: Vec<u32> = Vec::new();
+
         for triangle in self.indices().as_chunks::<3>().0 {
             let [Some(a), Some(b), Some(c)] = triangle.map(|index| self.vertex(index)) else {
                 continue;
             };
+
             let class = classify([a, b, c].map(|vertex| Corner {
                 position: vertex.position,
                 normal: vertex.normal,
             }))?;
             let source = a.face;
+
             let piece = match piece_of.get(&(source, class)) {
                 Some(piece) => *piece,
                 None => {
                     let Ok(next) = u32::try_from(pieces.len()) else {
                         break;
                     };
+
                     pieces.push(Piece {
                         source: source as usize,
                         class,
@@ -353,6 +366,7 @@ impl ShadedMesh {
                     next
                 }
             };
+
             if let Some(entry) = pieces.get_mut(piece as usize) {
                 entry.area += triangle_area(a.position, b.position, c.position);
             }
@@ -363,6 +377,7 @@ impl ShadedMesh {
                         let Ok(next) = u32::try_from(vertices.len()) else {
                             break;
                         };
+
                         vertices.push(GpuVertex {
                             face: piece,
                             ..original
@@ -371,6 +386,7 @@ impl ShadedMesh {
                         next
                     }
                 };
+
                 indices.push(placed);
             }
         }
@@ -396,8 +412,10 @@ fn face_vertex_ends(
     let mut face_ends = Vec::new();
     let mut first_triangle = 0;
     let mut first_vertex = 0u32;
+
     for end in face_triangle_ends {
         let mut next = first_vertex;
+
         for corner in triangles.get(first_triangle..end)?.iter().flatten() {
             if *corner < first_vertex {
                 return None;
@@ -408,6 +426,7 @@ fn face_vertex_ends(
         first_triangle = end;
         first_vertex = next;
     }
+
     let whole = first_triangle == triangles.len() && first_vertex as usize == source.point_count();
     whole.then_some(face_ends)
 }
@@ -422,26 +441,26 @@ fn triangle_area(a: Vec3, b: Vec3, c: Vec3) -> f64 {
     ab.cross(ac).length() * 0.5
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Corner {
     pub position: Vec3,
     pub normal: Vec3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Piece {
     pub source: usize,
     pub class: u8,
     pub area: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Division {
     pub mesh: ShadedMesh,
     pub pieces: Vec<Piece>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SurfaceFinish {
     pub metalness: f32,
     pub roughness: f32,
@@ -456,14 +475,14 @@ impl SurfaceFinish {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FaceStyle {
     pub color: Color,
     pub pick: Option<PickId>,
     pub finish: Option<SurfaceFinish>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct MeshInstance {
     pub mesh: Arc<ShadedMesh>,
     pub faces: Arc<[FaceStyle]>,
@@ -497,12 +516,15 @@ impl MeshPart {
 fn split_into_parts(mesh: &ShadedMesh, limit: u64) -> Option<Vec<MeshPart>> {
     let max_vertices = usize::try_from(limit / MESH_VERTEX_STRIDE).unwrap_or(usize::MAX);
     let max_indices = usize::try_from(limit / INDEX_BYTES / 3 * 3).unwrap_or(usize::MAX);
+
     if mesh.vertex_count() <= max_vertices && mesh.indices().len() <= max_indices {
         return None;
     }
+
     let mut local = vec![u32::MAX; mesh.vertex_count()];
     let mut parts = Vec::new();
     let mut part = MeshPart::default();
+
     if !part.has_room(max_vertices, max_indices) {
         return Some(parts);
     }
@@ -525,6 +547,7 @@ fn split_into_parts(mesh: &ShadedMesh, limit: u64) -> Option<Vec<MeshPart>> {
             let Some(slot) = local.get_mut(*vertex as usize) else {
                 break;
             };
+
             if *slot == u32::MAX {
                 *slot = u32::try_from(part.vertices.len()).unwrap_or(u32::MAX);
                 part.vertices.push(*vertex);
@@ -544,7 +567,7 @@ struct GpuPart {
     index_count: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UploadBudget {
     bytes: u64,
     stopped: bool,
@@ -575,6 +598,7 @@ impl UploadBudget {
     pub(crate) fn grant(&mut self, wanted: usize, stride: u64) -> usize {
         let affordable = usize::try_from(self.bytes / stride).unwrap_or(usize::MAX);
         let granted = wanted.min(affordable);
+
         self.bytes = self.bytes.saturating_sub(granted as u64 * stride);
         granted
     }
@@ -639,6 +663,7 @@ impl PartUpload {
             })
         };
         let index_count = source.indices(mesh).len();
+
         let gpu = GpuPart {
             vertices: buffer(
                 "mesh vertices",
@@ -669,23 +694,31 @@ impl PartUpload {
         budget: &mut UploadBudget,
     ) -> bool {
         let vertex_count = self.source.vertex_count(mesh);
+
         while self.vertices_written < vertex_count {
             let granted = budget.grant(vertex_count - self.vertices_written, MESH_VERTEX_STRIDE);
+
             if granted == 0 {
                 return false;
             }
+
             let range = self.vertices_written..self.vertices_written + granted;
             let offset = self.vertices_written as u64 * MESH_VERTEX_STRIDE;
             let records = self.source.vertex_records(mesh, range);
+
             gpu::write_records(queue, &self.gpu.vertices, offset, granted, records);
             self.vertices_written += granted;
         }
+
         let indices = self.source.indices(mesh);
+
         while self.indices_written < indices.len() {
             let granted = budget.grant(indices.len() - self.indices_written, INDEX_BYTES);
+
             if granted == 0 {
                 return false;
             }
+
             let range = self.indices_written..self.indices_written + granted;
             let offset = self.indices_written as u64 * INDEX_BYTES;
             let records = indices
@@ -693,6 +726,7 @@ impl PartUpload {
                 .unwrap_or_default()
                 .iter()
                 .map(|index| index.to_le_bytes());
+
             gpu::write_records(queue, &self.gpu.indices, offset, granted, records);
             self.indices_written += granted;
         }
@@ -843,6 +877,7 @@ impl MeshPool {
                 state: Pooled::Unstarted,
                 asked: 0,
             });
+
         if entry.asked != self.frame {
             entry.asked = self.frame;
             self.asked += 1;
@@ -855,6 +890,7 @@ impl MeshPool {
             }
             Pooled::Unstarted | Pooled::Uploading(_) => {}
         }
+
         let started = std::mem::replace(&mut entry.state, Pooled::Refused);
         let (state, error) = gpu::scoped(device, || {
             let mut upload = match started {
@@ -867,6 +903,7 @@ impl MeshPool {
                 Pooled::Uploading(upload)
             }
         });
+
         if let Some(error) = error {
             log::warn!(
                 "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
@@ -874,6 +911,7 @@ impl MeshPool {
             );
             return Parts::NewlyRefused;
         }
+
         let parts = match &state {
             Pooled::Ready(parts) => Parts::Ready(Arc::clone(parts)),
             _ => {
@@ -881,12 +919,14 @@ impl MeshPool {
                 Parts::Uploading
             }
         };
+
         entry.state = state;
         parts
     }
 
     pub fn sweep(&mut self, stopped: bool) {
         let frame = self.frame;
+
         if self.asked < self.entries.len() {
             self.entries.retain(|_, entry| entry.asked == frame);
         }
@@ -935,13 +975,13 @@ impl Placed {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PlacedAt {
     pub placement: Option<RigidTransform>,
     pub anchor: Point3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct StyleLayout {
     pub columns: u32,
     pub rows: u32,
@@ -952,6 +992,7 @@ impl StyleLayout {
     pub(crate) fn new(face_count: usize, largest_side: u32) -> Self {
         let side = largest_side.max(1);
         let wanted = u32::try_from(face_count).unwrap_or(u32::MAX).max(1);
+
         let columns = wanted.min(side);
         let rows = wanted.div_ceil(columns).min(side);
         Self {
@@ -1015,6 +1056,7 @@ impl GpuMesh {
             view_formats: &[],
         });
         let styles_view = styles.create_view(&wgpu::TextureViewDescriptor::default());
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("mesh face styles"),
             layout,
@@ -1079,7 +1121,9 @@ impl GpuMesh {
 
     fn keep_showing_unpicked(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, anchor: Point3) {
         let placement = self.placed.and_then(|placed| placed.placement);
+
         self.write_placement(queue, bytes, placement, anchor);
+
         let unpicked: Option<Arc<[FaceStyle]>> = self
             .written
             .as_ref()
@@ -1106,6 +1150,7 @@ impl GpuMesh {
         anchor: Point3,
     ) {
         let placed = PlacedAt { placement, anchor };
+
         if self.placed == Some(placed) {
             return;
         }
@@ -1114,8 +1159,10 @@ impl GpuMesh {
             .mesh
             .bounds
             .map(|bounds| placed_corners(bounds, placement));
+
         let placed = Placed::of(self.mesh.origin, placement, anchor);
         let [turn_x, turn_y, turn_z] = placed.turn;
+
         bytes.clear();
         bytes
             .vec4(placed.offset, 0.0)
@@ -1146,6 +1193,7 @@ impl GpuMesh {
             layout: self.layout,
             faces,
         };
+
         match spans {
             Some(spans) => {
                 for span in spans {
@@ -1160,7 +1208,7 @@ impl GpuMesh {
 
 const MAX_STYLE_SPANS: usize = 16;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct StyleSpan {
     row: u32,
     columns: Range<u32>,
@@ -1173,10 +1221,12 @@ fn changed_spans(
 ) -> Option<Vec<StyleSpan>> {
     let columns = layout.columns.max(1) as usize;
     let mut spans: Vec<StyleSpan> = Vec::new();
+
     for (index, (old, new)) in written.iter().zip(faces).enumerate().take(layout.texels()) {
         if old == new {
             continue;
         }
+
         let row = u32::try_from(index / columns).unwrap_or(u32::MAX);
         let column = u32::try_from(index % columns).unwrap_or(u32::MAX);
         match spans.last_mut() {
@@ -1201,6 +1251,7 @@ impl StyleTarget<'_> {
         bytes.clear();
         for face in faces {
             let style = self.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
+
             bytes
                 .u32(pack_color(style.color))
                 .u32(PickId::raw(style.pick))
@@ -1226,6 +1277,7 @@ impl StyleTarget<'_> {
     fn write(&self, queue: &wgpu::Queue, bytes: &mut Bytes, span: StyleSpan) {
         let first = span.row as usize * self.layout.columns as usize;
         let width = span.columns.end.saturating_sub(span.columns.start);
+
         self.pack(
             bytes,
             first + span.columns.start as usize..first + span.columns.end as usize,
@@ -1353,8 +1405,10 @@ impl MeshCache {
         self.previous.refill(&mut self.meshes);
         self.refused.refill(&mut self.rejected);
         self.uploading = false;
+
         let mut newly_rejected = 0;
         let mut rewritten = false;
+
         for instance in instances
             .iter()
             .filter(|instance| !instance.mesh.is_empty())
@@ -1363,10 +1417,13 @@ impl MeshCache {
                 self.rejected.push(refused);
                 continue;
             }
+
             let reused = self.previous.take(&instance.mesh);
+
             if let Some(ready) = &reused {
                 pool.keep(&ready.mesh, &ready.parts);
             }
+
             let source = match reused {
                 Some(ready) if !ready.needs_writing(instance, anchor) => {
                     self.meshes.push(ready);
@@ -1388,6 +1445,7 @@ impl MeshCache {
             };
             let staging = &mut self.staging;
             let layout = &self.layout;
+
             let (ready, error) = gpu::scoped(device, || {
                 let mut ready = match source {
                     Source::Reused(ready) => *ready,
@@ -1395,9 +1453,11 @@ impl MeshCache {
                         GpuMesh::with_parts(device, layout, Arc::clone(&instance.mesh), parts)
                     }
                 };
+
                 ready.write_styles(queue, staging, instance, anchor);
                 ready
             });
+
             rewritten = true;
             match error {
                 None => self.meshes.push(ready),
@@ -1427,16 +1487,19 @@ impl MeshCache {
         anchor: Point3,
     ) -> bool {
         let mut previous: Vec<GpuMesh> = self.previous.rest().collect();
+
         if !previous.iter().any(|mesh| mesh.needs_unpicking(anchor)) {
             self.meshes.append(&mut previous);
             return false;
         }
+
         let staging = &mut self.staging;
         let ((), error) = gpu::scoped(device, || {
             for mesh in &mut previous {
                 mesh.keep_showing_unpicked(queue, staging, anchor);
             }
         });
+
         match error {
             None => self.meshes.append(&mut previous),
             Some(error) => log::warn!(
@@ -1481,6 +1544,7 @@ impl MeshCache {
             .iter()
             .filter(|mesh| mesh.corners.is_none_or(|corners| window.sees(&corners)))
             .peekable();
+
         if seen.peek().is_none() {
             return;
         }
@@ -1565,6 +1629,7 @@ mod tests {
             position: Point3::new(5.0, 5.0, 2.0),
             normal: Vector3::X,
         };
+
         let points: Vec<MeshPoint> = lower.into_iter().chain([bent]).chain(upper).collect();
         let source = |triangles: Vec<[u32; 3]>| {
             Arc::new(Listed {
@@ -1589,6 +1654,7 @@ mod tests {
         let unused = ShadedMesh::shared(source(vec![[0, 1, 2], [3, 3, 3]]), [1, 2]);
 
         let shared = shared.unwrap();
+
         assert_eq!(shared, copied);
         assert_eq!(shared.face_count(), 2);
         assert_eq!(shared.curved_triangle_count(), 1);
@@ -1675,9 +1741,11 @@ mod tests {
         let layout = StyleLayout::new(40, 10);
         let before: Vec<FaceStyle> = (0..40).map(|_| style(0)).collect();
         let mut after = before.clone();
+
         for face in [3, 5, 6, 25] {
             after[face] = style(9);
         }
+
         let scattered: Vec<FaceStyle> = (0..40).map(|face| style(face as u8)).collect();
         let tall = StyleLayout {
             columns: 1,
@@ -1772,6 +1840,7 @@ mod tests {
             .collect();
 
         assert!(parts.len() >= 6, "{}", parts.len());
+
         for part in &parts {
             assert!(part.vertices.len() as u64 * MESH_VERTEX_STRIDE <= limit);
             assert!(part.indices.len() as u64 * INDEX_BYTES <= limit);
@@ -1781,6 +1850,7 @@ mod tests {
                     .all(|local| (*local as usize) < part.vertices.len())
             );
         }
+
         assert_eq!(triangles_in_space(&mesh, &parts), expected);
         assert_eq!(split_into_parts(&mesh, 1 << 20), None);
         assert_eq!(split_into_parts(&mesh, 8), Some(Vec::new()));

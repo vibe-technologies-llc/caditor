@@ -9,13 +9,13 @@ use crate::import::{Drawing, DrawingCurve, MAX_DRAWING_CURVES};
 const RELATIVE_JOINT_TOLERANCE: f64 = 1e-6;
 const MIN_JOINT_TOLERANCE: f64 = 1e-9;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SketchTarget {
     Existing(FeatureId),
     New { name: String, plane: Plane },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DrawingImport {
     pub transaction: Transaction,
     pub sketch: FeatureId,
@@ -30,6 +30,7 @@ pub fn drawing_transaction(
     label: impl Into<String>,
 ) -> DrawingImport {
     let mut builder = document.transaction(label);
+
     let sketch = match target {
         SketchTarget::Existing(feature) => feature,
         SketchTarget::New { name, plane } => {
@@ -39,19 +40,26 @@ pub fn drawing_transaction(
     let tolerance = (drawing.extent() * RELATIVE_JOINT_TOLERANCE).max(MIN_JOINT_TOLERANCE);
     let mut ends = Vec::new();
     let mut curves = 0;
+
     for (index, curve) in drawing.curves.iter().enumerate().take(MAX_DRAWING_CURVES) {
         let Some(curve) = usable(curve, tolerance) else {
             continue;
         };
+
         if !matches!(curve, DrawingCurve::Point(_)) {
             curves += 1;
         }
+
         let construction = drawing.construction.contains(&index);
+
         add_curve(&mut builder, sketch, &curve, construction, &mut ends);
     }
+
     let mut joints = 0;
+
     for cluster in clusters(&ends, tolerance) {
         let mut members = cluster.into_iter().filter_map(|index| ends.get(index));
+
         let Some((anchor, _)) = members.next() else {
             continue;
         };
@@ -115,6 +123,7 @@ fn add_curve(
         }
         DrawingCurve::Line { start, end } => {
             let (first, last) = (point(builder, *start), point(builder, *end));
+
             builder.add_sketch_entity_as(
                 sketch,
                 Entity::Line {
@@ -127,6 +136,7 @@ fn add_curve(
         }
         DrawingCurve::Circle { center, radius } => {
             let center = point(builder, *center);
+
             builder.add_sketch_entity_as(
                 sketch,
                 Entity::Circle {
@@ -139,6 +149,7 @@ fn add_curve(
         DrawingCurve::Arc { center, start, end } => {
             let center = point(builder, *center);
             let (first, last) = (point(builder, *start), point(builder, *end));
+
             builder.add_sketch_entity_as(
                 sketch,
                 Entity::Arc {
@@ -158,6 +169,7 @@ fn add_curve(
         } => {
             let middle = point(builder, *center);
             let axis = point(builder, *center + *major);
+
             let entity = match arc_ends {
                 None => Entity::Ellipse {
                     center: middle,
@@ -166,6 +178,7 @@ fn add_curve(
                 },
                 Some((start, end)) => {
                     let (first, last) = (point(builder, *start), point(builder, *end));
+
                     ends.extend([(first, *start), (last, *end)]);
                     Entity::EllipticalArc {
                         center: middle,
@@ -176,6 +189,7 @@ fn add_curve(
                     }
                 }
             };
+
             builder.add_sketch_entity_as(sketch, entity, construction);
         }
         DrawingCurve::Spline { control_points } => {
@@ -183,6 +197,7 @@ fn add_curve(
                 .iter()
                 .map(|position| point(builder, *position))
                 .collect();
+
             if let (Some(first), Some(last), Some(start), Some(end)) = (
                 ids.first(),
                 ids.last(),
@@ -198,6 +213,7 @@ fn add_curve(
                 .iter()
                 .map(|position| point(builder, *position))
                 .collect();
+
             if !closed
                 && let (Some(first), Some(last), Some(start), Some(end)) = (
                     ids.first(),
@@ -228,10 +244,13 @@ fn clusters(ends: &[(EntityId, Point2)], tolerance: f64) -> Vec<Vec<usize>> {
         )
     };
     let mut grid: BTreeMap<(i64, i64), Vec<usize>> = BTreeMap::new();
+
     for (index, (_, position)) in ends.iter().enumerate() {
         grid.entry(cell(*position)).or_default().push(index);
     }
+
     let mut parents: Vec<usize> = (0..ends.len()).collect();
+
     for (index, (_, position)) in ends.iter().enumerate() {
         let (x, y) = cell(*position);
         for dx in -1..=1 {
@@ -250,9 +269,12 @@ fn clusters(ends: &[(EntityId, Point2)], tolerance: f64) -> Vec<Vec<usize>> {
             }
         }
     }
+
     let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+
     for index in 0..ends.len() {
         let root = find(&mut parents, index);
+
         groups.entry(root).or_default().push(index);
     }
     groups
@@ -263,14 +285,18 @@ fn clusters(ends: &[(EntityId, Point2)], tolerance: f64) -> Vec<Vec<usize>> {
 
 fn find(parents: &mut [usize], index: usize) -> usize {
     let mut root = index;
+
     while let Some(parent) = parents.get(root).copied().filter(|parent| *parent != root) {
         root = parent;
     }
+
     let mut current = index;
+
     while current != root {
         let Some(slot) = parents.get_mut(current) else {
             break;
         };
+
         current = std::mem::replace(slot, root);
     }
     root

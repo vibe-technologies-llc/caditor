@@ -9,7 +9,9 @@ use crate::{model::Action, selection::Pickable};
 #[test]
 fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     let mut harness = Harness::new();
+
     let sketch = harness.draw_on_new_sketch();
+
     harness.use_tool(Key::R);
     harness.click_at(Point2::new(10.0, 10.0));
     harness.click_at(Point2::new(40.0, 30.0));
@@ -24,16 +26,20 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
         .find(|feature| feature.name == "Extrude 1")
         .map(Feature::id)
         .expect("the extrusion was created");
+
     assert_eq!(harness.model.undo_label(), Some("Create Extrude 1"));
     assert_eq!(harness.editing(), None);
     assert_eq!(harness.workspace.editing.solid(), Some(extrude));
     assert_eq!(harness.solid(extrude).sketch(), sketch);
     assert_eq!(harness.solid(extrude).operation(), BodyOperation::NewBody);
+
     let volume = harness.body_volume(extrude);
+
     assert!((volume - 6000.0).abs() < 1.0, "{volume}");
     assert!(harness.shows("Click regions of the sketch to extrude, and again to leave one out"));
 
     let built = harness.built_with_meshes(1);
+
     assert!(built.scene.meshes.is_empty());
     assert_eq!(built.scene.translucent_meshes.len(), 1);
     assert_eq!(built.scene.translucent_meshes[0].mesh.face_count(), 6);
@@ -43,7 +49,9 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
             .iter()
             .all(|face| face.color.alpha < 1.0 && face.pick.is_some())
     );
+
     let pickables: Vec<Pickable> = built.picks.pickables().collect();
+
     assert_eq!(
         pickables
             .iter()
@@ -68,26 +76,36 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     assert!(built.everything.max().z >= 10.0);
 
     let field = Id::unique(("solid-field", "distance", extrude));
+
     harness.type_into_field(field, "25 mm");
+
     assert_eq!(distance_of(&harness, extrude), "25 mm");
+
     harness.settle();
+
     assert!((harness.body_volume(extrude) - 15000.0).abs() < 1.0);
 
     harness.type_into_field(field, "0 mm");
+
     assert!(harness.shows(crate::feature_fields::NOT_ZERO_OR_REVERSE));
     assert_eq!(distance_of(&harness, extrude), "25 mm");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
     harness.perform(Action::Undo);
     harness.settle();
+
     assert_eq!(distance_of(&harness, extrude), "10 mm");
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert_eq!(harness.workspace.editing.solid(), None);
+
     let closed = harness.built();
+
     assert!(
         closed
             .picks
@@ -101,6 +119,7 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
 #[test]
 fn a_flat_rectangle_is_refused_with_the_reason() {
     let mut harness = Harness::new();
+
     let sketch = harness.draw_on_new_sketch();
 
     harness.use_tool(Key::R);
@@ -118,6 +137,7 @@ fn a_flat_rectangle_is_refused_with_the_reason() {
 #[test]
 fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
     let mut harness = Harness::new();
+
     harness.draw_on_new_sketch();
     harness.use_tool(Key::R);
     harness.click_at(Point2::new(10.0, 10.0));
@@ -131,17 +151,25 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
         .editing
         .solid()
         .expect("the extrusion is open");
+
     harness.click("One side");
     harness.click("Two sides");
     harness.settle();
+
     let SolidFeature::Extrude(extruded) = harness.solid(extrude) else {
         panic!("expected an extrusion");
     };
+
     assert!(matches!(extruded.extent, ExtrudeExtent::TwoSides { .. }));
+
     let before = harness.solid(extrude).clone();
+
     harness.type_into_field(Id::unique(("solid-field", "forward", extrude)), "0 mm");
+
     let refused_forward = harness.shows(crate::feature_fields::ABOVE_ZERO);
+
     harness.type_into_field(Id::unique(("solid-field", "backward", extrude)), "-3 mm");
+
     let refused_backward = harness.shows(crate::feature_fields::ABOVE_ZERO);
 
     assert!(refused_forward);
@@ -153,23 +181,29 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
 fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     rectangle(
         &mut sketch,
         Point2::new(10.0, 10.0),
         Point2::new(20.0, 20.0),
     );
+
     let sketch = harness.add_sketch(sketch);
+
     harness.select([]);
     harness.click("Extrude");
     harness.settle();
+
     let extrude = harness
         .workspace
         .editing
         .solid()
         .expect("the extrusion is open");
+
     assert_eq!(harness.solid(extrude).sketch(), sketch);
     assert!((harness.body_volume(extrude) - 15000.0).abs() < 1.0);
+
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
 
@@ -197,6 +231,7 @@ fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
                 .any(|candidate| candidate.region.key() == *region && !candidate.even_depth)
         })
         .expect("the hole is a region");
+
     harness.click_pickable(
         Plane::XY,
         Point2::new(15.0, 15.0),
@@ -210,6 +245,7 @@ fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
     let RegionChoice::Chosen(references) = harness.solid(extrude).regions() else {
         panic!("the regions were not chosen");
     };
+
     assert_eq!(references.len(), 2);
     assert!(
         references
@@ -224,6 +260,7 @@ fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let top = harness
         .built()
         .picks
@@ -234,11 +271,15 @@ fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
                     == "Extrude 1 › Extrude 1 end face"
         })
         .expect("the top face is pickable");
+
     harness.select([top]);
+
     assert!(harness.shows("Extrude 1 › Extrude 1 end face"));
+
     let Pickable::Face { body, .. } = top else {
         panic!("expected a face");
     };
+
     assert_eq!(body, extrude);
 }
 
@@ -246,9 +287,12 @@ fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
 fn revolving_about_a_selected_line_uses_it_as_the_axis() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XZ);
+
     rectangle(&mut sketch, Point2::new(10.0, 0.0), Point2::new(20.0, 10.0));
+
     let axis = sketch.add_line(Point2::new(0.0, -5.0), Point2::new(0.0, 15.0));
     let sketch = harness.add_sketch(sketch);
+
     harness.select([Pickable::SketchEntity {
         feature: sketch,
         entity: axis,
@@ -262,8 +306,11 @@ fn revolving_about_a_selected_line_uses_it_as_the_axis() {
         .editing
         .solid()
         .expect("the revolution is open");
+
     assert_eq!(harness.solid(revolve).axis_line(), Some(axis));
+
     let expected = std::f64::consts::PI * (20.0f64.powi(2) - 10.0f64.powi(2)) * 10.0;
+
     assert!((harness.body_volume(revolve) - expected).abs() / expected < 0.01);
     assert!(harness.shows("Axis"));
 }
@@ -271,7 +318,9 @@ fn revolving_about_a_selected_line_uses_it_as_the_axis() {
 #[test]
 fn an_open_cut_shows_the_body_solid_and_only_the_material_it_removes_see_through() {
     let mut harness = Harness::new();
+
     let (extrude, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("New sketch");
     harness.settle();
@@ -283,7 +332,9 @@ fn an_open_cut_shows_the_body_solid_and_only_the_material_it_removes_see_through
     harness.settle();
     harness.click("Extrude");
     harness.settle();
+
     let cut = harness.workspace.editing.solid().expect("the cut is open");
+
     assert_eq!(
         harness.solid(cut).operation(),
         BodyOperation::Remove(extrude)
@@ -310,8 +361,11 @@ fn an_open_cut_shows_the_body_solid_and_only_the_material_it_removes_see_through
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     assert_eq!(harness.workspace.editing.solid(), None);
+
     let closed = harness.built();
+
     assert!(closed.scene.overlay_meshes.is_empty());
     assert_eq!(closed.scene.meshes.len(), 1);
 }
@@ -320,6 +374,7 @@ fn an_open_cut_shows_the_body_solid_and_only_the_material_it_removes_see_through
 fn extruding_by_key_selects_the_distance_field_so_a_typed_value_replaces_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
@@ -349,6 +404,7 @@ fn extruding_by_key_selects_the_distance_field_so_a_typed_value_replaces_it() {
 fn extruding_with_the_button_leaves_the_distance_field_unfocused() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
@@ -373,6 +429,7 @@ fn extruding_with_the_button_leaves_the_distance_field_unfocused() {
 fn a_distance_typed_after_extruding_by_key_is_previewed_without_moving_the_pointer() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
@@ -380,6 +437,7 @@ fn a_distance_typed_after_extruding_by_key_is_previewed_without_moving_the_point
     harness.key(Key::E, Modifiers::ALT);
     harness.settle();
     harness.frame();
+
     let extrude = harness
         .workspace
         .editing
@@ -391,6 +449,7 @@ fn a_distance_typed_after_extruding_by_key_is_previewed_without_moving_the_point
 
     harness.events.push(Event::Text("25".to_owned()));
     harness.frames_while_woken();
+
     let previewed = draft_volume(&harness, extrude).expect("the typed distance is previewed");
 
     assert!((previewed - 40.0 * 40.0 * 25.0).abs() < 1.0, "{previewed}");

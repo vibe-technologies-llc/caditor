@@ -20,6 +20,7 @@ use crate::{
 
 fn open_plain_hole(harness: &mut Harness) -> FeatureId {
     let (_, top) = extruded_plate(harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
@@ -29,8 +30,11 @@ fn open_plain_hole(harness: &mut Harness) -> FeatureId {
 
 fn reshape(harness: &mut Harness, hole: FeatureId, change: impl FnOnce(&mut Hole)) {
     let mut definition = open_hole(harness, hole);
+
     change(&mut definition);
+
     let transaction = hole_tools::edit(harness.document(), hole, definition).unwrap();
+
     harness.perform(Action::Apply(transaction));
     harness.settle();
     harness.workspace.viewport.advance(super::CAMERA_SETTLE);
@@ -80,6 +84,7 @@ const ROOT_HALF: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
 fn counterbored(harness: &mut Harness) -> FeatureId {
     let hole = open_plain_hole(harness);
+
     reshape(harness, hole, |hole| {
         hole.style = HoleStyle::Counterbore {
             diameter: millimetres(12.0),
@@ -99,6 +104,7 @@ fn counterbore_of(harness: &Harness, hole: FeatureId) -> (f64, f64) {
 #[test]
 fn a_counterbored_hole_shows_arrows_on_its_shoulder_and_mouth() {
     let mut harness = Harness::new();
+
     let hole = counterbored(&mut harness);
     let result = drilled(&harness, hole);
     let at = |radius: f64, level: f64, side: f64| {
@@ -127,11 +133,13 @@ fn a_counterbored_hole_shows_arrows_on_its_shoulder_and_mouth() {
 #[test]
 fn dragging_a_counterbore_s_arrows_changes_its_diameter_and_depth_and_makes_the_size_custom() {
     let mut harness = Harness::new();
+
     let hole = open_plain_hole(&mut harness);
     let size = HoleStandard {
         size: MetricSize::M6,
         fit: HoleFit::Normal,
     };
+
     reshape(&mut harness, hole, |definition| {
         *definition = hole_tools::with_standard(definition, size, LengthUnit::Millimetre);
         definition.style = HoleStyle::Counterbore {
@@ -140,6 +148,7 @@ fn dragging_a_counterbore_s_arrows_changes_its_diameter_and_depth_and_makes_the_
         };
         definition.standard = Some(size);
     });
+
     let before = counterbore_of(&harness, hole);
 
     let step = drag_value_arrow(&mut harness, Measured::CounterboreDepth, 1.0);
@@ -165,13 +174,16 @@ fn dragging_a_counterbore_s_arrows_changes_its_diameter_and_depth_and_makes_the_
 #[test]
 fn a_countersunk_hole_shows_arrows_at_its_mouth_and_where_the_cone_meets_the_bore() {
     let mut harness = Harness::new();
+
     let hole = open_plain_hole(&mut harness);
+
     reshape(&mut harness, hole, |hole| {
         hole.style = HoleStyle::Countersink {
             diameter: millimetres(12.0),
             angle: Expression::measure(90.0, Unit::Degree),
         };
     });
+
     let result = drilled(&harness, hole);
     let mouth = foot_of(&harness, Measured::CountersinkDiameter);
     let flare = foot_of(&harness, Measured::CountersinkAngle);
@@ -192,6 +204,7 @@ fn a_countersunk_hole_shows_arrows_at_its_mouth_and_where_the_cone_meets_the_bor
     assert!(on_an_edge(result, bore));
 
     drag_value_arrow(&mut harness, Measured::CountersinkAngle, 1.0);
+
     let HoleStyle::Countersink { angle, diameter } = open_hole(&harness, hole).style else {
         panic!("the hole stays countersunk");
     };
@@ -208,13 +221,16 @@ fn a_countersunk_hole_shows_arrows_at_its_mouth_and_where_the_cone_meets_the_bor
 #[test]
 fn a_slotted_hole_shows_arrows_at_the_tips_of_its_slot() {
     let mut harness = Harness::new();
+
     let hole = open_plain_hole(&mut harness);
+
     reshape(&mut harness, hole, |hole| {
         hole.shape = HoleShape::Slot {
             length: millimetres(20.0),
             angle: Expression::measure(0.0, Unit::Degree),
         };
     });
+
     let result = drilled(&harness, hole);
     let length = foot_of(&harness, Measured::SlotLength);
     let turn = foot_of(&harness, Measured::SlotAngle);
@@ -250,6 +266,7 @@ fn a_slotted_hole_shows_arrows_at_the_tips_of_its_slot() {
     assert_eq!(angle_of(&harness, &angle), 0.0);
 
     drag_value_arrow(&mut harness, Measured::SlotAngle, 20.0);
+
     let HoleShape::Slot { angle, .. } = open_hole(&harness, hole).shape else {
         panic!("the hole stays a slot");
     };
@@ -264,16 +281,20 @@ fn a_slotted_hole_shows_arrows_at_the_tips_of_its_slot() {
 #[test]
 fn a_tapped_hole_s_thread_depth_has_an_arrow_on_the_bore_and_keeps_the_size() {
     let mut harness = Harness::new();
+
     harness.perform(Action::ShowThreadsAsCosmetic(true));
+
     let hole = open_plain_hole(&mut harness);
     let standard = HoleStandard {
         size: MetricSize::M6,
         fit: HoleFit::Tapped,
     };
+
     reshape(&mut harness, hole, |definition| {
         *definition = hole_tools::with_standard(definition, standard, LengthUnit::Millimetre);
         definition.thread.depth = Some(millimetres(4.0));
     });
+
     let radius = length_of(&harness, &open_hole(&harness, hole).diameter) / 2.0;
     let foot = foot_of(&harness, Measured::ThreadDepth);
 
@@ -294,11 +315,14 @@ fn a_tapped_hole_s_thread_depth_has_an_arrow_on_the_bore_and_keeps_the_size() {
 #[test]
 fn a_hole_up_to_a_face_has_a_past_the_face_arrow_where_its_axis_meets_the_face() {
     let mut harness = Harness::new();
+
     let hole = open_plain_hole(&mut harness);
+
     reshape(&mut harness, hole, |hole| {
         hole.depth =
             caditor_document::HoleDepth::up_to_face(PlaneReference::Principal(PrincipalPlane::Xy));
     });
+
     let foot = foot_of(&harness, Measured::HoleEndOffset);
 
     assert!(
@@ -320,14 +344,18 @@ const TYPED_DEEP: f64 = 2.0;
 
 fn open_circled_hole(harness: &mut Harness, sizing: HoleSizing) -> FeatureId {
     extruded_plate(harness);
+
     let top = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
     let mut sketch = Sketch::new(top);
+
     sketch.add_circle(Point2::new(20.0, 20.0), CIRCLE_DIAMETER / 2.0);
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
+
     reshape(harness, hole, |hole| hole.sizing = sizing);
     hole
 }
@@ -370,6 +398,7 @@ fn two_steps() -> HoleStyle {
 
 fn stepped(harness: &mut Harness) -> FeatureId {
     let hole = open_plain_hole(harness);
+
     reshape(harness, hole, |hole| hole.style = two_steps());
     hole
 }
@@ -380,6 +409,7 @@ fn counterbored_typed(
     (wide, deep): (f64, f64),
 ) -> FeatureId {
     let hole = open_circled_hole(harness, sizing);
+
     reshape(harness, hole, |hole| {
         hole.style = HoleStyle::Counterbore {
             diameter: millimetres(wide),
@@ -392,6 +422,7 @@ fn counterbored_typed(
 #[test]
 fn a_stepped_hole_shows_a_diameter_and_a_depth_arrow_on_each_step() {
     let mut harness = Harness::new();
+
     let hole = stepped(&mut harness);
     let result = drilled(&harness, hole);
 
@@ -426,16 +457,19 @@ fn a_stepped_hole_shows_a_diameter_and_a_depth_arrow_on_each_step() {
 #[test]
 fn dragging_a_step_s_arrows_changes_only_that_step_and_makes_the_size_custom() {
     let mut harness = Harness::new();
+
     let hole = open_plain_hole(&mut harness);
     let size = HoleStandard {
         size: MetricSize::M6,
         fit: HoleFit::Normal,
     };
+
     reshape(&mut harness, hole, |definition| {
         *definition = hole_tools::with_standard(definition, size, LengthUnit::Millimetre);
         definition.style = two_steps();
         definition.standard = Some(size);
     });
+
     let before = steps_of(&harness, hole);
 
     let step = drag_value_arrow(&mut harness, Measured::StepDepth(1), 1.0);
@@ -470,6 +504,7 @@ fn dragging_a_step_s_arrows_changes_only_that_step_and_makes_the_size_custom() {
 #[test]
 fn dragging_the_first_step_s_arrows_leaves_the_second_alone() {
     let mut harness = Harness::new();
+
     let hole = stepped(&mut harness);
     let before = steps_of(&harness, hole);
 
@@ -497,6 +532,7 @@ fn dragging_the_first_step_s_arrows_leaves_the_second_alone() {
 #[test]
 fn a_step_drag_never_goes_below_one_step_like_the_typed_field() {
     let mut harness = Harness::new();
+
     let hole = stepped(&mut harness);
 
     let step = drag_value_arrow(&mut harness, Measured::StepDepth(0), -20.0);
@@ -508,6 +544,7 @@ fn a_step_drag_never_goes_below_one_step_like_the_typed_field() {
 #[test]
 fn a_counterbore_in_a_hole_sized_by_circles_has_arrows_that_follow_the_circle() {
     let mut harness = Harness::new();
+
     let hole = counterbored_typed(
         &mut harness,
         HoleSizing::CirclesAndHeads,
@@ -520,6 +557,7 @@ fn a_counterbore_in_a_hole_sized_by_circles_has_arrows_that_follow_the_circle() 
 
     let wide = TYPED_WIDE * HEAD_SCALE / 2.0;
     let deep = TYPED_DEEP * HEAD_SCALE;
+
     assert!((mouth - at(wide, 10.0, 1.0)).length() < 1e-9, "{mouth:?}");
     assert!(
         (shoulder - at(wide, 10.0 - deep, -1.0)).length() < 1e-9,
@@ -553,6 +591,7 @@ fn a_counterbore_in_a_hole_sized_by_circles_has_arrows_that_follow_the_circle() 
 #[test]
 fn a_counterbore_in_a_hole_sized_by_circles_alone_keeps_its_typed_size_on_screen() {
     let mut harness = Harness::new();
+
     let hole = counterbored_typed(&mut harness, HoleSizing::Circles, (16.0, 3.0));
     let result = drilled(&harness, hole);
 
@@ -583,13 +622,16 @@ fn a_counterbore_in_a_hole_sized_by_circles_alone_keeps_its_typed_size_on_screen
 #[test]
 fn steps_in_a_hole_sized_by_circles_scale_with_the_circle() {
     let mut harness = Harness::new();
+
     let hole = open_circled_hole(&mut harness, HoleSizing::CirclesAndHeads);
+
     reshape(&mut harness, hole, |hole| {
         hole.style = HoleStyle::Stepped(vec![HoleStep {
             diameter: millimetres(TYPED_WIDE),
             depth: millimetres(TYPED_DEEP),
         }]);
     });
+
     let result = drilled(&harness, hole);
 
     let mouth = foot_of(&harness, Measured::StepDiameter(0));
@@ -597,6 +639,7 @@ fn steps_in_a_hole_sized_by_circles_scale_with_the_circle() {
 
     let wide = TYPED_WIDE * HEAD_SCALE / 2.0;
     let deep = TYPED_DEEP * HEAD_SCALE;
+
     assert!((mouth - at(wide, 10.0, 1.0)).length() < 1e-9, "{mouth:?}");
     assert!(
         (floor - at(wide, 10.0 - deep, -1.0)).length() < 1e-9,
@@ -626,13 +669,16 @@ fn steps_in_a_hole_sized_by_circles_scale_with_the_circle() {
 #[test]
 fn a_countersink_in_a_hole_sized_by_circles_has_arrows_at_the_scaled_mouth_and_cone_foot() {
     let mut harness = Harness::new();
+
     let hole = open_circled_hole(&mut harness, HoleSizing::CirclesAndHeads);
+
     reshape(&mut harness, hole, |hole| {
         hole.style = HoleStyle::Countersink {
             diameter: millimetres(TYPED_WIDE + 1.0),
             angle: Expression::measure(90.0, Unit::Degree),
         };
     });
+
     let result = drilled(&harness, hole);
 
     let mouth = foot_of(&harness, Measured::CountersinkDiameter);
@@ -640,6 +686,7 @@ fn a_countersink_in_a_hole_sized_by_circles_has_arrows_at_the_scaled_mouth_and_c
 
     let wide = (TYPED_WIDE + 1.0) * HEAD_SCALE / 2.0;
     let narrow = CIRCLE_DIAMETER / 2.0;
+
     assert!((mouth - at(wide, 10.0, 1.0)).length() < 1e-9, "{mouth:?}");
     assert!(
         (flare - at(narrow, 10.0 - (wide - narrow), -1.0)).length() < 1e-9,
@@ -661,6 +708,7 @@ fn a_countersink_in_a_hole_sized_by_circles_has_arrows_at_the_scaled_mouth_and_c
     );
 
     drag_value_arrow(&mut harness, Measured::CountersinkAngle, 1.0);
+
     let HoleStyle::Countersink { angle, .. } = open_hole(&harness, hole).style else {
         panic!("the hole stays countersunk");
     };
@@ -676,13 +724,16 @@ fn a_countersink_in_a_hole_sized_by_circles_has_arrows_at_the_scaled_mouth_and_c
 #[test]
 fn a_slot_in_a_hole_sized_by_circles_is_as_wide_as_the_circle() {
     let mut harness = Harness::new();
+
     let hole = open_circled_hole(&mut harness, HoleSizing::Circles);
+
     reshape(&mut harness, hole, |hole| {
         hole.shape = HoleShape::Slot {
             length: millimetres(20.0),
             angle: Expression::measure(0.0, Unit::Degree),
         };
     });
+
     let result = drilled(&harness, hole);
 
     let length = foot_of(&harness, Measured::SlotLength);
@@ -712,6 +763,7 @@ fn a_slot_in_a_hole_sized_by_circles_is_as_wide_as_the_circle() {
     );
 
     drag_value_arrow(&mut harness, Measured::SlotAngle, 20.0);
+
     let HoleShape::Slot { angle, .. } = open_hole(&harness, hole).shape else {
         panic!("the hole stays a slot");
     };
@@ -726,12 +778,15 @@ fn a_slot_in_a_hole_sized_by_circles_is_as_wide_as_the_circle() {
 #[test]
 fn a_tapped_hole_sized_by_circles_has_its_thread_depth_arrow_on_the_circle_s_wall() {
     let mut harness = Harness::new();
+
     harness.perform(Action::ShowThreadsAsCosmetic(true));
+
     let hole = open_circled_hole(&mut harness, HoleSizing::Circles);
     let standard = HoleStandard {
         size: MetricSize::M6,
         fit: HoleFit::Tapped,
     };
+
     reshape(&mut harness, hole, |definition| {
         *definition = hole_tools::with_standard(definition, standard, LengthUnit::Millimetre);
         definition.sizing = HoleSizing::Circles;
@@ -756,11 +811,13 @@ fn a_tapped_hole_sized_by_circles_has_its_thread_depth_arrow_on_the_circle_s_wal
 fn hover_value_arrow(harness: &mut Harness, measured: Measured) {
     harness.workspace.viewport.advance(super::CAMERA_SETTLE);
     harness.frame();
+
     let at = harness
         .workspace
         .viewport
         .handle_position(Handle::Value(measured), 0.0)
         .expect("the value arrow is shown");
+
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     harness.frame();
@@ -769,6 +826,7 @@ fn hover_value_arrow(harness: &mut Harness, measured: Measured) {
 #[test]
 fn a_value_typed_over_a_step_arrow_sets_that_step_and_is_refused_where_its_field_would_be() {
     let mut harness = Harness::new();
+
     let hole = stepped(&mut harness);
     let before = steps_of(&harness, hole);
 
@@ -777,6 +835,7 @@ fn a_value_typed_over_a_step_arrow_sets_that_step_and_is_refused_where_its_field
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     let typed = steps_of(&harness, hole);
 
     assert_eq!(harness.model.undo_label(), Some("Edit Hole 1"));

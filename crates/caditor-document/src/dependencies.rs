@@ -13,6 +13,7 @@ impl DependencyGraph {
     pub fn of(document: &Document) -> Self {
         let uses = document.parameter_dependencies();
         let mut users: BTreeMap<ParameterId, BTreeSet<ParameterId>> = BTreeMap::new();
+
         for (user, used) in &uses {
             for used in used {
                 users.entry(*used).or_default().insert(*user);
@@ -53,8 +54,10 @@ impl DependencyGraph {
         if first_steps.contains(&target) {
             return Some(vec![target, target]);
         }
+
         let mut toward_target = BTreeMap::new();
         let mut queue = VecDeque::from([target]);
+
         while let Some(current) = queue.pop_front() {
             for user in self.users_overlaid(current, overlay) {
                 if user == target || toward_target.contains_key(&user) {
@@ -101,6 +104,7 @@ impl DependencyGraph {
 
     pub fn set(&mut self, id: ParameterId, expression: &Expression) {
         let used = expression.parameters();
+
         for old in self.uses.get(&id).into_iter().flatten() {
             if let Some(users) = self.users.get_mut(old) {
                 users.remove(&id);
@@ -122,8 +126,10 @@ pub struct Overlay {
 impl Overlay {
     pub fn of<'a>(cells: impl IntoIterator<Item = (ParameterId, &'a Expression)>) -> Self {
         let mut overlay = Self::default();
+
         for (id, expression) in cells {
             let used = expression.parameters();
+
             for parameter in &used {
                 overlay.users.entry(*parameter).or_default().insert(id);
             }
@@ -148,6 +154,7 @@ fn path_through(
 ) -> Vec<ParameterId> {
     let mut path = vec![target, first_step];
     let mut step = first_step;
+
     while let Some(next) = toward_target.get(&step).copied() {
         path.push(next);
         if next == target || path.len() > toward_target.len() + 2 {

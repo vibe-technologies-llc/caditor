@@ -35,9 +35,11 @@ pub(crate) fn upload(
     environment: &Environment,
 ) -> Option<EnvironmentViews> {
     let largest = device.limits().max_texture_dimension_2d;
+
     if environment.width() > largest {
         return None;
     }
+
     let levels = u32::try_from(environment.level_count()).ok()?;
     let radiance = texture(
         device,
@@ -45,8 +47,10 @@ pub(crate) fn upload(
         (environment.width(), environment.height()),
         levels,
     );
+
     for level in 0..environment.level_count() {
         let (bytes, width, height) = environment.level(level)?;
+
         write(
             queue,
             &radiance,
@@ -55,12 +59,14 @@ pub(crate) fn upload(
             (width, height),
         );
     }
+
     let irradiance = texture(
         device,
         "environment irradiance",
         (IRRADIANCE_WIDTH, IRRADIANCE_HEIGHT),
         1,
     );
+
     write(
         queue,
         &irradiance,

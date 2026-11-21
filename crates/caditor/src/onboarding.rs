@@ -35,7 +35,7 @@ const HINT_WIDTH: f32 = 360.0;
 const HINT_BOTTOM_CLEARANCE: f32 = 16.0;
 const SAMPLE_ICON_SIZE: f32 = 24.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Hint {
     Start,
     Draw,
@@ -112,7 +112,7 @@ impl Hint {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Onboarding {
     pub welcomed: bool,
     pub hints: bool,
@@ -158,6 +158,7 @@ impl Onboarding {
         settings.set_flag(DEFENDER_KEY, self.defender_reminded);
         settings.set_flag(START_CARD_KEY, self.start_card);
         settings.set_flag(HOME_KEY, self.home);
+
         let known: Vec<String> = self
             .dismissed
             .iter()
@@ -168,7 +169,9 @@ impl Onboarding {
             .unwrap_or_default()
             .into_iter()
             .filter(|id| Hint::from_id(id).is_none());
+
         let all: Vec<String> = known.into_iter().chain(unknown).collect();
+
         settings.set_texts(DISMISSED_KEY, &all);
     }
 
@@ -197,6 +200,7 @@ pub fn applicable(situation: &Situation<'_>) -> Vec<Hint> {
         .features()
         .any(|feature| matches!(feature.kind, FeatureKind::Solid(_) | FeatureKind::Import(_)));
     let mut hints = Vec::new();
+
     if let Some(feature) = situation.editing.feature() {
         let drawn = document
             .feature(feature)
@@ -217,10 +221,12 @@ pub fn applicable(situation: &Situation<'_>) -> Vec<Hint> {
         if document.features().len() == 0 {
             hints.push(Hint::Start);
         }
+
         let can_sweep = situation
             .offers
             .iter()
             .any(|offer| offer.command == Command::Extrude && offer.availability.is_ok());
+
         if can_sweep && !has_body {
             hints.push(Hint::Sweep);
         }
@@ -243,7 +249,7 @@ pub fn current(onboarding: &Onboarding, situation: &Situation<'_>) -> Option<Hin
         .find(|hint| !onboarding.dismissed.contains(hint))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HintChoice {
     Dismiss(Hint),
     HideAll,
@@ -265,18 +271,22 @@ pub fn show_hint(
             widgets::dialog_frame(ctx)
                 .show(ui, |ui| {
                     ui.set_width(widgets::fitting_width(ctx, HINT_WIDTH));
+
                     let closed = Sides::new()
                         .show(
                             ui,
                             |ui| {
                                 let accent = appearance::tokens(ui).accent_text;
+
                                 widgets::icon_label(ui, icons::TIP, accent);
                                 ui.label(widgets::section_title(TIP_TITLE));
                             },
                             |ui| widgets::icon_button(ui, icons::CLOSE, DISMISS_TIP).clicked(),
                         )
                         .1;
+
                     ui.add(Label::new(hint.text(keymap, input_mode)).wrap());
+
                     let chosen = widgets::footer_split(
                         ui,
                         |ui| {
@@ -298,7 +308,7 @@ pub fn show_hint(
         .inner
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WelcomeChoice {
     Close,
     Empty,
@@ -321,8 +331,10 @@ pub fn welcome(ctx: &egui::Context, keymap: &Keymap, recent: &[PathBuf]) -> Opti
                  and unsaved work survives a crash.",
                 ui,
             ));
+
             let mut choice = widgets::dialog_body(ui, |ui| {
                 let mut choice = None;
+
                 if !recent.is_empty() {
                     ui.add_space(SPACE_M);
                     choice = recent_files(ui, recent);
@@ -342,6 +354,7 @@ pub fn welcome(ctx: &egui::Context, keymap: &Keymap, recent: &[PathBuf]) -> Opti
                 || Command::Palette.title(),
                 |shortcut| commands::display(&shortcut),
             );
+
             ui.add_space(SPACE_M);
             ui.label(widgets::muted(
                 format!(
@@ -357,6 +370,7 @@ pub fn welcome(ctx: &egui::Context, keymap: &Keymap, recent: &[PathBuf]) -> Opti
                 {
                     choice = Some(WelcomeChoice::Empty);
                 }
+
                 let open = widgets::small_button(
                     ui,
                     icons::command(Command::Open),
@@ -379,6 +393,7 @@ pub fn welcome(ctx: &egui::Context, keymap: &Keymap, recent: &[PathBuf]) -> Opti
 
 fn recent_files(ui: &mut Ui, recent: &[PathBuf]) -> Option<WelcomeChoice> {
     let mut choice = None;
+
     Sides::new().show(
         ui,
         |ui| ui.label(widgets::section_title(RECENT_TITLE)),
@@ -413,23 +428,29 @@ fn recent_row(ui: &mut Ui, path: &Path) -> bool {
     let folder = folder_name(path);
     let width = ui.available_width();
     let height = ui.spacing().interact_size.y;
+
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+
     if response.hovered() {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(WIDGET_RADIUS), tokens.hover);
     }
+
     let mut child = ui.new_child(
         UiBuilder::new()
             .max_rect(rect.shrink2(vec2(SPACE_S, 0.0)))
             .layout(Layout::left_to_right(Align::Center)),
     );
+
     child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
     widgets::icon_label(&mut child, icons::FILE, tokens.text_muted);
     child.add(Label::new(name.as_str()).selectable(false));
     child.add(Label::new(widgets::muted(folder, ui)).selectable(false));
+
     let response = widgets::named(response, &format!("Open {name}"))
         .on_hover_text(path.display().to_string())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
+
     if response.has_focus() {
         widgets::paint_focus_ring(ui, rect);
     }
@@ -470,6 +491,7 @@ fn sample_card(ui: &mut Ui, sample: Sample) -> bool {
                     )
                     .selectable(false),
                 );
+
                 widgets::decorative(ui, &glyph);
                 ui.vertical(|ui| {
                     ui.label(widgets::strong(sample.title()));
@@ -486,6 +508,7 @@ fn sample_card(ui: &mut Ui, sample: Sample) -> bool {
         )
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     let response = widgets::named(response, &Command::OpenSample(sample).title());
+
     if response.hovered() {
         ui.painter().rect_stroke(
             response.rect,
@@ -507,14 +530,19 @@ mod tests {
     #[test]
     fn onboarding_settings_round_trip_and_keep_hints_a_newer_version_added() {
         let mut settings = Settings::default();
+
         settings.set_texts(DISMISSED_KEY, &["start".to_owned(), "future".to_owned()]);
+
         let mut onboarding = Onboarding::from_settings(&settings);
+
         assert!(!onboarding.welcomed);
         assert!(onboarding.hints);
         assert_eq!(onboarding.dismissed, BTreeSet::from([Hint::Start]));
+
         onboarding.welcomed = true;
         onboarding.dismissed.insert(Hint::Palette);
         onboarding.write(&mut settings);
+
         assert_eq!(
             settings.texts(DISMISSED_KEY),
             Some(vec![

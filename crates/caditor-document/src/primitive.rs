@@ -35,20 +35,20 @@ const WHOLE_TOLERANCE: f64 = 1e-9;
 pub const MIN_PRISM_SIDES: u32 = 3;
 pub const MAX_PRISM_SIDES: u32 = 64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cap {
     Start,
     End,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SizeRule {
     AboveZero,
     ZeroOrMore,
     Sides,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum PrimitiveKind {
     Box,
     Cylinder,
@@ -95,7 +95,7 @@ impl PrimitiveKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PrimitiveShape {
     Box {
         length: Expression,
@@ -268,7 +268,7 @@ impl PrimitiveShape {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum PrimitiveAnchor {
     Corner,
     #[default]
@@ -288,7 +288,7 @@ impl PrimitiveAnchor {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Primitive {
     pub shape: PrimitiveShape,
     pub plane: PlaneReference,
@@ -310,6 +310,7 @@ impl Primitive {
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         let mut expressions = self.shape.sizes_mut();
+
         expressions.extend(self.at.iter_mut());
         expressions
     }
@@ -329,6 +330,7 @@ impl Primitive {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used: BTreeSet<FeatureId> = self.operation.target().into_iter().collect();
+
         used.extend(self.plane.datum());
         used.extend(self.plane.body());
         used
@@ -419,6 +421,7 @@ impl<'a> Context<'a> {
 
     pub(crate) fn size(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
         let value = self.value(expression, what)?;
+
         if value <= 0.0 {
             return Err(self.error(PrimitiveCause::NotPositive {
                 what: what.to_owned(),
@@ -430,6 +433,7 @@ impl<'a> Context<'a> {
 
     pub(crate) fn size_or_zero(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
         let value = self.value(expression, what)?;
+
         if value < 0.0 {
             return Err(self.error(PrimitiveCause::Negative {
                 what: what.to_owned(),
@@ -443,6 +447,7 @@ impl<'a> Context<'a> {
         let what = "number of sides";
         let value = self.value_as(expression, what, Dimension::NONE)?;
         let whole = value.round();
+
         if (value - whole).abs() > WHOLE_TOLERANCE
             || whole < f64::from(MIN_PRISM_SIDES)
             || whole > f64::from(MAX_PRISM_SIDES)
@@ -462,7 +467,7 @@ impl<'a> Context<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PrimitiveCause {
     NotPositive {
         what: String,
@@ -628,6 +633,7 @@ impl Sizes {
             PrimitiveShape::Torus { diameter, tube } => {
                 let ring = context.size(diameter, "diameter")? / 2.0;
                 let tube = context.size(tube, "tube diameter")? / 2.0;
+
                 if tube >= ring {
                     return Err(context.error(PrimitiveCause::TorusTube));
                 }
@@ -641,6 +647,7 @@ impl Sizes {
                 let bottom = context.size_or_zero(bottom, "bottom diameter")? / 2.0;
                 let top = context.size_or_zero(top, "top diameter")? / 2.0;
                 let height = context.size(height, "height")?;
+
                 if bottom <= 0.0 && top <= 0.0 {
                     return Err(context.error(PrimitiveCause::ConeFlat));
                 }
@@ -662,6 +669,7 @@ impl Sizes {
                     context.size(height, "height")?,
                 ];
                 let top = context.size_or_zero(top, "top length")?;
+
                 if top > extents[0] {
                     return Err(context.error(PrimitiveCause::WedgeTop));
                 }
@@ -719,6 +727,7 @@ impl Placement {
         } else {
             plane.normal()
         };
+
         let (shift, rise) = match anchor {
             PrimitiveAnchor::Corner => (Vector2::ZERO, 0.0),
             PrimitiveAnchor::BaseCentre => (Vector2::new(length, width) / 2.0, 0.0),
@@ -809,6 +818,7 @@ fn tool(
                 Point2::new(bottom, 0.0),
                 Point2::new(top, height),
             )];
+
             if top > 0.0 {
                 curves.push(ProfileCurve::line(
                     TOP,
@@ -845,6 +855,7 @@ fn tool(
                     Point2::new(top, height),
                 ),
             ];
+
             if top > 0.0 {
                 curves.push(ProfileCurve::line(
                     WEDGE_TOP,
@@ -857,6 +868,7 @@ fn tool(
                 Point2::new(0.0, height),
                 Point2::ZERO,
             ));
+
             let profile = Profile::new(&curves).map_err(|error| unbuildable(&error))?;
             let extent = LinearExtent::new(0.0, width * y.dot(across))
                 .map_err(|error| unbuildable(&error))?;
@@ -872,6 +884,7 @@ fn tool(
             let centre = Point2::new(radius, radius);
             let step = TAU / f64::from(sides);
             let first = -FRAC_PI_2 - PI / f64::from(sides);
+
             let corners: Vec<Point2> = (0..sides)
                 .map(|corner| {
                     let angle = first + step * f64::from(corner);
@@ -917,6 +930,7 @@ fn combine_failure(
     let inputs = context.resolver.inputs;
     let shape = context.shape;
     let body_name = inputs.document.body_label(body).unwrap_or_default();
+
     let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
         BooleanError::Empty => context.error(PrimitiveCause::Vanishes {
@@ -934,6 +948,7 @@ fn combine_failure(
         | BooleanError::Open(_)
         | BooleanError::Invalid(_) => {
             log::warn!("{} could not be combined: {error}", context.feature().name);
+
             let trouble = boolean_trouble(
                 inputs.document,
                 operands,
@@ -961,6 +976,7 @@ pub(crate) fn evaluate(
     let context = Context::new(feature, inputs, definition.shape.kind().noun());
     let sizes = Sizes::of(&context, &definition.shape)?;
     let [along, across] = &definition.at;
+
     let at = Point2::new(
         context.within_reach(
             context.value(along, "position along X")?,
@@ -972,6 +988,7 @@ pub(crate) fn evaluate(
         )?,
     );
     let plane = context.resolver.plane(&definition.plane)?;
+
     let placement = Placement::new(
         plane,
         at,
@@ -979,10 +996,13 @@ pub(crate) fn evaluate(
         definition.reversed,
         sizes.footprint(),
     );
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+
     let made = tool(&context, &sizes, &placement, feature.id().raw())?;
+
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -1001,12 +1021,14 @@ pub(crate) fn combined(
             made,
         )));
     };
+
     let current = inputs.body(body).ok_or_else(|| inputs.missing_body(body))?;
     let kernel_operation = match operation {
         BodyOperation::Remove(_) => BooleanOperation::Difference,
         BodyOperation::Intersect(_) => BooleanOperation::Intersection,
         BodyOperation::NewBody | BodyOperation::Add(_) => BooleanOperation::Union,
     };
+
     let combined = boolean(current, &made, kernel_operation)
         .map_err(|error| combine_failure(context, [current, &made], body, operation, &error))?;
     let result = SolidResult::new(body, combined);

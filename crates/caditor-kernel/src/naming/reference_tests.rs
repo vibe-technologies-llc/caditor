@@ -27,6 +27,7 @@ fn swept(curves: &[ProfileCurve], plane: &Plane, height: f64, feature: u64) -> S
 
 fn plate_with_hole(hole: (f64, f64)) -> Solid {
     let mut curves = rectangle(1, (0.0, 0.0), (10.0, 8.0));
+
     curves.push(circle(5, hole, 1.5));
     swept(&curves, &Plane::XY, 2.0, 11)
 }
@@ -49,6 +50,7 @@ fn face_from(solid: &Solid, origin: FaceOrigin) -> FaceId {
         .filter(|(_, face)| face.origin() == Some(origin))
         .map(|(id, _)| id)
         .collect();
+
     assert_eq!(found.len(), 1, "{origin:?}");
     found[0]
 }
@@ -60,6 +62,7 @@ fn name_of(solid: &Solid, origin: FaceOrigin) -> FaceName {
 fn top_fragment_beside(solid: &Solid, wall: FaceOrigin) -> FaceId {
     let wall = name_of(solid, wall);
     let top = FaceOrigin::EndCap { feature: 1 };
+
     let fragments: Vec<FaceId> = solid
         .faces()
         .filter(|(id, face)| {
@@ -67,6 +70,7 @@ fn top_fragment_beside(solid: &Solid, wall: FaceOrigin) -> FaceId {
         })
         .map(|(id, _)| id)
         .collect();
+
     assert_eq!(fragments.len(), 1);
     fragments[0]
 }
@@ -95,11 +99,14 @@ fn a_face_reference_follows_its_name_when_the_geometry_moves() {
             entity: 5,
         },
     );
+
     let reference = FaceReference::capture(&before, hole).unwrap();
+
     assert_eq!(reference.neighbours().len(), 2);
 
     let after = plate_with_hole((7.0, 3.0));
     let resolved = reference.resolve(&after).unwrap();
+
     assert_eq!(
         after.face(resolved).unwrap().origin(),
         Some(FaceOrigin::Side {
@@ -116,15 +123,19 @@ fn a_split_face_is_chosen_by_its_neighbours() {
         .faces()
         .filter(|(_, face)| face.origin() == Some(FaceOrigin::EndCap { feature: 1 }))
         .count();
+
     assert_eq!(top_fragments, 2);
+
     let left = top_fragment_beside(&before, LEFT_WALL);
     let right = top_fragment_beside(&before, RIGHT_WALL);
     let left_reference = FaceReference::capture(&before, left).unwrap();
     let right_reference = FaceReference::capture(&before, right).unwrap();
+
     assert_eq!(left_reference.name(), right_reference.name());
 
     for slot in [2.0, 4.0, 6.5] {
         let after = plate_with_slot(slot);
+
         assert_eq!(
             left_reference.resolve(&after),
             Ok(top_fragment_beside(&after, LEFT_WALL)),
@@ -143,12 +154,14 @@ fn fragments_that_look_alike_are_ambiguous() {
     let solid = plate_with_slot(4.0);
     let left = top_fragment_beside(&solid, LEFT_WALL);
     let right = top_fragment_beside(&solid, RIGHT_WALL);
+
     let name = solid.face(left).unwrap().name();
     let reference = FaceReference::new(name, Some(FaceOrigin::EndCap { feature: 1 }), []);
     let Err(ReferenceError::Ambiguous(candidates)) = reference.resolve(&solid) else {
         panic!("expected an ambiguous reference");
     };
     let candidates: BTreeSet<FaceId> = candidates.into_iter().collect();
+
     assert_eq!(candidates, BTreeSet::from([left, right]));
 }
 
@@ -156,12 +169,14 @@ fn fragments_that_look_alike_are_ambiguous() {
 fn a_renamed_face_is_found_by_its_origin_and_neighbours() {
     let before = plate_with_hole((4.0, 4.0));
     let top = face_from(&before, FaceOrigin::EndCap { feature: 11 });
+
     let captured = FaceReference::capture(&before, top).unwrap();
     let renamed = FaceReference::new(
         FaceName::from_digest(42),
         captured.origin(),
         captured.neighbours().iter().copied(),
     );
+
     assert_eq!(renamed.resolve(&before), Ok(top));
 
     let strangers = FaceReference::new(
@@ -169,8 +184,11 @@ fn a_renamed_face_is_found_by_its_origin_and_neighbours() {
         captured.origin(),
         [FaceName::from_digest(7)],
     );
+
     assert_eq!(strangers.resolve(&before), Err(ReferenceError::Missing));
+
     let unknown = FaceReference::new(FaceName::from_digest(42), None, []);
+
     assert_eq!(unknown.resolve(&before), Err(ReferenceError::Missing));
 }
 
@@ -183,6 +201,7 @@ fn edge_between(solid: &Solid, first: FaceOrigin, second: FaceOrigin) -> Vec<Edg
         .filter(|id| {
             let reference = EdgeReference::capture(solid, *id).unwrap();
             let mut expected = [first, second];
+
             expected.sort();
             reference.faces() == expected
         })
@@ -193,6 +212,7 @@ fn edge_between(solid: &Solid, first: FaceOrigin, second: FaceOrigin) -> Vec<Edg
 fn an_edge_reference_survives_a_resize() {
     let before = plate_with_hole((4.0, 4.0));
     let top = FaceOrigin::EndCap { feature: 11 };
+
     let [edge] = edge_between(&before, top, LEFT_WALL_OF_HOLE_PLATE)[..] else {
         panic!("expected one edge");
     };
@@ -202,6 +222,7 @@ fn an_edge_reference_survives_a_resize() {
     let [expected] = edge_between(&after, top, LEFT_WALL_OF_HOLE_PLATE)[..] else {
         panic!("expected one edge");
     };
+
     assert_eq!(reference.resolve(&after), Ok(expected));
 }
 
@@ -231,8 +252,11 @@ fn pieces_of_a_split_edge_are_told_apart_by_their_ends() {
             .collect()
     };
     let before = plate_with_slot(4.0);
+
     let pieces = pieces_at(&before);
+
     assert_eq!(pieces.len(), 2);
+
     let references: Vec<(EdgeReference, bool)> = pieces
         .iter()
         .map(|(id, x)| (EdgeReference::capture(&before, *id).unwrap(), *x < 4.0))
@@ -246,6 +270,7 @@ fn pieces_of_a_split_edge_are_told_apart_by_their_ends() {
             .iter()
             .find_map(|(id, x)| (*id == resolved).then_some(*x))
             .unwrap();
+
         assert_eq!(x < 6.0, on_left);
     }
 }
@@ -270,6 +295,7 @@ fn edges_between_the_same_faces_sharing_no_end_are_not_the_referenced_edge() {
         .unwrap();
     let unknown = EdgeName::from_digest(3);
     let strangers = [VertexName::from_digest(1), VertexName::from_digest(2)];
+
     let lost = EdgeReference::new(unknown, piece.faces(), strangers);
     let renamed = EdgeReference::new(unknown, piece.faces(), piece.ends());
 
@@ -284,6 +310,7 @@ fn name_of_fragments(solid: &Solid) -> FaceName {
         .filter(|(_, face)| face.origin() == Some(FaceOrigin::EndCap { feature: 1 }))
         .map(|(_, face)| face.name())
         .collect();
+
     assert_eq!(names.len(), 1);
     names.into_iter().next().unwrap()
 }
@@ -298,6 +325,7 @@ fn a_unique_name_is_not_trusted_when_none_of_its_neighbours_remain() {
             entity: 5,
         },
     );
+
     let captured = FaceReference::capture(&solid, hole).unwrap();
     let strangers = FaceReference::new(
         captured.name(),
@@ -311,9 +339,12 @@ fn a_unique_name_is_not_trusted_when_none_of_its_neighbours_remain() {
             ),
         )],
     );
+
     assert_eq!(strangers.resolve(&solid), Err(ReferenceError::Missing));
     assert_eq!(captured.resolve(&solid), Ok(hole));
+
     let unrecorded = FaceReference::new(captured.name(), captured.origin(), []);
+
     assert_eq!(unrecorded.resolve(&solid), Ok(hole));
 }
 
@@ -325,6 +356,7 @@ fn plain_plate() -> Solid {
 fn an_edge_on_a_cap_renamed_by_a_new_hole_is_found_by_its_faces_origins() {
     let before = plain_plate();
     let top = FaceOrigin::EndCap { feature: 11 };
+
     let [edge] = edge_between(&before, top, LEFT_WALL_OF_HOLE_PLATE)[..] else {
         panic!("expected one edge");
     };
@@ -347,12 +379,14 @@ fn an_edge_on_a_cap_renamed_by_a_new_hole_is_found_by_its_faces_origins() {
 fn an_edge_is_found_by_its_faces_origins_alone_only_where_both_faces_meet() {
     let before = plain_plate();
     let top = FaceOrigin::EndCap { feature: 11 };
+
     let [edge] = edge_between(&before, top, LEFT_WALL_OF_HOLE_PLATE)[..] else {
         panic!("expected one edge");
     };
     let captured = EdgeReference::capture(&before, edge).unwrap();
     let unknown = [FaceName::from_digest(5), FaceName::from_digest(6)];
     let strangers = [VertexName::from_digest(1), VertexName::from_digest(2)];
+
     let top_and_bottom = EdgeReference::new(EdgeName::from_digest(3), unknown, strangers)
         .with_origins([Some(top), Some(FaceOrigin::StartCap { feature: 11 })]);
     let top_and_wall = EdgeReference::new(EdgeName::from_digest(3), unknown, strangers)

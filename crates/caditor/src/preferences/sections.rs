@@ -1,6 +1,6 @@
 use super::{ExportMemory, Preferences, PreferencesTab};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Units,
     Numbers,
@@ -402,6 +402,7 @@ impl Section {
 
     pub fn is_default(self, preferences: &Preferences) -> bool {
         let mut reset = preferences.clone();
+
         self.copy(&mut reset, &Preferences::default());
         reset == *preferences
     }
@@ -506,12 +507,15 @@ mod tests {
             );
             assert!(!section.title().is_empty() && !section.words().is_empty());
         }
+
         let ids: Vec<&str> = Section::ALL.iter().map(|section| section.id()).collect();
+
         for (index, id) in ids.iter().enumerate() {
             assert!(!ids[index + 1..].contains(id), "{id} is used twice");
         }
 
         let mut changed = Preferences::default();
+
         changed.apply(PreferenceChange::Unit(LengthUnit::Metre));
         changed.apply(PreferenceChange::TooltipDelay(TooltipDelay::Later));
         changed.apply(PreferenceChange::FieldOfView(FieldOfView::Wide));
@@ -521,11 +525,13 @@ mod tests {
         assert!(!Section::Interface.is_default(&changed));
 
         changed.apply(PreferenceChange::SectionDefaults(Section::Interface));
+
         assert_eq!(changed.tooltip_delay, TooltipDelay::Standard);
         assert_eq!(changed.unit, LengthUnit::Metre);
         assert_eq!(changed.navigation.field_of_view, FieldOfView::Wide);
 
         changed.apply(PreferenceChange::Defaults(PreferencesTab::Navigation));
+
         assert_eq!(changed.navigation.field_of_view, FieldOfView::Standard);
         assert_eq!(changed.unit, LengthUnit::Metre);
     }

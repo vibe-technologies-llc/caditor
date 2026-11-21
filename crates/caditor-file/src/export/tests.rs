@@ -101,6 +101,7 @@ fn read_f32s(bytes: &[u8], at: usize) -> [f64; 3] {
 
 fn stl_facets(bytes: &[u8]) -> Vec<[Point3; 3]> {
     let count = read_u32(bytes, HEADER_LENGTH) as usize;
+
     assert_eq!(bytes.len(), HEADER_LENGTH + 4 + count * FACET_LENGTH);
     (0..count)
         .map(|index| {
@@ -119,6 +120,7 @@ fn signed_volume(facets: &[[Point3; 3]]) -> f64 {
 
 fn assert_closed(triangles: impl IntoIterator<Item = [u32; 3]>) {
     let mut directed = BTreeMap::new();
+
     for [a, b, c] in triangles {
         for edge in [(a, b), (b, c), (c, a)] {
             *directed.entry(edge).or_insert(0) += 1;
@@ -150,14 +152,22 @@ fn welded(facets: &[[Point3; 3]]) -> Vec<[u32; 3]> {
 
 fn unzip(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
     let end = bytes.len() - 22;
+
     assert_eq!(read_u32(bytes, end), END_SIGNATURE);
+
     let count = read_u16(bytes, end + 10) as usize;
+
     assert_eq!(read_u16(bytes, end + 8) as usize, count);
+
     let mut central = read_u32(bytes, end + 16) as usize;
+
     assert_eq!(central + read_u32(bytes, end + 12) as usize, end);
+
     let mut entries = BTreeMap::new();
+
     for _ in 0..count {
         assert_eq!(read_u32(bytes, central), CENTRAL_HEADER_SIGNATURE);
+
         let method = read_u16(bytes, central + 10);
         let crc = read_u32(bytes, central + 16);
         let compressed = read_u32(bytes, central + 20) as usize;
@@ -166,11 +176,13 @@ fn unzip(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
         let local = read_u32(bytes, central + 42) as usize;
         let name =
             String::from_utf8(bytes[central + 46..central + 46 + name_length].to_vec()).unwrap();
+
         assert_eq!(read_u32(bytes, local), LOCAL_HEADER_SIGNATURE);
         assert_eq!(read_u16(bytes, local + 8), method);
         assert_eq!(read_u32(bytes, local + 14), crc);
         assert_eq!(read_u32(bytes, local + 18) as usize, compressed);
         assert_eq!(read_u32(bytes, local + 22) as usize, size);
+
         let data_start = local + 30 + name_length + read_u16(bytes, local + 28) as usize;
         let data = &bytes[data_start..data_start + compressed];
         let contents = match method {
@@ -178,8 +190,10 @@ fn unzip(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
             STORED => data.to_vec(),
             other => panic!("unexpected compression method {other}"),
         };
+
         assert_eq!(contents.len(), size);
         assert_eq!(crc32fast::hash(&contents), crc);
+
         entries.insert(name, contents);
         central += 46 + name_length;
     }
@@ -242,23 +256,30 @@ fn objects(xml: &str) -> Vec<ModelObject> {
 fn an_stl_holds_every_body_as_a_closed_outward_surface_in_millimetres() {
     let block = block();
     let pin = pin();
+
     let meshes = [
         mesh_of(&block, MeshResolution::Standard),
         mesh_of(&pin, MeshResolution::Standard),
     ];
     let mut bytes = Vec::new();
+
     stl::write_binary(&mut bytes, &meshes, None, &CancelToken::never()).unwrap();
+
     assert!(!bytes.starts_with(b"solid"));
     assert!(String::from_utf8_lossy(&bytes[..HEADER_LENGTH]).contains("millimetres"));
 
     let facets = stl_facets(&bytes);
+
     assert_eq!(
         facets.len(),
         meshes[0].triangles.len() + meshes[1].triangles.len()
     );
+
     assert_closed(welded(&facets));
+
     let volume = signed_volume(&facets);
     let expected = 40.0 * 20.0 * 10.0 + pin_volume();
+
     assert!(
         (volume - expected).abs() < 0.01 * expected,
         "volume {volume}"
@@ -267,6 +288,7 @@ fn an_stl_holds_every_body_as_a_closed_outward_surface_in_millimetres() {
     let first = HEADER_LENGTH + 4;
     let normal = Point3::from_array(read_f32s(&bytes, first));
     let [a, b, c] = facets[0];
+
     assert!((normal - (b - a).cross(c - a).normalize()).length() < 1e-6);
 }
 
@@ -292,16 +314,19 @@ fn far_block() -> Solid {
 fn text_stl_solids(text: &str) -> Vec<(String, Vec<[Point3; 3]>)> {
     let mut solids: Vec<(String, Vec<[Point3; 3]>)> = Vec::new();
     let mut corners = Vec::new();
+
     for line in text.lines() {
         let mut words = line.split_whitespace();
         match words.next() {
             Some("solid") => solids.push((words.collect::<Vec<_>>().join(" "), Vec::new())),
             Some("vertex") => {
                 let values: Vec<f64> = words.map(|word| word.parse().unwrap()).collect();
+
                 corners.push(Point3::new(values[0], values[1], values[2]));
             }
             Some("endloop") => {
                 let facet: [Point3; 3] = std::mem::take(&mut corners).try_into().unwrap();
+
                 solids.last_mut().unwrap().1.push(facet);
             }
             Some("endsolid") => {
@@ -322,6 +347,7 @@ fn a_text_stl_keeps_each_body_as_a_named_solid_with_exact_coordinates() {
     let path = dir.path().join("parts.stl");
     let far = far_block();
     let pin = pin();
+
     let bodies = [
         ExportBody {
             name: "Far block",
@@ -368,9 +394,11 @@ fn a_text_stl_keeps_each_body_as_a_named_solid_with_exact_coordinates() {
             .collect::<Vec<_>>(),
         ["Far_block", "K_hler_pin"]
     );
+
     for (_, facets) in &solids {
         assert_closed(welded(facets));
     }
+
     assert_eq!(
         solids.iter().map(|(_, facets)| facets.len()).sum::<usize>(),
         exported.triangles.unwrap()
@@ -474,6 +502,7 @@ fn a_3mf_thumbnail_is_a_png_the_package_relationships_point_to() {
         &CancelToken::never(),
     )
     .unwrap();
+
     let entries = unzip(&std::fs::read(&path).unwrap());
     let plain = unzip(
         &three_mf::encode(
@@ -487,7 +516,9 @@ fn a_3mf_thumbnail_is_a_png_the_package_relationships_point_to() {
     let mut reader = png::Decoder::new(std::io::Cursor::new(entries[THUMBNAIL_PATH].clone()))
         .read_info()
         .unwrap();
+
     let mut decoded = vec![0; reader.output_buffer_size().unwrap()];
+
     let frame = reader.next_frame(&mut decoded).unwrap();
 
     assert_eq!(
@@ -535,11 +566,13 @@ fn a_3mf_coordinate_keeps_a_nanometre_and_drops_the_noise_beyond_it() {
 fn a_3mf_gives_coloured_bodies_a_base_material_and_leaves_the_rest_plain() {
     let block = block();
     let pin = pin();
+
     let mut meshes = [
         mesh_of(&block, MeshResolution::Coarse),
         mesh_of(&pin, MeshResolution::Coarse),
         mesh_of(&pin, MeshResolution::Coarse),
     ];
+
     meshes[0].look = Some(Look {
         colour: Rgb::new(200, 64, 52),
         opacity: None,
@@ -555,14 +588,17 @@ fn a_3mf_gives_coloured_bodies_a_base_material_and_leaves_the_rest_plain() {
     let entries = unzip(&three_mf::encode(&meshes, &ModelProperties::default()).unwrap());
 
     let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
+
     assert!(model.contains(
         r##"<basematerials id="4"><base name="Steel &amp; co" displaycolor="#C84034"/><base name="Tinted" displaycolor="#4CA05A"/></basematerials>"##
     ));
+
     let headers: Vec<&str> = model
         .split("<object ")
         .skip(1)
         .map(|object| &object[..object.find('>').unwrap()])
         .collect();
+
     assert!(headers[0].contains(r#"pid="4" pindex="0""#));
     assert!(!headers[1].contains("pid="));
     assert!(headers[2].contains(r#"pid="4" pindex="1""#));
@@ -572,48 +608,68 @@ fn a_3mf_gives_coloured_bodies_a_base_material_and_leaves_the_rest_plain() {
 fn a_3mf_is_a_valid_package_with_one_named_object_per_body() {
     let block = block();
     let pin = pin();
+
     let mut meshes = [
         mesh_of(&block, MeshResolution::Coarse),
         mesh_of(&pin, MeshResolution::Coarse),
     ];
+
     meshes[0].name = "Plate & <\"Pin\">";
     meshes[1].name = "Pin 'rod'\u{FFFE}\u{FFFF}\u{7}é";
+
     let entries = unzip(&three_mf::encode(&meshes, &ModelProperties::default()).unwrap());
+
     assert_eq!(
         entries.keys().map(String::as_str).collect::<Vec<_>>(),
         [MODEL_PATH, CONTENT_TYPES_PATH, RELATIONSHIPS_PATH]
     );
+
     let content_types = String::from_utf8(entries[CONTENT_TYPES_PATH].clone()).unwrap();
+
     assert!(content_types.contains("application/vnd.ms-package.3dmanufacturing-3dmodel+xml"));
+
     let relationships = String::from_utf8(entries[RELATIONSHIPS_PATH].clone()).unwrap();
+
     assert!(relationships.contains("Target=\"/3D/3dmodel.model\""));
 
     let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
+
     assert!(model.contains("unit=\"millimeter\""));
     assert!(model.contains("<item objectid=\"1\"/><item objectid=\"2\"/>"));
+
     let objects = objects(&model);
+
     assert_eq!(objects.len(), 2);
     assert_eq!(objects[0].name, "Plate &amp; &lt;&quot;Pin&quot;&gt;");
     assert_eq!(objects[1].name, "Pin &apos;rod&apos;   é");
+
     for (object, mesh) in objects.iter().zip(&meshes) {
         assert_eq!(object.positions.len(), mesh.positions.len());
+
         for (read, written) in object.positions.iter().zip(&mesh.positions) {
             assert!(read.distance(*written) < 1e-5, "{read} {written}");
         }
+
         assert_eq!(object.triangles, mesh.triangles);
+
         assert_closed(object.triangles.iter().copied());
+
         let used: std::collections::BTreeSet<u32> =
             object.triangles.iter().flatten().copied().collect();
+
         assert_eq!(used.len(), object.positions.len());
     }
+
     let pin_facets: Vec<[Point3; 3]> = meshes[1].corners().collect();
     let volume = signed_volume(&pin_facets);
+
     assert!((volume - pin_volume()).abs() < 0.05 * pin_volume());
 }
 
 fn obj_objects(text: &str) -> Vec<(String, Vec<Point3>, Vec<[u32; 3]>)> {
     let mut objects: Vec<(String, Vec<Point3>, Vec<[u32; 3]>)> = Vec::new();
     let mut before = 0_u32;
+
     for line in text.lines().filter(|line| !line.starts_with('#')) {
         let (keyword, rest) = line.split_once(' ').unwrap();
         match keyword {
@@ -629,6 +685,7 @@ fn obj_objects(text: &str) -> Vec<(String, Vec<Point3>, Vec<[u32; 3]>)> {
                 else {
                     panic!("a vertex needs three numbers");
                 };
+
                 objects.last_mut().unwrap().1.push(Point3::new(x, y, z));
             }
             "f" => {
@@ -639,6 +696,7 @@ fn obj_objects(text: &str) -> Vec<(String, Vec<Point3>, Vec<[u32; 3]>)> {
                 else {
                     panic!("a face needs three corners");
                 };
+
                 objects.last_mut().unwrap().2.push([a, b, c]);
             }
             other => panic!("unexpected keyword {other}"),
@@ -651,6 +709,7 @@ fn obj_objects(text: &str) -> Vec<(String, Vec<Point3>, Vec<[u32; 3]>)> {
 fn an_obj_holds_each_body_as_a_named_closed_object_in_millimetres() {
     let block = block();
     let pin = pin();
+
     let meshes = [
         mesh_of(&block, MeshResolution::Standard),
         mesh_of(&pin, MeshResolution::Standard),
@@ -664,10 +723,13 @@ fn an_obj_holds_each_body_as_a_named_closed_object_in_millimetres() {
     assert!(text.lines().next().unwrap().contains("millimetres, Z up"));
     assert_eq!(objects.len(), 2);
     assert_eq!(objects[0].0, "body");
+
     let mut volume = 0.0;
+
     for ((_, positions, triangles), mesh) in objects.iter().zip(&meshes) {
         assert_eq!(positions.len(), mesh.positions.len());
         assert_eq!(triangles, &mesh.triangles);
+
         assert_closed(triangles.iter().copied());
         volume += signed_volume(
             &triangles
@@ -676,7 +738,9 @@ fn an_obj_holds_each_body_as_a_named_closed_object_in_millimetres() {
                 .collect::<Vec<_>>(),
         );
     }
+
     let expected = 40.0 * 20.0 * 10.0 + pin_volume();
+
     assert!(
         (volume - expected).abs() < 0.01 * expected,
         "volume {volume}"
@@ -687,8 +751,11 @@ fn an_obj_holds_each_body_as_a_named_closed_object_in_millimetres() {
 fn an_obj_names_a_body_without_line_breaks_or_emptiness() {
     let block = block();
     let mut first = mesh_of(&block, MeshResolution::Coarse);
+
     first.name = "Top\nplate\t";
+
     let mut second = mesh_of(&block, MeshResolution::Coarse);
+
     second.name = "  ";
 
     let text = String::from_utf8(
@@ -724,6 +791,7 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
     let block = block();
     let pin = pin();
     let path = dir.path().join("part.obj");
+
     let bodies = [
         ExportBody {
             name: "Base plate",
@@ -760,6 +828,7 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
     ];
 
     export_obj(&path, &bodies);
+
     let obj = std::fs::read_to_string(&path).unwrap();
     let library = std::fs::read_to_string(dir.path().join("part.mtl")).unwrap();
     let used: Vec<&str> = obj
@@ -789,7 +858,9 @@ fn an_obj_never_replaces_a_material_library_it_did_not_write() {
     let block = block();
     let path = dir.path().join("part.obj");
     let foreign = dir.path().join("part.mtl");
+
     std::fs::write(&foreign, "newmtl hand_made\nKd 1 1 1\n").unwrap();
+
     let coloured = [ExportBody {
         name: "Block",
         solid: &block,
@@ -804,6 +875,7 @@ fn an_obj_never_replaces_a_material_library_it_did_not_write() {
     }];
 
     export_obj(&path, &coloured);
+
     let obj = std::fs::read_to_string(&path).unwrap();
 
     assert_eq!(
@@ -831,7 +903,9 @@ fn an_obj_goes_without_colours_when_its_material_library_is_a_link() {
     let block = block();
     let path = dir.path().join("part.obj");
     let target = elsewhere.path().join("planted.mtl");
+
     std::os::unix::fs::symlink(&target, dir.path().join("part.mtl")).unwrap();
+
     let coloured = [ExportBody {
         name: "Block",
         solid: &block,
@@ -846,6 +920,7 @@ fn an_obj_goes_without_colours_when_its_material_library_is_a_link() {
     }];
 
     export_obj(&path, &coloured);
+
     let obj = std::fs::read_to_string(&path).unwrap();
 
     assert!(!target.exists());
@@ -892,7 +967,9 @@ fn an_obj_that_fails_writing_the_mesh_puts_the_previous_material_library_back() 
     let library = dir.path().join("part.mtl");
 
     export_obj(&path, &coloured_block(&block, Rgb::new(10, 20, 30)));
+
     let before = std::fs::read(&library).unwrap();
+
     std::fs::remove_file(&path).unwrap();
     std::fs::create_dir(&path).unwrap();
 
@@ -907,6 +984,7 @@ fn an_obj_that_fails_writing_the_mesh_leaves_no_new_material_library() {
     let dir = TempDir::new().unwrap();
     let block = block();
     let path = dir.path().join("part.obj");
+
     std::fs::create_dir(&path).unwrap();
 
     let failed = try_export_obj(&path, &coloured_block(&block, Rgb::new(200, 100, 50)));
@@ -946,12 +1024,16 @@ fn glb(bytes: &[u8]) -> Glb {
     assert_eq!(read_u32(bytes, 0), 0x4654_6c67);
     assert_eq!(read_u32(bytes, 4), 2);
     assert_eq!(read_u32(bytes, 8) as usize, bytes.len());
+
     let json_length = read_u32(bytes, 12) as usize;
+
     assert_eq!(read_u32(bytes, 16), 0x4e4f_534a);
     assert_eq!(json_length % 4, 0);
+
     let json = serde_json::from_slice(&bytes[20..20 + json_length]).unwrap();
     let binary_start = 20 + json_length;
     let binary_length = read_u32(bytes, binary_start) as usize;
+
     assert_eq!(read_u32(bytes, binary_start + 4), 0x004e_4942);
     assert_eq!(binary_length % 4, 0);
     assert_eq!(binary_start + 8 + binary_length, bytes.len());
@@ -963,11 +1045,14 @@ fn glb(bytes: &[u8]) -> Glb {
 
 fn glb_positions(glb: &Glb, accessor: usize) -> Vec<Point3> {
     let accessor = &glb.json["accessors"][accessor];
+
     assert_eq!(accessor["componentType"], 5126);
     assert_eq!(accessor["type"], "VEC3");
+
     let view = &glb.json["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize];
     let start = view["byteOffset"].as_u64().unwrap() as usize;
     let count = accessor["count"].as_u64().unwrap() as usize;
+
     assert_eq!(view["byteLength"].as_u64().unwrap() as usize, count * 12);
     (0..count)
         .map(|index| {
@@ -979,8 +1064,10 @@ fn glb_positions(glb: &Glb, accessor: usize) -> Vec<Point3> {
 
 fn glb_triangles(glb: &Glb, accessor: usize) -> Vec<[u32; 3]> {
     let accessor = &glb.json["accessors"][accessor];
+
     assert_eq!(accessor["componentType"], 5125);
     assert_eq!(accessor["type"], "SCALAR");
+
     let view = &glb.json["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize];
     let start = view["byteOffset"].as_u64().unwrap() as usize;
     let count = accessor["count"].as_u64().unwrap() as usize;
@@ -995,10 +1082,12 @@ fn glb_triangles(glb: &Glb, accessor: usize) -> Vec<[u32; 3]> {
 fn a_glb_gives_a_coloured_body_a_material_in_linear_colour() {
     let block = block();
     let pin = pin();
+
     let mut meshes = [
         mesh_of(&block, MeshResolution::Coarse),
         mesh_of(&pin, MeshResolution::Coarse),
     ];
+
     meshes[1].look = Some(Look {
         colour: Rgb::new(255, 0, 128),
         opacity: None,
@@ -1013,9 +1102,13 @@ fn a_glb_gives_a_coloured_body_a_material_in_linear_colour() {
             .is_none()
     );
     assert_eq!(glb.json["meshes"][1]["primitives"][0]["material"], 0);
+
     let material = &glb.json["materials"][0];
+
     assert_eq!(material["name"], "Brass");
+
     let factor = &material["pbrMetallicRoughness"]["baseColorFactor"];
+
     assert_eq!(factor[0], 1.0);
     assert_eq!(factor[1], 0.0);
     assert!((factor[2].as_f64().unwrap() - 0.2158605).abs() < 1e-6);
@@ -1037,6 +1130,7 @@ fn a_glb_node_and_an_obj_object_name_the_threads_of_their_body() {
         mesh_of(&block, MeshResolution::Coarse),
         mesh_of(&block, MeshResolution::Coarse),
     ];
+
     meshes[0].threads = &threads;
 
     let glb = glb(&gltf::encode(&meshes, &ModelProperties::default()).unwrap());
@@ -1049,7 +1143,9 @@ fn a_glb_node_and_an_obj_object_name_the_threads_of_their_body() {
     );
     assert!(glb.json["nodes"][1].get("extras").is_none());
     assert_eq!(obj.matches("# Thread: M6-6H").count(), 1);
+
     let thread_line = obj.lines().position(|line| line == "# Thread: M6-6H");
+
     assert_eq!(
         thread_line,
         obj.lines()
@@ -1072,6 +1168,7 @@ fn a_glb_of_plain_bodies_has_no_materials() {
 fn a_glb_is_a_valid_binary_gltf_with_one_named_node_per_body_in_metres_with_y_up() {
     let block = block();
     let pin = pin();
+
     let meshes = [
         mesh_of(&block, MeshResolution::Standard),
         mesh_of(&pin, MeshResolution::Standard),
@@ -1086,16 +1183,22 @@ fn a_glb_is_a_valid_binary_gltf_with_one_named_node_per_body_in_metres_with_y_up
         glb.binary.len()
     );
     assert_eq!(glb.json["nodes"][0]["name"], "body");
+
     let mut volume = 0.0;
+
     for (index, mesh) in meshes.iter().enumerate() {
         let primitive = &glb.json["meshes"][index]["primitives"][0];
+
         assert_eq!(primitive["mode"], 4);
+
         let positions = glb_positions(
             &glb,
             primitive["attributes"]["POSITION"].as_u64().unwrap() as usize,
         );
         let triangles = glb_triangles(&glb, primitive["indices"].as_u64().unwrap() as usize);
+
         assert_eq!(triangles, mesh.triangles);
+
         for (found, expected) in positions.iter().zip(&mesh.positions) {
             assert!(
                 (*found - *expected).length() < 1e-3,
@@ -1110,7 +1213,9 @@ fn a_glb_is_a_valid_binary_gltf_with_one_named_node_per_body_in_metres_with_y_up
                 .collect::<Vec<_>>(),
         );
     }
+
     let expected = 40.0 * 20.0 * 10.0 + pin_volume();
+
     assert!(
         (volume - expected).abs() < 0.01 * expected,
         "volume {volume}"
@@ -1139,6 +1244,7 @@ fn a_glb_gives_each_position_accessor_the_bounds_gltf_requires() {
             .zip(expected)
             .all(|(found, expected)| (found - expected).abs() < 1e-6)
     };
+
     assert!(near(&bound("min"), [0.0, 0.0, -0.02]));
     assert!(near(&bound("max"), [0.04, 0.01, 0.0]));
 }
@@ -1153,6 +1259,7 @@ fn a_finer_resolution_follows_curved_faces_more_closely() {
             (signed_volume(&facets) - pin_volume()).abs()
         })
         .collect();
+
     assert!(errors[0] > errors[1] && errors[1] > errors[2], "{errors:?}");
     assert!(errors[2] < 1e-3 * pin_volume());
 }
@@ -1169,9 +1276,12 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
         threads: &[],
         faces: &[],
     }];
+
     for format in ExportFormat::ALL {
         let path = dir.path().join(format!("part.{}", format.extension()));
+
         assert!(format.matches(&path));
+
         let exported = export_bodies(
             &path,
             format,
@@ -1184,21 +1294,29 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
             &CancelToken::never(),
         )
         .unwrap();
+
         assert_eq!(exported.bodies, 1);
+
         let expected = format.is_mesh().then_some(12);
+
         assert_eq!(exported.triangles, expected);
         assert!(std::fs::metadata(&path).unwrap().len() > 0);
     }
+
     let mut names: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
+
     names.sort();
+
     assert_eq!(
         names,
         ["part.3mf", "part.glb", "part.obj", "part.step", "part.stl"]
     );
+
     let step = std::fs::read_to_string(dir.path().join("part.step")).unwrap();
+
     assert!(step.contains("=MANIFOLD_SOLID_BREP('Extrude 1',"));
     assert!(step.contains("FILE_NAME('part',"));
 }
@@ -1233,6 +1351,7 @@ fn a_step_export_styles_a_coloured_body_with_its_colour() {
         &CancelToken::never(),
     )
     .unwrap();
+
     let step = std::fs::read_to_string(&path).unwrap();
 
     assert!(step.contains("=COLOUR_RGB('',1.0,0.0,0.0);"));
@@ -1270,6 +1389,7 @@ fn a_step_export_writes_the_transparency_of_a_see_through_body_and_reads_it_back
         &CancelToken::never(),
     )
     .unwrap();
+
     let step = std::fs::read_to_string(&path).unwrap();
     let read = caditor_step::read_step(&step).unwrap();
     let opacity = |name: &str| {
@@ -1302,6 +1422,7 @@ fn a_step_export_writes_the_colours_and_opacities_of_faces_and_reads_them_back()
             opacity: Some(50),
         },
     ];
+
     let bodies = [ExportBody {
         name: "Block",
         solid: &block,
@@ -1324,11 +1445,13 @@ fn a_step_export_writes_the_colours_and_opacities_of_faces_and_reads_them_back()
         &CancelToken::never(),
     )
     .unwrap();
+
     let read = caditor_step::read_step(&std::fs::read_to_string(&path).unwrap()).unwrap();
 
     let [solid] = read.solids.as_slice() else {
         panic!("expected one solid");
     };
+
     assert_eq!((solid.colour, solid.opacity), (Some([200, 220, 255]), None));
     assert_eq!(
         solid.faces,
@@ -1377,6 +1500,7 @@ fn a_step_export_puts_bodies_in_a_folder_on_a_layer_named_after_it() {
         &CancelToken::never(),
     )
     .unwrap();
+
     let step = std::fs::read_to_string(&path).unwrap();
 
     assert_eq!(step.matches("=PRESENTATION_LAYER_ASSIGNMENT(").count(), 1);
@@ -1416,15 +1540,18 @@ fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept(
     };
 
     let (meshes, left_out) = tessellate_all(&bodies, &CancelToken::never(), mesher).unwrap();
+
     assert_eq!(meshes.len(), 1);
     assert_eq!(left_out, [ExportError::Meshing("Bad".to_owned())]);
 
     let only_bad = tessellate_all(&bodies[1..], &CancelToken::never(), mesher);
+
     assert_eq!(only_bad, Err(ExportError::Meshing("Bad".to_owned())));
 
     let cancelled = tessellate_all(&bodies, &CancelToken::never(), |_| {
         Err(ExportError::Cancelled)
     });
+
     assert_eq!(cancelled, Err(ExportError::Cancelled));
 }
 
@@ -1444,6 +1571,7 @@ fn a_cancelled_or_empty_export_writes_nothing() {
     let cancelled = Arc::new(AtomicBool::new(true));
     let flag = Arc::clone(&cancelled);
     let cancel = CancelToken::new(move || flag.load(Ordering::SeqCst));
+
     assert_eq!(
         export_bodies(
             &path,
@@ -1487,6 +1615,7 @@ fn a_cancelled_or_empty_export_writes_nothing() {
         &CancelToken::never(),
     )
     .unwrap_err();
+
     assert_eq!(error.to_string(), "its folder no longer exists");
 }
 
@@ -1510,6 +1639,7 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
         let counted = Arc::clone(&calls);
         let cancel = CancelToken::new(move || counted.fetch_add(1, Ordering::SeqCst) >= allowed);
         let path = dir.path().join(name);
+
         assert_eq!(
             export_bodies(
                 &path,
@@ -1531,6 +1661,7 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
 
 fn drawn_sketch() -> Sketch {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 0.0));
     sketch.add_circle(Point2::new(20.0, 10.0), 4.0);
     sketch.add_arc(
@@ -1545,7 +1676,9 @@ fn drawn_sketch() -> Sketch {
         Point2::new(30.0, 30.0),
     ]);
     sketch.add_point(Point2::new(-5.0, -5.0));
+
     let guide = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(40.0, -10.0));
+
     sketch.set_construction(guide, true).unwrap();
     sketch
 }
@@ -1571,7 +1704,9 @@ fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
     );
     assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
     assert_eq!(drawing.curves.len(), 5);
+
     let near = |a: Point2, b: Point2| a.distance(b) < 1e-9;
+
     assert!(drawing.curves.iter().any(|curve| matches!(
         curve,
         crate::DrawingCurve::Line { start, end }
@@ -1603,9 +1738,12 @@ fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
 #[test]
 fn a_sketch_ellipse_exports_to_a_dxf_ellipse_that_reads_back_exactly() {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_ellipse(Point2::new(5.0, 5.0), Point2::new(5.0, 15.0), 4.0);
+
     let start = Point2::new(30.0 + 2.0 * 0.6, 3.0 * 0.8);
     let end = Point2::new(30.0, -3.0);
+
     sketch.add_elliptical_arc(
         Point2::new(30.0, 0.0),
         Point2::new(32.0, 0.0),
@@ -1619,7 +1757,9 @@ fn a_sketch_ellipse_exports_to_a_dxf_ellipse_that_reads_back_exactly() {
 
     assert_eq!(exported.curves, 2);
     assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
+
     let near = |a: Point2, b: Point2| a.distance(b) < 1e-9;
+
     assert!(drawing.curves.iter().any(|curve| matches!(
         curve,
         crate::DrawingCurve::Ellipse { center, major, minor_radius, ends: None }
@@ -1641,7 +1781,9 @@ fn a_sketch_ellipse_exports_to_a_dxf_ellipse_that_reads_back_exactly() {
 #[test]
 fn sketch_text_exports_as_its_letter_outlines_without_its_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let anchor = sketch.add_point(Point2::new(2.0, 1.0));
+
     sketch
         .add_text(caditor_sketch::Text {
             anchor,
@@ -1672,7 +1814,9 @@ fn sketch_text_exports_as_its_letter_outlines_without_its_point() {
 fn multi_line_aligned_sketch_text_exports_below_and_about_its_point() {
     let sketch_with = |align| {
         let mut sketch = Sketch::new(Plane::XY);
+
         let anchor = sketch.add_point(Point2::new(50.0, 0.0));
+
         sketch
             .add_text(caditor_sketch::Text {
                 anchor,
@@ -1712,7 +1856,9 @@ fn multi_line_aligned_sketch_text_exports_below_and_about_its_point() {
 #[test]
 fn a_stored_gear_exports_as_its_outline_bore_and_construction_circles_without_its_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(5.0, 4.0));
+
     sketch
         .add_parametric_gear(caditor_sketch::Gear {
             centre,
@@ -1739,6 +1885,7 @@ fn a_stored_gear_exports_as_its_outline_bore_and_construction_circles_without_it
             chain: None,
         })
         .unwrap();
+
     let solved = sketch
         .solve(
             &|_| Err(caditor_expression::EvalError::ParameterMissing),
@@ -1764,6 +1911,7 @@ fn a_stored_gear_exports_as_its_outline_bore_and_construction_circles_without_it
 #[test]
 fn a_stored_sprocket_exports_as_its_gaps_bore_and_construction_circles_without_its_point() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(5.0, 4.0));
     let held = caditor_sketch::Gear::sprocket(
         centre,
@@ -1780,6 +1928,7 @@ fn a_stored_sprocket_exports_as_its_gaps_bore_and_construction_circles_without_i
         )
         .unwrap()
         .geometry;
+
     let tip = solved.toothed_outline(sprocket).unwrap().tip_radius();
 
     let (figure, exported) = Figure::of_sketch(&solved, Construction::OnLayer);
@@ -1806,7 +1955,9 @@ fn construction_kept_goes_on_its_own_dashed_layer_and_reads_back_as_construction
     let image = svg::encode(&figure).unwrap();
     let only_construction = {
         let mut guides = Sketch::new(Plane::XY);
+
         let guide = guides.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+
         guides.set_construction(guide, true).unwrap();
         Figure::of_sketch(&guides, Construction::OnLayer).1
     };
@@ -1825,7 +1976,9 @@ fn construction_kept_goes_on_its_own_dashed_layer_and_reads_back_as_construction
     assert!(text.contains("  8\nConstruction\n  6\nDASHED\n"));
     assert_eq!(drawing.curves.len(), 6);
     assert_eq!(drawing.construction.len(), 1);
+
     let guide = drawing.construction.iter().next().copied().unwrap();
+
     assert!(matches!(
         drawing.curves[guide],
         crate::DrawingCurve::Line { start, .. } if start.distance(Point2::new(0.0, -10.0)) < 1e-9
@@ -1845,8 +1998,11 @@ fn a_dxf_names_its_unit_so_importing_it_needs_no_conversion() {
 #[test]
 fn a_sketch_of_only_construction_has_nothing_to_export() {
     let mut sketch = Sketch::new(Plane::XY);
+
     let guide = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+
     sketch.set_construction(guide, true).unwrap();
+
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("guide.dxf");
 
@@ -1920,6 +2076,7 @@ fn a_sketch_exports_to_an_svg_in_millimetres_with_y_pointing_down() {
 #[test]
 fn an_svg_frames_the_drawing_with_a_margin_in_its_viewbox() {
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
 
     let text = svg::encode(&Figure::of_sketch(&sketch, Construction::LeftOut).0).unwrap();
@@ -2017,13 +2174,16 @@ fn a_flat_face_exports_its_outline_and_holes_exactly_on_layers_of_their_own() {
         drawing.notes
     );
     assert_eq!(drawing.curves.len(), 5);
+
     for (index, curve) in drawing.curves.iter().enumerate() {
         let expected = match curve {
             crate::DrawingCurve::Circle { .. } => "Holes",
             _ => "Outline",
         };
+
         assert_eq!(layer_of(&drawing, index), expected);
     }
+
     assert!(drawing.curves.iter().any(|curve| matches!(
         curve,
         crate::DrawingCurve::Circle { center, radius }
@@ -2042,6 +2202,7 @@ fn a_flat_face_exports_its_outline_and_holes_exactly_on_layers_of_their_own() {
             if [*start, *end].iter().any(|point| near(*point, Point2::new(40.0, 0.0)))
                 && [*start, *end].iter().any(|point| near(*point, Point2::ZERO))
     )));
+
     let spline = drawing
         .curves
         .iter()
@@ -2050,6 +2211,7 @@ fn a_flat_face_exports_its_outline_and_holes_exactly_on_layers_of_their_own() {
             _ => None,
         })
         .unwrap();
+
     assert_eq!(spline.len(), 4);
     assert!(
         spline
@@ -2086,10 +2248,12 @@ fn a_flat_face_cut_through_a_torus_writes_each_traced_edge_as_one_spline() {
         0.15,
     )
     .unwrap();
+
     let cutter = slab.transformed(&tilt).unwrap();
     let cut = caditor_kernel::boolean(&ring, &cutter, caditor_kernel::BooleanOperation::Difference)
         .unwrap();
     let normal = tilt.apply_vector(Vector3::Z);
+
     let face = face_facing(&cut, normal);
 
     let (figure, exported) = outline::face_figure(&cut, face).unwrap();
@@ -2107,7 +2271,9 @@ fn a_flat_face_cut_through_a_torus_writes_each_traced_edge_as_one_spline() {
         "{:?}",
         figure.shapes
     );
+
     let drawing = crate::parse_dxf(dxf::encode(&figure).as_bytes()).unwrap();
+
     assert_eq!(drawing.curves.len(), exported.curves);
 }
 
@@ -2117,6 +2283,7 @@ fn several_faces_go_into_one_drawing_side_by_side() {
     let other = block();
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("nest.dxf");
+
     let faces = [
         NamedFace {
             name: "Plate",
@@ -2141,11 +2308,15 @@ fn several_faces_go_into_one_drawing_side_by_side() {
 
     let single = outline::face_figure(&plate, faces[0].face).unwrap().1;
     let second = outline::face_figure(&other, faces[1].face).unwrap().1;
+
     assert_eq!(exported.faces, 2);
     assert_eq!(exported.curves, single.curves + second.curves);
     assert_eq!(exported.loops, single.loops + second.loops);
+
     let drawing = crate::parse_dxf(&std::fs::read(&path).unwrap()).unwrap();
+
     assert_eq!(drawing.curves.len(), exported.curves);
+
     let (first_part, second_part) = drawing.curves.split_at(single.curves);
     let reach = |curves: &[crate::DrawingCurve]| {
         curves
@@ -2185,8 +2356,10 @@ fn several_faces_go_into_one_drawing_side_by_side() {
                 (low.min(point.x), high.max(point.x))
             })
     };
+
     let (_, first_right) = reach(first_part);
     let (second_left, _) = reach(second_part);
+
     assert!(
         second_left >= first_right + 10.0 - 1e-6,
         "{first_right} {second_left}"
@@ -2209,6 +2382,7 @@ fn faces_are_drawn_as_seen_from_outside_with_z_or_y_up() {
 
     assert!(near(arc_center(&bottom).unwrap(), Point2::new(-40.0, 10.0)));
     assert_eq!(front_exported.loops, 1);
+
     let corners: Vec<Point2> = front
         .curves
         .iter()
@@ -2241,6 +2415,7 @@ fn a_face_exports_to_an_svg_grouping_its_outline_and_holes() {
     let outline = text.find(r#"<g id="Outline">"#).unwrap();
     let holes = text.find(r#"<g id="Holes">"#).unwrap();
     let circle = text.find(r#"<circle cx="20" cy="-10" r="4"/>"#).unwrap();
+
     assert!(outline < holes && holes < circle);
     assert!(text.contains(r#"<path d="M 40 0 A 10 10 0 "#), "{text}");
     assert!(text.contains(r#" 0 40 -20"/>"#), "{text}");
@@ -2268,6 +2443,7 @@ fn a_curved_or_missing_face_writes_nothing() {
 
     assert_eq!(result, Err(ExportError::FaceNotFlat));
     assert!(!path.exists());
+
     let top = face_facing(&solid, Vector3::Z);
     let cancelled = export_face(
         &path,
@@ -2276,9 +2452,12 @@ fn a_curved_or_missing_face_writes_nothing() {
         SketchFormat::Svg,
         &CancelToken::new(|| true),
     );
+
     assert_eq!(cancelled, Err(ExportError::Cancelled));
     assert!(!path.exists());
+
     let written = export_face(&path, &solid, top, SketchFormat::Dxf, &CancelToken::never());
+
     assert_eq!(written.map(|exported| exported.curves), Ok(5));
     assert!(std::fs::read_to_string(&path).unwrap().contains("Holes"));
 }
@@ -2302,11 +2481,15 @@ fn an_elliptical_edge_keeps_its_arc_whichever_way_its_frame_faces() {
 
             assert!(arc.ratio <= 1.0);
             assert!((arc.major.length() - 8.0).abs() < 1e-12);
+
             let ends = [arc.point_at(arc.start), arc.point_at(arc.end)];
+
             for parameter in [range.start(), range.end()] {
                 assert!(ends.iter().any(|end| near(*end, on_drawing(parameter))));
             }
+
             let middle = arc.point_at((arc.start + arc.end) / 2.0);
+
             assert!(near(middle, on_drawing(range.middle())));
         }
     }
@@ -2334,6 +2517,7 @@ fn a_3mf_carries_the_model_properties_it_has_names_for() {
 
     let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
     let plain = String::from_utf8(plain[MODEL_PATH].clone()).unwrap();
+
     assert!(model.contains(r#"<metadata name="Title">Wall &lt;bracket&gt;</metadata>"#));
     assert!(model.contains(r#"<metadata name="Designer">Drafter</metadata>"#));
     assert!(model.contains(r#"<metadata name="Description">Holds a shelf</metadata>"#));
@@ -2347,6 +2531,7 @@ fn a_3mf_carries_the_model_properties_it_has_names_for() {
 fn a_3mf_of_several_bodies_leaves_the_part_number_off_its_items() {
     let block = block();
     let pin = pin();
+
     let meshes = [
         mesh_of(&block, MeshResolution::Coarse),
         mesh_of(&pin, MeshResolution::Coarse),
@@ -2355,6 +2540,7 @@ fn a_3mf_of_several_bodies_leaves_the_part_number_off_its_items() {
     let entries = unzip(&three_mf::encode(&meshes, &bracket_properties()).unwrap());
 
     let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
+
     assert!(!model.contains("partnumber"));
 }
 
@@ -2367,6 +2553,7 @@ fn a_glb_keeps_the_model_properties_in_its_asset_extras() {
     let glb_without = glb(&gltf::encode(&meshes, &ModelProperties::default()).unwrap());
 
     let extras = &glb_with.json["asset"]["extras"];
+
     assert_eq!(extras["title"], "Wall <bracket>");
     assert_eq!(extras["partNumber"], "BR-100");
     assert_eq!(extras["revision"], "C");
@@ -2428,6 +2615,7 @@ fn a_step_export_names_its_product_and_header_from_the_model_properties() {
         &CancelToken::never(),
     )
     .unwrap();
+
     let step = std::fs::read_to_string(&path).unwrap();
 
     assert!(step.contains("FILE_DESCRIPTION(('Holds a shelf'),'2;1');"));
@@ -2441,8 +2629,10 @@ fn a_step_export_names_its_product_and_header_from_the_model_properties() {
 fn sketches_and_faces_nest_into_one_drawing() {
     let plate = rounded_plate();
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
     sketch.add_circle(Point2::new(15.0, 10.0), 5.0);
+
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("mixed.dxf");
     let face = face_facing(&plate, Vector3::Z);
@@ -2470,12 +2660,15 @@ fn sketches_and_faces_nest_into_one_drawing() {
     .unwrap();
 
     let outlined = outline::face_figure(&plate, face).unwrap().1;
+
     assert_eq!(exported.sketches.sketches, 1);
     assert_eq!(exported.sketches.curves, 2);
     assert_eq!(exported.faces.faces, 1);
     assert_eq!(exported.faces.curves, outlined.curves);
     assert_eq!(exported.too_wide, 0);
+
     let drawing = crate::parse_dxf(&std::fs::read(&path).unwrap()).unwrap();
+
     assert_eq!(drawing.curves.len(), 2 + outlined.curves);
     assert!(drawing.layers.iter().any(|layer| layer == "0"));
     assert!(drawing.layers.iter().any(|layer| layer == "Outline"));
@@ -2516,10 +2709,12 @@ fn a_3mf_object_carries_its_threads_as_metadata_in_the_caditor_namespace() {
         thread_of("M8x1.25-6H & <more>", ThreadSide::Internal),
         thread_of("M6-6g", ThreadSide::External),
     ];
+
     let mut meshes = [
         mesh_of(&block, MeshResolution::Coarse),
         mesh_of(&pin, MeshResolution::Coarse),
     ];
+
     meshes[0].threads = &threads;
 
     let entries = unzip(&three_mf::encode(&meshes, &ModelProperties::default()).unwrap());
@@ -2527,16 +2722,20 @@ fn a_3mf_object_carries_its_threads_as_metadata_in_the_caditor_namespace() {
     let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
     let document = roxmltree::Document::parse(&model).unwrap();
     let root = document.root_element();
+
     assert_eq!(
         root.lookup_namespace_uri(Some("caditor")),
         Some(three_mf::CADITOR_NAMESPACE)
     );
     assert_eq!(three_mf::CADITOR_NAMESPACE, "urn:caditor:3mf");
+
     let objects: Vec<_> = document
         .descendants()
         .filter(|node| node.has_tag_name("object"))
         .collect();
+
     assert_eq!(objects.len(), 2);
+
     let groups: Vec<_> = objects
         .iter()
         .map(|object| {
@@ -2546,12 +2745,15 @@ fn a_3mf_object_carries_its_threads_as_metadata_in_the_caditor_namespace() {
                 .count()
         })
         .collect();
+
     assert_eq!(groups, [1, 0]);
+
     let children: Vec<_> = objects[0]
         .children()
         .filter(|child| child.is_element())
         .map(|child| child.tag_name().name())
         .collect();
+
     assert_eq!(children, ["metadatagroup", "mesh"]);
 
     let entries: Vec<(&str, &str)> = objects[0]
@@ -2566,6 +2768,7 @@ fn a_3mf_object_carries_its_threads_as_metadata_in_the_caditor_namespace() {
             (entry.attribute("name").unwrap(), entry.text().unwrap())
         })
         .collect();
+
     assert_eq!(
         entries,
         [
@@ -2583,9 +2786,12 @@ fn a_3mf_object_carries_its_threads_as_metadata_in_the_caditor_namespace() {
             ("caditor:thread.2.direction", "0 0 -1"),
         ]
     );
+
     let mut names: Vec<&str> = entries.iter().map(|(name, _)| *name).collect();
+
     names.sort_unstable();
     names.dedup();
+
     assert_eq!(names.len(), entries.len());
 }
 
@@ -2595,6 +2801,7 @@ fn a_3mf_without_threads_is_byte_for_byte_what_it_was() {
     let threads = [thread_of("M6-6H", ThreadSide::Internal)];
     let plain = [mesh_of(&block, MeshResolution::Coarse)];
     let mut threaded = [mesh_of(&block, MeshResolution::Coarse)];
+
     threaded[0].threads = &threads;
 
     let without = three_mf::encode(&plain, &ModelProperties::default()).unwrap();
@@ -2602,16 +2809,21 @@ fn a_3mf_without_threads_is_byte_for_byte_what_it_was() {
     let again = three_mf::encode(&plain, &ModelProperties::default()).unwrap();
 
     assert_eq!(without, again);
+
     let without = String::from_utf8(unzip(&without)[MODEL_PATH].clone()).unwrap();
     let with = String::from_utf8(unzip(&with)[MODEL_PATH].clone()).unwrap();
+
     assert!(!without.contains(three_mf::CADITOR_NAMESPACE));
     assert!(!without.contains("metadatagroup"));
     assert!(!without.contains("xmlns:"));
+
     let group_start = with.find("<metadatagroup>").unwrap();
     let group_end = with.find("</metadatagroup>").unwrap() + "</metadatagroup>".len();
     let declaration = format!(r#" xmlns:caditor="{}""#, three_mf::CADITOR_NAMESPACE);
+
     let stripped =
         format!("{}{}", &with[..group_start], &with[group_end..]).replace(&declaration, "");
+
     assert_eq!(stripped, without);
 }
 
@@ -2637,6 +2849,7 @@ fn a_drawing_sheet_writes_its_views_and_title_block_as_pdf_svg_and_dxf() {
         caditor_document::DrawingId::from_raw(0),
         "Sheet".to_owned(),
     );
+
     let lines = sheet_lines(&drawing, &[&block, &pin]);
     let extents = lines
         .iter()
@@ -2646,6 +2859,7 @@ fn a_drawing_sheet_writes_its_views_and_title_block_as_pdf_svg_and_dxf() {
         title: "Bracket".to_owned(),
         ..caditor_document::TitleFields::default()
     };
+
     let plan = caditor_document::lay_out_sheet(&drawing, &fields, &extents, &BTreeMap::new());
     let views: Vec<SheetView<'_>> = plan
         .views
@@ -2696,6 +2910,7 @@ fn a_drawing_sheet_writes_its_views_and_title_block_as_pdf_svg_and_dxf() {
     let read_back = crate::parse_dxf(&dxf).unwrap();
 
     let first = written[0];
+
     assert_eq!(first.views, 4);
     assert!(first.visible > 0 && first.hidden > 0);
     assert!(written.iter().all(|exported| *exported == first));
@@ -2706,12 +2921,17 @@ fn a_drawing_sheet_writes_its_views_and_title_block_as_pdf_svg_and_dxf() {
     assert!(svg.contains(">Bracket</text>"));
     assert!(pdf.starts_with(b"%PDF-1.4"));
     assert!(pdf_text.ends_with("%%EOF\n"));
+
     let table = String::from_utf8(pdf[start_of_table..].to_vec()).unwrap();
+
     assert!(table.starts_with("xref"));
+
     for (index, line) in table.lines().skip(3).take(5).enumerate() {
         let offset: usize = line[..10].parse().unwrap();
+
         assert!(pdf[offset..].starts_with(format!("{} 0 obj", index + 1).as_bytes()));
     }
+
     assert!(read_back.layers.iter().any(|layer| layer == "Visible"));
     assert!(read_back.layers.iter().any(|layer| layer == "Frame"));
     assert!(!read_back.construction.is_empty());
@@ -2724,6 +2944,7 @@ fn a_section_view_is_written_hatched_with_its_cutting_line_on_its_parent() {
         caditor_document::DrawingId::from_raw(0),
         "Sections".to_owned(),
     );
+
     drawing.sections = vec![caditor_document::SectionView {
         letter: 'A',
         parent: caditor_document::StandardView::Front,
@@ -2731,6 +2952,7 @@ fn a_section_view_is_written_hatched_with_its_cutting_line_on_its_parent() {
         place: caditor_document::SectionPlace::offset(20.0),
         reversed: false,
     }];
+
     let lines = sheet_lines(&drawing, &[&block, &pin]);
     let extents = lines
         .iter()
@@ -2745,6 +2967,7 @@ fn a_section_view_is_written_hatched_with_its_cutting_line_on_its_parent() {
             _ => None,
         })
         .collect();
+
     let plan = caditor_document::lay_out_sheet(
         &drawing,
         &caditor_document::TitleFields::default(),
@@ -2802,11 +3025,13 @@ fn a_section_view_is_written_hatched_with_its_cutting_line_on_its_parent() {
 #[test]
 fn detail_views_are_written_clipped_with_their_circles_and_labels() {
     let (block, pin) = (block(), pin());
+
     let solids = [&block, &pin];
     let mut drawing = caditor_document::Drawing::new(
         caditor_document::DrawingId::from_raw(0),
         "Details".to_owned(),
     );
+
     drawing.sections = vec![caditor_document::SectionView {
         letter: 'A',
         parent: caditor_document::StandardView::Front,
@@ -2814,6 +3039,7 @@ fn detail_views_are_written_clipped_with_their_circles_and_labels() {
         place: caditor_document::SectionPlace::offset(20.0),
         reversed: false,
     }];
+
     let mut lines = sheet_lines(&drawing, &solids);
     let circle_in = |view: caditor_document::DrawnView| {
         let bounds = lines
@@ -2827,6 +3053,7 @@ fn detail_views_are_written_clipped_with_their_circles_and_labels() {
         caditor_document::StandardView::Front,
     ));
     let (section_centre, section_radius) = circle_in(caditor_document::DrawnView::Section('A'));
+
     drawing.details = vec![
         caditor_document::DetailView {
             letter: 'B',
@@ -2849,8 +3076,10 @@ fn detail_views_are_written_clipped_with_their_circles_and_labels() {
             .find(|lines| lines.view == detail.parent.drawn())
             .unwrap();
         let enlarged = caditor_document::detail_view(detail, parent).unwrap();
+
         lines.push(enlarged);
     }
+
     let extents = lines
         .iter()
         .filter_map(|lines| Some((lines.view, lines.bounds?)))
@@ -2864,6 +3093,7 @@ fn detail_views_are_written_clipped_with_their_circles_and_labels() {
             _ => None,
         })
         .collect();
+
     let plan = caditor_document::lay_out_sheet(
         &drawing,
         &caditor_document::TitleFields::default(),

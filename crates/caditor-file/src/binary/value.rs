@@ -28,7 +28,7 @@ const VARINT_BITS: u32 = 7;
 const VARINT_CONTINUES: u8 = 0x80;
 const VARINT_PAYLOAD: u8 = 0x7f;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum Damage {
     #[error("the value ends early")]
     EndsEarly,
@@ -54,7 +54,7 @@ pub(crate) enum Damage {
     UnknownKind,
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub(crate) enum ValueError {
     #[error("{damage} at byte {position}")]
     Malformed { damage: Damage, position: usize },
@@ -133,6 +133,7 @@ impl de::Error for ValueError {
 
 pub(crate) fn to_bytes(value: &impl Serialize) -> Result<Vec<u8>, ValueError> {
     let mut encoder = Encoder { bytes: Vec::new() };
+
     value.serialize(&mut encoder)?;
     Ok(encoder.bytes)
 }
@@ -143,7 +144,9 @@ pub(crate) fn from_bytes<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> Result<T
         position: 0,
         depth: 0,
     };
+
     let value = T::deserialize(&mut decoder)?;
+
     if decoder.position != bytes.len() {
         return Err(ValueError::TrailingBytes);
     }
@@ -153,6 +156,7 @@ pub(crate) fn from_bytes<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> Result<T
 pub(crate) fn push_varint(bytes: &mut Vec<u8>, mut value: u64) {
     loop {
         let low = (value & u64::from(VARINT_PAYLOAD)) as u8;
+
         value >>= VARINT_BITS;
         if value == 0 {
             bytes.push(low);
@@ -167,8 +171,11 @@ pub(crate) fn read_varint(bytes: &[u8], position: &mut usize) -> Option<u64> {
     let mut shift = 0_u32;
     loop {
         let byte = *bytes.get(*position)?;
+
         *position += 1;
+
         let payload = u64::from(byte & VARINT_PAYLOAD);
+
         if shift >= u64::BITS || (shift > 0 && payload >> (u64::BITS - shift) != 0) {
             return None;
         }
@@ -534,6 +541,7 @@ impl<'de> Decoder<'de> {
 
     fn next(&mut self) -> Result<u8, ValueError> {
         let byte = self.peek()?;
+
         self.position += 1;
         Ok(byte)
     }
@@ -554,6 +562,7 @@ impl<'de> Decoder<'de> {
             .bytes
             .get(self.position..end)
             .ok_or_else(|| self.error(Damage::LengthPastEnd))?;
+
         self.position = end;
         Ok(slice)
     }
@@ -614,6 +623,7 @@ impl<'de> Deserializer<'de> for &mut Decoder<'de> {
                     .get(self.position..end)
                     .and_then(|bytes| bytes.try_into().ok())
                     .ok_or_else(|| self.error(Damage::NumberEndsEarly))?;
+
                 self.position = end;
                 visitor.visit_f64(f64::from_le_bytes(bytes))
             }
@@ -621,11 +631,14 @@ impl<'de> Deserializer<'de> for &mut Decoder<'de> {
             BYTES => visitor.visit_borrowed_bytes(self.slice()?),
             SEQUENCE => {
                 self.enter()?;
+
                 let mut elements = Elements {
                     decoder: self,
                     finished: false,
                 };
+
                 let value = visitor.visit_seq(&mut elements)?;
+
                 if !elements.finished {
                     self.expect_end()?;
                 }
@@ -634,11 +647,14 @@ impl<'de> Deserializer<'de> for &mut Decoder<'de> {
             }
             MAP => {
                 self.enter()?;
+
                 let mut entries = Entries {
                     decoder: self,
                     finished: false,
                 };
+
                 let value = visitor.visit_map(&mut entries)?;
+
                 if !entries.finished {
                     self.expect_end()?;
                 }
@@ -682,7 +698,9 @@ impl<'de> Deserializer<'de> for &mut Decoder<'de> {
             }
             MAP => {
                 self.enter()?;
+
                 let value = visitor.visit_enum(Variant { decoder: self })?;
+
                 self.expect_end()?;
                 self.leave();
                 Ok(value)

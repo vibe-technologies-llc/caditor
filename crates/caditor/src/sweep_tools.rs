@@ -22,7 +22,7 @@ use crate::{
 };
 
 pub const TITLE: &str = "Sweep";
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SweepError {
     #[error(
         "Select the regions or curves of a sketch to sweep, with the \
@@ -76,7 +76,7 @@ impl Reason for SweepError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PathPick {
     Unchosen,
     Curves {
@@ -92,7 +92,7 @@ pub enum PathPick {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SweepStart {
     pub profile: SweepSource,
     pub path: PathPick,
@@ -159,6 +159,7 @@ pub fn source(
     let mut curve_sketches: Vec<FeatureId> = Vec::new();
     let mut region_sketch = None;
     let mut edges: Vec<(FeatureId, EdgeName)> = Vec::new();
+
     for pickable in &picked {
         match *pickable {
             Pickable::SketchRegion { feature, .. } => {
@@ -174,6 +175,7 @@ pub fn source(
             _ => {}
         }
     }
+
     let chosen_profile = editing
         .feature()
         .or(region_sketch)
@@ -230,6 +232,7 @@ pub fn source(
         PathPick::Curves { sketch, .. } => Some(*sketch),
         PathPick::Unchosen | PathPick::Edges { .. } | PathPick::Helix { .. } => None,
     };
+
     let sketch = chosen_profile
         .or_else(|| guessed_profile(document, evaluation, path_sketch))
         .ok_or(SweepError::NothingToSweep)?;
@@ -241,6 +244,7 @@ pub fn source(
         [only] => Some(*only),
         _ => None,
     });
+
     let profile = solid_tools::with_selected_outline(
         model,
         solid_tools::Sweep::Extrude,
@@ -300,13 +304,16 @@ pub fn create(
         .profile
         .body
         .map_or(BodyOperation::NewBody, BodyOperation::Add);
+
     let sweep = Sweep {
         regions: start.profile.regions.clone(),
         operation,
         ..Sweep::new(start.profile.sketch, path)
     };
     let mut transaction = document.transaction(format!("Create {name}"));
+
     let feature = transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Sweep(sweep)));
+
     if pieces == Pieces::BodyEach {
         transaction.edit(Edit::SetFeaturePieces {
             id: feature,
@@ -334,6 +341,7 @@ pub fn create_actions(model: &Model, start: &SweepStart) -> Vec<Action> {
                 Action::Apply(transaction),
                 Action::Editing(EditingCommand::OpenSolid(feature)),
             ];
+
             if start.path == PathPick::Unchosen {
                 actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
                     feature,
@@ -373,6 +381,7 @@ pub fn selected_path(
     let evaluation = model.evaluation();
     let mut curves: Vec<(FeatureId, EntityId)> = Vec::new();
     let mut edges: Vec<(FeatureId, EdgeName)> = Vec::new();
+
     for pickable in selection.in_pick_order() {
         match pickable {
             Pickable::SketchEntity {
@@ -410,6 +419,7 @@ pub fn selected_path(
             if edges.iter().any(|(other, _)| other != body) {
                 return Err(SweepError::PathEdgesOfSeveralBodies);
             }
+
             let state =
                 path_body_state(evaluation, feature, *body).ok_or(SweepError::NoBodyShape)?;
             let names: Vec<EdgeName> = edges.iter().map(|(_, edge)| *edge).collect();
@@ -437,6 +447,7 @@ pub fn toggled_path(
             },
         ) if *sketch == clicked => {
             let mut kept = curves.clone();
+
             for curve in added {
                 match kept.iter().position(|held| *held == curve) {
                     Some(index) => {
@@ -462,6 +473,7 @@ pub fn toggled_path(
             },
         ) if *body == clicked => {
             let mut kept = edges.clone();
+
             for edge in added {
                 match kept.iter().position(|held| held.name() == edge.name()) {
                     Some(index) => {
@@ -490,6 +502,7 @@ pub fn selected_change(
     sweep: &Sweep,
 ) -> Result<Transaction, SweepError> {
     let path = selected_path(model, selection, feature, Some(sweep.sketch))?;
+
     if path == sweep.path {
         return Err(SweepError::AlreadyFollowed);
     }

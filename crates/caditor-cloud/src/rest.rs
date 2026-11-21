@@ -32,6 +32,7 @@ pub fn is_within(link: &str, base: &str) -> bool {
     let (Ok(link), Ok(base)) = (link.parse::<Uri>(), base.parse::<Uri>()) else {
         return false;
     };
+
     let (Some(link_authority), Some(base_authority)) = (link.authority(), base.authority()) else {
         return false;
     };
@@ -91,7 +92,7 @@ pub fn get<T: DeserializeOwned>(
     read(service, &response, subject)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Grant {
     Code,
     Refresh,
@@ -115,9 +116,11 @@ pub fn token(
 ) -> Result<Token, Error> {
     let request = Request::post(url.to_owned(), Body::Form(form(fields)));
     let response = net.send(&request)?;
+
     if matches!(response.status, 400 | 401) {
         return Err(grant.refusal(service));
     }
+
     let response = checked(service, response, Subject::Token)?;
     read(service, &response, Subject::Token)
 }
@@ -159,9 +162,11 @@ mod tests {
             "/project/v1/hubs",
             "not a link",
         ];
+
         for link in links {
             assert!(!is_within(link, FUSION), "{link}");
         }
+
         let links = [
             "https://cad.onshape.com.evil.example/api/x",
             "https://cad.onshape.com@evil.example/api/x",

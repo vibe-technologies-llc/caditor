@@ -17,7 +17,7 @@ const STATION_DEGREE: usize = 3;
 pub(super) type FramesAt<'a> = dyn Fn(&[f64]) -> Result<Vec<RigidTransform>, PathSweepError> + 'a;
 pub(super) type ShapeAt<'a> = dyn Fn(f64) -> Result<Similarity, PathSweepError> + 'a;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Stations {
     parameters: Vec<f64>,
     frames: Vec<Similarity>,
@@ -63,12 +63,14 @@ impl Stations {
             if intervals > MAX_STATIONS {
                 return Err(PathSweepError::TooIntricate { segment });
             }
+
             let parameters = uniform(range, intervals);
             let rigid = frames_at(&parameters)?;
             let finish = rigid
                 .last()
                 .copied()
                 .ok_or(PathSweepError::from(GeometryError::ZeroDirection))?;
+
             let frames = shaped(&rigid, &parameters, shape)?;
             let finer = uniform(range, 2 * intervals);
             let finer_frames = shaped(&frames_at(&finer)?, &finer, shape)?;
@@ -77,6 +79,7 @@ impl Stations {
                 frames,
                 finish,
             };
+
             if stations.deviation(points, &finer, &finer_frames)? <= FIT_TOLERANCE {
                 return Ok(stations);
             }
@@ -91,13 +94,16 @@ impl Stations {
         finer_frames: &[Similarity],
     ) -> Result<f64, PathSweepError> {
         let mut worst: f64 = 0.0;
+
         for point in points {
             interrupt::check()?;
+
             let trajectory = self.trajectory(*point)?;
             for (parameter, frame) in finer.iter().zip(finer_frames).skip(1).step_by(2) {
                 let gap = trajectory
                     .point(*parameter)
                     .distance(frame.apply_point(*point));
+
                 if !gap.is_finite() {
                     return Err(GeometryError::NonFinite.into());
                 }
@@ -155,7 +161,9 @@ impl Stations {
         let first = columns.first().ok_or(GeometryError::DegenerateSurface)?;
         let rows = first.control_points().len();
         let width = columns.len();
+
         let mut net = Vec::with_capacity(rows * width);
+
         for row in 0..rows {
             for column in &columns {
                 net.push(
@@ -167,6 +175,7 @@ impl Stations {
                 );
             }
         }
+
         let weights = profile.weights().map(|weights| {
             (0..rows)
                 .flat_map(|_| weights.iter().copied())
@@ -191,11 +200,13 @@ pub(super) fn sliding_surface(
 ) -> Result<BSplineSurface, GeometryError> {
     let width = profile.control_points().len();
     let mut net = Vec::with_capacity(width * path.control_points().len());
+
     for along in path.control_points() {
         for point in profile.control_points() {
             net.push(*point + (*along - from));
         }
     }
+
     let weights = match (profile.weights(), path.weights()) {
         (None, None) => None,
         (across, along) => {
@@ -245,18 +256,24 @@ pub(super) fn rotation_minimising(
         return Ok(Vec::new());
     };
     let origin = path.evaluate(*first);
+
     let mut tangent = origin.first.try_normalize().ok_or_else(degenerate)?;
+
     let mut across = any_perpendicular(tangent);
+
     let initial = basis(tangent, across).ok_or_else(degenerate)?;
     let mut point = origin.point;
     let mut frames = Vec::with_capacity(parameters.len());
+
     frames.push(start);
     for parameter in parameters.iter().skip(1) {
         interrupt::check()?;
+
         let next = path.evaluate(*parameter);
         let next_tangent = next.first.try_normalize().ok_or_else(degenerate)?;
         let step = next.point - point;
         let reach = step.length_squared();
+
         let (reflected_across, reflected_tangent) = if reach > 0.0 {
             (
                 across - step * (2.0 * step.dot(across) / reach),
@@ -267,19 +284,23 @@ pub(super) fn rotation_minimising(
         };
         let second = next_tangent - reflected_tangent;
         let second_reach = second.length_squared();
+
         let turned = if second_reach > 0.0 {
             reflected_across - second * (2.0 * second.dot(reflected_across) / second_reach)
         } else {
             reflected_across
         };
+
         across = (turned - next_tangent * next_tangent.dot(turned))
             .try_normalize()
             .ok_or_else(degenerate)?;
         tangent = next_tangent;
         point = next.point;
+
         let rotation = basis(tangent, across).ok_or_else(degenerate)? * initial.conjugate();
         let motion = RigidTransform::new(rotation, point - rotation * origin.point)
             .ok_or_else(degenerate)?;
+
         frames.push(start.then(&motion));
     }
     Ok(frames)
@@ -333,21 +354,27 @@ pub(super) fn winding(
         return Ok(Vec::new());
     };
     let origin = path.point(*first);
+
     let mut previous = radial(origin);
     let mut angle = 0.0;
     let mut frames = Vec::with_capacity(parameters.len());
+
     for parameter in parameters {
         interrupt::check()?;
+
         let point = path.point(*parameter);
         let across = radial(point);
+
         angle += direction
             .dot(previous.cross(across))
             .atan2_libm(previous.dot(across));
         previous = across;
+
         let turn =
             RigidTransform::rotation_about(axis.origin, direction, angle).ok_or_else(degenerate)?;
         let shift =
             RigidTransform::translation(point - turn.apply_point(origin)).ok_or_else(degenerate)?;
+
         frames.push(start.then(&turn.then(&shift)));
     }
     Ok(frames)

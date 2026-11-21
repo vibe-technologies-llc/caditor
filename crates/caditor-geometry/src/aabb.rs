@@ -1,6 +1,6 @@
 use crate::{Point2, Point3, Vector2, Vector3};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Aabb {
     min: Point3,
     max: Point3,
@@ -16,6 +16,7 @@ impl Aabb {
 
     pub fn from_points(points: impl IntoIterator<Item = Point3>) -> Option<Self> {
         let mut points = points.into_iter();
+
         let first = Self::from_point(points.next()?);
         Some(points.fold(first, Self::including))
     }
@@ -84,7 +85,7 @@ impl Aabb {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Aabb2 {
     min: Point2,
     max: Point2,
@@ -100,6 +101,7 @@ impl Aabb2 {
 
     pub fn from_points(points: impl IntoIterator<Item = Point2>) -> Option<Self> {
         let mut points = points.into_iter();
+
         let first = Self::from_point(points.next()?);
         Some(points.fold(first, Self::including))
     }
@@ -173,6 +175,7 @@ mod tests {
     fn union_covers_both_boxes() {
         let a = Aabb::from_point(Point3::ZERO);
         let b = Aabb::from_point(Point3::new(2.0, 2.0, 1.0));
+
         let joined = a.union(b);
 
         assert_eq!(joined.half_extent(), Vector3::new(1.0, 1.0, 0.5));
@@ -185,13 +188,16 @@ mod tests {
     #[test]
     fn planar_boxes_grow_and_contain_their_points() {
         let bounds = Aabb2::from_points([Point2::new(1.0, -2.0), Point2::new(-3.0, 4.0)]).unwrap();
+
         assert_eq!(bounds.min(), Point2::new(-3.0, -2.0));
         assert_eq!(bounds.size(), Vector2::new(4.0, 6.0));
         assert_eq!(bounds.center(), Point2::new(-1.0, 1.0));
         assert!(bounds.contains(Point2::ZERO));
         assert!(!bounds.contains(Point2::new(2.0, 0.0)));
         assert!(bounds.expanded(1.0).contains(Point2::new(2.0, 0.0)));
+
         let joined = bounds.union(Aabb2::from_point(Point2::new(5.0, 5.0)));
+
         assert_eq!(joined.max(), Point2::new(5.0, 5.0));
         assert!(Aabb2::from_points([]).is_none());
     }

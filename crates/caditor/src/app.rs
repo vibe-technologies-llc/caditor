@@ -236,6 +236,7 @@ impl Workspace {
     #[cfg(test)]
     pub fn new() -> Self {
         let mut preferences = Preferences::default();
+
         preferences.onboarding = crate::onboarding::Onboarding::finished();
         Self::with_preferences(preferences)
     }
@@ -245,10 +246,12 @@ impl Workspace {
         let cloud = Cloud::new(&preferences.cloud, CloudServices::without_files());
         let assistant = Assistant::new(AssistantServices::without_files());
         let mut viewport = ViewportState::new();
+
         viewport.set_navigation(preferences.navigation);
         viewport.set_view_details(preferences.view_details);
         viewport.set_sketching(preferences.sketching);
         viewport.start_with(preferences.sketching.at_start);
+
         let palette = Palette::with_recent(preferences.palette_recent.clone());
         Self {
             viewport,
@@ -385,6 +388,7 @@ impl Workspace {
                 | PreferenceChange::Defaults(PreferencesTab::General)
         );
         let before = self.preferences.sketching.at_start;
+
         self.preferences.apply(change);
         self.follow_preferences(model, before);
         if refresh_clis {
@@ -470,6 +474,7 @@ impl Workspace {
             PreferencesCommand::CloseModelProperties => self.model_properties = None,
             PreferencesCommand::ShowSavedViews => {
                 let current = saved_views::saved_view(self.viewport.destination());
+
                 self.saved_views = Some(ViewsDraft::of(model.document(), current));
             }
             PreferencesCommand::CloseSavedViews => self.saved_views = None,
@@ -508,6 +513,7 @@ impl Workspace {
                     }
                     Err(reason) => Notice::warning(reason.to_string()),
                 };
+
                 model.perform(Action::Inform(notice));
             }
             PreferencesCommand::Tab(tab) => {
@@ -524,6 +530,7 @@ impl Workspace {
             PreferencesCommand::Undo => {
                 if let Some(restored) = self.restored.take() {
                     let before = self.preferences.sketching.at_start;
+
                     self.preferences.undo(restored);
                     self.follow_preferences(model, before);
                     files.store_settings(self.preferences.settings());
@@ -532,6 +539,7 @@ impl Workspace {
             PreferencesCommand::Preview(change) => self.preview_preference(change, model),
             PreferencesCommand::RememberLast(values) => {
                 let mut changed = false;
+
                 for (slot, text) in values {
                     changed |= self.preferences.last_values.keep(slot, text);
                 }
@@ -561,6 +569,7 @@ impl Workspace {
             }
             PreferencesCommand::Assistant(command) => {
                 let mut follow = Vec::new();
+
                 self.assistant
                     .perform(command, &self.preferences.assistant, &mut follow);
                 for action in follow {
@@ -591,6 +600,7 @@ fn tip_commands(
 ) {
     let shown = hint.ok_or(NO_TIP);
     let mut change = None;
+
     if commands.invoke(Command::DismissTip, &shown)
         && let Ok(hint) = shown
     {
@@ -610,6 +620,7 @@ fn read_clipboard(ctx: &egui::Context, awaited: bool, copied: Option<&str>) -> C
             egui::Event::Paste(text) => Some(text.clone()),
             _ => None,
         });
+
         if awaited {
             input
                 .events
@@ -650,6 +661,7 @@ pub fn show(
         &mut workspace.applied_title_bar,
         workspace.preferences.title_bar,
     );
+
     let chrome = Chrome::of(ui.ctx(), workspace.preferences.title_bar);
     let text_focused = ui.ctx().text_edit_focused();
     let keyboard_taken = ui.ctx().egui_wants_keyboard_input() || workspace.keyboard_was_taken;
@@ -668,6 +680,7 @@ pub fn show(
         || workspace.scale_model.is_some()
         || workspace.panels.deleting.is_some()
         || workspace.panels.noting.is_some();
+
     let dialog_open = modal_open || palette_open;
     let blocked = files.is_blocking() || dialog_open;
     let keys_free = !keyboard_taken && !blocked;
@@ -719,8 +732,10 @@ pub fn show(
         copied,
         ..
     } = workspace;
+
     panels.forget_missing(model.document(), model.revision());
     panels.double_click = preferences.double_click;
+
     let chosen_rows = panels.chosen();
     let tree_bodies = body_selection::tree_bodies(model.document(), &chosen_rows);
     let bodies_to_export = if tree_bodies.is_empty() {
@@ -728,6 +743,7 @@ pub fn show(
     } else {
         tree_bodies.clone()
     };
+
     let offers = selection_offers.refresh(
         model,
         viewport.selection(),
@@ -748,6 +764,7 @@ pub fn show(
     let recording = shortcut_editor
         .as_ref()
         .is_some_and(ShortcutEditor::is_recording);
+
     let mut triggered = if blocked {
         if !palette_open
             && !recording
@@ -759,6 +776,7 @@ pub fn show(
     } else {
         commands::dispatch(ui.ctx(), &preferences.keymap, &situation)
     };
+
     triggered.extend(awaited);
     if text_focused && !triggered.is_empty() {
         leave_text_field(ui.ctx());
@@ -785,6 +803,7 @@ pub fn show(
             Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
         });
     }
+
     let mut commands = CommandFrame::new(&preferences.keymap, triggered).with_clipboard(clipboard);
     let toggles = ToggleStates::of(viewport, section.open)
         .with_cosmetic_threads(model.threads_shown_cosmetic())
@@ -800,7 +819,9 @@ pub fn show(
         cloud: cloud.is_enabled(),
         bodies: &bodies_to_export,
     };
+
     menu_bar::show(ui, model, &menu, &mut commands, actions);
+
     let toolbar = ToolbarContext {
         selection: viewport.selection(),
         editing,
@@ -814,6 +835,7 @@ pub fn show(
         toggles,
     };
     let chosen = toolbar::show(ui, model, &toolbar, &mut commands, actions);
+
     if !chosen.is_empty() {
         ui.ctx().request_repaint();
         deferred_commands.extend(chosen);
@@ -861,6 +883,7 @@ pub fn show(
     }
     section_commands(model, viewport, section, &mut commands);
     viewport.arc_on_tangent_arc_key(editing, &mut commands);
+
     let sketch_bar = sketch_toolbar::BarContext {
         selection: viewport.selection(),
         snaps: viewport.body_snaps(),
@@ -876,6 +899,7 @@ pub fn show(
         panels,
         actions,
     );
+
     if !chosen.is_empty() {
         ui.ctx().request_repaint();
         deferred_commands.extend(chosen);
@@ -901,6 +925,7 @@ pub fn show(
         guide,
         &mut commands,
     );
+
     let status = StatusContext {
         uploading: viewport.is_uploading(),
         upload_stopped: viewport.is_upload_stopped(),
@@ -914,12 +939,15 @@ pub fn show(
             SelectionFilter::Everything
         },
     };
+
     status_bar::show(ui, model, &status, panels, &mut commands, actions);
+
     let context = feature_tree::CommandContext {
         model,
         selection: viewport.selection(),
         editing,
     };
+
     panels::commands(&context, panels, &mut commands, actions);
     drawing_export::face_commands(
         model,
@@ -930,6 +958,7 @@ pub fn show(
     );
     route_dimension_focus(panels, editing, viewport);
     reference_picking::publish(ui.ctx(), editing.picking());
+
     let open_panels = 1
         + usize::from(measure.open)
         + usize::from(interference.open)
@@ -945,6 +974,7 @@ pub fn show(
         + usize::from(guide.open)
         + usize::from(assistant.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
+
     layout::share_right_width(ui.ctx(), panels.layout().right_width);
     panels::show(
         ui,
@@ -993,8 +1023,10 @@ pub fn show(
             bodies: viewport.bodies(),
             tree_bodies: &tree_bodies,
         };
+
         measure_panel::show(ui, &context, measure, room, panels, &mut commands, actions);
     }
+
     let measured = measure
         .open
         .then(|| measure.measurements.readout())
@@ -1004,13 +1036,16 @@ pub fn show(
             let label = measure_panel::line_label(&line, model.units());
             (line, label)
         });
+
     viewport.set_measured(measured);
+
     let marks = if interference.open {
         let context = InterferenceContext {
             model,
             selection: viewport.selection(),
             tree_bodies: &tree_bodies,
         };
+
         interference_panel::refresh(&context, interference);
         if let Some(place) = interference_panel::show(ui, model, interference, room, &mut commands)
         {
@@ -1024,18 +1059,23 @@ pub fn show(
     } else {
         Vec::new()
     };
+
     viewport.set_interference(marks);
     if drawings.open {
         drawings.refresh(model);
+
         let context = DrawingsContext {
             model,
             selected: &bodies_to_export,
         };
+
         drawings_panel::show(ui, &context, drawings, room, actions);
         drawings_panel::export_when_ready(model, drawings, actions);
     }
+
     let (analysing, shown) = if analysis.open {
         viewport.analyses().wake_with(|| model.waker());
+
         let context = AnalysisContext {
             model,
             selection: viewport.selection(),
@@ -1051,7 +1091,9 @@ pub fn show(
             canvas: canvas::canvas(ui.ctx()),
             shown: OnceCell::new(),
         };
+
         analysis_panel::show(ui, &context, analysis, room, &mut commands);
+
         let analysing = analysis.analysis(model).ok();
         let shown = if analysing.and_then(Analysis::faces).is_some() {
             context.into_shown()
@@ -1063,20 +1105,29 @@ pub fn show(
         (None, Vec::new())
     };
     let faces = analysing.and_then(Analysis::faces);
+
     let faces = viewport.analyses().prepare(faces, &shown);
+
     viewport.set_analysis(faces, analysing.and_then(Analysis::reflection));
+
     let combing = if comb.open {
         comb.follow(model, viewport.selection());
+
         let combed = comb.comb(model);
+
         comb_panel::show(ui, model, comb, &combed, room);
         comb.open.then(|| comb.drawing(&combed))
     } else {
         None
     };
+
     viewport.set_comb(combing);
+
     let lines = if isocurves.open {
         isocurves.follow(viewport.selection());
+
         let shown = isocurves.isocurves(model);
+
         isocurve_panel::show(
             ui,
             model.units(),
@@ -1091,6 +1142,7 @@ pub fn show(
     } else {
         None
     };
+
     viewport.set_isocurves(lines);
     if lighting.open {
         let sky = SkyPicture {
@@ -1112,6 +1164,7 @@ pub fn show(
             room,
             lighting,
         );
+
         if let Some(command) = asked.command {
             actions.push(Action::Preferences(command));
         }
@@ -1130,7 +1183,9 @@ pub fn show(
             .environment()
             .map(|environment| preferences.lighting.backdrop(Arc::clone(environment))),
     );
+
     let tidied = tidy_panel::show(ui, model, tidying, viewport.selection(), room);
+
     actions.extend(tidied.actions);
     if let Some(feature) = editing.feature().filter(|_| gearing_open(editing)) {
         let selected = sketch_tools::selected_entities(viewport.selection(), feature);
@@ -1140,6 +1195,7 @@ pub fn show(
             sketch: editing::edited_sketch(model.document(), feature),
             selected: &selected,
         };
+
         actions.extend(gear_panel::show(
             ui,
             &context,
@@ -1155,6 +1211,7 @@ pub fn show(
             sketch: editing::edited_sketch(model.document(), feature),
             selected: &selected,
         };
+
         actions.extend(text_panel::show(
             ui,
             &context,
@@ -1170,9 +1227,12 @@ pub fn show(
             feature,
             sketch: editing::edited_sketch(model.document(), feature),
         };
+
         actions.extend(sketch_pattern_panel::show(ui, &context, parts, room));
     }
+
     let mut previewed = tidied.previewed;
+
     previewed.extend(panels.reference_rows.take_previewed());
     viewport.preview_entities(previewed);
     if section.open {
@@ -1181,17 +1241,20 @@ pub fn show(
             selection: viewport.selection(),
             centre: viewport.model_centre(),
         };
+
         section_panel::show(ui, &context, section, room);
     }
     panels.set_right_width(layout::shared_right_width(ui.ctx()));
     preferences.panels = panels.layout();
     viewport.set_section(section.planes(model));
+
     let contrast = Contrast::of(
         preferences
             .appearance
             .in_effect(system_settings::more_contrast())
             .high_contrast,
     );
+
     viewport.set_contrast(contrast);
     viewport.set_start_card(preferences.onboarding.start_card);
     viewport.cover(home.is_open());
@@ -1199,7 +1262,9 @@ pub fn show(
     viewport.set_canvas(canvas::canvas(ui.ctx()));
     viewport.set_grid(canvas::grid(ui.ctx()));
     viewport.set_default_body(canvas::body_colour(ui.ctx()));
+
     let selection_before = viewport.selection().generation();
+
     viewport.show(
         ui,
         model,
@@ -1218,6 +1283,7 @@ pub fn show(
         };
         let escaped = !dialog_open && ui.input(|input| input.key_pressed(egui::Key::Escape));
         let choices = home::show(ui.ctx(), area, &view);
+
         if escaped {
             home.close();
         }
@@ -1238,25 +1304,30 @@ pub fn show(
     if blocked {
         window_frame::over_dialogs(ui.ctx(), chrome, &commands, actions);
     }
+
     let open_palette = commands.available(Command::Palette);
     let open_shortcuts = commands.available(Command::KeyboardShortcuts);
+
     if commands.available(Command::Welcome) {
         actions.push(Action::Preferences(PreferencesCommand::ShowWelcome));
     }
     if commands.available(Command::Home) {
         actions.push(Action::Preferences(PreferencesCommand::ShowHome));
     }
+
     let cloud_on = if cloud.is_enabled() {
         Ok(())
     } else {
         Err(Refusal::Off)
     };
+
     if commands.invoke(Command::Cloud, &cloud_on) {
         actions.push(Action::Preferences(PreferencesCommand::ShowCloud(None)));
     }
     if commands.invoke(Command::CloudSend, &cloud.can_send_anywhere()) {
         actions.push(Action::Preferences(PreferencesCommand::ShowCloudToSend));
     }
+
     let openable = cloud
         .can_open_in_fusion()
         .map_err(|refusal| refusal.to_string())
@@ -1265,6 +1336,7 @@ pub fn show(
                 .cloud_send_availability(model)
                 .map_err(|refusal| refusal.to_string())
         });
+
     if commands.invoke(Command::CloudOpenInFusion, &openable) {
         actions.push(Action::Cloud(CloudCommand::OpenInFusion));
     }
@@ -1296,10 +1368,12 @@ pub fn show(
     if commands.available(Command::UndoHistory) {
         actions.push(Action::Preferences(PreferencesCommand::ShowUndoHistory));
     }
+
     let outside_sketch = match editing.active() {
         Some(_) => Err(scale_model::IN_SKETCH),
         None => Ok(()),
     };
+
     if commands.invoke(Command::ScaleModel, &outside_sketch) {
         actions.push(Action::Preferences(PreferencesCommand::ShowScaleModel));
     }
@@ -1309,6 +1383,7 @@ pub fn show(
     if commands.available(Command::Messages) {
         actions.push(Action::Preferences(PreferencesCommand::ShowMessages));
     }
+
     let defender = defender::due(
         defender::ON_WINDOWS,
         preferences.onboarding.defender_reminded,
@@ -1326,6 +1401,7 @@ pub fn show(
             .filter(|_| !modal_open && !files.is_blocking() && defender.is_none())
             .zip(viewport.rect())
     };
+
     tip_commands(hint.map(|(hint, _)| hint), &mut commands, actions);
     if let Some(text) = commands.take_copied() {
         ui.ctx().copy_text(text.clone());
@@ -1337,19 +1413,25 @@ pub fn show(
         ui.ctx().request_repaint();
         *awaiting_paste = Some(command);
     }
+
     let asked_to_repeat = commands.take(Command::RepeatLast);
+
     *dropped_commands = commands.triggered_after_their_handler();
+
     let ran = commands.ran().to_vec();
     let (mut offers, mut refused) = commands.finish();
+
     match repetition.settle(asked_to_repeat, &ran, &mut offers) {
         Some(Repeat::Again(command)) => deferred_commands.push(command),
         Some(Repeat::Refused(reason)) => refused.push((Command::RepeatLast, Declined::of(&reason))),
         None => {}
     }
+
     let menu_toggles = ToggleStates::of(viewport, section.open)
         .with_cosmetic_threads(model.threads_shown_cosmetic())
         .with_principal_when_needed(preferences.view_details.principal_when_needed);
     let entries = MenuEntries::new(&offers, menu_toggles, &preferences.keymap);
+
     deferred_commands.extend(viewport.show_menu(ui.ctx(), model, editing, entries, blocked));
     if let Some(feature) = viewport.take_row_to_choose() {
         panels.choose_only(feature);
@@ -1360,9 +1442,11 @@ pub fn show(
     if open_shortcuts {
         actions.push(Action::Preferences(PreferencesCommand::ShowShortcuts));
     }
+
     let fusion_offer = cloud
         .is_enabled()
         .then(|| openable.as_ref().copied().map_err(String::as_str));
+
     files::show(
         ui,
         model,
@@ -1386,6 +1470,7 @@ pub fn show(
             slicer: files.found_slicer(),
             assistant: AssistantPrefsView { assistant },
         };
+
         if *preferences_open
             && let Some(command) = preferences::dialog(ui.ctx(), preferences, &view)
         {
@@ -1419,9 +1504,11 @@ pub fn show(
         if open_palette && !dialog_open {
             palette.open();
         }
+
         let toggles = ToggleStates::of(viewport, section.open)
             .with_cosmetic_threads(model.threads_shown_cosmetic())
             .with_principal_when_needed(preferences.view_details.principal_when_needed);
+
         palette.show(
             ui.ctx(),
             &offers,
@@ -1580,10 +1667,13 @@ pub fn show(
                 HintChoice::Dismiss(hint) => PreferenceChange::DismissHint(hint),
                 HintChoice::HideAll => PreferenceChange::ShowHints(false),
             };
+
             actions.push(Action::Preferences(PreferencesCommand::Change(change)));
         }
     }
+
     let hovered = ui.ctx().input(|input| input.raw.hovered_files.clone());
+
     drop_target::show(
         ui.ctx(),
         viewport.rect().unwrap_or_else(|| ui.ctx().content_rect()),
@@ -1644,6 +1734,7 @@ fn guide_commands(
     if let Some(page) = guide::take_asked(ctx) {
         guide.open_at(page);
     }
+
     let document = model.document();
     let side_panels: Vec<SidePanel> = [
         (basis.tidying.feature().is_some(), SidePanel::Tidying),
@@ -1663,6 +1754,7 @@ fn guide_commands(
     .filter_map(|(open, panel)| open.then_some(panel))
     .collect();
     let kind_of = |id| document.feature(id).map(|feature| &feature.kind);
+
     let situation = guide::Situation {
         tool: editing.active().map(|active| active.tool),
         choosing_plane: editing.is_choosing_plane(),
@@ -1697,6 +1789,7 @@ fn home_chosen(
             | Choice::Preferences
             | Choice::TurnOffCloud
     );
+
     match choice {
         Choice::Close => {}
         Choice::Start(command) => deferred_commands.push(command),
@@ -1786,6 +1879,7 @@ fn apply_appearance(
     actions: &mut Vec<Action>,
 ) -> Applied {
     let scripts_arrived = workspace.fallback_fonts.arrived();
+
     if !fonts::installed(ctx) {
         ctx.options_mut(|options| {
             options.zoom_with_keyboard = false;
@@ -1799,27 +1893,33 @@ fn apply_appearance(
         ctx.set_fonts(fonts::definitions_with(workspace.fallback_fonts.found()));
         ctx.request_repaint();
     }
+
     let transitions = workspace.preferences.navigation.transitions;
+
     if workspace.preferences.appearance.follows_system_contrast
         || transitions == Transitions::System
     {
         system_settings::watch();
     }
+
     let in_effect = workspace
         .preferences
         .appearance
         .in_effect(system_settings::more_contrast());
     let wanted = (in_effect.clone(), themes.generation());
     let changed = workspace.applied_appearance.as_ref() != Some(&wanted);
+
     if changed {
         let resolved = match wanted.0.look(themes) {
             Ok(look) => {
                 let system = wanted.0.theme == Theme::System;
+
                 workspace.usable_look = Some((look, system));
                 wanted.0.resolve_look(&look, system)
             }
             Err(unusable) => {
                 let noticed = (wanted.0.theme.clone(), themes.generation());
+
                 if workspace.theme_noticed.as_ref() != Some(&noticed)
                     && let Some(words) = unusable.words(&themes.name_of(&wanted.0.theme))
                 {
@@ -1837,6 +1937,7 @@ fn apply_appearance(
                 }
             }
         };
+
         for (theme, skin) in [
             (egui::Theme::Dark, &resolved.skins.dark),
             (egui::Theme::Light, &resolved.skins.light),
@@ -1848,12 +1949,15 @@ fn apply_appearance(
         ctx.set_zoom_factor(wanted.0.scale);
         workspace.applied_appearance = Some(wanted);
     }
+
     let delay = workspace.preferences.tooltip_delay;
     let delayed = changed || workspace.applied_tooltip_delay != Some(delay);
+
     if delayed {
         ctx.all_styles_mut(|style| style.interaction.tooltip_delay = delay.seconds());
         workspace.applied_tooltip_delay = Some(delay);
     }
+
     let animation_time = appearance::ANIMATION_SECONDS
         * workspace
             .preferences
@@ -1861,19 +1965,23 @@ fn apply_appearance(
             .transitions
             .scale(system_settings::reduces_motion()) as f32;
     let animated = changed || workspace.applied_animation_time != Some(animation_time);
+
     if animated {
         let scrolling = if animation_time > 0.0 {
             egui::style::ScrollAnimation::default()
         } else {
             egui::style::ScrollAnimation::none()
         };
+
         ctx.all_styles_mut(|style| {
             style.animation_time = animation_time;
             style.scroll_animation = scrolling;
         });
         workspace.applied_animation_time = Some(animation_time);
     }
+
     let skin = appearance::skin(ctx);
+
     canvas::set_canvas(ctx, skin.canvas);
     canvas::set_grid(ctx, skin.grid);
     canvas::set_body(ctx, in_effect.body_on(skin.canvas));
@@ -1894,6 +2002,7 @@ fn interface_size(
         "The interface is at its smallest, {:.0}%",
         MIN_SCALE * 100.0
     );
+
     let steps = [
         (
             Command::LargerInterface,
@@ -1945,7 +2054,7 @@ fn route_dimension_focus(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Way {
     Undone,
     Redone,
@@ -1965,6 +2074,7 @@ impl Stepped {
             Some((before, count, _)) if *before == way => count + 1,
             _ => 1,
         };
+
         self.steps = Some((way, count, label));
     }
 
@@ -1993,6 +2103,7 @@ pub fn perform(
     let notice_before = model.notice().cloned();
     let mut queue = VecDeque::from(actions);
     let mut stepped = Stepped::default();
+
     workspace.assistant.poll_model(model, &mut queue);
     if let Some(shipment) = files.take_cloud_shipment() {
         queue.push_back(Action::Cloud(CloudCommand::Send(shipment)));
@@ -2002,6 +2113,7 @@ pub fn perform(
             Action::Cloud(command) => queue.extend(workspace.cloud.run(command)),
             Action::Assistant(command) => {
                 let mut follow = Vec::new();
+
                 workspace
                     .assistant
                     .perform(command, &workspace.preferences.assistant, &mut follow);
@@ -2020,7 +2132,9 @@ pub fn perform(
             Action::ResumeUploading => workspace.viewport.request_upload(UploadRequest::Resume),
             Action::Apply(transaction) => {
                 let changes = last_values::changes(model.document(), &transaction);
+
                 model.perform(Action::Apply(transaction));
+
                 let values = last_values::texts(model.document(), changes);
                 if !values.is_empty() {
                     workspace.preferences_command(
@@ -2033,18 +2147,21 @@ pub fn perform(
             Action::Undo => {
                 let label = model.undo_label().map(str::to_owned);
                 let before = model.revision();
+
                 model.perform(Action::Undo);
                 stepped.note(Way::Undone, label.filter(|_| model.revision() != before));
             }
             Action::UndoStep(back) => {
                 let label = model.undo_label().map(str::to_owned);
                 let before = model.revision();
+
                 model.perform(Action::UndoStep(back));
                 stepped.note(Way::Undone, label.filter(|_| model.revision() != before));
             }
             Action::Redo => {
                 let label = model.redo_label().map(str::to_owned);
                 let before = model.revision();
+
                 model.perform(Action::Redo);
                 stepped.note(Way::Redone, label.filter(|_| model.revision() != before));
             }
@@ -2071,7 +2188,9 @@ pub fn perform(
     if let Some(exports) = files.take_exports_to_remember() {
         workspace.preferences_command(PreferencesCommand::RememberExports(exports), model, files);
     }
+
     let rerun = run_due(model, workspace);
+
     workspace.editing.sync(model);
     workspace
         .editing
@@ -2090,6 +2209,7 @@ fn settle_principal_view(model: &mut Model, workspace: &Workspace) {
         workspace.viewport.selection(),
         workspace.viewport.hovered_in_tree(),
     );
+
     model.set_principal_view(visibility::principal_view(
         model.document(),
         workspace.preferences.view_details.principal_when_needed,
@@ -2102,6 +2222,7 @@ fn run_due(model: &mut Model, workspace: &mut Workspace) -> bool {
     let Some(rerun) = model.take_due() else {
         return false;
     };
+
     match rerun {
         Rerun::Command(command) => workspace.deferred_commands.push(command),
         Rerun::Editing(command) => workspace.editing.perform(command, model),
@@ -2130,7 +2251,7 @@ fn run_due(model: &mut Model, workspace: &mut Workspace) -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AfterFailedFrame {
     ResetInterface,
     SuppressFeatures,
@@ -2173,6 +2294,7 @@ pub(crate) fn after_failed_frame(
     files: &mut Files,
 ) -> AfterFailedFrame {
     let step = workspace.frame_failures.failed();
+
     workspace.after_failed_frame();
     model.abandon_held_drag();
     files.close_dialogs(model);
@@ -2209,7 +2331,9 @@ impl App {
     ) -> Self {
         apply_preferences(&mut model, &preferences);
         files.settings_loaded(preferences.settings());
+
         let opened_a_file = open.is_some();
+
         files.start(open, &mut model);
         Self {
             model,
@@ -2242,6 +2366,7 @@ impl ApplicationHandler<AppEvent> for App {
         if self.session.is_some() {
             return;
         }
+
         let preferences = self.preferences.clone();
         let title = window_title(&self.model);
         match Session::open(event_loop, &title, preferences, self.proxy.clone()) {
@@ -2260,9 +2385,11 @@ impl ApplicationHandler<AppEvent> for App {
                     ),
                     &self.preferences.assistant,
                 );
+
                 let wanted = self.preferences.onboarding.home
                     && self.preferences.startup == Startup::EmptyModel
                     && !self.opened_a_file;
+
                 if wanted {
                     session.workspace.home.request();
                 }
@@ -2294,6 +2421,7 @@ impl ApplicationHandler<AppEvent> for App {
             .as_mut()
             .map(|session| session.file_drops.events())
             .unwrap_or_default();
+
         for event in drops {
             self.contained(event_loop, |app| app.handle_window_event(event_loop, event));
         }
@@ -2302,6 +2430,7 @@ impl ApplicationHandler<AppEvent> for App {
                 session.tend(Instant::now());
             }
         });
+
         let flow = self
             .session
             .as_ref()
@@ -2316,6 +2445,7 @@ impl ApplicationHandler<AppEvent> for App {
                 .min()
             })
             .map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
+
         event_loop.set_control_flow(flow);
     }
 
@@ -2340,6 +2470,7 @@ impl App {
         if panic::catch_unwind(AssertUnwindSafe(|| handle(self))).is_ok() {
             return;
         }
+
         let Some(session) = self.session.as_mut() else {
             return;
         };
@@ -2436,6 +2567,7 @@ fn window_attributes(
         .with_decorations(title_bar.decorated())
         .with_min_inner_size(dpi::LogicalSize::new(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT))
         .with_maximized(placement.maximized);
+
     if let Some(size) = placement.size {
         attributes = attributes.with_inner_size(dpi::LogicalSize::new(size.width, size.height));
     }
@@ -2500,6 +2632,7 @@ fn offer_snap_layouts(hwnd: std::num::NonZeroIsize, window: Arc<Window>) {
             ButtonState::Hovered => window_frame::NonClientPointer::Over,
             ButtonState::Pressed => window_frame::NonClientPointer::Down,
         };
+
         window_frame::set_non_client_pointer(pointer);
         window.request_redraw();
     };
@@ -2522,6 +2655,7 @@ fn own_the_window(window: &Arc<Window>) {
             return;
         }
     };
+
     crate::portal::own_dialogs(parent);
 }
 
@@ -2600,13 +2734,19 @@ impl Session {
         ))
         .context("could not start the renderer")?;
         let layout = (preferences.window, preferences.panels);
+
         let mut overlay = Overlay::new(&window, &renderer);
         let file_drops = FileDrops::attach(&window, waker_factory(proxy.clone())());
+
         overlay.enable_accessibility(event_loop, &window, proxy);
         own_the_window(&window);
+
         let window_export = WindowExport::attach(&window);
+
         window.set_visible(true);
+
         let mut workspace = Workspace::with_preferences(preferences);
+
         workspace.fallback_fonts = fallback_fonts;
         workspace.hardware = Hardware {
             adapter: Some(renderer.graphics_info().clone()),
@@ -2648,8 +2788,10 @@ impl Session {
     ) -> AfterFailedFrame {
         log::error!("a frame failed; resetting the interface");
         self.renew_overlay(event_loop, proxy);
+
         let step = after_failed_frame(&mut self.workspace, model, files);
         let now = Instant::now();
+
         match step {
             AfterFailedFrame::ResetAgain => {
                 if let Some(at) = now.checked_add(retry_delay(self.failed_frames)) {
@@ -2668,6 +2810,7 @@ impl Session {
     fn renew_overlay(&mut self, event_loop: &ActiveEventLoop, proxy: &EventLoopProxy<AppEvent>) {
         let renewed = panic::catch_unwind(AssertUnwindSafe(|| {
             let mut overlay = Overlay::new(&self.window, &self.renderer);
+
             overlay.enable_accessibility(event_loop, &self.window, proxy.clone());
             overlay
         }));
@@ -2700,6 +2843,7 @@ impl Session {
     #[cfg(windows)]
     fn follow_maximize_button(&mut self) {
         let [left, top, right, bottom] = self.overlay.maximize_button_bounds().unwrap_or_default();
+
         let wanted = (left < right && top < bottom)
             .then(|| caditor_windows::ButtonRect::new(left, top, right, bottom));
         if wanted != self.maximize_button {
@@ -2742,11 +2886,14 @@ impl Session {
     fn note_placement(&mut self) {
         let window = &self.window;
         let placement = &mut self.workspace.preferences.window;
+
         placement.maximized = window.is_maximized();
         if placement.maximized {
             return;
         }
+
         let size = window.inner_size().to_logical::<f64>(window.scale_factor());
+
         if let Some(size) = LogicalSize::clamped(size.width, size.height) {
             placement.size = Some(size);
         }
@@ -2761,6 +2908,7 @@ impl Session {
     fn remember_layout(&mut self, files: &mut Files, now: Instant) {
         let preferences = &self.workspace.preferences;
         let current = (preferences.window, preferences.panels);
+
         if current != self.layout_seen {
             self.layout_seen = current;
             self.layout_changed_at = Some(now);
@@ -2788,12 +2936,14 @@ impl Session {
 
     fn retry_delay(&mut self) -> Duration {
         let delay = retry_delay(self.failed_frames);
+
         self.failed_frames = self.failed_frames.saturating_add(1);
         delay
     }
 
     fn export_image(&mut self, model: &mut Model, files: &mut Files) -> bool {
         let mut busy = false;
+
         if let Some(job) = files.image_job() {
             let workspace = &self.workspace;
             let image =
@@ -2808,6 +2958,7 @@ impl Session {
                 background: job.background,
             });
             let rows = started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels);
+
             files.image_rendered(rows, model);
         }
         if let Some(job) = files.thumbnail_job() {
@@ -2822,6 +2973,7 @@ impl Session {
                 pixels_per_point: image.pixels_per_point,
                 background: Background::Transparent,
             });
+
             busy |= matches!(started, Err(ImageError::Busy));
             files.thumbnail_rendered(
                 started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels),
@@ -2836,12 +2988,14 @@ impl Session {
                 pixels_per_point: image.pixels_per_point,
                 background: Background::Viewport,
             });
+
             busy |= matches!(started, Err(ImageError::Busy));
             model.preview_drawn(
                 drawing,
                 started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels),
             );
         }
+
         let preview = files.preview_picture().map(|picture| {
             self.renderer.render_image(&ImageRequest {
                 size: PICTURE_SIZE,
@@ -2851,6 +3005,7 @@ impl Session {
                 background: Background::Viewport,
             })
         });
+
         if let Some(started) = preview {
             files
                 .preview_rendered(started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels));
@@ -2861,12 +3016,15 @@ impl Session {
 
     fn redraw(&mut self, model: &mut Model, files: &mut Files) {
         let now = Instant::now();
+
         self.pacer.frame_started(now, self.frame_interval());
+
         let elapsed = self
             .last_redraw
             .replace(now)
             .map(|previous| now.saturating_duration_since(previous))
             .unwrap_or_default();
+
         model.poll();
         files.poll(model, &mut self.workspace.editing);
         self.workspace.editing.sync(model);
@@ -2887,9 +3045,11 @@ impl Session {
         let workspace = &mut self.workspace;
         let view_model: &Model = model;
         let view_files: &Files = files;
+
         let ui = self.overlay.run(&self.window, |ui| {
             show(ui, view_model, view_files, workspace, &mut actions);
         });
+
         #[cfg(windows)]
         self.follow_maximize_button();
         if !self.dropped.is_empty() {
@@ -2898,8 +3058,10 @@ impl Session {
                 into: self.workspace.editing.feature(),
             }));
         }
+
         let acted = !actions.is_empty();
         let changed = perform(actions, model, files, &mut self.workspace) || acted;
+
         match self.workspace.viewport.take_upload_request() {
             Some(UploadRequest::Stop) => self.renderer.stop_uploading(),
             Some(UploadRequest::Resume) => self.renderer.resume_uploading(),
@@ -2911,6 +3073,7 @@ impl Session {
             .set_background(self.workspace.viewport.canvas().background());
         if !is_window_title(model, &self.title) {
             let title = window_title(model);
+
             self.window.set_title(&title);
             self.title = title;
         }
@@ -2919,11 +3082,15 @@ impl Session {
             .workspace
             .viewport
             .ghosted(model, &self.workspace.editing);
+
         model.mesh_before(self.workspace.editing.context().solid, &ghosted);
         model.request_regions(self.workspace.editing.feature());
+
         let drawing_waits = self.export_image(model, files);
         let workspace = &mut self.workspace;
+
         workspace.viewport.build_scene(model, &workspace.editing);
+
         let was_uploading = self.renderer.is_uploading();
         let request = workspace.viewport.request(!self.renderer.is_pick_pending());
         let pick_requested = request
@@ -2950,9 +3117,11 @@ impl Session {
                 viewport_frame.as_ref(),
             ),
         };
+
         let wait = match started {
             Ok(FrameStart::Ready(mut frame)) => {
                 let command_buffers = self.overlay.paint(&self.renderer, Some(&mut *frame), ui);
+
                 self.renderer.submit(*frame, command_buffers);
                 self.failed_frames = 0;
                 self.hidden_until = None;
@@ -2960,7 +3129,9 @@ impl Session {
             }
             Ok(FrameStart::Hidden) => {
                 self.overlay.paint(&self.renderer, None, ui);
+
                 let until = hidden.or_else(|| now.checked_add(HIDDEN_PROBE));
+
                 self.hidden_until = until;
                 Some(until.map_or(HIDDEN_PROBE, |until| until.saturating_duration_since(now)))
             }
@@ -2974,11 +3145,14 @@ impl Session {
                 Some(self.retry_delay())
             }
         };
+
         if pick_requested && !self.renderer.is_pick_pending() {
             self.workspace.viewport.pick_was_not_issued();
         }
+
         let uploading = self.renderer.is_uploading();
         let uploads_finished = was_uploading && !uploading;
+
         if uploads_finished {
             self.workspace.viewport.pick_again();
         }
@@ -2990,6 +3164,7 @@ impl Session {
         let repaint_now =
             changed || drawing_waits || repaint_after.is_some_and(|delay| delay.is_zero());
         let drawn = wait.is_none();
+
         self.pick_fallback_at = (drawn && self.renderer.is_pick_pending())
             .then(|| now.checked_add(PICK_FALLBACK))
             .flatten();
@@ -3041,16 +3216,19 @@ fn section_commands(
 ) {
     let selection = viewport.selection();
     let centre = viewport.model_centre();
+
     if commands.available(Command::Section(SectionCommand::Toggle)) {
         section.toggle(model, centre);
     }
     if commands.invoke(Command::Section(SectionCommand::Add), &section.can_add()) {
         section.add(model, centre);
     }
+
     let current = section.current_cut();
     let based = current
         .clone()
         .and_then(|_| section::base_from(model, selection));
+
     if commands.invoke(Command::Section(SectionCommand::UseSelected), &based)
         && let Ok(base) = based
         && let Some(cut) = section.current_mut()
@@ -3090,17 +3268,20 @@ fn analysis_commands(
             analysis.toggle(kind);
         }
     }
+
     let drafting = analysis.open && analysis.kind.is_directed();
     let pull = if drafting {
         AnalysisTool::pull_from(model, selection).map_err(|refusal| refusal.to_string())
     } else {
         Err(ANALYSIS_CLOSED.to_owned())
     };
+
     if commands.invoke(Command::Analysis(AnalysisCommand::UseSelected), &pull)
         && let Ok(pull) = pull
     {
         analysis.pull = pull;
     }
+
     let reversible = if drafting {
         Ok(())
     } else {
@@ -3130,7 +3311,9 @@ mod tests {
         let mut failures = FrameFailures::default();
 
         let first = [failures.failed(), failures.failed(), failures.failed()];
+
         failures.frame_started();
+
         let second = [failures.failed(), failures.failed()];
 
         assert_eq!(
@@ -3160,8 +3343,10 @@ mod tests {
                 failures.failed()
             })
             .collect();
+
         failures.frame_started();
         failures.drawn();
+
         let fresh = failures.failed();
         let again = failures.failed();
 

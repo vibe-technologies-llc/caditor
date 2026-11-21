@@ -71,7 +71,7 @@ impl CancelToken {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FixTarget {
     Parameter(ParameterId),
     Dimension {
@@ -86,7 +86,7 @@ pub enum FixTarget {
     Unsuppress(FeatureId),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeatureError {
     pub(crate) cause: Box<Cause>,
     pub fix: Option<FixTarget>,
@@ -123,7 +123,7 @@ impl FeatureError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum MissingInput {
     Axis,
     Path,
@@ -246,7 +246,7 @@ impl From<FeatureError> for Failure {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct SketchResult {
     pub geometry: Sketch,
     pub solution: SketchSolution,
@@ -304,6 +304,7 @@ impl SketchResult {
         if let Some(built) = self.profile.get() {
             return built.as_ref().as_ref().map_err(Clone::clone);
         }
+
         let built = panic::catch_unwind(AssertUnwindSafe(|| {
             Profile::new(&solid::profile_curves(&self.geometry))
         }))
@@ -311,6 +312,7 @@ impl SketchResult {
             log::error!("dividing a sketch into regions panicked");
             Err(ProfileError::unresolved())
         });
+
         if let Err(cancelled @ ProfileError::Cancelled(_)) = built {
             return Err(cancelled);
         }
@@ -325,6 +327,7 @@ impl SketchResult {
         if self.regions.get().is_some() {
             return;
         }
+
         let found = self.profile().and_then(|profile| {
             panic::catch_unwind(AssertUnwindSafe(|| solid::display_regions(profile)))
                 .unwrap_or_else(|_| {
@@ -338,7 +341,7 @@ impl SketchResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FeatureResult {
     Sketch(SketchResult),
     Solid(SolidResult),
@@ -466,9 +469,11 @@ impl<'a> Inputs<'a> {
                 .map(Cow::into_owned)
                 .unwrap_or_default()
         };
+
         if let Some(gone) = self.missing_piece(body) {
             return Failure::from(gone);
         }
+
         let body_name = name(body);
         let consumer = document.features().find(|feature| {
             self.features.contains_key(&feature.id())
@@ -502,17 +507,21 @@ impl<'a> Inputs<'a> {
 
     fn missing_piece(&self, body: FeatureId) -> Option<FeatureError> {
         body.piece_key()?;
+
         let maker = self.document.body_maker(body)?;
         let made = self.features.get(&maker.id())?;
+
         match &maker.kind {
             FeatureKind::Mirror(mirror) => return self.missing_image(maker, mirror, made, body),
             FeatureKind::Pattern(pattern) => return self.missing_copy(maker, pattern, made, body),
             _ => {}
         }
+
         let curve = self
             .document
             .piece_curve(body)
             .unwrap_or_else(|| "a curve since deleted".to_owned());
+
         if !maker.separates_pieces() {
             return Some(
                 FeatureError::new(Upstream::PiecesJoined {
@@ -522,6 +531,7 @@ impl<'a> Inputs<'a> {
                 .fixing(FixTarget::Feature(maker.id())),
             );
         }
+
         let stands = body_part(made, body).is_some();
         let sketch = maker
             .kind
@@ -604,7 +614,7 @@ pub trait Evaluator: Send + Sync + 'static {
     ) -> Result<FeatureResult, Failure>;
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FeatureState {
     UpToDate,
     Failed(FeatureError),
@@ -614,7 +624,7 @@ pub enum FeatureState {
     RolledBack,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeatureStatus {
     pub state: FeatureState,
     pub result: Option<Arc<FeatureResult>>,
@@ -639,7 +649,7 @@ impl FeatureStatus {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Evaluation {
     pub parameters: ParameterValues,
     features: BTreeMap<FeatureId, FeatureStatus>,
@@ -662,6 +672,7 @@ impl Evaluation {
     pub fn standing_before(&self, feature: &Feature) -> Option<Self> {
         let seen = self.seen_bodies.get(&feature.id())?;
         let mut before = self.clone();
+
         before
             .bodies
             .extend(seen.iter().map(|(body, state)| (*body, *state)));
@@ -800,7 +811,7 @@ type ParameterFingerprint = Vec<(ParameterId, Option<Quantity>)>;
 type Appearances = Vec<(FeatureId, Option<BodyAppearance>)>;
 type BodiesSeen = BTreeMap<FeatureId, FeatureId>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Names {
     feature: String,
     features: Vec<String>,
@@ -859,7 +870,7 @@ impl Names {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct CacheEntry {
     definition: Arc<Feature>,
     parameters: ParameterFingerprint,
@@ -948,30 +959,35 @@ impl Key {
             })
             .collect();
         let mut used_parameters = feature.kind.parameters();
+
         used_parameters.extend(
             appearances
                 .iter()
                 .filter_map(|(_, appearance)| appearance.as_ref())
                 .flat_map(BodyAppearance::parameters),
         );
+
         let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = run
             .measured
             .features_read_by(&feature.kind)
             .into_iter()
             .map(|used| (used, view.features.get(&used).cloned()))
             .collect();
+
         let consumers: Vec<_> = view
             .features
             .iter()
             .filter(|(seen, _)| !upstream.iter().any(|(used, _)| used == *seen))
             .map(|(consumer, result)| (*consumer, Some(Arc::clone(result))))
             .collect();
+
         upstream.extend(consumers);
         for body in feature.kind.bodies_used() {
             if let Some((state, result)) = view.bodies.get(&body) {
                 upstream.push((*state, Some(Arc::clone(result))));
             }
         }
+
         let suppressed_upstream = upstream
             .iter()
             .map(|(used, _)| *used)
@@ -1052,7 +1068,7 @@ const GLIMPSE_SHARE_OF_RUN: u32 = 8;
 const GLIMPSE_ALLOWANCE: Duration = Duration::from_millis(50);
 const MAX_UNSWEPT_REGION_ENTITIES: usize = 2_000;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Recompute {
     cache: ResultHistory,
     last_meshes: Arc<LastMeshes>,
@@ -1214,6 +1230,7 @@ impl Recompute {
             .unwrap_or(started);
         let parameters = ParameterValues::evaluate(document);
         let measured = Measured::of(document);
+
         let run = Run {
             document,
             parameters: &parameters,
@@ -1228,6 +1245,7 @@ impl Recompute {
             Arc::clone(&self.last_meshes),
         );
         let threads = Arc::clone(&self.threads);
+
         let evaluation = threads.run(&work, |pool| {
             let _closing = pool.closing();
             let walk = match display {
@@ -1240,8 +1258,11 @@ impl Recompute {
                 .during(|glimpse| self.walk(&run, pool, Some(glimpse))),
                 Display::Skipped => self.walk(&run, pool, None),
             };
+
             pool.forget_features();
+
             let mut evaluation = walk.into_evaluation(&run, parameters.clone(), BTreeSet::new());
+
             if display == Display::Prepared {
                 self.prepare_display(document, &mut evaluation, pool, &|evaluation| {
                     if !cancel.is_cancelled() && Instant::now() >= shown_from {
@@ -1253,6 +1274,7 @@ impl Recompute {
         });
 
         let alive: BTreeSet<FeatureId> = document.features().map(Feature::id).collect();
+
         self.cache.retain(|id| alive.contains(id));
         self.last_meshes.retain(|body| alive.contains(&body));
         evaluation
@@ -1281,6 +1303,7 @@ impl Recompute {
             .filter(|feature| feature.suppressed)
             .map(Feature::id)
             .collect();
+
         let settling = settling(features, bar);
         let mut lookahead: Option<Lookahead> = None;
         let mut walk = Walk::default();
@@ -1293,15 +1316,20 @@ impl Recompute {
                 self.advance(run, pool, lookahead, (&tree, &suppressed));
             }
             progress(index, features.len());
+
             let id = feature.id();
+
             if let Some(state) = skipped(feature, index, bar) {
                 walk.statuses
                     .insert(id, FeatureStatus::without_result(state));
                 continue;
             }
+
             let view = walk.view(feature, run.measured);
             let key = Key::of(run, (feature, index), (&tree, &suppressed), &view);
+
             walk.see_bodies(feature);
+
             let upstream_cut_short = cut_short.reaches(feature, &key.upstream);
             let reused = if upstream_cut_short {
                 None
@@ -1311,18 +1339,22 @@ impl Recompute {
                     .map(CacheEntry::status)
             };
             let previous = self.cache.latest(id);
+
             let status = if let Some(status) = reused {
                 status
             } else if upstream_cut_short || cancelled || cancel.is_cancelled() {
                 cancelled = true;
                 cut_short.add(feature);
+
                 let last_good = previous.and_then(|entry| entry.result.clone());
+
                 walk.statuses.insert(id, FeatureStatus::outdated(last_good));
                 continue;
             } else {
                 if let Some(show) = glimpse {
                     self.offer_glimpse(run, &walk, (&settling, index), &mut glimpsed, show);
                 }
+
                 let last_good = previous.and_then(|entry| entry.result.clone());
                 let job = Job {
                     feature: Arc::clone(feature),
@@ -1339,6 +1371,7 @@ impl Recompute {
                     }
                     None => compute(&run.context(), &job),
                 };
+
                 let (state, result, healing) = match outcome {
                     Ok((result, healing)) => (FeatureState::UpToDate, Some(result), healing),
                     Err(Failure::Error(error)) => (FeatureState::Failed(*error), last_good, None),
@@ -1352,7 +1385,9 @@ impl Recompute {
                         continue;
                     }
                 };
+
                 walk.recomputed.push(id);
+
                 let entry = CacheEntry {
                     definition: Arc::clone(feature),
                     parameters: key.parameters,
@@ -1366,6 +1401,7 @@ impl Recompute {
                     retry: false,
                 };
                 let status = entry.status();
+
                 self.cache.insert(id, entry);
                 status
             };
@@ -1374,6 +1410,7 @@ impl Recompute {
                 (FeatureState::UpToDate, Some(result)) => Some(Arc::clone(result)),
                 _ => None,
             };
+
             if let Some(result) = &stood {
                 walk.stand(feature, result);
             }
@@ -1404,6 +1441,7 @@ impl Recompute {
         if run.cancel.is_cancelled() {
             lookahead.halt();
         }
+
         let features = run.document.feature_handles();
         while let Some(index) = lookahead.next_ready() {
             let Some(feature) = features.get(index) else {
@@ -1411,7 +1449,9 @@ impl Recompute {
             };
             let id = feature.id();
             let view = lookahead.view(index);
+
             let key = Key::of(run, (feature, index), names, &view);
+
             if missing_upstream(run.document, feature, &key.upstream).is_some() {
                 lookahead.settle(index, None);
                 continue;
@@ -1421,10 +1461,13 @@ impl Recompute {
                     (FeatureState::UpToDate, Some(result)) => Some(Arc::clone(result)),
                     _ => None,
                 };
+
                 lookahead.settle(index, stood);
                 continue;
             }
+
             let previous = self.cache.latest(id).and_then(|entry| entry.result.clone());
+
             pool.queue(
                 index,
                 Job {
@@ -1475,11 +1518,14 @@ impl Recompute {
                 })
             })
             .collect();
+
         glimpsed.settled_before = reached;
         if walk.recomputed.len() == glimpsed.recomputed && settled.is_empty() {
             return;
         }
+
         let now = Instant::now();
+
         if !glimpsed.budget.allows(now) {
             if !settled.is_empty() {
                 show(Glimpse {
@@ -1490,7 +1536,9 @@ impl Recompute {
             return;
         }
         glimpsed.recomputed = walk.recomputed.len();
+
         let evaluation = self.glimpse(run, walk, reached);
+
         glimpsed.budget.spend(now.elapsed());
         show(Glimpse {
             evaluation: Some(evaluation),
@@ -1503,17 +1551,21 @@ impl Recompute {
         let bar = document.bar_index();
         let mut seen = walk.shown();
         let mut pending = BTreeSet::new();
+
         for (index, feature) in document.feature_handles().iter().enumerate().skip(reached) {
             let id = feature.id();
+
             if let Some(state) = skipped(feature, index, bar) {
                 seen.statuses
                     .insert(id, FeatureStatus::without_result(state));
                 continue;
             }
             pending.insert(id);
+
             let Some(entry) = self.cache.latest(id) else {
                 continue;
             };
+
             if let (FeatureState::UpToDate, Some(result)) = (&entry.state, &entry.result) {
                 seen.stand(feature, result);
             }
@@ -1530,16 +1582,21 @@ impl Recompute {
         report: &dyn Fn(&Evaluation),
     ) {
         report(evaluation);
+
         let mut reported = Instant::now();
         let (meshes, meshed) = mpsc::channel();
+
         for body in evaluation.bodies.keys() {
             let Some(result) = evaluation.body_result(*body) else {
                 continue;
             };
+
             if result.solid().is_none_or(SolidResult::is_meshed) {
                 continue;
             }
+
             let meshes = meshes.clone();
+
             pool.mesh(
                 SettledBody {
                     name: body_name(document, *body),
@@ -1648,6 +1705,7 @@ impl CutShort {
         if self.features.is_empty() {
             return false;
         }
+
         let body_cut_short =
             |body: FeatureId| self.bodies.contains(&body) || self.bodies.contains(&body.maker());
         upstream
@@ -1673,6 +1731,7 @@ struct Walk {
 impl Walk {
     fn stand(&mut self, feature: &Feature, result: &Arc<FeatureResult>) {
         let id = feature.id();
+
         self.current.insert(id, Arc::clone(result));
         for part in body_parts(result) {
             if let Some(solid) = part.solid() {
@@ -1709,6 +1768,7 @@ impl Walk {
         } else {
             BodiesSeen::new()
         };
+
         for body in feature.kind.bodies_used() {
             if let Some((state, _)) = self.bodies.get(&body) {
                 seen.insert(body, *state);
@@ -1724,6 +1784,7 @@ impl Walk {
 
     fn lookahead(&self, features: &[Arc<Feature>], bar: usize, measured: &Measured) -> Lookahead {
         let mut lookahead = Lookahead::new(features, bar, measured);
+
         for (index, feature) in features.iter().enumerate() {
             if self.statuses.contains_key(&feature.id()) {
                 lookahead.settle(index, self.current.get(&feature.id()).cloned());
@@ -1734,6 +1795,7 @@ impl Walk {
 
     fn view(&self, feature: &Feature, measured: &Measured) -> View {
         let mut view = View::default();
+
         for used in measured.features_read_by(&feature.kind) {
             if let Some(result) = self.current.get(&used) {
                 view.features.insert(used, Arc::clone(result));
@@ -1760,6 +1822,7 @@ impl Walk {
     ) -> Evaluation {
         let document = run.document;
         let measured = run.measured;
+
         for (parameter, measurement) in measured.pairs() {
             let reading = self
                 .statuses
@@ -1772,12 +1835,15 @@ impl Walk {
             }
         }
         measured.derive(&mut parameters);
+
         let mut shown: BTreeMap<FeatureId, FeatureId> = self
             .bodies
             .iter()
             .map(|(body, (state, _))| (*body, *state))
             .collect();
+
         let stale_bodies = last_good_bodies(document, &self.statuses, &shown, &self.consumed);
+
         for (body, state) in &stale_bodies {
             shown.insert(*body, *state);
         }
@@ -1841,6 +1907,7 @@ type Settling = BTreeMap<usize, Vec<FeatureId>>;
 
 fn settling(features: &[Arc<Feature>], bar: usize) -> Settling {
     let mut last_change: BTreeMap<FeatureId, usize> = BTreeMap::new();
+
     for (index, feature) in features.iter().enumerate().take(bar) {
         if feature.suppressed {
             continue;
@@ -1853,7 +1920,9 @@ fn settling(features: &[Arc<Feature>], bar: usize) -> Settling {
             last_change.insert(body, index);
         }
     }
+
     let mut settling = Settling::new();
+
     for (body, index) in last_change {
         settling.entry(index).or_default().push(body);
     }
@@ -1868,6 +1937,7 @@ fn settled_bodies<'a>(
     if let Some((_, result)) = walk.bodies.get(&body) {
         return vec![(body, result)];
     }
+
     let (Some(first), Some(last)) = (
         body.piece(PieceKey::from_raw(0)),
         body.piece(PieceKey::from_raw(u32::MAX)),
@@ -1897,7 +1967,7 @@ fn body_name(document: &Document, body: FeatureId) -> String {
         .map_or_else(|| "a feature".to_owned(), Cow::into_owned)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Display {
     Prepared,
     Skipped,
@@ -1915,6 +1985,7 @@ fn last_good_bodies(
         .map(Feature::id)
         .collect();
     let mut stale = BTreeMap::new();
+
     for feature in document.features() {
         let Some(last_good) = statuses
             .get(&feature.id())
@@ -1946,6 +2017,7 @@ fn missing_upstream(
         }));
     };
     let name = used.name.clone();
+
     if used.suppressed {
         return Some(
             FeatureError::new(Upstream::Suppressed { name })
@@ -2004,7 +2076,7 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
         .unwrap_or("unknown panic")
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct ModelEvaluator;
 
 impl Evaluator for ModelEvaluator {
@@ -2031,6 +2103,7 @@ impl Evaluator for ModelEvaluator {
                     .previous
                     .and_then(FeatureResult::sketch)
                     .map(|previous| &previous.memo);
+
                 let solved = sketch.solve_from(
                     &|id| inputs.parameters.value(id),
                     &|| cancel.is_cancelled(),
@@ -2046,6 +2119,7 @@ impl Evaluator for ModelEvaluator {
                         if let Some(plane) = plane {
                             geometry.set_plane(plane);
                         }
+
                         let result = SketchResult::remembering(geometry, solution, memo)
                             .sharing_display_with(inputs.previous.and_then(FeatureResult::sketch));
                         Ok(FeatureResult::Sketch(result))
@@ -2169,11 +2243,13 @@ fn several_errors(feature: FeatureId, sketch: &Sketch, parts: &[SketchError]) ->
         .map(|part| sketch_error(feature, sketch, part))
         .collect();
     let mut constraints: Vec<ConstraintId> = Vec::new();
+
     for constraint in errors.iter().flat_map(|error| &error.constraints) {
         if !constraints.contains(constraint) {
             constraints.push(*constraint);
         }
     }
+
     let fix = errors.iter().find_map(|error| error.fix);
     let causes = errors.into_iter().map(|error| *error.cause).collect();
     let error = FeatureError::new(SketchCause::Several(causes)).constraining(constraints);
@@ -2197,6 +2273,7 @@ pub(crate) fn unsolvable_error(
         .map(|entity| sketch.entity_label(*entity))
         .collect();
     let unnamed = entities.len().saturating_sub(UNSOLVED_NAMED);
+
     let error = FeatureError::new(SketchCause::Unsolvable {
         named,
         unnamed,

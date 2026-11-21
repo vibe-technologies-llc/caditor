@@ -15,7 +15,7 @@ fn parallel(a: Vector3, b: Vector3) -> bool {
     a.cross(b).length() <= PARALLEL
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(super) enum Collapse {
     Axis(Vector3),
     Centre,
@@ -85,6 +85,7 @@ fn past_apex(offsets: &Offsets<'_>, face: FaceId) -> Option<Collapse> {
         return None;
     };
     let mut cone = None;
+
     for edge_id in loop_edges(solid, face) {
         let Curve::Circle(circle) = solid.edge(edge_id)?.curve() else {
             return None;
@@ -92,22 +93,27 @@ fn past_apex(offsets: &Offsets<'_>, face: FaceId) -> Option<Collapse> {
         let other = coedge_faces(solid, edge_id)
             .into_iter()
             .find(|other| *other != face)?;
+
         if cone.is_some_and(|known| known != other) {
             return None;
         }
+
         let Surface::Cone(surface) = solid.face(other)?.surface() else {
             return None;
         };
         let axis = surface.frame().normal();
+
         let off_axis = (circle.center() - surface.frame().origin()).reject_from(axis);
         let coaxial = parallel(circle.frame().normal(), axis)
             && parallel(plane.frame().normal(), axis)
             && off_axis.length() <= OFFSET_TOLERANCE;
+
         if !coaxial {
             return None;
         }
         cone = Some(other);
     }
+
     let cone = cone?;
     let (Surface::Cone(original), Ok(Surface::Cone(offset))) =
         (solid.face(cone)?.surface(), offsets.surface(cone))
@@ -120,7 +126,7 @@ fn past_apex(offsets: &Offsets<'_>, face: FaceId) -> Option<Collapse> {
     (narrows_to_face && passed < -OFFSET_TOLERANCE).then_some(Collapse::Apex(cone))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct Collapses {
     collapsing: BTreeMap<FaceId, Collapse>,
     deleted: BTreeSet<FaceId>,
@@ -133,11 +139,13 @@ impl Collapses {
             .faces()
             .filter_map(|(id, _)| Some((id, too_curved(offsets, id)?)))
             .collect();
+
         let apexes: Vec<(FaceId, Collapse)> = solid
             .faces()
             .filter(|(id, _)| !collapses.contains_key(id))
             .filter_map(|(id, _)| Some((id, past_apex(offsets, id)?)))
             .collect();
+
         collapses.extend(apexes);
         Self {
             collapsing: collapses,
@@ -209,9 +217,11 @@ impl Collapses {
 
     pub(super) fn refusal(&self, solid: &Solid, face: FaceId) -> Option<ShellError> {
         let collapse = self.collapsing.get(&face)?;
+
         if !collapse.shrinks_away() {
             return Some(ShellError::TooCurved(face));
         }
+
         let vanishing = loop_edges(solid, face)
             .into_iter()
             .filter(|edge| {
@@ -233,9 +243,11 @@ impl Collapses {
             let Some(collapse) = self.collapsing.get(face) else {
                 continue;
             };
+
             if self.deleted.contains(face) {
                 continue;
             }
+
             let residuals: Option<Vec<f64>> = points
                 .iter()
                 .map(|point| Some(offsets.residual(*face, *point, None)?.0))

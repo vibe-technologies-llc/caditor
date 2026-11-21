@@ -19,7 +19,7 @@ pub const HINT: &str = "Export the selected bodies, else the ones chosen in the 
                         STEP, without asking for a file, and open them in the Fusion 360 app on \
                         this computer";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FusionAppRefusal {
     #[error(
         "There are no bodies to open in Fusion 360 yet. Extrude or revolve a sketch to make one"
@@ -101,6 +101,7 @@ impl Files {
             model.set_notice(Notice::warning(format!("{refusal}.")));
             return;
         }
+
         let folder = self
             .config
             .state_dir
@@ -108,6 +109,7 @@ impl Files {
             .map(|dir| dir.join(fusion_app::FOLDER));
         let handler = Arc::clone(&self.fusion_app.handler);
         let session = model.session();
+
         self.fusion_app.sending = Some(Sending::Preparing);
         self.fusion_app.only = only;
         self.spawn(
@@ -129,6 +131,7 @@ impl Files {
         model: &mut Model,
     ) {
         self.fusion_app.sending = None;
+
         let folder = match result {
             Ok(folder) => folder,
             Err(error) => {
@@ -136,20 +139,27 @@ impl Files {
                 return;
             }
         };
+
         if session != model.session() {
             model.set_notice(Notice::info(
                 "Nothing was opened in Fusion 360, since another model is open now.",
             ));
             return;
         }
+
         let only = std::mem::take(&mut self.fusion_app.only);
+
         if let Err(refusal) = self.fusion_app_availability(model, &only) {
             model.set_notice(Notice::warning(format!("{refusal}.")));
             return;
         }
+
         let path = folder.join(export::named_for(model, ExportFormat::Step));
+
         self.fusion_app.sending = Some(Sending::Exporting { path: path.clone() });
+
         let finished = self.export_finished();
+
         self.exporter
             .start_among(path, ExportFormat::Step, Vec::new(), model, &only, finished);
         self.exporter.perform(ExportCommand::Hide, model);

@@ -39,7 +39,7 @@ const JOINT_GAP: f64 = 10.0 * LINEAR_RESOLUTION;
 const BREAK_OFFSET: f64 = 1e-4;
 const FOLDING_SPEED: f64 = 0.1;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct RunSides {
     pub run: Run,
     pub faces: [FaceId; 2],
@@ -47,7 +47,7 @@ pub(super) struct RunSides {
     pub candidates: [Vec<FaceId>; 2],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Stations {
     pub sides: RunSides,
     pub params: Vec<f64>,
@@ -55,7 +55,7 @@ pub(super) struct Stations {
     pub name: Named,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Rounded {
     pub runs: Vec<Stations>,
     pub chords: Vec<Segment>,
@@ -87,9 +87,11 @@ fn ordered_sides(
     let [(first, first_same), (second, second_same)] = faces.as_slice() else {
         return Err(unsupported(run.edge));
     };
+
     if first == second {
         return Err(unsupported(run.edge));
     }
+
     let mut sides = RunSides {
         run,
         faces: [*first, *second],
@@ -99,6 +101,7 @@ fn ordered_sides(
             tangent_faces(solid, &[*second]),
         ],
     };
+
     if let Some(previous) = previous {
         let kept =
             previous.candidates[0].contains(first) || previous.candidates[1].contains(second);
@@ -121,14 +124,16 @@ fn ordered_sides(
 
 fn sides_of(solid: &Solid, chain: &Chain) -> Result<Vec<RunSides>, BlendError> {
     let mut found: Vec<RunSides> = Vec::with_capacity(chain.runs.len());
+
     for run in &chain.runs {
         let sides = ordered_sides(solid, *run, found.last())?;
+
         found.push(sides);
     }
     Ok(found)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Station {
     point: Point3,
     tangent: Vector3,
@@ -161,6 +166,7 @@ fn edge_station(solid: &Solid, sides: &RunSides, parameter: f64) -> Option<Stati
     } else {
         -along
     };
+
     let tangent = faces_tangent(solid, sides.faces, derivatives.point, forward).unwrap_or(forward);
     Some(Station {
         point: derivatives.point,
@@ -177,10 +183,12 @@ fn blended_station(
     ends: [Vector3; 2],
 ) -> Option<Station> {
     let Run { from, to, .. } = sides.run;
+
     let at = |fraction: f64| from + (to - from) * fraction;
     let own = edge_station(solid, sides, at(fraction))?;
     let start = edge_station(solid, sides, at(0.0))?.tangent;
     let end = edge_station(solid, sides, at(1.0))?.tangent;
+
     let tangent = (own.tangent + (ends[0] - start) * (1.0 - fraction) + (ends[1] - end) * fraction)
         .try_normalize()?;
     Some(Station { tangent, ..own })
@@ -197,6 +205,7 @@ fn extended_station(
         solid.face(sides.faces[1])?.surface(),
     ];
     let guess = from.point + from.tangent * distance;
+
     let point = on_both(surfaces, guess, from.tangent)?;
     let tangent = faces_tangent(solid, sides.faces, point, from.tangent)?;
     let along = tangent * from.tangent.dot(from.along).signum();
@@ -210,8 +219,10 @@ fn extended_station(
 
 fn inward(solid: &Solid, sides: &RunSides, station: &Station) -> Option<[Vector3; 2]> {
     let mut found = [Vector3::ZERO; 2];
+
     for ((slot, face), same) in found.iter_mut().zip(sides.faces).zip(sides.same) {
         let normal = face_normal(solid, face, station.point)?;
+
         *slot = normal
             .cross(if same { station.along } else { -station.along })
             .try_normalize()?;
@@ -228,15 +239,18 @@ fn station_cross(
 ) -> Result<Cross, BlendError> {
     let solid = context.around.solid;
     let edge = sides.run.edge;
+
     let inward = inward(solid, sides, station).ok_or(unsupported(edge))?;
     let joined = |index: usize| -> Vec<FaceId> {
         let mut faces = sides.candidates.get(index).cloned().unwrap_or_default();
+
         if let Some(extra) = extra.and_then(|extra| extra.candidates.get(index)) {
             let more: Vec<FaceId> = extra
                 .iter()
                 .filter(|face| !faces.contains(face))
                 .copied()
                 .collect();
+
             faces.extend(more);
         }
         faces
@@ -273,7 +287,7 @@ pub(super) fn reach(cross: &Cross) -> f64 {
         .map_or(feet, |center| feet.max(center.distance(cross.point)))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Reach {
     overhang: f64,
     apex: f64,
@@ -287,9 +301,11 @@ impl Reach {
 
     fn unfolded<'a>(crosses: impl IntoIterator<Item = &'a Cross>, convex: bool) -> Option<Self> {
         let mut reach = Self::FULL;
+
         for cross in crosses {
             let chord = Chord::of(cross, convex)?;
             let [first, second] = chord.feet;
+
             reach.overhang = reach
                 .overhang
                 .min(unfolded_share(cross, first, -chord.across, chord.length))
@@ -317,6 +333,7 @@ impl Chord {
     fn of(cross: &Cross, convex: bool) -> Option<Self> {
         let feet = cross.feet.map(|foot| foot.point);
         let [first, second] = feet;
+
         let between = second - first;
         let bisector = (cross.feet[0].normal + cross.feet[1].normal).try_normalize()?;
         Some(Self {
@@ -395,14 +412,17 @@ fn fitted(stations: &Stations, middles: &[(f64, Cross)], convex: bool) -> bool {
         };
         let chord =
             deviation(&first, *at, exact.chord[0]).max(deviation(&second, *at, exact.chord[1]));
+
         if !rounding {
             return chord <= OUTLINE_FIT;
         }
+
         let (Some([foot_first, foot_second]), Some((scaled, weights)), Some((middle, _))) =
             (&feet, &arcs, cross.arc())
         else {
             return false;
         };
+
         let foot = deviation(foot_first, *at, cross.feet[0].point).max(deviation(
             foot_second,
             *at,
@@ -454,8 +474,10 @@ fn chord_segment(stations: &Stations, convex: bool, reach: Reach) -> Option<Segm
     let every = every_section(stations, convex, reach)?;
     let spans = every.params.len().saturating_sub(1);
     let mut stride = spans / FIRST_STATIONS;
+
     while stride > 1 {
         let thinned = spans % stride == 0 && spans / stride >= FIRST_STATIONS;
+
         if thinned {
             let coarse = every_nth(&every, stride);
             if holds_every_section(&coarse, &every) {
@@ -482,15 +504,18 @@ fn run_stations(
     let solid = context.around.solid;
     let sides = &piece.sides;
     let edge = sides.run.edge;
+
     let definition = solid.edge(edge).ok_or(BlendError::MissingEdge(edge))?;
     let name = Named {
         name: FaceName::blend(context.feature, definition.name()),
         origin: Some(context.shape.origin(context.feature)),
     };
     let Run { from, to, .. } = sides.run;
+
     let span = (to - from).abs();
     let speed = |parameter: f64| definition.curve().evaluate(parameter).first.length();
     let [before, after] = piece.extended;
+
     let reach_before = speed(from) * span;
     let reach_after = speed(to) * span;
     let low = if before > 0.0 && reach_before > 0.0 {
@@ -505,12 +530,16 @@ fn run_stations(
     };
     let start = blended_station(solid, sides, 0.0, piece.tangents).ok_or(unsupported(edge))?;
     let end = blended_station(solid, sides, 1.0, piece.tangents).ok_or(unsupported(edge))?;
+
     let compute = |fraction: f64| -> Result<Cross, BlendError> {
         let station = if fraction < 0.0 {
             let mut backward = start;
+
             backward.tangent = -start.tangent;
+
             let mut found = extended_station(solid, sides, &backward, -fraction * reach_before)
                 .ok_or(BlendError::TooLarge(edge))?;
+
             found.tangent = -found.tangent;
             found
         } else if fraction > 1.0 {
@@ -521,6 +550,7 @@ fn run_stations(
         };
         let found = station_cross(context, sides, None, convex, &station)?;
         let beyond = fraction <= 0.0 || fraction >= 1.0;
+
         let fits = beyond
             || found.inside.iter().zip(found.feet).all(|(inside, foot)| {
                 *inside || past_ends.iter().any(|end| end.passed_by(foot.point))
@@ -533,12 +563,15 @@ fn run_stations(
     };
     let fraction_at = |index: usize, count: usize| low + (high - low) * index as f64 / count as f64;
     let mut count = FIRST_STATIONS;
+
     let mut crosses: Vec<Cross> = (0..=count)
         .map(|index| compute(fraction_at(index, count)))
         .collect::<Result<_, _>>()?;
+
     let last = *crosses.last().ok_or(BlendError::NoEdges)?;
     loop {
         crate::interrupt::check()?;
+
         let params: Vec<f64> = (0..=count)
             .map(|index| span * fraction_at(index, count))
             .collect();
@@ -549,8 +582,10 @@ fn run_stations(
             name,
         };
         let mut middles = Vec::with_capacity(count);
+
         for index in 0..count {
             let fraction = fraction_at(2 * index + 1, 2 * count);
+
             middles.push((span * fraction, compute(fraction)?));
         }
         if fitted(&stations, &middles, convex) {
@@ -560,9 +595,12 @@ fn run_stations(
             let sections = crosses
                 .iter()
                 .chain(middles.iter().map(|(_, middle)| middle));
+
             return Err(intricate_or_folding(edge, sections));
         }
+
         let mut doubled = Vec::with_capacity(2 * count + 1);
+
         for (cross, (_, middle)) in crosses.iter().zip(&middles) {
             doubled.push(*cross);
             doubled.push(*middle);
@@ -619,6 +657,7 @@ fn pieces(
     let solid = context.around.solid;
     let edge = sides.run.edge;
     let Run { from, to, .. } = sides.run;
+
     let at = |fraction: f64| from + (to - from) * fraction;
     let tangents = [ends[0].tangent, ends[1].tangent];
     let station_at =
@@ -633,23 +672,30 @@ fn pieces(
         })
         .unwrap_or(0.0);
     let mut samples = Vec::with_capacity(SWITCH_SAMPLES + 1);
+
     samples.push((0.0, *ends[0]));
     for index in 1..SWITCH_SAMPLES {
         let fraction = index as f64 / SWITCH_SAMPLES as f64;
+
         samples.push((fraction, compute(fraction)?));
     }
     samples.push((1.0, *ends[1]));
+
     let mut breaks: Vec<f64> = Vec::new();
+
     for pair in samples.windows(2) {
         let [(low_fraction, low), (high_fraction, high)] = pair else {
             continue;
         };
+
         if feet_faces(low) == feet_faces(high) {
             continue;
         }
+
         let (low_fraction_start, high_fraction_end) = (low_fraction, high_fraction);
         let (mut low_fraction, mut high_fraction) = (*low_fraction, *high_fraction);
         let wanted = feet_faces(low);
+
         for _ in 0..SWITCH_BISECTIONS {
             let middle = 0.5 * (low_fraction + high_fraction);
             if feet_faces(&compute(middle)?) == wanted {
@@ -658,8 +704,10 @@ fn pieces(
                 high_fraction = middle;
             }
         }
+
         let switched = 0.5 * (low_fraction + high_fraction);
         let left = forced(sides, at(0.0), at(1.0), wanted);
+
         let crossing = onto_shared_edge(
             solid,
             wanted,
@@ -675,14 +723,17 @@ fn pieces(
         } else {
             0.0
         };
+
         breaks.push(crossing + offset);
     }
+
     let closest = if length > 0.0 {
         SHORTEST_PIECE / length
     } else {
         1.0
     };
     let mut bounds = vec![0.0];
+
     for fraction in breaks {
         let last = bounds.last().copied().unwrap_or(0.0);
         if fraction - last > closest && 1.0 - fraction > closest {
@@ -690,13 +741,17 @@ fn pieces(
         }
     }
     bounds.push(1.0);
+
     let mut found = Vec::with_capacity(bounds.len());
+
     for window in bounds.windows(2) {
         let [low, high] = window else {
             continue;
         };
+
         let middle = compute(0.5 * (low + high))?;
         let piece = forced(sides, at(*low), at(*high), feet_faces(&middle));
+
         found.push((
             piece,
             [station_at(*low)?.tangent, station_at(*high)?.tangent],
@@ -718,6 +773,7 @@ fn shared_edge(solid: &Solid, first: FaceId, second: FaceId) -> Option<EdgeId> {
 fn across_edge(solid: &Solid, edge: EdgeId, face: FaceId, point: Point3) -> Option<f64> {
     let definition = solid.edge(edge)?;
     let curve = definition.curve();
+
     let parameter = curve.closest_parameter(point, definition.interval());
     let derivatives = curve.evaluate(parameter);
     let across = face_normal(solid, face, derivatives.point)?
@@ -739,9 +795,11 @@ fn onto_shared_edge(
         .zip(after)
         .enumerate()
         .filter(|(_, (old, new))| **old != *new);
+
     let (Some((side, (old, new))), None) = (changed.next(), changed.next()) else {
         return Ok(None);
     };
+
     let Some(edge) = shared_edge(solid, *old, new) else {
         return Ok(None);
     };
@@ -759,6 +817,7 @@ fn onto_shared_edge(
             .and_then(|foot| across_edge(solid, edge, *old, foot.point)))
     };
     let [mut low, far] = bracket;
+
     let Some(low_value) = signed(low)? else {
         return Ok(None);
     };
@@ -766,7 +825,9 @@ fn onto_shared_edge(
         Ok(signed(fraction)?.is_some_and(|value| value.signum() != low_value.signum()))
     };
     let mut high = far;
+
     let mut beyond = crossed(high)?;
+
     for _ in 0..SWITCH_BISECTIONS {
         if beyond {
             break;
@@ -799,10 +860,13 @@ fn met(before: &Cross, after: &Cross) -> Option<Cross> {
         .map(|(a, b)| a.point.distance(b.point))
         .chain(before.center.zip(after.center).map(|(a, b)| a.distance(b)))
         .fold(before.point.distance(after.point), larger);
+
     if gap > JOINT_GAP {
         return None;
     }
+
     let mut joined = *after;
+
     joined.point = before.point.midpoint(after.point);
     joined.bend = (before.bend + after.bend) * 0.5;
     joined.tangent = (before.tangent + after.tangent).try_normalize()?;
@@ -821,6 +885,7 @@ fn join_runs(runs: &mut [Stations], closed: bool) -> Result<(), BlendError> {
     } else {
         count.saturating_sub(1)
     };
+
     for index in 0..pairs {
         let next = (index + 1) % count;
         let (Some(before), Some(after), Some(edge)) = (
@@ -830,10 +895,13 @@ fn join_runs(runs: &mut [Stations], closed: bool) -> Result<(), BlendError> {
         ) else {
             continue;
         };
+
         let joined =
             met(&before, &after).ok_or_else(|| intricate_or_folding(edge, [&before, &after]))?;
+
         if let Some(slot) = runs.get_mut(index).and_then(|run| run.crosses.last_mut()) {
             let mut ending = joined;
+
             for (foot, earlier) in ending.feet.iter_mut().zip(&before.feet) {
                 foot.face = earlier.face;
             }
@@ -865,6 +933,7 @@ fn joint_crosses(
 ) -> Result<Vec<Cross>, BlendError> {
     let solid = context.around.solid;
     let mut joints = Vec::with_capacity(all_sides.len() + 1);
+
     for (index, sides) in all_sides.iter().enumerate() {
         let previous = if index == 0 {
             chain.closed.then(|| all_sides.last()).flatten()
@@ -873,6 +942,7 @@ fn joint_crosses(
         };
         let mut station =
             edge_station(solid, sides, sides.run.from).ok_or(unsupported(sides.run.edge))?;
+
         if let Some(previous) = previous
             && let Some(before) = edge_station(solid, previous, previous.run.to)
         {
@@ -885,6 +955,7 @@ fn joint_crosses(
     if !chain.closed {
         let last = all_sides.last().ok_or(BlendError::NoEdges)?;
         let station = edge_station(solid, last, last.run.to).ok_or(unsupported(last.run.edge))?;
+
         joints.push(station_cross(context, last, None, convex, &station)?);
     }
     Ok(joints)
@@ -897,13 +968,16 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
     let all_sides = sides_of(solid, chain)?;
     let first_sides = all_sides.first().ok_or(BlendError::NoEdges)?;
     let last_sides = all_sides.last().ok_or(BlendError::NoEdges)?;
+
     let convex = convexity(solid, first_sides).ok_or(unsupported(first_run.edge))?;
+
     if all_sides
         .iter()
         .any(|sides| convexity(solid, sides) != Some(convex))
     {
         return Err(unsupported(first_run.edge));
     }
+
     let joints = joint_crosses(context, chain, &all_sides, convex)?;
     let blended = |sides: &RunSides| Blended {
         edge: sides.run.edge,
@@ -918,6 +992,7 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
             end_vertex(solid, &last_sides.run, false),
         ]
     };
+
     let past_ends: Vec<EndPlane> = [
         (first_sides, end_vertices[0]),
         (last_sides, end_vertices[1]),
@@ -932,6 +1007,7 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
         beside: [Vec::new(), Vec::new()],
     };
     let mut extended = [0.0; 2];
+
     if !chain.closed {
         let own: BTreeSet<FaceId> = first_sides
             .faces
@@ -959,6 +1035,7 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
                 reach(&cross),
                 SquareEnd::Past,
             )?;
+
             if matches!(end, End::Setback(_)) {
                 return Err(refused);
             }
@@ -975,13 +1052,16 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
             }
         }
     }
+
     let mut runs = Vec::with_capacity(all_sides.len());
     let last_index = all_sides.len().saturating_sub(1);
+
     for (index, sides) in all_sides.iter().enumerate() {
         let (Some(start), Some(end)) = (joints.get(index), joints.get((index + 1) % joints.len()))
         else {
             return Err(BlendError::NoEdges);
         };
+
         let split = pieces(context, sides, convex, [start, end])?;
         let piece_count = split.len();
         for (piece_index, (piece_sides, tangents)) in split.into_iter().enumerate() {
@@ -995,15 +1075,18 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
             } else {
                 0.0
             };
+
             let piece = Piece {
                 sides: piece_sides,
                 tangents,
                 extended: [before, after],
             };
+
             runs.push(run_stations(context, &piece, convex, &past_ends)?);
         }
     }
     join_runs(&mut runs, chain.closed)?;
+
     let largest = runs
         .iter()
         .flat_map(|run| run.crosses.iter().map(reach))
@@ -1017,6 +1100,7 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
     let reach = Reach::unfolded(runs.iter().flat_map(|run| &run.crosses), convex)
         .ok_or(BlendError::TooLarge(first_run.edge))?;
     let rounding = matches!(context.shape, BlendShape::Fillet { .. });
+
     let segments: Vec<Segment> = runs
         .iter()
         .map(|run| {
@@ -1032,6 +1116,7 @@ pub(super) fn plan(context: &Context<'_>, chain: &Chain) -> Result<Planned, Blen
         named(solid, ends.faces[0], own),
         named(solid, ends.faces[1], own),
     ];
+
     let lofted = loft::loft(&Loft {
         segments: &segments,
         closed: chain.closed,

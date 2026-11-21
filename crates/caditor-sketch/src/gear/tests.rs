@@ -35,12 +35,14 @@ fn worst_flank_error(gear: &SpurGear, outline: &GearOutline) -> f64 {
         + pressure.tan()
         - pressure;
     let mut worst: f64 = 0.0;
+
     for piece in &outline.pieces {
         let Some(spline) = piece.spline() else {
             continue;
         };
         let middle = spline.point_at(0.5) - outline.centre;
         let tooth = (middle.y.atan2(middle.x) / step).round() * step;
+
         let side = if middle.y.atan2(middle.x) > tooth {
             1.0
         } else {
@@ -49,10 +51,13 @@ fn worst_flank_error(gear: &SpurGear, outline: &GearOutline) -> f64 {
         for index in 0..=CHECKS_PER_FLANK {
             let point = spline.point_at(index as f64 / CHECKS_PER_FLANK as f64) - outline.centre;
             let radius = point.length();
+
             assert!(radius >= base * (1.0 - 1e-9), "below the base circle");
+
             let wanted = tooth + side * (half - involute_function(radius, base));
             let turn = point.y.atan2(point.x) - wanted;
             let turn = turn - (turn / std::f64::consts::TAU).round() * std::f64::consts::TAU;
+
             worst = worst.max(radius * turn.abs());
         }
     }
@@ -61,9 +66,11 @@ fn worst_flank_error(gear: &SpurGear, outline: &GearOutline) -> f64 {
 
 fn assert_closed(outline: &GearOutline) {
     let pieces = &outline.pieces;
+
     for pair in pieces.windows(2) {
         assert_eq!(pair[0].to(), pair[1].from());
     }
+
     assert_eq!(
         pieces.last().map(GearPiece::to),
         pieces.first().map(GearPiece::from)
@@ -75,17 +82,21 @@ fn flanks_follow_the_involute_within_the_tolerance_above_and_below_the_base_circ
     for teeth in [20, 60] {
         let gear = gear(teeth);
         let outline = gear.outline(Point2::new(5.0, -3.0)).unwrap();
+
         let error = worst_flank_error(&gear, &outline);
+
         assert!(
             error <= 1.5 * FLANK_TOLERANCE * gear.module,
             "{teeth} teeth: {error}"
         );
         assert!(outline.deviation <= FLANK_TOLERANCE * gear.module);
+
         let flanks = outline
             .pieces
             .iter()
             .filter(|piece| matches!(piece, GearPiece::Flank { .. }))
             .count();
+
         assert_eq!(flanks, 2 * teeth as usize);
     }
 }
@@ -97,6 +108,7 @@ fn the_circles_follow_from_module_teeth_pressure_angle_and_shift() {
         ..gear(20)
     };
     let circles = shifted.circles();
+
     assert!((circles.pitch - 20.0).abs() < 1e-12);
     assert!((circles.base - 20.0 * 20f64.to_radians().cos()).abs() < 1e-12);
     assert!((circles.tip - 23.0).abs() < 1e-12);
@@ -108,9 +120,11 @@ fn the_outline_is_one_closed_loop_and_draws_with_no_open_end() {
     for teeth in [20, 60] {
         let gear = gear(teeth);
         let outline = gear.outline(Point2::ZERO).unwrap();
+
         assert_closed(&outline);
 
         let mut sketch = Sketch::new(Plane::XY);
+
         let drawn = sketch
             .add_gear(&gear, GearCentre::Point(EntityId::ORIGIN))
             .unwrap();
@@ -133,6 +147,7 @@ fn the_outline_is_one_closed_loop_and_draws_with_no_open_end() {
 fn a_drawn_gear_solves_where_it_was_drawn() {
     let gear = gear(24);
     let mut sketch = Sketch::new(Plane::XY);
+
     let centre = sketch.add_point(Point2::new(40.0, 10.0));
 
     let drawn = sketch.add_gear(&gear, GearCentre::Point(centre)).unwrap();
@@ -142,6 +157,7 @@ fn a_drawn_gear_solves_where_it_was_drawn() {
     for (id, entity) in sketch.entities() {
         if let Entity::Point(at) = entity {
             let moved = solved.geometry.point(id).unwrap();
+
             assert!(moved.distance(*at) < 1e-6, "{id} moved");
         }
     }
@@ -167,10 +183,12 @@ fn too_few_teeth_for_the_shift_are_refused_saying_what_would_do() {
          teeth, or a profile shift of at least 0.29"
     );
     assert!(gear(17).outline(Point2::ZERO).is_ok());
+
     let shifted = SpurGear {
         profile_shift: 0.29,
         ..gear(12)
     };
+
     assert!(shifted.outline(Point2::ZERO).is_ok());
 }
 
@@ -232,12 +250,16 @@ fn a_root_fillet_or_bore_too_large_is_refused_with_the_largest_that_fits() {
     let Err(GearError::RootFilletTooLarge { largest, .. }) = filleted.outline(Point2::ZERO) else {
         panic!("a 5 mm fillet fits");
     };
+
     assert!(largest > 0.76 && largest < 5.0);
+
     let fitting = SpurGear {
         root_fillet: largest * 0.999,
         ..gear(20)
     };
+
     assert_closed(&fitting.outline(Point2::ZERO).unwrap());
+
     assert_eq!(
         bored.outline(Point2::ZERO),
         Err(GearError::BoreTooLarge {
@@ -257,12 +279,14 @@ fn a_sharp_root_draws_lines_down_to_the_root_circle() {
     let outline = sharp.outline(Point2::ZERO).unwrap();
 
     assert_closed(&outline);
+
     let root = outline.circles.root;
     let lines: Vec<&GearPiece> = outline
         .pieces
         .iter()
         .filter(|piece| matches!(piece, GearPiece::Line { .. }))
         .collect();
+
     assert_eq!(lines.len(), 40);
     assert!(lines.iter().all(|line| {
         let ends = [line.from().length(), line.to().length()];

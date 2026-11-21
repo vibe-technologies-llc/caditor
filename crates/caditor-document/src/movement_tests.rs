@@ -11,6 +11,7 @@ use crate::{
 fn moved(pair: &mut Pair, offset: [&str; 3], turn: [&str; 3]) -> FeatureId {
     let plate = pair.plate;
     let mut transaction = pair.document.transaction("Move");
+
     let expressions = |texts: [&str; 3]| texts.map(|text| transaction.parse(text).unwrap());
     let movement = Move {
         about: TurnCentre::Origin,
@@ -21,6 +22,7 @@ fn moved(pair: &mut Pair, offset: [&str; 3], turn: [&str; 3]) -> FeatureId {
         copy: false,
     };
     let feature = transaction.add_feature("Move 1", FeatureKind::Move(movement));
+
     pair.document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -47,6 +49,7 @@ fn face_names(evaluation: &Evaluation, body: FeatureId) -> BTreeSet<caditor_kern
 fn a_move_shifts_the_body_by_its_distances_and_keeps_its_volume_and_face_names() {
     let mut pair = pair();
     let mut engine = Recompute::default();
+
     let before = evaluate(&pair.document, &mut engine);
     let names = face_names(&before, pair.plate);
     let size = volume(&before, pair.plate);
@@ -56,10 +59,13 @@ fn a_move_shifts_the_body_by_its_distances_and_keeps_its_volume_and_face_names()
         ["5 mm", "-2 mm", "1 cm"],
         ["0 deg", "0 deg", "0 deg"],
     );
+
     let after = evaluate(&pair.document, &mut engine);
 
     assert_eq!(after.failed_count(), 0);
+
     let (low, high) = bounds(&after, pair.plate);
+
     assert!(near(low, [5.0, -2.0, 10.0]), "{low:?}");
     assert!(near(high, [25.0, 8.0, 14.0]), "{high:?}");
     assert!((volume(&after, pair.plate) - size).abs() < 1e-6 * size);
@@ -76,9 +82,11 @@ fn a_move_turns_about_the_origin_before_it_shifts() {
         ["0 mm", "0 mm", "0 mm"],
         ["0 deg", "0 deg", "90 deg"],
     );
+
     let after = evaluate(&pair.document, &mut engine);
 
     let (low, high) = bounds(&after, pair.plate);
+
     assert!(near(low, [-10.0, 0.0, 0.0]), "{low:?}");
     assert!(near(high, [0.0, 20.0, 4.0]), "{high:?}");
 }
@@ -86,9 +94,13 @@ fn a_move_turns_about_the_origin_before_it_shifts() {
 #[test]
 fn a_move_follows_the_parameters_it_uses() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Gap");
+
     let gap = transaction.add_parameter("gap", transaction.parse("3 mm").unwrap());
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let movement = moved(
         &mut pair,
         ["gap * 2", "0 mm", "0 mm"],
@@ -98,6 +110,7 @@ fn a_move_follows_the_parameters_it_uses() {
 
     let first = evaluate(&pair.document, &mut engine);
     let expression = pair.document.parse("10 mm").unwrap();
+
     pair.document
         .apply(Transaction::single(
             "Edit",
@@ -107,6 +120,7 @@ fn a_move_follows_the_parameters_it_uses() {
             },
         ))
         .unwrap();
+
     let second = evaluate(&pair.document, &mut engine);
 
     assert!(near(bounds(&first, pair.plate).0, [6.0, 0.0, 0.0]));
@@ -123,6 +137,7 @@ fn a_move_follows_the_parameters_it_uses() {
 #[test]
 fn a_distance_given_as_an_angle_fails_the_move_alone_saying_which() {
     let mut pair = pair();
+
     let movement = moved(
         &mut pair,
         ["0 mm", "5 deg", "0 mm"],
@@ -135,6 +150,7 @@ fn a_distance_given_as_an_angle_fails_the_move_alone_saying_which() {
     let FeatureState::Failed(error) = &evaluation.feature(movement).unwrap().state else {
         panic!("the move should fail");
     };
+
     assert!(
         error.reason().contains("distance along Y"),
         "{}",
@@ -147,6 +163,7 @@ fn a_distance_given_as_an_angle_fails_the_move_alone_saying_which() {
 #[test]
 fn a_move_past_the_largest_size_fails_the_move_alone_saying_it_is_too_far() {
     let mut pair = pair();
+
     let movement = moved(
         &mut pair,
         ["100000000000 mm", "0 mm", "0 mm"],
@@ -159,6 +176,7 @@ fn a_move_past_the_largest_size_fails_the_move_alone_saying_it_is_too_far() {
     let FeatureState::Failed(error) = &evaluation.feature(movement).unwrap().state else {
         panic!("the move should fail");
     };
+
     assert!(
         error.reason().contains("too far from the origin"),
         "{}",
@@ -172,6 +190,7 @@ fn a_move_past_the_largest_size_fails_the_move_alone_saying_it_is_too_far() {
 #[test]
 fn a_move_modifies_its_body_and_is_dependent_on_it() {
     let mut pair = pair();
+
     let movement = moved(
         &mut pair,
         ["1 mm", "0 mm", "0 mm"],
@@ -188,6 +207,7 @@ fn a_move_modifies_its_body_and_is_dependent_on_it() {
 fn copied(pair: &mut Pair, offset: [&str; 3]) -> FeatureId {
     let plate = pair.plate;
     let mut transaction = pair.document.transaction("Copy");
+
     let expressions = |texts: [&str; 3]| texts.map(|text| transaction.parse(text).unwrap());
     let copy = Move {
         about: TurnCentre::Origin,
@@ -198,6 +218,7 @@ fn copied(pair: &mut Pair, offset: [&str; 3]) -> FeatureId {
         copy: true,
     };
     let feature = transaction.add_feature("Copy 1", FeatureKind::Move(copy));
+
     pair.document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -211,11 +232,14 @@ fn a_copy_makes_a_new_body_of_its_own_and_leaves_the_original_where_it_was() {
     let after = evaluate(&pair.document, &mut engine);
 
     let feature = pair.document.feature(copy).unwrap();
+
     assert!(feature.makes_body());
     assert_eq!(feature.body(), Some(copy));
     assert_eq!(after.failed_count(), 0);
+
     let (low, _) = bounds(&after, pair.plate);
     let (copy_low, copy_high) = bounds(&after, copy);
+
     assert!(near(low, [0.0, 0.0, 0.0]), "{low:?}");
     assert!(near(copy_low, [0.0, 30.0, 0.0]), "{copy_low:?}");
     assert!(near(copy_high, [20.0, 40.0, 4.0]), "{copy_high:?}");
@@ -229,13 +253,17 @@ fn a_copy_makes_a_new_body_of_its_own_and_leaves_the_original_where_it_was() {
 #[test]
 fn a_copy_others_use_cannot_stop_being_a_copy() {
     let mut pair = pair();
+
     let copy = copied(&mut pair, ["0 mm", "30 mm", "0 mm"]);
     let mut transaction = pair.document.transaction("Use");
+
     transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: copy }));
     pair.document.apply(transaction.finish()).unwrap();
+
     let FeatureKind::Move(mut movement) = pair.document.feature(copy).unwrap().kind.clone() else {
         panic!("the copy is a move");
     };
+
     movement.copy = false;
 
     let refused = pair.document.apply(Transaction::single(
@@ -252,13 +280,17 @@ fn a_copy_others_use_cannot_stop_being_a_copy() {
 #[test]
 fn a_copy_others_use_can_be_edited_while_it_stays_a_copy() {
     let mut pair = pair();
+
     let copy = copied(&mut pair, ["0 mm", "30 mm", "0 mm"]);
     let mut transaction = pair.document.transaction("Use");
+
     transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: copy }));
     pair.document.apply(transaction.finish()).unwrap();
+
     let FeatureKind::Move(mut movement) = pair.document.feature(copy).unwrap().kind.clone() else {
         panic!("the copy is a move");
     };
+
     movement.offset[1] = Expression::parse_stored("45 mm").unwrap();
 
     let edited = pair.document.apply(Transaction::single(
@@ -291,6 +323,7 @@ fn upright_edge(evaluation: &Evaluation, body: FeatureId, x: f64, y: f64) -> Axi
 fn turned_about(pair: &mut Pair, axis: AxisReference, angle: &str) -> FeatureId {
     let plate = pair.plate;
     let mut transaction = pair.document.transaction("Turn");
+
     let zero = |unit: &str| std::array::from_fn(|_| transaction.parse(unit).unwrap());
     let movement = Move {
         body: plate,
@@ -304,6 +337,7 @@ fn turned_about(pair: &mut Pair, axis: AxisReference, angle: &str) -> FeatureId 
         frame: None,
     };
     let feature = transaction.add_feature("Move 1", FeatureKind::Move(movement));
+
     pair.document.apply(transaction.finish()).unwrap();
     feature
 }
@@ -312,9 +346,11 @@ fn turned_about(pair: &mut Pair, axis: AxisReference, angle: &str) -> FeatureId 
 fn a_move_turns_its_body_about_an_edge_of_its_own() {
     let mut pair = pair();
     let mut engine = Recompute::default();
+
     let before = evaluate(&pair.document, &mut engine);
     let names = face_names(&before, pair.plate);
     let axis = upright_edge(&before, pair.plate, 20.0, 0.0);
+
     let upward = crate::datum::displayed_axis(&before, pair.plate, &axis)
         .unwrap()
         .direction()
@@ -325,16 +361,20 @@ fn a_move_turns_its_body_about_an_edge_of_its_own() {
     let after = evaluate(&pair.document, &mut engine);
 
     assert_eq!(after.failed_count(), 0);
+
     let (low, high) = bounds(&after, pair.plate);
     let (expected_low, expected_high) = if upward {
         ([10.0, -20.0, 0.0], [20.0, 0.0, 4.0])
     } else {
         ([20.0, 0.0, 0.0], [30.0, 20.0, 4.0])
     };
+
     assert!(near(low, expected_low), "{low:?}");
     assert!(near(high, expected_high), "{high:?}");
     assert_eq!(face_names(&after, pair.plate), names);
+
     let feature = pair.document.feature(movement).unwrap();
+
     assert_eq!(feature.kind.bodies_used(), BTreeSet::from([pair.plate]));
 }
 
@@ -349,6 +389,7 @@ fn a_move_about_an_axis_follows_the_angle_and_shifts_after_turning() {
         "180 deg",
     );
     let mut changed = pair.document.feature(movement).unwrap().kind.clone();
+
     if let FeatureKind::Move(moved) = &mut changed {
         moved.offset[2] = pair.document.parse("5 mm").unwrap();
     }
@@ -361,9 +402,11 @@ fn a_move_about_an_axis_follows_the_angle_and_shifts_after_turning() {
             },
         ))
         .unwrap();
+
     let after = evaluate(&pair.document, &mut engine);
 
     let (low, high) = bounds(&after, pair.plate);
+
     assert!(near(low, [-20.0, -10.0, 5.0]), "{low:?}");
     assert!(near(high, [0.0, 0.0, 9.0]), "{high:?}");
 }
@@ -371,24 +414,30 @@ fn a_move_about_an_axis_follows_the_angle_and_shifts_after_turning() {
 #[test]
 fn a_move_about_a_datum_axis_depends_on_it_and_fails_alone_without_it() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Axis");
+
     let datum = transaction.add_feature(
         "Axis 1",
         FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Principal(
             PrincipalAxis::X,
         )))),
     );
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let movement = turned_about(&mut pair, AxisReference::Datum(datum), "90 deg");
     let mut engine = Recompute::default();
 
     assert!(pair.document.dependents_of(&[datum]).contains(&movement));
+
     pair.document
         .apply(Transaction::single(
             "Delete",
             Edit::RemoveFeature { id: datum },
         ))
         .unwrap();
+
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert!(matches!(
@@ -401,9 +450,13 @@ fn a_move_about_a_datum_axis_depends_on_it_and_fails_alone_without_it() {
 #[test]
 fn a_move_about_an_axis_inlines_its_angle() {
     let mut pair = pair();
+
     let mut transaction = pair.document.transaction("Angle");
+
     let quarter = transaction.add_parameter("quarter", transaction.parse("90 deg").unwrap());
+
     pair.document.apply(transaction.finish()).unwrap();
+
     let movement = turned_about(
         &mut pair,
         AxisReference::Principal(PrincipalAxis::Y),
@@ -413,8 +466,11 @@ fn a_move_about_an_axis_inlines_its_angle() {
     let kind = &pair.document.feature(movement).unwrap().kind;
 
     assert!(kind.uses_parameter(quarter));
+
     let inlined = pair.document.inline_parameter(quarter).unwrap();
+
     pair.document.apply(inlined).unwrap();
+
     assert!(
         !pair
             .document

@@ -29,20 +29,24 @@ fn notice_starts(harness: &Harness, text: &str) -> bool {
 
 fn threaded_shaft(harness: &mut Harness) -> FeatureId {
     let side = extruded_shaft(harness);
+
     harness.select([side]);
     harness.use_tool_with(Key::O, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
+
     let thread = harness
         .workspace
         .editing
         .solid()
         .expect("the thread is open");
     let depth = harness.document().parse("2 mm").unwrap();
+
     let short = Thread {
         length: ThreadLength::Depth(depth),
         ..thread_of(harness, thread).clone()
     };
     let change = thread_tools::edit(harness.document(), thread, short).unwrap();
+
     harness.perform(Action::Apply(change));
     harness.settle();
     thread
@@ -70,20 +74,25 @@ fn faces_cut_by(harness: &Harness, thread: FeatureId) -> usize {
 #[test]
 fn a_new_thread_is_modelled_and_the_switch_draws_it_cosmetic_until_turned_off() {
     let mut harness = Harness::new();
+
     run_from_palette(&mut harness, SWITCH);
     harness.settle();
+
     let switched_on = harness.model.threads_shown_cosmetic();
     let told_on = notice_starts(&harness, THREADS_COSMETIC_ON);
 
     let thread = threaded_shaft(&mut harness);
     let form = thread_of(&harness, thread).form;
     let says_shown_cosmetic = harness.shows(thread_panel::SHOWN_COSMETIC);
+
     close_feature(&mut harness);
+
     let drawn_while_cosmetic = !thread_lines(&mut harness).is_empty();
     let cut_while_cosmetic = faces_cut_by(&harness, thread);
 
     run_from_palette(&mut harness, SWITCH);
     harness.settle();
+
     let status = harness.model.evaluation().feature(thread).unwrap();
     let cut = status
         .result
@@ -106,16 +115,21 @@ fn a_new_thread_is_modelled_and_the_switch_draws_it_cosmetic_until_turned_off() 
 #[test]
 fn the_form_row_of_a_thread_and_of_a_tapped_hole_is_one_undoable_change() {
     let mut harness = Harness::new();
+
     harness.perform(Action::ShowThreadsAsCosmetic(true));
+
     let thread = threaded_shaft(&mut harness);
 
     harness.click("Cosmetic");
     harness.settle();
+
     let made_cosmetic = thread_of(&harness, thread).form;
     let label = harness.model.undo_label().map(str::to_owned);
     let shown_note = harness.shows(thread_panel::SHOWN_COSMETIC);
+
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
+
     let undone = thread_of(&harness, thread).form;
 
     assert_eq!(made_cosmetic, ThreadForm::Cosmetic);
@@ -124,10 +138,13 @@ fn the_form_row_of_a_thread_and_of_a_tapped_hole_is_one_undoable_change() {
     assert_eq!(undone, ThreadForm::Modelled);
 
     close_feature(&mut harness);
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
     let tapped = crate::hole_tools::with_standard(
         &open_hole(&harness, hole),
@@ -137,15 +154,20 @@ fn the_form_row_of_a_thread_and_of_a_tapped_hole_is_one_undoable_change() {
         },
         crate::units::LengthUnit::Millimetre,
     );
+
     let change = crate::hole_tools::edit(harness.document(), hole, tapped).unwrap();
+
     harness.perform(Action::Apply(change));
     harness.settle();
+
     let tapped_form = open_hole(&harness, hole).thread.form;
     let offered = harness.shows(hole_panel::THREAD_FORM);
 
     harness.click("Cosmetic");
     harness.settle();
+
     let hole_cosmetic = open_hole(&harness, hole).thread.form;
+
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.settle();
 
@@ -159,29 +181,40 @@ fn the_form_row_of_a_thread_and_of_a_tapped_hole_is_one_undoable_change() {
 fn an_export_cuts_modelled_threads_shown_as_cosmetic_unless_told_as_shown() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
+
     harness.perform(Action::ShowThreadsAsCosmetic(true));
+
     let thread = threaded_shaft(&mut harness);
+
     close_feature(&mut harness);
+
     let export = |harness: &mut Harness, name: &str| {
         harness.command(FileCommand::Export(ExportCommand::Show));
         harness.click("STEP");
         harness.answer_dialog(Some(dir.path().join(name)));
         harness.click("Export…");
+
         let written = format!("Exported 1 body to “{name}.step”");
+
         harness.wait_until("the export is written", |harness| {
             notice_starts(harness, &written)
         });
+
         let text = fs::read_to_string(dir.path().join(format!("{name}.step"))).unwrap();
         text.matches("ADVANCED_FACE").count()
     };
 
     let modelled_faces = export(&mut harness, "modelled");
+
     harness.command(FileCommand::Export(ExportCommand::Show));
+
     let offered = harness.shows("Threads") && harness.shows("As shown");
+
     harness.command(FileCommand::Export(ExportCommand::Hide));
     harness.command(FileCommand::Export(ExportCommand::SetThreads(
         crate::export::ExportThreads::AsShown,
     )));
+
     let shown_faces = export(&mut harness, "shown");
 
     assert!(offered);

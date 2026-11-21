@@ -23,6 +23,7 @@ use crate::{
 #[test]
 fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_and_sizes() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let top = Plane::from_frame(
         caditor_geometry::Point3::new(0.0, 0.0, 10.0),
@@ -31,16 +32,24 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     )
     .unwrap();
     let mut sketch = Sketch::new(top);
+
     sketch.add_point(Point2::new(20.0, 20.0));
+
     let sketch = harness.add_sketch(sketch);
+
     harness.select([]);
 
     harness.hover("Hole");
+
     assert!(harness.shows_containing(crate::hole_tools::DESCRIPTION));
+
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
+
     assert_eq!(harness.model.undo_label(), Some("Create Hole 1"));
+
     let definition = harness
         .document()
         .feature(hole)
@@ -49,6 +58,7 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
         .hole()
         .unwrap()
         .clone();
+
     assert_eq!((definition.sketch, definition.body), (sketch, plate));
     assert!(harness.document().feature(sketch).unwrap().hidden);
     assert!(removed_about(
@@ -61,6 +71,7 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
 
     harness.type_into_field(Id::unique(("hole-field", "diameter", hole)), "10 mm");
     harness.settle();
+
     assert!(removed_about(
         &harness,
         plate,
@@ -68,6 +79,7 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     ));
 
     harness.type_into_field(Id::unique(("hole-field", "depth", hole)), "0 mm");
+
     assert!(harness.shows(crate::feature_fields::ABOVE_ZERO));
     assert_eq!(harness.workspace.editing.solid(), Some(hole));
 
@@ -75,9 +87,11 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     harness.settle();
     harness.click("Countersink");
     harness.settle();
+
     assert_eq!(harness.model.undo_label(), Some("Edit Hole 1"));
     assert!(harness.shows("Countersink angle"));
     assert_eq!(harness.model.evaluation().failed_count(), 1);
+
     harness.type_into_field(
         Id::unique(("hole-field", "countersink-diameter", hole)),
         "14 mm",
@@ -85,13 +99,17 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     open_combo(&mut harness, "Depth");
     harness.click_lowest("Through all");
     harness.settle();
+
     assert_eq!(rows_named(&harness, "Depth").len(), 1);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+
     let label = harness.model.undo_label().map(str::to_owned);
+
     harness.type_into_field(
         Id::unique(("hole-field", "countersink-angle", hole)),
         "180 deg",
     );
+
     assert!(harness.shows("Enter an angle above 0° and up to 179°"));
     assert_eq!(harness.model.undo_label().map(str::to_owned), label);
 
@@ -99,6 +117,7 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     harness.perform(Action::Undo);
     harness.perform(Action::Undo);
     harness.settle();
+
     assert!(removed_about(
         &harness,
         plate,
@@ -109,6 +128,7 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
 #[test]
 fn a_hole_is_drilled_up_to_the_next_face_or_a_chosen_face_short_of_it_by_its_offset() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let top = Plane::from_frame(
         caditor_geometry::Point3::new(0.0, 0.0, 10.0),
@@ -117,29 +137,37 @@ fn a_hole_is_drilled_up_to_the_next_face_or_a_chosen_face_short_of_it_by_its_off
     )
     .unwrap();
     let mut sketch = Sketch::new(top);
+
     sketch.add_point(Point2::new(20.0, 20.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
     let bore = std::f64::consts::PI * 3.0 * 3.0;
 
     open_combo(&mut harness, "Depth");
     harness.click_lowest(crate::hole_panel::UP_TO_NEXT);
     harness.settle();
+
     let to_next = open_hole(&harness, hole).depth;
     let through = removed_about(&harness, plate, bore * 10.0);
+
     harness.type_into_field(Id::unique(("hole-field", "end-offset", hole)), "-4 mm");
     harness.settle();
+
     let short = removed_about(&harness, plate, bore * 6.0);
 
     open_combo(&mut harness, "Depth");
     harness.click_lowest(crate::hole_panel::UP_TO_FACE);
     harness.settle();
+
     let asks_for_a_face = harness.shows("Click a flat face or plane to drill up to.");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+
     let bottom = harness
         .built()
         .picks
@@ -149,10 +177,12 @@ fn a_hole_is_drilled_up_to_the_next_face_or_a_chosen_face_short_of_it_by_its_off
                 == "Extrude 1 › Extrude 1 start face"
         })
         .expect("the bottom face is pickable");
+
     harness.select([bottom]);
     open_combo(&mut harness, "Depth");
     harness.click_lowest(crate::hole_panel::UP_TO_FACE);
     harness.settle();
+
     let to_face = open_hole(&harness, hole).depth;
     let still_short = removed_about(&harness, plate, bore * 6.0);
 
@@ -169,6 +199,7 @@ fn a_hole_is_drilled_up_to_the_next_face_or_a_chosen_face_short_of_it_by_its_off
 #[test]
 fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let top = Plane::from_frame(
         caditor_geometry::Point3::new(0.0, 0.0, 10.0),
@@ -177,14 +208,18 @@ fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
     )
     .unwrap();
     let mut sketch = Sketch::new(top);
+
     sketch.add_point(Point2::new(20.0, 20.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
+
     harness.type_into_field(Id::unique(("hole-field", "depth", hole)), "2 mm");
     harness.settle();
+
     let flat = std::f64::consts::PI * 3.0 * 3.0 * 2.0;
     let cone = std::f64::consts::PI * 3.0 * 3.0 * (3.0 / 59.0_f64.to_radians().tan()) / 3.0;
 
@@ -211,6 +246,7 @@ fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
         "90 deg",
     );
     harness.settle();
+
     assert_eq!(
         open_hole(&harness, hole).bottom,
         caditor_document::HoleBottom::DrillPoint(Expression::parse_stored("90 deg").unwrap())
@@ -221,11 +257,13 @@ fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
         Id::unique(("hole-field", "drill-point-angle", hole)),
         "180 deg",
     );
+
     assert!(harness.shows("Enter an angle above 0° and up to 179°"));
 
     open_combo(&mut harness, "Depth");
     harness.click_lowest("Through all");
     harness.settle();
+
     assert!(!harness.shows(crate::hole_panel::DRILL_POINT));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
@@ -233,6 +271,7 @@ fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
 #[test]
 fn a_stepped_hole_takes_steps_added_sized_and_removed_in_its_panel() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let top = Plane::from_frame(
         caditor_geometry::Point3::new(0.0, 0.0, 10.0),
@@ -241,11 +280,13 @@ fn a_stepped_hole_takes_steps_added_sized_and_removed_in_its_panel() {
     )
     .unwrap();
     let mut sketch = Sketch::new(top);
+
     sketch.add_point(Point2::new(20.0, 20.0));
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
     let steps = |harness: &Harness| match &harness.document().feature(hole).unwrap().kind {
         FeatureKind::Hole(definition) => match &definition.style {
@@ -256,17 +297,23 @@ fn a_stepped_hole_takes_steps_added_sized_and_removed_in_its_panel() {
     };
 
     choose(&mut harness, "Plain", "Stepped");
+
     let two = steps(&harness);
     let shown = harness.shows("Step 2 diameter") && harness.shows("Step 2 depth");
     let removed = std::f64::consts::PI * (25.0 * 3.0 + 16.0 * 2.0 + 9.0 * 5.0);
     let stepped = removed_about(&harness, plate, removed);
+
     harness.click(crate::hole_panel::ADD_STEP);
     harness.settle();
+
     let three = steps(&harness);
     let failed_deeper = harness.model.evaluation().failed_count();
+
     harness.type_into_field(Id::unique(("hole-step", 2usize, false, hole)), "1 mm");
     harness.settle();
+
     let after_sizing = harness.model.evaluation().failed_count();
+
     harness.click(crate::hole_panel::REMOVE_STEP);
     harness.settle();
 
@@ -283,6 +330,7 @@ fn a_stepped_hole_takes_steps_added_sized_and_removed_in_its_panel() {
 #[test]
 fn a_hole_at_a_circle_can_take_the_circle_s_diameter_from_its_panel() {
     let mut harness = Harness::new();
+
     let (plate, _) = extruded_plate(&mut harness);
     let top = Plane::from_frame(
         caditor_geometry::Point3::new(0.0, 0.0, 10.0),
@@ -291,11 +339,13 @@ fn a_hole_at_a_circle_can_take_the_circle_s_diameter_from_its_panel() {
     )
     .unwrap();
     let mut sketch = Sketch::new(top);
+
     sketch.add_circle(Point2::new(20.0, 20.0), 4.0);
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
 
     assert!(removed_about(
@@ -334,8 +384,10 @@ fn a_hole_at_a_circle_can_take_the_circle_s_diameter_from_its_panel() {
 #[test]
 fn a_hole_takes_the_selected_sketch_point_over_a_selected_face() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let mut points = Sketch::new(Plane::XY);
+
     let point = points.add_point(Point2::new(5.0, 5.0));
     let sketch = harness.add_sketch(points);
 
@@ -348,6 +400,7 @@ fn a_hole_takes_the_selected_sketch_point_over_a_selected_face() {
     ]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
 
     assert_eq!(open_hole(&harness, hole).sketch, sketch);
@@ -357,11 +410,13 @@ fn a_hole_takes_the_selected_sketch_point_over_a_selected_face() {
 #[test]
 fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
 
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
     let sketch = open_hole(&harness, hole).sketch;
     let point_of = |harness: &Harness| {
@@ -384,6 +439,7 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
         .entities()
         .find_map(|(id, entity)| matches!(entity, Entity::Point(_)).then_some(id))
         .expect("the hole's sketch holds its point");
+
     harness.type_into_field(Id::unique(("hole-position", hole, point, 0_usize)), "8 mm");
     harness.settle();
 
@@ -410,6 +466,7 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
 
     let plane = crate::scene::sketch_plane(harness.document(), harness.model.evaluation(), sketch)
         .expect("the sketch has a plane");
+
     harness.click_pickable(plane, Point2::new(30.0, 12.0), top);
     harness.settle();
 
@@ -431,14 +488,18 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
 #[test]
 fn a_hole_s_position_typed_as_an_expression_follows_its_parameters() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
     let mut transaction = harness.document().transaction("Add spot");
+
     let spot = transaction.parse("12 mm").unwrap();
+
     transaction.add_parameter("spot", spot);
     harness.perform(Action::Apply(transaction.finish()));
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
     let sketch = open_hole(&harness, hole).sketch;
     let point = harness
@@ -446,6 +507,7 @@ fn a_hole_s_position_typed_as_an_expression_follows_its_parameters() {
         .entities()
         .find_map(|(id, entity)| matches!(entity, Entity::Point(_)).then_some(id))
         .expect("the hole's sketch holds its point");
+
     let field = |axis: usize| Id::unique(("hole-position", hole, point, axis));
     let solved = |harness: &Harness| placed_holes(harness, hole)[0].1;
 
@@ -470,6 +532,7 @@ fn a_hole_s_position_typed_as_an_expression_follows_its_parameters() {
     harness.settle();
     harness.type_into_field(field(0), "8 mm");
     harness.settle();
+
     let held = crate::hole_placement::read(harness.document(), &open_hole(&harness, hole))
         .expect("the hole stays placed by its position");
 
@@ -481,6 +544,7 @@ fn a_hole_s_position_typed_as_an_expression_follows_its_parameters() {
 #[test]
 fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let hole = open_hole_on(&mut harness, top);
     let front = plate_edge_at(&harness, plate, Point3::new(20.0, 0.0, 10.0));
@@ -492,6 +556,7 @@ fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
     }]);
     harness.click(crate::hole_panel::MEASURE_SELECTED);
     harness.settle();
+
     let holes = placed_holes(&harness, hole);
     let crate::hole_placement::Anchor::Edges(edges) = &holes[0].0.anchor else {
         panic!("the hole is measured from an edge");
@@ -515,10 +580,12 @@ fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
     }]);
     harness.click(crate::hole_panel::MEASURE_SELECTED);
     harness.settle();
+
     let from_left = match &placed_holes(&harness, hole)[0].0.anchor {
         crate::hole_placement::Anchor::Edges(edges) => edges[1].held.constraint,
         anchor => panic!("the hole is measured from two edges, not {anchor:?}"),
     };
+
     harness.type_into_field(Id::unique(("hole-edge-distance", hole, from_left)), "12 mm");
     harness.settle();
 
@@ -540,6 +607,7 @@ fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
         body: plate,
         edge: front,
     }]);
+
     let refused = crate::hole_placement::edge_change(
         &harness.model,
         harness.workspace.viewport.selection(),
@@ -563,6 +631,7 @@ fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
             _ => None,
         })
         .collect();
+
     harness.perform(Action::Apply(Transaction::new("Widen the plate", widened)));
     harness.settle();
 
@@ -586,11 +655,14 @@ fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
 #[test]
 fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_the_face() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let first = open_hole_on(&mut harness, top);
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.settle();
+
     let top = harness
         .built()
         .picks
@@ -613,6 +685,7 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
             .map(|(_, edge)| edge.name())
             .expect("the first hole's mouth is an edge")
     };
+
     harness.type_into_field(Id::unique(("hole-field", "diameter", second)), "10 mm");
     harness.settle();
 
@@ -646,6 +719,7 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
     let first_point = placed_holes(&harness, first)[0].0.point;
     let x = harness.document().parse("12 mm").unwrap();
     let y = harness.document().parse("25 mm").unwrap();
+
     let moved = crate::hole_placement::positioned(
         &harness.model,
         first,
@@ -654,6 +728,7 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
         [Some(&x), Some(&y)],
     )
     .unwrap();
+
     harness.perform(Action::Apply(moved));
     harness.settle();
 
@@ -683,10 +758,12 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
         open_hole(&harness, second).sketch,
     )
     .expect("the sketch has a plane");
+
     harness.click_pickable(plane, Point2::new(32.0, 8.0), top);
     harness.settle();
     harness.click_pickable(plane, Point2::new(32.0, 32.0), top);
     harness.settle();
+
     let holes = placed_holes(&harness, second);
 
     assert_eq!(harness.model.undo_label(), Some("Add a hole to Hole 2"));
@@ -707,6 +784,7 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
     harness.frame();
     harness.click_button("Remove hole 2");
     harness.settle();
+
     let holes = placed_holes(&harness, second);
 
     assert_eq!(
@@ -717,7 +795,9 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
     assert!(holes[1].1.distance(Point3::new(32.0, 32.0, 10.0)) < 0.01);
 
     let mut chosen = crate::selection::Selection::default();
+
     chosen.toggle(top);
+
     let added = crate::hole_placement::add_change(
         &harness.model,
         &chosen,
@@ -725,8 +805,10 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
         &open_hole(&harness, second),
     )
     .unwrap();
+
     harness.perform(Action::Apply(added));
     harness.settle();
+
     let holes = placed_holes(&harness, second);
 
     assert_eq!(holes.len(), 3);
@@ -752,11 +834,14 @@ fn the_hole_at(harness: &Harness, hole: caditor_document::FeatureId, at: Point3)
 #[test]
 fn a_hole_is_placed_by_axes_a_datum_point_the_origin_and_another_sketch_s_circle() {
     let mut harness = Harness::new();
+
     let (plate, top) = extruded_plate(&mut harness);
     let lid = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
     let mut ring = Sketch::new(lid);
+
     let circle = ring.add_circle(Point2::new(10.0, 30.0), 3.0);
     let mut transaction = harness.document().transaction("References");
+
     let spot = transaction.add_feature("Spot", datum_spot(&harness, ["30 mm", "15 mm", "10 mm"]));
     let rail = transaction.add_feature(
         "Rail",
@@ -766,8 +851,10 @@ fn a_hole_is_placed_by_axes_a_datum_point_the_origin_and_another_sketch_s_circle
         ))),
     );
     let ring = transaction.add_feature("Ring", FeatureKind::from(ring));
+
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
+
     let hole = open_hole_on(&mut harness, top);
 
     harness.select([Pickable::Axis(Axis::Y)]);
@@ -783,6 +870,7 @@ fn a_hole_is_placed_by_axes_a_datum_point_the_origin_and_another_sketch_s_circle
     harness.select([Pickable::Datum(rail)]);
     harness.click(crate::hole_panel::MEASURE_SELECTED);
     harness.settle();
+
     let values: Vec<String> = match &placed_holes(&harness, hole)[0].0.anchor {
         crate::hole_placement::Anchor::Edges(edges) => edges
             .iter()
@@ -871,6 +959,7 @@ fn a_hole_is_placed_by_axes_a_datum_point_the_origin_and_another_sketch_s_circle
     let Some(Entity::Circle { center, .. }) = harness.sketch(ring).entity(circle).cloned() else {
         panic!("the ring is a circle");
     };
+
     harness.perform(Action::Apply(Transaction::single(
         "Move the ring",
         Edit::SetSketchEntity {
@@ -884,7 +973,9 @@ fn a_hole_is_placed_by_axes_a_datum_point_the_origin_and_another_sketch_s_circle
     assert!(the_hole_at(&harness, hole, Point3::new(12.0, 28.0, 10.0)));
 
     let mut origin = crate::selection::Selection::default();
+
     origin.toggle(Pickable::Origin);
+
     let centred = crate::hole_placement::concentric_change(
         &harness.model,
         &origin,
@@ -893,6 +984,7 @@ fn a_hole_is_placed_by_axes_a_datum_point_the_origin_and_another_sketch_s_circle
         placed_holes(&harness, hole)[0].0.point,
     )
     .unwrap();
+
     harness.perform(Action::Apply(centred));
     harness.settle();
 
@@ -904,19 +996,23 @@ fn a_hole_is_placed_by_axes_a_datum_point_the_origin_and_another_sketch_s_circle
 fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
+
     sketch.add_circle(Point2::new(0.0, 0.0), 20.0);
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let puck = harness
         .workspace
         .editing
         .solid()
         .expect("the extrusion is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let full = harness.body_volume(puck);
     let wall = harness
         .built()
@@ -933,6 +1029,7 @@ fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
                             return None;
                         };
                         let shown = crate::bodies::shown(harness.model.evaluation(), puck)?;
+
                         let id = crate::bodies::find_face(shown, *face)?;
                         solid.face(id).map(|face| {
                             matches!(face.surface(), caditor_kernel::Surface::Cylinder(_))
@@ -945,6 +1042,7 @@ fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
     harness.select([wall]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
 
     assert_eq!(harness.model.undo_label(), Some("Create Hole 1"));
@@ -961,8 +1059,10 @@ fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
 
     let spot = Point3::new(0.0, -20.0, 4.0);
     let tangent = Plane::from_frame(spot, Vector3::NEG_Y, Vector3::X).unwrap();
+
     harness.click_pickable(tangent, Point2::ZERO, wall);
     harness.settle();
+
     let bore = harness
         .model
         .evaluation()
@@ -993,6 +1093,7 @@ fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
 
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
+
     let on_face = Handle::Place(crate::move_manipulator::PlaceGrip::OnPlane);
     let from = harness
         .workspace
@@ -1004,9 +1105,11 @@ fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
         .viewport
         .handle_position(on_face, 6.0)
         .unwrap();
+
     drag_screen(&mut harness, from, to);
     harness.frame();
     harness.settle();
+
     let dragged = harness
         .model
         .evaluation()
@@ -1037,12 +1140,15 @@ fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
 #[test]
 fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_from_its_panel() {
     let mut harness = Harness::new();
+
     harness.perform(Action::ShowThreadsAsCosmetic(true));
+
     let (plate, top) = extruded_plate(&mut harness);
 
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
     let definition = open_hole(&harness, hole);
     let sketch = harness.sketch(definition.sketch).clone();
@@ -1098,6 +1204,7 @@ fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_fro
     assert!(harness.shows_containing("Thread M3 × 0.35"));
 
     let panel = harness.position_of("Thread form");
+
     harness.wheel_until_shown(panel, "Plain", Wheel::Down);
     harness.click("Plain");
     harness.click("Counterbore");
@@ -1126,6 +1233,7 @@ fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_fro
         crate::units::LengthUnit::Millimetre,
     );
     let resized = crate::hole_tools::edit(harness.document(), hole, m8_fine).unwrap();
+
     harness.perform(Action::Apply(resized));
     harness.settle();
 
@@ -1170,11 +1278,14 @@ fn the_hole_of_a_selected_wall_joins_the_selection_and_a_flat_face_is_no_hole() 
         Point2::new(20.0, 20.0),
         Point2::new(-20.0, 20.0),
     ];
+
     for index in 0..4 {
         sketch.add_line(corners[index], corners[(index + 1) % 4]);
     }
+
     let circle = sketch.add_circle(Point2::ZERO, 5.0);
     let circle_label = sketch.entity_label(circle);
+
     harness.add_sketch(sketch);
     harness.select([]);
     harness.click("Extrude");
@@ -1182,8 +1293,10 @@ fn the_hole_of_a_selected_wall_joins_the_selection_and_a_flat_face_is_no_hole() 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
+
     let faces: Vec<Pickable> = harness.built().picks.pickables().filter(is_face).collect();
     let describe = |face: &Pickable| face.describe(harness.document(), harness.model.evaluation());
+
     let walls: Vec<Pickable> = faces
         .iter()
         .copied()
@@ -1198,7 +1311,9 @@ fn the_hole_of_a_selected_wall_joins_the_selection_and_a_flat_face_is_no_hole() 
     harness.select([walls[0]]);
     run_from_palette(&mut harness, "Select the whole hole");
     harness.frame();
+
     let hole = selected_of(&harness, is_face);
+
     harness.select([flat]);
     run_from_palette(&mut harness, "Select the whole hole");
     harness.frame();
@@ -1211,6 +1326,7 @@ fn the_hole_of_a_selected_wall_joins_the_selection_and_a_flat_face_is_no_hole() 
 
 fn extruded(harness: &mut Harness, rectangles: &[(Point2, Point2)]) -> caditor_document::FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
+
     for (min, max) in rectangles {
         super::rectangle(&mut sketch, *min, *max);
     }
@@ -1218,11 +1334,13 @@ fn extruded(harness: &mut Harness, rectangles: &[(Point2, Point2)]) -> caditor_d
     harness.select([]);
     harness.click_tool("Extrude");
     harness.settle();
+
     let extrusion = harness
         .workspace
         .editing
         .solid()
         .expect("the extrusion is open");
+
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
     extrusion
@@ -1236,6 +1354,7 @@ fn refusals_on_flat_faces(harness: &mut Harness) -> Vec<String> {
         .map(|(body, _)| body)
         .collect();
     let mut refusals = Vec::new();
+
     for body in bodies {
         let faces: Vec<Pickable> = crate::bodies::shown(harness.model.evaluation(), body)
             .map(|shown| crate::bodies::face_keys(&shown.solid))
@@ -1245,6 +1364,7 @@ fn refusals_on_flat_faces(harness: &mut Harness) -> Vec<String> {
             .collect();
         for face in faces {
             harness.select([face]);
+
             let Ok(start) = crate::hole_tools::start(
                 &harness.model,
                 harness.workspace.viewport.selection(),
@@ -1252,6 +1372,7 @@ fn refusals_on_flat_faces(harness: &mut Harness) -> Vec<String> {
             ) else {
                 continue;
             };
+
             if !matches!(start, crate::hole_tools::HoleStart::Face(_)) {
                 continue;
             }
@@ -1279,7 +1400,9 @@ fn drill_end_face(harness: &mut Harness, body: caditor_document::FeatureId) -> b
     let Some(end) = end else {
         return false;
     };
+
     harness.select([end]);
+
     let Ok(start) = crate::hole_tools::start(
         &harness.model,
         harness.workspace.viewport.selection(),
@@ -1288,6 +1411,7 @@ fn drill_end_face(harness: &mut Harness, body: caditor_document::FeatureId) -> b
         return false;
     };
     let volume = harness.body_volume(body);
+
     for action in crate::hole_tools::create_actions(&harness.model, start) {
         harness.perform(action);
     }
@@ -1298,6 +1422,7 @@ fn drill_end_face(harness: &mut Harness, body: caditor_document::FeatureId) -> b
 #[test]
 fn a_hole_starts_on_any_flat_face_of_a_separate_piece() {
     let mut harness = Harness::new();
+
     let extrusion = extruded(
         &mut harness,
         &[
@@ -1305,6 +1430,7 @@ fn a_hole_starts_on_any_flat_face_of_a_separate_piece() {
             (Point2::new(40.0, 0.0), Point2::new(60.0, 20.0)),
         ],
     );
+
     harness.perform(Action::Apply(Transaction::single(
         "A body each",
         Edit::SetFeaturePieces {
@@ -1324,11 +1450,13 @@ fn a_hole_starts_on_any_flat_face_of_a_separate_piece() {
 #[test]
 fn a_hole_starts_on_any_flat_face_of_both_halves_of_a_split_body() {
     let mut harness = Harness::new();
+
     let extrusion = extruded(
         &mut harness,
         &[(Point2::new(-20.0, -10.0), Point2::new(20.0, 10.0))],
     );
     let mut transaction = harness.document().transaction("Split");
+
     transaction.add_feature(
         "Split 1",
         FeatureKind::Split(caditor_document::Split {
@@ -1361,10 +1489,13 @@ fn a_hole_starts_on_any_flat_face_of_both_halves_of_a_split_body() {
 #[test]
 fn an_open_hole_on_the_edge_of_a_face_previews_only_what_it_cuts_from_the_body() {
     let mut harness = Harness::new();
+
     let (_, top) = extruded_plate(&mut harness);
+
     harness.select([top]);
     harness.click("Hole");
     harness.settle();
+
     let hole = harness.workspace.editing.solid().expect("the hole is open");
     let sketch = open_hole(&harness, hole).sketch;
     let point = harness
@@ -1375,6 +1506,7 @@ fn an_open_hole_on_the_edge_of_a_face_previews_only_what_it_cuts_from_the_body()
 
     harness.type_into_field(Id::unique(("hole-position", hole, point, 0_usize)), "0 mm");
     harness.settle();
+
     let previewed = harness
         .built()
         .scene
