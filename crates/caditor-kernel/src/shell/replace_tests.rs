@@ -10,7 +10,7 @@ use crate::{
     blend::{BlendShape, blend},
     boolean::{BooleanOperation, boolean},
     fixtures::{cuboid, cylinder},
-    naming::FaceName,
+    naming::{EdgeName, FaceName},
     surface::Surface,
     test_support::assert_cancelled_anywhere,
     topology::{FaceId, Solid},
@@ -18,6 +18,10 @@ use crate::{
 
 fn names(solid: &Solid) -> BTreeSet<FaceName> {
     solid.faces().map(|(_, face)| face.name()).collect()
+}
+
+fn edge_names(solid: &Solid) -> BTreeSet<EdgeName> {
+    solid.edges().map(|(_, edge)| edge.name()).collect()
 }
 
 fn plane(origin: (f64, f64, f64), normal: Vector3) -> Plane {
@@ -414,6 +418,141 @@ fn a_drum_s_wall_onto_a_parallel_cylinder_of_its_radius_shifts_it() {
     check("result", &result, 2000.0 + PI * 9.0 * 4.0);
 }
 
+fn leaning_round(radius: f64) -> Surface {
+    let axis = Vector3::new(0.3, 0.0, 1.0).normalize();
+    let frame = Plane::from_frame(Point3::ZERO, axis, Vector3::Y).unwrap();
+    crate::surface::Cylinder::new(frame, radius).unwrap().into()
+}
+
+fn upright_round(radius: f64, x: f64, y: f64) -> Surface {
+    let frame = Plane::from_frame(Point3::new(x, y, 0.0), Vector3::Z, Vector3::X).unwrap();
+    crate::surface::Cylinder::new(frame, radius).unwrap().into()
+}
+
+fn bossed_plate() -> Solid {
+    let base = cuboid(Vector3::new(20.0, 20.0, 5.0));
+    let boss = cylinder(3.0, 9.0)
+        .transformed(&RigidTransform::translation(Vector3::new(10.0, 10.0, 0.0)).unwrap())
+        .unwrap();
+    boolean(&base, &boss, BooleanOperation::Union).unwrap()
+}
+
+fn bored_plate() -> Solid {
+    let base = cuboid(Vector3::new(20.0, 20.0, 10.0));
+    let bore = cylinder(3.0, 30.0)
+        .transformed(&RigidTransform::translation(Vector3::new(10.0, 10.0, -5.0)).unwrap())
+        .unwrap();
+    boolean(&base, &bore, BooleanOperation::Difference).unwrap()
+}
+
+fn rounded(solid: &Solid, faces: &[FaceId], target: &Surface) -> Solid {
+    match replace_faces_onto_round(solid, faces, target) {
+        Ok(result) => result,
+        Err(error) => panic!("replacing onto the round target failed: {error}"),
+    }
+}
+
+fn lies_on_round(solid: &Solid, target: &Surface) -> bool {
+    let Surface::Cylinder(wanted) = target else {
+        return false;
+    };
+    let axis = wanted.frame().normal();
+
+    solid.faces().any(|(_, face)| match face.surface() {
+        Surface::Cylinder(found) => {
+            let apart = (found.frame().origin() - wanted.frame().origin()).reject_from(axis);
+            found.frame().normal().cross(axis).length() < 1e-9
+                && apart.length() < 1e-9
+                && (found.radius() - wanted.radius()).abs() < 1e-9
+        }
+        _ => false,
+    })
+}
+
+#[test]
+fn a_drum_s_wall_onto_a_parallel_cylinder_off_its_axis_takes_its_place_and_radius() {
+    let drum = cylinder(5.0, 10.0);
+    let wall = wall_of(&drum);
+    let target = round_surface(7.0, 3.0);
+
+    let result = rounded(&drum, &[wall], &target);
+
+    check("result", &result, PI * 49.0 * 10.0);
+
+    assert_eq!(names(&result), names(&drum));
+    assert!(lies_on_round(&result, &target));
+}
+
+#[test]
+fn a_boss_onto_a_larger_or_smaller_parallel_cylinder_off_its_axis_moves_and_resizes() {
+    let body = bossed_plate();
+    let wall = wall_of(&body);
+    let larger = upright_round(4.0, 12.0, 10.0);
+    let smaller = upright_round(2.0, 8.0, 11.0);
+
+    let grown = rounded(&body, &[wall], &larger);
+    let shrunk = rounded(&body, &[wall], &smaller);
+
+    check("grown", &grown, 2000.0 + PI * 16.0 * 4.0);
+    check("shrunk", &shrunk, 2000.0 + PI * 4.0 * 4.0);
+
+    assert_eq!(names(&grown), names(&body));
+    assert_eq!(names(&shrunk), names(&body));
+    assert_eq!(edge_names(&grown), edge_names(&body));
+    assert_eq!(edge_names(&shrunk), edge_names(&body));
+    assert!(lies_on_round(&grown, &larger));
+    assert!(lies_on_round(&shrunk, &smaller));
+}
+
+#[test]
+fn a_bore_onto_a_larger_or_smaller_parallel_cylinder_off_its_axis_moves_and_resizes() {
+    let plate = bored_plate();
+    let wall = wall_of(&plate);
+    let larger = upright_round(4.0, 12.0, 9.0);
+    let smaller = upright_round(2.0, 7.0, 10.0);
+
+    let widened = rounded(&plate, &[wall], &larger);
+    let narrowed = rounded(&plate, &[wall], &smaller);
+
+    check("widened", &widened, 4000.0 - PI * 16.0 * 10.0);
+    check("narrowed", &narrowed, 4000.0 - PI * 4.0 * 10.0);
+
+    assert_eq!(names(&widened), names(&plate));
+    assert_eq!(names(&narrowed), names(&plate));
+    assert_eq!(edge_names(&widened), edge_names(&plate));
+    assert!(lies_on_round(&widened, &larger));
+}
+
+#[test]
+fn a_parallel_cylinder_reaching_past_the_body_is_refused_naming_a_face() {
+    let bossed = bossed_plate();
+    let boss = wall_of(&bossed);
+    let bored = bored_plate();
+    let bore = wall_of(&bored);
+    let past_the_edge = upright_round(4.0, 17.0, 10.0);
+
+    let overhanging = replace_faces_onto_round(&bossed, &[boss], &past_the_edge);
+    let breaking_out = replace_faces_onto_round(&bored, &[bore], &past_the_edge);
+
+    let named = |result: &Result<Solid, ReplaceError>| match result {
+        Err(ReplaceError::Move(MoveError::Invalid { faces, .. })) => faces.clone(),
+        other => panic!("not refused as invalid: {other:?}"),
+    };
+
+    assert_eq!(
+        named(&overhanging),
+        [face_facing(&bossed, Vector3::Z, Point3::new(5.0, 5.0, 5.0))]
+    );
+    assert_eq!(
+        named(&breaking_out),
+        [face_facing(
+            &bored,
+            Vector3::NEG_Z,
+            Point3::new(5.0, 5.0, 0.0)
+        )]
+    );
+}
+
 #[test]
 fn round_targets_refuse_what_no_motion_can_hold() {
     let drum = cylinder(5.0, 10.0);
@@ -421,7 +560,7 @@ fn round_targets_refuse_what_no_motion_can_hold() {
     let top = face_facing(&drum, Vector3::Z, Point3::new(0.0, 0.0, 10.0));
 
     assert_eq!(
-        replace_faces_onto_round(&drum, &[wall], &round_surface(7.0, 3.0)),
+        replace_faces_onto_round(&drum, &[wall], &leaning_round(5.0)),
         Err(ReplaceError::OffAxis(wall))
     );
     assert_eq!(
@@ -474,6 +613,7 @@ fn replacing_can_be_cancelled() {
     let drum = cylinder(5.0, 10.0);
     let wall = wall_of(&drum);
     let wider = round_surface(7.0, 0.0);
+    let aside = round_surface(7.0, 3.0);
 
     assert_cancelled_anywhere(
         "replace",
@@ -488,6 +628,11 @@ fn replacing_can_be_cancelled() {
     assert_cancelled_anywhere(
         "round",
         || replace_faces_onto_round(&drum, &[wall], &wider),
+        |error| matches!(error, ReplaceError::Move(MoveError::Cancelled(_))),
+    );
+    assert_cancelled_anywhere(
+        "aside",
+        || replace_faces_onto_round(&drum, &[wall], &aside),
         |error| matches!(error, ReplaceError::Move(MoveError::Cancelled(_))),
     );
 }

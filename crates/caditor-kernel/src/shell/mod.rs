@@ -318,6 +318,17 @@ impl<'a> Offsets<'a> {
         }
     }
 
+    fn offsetting(self, inward: BTreeMap<FaceId, f64>) -> Self {
+        let widest = inward
+            .values()
+            .fold(0.0, |most, distance| larger(most, distance.abs()));
+        Self {
+            reach: self.reach + widest,
+            distances: inward,
+            ..self
+        }
+    }
+
     fn motion(&self, face: FaceId) -> Option<&Motion> {
         let motions = self.motions.as_ref()?;
         motions.motions.get(motions.of(face)?)
@@ -387,18 +398,19 @@ impl<'a> Offsets<'a> {
     }
 
     fn surface(&self, face: FaceId) -> Result<Surface, ShellError> {
+        match self.motion(face) {
+            Some(Motion::Rigid { forward, .. }) => self
+                .offset_surface(face)?
+                .transformed(forward)
+                .map_err(|_| ShellError::UnsupportedFace(face)),
+            Some(Motion::Tapered(taper)) => Ok(taper.surface().clone()),
+            None => self.offset_surface(face),
+        }
+    }
+
+    fn offset_surface(&self, face: FaceId) -> Result<Surface, ShellError> {
         let definition = self.solid.face(face).ok_or(ShellError::MissingFace(face))?;
 
-        match self.motion(face) {
-            Some(Motion::Rigid { forward, .. }) => {
-                return definition
-                    .surface()
-                    .transformed(forward)
-                    .map_err(|_| ShellError::UnsupportedFace(face));
-            }
-            Some(Motion::Tapered(taper)) => return Ok(taper.surface().clone()),
-            None => {}
-        }
         if self.distance(face) == 0.0 {
             return Ok(definition.surface().clone());
         }

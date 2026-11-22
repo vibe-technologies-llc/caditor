@@ -8,9 +8,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 ## Modelling
 
 - [high · hard] Replace face moves a round face onto a round target only about its own axis (or, for
-  a cylinder, a parallel one of its radius): a cylinder onto a coaxial cone, whose angle needs
-  `Taper`'s hinge to move too, a target off its axis at another radius, a flat face onto a curved
-  target (a sketch's extrusion, a spline) are refused, as are round faces that would merge. Move face
+  a cylinder, any parallel cylinder): a cylinder onto a coaxial cone, whose angle needs `Taper`'s
+  hinge to move too, a cone, sphere or torus onto one off its axis or centre, a flat face onto a
+  curved target (a sketch's extrusion, a spline) are refused, as are round faces that would merge. Move face
   carries the chosen faces rigidly: a fillet or chamfer along a moved face's edge must be chosen with
   it (it is not re-blended to the new angle), a moved face that was tangent to one that stays is
   refused. Delete face closes a gap only from the faces around it: not a face with several loops

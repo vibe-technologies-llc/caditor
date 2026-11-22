@@ -1034,7 +1034,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - It has no values, so no expressions or parameters, and model scale changes nothing but the
   anchored target. Kernel refusals become sentences naming the face, edge or corner, each with
   what to change: a curved face onto a plane, a flat one onto a round target, a round one off its
-  axis, a target square to a face, a target on or past the far side of the body (turning it inside
+  axis (a cylinder only onto one not parallel to it), a target square to a face, a target on or past the far side of the body (turning it inside
   out), faces that would lie on the target but cannot be joined, every face already on it, and a
   move's (a face that would vanish, faces that would cross, a neighbour that cannot follow).
 - It modifies its body (`modifies_body`) and keeps the state before it and every face and edge name,

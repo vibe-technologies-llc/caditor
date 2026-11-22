@@ -27,9 +27,9 @@ that face still find it, and those holding the other face are told to choose it 
 
 A round face follows a round target about its own axis, its neighbours extending or trimming to
 meet it: a boss or bore replaced with a cylinder on the same axis takes that cylinder's radius, and
-a cone, sphere or torus likewise. A cylinder also follows one of its own radius and direction
-elsewhere, shifting across to it. Only flat faces go onto a plane and only round faces onto a round
-target.
+a cone, sphere or torus likewise. A cylinder also follows any cylinder parallel to it elsewhere,
+shifting across to it and taking its radius, so a boss or bore is moved and resized onto another
+body's hole in one step. Only flat faces go onto a plane and only round faces onto a round target.
 
 While it is open, click faces in the view to replace them or leave them out; hovering a face listed
 in the panel lights it in the view. **Choose in the view** in the panel first adds the faces of the
@@ -37,7 +37,8 @@ body selected then.
 
 The replaced faces keep their names, so later features still find them. A target square to a face,
 a target on or past the far side of the body (which would turn it inside out), a round target no
-motion can bring the face to, or a target that would make a face vanish, other than one squeezed
-flat between two faces lying on the target, or faces cross fails the feature alone, saying which
-face or edge and what to do. Replace before rounding the edges beside the faces, since a fillet
-along a replaced face's edge cannot follow it.
+motion can bring the face to, a target that would make a face vanish (other than one squeezed flat
+between two faces lying on the target), faces that would cross, or a cylinder carried out past the
+edge of the body or through a wall fails the feature alone, saying which face or edge and what to
+do. Replace before rounding the edges beside the faces, since a fillet along a replaced face's edge
+cannot follow it.

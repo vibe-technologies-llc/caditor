@@ -9,7 +9,7 @@ use super::{
     edge_faces,
     inner::{Naming, inner_solid},
     merge::{MergeFailure, MergedFaces, merged_faces},
-    moving::{carrying, move_each, uncrossed},
+    moving::{carrying, uncrossed},
 };
 use crate::{
     interrupt::{self, Interrupted},
@@ -419,23 +419,38 @@ fn replaced(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum RoundLanding {
-    Still,
-    Outward(f64),
-    Shift(Vector3),
+struct RoundLanding {
+    shift: Vector3,
+    outward: f64,
+}
+
+impl RoundLanding {
+    fn about_own_axis(growth: f64, sign: f64) -> Self {
+        Self::across(Vector3::ZERO, growth, sign)
+    }
+
+    fn across(aside: Vector3, growth: f64, sign: f64) -> Self {
+        let shift = if aside.length() <= LINEAR_RESOLUTION {
+            Vector3::ZERO
+        } else {
+            aside
+        };
+        let outward = if growth.abs() <= LINEAR_RESOLUTION {
+            0.0
+        } else {
+            growth * sign
+        };
+        Self { shift, outward }
+    }
+
+    fn shifts(&self) -> bool {
+        self.shift != Vector3::ZERO
+    }
 }
 
 fn same_axis_direction(first: &Plane, second: &Plane) -> Option<f64> {
     let along = first.normal().dot(second.normal());
     (first.normal().cross(second.normal()).length() <= ANGULAR_RESOLUTION).then_some(along.signum())
-}
-
-fn outward_by(growth: f64, sign: f64) -> RoundLanding {
-    if growth.abs() <= LINEAR_RESOLUTION {
-        RoundLanding::Still
-    } else {
-        RoundLanding::Outward(growth * sign)
-    }
 }
 
 fn round_landing(
@@ -451,18 +466,15 @@ fn round_landing(
         (Surface::Cylinder(own), Surface::Cylinder(wanted)) => {
             let (own_frame, wanted_frame) = (own.frame(), wanted.frame());
 
-            same_axis_direction(own_frame, wanted_frame).ok_or(off_axis.clone())?;
+            same_axis_direction(own_frame, wanted_frame).ok_or(off_axis)?;
 
             let aside =
                 (wanted_frame.origin() - own_frame.origin()).reject_from(own_frame.normal());
-            let growth = wanted.radius() - own.radius();
-            if aside.length() <= LINEAR_RESOLUTION {
-                Ok(outward_by(growth, sign))
-            } else if growth.abs() <= LINEAR_RESOLUTION {
-                Ok(RoundLanding::Shift(aside))
-            } else {
-                Err(off_axis)
-            }
+            Ok(RoundLanding::across(
+                aside,
+                wanted.radius() - own.radius(),
+                sign,
+            ))
         }
         (Surface::Cone(own), Surface::Cone(wanted)) => {
             let (own_frame, wanted_frame) = (own.frame(), wanted.frame());
@@ -479,7 +491,7 @@ fn round_landing(
             }
 
             let wanted_here = wanted.radius() - wanted_slope * height;
-            Ok(outward_by(
+            Ok(RoundLanding::about_own_axis(
                 (wanted_here - own.radius()) * own.half_angle().cos_libm(),
                 sign,
             ))
@@ -490,7 +502,10 @@ fn round_landing(
             if apart > LINEAR_RESOLUTION {
                 return Err(off_axis);
             }
-            Ok(outward_by(wanted.radius() - own.radius(), sign))
+            Ok(RoundLanding::about_own_axis(
+                wanted.radius() - own.radius(),
+                sign,
+            ))
         }
         (Surface::Torus(own), Surface::Torus(wanted)) => {
             let (own_frame, wanted_frame) = (own.frame(), wanted.frame());
@@ -503,7 +518,10 @@ fn round_landing(
             if apart > LINEAR_RESOLUTION || !same_ring {
                 return Err(off_axis);
             }
-            Ok(outward_by(wanted.minor_radius() - own.minor_radius(), sign))
+            Ok(RoundLanding::about_own_axis(
+                wanted.minor_radius() - own.minor_radius(),
+                sign,
+            ))
         }
         _ => Err(off_axis),
     }
@@ -529,44 +547,46 @@ fn onto_round(solid: &Solid, faces: &[FaceId], target: &Surface) -> Result<Solid
     let mut shifted: BTreeMap<FaceId, Vector3> = BTreeMap::new();
 
     for face in faces {
-        match round_landing(solid, *face, target)? {
-            RoundLanding::Still => {}
-            RoundLanding::Outward(distance) => {
-                inward.insert(*face, -distance);
-            }
-            RoundLanding::Shift(by) => {
-                shifted.insert(*face, by);
-            }
+        let landing = round_landing(solid, *face, target)?;
+
+        if landing.outward != 0.0 {
+            inward.insert(*face, -landing.outward);
+        }
+        if landing.shifts() {
+            shifted.insert(*face, landing.shift);
         }
     }
     interrupt::check()?;
-    match (inward.is_empty(), shifted.first_key_value()) {
-        (true, None) => Err(ReplaceError::AlreadyOnTarget),
-        (true, Some((first, by))) => {
+
+    let offsets = match shifted.first_key_value() {
+        None if inward.is_empty() => return Err(ReplaceError::AlreadyOnTarget),
+        None => Offsets::moving_each(solid, inward),
+        Some((first, by)) => {
+            let unlike = shifted
+                .iter()
+                .find(|(_, other)| other.distance(*by) > LINEAR_RESOLUTION)
+                .map(|(face, _)| *face);
+
+            if let Some(face) = unlike {
+                return Err(ReplaceError::OffAxis(face));
+            }
+
             let moved: Vec<FaceId> = shifted.keys().copied().collect();
-            let lands_alike = shifted
-                .values()
-                .all(|other| other.distance(*by) <= LINEAR_RESOLUTION);
-            let motion = RigidTransform::translation(*by)
-                .filter(|_| lands_alike)
-                .ok_or(ReplaceError::OffAxis(*first))?;
-            Ok(move_each(
+            let motion = RigidTransform::translation(*by).ok_or(ReplaceError::OffAxis(*first))?;
+            carrying(
                 solid,
                 vec![Carried {
                     faces: &moved,
                     motion: Motion::rigid(motion),
                 }],
-            )?)
+            )?
+            .offsetting(inward)
         }
-        (false, Some((face, _))) => Err(ReplaceError::OffAxis(*face)),
-        (false, None) => {
-            let offsets = Offsets::moving_each(solid, inward);
-            let inner = inner_solid(&offsets, Naming::Kept).map_err(MoveError::from)?;
+    };
+    let inner = inner_solid(&offsets, Naming::Kept).map_err(MoveError::from)?;
 
-            if let Some(face) = inner.dropped.iter().next() {
-                return Err(MoveError::Vanishes(*face).into());
-            }
-            Ok(uncrossed(inner.solid)?)
-        }
+    if let Some(face) = inner.dropped.iter().next() {
+        return Err(MoveError::Vanishes(*face).into());
     }
+    Ok(uncrossed(inner.solid)?)
 }

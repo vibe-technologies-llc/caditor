@@ -1035,10 +1035,17 @@ paths:
   distance per face, `Naming::Kept`): a cylinder onto a cylinder on its axis, a cone onto a cone on
   its axis with its half angle, a sphere onto a concentric sphere, a torus onto one of its ring and
   axis take the difference in radius, signed by the face's sense so a bore and a boss both land. A
-  cylinder onto a parallel one of its radius off its axis is a rigid shift across (`move_each`),
-  several only when all land alike, and shifts and offsets are never mixed. A flat face is
-  `FlatOntoRound`, anything else `OffAxis` (a cone onto a cylinder needs `Taper`'s second hinge; the
-  shell offset cannot change an angle).
+  cylinder onto a parallel one off its axis, of any radius, shifts across and takes the radius in
+  one inner solid: the shifted faces are one `Motion::Rigid` translation (`moving::carrying`, several
+  only when all shift alike, else `OffAxis` naming the first that does not) and
+  `Offsets::offsetting` adds each face's radius change as its distance, widening the reach by the
+  largest. A face with both is offset about its own axis and then carried
+  (`Offsets::residual` pulls the point back before measuring, `Offsets::surface` offsets the
+  surface before transforming it), so caps, a plate's top and a bore's floor re-trim as for a move;
+  a shift that takes the face past the body's edge or through a wall is refused as
+  `MoveError::Invalid` naming the face whose loop breaks. A flat face is `FlatOntoRound`, anything
+  else `OffAxis` (a cylinder onto one not parallel to it; a cone onto a cylinder needs `Taper`'s
+  second hinge, as the shell offset cannot change an angle).
 - The document takes a `PlaneReference::Face` whose face is not flat as a round target
   (`replace_face::round_target`), so the same stored reference holds both and no record changed.
 

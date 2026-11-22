@@ -216,8 +216,8 @@ impl ReplaceFaceCause {
                 target
             ),
             Self::OffAxis { face, target } => format!(
-                "{} cannot reach {}: a round face follows a round target about its own axis, or \
-                 a cylinder one of its radius and direction.",
+                "{} cannot reach {}: a round face follows a round target about its own axis, and \
+                 a cylinder also one parallel to it.",
                 capitalized(face),
                 target
             ),
@@ -275,7 +275,9 @@ impl ReplaceFaceCause {
                 "Leave this face out, or choose a plane or flat face as the target.".to_owned()
             }
             Self::OffAxis { .. } => {
-                "Leave this face out, or choose a target about the same axis.".to_owned()
+                "Leave this face out, or choose a target about the same axis, or for a cylinder \
+                 one parallel to it."
+                    .to_owned()
             }
             Self::SquareToTarget { .. } => {
                 "Leave this face out, or choose a target that leans less from it.".to_owned()

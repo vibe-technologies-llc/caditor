@@ -555,7 +555,17 @@ fn drum(
     center: Point2,
     radius: f64,
 ) -> FeatureId {
-    let mut sketch = Sketch::new(Plane::XY);
+    drum_on(transaction, name, Plane::XY, center, radius)
+}
+
+fn drum_on(
+    transaction: &mut TransactionBuilder<'_>,
+    name: &str,
+    plane: Plane,
+    center: Point2,
+    radius: f64,
+) -> FeatureId {
+    let mut sketch = Sketch::new(plane);
 
     sketch.add_circle(center, radius);
     extruded(transaction, name, sketch, "10 mm")
@@ -570,7 +580,8 @@ fn round_wall(solid: &Solid) -> FaceId {
 }
 
 #[test]
-fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_off_it() {
+fn a_round_face_follows_a_cylinder_of_another_body_on_or_beside_its_axis_and_refuses_a_square_one()
+{
     let mut document = Document::default();
 
     let mut transaction = document.transaction("Build");
@@ -578,6 +589,13 @@ fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_o
     let inner = drum(&mut transaction, "Inner", Point2::ZERO, 5.0);
     let outer = drum(&mut transaction, "Outer", Point2::ZERO, 7.0);
     let aside = drum(&mut transaction, "Aside", Point2::new(40.0, 0.0), 9.0);
+    let across = drum_on(
+        &mut transaction,
+        "Across",
+        Plane::XZ,
+        Point2::new(-40.0, 20.0),
+        4.0,
+    );
 
     document.apply(transaction.finish()).unwrap();
 
@@ -595,6 +613,7 @@ fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_o
     };
     let onto_outer = attachment(outer);
     let onto_aside = attachment(aside);
+    let onto_across = attachment(across);
     let top = flat_face(&solid, Vector3::Z, Point3::new(0.0, 0.0, 10.0));
 
     let mut transaction = document.transaction("Replace face");
@@ -630,7 +649,18 @@ fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_o
     let chosen = FaceReference::capture(&solid, wall).unwrap();
 
     document
-        .apply(definition(vec![chosen], onto_aside.clone()))
+        .apply(definition(vec![chosen.clone()], onto_aside.clone()))
+        .unwrap();
+
+    let evaluation = evaluate(&document, &mut engine);
+    let moved = evaluation.body(inner).unwrap();
+
+    assert_volume(&evaluation, inner, PI * 81.0 * 10.0);
+
+    assert!(chosen.resolve(moved).is_ok());
+
+    document
+        .apply(definition(vec![chosen], onto_across))
         .unwrap();
 
     let evaluation = evaluate(&document, &mut engine);
@@ -641,6 +671,7 @@ fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_o
         "{}",
         error.reason()
     );
+    assert!(error.reason().contains("parallel"), "{}", error.reason());
 
     let flat = FaceReference::capture(&solid, top).unwrap();
 
