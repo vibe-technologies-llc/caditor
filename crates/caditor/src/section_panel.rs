@@ -81,30 +81,33 @@ fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &mut Exp
     let parameters = model.parameters();
     let units = model.units();
 
+    let enter = |text: &str| -> Result<_, ExpressionError> {
+        let parsed = field::parse_expression(
+            document,
+            parameters,
+            text,
+            field::Expected {
+                dimension: Some(value.dimension),
+                non_negative: false,
+            },
+            units,
+        )?;
+
+        parameters
+            .evaluate_expression(&parsed)
+            .map_err(ExpressionError::Unevaluable)?;
+        Ok(parsed)
+    };
+
     let field = field::value_field(
         ui,
         value.id,
         &document.expression_text(expression),
         FIELD_WIDTH,
         false,
-        |text| -> Result<_, ExpressionError> {
-            let parsed = field::parse_expression(
-                document,
-                parameters,
-                text,
-                field::Expected {
-                    dimension: Some(value.dimension),
-                    non_negative: false,
-                },
-                units,
-            )?;
-
-            parameters
-                .evaluate_expression(&parsed)
-                .map_err(ExpressionError::Unevaluable)?;
-            Ok(parsed)
-        },
+        enter,
     );
+    let problem = field.problem(ui, document, enter);
 
     field.response.on_hover_text(value.hover);
 
@@ -113,6 +116,8 @@ fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &mut Exp
     ui.end_row();
     if let Some(error) = field.error {
         widgets::error_row(ui, &error);
+    } else if let Some(problem) = problem {
+        problem.row(ui);
     }
     committed.is_some()
 }

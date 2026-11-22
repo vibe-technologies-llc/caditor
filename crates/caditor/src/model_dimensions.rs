@@ -622,17 +622,21 @@ impl ModelDimensions {
                 egui::Frame::popup(ui.style())
                     .inner_margin(FIELD_MARGIN)
                     .show(ui, |ui| {
+                        let enter = |text: &str| value_change(model, value, text);
+
                         let field = field::value_field(
                             ui,
                             id,
                             &stored,
                             FIELD_WIDTH,
                             open.focus_pending,
-                            |text| value_change(model, value, text),
+                            enter,
                         );
 
                         if let Some(error) = &field.error {
                             widgets::error_text(ui, error);
+                        } else if let Some(problem) = field.problem(ui, model.document(), enter) {
+                            problem.show(ui);
                         }
                         field
                     })

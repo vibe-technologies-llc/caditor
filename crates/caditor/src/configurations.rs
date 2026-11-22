@@ -393,33 +393,39 @@ fn cell(
 
             completion::editing_parameter(ui, cell_id(row.id, value), id);
 
+            let enter = |text: &str| {
+                let current = match model.parameters().get(id) {
+                    Some(Ok(value)) => Some(value.dimension),
+                    _ => None,
+                };
+                let expression = field::parameter_expression(
+                    document,
+                    model.parameters(),
+                    text,
+                    current,
+                    model.units(),
+                )?;
+                setting_change(document, row, value, Setting::Expression(expression))
+            };
+
             let response = field::value_field(
                 ui,
                 cell_id(row.id, value),
                 &stored,
                 CELL_WIDTH,
                 false,
-                |text| {
-                    let current = match model.parameters().get(id) {
-                        Some(Ok(value)) => Some(value.dimension),
-                        _ => None,
-                    };
-                    let expression = field::parameter_expression(
-                        document,
-                        model.parameters(),
-                        text,
-                        current,
-                        model.units(),
-                    )?;
-                    setting_change(document, row, value, Setting::Expression(expression))
-                },
+                enter,
             );
+            let problem = response.problem(ui, document, enter);
+            let committed = response.committed;
             let response_label = widgets::named(response.response, &label);
 
             if let Some(error) = &response.error {
                 response_label.on_hover_text(error);
+            } else if let Some(problem) = &problem {
+                response_label.on_hover_text(problem.message());
             }
-            response.committed.map(Outcome::Apply)
+            committed.map(Outcome::Apply)
         }
         (ConfiguredValue::Suppressed(_), setting) => {
             let mut suppressed = matches!(setting, Some(Setting::Suppressed(true)));

@@ -112,7 +112,15 @@ paths:
   The same spot tells a typed text that does not read, in Enter's own words (`field::typed_problem`
   runs the caller's parse, so there is no second parser): `FieldResponse::typing` is the focused
   field's text while it differs from the stored one, and the feature rows (`expression_row_with`)
-  and the Scale model factor show `field::Problem` in place of the preview. A `Problem::Wrong` (an
+  and the Scale model factor show `field::Problem` in place of the preview. Every other
+  `value_field` calls `FieldResponse::problem(ui, document, enter)` with the very closure it hands
+  the field as its Enter check, so a refusal that comes from the model (a dimension that cannot be
+  made, a limit out of range) is told as Enter tells it; the answer is kept per typed text, so the
+  check runs once per edit, not per frame. It shows where the field's own error would: a row under
+  it (`Problem::row`) in the property grids of the analysis limits, section cuts, drawing sections
+  and details and the body density, a line under the field in the dimension pop-ups of the 3D view
+  and the Sketch panel, and the cell's hover text in the Configurations table, which has no room for
+  a line. A `Problem::Wrong` (an
   unknown name, a unit of the wrong kind, a division by zero) is an error callout line with the
   failed icon; a `Problem::Unfinished` (`ParseErrorKind::Empty`, `UnexpectedEnd`,
   `UnclosedParenthesis`, a name that begins a parameter's name, a unit that begins an SI unit's

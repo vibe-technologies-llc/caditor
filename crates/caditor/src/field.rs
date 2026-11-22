@@ -254,6 +254,18 @@ pub enum Problem {
 }
 
 impl Problem {
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Unfinished(message) | Self::Wrong(message) => message,
+        }
+    }
+
+    pub fn row(&self, ui: &mut Ui) {
+        ui.label("");
+        self.show(ui);
+        ui.end_row();
+    }
+
     pub fn show(&self, ui: &mut Ui) {
         match self {
             Self::Unfinished(message) => {
@@ -266,14 +278,55 @@ impl Problem {
     }
 }
 
+#[derive(Clone, Debug)]
+struct Told {
+    text: String,
+    problem: Option<Problem>,
+}
+
+impl<T> FieldResponse<T> {
+    pub fn problem<V, E: Display>(
+        &self,
+        ui: &Ui,
+        document: &Document,
+        enter: impl FnOnce(&str) -> Result<V, E>,
+    ) -> Option<Problem> {
+        let key = self.response.id.with("told");
+        let Some(typing) = &self.typing else {
+            ui.data_mut(|data| data.remove::<Told>(key));
+            return None;
+        };
+
+        if let Some(told) = ui
+            .data(|data| data.get_temp::<Told>(key))
+            .filter(|told| &told.text == typing)
+        {
+            return told.problem;
+        }
+
+        let problem = typed_problem(document, naming_expression(typing), |_| enter(typing));
+
+        ui.data_mut(|data| {
+            data.insert_temp(
+                key,
+                Told {
+                    text: typing.clone(),
+                    problem: problem.clone(),
+                },
+            );
+        });
+        problem
+    }
+}
+
 pub fn naming_expression(text: &str) -> &str {
     Naming::split(text).map_or(text, |naming| naming.expression)
 }
 
-pub fn typed_problem<E: Display>(
+pub fn typed_problem<V, E: Display>(
     document: &Document,
     expression: &str,
-    parse: impl FnOnce(&str) -> Result<Expression, E>,
+    parse: impl FnOnce(&str) -> Result<V, E>,
 ) -> Option<Problem> {
     let message = parse(expression).err()?.to_string();
 

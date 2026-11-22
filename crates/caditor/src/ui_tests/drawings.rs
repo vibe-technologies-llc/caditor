@@ -252,6 +252,40 @@ fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_she
 }
 
 #[test]
+fn a_section_offset_that_does_not_read_is_told_while_it_is_typed() {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "New drawing");
+    harness.frame();
+
+    let drawing = harness.document().drawings().drawings[0].id;
+
+    wait_for_views(&mut harness);
+    harness.click(ADD_SECTION);
+    harness.frame();
+    harness.click(AT_OFFSET);
+    harness.frame();
+
+    let document = harness.document();
+    let unknown = document.parse("nothere").unwrap_err().to_string();
+    let unfinished = document.parse("2 *").unwrap_err().to_string();
+
+    harness.draft_into_field(offset_field_id(drawing, 'A'), "nothere");
+
+    assert!(harness.shows(&unknown));
+
+    harness.draft_into_field(offset_field_id(drawing, 'A'), "2 *");
+
+    assert!(harness.shows(&unfinished));
+    assert!(!harness.shows(&unknown));
+
+    harness.draft_into_field(offset_field_id(drawing, 'A'), "5 mm");
+
+    assert!(!harness.shows(&unfinished));
+}
+
+#[test]
 fn a_section_offset_typed_as_a_parameter_follows_it_when_it_changes() {
     let mut harness = Harness::new();
 

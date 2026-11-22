@@ -572,25 +572,28 @@ fn offset_row(
 
     widgets::caption(ui, DISTANCE);
 
+    let enter = |text: &str| -> Result<Expression, ExpressionError> {
+        field::parse_expression(
+            document,
+            parameters,
+            text,
+            field::Expected {
+                dimension: Some(Dimension::LENGTH),
+                non_negative: false,
+            },
+            units,
+        )
+    };
+
     let field = field::value_field(
         ui,
         offset_field_id(drawing, letter),
         &offset_text(model, offset),
         widgets::FIELD_WIDTH,
         false,
-        |text| -> Result<Expression, ExpressionError> {
-            field::parse_expression(
-                document,
-                parameters,
-                text,
-                field::Expected {
-                    dimension: Some(Dimension::LENGTH),
-                    non_negative: false,
-                },
-                units,
-            )
-        },
+        enter,
     );
+    let problem = field.problem(ui, document, enter);
 
     field.response.on_hover_text(format!(
         "How far the plane stands from the origin along {}; units and parameters may be typed",
@@ -599,6 +602,8 @@ fn offset_row(
     ui.end_row();
     if let Some(error) = field.error {
         widgets::error_row(ui, &error);
+    } else if let Some(problem) = problem {
+        problem.row(ui);
     }
     if let Some(value) = field.committed {
         change(
@@ -812,6 +817,22 @@ fn length_row(
 
     widgets::caption(ui, caption);
 
+    let enter = |text: &str| -> Result<f64, ExpressionError> {
+        let expression = field::parse_expression(
+            document,
+            parameters,
+            text,
+            field::Expected {
+                dimension: Some(Dimension::LENGTH),
+                non_negative,
+            },
+            units,
+        )?;
+        expression
+            .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
+            .map_err(ExpressionError::Unevaluable)
+    };
+
     let field = field::value_field(
         ui,
         id,
@@ -820,27 +841,16 @@ fn length_row(
             .expression_text(&units.measured(millimetres)),
         widgets::FIELD_WIDTH,
         false,
-        |text| -> Result<f64, ExpressionError> {
-            let expression = field::parse_expression(
-                document,
-                parameters,
-                text,
-                field::Expected {
-                    dimension: Some(Dimension::LENGTH),
-                    non_negative,
-                },
-                units,
-            )?;
-            expression
-                .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
-                .map_err(ExpressionError::Unevaluable)
-        },
+        enter,
     );
+    let problem = field.problem(ui, document, enter);
 
     field.response.on_hover_text(hover);
     ui.end_row();
     if let Some(error) = field.error {
         widgets::error_row(ui, &error);
+    } else if let Some(problem) = problem {
+        problem.row(ui);
     }
     field.committed
 }

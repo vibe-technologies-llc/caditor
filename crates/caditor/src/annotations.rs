@@ -2073,35 +2073,39 @@ impl Annotations {
                 egui::Frame::popup(ui.style())
                     .inner_margin(FIELD_MARGIN)
                     .show(ui, |ui| {
+                        let enter = |text: &str| -> Result<_, DimensionFieldError> {
+                            if surface.outside {
+                                Ok(field::dimension_edit(
+                                    document,
+                                    model.parameters(),
+                                    (target, Reference::Followed),
+                                    text,
+                                    model.units(),
+                                )?)
+                            } else {
+                                sketch_tools::dimension_change(
+                                    model,
+                                    target,
+                                    text,
+                                    surface.first_dimension_scales,
+                                )
+                                .map_err(DimensionFieldError::DimensionChange)
+                            }
+                        };
+
                         let field = field::value_field(
                             ui,
                             id,
                             &stored,
                             FIELD_WIDTH,
                             open.focus_pending,
-                            |text| {
-                                if surface.outside {
-                                    Ok(field::dimension_edit(
-                                        document,
-                                        model.parameters(),
-                                        (target, Reference::Followed),
-                                        text,
-                                        model.units(),
-                                    )?)
-                                } else {
-                                    sketch_tools::dimension_change(
-                                        model,
-                                        target,
-                                        text,
-                                        surface.first_dimension_scales,
-                                    )
-                                    .map_err(DimensionFieldError::DimensionChange)
-                                }
-                            },
+                            enter,
                         );
 
                         if let Some(error) = &field.error {
                             widgets::error_text(ui, error);
+                        } else if let Some(problem) = field.problem(ui, document, enter) {
+                            problem.show(ui);
                         }
                         field
                     })

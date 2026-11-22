@@ -877,6 +877,8 @@ impl Panel<'_> {
             .unwrap_or_default();
         let model = self.model;
 
+        let enter = |text: &str| parse_density(model, text);
+
         let field = ui
             .horizontal(|ui| {
                 let field = field::value_field(
@@ -885,7 +887,7 @@ impl Panel<'_> {
                     &stored,
                     FIELD_WIDTH,
                     false,
-                    |text| parse_density(model, text),
+                    enter,
                 );
 
                 ui.label(widgets::muted(DENSITY_UNIT, ui));
@@ -906,9 +908,13 @@ impl Panel<'_> {
             })
             .inner;
 
+        let problem = field.problem(ui, document, enter);
+
         ui.end_row();
         if let Some(error) = field.error {
             widgets::error_row(ui, &error);
+        } else if let Some(problem) = problem {
+            problem.row(ui);
         } else if let Some(Err(error)) = self.appearance.density_value(model.parameters()) {
             widgets::error_row(ui, &field::sentence(&error.to_string()));
         }

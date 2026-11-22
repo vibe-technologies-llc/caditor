@@ -3933,6 +3933,7 @@ fn dimension_field(
         constraint,
     };
     let mut error = None;
+    let mut problem = None;
 
     if let Some(held) = document.owned_parameter(&target.owner(), expression) {
         completion::editing_parameter(ui, focus.field_id(), held.id());
@@ -3940,22 +3941,20 @@ fn dimension_field(
     ui.horizontal(|ui| {
         ui.add_space(SPACE_L);
 
+        let enter = |text: &str| {
+            field::dimension_transaction(document, model.parameters(), target, text, model.units())
+        };
+
         let field = field::value_field(
             ui,
             focus.field_id(),
             &field::value_text(document, &target.owner(), expression),
             DIMENSION_FIELD_WIDTH,
             state.wants_focus(focus),
-            |text| {
-                field::dimension_transaction(
-                    document,
-                    model.parameters(),
-                    target,
-                    text,
-                    model.units(),
-                )
-            },
+            enter,
         );
+
+        problem = field.problem(ui, document, enter);
 
         field.response.clone().labelled_by(label);
         state.focus_reached(focus, field.response.has_focus());
@@ -3981,6 +3980,11 @@ fn dimension_field(
         ui.horizontal(|ui| {
             ui.add_space(SPACE_L);
             widgets::error_text(ui, &error);
+        });
+    } else if let Some(problem) = problem {
+        ui.horizontal(|ui| {
+            ui.add_space(SPACE_L);
+            problem.show(ui);
         });
     }
 }

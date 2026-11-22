@@ -120,32 +120,35 @@ fn limit_row(
     let parameters = model.parameters();
     let units = model.units();
 
+    let enter = |text: &str| -> Result<_, LimitError> {
+        let parsed = field::parse_expression(
+            document,
+            parameters,
+            text,
+            field::Expected {
+                dimension: Some(dimension),
+                non_negative: true,
+            },
+            units,
+        )?;
+        let value = parameters
+            .evaluate_expression(&parsed)
+            .map_err(ExpressionError::Unevaluable)?
+            .value;
+
+        check(value)?;
+        Ok(parsed)
+    };
+
     let field = field::value_field(
         ui,
         Id::unique(("analysis-limit", id)),
         &document.expression_text(expression),
         FIELD_WIDTH,
         false,
-        |text| -> Result<_, LimitError> {
-            let parsed = field::parse_expression(
-                document,
-                parameters,
-                text,
-                field::Expected {
-                    dimension: Some(dimension),
-                    non_negative: true,
-                },
-                units,
-            )?;
-            let value = parameters
-                .evaluate_expression(&parsed)
-                .map_err(ExpressionError::Unevaluable)?
-                .value;
-
-            check(value)?;
-            Ok(parsed)
-        },
+        enter,
     );
+    let problem = field.problem(ui, document, enter);
 
     if let Some(parsed) = field.committed {
         *expression = parsed;
@@ -153,6 +156,8 @@ fn limit_row(
     ui.end_row();
     if let Some(error) = field.error {
         widgets::error_row(ui, &error);
+    } else if let Some(problem) = problem {
+        problem.row(ui);
     }
 }
 
