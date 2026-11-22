@@ -1,4 +1,5 @@
 use std::{
+    cmp::Reverse,
     env,
     path::{Path, PathBuf},
     sync::Arc,
@@ -37,8 +38,7 @@ const COPIES_PER_SAMPLE: usize = 100;
 const SPACING: f64 = 150.0;
 const ROW: usize = 20;
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(3600);
-const SYNTHESISED_WITHIN: Duration = Duration::from_secs(30);
-const STALL: Duration = Duration::from_millis(50);
+const LONGEST_FRAMES: usize = 20;
 const UPLOAD_BYTES_PER_FRAME: f64 = 8.0 * 1024.0 * 1024.0;
 const VERTEX_BYTES: usize = 28;
 const TRIANGLE_BYTES: usize = 12;
@@ -322,9 +322,7 @@ fn in_app(path: &Path) {
 
         let shown = harness.workspace.viewport.bodies().iter().count();
 
-        if took > STALL {
-            slow.push((started.elapsed(), took, shown));
-        }
+        slow.push((started.elapsed(), took, shown));
         if shown > 0 && first_shown.is_none() {
             first_shown = Some(started.elapsed());
             report(
@@ -347,7 +345,11 @@ fn in_app(path: &Path) {
         }
         thread::sleep(Duration::from_millis(1));
     }
-    eprintln!("{frames} frames, {} longer than {STALL:?}:", slow.len());
+
+    slow.sort_by_key(|frame| Reverse(frame.1));
+    slow.truncate(LONGEST_FRAMES);
+
+    eprintln!("{frames} frames, the {} longest:", slow.len());
     for (at, took, shown) in slow {
         eprintln!(
             "  at {:>8.3} s a frame of {took:?}, {shown} bodies shown",
@@ -635,14 +637,14 @@ fn timed_frames(harness: &mut Harness, name: &str, mut change: impl FnMut(&mut H
 #[ignore = "a timing benchmark: cargo test --release -p caditor import_costs -- --ignored --nocapture"]
 fn a_large_step_import_is_timed_stage_by_stage() {
     let dir = TempDir::new().unwrap();
-    let (path, synthesised_here) = match env::var_os(IMPORT_FILE) {
-        Some(path) => (PathBuf::from(path), false),
+    let path = match env::var_os(IMPORT_FILE) {
+        Some(path) => PathBuf::from(path),
         None => {
             let started = Instant::now();
             let path = synthesised(dir.path());
 
             report("synthesised", started, "");
-            (path, true)
+            path
         }
     };
     let started = Instant::now();
@@ -652,10 +654,5 @@ fn a_large_step_import_is_timed_stage_by_stage() {
     }
     in_app(&path);
 
-    let took = started.elapsed();
-
-    assert!(
-        !synthesised_here || took < SYNTHESISED_WITHIN,
-        "the synthesised import took {took:?}"
-    );
+    report("the whole import", started, "");
 }

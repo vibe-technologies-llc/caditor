@@ -1848,6 +1848,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   same parameter (`ParameterMeasuredTwice`); and inlining a measured parameter
   (`MeasuredParameterInlined`). A pasted measurement feeds nothing; its references follow a datum's
   paste rules.
+- Scale tests bound cost by `tally.rs` work units (free outside tests): one per feature `Measured`
+  scans, per parameter the evaluation order sorts or `Measured` walks, and per node a cycle search
+  visits. `lib.rs`'s `scale_tests` pin parameter chains as linear and keep inserting features
+  reading measurements as an ignored survey (`PERFORMANCE.md`).
 
 ### Reference image (`reference_image.rs`, `picture.rs`)
 

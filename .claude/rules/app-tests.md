@@ -142,8 +142,8 @@ bench-only:
 - `a_large_step_import_is_timed_stage_by_stage` (`ui_tests/import_costs.rs`; the nightly stress job
   runs it) times a STEP import stage by stage (read, added, saved and reopened, recomputed,
   meshed, measured, drawn), then through the harness from the Import command to
-  every body shown, listing each frame over 50 ms. It synthesises a file asserted to stay within
-  `SYNTHESISED_WITHIN`, or times `CADITOR_IMPORT_FILE`; `CADITOR_IMPORT_IN_THE_APP_ONLY` skips the
+  every body shown, listing its 20 longest frames. It synthesises a file, or times
+  `CADITOR_IMPORT_FILE`, and asserts nothing about time; `CADITOR_IMPORT_IN_THE_APP_ONLY` skips the
   stages. After the camera's fit finishes (`CAMERA_SETTLE`; no pick is asked while the viewpoint
   moves) it times idle frames, pointer moves, hovering between two faces taken from the drawn
   `PickTable` (`forced_hover`), orbit, pan and zoom, each change until settled (`timed_change`:

@@ -6,6 +6,7 @@ use crate::{
     datum::feature_name,
     document::{Document, Parameter, path_to},
     measurement::Measured,
+    tally,
 };
 
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
@@ -196,6 +197,9 @@ struct EvaluationOrder {
 impl EvaluationOrder {
     fn of(document: &Document) -> Self {
         let dependencies = document.parameter_dependencies();
+
+        tally::add(dependencies.len());
+
         let (_, unordered) = Self::topological(&dependencies, &BTreeMap::new());
 
         let cycles: BTreeMap<ParameterId, Vec<ParameterId>> = unordered

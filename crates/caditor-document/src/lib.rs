@@ -86,6 +86,7 @@ mod step_text;
 mod surface_tool;
 mod sweep;
 mod sweep_cause;
+mod tally;
 mod thread;
 mod thread_standard;
 mod tolerance;
@@ -1669,16 +1670,17 @@ mod tests {
 
 #[cfg(test)]
 mod scale_tests {
-    use std::time::{Duration, Instant};
-
     use caditor_expression::{BinaryOperator, Expression, Unit};
 
-    use crate::{Document, ParameterValues};
+    use crate::{
+        Between, Datum, DatumPoint, Document, FeatureKind, MeasuredItem, Measurement,
+        ParameterValues, PlaneReference, PointReference, PrincipalPlane, Reading, tally,
+    };
 
     const CHAIN: usize = 1200;
     const GROWTH: usize = 4;
-    const RUNS: usize = 3;
-    const LINEAR_SLACK: f64 = 2.0;
+    const LINEAR_SLACK: usize = 2;
+    const READERS: usize = 60;
 
     fn chain(length: usize, step: f64) -> Document {
         let mut document = Document::default();
@@ -1702,42 +1704,92 @@ mod scale_tests {
         document
     }
 
-    fn evaluate_and_restore(length: usize) -> Duration {
-        let started = Instant::now();
-        let mut document = chain(length, 1.0);
+    fn evaluate_and_restore(length: usize) -> usize {
+        let ((), units) = tally::measure(|| {
+            let mut document = chain(length, 1.0);
 
-        let values = ParameterValues::evaluate(&document);
-        let last = document.parameters().last().unwrap().id();
+            let values = ParameterValues::evaluate(&document);
+            let last = document.parameters().last().unwrap().id();
 
-        assert_eq!(values.value(last).unwrap().value, length as f64);
+            assert_eq!(values.value(last).unwrap().value, length as f64);
 
-        let other = chain(length, 2.0);
-        let restore = document.transaction_to(&other, "Restore");
+            let other = chain(length, 2.0);
+            let restore = document.transaction_to(&other, "Restore");
 
-        document.apply(restore).unwrap();
+            document.apply(restore).unwrap();
 
-        assert!(document.same_content(&other));
-
-        started.elapsed()
+            assert!(document.same_content(&other));
+        });
+        units
     }
 
-    fn fastest_of_runs(length: usize) -> Duration {
-        (0..RUNS)
-            .map(|_| evaluate_and_restore(length))
-            .min()
-            .unwrap()
+    fn insert_readers(count: usize) -> usize {
+        let mut document = Document::default();
+
+        let ((), units) = tally::measure(|| {
+            for index in 0..count {
+                let mut transaction = document.transaction("Measure");
+
+                let parameter = transaction.add_parameter(
+                    format!("gap{index}"),
+                    Expression::Measure(0.0, Unit::Millimetre),
+                );
+
+                transaction.add_feature(
+                    format!("Measurement {index}"),
+                    FeatureKind::from(Measurement {
+                        reading: Reading::Between {
+                            quantity: Between::Distance,
+                            first: MeasuredItem::Point(PointReference::Origin),
+                            second: MeasuredItem::Plane(PlaneReference::Principal(
+                                PrincipalPlane::Xy,
+                            )),
+                        },
+                        parameter: Some(parameter),
+                    }),
+                );
+                document.apply(transaction.finish()).unwrap();
+
+                let mut transaction = document.transaction("Read");
+
+                transaction.add_feature(
+                    format!("Reader {index}"),
+                    FeatureKind::Datum(Datum::Point(DatumPoint {
+                        base: PointReference::Origin,
+                        offset: [
+                            Expression::Parameter(parameter),
+                            Expression::Measure(0.0, Unit::Millimetre),
+                            Expression::Measure(0.0, Unit::Millimetre),
+                        ],
+                    })),
+                );
+                document.apply(transaction.finish()).unwrap();
+            }
+        });
+        units
     }
 
     #[test]
     fn long_parameter_chains_evaluate_and_restore_in_linear_time() {
-        let short = fastest_of_runs(CHAIN / GROWTH);
-        let long = fastest_of_runs(CHAIN);
+        let short = evaluate_and_restore(CHAIN / GROWTH);
+        let long = evaluate_and_restore(CHAIN);
 
-        let ratio = long.as_secs_f64() / short.as_secs_f64().max(f64::MIN_POSITIVE);
+        assert!(short > CHAIN / GROWTH, "the tally counted only {short}");
+        assert!(
+            long <= short * GROWTH * LINEAR_SLACK,
+            "{GROWTH} times the chain took {long} units of work against {short}"
+        );
+    }
+
+    #[test]
+    #[ignore = "a survey of PERFORMANCE.md's quadratic loading: each inserted feature rebuilds Measured"]
+    fn long_runs_of_measurements_and_readers_insert_in_linear_time() {
+        let short = insert_readers(READERS);
+        let long = insert_readers(READERS * GROWTH);
 
         assert!(
-            ratio < GROWTH as f64 * LINEAR_SLACK,
-            "{GROWTH} times the chain took {ratio:.1} times as long ({short:?} and {long:?})"
+            long <= short * GROWTH * LINEAR_SLACK,
+            "{GROWTH} times the measurements took {long} units of work against {short}"
         );
     }
 }

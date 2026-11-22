@@ -7,13 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · small] The fuzz jobs run into their 20 minute limit (`ci.yml`): `journal` and
   `journal_torn` on one run of 2026-11-14 and `svg` on the next were cancelled at 20m, a failed
   run though no input failed.
-- [medium · small] `long_parameter_chains_evaluate_and_restore_in_linear_time`
-  (`caditor-document`'s `lib.rs`) bounds cost by a ratio of wall-clock times, against
-  `rust-style.md`'s rule that tests bound cost by work done, and passes `conventions_tests.rs`'s
-  `no_assertion_reads_the_clock` only because `elapsed` is read outside the assert; it also leaves
-  out measurements and features, the inputs that make loading quadratic (`PERFORMANCE.md`,
-  Document). Count work with a `tally` instead, over inserts of features reading measurements, and
-  have the conventions check refuse a `Duration` compared in a test.
 - [medium · medium] Fuzzing misses whole readers and the shapes that break them: no target reads
   parameter files (`parse_parameters`), configuration files (`parse_configurations`) or
   environment pictures (`decode_environment`); `ci.yml` runs libFuzzer with no `-max_len`, so

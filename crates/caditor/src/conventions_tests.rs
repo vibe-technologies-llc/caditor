@@ -369,7 +369,57 @@ fn literal_end(characters: &[char], start: usize) -> Option<usize> {
     }
 }
 
-fn mentions_elapsed(characters: &[char], opening: usize) -> bool {
+const ELAPSED: &str = "elapsed";
+const DURATION_READS: [&str; 8] = [
+    "as_secs",
+    "as_secs_f32",
+    "as_secs_f64",
+    "as_millis",
+    "as_micros",
+    "as_nanos",
+    "subsec_millis",
+    "subsec_nanos",
+];
+const COMPARISONS: [&str; 6] = ["<=", ">=", "==", "!=", "<", ">"];
+
+struct CodeWord {
+    text: String,
+    start: usize,
+    end: usize,
+}
+
+fn code_words(characters: &[char]) -> Vec<CodeWord> {
+    let mut words = Vec::new();
+    let mut index = 0;
+
+    while let Some(current) = characters.get(index) {
+        if let Some(end) = literal_end(characters, index) {
+            index = end;
+            continue;
+        }
+        if !is_identifier_character(*current) {
+            index += 1;
+            continue;
+        }
+
+        let text: String = characters
+            .iter()
+            .skip(index)
+            .take_while(|character| is_identifier_character(**character))
+            .collect();
+        let end = index + text.chars().count();
+
+        words.push(CodeWord {
+            text,
+            start: index,
+            end,
+        });
+        index = end;
+    }
+    words
+}
+
+fn after_group(characters: &[char], opening: usize) -> usize {
     let mut depth = 0_usize;
     let mut index = opening;
 
@@ -383,69 +433,277 @@ fn mentions_elapsed(characters: &[char], opening: usize) -> bool {
             ')' | ']' | '}' => {
                 depth = depth.saturating_sub(1);
                 if depth == 0 {
-                    return false;
+                    return index + 1;
                 }
-            }
-            character if is_identifier_character(*character) => {
-                let word: String = characters
-                    .iter()
-                    .skip(index)
-                    .take_while(|character| is_identifier_character(**character))
-                    .collect();
-
-                if word.contains(ELAPSED) {
-                    return true;
-                }
-                index += word.chars().count();
-                continue;
             }
             _ => {}
         }
         index += 1;
     }
-    false
+    index
 }
 
-const ELAPSED: &str = "elapsed";
-
-fn first_timed_assertion(source: &str) -> Option<usize> {
-    let characters: Vec<char> = source.chars().collect();
-    let mut index = 0;
+fn after_statement(characters: &[char], start: usize) -> usize {
+    let mut depth = 0_usize;
+    let mut index = start;
 
     while let Some(current) = characters.get(index) {
-        if let Some(end) = literal_end(&characters, index) {
+        if let Some(end) = literal_end(characters, index) {
             index = end;
             continue;
         }
-        if !is_identifier_character(*current) {
+        match current {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            ';' if depth == 0 => return index,
+            _ => {}
+        }
+        index += 1;
+    }
+    index
+}
+
+fn is_clock_word(word: &str, bound: &[(String, usize)]) -> bool {
+    word.contains(ELAPSED)
+        || DURATION_READS.contains(&word)
+        || bound.iter().any(|(name, _)| name == word)
+}
+
+fn word_depths(characters: &[char], words: &[CodeWord]) -> Vec<usize> {
+    let mut depths = Vec::new();
+    let mut depth = 0_usize;
+    let mut index = 0;
+
+    for word in words {
+        while index < word.start {
+            if let Some(end) = literal_end(characters, index) {
+                index = end;
+                continue;
+            }
+            match characters.get(index) {
+                Some('{') => depth += 1,
+                Some('}') => depth = depth.saturating_sub(1),
+                _ => {}
+            }
             index += 1;
+        }
+        depths.push(depth);
+    }
+    depths
+}
+
+fn bound_clock_name<'a>(
+    characters: &[char],
+    words: &'a [CodeWord],
+    at: usize,
+    bound: &[(String, usize)],
+) -> Option<&'a str> {
+    let keyword = words.get(at)?;
+    let named = words
+        .iter()
+        .skip(at + 1)
+        .find(|candidate| candidate.text != "mut")?;
+
+    let pattern = characters
+        .get(keyword.end..named.start)
+        .is_some_and(|between| between.contains(&'('));
+    let statement_end = after_statement(characters, named.end);
+    let reads_clock = words
+        .iter()
+        .filter(|inner| inner.start >= named.end && inner.start < statement_end)
+        .any(|inner| is_clock_word(&inner.text, bound));
+
+    (!pattern && reads_clock).then_some(named.text.as_str())
+}
+
+fn assertion_spans(characters: &[char], words: &[CodeWord]) -> Vec<(usize, usize, usize)> {
+    words
+        .iter()
+        .filter(|word| word.text.starts_with("assert") || word.text.starts_with("debug_assert"))
+        .filter(|word| {
+            characters.get(word.end) == Some(&'!') && characters.get(word.end + 1) == Some(&'(')
+        })
+        .map(|word| {
+            (
+                word.start,
+                word.end + 1,
+                after_group(characters, word.end + 1),
+            )
+        })
+        .collect()
+}
+
+fn is_wait_condition(characters: &[char], words: &[CodeWord], at: usize) -> bool {
+    let Some(word) = words.get(at) else {
+        return false;
+    };
+
+    words.iter().take(at).rev().any(|earlier| {
+        earlier.text == "while"
+            && characters
+                .get(earlier.end..word.start)
+                .is_some_and(|between| !between.iter().any(|c| matches!(c, '{' | '}' | ';')))
+    })
+}
+
+fn comparison_at(characters: &[char], index: usize) -> bool {
+    COMPARISONS.iter().any(|operator| {
+        operator
+            .chars()
+            .enumerate()
+            .all(|(offset, expected)| characters.get(index + offset) == Some(&expected))
+    })
+}
+
+fn comparison_after(characters: &[char], start: usize) -> bool {
+    let mut index = start;
+
+    loop {
+        while characters
+            .get(index)
+            .is_some_and(|character| character.is_whitespace() || *character == '?')
+        {
+            index += 1;
+        }
+        match characters.get(index) {
+            Some('(') => index = after_group(characters, index),
+            Some('.') => {
+                index += 1;
+                while characters
+                    .get(index)
+                    .is_some_and(|character| is_identifier_character(*character))
+                {
+                    index += 1;
+                }
+            }
+            _ => return comparison_at(characters, index),
+        }
+    }
+}
+
+fn comparison_before(characters: &[char], start: usize) -> bool {
+    let mut index = start;
+
+    while index > 0
+        && characters
+            .get(index - 1)
+            .is_some_and(|character| is_identifier_character(*character) || *character == '.')
+    {
+        index -= 1;
+    }
+    while index > 0
+        && characters
+            .get(index - 1)
+            .is_some_and(|character| character.is_whitespace())
+    {
+        index -= 1;
+    }
+
+    let last = index.checked_sub(1).and_then(|at| characters.get(at));
+    let before = index.checked_sub(2).and_then(|at| characters.get(at));
+    match last {
+        Some('<') => true,
+        Some('>') => !matches!(before, Some('-' | '=')),
+        Some('=') => matches!(before, Some('=' | '!' | '<' | '>')),
+        _ => false,
+    }
+}
+
+fn first_clock_use(source: &str, compared: bool) -> Option<usize> {
+    let characters: Vec<char> = source.chars().collect();
+    let words = code_words(&characters);
+
+    let depths = word_depths(&characters, &words);
+    let spans = assertion_spans(&characters, &words);
+    let mut bound: Vec<(String, usize)> = Vec::new();
+
+    for (index, (word, depth)) in words.iter().zip(&depths).enumerate() {
+        bound.retain(|(_, scope)| scope <= depth);
+
+        if word.text == "let" {
+            if let Some(name) = bound_clock_name(&characters, &words, index, &bound) {
+                bound.push((name.to_owned(), *depth));
+            }
             continue;
         }
 
-        let word: String = characters
-            .iter()
-            .skip(index)
-            .take_while(|character| is_identifier_character(**character))
-            .collect();
-        let after = index + word.chars().count();
-        let is_assertion = word.starts_with("assert") || word.starts_with("debug_assert");
+        let clock = is_clock_word(&word.text, &bound);
+        let constructor = words.get(index + 1).filter(|next| {
+            word.text == "Duration"
+                && next.text.starts_with("from_")
+                && characters.get(word.end..next.start) == Some(&[':', ':'][..])
+        });
 
-        if is_assertion
-            && characters.get(after) == Some(&'!')
-            && characters.get(after + 1) == Some(&'(')
-            && mentions_elapsed(&characters, after + 1)
-        {
-            let line = characters
-                .iter()
-                .take(index)
-                .filter(|character| **character == '\n')
-                .count();
-
-            return Some(line + 1);
+        if !clock && constructor.is_none() {
+            continue;
         }
-        index = after;
+
+        let asserted = spans
+            .iter()
+            .find(|(_, opening, closing)| word.start > *opening && word.start < *closing);
+        let reported = match (asserted, clock, constructor) {
+            (Some((start, _, _)), true, _) => Some(*start),
+            (_, true, _) if compared => (comparison_after(&characters, word.end)
+                || comparison_before(&characters, word.start))
+            .then_some(word.start),
+            (_, _, Some(next)) if compared => (comparison_after(&characters, next.end)
+                || comparison_before(&characters, word.start))
+            .then_some(word.start),
+            _ => None,
+        };
+        let Some(position) = reported else {
+            continue;
+        };
+
+        if asserted.is_none() && is_wait_condition(&characters, &words, index) {
+            continue;
+        }
+
+        let line = characters
+            .iter()
+            .take(position)
+            .filter(|character| **character == '\n')
+            .count();
+
+        return Some(line + 1);
     }
     None
+}
+
+fn first_timed_assertion(source: &str) -> Option<usize> {
+    first_clock_use(source, false)
+}
+
+fn first_compared_duration(source: &str) -> Option<usize> {
+    first_clock_use(source, true)
+}
+
+fn only_test_items(code: &str) -> String {
+    let mut kept = Vec::new();
+    let mut lines = code.lines();
+
+    while let Some(line) = lines.next() {
+        if line.trim() != "#[cfg(test)]" {
+            kept.push("");
+            continue;
+        }
+        kept.push(line);
+
+        let mut depth = 0_i64;
+        let mut opened = false;
+        for inside in lines.by_ref() {
+            let opening = inside.matches('{').count();
+            let closing = inside.matches('}').count();
+
+            depth += i64::try_from(opening).unwrap() - i64::try_from(closing).unwrap();
+            opened |= opening > 0;
+            kept.push(inside);
+            if (opened && depth <= 0) || (!opened && inside.trim_end().ends_with(';')) {
+                break;
+            }
+        }
+    }
+    kept.join("\n")
 }
 
 #[test]
@@ -463,6 +721,94 @@ fn no_assertion_reads_the_clock() {
     assert!(
         timed.is_empty(),
         "bound the work done (a count or a tally), never wall-clock time, in {timed:#?}"
+    );
+}
+
+#[test]
+fn no_test_compares_a_duration() {
+    let root = repository();
+    let compared: Vec<String> = files_with_extension(&root.join("crates"), "rs")
+        .into_iter()
+        .chain(files_with_extension(&root.join("fuzz"), "rs"))
+        .filter_map(|path| {
+            let source = fs::read_to_string(&path).unwrap();
+            let tests = if is_test_source(&path) {
+                source
+            } else {
+                only_test_items(&source)
+            };
+            let line = first_compared_duration(&tests)?;
+            Some(format!("{}:{line}", path.display()))
+        })
+        .collect();
+
+    assert!(
+        compared.is_empty(),
+        "bound the work done (a count or a tally), never a duration compared in a test, in {compared:#?}"
+    );
+}
+
+#[test]
+fn the_duration_scanner_tells_compared_durations_from_printed_ones() {
+    let ordered = "let a = 1;\nif started.elapsed() > LIMIT {\n    fail();\n}\n";
+    let reversed = "if LIMIT > started.elapsed() {}";
+    let chained = "if started.elapsed().as_secs_f64() < 2.0 {}";
+    let bound = "let took = started.elapsed();\nlet slow = took > LIMIT;";
+    let derived =
+        "let took = started.elapsed();\nlet ratio = took.as_secs_f64() / base;\nif ratio > 2.0 {}";
+    let constructed = "if Duration::from_secs(2) < took {}";
+    let compared_to_constructed = "if slow >= Duration::from_millis(5) {}";
+
+    assert_eq!(first_compared_duration(ordered), Some(2));
+    assert_eq!(first_compared_duration(reversed), Some(1));
+    assert_eq!(first_compared_duration(chained), Some(1));
+    assert_eq!(first_compared_duration(bound), Some(2));
+    assert_eq!(first_compared_duration(derived), Some(3));
+    assert_eq!(first_compared_duration(constructed), Some(1));
+    assert_eq!(first_compared_duration(compared_to_constructed), Some(1));
+
+    assert_eq!(
+        first_compared_duration("let took = started.elapsed();"),
+        None
+    );
+    assert_eq!(
+        first_compared_duration("println!(\"{:?}\", started.elapsed());"),
+        None
+    );
+    assert_eq!(
+        first_compared_duration("let limits: Vec<Duration> = Vec::new();"),
+        None
+    );
+    assert_eq!(first_compared_duration("if count > 3 {}"), None);
+    assert_eq!(first_compared_duration("fn f() -> Duration { x }"), None);
+    assert_eq!(
+        first_compared_duration("while quiet.elapsed() < QUIET {\n    wait();\n}"),
+        None
+    );
+    assert_eq!(
+        first_compared_duration(
+            "while !done() && quiet.elapsed() < QUIET {}\nif quiet.elapsed() > A {}"
+        ),
+        Some(2)
+    );
+    assert_eq!(
+        first_compared_duration(
+            "fn a() {\n    let took = started.elapsed();\n}\nfn b() {\n    if took > 3 {}\n}"
+        ),
+        None
+    );
+    assert_eq!(
+        first_compared_duration("let (mesh, took) = run(started.elapsed());\nif mesh > 3 {}"),
+        None
+    );
+    assert_eq!(first_timed_assertion(ordered), None);
+    assert_eq!(
+        first_timed_assertion("let took = started.elapsed();\nassert!(took < LIMIT);"),
+        Some(2)
+    );
+    assert_eq!(
+        first_timed_assertion("assert!(a.as_secs_f64() < 2.0);"),
+        Some(1)
     );
 }
 

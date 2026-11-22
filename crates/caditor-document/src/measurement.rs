@@ -28,6 +28,7 @@ use crate::{
     recompute::{CancelToken, Evaluation, Failure, FeatureResult, FeatureState, Inputs},
     solid::{ExactMass, profile_curve},
     split_edges::{Followed, SplitEdges},
+    tally,
     values::{ParameterError, ParameterValues, evaluation_order},
 };
 
@@ -1124,6 +1125,8 @@ impl Measured {
         let by_parameter: BTreeMap<ParameterId, FeatureId> = features
             .into_iter()
             .filter_map(|feature| {
+                tally::add(1);
+
                 let parameter = feature.kind.measurement()?.parameter?;
                 Some((parameter, feature.id()))
             })
@@ -1137,6 +1140,8 @@ impl Measured {
         let mut derived = Vec::new();
 
         for id in evaluation_order(document) {
+            tally::add(1);
+
             if let Some(measurement) = by_parameter.get(&id) {
                 reads.insert(id, BTreeSet::from([*measurement]));
                 continue;

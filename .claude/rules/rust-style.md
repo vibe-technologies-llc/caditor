@@ -29,10 +29,12 @@ paths:
   for a step one platform alone takes; Windows details are in `windows.md`.
 - Tests bound cost by work done, never by time: a count a test can read (interrupt polls through the
   kernel's `test_support::polls_during`, or a `tally` of work units in `caditor-kernel`,
-  `caditor-file` and the solver's `solve/tally.rs`, free outside tests) with a bound that holds
-  for a stated growth of the input. A wait for another thread is bounded by a deadline fixed before
-  the loop. `conventions_tests.rs` (`no_assertion_reads_the_clock`) refuses `elapsed` inside an
-  assert.
+  `caditor-file`, `caditor-document` and the solver's `solve/tally.rs`, free outside tests) with a
+  bound that holds for a stated growth of the input. A wait for another thread is bounded by a
+  deadline fixed before the loop. `conventions_tests.rs` refuses a clock read (`elapsed`, a
+  `Duration`'s `as_secs_f64` and the like, or a name bound from one) inside an assert
+  (`no_assertion_reads_the_clock`) and, in test code, next to a comparison operator or beside a
+  compared `Duration::from_*` (`no_test_compares_a_duration`).
 - Errors are enums of specific variants (`thiserror`), one per failure, carrying typed data and
   worded by their `Display`; a caller wraps a callee's error with `#[from]` or a field, never its
   text, and the text is made only where it is shown (a notice, a callout, a tool answer). A user's

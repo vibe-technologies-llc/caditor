@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use caditor_expression::{Expression, ParameterId};
 
-use crate::document::Document;
+use crate::{document::Document, tally};
 
 pub struct DependencyGraph {
     uses: BTreeMap<ParameterId, BTreeSet<ParameterId>>,
@@ -59,6 +59,8 @@ impl DependencyGraph {
         let mut queue = VecDeque::from([target]);
 
         while let Some(current) = queue.pop_front() {
+            tally::add(1);
+
             for user in self.users_overlaid(current, overlay) {
                 if user == target || toward_target.contains_key(&user) {
                     continue;
