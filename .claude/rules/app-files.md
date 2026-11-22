@@ -9,6 +9,7 @@ paths:
   - "crates/caditor/src/export.rs"
   - "crates/caditor/src/reveal.rs"
   - "crates/caditor/src/configuration_export.rs"
+  - "crates/caditor/src/contained.rs"
   - "crates/caditor/src/image_export.rs"
   - "crates/caditor/src/drawing_export.rs"
   - "crates/caditor/src/import.rs"
@@ -37,7 +38,7 @@ paths:
 - `files.rs` owns the File menu and shortcuts; `files/dialogs.rs` draws its dialogs (opening, the
   unsaved-changes prompt, both "Closing…" waits, replacing, changed on disk, the load report and the
   recovery offer). Native dialogs
-  run on their own thread; recovery scans and other file checks run on the files worker, each job
+  run on their own thread (`contained::spawn`); recovery scans and other file checks run on the files worker, each job
   under `catch_unwind` so a panic becomes its failure. Opening and imports never use the files
   worker: each runs on a thread of its own (`Files::spawn_own`, named `open` or `import`, on the UI
   thread when none can start), so a slow one never queues a save.
@@ -186,6 +187,13 @@ paths:
   image export (`export::warnings`).
 - The dialog stays open behind the save dialog so cancelling keeps the choices, and closes when the
   export starts, which runs on its own thread, cancellable from the status bar and palette.
+- The model, every-configuration and image exports and the native dialogs run as contained
+  thread-and-slot jobs (`contained::spawn`): the work runs under `catch_unwind` and its callback
+  always gets an outcome, the work's own or the job's failure (`Unfinished::Panicked`, or
+  `NoThread` when no thread starts, handed back on the calling thread), so `Exporter::running`
+  always clears and Quit never waits on a dead export. A panic is `ExportError::Crashed`,
+  `ImageFailure::Crashed` or `DialogError::Crashed`, worded as an internal error to try again.
+  Tests swap the body writer (`Files::export_bodies_with`, `export::BodyWriter`).
 - With cloud on, the footer also has Upload to Fusion 360 (`ExportCommand::OpenInFusion`), which
   `files::show` routes to `CloudCommand::OpenInFusion` after hiding the dialog, since `Files` cannot
   start the cloud send (`cloud.md`).
@@ -196,8 +204,9 @@ paths:
   the session draws the chosen bodies alone, framed from the initial view on a transparent
   background at `THUMBNAIL_SIZE` (`ViewportState::thumbnail`, `snapshot::of_bodies`) with
   `Renderer::render_image`; the export thread reads the bands before writing. A busy renderer
-  leaves the job for a later frame (`Exporter::thumbnail_rendered`); a failing one means no
-  thumbnail. The command line draws it offscreen when an adapter exists.
+  leaves the job for a later frame (`Exporter::thumbnail_rendered`); a failing one, a panic
+  reading its bands (`read_thumbnail`) or a frame failing after the job was taken
+  (`Exporter::after_failed_frame`) means no thumbnail. The command line draws it offscreen when an adapter exists.
 - With two or more configurations (`document.md`) the dialog adds Configurations: This configuration
   or Every configuration (`Exporter::every_configuration`), one file per configuration beside the
   chosen one, its name added to the stem (unsafe characters replaced, an empty name becoming
@@ -384,7 +393,9 @@ paths:
   `Renderer::render_image` before the frame's own drawing, hands its `ImageBands` (as `RenderedRows`)
   to the PNG writer and calls `advance_image` every frame (UI tests stand in with rows of their own).
   The PNG streams band by band on its own thread under `catch_unwind`, cancellable from the status
-  bar and palette; cancelling drops the bands, stopping the tiles still to draw.
+  bar and palette; cancelling drops the bands, stopping the tiles still to draw. A frame failing
+  after the job was taken and before its bands were handed over ends the export
+  (`ImageExporter::after_failed_frame`) rather than drawing it again.
 - Failures say what to change (size, scale, anti-aliasing, folder).
 
 ## Model previews

@@ -48,6 +48,8 @@ pub enum DialogError {
     ZenityKilled(Option<i32>),
     #[error("could not start the file dialog's thread ({0})")]
     Thread(io::Error),
+    #[error("caditor ran into an internal error while showing it")]
+    Crashed,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -84,7 +86,7 @@ impl DialogError {
             | Self::Zenity(_)
             | Self::ZenityFailed(_)
             | Self::ZenityKilled(_) => TRY_AGAIN,
-            Self::Thread(_) => TRY_AGAIN,
+            Self::Thread(_) | Self::Crashed => TRY_AGAIN,
         };
         format!("The file dialog could not be shown: {self}.{remedy}")
     }

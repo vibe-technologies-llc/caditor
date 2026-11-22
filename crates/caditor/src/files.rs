@@ -54,6 +54,7 @@ use crate::{
     cloud::{CloudCommand, Destination},
     commands::{Command, CommandFrame, Reason, RecentSlot},
     configuration_export::ConfigurationFile,
+    contained::{self, Unfinished},
     drawing_export::{
         self, DrawingCommand, DrawingExporter, DrawingSource, FACE_HINT, NOT_A_FACE, NOT_A_SKETCH,
         SKETCH_HINT,
@@ -289,22 +290,17 @@ pub struct NativeDialogs;
 
 impl NativeDialogs {
     fn spawn(respond: Respond, request: FileRequest) {
-        let slot = Arc::new(Mutex::new(Some(respond)));
-        let worker_slot = Arc::clone(&slot);
-        let spawned = thread::Builder::new()
-            .name("file-dialog".to_owned())
-            .spawn(move || {
-                let picked = portal::choose(&request);
-                if let Some(respond) = worker_slot.lock().take() {
-                    respond(picked);
-                }
-            });
-        if let Err(error) = spawned {
-            log::error!("could not open the file dialog: {error}");
-            if let Some(respond) = slot.lock().take() {
-                respond(Err(DialogError::Thread(error)));
-            }
-        }
+        contained::spawn(
+            "file-dialog",
+            move || portal::choose(&request),
+            |unfinished| {
+                Err(match unfinished {
+                    Unfinished::Panicked => DialogError::Crashed,
+                    Unfinished::NoThread(error) => DialogError::Thread(error),
+                })
+            },
+            respond,
+        );
     }
 
     fn request(
@@ -1530,9 +1526,11 @@ impl Files {
         self.recovery_open && !self.recoverable.is_empty()
     }
 
-    pub fn close_dialogs(&mut self, model: &Model) {
+    pub fn after_failed_frame(&mut self, model: &Model) {
         self.exporter.perform(ExportCommand::Hide, model);
+        self.exporter.after_failed_frame();
         self.image.perform(ImageCommand::Hide, model);
+        self.image.after_failed_frame();
         self.drawing.hide();
         self.history.close();
         self.report = None;
@@ -2099,6 +2097,11 @@ impl Files {
     #[cfg(test)]
     pub fn exporter_includes(&self, body: FeatureId) -> bool {
         self.exporter.includes(body)
+    }
+
+    #[cfg(test)]
+    pub fn export_bodies_with(&mut self, writer: export::BodyWriter) {
+        self.exporter.write_with(writer);
     }
 
     pub fn image_job(&mut self) -> Option<RenderJob> {

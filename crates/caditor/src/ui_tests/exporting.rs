@@ -1,16 +1,21 @@
 use std::{ffi::OsStr, path::Path, sync::Arc};
 
+use caditor_document::{CancelToken, ModelProperties};
 use caditor_expression::{Expression, Unit};
+use caditor_file::{ExportBody, ExportError, ExportFormat, Exported, MeshOptions};
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_render::ImageError;
 use caditor_sketch::{Constraint, Sketch};
 use egui::{Id, Key, Modifiers};
 use tempfile::TempDir;
 
-use super::{CAMERA_SETTLE, Harness, add_peg, extruded_plate, offer, rectangle, run_from_palette};
+use super::{
+    CAMERA_SETTLE, Harness, add_peg, extruded_plate, fail_a_frame, offer, rectangle,
+    run_from_palette,
+};
 use crate::{
     commands::Command,
-    export::ExportCommand,
+    export::{BodyWriter, ExportCommand},
     files::FileCommand,
     image_export::ImageCommand,
     model::Action,
@@ -993,4 +998,119 @@ fn an_exported_image_leaves_out_the_bodies_unticked_in_its_dialog() {
     assert_eq!(all.scene.meshes.len(), 2);
     assert_eq!(without_peg.scene.meshes.len(), 1);
     assert!(without_both.scene.meshes.is_empty());
+}
+
+fn panicking_writer(
+    _: &Path,
+    _: ExportFormat,
+    _: &MeshOptions<'_>,
+    _: &[ExportBody<'_>],
+    _: &ModelProperties,
+    _: &CancelToken,
+) -> Result<Exported, ExportError> {
+    std::panic::panic_any("an export that panics")
+}
+
+fn has_thumbnail(package: &[u8]) -> bool {
+    package
+        .windows(b"Metadata/thumbnail.png".len())
+        .any(|name| name == b"Metadata/thumbnail.png")
+}
+
+fn start_export(harness: &mut Harness, format: &str, path: &Path) {
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.show_new_windows();
+    harness.click(format);
+    harness.answer_dialog(Some(path.to_path_buf()));
+    harness.click("Export…");
+}
+
+#[test]
+fn a_panicking_export_says_it_failed_and_the_next_export_runs() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+
+    extruded_plate(&mut harness);
+    harness
+        .files
+        .export_bodies_with(BodyWriter::new(Arc::new(panicking_writer)));
+    start_export(&mut harness, "STL", &dir.path().join("plate"));
+    harness.wait_until("the export reports its failure", |harness| {
+        harness.model.notice().is_some_and(|notice| {
+            notice.text
+                == "Could not export “plate.stl”: caditor ran into an internal error while \
+                    exporting; try again."
+        })
+    });
+
+    assert!(!harness.files.exports_running());
+    assert!(!dir.path().join("plate.stl").exists());
+
+    harness.files.export_bodies_with(BodyWriter::default());
+    start_export(&mut harness, "STL", &dir.path().join("plate"));
+    harness.wait_until("the second export is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body to “plate.stl”"))
+    });
+
+    assert!(!harness.files.exports_running());
+    assert!(dir.path().join("plate.stl").exists());
+}
+
+#[test]
+fn a_frame_failing_while_the_3mf_thumbnail_is_drawn_still_finishes_the_export() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+
+    extruded_plate(&mut harness);
+    harness.renders_held = true;
+    start_export(&mut harness, "3MF", &dir.path().join("plate"));
+    harness.wait_until("the 3MF waits for its thumbnail", |harness| {
+        harness.files.exports_running()
+    });
+
+    let taken = harness.files.thumbnail_job();
+
+    fail_a_frame(&mut harness);
+    harness.renders_held = false;
+    harness.wait_until("the 3MF is written", |harness| {
+        !harness.files.exports_running()
+            && harness
+                .model
+                .notice()
+                .is_some_and(|notice| notice.text.starts_with("Exported 1 body to “plate.3mf”"))
+    });
+
+    let package = std::fs::read(dir.path().join("plate.3mf")).unwrap();
+
+    assert!(taken.is_some());
+    assert!(package.starts_with(b"PK\x03\x04"));
+    assert!(!has_thumbnail(&package));
+}
+
+#[test]
+fn a_frame_failing_while_an_exported_image_is_drawn_ends_that_export() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+
+    extruded_plate(&mut harness);
+    harness.renders_held = true;
+    harness.command(FileCommand::ExportImage(ImageCommand::Show));
+    harness.answer_dialog(Some(dir.path().join("plate")));
+    harness.click("Export…");
+    harness.wait_until("the image waits to be drawn", |harness| {
+        harness.files.is_exporting_image()
+    });
+
+    let taken = harness.files.image_job();
+
+    fail_a_frame(&mut harness);
+    harness.renders_held = false;
+    harness.settle();
+
+    assert!(taken.is_some());
+    assert!(!harness.files.exports_running());
+    assert!(!dir.path().join("plate.png").exists());
 }

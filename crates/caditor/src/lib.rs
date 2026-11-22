@@ -44,6 +44,7 @@ mod completion;
 mod configuration_export;
 mod configurations;
 mod constraint_trial;
+mod contained;
 #[cfg(test)]
 mod conventions_tests;
 mod curve_track;

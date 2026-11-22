@@ -1,24 +1,22 @@
 use std::{
     collections::BTreeSet,
     ffi::OsString,
-    panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    thread,
 };
 
 use caditor_document::{CancelToken, FeatureId};
 use caditor_file::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, export_png};
 use caditor_render::{Background, ImageBands, ImageError, MAX_IMAGE_SIDE, SurfaceSize};
 use egui::{Id, Ui};
-use parking_lot::Mutex;
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     commands::{Command, CommandFrame},
+    contained::{self, Unfinished},
     export, field,
     files::FileCommand,
     guide::Page,
@@ -304,35 +302,33 @@ impl ImageExporter {
         let flag = Arc::clone(&cancelled);
         let cancel = CancelToken::new(move || flag.load(Ordering::SeqCst));
         let target = queued.path.clone();
-        let slot = Arc::new(Mutex::new(Some(finished)));
-        let worker_slot = Arc::clone(&slot);
+        let path = queued.path.clone();
 
-        let spawned = thread::Builder::new()
-            .name("image-export".to_owned())
-            .spawn(move || {
-                let written =
-                    panic::catch_unwind(AssertUnwindSafe(|| write_image(&target, read, &cancel)))
-                        .unwrap_or_else(|_| {
-                            log::error!("writing an exported image panicked");
-                            Err(ImageFailure::Crashed)
-                        });
-                if let Some(finished) = worker_slot.lock().take() {
-                    finished(target, written);
-                }
-            });
-        match spawned {
-            Ok(_) => {
-                self.stage = Stage::Writing {
-                    path: queued.path,
-                    cancelled,
-                };
-                None
-            }
-            Err(error) => {
-                log::error!("could not start writing the image: {error}");
-                slot.lock().take();
-                Some(outcome(&name, Err(ImageFailure::WorkerUnavailable)))
-            }
+        self.stage = Stage::Writing {
+            path: queued.path,
+            cancelled,
+        };
+        contained::spawn(
+            "image-export",
+            move || write_image(&target, read, &cancel),
+            |unfinished| {
+                Err(match unfinished {
+                    Unfinished::Panicked => ImageFailure::Crashed,
+                    Unfinished::NoThread(_) => ImageFailure::WorkerUnavailable,
+                })
+            },
+            move |written| finished(path, written),
+        );
+        None
+    }
+
+    pub fn after_failed_frame(&mut self) {
+        if let Stage::Rendering(queued) = &self.stage {
+            log::warn!(
+                "a frame failed while drawing the image for {}; it was not exported",
+                queued.path.display()
+            );
+            self.stage = Stage::Idle;
         }
     }
 

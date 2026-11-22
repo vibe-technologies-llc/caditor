@@ -8,7 +8,6 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    thread,
 };
 
 use caditor_document::{
@@ -23,12 +22,12 @@ use caditor_geometry::Vector3;
 use caditor_kernel::Solid;
 use caditor_render::{ImageError, SurfaceSize};
 use egui::{Align, Layout, ScrollArea, Sides, Ui};
-use parking_lot::Mutex;
 
 use crate::{
     appearance::SPACE_M,
     commands::{Command, CommandFrame},
     configuration_export::{self, ConfigurationExported, ConfigurationFile, ConfigurationJob},
+    contained::{self, Unfinished},
     feature_tree::count,
     files::{FileCommand, cloud_send},
     guide::Page,
@@ -71,6 +70,33 @@ pub enum ExportCommand {
 }
 
 pub type Finished = Box<dyn FnOnce(PathBuf, ExportReport) + Send>;
+
+type WriteBodies = dyn Fn(
+        &Path,
+        ExportFormat,
+        &MeshOptions<'_>,
+        &[ExportBody<'_>],
+        &ModelProperties,
+        &CancelToken,
+    ) -> Result<Exported, ExportError>
+    + Send
+    + Sync;
+
+#[derive(Clone)]
+pub struct BodyWriter(Arc<WriteBodies>);
+
+impl BodyWriter {
+    #[cfg(test)]
+    pub fn new(write: Arc<WriteBodies>) -> Self {
+        Self(write)
+    }
+}
+
+impl Default for BodyWriter {
+    fn default() -> Self {
+        Self(Arc::new(caditor_file::export_bodies))
+    }
+}
 
 #[derive(Debug)]
 pub enum ExportReport {
@@ -182,6 +208,7 @@ struct Job {
     modelled: Option<Document>,
     properties: ModelProperties,
     cancel: CancelToken,
+    writer: BodyWriter,
     finished: Finished,
 }
 
@@ -208,6 +235,7 @@ pub struct Exporter {
     running: Option<Running>,
     waiting: Option<Waiting>,
     session: u64,
+    writer: BodyWriter,
 }
 
 struct Body {
@@ -519,6 +547,7 @@ impl Exporter {
                 .then(|| model.document().clone()),
             properties: model.document().properties().clone(),
             cancel: CancelToken::new(move || flag.load(Ordering::SeqCst)),
+            writer: self.writer.clone(),
             finished,
         };
 
@@ -567,6 +596,18 @@ impl Exporter {
         }
     }
 
+    pub fn after_failed_frame(&mut self) {
+        if let Some(waiting) = self.waiting.take_if(|waiting| waiting.rendering) {
+            log::warn!("a frame failed while drawing the 3MF thumbnail; exporting without it");
+            self.spawn(waiting.job, None);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn write_with(&mut self, writer: BodyWriter) {
+        self.writer = writer;
+    }
+
     fn spawn(&mut self, job: Job, pixels: Option<ReadPixels>) {
         let Job {
             path,
@@ -578,16 +619,14 @@ impl Exporter {
             modelled,
             properties,
             cancel,
+            writer,
             finished,
-            ..
         } = job;
         let target = path.clone();
-        let slot = Arc::new(Mutex::new(Some(finished)));
-        let worker_slot = Arc::clone(&slot);
 
-        let spawned = thread::Builder::new()
-            .name("export".to_owned())
-            .spawn(move || {
+        contained::spawn(
+            "export",
+            move || {
                 let thumbnail = pixels.and_then(read_thumbnail);
                 let options = MeshOptions {
                     resolution,
@@ -598,7 +637,19 @@ impl Exporter {
                         pixels,
                     }),
                 };
-                let report = match modelled {
+                let write = |bodies: &[ExportSource]| {
+                    export_results(
+                        &target,
+                        format,
+                        &options,
+                        bodies,
+                        &properties,
+                        &cancel,
+                        &writer,
+                    )
+                };
+
+                match modelled {
                     Some(document) => {
                         let evaluation = Recompute::default().run_without_display(
                             &document,
@@ -610,35 +661,19 @@ impl Exporter {
                         let result = if cancel.is_cancelled() {
                             Err(ExportError::Cancelled)
                         } else {
-                            export_results(&target, format, &options, &bodies, &properties, &cancel)
+                            write(&bodies)
                         };
                         ExportReport::Modelled {
                             result,
                             failed: evaluation.failed_count(),
                         }
                     }
-                    None => ExportReport::Bodies(export_results(
-                        &target,
-                        format,
-                        &options,
-                        &bodies,
-                        &properties,
-                        &cancel,
-                    )),
-                };
-                if let Some(finished) = worker_slot.lock().take() {
-                    finished(target, report);
+                    None => ExportReport::Bodies(write(&bodies)),
                 }
-            });
-        if let Err(error) = spawned {
-            log::error!("could not start the export: {error}");
-            if let Some(finished) = slot.lock().take() {
-                finished(
-                    path,
-                    ExportReport::Bodies(Err(ExportError::WorkerUnavailable)),
-                );
-            }
-        }
+            },
+            |unfinished| ExportReport::Bodies(Err(unfinished_error(&unfinished))),
+            move |report| finished(path, report),
+        );
     }
 
     fn start_configurations(
@@ -670,32 +705,19 @@ impl Exporter {
             progress: Some(Progress { done, total }),
         });
 
-        let slot = Arc::new(Mutex::new(Some(finished)));
-        let worker_slot = Arc::clone(&slot);
-        let target = path.clone();
-
-        let spawned = thread::Builder::new()
-            .name("export".to_owned())
-            .spawn(move || {
+        contained::spawn(
+            "export",
+            move || {
                 let options = MeshOptions {
                     resolution,
                     stl,
                     thumbnail: None,
                 };
-                let exported = job.run(&options, &properties, &cancel);
-                if let Some(finished) = worker_slot.lock().take() {
-                    finished(target, ExportReport::Configurations(exported));
-                }
-            });
-        if let Err(error) = spawned {
-            log::error!("could not start the export: {error}");
-            if let Some(finished) = slot.lock().take() {
-                finished(
-                    path,
-                    ExportReport::Configurations(Err(ExportError::WorkerUnavailable)),
-                );
-            }
-        }
+                ExportReport::Configurations(job.run(&options, &properties, &cancel))
+            },
+            |unfinished| ExportReport::Configurations(Err(unfinished_error(&unfinished))),
+            move |report| finished(path, report),
+        );
     }
 
     pub fn reported(&mut self, path: &Path, report: ExportReport) -> Notice {
@@ -814,21 +836,28 @@ pub fn moved_note(moved: Vector3) -> String {
     )
 }
 
+fn unfinished_error(unfinished: &Unfinished) -> ExportError {
+    match unfinished {
+        Unfinished::Panicked => ExportError::Crashed,
+        Unfinished::NoThread(_) => ExportError::WorkerUnavailable,
+    }
+}
+
 pub fn read_thumbnail(mut rows: ReadPixels) -> Option<(SurfaceSize, Vec<u8>)> {
-    let size = SurfaceSize {
-        width: rows.width(),
-        height: rows.height(),
-    };
     let read = panic::catch_unwind(AssertUnwindSafe(move || {
+        let size = SurfaceSize {
+            width: rows.width(),
+            height: rows.height(),
+        };
         let mut pixels = Vec::new();
 
         while let Some(band) = rows.next_rows() {
             pixels.extend_from_slice(band?);
         }
-        Ok::<_, ImageError>(pixels)
+        Ok::<_, ImageError>((size, pixels))
     }));
     match read {
-        Ok(Ok(pixels)) => Some((size, pixels)),
+        Ok(Ok(thumbnail)) => Some(thumbnail),
         Ok(Err(error)) => {
             log::warn!("the 3MF thumbnail was left out: {error}");
             None
@@ -847,9 +876,10 @@ fn export_results(
     bodies: &[ExportSource],
     properties: &ModelProperties,
     cancel: &CancelToken,
+    writer: &BodyWriter,
 ) -> Result<Exported, ExportError> {
     let bodies: Vec<ExportBody<'_>> = bodies.iter().filter_map(ExportSource::exported).collect();
-    caditor_file::export_bodies(path, format, options, &bodies, properties, cancel)
+    (writer.0)(path, format, options, &bodies, properties, cancel)
 }
 
 pub fn format_typed(path: &Path, chosen: ExportFormat) -> ExportFormat {
@@ -1305,7 +1335,32 @@ pub fn body_list(
 
 #[cfg(test)]
 mod tests {
+    use caditor_file::PixelRows;
+
     use super::*;
+
+    struct PanickingRows;
+
+    impl PixelRows for PanickingRows {
+        type Error = ImageError;
+
+        fn width(&self) -> u32 {
+            std::panic::panic_any("a thumbnail that panics")
+        }
+
+        fn height(&self) -> u32 {
+            std::panic::panic_any("a thumbnail that panics")
+        }
+
+        fn next_rows(&mut self) -> Option<Result<&[u8], ImageError>> {
+            std::panic::panic_any("a thumbnail that panics")
+        }
+    }
+
+    #[test]
+    fn a_thumbnail_that_panics_is_left_out() {
+        assert_eq!(read_thumbnail(Box::new(PanickingRows)), None);
+    }
 
     #[test]
     fn a_typed_extension_of_another_export_format_chooses_that_format() {

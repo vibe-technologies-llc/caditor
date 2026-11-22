@@ -2297,7 +2297,7 @@ pub(crate) fn after_failed_frame(
 
     workspace.after_failed_frame();
     model.abandon_held_drag();
-    files.close_dialogs(model);
+    files.after_failed_frame(model);
     match step {
         AfterFailedFrame::SuppressFeatures if model.suppress_every_feature() => {
             model.set_notice(Notice::failure(FEATURES_SUPPRESSED));

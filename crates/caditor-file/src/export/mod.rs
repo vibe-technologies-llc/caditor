@@ -520,6 +520,8 @@ pub enum ExportError {
     Writing(WriteFailure),
     #[error("the background worker could not start")]
     WorkerUnavailable,
+    #[error("caditor ran into an internal error while exporting; try again")]
+    Crashed,
 }
 
 pub const EXPORTED_PROPERTIES: [ModelProperty; 6] = [

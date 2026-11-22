@@ -182,7 +182,8 @@ paths:
   (`Session::tend`), is caught in `App::contained` after the hook flushed the journal. The window
   gets a fresh egui context (if building it panics, the old one is kept and logged), and
   `after_failed_frame` drops transient state (selection, tools, sketch editing, palette, dialogs
-  except prompts guarding unsaved work) and a notice says so; the model and undo history stay. A
+  except prompts guarding unsaved work, a 3MF thumbnail or exported image the frame was drawing:
+  `Files::after_failed_frame`) and a notice says so; the model and undo history stay. A
   held sketch drag is cancelled (`Model::abandon_held_drag`); a constraint trial in flight is kept,
   being a user's edit. `FrameFailures` counts frames, not caught panics: a redraw starts a frame
   (`frame_started`), and further panics before the next one only reset the interface again

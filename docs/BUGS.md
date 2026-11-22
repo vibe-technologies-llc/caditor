@@ -228,14 +228,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · small] A model export whose thread panics stays running for the session: `export.rs`
-  runs the single and every-configuration exports without `catch_unwind` (writing contains a
-  body's panic, but recomputing and the thumbnail do not), its `finished` callback is dropped and
-  `running` clears only on that event, so Export, Export again, Open in OrcaSlicer and Open in
-  Fusion 360 are refused and Quit waits on it until Quit anyway. A frame failing between taking the
-  3MF thumbnail job and handing back its pixels (`waiting.rendering`, not reset by
-  `close_dialogs`) leaves it stuck the same way. Every `Files` job is contained; one helper for the
-  thread-and-slot jobs (`export.rs`, `image_export.rs`, `files.rs`) would keep them alike.
 - [low · small] A screen reader loses the window after a failed frame: `Session::recover` builds a
   fresh `Overlay`, whose `egui_winit::State` cannot attach AccessKit to a window already shown
   (`Overlay::enable_accessibility` logs that and returns), and the old adapter goes with the old
