@@ -28,12 +28,12 @@ fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
         "12 mm",
     );
 
-    let (body, placement) = harness
+    let (bodies, placement) = harness
         .model
         .draft_placement()
         .expect("the move is previewed");
 
-    assert_eq!(body, plate);
+    assert_eq!(bodies, [plate]);
     assert!(
         placement
             .apply_point(caditor_geometry::Point3::ZERO)

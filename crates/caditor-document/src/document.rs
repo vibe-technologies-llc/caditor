@@ -414,7 +414,10 @@ impl FeatureKind {
             }
             Self::Datum(datum) => used.extend(datum.bodies()),
             Self::Pattern(pattern) => used.extend(pattern.bodies()),
-            Self::Move(movement) => used.extend(movement.axis_body()),
+            Self::Move(movement) => {
+                used.extend(movement.bodies());
+                used.extend(movement.axis_body());
+            }
             Self::Mate(mate) => used.extend(mate.bodies()),
             Self::Combine(combine) => used.extend(combine.tools()),
             Self::Mirror(mirror) => {
@@ -1764,6 +1767,7 @@ impl Feature {
 
     pub fn separates_pieces(&self) -> bool {
         match &self.kind {
+            FeatureKind::Move(movement) => movement.makes_a_body_of_each_copy(),
             FeatureKind::Mirror(mirror) => mirror.makes_a_body_of_each_image(),
             FeatureKind::Pattern(pattern) => pattern.makes_bodies(),
             _ => self.pieces == Pieces::BodyEach && self.can_separate_pieces(),
@@ -1838,13 +1842,17 @@ impl Feature {
             .kind
             .solid()
             .map_or(&[][..], SolidFeature::other_bodies);
+        let moved = match &self.kind {
+            FeatureKind::Move(movement) => movement.changed_bodies(),
+            _ => Vec::new(),
+        };
         let mirrored = match &self.kind {
             FeatureKind::Mirror(mirror) => mirror.changed_bodies(),
             _ => Vec::new(),
         };
         let mut bodies: Vec<FeatureId> = self.body().into_iter().chain(made_apart).collect();
 
-        for body in cut_too.iter().chain(&mirrored) {
+        for body in cut_too.iter().chain(&moved).chain(&mirrored) {
             if !bodies.contains(body) {
                 bodies.push(*body);
             }
@@ -1985,6 +1993,11 @@ impl Document {
             let source = self.body_label(source).unwrap_or_default();
 
             return Some(Cow::Owned(format!("{} (image of {source})", feature.name)));
+        }
+        if let Some(source) = self.copy_source(body) {
+            let source = self.body_label(source).unwrap_or_default();
+
+            return Some(Cow::Owned(format!("{} (copy of {source})", feature.name)));
         }
         if let Some(copy) = self.pattern_copy(body) {
             return Some(Cow::Owned(format!("{} ({copy})", feature.name)));

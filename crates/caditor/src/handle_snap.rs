@@ -171,13 +171,16 @@ impl Probe<'_> {
         let owner = self.model.document().feature(self.feature)?;
         let evaluation = self.model.evaluation();
 
+        if let FeatureKind::Move(movement) = &owner.kind {
+            if movement.moved_bodies(self.feature).contains(&body) {
+                return None;
+            }
+            return bodies::shown(evaluation, body);
+        }
         if owner.body() != Some(body) {
             return bodies::shown(evaluation, body);
         }
-        match owner.kind {
-            FeatureKind::Move(_) => None,
-            _ => before(self.model, self.feature),
-        }
+        before(self.model, self.feature)
     }
 
     fn edge(&self, source: &SolidResult, name: EdgeName) -> Option<Snap> {

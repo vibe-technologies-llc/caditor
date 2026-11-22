@@ -172,6 +172,7 @@ fn a_sweep_without_a_path_waits_and_what_uses_its_body_fails_as_without_a_result
         "Move 1",
         FeatureKind::Move(Move {
             body: sweep,
+            more_bodies: Vec::new(),
             offset: [length("1 mm"), length("0 mm"), length("0 mm")],
             turn: [length("0 deg"), length("0 deg"), length("0 deg")],
             copy: false,

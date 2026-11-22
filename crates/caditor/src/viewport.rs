@@ -576,7 +576,7 @@ fn chooses_bodies(editing: &SketchEditing) -> bool {
         || editing.picking().is_some_and(|picking| {
             matches!(
                 picking.slot,
-                Slot::MirrorBodies | Slot::OperationBody | Slot::AlsoCutBody
+                Slot::MirrorBodies | Slot::MoveBodies | Slot::OperationBody | Slot::AlsoCutBody
             )
         })
 }

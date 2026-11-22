@@ -7,8 +7,8 @@ use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    Harness, add_peg, choose, extruded, extruded_plate, offer, pickable_described, plate_bounds,
-    rectangle, run_from_palette, top_edge_along_x, vertex_at, volume_about,
+    Harness, add_peg, choose, click_with, extruded, extruded_plate, offer, pickable_described,
+    plate_bounds, rectangle, run_from_palette, top_edge_along_x, vertex_at, volume_about,
 };
 use crate::{
     commands::Command,
@@ -923,6 +923,212 @@ fn move_body_with_nothing_selected_asks_for_a_body_when_two_are_shown_and_takes_
         open_kind(&harness),
         Some(FeatureKind::Move(moving)) if moving.body == peg
     ));
+}
+
+fn open_move(harness: &Harness) -> (FeatureId, caditor_document::Move) {
+    let feature = harness.workspace.editing.solid().expect("the move is open");
+    match &harness.document().feature(feature).unwrap().kind {
+        FeatureKind::Move(movement) => (feature, movement.clone()),
+        other => panic!("expected a move, found {other:?}"),
+    }
+}
+
+#[test]
+fn several_selected_bodies_are_moved_together_with_alt_m_and_previewed_together() {
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+
+    let (plate_before, _) = plate_bounds(&harness, plate);
+    let (peg_before, _) = plate_bounds(&harness, peg);
+
+    harness.select([
+        Pickable::Edge {
+            body: plate,
+            edge: top_edge_along_x(&harness, plate, 0.0),
+        },
+        any_edge(&harness, peg),
+    ]);
+    harness.hover("Move body");
+
+    assert!(harness.shows_containing("Shift and turn 2 bodies"));
+
+    harness.use_tool_with(Key::M, Modifiers::ALT);
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Create Move body 1"));
+    assert!(harness.shows(crate::move_panel::BODIES));
+    assert!(harness.shows("Plate"));
+    assert!(harness.shows("Peg"));
+
+    let (movement, definition) = open_move(&harness);
+
+    assert_eq!(definition.body, plate);
+    assert_eq!(definition.more_bodies, [peg]);
+    assert_eq!(
+        harness
+            .document()
+            .features()
+            .filter(|feature| matches!(feature.kind, FeatureKind::Move(_)))
+            .count(),
+        1
+    );
+
+    harness.draft_into_field(
+        Id::unique(("move-field", "offset", 0usize, movement)),
+        "25 mm",
+    );
+
+    let (previewed, placement) = harness
+        .model
+        .draft_placement()
+        .expect("both bodies are previewed");
+
+    assert_eq!(previewed, [plate, peg]);
+    assert!(
+        placement
+            .apply_point(caditor_geometry::Point3::ZERO)
+            .distance(caditor_geometry::Point3::new(25.0, 0.0, 0.0))
+            < 1e-9
+    );
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    let (plate_after, _) = plate_bounds(&harness, plate);
+    let (peg_after, _) = plate_bounds(&harness, peg);
+
+    assert!((plate_after.x - (plate_before.x + 25.0)).abs() < 1e-6);
+    assert!((peg_after.x - (peg_before.x + 25.0)).abs() < 1e-6);
+}
+
+#[test]
+fn several_selected_bodies_are_copied_together_into_separate_bodies() {
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+
+    harness.select([
+        Pickable::Edge {
+            body: plate,
+            edge: top_edge_along_x(&harness, plate, 0.0),
+        },
+        any_edge(&harness, peg),
+    ]);
+    harness.frame();
+
+    run_from_palette(&mut harness, "copy body");
+    harness.settle();
+
+    let (copy, definition) = open_move(&harness);
+
+    assert!(definition.copy);
+    assert_eq!(definition.body, plate);
+    assert_eq!(definition.more_bodies, [peg]);
+
+    harness.type_into_field(Id::unique(("move-field", "offset", 1usize, copy)), "50 mm");
+    harness.settle();
+
+    let copies = harness.model.evaluation().pieces_made_by(copy);
+
+    assert_eq!(copies.len(), 2);
+
+    let peg_copy = copy.piece(caditor_document::Move::copy_key(peg)).unwrap();
+
+    assert_eq!(
+        harness.document().body_name(peg_copy).as_deref(),
+        Some("Copy 1 (copy of Peg)")
+    );
+}
+
+#[test]
+fn a_move_takes_and_leaves_out_bodies_from_the_panel_and_clicks_in_the_view() {
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: top_edge_along_x(&harness, plate, 0.0),
+    }]);
+    harness.click("Move body");
+    harness.settle();
+
+    harness.click_lowest(crate::feature_fields::CHOOSE_IN_VIEW);
+    harness.frame();
+
+    assert!(harness.shows_containing("Click a body to move it too"));
+
+    harness.click_pickable(Plane::XY, Point2::new(32.0, 20.0), any_edge(&harness, peg));
+    harness.settle();
+
+    let (_, definition) = open_move(&harness);
+
+    assert_eq!(definition.more_bodies, [peg]);
+    assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+    assert!(
+        harness
+            .workspace
+            .editing
+            .picking()
+            .is_some_and(|picking| picking.slot == Slot::MoveBodies)
+    );
+
+    harness.click_pickable(Plane::XY, Point2::new(32.0, 20.0), any_edge(&harness, peg));
+    harness.settle();
+
+    let (_, definition) = open_move(&harness);
+
+    assert!(definition.more_bodies.is_empty());
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([any_edge(&harness, peg)]);
+    harness.settle();
+    harness.click_lowest(crate::feature_fields::USE_SELECTED);
+    harness.settle();
+
+    let (_, definition) = open_move(&harness);
+
+    assert_eq!(definition.more_bodies, [peg]);
+
+    harness.click_topmost_button("Stop moving this body");
+    harness.settle();
+
+    let (_, definition) = open_move(&harness);
+
+    assert_eq!(definition.body, peg);
+    assert!(definition.more_bodies.is_empty());
+}
+
+#[test]
+fn several_bodies_chosen_in_the_tree_are_moved_together_with_alt_m() {
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+
+    harness.settle();
+    harness.select([]);
+    harness.click("Bodies (2)");
+    harness.frame();
+
+    harness.click("Extrude 1");
+    click_with(&mut harness, "Peg", Modifiers::COMMAND);
+    harness.frame();
+
+    harness.use_tool_with(Key::M, Modifiers::ALT);
+    harness.settle();
+
+    let (_, definition) = open_move(&harness);
+
+    assert_eq!(definition.body, plate);
+    assert_eq!(definition.more_bodies, [peg]);
 }
 
 #[test]

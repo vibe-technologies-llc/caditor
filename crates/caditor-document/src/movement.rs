@@ -1,10 +1,11 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, Expression, ParameterId, Unit};
-use caditor_geometry::{Plane, Point3, Ray, RigidTransform, Vector3};
+use caditor_geometry::{Aabb, Plane, Point3, Ray, RigidTransform, Vector3};
 use caditor_kernel::Solid;
 
 use crate::{
+    body_pieces::{PieceKey, source_of_piece_key, source_piece_key},
     datum::{AxisReference, Resolver},
     document::{Feature, FeatureId},
     failure::{Cause, Expected},
@@ -126,6 +127,7 @@ impl Pivot {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Move {
     pub body: FeatureId,
+    pub more_bodies: Vec<FeatureId>,
     pub offset: [Expression; 3],
     pub turn: [Expression; 3],
     pub copy: bool,
@@ -134,6 +136,58 @@ pub struct Move {
 }
 
 impl Move {
+    #[must_use]
+    pub fn with_more_bodies(mut self, bodies: Vec<FeatureId>) -> Self {
+        self.more_bodies = bodies;
+        self
+    }
+
+    pub fn bodies(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        std::iter::once(self.body).chain(self.more_bodies.iter().copied())
+    }
+
+    pub fn moves_several_bodies(&self) -> bool {
+        !self.more_bodies.is_empty()
+    }
+
+    pub fn makes_a_body_of_each_copy(&self) -> bool {
+        self.copy && !self.more_bodies.is_empty()
+    }
+
+    pub fn changed_bodies(&self) -> Vec<FeatureId> {
+        if self.copy {
+            Vec::new()
+        } else {
+            self.bodies().collect()
+        }
+    }
+
+    pub fn copy_key(source: FeatureId) -> PieceKey {
+        source_piece_key(source)
+    }
+
+    pub fn copy_source(&self, key: PieceKey) -> Option<FeatureId> {
+        source_of_piece_key(self.bodies(), key)
+    }
+
+    pub fn moved_bodies(&self, feature: FeatureId) -> Vec<FeatureId> {
+        if !self.copy {
+            self.bodies().collect()
+        } else if self.makes_a_body_of_each_copy() {
+            self.bodies()
+                .filter_map(|source| feature.piece(Self::copy_key(source)))
+                .collect()
+        } else {
+            vec![feature]
+        }
+    }
+
+    pub(crate) fn settle(&mut self) {
+        let mut seen = BTreeSet::from([self.body]);
+
+        self.more_bodies.retain(|more| seen.insert(*more));
+    }
+
     pub fn expressions(&self) -> impl Iterator<Item = &Expression> {
         self.offset
             .iter()
@@ -166,6 +220,7 @@ impl Move {
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
 
+        used.extend(self.more_bodies.iter().copied());
         used.extend(self.axis_datum());
         used.extend(self.axis_body());
         used.extend(self.axis_sketch());
@@ -199,18 +254,35 @@ impl Move {
     }
 
     pub fn heap_size(&self) -> usize {
-        self.offset
-            .iter()
-            .chain(self.turn.iter())
-            .map(Expression::heap_size)
-            .sum::<usize>()
+        self.more_bodies.len() * size_of::<FeatureId>()
+            + self
+                .offset
+                .iter()
+                .chain(self.turn.iter())
+                .map(Expression::heap_size)
+                .sum::<usize>()
             + self.about.heap_size()
     }
 
     pub fn pivot(&self, body: &Solid, axis: Option<Ray>, frame: Option<&Plane>) -> Option<Pivot> {
+        self.pivot_of([body], axis, frame)
+    }
+
+    pub fn pivot_of<'a>(
+        &self,
+        bodies: impl IntoIterator<Item = &'a Solid>,
+        axis: Option<Ray>,
+        frame: Option<&Plane>,
+    ) -> Option<Pivot> {
         match self.about {
             TurnCentre::Origin => Some(Pivot::Point(frame.map_or(Point3::ZERO, Plane::origin))),
-            TurnCentre::Body => Some(Pivot::Point(body.bounding_box()?.center())),
+            TurnCentre::Body => {
+                let bounds = bodies
+                    .into_iter()
+                    .filter_map(Solid::bounding_box)
+                    .reduce(Aabb::union)?;
+                Some(Pivot::Point(bounds.center()))
+            }
             TurnCentre::Axis(_) => axis.map(Pivot::Axis),
         }
     }
@@ -458,6 +530,25 @@ fn unusable(context: &Context<'_>) -> Failure {
     context.error(MoveCause::MoveUnusable)
 }
 
+fn copy_owner(
+    context: &Context<'_>,
+    definition: &Move,
+    source: FeatureId,
+) -> Result<FeatureId, Failure> {
+    let feature = context.feature;
+    if !definition.copy {
+        Ok(source)
+    } else if definition.makes_a_body_of_each_copy() {
+        feature.id().piece(Move::copy_key(source)).ok_or_else(|| {
+            context.error(MoveCause::CopiesTooMany {
+                movement: feature.name.clone(),
+            })
+        })
+    } else {
+        Ok(feature.id())
+    }
+}
+
 pub(crate) fn evaluate(
     feature: &Feature,
     definition: &Move,
@@ -465,13 +556,16 @@ pub(crate) fn evaluate(
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
     let context = Context { feature, inputs };
-    let body_name = inputs
-        .document
-        .body_label(definition.body)
-        .unwrap_or_default();
-    let Some(solid) = inputs.body(definition.body) else {
-        return Err(inputs.missing_body(definition.body));
-    };
+    let mut sources = Vec::new();
+
+    for source in definition.bodies() {
+        let Some(solid) = inputs.body(source) else {
+            return Err(inputs.missing_body(source));
+        };
+
+        sources.push((source, solid));
+    }
+
     let resolver = Resolver { feature, inputs };
     let axis = match definition.about.axis() {
         Some(reference) => Some(resolver.axis(reference)?),
@@ -482,30 +576,74 @@ pub(crate) fn evaluate(
         None => None,
     };
 
-    let pivot = definition
-        .pivot(solid, axis, frame.as_ref())
-        .ok_or_else(|| {
+    let pivot = match definition.about {
+        TurnCentre::Origin => Pivot::Point(frame.as_ref().map_or(Point3::ZERO, Plane::origin)),
+        TurnCentre::Axis(_) => Pivot::Axis(axis.ok_or_else(|| {
             context.error(MoveCause::NoSize {
-                body: body_name.clone(),
+                body: inputs
+                    .document
+                    .body_label(definition.body)
+                    .unwrap_or_default(),
             })
-        })?;
+        })?),
+        TurnCentre::Body => {
+            let mut combined: Option<Aabb> = None;
+
+            for (source, solid) in &sources {
+                let bounds = solid.bounding_box().ok_or_else(|| {
+                    context.error(MoveCause::NoSize {
+                        body: inputs.document.body_label(*source).unwrap_or_default(),
+                    })
+                })?;
+
+                combined = Some(match combined {
+                    Some(known) => known.union(bounds),
+                    None => bounds,
+                });
+            }
+
+            let bounds = combined.ok_or_else(|| {
+                context.error(MoveCause::NoSize {
+                    body: inputs
+                        .document
+                        .body_label(definition.body)
+                        .unwrap_or_default(),
+                })
+            })?;
+            Pivot::Point(bounds.center())
+        }
+    };
     let placement = transform(&context, definition, pivot, frame.as_ref())?;
 
-    if cancel.is_cancelled() {
-        return Err(Failure::Cancelled);
+    let mut owners = BTreeSet::new();
+    let mut results = Vec::with_capacity(sources.len());
+
+    for (source, solid) in sources {
+        if cancel.is_cancelled() {
+            return Err(Failure::Cancelled);
+        }
+
+        let owner = copy_owner(&context, definition, source)?;
+
+        if !owners.insert(owner) {
+            return Err(context.error(MoveCause::CopiesAlike {
+                movement: feature.name.clone(),
+            }));
+        }
+
+        let moved = solid.transformed(&placement).map_err(|_| {
+            context.error(MoveCause::TooFar {
+                body: inputs.document.body_label(source).unwrap_or_default(),
+            })
+        })?;
+
+        results.push(SolidResult::new(owner, moved));
     }
 
-    let moved = solid.transformed(&placement).map_err(|_| {
-        context.error(MoveCause::TooFar {
-            body: body_name.clone(),
-        })
-    })?;
-    let placed = if definition.copy {
-        feature.id()
-    } else {
-        definition.body
-    };
-    Ok(FeatureResult::Solid(SolidResult::new(placed, moved)))
+    let mut results = results.into_iter();
+
+    let first = results.next().ok_or_else(|| unusable(&context))?;
+    Ok(FeatureResult::Solid(first.with_others(results)))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -514,6 +652,8 @@ pub(crate) enum MoveCause {
     MoveUnusable,
     NoSize { body: String },
     TooFar { body: String },
+    CopiesTooMany { movement: String },
+    CopiesAlike { movement: String },
 }
 
 impl MoveCause {
@@ -531,6 +671,13 @@ impl MoveCause {
             Self::TooFar { body } => {
                 format!("The move would take the body of {body} too far from the origin.")
             }
+            Self::CopiesTooMany { movement } => {
+                format!("The copies of {movement} cannot each become a body in a model this large.")
+            }
+            Self::CopiesAlike { movement } => format!(
+                "Two of the bodies {movement} copies cannot be told apart, so their copies cannot \
+                 each become a body."
+            ),
         }
     }
 
@@ -541,6 +688,9 @@ impl MoveCause {
             }
             Self::NoSize { .. } => "Turn it about the origin instead.".to_owned(),
             Self::TooFar { .. } => "Enter smaller distances.".to_owned(),
+            Self::CopiesTooMany { .. } | Self::CopiesAlike { .. } => {
+                "Copy these bodies in separate copies, or move them in place.".to_owned()
+            }
         }
     }
 }

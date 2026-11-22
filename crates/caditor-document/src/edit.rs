@@ -703,6 +703,7 @@ fn settled_kind(mut kind: FeatureKind) -> FeatureKind {
             pattern.settle_skipped();
             keep_once(&mut pattern.repeated);
         }
+        FeatureKind::Move(movement) => movement.settle(),
         FeatureKind::Mirror(mirror) => mirror.settle(),
         FeatureKind::Mate(mate) => mate.flipped &= mate.flips(),
         FeatureKind::Blend(blend) => blend.flipped &= blend.form != ChamferForm::Equal,
@@ -1700,6 +1701,7 @@ impl Document {
         if matches!(
             feature.kind,
             FeatureKind::Pattern(_)
+                | FeatureKind::Move(_)
                 | FeatureKind::Mirror(_)
                 | FeatureKind::Mate(_)
                 | FeatureKind::SplitFace(_)

@@ -339,6 +339,7 @@ fn a_thread_follows_its_face_when_a_later_feature_moves_the_body() {
     let length = |text: &str| Expression::parse_stored(text).unwrap();
     let movement = Move {
         body: plate,
+        more_bodies: Vec::new(),
         offset: [length("10 mm"), length("0 mm"), length("0 mm")],
         turn: [length("0 deg"), length("0 deg"), length("0 deg")],
         copy: false,

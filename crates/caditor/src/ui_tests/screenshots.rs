@@ -1583,7 +1583,11 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         perform_all(model, actions);
         shoot_open(model, gpu, out, "panel-scale", look);
 
-        let actions = move_tools::create_actions(&model.model, source.body, false);
+        let actions = move_tools::create_actions(
+            &model.model,
+            &move_tools::MoveSource::single(source.body),
+            false,
+        );
 
         perform_all(model, actions);
         if let Some(movement) = model.workspace.editing.solid() {

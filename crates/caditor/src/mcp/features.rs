@@ -2037,6 +2037,9 @@ pub fn move_built(
 
     let movement = Move {
         body,
+        more_bodies: base
+            .map(|base| base.more_bodies.clone())
+            .unwrap_or_default(),
         offset: offset
             .or_else(|| base.map(|base| base.offset.clone()))
             .unwrap_or_else(|| [zero_length(), zero_length(), zero_length()]),

@@ -3,7 +3,7 @@ use caditor_document::{
     describe_axis,
 };
 use caditor_expression::{Dimension, Expression};
-use egui::{Id, Ui};
+use egui::{Id, RichText, Ui};
 
 use crate::{
     feature_fields::{self, AxisRow, Picker, Quantity, Rule, Segment},
@@ -49,6 +49,10 @@ pub const FRAME_DESCRIPTION: &str = "Turns about and shifts along the X, Y and Z
                                      coordinate system, and about its origin when turning about \
                                      the origin";
 const PICK_HOVER: &str = "Turn about the selected axis, straight edge, round face or sketch line";
+pub const BODIES: &str = "Bodies";
+const ADD_BODIES_HOVER: &str = "Move the selected bodies too";
+const STOP_MOVING_BODY: &str = "Stop moving this body";
+const LAST_BODY_HOVER: &str = "The move needs a body: add another before leaving this one out";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Centre {
@@ -307,6 +311,67 @@ impl Panel<'_> {
 
         self.actions.extend(chosen);
     }
+
+    fn apply(&mut self, change: Result<Transaction, MoveError>) {
+        self.actions
+            .push(feature_fields::applied(&self.feature.name, change));
+    }
+
+    fn bodies_rows(&mut self, ui: &mut Ui) {
+        let document = self.model.document();
+        let bodies: Vec<FeatureId> = self.movement.bodies().collect();
+        let only = bodies.len() == 1;
+        let mut dropped = None;
+
+        for (index, body) in bodies.iter().enumerate() {
+            if index == 0 {
+                widgets::caption(ui, BODIES);
+            } else {
+                ui.label("");
+            }
+            match document.body_label(*body) {
+                Some(name) => {
+                    let hover = if only {
+                        LAST_BODY_HOVER
+                    } else {
+                        STOP_MOVING_BODY
+                    };
+
+                    ui.add_enabled_ui(!only, |ui| {
+                        if widgets::removable_row(ui, RichText::new(name), hover) {
+                            dropped = Some(*body);
+                        }
+                    });
+                }
+                None => feature_fields::missing(ui, feature_fields::MISSING_BODY),
+            }
+            ui.end_row();
+        }
+        if let Some(body) = dropped {
+            let change = move_tools::without_body(self.model, self.id(), self.movement, body);
+
+            self.apply(change);
+        }
+        ui.label("");
+
+        let picker = Picker {
+            feature: self.id(),
+            slot: Slot::MoveBodies,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (self.id(), Slot::MoveBodies),
+                || move_tools::added_bodies(self.model, self.selection, self.id(), self.movement),
+            ),
+            hover: ADD_BODIES_HOVER,
+        };
+
+        ui.vertical(|ui| {
+            feature_fields::reference_picker(ui, self.model, picker, self.actions);
+        });
+        ui.end_row();
+    }
 }
 
 pub fn show(
@@ -343,6 +408,6 @@ pub fn show(
             panel.distance_row(ui, axis);
         }
         panel.result_row(ui);
-        feature_fields::feature_row(ui, model.document(), "Body", movement.body);
+        panel.bodies_rows(ui);
     });
 }

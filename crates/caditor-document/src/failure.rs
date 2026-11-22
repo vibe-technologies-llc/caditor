@@ -289,6 +289,14 @@ pub(crate) enum Upstream {
         maker: String,
         source: Option<String>,
     },
+    MovedCopiesJoined {
+        maker: String,
+        source: Option<String>,
+    },
+    MovedCopyGone {
+        maker: String,
+        source: Option<String>,
+    },
     CopiesJoined {
         maker: String,
         copy: Option<String>,
@@ -337,6 +345,15 @@ impl Upstream {
                 "{maker} no longer mirrors {}, so there is no image to work on.",
                 mirrored_source(source.as_deref())
             ),
+            Self::MovedCopiesJoined { maker, source } => format!(
+                "{maker} no longer makes a body of each copy, so the copy of {} is not a body of \
+                 its own.",
+                copied_source(source.as_deref())
+            ),
+            Self::MovedCopyGone { maker, source } => format!(
+                "{maker} no longer copies {}, so there is no copy to work on.",
+                copied_source(source.as_deref())
+            ),
             Self::CopiesJoined { maker, copy } => format!(
                 "{maker} no longer makes a body of each copy, so {} is not a body of its own.",
                 patterned_copy(copy.as_deref())
@@ -383,6 +400,13 @@ impl Upstream {
             Self::ImageGone { maker, .. } => {
                 format!("Mirror that body again in {maker}, or choose another body.")
             }
+            Self::MovedCopiesJoined { maker, .. } => format!(
+                "Set Result of {maker} back to New body with several bodies, or choose another \
+                 body."
+            ),
+            Self::MovedCopyGone { maker, .. } => {
+                format!("Copy that body again in {maker}, or choose another body.")
+            }
             Self::CopiesJoined { maker, .. } => {
                 format!("Set Result of {maker} back to New bodies, or choose another body.")
             }
@@ -399,6 +423,10 @@ fn patterned_copy(copy: Option<&str>) -> &str {
 
 fn mirrored_source(source: Option<&str>) -> &str {
     source.unwrap_or("a body it mirrored")
+}
+
+fn copied_source(source: Option<&str>) -> &str {
+    source.unwrap_or("a body it copied")
 }
 
 impl From<Upstream> for Cause {

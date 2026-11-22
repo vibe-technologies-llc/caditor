@@ -356,6 +356,7 @@ pub(crate) enum FeatureKindRecord {
     ReplaceFace(Box<ReplaceFaceRecord>),
     MirrorNewBody(MirrorNewBodyRecord),
     MirrorSeveral(Box<MirrorSeveralRecord>),
+    MoveSeveral(Box<MoveSeveralRecord>),
     PatternNewBodies(Box<PatternNewBodiesRecord>),
     EdgeCurvePattern(Box<EdgeCurvePatternRecord>),
     RevolveUpToNext(Box<RevolveUpToNextRecord>),
@@ -1123,6 +1124,12 @@ pub(crate) struct PatternNewBodiesRecord {
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct MirrorSeveralRecord {
+    pub feature: FeatureKindRecord,
+    pub bodies: Vec<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub(crate) struct MoveSeveralRecord {
     pub feature: FeatureKindRecord,
     pub bodies: Vec<u64>,
 }
@@ -3990,12 +3997,20 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     }))
                 }
             };
-            match movement.frame {
+            let framed = match movement.frame {
                 Some(frame) => FeatureKindRecord::MoveInFrame(Box::new(MoveInFrameRecord {
                     feature: turned,
                     frame: frame.raw(),
                 })),
                 None => turned,
+            };
+            if movement.more_bodies.is_empty() {
+                framed
+            } else {
+                FeatureKindRecord::MoveSeveral(Box::new(MoveSeveralRecord {
+                    feature: framed,
+                    bodies: movement.more_bodies.iter().map(|body| body.raw()).collect(),
+                }))
             }
         }
         FeatureKind::Mirror(mirror) => mirror_record(mirror),
@@ -7305,6 +7320,28 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::MoveSeveral(several) => {
+            let mut kind = restore_kind(&several.feature, name, texts, issues);
+
+            match &mut kind {
+                FeatureKind::Move(movement) => {
+                    let mut seen = BTreeSet::from([movement.body]);
+
+                    movement.more_bodies = several
+                        .bodies
+                        .iter()
+                        .copied()
+                        .map(FeatureId::from_raw)
+                        .filter(|body| seen.insert(*body))
+                        .collect();
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed other bodies to move, but it is not a move, so they were \
+                     left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::FrameOriginDatum(framed) => {
             let kind = restore_kind(&framed.feature, name, texts, issues);
 
@@ -9415,6 +9452,7 @@ fn restore_move(record: &MoveRecord, copy: bool, feature: &str, issues: &mut Vec
     };
     Move {
         body: FeatureId::from_raw(record.body),
+        more_bodies: Vec::new(),
         offset: read(&record.offset, "distance", "0 mm"),
         turn: read(&record.turn, "turn", "0 deg"),
         copy,

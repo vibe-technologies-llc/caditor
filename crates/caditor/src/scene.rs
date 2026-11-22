@@ -1309,7 +1309,7 @@ pub fn build_keeping(
         };
         let dashed = palette.troubled_edges_dashed && editing.is_none() && health != Health::Sound;
         let placement = moved
-            .filter(|(moved, _)| *moved == body)
+            .filter(|(moved, _)| moved.contains(&body))
             .map(|(_, placement)| placement);
 
         let look = BodyLook {

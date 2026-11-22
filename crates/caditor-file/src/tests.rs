@@ -7129,6 +7129,7 @@ fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads
         "Move body 1",
         FeatureKind::Move(Move {
             body: base,
+            more_bodies: Vec::new(),
             offset: std::array::from_fn(|_| transaction.parse("0 mm").unwrap()),
             turn: std::array::from_fn(|_| transaction.parse("30 deg").unwrap()),
             copy: true,
@@ -7161,6 +7162,7 @@ fn a_move_turning_about_an_axis_is_a_kind_older_readers_report_and_reads_back() 
         "Move body 1",
         FeatureKind::Move(Move {
             body: base,
+            more_bodies: Vec::new(),
             offset: std::array::from_fn(|_| transaction.parse("0 mm").unwrap()),
             turn: std::array::from_fn(|_| transaction.parse("0 deg").unwrap()),
             copy: false,
@@ -10364,6 +10366,7 @@ fn moves_are_saved_and_loaded() {
             about: caditor_document::TurnCentre::Origin,
             frame: None,
             body: base,
+            more_bodies: Vec::new(),
             offset: [
                 transaction.parse("depth * 2").unwrap(),
                 transaction.parse("-4 mm").unwrap(),
@@ -10383,6 +10386,7 @@ fn moves_are_saved_and_loaded() {
             about: caditor_document::TurnCentre::Origin,
             frame: None,
             body: base,
+            more_bodies: Vec::new(),
             offset: [
                 transaction.parse("0 mm").unwrap(),
                 transaction.parse("20 mm").unwrap(),
@@ -10429,6 +10433,7 @@ fn a_move_with_a_damaged_distance_loads_with_zero_and_says_so() {
             about: caditor_document::TurnCentre::Origin,
             frame: None,
             body: base,
+            more_bodies: Vec::new(),
             offset: [
                 transaction.parse("5 mm").unwrap(),
                 transaction.parse("0 mm").unwrap(),
@@ -11123,6 +11128,7 @@ fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
         "Copy 1",
         FeatureKind::Move(Move {
             body: base,
+            more_bodies: Vec::new(),
             offset: ["1 mm", "0 mm", "0 mm"].map(|text| transaction.parse(text).unwrap()),
             turn: ["0 deg", "0 deg", "0 deg"].map(|text| transaction.parse(text).unwrap()),
             copy: true,
@@ -12467,6 +12473,7 @@ fn coordinate_systems_and_what_uses_them_are_kinds_older_readers_report_and_read
         "Move body 1",
         FeatureKind::Move(Move {
             body: base,
+            more_bodies: Vec::new(),
             offset: std::array::from_fn(|_| transaction.parse("2 mm").unwrap()),
             turn: std::array::from_fn(|_| transaction.parse("10 deg").unwrap()),
             copy: false,

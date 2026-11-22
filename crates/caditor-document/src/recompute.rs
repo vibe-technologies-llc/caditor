@@ -36,7 +36,9 @@ use crate::{
     mate,
     measurement::{self, Measured, Measurement, MeasurementResult},
     mirror::{self, Mirror},
-    move_face, movement, offset_face,
+    move_face,
+    movement::{self, Move},
+    offset_face,
     pattern::{self, Pattern},
     pipe,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
@@ -512,6 +514,9 @@ impl<'a> Inputs<'a> {
         let made = self.features.get(&maker.id())?;
 
         match &maker.kind {
+            FeatureKind::Move(movement) => {
+                return self.missing_moved_copy(maker, movement, made, body);
+            }
             FeatureKind::Mirror(mirror) => return self.missing_image(maker, mirror, made, body),
             FeatureKind::Pattern(pattern) => return self.missing_copy(maker, pattern, made, body),
             _ => {}
@@ -553,6 +558,33 @@ impl<'a> Inputs<'a> {
 }
 
 impl Inputs<'_> {
+    fn missing_moved_copy(
+        &self,
+        maker: &Feature,
+        movement: &Move,
+        made: &Arc<FeatureResult>,
+        body: FeatureId,
+    ) -> Option<FeatureError> {
+        let source = self
+            .document
+            .copy_source(body)
+            .and_then(|source| self.document.body_label(source));
+        let error = if !movement.makes_a_body_of_each_copy() {
+            Upstream::MovedCopiesJoined {
+                maker: maker.name.clone(),
+                source,
+            }
+        } else if body_part(made, body).is_none() {
+            Upstream::MovedCopyGone {
+                maker: maker.name.clone(),
+                source,
+            }
+        } else {
+            return None;
+        };
+        Some(FeatureError::new(error).fixing(FixTarget::Feature(maker.id())))
+    }
+
     fn missing_image(
         &self,
         maker: &Feature,

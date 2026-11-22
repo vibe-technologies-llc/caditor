@@ -54,6 +54,30 @@ impl Reason for BodyChoiceError {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MoveSource {
+    pub body: FeatureId,
+    pub also: Vec<FeatureId>,
+}
+
+impl MoveSource {
+    pub fn single(body: FeatureId) -> Self {
+        Self {
+            body,
+            also: Vec::new(),
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        self.also.len() + 1
+    }
+}
+
+pub fn bodies_hover(source: &MoveSource) -> String {
+    let count = source.count();
+    format!("Shift and turn {count} bodies, by distances and angles that can be parameters")
+}
+
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum MoveError {
     #[error("The feature no longer exists")]
@@ -62,6 +86,16 @@ pub enum MoveError {
     NoAxis,
     #[error("The body already turns about the selected axis")]
     AlreadyAbout,
+    #[error("Select a face, edge or corner of a body to move")]
+    NoBodySelected,
+    #[error("The move already moves every selected body")]
+    AlreadyBodies,
+    #[error("{name} is made after the move, so it cannot be moved by it")]
+    LaterBody { name: String },
+    #[error("That is a copy this move makes, so it cannot be moved by it")]
+    OwnCopy,
+    #[error("The move needs a body; add another body before leaving this one out")]
+    LastBody,
     #[error(transparent)]
     AxisSelection(datum_tools::OneChoiceError),
     #[error(transparent)]
@@ -70,12 +104,33 @@ pub enum MoveError {
     Check(#[from] CheckError),
 }
 
-pub fn selected_body(
+pub fn selected_bodies(
     model: &Model,
     selection: &Selection,
     tree: &[FeatureId],
-) -> Result<FeatureId, BodyChoiceError> {
-    chosen_or_only_body(model, selection, tree, None, NO_BODY)
+) -> Result<MoveSource, BodyChoiceError> {
+    match chosen_bodies_beside(model, selection, tree, None, NO_BODY) {
+        Ok(bodies) => {
+            let mut bodies = bodies.into_iter();
+
+            let body = bodies.next().ok_or(BodyChoiceError::Nothing {
+                instruction: NO_BODY,
+            })?;
+            Ok(MoveSource {
+                body,
+                also: bodies.collect(),
+            })
+        }
+        Err(BodyChoiceError::Nothing { instruction }) => {
+            match body_selection::standing_bodies(model) {
+                Standing::Only(only) => chosen_body(model, &Selection::default(), &[only], NO_BODY)
+                    .map(MoveSource::single),
+                Standing::Several => Err(BodyChoiceError::Nothing { instruction }),
+                Standing::None => Err(BodyChoiceError::NoBodyShown),
+            }
+        }
+        Err(error) => Err(error),
+    }
 }
 
 pub fn chosen_or_only_body(
@@ -157,7 +212,7 @@ pub fn chosen_bodies_beside(
 
 pub fn create(
     document: &Document,
-    body: FeatureId,
+    source: &MoveSource,
     unit: LengthUnit,
     copy: bool,
 ) -> (Transaction, FeatureId) {
@@ -168,7 +223,8 @@ pub fn create(
     let feature = transaction.add_feature(
         name,
         FeatureKind::Move(Move {
-            body,
+            body: source.body,
+            more_bodies: source.also.clone(),
             offset: std::array::from_fn(|_| unit.default_length(0.0)),
             turn: std::array::from_fn(|_| solid_tools::degrees(0.0)),
             copy,
@@ -179,12 +235,106 @@ pub fn create(
     (transaction.finish(), feature)
 }
 
-pub fn create_actions(model: &Model, body: FeatureId, copy: bool) -> Vec<Action> {
-    let (transaction, feature) = create(model.document(), body, model.length_unit(), copy);
+pub fn create_actions(model: &Model, source: &MoveSource, copy: bool) -> Vec<Action> {
+    let (transaction, feature) = create(model.document(), source, model.length_unit(), copy);
     vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
     ]
+}
+
+pub fn with_bodies(movement: &Move, bodies: Vec<FeatureId>) -> Option<Move> {
+    let mut bodies = bodies.into_iter();
+
+    let body = bodies.next()?;
+    Some(Move {
+        body,
+        more_bodies: bodies.collect(),
+        ..movement.clone()
+    })
+}
+
+fn checked_body(
+    model: &Model,
+    feature: FeatureId,
+    body: FeatureId,
+) -> Result<FeatureId, MoveError> {
+    let document = model.document();
+
+    if body.maker() == feature {
+        return Err(MoveError::OwnCopy);
+    }
+    if document
+        .bodies_before_in(feature, model.evaluation())
+        .contains(&body)
+    {
+        Ok(body)
+    } else {
+        Err(MoveError::LaterBody {
+            name: document.body_label(body).unwrap_or_default(),
+        })
+    }
+}
+
+pub fn added_bodies(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    movement: &Move,
+) -> Result<Transaction, MoveError> {
+    let selected = body_selection::bodies_in(selection);
+
+    if selected.is_empty() {
+        return Err(MoveError::NoBodySelected);
+    }
+
+    let mut bodies: Vec<FeatureId> = movement.bodies().collect();
+
+    for body in selected {
+        if !bodies.contains(&body) {
+            bodies.push(checked_body(model, feature, body)?);
+        }
+    }
+    if bodies.len() == movement.bodies().count() {
+        return Err(MoveError::AlreadyBodies);
+    }
+
+    let changed = with_bodies(movement, bodies).ok_or(MoveError::LastBody)?;
+    checked_change(model, feature, changed)
+}
+
+pub fn toggled_body(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    movement: &Move,
+) -> Result<Transaction, MoveError> {
+    let clicked = match body_selection::bodies_in(selection).as_slice() {
+        [body] => *body,
+        _ => return Err(MoveError::NoBodySelected),
+    };
+
+    if movement.bodies().any(|body| body == clicked) {
+        return without_body(model, feature, movement, clicked);
+    }
+
+    let mut bodies: Vec<FeatureId> = movement.bodies().collect();
+
+    bodies.push(checked_body(model, feature, clicked)?);
+
+    let changed = with_bodies(movement, bodies).ok_or(MoveError::LastBody)?;
+    checked_change(model, feature, changed)
+}
+
+pub fn without_body(
+    model: &Model,
+    feature: FeatureId,
+    movement: &Move,
+    body: FeatureId,
+) -> Result<Transaction, MoveError> {
+    let kept: Vec<FeatureId> = movement.bodies().filter(|kept| *kept != body).collect();
+    let changed = with_bodies(movement, kept).ok_or(MoveError::LastBody)?;
+    checked_change(model, feature, changed)
 }
 
 pub fn edit(document: &Document, feature: FeatureId, movement: Move) -> Option<Transaction> {

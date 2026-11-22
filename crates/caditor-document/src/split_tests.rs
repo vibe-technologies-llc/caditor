@@ -117,6 +117,7 @@ fn the_split_off_body_takes_later_features_of_its_own() {
             about: TurnCentre::Origin,
             frame: None,
             body: model.split,
+            more_bodies: Vec::new(),
             offset: [
                 Expression::parse_stored("-5 mm").unwrap(),
                 Expression::parse_stored("0 mm").unwrap(),

@@ -925,6 +925,7 @@ fn frame(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureId>> {
 fn movement(input: &mut Unstructured, scene: &Scene) -> Result<Move> {
     Ok(Move {
         body: scene.body(input)?,
+        more_bodies: scene.bodies(input)?,
         offset: [
             scene.distance(input)?,
             scene.distance(input)?,

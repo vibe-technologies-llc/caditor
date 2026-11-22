@@ -786,6 +786,7 @@ impl FeatureKind {
             }
             Self::Move(movement) => {
                 movement.body = rename(movement.body);
+                each(&mut movement.more_bodies);
                 movement.frame = movement.frame.map(rename);
                 if let TurnCentre::Axis(turn) = &mut movement.about {
                     rename_axis(&mut turn.axis, rename);

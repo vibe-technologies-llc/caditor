@@ -568,23 +568,19 @@ impl Model {
         self.draft.as_ref()?.evaluation.as_ref()
     }
 
-    pub fn draft_placement(&self) -> Option<(FeatureId, RigidTransform)> {
+    pub fn draft_placement(&self) -> Option<(Vec<FeatureId>, RigidTransform)> {
         let draft = self.draft.as_ref()?;
         let FeatureKind::Move(drafted) = &draft.kind else {
             return None;
         };
         let committed = draft.shown?;
 
-        let body = if drafted.copy {
-            draft.feature
-        } else {
-            drafted.body
-        };
+        let bodies = drafted.moved_bodies(draft.feature);
         let pivot = self.move_pivot(draft.feature, drafted)?;
         let frame = self.move_frame(drafted)?;
 
         let placement = drafted.placement(&draft.parameters, pivot, Some(&frame))?;
-        Some((body, committed.inverse().then(&placement)))
+        Some((bodies, committed.inverse().then(&placement)))
     }
 
     fn preview(&mut self, feature: FeatureId, draft: Option<Transaction>) {
@@ -680,11 +676,13 @@ impl Model {
     pub fn move_pivot(&self, feature: FeatureId, movement: &Move) -> Option<Pivot> {
         match &movement.about {
             TurnCentre::Origin => Some(Pivot::Point(self.move_frame(movement)?.origin())),
-            TurnCentre::Body => movement.pivot(
-                self.evaluation.body_seen_by(feature, movement.body)?,
-                None,
-                None,
-            ),
+            TurnCentre::Body => {
+                let solids: Option<Vec<_>> = movement
+                    .bodies()
+                    .map(|body| self.evaluation.body_seen_by(feature, body))
+                    .collect();
+                movement.pivot_of(solids?, None, None)
+            }
             TurnCentre::Axis(turn) => Some(Pivot::Axis(displayed_axis(
                 &self.evaluation,
                 feature,

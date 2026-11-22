@@ -301,6 +301,7 @@ fn a_move_in_a_coordinate_system_shifts_and_turns_along_its_axes() {
     let values = |texts: [&str; 3]| texts.map(|text| transaction.parse(text).unwrap());
     let movement = Move {
         body: model.base,
+        more_bodies: Vec::new(),
         offset: values(["5 mm", "0 mm", "0 mm"]),
         turn: values(["0 deg", "0 deg", "90 deg"]),
         copy: false,

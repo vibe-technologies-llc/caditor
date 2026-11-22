@@ -1211,20 +1211,29 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Move (`movement.rs`)
 
-- `Move { body, offset, turn, copy, about }` places an existing body: turns about X, Y then Z
-  through the origin, or with `about: TurnCentre::Body` through the centre of the body's box before
-  the move (`Move::pivot`), then shifts by three distances (all expressions, any sign). With
-  `TurnCentre::Axis` (an `AxisTurn`: an `AxisReference` resolved at the move's place, and an angle)
-  it first turns by that angle about the axis in the axis's sense, then by the three turns about
-  the axis's point (`Pivot::Axis`), then shifts; the axis's body, datum and sketch count as used and
-  its edge or face is healed. With `frame` (a coordinate system, counted as used) the turns are
-  about its X, Y, Z axes (through its origin when turning about the origin) and the distances run
-  along its axes (`MoveAxis::direction_in`).
-- It modifies its body like a blend, keeps every face and edge name (`Solid::transformed`), and
+- `Move { body, more_bodies, offset, turn, copy, about, frame }` places one or more existing bodies:
+  turns about X, Y then Z through the origin, or with `about: TurnCentre::Body` through the centre
+  of their combined box before the move (`Move::pivot`, `Move::pivot_of`), then shifts by three
+  distances (all expressions, any sign). With `TurnCentre::Axis` (an `AxisTurn`: an `AxisReference`
+  resolved at the move's place, and an angle) it first turns by that angle about the axis in the
+  axis's sense, then by the three turns about the axis's point (`Pivot::Axis`), then shifts; the
+  axis's body, datum and sketch count as used and its edge or face is healed. With `frame` (a
+  coordinate system, counted as used) the turns are about its X, Y, Z axes (through its origin when
+  turning about the origin) and the distances run along its axes (`MoveAxis::direction_in`).
+- It modifies its bodies like a blend, keeps every face and edge name (`Solid::transformed`), and
   fails alone when a value is not a length or angle or the result is not finite or reaches past
-  `MAX_SIZE` (`MoveCause::TooFar`). With `copy` it leaves the body alone and makes a new body of its
-  own (`makes_body`, `Feature::body` is the move) from the placed copy; a copy others use cannot
-  stop being one.
+  `MAX_SIZE` (`MoveCause::TooFar`). `more_bodies` (`Move::with_more_bodies`, settled to drop `body`
+  and repeats) are moved by the same placement (`Move::bodies`, all in `bodies_used` and
+  `features()`): without `copy`, each body changes in place (`Feature::bodies` lists
+  `changed_bodies`, the others' states in `SolidResult::others`). With `copy` it leaves the bodies
+  alone and makes a new body of its own (`makes_body`, `Feature::body` is the move) when copying
+  one body, or a body of each copy (`makes_a_body_of_each_copy`, `Feature::separates_pieces`) when
+  copying several, each a piece keyed by its source (`Move::copy_key`, named `"<move> (copy of
+  <body>)"`, `Document::copy_source`, duplicates `CopiesAlike`, overflow `CopiesTooMany`); a copy
+  others use cannot stop being one (`BodyInUse`), starting or stopping separate copies while one is
+  used is `PiecesInUse`, a source left out fails its copy's users (`Upstream::MovedCopyGone`), and
+  a move no longer making copies apart fails as `MovedCopiesJoined`. The file stores the list as a
+  `MoveSeveral` record around the move's own.
 
 ### Mate (`mate.rs`, `mate_placement.rs`)
 

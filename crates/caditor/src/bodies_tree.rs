@@ -382,7 +382,11 @@ fn row_menu(
         ui.close();
     }
     if widgets::menu_item(ui, icons::command(Command::CopyBody), "Copy body", None).clicked() {
-        actions.extend(move_tools::create_actions(model, body, true));
+        actions.extend(move_tools::create_actions(
+            model,
+            &move_tools::MoveSource::single(body),
+            true,
+        ));
         ui.close();
     }
     if widgets::menu_item(ui, icons::command(Command::Split), "Split body", None).clicked() {

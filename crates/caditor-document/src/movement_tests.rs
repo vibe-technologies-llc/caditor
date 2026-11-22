@@ -17,6 +17,7 @@ fn moved(pair: &mut Pair, offset: [&str; 3], turn: [&str; 3]) -> FeatureId {
         about: TurnCentre::Origin,
         frame: None,
         body: plate,
+        more_bodies: Vec::new(),
         offset: expressions(offset),
         turn: expressions(turn),
         copy: false,
@@ -213,6 +214,7 @@ fn copied(pair: &mut Pair, offset: [&str; 3]) -> FeatureId {
         about: TurnCentre::Origin,
         frame: None,
         body: plate,
+        more_bodies: Vec::new(),
         offset: expressions(offset),
         turn: expressions(["0 deg", "0 deg", "0 deg"]),
         copy: true,
@@ -327,6 +329,7 @@ fn turned_about(pair: &mut Pair, axis: AxisReference, angle: &str) -> FeatureId 
     let zero = |unit: &str| std::array::from_fn(|_| transaction.parse(unit).unwrap());
     let movement = Move {
         body: plate,
+        more_bodies: Vec::new(),
         offset: zero("0 mm"),
         turn: zero("0 deg"),
         copy: false,
@@ -478,5 +481,234 @@ fn a_move_about_an_axis_inlines_its_angle() {
             .unwrap()
             .kind
             .uses_parameter(quarter)
+    );
+}
+
+fn moved_both(
+    pair: &mut Pair,
+    offset: [&str; 3],
+    turn: [&str; 3],
+    about: TurnCentre,
+    copy: bool,
+) -> FeatureId {
+    let (plate, peg) = (pair.plate, pair.peg);
+    let mut transaction = pair.document.transaction("Move both");
+
+    let expressions = |texts: [&str; 3]| texts.map(|text| transaction.parse(text).unwrap());
+    let movement = Move {
+        body: plate,
+        more_bodies: vec![peg, plate],
+        offset: expressions(offset),
+        turn: expressions(turn),
+        copy,
+        about,
+        frame: None,
+    };
+    let name = if copy { "Copy 1" } else { "Move 1" };
+
+    let feature = transaction.add_feature(name, FeatureKind::Move(movement));
+
+    pair.document.apply(transaction.finish()).unwrap();
+    feature
+}
+
+fn move_of(document: &Document, feature: FeatureId) -> Move {
+    match &document.feature(feature).unwrap().kind {
+        FeatureKind::Move(movement) => movement.clone(),
+        other => panic!("expected a move, found {other:?}"),
+    }
+}
+
+#[test]
+fn one_move_shifts_and_turns_several_bodies_together_about_their_combined_centre() {
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+
+    let before = evaluate(&pair.document, &mut engine);
+    let plate_names = face_names(&before, pair.plate);
+    let peg_names = face_names(&before, pair.peg);
+    let combined = before
+        .body(pair.plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap()
+        .union(before.body(pair.peg).unwrap().bounding_box().unwrap());
+    let centre = combined.center();
+
+    let movement = moved_both(
+        &mut pair,
+        ["10 mm", "-5 mm", "0 mm"],
+        ["0 deg", "0 deg", "180 deg"],
+        TurnCentre::Body,
+        false,
+    );
+    let after = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(move_of(&pair.document, movement).more_bodies, [pair.peg]);
+    assert_eq!(after.failed_count(), 0);
+    assert_eq!(
+        pair.document.feature(movement).unwrap().bodies(),
+        [pair.plate, pair.peg]
+    );
+    assert_eq!(pair.document.bodies_standing(), vec![pair.plate, pair.peg]);
+    assert_eq!(face_names(&after, pair.plate), plate_names);
+    assert_eq!(face_names(&after, pair.peg), peg_names);
+
+    let after_combined = after
+        .body(pair.plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap()
+        .union(after.body(pair.peg).unwrap().bounding_box().unwrap());
+    let expected_centre = centre + caditor_geometry::Vector3::new(10.0, -5.0, 0.0);
+
+    assert!(
+        after_combined.center().distance(expected_centre) < 1e-6,
+        "combined centre {:?} != {:?}",
+        after_combined.center(),
+        expected_centre
+    );
+}
+
+#[test]
+fn one_copy_of_several_bodies_makes_a_body_of_each_copy_named_after_its_original() {
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+
+    let before = evaluate(&pair.document, &mut engine);
+    let plate_volume = volume(&before, pair.plate);
+    let peg_volume = volume(&before, pair.peg);
+
+    let copy = moved_both(
+        &mut pair,
+        ["0 mm", "40 mm", "0 mm"],
+        ["0 deg", "0 deg", "0 deg"],
+        TurnCentre::Origin,
+        true,
+    );
+    let after = evaluate(&pair.document, &mut engine);
+
+    let feature = pair.document.feature(copy).unwrap();
+
+    assert!(feature.makes_body() && feature.separates_pieces());
+    assert_eq!(after.failed_count(), 0);
+
+    let copies = after.pieces_made_by(copy);
+    let plate_copy = copy.piece(Move::copy_key(pair.plate)).unwrap();
+    let peg_copy = copy.piece(Move::copy_key(pair.peg)).unwrap();
+
+    assert_eq!(copies, [plate_copy, peg_copy]);
+    assert!(after.body(copy).is_none());
+    assert!((volume(&after, plate_copy) - plate_volume).abs() < 1e-6 * plate_volume);
+    assert!((volume(&after, peg_copy) - peg_volume).abs() < 1e-6 * peg_volume);
+
+    let (plate_low, _) = bounds(&after, plate_copy);
+    let (peg_low, _) = bounds(&after, peg_copy);
+
+    assert!(near(plate_low, [0.0, 40.0, 0.0]), "{plate_low:?}");
+    assert!(
+        (peg_low.y - (bounds(&before, pair.peg).0.y + 40.0)).abs() < 1e-6,
+        "{peg_low:?}"
+    );
+    assert_eq!(
+        pair.document.body_name(peg_copy).as_deref(),
+        Some("Copy 1 (copy of Peg)")
+    );
+    assert_eq!(
+        pair.document.bodies_standing_in(&after),
+        vec![pair.plate, pair.peg, plate_copy, peg_copy]
+    );
+}
+
+#[test]
+fn a_copy_of_several_bodies_in_use_keeps_making_bodies_and_fails_users_when_left_out() {
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+
+    let third = {
+        let plate = pair.plate;
+        let mut transaction = pair.document.transaction("Third");
+
+        let expressions = |texts: [&str; 3]| texts.map(|text| transaction.parse(text).unwrap());
+        let feature = transaction.add_feature(
+            "Third",
+            FeatureKind::Move(Move {
+                about: TurnCentre::Origin,
+                frame: None,
+                body: plate,
+                more_bodies: Vec::new(),
+                offset: expressions(["50 mm", "0 mm", "0 mm"]),
+                turn: expressions(["0 deg", "0 deg", "0 deg"]),
+                copy: true,
+            }),
+        );
+
+        pair.document.apply(transaction.finish()).unwrap();
+        feature
+    };
+
+    let copy = moved_both(
+        &mut pair,
+        ["0 mm", "40 mm", "0 mm"],
+        ["0 deg", "0 deg", "0 deg"],
+        TurnCentre::Origin,
+        true,
+    );
+    let peg_copy = copy.piece(Move::copy_key(pair.peg)).unwrap();
+    let mut transaction = pair.document.transaction("Use");
+
+    let removal =
+        transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: peg_copy }));
+
+    pair.document.apply(transaction.finish()).unwrap();
+
+    let both = move_of(&pair.document, copy);
+
+    let mut as_move = both.clone();
+
+    as_move.copy = false;
+
+    let stopping_copy = pair.document.apply(Transaction::single(
+        "Move instead",
+        Edit::SetFeatureKind {
+            id: copy,
+            kind: FeatureKind::Move(as_move),
+        },
+    ));
+    let plate_only = pair.document.apply(Transaction::single(
+        "Plate only",
+        Edit::SetFeatureKind {
+            id: copy,
+            kind: FeatureKind::Move(both.clone().with_more_bodies(Vec::new())),
+        },
+    ));
+
+    pair.document
+        .apply(Transaction::single(
+            "Swap peg for third",
+            Edit::SetFeatureKind {
+                id: copy,
+                kind: FeatureKind::Move(both.with_more_bodies(vec![third])),
+            },
+        ))
+        .unwrap();
+
+    let after = evaluate(&pair.document, &mut engine);
+
+    assert!(matches!(stopping_copy, Err(EditError::BodyInUse { .. })));
+    assert!(matches!(plate_only, Err(EditError::PiecesInUse { .. })));
+    assert_eq!(after.failed_count(), 1);
+
+    let FeatureState::Failed(error) = &after.feature(removal).unwrap().state else {
+        panic!("the removal should fail");
+    };
+
+    assert_eq!(
+        error.reason(),
+        "Copy 1 no longer copies Peg, so there is no copy to work on."
+    );
+    assert_eq!(
+        error.remedy(),
+        "Copy that body again in Copy 1, or choose another body."
     );
 }

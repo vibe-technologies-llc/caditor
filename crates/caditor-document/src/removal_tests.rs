@@ -73,6 +73,7 @@ fn a_feature_using_a_removed_body_fails_naming_the_removal() {
             about: TurnCentre::Origin,
             frame: None,
             body: pair.peg,
+            more_bodies: Vec::new(),
             offset: [0.0, 0.0, 1.0].map(|value| {
                 caditor_expression::Expression::Measure(value, caditor_expression::Unit::Millimetre)
             }),

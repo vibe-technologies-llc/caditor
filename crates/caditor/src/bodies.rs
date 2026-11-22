@@ -865,12 +865,12 @@ pub struct Ghost {
     pub edges: Vec<EdgeName>,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct OpenDraft<'a> {
     pub evaluation: Option<&'a Evaluation>,
     pub result: Option<(FeatureId, &'a Arc<FeatureResult>)>,
     pub cuts: Option<&'a [Arc<FeatureResult>]>,
-    pub moved: Option<(FeatureId, RigidTransform)>,
+    pub moved: Option<(Vec<FeatureId>, RigidTransform)>,
 }
 
 #[derive(Clone, Debug)]
@@ -888,7 +888,7 @@ pub struct BodyMeshes {
     cuts: Vec<Arc<BodyMesh>>,
     cuts_of: Option<FeatureId>,
     draft: Option<DraftShown>,
-    moved: Option<(FeatureId, RigidTransform)>,
+    moved: Option<(Vec<FeatureId>, RigidTransform)>,
     generation: u64,
     updated_for: Option<(u64, u64)>,
 }
@@ -910,8 +910,10 @@ impl BodyMeshes {
         self.draft.as_ref()
     }
 
-    pub fn moved(&self) -> Option<(FeatureId, RigidTransform)> {
+    pub fn moved(&self) -> Option<(&[FeatureId], RigidTransform)> {
         self.moved
+            .as_ref()
+            .map(|(bodies, placement)| (bodies.as_slice(), *placement))
     }
 
     pub fn generation(&self) -> u64 {
@@ -957,6 +959,9 @@ impl BodyMeshes {
         ghosted: &[FeatureId],
         draft: OpenDraft<'_>,
     ) {
+        let draft_cuts = draft.cuts;
+        let draft_evaluation = draft.evaluation;
+
         self.show_draft(meshing, feature, draft);
         self.show_ghosts(evaluation, meshing, ghosted);
 
@@ -994,10 +999,10 @@ impl BodyMeshes {
             })
         });
 
-        let wanted = match (feature, draft.cuts) {
+        let wanted = match (feature, draft_cuts) {
             (Some(feature), Some(drafted)) => shown_cuts(
                 document,
-                draft.evaluation.unwrap_or(evaluation),
+                draft_evaluation.unwrap_or(evaluation),
                 feature,
                 drafted,
             ),

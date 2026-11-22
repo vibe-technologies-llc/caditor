@@ -56,6 +56,7 @@ pub enum Slot {
     DatumBase,
     DatumRotation,
     MoveAxis,
+    MoveBodies,
     MoveFaceDirection,
     MoveFaceAxis,
     DraftNeutral,
@@ -92,6 +93,7 @@ impl Slot {
             Self::SweepPath
                 | Self::PatternEdges
                 | Self::MirrorBodies
+                | Self::MoveBodies
                 | Self::AlsoCutBody
                 | Self::LoftProfiles
                 | Self::ShellOwnThickness
@@ -142,6 +144,7 @@ impl Slot {
             | Self::HoleAdd
             | Self::OperationBody
             | Self::AlsoCutBody
+            | Self::MoveBodies
             | Self::ShellOwnThickness
             | Self::DraftOwnAngle
             | Self::ThreadFace
@@ -294,6 +297,9 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             .to_owned(),
         Slot::MirrorBodies => "Click a body to mirror it too, again to leave it out, or a plane \
                                to mirror across; press Escape when every body is chosen"
+            .to_owned(),
+        Slot::MoveBodies => "Click a body to move it too, again to leave it out; press Escape \
+                             when every body is chosen"
             .to_owned(),
         Slot::MateMoving(MatePart::Main) => {
             "Click the face, axis or point of the moving body to mate".to_owned()
@@ -624,6 +630,9 @@ pub fn change(
         }
         (Slot::MoveAxis, FeatureKind::Move(movement)) => {
             move_tools::axis_change(model, selection, feature, movement).map_err(ChangeError::from)
+        }
+        (Slot::MoveBodies, FeatureKind::Move(movement)) => {
+            move_tools::toggled_body(model, selection, feature, movement).map_err(ChangeError::from)
         }
         (Slot::MoveFaceDirection, FeatureKind::MoveFace(moving)) => {
             move_face_tools::reference_change(

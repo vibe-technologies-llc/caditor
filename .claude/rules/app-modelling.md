@@ -1269,20 +1269,27 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Move
 
-- Move body (Alt+M) takes the one body whose faces, edges or vertices are selected and creates a `Move`
-  of zero turns and distances, then opens it. With nothing naming a body (no selection of one, no
-  tree row), Move, Copy, Scale and Split body take the only body standing and shown
-  (`move_tools::chosen_or_only_body`, `body_selection::standing_bodies`): with several they ask for
-  one as before, with none they say to make or show one (`body_selection::NO_BODY_SHOWN`). Copy body (Alt+Shift+C, also a body's right-click menu)
-  does the same with `copy` set, named Copy N. The panel's Result row (`move_panel::RESULT`, Move
-  body or New body, the same `feature_fields::segmented_row` as a mirror's) switches `copy`, one
-  "Edit <move>" change, a copy others use refused in a notice (`BodyInUse`). New moves turn about the body's centre; Turn about
-  (Centre, Origin, Axis) changes it. Fields are expressions (key `move-field`, `offset` or `turn`, axis
-  index). Switching to Axis (`move_tools::about_axis`) takes the one axis the selection names, else Z,
-  keeping any angle set; its Axis row is a combo of principal and earlier datum axes with Use selected
-  and Choose in the view (slot `MoveAxis`, the palette's Turn moved body about selected axis,
-  `move_tools::axis_change`), followed by Angle (key `angle`); the turns about X, Y and Z are then shown
-  only while not zero. Nothing else is chosen in the view while it is open.
+- Move body (Alt+M) takes every body whose faces, edges or vertices are selected or chosen in the
+  tree (`move_tools::selected_bodies`, `MoveSource`) and creates one `Move` of them all (the first
+  its `body` and the rest `more_bodies`) of zero turns and distances, then opens it. With nothing
+  naming a body (no selection of one, no tree row), Move, Copy, Scale and Split body take the only
+  body standing and shown (`move_tools::chosen_or_only_body`, `body_selection::standing_bodies`):
+  with several they ask for one as before, with none they say to make or show one
+  (`body_selection::NO_BODY_SHOWN`). Copy body (Alt+Shift+C, also a body's right-click menu) does
+  the same with `copy` set, named Copy N. The panel's Result row (`move_panel::RESULT`, Move body
+  or New body, the same `feature_fields::segmented_row` as a mirror's) switches `copy`, one "Edit
+  <move>" change, a copy others use refused in a notice (`BodyInUse`). Its Bodies rows
+  (`move_panel::BODIES`) list each body with Stop moving this body (`move_tools::without_body`, the
+  last one disabled), Use selected (`added_bodies`) and Choose in the view on `Slot::MoveBodies`
+  (a click toggles a body in or out until Escape, lighting hovered bodies whole as Mirror's body
+  slot does); a body made at or after the move or a copy of its own is refused. New moves turn about
+  the centre of their bodies' box; Turn about (Centre, Origin, Axis) changes it. Fields are
+  expressions (key `move-field`, `offset` or `turn`, axis index). Switching to Axis
+  (`move_tools::about_axis`) takes the one axis the selection names, else Z, keeping any angle set;
+  its Axis row is a combo of principal and earlier datum axes with Use selected and Choose in the
+  view (slot `MoveAxis`, the palette's Turn moved body about selected axis,
+  `move_tools::axis_change`), followed by Angle (key `angle`); the turns about X, Y and Z are then
+  shown only while not zero. Nothing else is chosen in the view while it is open.
 - While a move is open (nothing being chosen) a manipulator stands at the centre of the moved body's
   box, following its preview (`move_manipulator.rs`): an arrow along each world axis in the axis colours
   (`ScenePalette::axis`) and a square per plane, on the front layer in the overlay batch at a constant

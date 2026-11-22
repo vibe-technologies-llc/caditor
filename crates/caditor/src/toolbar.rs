@@ -1125,9 +1125,13 @@ fn move_button(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let body = &context.offers.movement;
-    let invoked = commands.invoke(Command::Move, body);
-    let help = match body {
+    let source = &context.offers.movement;
+    let invoked = commands.invoke(Command::Move, source);
+    let help = match source {
+        Ok(chosen) if !chosen.also.is_empty() => {
+            let hover = move_tools::bodies_hover(chosen);
+            Ok(commands.with_keys(Command::Move, &hover))
+        }
         Ok(_) => Ok(commands.with_keys(Command::Move, move_tools::DESCRIPTION)),
         Err(reason) => Err(Blocked::ToFix {
             what: move_tools::DESCRIPTION.to_owned(),
@@ -1137,15 +1141,15 @@ fn move_button(
     let response = tool(ui, commands, Command::Move, move_tools::TITLE, &help);
 
     if (response.clicked() || invoked)
-        && let Ok(body) = body
+        && let Ok(source) = source
     {
-        actions.extend(move_tools::create_actions(model, *body, false));
+        actions.extend(move_tools::create_actions(model, source, false));
     }
 
-    if commands.invoke(Command::CopyBody, body)
-        && let Ok(body) = body
+    if commands.invoke(Command::CopyBody, source)
+        && let Ok(source) = source
     {
-        actions.extend(move_tools::create_actions(model, *body, true));
+        actions.extend(move_tools::create_actions(model, source, true));
     }
 }
 

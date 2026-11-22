@@ -3,7 +3,7 @@ use caditor_document::{
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{
-    Plane, Point3, Ray, Rotation3, Vector2, Vector3, rotation_from_turns, turns_about_axes,
+    Aabb, Plane, Point3, Ray, Rotation3, Vector2, Vector3, rotation_from_turns, turns_about_axes,
 };
 use caditor_render::{Batch, Color, Fill, Layer, Line, Stroke, View};
 
@@ -215,11 +215,7 @@ impl MoveHandles {
             return None;
         };
 
-        let body = if movement.copy {
-            feature
-        } else {
-            movement.body
-        };
+        let bodies = movement.moved_bodies(feature);
         let parameters = model.parameters();
         let frame = model.move_frame(movement)?;
 
@@ -237,22 +233,33 @@ impl MoveHandles {
         let (centre, turning) = match (&movement.about, model.move_pivot(feature, movement)) {
             (TurnCentre::Body, Some(pivot)) => (pivot.point() + shift()?, Turning::Axes),
             (TurnCentre::Axis(_), Some(Pivot::Axis(axis))) => {
-                let before = model
-                    .evaluation()
-                    .body_seen_by(feature, movement.body)?
-                    .bounding_box()?
+                let before = movement
+                    .bodies()
+                    .filter_map(|body| {
+                        model
+                            .evaluation()
+                            .body_seen_by(feature, body)?
+                            .bounding_box()
+                    })
+                    .reduce(Aabb::union)?
                     .center();
                 let along = (before - axis.origin()).dot(axis.direction());
                 let foot = axis.origin() + axis.direction() * along;
                 (foot + shift()?, Turning::About(axis.direction()))
             }
             _ => (
-                model.evaluation().body(body)?.bounding_box()?.center(),
+                bodies
+                    .iter()
+                    .filter_map(|body| model.evaluation().body(*body)?.bounding_box())
+                    .reduce(Aabb::union)?
+                    .center(),
                 Turning::Fixed,
             ),
         };
         let origin = match model.draft_placement() {
-            Some((moved, placement)) if moved == body => placement.apply_point(centre),
+            Some((moved, placement)) if bodies.iter().any(|body| moved.contains(body)) => {
+                placement.apply_point(centre)
+            }
             Some(_) | None => centre,
         };
         let depth = view.view_depth(origin);

@@ -16,6 +16,27 @@ use crate::{
 };
 
 const JOINED_END_TOLERANCE: f64 = LINEAR_RESOLUTION;
+const PIECE_SOURCE_KEYS: u32 = 1 << 31;
+
+pub(crate) fn source_piece_key(source: FeatureId) -> PieceKey {
+    match u32::try_from(source.raw()) {
+        Ok(raw) if raw < PIECE_SOURCE_KEYS => PieceKey::from_raw(raw),
+        _ => {
+            let digest = blake3::hash(&source.raw().to_le_bytes());
+            let [a, b, c, d, ..] = *digest.as_bytes();
+            PieceKey::from_raw(PIECE_SOURCE_KEYS | u32::from_le_bytes([a, b, c, d]))
+        }
+    }
+}
+
+pub(crate) fn source_of_piece_key(
+    mut bodies: impl Iterator<Item = FeatureId>,
+    key: PieceKey,
+) -> Option<FeatureId> {
+    bodies
+        .find(|source| source_piece_key(*source) == key)
+        .or_else(|| (key.raw() < PIECE_SOURCE_KEYS).then(|| FeatureId::from_raw(key.raw().into())))
+}
 
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum Pieces {
@@ -281,6 +302,14 @@ impl Document {
         let key = body.piece_key()?;
         match &self.body_maker(body)?.kind {
             FeatureKind::Mirror(mirror) => mirror.image_source(key),
+            _ => None,
+        }
+    }
+
+    pub fn copy_source(&self, body: FeatureId) -> Option<FeatureId> {
+        let key = body.piece_key()?;
+        match &self.body_maker(body)?.kind {
+            FeatureKind::Move(movement) => movement.copy_source(key),
             _ => None,
         }
     }

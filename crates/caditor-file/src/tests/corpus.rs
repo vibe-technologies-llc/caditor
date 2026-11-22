@@ -60,7 +60,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 88] = [
+const KEPT: [(&str, &str); 89] = [
     (
         "journal-1/detail-views.journal",
         "efe6e29340af29198f3425feb62810b57e4cc449f5649790e6ca3021640a3060",
@@ -284,6 +284,10 @@ const KEPT: [(&str, &str); 88] = [
     (
         "model-1/moved-faces.caditor",
         "ebd12b3472881edb223022fff6e699cbc57718da12f20195d0db58b882779352",
+    ),
+    (
+        "model-1/moved-several-bodies.caditor",
+        "a91a8a4fa56a94b6511999d1326aa787a3e1e1a522fddf95ab5eeffca530082a",
     ),
     (
         "model-1/path-sweeps.caditor",
@@ -1128,6 +1132,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("mirrored-several-bodies"),
             saved(&mirrored_several_bodies(), "Mirrored several bodies"),
+        ),
+        (
+            model("moved-several-bodies"),
+            saved(&moved_several_bodies(), "Moved several bodies"),
         ),
         (model("patterns"), saved(&patterns(), "Patterns")),
         (
@@ -4249,6 +4257,7 @@ fn datums() -> Document {
             "Move in frame",
             FeatureKind::Move(Move {
                 body: base,
+                more_bodies: Vec::new(),
                 offset: std::array::from_fn(|_| parse("2 mm")),
                 turn: std::array::from_fn(|_| parse("10 deg")),
                 copy: false,
@@ -4278,12 +4287,48 @@ fn moved(body: FeatureId, copy: bool, about: TurnCentre) -> FeatureKind {
     let parse = |text: &str| Expression::parse_stored(text).unwrap();
     FeatureKind::Move(Move {
         body,
+        more_bodies: Vec::new(),
         offset: ["1 mm", "0 mm", "$0"].map(parse),
         turn: ["0 deg", "30 deg", "0 deg"].map(parse),
         copy,
         about,
         frame: None,
     })
+}
+
+fn moved_several_bodies() -> Document {
+    let (mut document, base, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Moved several bodies");
+
+    let copy = transaction.add_feature("Copy", moved(base, true, TurnCentre::Origin));
+
+    transaction.add_feature(
+        "Move both",
+        FeatureKind::Move(Move {
+            body: base,
+            more_bodies: vec![copy],
+            offset: ["5 mm", "0 mm", "0 mm"].map(parse),
+            turn: ["0 deg", "0 deg", "15 deg"].map(parse),
+            copy: false,
+            about: TurnCentre::Body,
+            frame: None,
+        }),
+    );
+    transaction.add_feature(
+        "Copy both",
+        FeatureKind::Move(Move {
+            body: base,
+            more_bodies: vec![copy],
+            offset: ["0 mm", "10 mm", "0 mm"].map(parse),
+            turn: ["0 deg", "0 deg", "0 deg"].map(parse),
+            copy: true,
+            about: TurnCentre::Origin,
+            frame: None,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
 }
 
 fn mirrored_bodies() -> Document {

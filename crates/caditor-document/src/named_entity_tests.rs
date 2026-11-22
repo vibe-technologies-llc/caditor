@@ -201,6 +201,7 @@ fn a_move_about_a_missing_sketch_axis_reserves_its_number() {
     assert_never_reused(|scene| {
         FeatureKind::Move(Move {
             body: scene.body,
+            more_bodies: Vec::new(),
             offset: zero_offset(),
             turn: zero_offset(),
             copy: false,
