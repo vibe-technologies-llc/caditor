@@ -4,9 +4,6 @@ Tests, CI and tooling that are missing or need attention.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-- [medium · small] The fuzz jobs run into their 20 minute limit (`ci.yml`): `journal` and
-  `journal_torn` on one run of 2026-11-14 and `svg` on the next were cancelled at 20m, a failed
-  run though no input failed.
 - [medium · medium] Fuzzing misses whole readers and the shapes that break them: no target reads
   parameter files (`parse_parameters`), configuration files (`parse_configurations`) or
   environment pictures (`decode_environment`); `ci.yml` runs libFuzzer with no `-max_len`, so

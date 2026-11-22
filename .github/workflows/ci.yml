@@ -442,11 +442,29 @@ jobs:
         working-directory: fuzz
         run: cargo fuzz build --target x86_64-unknown-linux-gnu
 
+      - name: Pack the fuzz targets
+        run: |
+          mkdir fuzz-targets
+          for source in fuzz/fuzz_targets/*.rs; do
+            name=$(basename "$source" .rs)
+            cp "fuzz/target/x86_64-unknown-linux-gnu/release/$name" fuzz-targets/
+          done
+          tar -C fuzz-targets -cf - . | zstd -T0 -5 -q -o fuzz-targets.tar.zst
+
+      - name: Keep the fuzz targets (actions/upload-artifact v7.0.1)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: fuzz-targets
+          path: fuzz-targets.tar.zst
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
   fuzz:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
     needs: fuzz-build
-    timeout-minutes: 20
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -472,47 +490,21 @@ jobs:
           - { target: document, seeds: structured, dictionary: none }
           - { target: save_load, seeds: structured, dictionary: none }
     steps:
-      - name: Install build tools
+      - name: Install tools
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends build-essential ca-certificates curl git zstd
+          apt-get install -y --no-install-recommends ca-certificates git zstd
 
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Load the pinned versions
-        run: cat .github/versions.env >> "$GITHUB_ENV"
-
-      - name: Install Rust
-        uses: ./.github/actions/install-rust
+      - name: Fetch the fuzz targets (actions/download-artifact v8.0.1)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          toolchain: ${{ env.FUZZ_TOOLCHAIN }}
-
-      - name: Install cargo-fuzz
-        run: |
-          name="cargo-fuzz-$CARGO_FUZZ_VERSION-x86_64-unknown-linux-musl"
-          curl --proto '=https' --tlsv1.2 -sSfLO \
-            "https://github.com/rust-fuzz/cargo-fuzz/releases/download/$CARGO_FUZZ_VERSION/$name.tar.gz"
-          echo "$CARGO_FUZZ_SHA256  $name.tar.gz" | sha256sum -c -
-          tar -xzf "$name.tar.gz" -C "$HOME/.cargo/bin" cargo-fuzz
-          rm "$name.tar.gz"
-
-      - name: Check that the fuzz lock file is current
-        working-directory: fuzz
-        run: cargo metadata --locked --format-version 1 > /dev/null
-
-      - name: Restore the fuzz build (actions/cache v6.1.0)
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            fuzz/target
-          key: fuzz-build-${{ env.FUZZ_TOOLCHAIN }}-${{ hashFiles('fuzz/Cargo.lock') }}
-          restore-keys: fuzz-build-${{ env.FUZZ_TOOLCHAIN }}-
+          name: fuzz-targets
+          path: fuzz-targets
 
       - name: Restore the corpus (actions/cache v6.1.0)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
@@ -522,18 +514,25 @@ jobs:
           restore-keys: fuzz-corpus-${{ matrix.target }}-
 
       - name: Fuzz
+        timeout-minutes: 10
         working-directory: fuzz
         shell: bash
+        env:
+          ASAN_OPTIONS: detect_odr_violation=0
         run: |
-          mkdir -p "corpus/${{ matrix.target }}"
+          target="${{ matrix.target }}"
+          mkdir -p "corpus/$target" "artifacts/$target" "$RUNNER_TEMP/fuzz-bin"
+          tar --use-compress-program=unzstd -xf "$GITHUB_WORKSPACE/fuzz-targets/fuzz-targets.tar.zst" \
+            -C "$RUNNER_TEMP/fuzz-bin" "./$target"
           dictionary=()
           if [ "${{ matrix.dictionary }}" != none ]; then
             dictionary=(-dict="dictionaries/${{ matrix.dictionary }}.dict")
           fi
-          cargo fuzz run --target x86_64-unknown-linux-gnu "${{ matrix.target }}" \
-            "corpus/${{ matrix.target }}" "seeds/${{ matrix.seeds }}" -- \
+          "$RUNNER_TEMP/fuzz-bin/$target" \
+            -artifact_prefix="$PWD/artifacts/$target/" \
             "${dictionary[@]}" \
-            -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=2048 -timeout=10
+            -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=2048 -timeout=10 \
+            "corpus/$target" "seeds/${{ matrix.seeds }}"
 
       - name: Keep the failing input (actions/upload-artifact v7.0.1)
         if: failure()

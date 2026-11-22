@@ -23,10 +23,17 @@ paths:
   `packaging/build-packages.sh` and checked (every file of the archive, `THIRD-PARTY-NOTICES.txt`
   included, must be in each), the `.deb` installed and removed with `apt-get` by
   `packaging/check-packages.sh --install`, and a minute of fuzzing per target.
-- `fuzz-build` builds every fuzz target once (`cargo fuzz build`) and saves `fuzz/target` and the
-  cargo registry under `fuzz-build-<toolchain>-<lock hash>`, a key without the target name; each
-  `fuzz` matrix job `needs` it and restores that key, so the targets share one build and a
-  cold cache costs one build, not one per target against the 20-minute limit.
+- `fuzz-build` builds every fuzz target once (`cargo fuzz build`), keeping `fuzz/target` and the
+  cargo registry under `fuzz-build-<toolchain>-<lock hash>` so registry dependencies are not
+  rebuilt, and uploads the binaries as one `fuzz-targets` artifact: a zstd tarball, since a zip
+  drops the executable bit. Each `fuzz` matrix job `needs` it, downloads the artifact and runs its
+  one binary directly with `ASAN_OPTIONS=detect_odr_violation=0` and the `-artifact_prefix` that
+  `cargo fuzz run` sets: no Rust, no `cargo-fuzz`, no build cache. A job that ran `cargo fuzz run`
+  itself spent four minutes extracting the 8-10 GB build cache and 13 more recompiling every
+  workspace crate and its target, since a fresh checkout's file times are newer than the cached
+  fingerprints, which with a minute of fuzzing met the 20-minute limit. The `Fuzz` step has its own
+  10-minute timeout and the job 15, so a hang fails the step with its log instead of cancelling
+  the job.
 - The check job runs cargo as the unprivileged `builder` user (`as-builder`), since root ignores the
   file modes the unreadable-file tests rely on, with its own `XDG_RUNTIME_DIR=/run/user/1001` (Mesa's
   Vulkan stack probes for Wayland and libwayland prints an error each time when unset). It fails if
