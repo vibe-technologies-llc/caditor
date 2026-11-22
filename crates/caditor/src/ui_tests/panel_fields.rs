@@ -13,6 +13,7 @@ use super::{
 };
 use crate::{
     combine_panel,
+    field::{self, Expected},
     model::Action,
     move_manipulator::{Handle, Reach},
     reversing::NOTHING_TO_REVERSE,
@@ -657,4 +658,60 @@ fn up_and_down_step_a_plain_distance_and_preview_it_but_leave_an_expression_alon
 
     assert!(harness.shows_containing(crate::stepping::Refusal::NotPlain.message()));
     assert_eq!(harness.model.undo_label(), Some("Create Extrude 1"));
+}
+
+fn enter_words(harness: &Harness, text: &str) -> String {
+    field::parse_expression(
+        harness.document(),
+        harness.model.parameters(),
+        text,
+        Expected {
+            dimension: Some(Dimension::LENGTH),
+            non_negative: false,
+        },
+        harness.model.units(),
+    )
+    .expect_err("the text is not a length")
+    .to_string()
+}
+
+#[test]
+fn a_wrong_expression_is_told_under_the_field_while_it_is_typed() {
+    let mut harness = Harness::new();
+
+    let extrude = open_extrusion(&mut harness);
+    let unknown = enter_words(&harness, "nothere");
+    let wrong_unit = enter_words(&harness, "5 deg");
+
+    harness.draft_into_field(distance_field(extrude), "nothere");
+
+    assert!(harness.shows(&unknown));
+
+    harness.draft_into_field(distance_field(extrude), "5 deg");
+
+    assert!(harness.shows(&wrong_unit));
+    assert!(!harness.shows(&unknown));
+
+    harness.draft_into_field(distance_field(extrude), "12 mm");
+
+    assert!(!harness.shows(&wrong_unit));
+}
+
+#[test]
+fn an_unfinished_expression_is_told_calmly_while_it_is_typed() {
+    let mut harness = Harness::new();
+
+    let extrude = open_extrusion(&mut harness);
+    let unfinished = enter_words(&harness, "2 *");
+    let unknown = enter_words(&harness, "nothere");
+
+    harness.draft_into_field(distance_field(extrude), "2 *");
+
+    assert!(harness.shows(&unfinished));
+
+    let calm = harness.color_of(&unfinished);
+
+    harness.draft_into_field(distance_field(extrude), "nothere");
+
+    assert_ne!(calm, harness.color_of(&unknown));
 }

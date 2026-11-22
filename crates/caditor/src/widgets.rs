@@ -1727,6 +1727,15 @@ pub fn error_text(ui: &mut Ui, text: &str) -> Response {
     .response
 }
 
+pub fn note_text(ui: &mut Ui, text: &str) -> Response {
+    let muted = appearance::tokens(ui).text_muted;
+    ui.horizontal_wrapped(|ui| {
+        icon_label(ui, icons::INFO, muted);
+        ui.colored_label(muted, text);
+    })
+    .response
+}
+
 pub fn choose_in_view(ui: &mut Ui, hover: &str) -> bool {
     let button = small_button(
         ui,

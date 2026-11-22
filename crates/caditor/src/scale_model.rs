@@ -349,6 +349,10 @@ fn fields(ui: &mut Ui, model: &Model, draft: &mut ScaleDraft) -> bool {
                 }
                 if let Some(refusal) = &live.refusal {
                     widgets::error_text(ui, refusal);
+                } else if let Some(problem) =
+                    field::typed_expression_problem(model, &draft.factor, Expected::ANYTHING)
+                {
+                    problem.show(ui);
                 } else if let Some(preview) =
                     field::typed_preview(model, &draft.factor, Expected::ANYTHING)
                 {

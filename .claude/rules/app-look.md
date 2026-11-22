@@ -249,8 +249,8 @@ paths:
   (`ToolButton`, `section`, `properties`, `card`, `callout` and `pill` with a `Tone`, the button
   family, `checkbox`, `unlabelled_checkbox` and `unlabelled_radio` (no visible text, named for
   screen readers with their role), `combo`, `text_field`, `segmented`, `tabs`, `dialog`,
-  `dialog_body` and `footer`, `side_panel`, menu items, `error_row` and `error_text`). Panels and
-  dialogs never add raw egui buttons, checkboxes, radio buttons or combo boxes:
+  `dialog_body` and `footer`, `side_panel`, menu items, `error_row`, `error_text` and
+  `note_text`). Panels and dialogs never add raw egui buttons, checkboxes, radio buttons or combo boxes:
   `conventions_tests.rs` (`buttons_outside_the_widget_kit_come_from_it`) fails on them outside
   `widgets.rs`, a call split over lines (`ui` then `.button(…)` on the next) included.
 - Surfaces step `sunken` (fields, check boxes) < `panel` < `raised` (cards, section bands, dialogs,

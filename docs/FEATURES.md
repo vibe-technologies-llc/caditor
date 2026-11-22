@@ -222,9 +222,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   only when saving (`Report::ChangedOnDisk`, `files.rs`): nothing compares the file's head when
   the window regains focus or offers to reload it, so editing goes on over a stale model until the
   save refuses.
-- [medium · small] A value field says an expression is wrong only once it is entered: the shared
-  field (`field.rs`) shows what a typed expression comes to while it is typed, but an unknown
-  name, a unit of the wrong kind or an unfinished expression is told only on Enter.
 - [medium · small] A wrong pick is taken back only from the panel's list: an open fillet, shell or
   face tool has no one-click "leave this edge out" on the callout naming the edge or face that
   made it fail, though the failure knows which one it is.

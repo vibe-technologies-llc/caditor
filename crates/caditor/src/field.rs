@@ -3,7 +3,9 @@ use std::{collections::BTreeSet, convert::Infallible, fmt::Display};
 use caditor_document::{
     Document, Edit, EditError, FeatureId, Parameter, ParameterOwner, ParameterValues, Transaction,
 };
-use caditor_expression::{Dimension, EvalError, Expression, Naming, ParameterId, ParseError};
+use caditor_expression::{
+    Dimension, EvalError, Expression, Naming, ParameterId, ParseError, ParseErrorKind, Unit,
+};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{
     Align, Event, Id, Key, Label, Margin, Modifiers, Rect, Response, Stroke, StrokeKind, TextEdit,
@@ -82,6 +84,7 @@ pub struct FieldResponse<T> {
     pub committed: Option<T>,
     pub error: Option<String>,
     pub edited: Option<String>,
+    pub typing: Option<String>,
     pub left: bool,
     pub response: Response,
 }
@@ -244,6 +247,92 @@ pub fn live_value(
     .inner
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Problem {
+    Unfinished(String),
+    Wrong(String),
+}
+
+impl Problem {
+    pub fn show(&self, ui: &mut Ui) {
+        match self {
+            Self::Unfinished(message) => {
+                widgets::note_text(ui, message);
+            }
+            Self::Wrong(message) => {
+                widgets::error_text(ui, message);
+            }
+        }
+    }
+}
+
+pub fn naming_expression(text: &str) -> &str {
+    Naming::split(text).map_or(text, |naming| naming.expression)
+}
+
+pub fn typed_problem<E: Display>(
+    document: &Document,
+    expression: &str,
+    parse: impl FnOnce(&str) -> Result<Expression, E>,
+) -> Option<Problem> {
+    let message = parse(expression).err()?.to_string();
+
+    Some(if is_unfinished(document, expression) {
+        Problem::Unfinished(message)
+    } else {
+        Problem::Wrong(message)
+    })
+}
+
+pub fn typed_expression_problem(model: &Model, text: &str, expected: Expected) -> Option<Problem> {
+    typed_problem(model.document(), text.trim(), |expression| {
+        parse_expression(
+            model.document(),
+            model.parameters(),
+            expression,
+            expected,
+            model.units(),
+        )
+    })
+}
+
+fn is_unfinished(document: &Document, expression: &str) -> bool {
+    let Err(error) = document.parse(expression) else {
+        return false;
+    };
+    match error.kind {
+        ParseErrorKind::Empty
+        | ParseErrorKind::UnexpectedEnd { .. }
+        | ParseErrorKind::UnclosedParenthesis => true,
+        ParseErrorKind::UnknownParameter(name) => starts_a_parameter(document, &name),
+        ParseErrorKind::UnknownUnit { found, .. } | ParseErrorKind::Unexpected { found, .. } => {
+            starts_a_unit(&found)
+        }
+        _ => false,
+    }
+}
+
+fn starts_a_parameter(document: &Document, typed: &str) -> bool {
+    let typed = typed.to_lowercase();
+
+    document.parameters().iter().any(|parameter| {
+        let name = parameter.name.to_lowercase();
+        name.len() > typed.len() && name.starts_with(&typed)
+    })
+}
+
+fn starts_a_unit(typed: &str) -> bool {
+    let typed = typed.to_lowercase();
+
+    Unit::ALL
+        .into_iter()
+        .filter(|unit| !matches!(unit, Unit::Inch | Unit::Foot))
+        .any(|unit| {
+            let symbol = unit.symbol();
+            symbol.len() > typed.len() && symbol.starts_with(&typed)
+        })
+}
+
 pub fn typed_preview(model: &Model, text: &str, expected: Expected) -> Option<String> {
     let expression = parse_expression(
         model.document(),
@@ -358,6 +447,7 @@ fn field<T, E: Display>(
 
     let changed = response.changed() || stepped;
     let edited = changed.then(|| text.trim().to_owned());
+    let typing = (focused && text.trim() != stored).then(|| text.trim().to_owned());
 
     if changed {
         draft = Some(Draft {
@@ -419,6 +509,7 @@ fn field<T, E: Display>(
         committed,
         error,
         edited,
+        typing,
         left,
         response,
     }
@@ -1384,5 +1475,72 @@ mod tests {
         assert_eq!(preview("width / 4"), Some("= 10 mm".to_owned()));
         assert_eq!(preview("2 cm"), None);
         assert_eq!(preview("width / zero"), None);
+    }
+
+    fn problem(text: &str, expected: Expected) -> Option<Problem> {
+        let document = document();
+        let parameters = ParameterValues::evaluate(&document);
+        typed_problem(&document, text, |expression| {
+            parse_expression(
+                &document,
+                &parameters,
+                expression,
+                expected,
+                LengthUnit::Millimetre,
+            )
+        })
+    }
+
+    #[test]
+    fn a_typed_expression_that_reads_has_no_problem() {
+        assert_eq!(problem("width / 2", LENGTH), None);
+        assert_eq!(problem("12", LENGTH), None);
+    }
+
+    #[test]
+    fn an_unknown_name_or_a_unit_of_the_wrong_kind_is_wrong_in_the_words_enter_gives() {
+        assert_eq!(
+            problem("depth", LENGTH),
+            Some(Problem::Wrong(
+                "There is no parameter named 'depth'".to_owned()
+            ))
+        );
+        assert_eq!(
+            problem("5 deg", LENGTH),
+            parse("5 deg", LENGTH).err().map(Problem::Wrong)
+        );
+        assert_eq!(
+            problem("width * width", LENGTH),
+            Some(Problem::Wrong(
+                "It gives an area, but a length is needed".to_owned()
+            ))
+        );
+        assert!(matches!(
+            problem("5 furlongs", LENGTH),
+            Some(Problem::Wrong(_))
+        ));
+    }
+
+    #[test]
+    fn an_expression_still_being_typed_is_unfinished_not_wrong() {
+        for text in ["2 *", "(2 + 3", "width +", "", "wid", "5 d", "5 ra"] {
+            assert!(
+                matches!(problem(text, LENGTH), Some(Problem::Unfinished(_))),
+                "{text:?} is unfinished"
+            );
+        }
+        for text in ["widths", "5 dx", "5 )", "2 $"] {
+            assert!(
+                matches!(problem(text, LENGTH), Some(Problem::Wrong(_))),
+                "{text:?} is wrong"
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_given_to_the_value_is_set_aside_before_it_is_read() {
+        assert_eq!(naming_expression("h = 30 mm"), "30 mm");
+        assert_eq!(naming_expression("30 mm"), "30 mm");
+        assert_eq!(naming_expression("a == b"), "a == b");
     }
 }

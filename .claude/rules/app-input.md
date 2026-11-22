@@ -109,6 +109,16 @@ paths:
   waits for a commit, so Escape is left to the panel or dialog (`Behaviour::reverts` off) and the
   panel's own problem row stays the error shown, a stepping refusal taking its place only when the
   value itself reads. `field::typed_preview` shows `= value` under a text that is an expression.
+  The same spot tells a typed text that does not read, in Enter's own words (`field::typed_problem`
+  runs the caller's parse, so there is no second parser): `FieldResponse::typing` is the focused
+  field's text while it differs from the stored one, and the feature rows (`expression_row_with`)
+  and the Scale model factor show `field::Problem` in place of the preview. A `Problem::Wrong` (an
+  unknown name, a unit of the wrong kind, a division by zero) is an error callout line with the
+  failed icon; a `Problem::Unfinished` (`ParseErrorKind::Empty`, `UnexpectedEnd`,
+  `UnclosedParenthesis`, a name that begins a parameter's name, a unit that begins an SI unit's
+  symbol) is a muted note line with the info icon, so `2 *` does not flash an error tone on every
+  keystroke. The icon tells the two apart as well as the colour. The panels with their own problem
+  rows (Gear, sketch Pattern, Text) keep those rows as the only error shown.
 - Value fields complete parameter names (`completion.rs`). `completion::publish` builds the
   candidates and the `DependencyGraph` once per revision, evaluation and unit while a widget has
   focus, in egui temp data. The identifier before the caret (`completion::token_at`: starts with a

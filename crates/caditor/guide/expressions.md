@@ -76,5 +76,9 @@ list as a list box of options named "name, value".
 
 An expression that does not read, mixes lengths with angles, divides by zero or uses an unknown
 name is refused with the reason under the field; the old value stays until you fix it or press
-Escape. An angle field asks for `deg` or `rad` when a calculation gives a plain number, since it
+Escape. The reason shows while you type, before you press Enter, in the same words: a problem in
+red with a cross, and an expression you have not finished, such as `2 *`, an open bracket, a name
+or a unit still being spelled, in grey with an information mark, since it is only waiting for the
+rest. The scale factor of [Scale model](scale) and every value in an open feature's panel tell it
+this way. An angle field asks for `deg` or `rad` when a calculation gives a plain number, since it
 cannot tell which you meant.

@@ -329,7 +329,15 @@ fn expression_row_with<E: Display>(
         );
         let shown = field::shown_value(document, &owner, quantity.expression);
 
+        let problem = field.typing.as_deref().and_then(|typing| {
+            field::typed_problem(document, field::naming_expression(typing), parse)
+        });
+
         if field.error.is_none()
+            && let Some(problem) = &problem
+        {
+            problem.show(ui);
+        } else if field.error.is_none()
             && let Some(preview) = field::value_preview(parameters, shown, unit)
         {
             ui.add(Label::new(widgets::muted(preview, ui)).wrap_mode(TextWrapMode::Extend));
