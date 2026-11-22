@@ -761,6 +761,11 @@ Sketch entities:
   backup changes the ctime, so the stamp is taken again after it. `set_version_kept` makes the same
   read-back check, guarded or not. The instant between that check and the rename cannot be closed
   portably.
+- `compare_on_disk` reads a file and compares its head with a digest the way the guard does
+  (`save::unchanged_from`, shared by both): `DiskState::AsLastSeen`, `Changed` with the new head
+  (`None` when the file no longer parses as a model), `Gone` when it is not found (a guarded save
+  then writes it again) or `Unreadable` with its `ReadFailure`. It reads the whole file, so it runs
+  in a file job (the app's focus check, `app-files.md`).
 - A save refuses when the earlier versions in the file it replaces cannot be read, and when the
   file is read-only; the notice offers Save As.
 - Before the rename, a model save reads the synced temporary back and checks that it parses

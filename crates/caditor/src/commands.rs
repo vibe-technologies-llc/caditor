@@ -349,6 +349,8 @@ pub enum Command {
     UpdateReferences,
     ReplaceImport,
     ReloadImport,
+    ReloadFromDisk,
+    DismissOutsideChange,
     DismissNotice,
     DismissTip,
     HideTips,
@@ -1056,6 +1058,8 @@ plain_commands! {
     UpdateReferences,
     ReplaceImport,
     ReloadImport,
+    ReloadFromDisk,
+    DismissOutsideChange,
     DismissNotice,
     DismissTip,
     HideTips,
@@ -1435,6 +1439,8 @@ impl Command {
             Self::UpdateReferences => "model.update_references",
             Self::ReplaceImport => "file.replace_import",
             Self::ReloadImport => "file.reload_import",
+            Self::ReloadFromDisk => "file.reload_from_disk",
+            Self::DismissOutsideChange => "file.dismiss_outside_change",
             Self::DismissNotice => "edit.dismiss_notice",
             Self::DismissTip => "help.dismiss_tip",
             Self::HideTips => "help.hide_tips",
@@ -1777,6 +1783,8 @@ impl Command {
             Self::UpdateReferences => "Update references",
             Self::ReplaceImport => "Replace import from file…",
             Self::ReloadImport => "Reload import from its file",
+            Self::ReloadFromDisk => "Reload the model as changed on disk",
+            Self::DismissOutsideChange => "Dismiss the changed-on-disk notice",
             Self::DismissNotice => "Dismiss the notice",
             Self::DismissTip => "Dismiss the tip",
             Self::HideTips => "Hide tips",
@@ -2077,7 +2085,9 @@ impl Command {
             | Self::OnshapeSignOut
             | Self::CloudRefresh
             | Self::CloudSend
-            | Self::CloudOpenInFusion => Category::File,
+            | Self::CloudOpenInFusion
+            | Self::ReloadFromDisk
+            | Self::DismissOutsideChange => Category::File,
             Self::Welcome
             | Self::Guide
             | Self::Assistant
@@ -2681,6 +2691,8 @@ impl Command {
             | Self::UpdateReferences
             | Self::ReplaceImport
             | Self::ReloadImport
+            | Self::ReloadFromDisk
+            | Self::DismissOutsideChange
             | Self::DismissNotice
             | Self::DismissTip
             | Self::HideTips

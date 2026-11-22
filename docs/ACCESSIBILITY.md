@@ -72,7 +72,7 @@ and keeps its name and role.
 | 3.3.1 to 3.3.3 Errors | Supported: errors say what happened, to which feature or entity and what to do next (`ux.md`). |
 | 3.3.4 Error prevention | Supported: unsaved changes are asked about, every change is undoable, saves keep earlier versions. |
 | 4.1.2 Name, role, value | Supported for buttons, fields, check boxes, tabs, links, sliders (the rollback bar, the hue strip), lists and the view. Partly: see Known limits. |
-| 4.1.3 Status messages | Supported: notices, progress, the prompt and refusal notes are live regions (polite, assertive only for errors). |
+| 4.1.3 Status messages | Supported: notices (the changed-on-disk notice included), progress, the prompt and refusal notes are live regions (polite, assertive only for errors). |
 
 ## EN 301 549 and Section 508
 

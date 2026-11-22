@@ -22,7 +22,7 @@ use crate::{
     os::{self, ChangeStamp, FileKey},
     paths::{MAX_NAME_BYTES, fitting},
     preview::PreviewSlot,
-    read::{ensure_regular, open_file, read_open},
+    read::{ensure_regular, open_file, read_file, read_open},
     reason::{ReadFailure, WriteFailure},
 };
 
@@ -203,7 +203,7 @@ pub(crate) fn keep_version_interleaved(
     })?;
 
     if let Some(expected) = unless_changed_from
-        && binary::head_digest(&previous.bytes).as_ref() != Some(expected)
+        && !unchanged_from(&previous.bytes, expected)
     {
         return Err(KeepVersionError::ChangedOnDisk);
     }
@@ -307,7 +307,7 @@ pub(crate) fn save_interleaved(
         .filter(|_| reads_target(options, &target));
 
     if let (Some(expected), Some(previous)) = (guarded, &previous)
-        && binary::head_digest(&previous.bytes).as_ref() != Some(expected)
+        && !unchanged_from(&previous.bytes, expected)
     {
         return Err(SaveError::ChangedOnDisk);
     }
@@ -381,6 +381,29 @@ pub(crate) fn save_interleaved(
         dropped_for_size,
         digest,
     })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DiskState {
+    AsLastSeen,
+    Changed { head: Option<FileDigest> },
+    Gone,
+    Unreadable(ReadFailure),
+}
+
+pub fn compare_on_disk(path: &Path, last_seen: &FileDigest) -> DiskState {
+    match read_file(path) {
+        Ok(bytes) if unchanged_from(&bytes, last_seen) => DiskState::AsLastSeen,
+        Ok(bytes) => DiskState::Changed {
+            head: binary::head_digest(&bytes),
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => DiskState::Gone,
+        Err(error) => DiskState::Unreadable(ReadFailure::of(&error)),
+    }
+}
+
+fn unchanged_from(bytes: &[u8], last_seen: &FileDigest) -> bool {
+    binary::head_digest(bytes).as_ref() == Some(last_seen)
 }
 
 fn reads_target(options: &SaveOptions<'_>, target: &Path) -> bool {

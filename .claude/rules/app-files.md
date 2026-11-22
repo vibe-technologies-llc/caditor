@@ -36,8 +36,8 @@ paths:
 ## File workflow
 
 - `files.rs` owns the File menu and shortcuts; `files/dialogs.rs` draws its dialogs (opening, the
-  unsaved-changes prompt, both "Closing…" waits, replacing, changed on disk, the load report and the
-  recovery offer). Native dialogs
+  unsaved-changes prompt, both "Closing…" waits, replacing, changed on disk, reloading over unsaved
+  changes, the load report and the recovery offer). Native dialogs
   run on their own thread (`contained::spawn`); recovery scans and other file checks run on the files worker, each job
   under `catch_unwind` so a panic becomes its failure. Opening and imports never use the files
   worker: each runs on a thread of its own (`Files::spawn_own`, named `open` or `import`, on the UI
@@ -128,6 +128,30 @@ paths:
   model's session (`FileEvent::ChangedOnDisk`, `Files::changed_on_disk`); once another model is open
   `poll` drops it with a notice (`not_saved_for_another_model`), so Replace never writes another model
   over that file.
+- When the window regains focus (`egui::Event::WindowFocused(true)`, which egui-winit makes of
+  winit's `Focused(true)`; `files::show` turns it into `FileCommand::CheckOnDisk`), a model with a
+  path and a head digest (`Model::last_seen_on_disk`) is compared on the files worker by
+  `caditor_file::compare_on_disk`, one check at a time and none while saving, opening or closing.
+  `Event::DiskCompared` is taken only while the session, path and digest it started from are still
+  the model's and no save runs, so a save finishing meanwhile never reads as an outside change.
+  `files/on_disk.rs` (`DiskWatch`) keeps what it found: a non-modal notice at the top of the view
+  (`on_disk::show`: a warning `widgets::callout` in a dialog frame, its text a polite live region)
+  stays until answered, as long as no modal dialog or the palette is open. A changed file offers
+  Reload (primary) and Dismiss; a file gone or unreadable only Dismiss, since saving writes it again
+  (the guard lets a save through when the file is absent). Both are also palette commands
+  (`Command::ReloadFromDisk`, `DismissOutsideChange`). Dismiss remembers that state
+  (`DiskWatch::dismissed`) and the same state is not told again; another state, a check finding the
+  file as last seen, a save (`FileEvent::Saved`) or another model or path drops both.
+- Reload without unsaved changes runs `Intent::Reload`; with them it asks (`dialogs::reload_prompt`,
+  mirroring the save prompt): Save a copy… primary (a Save As pick with `AfterSave::Continue` of the
+  reload), Reload and discard far left as a `danger_button`, since the replaced model's journal is
+  discarded and its changes are kept nowhere, and Cancel. `Intent::Reload` of the open model's own
+  path opens with `Origin::Reload` (the "Reloading …" dialog): `reload_file` skips the already-open
+  refusal and takes the journal answering `InUse` as the window's own, else it goes through
+  `journal_for` and the load like Open (a recoverable journal is offered, set-aside ones noted, a
+  damaged file reported), and `finish_open` replaces the model, so its journal is handed over as for
+  any open, and says "Reloaded …". After Save a copy the model's path is the copy, so the reload is
+  an ordinary Open of the original.
 - Each dialog purpose remembers the folder last picked for the app session (`Folder`: open, import,
   export, drawing, parameter and configuration files; the image export keeps its own), else the model's folder, else
   the most recent file's. Save as and templates keep their own. The export folders outlast the

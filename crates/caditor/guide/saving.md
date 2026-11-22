@@ -35,6 +35,17 @@ copy or replace it; replacing keeps the other contents as a [version](version-hi
 open or start another model before answering, the question is dropped and the file keeps what the
 other program saved.
 
+You do not have to wait for a save to find out. Whenever you come back to the caditor window, it
+looks at the model's file in the background, and if another program, such as a sync client or
+caditor on another computer, saved over it, a notice at the top of the 3D view says so until you
+answer it. **Reload** ({command:file.reload_from_disk}) opens the file as it is now in place of the
+model shown, just as opening it would. With changes not yet saved, Reload asks first: **Save a
+copy…** keeps them in a file of their own and then reloads, **Reload and discard** loses them, and
+Cancel keeps editing. **Dismiss** ({command:file.dismiss_outside_change}) keeps editing too; the
+notice comes back only if the file changes again, and saving still asks before replacing it. If
+the file was moved or deleted, or can no longer be read, the notice says so without Reload, and
+saving writes the file again.
+
 A model holds at most 10,000 parameters and features in all, the most a model file is opened
 with. A change that would take it past that, such as adding or pasting features or importing
 parameters or bodies, is not made and says so; delete some first, or split the work between

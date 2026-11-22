@@ -60,6 +60,7 @@ mod button_sweep;
 mod cancel_and_parameters;
 mod canvas_guidance;
 mod canvas_overlays;
+mod changed_on_disk;
 mod click_picks;
 mod coils;
 mod combine;

@@ -1075,6 +1075,45 @@ fn a_save_over_a_file_changed_since_it_was_opened_is_refused_unless_replacing() 
     assert_eq!(kept.document, sample());
 }
 
+#[test]
+fn a_file_on_disk_compares_with_the_head_last_seen_as_the_save_guard_does() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+
+    save(&Document::default(), &path, false).unwrap();
+
+    let opened = load(&path).unwrap().digest.unwrap();
+
+    assert_eq!(compare_on_disk(&path, &opened), DiskState::AsLastSeen);
+
+    save(&sample(), &path, false).unwrap();
+
+    let outside = load(&path).unwrap().digest;
+
+    assert_eq!(
+        compare_on_disk(&path, &opened),
+        DiskState::Changed { head: outside }
+    );
+
+    fs::write(&path, b"not a model").unwrap();
+
+    assert_eq!(
+        compare_on_disk(&path, &opened),
+        DiskState::Changed { head: None }
+    );
+
+    fs::remove_file(&path).unwrap();
+
+    assert_eq!(compare_on_disk(&path, &opened), DiskState::Gone);
+
+    fs::create_dir(&path).unwrap();
+
+    assert_eq!(
+        compare_on_disk(&path, &opened),
+        DiskState::Unreadable(ReadFailure::IsAFolder)
+    );
+}
+
 fn a_png_picture(fill: u8) -> Preview {
     let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 

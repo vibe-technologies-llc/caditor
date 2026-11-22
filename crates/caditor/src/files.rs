@@ -21,14 +21,14 @@ use caditor_document::{
 };
 use caditor_file::{
     Closing, ConfigurationFileError, Construction, DRAWING_IMPORT_EXTENSIONS, DiscardError,
-    Drawing, DrawingExported, DrawingSheet, ExportError, ExportFormat, FILE_EXTENSION,
-    FaceExported, FileJournal, Handover, History, ImportError, KeepRequest, LoadError, Loaded,
-    MESH_IMPORT_EXTENSIONS, MeshUnit, ModelImport, NamedFace, NamedSketch, PARAMETERS_EXTENSION,
-    PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage, RecentChange, RecentFiles,
-    Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings,
-    SheetExported, SheetFormat, SheetLayout, SketchExported, SketchFormat, TextOutlines,
-    UpdateFailure, describe_set_aside, journal_for, load_cancellable, load_listed_version,
-    read_drawing, same_file_blocking, scan,
+    DiskState, Drawing, DrawingExported, DrawingSheet, ExportError, ExportFormat, FILE_EXTENSION,
+    FaceExported, FileDigest, FileJournal, Handover, History, ImportError, KeepRequest, LoadError,
+    Loaded, MESH_IMPORT_EXTENSIONS, MeshUnit, ModelImport, NamedFace, NamedSketch,
+    PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage,
+    RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError,
+    SavedState, Settings, SheetExported, SheetFormat, SheetLayout, SketchExported, SketchFormat,
+    TextOutlines, UpdateFailure, compare_on_disk, describe_set_aside, journal_for,
+    load_cancellable, load_listed_version, read_drawing, same_file_blocking, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -40,9 +40,10 @@ use self::{
     configurations::{ConfigurationFileCommand, ConfigurationImportDraft},
     dialogs::{
         changed_on_disk, closing, confirm_replace, finishing_exports, guard, opening, recovery,
-        show_report,
+        reload_prompt, show_report,
     },
     fusion_app::FusionApp,
+    on_disk::{DiskChoice, DiskWatch, Outside, OutsideChange, ReloadChoice},
     parameters::{ParameterImportDraft, ParametersCommand},
     recent_pictures::{Outcome as RecentPicture, RecentPictures},
     remembered::{ExportFolders, RememberedExports},
@@ -96,6 +97,7 @@ pub mod cloud_send;
 pub mod configurations;
 mod dialogs;
 pub mod fusion_app;
+pub mod on_disk;
 pub mod parameters;
 mod pictures;
 mod recent_pictures;
@@ -124,6 +126,9 @@ const EXPORT_MENU: &str = "Export";
 const CLOUD_MENU: &str = "Cloud";
 const NO_RECENT: &str = "No model has been opened or saved yet";
 const NOT_FOUND: &str = "(not found)";
+const NO_OUTSIDE_CHANGE: &str = "The model's file has not been changed by another program";
+const NOT_RELOADABLE: &str =
+    "There is nothing to reload: the model's file has not been changed by another program";
 pub const EXPORT_AGAIN_HINT: &str = "Export the model again to the file it was last exported to, \
                                      with the same format and choices, without asking for a file";
 const SHOW_EXPORT_HINT: &str =
@@ -179,6 +184,9 @@ pub enum FileCommand {
     Quit,
     Guard(GuardChoice),
     OutsideChange(OutsideChangeChoice),
+    CheckOnDisk,
+    OnDisk(DiskChoice),
+    Reload(ReloadChoice),
     ShowRecovery,
     HideRecovery,
     Restore(PathBuf),
@@ -668,6 +676,7 @@ struct Opened {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Origin {
     File,
+    Reload,
     Template,
     DefaultTemplate,
 }
@@ -989,6 +998,12 @@ enum Event {
         session: u64,
         attempt: u64,
     },
+    DiskCompared {
+        path: PathBuf,
+        session: u64,
+        last_seen: FileDigest,
+        state: Option<DiskState>,
+    },
 }
 
 impl Event {
@@ -1020,6 +1035,7 @@ enum Intent {
     Template(Option<PathBuf>),
     Sample(Sample),
     Open(Option<PathBuf>),
+    Reload(PathBuf),
     Restore { journal: PathBuf, suppressed: bool },
     Replace(Box<Opened>),
     Quit,
@@ -1241,6 +1257,7 @@ pub struct Files {
     pick_ticket: u64,
     confirm_replace: Option<(Replacement, u64)>,
     changed_on_disk: Option<(PathBuf, u64)>,
+    on_disk: DiskWatch,
     closing: Option<StorageClosing>,
     waiting_for_exports: Option<ExportWait>,
     stored_settings: Option<Settings>,
@@ -1314,6 +1331,7 @@ impl Files {
             pick_ticket: 0,
             confirm_replace: None,
             changed_on_disk: None,
+            on_disk: DiskWatch::default(),
             closing: None,
             waiting_for_exports: None,
             stored_settings: None,
@@ -1420,6 +1438,7 @@ impl Files {
             || self.waiting_for_exports.is_some()
             || self.confirm_replace.is_some()
             || self.changed_on_disk.is_some()
+            || self.on_disk.asking().is_some()
             || self.opening.is_some()
             || self.report.is_some()
             || self.arranging.is_some()
@@ -1602,6 +1621,10 @@ impl Files {
                     OutsideChangeChoice::Cancel => self.after_save = None,
                 }
             }
+            FileCommand::CheckOnDisk => self.check_on_disk(model),
+            FileCommand::OnDisk(DiskChoice::Dismiss) => self.on_disk.dismiss(),
+            FileCommand::OnDisk(DiskChoice::Reload) => self.reload(model),
+            FileCommand::Reload(choice) => self.reload_chosen(choice, model),
             FileCommand::ShowRecovery => self.recovery_open = true,
             FileCommand::HideRecovery => {
                 self.recovery_open = false;
@@ -2152,6 +2175,7 @@ impl Files {
             changed = true;
             match event {
                 FileEvent::Saved(path) => {
+                    self.on_disk.forget();
                     self.saved_folder = path.parent().map(Path::to_path_buf);
                     if self.history.path() == Some(&path) {
                         self.list_versions();
@@ -2196,9 +2220,103 @@ impl Files {
         if self.drop_outside_change_of_another_model(model) {
             changed = true;
         }
+        if self.on_disk.forget_unless(model.path(), model.session()) {
+            changed = true;
+        }
         self.import_next(model);
         self.history.compare_preview(model);
         changed
+    }
+
+    pub fn outside_change(&self) -> Option<&OutsideChange> {
+        self.on_disk.shown()
+    }
+
+    fn check_on_disk(&mut self, model: &Model) {
+        let (Some(path), Some(last_seen)) = (model.path(), model.last_seen_on_disk()) else {
+            return;
+        };
+
+        if self.on_disk.is_checking()
+            || model.is_saving()
+            || self.opening.is_some()
+            || self.closing.is_some()
+        {
+            return;
+        }
+
+        let path = path.to_path_buf();
+        let last_seen = last_seen.clone();
+        let session = model.session();
+
+        let failed = (path.clone(), last_seen.clone());
+
+        self.on_disk.start_check();
+        self.spawn(
+            move || {
+                let state = compare_on_disk(&path, &last_seen);
+                Event::DiskCompared {
+                    path,
+                    session,
+                    last_seen,
+                    state: Some(state),
+                }
+            },
+            move || Event::DiskCompared {
+                path: failed.0,
+                session,
+                last_seen: failed.1,
+                state: None,
+            },
+        );
+    }
+
+    fn disk_compared(
+        &mut self,
+        path: PathBuf,
+        session: u64,
+        last_seen: &FileDigest,
+        state: Option<DiskState>,
+        model: &Model,
+    ) {
+        let still_current = session == model.session()
+            && model.path() == Some(path.as_path())
+            && model.last_seen_on_disk() == Some(last_seen)
+            && !model.is_saving();
+
+        match state {
+            Some(state) if still_current => {
+                self.on_disk.compared(path, session, Outside::of(state))
+            }
+            Some(_) | None => self.on_disk.check_stopped(),
+        }
+    }
+
+    fn reload(&mut self, model: &mut Model) {
+        let Some(path) = self.on_disk.reloadable().map(Path::to_path_buf) else {
+            return;
+        };
+        if model.is_dirty() {
+            self.on_disk.ask();
+        } else {
+            self.run(Intent::Reload(path), model);
+        }
+    }
+
+    fn reload_chosen(&mut self, choice: ReloadChoice, model: &mut Model) {
+        let Some(path) = self.on_disk.asking().map(Path::to_path_buf) else {
+            return;
+        };
+
+        self.on_disk.stop_asking();
+        match choice {
+            ReloadChoice::SaveCopy => {
+                self.after_save = Some(AfterSave::Continue(Intent::Reload(path)));
+                self.pick_save_path(model);
+            }
+            ReloadChoice::Discard => self.run(Intent::Reload(path), model),
+            ReloadChoice::Cancel => {}
+        }
     }
 
     fn drop_outside_change_of_another_model(&mut self, model: &mut Model) -> bool {
@@ -2219,6 +2337,12 @@ impl Files {
             self.finish_write(kind, path);
         }
         match event {
+            Event::DiskCompared {
+                path,
+                session,
+                last_seen,
+                state,
+            } => self.disk_compared(path, session, &last_seen, state, model),
             Event::ScanFailed => model.set_notice(Notice::failure(
                 "caditor could not look for unsaved work from an earlier session. It will look \
                  again the next time it starts.",
@@ -2298,8 +2422,12 @@ impl Files {
                 outcome,
             } => {
                 if attempt == self.open_attempt {
-                    self.opening = None;
-                    self.opened(path, since, outcome, model);
+                    let origin = self
+                        .opening
+                        .take()
+                        .map_or(Origin::File, |opening| opening.origin);
+
+                    self.opened(path, origin, since, outcome, model);
                 }
             }
             Event::TemplatesListed { listed, then } => self.templates_listed(listed, then, model),
@@ -3157,7 +3285,14 @@ impl Files {
         })
     }
 
-    fn opened(&mut self, path: PathBuf, since: Since, outcome: OpenOutcome, model: &mut Model) {
+    fn opened(
+        &mut self,
+        path: PathBuf,
+        origin: Origin,
+        since: Since,
+        outcome: OpenOutcome,
+        model: &mut Model,
+    ) {
         let name = display_name(Some(&path));
         match outcome {
             OpenOutcome::Loaded { loaded, notes } => {
@@ -3165,7 +3300,7 @@ impl Files {
                     path,
                     loaded: *loaded,
                     notes,
-                    origin: Origin::File,
+                    origin,
                 };
                 if since.has_new_unsaved_changes(model) {
                     self.guard = Some(Intent::Replace(Box::new(opened)));
@@ -3282,7 +3417,16 @@ impl Files {
             Intent::Open(None) => {
                 self.pick(Purpose::Open, model);
             }
-            Intent::Open(Some(path)) => self.open(path, Since::now(model), model),
+            Intent::Open(Some(path)) => self.open(path, Origin::File, Since::now(model), model),
+            Intent::Reload(path) => {
+                let origin = if model.path() == Some(path.as_path()) {
+                    Origin::Reload
+                } else {
+                    Origin::File
+                };
+
+                self.open(path, origin, Since::now(model), model);
+            }
             Intent::Restore {
                 journal,
                 suppressed,
@@ -3407,7 +3551,7 @@ impl Files {
             self.note_export(purpose, path);
         }
         match (purpose, path) {
-            (Purpose::Open, Some(path)) => self.open(path, since, model),
+            (Purpose::Open, Some(path)) => self.open(path, Origin::File, since, model),
             (Purpose::SaveAs, Some(path)) => self.save_as(path, since.session, model),
             (Purpose::Template, Some(path)) => {
                 self.load_template(path, Origin::Template, since);
@@ -3601,10 +3745,10 @@ impl Files {
         true
     }
 
-    fn open(&mut self, path: PathBuf, since: Since, model: &mut Model) {
+    fn open(&mut self, path: PathBuf, origin: Origin, since: Since, model: &mut Model) {
         self.abandon_open();
 
-        let opening = Opening::new(path.clone(), Origin::File);
+        let opening = Opening::new(path.clone(), origin);
         let cancel = opening.token();
 
         self.opening = Some(opening);
@@ -3629,9 +3773,14 @@ impl Files {
                     scanning: &scanning,
                     cancel: &cancel,
                 };
-                let outcome = open_file(&path, current.as_deref(), &journals, |path| {
-                    loader(path, &cancel)
-                });
+                let load = |path: &Path| loader(path, &cancel);
+
+                let outcome = match origin {
+                    Origin::Reload => reload_file(&path, &journals, load),
+                    Origin::File | Origin::Template | Origin::DefaultTemplate => {
+                        open_file(&path, current.as_deref(), &journals, load)
+                    }
+                };
                 Event::Opened {
                     path,
                     since,
@@ -3724,7 +3873,7 @@ impl Files {
             origin,
         } = opened;
 
-        if origin != Origin::File {
+        if matches!(origin, Origin::Template | Origin::DefaultTemplate) {
             if !loaded.issues.is_empty() {
                 self.report = Some(Report {
                     heading: format!(
@@ -3762,6 +3911,11 @@ impl Files {
         }
         self.remember(path.clone());
         model.replace(loaded.document, Some(path), loaded.digest, damaged);
+        if origin == Origin::Reload {
+            model.set_notice(Notice::success(format!(
+                "Reloaded “{name}” as another program saved it."
+            )));
+        }
     }
 
     fn remember(&mut self, path: PathBuf) {
@@ -4148,6 +4302,27 @@ fn open_file(
         FileJournal::None => Vec::new(),
         FileJournal::SetAside(kept) => kept,
     };
+    loaded_or_failed(path, &set_aside, load)
+}
+
+fn reload_file(
+    path: &Path,
+    journals: &Journals<'_>,
+    load: impl FnOnce(&Path) -> Result<Loaded, LoadError>,
+) -> OpenOutcome {
+    let set_aside = match journal_for(path, journals.recovery_dir) {
+        FileJournal::Recoverable(recovered) => return OpenOutcome::Recoverable(recovered),
+        FileJournal::SetAside(kept) => kept,
+        FileJournal::InUse | FileJournal::None => Vec::new(),
+    };
+    loaded_or_failed(path, &set_aside, load)
+}
+
+fn loaded_or_failed(
+    path: &Path,
+    set_aside: &[PathBuf],
+    load: impl FnOnce(&Path) -> Result<Loaded, LoadError>,
+) -> OpenOutcome {
     match load(path) {
         Ok(loaded) => OpenOutcome::Loaded {
             loaded: Box::new(loaded),
@@ -4537,6 +4712,16 @@ pub fn menu(
     {
         actions.push(Action::File(FileCommand::RevertToSaved));
     }
+
+    let outside = files.outside_change().ok_or(NO_OUTSIDE_CHANGE);
+    let reloadable = files.on_disk.reloadable().map(|_| ()).ok_or(NOT_RELOADABLE);
+
+    if commands.invoke(Command::ReloadFromDisk, &reloadable) {
+        actions.push(Action::File(FileCommand::OnDisk(DiskChoice::Reload)));
+    }
+    if commands.invoke(Command::DismissOutsideChange, &outside) {
+        actions.push(Action::File(FileCommand::OnDisk(DiskChoice::Dismiss)));
+    }
     if commands.invoke(Command::KeepDrawingConstruction, &Ok::<(), String>(()))
         || chosen.contains(&Command::KeepDrawingConstruction)
     {
@@ -4791,6 +4976,9 @@ pub fn show(
     let ctx = ui.ctx().clone();
     let mut command = None;
 
+    if regained_focus(&ctx) {
+        actions.push(Action::File(FileCommand::CheckOnDisk));
+    }
     if let Some(storage) = &files.closing {
         command = closing(&ctx, storage.since);
     } else if let Some(waiting) = &files.waiting_for_exports {
@@ -4808,6 +4996,8 @@ pub fn show(
         command = confirm_replace(&ctx, replacement).map(FileCommand::Replace);
     } else if let Some((path, _)) = &files.changed_on_disk {
         command = changed_on_disk(&ctx, path).map(FileCommand::OutsideChange);
+    } else if let Some(path) = files.on_disk.asking() {
+        command = reload_prompt(&ctx, path).map(FileCommand::Reload);
     } else if let Some(report) = &files.report {
         command = show_report(&ctx, report);
     } else if let Some(arranging) = &files.arranging {
@@ -4851,6 +5041,15 @@ pub fn show(
     if let Some(command) = command {
         actions.push(Action::File(command));
     }
+}
+
+fn regained_focus(ctx: &egui::Context) -> bool {
+    ctx.input(|input| {
+        input
+            .events
+            .iter()
+            .any(|event| matches!(event, egui::Event::WindowFocused(true)))
+    })
 }
 
 #[cfg(test)]

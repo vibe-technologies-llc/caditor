@@ -1015,6 +1015,10 @@ impl Model {
         self.path.as_deref()
     }
 
+    pub fn last_seen_on_disk(&self) -> Option<&FileDigest> {
+        self.on_disk.as_ref()
+    }
+
     pub fn display_name(&self) -> String {
         display_name(self.path())
     }

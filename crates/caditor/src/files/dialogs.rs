@@ -8,7 +8,7 @@ use egui::{Sides, Ui};
 
 use super::{
     ExportWait, FileCommand, Files, GuardChoice, Intent, Origin, OutsideChangeChoice, Replacement,
-    Report,
+    Report, on_disk::ReloadChoice,
 };
 use crate::{
     appearance::{self, SPACE_S},
@@ -32,6 +32,11 @@ pub(super) fn opening(ctx: &egui::Context, path: &Path, origin: Origin) -> Optio
             format!("Opening “{name}”…"),
             "Reading the model and checking it for unsaved work…",
             "Stop opening it and keep the current model",
+        ),
+        Origin::Reload => (
+            format!("Reloading “{name}”…"),
+            "Reading the model as it is on disk now…",
+            "Stop reloading it and keep the model shown here",
         ),
         Origin::Template | Origin::DefaultTemplate => (
             format!("Starting from “{name}”…"),
@@ -65,6 +70,7 @@ pub(super) fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Opti
         | Intent::Template(_)
         | Intent::Sample(_)
         | Intent::Open(_)
+        | Intent::Reload(_)
         | Intent::Restore { .. }
         | Intent::Replace(_) => (
             "If you continue without saving, your changes will be lost.",
@@ -299,6 +305,44 @@ pub(super) fn changed_on_disk(ctx: &egui::Context, path: &Path) -> Option<Outsid
     let closed = response
         .should_close()
         .then_some(OutsideChangeChoice::Cancel);
+    response.inner.or(closed)
+}
+
+pub(super) fn reload_prompt(ctx: &egui::Context, path: &Path) -> Option<ReloadChoice> {
+    let name = display_name(Some(path));
+    let title = format!("Reload “{name}” and discard your changes?");
+    let response = widgets::dialog(ctx, "reload-from-disk", &title, DialogWidth::Medium, |ui| {
+        widgets::dialog_body(ui, |ui| {
+            ui.label(format!(
+                "Another program, such as a sync client or caditor on another computer, saved \
+                 over “{name}”. Reloading opens that version here, and the changes you have not \
+                 saved are lost: they are not kept as a version or for recovery. Saving a copy \
+                 keeps them in a file of their own first."
+            ))
+        });
+        widgets::footer_split(
+            ui,
+            |ui| {
+                ui.add(widgets::danger_button("Reload and discard"))
+                    .on_hover_text("Open the file as it is on disk; your unsaved changes are lost")
+                    .clicked()
+                    .then_some(ReloadChoice::Discard)
+            },
+            |ui| {
+                if ui
+                    .add(widgets::primary_button(ui, "Save a copy…"))
+                    .on_hover_text("Save your changes under another name, then reload the file")
+                    .clicked()
+                {
+                    return Some(ReloadChoice::SaveCopy);
+                }
+                ui.add(widgets::button("Cancel"))
+                    .clicked()
+                    .then_some(ReloadChoice::Cancel)
+            },
+        )
+    });
+    let closed = response.should_close().then_some(ReloadChoice::Cancel);
     response.inner.or(closed)
 }
 

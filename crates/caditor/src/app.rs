@@ -1652,6 +1652,15 @@ pub fn show(
                 )));
             }
         }
+        if let Some(change) = files
+            .outside_change()
+            .filter(|_| !modal_open && !palette_open)
+        {
+            let room = viewport.rect().unwrap_or_else(|| ui.ctx().content_rect());
+            if let Some(choice) = files::on_disk::show(ui.ctx(), room, change) {
+                actions.push(Action::File(FileCommand::OnDisk(choice)));
+            }
+        }
         feature_tree::delete_dialog(ui.ctx(), model.document(), panels, actions);
         parameter_table::note_dialog(ui.ctx(), model.document(), panels, actions);
         if let Some((hint, rect)) = hint.filter(|_| !palette_open)
