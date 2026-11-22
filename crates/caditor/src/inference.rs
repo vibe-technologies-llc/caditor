@@ -11,6 +11,7 @@ pub enum Inference {
     Parallel,
     Perpendicular,
     Tangent,
+    EqualLength,
     Coincident,
     OnCurve,
     Midpoint,
@@ -21,12 +22,13 @@ pub enum Inference {
 }
 
 impl Inference {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Horizontal,
         Self::Vertical,
         Self::Parallel,
         Self::Perpendicular,
         Self::Tangent,
+        Self::EqualLength,
         Self::Coincident,
         Self::OnCurve,
         Self::Midpoint,
@@ -44,6 +46,8 @@ impl Inference {
         Self::Tangent,
     ];
 
+    pub const LENGTHS: [Self; 1] = [Self::EqualLength];
+
     pub const TARGETS: [Self; 6] = [
         Self::Coincident,
         Self::OnCurve,
@@ -60,6 +64,7 @@ impl Inference {
             Self::Parallel => "sketch.infer.parallel",
             Self::Perpendicular => "sketch.infer.perpendicular",
             Self::Tangent => "sketch.infer.tangent",
+            Self::EqualLength => "sketch.infer.equal_length",
             Self::Coincident => "sketch.infer.coincident",
             Self::OnCurve => "sketch.infer.on_curve",
             Self::Midpoint => "sketch.infer.midpoint",
@@ -77,6 +82,7 @@ impl Inference {
             Self::Parallel => "Parallel",
             Self::Perpendicular => "Perpendicular",
             Self::Tangent => "Tangent",
+            Self::EqualLength => "Equal length",
             Self::Coincident => "Coincident with a point",
             Self::OnCurve => "On a curve",
             Self::Midpoint => "At a midpoint",
@@ -98,6 +104,9 @@ impl Inference {
             Self::Tangent => {
                 "A line leaving a circle or arc, or ending where it would touch one, becomes \
                  tangent to it"
+            }
+            Self::EqualLength => {
+                "A line drawn nearly as long as a nearby line becomes equal in length to it"
             }
             Self::Coincident => "A point placed on an existing point joins it",
             Self::OnCurve => "A point placed on a line, circle, arc, spline or axis stays on it",
@@ -215,6 +224,7 @@ mod tests {
 
         let grouped: Vec<Inference> = Inference::DIRECTIONS
             .into_iter()
+            .chain(Inference::LENGTHS)
             .chain(Inference::TARGETS)
             .chain([Inference::Tracks])
             .collect();

@@ -396,11 +396,11 @@ fn a_line_drawn_nearly_parallel_to_a_slanted_line_is_kept_parallel_in_one_undoab
     let slanted = entities_of_kind(harness.sketch(feature), "Line")[0];
 
     harness.click_at(Point2::new(10.0, 10.0));
-    harness.point_at(Point2::new(40.0, 30.4));
+    harness.point_at(Point2::new(31.0, 24.3));
 
     assert!(harness.shows(&format!("Parallel to Line {slanted}")));
 
-    harness.click_at(Point2::new(40.0, 30.4));
+    harness.click_at(Point2::new(31.0, 24.3));
 
     let sketch = harness.sketch(feature);
     let lines = entities_of_kind(sketch, "Line");
@@ -446,11 +446,11 @@ fn a_chained_line_turned_nearly_square_is_kept_perpendicular_to_the_last() {
 
     let first = entities_of_kind(harness.sketch(feature), "Line")[0];
 
-    harness.point_at(Point2::new(20.0, 60.4));
+    harness.point_at(Point2::new(28.0, 48.3));
 
     assert!(harness.shows(&format!("Perpendicular to Line {first}")));
 
-    harness.click_at(Point2::new(20.0, 60.4));
+    harness.click_at(Point2::new(28.0, 48.3));
 
     let sketch = harness.sketch(feature);
     let lines = entities_of_kind(sketch, "Line");

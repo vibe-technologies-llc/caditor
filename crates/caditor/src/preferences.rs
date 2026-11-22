@@ -1647,6 +1647,52 @@ mod tests {
     }
 
     #[test]
+    fn a_preferences_file_from_before_equal_length_reads_it_on_and_keeps_the_kinds_it_had() {
+        let dir = TempDir::new().unwrap();
+        let older = r#"{
+            "sketch.infer.horizontal": true,
+            "sketch.infer.vertical": true,
+            "sketch.infer.parallel": false,
+            "sketch.infer.perpendicular": true,
+            "sketch.infer.tangent": true,
+            "sketch.infer.coincident": true,
+            "sketch.infer.on_curve": false,
+            "sketch.infer.midpoint": true,
+            "sketch.infer.centre": true,
+            "sketch.infer.intersection": true,
+            "sketch.infer.quadrant": true,
+            "sketch.infer.tracks": true
+        }"#;
+
+        std::fs::write(dir.path().join("preferences.json"), older).unwrap();
+
+        let (settings, problem) = Settings::load_reporting(dir.path());
+        let read = Preferences::from_settings(settings);
+        let inferred = read.sketching.inferred;
+
+        assert!(problem.is_none());
+        assert!(inferred.allows(Inference::EqualLength));
+        assert!(!inferred.allows(Inference::Parallel));
+        assert!(!inferred.allows(Inference::OnCurve));
+
+        for kind in Inference::ALL {
+            assert_eq!(
+                inferred.allows(kind),
+                !matches!(kind, Inference::Parallel | Inference::OnCurve),
+                "{kind:?}"
+            );
+        }
+
+        read.settings().save(dir.path()).unwrap();
+
+        let saved = Settings::load(dir.path());
+
+        assert_eq!(saved.flag(Inference::EqualLength.key()), Some(true));
+        assert_eq!(saved.flag(Inference::Parallel.key()), Some(false));
+        assert_eq!(Preferences::from_settings(saved).sketching, read.sketching);
+    }
+
+    #[test]
     fn each_input_mode_hints_its_own_mouse_buttons_as_keys() {
         let hints: Vec<&str> = InputMode::ALL
             .into_iter()

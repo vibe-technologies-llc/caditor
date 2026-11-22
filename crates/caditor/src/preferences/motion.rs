@@ -182,6 +182,7 @@ pub fn sketching(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
         |ui| {
             for (caption, kinds) in [
                 ("Directions", Inference::DIRECTIONS.as_slice()),
+                ("Lengths", Inference::LENGTHS.as_slice()),
                 ("Targets", Inference::TARGETS.as_slice()),
                 ("Tracks", [Inference::Tracks].as_slice()),
             ] {

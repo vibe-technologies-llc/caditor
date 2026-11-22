@@ -665,6 +665,14 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   start point; perpendicular is offered. An arc's start (and an arc slot's ends), a polygon's corner
   from its centre and each spline control point from the one before take horizontal or vertical the
   same way (`Drawing::levelled_from`, `LEVEL_AND_UPRIGHT` only, `Direction::between`).
+- A line end (the Line tool only) placed free or on a direction, with no track, within
+  `EQUAL_LENGTH_TOLERANCE` on screen of the length of one of the same `NEARBY_LINES` lines (the
+  one the line continues from included) moves along its own ray to exactly that length
+  (`drawing::as_long_as_nearby`, `Placement::equal_to`), the nearest line on screen winning over
+  the closest length; it commits an `Equal` with that line, the label adds "equal length to" it and
+  the line is highlighted as a direction's reference is. Geometry snaps, tracks and the grid win
+  over it, and a locked length or heading, a typed point, Ctrl and Alt skip it, so a typed length
+  is never changed. Arcs, circles and the other shapes' sides infer no equal size.
 - Geometry snaps win over a direction, which joins only where compatible (`Snap::AlignedOn`): a point
   snap keeps a direction that already holds (`HELD_TOLERANCE`) and never moves the point; a curve snap
   moves to where the direction's ray crosses the curve, within `ALIGNED_CROSSING_TOLERANCE`. Typed
@@ -711,7 +719,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`inference.rs`: `Inference`, a set `Inferences` that is on for every kind unless stored off;
   `Sketching::inferred`, set on the `Drawing` every frame, `Drawing::infer`). A kind is the
   direction guides horizontal, vertical, parallel, perpendicular and tangent
-  (`Inferences::allows_direction`; tangent also covers a line end touching a round), the targets a
+  (`Inferences::allows_direction`; tangent also covers a line end touching a round), a line's equal
+  length (`as_long_as_nearby`), the targets a
   point snaps to (`Inferences::allows_target`: coincident for a point and a body corner, on a curve
   for curves, axes, extensions and body edges, midpoint, centre for an outline's centre and a round
   edge's centre, intersection, quadrant with ellipse axis ends) and the tracks. A disabled kind is

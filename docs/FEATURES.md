@@ -219,8 +219,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · small] An import's unit and scale are not remembered with its centring and plane
   (`app-files.md`): a read drawing does not say whether its file named a unit, so a remembered
   override could silently misread the next file. It needs the reader to report that first.
-- [low · small] Drawing does not infer equal length with a nearby line, as it infers parallel and
-  perpendicular.
 - [low · medium] No isolate that only changes the view: showing one body alone hides the others
   through the document, as undoable changes, rather than for the session.
 - [low · medium] No selection filters inside a sketch (points only, curves only, constraints

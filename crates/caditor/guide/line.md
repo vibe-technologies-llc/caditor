@@ -10,8 +10,9 @@ last ended, joined to it.
   anything else, undo, leave the sketch or click a new point.
 - Press and drag to draw a single line in one movement.
 
-While drawing, the line snaps to horizontal, vertical, parallel and perpendicular directions and to
-nearby geometry; a label names the snap and the length and angle show beside the pointer. Hold
+While drawing, the line snaps to horizontal, vertical, parallel and perpendicular directions, to
+the length of a nearby line (kept as an Equal constraint) and to nearby geometry; a label names the
+snap and the length and angle show beside the pointer. Hold
 Ctrl to place a point exactly where the pointer is.
 
 To round a turn, press on the chain's last point and drag: a tangent arc leaves the last line on

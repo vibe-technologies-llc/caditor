@@ -133,10 +133,10 @@ See [moving around the view](navigation).
   finishes the sketch once there is nothing left to cancel. Off, Escape still cancels shapes,
   tools and the selection, and Finish sketch finishes.
 - **Constraints drawing infers**: which kinds a point placed while drawing or dragged may be held
-  to, each with its own box: horizontal, vertical, parallel, perpendicular and tangent lines;
-  coincident with a point, on a curve, at a midpoint, at the centre of an outline, at an
-  intersection and at a quadrant or axis end; and in line with a point the pointer passed over. All
-  start on. An unticked kind is neither offered while drawing or dragging nor made a constraint;
+  to, each with its own box: horizontal, vertical, parallel, perpendicular and tangent lines; a
+  line as long as a nearby one; coincident with a point, on a curve, at a midpoint, at the centre
+  of an outline, at an intersection and at a quadrant or axis end; and in line with a point the
+  pointer passed over. All start on. An unticked kind is neither offered while drawing or dragging nor made a constraint;
   the constraint tools still add it by hand. See [snapping](snapping).
 - **On when caditor starts**: constraint glyphs, snapping, snapping to the grid, keeping typed
   values as dimensions, dimensions shown on the model, and auto-hiding crowded dimensions and

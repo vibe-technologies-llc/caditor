@@ -347,6 +347,7 @@ impl Section {
                 "parallel",
                 "perpendicular",
                 "tangent",
+                "equal length",
                 "coincident",
                 "midpoint",
                 "intersection",

@@ -698,8 +698,8 @@ paths:
   `sketch.auto_hide_marks`
   (`StartingToggles`, set on the viewport at startup and again when one of them changes, the
   toggles staying session state), one flag per kind of constraint drawing infers
-  (`sketch.infer.horizontal`, `vertical`, `parallel`, `perpendicular`, `tangent`, `coincident`,
-  `on_curve`, `midpoint`, `centre`, `intersection`, `quadrant`, `tracks`: `Inference`,
+  (`sketch.infer.horizontal`, `vertical`, `parallel`, `perpendicular`, `tangent`, `equal_length`,
+  `coincident`, `on_curve`, `midpoint`, `centre`, `intersection`, `quadrant`, `tracks`: `Inference`,
   `Sketching::inferred`, each on unless stored off, so a file without them and a kind added later
   start on; Preferences › Sketching › Constraints drawing infers, a resettable section handed to the
   viewport every frame, `app-sketching.md`), `files.startup` (`empty`, `last`), `files.recent_listed` (`3`,

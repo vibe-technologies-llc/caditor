@@ -28,7 +28,11 @@ circle passes through the point and stays on it when you let go.
 ## Directions and tracking
 
 A line near horizontal or vertical, or near parallel or perpendicular to a nearby line, takes that
-direction exactly. What you hover is remembered for a while: points, the middle of a line or arc,
+direction exactly. A line nearly as long as a nearby line takes exactly its length and keeps it as
+an Equal constraint, in whatever direction it was drawn or snapped to; the label says "equal length
+to" and names the line, which lights up. Where several nearby lines are about as long, the one
+nearest the pointer wins. A point snapped to geometry or a guide, or a length you type, is never
+changed for it. What you hover is remembered for a while: points, the middle of a line or arc,
 where two curves cross, the centre of an outline, the right, top, left and bottom of a circle and
 the ends of an ellipse's axes. Moving level with one, or straight above or below it, shows a dashed
 guide and lines the new point up with it; from the middle of a line a guide also runs square to the
@@ -54,9 +58,9 @@ ring for along or square to a line, and a triangle round a dot for the centre of
   draw them in full. Alt steps along the same grid.
 
 - Preferences › Sketching › Constraints drawing infers turns off single kinds while snapping stays
-  on: horizontal, vertical, parallel, perpendicular, tangent, coincident with a point, on a curve,
-  at a midpoint, at the centre of an outline, at an intersection, at a quadrant or axis end, and
-  the tracks from points you passed over. A kind that is off is neither offered nor kept as a
+  on: horizontal, vertical, parallel, perpendicular, tangent, equal length, coincident with a
+  point, on a curve, at a midpoint, at the centre of an outline, at an intersection, at a quadrant
+  or axis end, and the tracks from points you passed over. A kind that is off is neither offered nor kept as a
   constraint while drawing or dragging, and the pointer snaps to whatever else is near.
 
 Dragging geometry with Select snaps the same way, bodies included, with Alt too: a point dragged
