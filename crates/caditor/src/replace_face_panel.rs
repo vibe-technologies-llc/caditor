@@ -22,6 +22,16 @@ pub const TARGET: &str = "Replace with";
 const PICK_HOVER: &str = "Replace the faces with the selected plane or face instead";
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 
+pub fn leave_out(model: &Model, feature: &Feature, replace: &ReplaceFace, index: usize) -> Action {
+    let mut changed = replace.clone();
+
+    changed.faces.remove(index);
+    feature_fields::applied(
+        &feature.name,
+        replace_face_tools::change(model, feature.id(), changed),
+    )
+}
+
 fn face_rows(
     document: &Document,
     input: Option<&SolidResult>,
@@ -87,13 +97,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                     .unwrap_or_default();
             }
             if row.removed {
-                let mut changed = replace.clone();
-
-                changed.faces.remove(index);
-                actions.push(feature_fields::applied(
-                    &feature.name,
-                    replace_face_tools::change(model, id, changed),
-                ));
+                actions.push(leave_out(model, feature, replace, index));
             }
         }
 

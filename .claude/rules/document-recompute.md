@@ -87,9 +87,15 @@ paths:
   every feature before it); which used features are
   suppressed is part of its key too.
 - A failing feature is `Failed` with a `FeatureError` (a typed `Cause`, a `FixTarget`, the
-  constraints involved and a model point `place` where the kernel gives one) and keeps its last good
-  result. `Failure::Error` boxes it, keeping every `Result` small. The `Cause` (`failure.rs`) is an
-  enum over the families that fail: shared ones (`Unevaluable` for an expression that does not
+  constraints involved, a model point `place` where the kernel gives one and the `pick` its words
+  name) and keeps its last good result. `pick` is a `FailingPick`, the stored `EdgeReference` or
+  `FaceReference` of the feature's own list whose resolution holds the edge or face the kernel
+  failed on (`FailingPick::edge`, `FailingPick::face`, `Failure::picking`): a blend's explicit edges
+  (never one only reached along a chain or taken with a face, body or rule), a shell's opened faces,
+  and the faces of an offset face, move face, replace face, delete face and draft (its own-angle
+  faces too). A failure naming a face or edge that is not one of the picks, or two of them, has
+  none. `Failure::Error` boxes it, keeping every `Result` small, and the pick is boxed too, keeping
+  `FeatureState` small. The `Cause` (`failure.rs`) is an enum over the families that fail: shared ones (`Unevaluable` for an expression that does not
   evaluate, `TooBig`, `Upstream` for a used feature that failed, is suppressed, is gone or a body
   that no longer stands, `Unmatched` for chosen faces or edges that no longer match, `SketchCause`
   for a sketch that does not solve) and one enum per feature family (`BlendCause`, `ShellCause`,

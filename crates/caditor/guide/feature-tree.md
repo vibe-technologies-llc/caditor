@@ -70,9 +70,11 @@ point; new features are added where the bar stands. {command:model.roll_to_end} 
 
 A failed feature is marked in its row with what went wrong and what to do; features that do not
 depend on it keep working. Show where frames the place in the view, and when the fix lies in the
-feature's own settings its Edit button opens it. {command:model.first_failed} goes to the next
-failure after the chosen row and {command:model.previous_failed} to the one before, both wrapping
-around.
+feature's own settings its Edit button opens it. When a fillet, chamfer, shell or face tool fails
+over one of the edges or faces chosen for it, **Leave this edge out** (or **Leave this face out**)
+takes that one off its list in a single undoable change, as its button in the panel would.
+{command:model.first_failed} goes to the next failure after the chosen row and
+{command:model.previous_failed} to the one before, both wrapping around.
 
 A feature still being set up, such as a circular pattern with no axis, a sweep with no path or an
 extrusion with no region chosen, is not a failure: its row shows a pointing hand and says what it is

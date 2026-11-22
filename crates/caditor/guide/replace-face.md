@@ -34,6 +34,8 @@ body's hole in one step. Only flat faces go onto a plane and only round faces on
 While it is open, click faces in the view to replace them or leave them out; hovering a face listed
 in the panel lights it in the view. **Choose in the view** in the panel first adds the faces of the
 body selected then.
+When it fails over one of its chosen faces, the failure in its row has **Leave this face out**,
+which takes that face off the list in one undoable change.
 
 The replaced faces keep their names, so later features still find them. A target square to a face,
 a target on or past the far side of the body (which would turn it inside out), a round target no

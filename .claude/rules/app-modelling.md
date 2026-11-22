@@ -65,6 +65,7 @@ paths:
   - "crates/caditor/src/new_sketch_panel.rs"
   - "crates/caditor/src/plane_selector.rs"
   - "crates/caditor/src/reference_rows.rs"
+  - "crates/caditor/src/leaving_out.rs"
   - "crates/caditor/src/principal_tree.rs"
   - "crates/caditor/src/feature_tree.rs"
   - "crates/caditor/src/reversing.rs"
@@ -763,6 +764,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   chamfer's, shell's, offset face's, move face's, draft's, replace face's, delete face's, emboss's or split face's panel lights that edge or face (its pieces when split) as hovered
   (`widgets::removable_row_hovered`, `RowCache::preview`, handed to `ViewportState::preview_entities`
   each frame).
+- A failed fillet's, chamfer's, shell's, offset face's, move face's, draft's, replace face's or
+  delete face's row callout offers Leave this edge out or Leave this face out when the failure
+  names one of its picks (`FeatureError::pick`, `document-recompute.md`): `leaving_out::listed`
+  finds that reference in the feature's list (a blend's edges, a shell's opened faces, a draft's
+  faces then its own-angle faces) and `leaving_out::leave_out` returns the panel's own removal
+  (`blend_panel::leave_out` and the like, the remove buttons of the rows calling the same), one
+  undoable change; leaving out an own-angle face of a draft drops it from both lists. Emboss and
+  split face failures name the sketch or tool rather than a pick and offer none.
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's list
   stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or the revision
   changes.

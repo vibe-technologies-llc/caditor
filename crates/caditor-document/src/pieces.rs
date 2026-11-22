@@ -30,6 +30,17 @@ impl<T> Resolution<T> {
         }
     }
 
+    pub(crate) fn holds(&self, item: &T) -> bool
+    where
+        T: PartialEq,
+    {
+        match self {
+            Self::One(found) => found == item,
+            Self::Pieces(pieces) => pieces.contains(item),
+            Self::Tied(_) | Self::Missing => false,
+        }
+    }
+
     pub fn found(&self) -> &[T] {
         match self {
             Self::One(item) => std::slice::from_ref(item),

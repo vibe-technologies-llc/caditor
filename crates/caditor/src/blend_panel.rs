@@ -339,6 +339,13 @@ fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) ->
     ReferenceRows { summary, rows }
 }
 
+pub fn leave_out(model: &Model, feature: &Feature, blend: &Blend, index: usize) -> Action {
+    let mut changed = blend.clone();
+
+    changed.remove_entry(index);
+    feature_fields::applied(&feature.name, change(model, feature.id(), changed))
+}
+
 pub struct EdgesRow<'a> {
     pub model: &'a Model,
     pub selection: &'a Selection,
@@ -381,13 +388,7 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
                 previewed = edge_pickables(model, id, blend, index);
             }
             if row.removed {
-                let mut changed = blend.clone();
-
-                changed.remove_entry(index);
-                actions.push(feature_fields::applied(
-                    &feature.name,
-                    change(model, id, changed),
-                ));
+                actions.push(leave_out(model, feature, blend, index));
             }
         }
         rule_row(ui, model, feature, blend, actions);

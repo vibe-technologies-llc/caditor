@@ -37,6 +37,13 @@ fn change(
     field::checked(document, transaction)
 }
 
+pub fn leave_out(model: &Model, feature: &Feature, deletion: &DeleteFace, index: usize) -> Action {
+    let mut changed = deletion.clone();
+
+    changed.faces.remove(index);
+    feature_fields::applied(&feature.name, change(model, feature.id(), changed))
+}
+
 fn face_rows(
     document: &Document,
     input: Option<&SolidResult>,
@@ -102,13 +109,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
                     .unwrap_or_default();
             }
             if row.removed {
-                let mut changed = deletion.clone();
-
-                changed.faces.remove(index);
-                actions.push(feature_fields::applied(
-                    &feature.name,
-                    change(model, id, changed),
-                ));
+                actions.push(leave_out(model, feature, deletion, index));
             }
         }
 

@@ -25,6 +25,8 @@ saying which edge cannot follow.
 While it is open, click faces in the view to move them or leave them out; hovering a face listed in
 the panel lights it in the view. **Choose in the view** in the panel first adds the faces of the body
 selected then.
+When it fails over one of its chosen faces, the failure in its row has **Leave this face out**,
+which takes that face off the list in one undoable change.
 
 The moved faces keep their names, so later features still find them. A move that would make a face
 vanish, faces cross or a neighbour unable to follow fails the feature alone, saying which face or

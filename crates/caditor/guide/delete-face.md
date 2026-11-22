@@ -25,7 +25,8 @@ While it is open, the body is shown as it will be and the deleted faces of the b
 drawn see-through in the selected colour; click a face to delete it, or a see-through one to keep
 it. The panel lists the chosen faces in words, each with a button to keep it, and hovering one
 lights it in the view. **Choose in the view** in the panel first adds the faces of the body
-selected then.
+selected then. When it fails over one of the faces to delete, the failure in its row has **Leave
+this face out**, which keeps that face in one undoable change.
 
 The faces that stay keep their names, so later features still find them. When the faces around the
 gap cannot close it, the feature fails alone and says which face to choose with it.

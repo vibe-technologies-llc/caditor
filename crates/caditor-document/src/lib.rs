@@ -237,8 +237,9 @@ pub use crate::{
         ModelProperty,
     },
     recompute::{
-        CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
-        FeatureStatus, FixTarget, Inputs, MissingInput, ModelEvaluator, Recompute, SketchResult,
+        CancelToken, Evaluation, Evaluator, FailingPick, Failure, FeatureError, FeatureResult,
+        FeatureState, FeatureStatus, FixTarget, Inputs, MissingInput, ModelEvaluator, Recompute,
+        SketchResult,
     },
     reference_image::{
         Calibration, DEFAULT_IMAGE_OPACITY_PERCENT, IMAGE_OPAQUE_PERCENT, ImagePlane, ImageSize,

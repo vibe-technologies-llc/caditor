@@ -37,6 +37,16 @@ pub struct FacesRow<'a> {
     pub opened: bool,
 }
 
+pub fn leave_out(model: &Model, feature: &Feature, moving: &MoveFace, index: usize) -> Action {
+    let mut changed = moving.clone();
+
+    changed.faces.remove(index);
+    feature_fields::applied(
+        &feature.name,
+        move_face_tools::change(model, feature.id(), changed),
+    )
+}
+
 struct Panel<'a, 'b> {
     row: &'a FacesRow<'b>,
     actions: &'a mut Vec<Action>,
@@ -102,11 +112,7 @@ impl Panel<'_, '_> {
                         .unwrap_or_default();
                 }
                 if row.removed {
-                    let mut changed = moving.clone();
-
-                    changed.faces.remove(index);
-                    self.actions
-                        .push(feature_fields::applied(&feature.name, self.change(changed)));
+                    self.actions.push(leave_out(model, feature, moving, index));
                 }
             }
 

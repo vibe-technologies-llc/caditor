@@ -349,6 +349,7 @@ fn blend_errors_name_the_edge_and_the_fix() {
 
     assert_eq!(error.reason(), "The radius must be more than zero.");
     assert_eq!(error.fix, Some(FixTarget::Feature(model.fillet)));
+    assert_eq!(error.pick, None);
 
     let id = model.radius;
 
@@ -379,6 +380,18 @@ fn blend_errors_name_the_edge_and_the_fix() {
         "Enter a smaller radius, or leave this edge out."
     );
     assert!(evaluation.body(model.base).is_some());
+
+    let picked = model
+        .document
+        .feature(model.fillet)
+        .and_then(|feature| feature.kind.blend())
+        .map(|blend| blend.edges.clone())
+        .unwrap();
+
+    assert!(matches!(
+        error.pick.as_deref(),
+        Some(FailingPick::Edge(edge)) if picked.contains(edge)
+    ));
 
     let id = model.radius;
 

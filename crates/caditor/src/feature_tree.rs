@@ -32,8 +32,8 @@ use crate::{
     feature_links,
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, helix_panel, hole_panel, icons, image_panel, import_panel, loft_panel, manipulator,
-    mate_panel, measurement_panel, mirror_panel, mirror_tools,
+    fonts, helix_panel, hole_panel, icons, image_panel, import_panel, leaving_out, loft_panel,
+    manipulator, mate_panel, measurement_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_face_panel, move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
@@ -1013,7 +1013,7 @@ fn feature_row(
             let callouts = ui.scope(|ui| {
                 match state_shown {
                     Some(FeatureState::Failed(error)) => {
-                        failure(ui, document, state, actions, row, error);
+                        failure(ui, model, state, actions, row, error);
                     }
                     Some(FeatureState::Waiting(missing)) => {
                         waiting(ui, document, actions, row, *missing);
@@ -3386,17 +3386,47 @@ pub fn commands(
     state.tree_offers = offers;
 }
 
+fn leave_out_button(
+    ui: &mut Ui,
+    model: &Model,
+    actions: &mut Vec<Action>,
+    row: &Row<'_>,
+    error: &FeatureError,
+) {
+    if !row.active() {
+        return;
+    }
+
+    let Some(listed) = error
+        .pick
+        .as_deref()
+        .and_then(|pick| leaving_out::listed(row.feature, pick))
+    else {
+        return;
+    };
+
+    let button = widgets::small_button(ui, icons::REMOVE, listed.label);
+    if ui.add(button).clicked()
+        && let Some(action) = leaving_out::leave_out(model, row.feature, listed.index)
+    {
+        actions.push(action);
+    }
+}
+
 fn failure(
     ui: &mut Ui,
-    document: &Document,
+    model: &Model,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     row: &Row<'_>,
     error: &FeatureError,
 ) {
+    let document = model.document();
+
     widgets::callout(ui, Tone::Error, |ui| {
         ui.label(error.reason());
         ui.label(widgets::muted(error.remedy(), ui));
+        leave_out_button(ui, model, actions, row, error);
         if let Some(place) = error.place {
             let button = widgets::small_button(ui, icons::SHOW_PLACE, SHOW_PLACE_LABEL);
             if ui.add(button).clicked() {

@@ -10,7 +10,8 @@ use crate::{
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{
-        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+        CancelToken, FailingPick, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
+        MissingInput,
     },
     solid::SolidResult,
 };
@@ -86,6 +87,14 @@ impl Context<'_> {
         names
     }
 
+    fn pick(&self, solid: &Solid, face: FaceId) -> Option<FailingPick> {
+        FailingPick::face(
+            &self.definition.faces,
+            &self.definition.resolutions(solid),
+            face,
+        )
+    }
+
     fn failure(&self, solid: &Solid, error: &DeleteError) -> Failure {
         let body = self.body_name.clone();
         match error {
@@ -95,12 +104,16 @@ impl Context<'_> {
             }),
             DeleteError::MissingFace(_) => self.error(DeleteFaceCause::FaceGone { body }),
             DeleteError::Everything => self.error(DeleteFaceCause::Everything { body }),
-            DeleteError::CannotClose(face) => self.error(DeleteFaceCause::CannotClose {
-                face: self.describe_face(solid, *face),
-            }),
-            DeleteError::Vanishes(face) => self.error(DeleteFaceCause::Vanishes {
-                face: self.describe_face(solid, *face),
-            }),
+            DeleteError::CannotClose(face) => self
+                .error(DeleteFaceCause::CannotClose {
+                    face: self.describe_face(solid, *face),
+                })
+                .picking(self.pick(solid, *face)),
+            DeleteError::Vanishes(face) => self
+                .error(DeleteFaceCause::Vanishes {
+                    face: self.describe_face(solid, *face),
+                })
+                .picking(self.pick(solid, *face)),
             DeleteError::Invalid { faces } => self.error(DeleteFaceCause::Invalid {
                 body,
                 near: self.describe_faces(solid, faces),

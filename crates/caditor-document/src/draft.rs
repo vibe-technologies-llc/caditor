@@ -17,7 +17,8 @@ use crate::{
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{
-        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+        CancelToken, FailingPick, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
+        MissingInput,
     },
     solid::SolidResult,
     split::{HalfSpaceError, half_space_solid},
@@ -303,16 +304,20 @@ impl Context<'_> {
             match check_draftable(solid, face, neutral) {
                 Ok(()) => {}
                 Err(DraftError::NotDraftable(_)) => {
-                    return Err(self.error(DraftCause::NotDraftable {
-                        face: self.describe(solid, face),
-                        chained,
-                    }));
+                    return Err(self
+                        .error(DraftCause::NotDraftable {
+                            face: self.describe(solid, face),
+                            chained,
+                        })
+                        .picking(self.pick(solid, face)));
                 }
                 Err(DraftError::OffPull(_)) => {
-                    return Err(self.error(DraftCause::OffPull {
-                        face: self.describe(solid, face),
-                        chained,
-                    }));
+                    return Err(self
+                        .error(DraftCause::OffPull {
+                            face: self.describe(solid, face),
+                            chained,
+                        })
+                        .picking(self.pick(solid, face)));
                 }
                 Err(error) => return Err(self.failure(solid, &error)),
             }
@@ -353,6 +358,20 @@ impl Context<'_> {
         describe_face(self.inputs.document, solid, face)
     }
 
+    fn pick(&self, solid: &Solid, face: FaceId) -> Option<FailingPick> {
+        let definition = self.definition;
+        let resolutions: Vec<Resolution<FaceId>> = definition
+            .resolutions(solid)
+            .into_iter()
+            .chain(definition.own_resolutions(solid))
+            .collect();
+        let references = definition
+            .faces
+            .iter()
+            .chain(definition.own.iter().map(|own| &own.face));
+        FailingPick::face(references, &resolutions, face)
+    }
+
     fn failure(&self, solid: &Solid, error: &DraftError) -> Failure {
         let body = self.body_name.clone();
         let face = |face: &FaceId| self.describe(solid, *face);
@@ -364,18 +383,24 @@ impl Context<'_> {
             DraftError::TooSteep(_) => self.error(DraftCause::Steep {
                 angled: Angled::Along,
             }),
-            DraftError::NotDraftable(of) => self.error(DraftCause::NotDraftable {
-                face: face(of),
-                chained: false,
-            }),
-            DraftError::OffPull(of) => self.error(DraftCause::OffPull {
-                face: face(of),
-                chained: false,
-            }),
-            DraftError::NarrowsToPoint(of) => {
-                self.error(DraftCause::NarrowsToPoint { face: face(of) })
-            }
-            DraftError::AlongNeutral(of) => self.error(DraftCause::AlongNeutral { face: face(of) }),
+            DraftError::NotDraftable(of) => self
+                .error(DraftCause::NotDraftable {
+                    face: face(of),
+                    chained: false,
+                })
+                .picking(self.pick(solid, *of)),
+            DraftError::OffPull(of) => self
+                .error(DraftCause::OffPull {
+                    face: face(of),
+                    chained: false,
+                })
+                .picking(self.pick(solid, *of)),
+            DraftError::NarrowsToPoint(of) => self
+                .error(DraftCause::NarrowsToPoint { face: face(of) })
+                .picking(self.pick(solid, *of)),
+            DraftError::AlongNeutral(of) => self
+                .error(DraftCause::AlongNeutral { face: face(of) })
+                .picking(self.pick(solid, *of)),
             DraftError::AlreadyDrafted | DraftError::Move(MoveError::Unmoved) => {
                 self.error(DraftCause::AlreadyDrafted)
             }
@@ -395,14 +420,18 @@ impl Context<'_> {
                 body: self.definition.body,
             }),
             MoveError::MissingFace(_) => self.error(DraftCause::FaceGone { body }),
-            MoveError::UnsupportedFace(of) => self.error(DraftCause::NotDraftable {
-                face: face(of),
-                chained: false,
-            }),
+            MoveError::UnsupportedFace(of) => self
+                .error(DraftCause::NotDraftable {
+                    face: face(of),
+                    chained: false,
+                })
+                .picking(self.pick(solid, *of)),
             MoveError::UnsupportedEdge(of) => {
                 self.error(DraftCause::UnsupportedEdge { edge: edge(of) })
             }
-            MoveError::Vanishes(of) => self.error(DraftCause::Vanishes { face: face(of) }),
+            MoveError::Vanishes(of) => self
+                .error(DraftCause::Vanishes { face: face(of) })
+                .picking(self.pick(solid, *of)),
             MoveError::Corner(vertex) => self.error(DraftCause::Corner {
                 body,
                 corner: describe_corner(document, solid, *vertex),

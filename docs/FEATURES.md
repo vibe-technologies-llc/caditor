@@ -222,9 +222,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   only when saving (`Report::ChangedOnDisk`, `files.rs`): nothing compares the file's head when
   the window regains focus or offers to reload it, so editing goes on over a stale model until the
   save refuses.
-- [medium · small] A wrong pick is taken back only from the panel's list: an open fillet, shell or
-  face tool has no one-click "leave this edge out" on the callout naming the edge or face that
-  made it fail, though the failure knows which one it is.
 - [medium · medium] A conflict or redundancy notice names its constraints but offers no remedy
   button (delete it, disable it, select it): no `Action` sets the view's selection, and the
   refusal carries the constraints' names, not their ids.

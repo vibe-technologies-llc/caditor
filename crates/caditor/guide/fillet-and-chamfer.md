@@ -26,7 +26,9 @@ While it is open, the edges of the body before it can be clicked in the view to 
 out; the panel lists the chosen ones in words, each with a button to leave it out, and hovering
 one lights it in the view. Leaving out one edge of a face or body taken whole turns that entry into
 its edges as they are now, less the one left out. Edges that continue smoothly are taken together
-as a chain.
+as a chain. When the fillet or chamfer fails over one chosen edge (too large for the faces beside
+it, say), the failure in its row has **Leave this edge out**, which takes that edge off the list;
+an edge only reached by following a chain, or taken with a face, body or rule, has no such button.
 
 An edge ending where earlier fillets meet, such as an upright edge of a box whose top edges are
 already rounded, is rounded or bevelled up into them. A fillet of the same radius ends in the

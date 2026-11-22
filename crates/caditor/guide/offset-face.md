@@ -14,3 +14,5 @@ menu or {command:palette}.
 While it is open, click faces in the view to move them or leave them out; hovering a face listed in
 the panel lights it in the view. **Choose in the view** in the panel first adds the faces of the
 body selected then.
+When it fails over one of its chosen faces, the failure in its row has **Leave this face out**,
+which takes that face off the list in one undoable change.

@@ -36,7 +36,9 @@ walls of a block, a pocket or a boss, then choose Draft. It has no ribbon button
 
 While it is open, click faces in the view to draft them or leave them out; hovering a face listed in
 the panel lights it in the view. **Choose in the view** in the panel first adds the faces of the body
-selected then.
+selected then. When it fails over one of its chosen faces, one with an angle of its own
+included, the failure in its row has **Leave this face out**, which takes that face off its list
+in one undoable change.
 
 The drafted faces keep their names, so later features still find them. A face along the neutral
 plane, a face curved some other way or round about an axis off the pull direction, an angle of 89

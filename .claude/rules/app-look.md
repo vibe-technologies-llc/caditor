@@ -723,7 +723,10 @@ paths:
   with Unsuppress or Roll forward to here (`feature_tree::inactive_note`). A failure caused by a
   suppressed feature offers Unsuppress (`FixTarget::Unsuppress`); one whose fix is the failing
   feature itself (`FixTarget::Feature` of its own row) offers Edit <name> (`edit_itself`), hidden
-  while it is open. A failure with a `place` offers Show where, which frames the view around it
+  while it is open. A failure with a `pick` still in the feature's list offers Leave this edge out
+  or Leave this face out (`feature_tree::leave_out_button`, `leaving_out::listed`), returning the
+  same `Action` as that row's remove button in the panel (`leaving_out::leave_out`, each panel's
+  `leave_out`). A failure with a `place` offers Show where, which frames the view around it
   (`PanelState::shown_place`, `ViewportState::show_place`). A row asked to take focus
   (`Focus::Feature`: F8, the failed pill, the palette) scrolls so its callouts show with it. Callout
   actions are `small_button`s with icons.

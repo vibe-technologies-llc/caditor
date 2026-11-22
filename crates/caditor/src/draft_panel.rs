@@ -46,6 +46,24 @@ pub struct FacesRow<'a> {
     pub opened: bool,
 }
 
+pub fn leave_out(model: &Model, feature: &Feature, draft: &Draft, index: usize) -> Action {
+    let mut changed = draft.clone();
+
+    match index.checked_sub(changed.faces.len()) {
+        None => {
+            changed.faces.remove(index);
+        }
+        Some(own) if own < changed.own.len() => {
+            changed.own.remove(own);
+        }
+        Some(_) => {}
+    }
+    feature_fields::applied(
+        &feature.name,
+        draft_tools::change(model, feature.id(), changed),
+    )
+}
+
 struct Panel<'a, 'b> {
     row: &'a FacesRow<'b>,
     actions: &'a mut Vec<Action>,
@@ -138,13 +156,7 @@ impl Panel<'_, '_> {
                         .unwrap_or_default();
                 }
                 if row.removed {
-                    let mut changed = draft.clone();
-
-                    changed.faces.remove(index);
-
-                    let change = self.change(changed);
-
-                    self.apply(change);
+                    self.actions.push(leave_out(model, feature, draft, index));
                 }
             }
 

@@ -16,7 +16,9 @@ use crate::{
     failure::{Cause, Chosen, Expected, Near, Unmatched},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
-    recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    recompute::{
+        CancelToken, FailingPick, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
+    },
     solid::SolidResult,
 };
 
@@ -323,7 +325,29 @@ impl Context<'_> {
         }
     }
 
+    fn pick(&self, solid: &Solid, face: FaceId) -> Option<FailingPick> {
+        FailingPick::face(
+            &self.definition.open,
+            &self.definition.resolutions(solid),
+            face,
+        )
+    }
+
     fn failure(&self, solid: &Solid, open: &[FaceId], error: &ShellError) -> Failure {
+        let named = match error {
+            ShellError::UnsupportedFace(of)
+            | ShellError::CurvedOpening(of)
+            | ShellError::TooCurved(of)
+            | ShellError::Opening(of)
+            | ShellError::ClosesBesideClosing { face: of, .. }
+            | ShellError::Overhang { open: of, .. } => Some(*of),
+            _ => None,
+        };
+        self.described_failure(solid, open, error)
+            .picking(named.and_then(|face| self.pick(solid, face)))
+    }
+
+    fn described_failure(&self, solid: &Solid, open: &[FaceId], error: &ShellError) -> Failure {
         let body = self.body_name.clone();
         let face = |face: &FaceId| self.describe_face(solid, *face);
         let edge = |edge: &EdgeId| describe_edge(self.inputs.document, solid, *edge);

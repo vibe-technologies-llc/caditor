@@ -1,5 +1,5 @@
 use caditor_document::{
-    BodyOperation, EdgeGroup, EdgeRule, Edit, ExtrudeExtent, FeatureKind, FeatureState,
+    BodyOperation, EdgeGroup, EdgeRule, Edit, ExtrudeExtent, FeatureId, FeatureKind, FeatureState,
     MissingInput, RegionChoice, SolidFeature,
 };
 use caditor_expression::Expression;
@@ -11,7 +11,7 @@ use super::{
     CAMERA_SETTLE, Harness, blend_of, choose, draft_volume, extruded_plate, rectangle,
     removed_about, run_from_palette, top_edge_along_x,
 };
-use crate::{model::Action, selection::Pickable};
+use crate::{leaving_out::LEAVE_EDGE_OUT, model::Action, selection::Pickable};
 
 #[test]
 fn a_fillet_radius_being_typed_is_previewed_before_it_is_entered() {
@@ -614,4 +614,77 @@ fn the_palette_adds_every_convex_edge_to_an_open_chamfer() {
         harness.model.undo_label(),
         Some("Add every convex edge to Chamfer 1")
     );
+}
+
+fn corner_edge(harness: &Harness, body: FeatureId) -> caditor_kernel::EdgeName {
+    let solid = harness.model.evaluation().body(body).unwrap();
+    solid
+        .edges()
+        .find(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            (middle - caditor_geometry::Point3::new(40.0, 40.0, 5.0)).length() < 1e-6
+        })
+        .map(|(_, edge)| edge.name())
+        .expect("the plate has that upright edge")
+}
+
+#[test]
+fn a_failing_fillet_leaves_the_edge_its_callout_names_out_with_one_click() {
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    let corner = corner_edge(&harness, plate);
+
+    harness.select([
+        Pickable::Edge {
+            body: plate,
+            edge: front,
+        },
+        Pickable::Edge {
+            body: plate,
+            edge: corner,
+        },
+    ]);
+    harness.click("Fillet");
+    harness.settle();
+
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+
+    harness.draft_into_field(Id::unique(("blend-size", fillet)), "15 mm");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    harness.wait_until("the fillet fails", |harness| {
+        harness.model.evaluation().failed_count() == 1
+    });
+    harness.frame();
+
+    let kept = blend_of(&harness, fillet)
+        .edges
+        .iter()
+        .find(|reference| reference.name() == corner)
+        .copied()
+        .expect("the upright edge is chosen");
+
+    assert_eq!(blend_of(&harness, fillet).edges.len(), 2);
+    assert!(harness.shows(LEAVE_EDGE_OUT));
+
+    harness.click(LEAVE_EDGE_OUT);
+    harness.settle();
+
+    assert_eq!(blend_of(&harness, fillet).edges, vec![kept]);
+    assert_eq!(harness.model.undo_label(), Some("Edit Fillet 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(!harness.shows(LEAVE_EDGE_OUT));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(blend_of(&harness, fillet).edges.len(), 2);
+    assert_eq!(harness.model.evaluation().failed_count(), 1);
 }

@@ -120,6 +120,7 @@ mod isocurve_panel;
 mod isocurves;
 mod last_values;
 mod layout;
+mod leaving_out;
 mod lighting;
 mod lighting_panel;
 mod loft_panel;

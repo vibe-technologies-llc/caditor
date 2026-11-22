@@ -14,7 +14,8 @@ use crate::{
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{
-        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+        CancelToken, FailingPick, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
+        MissingInput,
     },
     solid::SolidResult,
     split_edges::{Followed, SplitEdges},
@@ -579,20 +580,28 @@ impl Context<'_> {
             ChordError::MissingEdge(_) => self.error(BlendCause::EdgeGone {
                 body: self.body_name.clone(),
             }),
-            ChordError::Unsupported(edge) => self.error(BlendCause::Unsupported {
-                kind: BlendKind::Fillet,
-                edge: describe(*edge),
-            }),
-            ChordError::Smooth(edge) => self.error(BlendCause::Smooth {
-                edge: describe(*edge),
-            }),
-            ChordError::BackToBack(edge) => self.error(BlendCause::BackToBack {
-                kind: BlendKind::Fillet,
-                edge: describe(*edge),
-            }),
-            ChordError::VaryingTurn(edge) => self.error(BlendCause::ChordVaries {
-                edge: describe(*edge),
-            }),
+            ChordError::Unsupported(edge) => self
+                .error(BlendCause::Unsupported {
+                    kind: BlendKind::Fillet,
+                    edge: describe(*edge),
+                })
+                .picking(self.pick(solid, *edge)),
+            ChordError::Smooth(edge) => self
+                .error(BlendCause::Smooth {
+                    edge: describe(*edge),
+                })
+                .picking(self.pick(solid, *edge)),
+            ChordError::BackToBack(edge) => self
+                .error(BlendCause::BackToBack {
+                    kind: BlendKind::Fillet,
+                    edge: describe(*edge),
+                })
+                .picking(self.pick(solid, *edge)),
+            ChordError::VaryingTurn(edge) => self
+                .error(BlendCause::ChordVaries {
+                    edge: describe(*edge),
+                })
+                .picking(self.pick(solid, *edge)),
             ChordError::DifferingTurns { first, second } => self.error(BlendCause::ChordDiffers {
                 first: describe(*first),
                 second: describe(*second),
@@ -600,7 +609,21 @@ impl Context<'_> {
         }
     }
 
+    fn pick(&self, solid: &Solid, edge: EdgeId) -> Option<FailingPick> {
+        let resolutions = self.definition.resolutions(self.inputs.document, solid);
+        FailingPick::edge(&self.definition.edges, &resolutions, edge)
+    }
+
     fn failure(&self, solid: &Solid, error: &BlendError) -> Failure {
+        let named = match error {
+            BlendError::MissingEdge(_) => None,
+            _ => error.edge(),
+        };
+        self.described_failure(solid, error)
+            .picking(named.and_then(|edge| self.pick(solid, edge)))
+    }
+
+    fn described_failure(&self, solid: &Solid, error: &BlendError) -> Failure {
         let kind = self.definition.kind;
         let edge = error.edge().map_or_else(
             || "an edge".to_owned(),

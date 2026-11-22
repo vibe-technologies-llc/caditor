@@ -13,7 +13,8 @@ use crate::{
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{
-        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+        CancelToken, FailingPick, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
+        MissingInput,
     },
     solid::SolidResult,
 };
@@ -103,7 +104,32 @@ impl Context<'_> {
         )
     }
 
+    fn pick(&self, solid: &Solid, face: FaceId) -> Option<FailingPick> {
+        FailingPick::face(
+            &self.definition.faces,
+            &self.definition.resolutions(solid),
+            face,
+        )
+    }
+
     fn failure(&self, solid: &Solid, error: &ReplaceError) -> Failure {
+        let named = match error {
+            ReplaceError::NotFlat(of)
+            | ReplaceError::FlatOntoRound(of)
+            | ReplaceError::OffAxis(of)
+            | ReplaceError::SquareToTarget(of)
+            | ReplaceError::BeyondBody(of) => Some(*of),
+            ReplaceError::NothingToReplace
+            | ReplaceError::MissingFace(_)
+            | ReplaceError::Merging { .. }
+            | ReplaceError::AlreadyOnTarget
+            | ReplaceError::Move(_) => None,
+        };
+        self.described_failure(solid, error)
+            .picking(named.and_then(|face| self.pick(solid, face)))
+    }
+
+    fn described_failure(&self, solid: &Solid, error: &ReplaceError) -> Failure {
         let body = self.body_name.clone();
         let face = |face: &FaceId| self.describe(solid, *face);
         match error {
@@ -153,13 +179,15 @@ impl Context<'_> {
                 body: self.definition.body,
             }),
             MoveError::MissingFace(_) => self.error(ReplaceFaceCause::FaceGone { body }),
-            MoveError::UnsupportedFace(of) => {
-                self.error(ReplaceFaceCause::NotFlat { face: face(of) })
-            }
+            MoveError::UnsupportedFace(of) => self
+                .error(ReplaceFaceCause::NotFlat { face: face(of) })
+                .picking(self.pick(solid, *of)),
             MoveError::UnsupportedEdge(of) => {
                 self.error(ReplaceFaceCause::UnsupportedEdge { edge: edge(of) })
             }
-            MoveError::Vanishes(of) => self.error(ReplaceFaceCause::Vanishes { face: face(of) }),
+            MoveError::Vanishes(of) => self
+                .error(ReplaceFaceCause::Vanishes { face: face(of) })
+                .picking(self.pick(solid, *of)),
             MoveError::Corner(vertex) => self.error(ReplaceFaceCause::Corner {
                 body,
                 corner: describe_corner(document, solid, *vertex),

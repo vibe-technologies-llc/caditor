@@ -13,7 +13,8 @@ use crate::{
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{
-        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+        CancelToken, FailingPick, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
+        MissingInput,
     },
     solid::SolidResult,
 };
@@ -118,6 +119,14 @@ impl Context<'_> {
         }
     }
 
+    fn pick(&self, solid: &Solid, face: FaceId) -> Option<FailingPick> {
+        FailingPick::face(
+            &self.definition.faces,
+            &self.definition.resolutions(solid),
+            face,
+        )
+    }
+
     fn failure(&self, solid: &Solid, error: &OffsetError) -> Failure {
         let body = self.body_name.clone();
         let face = |face: &FaceId| self.describe_face(solid, *face);
@@ -129,14 +138,18 @@ impl Context<'_> {
                 body: self.definition.body,
             }),
             OffsetError::MissingFace(_) => self.error(OffsetFaceCause::FaceGone { body }),
-            OffsetError::UnsupportedFace(of) => {
-                self.error(OffsetFaceCause::UnsupportedFace { face: face(of) })
-            }
+            OffsetError::UnsupportedFace(of) => self
+                .error(OffsetFaceCause::UnsupportedFace { face: face(of) })
+                .picking(self.pick(solid, *of)),
             OffsetError::UnsupportedEdge(of) => {
                 self.error(OffsetFaceCause::UnsupportedEdge { edge: edge(of) })
             }
-            OffsetError::Vanishes(of) => self.error(OffsetFaceCause::Vanishes { face: face(of) }),
-            OffsetError::TooCurved(of) => self.error(OffsetFaceCause::TooCurved { face: face(of) }),
+            OffsetError::Vanishes(of) => self
+                .error(OffsetFaceCause::Vanishes { face: face(of) })
+                .picking(self.pick(solid, *of)),
+            OffsetError::TooCurved(of) => self
+                .error(OffsetFaceCause::TooCurved { face: face(of) })
+                .picking(self.pick(solid, *of)),
             OffsetError::Corner(vertex) => self.error(OffsetFaceCause::Corner {
                 body,
                 corner: self.describe_corner(solid, *vertex),

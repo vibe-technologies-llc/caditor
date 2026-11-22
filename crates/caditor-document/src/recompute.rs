@@ -12,7 +12,10 @@ use std::{
 
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
 use caditor_geometry::Point3;
-use caditor_kernel::{Interrupt, MeshQuality, Profile, ProfileError, Solid, interruptible};
+use caditor_kernel::{
+    EdgeId, EdgeReference, FaceId, FaceReference, Interrupt, MeshQuality, Profile, ProfileError,
+    Solid, interruptible,
+};
 use caditor_sketch::{
     ConstraintId, DimensionError, EntityId, PointBeyond, Sketch, SketchError, SketchSolution,
     SolveMemo, Solved, TextError,
@@ -40,6 +43,7 @@ use crate::{
     movement::{self, Move},
     offset_face,
     pattern::{self, Pattern},
+    pieces::Resolution,
     pipe,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
@@ -89,11 +93,44 @@ pub enum FixTarget {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum FailingPick {
+    Edge(EdgeReference),
+    Face(FaceReference),
+}
+
+impl FailingPick {
+    pub(crate) fn edge(
+        references: &[EdgeReference],
+        resolutions: &[Resolution<EdgeId>],
+        edge: EdgeId,
+    ) -> Option<Self> {
+        references
+            .iter()
+            .zip(resolutions)
+            .find(|(_, resolution)| resolution.holds(&edge))
+            .map(|(reference, _)| Self::Edge(*reference))
+    }
+
+    pub(crate) fn face<'a>(
+        references: impl IntoIterator<Item = &'a FaceReference>,
+        resolutions: &[Resolution<FaceId>],
+        face: FaceId,
+    ) -> Option<Self> {
+        references
+            .into_iter()
+            .zip(resolutions)
+            .find(|(_, resolution)| resolution.holds(&face))
+            .map(|(reference, _)| Self::Face(reference.clone()))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeatureError {
     pub(crate) cause: Box<Cause>,
     pub fix: Option<FixTarget>,
     pub constraints: Vec<ConstraintId>,
     pub place: Option<Point3>,
+    pub pick: Option<Box<FailingPick>>,
 }
 
 impl FeatureError {
@@ -103,6 +140,7 @@ impl FeatureError {
             fix: None,
             constraints: Vec::new(),
             place: None,
+            pick: None,
         }
     }
 
@@ -236,6 +274,17 @@ impl Failure {
     pub(crate) fn placed(self, place: Option<Point3>) -> Self {
         match self {
             Self::Error(error) => Self::Error(Box::new(FeatureError { place, ..*error })),
+            Self::Waiting(missing) => Self::Waiting(missing),
+            Self::Cancelled => Self::Cancelled,
+        }
+    }
+
+    pub(crate) fn picking(self, pick: Option<FailingPick>) -> Self {
+        match self {
+            Self::Error(error) => Self::Error(Box::new(FeatureError {
+                pick: pick.map(Box::new),
+                ..*error
+            })),
             Self::Waiting(missing) => Self::Waiting(missing),
             Self::Cancelled => Self::Cancelled,
         }

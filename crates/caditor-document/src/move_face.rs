@@ -14,7 +14,8 @@ use crate::{
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{
-        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+        CancelToken, FailingPick, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
+        MissingInput,
     },
     solid::SolidResult,
 };
@@ -251,6 +252,14 @@ impl Context<'_> {
         })
     }
 
+    fn pick(&self, solid: &Solid, face: FaceId) -> Option<FailingPick> {
+        FailingPick::face(
+            &self.definition.faces,
+            &self.definition.resolutions(solid),
+            face,
+        )
+    }
+
     fn failure(&self, solid: &Solid, error: &MoveError) -> Failure {
         let body = self.body_name.clone();
         let face = |face: &FaceId| self.describe_face(solid, *face);
@@ -262,13 +271,15 @@ impl Context<'_> {
                 body: self.definition.body,
             }),
             MoveError::MissingFace(_) => self.error(MoveFaceCause::FaceGone { body }),
-            MoveError::UnsupportedFace(of) => {
-                self.error(MoveFaceCause::UnsupportedFace { face: face(of) })
-            }
+            MoveError::UnsupportedFace(of) => self
+                .error(MoveFaceCause::UnsupportedFace { face: face(of) })
+                .picking(self.pick(solid, *of)),
             MoveError::UnsupportedEdge(of) => {
                 self.error(MoveFaceCause::UnsupportedEdge { edge: edge(of) })
             }
-            MoveError::Vanishes(of) => self.error(MoveFaceCause::Vanishes { face: face(of) }),
+            MoveError::Vanishes(of) => self
+                .error(MoveFaceCause::Vanishes { face: face(of) })
+                .picking(self.pick(solid, *of)),
             MoveError::Corner(vertex) => self.error(MoveFaceCause::Corner {
                 body,
                 corner: self.describe_corner(solid, *vertex),

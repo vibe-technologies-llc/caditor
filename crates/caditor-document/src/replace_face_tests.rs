@@ -358,6 +358,18 @@ fn replacing_errors_name_the_face_and_the_fix() {
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(model.replace)));
 
+    let picked = model
+        .document
+        .feature(model.replace)
+        .and_then(|feature| feature.kind.replace_face())
+        .map(|replace| replace.faces.clone())
+        .unwrap();
+
+    assert!(matches!(
+        error.pick.as_deref(),
+        Some(FailingPick::Face(face)) if picked.contains(face)
+    ));
+
     set_replace(&mut model, |replace, _| {
         replace.target = Some(PlaneReference::Principal(PrincipalPlane::Xy));
     });
