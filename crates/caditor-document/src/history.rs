@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use caditor_kernel::{DisplayMesh, SharedBuffer};
 
 use crate::{
@@ -247,7 +247,7 @@ impl ResultHistory {
 
     #[cfg(test)]
     pub(crate) fn measured_earlier_bytes(&self) -> usize {
-        let mut counted = ahash::AHashSet::new();
+        let mut counted = AHashSet::new();
         let mut bytes = 0;
 
         for result in self
@@ -281,20 +281,31 @@ impl ResultHistory {
     }
 }
 
-fn result_buffers(result: &Arc<FeatureResult>, found: &mut dyn FnMut(SharedBuffer)) {
-    found(SharedBuffer::of(result, owned_bytes(result)));
-    if let FeatureResult::Solid(solid) = result.as_ref() {
-        solid.solid.shared_buffers(found);
-        for part in solid
-            .others()
-            .iter()
-            .chain(solid.cuts())
-            .chain(solid.joins())
-            .chain(solid.shelled().map(|recipe| &recipe.before))
-            .chain(solid.landing().into_iter().flat_map(LandingInputs::results))
-        {
-            result_buffers(part, found);
+pub(crate) fn result_buffers(result: &Arc<FeatureResult>, found: &mut dyn FnMut(SharedBuffer)) {
+    let mut visited = AHashSet::new();
+    let mut pending = vec![result];
+
+    while let Some(result) = pending.pop() {
+        if !visited.insert(Arc::as_ptr(result)) {
+            continue;
         }
+
+        found(SharedBuffer::of(result, owned_bytes(result)));
+
+        let FeatureResult::Solid(solid) = result.as_ref() else {
+            continue;
+        };
+
+        solid.solid.shared_buffers(found);
+        pending.extend(
+            solid
+                .others()
+                .iter()
+                .chain(solid.cuts())
+                .chain(solid.joins())
+                .chain(solid.shelled().map(|recipe| &recipe.before))
+                .chain(solid.landing().into_iter().flat_map(LandingInputs::results)),
+        );
     }
 }
 

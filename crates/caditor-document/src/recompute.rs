@@ -34,7 +34,9 @@ use crate::{
     healing::{self, Healing},
     helix::{self, HelixResult},
     history::ResultHistory,
-    hole, import, loft,
+    hole, import,
+    landing::repeated_landers,
+    loft,
     lookahead::Lookahead,
     mate,
     measurement::{self, Measured, Measurement, MeasurementResult},
@@ -404,6 +406,21 @@ pub enum FeatureResult {
 }
 
 impl FeatureResult {
+    fn without_landing(self) -> Self {
+        match self {
+            Self::Solid(mut solid) => {
+                solid.take_landing();
+                Self::Solid(solid)
+            }
+            Self::Sketch(_)
+            | Self::Datum(_)
+            | Self::Thread(_)
+            | Self::Measurement(_)
+            | Self::Image(_)
+            | Self::Helix(_) => self,
+        }
+    }
+
     fn same_for_dependents(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Sketch(own), Self::Sketch(theirs)) => {
@@ -959,6 +976,7 @@ pub(crate) struct CacheEntry {
     names: Names,
     upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)>,
     suppressed_upstream: BTreeSet<FeatureId>,
+    keeps_landing: bool,
     state: FeatureState,
     pub(crate) result: Option<Arc<FeatureResult>>,
     healing: Option<Arc<Healing>>,
@@ -1009,6 +1027,7 @@ impl CacheEntry {
             && same_message
             && self.parameters == key.parameters
             && self.appearances == key.appearances
+            && self.keeps_landing == key.keeps_landing
             && same_upstream
     }
 }
@@ -1019,6 +1038,7 @@ struct Key {
     names: Names,
     upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)>,
     suppressed_upstream: BTreeSet<FeatureId>,
+    keeps_landing: bool,
 }
 
 impl Key {
@@ -1090,6 +1110,7 @@ impl Key {
             ),
             upstream,
             suppressed_upstream,
+            keeps_landing: run.repeated_landers.contains(&feature.id()),
         }
     }
 }
@@ -1123,6 +1144,7 @@ pub(crate) struct Context<'a> {
     pub(crate) document: &'a Document,
     pub(crate) parameters: &'a ParameterValues,
     pub(crate) measured: &'a Measured,
+    pub(crate) repeated_landers: &'a BTreeSet<FeatureId>,
     pub(crate) evaluator: &'a dyn Evaluator,
     pub(crate) cancel: &'a CancelToken,
 }
@@ -1141,6 +1163,11 @@ pub(crate) fn compute(context: &Context<'_>, job: &Job) -> Computed {
         previous: job.previous.as_deref(),
     };
     let result = evaluate_contained(context.evaluator, &job.feature, &inputs, context.cancel)?;
+    let result = if context.repeated_landers.contains(&job.feature.id()) {
+        result
+    } else {
+        result.without_landing()
+    };
     Ok((Arc::new(result), check_healing(&job.feature, &inputs)))
 }
 
@@ -1316,11 +1343,13 @@ impl Recompute {
             .unwrap_or(started);
         let parameters = ParameterValues::evaluate(document);
         let measured = Measured::of(document);
+        let repeated_landers = repeated_landers(document);
 
         let run = Run {
             document,
             parameters: &parameters,
             measured: &measured,
+            repeated_landers: &repeated_landers,
             evaluator,
             cancel,
             progress: reports.progress,
@@ -1481,6 +1510,7 @@ impl Recompute {
                     names: key.names,
                     upstream: key.upstream,
                     suppressed_upstream: key.suppressed_upstream,
+                    keeps_landing: key.keeps_landing,
                     state,
                     result,
                     healing,
@@ -1753,6 +1783,7 @@ struct Run<'a> {
     document: &'a Document,
     parameters: &'a ParameterValues,
     measured: &'a Measured,
+    repeated_landers: &'a BTreeSet<FeatureId>,
     evaluator: &'a dyn Evaluator,
     cancel: &'a CancelToken,
     progress: &'a dyn Fn(usize, usize),
@@ -1764,6 +1795,7 @@ impl<'a> Run<'a> {
             document: self.document,
             parameters: self.parameters,
             measured: self.measured,
+            repeated_landers: self.repeated_landers,
             evaluator: self.evaluator,
             cancel: self.cancel,
         }

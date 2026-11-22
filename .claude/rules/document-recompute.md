@@ -77,7 +77,9 @@ paths:
   result `Arc`, and everything below reuses its own earlier entries in turn. Earlier entries (all
   but each feature's latest) are held within `EARLIER_RESULTS_BUDGET`. An entry is measured as it
   stops being its feature's latest (by then meshed if it ever will be): each result `Arc` (its own,
-  and the others, cuts and joins inside it) by `Solid::owned_size` and `DisplayMesh::approximate_size`
+  and the others, cuts, joins, shelled body and landing inputs inside it, walked with a list
+  rather than recursion and each `Arc` once, `result_buffers`) by `Solid::owned_size` and
+  `DisplayMesh::approximate_size`
   (a never-meshed intermediate state counts its solid alone), plus every kernel buffer its solids
   share (`Solid::shared_buffers`, `kernel.md`). `Holdings` counts each buffer address once across
   earlier entries (a holder count per address; the entry keeps the addresses it took), so

@@ -1069,6 +1069,10 @@ impl SolidResult {
         self.landing.as_deref()
     }
 
+    pub(crate) fn take_landing(&mut self) -> Option<Arc<LandingInputs>> {
+        self.landing.take()
+    }
+
     pub fn with_others(mut self, others: impl IntoIterator<Item = SolidResult>) -> Self {
         self.others = others
             .into_iter()
@@ -1089,7 +1093,7 @@ impl SolidResult {
             && same_parts(&self.joins, &other.joins)
             && self.blended == other.blended
             && self.shelled == other.shelled
-            && self.landing == other.landing
+            && same_landing(self.landing.as_deref(), other.landing.as_deref())
     }
 
     pub fn names(&self) -> &NameIndex {
@@ -1392,6 +1396,13 @@ fn same_parts(own: &[Arc<FeatureResult>], theirs: &[Arc<FeatureResult>]) -> bool
                 (Some(own), Some(theirs)) => own.body == theirs.body && own.solid == theirs.solid,
                 _ => false,
             })
+}
+
+fn same_landing(own: Option<&LandingInputs>, theirs: Option<&LandingInputs>) -> bool {
+    match (own, theirs) {
+        (Some(own), Some(theirs)) => own == theirs,
+        (None, _) | (_, None) => true,
+    }
 }
 
 pub(crate) fn evaluate(

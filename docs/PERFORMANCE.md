@@ -137,12 +137,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Memory
 
-- [medium · medium] Every through or up-to hole and up-to extrusion keeps `LandingInputs` holding
-  the body before it (`solid.rs`, `hole.rs`) whether or not a pattern or mirror repeats it, so a
-  run of through holes keeps every intermediate body alive outside `EARLIER_RESULTS_BUDGET`, and
-  `result_buffers` (`history.rs`) recurses once per link, as dropping the chain does, on a
-  recompute thread of the default stack size. Keep landing inputs only for features something
-  repeats, and walk the chain iteratively; whether 2,000 holes overflow the stack is unchecked.
 - [medium · hard] The VZ330 assembly (3,967 bodies, 16.3 million triangles) holds about 5.4 GiB
   once imported (`import_costs`, `CADITOR_IMPORT_IN_THE_APP_ONLY=1`, resident after settling; a
   jemalloc heap profile attributes it). The largest part left is solids: each copy of a part keeps

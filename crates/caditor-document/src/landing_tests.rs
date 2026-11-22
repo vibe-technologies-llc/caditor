@@ -1,18 +1,25 @@
-use std::f64::consts::PI;
+use std::{collections::BTreeMap, f64::consts::PI, sync::Arc, thread};
 
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_kernel::Solid;
 use caditor_sketch::Sketch;
 
 use crate::{
     combine_tests::{evaluate, rectangle, volume},
+    history::result_buffers,
     pattern_tests::failure,
+    recompute::Inputs,
+    solid::SolidResult,
+    values::ParameterValues,
     *,
 };
 
 const BASE: f64 = 40.0 * 10.0 * 10.0;
 const STEP: f64 = 20.0 * 10.0 * 10.0;
 const PEG_SECTION: f64 = 4.0 * 4.0;
+const CHAIN_LINKS: usize = 20_000;
+const SMALL_STACK: usize = 256 * 1024;
 
 fn length(text: &str) -> Expression {
     Expression::parse(text, &|_| None).unwrap()
@@ -392,4 +399,159 @@ fn a_mirrored_hole_sized_by_a_measurement_lands_with_the_measured_diameter() {
         volume(&evaluation, drilled.plate),
         BASE + STEP - PI * 10.0 - PI * 20.0,
     );
+}
+
+fn keeps_landing(evaluation: &Evaluation, feature: FeatureId) -> bool {
+    evaluation
+        .feature(feature)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::solid)
+        .unwrap()
+        .landing()
+        .is_some()
+}
+
+fn assert_matches_a_fresh_recompute(
+    document: &Document,
+    incremental: &Evaluation,
+    plate: FeatureId,
+) {
+    let fresh = evaluate(document, &mut Recompute::default());
+
+    for feature in document.features() {
+        let id = feature.id();
+        let kept = incremental.feature(id).unwrap();
+        let rebuilt = fresh.feature(id).unwrap();
+
+        assert_eq!(kept.state, rebuilt.state, "{}", feature.name);
+        assert_eq!(
+            kept.result
+                .as_deref()
+                .and_then(FeatureResult::solid)
+                .map(|solid| (&solid.solid, solid.landing().is_some())),
+            rebuilt
+                .result
+                .as_deref()
+                .and_then(FeatureResult::solid)
+                .map(|solid| (&solid.solid, solid.landing().is_some())),
+            "{}",
+            feature.name
+        );
+    }
+    assert_volume(volume(incremental, plate), volume(&fresh, plate));
+}
+
+#[test]
+fn a_through_hole_keeps_its_landing_inputs_only_while_a_pattern_repeats_it() {
+    let drilled = drilled(|_| length("2 mm"));
+    let mut editor = Editor::new(drilled.document);
+    let mut engine = Recompute::default();
+
+    let alone = evaluate(editor.document(), &mut engine);
+
+    assert!(!keeps_landing(&alone, drilled.hole));
+
+    assert_volume(volume(&alone, drilled.plate), BASE + STEP - PI * 10.0);
+
+    let mut transaction = editor.document().transaction("Pattern");
+
+    transaction.add_feature(
+        "Pattern 1",
+        FeatureKind::from(Pattern::new(drilled.plate, across()).repeating(vec![drilled.hole])),
+    );
+    editor.apply(transaction.finish()).unwrap();
+
+    let repeated = evaluate(editor.document(), &mut engine);
+
+    assert_eq!(repeated.failed_count(), 0);
+    assert!(keeps_landing(&repeated, drilled.hole));
+
+    assert_volume(
+        volume(&repeated, drilled.plate),
+        BASE + STEP - PI * 10.0 - PI * 20.0,
+    );
+    assert_matches_a_fresh_recompute(editor.document(), &repeated, drilled.plate);
+
+    editor.undo().unwrap();
+
+    let undone = evaluate(editor.document(), &mut engine);
+
+    assert!(!keeps_landing(&undone, drilled.hole));
+
+    assert_volume(volume(&undone, drilled.plate), BASE + STEP - PI * 10.0);
+    assert_matches_a_fresh_recompute(editor.document(), &undone, drilled.plate);
+
+    editor.redo().unwrap();
+
+    let redone = evaluate(editor.document(), &mut engine);
+
+    assert!(keeps_landing(&redone, drilled.hole));
+
+    assert_volume(
+        volume(&redone, drilled.plate),
+        BASE + STEP - PI * 10.0 - PI * 20.0,
+    );
+    assert_matches_a_fresh_recompute(editor.document(), &redone, drilled.plate);
+}
+
+#[test]
+fn a_mirrored_through_hole_keeps_its_landing_inputs() {
+    let mut drilled = drilled(|_| length("2 mm"));
+
+    let mirror = Mirror::new(drilled.plate, PlaneReference::Principal(PrincipalPlane::Yz))
+        .mirroring(vec![drilled.hole]);
+
+    add(
+        &mut drilled.document,
+        "Mirror 1",
+        FeatureKind::Mirror(mirror),
+    );
+
+    let evaluation = evaluate(&drilled.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(keeps_landing(&evaluation, drilled.hole));
+}
+
+#[test]
+fn a_long_chain_of_landing_inputs_is_measured_and_dropped_on_a_small_stack() {
+    let drilled = drilled(|_| length("2 mm"));
+    let hole = drilled.document.feature(drilled.hole).unwrap();
+    let parameters = ParameterValues::evaluate(&drilled.document);
+    let no_features = BTreeMap::new();
+
+    let link = |before: Option<Arc<FeatureResult>>| {
+        let bodies: BTreeMap<_, _> = before
+            .map(|before| (drilled.plate, (drilled.hole, before)))
+            .into_iter()
+            .collect();
+        let inputs = Inputs {
+            document: &drilled.document,
+            parameters: &parameters,
+            features: &no_features,
+            bodies: &bodies,
+            previous: None,
+        };
+        let result = SolidResult::new(drilled.plate, Solid::default()).landing_on(hole, &inputs);
+
+        Arc::new(FeatureResult::Solid(result))
+    };
+
+    thread::scope(|scope| {
+        thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn_scoped(scope, || {
+                let chain = (0..CHAIN_LINKS).fold(None, |before, _| Some(link(before)));
+                let mut results = 0;
+
+                result_buffers(chain.as_ref().unwrap(), &mut |_| results += 1);
+
+                assert_eq!(results, CHAIN_LINKS);
+
+                drop(chain);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    });
 }

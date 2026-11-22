@@ -1565,8 +1565,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `ExtrudeExtent::mirrored`, a hole's `reversed`), a direction mapped the same way, and the
   pattern's body read as the standing one (`Landing::body`, in `Ends` and `Stopping`). The
   pattern sees only its own inputs, so such a feature's result keeps the inputs it was evaluated
-  from (`SolidResult::landing`, a `LandingInputs` of its view's `Arc`s, compared by pointer in
-  `same_shapes` and counted in the history's measure) and the copies are evaluated against them:
+  from (`SolidResult::landing`, a `LandingInputs` of its view's `Arc`s, counted in the history's
+  measure) and the copies are evaluated against them. Only a feature some pattern or mirror lists
+  keeps them (`landing::repeated_landers`, read once per run; `recompute::compute` drops them from
+  any other), and whether it does is part of its cache key (`Key::keeps_landing`), so adding the
+  pattern recomputes the feature once with them and removing it once without, while a run of
+  holes nothing repeats holds no body before each. `same_shapes` compares landing inputs by
+  pointer only where both results keep them, so the features below see the same body either way
+  and are reused. A long chain of them (each holding the body before it) is dropped without
+  recursion (`Drop for LandingInputs` unlinks the results it solely owns into a list):
   up-to targets, a start plane and other bodies resolve as the original's (world planes stay where
   they are, so a copy meets the same face or plane where it lands). Since the pattern's parameter
   values hold only the readings it reads itself, `LandingInputs` also keeps the values the original

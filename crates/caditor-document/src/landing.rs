@@ -1,10 +1,15 @@
-use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+    mem,
+    sync::Arc,
+};
 
 use caditor_geometry::{Plane, Similarity, Vector3};
 use caditor_kernel::{BooleanOperation, PatternCopy, PatternError, Solid, pattern_copies};
 
 use crate::{
-    document::{Feature, FeatureId, FeatureKind},
+    document::{Document, Feature, FeatureId, FeatureKind},
     hole::{self, Hole},
     pattern::Instance,
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
@@ -29,6 +34,23 @@ pub(crate) struct LandingInputs {
     readings: Option<ParameterValues>,
 }
 
+pub(crate) fn repeated_landers(document: &Document) -> BTreeSet<FeatureId> {
+    document
+        .features()
+        .flat_map(|feature| {
+            let repeated = feature.kind.pattern().map(|pattern| &pattern.repeated);
+            let mirrored = feature.kind.mirror().map(|mirror| &mirror.mirrored);
+
+            repeated.into_iter().chain(mirrored).flatten().copied()
+        })
+        .filter(|repeated| {
+            document
+                .feature(*repeated)
+                .is_some_and(|found| Lander::of(&found.kind).is_some())
+        })
+        .collect()
+}
+
 impl LandingInputs {
     pub(crate) fn of(feature: &Feature, inputs: &Inputs<'_>) -> Self {
         Self {
@@ -42,6 +64,15 @@ impl LandingInputs {
         self.features
             .values()
             .chain(self.bodies.values().map(|(_, result)| result))
+    }
+
+    fn take_results(&mut self) -> impl Iterator<Item = Arc<FeatureResult>> {
+        let features = mem::take(&mut self.features).into_values();
+        let bodies = mem::take(&mut self.bodies)
+            .into_values()
+            .map(|(_, result)| result);
+
+        features.chain(bodies)
     }
 
     fn parameters<'a>(&self, outer: &'a ParameterValues) -> Cow<'a, ParameterValues> {
@@ -63,6 +94,22 @@ impl LandingInputs {
             features: &self.features,
             bodies: &self.bodies,
             previous: None,
+        }
+    }
+}
+
+impl Drop for LandingInputs {
+    fn drop(&mut self) {
+        let mut unlinked: Vec<Arc<FeatureResult>> = self.take_results().collect();
+
+        while let Some(result) = unlinked.pop() {
+            let Some(FeatureResult::Solid(mut solid)) = Arc::into_inner(result) else {
+                continue;
+            };
+
+            if let Some(mut landing) = solid.take_landing().and_then(Arc::into_inner) {
+                unlinked.extend(landing.take_results());
+            }
         }
     }
 }
