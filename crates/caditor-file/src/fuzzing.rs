@@ -1,8 +1,9 @@
 use std::time::{Duration, SystemTime};
 
-use caditor_document::Document;
+use caditor_document::{Document, ImportedConfigurations, ImportedParameter};
 
 use crate::{
+    ConfigurationFileError, EnvironmentPixels, EnvironmentReadError, ParameterFileError,
     binary::{self, History, Retention, Version},
     journal::{JournalEntry, JournalHead, Logged, Mirror, decode_journal, encode_journal, replay},
     load::{LoadError, Loaded},
@@ -12,6 +13,18 @@ use crate::{
 
 pub fn decode_picture(bytes: &[u8]) -> Result<crate::RgbaPixels, crate::PictureReadError> {
     crate::decode_picture(bytes)
+}
+
+pub fn decode_environment(bytes: &[u8]) -> Result<EnvironmentPixels, EnvironmentReadError> {
+    crate::decode_environment(bytes)
+}
+
+pub fn parameters(bytes: &[u8]) -> Result<Vec<ImportedParameter>, ParameterFileError> {
+    crate::parse_parameters(&String::from_utf8_lossy(bytes))
+}
+
+pub fn configurations(bytes: &[u8]) -> Result<ImportedConfigurations, ConfigurationFileError> {
+    crate::parse_configurations(&String::from_utf8_lossy(bytes))
 }
 
 pub fn reseal(bytes: &[u8]) -> Vec<u8> {

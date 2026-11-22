@@ -1114,26 +1114,32 @@ fn workflow_files() -> Vec<(String, String)> {
     files
 }
 
-fn matrix_targets(workflow: &str) -> Vec<(String, String, String)> {
+struct MatrixTarget {
+    target: String,
+    seeds: String,
+    dictionary: String,
+    max_len: usize,
+}
+
+fn matrix_targets(workflow: &str) -> Vec<MatrixTarget> {
     let field = |entry: &str, key: &str| {
         let after = entry.split_once(&format!("{key}: "))?.1;
         let end = after.find([',', ' ', '}']).unwrap_or(after.len());
         Some(after.get(..end)?.to_owned())
     };
-    let mut targets: Vec<(String, String, String)> = workflow
+    let mut targets: Vec<MatrixTarget> = workflow
         .lines()
         .map(str::trim)
         .filter(|line| line.starts_with("- { target: "))
-        .map(|line| {
-            (
-                field(line, "target").unwrap(),
-                field(line, "seeds").unwrap(),
-                field(line, "dictionary").unwrap(),
-            )
+        .map(|line| MatrixTarget {
+            target: field(line, "target").unwrap(),
+            seeds: field(line, "seeds").unwrap(),
+            dictionary: field(line, "dictionary").unwrap(),
+            max_len: field(line, "max_len").unwrap().parse().unwrap(),
         })
         .collect();
 
-    targets.sort();
+    targets.sort_by(|a, b| a.target.cmp(&b.target));
     targets
 }
 
@@ -1164,7 +1170,7 @@ fn fuzz_targets_are_listed_alike_by_files_manifest_and_ci_matrix() {
     };
     let workflow = fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
     let matrix = matrix_targets(&workflow);
-    let from_matrix: Vec<String> = matrix.iter().map(|(target, _, _)| target.clone()).collect();
+    let from_matrix: Vec<String> = matrix.iter().map(|entry| entry.target.clone()).collect();
 
     assert!(from_files.len() > 1);
     assert_eq!(
@@ -1176,10 +1182,29 @@ fn fuzz_targets_are_listed_alike_by_files_manifest_and_ci_matrix() {
         "the ci.yml fuzz matrix and fuzz_targets"
     );
 
-    for (target, seeds, dictionary) in matrix {
+    for MatrixTarget {
+        target,
+        seeds,
+        dictionary,
+        max_len,
+    } in matrix
+    {
+        let seeds_dir = root.join("fuzz/seeds").join(&seeds);
+
         assert!(
-            root.join("fuzz/seeds").join(&seeds).is_dir(),
+            seeds_dir.is_dir(),
             "{target} names seeds {seeds} that do not exist"
+        );
+
+        let largest_seed = fs::read_dir(&seeds_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().metadata().unwrap().len() as usize)
+            .max()
+            .unwrap();
+
+        assert!(
+            max_len >= largest_seed,
+            "{target} has a max_len of {max_len}, below its largest seed of {largest_seed} bytes"
         );
         assert!(
             dictionary == "none"

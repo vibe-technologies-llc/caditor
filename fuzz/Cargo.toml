@@ -169,3 +169,24 @@ path = "fuzz_targets/mcp.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "environment"
+path = "fuzz_targets/environment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parameters"
+path = "fuzz_targets/parameters.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "configurations"
+path = "fuzz_targets/configurations.rs"
+test = false
+doc = false
+bench = false

@@ -1,0 +1,6 @@
+name	expression	note
+width	40 mm	first
+depth	width * 2 + 3 mm	
+angle	90 deg / 4	
+bad	3 +	
+width	41 mm	again

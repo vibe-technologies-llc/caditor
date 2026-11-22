@@ -113,7 +113,7 @@ paths:
   `fuzz/fuzz_targets`. CI runs them with `--target x86_64-unknown-linux-gnu`: the released cargo-fuzz
   binary is built for musl and would otherwise build for musl, which AddressSanitizer refuses.
 - Byte targets feed parsers and loaders (expression, DXF, SVG, model files, journal, zstd, STEP,
-  meshes, preferences, recent files, and `mcp`: JSON-RPC lines through the MCP server's reader and
+  meshes, preferences, recent files, parameter files, configuration files, environment pictures, and `mcp`: JSON-RPC lines through the MCP server's reader and
   tool argument decoding, `caditor::fuzzing::mcp_lines`); `model_sealed` and the resealed journal target recompute chunk
   checksums so the decoders behind them are reached, while `journal_torn` leaves a damaged tail torn.
 - Structured targets (`profile_sweep`, `boolean`, `sketch_solve`, `document`, `save_load`) decode bytes
@@ -152,6 +152,17 @@ paths:
   PNG signature, since the document never decodes them.
 - A crash in a structured target (`document` first) is copied to `crates/caditor-checks/regressions/<suite>/`
   and replayed by `cargo test` (`checks.md`); byte targets keep theirs in `crates/caditor-file/regressions`.
+- `parameters` and `configurations` feed bytes (as lossy text) to `caditor_file::fuzzing::parameters`
+  and `configurations`, then plan and apply the import twice into a document, the second time over
+  what the first made; `environment` feeds `decode_environment` and holds the decoded size to the
+  pixel limit. Their seeds are the exported files, spreadsheet variants and Radiance pictures
+  (`write_table_fuzz_seeds`, `write_environment_fuzz_seeds`, checked by
+  `parameter_and_configuration_seeds_read` and `environment_seeds_decode`), the first two sharing
+  `csv.dict` and the third using `hdr.dict`.
+- Every matrix entry names a `max_len`, passed to libFuzzer as `-max_len`: 4096 for the structured
+  targets, 16384 for expression and recent files, 65536 for the other byte formats and 262144 for the
+  two STEP targets. The conventions test holds it at or above the largest seed of the entry, since
+  libFuzzer truncates a seed longer than `max_len`.
 - Seeds are committed in `fuzz/seeds/<kind>` and dictionaries in `fuzz/dictionaries/<kind>.dict`,
   shared by targets reading the same kind of input. The model, journal and zstd seeds are written by
   `CADITOR_WRITE_FUZZ_SEEDS=1 cargo test -p caditor-file write_fuzz_seeds -- --ignored`; tests keep

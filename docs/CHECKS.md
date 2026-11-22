@@ -4,14 +4,11 @@ Tests, CI and tooling that are missing or need attention.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-- [medium · medium] Fuzzing misses whole readers and the shapes that break them: no target reads
-  parameter files (`parse_parameters`), configuration files (`parse_configurations`) or
-  environment pictures (`decode_environment`); `ci.yml` runs libFuzzer with no `-max_len`, so
-  inputs stay near 4 KiB and never reach the depth and fan-out of the crafted STEP, 3MF and SVG
-  files in `BUGS.md` (those need seeds built by code, bounded by `tally`); no target edits sketches
-  (trim, split, break, offset, fillet) checking use counts against `counted_from_scratch`; and
-  `expression` only round-trips stored text, not display text through `parse`, evaluation or
-  `with_lengths_scaled`.
+- [medium · medium] Fuzzing misses the shapes that break the readers: the crafted STEP, 3MF and
+  SVG files in `BUGS.md` need depth and fan-out that no committed seed has, so they need seeds
+  built by code and bounded by `tally`; no target edits sketches (trim, split, break, offset,
+  fillet) checking use counts against `counted_from_scratch`; and `expression` only round-trips
+  stored text, not display text through `parse`, evaluation or `with_lengths_scaled`.
 - [high · medium · blocked by: the Autodesk app (`DECISIONS.md`)] The Fusion 360 calls follow
   Autodesk's published documentation and are tested against JSON of the shapes it describes
   (`caditor-cloud`'s `fusion/tests.rs`), never against Autodesk's servers with a registered app.

@@ -1,0 +1,6 @@
+﻿Caditor-Parameter-File;1;;
+Name;Description;Expression
+width;outer;"12,5 mm"
+;;
+hole;;3 mm
+area;;width * hole

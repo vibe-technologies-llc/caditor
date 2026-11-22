@@ -262,6 +262,131 @@ fn picture_seeds_decode() {
     }
 }
 
+const PARAMETER_SEEDS: [(&str, &str); 4] = [
+    (
+        "parameters/exported.csv",
+        "caditor-parameter-file,1\r\nname,expression,value,note\r\nwidth,40 mm,40 mm,\r\nheight,width / 2,20 mm,\"half the width, \"\"roughly\"\"\nsecond line\"\r\nturn,\"-15 deg\",\"-15°\",\r\n",
+    ),
+    (
+        "parameters/semicolons.csv",
+        "\u{feff}Caditor-Parameter-File;1;;\r\nName;Description;Expression\r\nwidth;outer;\"12,5 mm\"\r\n;;\r\nhole;;3 mm\r\narea;;width * hole\r\n",
+    ),
+    (
+        "parameters/unversioned.csv",
+        "name\texpression\tnote\nwidth\t40 mm\tfirst\ndepth\twidth * 2 + 3 mm\t\nangle\t90 deg / 4\t\nbad\t3 +\t\nwidth\t41 mm\tagain\n",
+    ),
+    (
+        "parameters/quoted.csv",
+        "name,expression\n\"a, b\",\"1 mm\n+ 2 mm\"\nc,sqrt(16 mm^2)\nd,c * 2\n",
+    ),
+];
+
+const CONFIGURATION_SEEDS: [(&str, &str); 4] = [
+    (
+        "configurations/exported.csv",
+        "Configuration,Parameter: width,Parameter: turn\r\n\"Small, \"\"slim\"\"\",40 mm,\"-15 deg\"\r\nLarge,60 mm,\"-15 deg\"\r\n",
+    ),
+    (
+        "configurations/semicolons.csv",
+        "\u{feff}Name;Parameter: width;;Colour: Body;Feature: Hole\r\nSmall;\"12,5 mm\";;#fff;on\r\n;;;;\r\nLarge;3 mm;;#336699;off\r\n",
+    ),
+    (
+        "configurations/tabs.csv",
+        "configuration\tparameter: width\tparameter: turn\tparameter: missing\nA\t1 mm\t0 deg\t5\nB\twidth * 2\t45 deg\t\nA\t3 mm\t\t\n",
+    ),
+    (
+        "configurations/headers-only.csv",
+        "Configuration,Parameter: width,Parameter: turn,Parameter: width\r\n",
+    ),
+];
+
+#[test]
+#[ignore = "writes the parameter and configuration fuzz seeds when CADITOR_WRITE_FUZZ_SEEDS is set"]
+fn write_table_fuzz_seeds() {
+    if std::env::var_os(WRITE_SEEDS).is_none() {
+        return;
+    }
+
+    let seeds: Vec<(&str, Vec<u8>)> = PARAMETER_SEEDS
+        .into_iter()
+        .chain(CONFIGURATION_SEEDS)
+        .map(|(name, text)| (name, text.as_bytes().to_vec()))
+        .collect();
+
+    for (name, bytes) in seeds {
+        write_seeds([(name, bytes)]);
+    }
+}
+
+#[test]
+#[ignore = "writes the environment fuzz seeds when CADITOR_WRITE_FUZZ_SEEDS is set"]
+fn write_environment_fuzz_seeds() {
+    if std::env::var_os(WRITE_SEEDS).is_none() {
+        return;
+    }
+
+    let radiance = |width: u32, height: u32| {
+        let texels: Vec<image::Rgb<f32>> = (0..width * height)
+            .map(|index| {
+                let x = index % width;
+                let y = index / width;
+                image::Rgb([
+                    x as f32 * 0.5,
+                    y as f32 * 4.0,
+                    if x < width / 2 { 8.0 } else { 0.0 },
+                ])
+            })
+            .collect();
+        let mut bytes = Vec::new();
+
+        image::codecs::hdr::HdrEncoder::new(&mut bytes)
+            .encode(&texels, width as usize, height as usize)
+            .unwrap();
+        bytes
+    };
+
+    write_seeds([
+        ("environment/flat.hdr", radiance(4, 2)),
+        ("environment/run-length.hdr", radiance(16, 4)),
+    ]);
+}
+
+#[test]
+fn parameter_and_configuration_seeds_read() {
+    for (path, bytes) in seeds_in("parameters") {
+        let text = String::from_utf8(bytes).unwrap();
+
+        assert!(
+            !crate::parse_parameters(&text).unwrap().is_empty(),
+            "{}",
+            path.display()
+        );
+    }
+
+    for (path, bytes) in seeds_in("configurations") {
+        let text = String::from_utf8(bytes).unwrap();
+
+        assert!(
+            !crate::parse_configurations(&text)
+                .unwrap()
+                .columns
+                .is_empty(),
+            "{}",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn environment_seeds_decode() {
+    for (path, bytes) in seeds_in("environment") {
+        let pixels = crate::decode_environment(&bytes)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+
+        assert!(pixels.width > 0 && pixels.height > 0, "{}", path.display());
+    }
+}
+
 pub(super) fn seed_path(name: &str) -> Option<PathBuf> {
     let path = seeds_dir().join(name);
     (!corpus::inside_corpus(&path)).then_some(path)

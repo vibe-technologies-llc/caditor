@@ -1,0 +1,4 @@
+configuration	parameter: width	parameter: turn	parameter: missing
+A	1 mm	0 deg	5
+B	width * 2	45 deg	
+A	3 mm		
