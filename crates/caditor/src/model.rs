@@ -14,8 +14,8 @@ use caditor_document::{
 };
 pub use caditor_file::crash::PanicFlush;
 use caditor_file::{
-    Closing, FileDigest, Handover, JournalEntry, JournalFailure, KeepRequest, PreviewDrawing,
-    Recovered, Report, Retention, SaveRequest, Start, Storage, StorageConfig,
+    Closing, DiskStamp, FileDigest, Handover, JournalEntry, JournalFailure, KeepRequest,
+    PreviewDrawing, Recovered, Report, Retention, SaveRequest, Start, Storage, StorageConfig,
 };
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
@@ -332,6 +332,7 @@ pub struct Model {
     storage: Option<Storage>,
     path: Option<PathBuf>,
     on_disk: Option<FileDigest>,
+    disk_stamp: Option<DiskStamp>,
     saved: Option<Document>,
     journal_base: Document,
     folded: usize,
@@ -394,6 +395,7 @@ impl Model {
             storage: None,
             path: None,
             on_disk: None,
+            disk_stamp: None,
             saved: Some(document.clone()),
             journal_base: document,
             folded: 0,
@@ -1017,6 +1019,14 @@ impl Model {
 
     pub fn last_seen_on_disk(&self) -> Option<&FileDigest> {
         self.on_disk.as_ref()
+    }
+
+    pub fn confirmed_disk_stamp(&self) -> Option<&DiskStamp> {
+        self.disk_stamp.as_ref()
+    }
+
+    pub fn confirm_disk_stamp(&mut self, stamp: Option<DiskStamp>) {
+        self.disk_stamp = stamp;
     }
 
     pub fn display_name(&self) -> String {
@@ -2097,6 +2107,7 @@ impl Model {
         self.dirty = self.differs_from_saved();
         self.path = session.path;
         self.on_disk = session.on_disk;
+        self.disk_stamp = None;
         self.entries = entries;
         self.keep_original = session.keep_original;
         self.unprotected = None;
@@ -2230,6 +2241,7 @@ impl Model {
                 backup,
                 dropped_for_size,
                 digest,
+                stamp,
             } => {
                 if let Some(pending) = self
                     .pending_save
@@ -2243,6 +2255,7 @@ impl Model {
                 }
                 self.path = Some(path.clone());
                 self.on_disk = Some(digest);
+                self.disk_stamp = stamp;
                 self.keep_original = false;
                 self.dirty = self.differs_from_saved();
                 self.clear_save_failure();

@@ -22,8 +22,9 @@ use crate::{
     os::{self, ChangeStamp, FileKey},
     paths::{MAX_NAME_BYTES, fitting},
     preview::PreviewSlot,
-    read::{ensure_regular, open_file, read_file, read_open},
+    read::{ensure_regular, open_file, read_open},
     reason::{ReadFailure, WriteFailure},
+    tally,
 };
 
 const BACKUP_MARKER: &str = "damaged";
@@ -262,6 +263,7 @@ pub struct Saved {
     pub backup: Option<PathBuf>,
     pub dropped_for_size: usize,
     pub digest: FileDigest,
+    pub stamp: Option<DiskStamp>,
 }
 
 pub fn save(document: &Document, path: &Path, keep_original: bool) -> Result<Saved, SaveError> {
@@ -356,9 +358,13 @@ pub(crate) fn save_interleaved(
     } else {
         None
     };
+    let mut stamp = None;
+
     let reads_back = |file: &File| {
         check_reads_back(file, &digest, &fresh_versions)?;
-        ensure_unchanged(previous.as_ref())
+        ensure_unchanged(previous.as_ref())?;
+        stamp = DiskStamp::of_open(file);
+        Ok(())
     };
     let written = match &previous {
         Some(source) if !shared.is_empty() => replace_checked(
@@ -380,6 +386,7 @@ pub(crate) fn save_interleaved(
         backup,
         dropped_for_size,
         digest,
+        stamp,
     })
 }
 
@@ -391,14 +398,82 @@ pub enum DiskState {
     Unreadable(ReadFailure),
 }
 
-pub fn compare_on_disk(path: &Path, last_seen: &FileDigest) -> DiskState {
-    match read_file(path) {
-        Ok(bytes) if unchanged_from(&bytes, last_seen) => DiskState::AsLastSeen,
-        Ok(bytes) => DiskState::Changed {
-            head: binary::head_digest(&bytes),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DiskStamp {
+    length: u64,
+    modified: SystemTime,
+    key: FileKey,
+}
+
+impl DiskStamp {
+    pub fn of(path: &Path) -> Option<Self> {
+        let metadata = fs::metadata(path).ok()?;
+        let key = FileKey::of_link(&resolve_links(path).ok()?).ok()?;
+
+        Some(Self {
+            length: metadata.len(),
+            modified: metadata.modified().ok()?,
+            key,
+        })
+    }
+
+    fn of_open(file: &File) -> Option<Self> {
+        let metadata = file.metadata().ok()?;
+
+        Some(Self {
+            length: metadata.len(),
+            modified: metadata.modified().ok()?,
+            key: FileKey::of(file).ok()?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiskCheck {
+    pub state: DiskState,
+    pub stamp: Option<DiskStamp>,
+}
+
+pub fn compare_on_disk(
+    path: &Path,
+    last_seen: &FileDigest,
+    confirmed: Option<&DiskStamp>,
+) -> DiskCheck {
+    if let Some(confirmed) = confirmed
+        && DiskStamp::of(path).as_ref() == Some(confirmed)
+    {
+        return DiskCheck {
+            state: DiskState::AsLastSeen,
+            stamp: Some(*confirmed),
+        };
+    }
+
+    let read = open_file(path).and_then(|file| {
+        let stamp = DiskStamp::of_open(&file);
+
+        tally::read_whole(path);
+        read_open(&file).map(|bytes| (bytes, stamp))
+    });
+
+    match read {
+        Ok((bytes, stamp)) if unchanged_from(&bytes, last_seen) => DiskCheck {
+            state: DiskState::AsLastSeen,
+            stamp,
         },
-        Err(error) if error.kind() == io::ErrorKind::NotFound => DiskState::Gone,
-        Err(error) => DiskState::Unreadable(ReadFailure::of(&error)),
+        Ok((bytes, stamp)) => DiskCheck {
+            state: DiskState::Changed {
+                head: binary::head_digest(&bytes),
+            },
+            stamp,
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => DiskCheck {
+            state: DiskState::Gone,
+            stamp: None,
+        },
+        Err(error) => DiskCheck {
+            state: DiskState::Unreadable(ReadFailure::of(&error)),
+            stamp: None,
+        },
     }
 }
 

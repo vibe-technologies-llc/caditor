@@ -244,6 +244,7 @@ impl Files {
                     loaded,
                     notes: Vec::new(),
                     origin,
+                    stamp: None,
                 };
                 if changed_meanwhile {
                     self.guard = Some(Intent::Replace(Box::new(opened)));

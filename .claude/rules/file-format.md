@@ -761,11 +761,18 @@ Sketch entities:
   backup changes the ctime, so the stamp is taken again after it. `set_version_kept` makes the same
   read-back check, guarded or not. The instant between that check and the rename cannot be closed
   portably.
-- `compare_on_disk` reads a file and compares its head with a digest the way the guard does
+- `compare_on_disk` compares a file's head with a digest the way the guard does
   (`save::unchanged_from`, shared by both): `DiskState::AsLastSeen`, `Changed` with the new head
   (`None` when the file no longer parses as a model), `Gone` when it is not found (a guarded save
-  then writes it again) or `Unreadable` with its `ReadFailure`. It reads the whole file, so it runs
-  in a file job (the app's focus check, `app-files.md`).
+  then writes it again) or `Unreadable` with its `ReadFailure`. Given the `DiskStamp` (length,
+  modification time, `FileKey`) confirmed for that digest, it only stats the file when the stamp
+  still matches; otherwise it reads it whole and returns the stamp taken from the open handle before
+  reading, which the caller keeps when the head was as last seen. A save's `Saved::stamp` comes from
+  the written temporary's handle in the read-back (a rename keeps length, time and key), so a file
+  a sync client rewrites with the same bytes costs one read, then stats again. The guard itself
+  never trusts a stamp. Whole reads are counted per path under `test-support`
+  (`disk_check_reads`), so tests assert reads, never time. It runs in a file job (the app's focus
+  check, `app-files.md`).
 - A save refuses when the earlier versions in the file it replaces cannot be read, and when the
   file is read-only; the notice offers Save As.
 - Before the rename, a model save reads the synced temporary back and checks that it parses

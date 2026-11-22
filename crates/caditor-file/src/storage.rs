@@ -28,8 +28,8 @@ use crate::{
     reason::WriteFailure,
     recovery::{mark_journal, unmark_journal},
     save::{
-        self, KeepVersionError, SaveError, SaveOptions, Saved, remove_orphaned_temporaries,
-        same_file_blocking, sync_parent, temporary_sibling,
+        self, DiskStamp, KeepVersionError, SaveError, SaveOptions, Saved,
+        remove_orphaned_temporaries, same_file_blocking, sync_parent, temporary_sibling,
     },
 };
 
@@ -113,6 +113,7 @@ pub enum Report {
         backup: Option<PathBuf>,
         dropped_for_size: usize,
         digest: FileDigest,
+        stamp: Option<DiskStamp>,
     },
     ChangedOnDisk {
         ticket: u64,
@@ -862,6 +863,7 @@ impl Worker {
                     backup: saved.backup,
                     dropped_for_size: saved.dropped_for_size,
                     digest: saved.digest,
+                    stamp: saved.stamp,
                 });
             }
             Finished::Saved {

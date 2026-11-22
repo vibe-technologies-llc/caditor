@@ -830,6 +830,7 @@ impl Session {
                 backup,
                 dropped_for_size,
                 digest,
+                ..
             } => {
                 let pending = journal
                     .pending

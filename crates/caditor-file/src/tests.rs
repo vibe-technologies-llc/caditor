@@ -1075,6 +1075,10 @@ fn a_save_over_a_file_changed_since_it_was_opened_is_refused_unless_replacing() 
     assert_eq!(kept.document, sample());
 }
 
+fn state_on_disk(path: &Path, last_seen: &FileDigest) -> DiskState {
+    compare_on_disk(path, last_seen, None).state
+}
+
 #[test]
 fn a_file_on_disk_compares_with_the_head_last_seen_as_the_save_guard_does() {
     let dir = TempDir::new().unwrap();
@@ -1084,34 +1088,75 @@ fn a_file_on_disk_compares_with_the_head_last_seen_as_the_save_guard_does() {
 
     let opened = load(&path).unwrap().digest.unwrap();
 
-    assert_eq!(compare_on_disk(&path, &opened), DiskState::AsLastSeen);
+    assert_eq!(state_on_disk(&path, &opened), DiskState::AsLastSeen);
 
     save(&sample(), &path, false).unwrap();
 
     let outside = load(&path).unwrap().digest;
 
     assert_eq!(
-        compare_on_disk(&path, &opened),
+        state_on_disk(&path, &opened),
         DiskState::Changed { head: outside }
     );
 
     fs::write(&path, b"not a model").unwrap();
 
     assert_eq!(
-        compare_on_disk(&path, &opened),
+        state_on_disk(&path, &opened),
         DiskState::Changed { head: None }
     );
 
     fs::remove_file(&path).unwrap();
 
-    assert_eq!(compare_on_disk(&path, &opened), DiskState::Gone);
+    assert_eq!(state_on_disk(&path, &opened), DiskState::Gone);
 
     fs::create_dir(&path).unwrap();
 
     assert_eq!(
-        compare_on_disk(&path, &opened),
+        state_on_disk(&path, &opened),
         DiskState::Unreadable(ReadFailure::IsAFolder)
     );
+}
+
+#[test]
+fn a_file_whose_metadata_is_as_confirmed_is_not_read_again() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+
+    let saved = save(&Document::default(), &path, false).unwrap();
+
+    let confirmed = saved.stamp.unwrap();
+    let unchanged = compare_on_disk(&path, &saved.digest, Some(&confirmed));
+
+    assert_eq!(unchanged.state, DiskState::AsLastSeen);
+    assert_eq!(unchanged.stamp, Some(confirmed));
+    assert_eq!(disk_check_reads(&path), 0);
+
+    let synced = dir.path().join("model.caditor.sync");
+
+    fs::write(&synced, fs::read(&path).unwrap()).unwrap();
+    fs::rename(&synced, &path).unwrap();
+
+    let rewritten = compare_on_disk(&path, &saved.digest, Some(&confirmed));
+
+    assert_eq!(rewritten.state, DiskState::AsLastSeen);
+    assert_eq!(disk_check_reads(&path), 1);
+
+    let reconfirmed = rewritten.stamp.unwrap();
+
+    assert_eq!(
+        compare_on_disk(&path, &saved.digest, Some(&reconfirmed)).state,
+        DiskState::AsLastSeen
+    );
+    assert_eq!(disk_check_reads(&path), 1);
+
+    save(&sample(), &path, false).unwrap();
+
+    assert!(matches!(
+        compare_on_disk(&path, &saved.digest, Some(&reconfirmed)).state,
+        DiskState::Changed { .. }
+    ));
+    assert_eq!(disk_check_reads(&path), 2);
 }
 
 fn a_png_picture(fill: u8) -> Preview {
@@ -1420,7 +1465,9 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
 
     let report = wait_for_report(&storage);
     let digest = load(&path).unwrap().digest.unwrap();
+    let stamp = DiskStamp::of(&path);
 
+    assert!(stamp.is_some());
     assert_eq!(
         report,
         Report::Saved {
@@ -1429,6 +1476,7 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
             backup: None,
             dropped_for_size: 0,
             digest,
+            stamp,
         }
     );
 

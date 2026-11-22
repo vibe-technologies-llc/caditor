@@ -132,6 +132,10 @@ paths:
   winit's `Focused(true)`; `files::show` turns it into `FileCommand::CheckOnDisk`), a model with a
   path and a head digest (`Model::last_seen_on_disk`) is compared on the files worker by
   `caditor_file::compare_on_disk`, one check at a time and none while saving, opening or closing.
+  The model keeps the `DiskStamp` confirmed for that digest (`Model::confirmed_disk_stamp`): taken
+  by the open thread before loading (`loaded_or_failed`), by a save (`Report::Saved::stamp`) and by
+  a check finding the file as last seen; a new session starts without one. With it the check only
+  stats the file.
   `Event::DiskCompared` is taken only while the session, path and digest it started from are still
   the model's and no save runs, so a save finishing meanwhile never reads as an outside change.
   `files/on_disk.rs` (`DiskWatch`) keeps what it found: a non-modal notice at the top of the view

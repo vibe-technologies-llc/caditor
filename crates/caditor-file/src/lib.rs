@@ -37,8 +37,6 @@ mod tally;
 mod themes;
 mod untrusted;
 
-#[cfg(any(test, feature = "test-support"))]
-pub use crate::load::load_version;
 pub use crate::{
     binary::{FileDigest, History, MAX_MODEL_RECORDS, Retention, SavedState, Version},
     checked_texts::remember_checked_imports,
@@ -100,8 +98,9 @@ pub use crate::{
         journal_for, scan,
     },
     save::{
-        DiskState, KeepVersionError, SaveError, SaveOptions, Saved, compare_on_disk, encode,
-        same_file_blocking, save, save_with, set_version_kept, write_atomically, write_privately,
+        DiskCheck, DiskStamp, DiskState, KeepVersionError, SaveError, SaveOptions, Saved,
+        compare_on_disk, encode, same_file_blocking, save, save_with, set_version_kept,
+        write_atomically, write_privately,
     },
     settings::{Settings, SettingsError, config_dir},
     storage::{
@@ -113,6 +112,8 @@ pub use crate::{
         ThemeFileError, parse_theme, read_theme, read_themes, themes_folder,
     },
 };
+#[cfg(any(test, feature = "test-support"))]
+pub use crate::{load::load_version, tally::disk_check_reads};
 
 pub const FILE_EXTENSION: &str = "caditor";
 

@@ -71,6 +71,30 @@ fn an_unchanged_file_raises_no_notice_when_the_window_regains_focus() {
 }
 
 #[test]
+fn a_focus_check_with_unchanged_metadata_does_not_read_the_file() {
+    let dir = TempDir::new().unwrap();
+    let (mut harness, path) = saved_model(&dir);
+
+    regain_focus(&mut harness);
+    regain_focus(&mut harness);
+
+    assert_eq!(caditor_file::disk_check_reads(&path), 0);
+
+    let synced = path.with_extension("sync");
+
+    fs::write(&synced, fs::read(&path).unwrap()).unwrap();
+    fs::rename(&synced, &path).unwrap();
+    regain_focus(&mut harness);
+
+    assert_eq!(caditor_file::disk_check_reads(&path), 1);
+    assert_eq!(harness.files.outside_change(), None);
+
+    regain_focus(&mut harness);
+
+    assert_eq!(caditor_file::disk_check_reads(&path), 1);
+}
+
+#[test]
 fn a_file_changed_outside_without_edits_here_reloads_in_place() {
     let dir = TempDir::new().unwrap();
     let (mut harness, path) = saved_model(&dir);
@@ -91,6 +115,12 @@ fn a_file_changed_outside_without_edits_here_reloads_in_place() {
         harness.model.notice().unwrap().text,
         "Reloaded “plate.caditor” as another program saved it."
     );
+
+    let reads = caditor_file::disk_check_reads(&path);
+
+    regain_focus(&mut harness);
+
+    assert_eq!(caditor_file::disk_check_reads(&path), reads);
 
     harness.edit_width("43 mm");
     harness.key(Key::S, Modifiers::COMMAND);

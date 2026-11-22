@@ -21,14 +21,15 @@ use caditor_document::{
 };
 use caditor_file::{
     Closing, ConfigurationFileError, Construction, DRAWING_IMPORT_EXTENSIONS, DiscardError,
-    DiskState, Drawing, DrawingExported, DrawingSheet, ExportError, ExportFormat, FILE_EXTENSION,
-    FaceExported, FileDigest, FileJournal, Handover, History, ImportError, KeepRequest, LoadError,
-    Loaded, MESH_IMPORT_EXTENSIONS, MeshUnit, ModelImport, NamedFace, NamedSketch,
-    PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage,
-    RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError,
-    SavedState, Settings, SheetExported, SheetFormat, SheetLayout, SketchExported, SketchFormat,
-    TextOutlines, UpdateFailure, compare_on_disk, describe_set_aside, journal_for,
-    load_cancellable, load_listed_version, read_drawing, same_file_blocking, scan,
+    DiskCheck, DiskStamp, DiskState, Drawing, DrawingExported, DrawingSheet, ExportError,
+    ExportFormat, FILE_EXTENSION, FaceExported, FileDigest, FileJournal, Handover, History,
+    ImportError, KeepRequest, LoadError, Loaded, MESH_IMPORT_EXTENSIONS, MeshUnit, ModelImport,
+    NamedFace, NamedSketch, PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError,
+    ReadingProgress, ReadingStage, RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS,
+    STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings, SheetExported, SheetFormat,
+    SheetLayout, SketchExported, SketchFormat, TextOutlines, UpdateFailure, compare_on_disk,
+    describe_set_aside, journal_for, load_cancellable, load_listed_version, read_drawing,
+    same_file_blocking, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -656,6 +657,7 @@ enum OpenOutcome {
     Loaded {
         loaded: Box<Loaded>,
         notes: Vec<String>,
+        stamp: Option<DiskStamp>,
     },
     Recoverable(Box<Recovered>),
     AlreadyOpen,
@@ -671,6 +673,7 @@ struct Opened {
     loaded: Loaded,
     notes: Vec<String>,
     origin: Origin,
+    stamp: Option<DiskStamp>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1002,7 +1005,7 @@ enum Event {
         path: PathBuf,
         session: u64,
         last_seen: FileDigest,
-        state: Option<DiskState>,
+        check: Option<DiskCheck>,
     },
 }
 
@@ -2247,6 +2250,7 @@ impl Files {
 
         let path = path.to_path_buf();
         let last_seen = last_seen.clone();
+        let confirmed = model.confirmed_disk_stamp().copied();
         let session = model.session();
 
         let failed = (path.clone(), last_seen.clone());
@@ -2254,19 +2258,19 @@ impl Files {
         self.on_disk.start_check();
         self.spawn(
             move || {
-                let state = compare_on_disk(&path, &last_seen);
+                let check = compare_on_disk(&path, &last_seen, confirmed.as_ref());
                 Event::DiskCompared {
                     path,
                     session,
                     last_seen,
-                    state: Some(state),
+                    check: Some(check),
                 }
             },
             move || Event::DiskCompared {
                 path: failed.0,
                 session,
                 last_seen: failed.1,
-                state: None,
+                check: None,
             },
         );
     }
@@ -2276,17 +2280,20 @@ impl Files {
         path: PathBuf,
         session: u64,
         last_seen: &FileDigest,
-        state: Option<DiskState>,
-        model: &Model,
+        check: Option<DiskCheck>,
+        model: &mut Model,
     ) {
         let still_current = session == model.session()
             && model.path() == Some(path.as_path())
             && model.last_seen_on_disk() == Some(last_seen)
             && !model.is_saving();
 
-        match state {
-            Some(state) if still_current => {
-                self.on_disk.compared(path, session, Outside::of(state))
+        match check {
+            Some(DiskCheck { state, stamp }) if still_current => {
+                if state == DiskState::AsLastSeen {
+                    model.confirm_disk_stamp(stamp);
+                }
+                self.on_disk.compared(path, session, Outside::of(state));
             }
             Some(_) | None => self.on_disk.check_stopped(),
         }
@@ -2341,8 +2348,8 @@ impl Files {
                 path,
                 session,
                 last_seen,
-                state,
-            } => self.disk_compared(path, session, &last_seen, state, model),
+                check,
+            } => self.disk_compared(path, session, &last_seen, check, model),
             Event::ScanFailed => model.set_notice(Notice::failure(
                 "caditor could not look for unsaved work from an earlier session. It will look \
                  again the next time it starts.",
@@ -3295,12 +3302,17 @@ impl Files {
     ) {
         let name = display_name(Some(&path));
         match outcome {
-            OpenOutcome::Loaded { loaded, notes } => {
+            OpenOutcome::Loaded {
+                loaded,
+                notes,
+                stamp,
+            } => {
                 let opened = Opened {
                     path,
                     loaded: *loaded,
                     notes,
                     origin,
+                    stamp,
                 };
                 if since.has_new_unsaved_changes(model) {
                     self.guard = Some(Intent::Replace(Box::new(opened)));
@@ -3871,6 +3883,7 @@ impl Files {
             loaded,
             notes,
             origin,
+            stamp,
         } = opened;
 
         if matches!(origin, Origin::Template | Origin::DefaultTemplate) {
@@ -3911,6 +3924,7 @@ impl Files {
         }
         self.remember(path.clone());
         model.replace(loaded.document, Some(path), loaded.digest, damaged);
+        model.confirm_disk_stamp(stamp);
         if origin == Origin::Reload {
             model.set_notice(Notice::success(format!(
                 "Reloaded “{name}” as another program saved it."
@@ -4323,6 +4337,8 @@ fn loaded_or_failed(
     set_aside: &[PathBuf],
     load: impl FnOnce(&Path) -> Result<Loaded, LoadError>,
 ) -> OpenOutcome {
+    let stamp = DiskStamp::of(path);
+
     match load(path) {
         Ok(loaded) => OpenOutcome::Loaded {
             loaded: Box::new(loaded),
@@ -4330,6 +4346,7 @@ fn loaded_or_failed(
                 .iter()
                 .map(|kept| describe_set_aside(kept))
                 .collect(),
+            stamp,
         },
         Err(error) => OpenOutcome::Failed {
             error,
