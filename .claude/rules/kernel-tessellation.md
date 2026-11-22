@@ -186,7 +186,15 @@ paths:
   instead (`more_bowed`), when that bow exceeds the resolution: a circle's chord sagging across a
   vertex 2e-5 mm inside it where a straight edge meets it square (a cone turned about the base
   centre it shares with a cylinder), where bisecting the longer, straight segment changed nothing.
-  A crossing whose segments both hold their curves truly crosses and is left to fail. Then it
+  A crossing whose segments both hold their curves truly crosses and is left to fail. A sampled
+  loop can also wind against its pcurves without crossing anywhere: a sliver between two curves
+  closer than the chord tolerance (two pieces of one spline crossing itself at a shallow angle,
+  revolved) whose one chord passes beyond the other curve's samples, its triangles then facing
+  the same way as its neighbours' (seed 4853 of the stress job). A loop whose sampled signed area
+  in uv has the other sign from its pcurve polygon's (`inverted_loop`, the sign validation checks)
+  fails the face as `InvertedBoundary` before it is triangulated, and is parted like a crossing:
+  every segment of the loop bowing from its curve more than the resolution and at least
+  `INVERTED_BOW_SHARE` of the loop's largest bow is bisected (`inverted_segments`). Then it
   retries up to `MAX_REFINEMENTS` times, halving chord and angle for the faces that crossed and the
   edges they bound (an edge takes the finest tolerance of its faces), parting again after each;
   only what changed is sampled or triangulated again.

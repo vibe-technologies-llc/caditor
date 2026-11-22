@@ -90,6 +90,13 @@ property or a pinned input.
   suite's `CHORD`, 2.75 short, while the boolean itself was right. Accepting a boundary piece
   within `BOUNDARY_NOISE` fixed it (`kernel.md`); `kernel_tests.rs` replays the seed and asserts no
   face of its union, intersection or difference is meshed.
+- A sampled loop winding against its curves failed both kernel suites at seed 4853 of the stress
+  job ("the edge 0->2 has no opposite"): a quarter revolve of a 0.005 mm wide sliver between two
+  crossing pieces of one spline, whose end cap's single chord of one piece passed beyond the
+  other's samples, so the cap's triangles faced the same way as the revolved faces'. Parting
+  such a loop like a crossing fixed it (`kernel-tessellation.md`); `kernel_tests.rs` replays the
+  seed through the soundness of the solid, of its unions and difference, and the volume
+  identities.
 - The menu bar's gear dropping its command (`49903142`) fails the button sweep and the harness's
   dropped-command guard in `app-tests.md`, with no test written for the gear.
 - Layout regressions of a side panel (`73c8123c`, the parameter table's names) are caught only by

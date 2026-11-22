@@ -22,6 +22,7 @@ const CHORD: f64 = 0.01;
 const ANGLE: f64 = 0.1;
 const RELATIVE_VOLUME_TOLERANCE: f64 = 1e-6;
 const TORUS_FACE_SEED: u64 = 6413;
+const SPLINE_SLIVER_SEED: u64 = 4853;
 
 fn never() -> Interrupt {
     Arc::new(|| false)
@@ -160,5 +161,30 @@ fn a_torus_face_left_by_a_difference_is_measured_exactly_and_the_volume_identiti
     });
     replay_case(TORUS_FACE_SEED, |_, input| {
         assert!(combines_soundly_with_the_volume_identities(input));
+    });
+}
+
+#[test]
+fn a_sliver_between_two_crossing_pieces_of_one_spline_meshes_watertight_and_combines_soundly() {
+    replay_case(SPLINE_SLIVER_SEED, |_, input| {
+        let solid = swept_solid(input, MOST_SHAPES, FEATURE).unwrap();
+
+        assert_sound(&solid, &MeshQuality::COARSE);
+    });
+    replay_case(SPLINE_SLIVER_SEED, |_, input| {
+        let (first, second) = pair(input).unwrap();
+
+        let results = [
+            combine(&first, &second, BooleanOperation::Union).unwrap(),
+            combine(&second, &first, BooleanOperation::Union).unwrap(),
+            combine(&first, &second, BooleanOperation::Difference).unwrap(),
+        ];
+
+        for result in &results {
+            assert_sound(result, &MeshQuality::COARSE);
+        }
+    });
+    replay_case(SPLINE_SLIVER_SEED, |_, input| {
+        combines_soundly_with_the_volume_identities(input);
     });
 }

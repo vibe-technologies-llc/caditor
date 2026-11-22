@@ -18,7 +18,7 @@ use crate::{
         pieces,
     },
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
-    topology::{CoedgeId, EdgeId, Face, FaceId, Solid},
+    topology::{CoedgeId, EdgeId, Face, FaceId, LoopId, Solid, signed_area},
 };
 
 const UV_MERGE: f64 = 1e-9;
@@ -35,6 +35,7 @@ const PARALLEL_ENDS: f64 = 1e-6;
 const CUSP_ENDS: f64 = 0.1;
 const CUSP_SEGMENTS: usize = 16;
 const SHALLOW_CROSSING: f64 = 0.5;
+const INVERTED_BOW_SHARE: f64 = 0.5;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct BoundaryPoint {
@@ -545,62 +546,149 @@ fn boundary_segments(
     face: &Face,
     samplings: &[EdgeSampling],
 ) -> Result<Vec<BoundarySegment>, TessellationError> {
-    let surface = face.surface();
     let mut segments = Vec::new();
 
     for loop_id in face.loops() {
-        let face_loop = solid
-            .face_loop(*loop_id)
-            .ok_or(TessellationError::MissingEntity)?;
-        for coedge_id in face_loop.coedges() {
-            interrupt::check()?;
-
-            let coedge = solid
-                .coedge(*coedge_id)
-                .ok_or(TessellationError::MissingEntity)?;
-            let sampling = samplings
-                .get(coedge.edge().index())
-                .ok_or(TessellationError::MissingEntity)?;
-            let pcurve = coedge.pcurve();
-
-            let (first, last) = if coedge.sense().is_same() {
-                (pcurve.start(), pcurve.end())
-            } else {
-                (pcurve.end(), pcurve.start())
-            };
-            let count = sampling.parameters.len();
-
-            let uvs: Vec<Point2> = sampling
-                .parameters
-                .iter()
-                .zip(&sampling.points)
-                .enumerate()
-                .map(|(index, (parameter, point))| match index {
-                    0 => first,
-                    _ if index + 1 == count => last,
-                    _ => surface.project(*point, Some(pcurve.uv_at(*parameter))),
-                })
-                .collect();
-
-            segments.extend(
-                uvs.windows(2)
-                    .zip(sampling.points.windows(2))
-                    .enumerate()
-                    .filter_map(|(index, (uv, point))| match (uv, point) {
-                        ([start, end], [from, to]) => Some(BoundarySegment {
-                            piece: SegmentPiece {
-                                edge: coedge.edge(),
-                                after: index + 1,
-                            },
-                            ends: [*start, *end],
-                            length: from.distance(*to),
-                        }),
-                        _ => None,
-                    }),
-            );
-        }
+        segments.extend(loop_segments(solid, face.surface(), *loop_id, samplings)?);
     }
     Ok(segments)
+}
+
+fn loop_segments(
+    solid: &Solid,
+    surface: &Surface,
+    loop_id: LoopId,
+    samplings: &[EdgeSampling],
+) -> Result<Vec<BoundarySegment>, TessellationError> {
+    let face_loop = solid
+        .face_loop(loop_id)
+        .ok_or(TessellationError::MissingEntity)?;
+    let mut segments = Vec::new();
+
+    for coedge_id in face_loop.coedges() {
+        interrupt::check()?;
+
+        let coedge = solid
+            .coedge(*coedge_id)
+            .ok_or(TessellationError::MissingEntity)?;
+        let sampling = samplings
+            .get(coedge.edge().index())
+            .ok_or(TessellationError::MissingEntity)?;
+        let pcurve = coedge.pcurve();
+
+        let (first, last) = if coedge.sense().is_same() {
+            (pcurve.start(), pcurve.end())
+        } else {
+            (pcurve.end(), pcurve.start())
+        };
+        let count = sampling.parameters.len();
+
+        let uvs: Vec<Point2> = sampling
+            .parameters
+            .iter()
+            .zip(&sampling.points)
+            .enumerate()
+            .map(|(index, (parameter, point))| match index {
+                0 => first,
+                _ if index + 1 == count => last,
+                _ => surface.project(*point, Some(pcurve.uv_at(*parameter))),
+            })
+            .collect();
+
+        let mut pieces: Vec<BoundarySegment> = uvs
+            .windows(2)
+            .zip(sampling.points.windows(2))
+            .enumerate()
+            .filter_map(|(index, (uv, point))| match (uv, point) {
+                ([start, end], [from, to]) => Some(BoundarySegment {
+                    piece: SegmentPiece {
+                        edge: coedge.edge(),
+                        after: index + 1,
+                    },
+                    ends: [*start, *end],
+                    length: from.distance(*to),
+                }),
+                _ => None,
+            })
+            .collect();
+
+        if !coedge.sense().is_same() {
+            pieces.reverse();
+            for segment in &mut pieces {
+                segment.ends.reverse();
+            }
+        }
+        segments.extend(pieces);
+    }
+    Ok(segments)
+}
+
+pub(crate) fn inverted_segments(
+    solid: &Solid,
+    face_id: FaceId,
+    samplings: &[EdgeSampling],
+) -> Result<BTreeSet<SegmentPiece>, TessellationError> {
+    let face = solid
+        .face(face_id)
+        .ok_or(TessellationError::MissingEntity)?;
+    let mut parted = BTreeSet::new();
+
+    for loop_id in face.loops() {
+        let segments = loop_segments(solid, face.surface(), *loop_id, samplings)?;
+        let sampled: Vec<Point2> = segments.iter().map(|segment| segment.ends[0]).collect();
+
+        if !winds_against(signed_area(&sampled), pcurve_area(solid, *loop_id)?) {
+            continue;
+        }
+
+        let bows = segments
+            .iter()
+            .map(|segment| Ok((segment.piece, bow(solid, samplings, segment.piece)?)))
+            .collect::<Result<Vec<_>, TessellationError>>()?;
+        let most = bows.iter().map(|(_, bow)| *bow).fold(0.0, larger);
+
+        parted.extend(
+            bows.into_iter()
+                .filter(|(_, bow)| *bow > LINEAR_RESOLUTION && *bow >= INVERTED_BOW_SHARE * most)
+                .map(|(piece, _)| piece),
+        );
+    }
+    Ok(parted)
+}
+
+pub(crate) fn inverted_loop(
+    solid: &Solid,
+    face: &Face,
+    loops: &[Vec<BoundaryPoint>],
+) -> Result<bool, TessellationError> {
+    for (loop_id, points) in face.loops().iter().zip(loops) {
+        let sampled: Vec<Point2> = points.iter().map(|point| point.uv).collect();
+
+        if winds_against(signed_area(&sampled), pcurve_area(solid, *loop_id)?) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn winds_against(sampled: f64, exact: f64) -> bool {
+    sampled * exact < 0.0
+}
+
+fn pcurve_area(solid: &Solid, loop_id: LoopId) -> Result<f64, TessellationError> {
+    let face_loop = solid
+        .face_loop(loop_id)
+        .ok_or(TessellationError::MissingEntity)?;
+    let mut polygon = Vec::new();
+
+    for coedge_id in face_loop.coedges() {
+        let coedge = solid
+            .coedge(*coedge_id)
+            .ok_or(TessellationError::MissingEntity)?;
+
+        polygon.extend(coedge.pcurve().samples().iter().map(|sample| sample.uv));
+    }
+    Ok(signed_area(&polygon))
 }
 
 struct EndPath {

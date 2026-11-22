@@ -59,6 +59,8 @@ pub enum TessellationError {
     SelfIntersectingBoundary(FaceId),
     #[error("two different boundary points of face {0:?} share a parameter position")]
     DuplicateBoundaryPoint(FaceId),
+    #[error("a sampled boundary loop of face {0:?} winds against its curves")]
+    InvertedBoundary(FaceId),
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
 }
@@ -695,6 +697,7 @@ impl<'a> Tessellator<'a> {
 
             for face in &faces {
                 pieces.extend(face::crossing_segments(self.solid, *face, &self.samplings)?);
+                pieces.extend(face::inverted_segments(self.solid, *face, &self.samplings)?);
             }
 
             let mut redone = BTreeSet::new();
@@ -825,7 +828,8 @@ impl<'a> Tessellator<'a> {
                 Ok(made) => self.place(*id, made)?,
                 Err(
                     error @ (TessellationError::SelfIntersectingBoundary(_)
-                    | TessellationError::DuplicateBoundaryPoint(_)),
+                    | TessellationError::DuplicateBoundaryPoint(_)
+                    | TessellationError::InvertedBoundary(_)),
                 ) => {
                     self.orphans = true;
                     crossed.faces.push(*id);
@@ -847,6 +851,11 @@ impl<'a> Tessellator<'a> {
         let tolerance = self.tolerances.face(id);
 
         let loops = face::boundary_loops(self.solid, face, &self.samplings, tolerance.chord())?;
+
+        if face::inverted_loop(self.solid, face, &loops)? {
+            return Err(TessellationError::InvertedBoundary(id));
+        }
+
         let budget = face::Budget {
             limit: self.limit,
             placed: self.mesh.positions.len(),
