@@ -193,6 +193,9 @@ pub(crate) enum SolidCause {
     RegionGone {
         sketch: String,
     },
+    RegionEdgesGone {
+        sketch: String,
+    },
     RegionAmbiguous {
         sketch: String,
         candidates: usize,
@@ -480,6 +483,10 @@ impl SolidCause {
             Self::RegionGone { sketch } => {
                 format!("A chosen region of {sketch} no longer exists, because the sketch changed.")
             }
+            Self::RegionEdgesGone { sketch } => format!(
+                "The chosen regions of {sketch} were bounded by edges of the face it lies on, \
+                 and those edges are gone."
+            ),
             Self::RegionAmbiguous { sketch, candidates } => format!(
                 "A chosen region of {sketch} was divided, and {candidates} of the new regions \
                  match it equally."
@@ -771,9 +778,9 @@ impl SolidCause {
             Self::NoClosedShape { sketch, .. } => format!(
                 "Close the outline in {sketch}, for example by joining the ends of its lines."
             ),
-            Self::RegionGone { .. } | Self::RegionAmbiguous { .. } => {
-                "Choose the regions again.".to_owned()
-            }
+            Self::RegionGone { .. }
+            | Self::RegionEdgesGone { .. }
+            | Self::RegionAmbiguous { .. } => "Choose the regions again.".to_owned(),
             Self::CurvesUndivided { sketch } => {
                 format!("Simplify where curves meet or cross in {sketch}.")
             }

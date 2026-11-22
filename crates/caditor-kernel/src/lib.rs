@@ -106,7 +106,7 @@ pub use crate::{
     },
     pattern::{PatternCopy, PatternError, blend_copy, pattern, pattern_copies, shell_copies},
     profile::{
-        AreaMoments, BoundaryPiece, Neighbour, OpenEnd, Piece, PieceBound, PieceId,
+        AreaMoments, BoundaryPiece, CutProfile, Neighbour, OpenEnd, Piece, PieceBound, PieceId,
         PrincipalMoments, Profile, ProfileCurve, ProfileError, ProfileLoop, ProfileShape, Region,
         RegionKey, RegionMatch, RegionMesh, RegionReference, ResolvedRegions, Section, Selection,
         Side, WallError, WallSide, resolve_regions, section_of, wall_regions,

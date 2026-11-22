@@ -2,7 +2,8 @@ use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
-    Constraint, EntityId, Sketch, SketchError, Text, TextAlign, TextError, TextSize, letter_curve,
+    Constraint, EntityId, Sketch, SketchError, Text, TextAlign, TextError, TextSize,
+    body_edge_curve, gear_curve, is_body_edge_curve, letter_curve,
 };
 
 const HEIGHT: ParameterId = ParameterId::from_raw(4);
@@ -210,6 +211,37 @@ fn letter_curves_name_their_text_and_never_a_stored_entity() {
     );
     assert_eq!(letter_curve(text, 1 << 11, 0), None);
     assert_eq!(letter_curve(text, 0, 1 << 12), None);
+}
+
+#[test]
+fn body_edge_curves_share_no_id_with_entities_letters_gears_or_references() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let anchor = sketch.add_point(Point2::ZERO);
+    let text = sketch.add_text(label("Ab", anchor)).unwrap();
+
+    let edge = body_edge_curve(0x0123_4567_89ab_cdef_fedc_ba98_7654_3210);
+    let other = body_edge_curve(0x0123_4567_89ab_cdef_fedc_ba98_7654_3211);
+    let letter = letter_curve(text, 1, 3).unwrap();
+    let gear = gear_curve(text, 2, 1).unwrap();
+    let highest_text = EntityId::from_raw((1 << 38) - 1);
+    let past_the_texts = EntityId::from_raw(1 << 38);
+
+    assert!(is_body_edge_curve(edge));
+    assert_ne!(edge, other);
+    assert!(edge >= 1 << 63);
+    assert!(!is_body_edge_curve(letter));
+    assert!(!is_body_edge_curve(gear));
+    assert!(!is_body_edge_curve(anchor.raw()));
+    assert!(
+        EntityId::REFERENCES
+            .iter()
+            .all(|reference| !is_body_edge_curve(reference.raw()))
+    );
+    assert_eq!(sketch.text_of_letter_curve(edge), None);
+    assert!(letter_curve(highest_text, 0, 0).is_some());
+    assert_eq!(letter_curve(past_the_texts, 0, 0), None);
+    assert_eq!(sketch.entity_label(EntityId::from_raw(edge)), "Body edge");
 }
 
 #[test]

@@ -3,10 +3,11 @@ use std::{collections::BTreeSet, slice};
 use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_kernel::{
     LoftEnds, LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, ProfileError, RegionReference,
-    Selection, loft_through, resolve_regions,
+    Selection, loft_through,
 };
 
 use crate::{
+    body_cuts::ChoiceError,
     datum::{PointReference, Resolver},
     document::{Feature, FeatureId, list_names},
     failure::Cause,
@@ -204,15 +205,17 @@ fn profile_of(
     };
     let profile = sketch.profile().map_err(wording)?;
 
-    let selection = match &section.region {
-        None => Selection::EvenDepth,
-        Some(reference) => Selection::Regions(
-            resolve_regions(slice::from_ref(reference), profile.regions())
-                .map_err(wording)?
-                .keys,
-        ),
+    let mut regions = match &section.region {
+        None => profile.select(&Selection::EvenDepth).map_err(wording)?,
+        Some(reference) => sketch
+            .resolve_choice(slice::from_ref(reference))
+            .map_err(|error| match error {
+                ChoiceError::Profile(error) => wording(error),
+                gone @ ChoiceError::EdgesGone => solid::choice_failure(&context, gone),
+            })?
+            .regions()
+            .map_err(wording)?,
     };
-    let mut regions = profile.select(&selection).map_err(wording)?;
     match regions.len() {
         0 => Err(no_shape()),
         1 => Ok(LoftProfile {

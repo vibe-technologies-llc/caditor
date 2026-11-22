@@ -29,6 +29,19 @@ a hole. While the panel is open, right-clicking another sketch in the feature tr
 all regions of** it, which switches the extrusion to that sketch with every region; choosing a
 sketch from the panel's **Sketch** list does the same.
 
+A sketch placed on a flat face of a body also takes the edges of that face (and of any other flat
+face of the body in the same plane) into account, without adding them to the sketch: where they
+cross or lie inside its closed shapes, the shapes are cut into pieces. A circle drawn across a
+window of a plate offers the part inside the window and the part on the material as two regions,
+so you can pick just one of them, or several to sweep them together. Pieces outside every shape of
+the sketch are never offered.
+
+A chosen piece follows changes to the body as long as its edges are there. If they are gone, for
+example because the window was filled in or the sketch moved off the face, the extrusion fails
+saying so; choose the regions again. Extrusions made before a sketch was cut keep sweeping the
+whole regions they chose, shown with every piece lit. A sketch on a plane that is only level with
+a face is not cut by its edges; place it on the face itself.
+
 ## Extent
 
 - **One side** runs to an end; **Symmetric** runs the same distance both ways; **Two sides** gives

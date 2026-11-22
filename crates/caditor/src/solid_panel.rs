@@ -449,11 +449,9 @@ impl Panel<'_> {
         let document = model.document();
         let evaluation = model.evaluation();
 
-        let regions = selection::swept_regions(document, evaluation, self.id());
+        let offered = selection::swept_regions(document, evaluation, self.id());
         let all = matches!(self.solid.regions(), RegionChoice::All);
-        let chosen_count = regions.map_or(0, |(_, regions)| {
-            scene::chosen_regions(self.solid.regions(), regions).len()
-        });
+        let chosen_count = offered.map_or(0, |offered| offered.chosen(self.solid.regions()).len());
         let mut change = None;
 
         ui.vertical(|ui| {
@@ -471,12 +469,12 @@ impl Panel<'_> {
                         Some(self.change(solid_tools::with_regions(self.solid, RegionChoice::All)));
                 }
                 Some(_) => {
-                    if let Some((_, regions)) = regions {
-                        let keys = scene::chosen_regions(&RegionChoice::All, regions);
+                    if let Some(offered) = offered {
+                        let keys = offered.chosen(&RegionChoice::All);
 
                         change = Some(self.change(solid_tools::with_regions(
                             self.solid,
-                            RegionChoice::Chosen(scene::region_references(&keys, regions)),
+                            RegionChoice::Chosen(scene::region_references(&keys, offered.regions)),
                         )));
                     }
                 }
@@ -2488,10 +2486,11 @@ fn larger_side(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<A
     };
 
     let direction = (toward - origin).try_normalize()?;
-    let (_, regions) = selection::swept_regions(document, evaluation, feature)?;
-    let chosen = scene::chosen_regions(&revolve.regions, regions);
+    let offered = selection::swept_regions(document, evaluation, feature)?;
+    let chosen = offered.chosen(&revolve.regions);
 
-    let leftward: f64 = regions
+    let leftward: f64 = offered
+        .regions
         .iter()
         .filter(|region| chosen.contains(&region.region.key()))
         .filter_map(|region| region.mesh.as_ref())

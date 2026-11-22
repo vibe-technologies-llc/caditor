@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use caditor_kernel::{
-    EdgeNaming, EdgeReference, FaceReference, RegionReference, VertexName, resolve_regions,
-};
+use caditor_kernel::{EdgeNaming, EdgeReference, FaceReference, RegionReference, VertexName};
 
 use crate::{
     attachment::SketchAttachment,
@@ -945,19 +943,19 @@ impl ReferenceVisitor for Healer<'_> {
         let RegionChoice::Chosen(references) = choice else {
             return;
         };
-        let Some(profile) = self
+        let Some(result) = self
             .inputs
             .features
             .get(&sketch)
             .and_then(|result| result.sketch())
-            .and_then(|result| result.profile().ok())
         else {
             return;
         };
 
-        let Ok(resolved) = resolve_regions(references, profile.regions()) else {
+        let Ok(chosen) = result.resolve_choice(references) else {
             return;
         };
+        let (profile, resolved) = (chosen.profile, chosen.resolved);
 
         if resolved.healed.is_empty() && resolved.gone.is_empty() {
             return;

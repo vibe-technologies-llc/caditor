@@ -553,6 +553,30 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `RegionReference`s resolved by `resolve_regions` so a changed region is healed or left out; fails
   only on a tie or when none is left) with a `BodyOperation`: `NewBody`, or `Add`, `Remove`,
   `Intersect` on the body of the feature that made it. The app shows chosen regions as resolved.
+- Pieces cut by body edges (`body_cuts.rs`), as Fusion 360 offers profiles: a sketch placed on a
+  face (`SketchAttachment::Face`) is evaluated with `BodyCuts` of that body as it stands at the
+  sketch, the edges bounding every flat face of it lying in the sketch plane (either way round,
+  within `tolerance`), each a profile curve under `body_edge_curve` of its `EdgeName` (`sketch.md`;
+  two edges of one name are both left out), projected as `edge_outline` does (a spline edge through
+  sampled points). Only the body the sketch is placed on counts: it is already the sketch's input,
+  so no cache key or dependency changes, and results never depend on what is shown. A sketch on a
+  datum or principal plane level with a face is not divided. `SketchResult` keeps the cuts (they
+  count in its equality and `same_for_dependents`) and builds a kernel `CutProfile` once beside
+  the plain profile; when it divides some region (`is_cut`) the sketch's `regions` are the offered
+  pieces, each `within` the plain region holding it and even-depth as that region is, else they are
+  the plain regions (`within` their own key). A cut profile that fails is logged and the plain
+  regions shown. The plain regions are not offered beside the pieces: one point lies in one piece,
+  and several pieces picked together sweep as one lump.
+- `SketchResult::resolve_choice` is the one path every user of chosen regions takes (extrude,
+  revolve and sweep through `solid::chosen_regions`, emboss, loft sections, Update references): a
+  choice naming no body edge (`names_body_edges`, every choice made before pieces existed) resolves
+  against the plain profile exactly as before, so older models keep their results; a choice naming
+  one resolves against the offered pieces of the cut profile and selects from it, a revolve's side
+  re-dividing with the same cutters. A reference naming body edges none of which the sketch still
+  has is gone rather than healed onto a whole region; every one gone fails as
+  `SolidCause::RegionEdgesGone` (`EmbossCause::RegionEdgesGone`), asking to choose the regions
+  again. `chosen_keys` gives the app the offered regions a choice takes: a plain choice lights every
+  piece within its regions.
 - Extents are expressions above zero; a revolve's total angle is at most a full turn. `start` is an
   optional `SolidStart`: a signed length, or a `PlaneReference` of a flat face or plane parallel to
   the sketch (resolved like an end's, in its body's state; not parallel fails naming it; the plane's

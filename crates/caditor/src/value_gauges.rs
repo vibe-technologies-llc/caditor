@@ -1618,11 +1618,12 @@ impl Builder<'_> {
         let solid = &evaluation.body_before(self.feature)?.solid()?.solid;
         let faces = emboss.resolve(solid).ok()?;
 
-        let (sketch, regions) = selection::swept_regions(document, evaluation, self.feature)?;
-        let sketch_plane = scene::sketch_plane(document, evaluation, sketch)?;
-        let chosen = scene::chosen_regions(&emboss.regions, regions);
+        let offered = selection::swept_regions(document, evaluation, self.feature)?;
+        let sketch_plane = scene::sketch_plane(document, evaluation, offered.sketch)?;
+        let chosen = offered.chosen(&emboss.regions);
 
-        let chosen: Vec<&SketchRegion> = regions
+        let chosen: Vec<&SketchRegion> = offered
+            .regions
             .iter()
             .filter(|region| chosen.contains(&region.region.key()))
             .collect();

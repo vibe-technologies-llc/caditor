@@ -17,7 +17,6 @@ use crate::{
     offset_face_panel,
     reference_picking::Slot,
     reference_rows::{ReferenceRows, RowCache},
-    scene,
     selection::{self, Selection},
     solid_tools, widgets,
 };
@@ -217,9 +216,7 @@ fn regions_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
 
     let all = matches!(emboss.regions, RegionChoice::All);
     let chosen_count = selection::swept_regions(model.document(), model.evaluation(), id)
-        .map_or(0, |(_, regions)| {
-            scene::chosen_regions(&emboss.regions, regions).len()
-        });
+        .map_or(0, |offered| offered.chosen(&emboss.regions).len());
     let mut change = None;
 
     ui.vertical(|ui| {

@@ -225,7 +225,7 @@ fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
                 extrude,
             )
             .unwrap()
-            .1;
+            .regions;
             regions
                 .iter()
                 .any(|candidate| candidate.region.key() == *region && !candidate.even_depth)

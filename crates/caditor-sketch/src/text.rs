@@ -12,6 +12,9 @@ pub(crate) const GEAR_CURVES: u64 = 1 << 62;
 pub(crate) const TEXT_BITS: u32 = 39;
 const LETTER_BITS: u32 = 11;
 const SEGMENT_BITS: u32 = 12;
+const BODY_EDGE_CURVE: u64 = 1 << (TEXT_BITS - 1 + LETTER_BITS + SEGMENT_BITS);
+const BODY_EDGE_CURVES: u64 = LETTER_CURVES | BODY_EDGE_CURVE;
+const BODY_EDGE_BITS: u64 = BODY_EDGE_CURVE - 1;
 
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TextAlign {
@@ -133,12 +136,27 @@ pub fn letter_curve(text: EntityId, letter: usize, segment: usize) -> Option<u64
         .ok()
         .filter(|segment| *segment < 1 << SEGMENT_BITS)?;
     let text = text.raw() & ((1 << TEXT_BITS) - 1);
-    Some(LETTER_CURVES | text << (LETTER_BITS + SEGMENT_BITS) | letter << SEGMENT_BITS | segment)
+
+    let raw =
+        LETTER_CURVES | text << (LETTER_BITS + SEGMENT_BITS) | letter << SEGMENT_BITS | segment;
+    (!is_body_edge_curve(raw)).then_some(raw)
+}
+
+pub fn body_edge_curve(digest: u128) -> u64 {
+    let folded = (digest ^ digest >> u64::BITS) as u64;
+    BODY_EDGE_CURVES | folded & BODY_EDGE_BITS
+}
+
+pub fn is_body_edge_curve(raw: u64) -> bool {
+    raw & (LETTER_CURVES | GEAR_CURVES | BODY_EDGE_CURVE) == BODY_EDGE_CURVES
 }
 
 pub(crate) fn letter_curve_text(raw: u64) -> Option<u64> {
-    (raw & LETTER_CURVES != 0 && raw & GEAR_CURVES == 0 && !EntityId::from_raw(raw).is_reference())
-        .then_some((raw & !LETTER_CURVES) >> (LETTER_BITS + SEGMENT_BITS))
+    (raw & LETTER_CURVES != 0
+        && raw & GEAR_CURVES == 0
+        && !is_body_edge_curve(raw)
+        && !EntityId::from_raw(raw).is_reference())
+    .then_some((raw & !LETTER_CURVES) >> (LETTER_BITS + SEGMENT_BITS))
 }
 
 pub(crate) fn same_text_bits(text: EntityId, bits: u64) -> bool {

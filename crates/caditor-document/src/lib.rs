@@ -1,6 +1,7 @@
 mod attachment;
 mod blend;
 mod body_appearance;
+mod body_cuts;
 mod body_folders;
 mod body_pieces;
 mod coil;
@@ -108,6 +109,7 @@ pub use crate::{
         MAX_BODY_NAME_CHARS, MAX_DENSITY, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
         OPACITY_STEPS, OPAQUE_PERCENT, Rgb, density_of, material_name, nearest_opacity_step,
     },
+    body_cuts::{BodyCuts, names_body_edges},
     body_folders::{BodyGrouping, MAX_BODY_FOLDER_DEPTH, folder_label, is_within},
     body_pieces::{PieceKey, PieceLooks, PieceStandIns, Pieces},
     coil::{
@@ -295,6 +297,8 @@ mod attachment_tests;
 mod blend_tests;
 #[cfg(test)]
 mod body_appearance_tests;
+#[cfg(test)]
+mod body_cuts_tests;
 #[cfg(test)]
 mod body_folders_tests;
 #[cfg(test)]

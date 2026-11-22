@@ -72,6 +72,9 @@ pub use crate::{
     split::SplitError,
     tangent_circle::{TangentCircle, TangentError},
     target::{EllipseEnd, PointTarget, Quadrant},
-    text::{LINE_BREAK, MAX_TEXT_CHARS, Text, TextAlign, TextError, TextSize, letter_curve},
+    text::{
+        LINE_BREAK, MAX_TEXT_CHARS, Text, TextAlign, TextError, TextSize, body_edge_curve,
+        is_body_edge_curve, letter_curve,
+    },
     trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},
 };

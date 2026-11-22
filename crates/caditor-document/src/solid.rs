@@ -11,21 +11,22 @@ use caditor_geometry::{
     Aabb, Aabb2, Plane, Point2, Point3, Ray, RigidTransform, Vector2, Vector3, larger,
 };
 use caditor_kernel::{
-    Accuracy, AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName,
-    EdgeReference, EndMoveError, FaceId, FaceName, FaceOrigin, GeometryError, Heights,
-    LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties,
-    MeasureError, Mesh, MeshQuality, MeshedSolid, OpenEnd, Profile, ProfileCurve, ProfileError,
-    ReachError, ReferenceError, Region, RegionMesh, RegionReference, SamplingTolerance, Selection,
-    Solid, StopError, Stopped, SweepError, TessellationError, VertexId, VertexName, WallError,
-    WallSide, boolean, extrude_tapered, extrude_tapered_along, heights, heights_along,
-    mass_properties_tessellating, move_end, next_face, next_face_along, resolve_regions, revolve,
-    stop_at_body, stop_turning_at_body, vertex_names, wall_regions,
+    Accuracy, AngularExtent, Axis2, BooleanError, BooleanOperation, CutProfile, DisplayMesh,
+    EdgeId, EdgeName, EdgeReference, EndMoveError, FaceId, FaceName, FaceOrigin, GeometryError,
+    Heights, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES,
+    MassProperties, MeasureError, Mesh, MeshQuality, MeshedSolid, OpenEnd, Profile, ProfileCurve,
+    ProfileError, ReachError, ReferenceError, Region, RegionKey, RegionMesh, RegionReference,
+    SamplingTolerance, Selection, Solid, StopError, Stopped, SweepError, TessellationError,
+    VertexId, VertexName, WallError, WallSide, boolean, extrude_tapered, extrude_tapered_along,
+    heights, heights_along, mass_properties_tessellating, move_end, next_face, next_face_along,
+    revolve, stop_at_body, stop_turning_at_body, vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
     attachment::{FaceAttachment, face_plane},
     blend::BlendRecipe,
+    body_cuts::ChoiceError,
     body_pieces,
     datum::{
         AxisReference, PlaneReference, Resolver, capitalized, describe_axis, describe_plane,
@@ -1293,6 +1294,7 @@ pub struct SketchRegion {
     pub region: Region,
     pub mesh: Option<RegionMesh>,
     pub even_depth: bool,
+    pub within: RegionKey,
 }
 
 impl SketchRegion {
@@ -1306,20 +1308,43 @@ impl SketchRegion {
     }
 }
 
-pub(crate) fn display_regions(profile: &Profile) -> Result<Vec<SketchRegion>, ProfileError> {
+fn display_tolerance(profile: &Profile) -> SamplingTolerance {
     let extent = profile
         .regions()
         .iter()
         .filter_map(Region::bounds)
         .reduce(Aabb2::union)
         .map_or(1.0, |bounds| bounds.size().length());
-    let tolerance = SamplingTolerance::for_extent(extent);
+    SamplingTolerance::for_extent(extent)
+}
+
+pub(crate) fn display_regions(profile: &Profile) -> Result<Vec<SketchRegion>, ProfileError> {
+    let tolerance = display_tolerance(profile);
     Ok(profile
         .regions()
         .iter()
         .map(|region| SketchRegion {
             mesh: region.triangulate(&tolerance),
             even_depth: region.depth() % 2 == 0,
+            within: region.key(),
+            region: region.clone(),
+        })
+        .collect())
+}
+
+pub(crate) fn display_pieces(
+    plain: &Profile,
+    cut: &CutProfile,
+) -> Result<Vec<SketchRegion>, ProfileError> {
+    let tolerance = display_tolerance(plain);
+    Ok(cut
+        .offered()
+        .map(|(region, within)| SketchRegion {
+            mesh: region.triangulate(&tolerance),
+            even_depth: plain
+                .region(within)
+                .is_some_and(|holder| holder.depth() % 2 == 0),
+            within,
             region: region.clone(),
         })
         .collect())
@@ -1419,6 +1444,7 @@ pub(crate) fn evaluate(
         context,
         sketch,
         regions,
+        cutters,
     } = profiled(feature, solid, inputs)?;
 
     if cancel.is_cancelled() {
@@ -1463,7 +1489,7 @@ pub(crate) fn evaluate(
                     return Err(context.error(SolidCause::WallWithSide));
                 }
                 (Some(side), None) => {
-                    kept = one_side(&context, sketch, &regions, axis, side)?;
+                    kept = one_side(&context, sketch, cutters, &regions, axis, side)?;
                     &kept
                 }
                 (None, _) => &regions,
@@ -1570,6 +1596,7 @@ struct Profiled<'a> {
     context: Context<'a>,
     sketch: &'a SketchResult,
     regions: Vec<Region>,
+    cutters: &'a [ProfileCurve],
 }
 
 fn profiled<'a>(
@@ -1593,14 +1620,18 @@ fn profiled<'a>(
         sketch_id,
         sketch: &sketch.geometry,
     };
-    let regions = match solid.wall() {
-        Some(wall) => walled_regions(&context, &sketch.geometry, wall, inputs.parameters)?,
+    let Chosen { regions, cutters } = match solid.wall() {
+        Some(wall) => Chosen {
+            regions: walled_regions(&context, &sketch.geometry, wall, inputs.parameters)?,
+            cutters: &[],
+        },
         None => chosen_regions(&context, sketch, solid.regions())?,
     };
     Ok(Profiled {
         context,
         sketch,
         regions,
+        cutters,
     })
 }
 
@@ -1884,25 +1915,45 @@ fn offset_plane(
     })
 }
 
-fn chosen_regions(
+struct Chosen<'a> {
+    regions: Vec<Region>,
+    cutters: &'a [ProfileCurve],
+}
+
+fn chosen_regions<'a>(
     context: &Context<'_>,
-    sketch: &SketchResult,
+    sketch: &'a SketchResult,
     choice: &RegionChoice,
-) -> Result<Vec<Region>, Failure> {
-    let profile = sketch
-        .profile()
-        .map_err(|error| profile_failure(context, &error))?;
-    let selection = match choice {
-        RegionChoice::All => Selection::EvenDepth,
-        RegionChoice::Chosen(references) => Selection::Regions(
-            resolve_regions(references, profile.regions())
-                .map_err(|error| profile_failure(context, &error))?
-                .keys,
-        ),
+) -> Result<Chosen<'a>, Failure> {
+    let failure = |error: ProfileError| profile_failure(context, &error);
+    let references = match choice {
+        RegionChoice::All => {
+            return Ok(Chosen {
+                regions: sketch
+                    .profile()
+                    .and_then(|profile| profile.select(&Selection::EvenDepth))
+                    .map_err(failure)?,
+                cutters: &[],
+            });
+        }
+        RegionChoice::Chosen(references) => references,
     };
-    profile
-        .select(&selection)
-        .map_err(|error| profile_failure(context, &error))
+    let chosen = sketch
+        .resolve_choice(references)
+        .map_err(|error| choice_failure(context, error))?;
+    Ok(Chosen {
+        regions: chosen.regions().map_err(failure)?,
+        cutters: chosen.cutters,
+    })
+}
+
+pub(crate) fn choice_failure(context: &Context<'_>, error: ChoiceError) -> Failure {
+    match error {
+        ChoiceError::Profile(error) => profile_failure(context, &error),
+        ChoiceError::EdgesGone => context.error(SolidCause::RegionEdgesGone {
+            sketch: context.sketch_name.clone(),
+        }),
+    }
 }
 
 fn walled_regions(
@@ -3362,6 +3413,7 @@ const REVOLUTION_AXIS_ENTITY: u64 = u64::MAX - 3;
 fn one_side(
     context: &Context<'_>,
     sketch: &SketchResult,
+    cutters: &[ProfileCurve],
     chosen: &[Region],
     axis: Axis2,
     side: AxisSide,
@@ -3379,6 +3431,7 @@ fn one_side(
         .ok_or_else(nothing_left)?;
     let mut curves = profile_curves(&sketch.geometry);
 
+    curves.extend_from_slice(cutters);
     curves.push(axis_line(axis, bounds));
 
     let divided = Profile::new(&curves).map_err(|error| profile_failure(context, &error))?;

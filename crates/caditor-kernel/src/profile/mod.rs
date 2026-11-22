@@ -1,6 +1,9 @@
 mod arrangement;
 mod course;
 mod culprits;
+mod cut;
+#[cfg(test)]
+mod cut_tests;
 mod error;
 mod geometry;
 mod grading;
@@ -32,6 +35,7 @@ pub(crate) use self::{
     strand::{OffsetFailure, Strand, is_smooth_turn, polygons_cross, signed_area},
 };
 pub use self::{
+    cut::CutProfile,
     error::{Neighbour, OpenEnd, ProfileError},
     reference::{BoundaryPiece, RegionMatch, RegionReference, ResolvedRegions, resolve_regions},
     section::{AreaMoments, PrincipalMoments, Section, section_of},

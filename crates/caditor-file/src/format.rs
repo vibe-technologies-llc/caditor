@@ -30,7 +30,7 @@ use caditor_document::{
     SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
     SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
     ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label,
-    group_name, material_name, unscaled, untwisted, view_name,
+    group_name, material_name, names_body_edges, unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -363,6 +363,12 @@ pub(crate) enum FeatureKindRecord {
     RevolveUpToSurface(Box<RevolveUpToSurfaceRecord>),
     RevolveOffset(Box<RevolveOffsetRecord>),
     PitchedSpiral(Box<FlatSpiralRecord>),
+    BodyEdgeRegions(Box<BodyEdgeRegionsRecord>),
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub(crate) struct BodyEdgeRegionsRecord {
+    pub feature: FeatureKindRecord,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -1252,7 +1258,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 95] = [
+pub(crate) const FEATURE_KINDS: [&str; 96] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1348,6 +1354,7 @@ pub(crate) const FEATURE_KINDS: [&str; 95] = [
     "replace_face",
     "mirror_new_body",
     "pitched_spiral",
+    "body_edge_regions",
 ];
 
 #[derive(Clone, Debug)]
@@ -3378,6 +3385,33 @@ fn restore_folder(record: &[Lenient<String>], name: &str, issues: &mut Vec<Strin
 }
 
 fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
+    let record = unmarked_kind_record(kind);
+    match regions_by_body_edges(kind) {
+        true => {
+            FeatureKindRecord::BodyEdgeRegions(Box::new(BodyEdgeRegionsRecord { feature: record }))
+        }
+        false => record,
+    }
+}
+
+fn regions_by_body_edges(kind: &FeatureKind) -> bool {
+    let chosen = |choice: &RegionChoice| match choice {
+        RegionChoice::All => false,
+        RegionChoice::Chosen(references) => references.iter().any(names_body_edges),
+    };
+    match kind {
+        FeatureKind::Solid(solid) => chosen(solid.regions()),
+        FeatureKind::Emboss(emboss) => chosen(&emboss.regions),
+        FeatureKind::Loft(loft) => loft
+            .profiles
+            .iter()
+            .filter_map(|profile| profile.region.as_ref())
+            .any(names_body_edges),
+        _ => false,
+    }
+}
+
+fn unmarked_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
     if let FeatureKind::Blend(blend) = kind
         && blend.kind == BlendKind::Fillet
         && blend.sizing == FilletSizing::ChordLength
@@ -3388,7 +3422,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::ChordFillet(Box::new(ChordFilletRecord {
-            feature: feature_kind_record(&FeatureKind::Blend(radius_sized)),
+            feature: unmarked_kind_record(&FeatureKind::Blend(radius_sized)),
         }));
     }
     if let FeatureKind::Blend(blend) = kind
@@ -3400,7 +3434,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::BlendGroups(Box::new(BlendGroupsRecord {
-            feature: feature_kind_record(&FeatureKind::Blend(listed)),
+            feature: unmarked_kind_record(&FeatureKind::Blend(listed)),
             groups: blend
                 .groups
                 .iter()
@@ -3424,7 +3458,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         let alone = Combine::new(combine.body, combine.tool, combine.operation);
 
         return FeatureKindRecord::CombineTools(Box::new(CombineToolsRecord {
-            feature: feature_kind_record(&FeatureKind::Combine(alone)),
+            feature: unmarked_kind_record(&FeatureKind::Combine(alone)),
             more_tools: combine.more_tools.iter().map(|tool| tool.raw()).collect(),
             keep_tool: combine.keep_tool,
         }));
@@ -3438,7 +3472,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::ExtrudeAlong(Box::new(ExtrudeAlongRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(square))),
+            feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(square))),
             direction: Lenient::Read(axis_record(direction)),
         }));
     }
@@ -3451,7 +3485,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::SplitFaceSurface(Box::new(SplitFaceSurfaceRecord {
-            feature: feature_kind_record(&FeatureKind::SplitFace(plain)),
+            feature: unmarked_kind_record(&FeatureKind::SplitFace(plain)),
             face: Lenient::Read(attachment_record(face)),
         }));
     }
@@ -3464,7 +3498,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::SplitFaceWrapped(Box::new(SplitFaceWrappedRecord {
-            feature: feature_kind_record(&FeatureKind::SplitFace(square)),
+            feature: unmarked_kind_record(&FeatureKind::SplitFace(square)),
         }));
     }
     if let FeatureKind::SplitFace(split) = kind
@@ -3476,7 +3510,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::SplitFaceAlong(Box::new(SplitFaceAlongRecord {
-            feature: feature_kind_record(&FeatureKind::SplitFace(square)),
+            feature: unmarked_kind_record(&FeatureKind::SplitFace(square)),
             direction: Lenient::Read(axis_record(direction)),
         }));
     }
@@ -3489,7 +3523,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::RevolveOffset(Box::new(RevolveOffsetRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(plain))),
+            feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(plain))),
             offset: offset.to_stored_text(),
         }));
     }
@@ -3502,7 +3536,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::RevolveUpToNext(Box::new(RevolveUpToNextRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(full))),
+            feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(full))),
             reversed: *reversed,
         }));
     }
@@ -3515,7 +3549,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::RevolveUpToSurface(Box::new(RevolveUpToSurfaceRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(full))),
+            feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(full))),
             face: Lenient::Read(attachment_record(face)),
             reversed: *reversed,
         }));
@@ -3531,7 +3565,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::RevolveUpTo(Box::new(RevolveUpToRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(full))),
+            feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(full))),
             target: Lenient::Read(plane_reference_record(target)),
             reversed: *reversed,
         }));
@@ -3573,7 +3607,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::ShapedSweep(Box::new(ShapedSweepRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(plain)),
+            feature: unmarked_kind_record(&FeatureKind::Solid(plain)),
             taper: solid.taper().map(Expression::to_stored_text),
             wall: solid.wall().map(|wall| {
                 Lenient::Read(WallRecord {
@@ -3596,7 +3630,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::SweepShapeLaw(Box::new(SweepShapeLawRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Sweep(even))),
+            feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Sweep(even))),
             rows: sweep
                 .shape_law
                 .iter()
@@ -3618,7 +3652,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::SweepShape(Box::new(SweepShapeRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Sweep(plain))),
+            feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Sweep(plain))),
             twist: sweep.twist.to_stored_text(),
             scale: sweep.scale.to_stored_text(),
         }));
@@ -3630,13 +3664,13 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
 
         alone.other_bodies_mut().clear();
         return FeatureKindRecord::CutSeveral(Box::new(CutSeveralRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(alone)),
+            feature: unmarked_kind_record(&FeatureKind::Solid(alone)),
             bodies: solid.other_bodies().iter().map(|body| body.raw()).collect(),
         }));
     }
     if let Some((unchosen, helix)) = without_helix_path(kind) {
         return FeatureKindRecord::AlongHelix(Box::new(AlongHelixRecord {
-            feature: feature_kind_record(&unchosen),
+            feature: unmarked_kind_record(&unchosen),
             helix: helix.raw(),
         }));
     }
@@ -3649,7 +3683,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         };
 
         return FeatureKindRecord::RevolveOneSide(Box::new(RevolveOneSideRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(whole))),
+            feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(whole))),
             side: match side {
                 AxisSide::Left => AxisSideRecord::Left,
                 AxisSide::Right => AxisSideRecord::Right,
@@ -4153,7 +4187,7 @@ fn surface_ends_record(extrude: &Extrude) -> Option<FeatureKindRecord> {
     }
     Some(FeatureKindRecord::SurfaceEnds(Box::new(
         SurfaceEndsRecord {
-            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(plain))),
+            feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(plain))),
             forward,
             backward,
         },
@@ -4177,7 +4211,7 @@ fn offset_ends_record(extrude: &Extrude) -> Option<FeatureKindRecord> {
         *end = end.clone().with_offset(None);
     }
     Some(FeatureKindRecord::OffsetEnds(Box::new(OffsetEndsRecord {
-        feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(plain))),
+        feature: unmarked_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(plain))),
         forward: forward.map(Expression::to_stored_text),
         backward: backward.map(Expression::to_stored_text),
     })))
@@ -7094,6 +7128,9 @@ fn restore_kind(
     issues: &mut Vec<String>,
 ) -> FeatureKind {
     match record {
+        FeatureKindRecord::BodyEdgeRegions(marked) => {
+            restore_kind(&marked.feature, name, texts, issues)
+        }
         FeatureKindRecord::SeparatePieces(separate) => {
             issues.push(format!(
                 "“{name}” was marked twice to make a body of each separate piece, so the inner \

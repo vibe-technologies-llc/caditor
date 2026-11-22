@@ -6,7 +6,7 @@ use std::{
 pub use caditor_document::PrincipalPlane;
 use caditor_document::{
     Document, Evaluation, FeatureId, FeatureKind, FeatureResult, PrincipalAxis, PrincipalGeometry,
-    SketchRegion,
+    RegionChoice, SketchRegion, SketchResult,
 };
 use caditor_geometry::Vector3;
 use caditor_kernel::{EdgeName, RegionKey};
@@ -204,16 +204,34 @@ pub enum Pickable {
     },
 }
 
-pub fn sketch_regions(evaluation: &Evaluation, sketch: FeatureId) -> Option<&[SketchRegion]> {
-    evaluation
+#[derive(Clone, Copy, Debug)]
+pub struct Offered<'a> {
+    pub sketch: FeatureId,
+    pub result: &'a SketchResult,
+    pub regions: &'a [SketchRegion],
+}
+
+impl Offered<'_> {
+    pub fn chosen(&self, choice: &RegionChoice) -> BTreeSet<RegionKey> {
+        self.result.chosen_keys(choice)
+    }
+}
+
+pub fn offered(evaluation: &Evaluation, sketch: FeatureId) -> Option<Offered<'_>> {
+    let result = evaluation
         .feature(sketch)?
         .result
         .as_deref()
-        .and_then(FeatureResult::sketch)?
-        .regions()?
-        .as_ref()
-        .ok()
-        .map(Vec::as_slice)
+        .and_then(FeatureResult::sketch)?;
+    Some(Offered {
+        sketch,
+        result,
+        regions: result.regions()?.as_ref().ok()?,
+    })
+}
+
+pub fn sketch_regions(evaluation: &Evaluation, sketch: FeatureId) -> Option<&[SketchRegion]> {
+    offered(evaluation, sketch).map(|offered| offered.regions)
 }
 
 pub fn region_sketch(document: &Document, feature: FeatureId) -> Option<FeatureId> {
@@ -228,9 +246,8 @@ pub fn swept_regions<'a>(
     document: &Document,
     evaluation: &'a Evaluation,
     feature: FeatureId,
-) -> Option<(FeatureId, &'a [SketchRegion])> {
-    let sketch = region_sketch(document, feature)?;
-    Some((sketch, sketch_regions(evaluation, sketch)?))
+) -> Option<Offered<'a>> {
+    offered(evaluation, region_sketch(document, feature)?)
 }
 
 fn frame_name(document: &Document, frame: FeatureId) -> &str {
@@ -512,8 +529,9 @@ impl Pickable {
             }
             Self::Region { feature, region } => {
                 context.solid == Some(feature)
-                    && swept_regions(document, evaluation, feature).is_some_and(|(_, regions)| {
-                        regions
+                    && swept_regions(document, evaluation, feature).is_some_and(|offered| {
+                        offered
+                            .regions
                             .iter()
                             .any(|candidate| candidate.region.key() == region)
                     })

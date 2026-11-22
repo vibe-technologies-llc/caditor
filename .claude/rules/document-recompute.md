@@ -34,7 +34,7 @@ paths:
   its used and origin features, `dependencies()`, and of its bodies) and its upstream results are
   unchanged.
   Upstream counts as unchanged when it is the same `Arc` or equal in what dependents read (a
-  sketch's plane and entities, a datum's result, a solid's body and geometry), so an edit leaving
+  sketch's plane, entities and body cuts, a datum's result, a solid's body and geometry), so an edit leaving
   geometry alone stops there.
 - Features evaluate in parallel while the walk commits them in tree order, so statuses, cache
   entries and their order, `recomputed`, glimpses and progress are those of a sequential walk. An

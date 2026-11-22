@@ -207,6 +207,14 @@ Conventions for every record below:
 
 Extrusions and revolves:
 
+- `body_edge_regions`: the outermost wrapper of a feature kind (inside `separate_pieces`, around any
+  other wrapper) with `feature` alone, written when an extrusion's, revolve's, sweep's or emboss's
+  chosen regions or a loft section's region name a body edge (`names_body_edges`, `document.md`).
+  Nothing in the inner record changes (the boundary pieces already hold the edges' ids), but an
+  older reader would resolve such a piece against the whole sketch and heal it onto the whole
+  region, so it reports the feature as from a newer version instead. Choices of whole regions are
+  never wrapped, so files written before keep their bytes. The corpus holds it in
+  `body-edge-regions.caditor`.
 - `extrude`, `extrude_to`: `start` (stored text) only when it has one. A start at a face or plane
   and any revolve start are `extrude_from` and `revolve_from`: `start` is `distance` with its text
   or `plane` with a plane reference; unreadable loads as the sketch plane (or 0 mm).

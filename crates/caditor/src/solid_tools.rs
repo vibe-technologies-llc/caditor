@@ -3,8 +3,9 @@ use std::{borrow::Cow, collections::BTreeSet, f64::consts::FRAC_PI_2};
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeExtent, Feature,
     FeatureId, FeatureKind, FeatureResult, ParameterValues, Pieces, RegionChoice, Revolve,
-    RevolveAxis, RevolveExtent, SketchAttachment, SketchFeature, SketchRegion, SolidFeature,
-    SolidStart, Transaction, Wall, describe_axis, face_plane, profile_curve, sketch_regions,
+    RevolveAxis, RevolveExtent, SketchAttachment, SketchFeature, SketchRegion, SketchResult,
+    SolidFeature, SolidStart, Transaction, Wall, describe_axis, face_plane, profile_curve,
+    sketch_regions,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3};
@@ -268,12 +269,12 @@ pub fn has_unswept_regions(
             _ => false,
         })
         .collect();
-    let regions = evaluation
+    let result = evaluation
         .feature(sketch)
         .and_then(|evaluated| evaluated.result.as_deref())
-        .and_then(FeatureResult::sketch)
-        .and_then(|result| result.regions());
-    let regions = match regions {
+        .and_then(FeatureResult::sketch);
+
+    let regions = match result.and_then(SketchResult::regions) {
         None => return users.is_empty(),
         Some(Err(_)) => return false,
         Some(Ok(regions)) if regions.is_empty() => {
@@ -281,7 +282,10 @@ pub fn has_unswept_regions(
         }
         Some(Ok(regions)) => regions,
     };
-    swept_regions(document, sketch, regions).is_some_and(|swept| {
+    let Some(result) = result else {
+        return users.is_empty();
+    };
+    swept_regions(document, sketch, result).is_some_and(|swept| {
         regions
             .iter()
             .filter(|region| region.even_depth)
@@ -292,14 +296,14 @@ pub fn has_unswept_regions(
 fn swept_regions(
     document: &Document,
     sketch: FeatureId,
-    regions: &[SketchRegion],
+    result: &SketchResult,
 ) -> Option<BTreeSet<RegionKey>> {
     let mut swept = BTreeSet::new();
 
     for feature in document.active_features() {
         match &feature.kind {
             FeatureKind::Solid(solid) if solid.sketch() == sketch => {
-                swept.extend(scene::chosen_regions(solid.regions(), regions));
+                swept.extend(result.chosen_keys(solid.regions()));
             }
             FeatureKind::Hole(hole) if hole.sketch == sketch => return None,
             _ => {}
@@ -309,10 +313,11 @@ fn swept_regions(
 }
 
 fn regions_left(document: &Document, evaluation: &Evaluation, sketch: FeatureId) -> RegionChoice {
-    let Some(regions) = selection::sketch_regions(evaluation, sketch) else {
+    let Some(offered) = selection::offered(evaluation, sketch) else {
         return RegionChoice::All;
     };
-    match swept_regions(document, sketch, regions) {
+    let regions = offered.regions;
+    match swept_regions(document, sketch, offered.result) {
         Some(swept) if !swept.is_empty() => {
             let left: BTreeSet<RegionKey> = regions
                 .iter()
@@ -1109,15 +1114,15 @@ pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Op
     let document = model.document();
     let owner = document.feature(feature)?;
     let solid = owner.kind.solid()?;
-    let (_, regions) = selection::swept_regions(document, model.evaluation(), feature)?;
+    let offered = selection::swept_regions(document, model.evaluation(), feature)?;
 
-    let mut chosen = scene::chosen_regions(solid.regions(), regions);
+    let mut chosen = offered.chosen(solid.regions());
 
     if !chosen.remove(&region) {
         chosen.insert(region);
     }
 
-    let choice = RegionChoice::Chosen(scene::region_references(&chosen, regions));
+    let choice = RegionChoice::Chosen(scene::region_references(&chosen, offered.regions));
     Some(Transaction::single(
         format!("Choose regions of {}", owner.name),
         Edit::SetFeatureKind {
@@ -1140,7 +1145,7 @@ pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, Re
     let id = feature.id();
 
     let nothing_chosen = selection::swept_regions(model.document(), model.evaluation(), id)
-        .is_some_and(|(_, regions)| scene::chosen_regions(solid.regions(), regions).is_empty());
+        .is_some_and(|offered| offered.chosen(solid.regions()).is_empty());
 
     if nothing_chosen {
         return Err(RegionError::NoneChosen {

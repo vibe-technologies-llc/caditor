@@ -13,8 +13,8 @@ use std::{
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
 use caditor_geometry::Point3;
 use caditor_kernel::{
-    EdgeId, EdgeReference, FaceId, FaceReference, Interrupt, MeshQuality, Profile, ProfileError,
-    Solid, interruptible,
+    CutProfile, EdgeId, EdgeReference, FaceId, FaceReference, Interrupt, MeshQuality, Profile,
+    ProfileError, Solid, interruptible,
 };
 use caditor_sketch::{
     ConstraintId, DimensionError, EntityId, PointBeyond, Sketch, SketchError, SketchSolution,
@@ -22,8 +22,10 @@ use caditor_sketch::{
 };
 
 use crate::{
-    attachment, blend,
+    attachment::{self, SketchAttachment},
+    blend,
     body_appearance::BodyAppearance,
+    body_cuts::BodyCuts,
     body_pieces::PieceKey,
     coil, combine,
     datum::{self, DatumResult},
@@ -306,7 +308,9 @@ pub struct SketchResult {
     pub open_ends: Vec<EntityId>,
     pub beyond: Vec<PointBeyond>,
     memo: SolveMemo,
+    cuts: Arc<BodyCuts>,
     profile: Arc<OnceLock<Box<Result<Profile, ProfileError>>>>,
+    cut: Arc<OnceLock<Box<Result<CutProfile, ProfileError>>>>,
     regions: Arc<OnceLock<Result<Vec<SketchRegion>, ProfileError>>>,
 }
 
@@ -314,6 +318,7 @@ impl PartialEq for SketchResult {
     fn eq(&self, other: &Self) -> bool {
         self.geometry == other.geometry
             && self.solution == other.solution
+            && self.cuts == other.cuts
             && self.regions == other.regions
     }
 }
@@ -330,16 +335,33 @@ impl SketchResult {
             geometry,
             solution,
             memo,
+            cuts: Arc::default(),
             profile: Arc::default(),
+            cut: Arc::default(),
             regions: Arc::default(),
         }
     }
 
+    #[must_use]
+    fn cut_by(mut self, cuts: BodyCuts) -> Self {
+        self.cuts = Arc::new(cuts);
+        self.cut = Arc::default();
+        self.regions = Arc::default();
+        self
+    }
+
     fn sharing_display_with(mut self, previous: Option<&Self>) -> Self {
-        if let Some(previous) = previous
-            && previous.geometry.same_geometry(&self.geometry)
-        {
-            self.profile = Arc::clone(&previous.profile);
+        let Some(previous) = previous else {
+            return self;
+        };
+
+        if !previous.geometry.same_geometry(&self.geometry) {
+            return self;
+        }
+        self.profile = Arc::clone(&previous.profile);
+        if previous.cuts == self.cuts {
+            self.cuts = Arc::clone(&previous.cuts);
+            self.cut = Arc::clone(&previous.cut);
             self.regions = Arc::clone(&previous.regions);
         }
         self
@@ -347,6 +369,10 @@ impl SketchResult {
 
     pub fn memo(&self) -> &SolveMemo {
         &self.memo
+    }
+
+    pub fn cuts(&self) -> &BodyCuts {
+        &self.cuts
     }
 
     pub fn regions(&self) -> Option<&Result<Vec<SketchRegion>, ProfileError>> {
@@ -376,17 +402,64 @@ impl SketchResult {
             .map_err(Clone::clone)
     }
 
+    pub(crate) fn cut(&self) -> Result<Option<&CutProfile>, ProfileError> {
+        if self.cuts.is_empty() {
+            return Ok(None);
+        }
+        if let Some(built) = self.cut.get() {
+            return built.as_ref().as_ref().map(Some).map_err(Clone::clone);
+        }
+
+        let plain = self.profile()?;
+        let built = panic::catch_unwind(AssertUnwindSafe(|| {
+            CutProfile::new(
+                plain,
+                &solid::profile_curves(&self.geometry),
+                self.cuts.curves(),
+            )
+        }))
+        .unwrap_or_else(|_| {
+            log::error!("dividing a sketch into regions by the edges of its face panicked");
+            Err(ProfileError::unresolved())
+        });
+
+        if let Err(cancelled @ ProfileError::Cancelled(_)) = built {
+            return Err(cancelled);
+        }
+        self.cut
+            .get_or_init(|| Box::new(built))
+            .as_ref()
+            .as_ref()
+            .map(Some)
+            .map_err(Clone::clone)
+    }
+
+    fn offered_cut(&self) -> Result<Option<&CutProfile>, ProfileError> {
+        match self.cut() {
+            Ok(cut) => Ok(cut.filter(|cut| cut.is_cut())),
+            Err(cancelled @ ProfileError::Cancelled(_)) => Err(cancelled),
+            Err(error) => {
+                log::warn!("the edges of the face could not divide a sketch's regions: {error}");
+                Ok(None)
+            }
+        }
+    }
+
     pub(crate) fn find_regions(&self) {
         if self.regions.get().is_some() {
             return;
         }
 
         let found = self.profile().and_then(|profile| {
-            panic::catch_unwind(AssertUnwindSafe(|| solid::display_regions(profile)))
-                .unwrap_or_else(|_| {
-                    log::error!("triangulating the regions of a sketch panicked");
-                    Err(ProfileError::unresolved())
-                })
+            let cut = self.offered_cut()?;
+            panic::catch_unwind(AssertUnwindSafe(|| match cut {
+                Some(cut) => solid::display_pieces(profile, cut),
+                None => solid::display_regions(profile),
+            }))
+            .unwrap_or_else(|_| {
+                log::error!("triangulating the regions of a sketch panicked");
+                Err(ProfileError::unresolved())
+            })
         });
         if !matches!(found, Err(ProfileError::Cancelled(_))) {
             self.regions.get_or_init(|| found);
@@ -424,7 +497,7 @@ impl FeatureResult {
     fn same_for_dependents(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Sketch(own), Self::Sketch(theirs)) => {
-                own.geometry.same_geometry(&theirs.geometry)
+                own.geometry.same_geometry(&theirs.geometry) && own.cuts == theirs.cuts
             }
             (Self::Datum(own), Self::Datum(theirs)) => own == theirs,
             (Self::Solid(own), Self::Solid(theirs)) => own.same_shapes(theirs),
@@ -2238,7 +2311,19 @@ impl Evaluator for ModelEvaluator {
                             geometry.set_plane(plane);
                         }
 
+                        let cuts = plane
+                            .zip(
+                                definition
+                                    .attachment
+                                    .as_ref()
+                                    .and_then(SketchAttachment::face),
+                            )
+                            .and_then(|(plane, face)| {
+                                Some(BodyCuts::on(inputs.body(face.body)?, &plane))
+                            })
+                            .unwrap_or_default();
                         let result = SketchResult::remembering(geometry, solution, memo)
+                            .cut_by(cuts)
                             .sharing_display_with(inputs.previous.and_then(FeatureResult::sketch));
                         Ok(FeatureResult::Sketch(result))
                     }

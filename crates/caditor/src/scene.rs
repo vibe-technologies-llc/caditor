@@ -11,7 +11,7 @@ use caditor_document::{
     body_parts, datum_outline, displayed_axis, displayed_frame, placed_text, placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
-use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
+use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
     PickResult, PictureTexture, PolylineRun, Reflection, RunPolyline, Scene, ScenePicture,
@@ -3035,12 +3035,12 @@ impl<'a> Builder<'a> {
             }
         }
 
-        let Some((_, regions)) = selection::swept_regions(document, evaluation, feature) else {
+        let Some(offered) = selection::swept_regions(document, evaluation, feature) else {
             return;
         };
-        let chosen = chosen_regions(solid.regions(), regions);
+        let chosen = offered.chosen(solid.regions());
 
-        self.region_fills(feature, regions, &chosen, &plane);
+        self.region_fills(feature, offered.regions, &chosen, &plane);
     }
 
     fn emboss_regions(&mut self, sources: &Sources<'_>, feature: FeatureId, emboss: &Emboss) {
@@ -3053,16 +3053,15 @@ impl<'a> Builder<'a> {
             return;
         };
 
-        let Some((sketch, regions)) = selection::swept_regions(document, evaluation, feature)
-        else {
+        let Some(offered) = selection::swept_regions(document, evaluation, feature) else {
             return;
         };
-        let Some(plane) = sketch_plane(document, evaluation, sketch) else {
+        let Some(plane) = sketch_plane(document, evaluation, offered.sketch) else {
             return;
         };
-        let chosen = chosen_regions(&emboss.regions, regions);
+        let chosen = offered.chosen(&emboss.regions);
 
-        self.region_fills(feature, regions, &chosen, &plane);
+        self.region_fills(feature, offered.regions, &chosen, &plane);
     }
 
     fn region_fills(
@@ -3696,22 +3695,6 @@ pub fn add_interference(scene: &mut Batch, palette: &ScenePalette, mark: &Mark) 
     }
 }
 
-pub fn chosen_regions(choice: &RegionChoice, regions: &[SketchRegion]) -> BTreeSet<RegionKey> {
-    match choice {
-        RegionChoice::All => regions
-            .iter()
-            .filter(|region| region.even_depth)
-            .map(|region| region.region.key())
-            .collect(),
-        RegionChoice::Chosen(references) => {
-            match resolve_regions(references, regions.iter().map(|region| &region.region)) {
-                Ok(resolved) => resolved.keys.into_iter().collect(),
-                Err(_) => references.iter().map(RegionReference::key).collect(),
-            }
-        }
-    }
-}
-
 pub fn region_references(
     keys: &BTreeSet<RegionKey>,
     regions: &[SketchRegion],
@@ -4035,7 +4018,9 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .map(Iterator::collect)
             .unwrap_or_default(),
         Pickable::Region { feature, region } => selection::swept_regions(document, evaluation, feature)
-            .map(|(sketch, regions)| region_points(document, evaluation, sketch, regions, region))
+            .map(|offered| {
+                region_points(document, evaluation, offered.sketch, offered.regions, region)
+            })
             .unwrap_or_default(),
         Pickable::SketchRegion { feature, region } => selection::sketch_regions(evaluation, feature)
             .map(|regions| region_points(document, evaluation, feature, regions, region))

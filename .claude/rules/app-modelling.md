@@ -421,6 +421,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   another switches the feature to it with every region, as the panel's Sketch list does through
   `solid_panel::with_sketch`). Shift+click on a region adds as before. Double-clicking a face opens the
   feature that made it.
+- The regions offered, picked and filled are the sketch's `regions` (`selection::offered`), which on
+  a sketch placed on a face are the pieces the face's edges cut them into (`document.md`), so a
+  window of the face inside a circle is a piece of its own. Which are chosen comes from
+  `selection::Offered::chosen` (`SketchResult::chosen_keys`), never from resolving references
+  against the offered list in the app: a choice of whole regions made before lights every piece
+  within them, and the first click on one turns it into the pieces. `body_reach` still builds its
+  reach tool from the sketch's own curves, so a choice of pieces reaches as the regions holding
+  them.
 - Under Result, a new body offers Separate pieces (`solid_panel::SEPARATE_PIECES`, One body or A body
   each, `Pieces::words`; `solid_tools::pieces_change`, one `Edit::SetFeaturePieces` checked first, so
   `PiecesInUse` is offered disabled with its reason). New extrusions and revolves

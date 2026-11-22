@@ -290,23 +290,23 @@ pub fn with_regions(emboss: &Emboss, regions: RegionChoice) -> Emboss {
 
 pub fn chosen_region_keys(model: &Model, feature: FeatureId) -> Option<BTreeSet<RegionKey>> {
     let emboss = model.document().feature(feature)?.kind.emboss()?;
-    let (_, regions) = selection::swept_regions(model.document(), model.evaluation(), feature)?;
-    Some(scene::chosen_regions(&emboss.regions, regions))
+    let offered = selection::swept_regions(model.document(), model.evaluation(), feature)?;
+    Some(offered.chosen(&emboss.regions))
 }
 
 pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Option<Transaction> {
     let document = model.document();
     let owner = document.feature(feature)?;
     let emboss = owner.kind.emboss()?;
-    let (_, regions) = selection::swept_regions(document, model.evaluation(), feature)?;
+    let offered = selection::swept_regions(document, model.evaluation(), feature)?;
 
-    let mut chosen = scene::chosen_regions(&emboss.regions, regions);
+    let mut chosen = offered.chosen(&emboss.regions);
 
     if !chosen.remove(&region) {
         chosen.insert(region);
     }
 
-    let choice = RegionChoice::Chosen(scene::region_references(&chosen, regions));
+    let choice = RegionChoice::Chosen(scene::region_references(&chosen, offered.regions));
     Some(Transaction::single(
         format!("Choose regions of {}", owner.name),
         Edit::SetFeatureKind {
@@ -324,11 +324,10 @@ pub fn choose_every_region(model: &Model, feature: FeatureId) -> Result<Transact
         .feature(feature)
         .and_then(|owner| owner.kind.emboss())
         .ok_or_else(|| gone.clone())?;
-    let (_, regions) =
-        selection::swept_regions(document, model.evaluation(), feature).ok_or(gone)?;
-    let keys = scene::chosen_regions(&RegionChoice::All, regions);
+    let offered = selection::swept_regions(document, model.evaluation(), feature).ok_or(gone)?;
+    let keys = offered.chosen(&RegionChoice::All);
 
-    let chosen = RegionChoice::Chosen(scene::region_references(&keys, regions));
+    let chosen = RegionChoice::Chosen(scene::region_references(&keys, offered.regions));
     change(model, feature, with_regions(emboss, chosen))
 }
 

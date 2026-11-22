@@ -20,7 +20,7 @@ use crate::{
         straight_spline,
     },
     target::{PointTarget, listed},
-    text::{Text, TextError, TextSize, letter_curve_text, same_text_bits},
+    text::{Text, TextError, TextSize, is_body_edge_curve, letter_curve_text, same_text_bits},
 };
 
 pub(crate) fn spline_through(positions: &[Point2], kind: &SplineKind) -> Option<BSpline> {
@@ -402,6 +402,7 @@ impl Sketch {
             Some(entity) => format!("{} {id}", entity.kind_name()),
             None if self.texts.contains_key(&id) => format!("Text {id}"),
             None if self.gears.contains_key(&id) => self.gear_label(id),
+            None if is_body_edge_curve(id.raw()) => "Body edge".to_owned(),
             None => match (
                 self.text_of_letter_curve(id.raw()),
                 self.gear_of_curve(id.raw()),

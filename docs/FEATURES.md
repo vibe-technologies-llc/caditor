@@ -104,6 +104,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
+- [medium · medium] Regions are cut by body edges (`body_cuts.rs`) only on a sketch placed on a
+  face, by the flat faces of that one body in its plane: a sketch on a datum or principal plane
+  level with a face, or other bodies' faces in the plane, do not cut it (it would make every such
+  sketch depend on every body before it). A spline or other curved edge cuts as a spline through
+  sampled points, so the sides of a piece swept from it are near, not on, the body's face. The
+  app's reach check (`body_reach.rs`) sweeps a chosen piece as the whole region holding it.
 - [medium · medium] The sketch patterns' panel (`sketch_pattern_panel.rs`) takes every value as
   text, a direction from a line, sides, flips and extent, and leaves out copies clicked in the
   preview, but there are no arrows on the canvas dragging the distance of each direction with

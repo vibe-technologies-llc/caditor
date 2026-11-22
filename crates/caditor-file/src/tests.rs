@@ -3970,6 +3970,75 @@ fn chosen_regions_saved_without_references_load_by_their_keys() {
 }
 
 #[test]
+fn a_choice_of_pieces_divided_by_body_edges_is_wrapped_so_an_older_reader_leaves_it_out() {
+    use caditor_document::{BodyOperation, Extrude, ExtrudeExtent, RegionChoice, SolidFeature};
+    use caditor_kernel::{BoundaryPiece, RegionKey, RegionReference, Side};
+
+    let (mut document, base, _) = solid_model();
+    let sketch = document
+        .features()
+        .find(|feature| feature.name == "Outline")
+        .map(caditor_document::Feature::id)
+        .unwrap();
+    let piece = RegionReference::new(
+        RegionKey::from_digest(0x0123_4567_89ab_cdef_fedc_ba98_7654_3210),
+        std::collections::BTreeSet::from([
+            BoundaryPiece {
+                entity: 1,
+                side: Side::Left,
+                piece: 7,
+            },
+            BoundaryPiece {
+                entity: caditor_sketch::body_edge_curve(0x5eed),
+                side: Side::Right,
+                piece: 9,
+            },
+        ]),
+        Some(Point2::new(2.5, 1.5)),
+    );
+    let mut transaction = document.transaction("Window piece");
+
+    let window = transaction.add_feature(
+        "Window piece",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::Chosen(vec![piece]),
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), false),
+            operation: BodyOperation::Add(base),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("body_edge_regions", "body_edge_regionz"));
+
+    assert_eq!(text.matches("\"body_edge_regions\"").count(), 1, "{text}");
+    assert!(
+        text.contains("\"body_edge_regions\":{\"feature\":{\"extrude\":"),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(window).is_none());
+    assert!(older.document.feature(base).is_some());
+
+    let kind = document.feature(window).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: window, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+
+    assert!(text.contains("body_edge_regions"));
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
 fn a_damaged_solid_value_falls_back_and_is_reported() {
     let (document, _, _) = solid_model();
     let text = encode(&document)

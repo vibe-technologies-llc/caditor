@@ -27,7 +27,7 @@ use caditor_kernel::{
     FaceReference, LoftSkin, PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation,
     VertexName, WallSide,
 };
-use caditor_sketch::{ChainSize, Gear, SplineKind, Text, TextAlign};
+use caditor_sketch::{ChainSize, Gear, SplineKind, Text, TextAlign, body_edge_curve};
 use serde::{
     Deserializer,
     de::{DeserializeOwned, Error as _, Visitor, value::Error as ValueError},
@@ -60,7 +60,11 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 89] = [
+const KEPT: [(&str, &str); 90] = [
+    (
+        "model-1/body-edge-regions.caditor",
+        "15367f93cce4c3b6b8fd1764ab44f9a63d59fdd44b6147e8e7e64ab74fbf84c1",
+    ),
     (
         "journal-1/detail-views.journal",
         "efe6e29340af29198f3425feb62810b57e4cc449f5649790e6ca3021640a3060",
@@ -1121,6 +1125,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("drafted-emboss"),
             saved(&drafted_emboss(), "Drafted emboss"),
+        ),
+        (
+            model("body-edge-regions"),
+            saved(&body_edge_regions(), "Body edge regions"),
         ),
         (model("shell-walls"), saved(&shell_walls(), "Shell walls")),
         (model("datums"), saved(&datums(), "Datums")),
@@ -3901,6 +3909,42 @@ fn drafted_emboss() -> Document {
             draft: Expression::parse_stored("7 deg").unwrap(),
             form: EmbossForm::Recessed,
         }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn body_edge_regions() -> Document {
+    let (mut document, base, _) = solid_model();
+    let sketch = named(&document, "Outline");
+    let piece = RegionReference::new(
+        RegionKey::from_digest(0x0123_4567_89ab_cdef_fedc_ba98_7654_3210),
+        BTreeSet::from([
+            BoundaryPiece {
+                entity: 1,
+                side: Side::Left,
+                piece: 0x0bad_cafe_0bad_cafe_0bad_cafe_0bad_cafe,
+            },
+            BoundaryPiece {
+                entity: body_edge_curve(0x5eed_5eed_5eed_5eed_5eed_5eed_5eed_5eed),
+                side: Side::Right,
+                piece: 0x0dec_afba_d0de_cafb_ad0d_ecaf_bad0_deca,
+            },
+        ]),
+        Some(Point2::new(2.5, 1.5)),
+    );
+    let mut transaction = document.transaction("Window piece");
+
+    transaction.add_feature(
+        "Window piece",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            regions: RegionChoice::Chosen(vec![piece]),
+            ..plain_extrude(
+                sketch,
+                ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), false),
+                BodyOperation::Add(base),
+            )
+        })),
     );
     document.apply(transaction.finish()).unwrap();
     document

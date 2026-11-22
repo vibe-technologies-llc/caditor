@@ -15,7 +15,6 @@ use crate::{
         segment_distance, step_for,
     },
     reversing::{self, Flip},
-    scene,
     scene_palette::ScenePalette,
     selection,
     units::Units,
@@ -147,16 +146,16 @@ fn held(model: &Model, feature: FeatureId, extrude: &Extrude, reach: Reach) -> O
 pub fn swept_bounds(model: &Model, extrude: &Extrude, plane: &Plane) -> Option<Aabb2> {
     let document = model.document();
     let chosen = match (&extrude.regions, extrude.wall.as_deref()) {
-        (RegionChoice::Chosen(_), None) => {
-            selection::sketch_regions(model.evaluation(), extrude.sketch).and_then(|regions| {
-                let keys = scene::chosen_regions(&extrude.regions, regions);
-                regions
+        (RegionChoice::Chosen(_), None) => selection::offered(model.evaluation(), extrude.sketch)
+            .and_then(|offered| {
+                let keys = offered.chosen(&extrude.regions);
+                offered
+                    .regions
                     .iter()
                     .filter(|region| keys.contains(&region.region.key()))
                     .filter_map(|region| region.region.bounds())
                     .reduce(Aabb2::union)
-            })
-        }
+            }),
         _ => None,
     };
     chosen.or_else(|| {

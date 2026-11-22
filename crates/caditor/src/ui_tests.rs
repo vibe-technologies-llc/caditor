@@ -52,6 +52,7 @@ mod blend_feet;
 mod blends;
 mod bodies;
 mod body_appearance;
+mod body_edge_regions;
 mod body_finishes;
 mod body_groups;
 mod body_tools;

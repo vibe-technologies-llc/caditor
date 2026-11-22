@@ -74,6 +74,23 @@ paths:
   without boundary pieces) is `Same` or `Gone`. `resolve_regions` resolves a feature's whole choice and fails only on
   a tie or when every chosen region is gone (`MissingRegion`).
 
+## Pieces cut by other edges (`cut.rs`)
+
+- `CutProfile::new(plain, curves, cutters)` divides a sketch's regions by further curves (the
+  document's body edges, `document.md`) without making them sketch curves. Only cutters whose box
+  meets the plain regions' bounds (expanded by the tolerance) take part: one entirely outside cannot
+  bound a region inside, and leaving it out keeps a far outline of hundreds of edges out of the
+  arrangement. Cutters carry ids above every sketch entity, so a sketch curve lying along one is the
+  one kept.
+- The arrangement of curves and cutters is an ordinary `Profile`: its regions are keyed and named as
+  any other, a cutter's pieces by the cutter's id, so a piece keeps its name while the cutter keeps
+  its id. `offered` gives the regions lying inside a region of the plain profile with that region's
+  key (the holder: the plain region holding a probe point stepped `PROBE_STEPS` tolerances to the
+  region's side of one of its first `PROBED_PIECES` pieces, checked inside the region); faces
+  outside every sketch curve (the rest of a face, a window outside a circle) are never offered.
+  `is_cut` says whether any offered region is bounded by a cutter; without one the pieces are the
+  plain regions.
+
 ## Offsets and walls (`strand.rs`, `wall.rs`)
 
 - A `Strand` is a line or an arc (signed sweep, a full circle a whole turn) in the direction of

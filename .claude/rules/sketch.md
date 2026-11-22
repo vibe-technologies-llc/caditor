@@ -189,6 +189,11 @@ paths:
     segment, so letters before an edit keep their curve names. A gear curve (below) has the next bit
     set too, which `text_of_letter_curve` tells apart. `Sketch::text_of_letter_curve` and
     `entity_label` ("Text 5") read one back for error messages.
+  - The top bit of the text's 39 is kept for body edges: `body_edge_curve` folds an edge name's
+    digest into the 61 bits below it (`is_body_edge_curve` tells one apart, `entity_label` says
+    "Body edge"), and `letter_curve` gives no curve for a text whose kept bits reach it, so the two
+    never share an id. The document cuts a sketch's regions by the edges of the face it lies on
+    under these ids (`document.md`).
   - Copy and paste carry a selected text with a copy of its anchor (`SketchClip::text_count`; the
     clipboard writes it as a `text` entity record and carries its parameters like a dimension's).
     Trim, mirror and the patterns leave texts alone; one whose anchor a trim would remove makes the
