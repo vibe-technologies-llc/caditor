@@ -146,6 +146,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   since brought a `Face` to 192 bytes (`Surface` 96, sized by cones and tori); an `Edge` is 160
   (`Curve` 96, its variants 48 to 88 bytes, nothing worth boxing). Sharing geometry between copies
   (names and placement over one solid) would save most of the rest but reaches every kernel reader.
+- [low · small] Dropping a chain of shells still recurses once per link: a shell recipe keeps the
+  body before it as `before: Arc<FeatureResult>` (`shell.rs`), which `LandingInputs`'s iterative
+  `Drop` (`landing.rs`) cannot detach, so a long run of shells, each on the one before, drops on the
+  recompute thread's default stack. Whether a realistic count overflows it is unchecked; unlink the
+  recipe's `before` into the same work list.
 
 ## Sketch solver
 
