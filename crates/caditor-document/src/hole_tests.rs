@@ -1647,6 +1647,7 @@ fn a_circular_pattern_of_points_drills_every_copy_and_leaves_its_centre() {
             &caditor_sketch::CircularPattern {
                 count: 4,
                 spread: caditor_sketch::Spread::FullTurn,
+                left_out: Default::default(),
             },
         )
         .unwrap();

@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     f64::consts::TAU,
+    fmt,
 };
 
 use caditor_expression::{BinaryOperator, Expression, Function, Unit};
@@ -63,6 +64,16 @@ pub enum PatternError {
     SymmetricSpreadOutsideHalfTurn,
     #[error("the pattern reaches further than {} m from the origin", MAX_LENGTH / 1_000.0)]
     OutOfReach,
+    #[error("{copy} is not one of the pattern's copies, so it cannot be left out")]
+    NoSuchCopy { copy: PatternCopy },
+    #[error("the original always stays; only its copies can be left out")]
+    OriginalStays,
+    #[error("every copy is left out, so the pattern would make nothing")]
+    EveryCopyLeftOut,
+    #[error(
+        "{copy} has every copy in line with it left out, so it cannot follow the line its direction runs along; keep one in its row, or give the directions angles"
+    )]
+    CopyCutOff { copy: PatternCopy },
     #[error(transparent)]
     Edit(SketchError),
 }
@@ -144,10 +155,44 @@ impl PatternRow {
     }
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PatternCopy {
+    Steps(Vec<i64>),
+    Turn(i64),
+}
+
+impl PatternCopy {
+    pub fn is_original(&self) -> bool {
+        match self {
+            Self::Steps(steps) => steps.iter().all(|step| *step == 0),
+            Self::Turn(turn) => *turn == 0,
+        }
+    }
+}
+
+impl fmt::Display for PatternCopy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_original() {
+            return formatter.write_str("the original");
+        }
+        match self {
+            Self::Steps(steps) => match steps.as_slice() {
+                [step] => write!(formatter, "copy {step}"),
+                _ => {
+                    let listed: Vec<String> = steps.iter().map(i64::to_string).collect();
+                    write!(formatter, "copy ({})", listed.join(", "))
+                }
+            },
+            Self::Turn(turn) => write!(formatter, "copy {turn}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RectangularPattern {
     pub directions: Vec<PatternRow>,
     pub distribution: Distribution,
+    pub left_out: BTreeSet<Vec<i64>>,
 }
 
 impl RectangularPattern {
@@ -156,6 +201,38 @@ impl RectangularPattern {
             .iter()
             .map(PatternRow::instances)
             .fold(1, usize::saturating_mul)
+    }
+
+    pub fn has_copy(&self, steps: &[i64]) -> bool {
+        steps.len() == self.directions.len()
+            && steps.iter().any(|step| *step != 0)
+            && steps
+                .iter()
+                .zip(&self.directions)
+                .all(|(step, row)| row.slots().contains(step))
+    }
+
+    pub fn copies(&self) -> Vec<Vec<i64>> {
+        if self.instances() > MAX_PATTERN_INSTANCES {
+            return Vec::new();
+        }
+        self.directions
+            .iter()
+            .fold(vec![Vec::new()], |earlier: Vec<Vec<i64>>, row| {
+                row.slots()
+                    .flat_map(|step| {
+                        earlier.iter().map(move |before| {
+                            let mut slot = before.clone();
+
+                            slot.push(step);
+                            slot
+                        })
+                    })
+                    .collect()
+            })
+            .into_iter()
+            .filter(|slot| slot.iter().any(|step| *step != 0))
+            .collect()
     }
 }
 
@@ -170,6 +247,7 @@ pub enum Spread {
 pub struct CircularPattern {
     pub count: usize,
     pub spread: Spread,
+    pub left_out: BTreeSet<i64>,
 }
 
 impl CircularPattern {
@@ -179,12 +257,49 @@ impl CircularPattern {
             Spread::Symmetric(_) => self.count.saturating_mul(2).saturating_sub(1),
         }
     }
+
+    pub fn has_turn(&self, turn: i64) -> bool {
+        let last = i64::try_from(self.count.saturating_sub(1)).unwrap_or(i64::MAX);
+        match self.spread {
+            Spread::FullTurn | Spread::Total(_) => (1..=last).contains(&turn),
+            Spread::Symmetric(_) => turn != 0 && (-last..=last).contains(&turn),
+        }
+    }
+
+    pub fn turns(&self) -> Vec<i64> {
+        if self.instances() > MAX_PATTERN_INSTANCES {
+            return Vec::new();
+        }
+
+        let last = i64::try_from(self.count.saturating_sub(1)).unwrap_or(i64::MAX);
+        match self.spread {
+            Spread::FullTurn | Spread::Total(_) => (1..=last).collect(),
+            Spread::Symmetric(_) => (1..=last).chain((1..=last).map(|turn| -turn)).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CopyImage {
+    pub copy: PatternCopy,
+    pub left_out: bool,
+    pub curves: Vec<Vec<Point2>>,
+    pub points: Vec<Point2>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PatternImage {
-    pub curves: Vec<Vec<Point2>>,
-    pub points: Vec<Point2>,
+    pub copies: Vec<CopyImage>,
+}
+
+impl PatternImage {
+    pub fn kept(&self) -> impl Iterator<Item = &CopyImage> {
+        self.copies.iter().filter(|copy| !copy.left_out)
+    }
+
+    pub fn left_out(&self) -> impl Iterator<Item = &CopyImage> {
+        self.copies.iter().filter(|copy| copy.left_out)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -209,19 +324,63 @@ struct Course {
     spacing: Dimensioned,
     heading: Heading,
     vector: Vector2,
+    reversed: bool,
+}
+
+impl Course {
+    fn times(&self, steps: u64) -> Self {
+        if steps == 1 {
+            return self.clone();
+        }
+
+        let factor = steps as f64;
+        Self {
+            spacing: Dimensioned {
+                expression: Expression::binary(
+                    BinaryOperator::Multiply,
+                    Expression::Number(factor),
+                    self.spacing.expression.clone(),
+                ),
+                value: self.spacing.value * factor,
+            },
+            heading: self.heading.clone(),
+            vector: self.vector * factor,
+            reversed: self.reversed,
+        }
+    }
+
+    fn angle(&self) -> Option<&Dimensioned> {
+        match &self.heading {
+            Heading::Angle(angle) => Some(angle),
+            Heading::Along { .. } => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum Step {
     Shift(Course),
+    Across(Vec<(i64, Course)>),
     Turn(Expression),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct Instance {
+struct Placed {
+    copy: PatternCopy,
     motion: Motion,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Instance {
+    placed: Placed,
     from: Option<usize>,
     step: Step,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Laid {
+    instances: Vec<Instance>,
+    left_out: Vec<Placed>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -236,9 +395,17 @@ struct Plan {
     points: Vec<EntityId>,
     shared: Vec<EntityId>,
     instances: Vec<Instance>,
+    left_out: Vec<Placed>,
 }
 
 impl Plan {
+    fn placed(&self) -> impl Iterator<Item = &Placed> {
+        self.instances
+            .iter()
+            .map(|instance| &instance.placed)
+            .chain(&self.left_out)
+    }
+
     fn positions_stay_in_reach(&self, sketch: &Sketch) -> Result<(), PatternError> {
         let reaches =
             |position: Point2| position.is_finite() && position.abs().max_element() <= MAX_LENGTH;
@@ -248,11 +415,9 @@ impl Plan {
             .filter_map(|point| sketch.point(*point))
             .collect();
 
-        let inside = self.instances.iter().all(|instance| {
-            originals
-                .iter()
-                .all(|at| reaches(instance.motion.apply(*at)))
-        });
+        let inside = self
+            .placed()
+            .all(|placed| originals.iter().all(|at| reaches(placed.motion.apply(*at))));
         if inside {
             Ok(())
         } else {
@@ -328,19 +493,24 @@ impl Sketch {
             .iter()
             .filter_map(|curve| self.faceted(*curve, faceting))
             .collect();
-        let mut image = PatternImage::default();
+        let left_out: BTreeSet<&PatternCopy> =
+            plan.left_out.iter().map(|placed| &placed.copy).collect();
 
-        for instance in &plan.instances {
-            let moved = |points: &[Point2]| -> Vec<Point2> {
-                points.iter().map(|at| instance.motion.apply(*at)).collect()
-            };
-
-            image
-                .curves
-                .extend(outlines.iter().map(|outline| moved(outline)));
-            image.points.extend(moved(&lone));
-        }
-        image
+        let copies = plan
+            .placed()
+            .map(|placed| {
+                let moved = |points: &[Point2]| -> Vec<Point2> {
+                    points.iter().map(|at| placed.motion.apply(*at)).collect()
+                };
+                CopyImage {
+                    copy: placed.copy.clone(),
+                    left_out: left_out.contains(&placed.copy),
+                    curves: outlines.iter().map(|outline| moved(outline)).collect(),
+                    points: moved(&lone),
+                }
+            })
+            .collect();
+        PatternImage { copies }
     }
 
     fn is_used_by(&self, point: EntityId, curves: &[EntityId]) -> bool {
@@ -361,13 +531,14 @@ impl Sketch {
             .iter()
             .map(|row| self.pattern_course(row, pattern.distribution))
             .collect::<Result<Vec<Course>, PatternError>>()?;
-        let instances = rectangular_instances(pattern, &courses)?;
+        let laid = rectangular_instances(pattern, &courses)?;
 
         let plan = Plan {
             points: self.points_of(&chosen.curves, &chosen.lone),
             curves: chosen.curves,
             shared: Vec::new(),
-            instances,
+            instances: laid.instances,
+            left_out: laid.left_out,
         };
 
         plan.positions_stay_in_reach(self)?;
@@ -382,7 +553,7 @@ impl Sketch {
     ) -> Result<Plan, PatternError> {
         let centre_at = self.centre_position(centre)?;
         let chosen = self.pattern_items(items, Some(centre))?;
-        let instances = circular_instances(centre_at, pattern)?;
+        let laid = circular_instances(centre_at, pattern)?;
 
         let reach = chosen
             .curves
@@ -416,7 +587,8 @@ impl Sketch {
             curves,
             points,
             shared,
-            instances,
+            instances: laid.instances,
+            left_out: laid.left_out,
         };
 
         plan.positions_stay_in_reach(self)?;
@@ -448,6 +620,7 @@ impl Sketch {
             vector: unit * spacing.value,
             spacing,
             heading: row.heading.clone(),
+            reversed: row.reversed,
         })
     }
 
@@ -565,7 +738,7 @@ impl Sketch {
 
             for point in &plan.points {
                 let position = self.point(*point).ok_or(SketchError::NotAPoint(*point))?;
-                let copy = self.add_point(instance.motion.apply(position));
+                let copy = self.add_point(instance.placed.motion.apply(position));
 
                 map.insert(*point, copy);
             }
@@ -715,9 +888,6 @@ impl Sketch {
         implied: &BTreeMap<EntityId, Vec<Vector2>>,
     ) -> Result<(), SketchError> {
         for (instance, map) in plan.instances.iter().zip(maps) {
-            let Step::Shift(course) = &instance.step else {
-                continue;
-            };
             let previous = instance.from.and_then(|index| maps.get(index));
             for point in &plan.points {
                 let (Some(&earlier), Some(&later)) = (
@@ -727,8 +897,18 @@ impl Sketch {
                     continue;
                 };
 
-                let ties = shift_constraints(course, earlier, later);
-                let kept = kept_rows(implied.get(point), tie_directions(course));
+                let (ties, directions) = match &instance.step {
+                    Step::Shift(course) => (
+                        shift_constraints(course, earlier, later),
+                        tie_directions(course),
+                    ),
+                    Step::Across(steps) => (
+                        across_constraints(steps, earlier, later),
+                        [Vector2::X, Vector2::Y],
+                    ),
+                    Step::Turn(_) => continue,
+                };
+                let kept = kept_rows(implied.get(point), directions);
                 for (index, constraint) in ties.into_iter().enumerate() {
                     if kept.contains(&index) {
                         self.add_constraint(constraint)?;
@@ -854,7 +1034,7 @@ fn counted(count: usize) -> Result<(), PatternError> {
 fn rectangular_instances(
     pattern: &RectangularPattern,
     courses: &[Course],
-) -> Result<Vec<Instance>, PatternError> {
+) -> Result<Laid, PatternError> {
     if courses.is_empty() {
         return Err(PatternError::NoDirections);
     }
@@ -883,29 +1063,7 @@ fn rectangular_instances(
         }
     }
 
-    let slots: Vec<Vec<i64>> = pattern
-        .directions
-        .iter()
-        .fold(vec![Vec::new()], |earlier: Vec<Vec<i64>>, row| {
-            row.slots()
-                .flat_map(|step| {
-                    earlier.iter().map(move |before| {
-                        let mut slot = before.clone();
-
-                        slot.push(step);
-                        slot
-                    })
-                })
-                .collect()
-        })
-        .into_iter()
-        .filter(|slot| slot.iter().any(|step| *step != 0))
-        .collect();
-    let index: BTreeMap<&[i64], usize> = slots
-        .iter()
-        .enumerate()
-        .map(|(index, slot)| (slot.as_slice(), index))
-        .collect();
+    let slots = pattern.copies();
     let offsets: Vec<Vector2> = slots
         .iter()
         .map(|slot| {
@@ -928,33 +1086,216 @@ fn rectangular_instances(
         }
     }
 
-    let mut instances = Vec::with_capacity(slots.len());
+    for steps in &pattern.left_out {
+        let copy = PatternCopy::Steps(steps.clone());
 
-    for (slot, offset) in slots.iter().zip(offsets) {
-        let Some(along) = slot.iter().position(|step| *step != 0) else {
-            continue;
-        };
-        let (Some(course), Some(step)) = (courses.get(along), slot.get(along)) else {
-            continue;
-        };
-        let mut before = slot.clone();
-
-        if let Some(shortened) = before.get_mut(along) {
-            *shortened -= step.signum();
+        if copy.is_original() {
+            return Err(PatternError::OriginalStays);
         }
-        instances.push(Instance {
+        if !pattern.has_copy(steps) {
+            return Err(PatternError::NoSuchCopy { copy });
+        }
+    }
+
+    let (kept, left_out): (Vec<Placed>, Vec<Placed>) = slots
+        .into_iter()
+        .zip(offsets)
+        .map(|(slot, offset)| Placed {
+            copy: PatternCopy::Steps(slot),
             motion: Motion::Shift(offset),
-            from: index.get(before.as_slice()).copied(),
-            step: Step::Shift(course.clone()),
+        })
+        .partition(|placed| {
+            !matches!(&placed.copy, PatternCopy::Steps(steps) if pattern.left_out.contains(steps))
+        });
+
+    if kept.is_empty() {
+        return Err(PatternError::EveryCopyLeftOut);
+    }
+
+    let kept_slots: Vec<Vec<i64>> = kept
+        .iter()
+        .filter_map(|placed| match &placed.copy {
+            PatternCopy::Steps(steps) => Some(steps.clone()),
+            PatternCopy::Turn(_) => None,
+        })
+        .collect();
+    let mut links = Tree::of(pattern, courses, &kept_slots)?;
+    let index: BTreeMap<&[i64], usize> = kept_slots
+        .iter()
+        .enumerate()
+        .map(|(index, slot)| (slot.as_slice(), index))
+        .collect();
+
+    let mut instances = Vec::with_capacity(kept.len());
+
+    for (placed, slot) in kept.into_iter().zip(&kept_slots) {
+        let Some(link) = links.remove(slot) else {
+            continue;
+        };
+
+        instances.push(Instance {
+            placed,
+            from: index.get(link.from.as_slice()).copied(),
+            step: link.step,
         });
     }
-    Ok(instances)
+    Ok(Laid {
+        instances,
+        left_out,
+    })
 }
 
-fn circular_instances(
-    centre: Point2,
-    pattern: &CircularPattern,
-) -> Result<Vec<Instance>, PatternError> {
+struct Link {
+    from: Vec<i64>,
+    step: Step,
+}
+
+struct Tree<'a> {
+    pattern: &'a RectangularPattern,
+    courses: &'a [Course],
+    tied: BTreeSet<Vec<i64>>,
+    links: BTreeMap<Vec<i64>, Link>,
+}
+
+impl<'a> Tree<'a> {
+    fn of(
+        pattern: &'a RectangularPattern,
+        courses: &'a [Course],
+        kept: &[Vec<i64>],
+    ) -> Result<BTreeMap<Vec<i64>, Link>, PatternError> {
+        let mut tree = Self {
+            pattern,
+            courses,
+            tied: BTreeSet::from([vec![0; courses.len()]]),
+            links: BTreeMap::new(),
+        };
+        let mut waiting: Vec<&Vec<i64>> = kept.iter().collect();
+
+        waiting.sort_by_key(|slot| slot.iter().map(|step| step.unsigned_abs()).sum::<u64>());
+
+        while !waiting.is_empty() {
+            let before = waiting.len();
+
+            waiting.retain(|slot| !tree.tie_along_one(slot));
+            if waiting.len() < before {
+                continue;
+            }
+
+            let Some(across) = waiting.iter().position(|slot| tree.tie_across(slot)) else {
+                let copy = waiting
+                    .first()
+                    .map_or(PatternCopy::Steps(Vec::new()), |slot| {
+                        PatternCopy::Steps((*slot).clone())
+                    });
+
+                return Err(PatternError::CopyCutOff { copy });
+            };
+
+            waiting.remove(across);
+        }
+        Ok(tree.links)
+    }
+
+    fn tie(&mut self, slot: &[i64], from: Vec<i64>, step: Step) {
+        self.tied.insert(slot.to_vec());
+        self.links.insert(slot.to_vec(), Link { from, step });
+    }
+
+    fn tie_along_one(&mut self, slot: &[i64]) -> bool {
+        let first = slot.iter().position(|step| *step != 0);
+        let toward = (0..slot.len())
+            .filter_map(|along| {
+                let class = if Some(along) == first { 0 } else { 1 };
+                let at = *slot.get(along)?;
+                let nearer = (1..=at.unsigned_abs()).map(move |gap| at - at.signum() * gap as i64);
+                self.nearest_tied(slot, along, nearer)
+                    .map(|(gap, from)| ((class, gap, along), from))
+            })
+            .min_by_key(|(key, _)| *key);
+        let beyond = || {
+            self.pattern
+                .directions
+                .iter()
+                .enumerate()
+                .filter_map(|(along, row)| {
+                    let at = *slot.get(along)?;
+                    let range = row.slots();
+                    let reach = range.start().abs_diff(*range.end());
+
+                    let away = (1..=reach)
+                        .flat_map(move |gap| {
+                            let gap = gap as i64;
+                            [at + gap, at - gap]
+                        })
+                        .filter(move |other| {
+                            range.contains(other)
+                                && (other.signum() * at.signum() < 0 || other.abs() > at.abs())
+                        });
+                    self.nearest_tied(slot, along, away)
+                        .map(|(gap, from)| ((2, gap, along), from))
+                })
+                .min_by_key(|(key, _)| *key)
+        };
+
+        let Some(((_, gap, along), from)) = toward.or_else(beyond) else {
+            return false;
+        };
+        let Some(course) = self.courses.get(along) else {
+            return false;
+        };
+
+        self.tie(slot, from, Step::Shift(course.times(gap)));
+        true
+    }
+
+    fn nearest_tied(
+        &self,
+        slot: &[i64],
+        along: usize,
+        candidates: impl Iterator<Item = i64>,
+    ) -> Option<(u64, Vec<i64>)> {
+        let at = *slot.get(along)?;
+        candidates.into_iter().find_map(|other| {
+            let mut from = slot.to_vec();
+
+            *from.get_mut(along)? = other;
+            self.tied
+                .contains(&from)
+                .then(|| (at.abs_diff(other), from))
+        })
+    }
+
+    fn tie_across(&mut self, slot: &[i64]) -> bool {
+        let differing = |from: &Vec<i64>| -> Option<Vec<(i64, Course)>> {
+            slot.iter()
+                .zip(from)
+                .zip(self.courses)
+                .filter(|((at, other), _)| at != other)
+                .map(|((at, other), course)| course.angle().map(|_| (at - other, course.clone())))
+                .collect()
+        };
+        let nearest = self
+            .tied
+            .iter()
+            .filter_map(|from| Some((differing(from)?, from)))
+            .min_by_key(|(steps, _)| {
+                steps
+                    .iter()
+                    .map(|(steps, _)| steps.unsigned_abs())
+                    .sum::<u64>()
+            })
+            .map(|(steps, from)| (steps, from.clone()));
+
+        let Some((steps, from)) = nearest else {
+            return false;
+        };
+
+        self.tie(slot, from, Step::Across(steps));
+        true
+    }
+}
+
+fn circular_instances(centre: Point2, pattern: &CircularPattern) -> Result<Laid, PatternError> {
     counted(pattern.count)?;
 
     let total = pattern.instances();
@@ -994,32 +1335,70 @@ fn circular_instances(
             spread_step(pattern.count, each)
         }
     };
-    let last = i64::try_from(pattern.count - 1).unwrap_or(i64::MAX);
-    let turns: Vec<i64> = match pattern.spread {
-        Spread::FullTurn | Spread::Total(_) => (1..=last).collect(),
-        Spread::Symmetric(_) => (1..=last).chain((1..=last).map(|turn| -turn)).collect(),
+    let turns = pattern.turns();
+
+    for turn in &pattern.left_out {
+        if *turn == 0 {
+            return Err(PatternError::OriginalStays);
+        }
+        if !pattern.has_turn(*turn) {
+            return Err(PatternError::NoSuchCopy {
+                copy: PatternCopy::Turn(*turn),
+            });
+        }
+    }
+
+    let placed = |turn: i64| Placed {
+        copy: PatternCopy::Turn(turn),
+        motion: Motion::Turn {
+            centre,
+            radians: step_radians * turn as f64,
+        },
     };
-    let index: BTreeMap<i64, usize> = turns
+    let (kept, left_out): (Vec<i64>, Vec<i64>) = turns
+        .iter()
+        .partition(|turn| !pattern.left_out.contains(turn));
+
+    if kept.is_empty() {
+        return Err(PatternError::EveryCopyLeftOut);
+    }
+
+    let index: BTreeMap<i64, usize> = kept
         .iter()
         .enumerate()
         .map(|(index, turn)| (*turn, index))
         .collect();
-    let backwards = Expression::Negate(Box::new(step_angle.clone()));
-    Ok(turns
+    let instances = kept
         .iter()
-        .map(|turn| Instance {
-            motion: Motion::Turn {
-                centre,
-                radians: step_radians * *turn as f64,
-            },
-            from: index.get(&(turn - turn.signum())).copied(),
-            step: Step::Turn(if *turn < 0 {
-                backwards.clone()
-            } else {
-                step_angle.clone()
-            }),
+        .map(|turn| {
+            let from = (1..turn.abs())
+                .rev()
+                .map(|nearer| nearer * turn.signum())
+                .find(|nearer| index.contains_key(nearer))
+                .unwrap_or(0);
+            Instance {
+                placed: placed(*turn),
+                from: index.get(&from).copied(),
+                step: Step::Turn(turned_by(&step_angle, turn - from)),
+            }
         })
-        .collect())
+        .collect();
+    Ok(Laid {
+        instances,
+        left_out: left_out.into_iter().map(placed).collect(),
+    })
+}
+
+fn turned_by(step: &Expression, steps: i64) -> Expression {
+    match steps {
+        1 => step.clone(),
+        -1 => Expression::Negate(Box::new(step.clone())),
+        _ => Expression::binary(
+            BinaryOperator::Multiply,
+            Expression::Number(steps as f64),
+            step.clone(),
+        ),
+    }
 }
 
 fn spread_step(count: usize, spread: &Dimensioned) -> (f64, Expression) {
@@ -1097,6 +1476,57 @@ fn shift_constraints(course: &Course, earlier: EntityId, later: EntityId) -> Vec
                 component(&course.spacing, angle, Function::Sin)
             },
         }
+    };
+    vec![across, up]
+}
+
+fn across_constraints(
+    steps: &[(i64, Course)],
+    earlier: EntityId,
+    later: EntityId,
+) -> Vec<Constraint> {
+    let along = |function: Function, part: fn(Vector2) -> f64| -> Option<Expression> {
+        steps
+            .iter()
+            .filter_map(|(count, course)| {
+                let angle = course.angle()?;
+                let tolerance = AXIS_TOLERANCE * course.vector.length();
+
+                if angle.expression.is_literal() && part(course.vector).abs() <= tolerance {
+                    return None;
+                }
+
+                let sign = if course.reversed { -1.0 } else { 1.0 };
+                let projected = Expression::binary(
+                    BinaryOperator::Multiply,
+                    course.spacing.expression.clone(),
+                    Expression::Call(function, vec![angle.expression.clone()]),
+                );
+                Some(Expression::binary(
+                    BinaryOperator::Multiply,
+                    Expression::Number(*count as f64 * sign),
+                    projected,
+                ))
+            })
+            .reduce(|sum, term| Expression::binary(BinaryOperator::Add, sum, term))
+            .map(|sum| Expression::Call(Function::Abs, vec![sum]))
+    };
+
+    let across = match along(Function::Cos, |vector| vector.x) {
+        Some(value) => Constraint::HorizontalDistance {
+            from: earlier,
+            to: later,
+            value,
+        },
+        None => Constraint::VerticalPoints(earlier, later.into()),
+    };
+    let up = match along(Function::Sin, |vector| vector.y) {
+        Some(value) => Constraint::VerticalDistance {
+            from: earlier,
+            to: later,
+            value,
+        },
+        None => Constraint::HorizontalPoints(earlier, later.into()),
     };
     vec![across, up]
 }

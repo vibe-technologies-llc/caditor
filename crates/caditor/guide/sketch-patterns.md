@@ -48,6 +48,21 @@ once the geometry is chosen (press Enter if you selected it in the tool), click 
   copy on each side.
 - **Count**, how many, the original included; on each side when the spread is symmetric.
 
+## Leaving out copies
+
+Either pattern can skip single copies while it is set up. Point at a previewed copy: it is drawn
+thicker, and the words beside the pointer say which copy a click leaves out. Click it and it is
+drawn dashed and hollow instead of being made; click it again to make it. The panel's **Copies**
+row has a box for every copy, laid out as the copies are (the original's box cannot be cleared),
+so you can also leave copies out with Tab and Space; it counts how many are left out, and
+**Bring the copies back** makes them all again. Changing a count keeps the copies you left out.
+
+The copies still follow the original and every value: each is tied to the nearest copy made along
+its direction by that many steps. A copy with every copy between it and the original left out
+along both ways is tied across both steps at once. When such a copy runs along a chosen line,
+that cannot be held and the panel says so: keep one of the copies in its row, or give the
+directions angles.
+
 For patterns of bodies and features, see [Patterns](patterns).
 
 The copies are held by construction lines from the centre. A circular pattern of points is a bolt

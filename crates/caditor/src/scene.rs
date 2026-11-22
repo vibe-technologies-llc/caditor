@@ -85,6 +85,7 @@ const OPENED_DATUM_POINT_EXTRA: f32 = 3.0;
 const SKETCH_AXIS_WIDTH: f32 = 1.5;
 const PLANE_EDGE_WIDTH: f32 = 1.25;
 const HIGHLIGHT_EXTRA_WIDTH: f32 = 1.5;
+const LEFT_OUT_HOLE_SHARE: f32 = 0.5;
 const ORIGIN_DIAMETER: f32 = 8.0;
 const HIGHLIGHT_EXTRA_DIAMETER: f32 = 3.0;
 const SNAP_MARKER_DIAMETER: f32 = 13.0;
@@ -3531,6 +3532,28 @@ pub fn add_preview(scene: &mut Batch, palette: &ScenePalette, plane: Plane, prev
 
         scene.lines.extend(curve_lines(plane, curve, style));
     }
+    for curve in &preview.left_out {
+        let style = CurveStyle {
+            color: palette.trimmed_curve,
+            width: palette.curve_width,
+            layer: Layer::Front,
+            pick: None,
+            dashed: true,
+        };
+
+        scene.lines.extend(curve_lines(plane, curve, style));
+    }
+    for curve in &preview.aimed {
+        let style = CurveStyle {
+            color: palette.lines.hovered,
+            width: palette.curve_width + HIGHLIGHT_EXTRA_WIDTH,
+            layer: Layer::Front,
+            pick: None,
+            dashed: false,
+        };
+
+        scene.lines.extend(curve_lines(plane, curve, style));
+    }
     for guide in &preview.guides {
         let style = CurveStyle {
             color: palette.snap,
@@ -3557,8 +3580,36 @@ pub fn add_preview(scene: &mut Batch, palette: &ScenePalette, plane: Plane, prev
         layer: Layer::Front,
         pick: None,
     });
+    let left_out = preview.left_out_points.iter().flat_map(|position| {
+        let position = plane.to_world(*position);
+        [
+            Marker {
+                position,
+                color: palette.trimmed_curve,
+                diameter: palette.point_diameter,
+                layer: Layer::Front,
+                pick: None,
+            },
+            Marker {
+                position,
+                color: palette.hole,
+                diameter: palette.point_diameter * LEFT_OUT_HOLE_SHARE,
+                layer: Layer::Front,
+                pick: None,
+            },
+        ]
+    });
+    let aimed = preview.aimed_points.iter().map(|position| Marker {
+        position: plane.to_world(*position),
+        color: palette.lines.hovered,
+        diameter: palette.point_diameter + HIGHLIGHT_EXTRA_WIDTH,
+        layer: Layer::Front,
+        pick: None,
+    });
 
-    scene.markers.extend(snap.into_iter().chain(points));
+    scene
+        .markers
+        .extend(snap.into_iter().chain(points).chain(left_out).chain(aimed));
 }
 
 pub fn add_measurement(scene: &mut Batch, palette: &ScenePalette, from: Point3, to: Point3) {
@@ -4515,6 +4566,7 @@ mod tests {
                 snap: Some(Point2::ZERO),
                 guides: vec![[Point2::ZERO, Point2::new(0.0, 9.0)]],
                 construction: false,
+                ..Preview::default()
             },
         );
 
@@ -4525,6 +4577,44 @@ mod tests {
         ));
         assert!(preview.lines.iter().all(|drawn| in_front(drawn.layer)));
         assert!(preview.markers.iter().all(|drawn| in_front(drawn.layer)));
+    }
+
+    #[test]
+    fn left_out_copies_are_dashed_and_hollow_and_the_aimed_copy_is_widened() {
+        let mut preview = Batch::default();
+
+        add_preview(
+            &mut preview,
+            &STANDARD,
+            Plane::XY,
+            &Preview {
+                curves: vec![vec![Point2::ZERO, Point2::new(5.0, 0.0)]],
+                left_out: vec![vec![Point2::new(10.0, 0.0), Point2::new(15.0, 0.0)]],
+                left_out_points: vec![Point2::new(12.0, 3.0)],
+                aimed: vec![vec![Point2::new(10.0, 0.0), Point2::new(15.0, 0.0)]],
+                aimed_points: vec![Point2::new(12.0, 3.0)],
+                ..Preview::default()
+            },
+        );
+
+        let [kept, left_out, aimed] = preview.lines.as_slice() else {
+            panic!("expected three lines, found {}", preview.lines.len());
+        };
+
+        assert!(matches!(kept.stroke, Stroke::Solid));
+        assert!(matches!(left_out.stroke, Stroke::Dashed { .. }));
+        assert_eq!(left_out.color, STANDARD.trimmed_curve);
+        assert!(matches!(aimed.stroke, Stroke::Solid));
+        assert!(aimed.width > kept.width);
+
+        let [point, hole, aimed_point] = preview.markers.as_slice() else {
+            panic!("expected three markers, found {}", preview.markers.len());
+        };
+
+        assert_eq!(point.color, STANDARD.trimmed_curve);
+        assert_eq!(hole.color, STANDARD.hole);
+        assert!(hole.diameter > 0.0 && hole.diameter < point.diameter);
+        assert!(aimed_point.diameter > point.diameter);
     }
 
     #[test]

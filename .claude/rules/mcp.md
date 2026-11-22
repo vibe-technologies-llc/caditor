@@ -237,9 +237,11 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   but `extent`, and `directions` a list of further ones after the rows taking the same; the second
   direction, `rows` or else the first of `directions`, runs square to the first when given no
   heading (`SQUARE_BY_DEFAULT`), a later one is refused without one as
-  `DirectionWithoutHeading`, and `rows` stays accepted as written before `directions`) and
+  `DirectionWithoutHeading`, and `rows` stays accepted as written before `directions`;
+  `left_out` lists copies not made, each its steps along every direction or, with one
+  direction, a plain number, `LeftOutCopy`) and
   circular patterns (`symmetric` with its `angle` each way, refused without one as
-  `SymmetricWithoutAngle`), fillet and chamfer of
+  `SymmetricWithoutAngle`; `left_out` lists turns), fillet and chamfer of
   corners named by their point or a pair of curves (`ChamferSize`). Move, rotate and scale build
   the app's `sketch_drag::Moving` or `Transforming` drags (an `about` point overrides the pivot)
   and solve them from the shown sketch with `solve_geometry_from`, committed as `settle_sketch`:

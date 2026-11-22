@@ -314,6 +314,20 @@ impl Modifying {
         }
     }
 
+    pub fn leave_out_aimed(&mut self) -> bool {
+        match &mut self.state {
+            State::Pattern(patterning) => patterning.leave_out_aimed(),
+            State::Offset(_)
+            | State::Mirror(_)
+            | State::Fillet(_)
+            | State::Tangent(_)
+            | State::Blend(_)
+            | State::Gear(_)
+            | State::Text(_)
+            | State::Idle => false,
+        }
+    }
+
     pub fn lets_go_of_selection(&self) -> bool {
         match &self.state {
             State::Mirror(mirroring) => mirroring.gathers() && mirroring.gathered(),

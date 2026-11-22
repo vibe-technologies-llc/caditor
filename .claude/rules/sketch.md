@@ -523,7 +523,7 @@ relative to the extent.
 - Patterns (`pattern.rs`): `rectangular_pattern` repeats curves and lone points along any number
   of directions (`RectangularPattern::directions`, each a `PatternRow`: count including the
   original, a distance, a `Heading`, `reversed` and `Sides`; `RectangularPattern::distribution`),
-  every combination of steps a copy. The distance is the step (`Distribution::Spacing`)
+  every combination of steps a copy (`RectangularPattern::copies`). The distance is the step (`Distribution::Spacing`)
   or the reach from the original to the last copy (`Extent`, the step `distance / (count - 1)`
   as an expression). A heading is an angle from the x axis or `Along` a line or axis (`square`
   for square to it), its direction read from the line as drawn; the app and the MCP server default the
@@ -532,20 +532,41 @@ relative to the extent.
   (`CircularPattern`: count including the original, over a full turn, a total angle, or
   `Spread::Symmetric`, `count - 1` copies each way up to the angle, the side turning clockwise
   tied by the negated step).
+  `RectangularPattern::left_out` (each copy its steps along every direction, `has_copy`) and
+  `CircularPattern::left_out` (turns from the original, negative the clockwise side of
+  `Symmetric`, `turns`, `has_turn`) name copies not made, a `PatternCopy` read "copy 2" or
+  "copy (2, 1)"; the original (`OriginalStays`), a copy the pattern does not have
+  (`NoSuchCopy`) and every copy (`EveryCopyLeftOut`) are refused, and overlap and reach are
+  checked over every copy, left out or not.
   Copies get fresh IDs and the construction flag; circles and ellipses an `Equal` to the original
   (`copy_needs_equal`), added after the ties so only the ellipse's already-held major radius is the
   dependent row and no tie is reported redundant. Instances capped at `MAX_PATTERN_INSTANCES`,
   within `MAX_LENGTH`.
   - Copies stay parametric, each tied to its predecessor (the first along each direction to the
-    original), so editing the original or any spacing moves everything after it. Rectangular: every point tied to
+    original), so editing the original or any spacing moves everything after it; a predecessor
+    several steps away holds that many times the spacing (`Course::times`). Rectangular: every point tied to
     its predecessor by `HorizontalDistance` and `VerticalDistance` holding the typed spacing (a row
     along an axis with a literal angle uses the spacing itself and `HorizontalPoints` or
     `VerticalPoints` for the other component; any other angle, a parameter included, uses
     `abs(spacing * cos(angle))` and `abs(spacing * sin(angle))`; a heading along a line uses
     `Distance` holding the spacing and `OnDirection` through the predecessor along or square to
     the line, so the copies turn with it, the line among the copied items included). A copy's
-    predecessor is the one a step nearer the original along its first direction with a step, so
-    the ties form a tree rooted at the original. Circular: every point tied by two construction
+    predecessor (`Tree`, copies taken fewest steps from the original first, round again until
+    none is left) is the nearest kept one nearer the original along its first direction with a
+    step, else along another direction, else the nearest already tied one along any one
+    direction beyond it (`tie_along_one`); with nothing left out that is the copy a step nearer
+    along the first direction, and the ties form a tree rooted at the original. A copy with no
+    tied copy in line with it (its row and column toward the original left out, none beyond
+    tied) is tied to the nearest tied copy by the combined steps (`Step::Across`,
+    `across_constraints`: `HorizontalDistance` and `VerticalDistance` holding `abs` of the sum
+    over the directions of steps, flip, spacing and the cosine or sine of the angle, a literal
+    axis direction adding nothing to the component it lacks, `VerticalPoints` or
+    `HorizontalPoints` when nothing does). Only angle headings sum that way, so a direction
+    along a line in such a step is refused (`CopyCutOff`, naming the copy): a helper point
+    between the steps would hold it, but a free point is a layout point a hole drills, and a
+    construction line to a copied point takes that point out of the layout. A kept turn's
+    predecessor is the nearest kept turn toward the original on its side, its `Angle` the step
+    times the turns between (`turned_by`). Circular: every point tied by two construction
     lines from the centre (`Equal` and an `Angle` holding the step: total over count
     minus one, or 360° over the count), created once per point and instance; the origin as centre
     gets a point `Coincident` with it to start the lines from, since a line cannot end on a
@@ -567,8 +588,9 @@ relative to the extent.
     three sides of a hexagon at one spacing), a
     centre that is not a point, nothing off the centre, a total angle of 0° or a full turn or more,
     a symmetric angle of 0° or a half turn or more each way, geometry past `MAX_LENGTH`.
-    `rectangular_image` and `circular_image` give faceted copies for a preview without touching the
-    sketch.
+    `rectangular_image` and `circular_image` give every copy faceted for a preview without
+    touching the sketch (`CopyImage`: its `PatternCopy`, whether it is left out, curves and
+    points).
 - Ellipses as cutters (`intersect::Shape::Ellipse`, crossings by sampled roots along the ellipse as
   for splines; two ellipses by the roots of one's level along the other,
   `intersect::ellipse_ellipse`) in trim, extend and break. Trim takes a `Course::Ellipse` cut by

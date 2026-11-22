@@ -1,9 +1,11 @@
+use std::collections::BTreeSet;
+
 use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{BinaryOperator, Dimension, EvalError, Expression, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
-    CircularPattern, Dimensioned, Distribution, Entity, EntityId, Faceting, Heading, PatternError,
-    PatternImage, PatternRow, RectangularPattern, Sides, Sketch, Spread,
+    CircularPattern, CopyImage, Dimensioned, Distribution, Entity, EntityId, Faceting, Heading,
+    PatternCopy, PatternError, PatternImage, PatternRow, RectangularPattern, Sides, Sketch, Spread,
 };
 
 use crate::{
@@ -14,6 +16,7 @@ use crate::{
     mirroring,
     model::Model,
     modifying::{HighlightNeeded, Hint, Outcome, Prompt, Refusal, StepError},
+    move_manipulator::segment_distance,
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
     units::attach_unit,
@@ -625,6 +628,7 @@ impl PatternSettings {
         Some(Spec::Rectangular(RectangularPattern {
             directions,
             distribution: self.distribution,
+            left_out: BTreeSet::new(),
         }))
     }
 
@@ -659,6 +663,7 @@ impl PatternSettings {
         Some(Spec::Circular(CircularPattern {
             count: count?,
             spread: spread?,
+            left_out: BTreeSet::new(),
         }))
     }
 }
@@ -679,9 +684,80 @@ impl Spec {
 
     fn extra_instances(&self) -> usize {
         match self {
-            Self::Rectangular(pattern) => pattern.instances().saturating_sub(1),
-            Self::Circular(pattern) => pattern.instances().saturating_sub(1),
+            Self::Rectangular(pattern) => pattern
+                .instances()
+                .saturating_sub(1)
+                .saturating_sub(pattern.left_out.len()),
+            Self::Circular(pattern) => pattern
+                .instances()
+                .saturating_sub(1)
+                .saturating_sub(pattern.left_out.len()),
         }
+    }
+
+    pub fn copies(&self) -> Vec<PatternCopy> {
+        match self {
+            Self::Rectangular(pattern) => pattern
+                .copies()
+                .into_iter()
+                .map(PatternCopy::Steps)
+                .collect(),
+            Self::Circular(pattern) => pattern.turns().into_iter().map(PatternCopy::Turn).collect(),
+        }
+    }
+
+    pub fn original(&self) -> PatternCopy {
+        match self {
+            Self::Rectangular(pattern) => PatternCopy::Steps(vec![0; pattern.directions.len()]),
+            Self::Circular(_) => PatternCopy::Turn(0),
+        }
+    }
+
+    fn has(&self, copy: &PatternCopy) -> bool {
+        match (self, copy) {
+            (Self::Rectangular(pattern), PatternCopy::Steps(steps)) => pattern.has_copy(steps),
+            (Self::Circular(pattern), PatternCopy::Turn(turn)) => pattern.has_turn(*turn),
+            (Self::Rectangular(_), PatternCopy::Turn(_))
+            | (Self::Circular(_), PatternCopy::Steps(_)) => false,
+        }
+    }
+
+    fn leaving_out(&self, left_out: &BTreeSet<PatternCopy>) -> Self {
+        let mut spec = self.clone();
+        let within = left_out.iter().filter(|copy| self.has(copy));
+
+        match &mut spec {
+            Self::Rectangular(pattern) => {
+                pattern.left_out = within
+                    .filter_map(|copy| match copy {
+                        PatternCopy::Steps(steps) => Some(steps.clone()),
+                        PatternCopy::Turn(_) => None,
+                    })
+                    .collect();
+            }
+            Self::Circular(pattern) => {
+                pattern.left_out = within
+                    .filter_map(|copy| match copy {
+                        PatternCopy::Turn(turn) => Some(*turn),
+                        PatternCopy::Steps(_) => None,
+                    })
+                    .collect();
+            }
+        }
+        spec
+    }
+}
+
+pub fn copy_name(copy: &PatternCopy) -> String {
+    capitalized(&copy.to_string())
+}
+
+pub fn copy_about(copy: &PatternCopy, left_out: bool) -> String {
+    let name = copy_name(copy);
+    match (copy.is_original(), left_out) {
+        (true, _) => format!("{name} always stays"),
+        (false, false) => format!("{name} is made; click to leave it out"),
+        (false, true) => format!("{name} is left out; click to make it again"),
     }
 }
 
@@ -699,6 +775,8 @@ pub struct Patterning {
     picking: Option<Direction>,
     spec: Option<Spec>,
     image: Option<Result<PatternImage, PatternError>>,
+    left_out: BTreeSet<PatternCopy>,
+    aimed: Option<PatternCopy>,
 }
 
 impl Patterning {
@@ -716,7 +794,52 @@ impl Patterning {
             picking: None,
             spec: None,
             image: None,
+            left_out: BTreeSet::new(),
+            aimed: None,
         }
+    }
+
+    pub fn is_left_out(&self, copy: &PatternCopy) -> bool {
+        self.left_out.contains(copy)
+    }
+
+    pub fn left_out_of(&self, spec: &Spec) -> usize {
+        self.left_out.iter().filter(|copy| spec.has(copy)).count()
+    }
+
+    pub fn toggle(&mut self, copy: &PatternCopy) {
+        if copy.is_original() {
+            return;
+        }
+        if !self.left_out.remove(copy) {
+            self.left_out.insert(copy.clone());
+        }
+    }
+
+    pub fn bring_back(&mut self) {
+        self.left_out.clear();
+    }
+
+    pub fn leave_out_aimed(&mut self) -> bool {
+        let Some(copy) = self.aimed.take() else {
+            return false;
+        };
+
+        self.toggle(&copy);
+        true
+    }
+
+    pub fn direction_added(&mut self) {
+        self.left_out = std::mem::take(&mut self.left_out)
+            .into_iter()
+            .map(|copy| match copy {
+                PatternCopy::Steps(mut steps) => {
+                    steps.push(0);
+                    PatternCopy::Steps(steps)
+                }
+                PatternCopy::Turn(turn) => PatternCopy::Turn(turn),
+            })
+            .collect();
     }
 
     pub fn directions(&self) -> &[Option<EntityId>] {
@@ -734,6 +857,18 @@ impl Patterning {
         if direction.index() < self.directions.len() {
             self.directions.remove(direction.index());
         }
+        self.left_out = std::mem::take(&mut self.left_out)
+            .into_iter()
+            .filter_map(|copy| match copy {
+                PatternCopy::Steps(mut steps) => {
+                    let removed = (direction.index() < steps.len())
+                        .then(|| steps.remove(direction.index()))?;
+                    (removed == 0).then_some(PatternCopy::Steps(steps))
+                }
+                PatternCopy::Turn(turn) => Some(PatternCopy::Turn(turn)),
+            })
+            .filter(|copy| !copy.is_original())
+            .collect();
         self.picking = match self.picking {
             Some(picking) if picking == direction => None,
             Some(picking) if picking > direction => Some(Direction(picking.index() - 1)),
@@ -867,11 +1002,11 @@ impl Patterning {
                 pointer.and_then(|pointer| point_under(sketch, screen, pointer))
             }
         };
-        self.image = self.spec.as_ref().and_then(|spec| {
+        self.image = self.applied().and_then(|spec| {
             if self.selected.is_empty() {
                 return None;
             }
-            match spec {
+            match &spec {
                 Spec::Rectangular(pattern) => {
                     Some(sketch.rectangular_image(&self.selected, pattern, faceting))
                 }
@@ -880,13 +1015,46 @@ impl Patterning {
                 }
             }
         });
+        self.aimed = pointer
+            .filter(|_| self.aims_at_copies())
+            .and_then(|pointer| self.copy_under(screen, pointer));
     }
 
     pub fn leave(&mut self) {
         self.hover = None;
+        self.aimed = None;
         if self.kind == PatternKind::Circular && self.centre().is_none() {
             self.image = None;
         }
+    }
+
+    fn applied(&self) -> Option<Spec> {
+        self.spec
+            .as_ref()
+            .map(|spec| spec.leaving_out(&self.left_out))
+    }
+
+    fn aims_at_copies(&self) -> bool {
+        match self.kind {
+            PatternKind::Rectangular => self.picking.is_none(),
+            PatternKind::Circular => {
+                !self.gathering
+                    && self.hover.is_none()
+                    && self.chosen.or(self.selected_centre).is_some()
+            }
+        }
+    }
+
+    fn copy_under(&self, screen: &impl Screen, pointer: Pointer) -> Option<PatternCopy> {
+        let Some(Ok(image)) = &self.image else {
+            return None;
+        };
+        image
+            .copies
+            .iter()
+            .filter_map(|copy| Some((reach_to(copy, screen, pointer)?, copy)))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, copy)| copy.copy.clone())
     }
 
     fn centre(&self) -> Option<EntityId> {
@@ -899,9 +1067,23 @@ impl Patterning {
     pub fn preview(&self) -> Preview {
         let mut preview = Preview::default();
 
-        if let Some(Ok(image)) = &self.image {
-            preview.curves = image.curves.clone();
-            preview.points = image.points.clone();
+        let Some(Ok(image)) = &self.image else {
+            return preview;
+        };
+
+        for copy in &image.copies {
+            let (curves, points) = if copy.left_out {
+                (&mut preview.left_out, &mut preview.left_out_points)
+            } else {
+                (&mut preview.curves, &mut preview.points)
+            };
+
+            curves.extend(copy.curves.iter().cloned());
+            points.extend(copy.points.iter().copied());
+            if self.aimed.as_ref() == Some(&copy.copy) {
+                preview.aimed.extend(copy.curves.iter().cloned());
+                preview.aimed_points.extend(copy.points.iter().copied());
+            }
         }
         preview
     }
@@ -929,9 +1111,13 @@ impl Patterning {
             });
         }
 
+        if let Some(copy) = &self.aimed {
+            return Some(aimed_words(copy, self.is_left_out(copy)));
+        }
+
         let centre = self.centre();
         let items = self.repeated();
-        match (self.spec.as_ref()?, &self.image) {
+        match (self.applied()?, &self.image) {
             (Spec::Circular(_), None) if centre.is_none() => Some(capitalized(CENTRE_PROMPT)),
             (spec, Some(Ok(_))) => {
                 let about = centre
@@ -1032,8 +1218,7 @@ impl Patterning {
     pub fn make(&self, model: &Model, feature: FeatureId) -> Result<Transaction, PatterningError> {
         let tool = self.kind.tool();
         let spec = self
-            .spec
-            .clone()
+            .applied()
             .ok_or(PatterningError::ValuesFirst { tool })?;
         let selected = self.selected.clone();
         let centre = self.centre();
@@ -1132,6 +1317,38 @@ impl Patterning {
             self.image = None;
         }
     }
+}
+
+fn aimed_words(copy: &PatternCopy, left_out: bool) -> String {
+    let name = copy.to_string();
+    if left_out {
+        format!("Click to make {name} again")
+    } else {
+        format!("Click to leave {name} out; click it again to bring it back")
+    }
+}
+
+fn reach_to(copy: &CopyImage, screen: &impl Screen, pointer: Pointer) -> Option<f64> {
+    let along_curves = copy
+        .curves
+        .iter()
+        .flat_map(|curve| curve.windows(2))
+        .filter_map(|pair| match pair {
+            [from, to] => Some(segment_distance(
+                screen.to_screen(*from)?,
+                screen.to_screen(*to)?,
+                pointer.screen,
+            )),
+            _ => None,
+        })
+        .filter(|offset| *offset <= snap::CURVE_TOLERANCE);
+    let at_points = copy
+        .points
+        .iter()
+        .filter_map(|point| Some(screen.to_screen(*point)?.distance(pointer.screen)))
+        .filter(|offset| *offset <= snap::POINT_TOLERANCE);
+
+    along_curves.chain(at_points).min_by(f64::total_cmp)
 }
 
 fn is_centre(sketch: &Sketch, point: EntityId) -> bool {

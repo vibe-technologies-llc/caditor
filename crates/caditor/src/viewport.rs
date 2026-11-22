@@ -3689,6 +3689,9 @@ impl ViewportState {
             actions.extend(outcome_action(self.trimming.click(model)));
             return;
         }
+        if self.modifying.leave_out_aimed() {
+            return;
+        }
         if self.modifying.gathers() {
             self.gather_click(editing, self.hovered);
             return;

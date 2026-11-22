@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
+
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
     CircularPattern, Constraint, Dimensioned, Distribution, Entity, EntityId, Faceting, Heading,
-    MAX_PATTERN_INSTANCES, PatternError, PatternRow, RectangularPattern, Sides, Sketch, Solved,
-    Spread,
+    MAX_PATTERN_INSTANCES, PatternCopy, PatternError, PatternRow, RectangularPattern, Sides,
+    Sketch, Solved, Spread,
 };
 
 const EXACT: f64 = 1e-6;
@@ -58,6 +60,7 @@ fn grid(first: PatternRow, second: Option<PatternRow>) -> RectangularPattern {
     RectangularPattern {
         directions: std::iter::once(first).chain(second).collect(),
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     }
 }
 
@@ -65,6 +68,7 @@ fn turns(count: usize) -> CircularPattern {
     CircularPattern {
         count,
         spread: Spread::FullTurn,
+        left_out: BTreeSet::new(),
     }
 }
 
@@ -213,6 +217,7 @@ fn a_grid_repeats_along_a_second_direction_square_to_the_first() {
     let pattern = RectangularPattern {
         directions: vec![row(3, 10.0, 0.0), row(2, 12.0, 90.0)],
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     };
 
     let copies = sketch.rectangular_pattern(&[circle], &pattern).unwrap();
@@ -250,6 +255,7 @@ fn a_slanted_row_and_a_negative_spacing_run_the_way_they_were_asked() {
     let pattern = RectangularPattern {
         directions: vec![row(3, 10.0, 30.0)],
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     };
 
     let copies = sketch.rectangular_pattern(&[line], &pattern).unwrap();
@@ -302,6 +308,7 @@ fn a_spacing_naming_a_parameter_moves_every_copy_when_the_parameter_changes() {
             degrees(0.0),
         )],
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     };
 
     let copies = sketch.rectangular_pattern(&[point], &pattern).unwrap();
@@ -393,6 +400,7 @@ fn a_circular_pattern_about_a_sketch_point_over_a_total_angle_spaces_its_ends_ev
     let pattern = CircularPattern {
         count: 3,
         spread: Spread::Total(degrees(90.0)),
+        left_out: BTreeSet::new(),
     };
 
     let copies = sketch.circular_pattern(&[line], centre, &pattern).unwrap();
@@ -448,6 +456,7 @@ fn a_negative_total_angle_turns_clockwise() {
             expression: Expression::Negate(Box::new(Expression::Measure(90.0, Unit::Degree))),
             value: -90.0,
         }),
+        left_out: BTreeSet::new(),
     };
 
     let copies = sketch
@@ -510,23 +519,22 @@ fn a_pattern_is_previewed_without_changing_the_sketch() {
         .unwrap();
 
     assert_eq!(sketch, before);
-    assert_eq!(image.curves.len(), 2);
+    assert_eq!(image.copies.len(), 2);
+    assert_eq!(image.copies[1].copy, PatternCopy::Steps(vec![2]));
+    assert!(image.copies.iter().all(|copy| !copy.left_out));
 
-    assert_near(image.curves[0][0], Point2::new(11.0, 1.0));
-    assert_near(image.curves[1][0], Point2::new(21.0, 1.0));
-
-    assert_eq!(image.points.len(), 2);
-
-    assert_near(image.points[1], Point2::new(23.0, 7.0));
+    assert_near(image.copies[0].curves[0][0], Point2::new(11.0, 1.0));
+    assert_near(image.copies[1].curves[0][0], Point2::new(21.0, 1.0));
+    assert_near(image.copies[1].points[0], Point2::new(23.0, 7.0));
 
     let turned = sketch
         .circular_image(&[line], EntityId::ORIGIN, &turns(4), Faceting::within(0.01))
         .unwrap();
 
     assert_eq!(sketch, before);
-    assert_eq!(turned.curves.len(), 3);
+    assert_eq!(turned.copies.len(), 3);
 
-    assert_near(turned.curves[0][0], Point2::new(-1.0, 1.0));
+    assert_near(turned.copies[0].curves[0][0], Point2::new(-1.0, 1.0));
 }
 
 #[test]
@@ -560,6 +568,7 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
     let beside = RectangularPattern {
         directions: vec![row(3, 5.0, 0.0), row(2, 5.0, 180.0)],
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     };
 
     assert_eq!(
@@ -570,6 +579,7 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
     let many = RectangularPattern {
         directions: vec![row(50, 5.0, 0.0), row(50, 5.0, 90.0)],
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     };
 
     assert_eq!(
@@ -586,6 +596,7 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
     let grid_250 = RectangularPattern {
         directions: vec![row(25, 5.0, 0.0), row(10, 5.0, 90.0)],
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     };
 
     let created = large.rectangular_pattern(&[seed], &grid_250).unwrap();
@@ -618,6 +629,7 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
         let pattern = CircularPattern {
             count: 3,
             spread: Spread::Total(degrees(total)),
+            left_out: BTreeSet::new(),
         };
 
         assert_eq!(
@@ -765,6 +777,7 @@ fn a_rectangular_pattern_of_an_arc_adds_no_redundant_tie() {
             let pattern = RectangularPattern {
                 directions: vec![row(3, 40.0, 30.0), row(2, 25.0, 120.0)],
                 distribution: Distribution::Spacing,
+                left_out: BTreeSet::new(),
             };
             sketch.rectangular_pattern(&[arc], &pattern).unwrap()
         });
@@ -782,6 +795,7 @@ fn a_rectangular_pattern_of_an_elliptical_arc_adds_no_redundant_tie() {
         let pattern = RectangularPattern {
             directions: vec![row(3, 40.0, 30.0), row(2, 25.0, 120.0)],
             distribution: Distribution::Spacing,
+            left_out: BTreeSet::new(),
         };
         sketch.rectangular_pattern(&[arc], &pattern).unwrap()
     });
@@ -808,6 +822,7 @@ fn a_circular_pattern_of_an_arc_or_an_elliptical_arc_adds_no_redundant_tie() {
             let pattern = CircularPattern {
                 count: 3,
                 spread: Spread::Total(degrees(100.0)),
+                left_out: BTreeSet::new(),
             };
             sketch.circular_pattern(&[arc], centre, &pattern).unwrap()
         });
@@ -1115,6 +1130,7 @@ fn an_extent_spreads_the_count_from_the_original_to_the_last_copy() {
             degrees(90.0),
         )],
         distribution: Distribution::Extent,
+        left_out: BTreeSet::new(),
     };
 
     let copies = sketch.rectangular_pattern(&[point], &pattern).unwrap();
@@ -1143,6 +1159,7 @@ fn a_symmetric_circular_pattern_turns_both_ways_from_the_original() {
     let pattern = CircularPattern {
         count: 3,
         spread: Spread::Symmetric(degrees(60.0)),
+        left_out: BTreeSet::new(),
     };
     let free = solve(&sketch).solution.degrees_of_freedom();
 
@@ -1189,6 +1206,7 @@ fn a_direction_that_is_no_line_an_empty_extent_and_a_half_turn_each_way_are_refu
 
     let empty = RectangularPattern {
         distribution: Distribution::Extent,
+        left_out: BTreeSet::new(),
         ..across(3, 0.0)
     };
 
@@ -1201,6 +1219,7 @@ fn a_direction_that_is_no_line_an_empty_extent_and_a_half_turn_each_way_are_refu
         let pattern = CircularPattern {
             count: 3,
             spread: Spread::Symmetric(degrees(each)),
+            left_out: BTreeSet::new(),
         };
 
         assert_eq!(
@@ -1240,6 +1259,7 @@ fn three_directions_repeat_every_combination_of_steps_tied_as_a_tree_from_the_or
     let pattern = RectangularPattern {
         directions: vec![row(2, 10.0, 0.0), row(2, 7.0, 90.0), leaning],
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     };
 
     let copies = sketch.rectangular_pattern(&[point], &pattern).unwrap();
@@ -1283,10 +1303,12 @@ fn directions_along_one_line_reaching_one_place_two_ways_or_none_at_all_are_refu
             .map(|(angle, spacing)| row(2, spacing, angle))
             .collect(),
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     };
     let empty = RectangularPattern {
         directions: Vec::new(),
         distribution: Distribution::Spacing,
+        left_out: BTreeSet::new(),
     };
 
     assert_eq!(
@@ -1315,3 +1337,5 @@ fn directions_along_one_line_reaching_one_place_two_ways_or_none_at_all_are_refu
 
     assert_clean(&solve(&sketch));
 }
+
+mod left_out;

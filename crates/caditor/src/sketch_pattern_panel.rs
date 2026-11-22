@@ -1,5 +1,7 @@
+use std::collections::BTreeMap;
+
 use caditor_document::FeatureId;
-use caditor_sketch::{EntityId, Sides, Sketch};
+use caditor_sketch::{EntityId, Heading, PatternCopy, PatternRow, Sides, Sketch};
 use egui::{Id, Label, TextWrapMode, Ui};
 
 use crate::{
@@ -14,7 +16,7 @@ use crate::{
     patterning::{
         ADD_DIRECTION, ADD_DIRECTION_ABOUT, DISTRIBUTIONS, Direction, PatternEvaluation,
         PatternField, PatternKind, PatternSettings, Patterning, RUNS_ALONG, SIDES, SIDES_CAPTION,
-        TurnKind,
+        Spec, TurnKind, copy_about, copy_name,
     },
     trimming::capitalized,
     widgets::{self, PanelTitle, Tone},
@@ -34,6 +36,11 @@ pub const USE_ORIGIN: &str = "Use the origin";
 pub const NOTHING_REPEATED: &str =
     "Nothing yet: click items in the sketch or drag a box around them.";
 pub const MAKE: &str = "Make the copies";
+pub const COPIES: &str = "Copies";
+pub const BRING_BACK: &str = "Bring the copies back";
+const BRING_BACK_ABOUT: &str = "Make every copy left out again";
+pub const COPIES_HINT: &str =
+    "Click a copy here or in the view to leave it out, and again to make it.";
 pub const RECTANGULAR_ABOUT: &str = "Repeat the selection along one direction, or along several \
                                      for a grid, every combination of steps a copy. Every value \
                                      takes units and expressions using your parameters; the copies \
@@ -143,6 +150,7 @@ pub fn show(
                             });
                             if add {
                                 settings.add_direction();
+                                patterning.direction_added();
                             }
                         }
                         PatternKind::Circular => {
@@ -158,6 +166,9 @@ pub fn show(
 
                             field_rows(ui, &shown, settings, &PatternField::CIRCULAR);
                         }
+                    }
+                    if let Ok(spec) = &evaluation.spec {
+                        copies_row(ui, spec, patterning);
                     }
                     widgets::property(ui, REPEATS, |ui| match patterning.repeated() {
                         0 => wrapped(ui, widgets::muted(NOTHING_REPEATED, ui)),
@@ -340,6 +351,130 @@ enum DirectionAsk {
     Choose,
     Stop,
     Angle,
+}
+
+fn copies_row(ui: &mut Ui, spec: &Spec, patterning: &mut Patterning) {
+    let rows = copy_rows(spec);
+
+    if rows.is_empty() {
+        return;
+    }
+
+    let left_out = patterning.left_out_of(spec);
+    let mut toggled = None;
+    let mut brought_back = false;
+
+    widgets::property(ui, COPIES, |ui| {
+        ui.vertical(|ui| {
+            for row in &rows {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = ui.spacing().item_spacing.y;
+                    for copy in row {
+                        let kept = !patterning.is_left_out(copy);
+                        let response = ui
+                            .add_enabled_ui(!copy.is_original(), |ui| {
+                                widgets::instance_toggle(
+                                    ui,
+                                    kept,
+                                    &copy_name(copy),
+                                    &copy_about(copy, !kept),
+                                )
+                            })
+                            .inner;
+
+                        if response.clicked() {
+                            toggled = Some(copy.clone());
+                        }
+                    }
+                });
+            }
+
+            let summary = match left_out {
+                0 => COPIES_HINT.to_owned(),
+                1 => "1 copy is left out.".to_owned(),
+                count => format!("{count} copies are left out."),
+            };
+
+            wrapped(ui, widgets::muted(summary, ui));
+            if left_out > 0 {
+                let button = widgets::small_button(ui, icons::ADD, BRING_BACK);
+
+                brought_back = ui.add(button).on_hover_text(BRING_BACK_ABOUT).clicked();
+            }
+        });
+    });
+    if let Some(copy) = toggled {
+        patterning.toggle(&copy);
+    }
+    if brought_back {
+        patterning.bring_back();
+    }
+}
+
+fn copy_rows(spec: &Spec) -> Vec<Vec<PatternCopy>> {
+    let copies = spec.copies();
+
+    if copies.is_empty() {
+        return Vec::new();
+    }
+
+    let mut every = copies;
+
+    every.push(spec.original());
+    match spec {
+        Spec::Circular(_) => {
+            every.sort_by_key(|copy| match copy {
+                PatternCopy::Turn(turn) => *turn,
+                PatternCopy::Steps(_) => 0,
+            });
+            vec![every]
+        }
+        Spec::Rectangular(pattern) => {
+            let rightward = drawn_sign(pattern.directions.first(), f64::cos);
+            let upward = drawn_sign(pattern.directions.get(1), f64::sin);
+            let mut rows: BTreeMap<(Vec<i64>, i64), Vec<PatternCopy>> = BTreeMap::new();
+
+            for copy in every {
+                let PatternCopy::Steps(steps) = &copy else {
+                    continue;
+                };
+                let across = steps.get(1).copied().unwrap_or_default();
+                let further = steps.get(2..).map(<[i64]>::to_vec).unwrap_or_default();
+
+                rows.entry((further, -across * upward))
+                    .or_default()
+                    .push(copy);
+            }
+            rows.into_values()
+                .map(|mut row| {
+                    row.sort_by_key(|copy| match copy {
+                        PatternCopy::Steps(steps) => {
+                            steps.first().copied().unwrap_or_default() * rightward
+                        }
+                        PatternCopy::Turn(_) => 0,
+                    });
+                    row
+                })
+                .collect()
+        }
+    }
+}
+
+fn drawn_sign(row: Option<&PatternRow>, part: fn(f64) -> f64) -> i64 {
+    let Some(row) = row else {
+        return 1;
+    };
+    let along = match &row.heading {
+        Heading::Angle(angle) => part(angle.value.to_radians()),
+        Heading::Along { .. } => 1.0,
+    };
+    let flipped = if row.reversed { -1.0 } else { 1.0 };
+
+    if along * row.distance.value * flipped < 0.0 {
+        -1
+    } else {
+        1
+    }
 }
 
 fn centre_row(ui: &mut Ui, sketch: Option<&Sketch>, centre: Option<EntityId>) -> bool {

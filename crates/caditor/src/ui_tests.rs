@@ -192,6 +192,7 @@ mod sketch_inference;
 mod sketch_keys;
 mod sketch_modify;
 mod sketch_modify_status;
+mod sketch_pattern_copies;
 mod sketch_patterns;
 mod sketch_planes;
 mod sketch_projection;

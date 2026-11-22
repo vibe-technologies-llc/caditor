@@ -665,6 +665,96 @@ fn a_rectangular_pattern_runs_along_any_number_of_directions() {
 }
 
 #[test]
+fn patterns_leave_out_the_copies_named_by_their_steps_or_turns() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+
+    let sketch = new_sketch(&mut client);
+    let circle = draw(
+        &mut client,
+        &sketch,
+        json!([{ "kind": "circle", "center": [10, 10], "radius": 1 }]),
+    );
+    let circle = circle[0]["id"].clone();
+
+    let row = modify(
+        &mut client,
+        &sketch,
+        json!({
+            "operation": "rectangular_pattern", "items": [circle], "count": 4, "spacing": "10 mm",
+            "left_out": [2]
+        }),
+    );
+    let after_row = described(&mut client, &sketch);
+
+    client.tool("undo", json!({}));
+
+    let grid = modify(
+        &mut client,
+        &sketch,
+        json!({
+            "operation": "rectangular_pattern", "items": [circle], "count": 2, "spacing": "10 mm",
+            "rows": { "count": 2, "spacing": "10 mm" },
+            "left_out": [[1, 0], [0, 1]]
+        }),
+    );
+    let after_grid = described(&mut client, &sketch);
+
+    client.tool("undo", json!({}));
+
+    let missing = refused(
+        &mut client,
+        &sketch,
+        json!({
+            "operation": "rectangular_pattern", "items": [circle], "count": 2, "spacing": "10 mm",
+            "left_out": [5]
+        }),
+    );
+    let around = modify(
+        &mut client,
+        &sketch,
+        json!({
+            "operation": "circular_pattern", "items": [circle], "center": "origin", "count": 4,
+            "left_out": [2]
+        }),
+    );
+    let after_around = described(&mut client, &sketch);
+
+    client.finish();
+
+    let centres = |described: &Value| -> Vec<[f64; 2]> {
+        of_kind(described, "circle")
+            .iter()
+            .map(|circle| [number(&circle["at"][0]), number(&circle["at"][1])])
+            .collect()
+    };
+
+    assert_eq!(row["change"], "Pattern geometry");
+
+    let row_centres = centres(&after_row);
+
+    assert_eq!(row_centres.len(), 3);
+    assert!(!row_centres.iter().any(|at| near(*at, [30.0, 10.0])));
+    assert!(row_centres.iter().any(|at| near(*at, [40.0, 10.0])));
+    assert_eq!(grid["change"], "Pattern geometry");
+
+    let grid_centres = centres(&after_grid);
+
+    assert_eq!(grid_centres.len(), 2);
+    assert!(grid_centres.iter().any(|at| near(*at, [20.0, 20.0])));
+    assert!(
+        missing.contains("copy 5 is not one of the pattern's copies"),
+        "{missing}"
+    );
+    assert_eq!(around["change"], "Pattern geometry");
+
+    let around_centres = centres(&after_around);
+
+    assert_eq!(around_centres.len(), 3);
+    assert!(!around_centres.iter().any(|at| near(*at, [-10.0, -10.0])));
+}
+
+#[test]
 fn filleting_and_chamfering_round_and_cut_corners() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);

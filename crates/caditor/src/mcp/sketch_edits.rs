@@ -303,6 +303,23 @@ pub struct RowPatterning {
     pub extent: Option<bool>,
     pub rows: Option<Row>,
     pub directions: Option<Vec<Row>>,
+    pub left_out: Option<Vec<LeftOutCopy>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum LeftOutCopy {
+    Step(i64),
+    Steps(Vec<i64>),
+}
+
+impl LeftOutCopy {
+    fn steps(&self) -> Vec<i64> {
+        match self {
+            Self::Step(step) => vec![*step],
+            Self::Steps(steps) => steps.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -314,6 +331,7 @@ pub struct TurnPatterning {
     pub count: usize,
     pub angle: Option<String>,
     pub symmetric: Option<bool>,
+    pub left_out: Option<Vec<i64>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -874,6 +892,12 @@ fn rectangular_pattern(
     let pattern = RectangularPattern {
         directions,
         distribution,
+        left_out: asked
+            .left_out
+            .iter()
+            .flatten()
+            .map(LeftOutCopy::steps)
+            .collect(),
     };
     let transaction = target.reshaped(patterning::TRANSACTION.to_owned(), |sketch| {
         sketch
@@ -900,6 +924,7 @@ fn circular_pattern(
     let pattern = CircularPattern {
         count: asked.count,
         spread,
+        left_out: asked.left_out.iter().flatten().copied().collect(),
     };
 
     let transaction = target.reshaped(patterning::TRANSACTION.to_owned(), |sketch| {

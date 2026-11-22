@@ -490,6 +490,26 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   There is no typed field. Circular first needs its centre: the one selected point no selected
   curve uses, else a point clicked or highlighted (origin included), shown highlighted until
   Escape lets it go.
+- Copies are left out in either pattern (`sketch.md`, Patterns): `Patterning::left_out`, a set of
+  `PatternCopy` kept for the tool session (a 0 step added to each when a direction is added, and
+  those stepping along a removed direction dropped), of which the ones the current values have
+  reach the spec (`Spec::leaving_out`), so a count lowered and raised again leaves the same copies
+  out. Each frame `Patterning::hover` aims at the previewed copy, kept or left out, whose curves
+  pass within `snap::CURVE_TOLERANCE` or points within `POINT_TOLERANCE` of the pointer
+  (`copy_under`; Rectangular while no line is being chosen, Circular once the centre is chosen or
+  selected and no point is under the pointer, so a click on a point still picks the centre). A
+  click toggles it ahead of gathering (`Modifying::leave_out_aimed` in the view's click), the
+  words beside the pointer saying which copy and what the click does; an item under a previewed
+  copy is gathered by a box. The preview draws kept copies as before, left-out ones dashed in
+  `trimmed_curve` with hollow points (`Preview::left_out`, `left_out_points`) and the aimed one
+  widened in the hovered line colour (`aimed`, `aimed_points`), so neither state is told by
+  colour alone. The panel's Copies row (`copies_row`) lists every copy and the original
+  (disabled) as `widgets::instance_toggle`s named "Copy (2, 1)" (`patterning::copy_name`): a row
+  per step of direction 2, farthest up first as drawn, each running along direction 1 the way it
+  is drawn (`drawn_sign`, from the angle, distance and flip; a direction along a line counts as
+  rightward and up), a row per further combination after them, Circular one row by turn. Every
+  toggle is a Tab stop, so leaving out works from the keyboard; the row counts what is left out
+  and offers Bring the copies back, and the label counts only the copies made.
 - Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Offset's arrow menu) takes the
   lines, circles and arcs the new circle touches (`sketch.md`, Tangent circles): the one or two
   selected at start, then each one clicked or highlighted and chosen with Space or Enter (axes
