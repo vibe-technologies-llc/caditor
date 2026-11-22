@@ -119,7 +119,7 @@ fn a_crash_flush_during_a_save_writes_the_changes_made_while_it_runs() {
     let journal = only_file_in(&session.recovery());
     let crashed = copied.join(journal.file_name().unwrap());
 
-    fs::copy(&journal, &crashed).unwrap();
+    session.storage.copy_journal(&crashed).unwrap();
     session.gate.release();
 
     assert!(flushed);
@@ -265,7 +265,7 @@ fn a_save_that_panics_fails_alone_and_the_journal_and_later_saves_carry_on() {
     let journal = only_file_in(&session.recovery());
     let crashed = copied.join(journal.file_name().unwrap());
 
-    fs::copy(&journal, &crashed).unwrap();
+    session.storage.copy_journal(&crashed).unwrap();
 
     let before_failure = session.editor.document().clone();
 

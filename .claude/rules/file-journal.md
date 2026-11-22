@@ -129,6 +129,9 @@ paths:
   `Storage` and every `Flusher` are gone.
 - Tests hold jobs at a `JobGate` (`StorageConfig::jobs`, test builds only), or make the next ones
   panic, to record, flush, save again or fail while a save is in flight (`src/tests/journal_during_saves.rs`).
+  A test that needs the journal as it is while the worker lives has the worker copy it
+  (`Storage::copy_journal`, test builds only) through its own handle, since a copy by path fails on
+  Windows against the held lock.
 - After a write error (`Report::JournalFailed`) it keeps the lock, stops appending and rewrites
   the whole journal until it succeeds (`Report::JournalRestored`), waiting `RETRY_INTERVAL` after
   the first failure and doubling the wait after each further one up to `RETRY_CEILING` of 30 s

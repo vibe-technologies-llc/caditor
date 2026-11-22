@@ -151,9 +151,17 @@ enum Command {
     Save(Box<SaveRequest>),
     Keep(KeepRequest),
     Flush(SyncSender<()>),
-    Close { discard: bool, done: SyncSender<()> },
+    Close {
+        discard: bool,
+        done: SyncSender<()>,
+    },
     Finished(Box<Finished>),
     Released,
+    #[cfg(test)]
+    CopyJournal {
+        to: PathBuf,
+        done: SyncSender<io::Result<()>>,
+    },
 }
 
 pub struct Storage {
@@ -340,6 +348,22 @@ impl Storage {
             }
             thread::yield_now();
         }
+    }
+}
+
+#[cfg(test)]
+impl Storage {
+    pub(crate) fn copy_journal(&self, to: &Path) -> io::Result<()> {
+        let (done, copied) = mpsc::sync_channel(1);
+
+        self.send(Command::CopyJournal {
+            to: to.to_owned(),
+            done,
+        })
+        .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?;
+        copied
+            .recv()
+            .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?
     }
 }
 
@@ -708,6 +732,12 @@ impl Worker {
             }
             Command::Finished(finished) => return self.finish(*finished),
             Command::Released => self.jobs = None,
+            #[cfg(test)]
+            Command::CopyJournal { to, done } => {
+                self.sync();
+
+                let _ = done.send(self.copy_journal(&to));
+            }
             command @ (Command::Save(_) | Command::Keep(_) | Command::Close { .. })
                 if self.busy.is_some() =>
             {
@@ -894,6 +924,24 @@ impl Worker {
         self.entries = since.into_iter().map(|entry| mirror.log(entry)).collect();
         self.mirror = mirror;
         self.base = base;
+    }
+
+    #[cfg(test)]
+    fn copy_journal(&self, to: &Path) -> io::Result<()> {
+        let journal = self
+            .journal
+            .as_ref()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        let mut file = &journal.file;
+        let mut bytes = Vec::new();
+
+        io::Seek::seek(&mut file, io::SeekFrom::Start(0))?;
+
+        let read = io::Read::read_to_end(&mut file, &mut bytes);
+
+        io::Seek::seek(&mut file, io::SeekFrom::End(0))?;
+        read?;
+        fs::write(to, bytes)
     }
 
     fn append(&mut self, entry: JournalEntry) {
@@ -1343,8 +1391,10 @@ fn write_temporary(
     contents: &[u8],
     permissions: Option<&Permissions>,
 ) -> io::Result<File> {
-    let mut file =
-        os::hidden(os::private(OpenOptions::new().write(true).create_new(true))).open(temporary)?;
+    let mut file = os::hidden(os::private(
+        OpenOptions::new().read(true).write(true).create_new(true),
+    ))
+    .open(temporary)?;
 
     if let Some(permissions) = permissions {
         file.set_permissions(permissions.clone())?;

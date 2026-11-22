@@ -4,12 +4,6 @@ Tests, CI and tooling that are missing or need attention.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-- [medium · small] Two `caditor-file` tests fail on every Windows run
-  (`journal_during_saves::a_crash_flush_during_a_save_writes_the_changes_made_while_it_runs` and
-  `a_save_that_panics_fails_alone_and_the_journal_and_later_saves_carry_on`): they `fs::copy` the
-  recovery journal while the storage worker holds its byte-range lock, which Windows refuses (OS
-  error 33, "another process has locked a portion of the file"). Copy it through the reader the
-  recovery path uses, or release the gate first, so the Windows job can pass.
 - [medium · small] The fuzz jobs run into their 20 minute limit (`ci.yml`): `journal` and
   `journal_torn` on one run of 2026-11-14 and `svg` on the next were cancelled at 20m, a failed
   run though no input failed.
