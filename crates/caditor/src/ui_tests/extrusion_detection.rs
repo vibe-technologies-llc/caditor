@@ -1,10 +1,12 @@
-use caditor_document::{BodyOperation, ExtrudeEnd, ExtrudeExtent, FeatureId, SolidFeature};
+use caditor_document::{
+    BodyOperation, Edit, ExtrudeEnd, ExtrudeExtent, FeatureId, SolidFeature, Transaction,
+};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::Sketch;
 use egui::{Id, Key};
 
-use super::{CAMERA_SETTLE, Harness, extruded_plate, rectangle};
-use crate::{last_values::LastValues, selection::Pickable};
+use super::{CAMERA_SETTLE, Harness, choose, extruded_plate, rectangle};
+use crate::{last_values::LastValues, model::Action, selection::Pickable};
 
 fn extent(harness: &Harness, feature: FeatureId) -> ExtrudeExtent {
     match harness.solid(feature) {
@@ -285,4 +287,138 @@ fn a_ring_round_the_top_of_a_boss_hangs_down_from_its_rim_instead_of_meeting_it_
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(harness.body_volume(plate) > before);
     assert!(harness.shows_containing("only along an edge"));
+}
+
+fn plate_at(harness: &mut Harness, min: Point2, max: Point2) -> FeatureId {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    rectangle(&mut sketch, min, max);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+
+    let plate = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the plate is open");
+
+    harness.key(Key::Escape, egui::Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    plate
+}
+
+fn pocket_sketch_on_a_hidden_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
+    let (hidden, top) = extruded_plate(harness);
+
+    harness.select([top]);
+    harness.click("New sketch");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.use_tool(Key::R);
+    for (x, y) in [(10.0, 10.0), (20.0, 30.0)] {
+        harness.click_at(Point2::new(x, y));
+    }
+    harness.settle();
+
+    let pocket_sketch = harness.editing().expect("the sketch is edited");
+
+    harness.click("Finish sketch");
+    harness.settle();
+    harness.perform(Action::Apply(Transaction::single(
+        "Hide",
+        Edit::SetFeatureHidden {
+            id: hidden,
+            hidden: true,
+        },
+    )));
+    harness.settle();
+    (hidden, pocket_sketch)
+}
+
+fn extruded_region(harness: &mut Harness, sketch: FeatureId) -> FeatureId {
+    let region = crate::selection::sketch_regions(harness.model.evaluation(), sketch)
+        .expect("the sketch has regions")
+        .first()
+        .map(|region| region.region.key())
+        .expect("the sketch has a region");
+
+    harness.select([Pickable::SketchRegion {
+        feature: sketch,
+        region,
+    }]);
+    harness.click("Extrude");
+    harness.settle();
+    harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open")
+}
+
+#[test]
+fn a_sketch_on_a_hidden_body_cuts_the_shown_body_lying_on_its_plane_from_the_start() {
+    let mut harness = Harness::new();
+
+    let (hidden, pocket_sketch) = pocket_sketch_on_a_hidden_plate(&mut harness);
+
+    let shown = plate_at(&mut harness, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    let elsewhere = plate_at(
+        &mut harness,
+        Point2::new(100.0, 0.0),
+        Point2::new(140.0, 40.0),
+    );
+
+    let pocket = extruded_region(&mut harness, pocket_sketch);
+
+    assert_eq!(
+        harness.document().bodies_standing(),
+        vec![hidden, shown, elsewhere]
+    );
+    assert_eq!(
+        harness.solid(pocket).operation(),
+        BodyOperation::Remove(shown)
+    );
+    assert!(matches!(
+        extent(&harness, pocket),
+        ExtrudeExtent::OneSide { reversed: true, .. }
+    ));
+    assert!(!harness.shows_containing("Could not tell where the sketch reaches"));
+    assert!(harness.shows_containing(
+        "The sketch lies on Extrude 1, which is hidden, so the extrusion works on Extrude 2"
+    ));
+    assert!((harness.body_volume(shown) - (16000.0 - 2000.0)).abs() < 1.0);
+    assert!((harness.body_volume(hidden) - 16000.0).abs() < 1.0);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    choose(&mut harness, "Remove from body", "New body");
+
+    assert_eq!(harness.solid(pocket).operation(), BodyOperation::NewBody);
+
+    choose(&mut harness, "New body", "Remove from body");
+
+    assert_eq!(
+        harness.solid(pocket).operation(),
+        BodyOperation::Remove(shown)
+    );
+    assert!((harness.body_volume(shown) - (16000.0 - 2000.0)).abs() < 1.0);
+}
+
+#[test]
+fn a_sketch_on_a_hidden_body_with_no_shown_body_under_it_leaves_the_hidden_body_uncut() {
+    let mut harness = Harness::new();
+
+    let (hidden, pocket_sketch) = pocket_sketch_on_a_hidden_plate(&mut harness);
+    let pocket = extruded_region(&mut harness, pocket_sketch);
+
+    assert_eq!(harness.solid(pocket).operation(), BodyOperation::NewBody);
+    assert!(!harness.shows_containing("Could not tell where the sketch reaches"));
+    assert!(harness.shows_containing(
+        "The sketch lies on Extrude 1, which is hidden, so the extrusion does not cut into it."
+    ));
+    assert!((harness.body_volume(hidden) - 16000.0).abs() < 1.0);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }

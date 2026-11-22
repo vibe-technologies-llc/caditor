@@ -337,11 +337,19 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - A new extrusion's operation, direction and end are detected together (`extrusion_detection::extrusion`,
   from `solid_tools::create`), a revolve's operation alone (`solid_tools::default_operation`,
   `body_reach::reached_body`). An extrusion adds to the body whose faces are selected with its sketch
-  (`SweepSource::body`); one of a sketch on a face of a body still standing (`solid_tools::face_body`)
-  instead cuts that body, reversed into it, unless faces of another body are selected. Otherwise it
-  adds to the body it reaches, else makes a new body. Three signals refine that, each deciding only
-  from what the kernel judged and leaving the plain default when it could not (a hidden or
-  unmeshed body, an unsupported sweep, a failed or timed-out check, `Verdict::Unknown`):
+  (`SweepSource::body`); one of a sketch on a face of a body still standing instead cuts that body,
+  reversed into it, unless faces of another body are selected. Otherwise it adds to the body it
+  reaches, else makes a new body. The body a sketch stands on is `solid_tools::standing_body`
+  (`FaceBody`): its face's body when shown; when that body is hidden, the last shown body standing
+  with a flat face in the sketch's plane holding one of the chosen regions' anchors (or, taking all
+  regions, a curve's first point; at most `SAMPLES_UNDER_SKETCH`), `InPlaceOfHidden`, which the
+  extrusion treats as the face's body; else `Hidden`, and nothing is cut by default. A hidden body
+  is never the default target: the user could not see the cut, and `body_reach::reaches` looks only
+  at shown bodies, so cutting it could only ever end in "Could not tell". Both cases say so in
+  `Detected::told` (naming the hidden body and, in place of it, the shown one, pointing at Body).
+  Three signals refine that, each deciding only from what the kernel judged and leaving the plain
+  default when it could not (an unmeshed body, an unsupported sweep, a failed or timed-out check,
+  `Verdict::Unknown`):
   - Direction: with the forward sweep reaching no body (or not the selected one) and the reversed
     sweep reaching one, the extrusion turns toward it (`reversed`) and adds to it, and a notice says
     so. A forward sweep touching or overlapping a body is never turned, unless it touches only along
@@ -387,7 +395,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   - The panel's Body list is `Document::bodies_before_in` (every body standing before it in the
     evaluation, a separating feature's pieces in place of its own id; every body list and
     last-body fallback in a panel or tool reads the `_in` forms, and body labels come from
-    `Document::body_label`). `SketchEditing` holds at most one open solid
+    `Document::body_label`). The Result list switching from New body to a target takes
+    `solid_tools::default_target` (the shown standing body, else the last shown body before the
+    feature, else the last body), so for a sketch on a face, switching Result away and back keeps
+    the body detection chose. `SketchEditing` holds at most one open solid
     feature, never with an edited sketch; `editing::Context` carries both to the scene and
     availability checks.
 - With regions selected (`Pickable::SketchRegion`, `app-sketching.md`), a new extrusion or revolve

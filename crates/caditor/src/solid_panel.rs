@@ -1561,11 +1561,17 @@ impl Panel<'_> {
         let bodies = self
             .document()
             .bodies_before_in(self.id(), self.model.evaluation());
-        let fallback = bodies.last().copied();
 
         widgets::caption(ui, "Result");
         self.combo(ui, "operation", operation_name(operation), |panel| {
-            let target = operation.target().or(fallback);
+            let target = operation.target().or_else(|| {
+                solid_tools::default_target(
+                    panel.document(),
+                    panel.model.evaluation(),
+                    panel.solid,
+                    &bodies,
+                )
+            });
             let candidates = [
                 Some(BodyOperation::NewBody),
                 target.map(BodyOperation::Add),

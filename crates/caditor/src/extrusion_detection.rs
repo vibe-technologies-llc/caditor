@@ -6,11 +6,12 @@ use caditor_document::{
 
 use crate::{
     body_reach::{self, Meeting, REACH_BUDGET, Reaches, Verdict},
-    solid_tools::Reach,
+    solid_tools::{FaceBody, Reach},
 };
 
 const CHANGE_RESULT: &str = "Result in the panel changes that.";
 const CHANGE_END: &str = "End in the panel sets a distance instead.";
+const CHANGE_BODY: &str = "Body in the panel changes that.";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Detected {
@@ -20,6 +21,45 @@ pub struct Detected {
 }
 
 pub fn extrusion(
+    document: &Document,
+    reach: Reach<'_>,
+    template: &Extrude,
+    standing_on: Option<FaceBody>,
+    chosen: Option<FeatureId>,
+    asked_side: Option<bool>,
+) -> Detected {
+    let label = |body: FeatureId| body_label(document, body);
+    let hidden_told = match (standing_on, chosen) {
+        (Some(FaceBody::InPlaceOfHidden { hidden, shown }), None) => Some(format!(
+            "The sketch lies on {}, which is hidden, so the extrusion works on {}, which is shown and lies on the same plane. {CHANGE_BODY}",
+            label(hidden),
+            label(shown)
+        )),
+        (Some(FaceBody::Hidden(hidden)), None) => Some(format!(
+            "The sketch lies on {}, which is hidden, so the extrusion does not cut into it.",
+            label(hidden)
+        )),
+        _ => None,
+    };
+    let detected = detect(
+        document,
+        reach,
+        template,
+        standing_on.and_then(FaceBody::shown),
+        chosen,
+        asked_side,
+    );
+
+    Detected {
+        told: [hidden_told, detected.told]
+            .into_iter()
+            .flatten()
+            .reduce(|first, second| format!("{first} {second}")),
+        ..detected
+    }
+}
+
+fn detect(
     document: &Document,
     reach: Reach<'_>,
     template: &Extrude,
@@ -43,11 +83,7 @@ pub fn extrusion(
             footprint_of,
         )
     };
-    let label = |body: FeatureId| {
-        document
-            .body_label(body)
-            .unwrap_or_else(|| "the body".to_owned())
-    };
+    let label = |body: FeatureId| body_label(document, body);
 
     let cutting = standing_on.filter(|body| chosen.is_none_or(|chosen| chosen == *body));
     let mut told = None;
@@ -164,6 +200,12 @@ pub fn extrusion(
     }
 }
 
+fn body_label(document: &Document, body: FeatureId) -> String {
+    document
+        .body_label(body)
+        .unwrap_or_else(|| "the body".to_owned())
+}
+
 fn directed(template: &Extrude, reversed: bool) -> Extrude {
     let mut directed = template.clone();
 
@@ -213,7 +255,7 @@ mod tests {
                 parameters: &unevaluated.parameters,
             },
             &template,
-            Some(plate),
+            Some(FaceBody::Shown(plate)),
             None,
             None,
         );

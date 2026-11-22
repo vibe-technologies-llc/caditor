@@ -7,9 +7,10 @@ use caditor_document::{
     SolidStart, Transaction, Wall, describe_axis, face_plane, profile_curve, sketch_regions,
 };
 use caditor_expression::{Expression, Unit};
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Point3};
 use caditor_kernel::{
-    ANGULAR_RESOLUTION, FaceId, LINEAR_RESOLUTION, RegionKey, Solid, Surface, WallSide,
+    ANGULAR_RESOLUTION, FaceContainment, FaceId, LINEAR_RESOLUTION, RegionKey, Solid, Surface,
+    WallSide,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -36,6 +37,7 @@ pub const DEFAULT_BACKWARD_ANGLE: f64 = 30.0;
 pub const DEFAULT_WALL_THICKNESS: f64 = 1.0;
 const OUTLINE_SEGMENT_ANGLE: f64 = 0.02;
 const OUTLINE_GAP: f64 = 1e-6;
+const SAMPLES_UNDER_SKETCH: usize = 64;
 const NEARLY_FLAT_DEGREES: f64 = 1.0;
 const SLOPE_SHOWN_DOWN_TO_DEGREES: f64 = 0.001;
 pub const NOTHING_TO_EXTRUDE: &str =
@@ -712,15 +714,137 @@ pub fn axis_name(document: &Document, sketch: FeatureId, axis: &RevolveAxis) -> 
     }
 }
 
+fn attached_body(document: &Document, sketch: FeatureId) -> Option<FeatureId> {
+    match document.feature(sketch)?.kind.attachment()? {
+        SketchAttachment::Face(face) => Some(face.body),
+        SketchAttachment::Datum(_) | SketchAttachment::Frame { .. } => None,
+    }
+}
+
 pub fn face_body(document: &Document, sketch: FeatureId) -> Option<FeatureId> {
-    let body = match document.feature(sketch)?.kind.attachment()? {
-        SketchAttachment::Face(face) => face.body,
-        SketchAttachment::Datum(_) | SketchAttachment::Frame { .. } => return None,
-    };
+    let body = attached_body(document, sketch)?;
+
     document
         .bodies_standing()
         .contains(&body.maker())
         .then_some(body)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaceBody {
+    Shown(FeatureId),
+    InPlaceOfHidden { hidden: FeatureId, shown: FeatureId },
+    Hidden(FeatureId),
+}
+
+impl FaceBody {
+    pub fn shown(self) -> Option<FeatureId> {
+        match self {
+            Self::Shown(body) | Self::InPlaceOfHidden { shown: body, .. } => Some(body),
+            Self::Hidden(_) => None,
+        }
+    }
+}
+
+pub fn standing_body(
+    document: &Document,
+    evaluation: &Evaluation,
+    (sketch, regions): (FeatureId, &RegionChoice),
+    bodies: &[FeatureId],
+) -> Option<FaceBody> {
+    let attached = attached_body(document, sketch)
+        .filter(|body| bodies.iter().any(|other| other.maker() == body.maker()))?;
+
+    if visibility::is_shown(document, attached) {
+        return Some(FaceBody::Shown(attached));
+    }
+
+    let lying_there = body_reach::solved_sketch(document, evaluation, sketch).and_then(|solved| {
+        let plane = solved.plane();
+        let points = sketch_samples(solved, regions);
+
+        bodies
+            .iter()
+            .rev()
+            .copied()
+            .filter(|body| *body != attached && visibility::is_shown(document, *body))
+            .find(|body| lies_under(evaluation, *body, &plane, &points))
+    });
+    Some(match lying_there {
+        Some(shown) => FaceBody::InPlaceOfHidden {
+            hidden: attached,
+            shown,
+        },
+        None => FaceBody::Hidden(attached),
+    })
+}
+
+fn sketch_samples(sketch: &Sketch, regions: &RegionChoice) -> Vec<Point3> {
+    let anchors: Vec<Point2> = match regions {
+        RegionChoice::Chosen(chosen) => {
+            chosen.iter().filter_map(|region| region.anchor()).collect()
+        }
+        RegionChoice::All => Vec::new(),
+    };
+    let in_plane = if anchors.is_empty() {
+        sketch
+            .entities()
+            .filter(|(id, _)| !sketch.is_construction(*id))
+            .filter_map(|(id, _)| sketch.polyline(id, OUTLINE_SEGMENT_ANGLE)?.first().copied())
+            .take(SAMPLES_UNDER_SKETCH)
+            .collect()
+    } else {
+        anchors
+    };
+    let plane = sketch.plane();
+
+    in_plane
+        .into_iter()
+        .take(SAMPLES_UNDER_SKETCH)
+        .map(|point| plane.to_world(point))
+        .collect()
+}
+
+fn lies_under(evaluation: &Evaluation, body: FeatureId, plane: &Plane, points: &[Point3]) -> bool {
+    let Some(solid) = evaluation
+        .body_result(body)
+        .and_then(|result| result.solid())
+        .map(|result| &result.solid)
+    else {
+        return false;
+    };
+    solid.faces().any(|(face, shape)| {
+        face_plane(solid, face).is_some_and(|flat| same_plane(&flat, plane))
+            && points.iter().any(|point| {
+                matches!(
+                    solid.point_in_face(face, shape.surface().project(*point, None)),
+                    Some(FaceContainment::Inside | FaceContainment::OnBoundary)
+                )
+            })
+    })
+}
+
+pub fn default_target(
+    document: &Document,
+    evaluation: &Evaluation,
+    solid: &SolidFeature,
+    bodies: &[FeatureId],
+) -> Option<FeatureId> {
+    standing_body(
+        document,
+        evaluation,
+        (solid.sketch(), solid.regions()),
+        bodies,
+    )
+    .and_then(FaceBody::shown)
+    .or_else(|| {
+        bodies
+            .iter()
+            .rev()
+            .copied()
+            .find(|body| visibility::is_shown(document, *body))
+    })
+    .or_else(|| bodies.last().copied())
 }
 
 pub fn degrees(value: f64) -> Expression {
@@ -770,7 +894,12 @@ pub fn create(
         RegionChoice::Chosen(_) => None,
     };
     let standing_on = match sweep {
-        Sweep::Extrude => face_body(document, source.sketch),
+        Sweep::Extrude => standing_body(
+            document,
+            reach.evaluation,
+            (source.sketch, &source.regions),
+            &document.bodies_standing_in(reach.evaluation),
+        ),
         Sweep::Revolve => None,
     };
     let mut told = None;

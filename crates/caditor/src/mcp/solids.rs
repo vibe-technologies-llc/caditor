@@ -24,7 +24,7 @@ use crate::{
         tools::{Answer, ToolError},
         writing::{ModellingError, OperationName, operation_words},
     },
-    solid_tools::{self, Reach, Sweep},
+    solid_tools::{self, FaceBody, Reach, Sweep},
     units::LengthUnit,
 };
 
@@ -593,7 +593,13 @@ pub fn extrude_built(
         .as_ref()
         .map(|body| references::body(document, evaluation, body))
         .transpose()?;
-    let standing_on = solid_tools::face_body(document, sketch);
+    let standing = solid_tools::standing_body(
+        document,
+        evaluation,
+        (sketch, &template.regions),
+        &document.bodies_standing_in(evaluation),
+    );
+    let standing_on = standing.and_then(FaceBody::shown);
 
     let (solid, told) = match (asked.operation, base) {
         (None, Some(base)) => {
@@ -621,7 +627,7 @@ pub fn extrude_built(
                     parameters: &values,
                 },
                 &template,
-                standing_on,
+                standing,
                 chosen,
                 asked.reversed,
             );

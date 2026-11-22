@@ -216,7 +216,7 @@ impl<'a> Standing<'a> {
     }
 }
 
-fn solved_sketch<'a>(
+pub fn solved_sketch<'a>(
     document: &'a Document,
     evaluation: &'a Evaluation,
     sketch: FeatureId,

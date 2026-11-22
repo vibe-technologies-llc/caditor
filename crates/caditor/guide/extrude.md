@@ -115,6 +115,11 @@ along the lean slopes by the taper from the direction and one facing the lean a 
   polygon larger than the pipe it sits on, where it adds outward instead). A cut whose default distance
   more than clears the body starts as **Through all**, and a notice says so. When there was no time
   to tell where the sketch reaches, it cuts, and a notice says that too.
+- A hidden body is never cut by default, since you could not see the cut. A sketch on a face of a
+  hidden body goes by the shown body whose face it lies on instead, as a sketch on that body's face
+  would, and a notice names both; with no shown body there it is not a cut at all. Switching
+  **Result** to Remove, Add or Intersect from a new body takes the same body: the shown one under
+  the sketch, else the last shown body.
 - A new extrusion that would run away from a body but would reach it the other way points toward it
   and adds to it, and a notice says so. One that already reaches a body is never turned, unless it
   would meet the body only along an edge, which cannot be joined: a ring drawn round the top of a
