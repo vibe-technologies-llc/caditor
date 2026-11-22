@@ -6,7 +6,7 @@ use caditor_document::{
     datum_outline, edge_outline, point_outline, section_curves, sketch_outline, vertex_outline,
 };
 use caditor_geometry::{Aabb, Plane, Point3, Ray};
-use caditor_kernel::{EdgeId, EdgeReference, FaceId, HiddenLineError};
+use caditor_kernel::{EdgeId, FaceId, HiddenLineError};
 use caditor_sketch::{Entity, EntityId};
 
 use crate::{
@@ -785,7 +785,7 @@ pub fn edge_projection(
     edge: EdgeId,
     plane: &Plane,
 ) -> Option<(ProjectionSource, Outline)> {
-    let reference = EdgeReference::capture(&result.solid, edge)?;
+    let reference = result.edge_reference(edge)?;
     let outline = edge_outline(&result.solid, edge, plane)?;
     Some((
         ProjectionSource::Edge {

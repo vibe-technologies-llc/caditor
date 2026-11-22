@@ -14,7 +14,7 @@ use crate::{
     sketch::{Sketch, SketchError},
 };
 
-pub const MAX_PATTERN_INSTANCES: usize = 200;
+pub const MAX_PATTERN_INSTANCES: usize = 2_000;
 
 const TOLERANCE: f64 = 1e-7;
 const AXIS_TOLERANCE: f64 = 1e-9;

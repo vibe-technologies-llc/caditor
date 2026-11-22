@@ -180,7 +180,8 @@ paths:
   every result as new `Arc`s (which the app's body meshing keys on). The worker applies it from the
   next submission; a panic's cache reset keeps it.
 - `SolidResult::names` is a `NameIndex` built on first use, so the app finds a face, edge or vertex
-  by name without scanning the solid.
+  by name without scanning the solid, and `SolidResult::edge_reference` captures an `EdgeReference`
+  from those cached vertex names in one lookup instead of indexing the whole solid per edge.
 
 ## Recomputer worker (`worker.rs`)
 

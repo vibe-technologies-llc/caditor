@@ -332,11 +332,10 @@ pub(super) fn show_report(ctx: &egui::Context, report: &Report) -> Option<FileCo
                         }
                     });
             });
+            widgets::footer(ui, |ui| ui.add(widgets::primary_button(ui, "OK")).clicked())
         },
     );
-    response
-        .should_close()
-        .then_some(FileCommand::DismissReport)
+    (response.inner || response.should_close()).then_some(FileCommand::DismissReport)
 }
 
 pub(super) fn recovery(ctx: &egui::Context, files: &Files) -> Option<FileCommand> {

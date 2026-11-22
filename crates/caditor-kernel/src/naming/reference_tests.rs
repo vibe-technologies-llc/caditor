@@ -398,3 +398,21 @@ fn an_edge_is_found_by_its_faces_origins_alone_only_where_both_faces_meet() {
     );
     assert_eq!(top_and_wall.resolve(&before), Ok(edge));
 }
+
+#[test]
+fn capturing_an_edge_with_cached_vertex_names_matches_capture() {
+    let solid = plate_with_hole((4.0, 4.0));
+    let names = super::vertex_names(&solid);
+
+    for (id, _) in solid.edges() {
+        let direct = EdgeReference::capture(&solid, id);
+        let cached = EdgeReference::capture_with_vertices(&solid, id, |vertex| {
+            names
+                .get(&vertex)
+                .copied()
+                .unwrap_or_else(|| VertexName::of_faces([]))
+        });
+
+        assert_eq!(cached, direct);
+    }
+}

@@ -568,17 +568,29 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
     );
 
     let many = RectangularPattern {
-        directions: vec![row(20, 5.0, 0.0), row(20, 5.0, 90.0)],
+        directions: vec![row(50, 5.0, 0.0), row(50, 5.0, 90.0)],
         distribution: Distribution::Spacing,
     };
 
     assert_eq!(
         sketch.rectangular_pattern(&[line], &many),
         Err(PatternError::TooManyInstances {
-            count: 400,
+            count: 2_500,
             most: MAX_PATTERN_INSTANCES
         })
     );
+
+    let mut large = Sketch::new(Plane::XY);
+
+    let seed = large.add_point(Point2::new(1.0, 2.0));
+    let grid_250 = RectangularPattern {
+        directions: vec![row(25, 5.0, 0.0), row(10, 5.0, 90.0)],
+        distribution: Distribution::Spacing,
+    };
+
+    let created = large.rectangular_pattern(&[seed], &grid_250).unwrap();
+
+    assert_eq!(created.len(), 249);
     assert_eq!(
         sketch.rectangular_pattern(&[line], &across(3, 5.0e9)),
         Err(PatternError::OutOfReach)
@@ -1197,14 +1209,14 @@ fn a_direction_that_is_no_line_an_empty_extent_and_a_half_turn_each_way_are_refu
         );
     }
 
-    let mut wide = row(101, 1.0, 0.0);
+    let mut wide = row(MAX_PATTERN_INSTANCES / 2 + 1, 1.0, 0.0);
 
     wide.sides = Sides::Both;
 
     assert_eq!(
         sketch.rectangular_pattern(&[point], &grid(wide, None)),
         Err(PatternError::TooManyInstances {
-            count: 201,
+            count: MAX_PATTERN_INSTANCES + 1,
             most: MAX_PATTERN_INSTANCES
         })
     );

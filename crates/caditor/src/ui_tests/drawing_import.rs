@@ -641,3 +641,61 @@ fn dropped_drawings_are_imported_one_after_another_and_a_dropped_model_opens() {
         harness.model.path() == Some(path.as_path())
     });
 }
+
+#[test]
+fn an_import_report_with_a_long_filename_keeps_its_close_button_clear_and_dismisses_with_ok() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let file = "wheel_sprocket_68T_St37_3mm.dxf";
+
+    let drawing = dir.path().join(file);
+
+    square_drawing(&drawing);
+
+    let heading = "Imported “wheel_sprocket_68T_St37_3mm.dxf” into wheel_sprocket_68T_St37_3mm";
+
+    harness.answer_dialog(Some(drawing.clone()));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_for_import_options(file);
+    harness.command(FileCommand::ImportOptions(ImportOptionsCommand::Recentre(
+        true,
+    )));
+    harness.frame();
+    harness.click("Import");
+    harness.wait_until("the report is shown", |harness| harness.shows(heading));
+    harness.show_new_windows();
+
+    let close = harness.button_rect(crate::widgets::CLOSE_DIALOG);
+    let heading_rect = harness
+        .texts
+        .iter()
+        .find(|(shown, _)| shown == heading)
+        .map(|(_, rect)| *rect)
+        .expect("the report heading is drawn");
+
+    assert!(
+        heading_rect.right() <= close.left() + 0.5,
+        "heading {heading_rect:?} overlaps close button {close:?}"
+    );
+    assert!(harness.find_button_rect("OK").is_some());
+
+    harness.click("OK");
+    harness.frame();
+
+    assert!(!harness.files.is_blocking());
+    assert!(!harness.shows(heading));
+
+    harness.answer_dialog(Some(drawing));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_for_import_options(file);
+    harness.click("Import");
+    harness.wait_until("the second report is shown", |harness| {
+        harness.shows_containing("Imported “wheel_sprocket_68T_St37_3mm.dxf” into")
+    });
+    harness.show_new_windows();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(!harness.files.is_blocking());
+}

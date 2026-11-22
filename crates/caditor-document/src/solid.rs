@@ -12,12 +12,12 @@ use caditor_geometry::{
 };
 use caditor_kernel::{
     Accuracy, AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName,
-    EndMoveError, FaceId, FaceName, FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION,
-    LinearBound, LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties, MeasureError, Mesh,
-    MeshQuality, MeshedSolid, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError,
-    ReferenceError, Region, RegionMesh, RegionReference, SamplingTolerance, Selection, Solid,
-    StopError, Stopped, SweepError, TessellationError, VertexId, VertexName, WallError, WallSide,
-    boolean, extrude_tapered, extrude_tapered_along, heights, heights_along,
+    EdgeReference, EndMoveError, FaceId, FaceName, FaceOrigin, GeometryError, Heights,
+    LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties,
+    MeasureError, Mesh, MeshQuality, MeshedSolid, OpenEnd, Profile, ProfileCurve, ProfileError,
+    ReachError, ReferenceError, Region, RegionMesh, RegionReference, SamplingTolerance, Selection,
+    Solid, StopError, Stopped, SweepError, TessellationError, VertexId, VertexName, WallError,
+    WallSide, boolean, extrude_tapered, extrude_tapered_along, heights, heights_along,
     mass_properties_tessellating, move_end, next_face, next_face_along, resolve_regions, revolve,
     stop_at_body, stop_turning_at_body, vertex_names, wall_regions,
 };
@@ -1094,6 +1094,15 @@ impl SolidResult {
 
     pub fn names(&self) -> &NameIndex {
         self.names.get_or_init(|| NameIndex::of(&self.solid))
+    }
+
+    pub fn edge_reference(&self, edge: EdgeId) -> Option<EdgeReference> {
+        let names = self.names();
+        EdgeReference::capture_with_vertices(&self.solid, edge, |vertex| {
+            names
+                .vertex_name(vertex)
+                .unwrap_or_else(|| VertexName::of_faces([]))
+        })
     }
 
     pub fn bounding_box(&self) -> Option<Aabb> {

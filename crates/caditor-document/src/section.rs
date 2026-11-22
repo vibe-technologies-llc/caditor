@@ -1,7 +1,7 @@
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_kernel::{
-    BooleanError, BooleanOperation, EdgeId, EdgeReference, Face, FaceName, FaceOrigin, Solid,
-    boolean,
+    BooleanError, BooleanOperation, EdgeId, EdgeNaming, EdgeReference, Face, FaceName, FaceOrigin,
+    Solid, boolean,
 };
 
 use crate::{
@@ -75,11 +75,11 @@ pub(crate) fn section_edges(section: &Solid, sketch: FeatureId) -> Vec<(EdgeId, 
 }
 
 pub(crate) fn section_reference(
-    section: &Solid,
+    naming: &EdgeNaming,
     edge: EdgeId,
     sketch: FeatureId,
 ) -> Option<EdgeReference> {
-    let captured = EdgeReference::capture(section, edge)?;
+    let captured = EdgeReference::capture_in(naming, edge)?;
     let origins = captured
         .origins()
         .map(|origin| origin.filter(|origin| !made_by_cut(origin, sketch)));
@@ -93,10 +93,13 @@ pub fn section_curves(
     sketch: FeatureId,
 ) -> Result<Vec<SectionCurve>, SectionError> {
     let section = section_solid(solid, plane, sketch)?;
-    let curves: Vec<SectionCurve> = section_edges(&section, sketch)
+    let edges = section_edges(&section, sketch);
+
+    let naming = (!edges.is_empty()).then(|| EdgeNaming::new(&section));
+    let curves: Vec<SectionCurve> = edges
         .into_iter()
         .filter_map(|(edge, face)| {
-            let reference = section_reference(&section, edge, sketch)?;
+            let reference = section_reference(naming.as_ref()?, edge, sketch)?;
             let outline = edge_outline(&section, edge, plane)?;
             (!matches!(outline, Outline::Point(_))).then_some(SectionCurve {
                 face,

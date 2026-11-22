@@ -6,9 +6,9 @@ use std::{
 
 use caditor_geometry::{Plane, Point2, Point3, Ray, Vector2, larger};
 use caditor_kernel::{
-    BooleanError, Curve, Curve2, Edge, EdgeId, EdgeReference, FaceReference, HiddenLineError,
-    HiddenLineView, MeshQuality, OutlinePiece, ReferenceError, Solid, VertexId, VertexName,
-    ViewSource, outer_outline, vertex_names,
+    BooleanError, Curve, Curve2, Edge, EdgeId, EdgeNaming, EdgeReference, FaceReference,
+    HiddenLineError, HiddenLineView, MeshQuality, OutlinePiece, ReferenceError, Solid, VertexId,
+    VertexName, ViewSource, outer_outline, vertex_names,
 };
 use caditor_sketch::{
     ArcGeometry, BSpline, EllipseGeometry, Entity, EntityId, FitSpacing, Sketch, SplineKind,
@@ -563,12 +563,16 @@ pub fn body_outline(
     plane: &Plane,
 ) -> Result<Vec<(ProjectionSource, Outline)>, HiddenLineError> {
     let pieces = outline_pieces(solid, plane)?;
+    let naming = pieces
+        .iter()
+        .any(|piece| matches!(piece.source, ViewSource::Edge { .. }))
+        .then(|| EdgeNaming::new(solid));
     Ok(pieces
         .iter()
         .filter_map(|piece| {
             let origin = match piece.source {
                 ViewSource::Edge { edge, .. } => {
-                    OutlineOrigin::Edge(EdgeReference::capture(solid, edge)?)
+                    OutlineOrigin::Edge(EdgeReference::capture_in(naming.as_ref()?, edge)?)
                 }
                 ViewSource::Silhouette { face, .. } => {
                     OutlineOrigin::Silhouette(FaceReference::capture(solid, face)?)

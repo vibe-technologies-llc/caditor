@@ -14,6 +14,7 @@ fn save(document: &Document, previous: Option<&[u8]>, seconds: u64) -> Vec<u8> {
         Ok(loaded) => loaded,
         Err(error) => panic!("a saved document could not be loaded: {error}"),
     };
+
     assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
     assert!(
         loaded.document.same_content(document),
@@ -29,6 +30,7 @@ fn check_journal(journal: &Journal, editor: &Editor) {
     let Some(replayed) = replay_journal(&bytes) else {
         panic!("the recovery journal could not be read back");
     };
+
     assert!(replayed.issues.is_empty(), "{:?}", replayed.issues);
     assert_eq!(
         replayed.unreadable_entries, 0,

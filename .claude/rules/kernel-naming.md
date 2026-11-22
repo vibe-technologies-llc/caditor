@@ -77,7 +77,8 @@ paths:
   renamed because a hole was added) it falls back to edges whose faces each keep the name, then the
   origin; `resolve_by_names_in` skips the fallback.
 - `EdgeNaming` indexes a solid's edges in one pass; code handling many references builds it once
-  per solid and uses `capture_in` and `resolve_in`.
+  per solid and uses `capture_in` and `resolve_in`, or uses `EdgeReference::capture_with_vertices`
+  with already-cached vertex names (such as `SolidResult::edge_reference`).
 - An edge along an extrusion's or revolve's side whose sketch curve was later split by trim, split
   or break is followed onto its pieces (`SplitEdges::follow`, `caditor-document/src/split_edges.rs`,
   used by blends, measured edges, edge middles, stations along an edge and selection sets). The

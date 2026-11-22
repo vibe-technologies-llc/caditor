@@ -157,6 +157,23 @@ impl EdgeReference {
         Self::capture_in(&EdgeNaming::new(solid), edge)
     }
 
+    pub fn capture_with_vertices(
+        solid: &Solid,
+        edge: EdgeId,
+        vertex_name: impl Fn(VertexId) -> VertexName,
+    ) -> Option<Self> {
+        let definition = solid.edge(edge)?;
+        let sides = edge_sides(solid, edge)?;
+        let ends = [
+            vertex_name(definition.start()),
+            vertex_name(definition.end()),
+        ];
+        Some(
+            Self::new(definition.name(), sides.map(|side| side.name), ends)
+                .with_origins(sides.map(|side| side.origin)),
+        )
+    }
+
     pub fn capture_in(naming: &EdgeNaming, edge: EdgeId) -> Option<Self> {
         let entry = naming.edges.get(&edge)?;
         let sides = entry.sides?;

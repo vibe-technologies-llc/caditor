@@ -1,5 +1,5 @@
 use caditor_geometry::Plane;
-use caditor_kernel::EdgeReference;
+use caditor_kernel::{EdgeNaming, EdgeReference};
 
 use crate::{
     attachment::SketchFeature,
@@ -129,10 +129,12 @@ impl Sections<'_> {
 
         let copy_edge = choose(original_edge, &originals.edges, &copies.edges)
             .map_err(|unmatched| refusal(unmatched, SECTION_EDGE, &name))?;
-        let captured =
-            section_reference(&copy_section, copy_edge, self.trial_sketch).ok_or_else(missing)?;
+        let naming = EdgeNaming::new(&copy_section);
 
-        if captured.resolve(&copy_section) != Ok(copy_edge) {
+        let captured =
+            section_reference(&naming, copy_edge, self.trial_sketch).ok_or_else(missing)?;
+
+        if captured.resolve_in(&naming) != Ok(copy_edge) {
             return Err(refusal(Unmatched::Ambiguous, SECTION_EDGE, &name));
         }
         Ok(captured)

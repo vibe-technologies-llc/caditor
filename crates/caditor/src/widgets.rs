@@ -2531,7 +2531,7 @@ fn closable_dialog<T>(
         |ui| {
             let by_key = help.is_some() && take_help_asked(ui);
 
-            Sides::new().show(
+            Sides::new().shrink_left().wrap().show(
                 ui,
                 |ui| ui.heading(title),
                 |ui| {
