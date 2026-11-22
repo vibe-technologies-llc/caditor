@@ -222,9 +222,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   only when saving (`Report::ChangedOnDisk`, `files.rs`): nothing compares the file's head when
   the window regains focus or offers to reload it, so editing goes on over a stale model until the
   save refuses.
-- [medium · medium] A conflict or redundancy notice names its constraints but offers no remedy
-  button (delete it, disable it, select it): no `Action` sets the view's selection, and the
-  refusal carries the constraints' names, not their ids.
 - [medium · medium] Thread, Hole, Draft, Replace face and Split face cannot be started before
   anything is selected, as Fillet, Shell and the other face tools can with one body shown
   (`app-modelling.md`): each stores something only its first pick gives (the face, the pull

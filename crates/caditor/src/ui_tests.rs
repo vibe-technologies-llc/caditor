@@ -69,6 +69,7 @@ mod completion;
 mod configuration_files;
 mod configurations;
 mod conformance;
+mod constraint_remedies;
 mod coordinate_systems;
 mod curve_pattern_handles;
 mod custom_colours;

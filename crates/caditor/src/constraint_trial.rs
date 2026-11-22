@@ -12,7 +12,7 @@ use std::{
 use caditor_document::{Document, FeatureId, ParameterValues, Transaction};
 use caditor_sketch::{ConstraintId, Sketch, SketchError};
 
-use crate::model::Waker;
+use crate::{constraint_remedies::ConstraintRemedies, model::Waker};
 
 pub const PATIENCE: Duration = Duration::from_millis(400);
 const NAMED_CONFLICTS: usize = 2;
@@ -61,14 +61,28 @@ pub enum Refusal {
         "“{label}” was not applied, because “{running}” was still being checked against the sketch."
     )]
     Busy { label: String, running: String },
-    #[error("{}", conflict_sentence(.subject, (*.intent, *.touched), .named, *.more))]
+    #[error("{}", conflict_sentence(.subject, (*.intent, *.touched), .named, .conflicting))]
     Conflict {
         subject: String,
         intent: Intent,
         touched: usize,
         named: Vec<String>,
-        more: usize,
+        feature: FeatureId,
+        conflicting: Vec<ConstraintId>,
     },
+}
+
+impl Refusal {
+    pub fn remedies(&self) -> Option<ConstraintRemedies> {
+        match self {
+            Self::Busy { .. } => None,
+            Self::Conflict {
+                feature,
+                conflicting,
+                ..
+            } => ConstraintRemedies::of(*feature, conflicting.clone()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -278,7 +292,7 @@ fn outcome(
     match sketch.solve(&|id| values.value(id), cancelled) {
         Ok(_) => Outcome::Holds,
         Err(SketchError::Conflict { constraints }) => Outcome::Conflicts(refusal(
-            sketch,
+            (trial.feature, sketch),
             (trial.intent, &trial.touched),
             &constraints,
         )),
@@ -287,7 +301,7 @@ fn outcome(
 }
 
 fn refusal(
-    sketch: &Sketch,
+    (feature, sketch): (FeatureId, &Sketch),
     (intent, touched): (Intent, &[ConstraintId]),
     conflicting: &[ConstraintId],
 ) -> Refusal {
@@ -305,13 +319,13 @@ fn refusal(
         .take(NAMED_CONFLICTS)
         .map(|constraint| sketch.describe_constraint(*constraint))
         .collect();
-    let more = others.len().saturating_sub(NAMED_CONFLICTS);
     Refusal::Conflict {
         subject,
         intent,
         touched: touched.len(),
         named,
-        more,
+        feature,
+        conflicting: others,
     }
 }
 
@@ -319,8 +333,9 @@ fn conflict_sentence(
     subject: &str,
     (intent, touched): (Intent, usize),
     named: &[String],
-    more: usize,
+    conflicting: &[ConstraintId],
 ) -> String {
+    let more = conflicting.len().saturating_sub(named.len());
     let (verb, pronoun, conflicts) = match touched {
         1 => ("was", "it", "conflicts"),
         _ => ("were", "they", "conflict"),

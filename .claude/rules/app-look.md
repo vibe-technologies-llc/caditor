@@ -582,8 +582,8 @@ paths:
   each icon described by `NoticeKind::label`; its Copy all puts every one on the clipboard as a
   line of kind, text and age (`messages::copied`), newest first.
 - A notice may carry one action (`Notice::action`, a `NoticeAction`), drawn as a button before
-  Recent messages: `SwitchBack` (`app-sketching.md`), `UndoStep` and `ShowInFolder`
-  (`app-files.md`). `Action::ApplyTold` applies a change and tells it with Undo: the model takes a
+  Recent messages: `SwitchBack` and `Remedies` (a menu, `app-sketching.md`), `UndoStep` and
+  `ShowInFolder` (`app-files.md`). `Action::ApplyTold` applies a change and tells it with Undo: the model takes a
   `StepBack` (undo mark and session) just before applying and posts the notice only when the
   change went in. The button is drawn only while that step is the single next undo
   (`Model::holds`, `Model::offers`), and `Action::UndoStep` checks again, undoing nothing and

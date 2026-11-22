@@ -9,6 +9,7 @@ use egui::{
 use crate::{
     appearance::{self, BORDER_WIDTH, FOCUS_WIDTH, ICON_SIZE, SPACE_S},
     commands::{Command, CommandFrame},
+    constraint_remedies,
     editing::EditingCommand,
     feature_clipboard,
     feature_tree::count,
@@ -100,6 +101,7 @@ pub struct StatusContext<'a> {
     pub offers: &'a Offers,
     pub between: Option<&'a str>,
     pub appearance: &'a Appearance,
+    pub edited: Option<FeatureId>,
     pub filter: SelectionFilter,
 }
 
@@ -194,7 +196,7 @@ pub fn show(
             });
         }
         if notice_wrapped {
-            ui.horizontal(|ui| notice(ui, model, &hovers, actions, true));
+            ui.horizontal(|ui| notice(ui, model, (context.edited, &hovers), actions, true));
         }
     });
 
@@ -237,7 +239,7 @@ fn trailing(
         if room.with_notice {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 divider(ui);
-                notice(ui, model, hovers, actions, false);
+                notice(ui, model, (context.edited, hovers), actions, false);
             });
         }
     });
@@ -587,7 +589,13 @@ fn notice_width(ui: &Ui, model: &Model) -> Option<f32> {
     Some(text.size().x + icons + undo + divider_room(ui))
 }
 
-fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>, wrap: bool) {
+fn notice(
+    ui: &mut Ui,
+    model: &Model,
+    (edited, hovers): (Option<FeatureId>, &Hovers),
+    actions: &mut Vec<Action>,
+    wrap: bool,
+) {
     let Some(notice) = model.notice() else {
         return;
     };
@@ -609,21 +617,33 @@ fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>
 
         widgets::announced(ui, &response, notice.kind.is_urgent());
     });
-    if let Some(offered) = notice.action.as_ref().filter(|action| model.offers(action)) {
-        let (label, hover, taken) = match offered {
-            NoticeAction::SwitchBack(back) => (
-                UNDO_SWITCH,
-                UNDO_SWITCH_HOVER,
-                Action::Editing(EditingCommand::SwitchBack(*back)),
-            ),
-            NoticeAction::UndoStep(back) => (UNDO_SWITCH, UNDO_STEP_HOVER, Action::UndoStep(*back)),
-            NoticeAction::ShowInFolder(path) => (
-                SHOW_IN_FOLDER,
-                SHOW_IN_FOLDER_HOVER,
-                Action::File(FileCommand::ShowInFolder(path.clone())),
-            ),
-        };
 
+    let offered = notice.action.as_ref().filter(|action| model.offers(action));
+    let taken = match offered {
+        Some(NoticeAction::Remedies(remedies)) => {
+            let edited = edited == Some(remedies.feature());
+            let button = constraint_remedies::button(ui, model, remedies, edited, actions);
+
+            widgets::remember_width(ui, Id::unique(NOTICE_ACTION_ID), button.rect.width());
+            None
+        }
+        Some(NoticeAction::SwitchBack(back)) => Some((
+            UNDO_SWITCH,
+            UNDO_SWITCH_HOVER,
+            Action::Editing(EditingCommand::SwitchBack(*back)),
+        )),
+        Some(NoticeAction::UndoStep(back)) => {
+            Some((UNDO_SWITCH, UNDO_STEP_HOVER, Action::UndoStep(*back)))
+        }
+        Some(NoticeAction::ShowInFolder(path)) => Some((
+            SHOW_IN_FOLDER,
+            SHOW_IN_FOLDER_HOVER,
+            Action::File(FileCommand::ShowInFolder(path.clone())),
+        )),
+        None => None,
+    };
+
+    if let Some((label, hover, taken)) = taken {
         let button = ui.add(widgets::button(label)).on_hover_text(hover);
 
         widgets::remember_width(ui, Id::unique(NOTICE_ACTION_ID), button.rect.width());

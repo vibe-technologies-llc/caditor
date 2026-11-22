@@ -8,7 +8,8 @@ and in its row in the tree, reads one of:
   Click the pill to select what is still free.
 - **Fully constrained**: nothing can move.
 - **Conflicting constraints**: some constraints cannot all hold. Click the pill to go to the
-  problem in the sketch's card, then remove or change one of them.
+  problem in the sketch's card, then remove or change one of them; its Resolve button selects,
+  disables or deletes any of the constraints it names.
 - **The sketch has an error** when it cannot be solved for another reason; click the pill too.
 - **Not solved yet**, while the model is recomputing.
 - **Suppressed**: the sketch is switched off in the feature tree and is not solved.

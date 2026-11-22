@@ -66,7 +66,9 @@ paths:
   cursor and hover put back to that spot. A drag starting before the press's pick arrived takes what
   lies under the press the same way (`caught_up`).
 - `Model` (`model.rs`) owns the `Editor`, the `Recomputer` and the length unit; the UI gets
-  `&Model` and returns `Action`s the app performs after its pass. Features draw from the last good
+  `&Model` and returns `Action`s the app performs after its pass; view state is changed the same
+  way, `app::perform` routing `Action::Filter`, `Action::Select` (replaces the selection,
+  `ViewportState::select_exactly`) and the upload actions to the viewport. Features draw from the last good
   result, tinted if failed or outdated; suppressed and rolled-back ones are neither drawn nor
   picked (`Document::active_features`) and leave the selection. A sketch's curves and regions are
   available only while it is active (`Document::is_active` in `Pickable::is_available`) or edited,

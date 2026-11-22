@@ -43,6 +43,7 @@ mod commands;
 mod completion;
 mod configuration_export;
 mod configurations;
+mod constraint_remedies;
 mod constraint_trial;
 mod contained;
 #[cfg(test)]

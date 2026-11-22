@@ -28,6 +28,7 @@ use crate::{
     body_picks,
     cloud::CloudCommand,
     commands::Reason,
+    constraint_remedies::ConstraintRemedies,
     constraint_trial::{ConstraintTrial, Trials, Verdict},
     display::{Display, Displayed},
     drag_solver::{self, Blocking, DragCommand, Finished, Join, Polled},
@@ -46,7 +47,7 @@ use crate::{
     queued::{Awaited, Queue, Queued, Rerun},
     save_preview::SavePreviews,
     scene,
-    selection::SelectionFilter,
+    selection::{Pickable, SelectionFilter},
     units::{AngleUnit, LengthUnit, NumberFormat, Units},
     visibility::PrincipalView,
     widgets::Tone,
@@ -113,6 +114,7 @@ pub enum Action {
     Cloud(CloudCommand),
     Assistant(AssistantCommand),
     Filter(SelectionFilter),
+    Select(Vec<Pickable>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -213,6 +215,7 @@ pub enum NoticeAction {
     SwitchBack(SwitchBack),
     UndoStep(StepBack),
     ShowInFolder(PathBuf),
+    Remedies(ConstraintRemedies),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -855,6 +858,7 @@ impl Model {
     pub fn offers(&self, action: &NoticeAction) -> bool {
         match action {
             NoticeAction::UndoStep(back) => self.holds(*back),
+            NoticeAction::Remedies(remedies) => remedies.is_offered(self.editor.document()),
             NoticeAction::SwitchBack(_) | NoticeAction::ShowInFolder(_) => true,
         }
     }
@@ -957,6 +961,13 @@ impl Model {
     pub fn drag_limits(&self, feature: FeatureId) -> Option<String> {
         let sketch = self.editor.document().feature(feature)?.kind.sketch()?;
         named_constraints(sketch, self.drag_blocking.limits())
+    }
+
+    pub fn conflict_remedies(&self, feature: FeatureId) -> Option<ConstraintRemedies> {
+        let FeatureState::Failed(error) = &self.evaluation.feature(feature)?.state else {
+            return None;
+        };
+        ConstraintRemedies::of(feature, error.constraints.clone())
     }
 
     pub fn sketch_conflict(&self, feature: FeatureId) -> Option<String> {
@@ -1428,6 +1439,10 @@ impl Model {
                 log::warn!("{filter:?} reached the model instead of the viewport");
                 Ok(None)
             }
+            Action::Select(chosen) => {
+                log::warn!("selecting {chosen:?} reached the model instead of the viewport");
+                Ok(None)
+            }
             command @ (Action::StopUploading | Action::ResumeUploading) => {
                 log::warn!("{command:?} reached the model instead of the viewport");
                 Ok(None)
@@ -1552,9 +1567,12 @@ impl Model {
                 None => "the sketch could not be solved with it moved there".to_owned(),
             };
 
-            self.set_notice(Notice::warning(format!(
-                "{label} did nothing, because {reason}."
-            )));
+            let notice = Notice::warning(format!("{label} did nothing, because {reason}."));
+
+            self.set_notice(match self.conflict_remedies(feature) {
+                Some(remedies) => notice.offering(NoticeAction::Remedies(remedies)),
+                None => notice,
+            });
             return;
         };
         let document = self.editor.document();
@@ -1653,7 +1671,14 @@ impl Model {
                 self.perform(Action::Apply(transaction));
                 self.queued.follow(before, self.revision());
             }
-            Some(Verdict::Refuse(reason)) => self.set_notice(Notice::warning(reason.to_string())),
+            Some(Verdict::Refuse(reason)) => {
+                let notice = Notice::warning(reason.to_string());
+
+                self.set_notice(match reason.remedies() {
+                    Some(remedies) => notice.offering(NoticeAction::Remedies(remedies)),
+                    None => notice,
+                });
+            }
             Some(Verdict::Outdated { label }) => self.set_notice(Notice::warning(format!(
                 "“{label}” was not applied, because the model changed while it was being \
                  checked; add it again."

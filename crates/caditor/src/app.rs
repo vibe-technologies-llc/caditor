@@ -933,6 +933,7 @@ pub fn show(
         offers,
         between: between.as_deref(),
         appearance: &preferences.appearance,
+        edited: editing.feature(),
         filter: if viewport.filter_applies() {
             viewport.filter()
         } else {
@@ -2127,6 +2128,7 @@ pub fn perform(
             Action::Editing(command) => workspace.editing.perform_after(command, model, since),
             Action::Preferences(command) => workspace.preferences_command(command, model, files),
             Action::Filter(filter) => workspace.viewport.set_filter(filter),
+            Action::Select(chosen) => workspace.viewport.select_exactly(chosen),
             Action::StopUploading => workspace.viewport.request_upload(UploadRequest::Stop),
             Action::ResumeUploading => workspace.viewport.request_upload(UploadRequest::Resume),
             Action::Apply(transaction) => {

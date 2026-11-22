@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
+    iter,
 };
 
 use caditor_document::{
@@ -24,7 +25,9 @@ use crate::{
     blend_tools::{self, FormChoice},
     bodies_tree, coil_panel, combine_panel,
     commands::{Command, CommandFrame, Reason},
-    completion, constraint_trial, datum_panel, delete_face_panel, draft_panel,
+    completion,
+    constraint_remedies::{self, ConstraintRemedies},
+    constraint_trial, datum_panel, delete_face_panel, draft_panel,
     drawing_export::{self, DrawingSource},
     editing::{self, EditingCommand, Opened, SketchEditing},
     emboss_panel, feature_clipboard, feature_fields,
@@ -3427,6 +3430,12 @@ fn failure(
         ui.label(error.reason());
         ui.label(widgets::muted(error.remedy(), ui));
         leave_out_button(ui, model, actions, row, error);
+        if matches!(row.feature.kind, FeatureKind::Sketch(_))
+            && let Some(remedies) =
+                ConstraintRemedies::of(row.feature.id(), error.constraints.clone())
+        {
+            constraint_remedies::button(ui, model, &remedies, row.edited, actions);
+        }
         if let Some(place) = error.place {
             let button = widgets::small_button(ui, icons::SHOW_PLACE, SHOW_PLACE_LABEL);
             if ui.add(button).clicked() {
@@ -3645,6 +3654,7 @@ struct SketchCard<'a> {
     involved: BTreeSet<ConstraintId>,
     solution: Option<&'a SketchSolution>,
     busy: BTreeSet<ConstraintId>,
+    edited: bool,
 }
 
 fn sketch_body(
@@ -3688,6 +3698,7 @@ fn sketch_body(
         involved: involved_constraints(model, feature),
         solution: sketch_status::up_to_date_solution(model.evaluation(), feature.id()),
         busy: field::busy(ui, fields),
+        edited,
     };
 
     if dimensions.is_empty() && constraints.is_empty() {
@@ -3925,6 +3936,12 @@ fn constraint_row(
     if let Some(redundancy) = redundancy {
         widgets::callout(ui, Tone::Warning, |ui| {
             ui.label(redundancy_text(sketch, redundancy));
+
+            let named = iter::once(constraint).chain(redundancy.duplicates.iter().copied());
+
+            if let Some(remedies) = ConstraintRemedies::of(feature.id(), named.collect()) {
+                constraint_remedies::button(ui, model, &remedies, card.edited, actions);
+            }
         });
     }
 

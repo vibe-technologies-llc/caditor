@@ -37,6 +37,7 @@ paths:
   - "crates/caditor/src/gearing.rs"
   - "crates/caditor/src/gear_panel.rs"
   - "crates/caditor/src/constraint_trial.rs"
+  - "crates/caditor/src/constraint_remedies.rs"
   - "crates/caditor/src/symmetric_drawing.rs"
   - "crates/caditor/src/tangent_circling.rs"
   - "crates/caditor/src/texting.rs"
@@ -821,6 +822,18 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`constraint_trial::Intent`: added, turned on, changed, which words the refusal; Disable never
   conflicts and applies at once), so a stale reference dimension or a constraint the geometry has
   left is refused in words naming what it conflicts with instead of leaving the sketch `Conflicting`.
+- Every notice naming the constraints a sketch conflicts on or repeats carries their ids in a
+  `constraint_remedies::ConstraintRemedies` (sketch and `ConstraintId`s, never their words) and
+  offers a Resolve button (`constraint_remedies::button`, `RESOLVE`): a trial's refusal
+  (`Refusal::Conflict::conflicting`, the existing constraints only, a new one having no id) and a
+  drag ending on a conflicting sketch (`Model::conflict_remedies`) as the status bar's
+  `NoticeAction::Remedies`, a conflicting sketch's error in the tree (`FeatureError::constraints`),
+  and a redundant constraint's callout in its card (itself and `Redundancy::duplicates`). Its menu
+  lists each constraint still in the sketch, worded from the sketch when shown, with Select (enters
+  the sketch if not edited and replaces the selection with it through `Action::Select`, the view
+  left where it is), Disable while it is active (`ActivityChange`, applied at once) and Delete
+  (`sketch_tools::remove_items`), each an ordinary undoable change; the status bar offers it while
+  one of them is left (`Model::offers`), and an edit clears the notice as any other.
 - Disable (`Command::ToggleConstraintActive`, `sketch_tools::ActivityChange`) switches the selected
   constraints off, or on when none is on. A disabled dimension is a reference: its label shows the
   measured value in parentheses in the muted `Standing::Inactive` colour.

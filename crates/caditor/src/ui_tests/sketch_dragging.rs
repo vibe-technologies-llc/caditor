@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     inference::Inference,
-    model::Action,
+    model::{Action, NoticeAction},
     preferences::{PreferenceChange, PreferencesCommand},
     selection::Pickable,
 };
@@ -415,8 +415,18 @@ fn a_drag_in_a_conflicting_sketch_names_the_conflict() {
 
     let conflict = conflict.expect("the sketch conflicts");
 
+    let remedies = match harness
+        .model
+        .notice()
+        .and_then(|notice| notice.action.clone())
+    {
+        Some(NoticeAction::Remedies(remedies)) => remedies,
+        other => panic!("the notice offers no remedies: {other:?}"),
+    };
+
     assert!(conflict.contains("Distance"), "{conflict}");
     assert!(harness.shows_containing(&conflict));
+    assert!(remedies.present(harness.sketch(feature)).count() >= 2);
 }
 
 #[test]

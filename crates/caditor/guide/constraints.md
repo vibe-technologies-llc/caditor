@@ -45,6 +45,13 @@ naming it. When a new constraint would make the sketch impossible, caditor check
 refuses it, naming the constraints it conflicts with. The [sketch's status](sketch-status) shows
 conflicting and redundant constraints.
 
+Wherever caditor names the constraints that conflict or repeat each other (the message at the
+bottom of the window, a conflicting sketch's error and a redundant constraint in the sketch's card
+in the tree), **Resolve** lists each of them with three ways out: **Select** selects it in the
+sketch without moving the view, **Disable** switches it off and **Delete** removes it. Disabling and
+deleting are ordinary changes that Undo takes back; once one of the conflicting constraints is off
+or gone, add the refused constraint again.
+
 Constraint marks sit beside the geometry; hover one to light what it holds, click it to select it
 and Delete removes it. Where the view is crowded some marks are left out, as are the marks of a
 line only a few pixels long, until you zoom in or select the line. {command:sketch.toggle_constraint_active} switches the selected constraints
