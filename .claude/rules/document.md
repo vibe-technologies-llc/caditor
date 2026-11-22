@@ -1575,8 +1575,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   pattern recomputes the feature once with them and removing it once without, while a run of
   holes nothing repeats holds no body before each. `same_shapes` compares landing inputs by
   pointer only where both results keep them, so the features below see the same body either way
-  and are reused. A long chain of them (each holding the body before it) is dropped without
-  recursion (`Drop for LandingInputs` unlinks the results it solely owns into a list):
+  and are reused. A long chain of them (each holding the body before it), or of shells (a
+  `ShellRecipe` holds the body before it), is dropped without recursion (`Drop for LandingInputs`
+  and `Drop for ShellRecipe` unlink the results they solely own, landing inputs and shell recipes
+  alike, into one list, `landing::unlink`):
   up-to targets, a start plane and other bodies resolve as the original's (world planes stay where
   they are, so a copy meets the same face or plane where it lands). Since the pattern's parameter
   values hold only the readings it reads itself, `LandingInputs` also keeps the values the original

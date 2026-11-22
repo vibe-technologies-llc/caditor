@@ -1,9 +1,11 @@
+use std::{sync::Arc, thread};
+
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{FaceName, FaceReference, SamplingTolerance, Solid, Surface};
 use caditor_sketch::Sketch;
 
-use crate::*;
+use crate::{recompute::FeatureResult, shell::ShellRecipe, solid::SolidResult, *};
 
 fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
     let mut sketch = Sketch::new(Plane::XY);
@@ -514,4 +516,44 @@ fn a_face_s_own_thickness_fails_in_words_naming_the_face() {
         error.reason(),
         "Face given its own thickness is no longer part of the body of Base."
     );
+}
+
+const CHAIN_LINKS: usize = 20_000;
+const SMALL_STACK: usize = 256 * 1024;
+
+#[test]
+fn a_long_chain_of_shells_is_dropped_on_a_small_stack() {
+    let link = |before: Option<Arc<FeatureResult>>| {
+        let before = before.unwrap_or_else(|| {
+            Arc::new(FeatureResult::Solid(SolidResult::new(
+                FeatureId::from_raw(1),
+                Solid::default(),
+            )))
+        });
+        let recipe = ShellRecipe {
+            feature: FeatureId::from_raw(2),
+            before,
+            thickness: 1.0,
+            side: caditor_kernel::ShellSide::Inside,
+            open: Vec::new(),
+            faces: Vec::new(),
+        };
+
+        Arc::new(FeatureResult::Solid(
+            SolidResult::new(FeatureId::from_raw(1), Solid::default()).shelling(recipe),
+        ))
+    };
+
+    thread::scope(|scope| {
+        thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn_scoped(scope, || {
+                let chain = (0..CHAIN_LINKS).fold(None, |before, _| Some(link(before)));
+
+                drop(chain);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    });
 }

@@ -1069,6 +1069,10 @@ impl SolidResult {
         self.landing.as_deref()
     }
 
+    pub(crate) fn take_shelled(&mut self) -> Option<Arc<ShellRecipe>> {
+        self.shelled.take()
+    }
+
     pub(crate) fn take_landing(&mut self) -> Option<Arc<LandingInputs>> {
         self.landing.take()
     }

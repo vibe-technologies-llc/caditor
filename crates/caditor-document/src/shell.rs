@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
+    mem,
+    sync::{Arc, LazyLock},
 };
 
 use caditor_expression::{Dimension, Expression, ParameterId};
@@ -14,13 +15,20 @@ use crate::{
     describe::{describe_edge, describe_origin, edge_faces},
     document::{Feature, FeatureId},
     failure::{Cause, Chosen, Expected, Near, Unmatched},
-    origins,
+    landing, origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{
         CancelToken, FailingPick, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
     },
     solid::SolidResult,
 };
+
+static EMPTY: LazyLock<Arc<FeatureResult>> = LazyLock::new(|| {
+    Arc::new(FeatureResult::Solid(SolidResult::new(
+        FeatureId::from_raw(0),
+        Solid::default(),
+    )))
+});
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShellSide {
@@ -184,6 +192,20 @@ impl ShellRecipe {
 
     pub fn before(&self) -> Option<&Solid> {
         self.before.solid().map(|result| &result.solid)
+    }
+
+    pub(crate) fn take_before(&mut self) -> Arc<FeatureResult> {
+        mem::replace(&mut self.before, Arc::clone(&EMPTY))
+    }
+}
+
+impl Drop for ShellRecipe {
+    fn drop(&mut self) {
+        if Arc::ptr_eq(&self.before, &EMPTY) {
+            return;
+        }
+
+        landing::unlink(vec![self.take_before()]);
     }
 }
 

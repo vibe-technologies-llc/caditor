@@ -100,16 +100,22 @@ impl LandingInputs {
 
 impl Drop for LandingInputs {
     fn drop(&mut self) {
-        let mut unlinked: Vec<Arc<FeatureResult>> = self.take_results().collect();
+        unlink(self.take_results().collect());
+    }
+}
 
-        while let Some(result) = unlinked.pop() {
-            let Some(FeatureResult::Solid(mut solid)) = Arc::into_inner(result) else {
-                continue;
-            };
+pub(crate) fn unlink(mut unlinked: Vec<Arc<FeatureResult>>) {
+    while let Some(result) = unlinked.pop() {
+        let Some(FeatureResult::Solid(mut solid)) = Arc::into_inner(result) else {
+            continue;
+        };
 
-            if let Some(mut landing) = solid.take_landing().and_then(Arc::into_inner) {
-                unlinked.extend(landing.take_results());
-            }
+        if let Some(mut landing) = solid.take_landing().and_then(Arc::into_inner) {
+            unlinked.extend(landing.take_results());
+        }
+
+        if let Some(mut recipe) = solid.take_shelled().and_then(Arc::into_inner) {
+            unlinked.push(recipe.take_before());
         }
     }
 }
