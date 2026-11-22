@@ -1920,7 +1920,11 @@ impl Model {
         let request = SaveRequest {
             ticket,
             document: document.clone(),
-            keep_original: self.keep_original && self.path.as_ref() == Some(&path),
+            keep_original: self.keep_original
+                && self
+                    .path
+                    .as_deref()
+                    .is_some_and(|current| caditor_file::same_file(current, &path)),
             label: self.editor.undo_label().map(str::to_owned),
             retention: self.retention,
             path,

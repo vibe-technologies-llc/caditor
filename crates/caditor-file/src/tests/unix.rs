@@ -3,6 +3,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use caditor_document::CancelToken;
 
 use super::*;
+use crate::same_file;
 
 #[test]
 fn saving_over_a_file_keeps_its_permissions_and_leaves_no_temporary_files() {
@@ -248,4 +249,120 @@ fn journals_take_the_permissions_of_their_model() {
     assert_eq!(mode(&untitled_journal), 0o600);
 
     crash(storage);
+}
+
+struct LinkedFolders {
+    dir: TempDir,
+    real: PathBuf,
+    linked: PathBuf,
+}
+
+fn linked_folders() -> LinkedFolders {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real");
+    let linked = dir.path().join("linked");
+
+    fs::create_dir(&real).unwrap();
+    std::os::unix::fs::symlink("real", &linked).unwrap();
+
+    LinkedFolders { dir, real, linked }
+}
+
+#[test]
+fn a_file_is_the_same_reached_through_a_linked_folder_or_a_linked_name() {
+    let folders = linked_folders();
+    let model = folders.real.join("model.caditor");
+    let alias = folders.real.join("alias.caditor");
+
+    save(&sample(), &model, false).unwrap();
+    std::os::unix::fs::symlink("model.caditor", &alias).unwrap();
+
+    assert!(same_file(&model, &folders.linked.join("model.caditor")));
+    assert!(same_file(&model, &alias));
+    assert!(same_file(&folders.linked.join("alias.caditor"), &model));
+    assert!(!same_file(&model, &folders.real.join("other.caditor")));
+}
+
+#[test]
+fn a_file_that_does_not_exist_yet_is_the_same_through_a_linked_folder() {
+    let folders = linked_folders();
+
+    assert!(same_file(
+        &folders.real.join("new.caditor"),
+        &folders.linked.join("new.caditor")
+    ));
+    assert!(!same_file(
+        &folders.real.join("new.caditor"),
+        &folders.linked.join("newer.caditor")
+    ));
+}
+
+#[test]
+fn saving_to_the_open_model_through_a_linked_folder_is_not_another_window() {
+    let folders = linked_folders();
+    let base = sample();
+    let through_link = folders.linked.join("model.caditor");
+    let real = folders.real.join("model.caditor");
+
+    save(&base, &real, false).unwrap();
+
+    let start = Start {
+        file: Some(through_link.clone()),
+        on_disk: load(&real).unwrap().digest,
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&folders.dir), start, || {}).unwrap();
+
+    assert!(storage.flusher().flush(WAIT));
+
+    storage
+        .save(save_request(1, &sample(), &real, false))
+        .unwrap();
+
+    let report = wait_for_report(&storage);
+
+    assert!(
+        matches!(report, Report::Saved { ticket: 1, .. }),
+        "{report:?}"
+    );
+    assert_eq!(load(&real).unwrap().document, sample());
+
+    storage
+        .save(save_request(2, &base, &through_link, false))
+        .unwrap();
+
+    let again = wait_for_report(&storage);
+
+    assert!(
+        matches!(again, Report::Saved { ticket: 2, .. }),
+        "{again:?}"
+    );
+
+    crash(storage);
+}
+
+#[test]
+fn a_save_through_another_spelling_of_the_open_file_still_checks_for_outside_changes() {
+    let folders = linked_folders();
+    let through_link = folders.linked.join("model.caditor");
+    let real = folders.real.join("model.caditor");
+
+    save(&Document::default(), &real, false).unwrap();
+
+    let opened = load(&real).unwrap().digest.unwrap();
+
+    save(&sample(), &real, false).unwrap();
+
+    let outside = fs::read(&real).unwrap();
+    let options = SaveOptions {
+        history_from: Some(&through_link),
+        unless_changed_from: Some(&opened),
+        ..SaveOptions::default()
+    };
+
+    assert_eq!(
+        save_with(&Document::default(), &real, &options),
+        Err(SaveError::ChangedOnDisk)
+    );
+    assert_eq!(fs::read(&real).unwrap(), outside);
 }

@@ -5,15 +5,6 @@ its reproduction or pinning test where one exists.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-## Saving and recovery
-
-- [low · small] On Windows, Save As to the open file spelled in another letter case compares paths
-  as text: `storage.rs`'s `owns` takes its own journal for one locked elsewhere and refuses
-  (`OpenInAnotherWindow`), and `save.rs`'s `reads_target` skips the changed-on-disk guard and the
-  `.damaged` copy when the journal is in the recovery folder. Open canonicalises the whole path and
-  Save As only its folder (`files.rs`), so a model reached through a symbolic link differs the same
-  way. Compare by `FileKey` (`os::same_file_path`) at every such site.
-
 ## Kernel
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's

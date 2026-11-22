@@ -29,7 +29,7 @@ use crate::{
     recovery::{mark_journal, unmark_journal},
     save::{
         self, KeepVersionError, SaveError, SaveOptions, Saved, remove_orphaned_temporaries,
-        sync_parent, temporary_sibling,
+        same_file, sync_parent, temporary_sibling,
     },
 };
 
@@ -1042,9 +1042,7 @@ impl Worker {
 
     fn save(&mut self, request: Box<SaveRequest>) {
         self.sync();
-        if self.file.as_deref() != Some(request.path.as_path())
-            && self.opened_elsewhere(&request.path)
-        {
+        if !self.is_open_model(&request.path) && self.opened_elsewhere(&request.path) {
             self.report(Report::SaveFailed {
                 ticket: request.ticket,
                 path: request.path,
@@ -1072,7 +1070,7 @@ impl Worker {
 
     fn keep_version(&mut self, request: KeepRequest) {
         self.sync();
-        if self.file.as_deref() != Some(request.path.as_path()) {
+        if !self.is_open_model(&request.path) {
             self.report(Report::KeepFailed {
                 path: request.path,
                 error: KeepVersionError::NotTheOpenModel,
@@ -1107,16 +1105,22 @@ impl Worker {
             .any(|candidate| locked_elsewhere(candidate))
     }
 
+    fn is_open_model(&self, path: &Path) -> bool {
+        self.file
+            .as_deref()
+            .is_some_and(|file| same_file(file, path))
+    }
+
     fn owns(&self, path: &Path) -> bool {
-        self.journal
-            .as_ref()
-            .is_some_and(|journal| journal.path == path && holds(&journal.file, path))
+        self.journal.as_ref().is_some_and(|journal| {
+            same_file(&journal.path, path) && holds(&journal.file, &journal.path)
+        })
     }
 
     fn own_journal_at(&self, path: &Path) -> Option<&File> {
         self.journal
             .as_ref()
-            .filter(|journal| journal.path == path && holds(&journal.file, path))
+            .filter(|journal| same_file(&journal.path, path) && holds(&journal.file, &journal.path))
             .map(|journal| &journal.file)
     }
 
@@ -1241,10 +1245,11 @@ impl Worker {
     }
 
     fn drop_stale_journal(&mut self, candidates: &[PathBuf]) {
-        if let Some(stale) = self
-            .journal
-            .take_if(|previous| !candidates.contains(&previous.path))
-        {
+        if let Some(stale) = self.journal.take_if(|previous| {
+            !candidates
+                .iter()
+                .any(|candidate| same_file(candidate, &previous.path))
+        }) {
             self.remove_own(&stale);
         }
     }

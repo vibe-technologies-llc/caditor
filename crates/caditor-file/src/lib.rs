@@ -100,8 +100,8 @@ pub use crate::{
         journal_for, scan,
     },
     save::{
-        KeepVersionError, SaveError, SaveOptions, Saved, encode, save, save_with, set_version_kept,
-        write_atomically, write_privately,
+        KeepVersionError, SaveError, SaveOptions, Saved, encode, same_file, save, save_with,
+        set_version_kept, write_atomically, write_privately,
     },
     settings::{Settings, SettingsError, config_dir},
     storage::{

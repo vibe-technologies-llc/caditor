@@ -28,7 +28,7 @@ use caditor_file::{
     Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings,
     SheetExported, SheetFormat, SheetLayout, SketchExported, SketchFormat, TextOutlines,
     UpdateFailure, describe_set_aside, journal_for, load_cancellable, load_listed_version,
-    read_drawing, scan,
+    read_drawing, same_file, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -1461,7 +1461,7 @@ impl Files {
         if matches!(model.status(), RecomputeStatus::Running { .. }) {
             return Err(ExportAgainError::WaitingForRecompute);
         }
-        if model.path() == Some(last.path.as_path()) {
+        if model.path().is_some_and(|path| same_file(path, &last.path)) {
             return Err(ExportAgainError::WouldReplaceModel);
         }
         Ok(last)
@@ -2276,9 +2276,12 @@ impl Files {
                 self.check_recent();
                 for recovered in recovered {
                     let settled = self.settled_journals.contains(&recovered.journal);
-                    let open_now = model
-                        .path()
-                        .is_some_and(|path| recovered.file.as_deref() == Some(path));
+                    let open_now = model.path().is_some_and(|path| {
+                        recovered
+                            .file
+                            .as_deref()
+                            .is_some_and(|file| same_file(file, path))
+                    });
 
                     if settled || open_now {
                         log::info!(
@@ -4138,7 +4141,7 @@ fn open_file(
     journals: &Journals<'_>,
     load: impl FnOnce(&Path) -> Result<Loaded, LoadError>,
 ) -> OpenOutcome {
-    if current == Some(path) {
+    if current.is_some_and(|current| same_file(current, path)) {
         return OpenOutcome::AlreadyOpen;
     }
 
@@ -4312,7 +4315,7 @@ fn check_save_target(picked: &Path, current: Option<&Path>, journals: &Journals<
     let named = with_extension(picked.to_path_buf());
     let target = canonical_location(&named);
 
-    if current == Some(target.as_path()) {
+    if current.is_some_and(|current| same_file(current, &target)) {
         return SaveTarget::Ready(target);
     }
     match journals.of(&target) {
@@ -4333,6 +4336,10 @@ fn check_save_target(picked: &Path, current: Option<&Path>, journals: &Journals<
 }
 
 pub(crate) fn canonical_location(path: &Path) -> PathBuf {
+    if let Ok(canonical) = dunce::canonicalize(path) {
+        return canonical;
+    }
+
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
         return path.to_path_buf();
     };
@@ -4894,5 +4901,39 @@ mod tests {
         run_where_possible(Box::new(|| std::panic::panic_any("boom")), |_| {
             Err(io::Error::from(io::ErrorKind::WouldBlock))
         });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_model_reached_through_a_link_is_the_open_model_and_a_save_target_resolves_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        let linked = dir.path().join("linked");
+
+        fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink("real", &linked).unwrap();
+        fs::write(real.join("model.caditor"), "model").unwrap();
+
+        let through_link = linked.join("model.caditor");
+        let canonical = dunce::canonicalize(real.join("model.caditor")).unwrap();
+        let scanning = AtomicBool::new(false);
+        let cancel = CancelToken::never();
+
+        let journals = Journals {
+            recovery_dir: None,
+            scanning: &scanning,
+            cancel: &cancel,
+        };
+
+        let outcome = open_file(&canonical, Some(&through_link), &journals, |_| {
+            Err(LoadError::NotAModel)
+        });
+
+        assert!(matches!(outcome, OpenOutcome::AlreadyOpen));
+        assert_eq!(canonical_location(&through_link), canonical);
+        assert_eq!(
+            canonical_location(&linked.join("new.caditor")),
+            canonical.with_file_name("new.caditor")
+        );
     }
 }

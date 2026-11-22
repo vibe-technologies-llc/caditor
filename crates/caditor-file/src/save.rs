@@ -386,8 +386,7 @@ pub(crate) fn save_interleaved(
 fn reads_target(options: &SaveOptions<'_>, target: &Path) -> bool {
     options
         .history_from
-        .and_then(|from| resolve_links(from).ok())
-        .is_some_and(|from| from == target)
+        .is_some_and(|from| same_file(from, target))
 }
 
 fn check_reads_back(file: &File, digest: &FileDigest, fresh: &[FreshVersion]) -> io::Result<()> {
@@ -825,6 +824,38 @@ pub(crate) fn resolve_links(path: &Path) -> io::Result<PathBuf> {
     Err(io::Error::other(
         "the path goes through too many symbolic links",
     ))
+}
+
+pub fn same_file(first: &Path, second: &Path) -> bool {
+    match (identity(first), identity(second)) {
+        (Ok(first), Ok(second)) => first == second,
+        _ => same_place(first, second),
+    }
+}
+
+fn identity(path: &Path) -> io::Result<FileKey> {
+    FileKey::of_link(&resolve_links(path)?)
+}
+
+fn same_place(first: &Path, second: &Path) -> bool {
+    if os::same_file_path(first, second) {
+        return true;
+    }
+
+    let (Some(first_name), Some(second_name)) = (first.file_name(), second.file_name()) else {
+        return false;
+    };
+
+    let names_match = os::same_file_path(Path::new(first_name), Path::new(second_name));
+
+    names_match && same_file(containing_folder(first), containing_folder(second))
+}
+
+fn containing_folder(path: &Path) -> &Path {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    }
 }
 
 pub(crate) fn remove_orphaned_temporaries(path: &Path) {

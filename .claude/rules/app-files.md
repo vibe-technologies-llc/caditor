@@ -103,6 +103,10 @@ paths:
 - A failed save (`Report::SaveFailed`, or a writer that stopped) raises its notice through
   `Model::fail_save`; the next successful save takes that notice off the screen when it is still the
   one shown, and leaves any other notice alone.
+- Open and Save As both resolve the picked path with `canonical_location` (the whole path when it
+  exists, else its folder plus the name) and compare it with the open model's by
+  `caditor_file::same_file` (`file-format.md`), so a link or a letter case never makes the open
+  model look like another file.
 - Save As appends `.caditor`, checks the target on the worker (refused while open in another window
   or holding unrecovered changes) and asks before replacing a file the dialog did not name.
 - The open thread and the Save As check wait for the model's storage handover

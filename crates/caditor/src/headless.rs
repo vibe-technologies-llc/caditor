@@ -110,9 +110,7 @@ pub enum ExportRefused {
 }
 
 fn names_the_model(model: &Path, output: &Path) -> bool {
-    let canonical =
-        |path: &Path| dunce::canonicalize(path).unwrap_or_else(|_| files::canonical_location(path));
-    canonical(model) == canonical(output)
+    caditor_file::same_file(model, output)
 }
 
 struct Variant {

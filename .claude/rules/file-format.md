@@ -740,6 +740,13 @@ Sketch entities:
 - Names past `MAX_NAME_BYTES` (temporaries, `.damaged` copies) are cut and end in a hash
   (`paths::fitting`); a model whose name leaves no room for `.<name>.journal` keeps its journal in
   the recovery directory.
+- Whether two paths name one file is `save::same_file`, never `==`: both go through `resolve_links`
+  and are compared by `FileKey`, so a folder or name reached through a symbolic link, or on Windows
+  spelled in another letter case, is the same file. When either does not exist yet, they are the
+  same when their names match (`os::same_file_path`) and their folders are the same file. The
+  storage worker's open model and journal ownership, `reads_target` (whether a save reads the file
+  it replaces, which decides the changed-on-disk guard and the `.damaged` copy) and the app's Open,
+  Save As, Export Again and headless export checks all use it.
 - `SaveOptions::unless_changed_from` (the head digest the session loaded or last saved) makes a
   save refuse with `SaveError::ChangedOnDisk` when the file it replaces now has another head,
   leaving it as it was; replacing anyway makes the outside head the newest version. Since encoding
