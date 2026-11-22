@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use caditor_geometry::{Point2, Vector2, larger};
+use caditor_kernel::Interrupted;
 use parking_lot::Mutex;
 
 use crate::{INTER, INTER_ITALIC, Instance, font::Typeface, overlap::Segment};
@@ -72,6 +73,8 @@ impl Lettered {
 pub enum LetteringError {
     #[error("the bundled Inter font could not be read")]
     FontUnreadable,
+    #[error("the lettering was cancelled")]
+    Cancelled(#[from] Interrupted),
 }
 
 pub fn lettered(
@@ -81,7 +84,7 @@ pub fn lettered(
 ) -> Result<Lettered, LetteringError> {
     let face = INTER_FACE.as_ref().ok_or(LetteringError::FontUnreadable)?;
     let mut typeface = face.lock();
-    Ok(lay_out(&mut typeface, content, style, alignment))
+    Ok(lay_out(&mut typeface, content, style, alignment)?)
 }
 
 fn lay_out(
@@ -89,7 +92,7 @@ fn lay_out(
     content: &str,
     style: Style,
     alignment: Alignment,
-) -> Lettered {
+) -> Result<Lettered, Interrupted> {
     let instance = typeface.instance(style.weight(), style.italic);
     let cap_height = typeface
         .cap_height(instance)
@@ -104,7 +107,7 @@ fn lay_out(
     let mut position = 0;
 
     for (index, line) in content.split('\n').enumerate() {
-        let mut laid = lay_line(typeface, instance, scale, line, position);
+        let mut laid = lay_line(typeface, instance, scale, line, position)?;
 
         let shift = Vector2::new(-alignment.share() * laid.width, -pitch * index as f64);
 
@@ -122,7 +125,7 @@ fn lay_out(
     }
     lettered.width = lettered.line_widths.iter().copied().fold(0.0, larger);
     lettered.line_pitch = pitch;
-    lettered
+    Ok(lettered)
 }
 
 fn lay_line(
@@ -131,7 +134,7 @@ fn lay_line(
     scale: f64,
     line: &str,
     first_position: usize,
-) -> Lettered {
+) -> Result<Lettered, Interrupted> {
     let mut lettered = Lettered::default();
     let mut pen = 0.0;
     let mut previous = None;
@@ -152,7 +155,7 @@ fn lay_line(
 
         match glyph {
             Some(glyph) if !character.is_whitespace() => {
-                let outline = typeface.outline(instance, glyph);
+                let outline = typeface.outline(instance, glyph)?;
                 let offset = Vector2::new(pen, 0.0);
 
                 let segments = outline
@@ -173,7 +176,7 @@ fn lay_line(
         previous = glyph;
     }
     lettered.width = pen;
-    lettered
+    Ok(lettered)
 }
 
 fn scaled(point: Point2, scale: f64) -> Point2 {

@@ -120,3 +120,86 @@ fn a_part_unpacks_within_its_own_limit_whatever_the_package_has_left() {
         Err(EntryError::TooLarge)
     );
 }
+
+fn stored_package(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut central = Vec::new();
+
+    for (name, content) in entries {
+        let name_length = u16::try_from(name.len()).unwrap();
+        let content_length = u32::try_from(content.len()).unwrap();
+        let local = u32::try_from(bytes.len()).unwrap();
+
+        bytes.extend(0x0403_4b50_u32.to_le_bytes());
+        bytes.extend([0; 22]);
+        bytes.extend(name_length.to_le_bytes());
+        bytes.extend([0; 2]);
+        bytes.extend(name.as_bytes());
+        bytes.extend(content);
+
+        central.extend(0x0201_4b50_u32.to_le_bytes());
+        central.extend([0; 6]);
+        central.extend(0_u16.to_le_bytes());
+        central.extend([0; 8]);
+        central.extend(content_length.to_le_bytes());
+        central.extend([0; 4]);
+        central.extend(name_length.to_le_bytes());
+        central.extend([0; 12]);
+        central.extend(local.to_le_bytes());
+        central.extend(name.as_bytes());
+    }
+
+    let central_start = u32::try_from(bytes.len()).unwrap();
+    let count = u16::try_from(entries.len()).unwrap();
+
+    bytes.extend(central);
+    bytes.extend(0x0605_4b50_u32.to_le_bytes());
+    bytes.extend([0; 6]);
+    bytes.extend(count.to_le_bytes());
+    bytes.extend([0; 4]);
+    bytes.extend(central_start.to_le_bytes());
+    bytes.extend([0; 2]);
+    bytes
+}
+
+#[test]
+fn every_entry_of_a_large_archive_is_found_by_its_name_in_any_case() {
+    let entries: Vec<(String, Vec<u8>)> = (0..5000_u32)
+        .map(|index| {
+            (
+                format!("Parts/Part{index}.model"),
+                index.to_le_bytes().to_vec(),
+            )
+        })
+        .collect();
+    let archive = stored_package(&entries);
+    let archive = Archive::new(&archive).unwrap();
+
+    for (name, content) in &entries {
+        assert_eq!(archive.read(&name.to_uppercase(), 16).as_ref(), Ok(content));
+        assert_eq!(archive.read(&name.to_lowercase(), 16).as_ref(), Ok(content));
+    }
+
+    assert_eq!(
+        archive.read("Parts/Part5000.model", 16),
+        Err(EntryError::Missing)
+    );
+    assert_eq!(
+        archive.read("/Parts/Part1.model", 16),
+        Err(EntryError::Missing)
+    );
+}
+
+#[test]
+fn names_alike_once_lower_cased_resolve_to_the_first_entry() {
+    let entries = [
+        ("3D/Model.model".to_owned(), b"first".to_vec()),
+        ("3d/model.MODEL".to_owned(), b"second".to_vec()),
+        ("3D/Other.model".to_owned(), b"other".to_vec()),
+    ];
+    let archive = stored_package(&entries);
+    let archive = Archive::new(&archive).unwrap();
+
+    assert_eq!(archive.read("3d/MODEL.model", 16), Ok(b"first".to_vec()));
+    assert_eq!(archive.read("3D/OTHER.MODEL", 16), Ok(b"other".to_vec()));
+}

@@ -28,7 +28,11 @@ paths:
   (translation, rotation, mirror and size divided out), so the copies a block's INSERT array makes
   are placed from one fit and charged nothing; a copy is reused only while the stored deviation
   scaled to its size stays within the drawing's tolerance; a copy under a non-uniform scale matches
-  nothing and is fitted.
+  nothing and is fitted. Within one degree, knots and weights the entries sit in a grid by their
+  point count and two sums a mirror leaves alone (the points' x and their distances from the
+  origin, each in cells of `CELL`), and a lookup reads only the cells within the reach the points'
+  matching tolerance allows, then takes the first stored of those that match, so a hit is the one
+  a scan in storing order would have found.
   Curves past `MAX_READ_CURVES` are left out with a note, the rest of an item
   past it counted in one step. The sketch's
   `MAX_DRAWING_CURVES` applies in `Drawing::arranged` to the chosen layers' curves in drawing order
@@ -196,7 +200,7 @@ paths:
   `font-style`, `text-anchor`, `letter-spacing`, `word-spacing` and the `font` shorthand (system
   font names ignored). Every family is drawn in Inter; a first family other than Inter or a generic
   sans-serif is named in one note (at most `MAX_NAMED_ELEMENTS`). Weight sets the `wght` axis
-  (100 to 900); italic and oblique use the italic face, upright and noted only when none was handed
+  (100 to 900), rounded to the nearest hundred inside the face's range (`lettering.md`); italic and oblique use the italic face, upright and noted only when none was handed
   in. A character without a glyph takes the missing glyph's advance, draws nothing and is counted.
 - Glyphs come from `caditor-lettering` (`lettering.md`): its `Typeface` reads the faces handed in,
   kerns, and gives each glyph merged into one outline, which `path::traced` turns into the same
@@ -260,7 +264,8 @@ paths:
   the smaller of the header count and the records the body holds, trailing bytes or a short body
   noted in the import report), OBJ (`v` and `f`, polygons fanned, `/` parts and negative
   indices) and 3MF (`zip_read.rs`: stored and deflated entries, no ZIP64, `Archive::read` telling a
-  missing entry from a damaged or oversized one, `EntryError`; model part from `_rels/.rels`, build
+  missing entry from a damaged or oversized one, `EntryError`; entries indexed once per archive by ASCII-lower-cased name, the first of names alike
+  once lower-cased winning, so a part read is a lookup, not a scan; model part from `_rels/.rels`, build
   items and nested components placed by their transforms). Every model part and `_rels/.rels` is
   read with `import/xml.rs`, never roxmltree.
 - 3MF model parts (`Package`): a build item or component with the Production extension's `path`

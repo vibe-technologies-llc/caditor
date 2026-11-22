@@ -1,7 +1,7 @@
 use caditor_geometry::Point2;
-use caditor_kernel::{Profile, ProfileCurve};
+use caditor_kernel::{Profile, ProfileCurve, interruptible};
 
-use crate::{Alignment, Lettered, Segment, Style, lettered};
+use crate::{Alignment, INTER, INTER_ITALIC, Lettered, Segment, Style, Typeface, lettered};
 
 const REGULAR: Style = Style {
     bold: false,
@@ -273,4 +273,69 @@ fn centred_and_right_lines_hang_about_the_anchor_by_their_own_widths() {
 
     assert_eq!(centred.line_widths, plain.line_widths);
     assert_eq!(right.width, plain.width);
+}
+
+fn inter() -> Typeface<'static> {
+    Typeface::parse(INTER, Some(INTER_ITALIC)).unwrap()
+}
+
+#[test]
+fn every_whole_weight_from_101_to_899_shares_nine_cached_outlines() {
+    let mut typeface = inter();
+
+    let glyph = typeface
+        .glyph('e', typeface.instance(400.0, false))
+        .unwrap();
+
+    for weight in 101..=899 {
+        let instance = typeface.instance(f64::from(weight), false);
+
+        typeface.outline(instance, glyph).unwrap();
+    }
+
+    assert!(
+        typeface.cached_outlines() <= 9,
+        "{}",
+        typeface.cached_outlines()
+    );
+    assert!(typeface.cached_outlines() > 1);
+}
+
+#[test]
+fn a_weight_is_drawn_at_the_nearest_hundred_inside_the_face() {
+    let typeface = inter();
+
+    assert_eq!(
+        typeface.instance(449.0, false),
+        typeface.instance(400.0, false)
+    );
+    assert_eq!(
+        typeface.instance(451.0, false),
+        typeface.instance(500.0, false)
+    );
+    assert_eq!(
+        typeface.instance(1.0, false),
+        typeface.instance(100.0, false)
+    );
+    assert_eq!(
+        typeface.instance(5000.0, true),
+        typeface.instance(900.0, true)
+    );
+}
+
+#[test]
+fn a_cancelled_merge_leaves_nothing_cached_and_the_next_one_succeeds() {
+    let mut typeface = inter();
+
+    let instance = typeface.instance(400.0, false);
+    let glyph = typeface.glyph('e', instance).unwrap();
+
+    let cancelled = interruptible(std::sync::Arc::new(|| true), || {
+        typeface.outline(instance, glyph)
+    });
+
+    assert!(cancelled.is_err());
+    assert_eq!(typeface.cached_outlines(), 0);
+    assert!(typeface.outline(instance, glyph).is_ok());
+    assert_eq!(typeface.cached_outlines(), 1);
 }

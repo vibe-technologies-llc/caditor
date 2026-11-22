@@ -149,12 +149,3 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   clones the sketch, builds the system and merges every measuring part with no cancellation, where
   constraint trials and tidying run on workers. Measure with `tally` on a 2,000-line chain before
   moving it.
-
-## Drawing and mesh import
-
-- [low · small] Unmeasured, on crafted files: a 3MF's entry lookup scans every entry per part read
-  (`zip_read.rs`, up to 65,535² comparisons, cancellable), the DXF fit cache scans every entry of
-  the same degree and knots (`dxf/fit_cache.rs`, quadratic in distinct same-knot splines when an
-  interrupt lifts the fit limit), and SVG text keys glyph outlines by any whole weight from 100 to
-  900 (`caditor-lettering`'s `font.rs`), each miss merged through a kernel profile in a walker that
-  polls no interrupt. Index entries by lower-case name, bucket the fit cache, and round weights.

@@ -6,10 +6,24 @@ use crate::import::dxf::geometry::Nurbs;
 
 const SAME_POINT: f64 = 1e-9;
 const NEGLIGIBLE_LEG: f64 = 1e-6;
+const CELL: f64 = 1e-6;
+const REACH_SLACK: f64 = 2.0;
 
 #[derive(Default)]
 pub(super) struct FitCache {
-    entries: BTreeMap<Key, Vec<Entry>>,
+    entries: BTreeMap<Key, Grid>,
+    stored: usize,
+}
+
+#[derive(Default)]
+struct Grid {
+    cells: BTreeMap<usize, BTreeMap<i64, BTreeMap<i64, Vec<Entry>>>>,
+}
+
+#[derive(Clone, Copy)]
+struct Signature {
+    across: f64,
+    spread: f64,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -20,6 +34,7 @@ struct Key {
 }
 
 struct Entry {
+    order: usize,
     points: Vec<Point2>,
     fitted: Vec<Point2>,
     relative_deviation: f64,
@@ -85,37 +100,99 @@ impl Canonical {
     }
 }
 
+impl Signature {
+    fn of(points: &[Point2]) -> Self {
+        Self {
+            across: points.iter().map(|point| point.x).sum(),
+            spread: points.iter().map(|point| point.length()).sum(),
+        }
+    }
+
+    fn reach(points: &[Point2]) -> f64 {
+        REACH_SLACK
+            * SAME_POINT
+            * points
+                .iter()
+                .map(|point| point.length().max(1.0))
+                .sum::<f64>()
+    }
+}
+
+fn cell(value: f64) -> i64 {
+    (value / CELL).floor() as i64
+}
+
+impl Grid {
+    fn insert(&mut self, entry: Entry) {
+        let signature = Signature::of(&entry.points);
+
+        self.cells
+            .entry(entry.points.len())
+            .or_default()
+            .entry(cell(signature.across))
+            .or_default()
+            .entry(cell(signature.spread))
+            .or_default()
+            .push(entry);
+    }
+
+    fn near(&self, points: &[Point2]) -> Vec<&Entry> {
+        let Some(columns) = self.cells.get(&points.len()) else {
+            return Vec::new();
+        };
+        let signature = Signature::of(points);
+        let reach = Signature::reach(points);
+
+        let across = cell(signature.across - reach)..=cell(signature.across + reach);
+        let spread = cell(signature.spread - reach)..=cell(signature.spread + reach);
+
+        let mut near: Vec<&Entry> = columns
+            .range(across)
+            .flat_map(|(_, rows)| rows.range(spread.clone()))
+            .flat_map(|(_, entries)| entries)
+            .collect();
+
+        near.sort_unstable_by_key(|entry| entry.order);
+        near
+    }
+}
+
 impl FitCache {
     pub(super) fn find(&self, canonical: &Canonical, tolerance: f64) -> Option<(Vec<Point2>, f64)> {
-        let entries = self.entries.get(&canonical.key)?;
-        entries.iter().find_map(|entry| {
-            let deviation = entry.relative_deviation * canonical.leg;
+        self.entries
+            .get(&canonical.key)?
+            .near(&canonical.points)
+            .into_iter()
+            .find_map(|entry| {
+                let deviation = entry.relative_deviation * canonical.leg;
 
-            if deviation > tolerance {
-                return None;
-            }
-            [false, true]
-                .into_iter()
-                .find(|mirrored| entry.matches(&canonical.points, *mirrored))
-                .map(|mirrored| {
-                    let control_points = entry
-                        .fitted
-                        .iter()
-                        .map(|point| canonical.placed(*point, mirrored))
-                        .collect();
-                    (control_points, deviation)
-                })
-        })
+                if deviation > tolerance {
+                    return None;
+                }
+                [false, true]
+                    .into_iter()
+                    .find(|mirrored| entry.matches(&canonical.points, *mirrored))
+                    .map(|mirrored| {
+                        let control_points = entry
+                            .fitted
+                            .iter()
+                            .map(|point| canonical.placed(*point, mirrored))
+                            .collect();
+                        (control_points, deviation)
+                    })
+            })
     }
 
     pub(super) fn store(&mut self, canonical: Canonical, fitted: &[Point2], deviation: f64) {
         let entry = Entry {
+            order: self.stored,
             points: canonical.points.clone(),
             fitted: fitted.iter().map(|point| canonical.local(*point)).collect(),
             relative_deviation: deviation / canonical.leg,
         };
 
-        self.entries.entry(canonical.key).or_default().push(entry);
+        self.stored += 1;
+        self.entries.entry(canonical.key).or_default().insert(entry);
     }
 }
 
@@ -194,5 +271,96 @@ mod tests {
         assert!(cache.find(&Canonical::of(&bent).unwrap(), 1.0).is_none());
         assert!(cache.find(&Canonical::of(&large).unwrap(), 0.5).is_none());
         assert!(cache.find(&Canonical::of(&large).unwrap(), 5.0).is_some());
+    }
+
+    fn canonical_of(points: Vec<Point2>) -> Canonical {
+        Canonical {
+            key: Key {
+                degree: 3,
+                knots: Vec::new(),
+                weights: None,
+            },
+            origin: Point2::ZERO,
+            along: Vector2::X,
+            leg: 1.0,
+            points,
+        }
+    }
+
+    fn shape(x: f64, y: f64) -> Vec<Point2> {
+        vec![
+            Point2::ZERO,
+            Point2::new(1.0, 0.0),
+            Point2::new(x, y),
+            Point2::new(x + 1.0, y * 0.5),
+        ]
+    }
+
+    fn fit_at(value: f64) -> Vec<Point2> {
+        vec![Point2::new(value, value)]
+    }
+
+    #[test]
+    fn a_lookup_among_thousands_of_same_knot_shapes_compares_only_its_neighbours() {
+        let mut cache = FitCache::default();
+        let shapes: Vec<Vec<Point2>> = (0..3000_u32)
+            .map(|index| {
+                shape(
+                    0.5 + f64::from(index) * 1e-3,
+                    0.25 + f64::from(index % 7) * 0.1,
+                )
+            })
+            .collect();
+
+        for (index, points) in shapes.iter().enumerate() {
+            cache.store(canonical_of(points.clone()), &fit_at(index as f64), 0.01);
+        }
+
+        let key = canonical_of(Vec::new()).key;
+        let grid = cache.entries.get(&key).unwrap();
+
+        for (index, points) in shapes.iter().enumerate() {
+            let near = grid.near(points);
+            let found = cache.find(&canonical_of(points.clone()), 1.0).unwrap();
+
+            assert!(near.len() <= 2, "{} candidates", near.len());
+            assert_eq!(found.0, fit_at(index as f64));
+        }
+    }
+
+    #[test]
+    fn near_equal_shapes_on_either_side_of_a_cell_boundary_still_match() {
+        let mut cache = FitCache::default();
+
+        let boundary = ((1.5 / CELL).floor() + 1.0) * CELL;
+        let below = shape(boundary - 1.0 - 3e-10, 0.4);
+        let above = shape(boundary - 1.0 + 3e-10, 0.4);
+
+        cache.store(canonical_of(below.clone()), &fit_at(1.0), 0.01);
+
+        let stored_cell = cell(Signature::of(&below).across);
+        let query_cell = cell(Signature::of(&above).across);
+
+        assert_ne!(stored_cell, query_cell);
+        assert!(cache.find(&canonical_of(above), 1.0).is_some());
+    }
+
+    #[test]
+    fn of_two_matching_entries_the_first_stored_is_reused() {
+        let mut cache = FitCache::default();
+        let first = shape(0.5, 0.4);
+        let second = shape(0.5 + 4e-10, 0.4);
+
+        cache.store(canonical_of(first.clone()), &fit_at(1.0), 0.01);
+        cache.store(canonical_of(second.clone()), &fit_at(2.0), 0.01);
+
+        assert_eq!(
+            cache.find(&canonical_of(second), 1.0).unwrap().0,
+            fit_at(1.0)
+        );
+        assert_eq!(
+            cache.find(&canonical_of(first), 1.0).unwrap().0,
+            fit_at(1.0)
+        );
     }
 }

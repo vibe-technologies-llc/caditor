@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, btree_map::Entry as Slot};
+
 use miniz_oxide::inflate::TINFLStatus;
 
 use crate::import::MAX_UNPACKED_PART;
@@ -22,6 +24,7 @@ pub enum EntryError {
 pub struct Archive<'a> {
     bytes: &'a [u8],
     entries: Vec<Entry>,
+    index: BTreeMap<String, usize>,
 }
 
 struct Entry {
@@ -75,15 +78,27 @@ impl<'a> Archive<'a> {
             });
             at = at.checked_add(CENTRAL_SIZE + name_length + extra + comment)?;
         }
-        Some(Self { bytes, entries })
+
+        let mut index = BTreeMap::new();
+
+        for (position, entry) in entries.iter().enumerate() {
+            if let Slot::Vacant(vacant) = index.entry(entry.name.to_ascii_lowercase()) {
+                vacant.insert(position);
+            }
+        }
+        Some(Self {
+            bytes,
+            entries,
+            index,
+        })
     }
 
     pub fn read(&self, name: &str, limit: usize) -> Result<Vec<u8>, EntryError> {
         let limit = limit.min(MAX_UNPACKED_PART);
         let entry = self
-            .entries
-            .iter()
-            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+            .index
+            .get(&name.to_ascii_lowercase())
+            .and_then(|position| self.entries.get(*position))
             .ok_or(EntryError::Missing)?;
         let packed = self.packed(entry).ok_or(EntryError::Damaged)?;
         match entry.method {

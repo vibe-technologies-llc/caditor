@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_geometry::Point2;
+use caditor_kernel::Interrupted;
 use skrifa::{
     FontRef, GlyphId, MetadataProvider, OutlineGlyphCollection, Tag,
     instance::{Location, LocationRef, Size},
@@ -19,6 +20,7 @@ const KERNING: Tag = Tag::new(b"kern");
 const LATIN: Tag = Tag::new(b"latn");
 const DEFAULT_SCRIPT: Tag = Tag::new(b"DFLT");
 const MISSING: GlyphId = GlyphId::NOTDEF;
+const WEIGHT_STEP: f64 = 100.0;
 
 pub struct Typeface<'f> {
     upright: Cut<'f>,
@@ -80,9 +82,18 @@ impl<'f> Typeface<'f> {
         self.cut(instance.italic).kerning(first, second)
     }
 
-    pub fn outline(&mut self, instance: Instance, glyph: GlyphId) -> Arc<[Segment]> {
+    pub fn outline(
+        &mut self,
+        instance: Instance,
+        glyph: GlyphId,
+    ) -> Result<Arc<[Segment]>, Interrupted> {
         self.cut_mut(instance.italic)
             .outline(instance.weight, glyph)
+    }
+
+    #[cfg(test)]
+    pub fn cached_outlines(&self) -> usize {
+        self.upright.outlines.len() + self.italic.as_ref().map_or(0, |cut| cut.outlines.len())
     }
 
     pub fn curve_count(&mut self, instance: Instance, glyph: GlyphId) -> usize {
@@ -150,7 +161,9 @@ impl<'f> Cut<'f> {
     fn weight(&self, wanted: f64) -> u16 {
         match self.weights {
             Some((lightest, heaviest)) => {
-                wanted.clamp(lightest, heaviest).round().clamp(0.0, 1000.0) as u16
+                let stepped =
+                    (wanted.clamp(lightest, heaviest) / WEIGHT_STEP).round() * WEIGHT_STEP;
+                stepped.clamp(lightest, heaviest).round().clamp(0.0, 1000.0) as u16
             }
             None => 0,
         }
@@ -198,16 +211,16 @@ impl<'f> Cut<'f> {
             .map_or(0.0, f64::from)
     }
 
-    fn outline(&mut self, weight: u16, glyph: GlyphId) -> Arc<[Segment]> {
+    fn outline(&mut self, weight: u16, glyph: GlyphId) -> Result<Arc<[Segment]>, Interrupted> {
         if let Some(outline) = self.outlines.get(&(weight, glyph)) {
-            return Arc::clone(outline);
+            return Ok(Arc::clone(outline));
         }
 
         let segments = self.segments(weight, glyph);
-        let outline: Arc<[Segment]> = merged(&segments).unwrap_or(segments).into();
+        let outline: Arc<[Segment]> = merged(&segments)?.unwrap_or(segments).into();
 
         self.outlines.insert((weight, glyph), Arc::clone(&outline));
-        outline
+        Ok(outline)
     }
 
     fn curve_count(&mut self, weight: u16, glyph: GlyphId) -> usize {

@@ -1,5 +1,7 @@
 use caditor_geometry::Point2;
-use caditor_kernel::{Piece, Profile, ProfileCurve, Selection};
+use caditor_kernel::{
+    Interrupted, Piece, Profile, ProfileCurve, ProfileError, Selection, check_interrupt,
+};
 
 const SAMPLES_PER_CURVE: usize = 32;
 
@@ -50,33 +52,48 @@ impl Segment {
     }
 }
 
-pub fn merged(segments: &[Segment]) -> Option<Vec<Segment>> {
+pub fn merged(segments: &[Segment]) -> Result<Option<Vec<Segment>>, Interrupted> {
+    check_interrupt()?;
+
     let curves: Vec<ProfileCurve> = segments
         .iter()
         .zip(0_u64..)
         .map(|(segment, entity)| segment.profile_curve(entity))
         .collect();
-    let profile = Profile::new(&curves).ok()?;
+    let profile = match Profile::new(&curves) {
+        Ok(profile) => profile,
+        Err(ProfileError::Cancelled(interrupted)) => return Err(interrupted),
+        Err(_) => return Ok(None),
+    };
     let mut filled = Vec::new();
 
     for region in profile.regions() {
-        if winding(segments, region.anchor()?) != 0 {
+        let Some(anchor) = region.anchor() else {
+            return Ok(None);
+        };
+        if winding(segments, anchor) != 0 {
             filled.push(region.key());
         }
     }
     if filled.is_empty() {
-        return None;
+        return Ok(None);
     }
 
-    let lumps = profile.select(&Selection::Regions(filled)).ok()?;
+    let lumps = match profile.select(&Selection::Regions(filled)) {
+        Ok(lumps) => lumps,
+        Err(ProfileError::Cancelled(interrupted)) => return Err(interrupted),
+        Err(_) => return Ok(None),
+    };
     let mut outline = Vec::new();
 
     for lump in &lumps {
         for profile_loop in lump.loops() {
-            trace_loop(profile_loop.pieces(), segments, &mut outline)?;
+            if trace_loop(profile_loop.pieces(), segments, &mut outline).is_none() {
+                return Ok(None);
+            }
         }
     }
-    Some(outline)
+    Ok(Some(outline))
 }
 
 fn trace_loop(pieces: &[Piece], segments: &[Segment], outline: &mut Vec<Segment>) -> Option<()> {

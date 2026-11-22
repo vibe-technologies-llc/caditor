@@ -284,7 +284,9 @@ impl<'a, 't> Walker<'a, 't> {
                 continue;
             }
 
-            let segments = typeface.outline(placed.instance, glyph);
+            let segments = typeface
+                .outline(placed.instance, glyph)
+                .map_err(|_| ImportError::Cancelled)?;
             let warping = placed.warped_along.and_then(|index| tracks.get(index));
 
             let (outline, matrix) = match warping {

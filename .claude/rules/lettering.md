@@ -14,7 +14,9 @@ it without either depending on the other.
   `crates/caditor/assets/fonts/`); the app's `fonts.rs` takes them from here, so the binary holds
   one copy. SVG import still has the faces handed in (`TextOutlines`), the app passing these.
 - `Typeface` (`font.rs`) reads a face pair: one `Cut` per face, an `Instance` of weight and italic,
-  one `skrifa` `Location` per weight, the `wght` axis clamped to the face's range, GPOS `kern` pair
+  one `skrifa` `Location` per weight, the `wght` axis clamped to the face's range and rounded to the nearest hundred (`WEIGHT_STEP`), so
+  the advances, metrics and outlines of a weight are those of its hundred and any whole weight from
+  101 to 899 shares at most nine cached outlines per glyph, GPOS `kern` pair
   kerning (Latin, else the default script), advances, cap height (`Metrics::cap_height`), the
   OS/2 subscript and superscript offsets (`Typeface::subscript_drop`, `superscript_rise`, font
   units, `None` when the face gives zero) and outlines. A glyph's outline is cached per weight and glyph as `Segment`s (lines and quadratic or
@@ -24,7 +26,9 @@ it without either depending on the other.
   kernel `Profile`, faces whose anchor has non-zero winding over the original contours (Béziers
   sampled 32 steps) are selected as lumps, and each loop's pieces become lines and Béziers (de
   Casteljau) meeting exactly at junctions, zero-length pieces dropped. A glyph the profile cannot
-  build keeps its contours as drawn. Different glyphs that overlap are not merged.
+  build keeps its contours as drawn; a merge the kernel interrupt cancels (`merged` polls it first
+  and returns `Interrupted`) is not cached and ends `Typeface::outline`, `lettered`
+  (`LetteringError::Cancelled`) and the SVG walk (`ImportError::Cancelled`) there. Different glyphs that overlap are not merged.
 - `lettered(content, Style, Alignment)` (`layout.rs`) lays text out in the bundled Inter, held in a
   `LazyLock` behind a `parking_lot::Mutex` so recompute threads share the glyph cache: weight 400,
   or 700 when bold, the italic face when italic. Units are cap heights: the first line's baseline
