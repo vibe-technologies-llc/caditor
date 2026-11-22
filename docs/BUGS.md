@@ -7,10 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Saving and recovery
 
-- [low · small] A save can still abort for want of memory while it gathers the model in
-  `binary/model.rs`: the record snapshots (`PriorRecords`, `NewRecords`) and the file's chunks
-  (`NewRecords::push_chunks`, `Section::place`) grow with infallible `extend_from_slice`, sized by
-  the model. Reserve them fallibly into `PackError::OutOfMemory` as `push_raw` does.
 - [low · small] On Windows, Save As to the open file spelled in another letter case compares paths
   as text: `storage.rs`'s `owns` takes its own journal for one locked elsewhere and refuses
   (`OpenInAnotherWindow`), and `save.rs`'s `reads_target` skips the changed-on-disk guard and the

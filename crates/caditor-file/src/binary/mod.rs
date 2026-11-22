@@ -651,11 +651,25 @@ fn push_raw(
     let checksum = checksum_of(header.get(CHECKED_HEADER).unwrap_or_default(), payload);
 
     write_checksum(&mut header, checksum);
-    bytes
-        .try_reserve(CHUNK_HEADER_LENGTH.saturating_add(payload.len()))
-        .map_err(|_| PackError::OutOfMemory)?;
+    reserve(bytes, CHUNK_HEADER_LENGTH.saturating_add(payload.len()))?;
     bytes.extend_from_slice(&header);
     bytes.extend_from_slice(payload);
+    Ok(())
+}
+
+pub(crate) fn reserve(bytes: &mut Vec<u8>, additional: usize) -> Result<(), PackError> {
+    #[cfg(test)]
+    if testing::refuses_reservation() {
+        return Err(PackError::OutOfMemory);
+    }
+    bytes
+        .try_reserve(additional)
+        .map_err(|_| PackError::OutOfMemory)
+}
+
+pub(crate) fn append(bytes: &mut Vec<u8>, extra: &[u8]) -> Result<(), PackError> {
+    reserve(bytes, extra.len())?;
+    bytes.extend_from_slice(extra);
     Ok(())
 }
 

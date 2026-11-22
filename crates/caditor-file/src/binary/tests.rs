@@ -10,7 +10,8 @@ use super::{
     },
     testing::{
         as_written_by_an_earlier_build, corrupt_chunk, decompressing_at_most, files_of_at_most,
-        model_chunk_count, push_foreign, records_as_json, sharing_from, with_slices_of,
+        model_chunk_count, push_foreign, records_as_json, refusing_memory_after, sharing_from,
+        with_slices_of,
     },
     value::{from_bytes, push_varint, to_bytes},
     *,
@@ -1857,4 +1858,62 @@ fn unpacking_more_than_memory_holds_is_out_of_memory_not_an_abort() {
         PackError::from(ZstdError::Corrupted),
         PackError::Zstd(ZstdError::Corrupted)
     );
+}
+
+#[test]
+fn growing_a_buffer_past_the_memory_available_is_refused_not_aborted() {
+    let mut bytes = b"kept".to_vec();
+
+    assert_eq!(reserve(&mut bytes, usize::MAX), Err(PackError::OutOfMemory));
+    assert_eq!(append(&mut bytes, b" and more"), Ok(()));
+    assert_eq!(bytes, b"kept and more");
+}
+
+#[test]
+fn a_save_that_runs_out_of_memory_anywhere_in_gathering_the_model_says_so() {
+    let (documents, bytes) = saved_series(4);
+    let next = edited(documents.last().unwrap(), 40);
+    let time = at(1_000 + 4 * SAVE_SPACING);
+
+    let mut refusals = 0;
+
+    for allowed in 0..10_000 {
+        let saved = refusing_memory_after(allowed, || {
+            encode_over(&next, Some(&bytes), time, Some("Step 4"))
+        });
+        match saved {
+            Ok(_) => break,
+            Err(error) => {
+                assert_eq!(error, EncodeError::Pack(PackError::OutOfMemory));
+
+                refusals += 1;
+            }
+        }
+    }
+
+    assert!(refusals > documents.len());
+    assert!(refusals < 10_000);
+}
+
+#[test]
+fn a_first_save_that_runs_out_of_memory_anywhere_says_so() {
+    let document = with_width(10);
+
+    let mut refusals = 0;
+
+    for allowed in 0..10_000 {
+        let saved =
+            refusing_memory_after(allowed, || encode_over(&document, None, at(1_000), None));
+        match saved {
+            Ok(_) => break,
+            Err(error) => {
+                assert_eq!(error, EncodeError::Pack(PackError::OutOfMemory));
+
+                refusals += 1;
+            }
+        }
+    }
+
+    assert!(refusals > 0);
+    assert!(refusals < 10_000);
 }

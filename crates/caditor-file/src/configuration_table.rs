@@ -7,7 +7,7 @@ use caditor_document::{
 
 use crate::{
     csv::{CsvError, csv_row, delimiter_in, records},
-    read::read_file,
+    read::read_file_up_to,
     reason::{ReadFailure, WriteFailure},
     save::write_atomically,
 };
@@ -77,12 +77,9 @@ pub fn write_configurations(path: &Path, text: &str) -> Result<(), Configuration
 }
 
 pub fn read_configurations(path: &Path) -> Result<ImportedConfigurations, ConfigurationFileError> {
-    let bytes = read_file(path)
-        .map_err(|error| ConfigurationFileError::Reading(ReadFailure::of(&error)))?;
-
-    if bytes.len() > MAX_CONFIGURATIONS_FILE {
-        return Err(ConfigurationFileError::TooLarge);
-    }
+    let bytes = read_file_up_to(path, MAX_CONFIGURATIONS_FILE)
+        .map_err(|error| ConfigurationFileError::Reading(ReadFailure::of(&error)))?
+        .ok_or(ConfigurationFileError::TooLarge)?;
 
     let text = String::from_utf8(bytes).map_err(|_| ConfigurationFileError::NotText)?;
     parse_configurations(&text)
@@ -320,6 +317,19 @@ mod tests {
 
         assert_eq!(refused, ConfigurationFileError::NotText);
         assert!(matches!(missing, ConfigurationFileError::Reading(_)));
+    }
+
+    #[test]
+    fn a_file_over_the_size_limit_is_refused_from_its_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.csv");
+
+        std::fs::write(&path, vec![b'x'; MAX_CONFIGURATIONS_FILE + 1]).unwrap();
+
+        assert_eq!(
+            read_configurations(&path),
+            Err(ConfigurationFileError::TooLarge)
+        );
     }
 
     #[test]

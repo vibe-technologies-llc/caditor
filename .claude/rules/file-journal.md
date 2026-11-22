@@ -130,8 +130,12 @@ paths:
 - Tests hold jobs at a `JobGate` (`StorageConfig::jobs`, test builds only), or make the next ones
   panic, to record, flush, save again or fail while a save is in flight (`src/tests/journal_during_saves.rs`).
 - After a write error (`Report::JournalFailed`) it keeps the lock, stops appending and rewrites
-  the whole journal every `RETRY_INTERVAL` until it succeeds (`Report::JournalRestored`). A
-  replaced journal is removed only once the new one is written.
+  the whole journal until it succeeds (`Report::JournalRestored`), waiting `RETRY_INTERVAL` after
+  the first failure and doubling the wait after each further one up to `RETRY_CEILING` (`Backoff`,
+  reset by a written journal). A rewrite first drops the candidates another window holds and gives
+  up as `JournalFailure::InUseElsewhere` without encoding when none is left, so a location held
+  elsewhere costs a lock check, not the whole snapshot. A flush still retries at once. A replaced
+  journal is removed only once the new one is written.
 - A worker that stops (a command or a poll finds its channels closed) is replaced by the app
   (`Model::restart_storage`) with the model's base and every entry since it, so no entry is lost;
   a save in flight is reported as failed. An untitled document's new worker names a new journal

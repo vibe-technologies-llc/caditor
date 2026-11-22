@@ -4,7 +4,7 @@ use caditor_document::{Document, ImportedParameter, ParameterValues};
 
 use crate::{
     csv::{CsvError, csv_row, delimiter_in, records},
-    read::read_file,
+    read::read_file_up_to,
     reason::{ReadFailure, WriteFailure},
     save::write_atomically,
 };
@@ -85,12 +85,9 @@ pub fn write_parameters(path: &Path, text: &str) -> Result<(), ParameterFileErro
 }
 
 pub fn read_parameters(path: &Path) -> Result<Vec<ImportedParameter>, ParameterFileError> {
-    let bytes =
-        read_file(path).map_err(|error| ParameterFileError::Reading(ReadFailure::of(&error)))?;
-
-    if bytes.len() > MAX_PARAMETERS_FILE {
-        return Err(ParameterFileError::TooLarge);
-    }
+    let bytes = read_file_up_to(path, MAX_PARAMETERS_FILE)
+        .map_err(|error| ParameterFileError::Reading(ReadFailure::of(&error)))?
+        .ok_or(ParameterFileError::TooLarge)?;
 
     let text = String::from_utf8(bytes).map_err(|_| ParameterFileError::NotText)?;
     parse_parameters(&text)
@@ -327,6 +324,16 @@ mod tests {
             parse_parameters("caditor-parameter-file\nname,expression\nx,1"),
             Err(ParameterFileError::UnreadableVersion)
         );
+    }
+
+    #[test]
+    fn a_file_over_the_size_limit_is_refused_from_its_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.csv");
+
+        std::fs::write(&path, vec![b'x'; MAX_PARAMETERS_FILE + 1]).unwrap();
+
+        assert_eq!(read_parameters(&path), Err(ParameterFileError::TooLarge));
     }
 
     #[test]

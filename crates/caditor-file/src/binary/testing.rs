@@ -236,3 +236,26 @@ pub(crate) fn with_damaged_deltas<T>(work: impl FnOnce() -> T) -> T {
     DELTAS_DAMAGED.set(before);
     result
 }
+
+thread_local! {
+    static RESERVATIONS_ALLOWED: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+pub(crate) fn refuses_reservation() -> bool {
+    match RESERVATIONS_ALLOWED.get() {
+        None => false,
+        Some(0) => true,
+        Some(allowed) => {
+            RESERVATIONS_ALLOWED.set(Some(allowed - 1));
+            false
+        }
+    }
+}
+
+pub(crate) fn refusing_memory_after<T>(allowed: usize, work: impl FnOnce() -> T) -> T {
+    let before = RESERVATIONS_ALLOWED.replace(Some(allowed));
+    let result = work();
+
+    RESERVATIONS_ALLOWED.set(before);
+    result
+}

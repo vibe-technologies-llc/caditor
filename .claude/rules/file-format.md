@@ -634,7 +634,9 @@ Sketch entities:
 
 - Every file caditor reads goes through `read.rs`: regular files only, at most `MAX_FILE_SIZE`;
   devices, pipes and huge sparse files are refused in words. Saving over a non-regular file is
-  refused.
+  refused. A reader with a smaller limit of its own (`read_file_up_to`) compares the size from the
+  metadata before reading and reads at most one byte past the limit, so an oversized file is
+  refused without being read.
 - Partial: each record and sketch item is read on its own (`Lenient`) and assembled through
   `Document::apply`, so a loaded model satisfies the document invariants.
 - Reported repairs: damaged or unknown records left out; a lost parameter still used becomes a
@@ -762,7 +764,10 @@ Sketch entities:
   `WriteFailure::VersionNotReadBack`.
 - Running out of memory fails the save, never aborts it (an abort would skip the journal flush):
   zstd output (`ZstdError::NoMemoryForOutput`), chunk copies and joins (`binary::room_for`), the
-  growing file (`push_raw`) and the read-back buffer (`save::zeroed`) are reserved fallibly. Packing
+  growing file and the model's gathering (`binary::reserve` and `append`: `push_raw`, the record
+  snapshots by `push_record`, `NewRecords::push_chunks`, `Section::keep` and `Section::place`) and
+  the read-back buffer (`save::zeroed`) are reserved fallibly. A test build can refuse the Nth
+  reservation (`testing::refusing_memory_after`), and the suite walks N through a whole save. Packing
   short of memory is `PackError::OutOfMemory`, unpacking `UnpackError::OutOfMemory` (what retention
   treats as starved), and the save reports `SaveError::OutOfMemory` with the file left as it was.
   Before the read-back the save keeps only what it checks against: the encoded bytes go to the

@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     CHUNK_HEADER_LENGTH, Chunk, ChunkKind, Codec, EARLIER_BUILD_MODEL_MAGIC, MODEL_MAGIC,
-    PackError, Piece, UnpackError, damaged, parse, push_packed, push_packed_after, push_padding,
+    PackError, Piece, UnpackError, append, damaged, parse, push_packed, push_packed_after,
+    push_padding, reserve,
     retention::{self, Retention, retained},
     salvage, start_file,
     value::{self, ValueError, push_varint, read_varint},
@@ -321,7 +322,7 @@ impl<'a> Parsed<'a> {
         digest
     }
 
-    fn prior_records(&self, written: &BTreeSet<RecordKey>) -> PriorRecords<'a> {
+    fn prior_records(&self, written: &BTreeSet<RecordKey>) -> Result<PriorRecords<'a>, PackError> {
         let mut budget = Budget::default();
         let mut prior = PriorRecords::default();
         let unpacked = self.records.chunks(PARALLEL_BATCH).flat_map(|batch| {
@@ -346,11 +347,8 @@ impl<'a> Parsed<'a> {
             };
 
             prior.digest.add_content(&content);
-            push_varint(&mut prior.snapshot, content.len() as u64);
 
-            let start = prior.snapshot.len();
-
-            prior.snapshot.extend_from_slice(&content);
+            let kept_at = push_record(&mut prior.snapshot, &content)?;
 
             let key = if written.contains(&exact) {
                 Some(exact)
@@ -361,13 +359,13 @@ impl<'a> Parsed<'a> {
                 prior.kept.insert(
                     key,
                     KeptRecord {
-                        content: start..prior.snapshot.len(),
+                        content: kept_at,
                         stored: chunk.whole,
                     },
                 );
             }
         }
-        prior
+        Ok(prior)
     }
 
     fn head_snapshot(&self, budget: &mut Budget) -> Option<Vec<u8>> {
@@ -567,7 +565,7 @@ impl<'a> NewRecords<'a> {
     fn of(
         document: &Document,
         previous: Option<&Parsed<'a>>,
-    ) -> Result<(Self, Option<PriorRecords<'a>>), ValueError> {
+    ) -> Result<(Self, Option<PriorRecords<'a>>), EncodeError> {
         let mut snapshot = Vec::new();
         let mut fresh = Vec::new();
         let values: Vec<Record> = document_values(document).collect();
@@ -581,20 +579,17 @@ impl<'a> NewRecords<'a> {
             for encoded in encoded {
                 let (record, key) = encoded?;
 
-                push_varint(&mut snapshot, record.len() as u64);
-
-                let start = snapshot.len();
-
-                snapshot.extend_from_slice(&record);
                 fresh.push(FreshRecord {
-                    content: start..snapshot.len(),
+                    content: push_record(&mut snapshot, &record)?,
                     key,
                 });
             }
         }
 
         let written: BTreeSet<RecordKey> = fresh.iter().map(|record| record.key).collect();
-        let prior = previous.map(|parsed| parsed.prior_records(&written));
+        let prior = previous
+            .map(|parsed| parsed.prior_records(&written))
+            .transpose()?;
         let Some(prior_records) = &prior else {
             let records = fresh
                 .into_iter()
@@ -628,7 +623,7 @@ impl<'a> NewRecords<'a> {
     fn keeping_understood(
         document: &Document,
         prior: &PriorRecords<'a>,
-    ) -> Result<Self, ValueError> {
+    ) -> Result<Self, EncodeError> {
         let mut new = Self {
             snapshot: Vec::new(),
             records: Vec::new(),
@@ -638,18 +633,13 @@ impl<'a> NewRecords<'a> {
             let record = record?;
             match prior.kept_content(blake3::hash(&record).as_bytes()) {
                 Some((kept, content)) => {
-                    push_varint(&mut new.snapshot, content.len() as u64);
-                    new.snapshot.extend_from_slice(content);
+                    push_record(&mut new.snapshot, content)?;
                     new.records.push(RecordToWrite::Kept(kept.stored));
                 }
                 None => {
-                    push_varint(&mut new.snapshot, record.len() as u64);
+                    let content = push_record(&mut new.snapshot, &record)?;
 
-                    let start = new.snapshot.len();
-
-                    new.snapshot.extend_from_slice(&record);
-                    new.records
-                        .push(RecordToWrite::Fresh(start..new.snapshot.len()));
+                    new.records.push(RecordToWrite::Fresh(content));
                 }
             }
         }
@@ -668,11 +658,23 @@ impl<'a> NewRecords<'a> {
             for chunk in packed {
                 let chunk: Result<Cow<'_, [u8]>, PackError> = chunk;
 
-                bytes.extend_from_slice(&chunk?);
+                append(bytes, &chunk?)?;
             }
         }
         Ok(())
     }
+}
+
+const LONGEST_VARINT: usize = 10;
+
+fn push_record(snapshot: &mut Vec<u8>, content: &[u8]) -> Result<Range<usize>, PackError> {
+    reserve(snapshot, LONGEST_VARINT.saturating_add(content.len()))?;
+    push_varint(snapshot, content.len() as u64);
+
+    let start = snapshot.len();
+
+    snapshot.extend_from_slice(content);
+    Ok(start..snapshot.len())
 }
 
 fn packed_record(content: &[u8]) -> Result<Vec<u8>, PackError> {
@@ -847,13 +849,12 @@ impl<'a> Section<'a> {
         self.parts.iter().map(Part::len).sum::<usize>() + self.fresh.len()
     }
 
-    fn keep(&mut self, stored: &'a [u8]) {
+    fn keep(&mut self, stored: &'a [u8]) -> Result<(), PackError> {
         let Some(from) = offset_within(self.previous, stored) else {
-            self.fresh.extend_from_slice(stored);
-            return;
+            return append(&mut self.fresh, stored);
         };
 
-        self.end_fresh();
+        self.end_fresh()?;
         if let Some(Part::Kept {
             from: start,
             bytes: kept,
@@ -862,23 +863,32 @@ impl<'a> Section<'a> {
             && let Some(joined) = self.previous.get(*start..from + stored.len())
         {
             *kept = joined;
-            return;
+            return Ok(());
         }
+        self.parts
+            .try_reserve(1)
+            .map_err(|_| PackError::OutOfMemory)?;
         self.parts.push(Part::Kept {
             from,
             bytes: stored,
         });
+        Ok(())
     }
 
-    fn end_fresh(&mut self) {
+    fn end_fresh(&mut self) -> Result<(), PackError> {
         if !self.fresh.is_empty() {
+            self.parts
+                .try_reserve(1)
+                .map_err(|_| PackError::OutOfMemory)?;
             self.parts
                 .push(Part::Fresh(std::mem::take(&mut self.fresh)));
         }
+        Ok(())
     }
 
     fn place(mut self, bytes: &mut Vec<u8>, shared: &mut Vec<Shared>) -> Result<(), PackError> {
-        self.end_fresh();
+        self.end_fresh()?;
+        reserve(bytes, self.len())?;
 
         let worth = worth_sharing();
         let first = self
@@ -903,8 +913,8 @@ impl<'a> Section<'a> {
                 ));
             }
             match part {
-                Part::Fresh(fresh) => bytes.extend_from_slice(&fresh),
-                Part::Kept { bytes: kept, .. } => bytes.extend_from_slice(kept),
+                Part::Fresh(fresh) => append(bytes, &fresh)?,
+                Part::Kept { bytes: kept, .. } => append(bytes, kept)?,
             }
         }
         Ok(())
@@ -1026,7 +1036,7 @@ pub(crate) fn encode_keeping(
     new.push_chunks(&mut bytes)?;
     for foreign in prior.iter().flat_map(|prior| &prior.foreign) {
         if !foreign.must_understand() {
-            bytes.extend_from_slice(foreign.whole);
+            append(&mut bytes, foreign.whole)?;
         }
     }
     if bytes.len() > largest_file() {
@@ -1436,7 +1446,7 @@ fn write_versions<'a>(
             }
             Candidate::Stored { version, .. } => {
                 if let Some(info) = &version.info {
-                    section.keep(info.chunk.whole);
+                    section.keep(info.chunk.whole)?;
                 }
 
                 let rewritten = is_rewritten(candidate, after_thinning);
@@ -1466,7 +1476,7 @@ fn write_versions<'a>(
                     (true, None, _) if rebuild.starved => {
                         return Err(EncodeError::HistoryTooLarge);
                     }
-                    (true, None, _) | (false, ..) => section.keep(version.data.whole),
+                    (true, None, _) | (false, ..) => section.keep(version.data.whole)?,
                 }
             }
         }

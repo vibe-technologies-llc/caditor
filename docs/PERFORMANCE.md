@@ -159,13 +159,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   since brought a `Face` to 192 bytes (`Surface` 96, sized by cones and tori); an `Edge` is 160
   (`Curve` 96, its variants 48 to 88 bytes, nothing worth boxing). Sharing geometry between copies
   (names and placement over one solid) would save most of the rest but reaches every kernel reader.
-- [low · easy] The parameter and configuration files are read whole, up to `MAX_FILE_SIZE`
-  (2 GiB), before their 16 MiB limits are compared (`parameters.rs`, `configuration_table.rs`),
-  where `read_picture_file` checks the size first. Check the metadata before reading.
-- [low · easy] While the journal cannot be written (locked by another window, a full disk),
-  `storage.rs`'s `retry` re-encodes the whole snapshot and every entry every `RETRY_INTERVAL` (5 s)
-  before finding out that no location is usable. Check a location can be locked first, and back
-  off.
 - [low · small] Every `Recompute::default()` builds a rayon pool of `available_parallelism` threads
   (`recompute.rs`, `pool.rs`), so the short runs of version previews, analysis, display and the
   every-configuration export start and stop one each beside the worker's. One process-wide pool

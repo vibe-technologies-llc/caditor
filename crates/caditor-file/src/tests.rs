@@ -2,7 +2,10 @@ use std::{
     collections::BTreeSet,
     fmt, fs,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -44,6 +47,7 @@ struct GateState {
     held: Mutex<bool>,
     changed: Condvar,
     panics: Mutex<usize>,
+    encodes: AtomicUsize,
 }
 
 impl JobGate {
@@ -58,6 +62,14 @@ impl JobGate {
 
     pub(crate) fn panic_in_next(&self, jobs: usize) {
         *self.0.panics.lock() = jobs;
+    }
+
+    pub(crate) fn note_encode(&self) {
+        self.0.encodes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn encodes(&self) -> usize {
+        self.0.encodes.load(Ordering::Relaxed)
     }
 
     pub(crate) fn pass(&self) {
@@ -1736,6 +1748,86 @@ fn a_window_whose_journal_is_replaced_stops_claiming_protection_and_retakes_it()
     };
 
     assert_eq!(recovered.changes(), 1);
+}
+
+#[test]
+fn locations_held_by_other_windows_are_not_encoded_for_while_they_stay_held() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let recovery = dir.path().join("recovery");
+    let base = sample();
+
+    save(&base, &path, false).unwrap();
+    fs::create_dir_all(&recovery).unwrap();
+
+    let held: Vec<_> = paths::journals_for(&path, Some(&recovery))
+        .iter()
+        .map(|journal| {
+            fs::write(journal, b"").unwrap();
+            crate::lock::lock_existing(journal).unwrap().unwrap()
+        })
+        .collect();
+
+    let gate = JobGate::default();
+    let start = Start {
+        file: Some(path),
+        on_disk: None,
+        ..untitled(&base)
+    };
+
+    let storage = Storage::spawn(
+        StorageConfig {
+            jobs: gate.clone(),
+            ..config(&dir)
+        },
+        start,
+        || {},
+    )
+    .unwrap();
+
+    for _ in 0..3 {
+        assert!(storage.flusher().flush(WAIT));
+    }
+
+    let reports = storage.poll().unwrap();
+
+    assert_eq!(gate.encodes(), 0);
+    assert!(
+        matches!(
+            reports.as_slice(),
+            [Report::JournalFailed {
+                failure: JournalFailure::InUseElsewhere
+            }]
+        ),
+        "{reports:?}"
+    );
+
+    drop(held);
+
+    assert!(storage.flusher().flush(WAIT));
+    assert_eq!(gate.encodes(), 1);
+    assert!(matches!(
+        storage.poll().unwrap().as_slice(),
+        [Report::JournalRestored]
+    ));
+}
+
+#[test]
+fn the_wait_between_journal_retries_doubles_up_to_a_ceiling_and_starts_over_after_a_success() {
+    let mut backoff = storage::Backoff::default();
+
+    let waits: Vec<Duration> = (0..40).map(|_| backoff.next_delay()).collect();
+
+    assert_eq!(waits[0], storage::RETRY_INTERVAL);
+    assert_eq!(waits[1], storage::RETRY_INTERVAL * 2);
+    assert_eq!(waits[2], storage::RETRY_INTERVAL * 4);
+    assert!(waits.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert_eq!(waits[39], storage::RETRY_CEILING);
+    assert!(waits.iter().all(|wait| *wait <= storage::RETRY_CEILING));
+
+    backoff.reset();
+
+    assert_eq!(backoff.next_delay(), storage::RETRY_INTERVAL);
 }
 
 #[test]

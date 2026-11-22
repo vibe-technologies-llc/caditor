@@ -34,7 +34,9 @@ use crate::{
 };
 
 const PREDECESSOR_TIMEOUT: Duration = Duration::from_secs(5);
-const RETRY_INTERVAL: Duration = Duration::from_secs(5);
+pub(crate) const RETRY_INTERVAL: Duration = Duration::from_secs(5);
+pub(crate) const RETRY_CEILING: Duration = Duration::from_secs(300);
+const LONGEST_DOUBLING: u32 = 10;
 const REBASE_JOURNAL_AFTER: u64 = 32 << 20;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -243,6 +245,7 @@ impl Storage {
                     protected: false,
                     failure_reported: false,
                     next_retry: Instant::now(),
+                    backoff: Backoff::default(),
                     reports: sender,
                     wake: Box::new(wake),
                     unsynced: false,
@@ -369,6 +372,26 @@ impl Closing {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Backoff {
+    failures: u32,
+}
+
+impl Backoff {
+    pub(crate) fn next_delay(&mut self) -> Duration {
+        let doublings = self.failures.min(LONGEST_DOUBLING);
+
+        self.failures = self.failures.saturating_add(1);
+        RETRY_INTERVAL
+            .saturating_mul(1 << doublings)
+            .min(RETRY_CEILING)
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.failures = 0;
+    }
+}
+
 struct OpenJournal {
     path: PathBuf,
     file: File,
@@ -393,6 +416,7 @@ struct Worker {
     protected: bool,
     failure_reported: bool,
     next_retry: Instant,
+    backoff: Backoff,
     reports: Sender<Report>,
     wake: Box<dyn Fn() + Send>,
     unsynced: bool,
@@ -953,7 +977,7 @@ impl Worker {
     fn fail(&mut self, failure: JournalFailure) {
         self.protected = false;
         self.unsynced = false;
-        self.next_retry = Instant::now() + RETRY_INTERVAL;
+        self.next_retry = Instant::now() + self.backoff.next_delay();
         if !self.failure_reported {
             self.failure_reported = true;
             self.report(Report::JournalFailed { failure });
@@ -1099,12 +1123,36 @@ impl Worker {
             return;
         }
 
+        let usable: Vec<PathBuf> = candidates
+            .iter()
+            .filter(|candidate| {
+                let usable =
+                    self.own_journal_at(candidate).is_some() || !locked_elsewhere(candidate);
+
+                if !usable {
+                    log::warn!("{} belongs to another caditor window", candidate.display());
+                }
+                usable
+            })
+            .cloned()
+            .collect();
+
+        if usable.is_empty() {
+            self.drop_stale_journal(&candidates);
+            self.fail(JournalFailure::InUseElsewhere);
+            return;
+        }
+
         let head = JournalHead {
             file: self.file.as_deref(),
             on_disk: self.on_disk.as_ref(),
             loaded_with_problems: self.loaded_with_problems,
             folded: self.folded,
         };
+
+        #[cfg(test)]
+        self.gate.note_encode();
+
         let encoded = encode_journal_noting(&head, &self.base, &self.entries, &mut self.pictures);
         let contents = match encoded {
             Ok(contents) => contents,
@@ -1117,13 +1165,8 @@ impl Worker {
         let permissions = permissions_of(self.file.as_deref());
         let mut failure = None;
 
-        for candidate in candidates.iter().cloned() {
+        for candidate in usable {
             let own = self.own_journal_at(&candidate);
-
-            if own.is_none() && locked_elsewhere(&candidate) {
-                log::warn!("{} belongs to another caditor window", candidate.display());
-                continue;
-            }
 
             let written = write_locked(
                 &candidate,
@@ -1143,15 +1186,19 @@ impl Worker {
                 }
             }
         }
+        self.drop_stale_journal(&candidates);
+        self.fail(failure.map_or(JournalFailure::InUseElsewhere, |error| {
+            JournalFailure::Writing(WriteFailure::of(&error))
+        }));
+    }
+
+    fn drop_stale_journal(&mut self, candidates: &[PathBuf]) {
         if let Some(stale) = self
             .journal
             .take_if(|previous| !candidates.contains(&previous.path))
         {
             self.remove_own(&stale);
         }
-        self.fail(failure.map_or(JournalFailure::InUseElsewhere, |error| {
-            JournalFailure::Writing(WriteFailure::of(&error))
-        }));
     }
 
     fn adopt(&mut self, path: PathBuf, file: File, length: usize) {
@@ -1171,6 +1218,7 @@ impl Worker {
         }
         self.protected = true;
         self.unsynced = false;
+        self.backoff.reset();
         self.written = u64::try_from(length).unwrap_or(u64::MAX);
         self.appended = 0;
     }

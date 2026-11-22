@@ -472,7 +472,7 @@ paths:
   first row starting with `caditor-parameters`, the marker of development builds before version 1,
   is refused whole as `FromEarlierBuild`. A change to the typed grammar raises the version. A
   byte-order mark, multi-line quoted cells and blank rows are accepted. A file over
-  `MAX_PARAMETERS_FILE`, not UTF-8, without both columns, with an unclosed quote (named by line) or
+  `MAX_PARAMETERS_FILE` (judged from its size before it is read), not UTF-8, without both columns, with an unclosed quote (named by line) or
   over `MAX_PARAMETER_ROWS` rows is refused whole; anything wrong in a row is left to
   `plan_parameter_import` (`document.md`).
 
@@ -498,8 +498,8 @@ paths:
   `1`/`0`, `on`/`off`, a colour as 3 or 6 hex digits with or without `#`, or `default`/`none`.
 - `parse_configurations` finds the name column (`Configuration` or `Name`, any position and case)
   and takes every other column with a non-blank heading as a value column, so a trailing empty
-  column a spreadsheet adds is ignored; blank rows are skipped. A file over `MAX_CONFIGURATIONS_FILE`,
-  not UTF-8, without a name column, with an unclosed quote (named by line), over
+  column a spreadsheet adds is ignored; blank rows are skipped. A file over `MAX_CONFIGURATIONS_FILE`
+  (judged from its size before it is read), not UTF-8, without a name column, with an unclosed quote (named by line), over
   `MAX_CONFIGURATION_ROWS` rows or `MAX_CONFIGURATION_COLUMNS` columns is refused whole
   (`ConfigurationFileError`); anything wrong in a column or row is left to
   `plan_configuration_import` (`document.md`).
