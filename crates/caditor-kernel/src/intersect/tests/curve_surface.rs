@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, TAU};
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
@@ -390,6 +390,42 @@ fn lines_cross_touch_and_lie_on_elementary_surfaces() {
             .points
             .is_empty()
     );
+}
+
+#[test]
+fn a_line_crossing_a_cone_is_met_once_where_its_other_root_lies_on_the_far_nappe() {
+    let turn = RigidTransform::rotation_about(
+        Point3::ZERO,
+        Vector3::new(0.388008962214508, 0.6153248604817874, 0.7707295874603886),
+        1.5354936663786602,
+    )
+    .unwrap();
+    let shift = RigidTransform::translation(Vector3::new(
+        -1.1777563114383678,
+        0.04110197214432132,
+        -2.07631617854531,
+    ))
+    .unwrap();
+    let edge: Curve = Line::through(Point3::new(10.0, 0.0, 0.0), Point3::ZERO)
+        .unwrap()
+        .into();
+
+    let cone = crate::fixtures::cone(3.0, 4.0)
+        .transformed(&turn)
+        .unwrap()
+        .transformed(&shift)
+        .unwrap();
+    let wall = cone
+        .faces()
+        .map(|(_, face)| face.surface())
+        .find(|surface| matches!(surface, Surface::Cone(_)))
+        .unwrap();
+    let found =
+        intersect_curve_surface(&edge, Interval::new(0.0, 10.0).unwrap(), wall, None).unwrap();
+    let (at, tangent) = single(&found);
+
+    assert!(!tangent);
+    assert!((at - 8.069761779823661).abs() < 1e-9, "{at}");
 }
 
 #[test]

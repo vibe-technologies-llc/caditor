@@ -47,7 +47,11 @@ paths:
 ## Curves
 
 - `intersect_curve_surface` (points with curve parameter and uv, and overlaps) is analytic for
-  lines, circles and ellipses against elementary surfaces, else subdivides the curve on piece boxes
+  lines, circles and ellipses against elementary surfaces (a line's quadratic against a cone keeps
+  only roots on the cone's own nappe before polishing, `implicit_on_sheet`: polished from the far
+  nappe, a root crept towards the near one and stopped 4.4e-7 short, within the resolution, so a
+  hollow cuboid's edge was met twice 1e-6 apart and the cone's two sections through that point
+  ended at different vertices, `Open`), else subdivides the curve on piece boxes
   (widened by a second-derivative sagitta within a spline span, since span hulls do not shrink),
   prunes by the surface's Lipschitz distance (a spline surface first by its span hulls, which
   needs no projection), brackets sign changes of the signed distance and minimises it for touches
@@ -225,7 +229,13 @@ paths:
     parallel 3.1e-7 apart were stepped straight across, each arm hopping to the other, and the
     Hermite segment over the neck had no point on both surfaces across its middle (`Unrefined`). A
     step landing outside the patches whose exit lies behind the current point is retried at half
-    length, so a branch dipping into a patch for less than a step is followed.
+    length, so a branch dipping into a patch for less than a step is followed. A step landing inside
+    whose points across its chord (the quarter, half and three quarters `hugs_chord` solves) leave
+    the patches ends the branch where it leaves, at the exit towards the first of them outside
+    (`Step::leaves_through`), so a branch never spans a stretch outside its patch: a holed block's
+    side cut a torus 1.8e-3 past the side's top edge over 0.17 of the tube's top, a step from one
+    side of that stretch landed on a branch already traced beyond it, and the joined branch, clipped
+    to the patch, ran 0.12 along that branch (`Split`).
   - A branch whose `IntersectionCurve` cannot be refined fails the intersection as `Unrefined`
     (`kernel.md`); the boolean takes its point as the error's site, so the curve is named where it
     strays instead of the solid failing validation. A branch whose contacts collapse to too few

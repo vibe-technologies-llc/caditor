@@ -816,3 +816,54 @@ fn spline_patches_that_share_only_part_of_their_extent_are_coincident() {
         );
     }
 }
+
+#[test]
+fn a_section_leaving_its_patch_between_two_steps_ends_where_it_leaves() {
+    let ring: Surface = Torus::new(Plane::XY, 6.0, 2.0).unwrap().into();
+    let frame = Plane::from_frame(
+        Point3::new(-1.5559062298457853, -0.3550073190842711, -2.204461637286332),
+        Vector3::new(
+            -0.997756847440443,
+            -0.04799105841990951,
+            0.046670458509056566,
+        ),
+        Vector3::new(
+            0.048207960594212874,
+            -0.03139458144006301,
+            0.9983438149212677,
+        ),
+    )
+    .unwrap();
+    let side: Surface = PlaneSurface::new(frame).unwrap().into();
+
+    let found = intersect_surfaces(
+        &patch(
+            &ring,
+            (-2.5e-5, 6.283210307179586),
+            (-5e-5, 6.283235307179586),
+        ),
+        &patch(&side, (-1e-4, 4.0001), (-1e-4, 10.0001)),
+    )
+    .unwrap();
+    let branches = found.branches();
+
+    assert_eq!(branches.len(), 2, "{branches:?}");
+
+    for (index, branch) in branches.iter().enumerate() {
+        let middle = branch.curve.point(branch.range.middle());
+
+        for other in branches
+            .iter()
+            .enumerate()
+            .filter(|(other_index, _)| *other_index != index)
+            .map(|(_, other)| other)
+        {
+            let nearest = other.curve.closest_parameter(middle, other.range);
+
+            assert!(
+                other.curve.point(nearest).distance(middle) > LINEAR_RESOLUTION,
+                "branch {index} runs along another"
+            );
+        }
+    }
+}

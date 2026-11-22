@@ -300,6 +300,7 @@ struct Step {
     tangent: Vector3,
     turn: f64,
     on_boundary: bool,
+    leaves_through: Option<Contact>,
 }
 
 impl<'a> Tracer<'a> {
@@ -691,15 +692,23 @@ impl<'a> Tracer<'a> {
                 let correction = contact.point.distance(predicted);
                 let moved = contact.point.distance(current.point);
 
-                let follows = correction <= MAX_CORRECTION * h
-                    && moved >= 0.5 * h
-                    && turn <= MAX_TURN
-                    && self.hugs_chord(current, &contact, direction, h);
-                follows.then_some(Step {
+                if correction > MAX_CORRECTION * h || moved < 0.5 * h || turn > MAX_TURN {
+                    return None;
+                }
+
+                let chord = self.chord_contacts(current, &contact, direction, h)?;
+                let leaves_through = chord
+                    .into_iter()
+                    .filter(|(_, between)| !self.inside(between))
+                    .min_by(|a, b| a.0.total_cmp(&b.0))
+                    .map(|(_, between)| between);
+
+                Some(Step {
                     contact,
                     tangent: next,
                     turn,
                     on_boundary: false,
+                    leaves_through,
                 })
             };
             let on_plane = refine_contact(
@@ -772,17 +781,29 @@ impl<'a> Tracer<'a> {
             tangent: next,
             turn,
             on_boundary: true,
+            leaves_through: None,
         }))
     }
 
     fn hugs_chord(&self, from: &Contact, to: &Contact, direction: Vector3, step: f64) -> bool {
+        self.chord_contacts(from, to, direction, step).is_some()
+    }
+
+    fn chord_contacts(
+        &self,
+        from: &Contact,
+        to: &Contact,
+        direction: Vector3,
+        step: f64,
+    ) -> Option<[(f64, Contact); 3]> {
         let [from_first, from_second] = from.uv;
         let [to_first, to_second] = to.uv;
-        CHORD_CHECKS.iter().all(|fraction| {
-            let along = from.point.lerp(to.point, *fraction);
+
+        let between = |fraction: f64| {
+            let along = from.point.lerp(to.point, fraction);
             let guess = [
-                from_first.lerp(to_first, *fraction),
-                from_second.lerp(to_second, *fraction),
+                from_first.lerp(to_first, fraction),
+                from_second.lerp(to_second, fraction),
             ];
             refine_contact(
                 self.surfaces(),
@@ -792,11 +813,15 @@ impl<'a> Tracer<'a> {
                     normal: direction,
                 },
             )
-            .is_some_and(|found| {
+            .filter(|found| {
                 found.point.distance(along) <= MAX_SAGITTA * step
-                    && self.heads_along(&found, direction)
+                    && self.heads_along(found, direction)
             })
-        })
+            .map(|found| (fraction, found))
+        };
+        let [middle, early, late] = CHORD_CHECKS;
+
+        Some([between(middle)?, between(early)?, between(late)?])
     }
 
     fn touches_between(&self, from: &Contact, to: &Contact, step: f64) -> bool {
@@ -1119,6 +1144,19 @@ impl<'a> Tracer<'a> {
                     continue;
                 }
                 if let Some(boundary) = boundary {
+                    end_on_boundary(&mut contacts, boundary, tangent);
+                }
+                return Ok(Marched {
+                    contacts,
+                    closed: false,
+                    tangent_end: false,
+                });
+            }
+            if let Some(outside) = next.leaves_through {
+                if let Some(boundary) = self
+                    .exit(&current, &outside)
+                    .filter(|boundary| boundary.point.distance(current.point) > TOLERANCE)
+                {
                     end_on_boundary(&mut contacts, boundary, tangent);
                 }
                 return Ok(Marched {

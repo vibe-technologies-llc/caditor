@@ -3282,6 +3282,48 @@ fn a_torus_and_its_copy_shifted_a_hundred_thousandth_along_x_combine_exactly() {
 }
 
 #[test]
+fn a_cone_crossing_a_hollow_cuboids_edge_near_its_apex_combines() {
+    let body = crate::fixtures::hollow_cuboid(10.0, 4.0);
+    let axis = Vector3::new(0.388008962214508, 0.6153248604817874, 0.7707295874603886);
+    let offset = (-1.1777563114383678, 0.04110197214432132, -2.07631617854531);
+
+    let placed = moved(
+        rotated(crate::fixtures::cone(3.0, 4.0), axis, 1.5354936663786602),
+        offset,
+    );
+
+    check_every_operation(
+        "cone across a hollow cuboid's edge",
+        &body,
+        &placed,
+        (exact_volume(&body), 12.0 * PI),
+    );
+}
+
+#[test]
+fn a_holed_block_whose_side_cuts_a_torus_past_its_top_edge_combines() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let axis = Vector3::new(0.6263080561280834, 0.9137478817699642, 0.9095008879691855);
+    let offset = (-1.5559062298457853, -0.3550073190842711, -2.204461637286332);
+
+    let placed = moved(
+        rotated(
+            crate::fixtures::holed_block(10.0, 4.0, 2.5),
+            axis,
+            0.07448245962198793,
+        ),
+        offset,
+    );
+
+    check_every_operation(
+        "holed block across a torus",
+        &ring,
+        &placed,
+        (2.0 * PI * PI * 6.0 * 4.0, 400.0 - 25.0 * PI),
+    );
+}
+
+#[test]
 fn a_torus_and_its_copy_turned_a_quarter_radian_with_equators_nearly_tangent_combine() {
     let ring = crate::fixtures::torus(6.0, 2.0);
     let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;

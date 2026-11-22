@@ -312,10 +312,20 @@ fn periodic_in(angle: f64, range: Interval) -> Vec<f64> {
 }
 
 fn implicit(probe: &Probe, range: Interval, coefficients: &[f64]) -> Vec<Candidate> {
+    implicit_on_sheet(probe, range, coefficients, |_| true)
+}
+
+fn implicit_on_sheet(
+    probe: &Probe,
+    range: Interval,
+    coefficients: &[f64],
+    on_sheet: impl Fn(f64) -> bool,
+) -> Vec<Candidate> {
     let found = polynomial_roots(coefficients, range.start(), range.end());
     let mut candidates: Vec<Candidate> = found
         .roots
         .into_iter()
+        .filter(|root| on_sheet(*root))
         .map(|root| probe.polish(root, range))
         .filter(|root| probe.distance(*root) <= TOLERANCE)
         .map(Candidate::Root)
@@ -462,7 +472,9 @@ fn analytic(probe: &Probe, range: Interval) -> Option<Vec<Candidate>> {
                     Vec::new()
                 });
             }
-            Some(implicit(probe, range, &coefficients))
+            Some(implicit_on_sheet(probe, range, &coefficients, |root| {
+                oa + da * root >= -TOLERANCE
+            }))
         }
         (Curve::Line(line), Surface::Torus(torus)) => {
             let frame = torus.frame();
