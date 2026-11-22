@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use caditor_document::{BodyOperation, FeatureId, FeatureKind};
+use caditor_document::{BodyOperation, FeatureId, FeatureKind, MoveAxis};
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
@@ -980,12 +980,16 @@ fn several_selected_bodies_are_moved_together_with_alt_m_and_previewed_together(
         "25 mm",
     );
 
-    let (previewed, placement) = harness
+    let moved = harness
         .model
         .draft_placement()
         .expect("both bodies are previewed");
+    let placement = moved.placement;
 
-    assert_eq!(previewed, [plate, peg]);
+    assert_eq!(
+        moved.from.iter().map(|(body, _)| *body).collect::<Vec<_>>(),
+        [plate, peg]
+    );
     assert!(
         placement
             .apply_point(caditor_geometry::Point3::ZERO)
@@ -1002,6 +1006,96 @@ fn several_selected_bodies_are_moved_together_with_alt_m_and_previewed_together(
 
     assert!((plate_after.x - (plate_before.x + 25.0)).abs() < 1e-6);
     assert!((peg_after.x - (peg_before.x + 25.0)).abs() < 1e-6);
+}
+
+#[test]
+fn bodies_moved_together_are_moved_once_while_their_new_meshes_arrive() {
+    use crate::{
+        bodies::{Hold, Holds},
+        model::RecomputeStatus,
+        move_manipulator::Handle,
+    };
+
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+
+    harness.select([
+        Pickable::Edge {
+            body: plate,
+            edge: top_edge_along_x(&harness, plate, 0.0),
+        },
+        any_edge(&harness, peg),
+    ]);
+    harness.use_tool_with(Key::M, Modifiers::ALT);
+    harness.settle();
+    harness.workspace.viewport.advance(super::CAMERA_SETTLE);
+    harness.frame();
+
+    let (movement, _) = open_move(&harness);
+    let holds = Holds {
+        converts: Hold::holding(),
+        ..Holds::default()
+    };
+
+    harness.draft_into_field(
+        Id::unique(("move-field", "offset", 0usize, movement)),
+        "25 mm",
+    );
+    harness.model.hold_body_work(&holds);
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.wait_until("the move is recomputed with its meshes held", |harness| {
+        harness.model.status() == RecomputeStatus::UpToDate && harness.model.bodies_pending()
+    });
+
+    let moved = harness
+        .model
+        .draft_placement()
+        .expect("the preview is held until the new meshes are shown");
+    let held = harness.built();
+    let held_handle = harness
+        .workspace
+        .viewport
+        .handle_position(Handle::Along(MoveAxis::X), 0.0)
+        .expect("the X arrow is shown");
+
+    for body in [plate, peg] {
+        let result = harness.model.evaluation().body_result(body).unwrap();
+
+        assert!(!moved.moves_from(body, result));
+    }
+
+    assert_eq!(
+        held.scene
+            .meshes
+            .iter()
+            .chain(&held.scene.translucent_meshes)
+            .filter(|mesh| mesh.placement == Some(moved.placement))
+            .count(),
+        2
+    );
+
+    holds.converts.release();
+    harness.settle();
+
+    let settled = harness.built();
+    let settled_handle = harness
+        .workspace
+        .viewport
+        .handle_position(Handle::Along(MoveAxis::X), 0.0)
+        .expect("the X arrow is shown");
+
+    assert!(harness.model.draft_placement().is_none());
+    assert!(
+        settled
+            .scene
+            .meshes
+            .iter()
+            .chain(&settled.scene.translucent_meshes)
+            .all(|mesh| mesh.placement.is_none())
+    );
+    assert!(held_handle.distance(settled_handle) < 0.5);
 }
 
 #[test]

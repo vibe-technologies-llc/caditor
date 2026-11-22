@@ -203,6 +203,23 @@ fn direction(frame: &Plane, axis: MoveAxis) -> Vector3 {
     axis.direction_in(Some(frame))
 }
 
+fn drafted_centre(model: &Model, bodies: &[FeatureId], centre: Point3) -> Point3 {
+    let evaluation = model.evaluation();
+
+    match model.draft_placement() {
+        Some(moved)
+            if bodies.iter().any(|body| {
+                evaluation
+                    .body_result(*body)
+                    .is_some_and(|source| moved.moves_from(*body, source))
+            }) =>
+        {
+            moved.placement.apply_point(centre)
+        }
+        Some(_) | None => centre,
+    }
+}
+
 impl MoveHandles {
     pub fn of(
         model: &Model,
@@ -211,12 +228,14 @@ impl MoveHandles {
         pixels_per_point: f64,
     ) -> Option<Self> {
         let feature = open?;
-        let FeatureKind::Move(movement) = &model.document().feature(feature)?.kind else {
+        let FeatureKind::Move(committed) = &model.document().feature(feature)?.kind else {
             return None;
         };
 
-        let bodies = movement.moved_bodies(feature);
-        let parameters = model.parameters();
+        let (movement, parameters) = model
+            .draft_move(feature)
+            .unwrap_or((committed, model.parameters()));
+        let bodies = committed.moved_bodies(feature);
         let frame = model.move_frame(movement)?;
 
         let shift = || {
@@ -230,7 +249,7 @@ impl MoveHandles {
                     Some(shift + direction(&frame, axis) * along)
                 })
         };
-        let (centre, turning) = match (&movement.about, model.move_pivot(feature, movement)) {
+        let (origin, turning) = match (&movement.about, model.move_pivot(feature, movement)) {
             (TurnCentre::Body, Some(pivot)) => (pivot.point() + shift()?, Turning::Axes),
             (TurnCentre::Axis(_), Some(Pivot::Axis(axis))) => {
                 let before = movement
@@ -247,20 +266,14 @@ impl MoveHandles {
                 let foot = axis.origin() + axis.direction() * along;
                 (foot + shift()?, Turning::About(axis.direction()))
             }
-            _ => (
-                bodies
+            _ => {
+                let centre = bodies
                     .iter()
                     .filter_map(|body| model.evaluation().body(*body)?.bounding_box())
                     .reduce(Aabb::union)?
-                    .center(),
-                Turning::Fixed,
-            ),
-        };
-        let origin = match model.draft_placement() {
-            Some((moved, placement)) if bodies.iter().any(|body| moved.contains(body)) => {
-                placement.apply_point(centre)
+                    .center();
+                (drafted_centre(model, &bodies, centre), Turning::Fixed)
             }
-            Some(_) | None => centre,
         };
         let depth = view.view_depth(origin);
 

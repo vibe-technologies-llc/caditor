@@ -24,7 +24,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch, SketchSolution};
 
 use crate::{
     assistant::AssistantCommand,
-    bodies::{self, ShownCut},
+    bodies::{self, MovedBodies, ShownCut},
     body_picks,
     cloud::CloudCommand,
     commands::Reason,
@@ -573,19 +573,38 @@ impl Model {
         self.draft.as_ref()?.evaluation.as_ref()
     }
 
-    pub fn draft_placement(&self) -> Option<(Vec<FeatureId>, RigidTransform)> {
+    pub fn draft_placement(&self) -> Option<MovedBodies> {
         let draft = self.draft.as_ref()?;
         let FeatureKind::Move(drafted) = &draft.kind else {
             return None;
         };
-        let committed = draft.shown?;
+        let committed = draft.shown.as_ref()?;
 
-        let bodies = drafted.moved_bodies(draft.feature);
         let pivot = self.move_pivot(draft.feature, drafted)?;
         let frame = self.move_frame(drafted)?;
 
         let placement = drafted.placement(&draft.parameters, pivot, Some(&frame))?;
-        Some((bodies, committed.inverse().then(&placement)))
+        let from = drafted
+            .moved_bodies(draft.feature)
+            .into_iter()
+            .filter_map(|body| committed.source_of(body))
+            .collect();
+
+        Some(MovedBodies {
+            from,
+            placement: committed.placement.inverse().then(&placement),
+        })
+    }
+
+    pub fn draft_move(&self, feature: FeatureId) -> Option<(&Move, &ParameterValues)> {
+        let draft = self
+            .draft
+            .as_ref()
+            .filter(|draft| draft.feature == feature)?;
+        let FeatureKind::Move(drafted) = &draft.kind else {
+            return None;
+        };
+        Some((drafted, &draft.parameters))
     }
 
     fn preview(&mut self, feature: FeatureId, draft: Option<Transaction>) {
@@ -593,7 +612,7 @@ impl Model {
             if self
                 .draft
                 .as_ref()
-                .is_some_and(|draft| draft.feature == feature)
+                .is_some_and(|draft| draft.feature == feature && !self.is_committed(draft))
             {
                 self.drop_draft();
             }
@@ -623,7 +642,7 @@ impl Model {
         self.drafts += 1;
 
         let previewed = !matches!(kind, FeatureKind::Move(_));
-        let shown = self.shown_placement(feature);
+        let shown = self.shown_move(feature);
         let mut parameters = ParameterValues::evaluate(&document);
 
         parameters.take_readings(&self.evaluation.parameters);
@@ -655,20 +674,31 @@ impl Model {
         }
     }
 
-    fn shown_placement(&self, feature: FeatureId) -> Option<RigidTransform> {
+    fn shown_move(&self, feature: FeatureId) -> Option<ShownMove> {
         let up_to_date = self.status == RecomputeStatus::UpToDate
             && self
                 .evaluation
                 .feature(feature)
                 .is_some_and(|status| status.state == FeatureState::UpToDate);
-        match &self.document().feature(feature)?.kind {
-            FeatureKind::Move(committed) if up_to_date => {
-                let pivot = self.move_pivot(feature, committed)?;
-                let frame = self.move_frame(committed)?;
-                committed.placement(&self.parameters, pivot, Some(&frame))
-            }
-            _ => None,
+        let FeatureKind::Move(committed) = &self.document().feature(feature)?.kind else {
+            return None;
+        };
+
+        if !up_to_date {
+            return None;
         }
+
+        let pivot = self.move_pivot(feature, committed)?;
+        let frame = self.move_frame(committed)?;
+
+        let placement = committed.placement(&self.parameters, pivot, Some(&frame))?;
+        let from = committed
+            .moved_bodies(feature)
+            .into_iter()
+            .filter_map(|body| Some((body, Arc::clone(self.evaluation.body_result(body)?))))
+            .collect();
+
+        Some(ShownMove { placement, from })
     }
 
     pub fn move_frame(&self, movement: &Move) -> Option<Plane> {
@@ -694,6 +724,14 @@ impl Model {
                 &turn.axis,
             )?)),
         }
+    }
+
+    fn is_committed(&self, draft: &DraftPreview) -> bool {
+        draft.held
+            && self
+                .document()
+                .feature(draft.feature)
+                .is_some_and(|feature| feature.kind == draft.kind)
     }
 
     fn settle_held_draft(&mut self) -> bool {
@@ -2501,6 +2539,17 @@ struct DraftPreview {
     revision: u64,
     serial: u64,
     evaluation: Option<Evaluation>,
-    shown: Option<RigidTransform>,
+    shown: Option<ShownMove>,
     held: bool,
+}
+
+struct ShownMove {
+    placement: RigidTransform,
+    from: Vec<(FeatureId, Arc<FeatureResult>)>,
+}
+
+impl ShownMove {
+    fn source_of(&self, body: FeatureId) -> Option<(FeatureId, Arc<FeatureResult>)> {
+        self.from.iter().find(|(shown, _)| *shown == body).cloned()
+    }
 }

@@ -1309,9 +1309,7 @@ pub fn build_keeping(
             Some(_) | None => SameLooks(Arc::default()),
         };
         let dashed = palette.troubled_edges_dashed && editing.is_none() && health != Health::Sound;
-        let placement = moved
-            .filter(|(moved, _)| moved.contains(&body))
-            .map(|(_, placement)| placement);
+        let placement = moved.and_then(|moved| moved.placement_of(body, mesh.source()));
 
         let look = BodyLook {
             mesh: Shared(Arc::clone(&mesh.mesh)),

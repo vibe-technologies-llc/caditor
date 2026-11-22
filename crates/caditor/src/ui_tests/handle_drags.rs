@@ -28,12 +28,16 @@ fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
         "12 mm",
     );
 
-    let (bodies, placement) = harness
+    let moved = harness
         .model
         .draft_placement()
         .expect("the move is previewed");
+    let placement = moved.placement;
 
-    assert_eq!(bodies, [plate]);
+    assert_eq!(
+        moved.from.iter().map(|(body, _)| *body).collect::<Vec<_>>(),
+        [plate]
+    );
     assert!(
         placement
             .apply_point(caditor_geometry::Point3::ZERO)
@@ -43,14 +47,14 @@ fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
     assert_eq!(harness.model.undo_label(), Some("Create Move body 1"));
 
     let built = harness.built_with_meshes(2);
-    let moved = built
+    let drawn = built
         .scene
         .meshes
         .iter()
         .find_map(|mesh| mesh.placement)
         .expect("the drawn body carries the preview's placement");
 
-    assert_eq!(moved, placement);
+    assert_eq!(drawn, placement);
 
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();

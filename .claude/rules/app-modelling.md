@@ -145,10 +145,16 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   - A feature making no body (open datum `scene::drafted`, open thread `placed_threads`) is drawn from
     `Model::draft_evaluation_of`, handed to the scene as `Sources::draft` with `Revisions::draft` and
     `Model::draft_generation` in its key.
-  - A move is not recomputed: `Model::draft_placement` places the drawn body
-    (`MeshInstance::placement`, edges and vertices moved on the CPU).
+  - A move is not recomputed: `Model::draft_placement` places the drawn bodies
+    (`MeshInstance::placement`, edges and vertices moved on the CPU). It is a `MovedBodies`: the
+    placement from the committed move to the draft and, per moved body, the result it was shown
+    from when the draft began (`ShownMove`), and the scene places only a body whose mesh is still
+    made from that result (`MovedBodies::placement_of`), since meshes after the first arrive up to
+    `SHOWN_TOGETHER_FOR` later and a body already showing its new mesh would otherwise move twice.
+    The manipulator stands from the drafted move itself (`Model::draft_move`).
   - Entering the value commits, and the draft stays shown (held) until the model has recomputed and
-    meshed. A draft whose feature fails shows the body before it (a datum or thread its committed
+    meshed; the field reporting it was left after the commit does not drop a held draft whose kind
+    the document now has (`Model::is_committed`). A draft whose feature fails shows the body before it (a datum or thread its committed
     result), and the focused row shows the failure as an error callout
     (`feature_fields::draft_failure_row`, `Model::draft_failure`).
 

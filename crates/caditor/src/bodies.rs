@@ -865,12 +865,48 @@ pub struct Ghost {
     pub edges: Vec<EdgeName>,
 }
 
+#[derive(Clone, Debug)]
+pub struct MovedBodies {
+    pub from: Vec<(FeatureId, Arc<FeatureResult>)>,
+    pub placement: RigidTransform,
+}
+
+impl MovedBodies {
+    pub fn moves_from(&self, body: FeatureId, source: &Arc<FeatureResult>) -> bool {
+        self.from
+            .iter()
+            .any(|(moved, from)| *moved == body && Arc::ptr_eq(from, source))
+    }
+
+    pub fn placement_of(
+        &self,
+        body: FeatureId,
+        source: &Arc<FeatureResult>,
+    ) -> Option<RigidTransform> {
+        self.moves_from(body, source).then_some(self.placement)
+    }
+}
+
+impl PartialEq for MovedBodies {
+    fn eq(&self, other: &Self) -> bool {
+        self.placement == other.placement
+            && self.from.len() == other.from.len()
+            && self
+                .from
+                .iter()
+                .zip(&other.from)
+                .all(|((body, from), (other_body, other_from))| {
+                    body == other_body && Arc::ptr_eq(from, other_from)
+                })
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct OpenDraft<'a> {
     pub evaluation: Option<&'a Evaluation>,
     pub result: Option<(FeatureId, &'a Arc<FeatureResult>)>,
     pub cuts: Option<&'a [Arc<FeatureResult>]>,
-    pub moved: Option<(Vec<FeatureId>, RigidTransform)>,
+    pub moved: Option<MovedBodies>,
 }
 
 #[derive(Clone, Debug)]
@@ -888,7 +924,7 @@ pub struct BodyMeshes {
     cuts: Vec<Arc<BodyMesh>>,
     cuts_of: Option<FeatureId>,
     draft: Option<DraftShown>,
-    moved: Option<(Vec<FeatureId>, RigidTransform)>,
+    moved: Option<MovedBodies>,
     generation: u64,
     updated_for: Option<(u64, u64)>,
 }
@@ -910,10 +946,8 @@ impl BodyMeshes {
         self.draft.as_ref()
     }
 
-    pub fn moved(&self) -> Option<(&[FeatureId], RigidTransform)> {
-        self.moved
-            .as_ref()
-            .map(|(bodies, placement)| (bodies.as_slice(), *placement))
+    pub fn moved(&self) -> Option<&MovedBodies> {
+        self.moved.as_ref()
     }
 
     pub fn generation(&self) -> u64 {
