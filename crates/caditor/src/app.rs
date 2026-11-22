@@ -2473,7 +2473,7 @@ impl App {
         let Some(session) = self.session.as_mut() else {
             return;
         };
-        let step = session.recover(event_loop, &mut self.model, &mut self.files, &self.proxy);
+        let step = session.recover(&mut self.model, &mut self.files);
         if step == AfterFailedFrame::GiveUp {
             self.fatal_error = Some(anyhow!(
                 "caditor could not draw its window; unsaved changes are kept and offered when it \
@@ -2778,15 +2778,9 @@ impl Session {
         self.workspace.hardware.refresh_rate = refresh_rate(&self.window);
     }
 
-    fn recover(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        model: &mut Model,
-        files: &mut Files,
-        proxy: &EventLoopProxy<AppEvent>,
-    ) -> AfterFailedFrame {
+    fn recover(&mut self, model: &mut Model, files: &mut Files) -> AfterFailedFrame {
         log::error!("a frame failed; resetting the interface");
-        self.renew_overlay(event_loop, proxy);
+        self.renew_overlay();
 
         let step = after_failed_frame(&mut self.workspace, model, files);
         let now = Instant::now();
@@ -2806,15 +2800,12 @@ impl Session {
         step
     }
 
-    fn renew_overlay(&mut self, event_loop: &ActiveEventLoop, proxy: &EventLoopProxy<AppEvent>) {
+    fn renew_overlay(&mut self) {
         let renewed = panic::catch_unwind(AssertUnwindSafe(|| {
-            let mut overlay = Overlay::new(&self.window, &self.renderer);
-
-            overlay.enable_accessibility(event_loop, &self.window, proxy.clone());
-            overlay
+            Overlay::new(&self.window, &self.renderer)
         }));
         match renewed {
-            Ok(overlay) => self.overlay = overlay,
+            Ok(overlay) => self.overlay.hand_over_to(overlay),
             Err(_) => log::error!("the interface could not be started afresh; keeping the old one"),
         }
     }

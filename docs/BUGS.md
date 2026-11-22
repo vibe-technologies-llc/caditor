@@ -224,10 +224,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · small] A screen reader loses the window after a failed frame: `Session::recover` builds a
-  fresh `Overlay`, whose `egui_winit::State` cannot attach AccessKit to a window already shown
-  (`Overlay::enable_accessibility` logs that and returns), and the old adapter goes with the old
-  state. The adapter has to outlive the reset.
 - [low · medium] When the storage worker cannot be started (no thread can be spawned), Save says to
   try again every time (`model.rs`, `restart_storage`) and has no fallback; a contained
   synchronous save, worded as slow, would still save.

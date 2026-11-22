@@ -180,7 +180,8 @@ paths:
   command-line form and is not documented to users.
 - A panic while handling a window or user event, or in `about_to_wait`'s session work
   (`Session::tend`), is caught in `App::contained` after the hook flushed the journal. The window
-  gets a fresh egui context (if building it panics, the old one is kept and logged), and
+  gets a fresh egui context keeping the AccessKit adapter (if building it panics, the old one is
+  kept and logged), and
   `after_failed_frame` drops transient state (selection, tools, sketch editing, palette, dialogs
   except prompts guarding unsaved work, a 3MF thumbnail or exported image the frame was drawing:
   `Files::after_failed_frame`) and a notice says so; the model and undo history stay. A
@@ -679,7 +680,10 @@ paths:
   (`Converted::configurations_left_out`), and only none exported an error. The desktop entry also
   offers STEP (`model/step`) and DXF (`image/vnd.dxf`).
 - AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter
-  attached, then shown. The status bar notice and the failed-features pill are live regions
+  attached, then shown. An adapter cannot attach to a window already shown, so the reset after a
+  failed frame moves it into the fresh overlay (`Overlay::hand_over_to`), which turns the tree on
+  again when a screen reader was listening (`ScreenReader`): the first tree has been requested
+  already and is not asked for twice. The status bar notice and the failed-features pill are live regions
   (`widgets::announced`: assertive for an error, polite otherwise). The viewport is named "3D view"
   and described in words (`scene_description.rs`, rebuilt only when the revision, evaluation, units
   or edited sketch changes): bodies, sketches and datums by name and count, the first

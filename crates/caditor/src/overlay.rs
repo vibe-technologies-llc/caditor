@@ -28,6 +28,23 @@ pub struct Overlay {
     generation: u64,
     textures: TextureMirror,
     window: ViewportInfo,
+    screen_reader: ScreenReader,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ScreenReader {
+    #[default]
+    Absent,
+    Listening,
+}
+
+impl ScreenReader {
+    fn follow(self, context: &egui::Context) {
+        match self {
+            Self::Absent => context.disable_accesskit(),
+            Self::Listening => context.enable_accesskit(),
+        }
+    }
 }
 
 impl Overlay {
@@ -48,7 +65,15 @@ impl Overlay {
             generation: renderer.generation(),
             textures: TextureMirror::default(),
             window: ViewportInfo::default(),
+            screen_reader: ScreenReader::default(),
         }
+    }
+
+    pub fn hand_over_to(&mut self, mut next: Self) {
+        next.state.accesskit = self.state.accesskit.take();
+        next.screen_reader = self.screen_reader;
+        next.screen_reader.follow(&next.context);
+        *self = next;
     }
 
     pub fn enable_accessibility<T: From<accesskit_winit::Event> + Send>(
@@ -67,13 +92,15 @@ impl Overlay {
     pub fn on_accessibility_event(&mut self, event: accesskit_winit::WindowEvent) {
         match event {
             accesskit_winit::WindowEvent::InitialTreeRequested => {
-                self.context.enable_accesskit();
+                self.screen_reader = ScreenReader::Listening;
+                self.screen_reader.follow(&self.context);
             }
             accesskit_winit::WindowEvent::ActionRequested(request) => {
                 self.state.on_accesskit_action_request(request);
             }
             accesskit_winit::WindowEvent::AccessibilityDeactivated => {
-                self.context.disable_accesskit();
+                self.screen_reader = ScreenReader::Absent;
+                self.screen_reader.follow(&self.context);
             }
         }
     }
@@ -362,5 +389,39 @@ mod tests {
         assert_eq!(image.pixels[4 + 2], Color32::WHITE);
         assert_eq!(image.pixels[4 + 3], Color32::WHITE);
         assert_eq!(image.pixels[8 + 2], Color32::WHITE);
+    }
+
+    fn tree_sent(context: &egui::Context) -> Option<egui::accesskit::TreeUpdate> {
+        let mut output = context.run_ui(egui::RawInput::default(), |ui| {
+            ui.label("Sketch 1");
+        });
+
+        output.textures_delta.clear();
+        output.platform_output.accesskit_update
+    }
+
+    #[test]
+    fn a_renewed_context_sends_the_whole_tree_to_a_listening_screen_reader() {
+        let renewed = egui::Context::default();
+        let quiet = egui::Context::default();
+
+        ScreenReader::Listening.follow(&renewed);
+        ScreenReader::Absent.follow(&quiet);
+
+        let update = tree_sent(&renewed);
+
+        assert!(update.as_ref().is_some_and(|update| update.tree.is_some()));
+        assert!(update.is_some_and(|update| update.nodes.len() > 1));
+        assert!(tree_sent(&quiet).is_none());
+    }
+
+    #[test]
+    fn a_screen_reader_that_leaves_stops_the_tree() {
+        let context = egui::Context::default();
+
+        ScreenReader::Listening.follow(&context);
+        ScreenReader::Absent.follow(&context);
+
+        assert!(tree_sent(&context).is_none());
     }
 }

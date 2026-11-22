@@ -17,7 +17,8 @@ verified** (needs a person with the assistive technology; see the last section).
 
 - The window exposes an accessibility tree through AccessKit (`egui-winit`'s `accesskit`
   feature): UIA on Windows, AT-SPI on Linux. It is created on request, when an assistive
-  technology connects (`overlay.rs`), so it costs nothing otherwise.
+  technology connects (`overlay.rs`), so it costs nothing otherwise. The interface reset after a
+  failed frame keeps it and sends the whole tree again.
 - Every control is named without its icon glyph; decorative glyphs are hidden; notices, the failed
   and waiting feature pills, the prompt and a refusal note are live regions.
 - The 3D view is a named region with a description, and a list of its bodies (each with its
