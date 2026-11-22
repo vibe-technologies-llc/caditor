@@ -148,9 +148,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   2,095), so the part goes `STIFF` and the frame costs 250 million. Cutting it needs a settling
   that copes with a far less pressed pose, or a `FROZEN` step that does not crawl along the
   chain's slow modes.
-- [low · easy] `with_lengths_scaled` (`caditor-expression`'s `scaling.rs`) evaluates a node's
-  whole subtree at every node it visits, recursively, so scaling the largest stored expression
-  (64k characters) costs up to about 10^7 evaluations. Work out dimensions once, bottom up.
 - [low · medium] Unmeasured: adding a constraint asks `Sketch::determines` (`solve/determined.rs`)
   on the UI thread (`sketch_tools.rs`, `add_constraints`, from the toolbar and dimensioning), which
   clones the sketch, builds the system and merges every measuring part with no cancellation, where

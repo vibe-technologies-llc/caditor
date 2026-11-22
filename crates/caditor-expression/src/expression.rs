@@ -559,6 +559,24 @@ impl Expression {
         }
     }
 
+    pub(crate) fn evaluate_over<F>(
+        &self,
+        value_of: &F,
+        operand: &dyn Fn(&Self) -> Option<Quantity>,
+    ) -> Option<Quantity>
+    where
+        F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    {
+        let mut gathered: Vec<Quantity> = Vec::new();
+
+        loop {
+            match self.next_step(&gathered, value_of) {
+                Step::Descend(child) => gathered.push(operand(child)?),
+                Step::Done(result) => return finite(result.ok()?).ok(),
+            }
+        }
+    }
+
     fn next_step<'a, F>(&'a self, gathered: &[Quantity], value_of: &F) -> Step<'a>
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,

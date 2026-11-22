@@ -1,3 +1,5 @@
+use std::{collections::BTreeMap, ptr};
+
 use crate::{BinaryOperator, Dimension, EvalError, Expression, Function, ParameterId, Quantity};
 
 impl Expression {
@@ -5,7 +7,13 @@ impl Expression {
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
-        Scaling { factor, value_of }.node(self, plain_power)
+        let results = Results::bottom_up(self, value_of);
+
+        Scaling {
+            factor,
+            dimension_of: |node: &Expression| results.dimension(node),
+        }
+        .node(self, plain_power)
     }
 
     pub fn times_number(self, factor: f64) -> Self {
@@ -13,19 +21,64 @@ impl Expression {
     }
 }
 
-struct Scaling<'a, F> {
-    factor: f64,
-    value_of: &'a F,
+struct Results(BTreeMap<*const Expression, Option<Quantity>>);
+
+impl Results {
+    fn bottom_up<F>(root: &Expression, value_of: &F) -> Self
+    where
+        F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    {
+        let mut order = Vec::new();
+        let mut pending = vec![root];
+
+        while let Some(node) = pending.pop() {
+            order.push(node);
+            match node {
+                Expression::Negate(inner) | Expression::WithUnit(inner, ..) => pending.push(inner),
+                Expression::Binary(_, left, right) => {
+                    pending.push(left);
+                    pending.push(right);
+                }
+                Expression::Call(_, arguments) => pending.extend(arguments),
+                Expression::Number(_)
+                | Expression::Measure(..)
+                | Expression::Constant(_)
+                | Expression::Parameter(_) => {}
+            }
+        }
+
+        let mut results = BTreeMap::new();
+
+        for node in order.into_iter().rev() {
+            let result = node.evaluate_over(value_of, &|child| {
+                results.get(&ptr::from_ref(child)).copied().flatten()
+            });
+
+            results.insert(ptr::from_ref(node), result);
+        }
+        Self(results)
+    }
+
+    fn dimension(&self, node: &Expression) -> Option<Dimension> {
+        self.0
+            .get(&ptr::from_ref(node))
+            .copied()
+            .flatten()
+            .map(|quantity| quantity.dimension)
+    }
 }
 
-impl<F> Scaling<'_, F>
+struct Scaling<D> {
+    factor: f64,
+    dimension_of: D,
+}
+
+impl<D> Scaling<D>
 where
-    F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    D: Fn(&Expression) -> Option<Dimension>,
 {
     fn dimension(&self, node: &Expression) -> Option<Dimension> {
-        node.evaluate(self.value_of)
-            .ok()
-            .map(|quantity| quantity.dimension)
+        (self.dimension_of)(node)
     }
 
     fn is_plain(&self, node: &Expression) -> bool {
@@ -214,8 +267,10 @@ fn same_kind(function: Function) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
-    use crate::Unit;
+    use crate::{Unit, parse::MAX_LENGTH};
 
     fn values(id: ParameterId) -> Result<Quantity, EvalError> {
         match id.raw() {
@@ -279,5 +334,118 @@ mod tests {
             Expression::Measure(1.0, Unit::Inch).with_lengths_scaled(2.0, 1, &values),
             Expression::Measure(value, Unit::Inch) if value == 2.0
         ));
+    }
+
+    fn by_evaluating_every_subtree(expression: &Expression, plain_power: i8) -> Expression {
+        Scaling {
+            factor: 2.0,
+            dimension_of: |node: &Expression| {
+                node.evaluate(&values)
+                    .ok()
+                    .map(|quantity| quantity.dimension)
+            },
+        }
+        .node(expression, plain_power)
+    }
+
+    fn long_chain(limit: usize) -> String {
+        let terms = [
+            "if($1 > $2, max($0, 1 mm, 2 mm, 3 mm), hypot($0, $1 * 2 mm))",
+            "min($0 + 5, abs(-$0), 7 mm) / 2",
+            "($1 / 1 mm + 2) mm * $1",
+            "clamp($0, 1, $3) + 4 mm^2 / 2 mm",
+            "if(1 / 0, $0, $1) + (1 mm)^2 / $0",
+        ];
+        let mut cycle = terms.iter().cycle();
+        let mut text = String::new();
+
+        loop {
+            let group: Vec<&str> = cycle.by_ref().take(4).copied().collect();
+            let joined = format!(
+                "(({} + {}) + ({} + {}))",
+                group[0], group[1], group[2], group[3]
+            );
+            let next = if text.is_empty() {
+                joined
+            } else {
+                format!("{text} + {joined}")
+            };
+
+            if next.len() > limit {
+                return text;
+            }
+            text = next;
+        }
+    }
+
+    #[test]
+    fn bottom_up_dimensions_scale_as_evaluating_every_subtree_did() {
+        let samples = [
+            "5 mm",
+            "$0 + 5",
+            "2 * $0",
+            "$1",
+            "sqrt($1) + $0",
+            "(5 + 3) * 2 + $0",
+            "$0 / 2 + 1 mm",
+            "if($1 > 2, $0 + 3, 5)",
+            "if($1 > 5, 1 / 0, $0 + 3)",
+            "if(1 / 0, $0, 7)",
+            "if($0, 1, 2) + $0",
+            "or($1 > 2, 1 / 0) * $0",
+            "and($1 > 9, $2) + 4",
+            "max($0, $2, 3) + 1",
+            "max($0, 3, 1 mm) - 2",
+            "clamp(5, 1, 7) mm + $0",
+            "hypot(3, 4) + $0",
+            "asin(2) + $0 + 5",
+            "$2 + 5 + $0",
+            "(1 / 0) + $0 * 3",
+            "(2 + 3)^2 * $0",
+            "$0^2 + 5",
+            "($0 * $0) / 4 + 3 mm^2",
+            "-($0 + 5) * 2",
+            "3 * (4 + 5) / 2 + 1 mm",
+            "round($0 / 3 mm) * 5 + 2",
+            "5 deg + 30 deg * 2",
+            "sin(30 deg) * $0 + 5",
+        ];
+
+        for sample in samples {
+            let expression = Expression::parse_stored(sample).unwrap();
+
+            for plain_power in [0, 1, 2] {
+                assert_eq!(
+                    expression.with_lengths_scaled(2.0, plain_power, &values),
+                    by_evaluating_every_subtree(&expression, plain_power),
+                    "{sample} at {plain_power}"
+                );
+            }
+        }
+
+        let chain = Expression::parse_stored(&long_chain(1500)).unwrap();
+
+        assert_eq!(
+            chain.with_lengths_scaled(2.0, 1, &values),
+            by_evaluating_every_subtree(&chain, 1)
+        );
+    }
+
+    #[test]
+    fn the_largest_stored_expression_reads_each_parameter_once() {
+        let text = long_chain(64 * MAX_LENGTH);
+        let expression = Expression::parse_stored(&text).unwrap();
+        let reads = Cell::new(0);
+        let counted = |id: ParameterId| {
+            reads.set(reads.get() + 1);
+            values(id)
+        };
+
+        let scaled = expression.with_lengths_scaled(2.0, 1, &counted);
+
+        assert!(text.len() > 60_000, "{}", text.len());
+        assert_eq!(reads.get(), text.matches('$').count());
+        assert_ne!(scaled, expression);
+        assert!(scaled.depth() >= expression.depth());
     }
 }

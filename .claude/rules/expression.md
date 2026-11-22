@@ -63,6 +63,9 @@ paths:
   in a same-kind function; a plain product or quotient carries it on its plain operand, and a
   plain value that cannot carry it (a parameter, a function) is multiplied by the factor. The
   caller checks the result and falls back when it does not agree (`document.md`).
+  Every node's result is worked out once, bottom up, by the evaluator's own step (`evaluate_over`), so
+  `if`, `and` and `or` keep their laziness and a parameter is read once per occurrence; the
+  rebuilt tree then recurses within the tree depth limit.
 
 ## Limits
 
