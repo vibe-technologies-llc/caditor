@@ -46,9 +46,17 @@ paths:
     those have a provisional outcome it builds the view and key, takes a matching cache entry
     without touching recency (`ResultHistory::peek`), and otherwise queues the evaluation on the
     pool.
-  - The pool (`pool.rs`) is a `rayon_core::ThreadPool` (`Threads`) a `Recompute` builds on its first
-    parallel run (available parallelism) and keeps for its life; `draft_copy` shares it and it ends
-    with the last `Recompute` holding it. Each run scopes its queue on it (`in_place_scope`, no
+  - The pool (`pool.rs`) is a `rayon_core::ThreadPool` (`Threads`) of available parallelism, built
+    on its first parallel run. `Recompute::default()` and `with_mesh_quality` take the one
+    process-wide pool (`Threads::shared`, built lazily and never ended), so the short runs of
+    previews, analysis, display and exports start no threads of their own; `draft_copy` shares
+    whatever its source holds. The recompute worker keeps a pool of its own
+    (`Recompute::with_own_threads`), so a long run never holds the shared one. A run takes a lease
+    on the shared pool for its whole duration, because its serving tasks stay on pool threads
+    until the run closes; a run finding the lease taken (another short run, in or out of tests)
+    builds a pool for itself and ends it with the run rather than queue behind a serving task of
+    the other. Cancellation lives in each run's `CancelToken`, never in the pool. Each run scopes
+    its queue on it (`in_place_scope`, no
     `unsafe`) and starts serving tasks only as queued work outgrows idle ones; the walk stays on the
     run's own thread. A pool that cannot start, or `with_workers(0)` in tests, is the sequential
     walk. Evaluations run lowest tree index first, before any mesh. When the walk needs a queued

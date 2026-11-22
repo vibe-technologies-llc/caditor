@@ -1176,8 +1176,13 @@ impl Recompute {
             last_meshes: Arc::default(),
             mesh_quality,
             features_done_after: FEATURES_DONE_AFTER,
-            threads: Arc::new(Threads::new(available_workers())),
+            threads: Threads::shared(),
         }
+    }
+
+    pub(crate) fn with_own_threads(mut self) -> Self {
+        self.threads = Arc::new(Threads::new(available_workers()));
+        self
     }
 
     #[cfg(test)]

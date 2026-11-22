@@ -158,10 +158,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   since brought a `Face` to 192 bytes (`Surface` 96, sized by cones and tori); an `Edge` is 160
   (`Curve` 96, its variants 48 to 88 bytes, nothing worth boxing). Sharing geometry between copies
   (names and placement over one solid) would save most of the rest but reaches every kernel reader.
-- [low · small] Every `Recompute::default()` builds a rayon pool of `available_parallelism` threads
-  (`recompute.rs`, `pool.rs`), so the short runs of version previews, analysis, display and the
-  every-configuration export start and stop one each beside the worker's. One process-wide pool
-  as the default would avoid the churn.
 
 ## Sketch solver
 

@@ -487,7 +487,7 @@ fn work(
     shared: &Arc<Shared>,
     wake: &(dyn Fn() + Sync),
 ) {
-    let mut recompute = Recompute::default();
+    let mut recompute = Recompute::default().with_own_threads();
     let mut reported = Evaluation::default();
     let mut meshes: Vec<PendingMesh> = Vec::new();
     let mut tasks: Vec<QueuedTask> = Vec::new();

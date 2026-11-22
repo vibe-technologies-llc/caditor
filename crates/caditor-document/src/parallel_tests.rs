@@ -9,6 +9,7 @@ use std::{
 };
 
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_kernel::MeshQuality;
 use caditor_sketch::Sketch;
 use parking_lot::Mutex;
 
@@ -442,4 +443,67 @@ fn every_run_and_draft_computes_on_the_threads_of_one_pool() {
     }
 
     assert!(threads.lock().len() <= WORKERS + 1);
+}
+
+#[test]
+fn default_recomputes_share_one_process_wide_pool() {
+    let first = Recompute::default();
+    let second = Recompute::with_mesh_quality(MeshQuality::default());
+    let own = Recompute::default().with_own_threads();
+
+    assert!(first.threads_shared_with(&second));
+    assert!(first.draft_copy().threads_shared_with(&second));
+    assert!(!first.threads_shared_with(&own));
+    assert!(!first.threads_shared_with(&Recompute::default().with_workers(WORKERS)));
+}
+
+#[test]
+fn recomputes_running_together_on_the_shared_pool_all_finish() {
+    let (document, _) = plates(6, 2);
+    let (finished, done) = mpsc::channel();
+
+    thread::scope(|scope| {
+        for _ in 0..4 {
+            let finished = finished.clone();
+            let document = &document;
+
+            scope.spawn(move || {
+                let evaluation = Recompute::default().run(
+                    document,
+                    &ModelEvaluator,
+                    &CancelToken::never(),
+                    &|_, _| {},
+                );
+
+                finished.send(evaluation.is_complete()).unwrap();
+            });
+        }
+        drop(finished);
+
+        for _ in 0..4 {
+            assert!(done.recv_timeout(TIMEOUT).unwrap());
+        }
+    });
+}
+
+#[test]
+fn a_cancel_of_one_run_on_the_shared_pool_leaves_another_complete() {
+    let (document, _) = plates(6, 2);
+    let cancelled = CancelToken::new(|| true);
+
+    thread::scope(|scope| {
+        let stopped = scope
+            .spawn(|| Recompute::default().run(&document, &ModelEvaluator, &cancelled, &|_, _| {}));
+        let whole = scope.spawn(|| {
+            Recompute::default().run(
+                &document,
+                &ModelEvaluator,
+                &CancelToken::never(),
+                &|_, _| {},
+            )
+        });
+
+        assert!(!stopped.join().unwrap().is_complete());
+        assert!(whole.join().unwrap().is_complete());
+    });
 }

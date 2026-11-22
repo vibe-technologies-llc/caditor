@@ -2,7 +2,10 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
     panic::{self, AssertUnwindSafe},
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, LazyLock, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
 };
 
@@ -20,10 +23,28 @@ pub(crate) fn available_workers() -> usize {
     thread::available_parallelism().map_or(1, NonZeroUsize::get)
 }
 
+static SHARED: LazyLock<Arc<Threads>> = LazyLock::new(|| {
+    Arc::new(Threads {
+        leased: Some(AtomicBool::new(false)),
+        ..Threads::new(available_workers())
+    })
+});
+
 #[derive(Debug)]
 pub(crate) struct Threads {
     workers: usize,
     pool: OnceLock<Option<ThreadPool>>,
+    leased: Option<AtomicBool>,
+}
+
+struct Lease<'a>(Option<&'a AtomicBool>);
+
+impl Drop for Lease<'_> {
+    fn drop(&mut self) {
+        if let Some(leased) = self.0 {
+            leased.store(false, Ordering::Release);
+        }
+    }
 }
 
 impl Threads {
@@ -31,7 +52,23 @@ impl Threads {
         Self {
             workers,
             pool: OnceLock::new(),
+            leased: None,
         }
+    }
+
+    pub(crate) fn shared() -> Arc<Self> {
+        Arc::clone(&SHARED)
+    }
+
+    fn lease(&self) -> Option<Lease<'_>> {
+        let Some(leased) = &self.leased else {
+            return Some(Lease(None));
+        };
+
+        leased
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .ok()
+            .map(|_| Lease(Some(leased)))
     }
 
     fn pool(&self) -> Option<&ThreadPool> {
@@ -60,6 +97,9 @@ impl Threads {
         work: &'scope Work<'scope>,
         body: impl FnOnce(&Pool<'_, 'scope>) -> R,
     ) -> R {
+        let Some(_lease) = self.lease() else {
+            return Self::new(self.workers).run(work, body);
+        };
         let Some(threads) = self.pool() else {
             return body(&Pool { scope: None, work });
         };
