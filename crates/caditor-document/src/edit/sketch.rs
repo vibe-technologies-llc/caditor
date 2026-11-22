@@ -8,7 +8,7 @@ use crate::{
     attachment::SketchFeature,
     document::{Document, FeatureId, FeatureKind, list_names},
     edit::{Edit, EditError, Transaction, TransactionBuilder},
-    measurement::Measured,
+    measurement::Readings,
     projection::ProjectionSource,
     solid::SolidFeature,
 };
@@ -1225,7 +1225,7 @@ impl Document {
 
         let index = self.feature_position(feature)?;
         let sketch = self.feature(feature).ok_or(EditError::MissingFeature)?;
-        self.check_measurements_above(&Measured::of(self), &sketch.name, feature, used, index)
+        self.check_measurements_above(&mut Readings::default(), &sketch.name, feature, used, index)
     }
 
     fn sketch_mut(&mut self, id: FeatureId) -> Result<(String, &mut Sketch), EditError> {

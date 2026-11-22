@@ -4,10 +4,13 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use caditor_expression::ParameterId;
+
 use crate::{
     body_appearance::BodyAppearance,
     body_pieces::{PieceLooks, PieceStandIns, Pieces},
     document::{Feature, FeatureId},
+    tally,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -31,8 +34,12 @@ struct Index {
     positions: BTreeMap<FeatureId, usize>,
     by_body: OnceLock<Arc<BTreeMap<FeatureId, Vec<FeatureId>>>>,
     by_name: OnceLock<Arc<BTreeMap<String, Vec<FeatureId>>>>,
-    by_use: OnceLock<Arc<BTreeMap<FeatureId, Vec<FeatureId>>>>,
+    by_use: Grouped<FeatureId>,
+    by_measured: Grouped<ParameterId>,
+    by_parameter: Grouped<ParameterId>,
 }
+
+type Grouped<K> = OnceLock<Arc<BTreeMap<K, Vec<FeatureId>>>>;
 
 impl PartialEq for FeatureList {
     fn eq(&self, other: &Self) -> bool {
@@ -74,11 +81,32 @@ impl FeatureList {
     }
 
     pub fn users_of(&self, used: FeatureId) -> &[FeatureId] {
+        lookup(&self.index.by_use, &self.items, features_used, &used)
+    }
+
+    pub fn measurements_of(&self, parameter: ParameterId) -> &[FeatureId] {
+        lookup(
+            &self.index.by_measured,
+            &self.items,
+            parameter_measured,
+            &parameter,
+        )
+    }
+
+    pub fn measures_nothing(&self) -> bool {
         self.index
-            .by_use
-            .get_or_init(|| Arc::new(grouped_by_use(&self.items)))
-            .get(&used)
-            .map_or(&[], Vec::as_slice)
+            .by_measured
+            .get_or_init(|| Arc::new(grouped(&self.items, parameter_measured)))
+            .is_empty()
+    }
+
+    pub fn reading(&self, parameter: ParameterId) -> &[FeatureId] {
+        lookup(
+            &self.index.by_parameter,
+            &self.items,
+            parameters_used,
+            &parameter,
+        )
     }
 
     pub fn get_mut_by_id(&mut self, id: FeatureId) -> Option<&mut Arc<Feature>> {
@@ -87,6 +115,8 @@ impl FeatureList {
         self.index.by_body = OnceLock::new();
         self.index.by_name = OnceLock::new();
         self.index.by_use = OnceLock::new();
+        self.index.by_measured = OnceLock::new();
+        self.index.by_parameter = OnceLock::new();
         self.items.get_mut(index)
     }
 
@@ -122,12 +152,9 @@ impl FeatureList {
                 .or_default()
                 .push(feature.id());
         }
-        if let Some(uses) = self.index.by_use.get_mut() {
-            let uses = Arc::make_mut(uses);
-            for used in features_used(&feature) {
-                uses.entry(used).or_default().push(feature.id());
-            }
-        }
+        enter(&mut self.index.by_use, &feature, features_used);
+        enter(&mut self.index.by_measured, &feature, parameter_measured);
+        enter(&mut self.index.by_parameter, &feature, parameters_used);
         self.items.insert(index, feature);
         self.reindex(index, self.items.len());
     }
@@ -149,17 +176,9 @@ impl FeatureList {
                 }
             }
         }
-        if let Some(uses) = self.index.by_use.get_mut() {
-            let uses = Arc::make_mut(uses);
-            for used in features_used(&feature) {
-                if let Some(users) = uses.get_mut(&used) {
-                    users.retain(|user| *user != feature.id());
-                    if users.is_empty() {
-                        uses.remove(&used);
-                    }
-                }
-            }
-        }
+        leave(&mut self.index.by_use, &feature, features_used);
+        leave(&mut self.index.by_measured, &feature, parameter_measured);
+        leave(&mut self.index.by_parameter, &feature, parameters_used);
         self.reindex(index, self.items.len());
         Some(feature)
     }
@@ -194,7 +213,7 @@ fn grouped_by_body(items: &[Arc<Feature>]) -> BTreeMap<FeatureId, Vec<FeatureId>
     grouped
 }
 
-fn features_used(feature: &Feature) -> impl Iterator<Item = FeatureId> {
+fn features_used(feature: &Feature) -> impl Iterator<Item = FeatureId> + use<> {
     let id = feature.id();
     feature
         .kind
@@ -203,15 +222,75 @@ fn features_used(feature: &Feature) -> impl Iterator<Item = FeatureId> {
         .filter(move |used| *used != id)
 }
 
-fn grouped_by_use(items: &[Arc<Feature>]) -> BTreeMap<FeatureId, Vec<FeatureId>> {
-    let mut grouped: BTreeMap<FeatureId, Vec<FeatureId>> = BTreeMap::new();
+fn parameter_measured(feature: &Feature) -> impl Iterator<Item = ParameterId> + use<> {
+    feature
+        .kind
+        .measurement()
+        .and_then(|measurement| measurement.parameter)
+        .into_iter()
+}
+
+fn parameters_used(feature: &Feature) -> impl Iterator<Item = ParameterId> + use<> {
+    feature.kind.parameters().into_iter()
+}
+
+fn lookup<'a, K: Ord, I: Iterator<Item = K>>(
+    index: &'a Grouped<K>,
+    items: &[Arc<Feature>],
+    keys: fn(&Feature) -> I,
+    key: &K,
+) -> &'a [FeatureId] {
+    index
+        .get_or_init(|| Arc::new(grouped(items, keys)))
+        .get(key)
+        .map_or(&[], Vec::as_slice)
+}
+
+fn grouped<K: Ord, I: Iterator<Item = K>>(
+    items: &[Arc<Feature>],
+    keys: fn(&Feature) -> I,
+) -> BTreeMap<K, Vec<FeatureId>> {
+    let mut grouped: BTreeMap<K, Vec<FeatureId>> = BTreeMap::new();
 
     for feature in items {
-        for used in features_used(feature) {
-            grouped.entry(used).or_default().push(feature.id());
+        tally::add(1);
+
+        for key in keys(feature) {
+            grouped.entry(key).or_default().push(feature.id());
         }
     }
     grouped
+}
+
+fn enter<K: Ord + Clone, I: Iterator<Item = K>>(
+    index: &mut Grouped<K>,
+    feature: &Feature,
+    keys: fn(&Feature) -> I,
+) {
+    if let Some(grouped) = index.get_mut() {
+        let grouped = Arc::make_mut(grouped);
+        for key in keys(feature) {
+            grouped.entry(key).or_default().push(feature.id());
+        }
+    }
+}
+
+fn leave<K: Ord + Clone, I: Iterator<Item = K>>(
+    index: &mut Grouped<K>,
+    feature: &Feature,
+    keys: fn(&Feature) -> I,
+) {
+    if let Some(grouped) = index.get_mut() {
+        let grouped = Arc::make_mut(grouped);
+        for key in keys(feature) {
+            if let Some(holders) = grouped.get_mut(&key) {
+                holders.retain(|holder| *holder != feature.id());
+                if holders.is_empty() {
+                    grouped.remove(&key);
+                }
+            }
+        }
+    }
 }
 
 fn grouped_by_name(items: &[Arc<Feature>]) -> BTreeMap<String, Vec<FeatureId>> {
@@ -228,8 +307,13 @@ fn grouped_by_name(items: &[Arc<Feature>]) -> BTreeMap<String, Vec<FeatureId>> {
 
 #[cfg(test)]
 mod tests {
+    use caditor_expression::{Expression, Unit};
+
     use super::*;
-    use crate::{document::FeatureKind, removal::Remove};
+    use crate::{
+        Between, Datum, DatumPoint, MeasuredItem, Measurement, PlaneReference, PointReference,
+        PrincipalPlane, Reading, document::FeatureKind, removal::Remove,
+    };
 
     fn feature(raw: u64) -> Arc<Feature> {
         Arc::new(Feature::new(
@@ -442,5 +526,96 @@ mod tests {
         assert!(list.index.by_use.get().is_some());
         assert!(list.index.by_body.get().is_some());
         assert!(list.get_by_id(one).is_some_and(|feature| feature.hidden));
+    }
+
+    fn measuring(raw: u64, parameter: u64) -> Arc<Feature> {
+        Arc::new(Feature::new(
+            FeatureId::from_raw(raw),
+            format!("Measurement {raw}"),
+            FeatureKind::from(Measurement {
+                reading: Reading::Between {
+                    quantity: Between::Distance,
+                    first: MeasuredItem::Point(PointReference::Origin),
+                    second: MeasuredItem::Plane(PlaneReference::Principal(PrincipalPlane::Xy)),
+                },
+                parameter: Some(ParameterId::from_raw(parameter)),
+            }),
+        ))
+    }
+
+    fn offset_by(raw: u64, parameter: u64) -> Arc<Feature> {
+        Arc::new(Feature::new(
+            FeatureId::from_raw(raw),
+            format!("Point {raw}"),
+            FeatureKind::Datum(Datum::Point(DatumPoint {
+                base: PointReference::Origin,
+                offset: [
+                    Expression::Parameter(ParameterId::from_raw(parameter)),
+                    Expression::Measure(0.0, Unit::Millimetre),
+                    Expression::Measure(0.0, Unit::Millimetre),
+                ],
+            })),
+        ))
+    }
+
+    fn measurements_of(list: &FeatureList, parameter: u64) -> Vec<u64> {
+        list.measurements_of(ParameterId::from_raw(parameter))
+            .iter()
+            .map(|id| id.raw())
+            .collect()
+    }
+
+    fn reading(list: &FeatureList, parameter: u64) -> Vec<u64> {
+        list.reading(ParameterId::from_raw(parameter))
+            .iter()
+            .map(|id| id.raw())
+            .collect()
+    }
+
+    #[test]
+    fn measurements_and_readers_of_a_parameter_follow_inserts_removals_and_changed_kinds() {
+        let mut list = FeatureList::default();
+
+        let nothing_at_first = list.measures_nothing();
+
+        list.insert(0, measuring(1, 7));
+        list.insert(1, offset_by(2, 7));
+        list.insert(2, offset_by(3, 8));
+
+        let inserted = (
+            list.measures_nothing(),
+            measurements_of(&list, 7),
+            reading(&list, 7),
+            reading(&list, 8),
+        );
+
+        list.insert(3, measuring(4, 8));
+        list.insert(4, offset_by(5, 7));
+
+        let kept = (
+            measurements_of(&list, 8),
+            reading(&list, 7),
+            reading(&list, 8),
+        );
+
+        list.remove(0);
+
+        let removed = (measurements_of(&list, 7), reading(&list, 7));
+
+        if let Some(feature) = list.get_mut_by_id(FeatureId::from_raw(4)) {
+            *Arc::make_mut(feature) = Arc::unwrap_or_clone(offset_by(4, 7));
+        }
+
+        let changed = (
+            list.measures_nothing(),
+            measurements_of(&list, 8),
+            reading(&list, 7),
+        );
+
+        assert!(nothing_at_first);
+        assert_eq!(inserted, (false, vec![1], vec![2], vec![3]));
+        assert_eq!(kept, (vec![4], vec![2, 5], vec![3]));
+        assert_eq!(removed, (vec![], vec![2, 5]));
+        assert_eq!(changed, (true, vec![], vec![2, 4, 5]));
     }
 }

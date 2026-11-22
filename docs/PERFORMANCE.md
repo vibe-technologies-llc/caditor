@@ -71,25 +71,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Document
 
-- [medium · medium] Loading, restoring a version and scaling the model are quadratic in features:
-  `Measured::of` (`measurement.rs`), which scans every feature and, once any parameter is measured,
-  sorts all parameters, is rebuilt for each inserted or changed feature using parameters
-  (`edit.rs`, `check_measurement_order`, `check_reading_order` with `reading_users`) and each
-  `MoveFeature`, and loading applies every feature as one transaction (`load.rs`), re-applied
-  wholly by its halving on an error. Unmeasured at `MAX_RECORDS` (10,000); the `tally` test
-  `long_parameter_chains_evaluate_and_restore_in_linear_time` pins linear work for parameter chains
-  with no measurement or feature, and the ignored
-  `long_runs_of_measurements_and_readers_insert_in_linear_time` (`lib.rs`'s `scale_tests`) fails
-  today, about 16 times the work for 4 times the inserts of features reading measurements: remove
-  its `#[ignore]` with the fix. Keep `Measured` per apply, invalidated only by measurement and
-  parameter edits, and skip the checks when nothing is measured.
 - [low · small] Every run clones all `ParameterValues` once or twice for each feature reading a
   measurement, cached or not (`recompute.rs`, `Key::of` and `compute` through
   `Measured::overlay`). Overlay only the parameters the feature uses, or cache the overlay per set
   of measurements read.
 - [low · medium] Moving features rebuilds dependency sets for the whole tree three times over
-  (`edit.rs`: `check_passing` builds `Measured::of` and a relation for every other feature,
-  `check_moves` runs `check_move_order`, applies, then `check` clones and applies again), noticeable
+  (`edit.rs`: `check_passing` builds a relation for every other feature, through the apply's
+  `Readings`, `check_moves` runs `check_move_order`, applies, then `check` clones and applies
+  again), noticeable
   when dragging folders in large trees. Use the `users_of` index and positions, and skip the second
   check on the clone the move checks already ran on.
 - [low · medium] Unmeasured: every draft and cache task copies the cache's whole `ResultHistory`

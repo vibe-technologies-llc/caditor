@@ -33,7 +33,7 @@ use crate::{
     },
     feature_list::Unindexed,
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
-    measurement::{Measured, reading_users},
+    measurement::Readings,
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner},
     projection::ProjectionSource,
     properties::{ModelProperties, ModelProperty},
@@ -784,7 +784,7 @@ fn check_storable(raw: u64) -> Result<(), EditError> {
     Ok(())
 }
 
-type Relation = fn(&Measured, &FeatureKind) -> BTreeSet<FeatureId>;
+type Relation = fn(&mut Readings, &Document, &FeatureKind) -> BTreeSet<FeatureId>;
 
 #[derive(Clone, Copy, Debug)]
 enum FollowedValue {
@@ -822,6 +822,7 @@ fn followed_value(edit: &Edit) -> Option<FollowedValue> {
 struct ParameterGraph {
     live: Option<DependencyGraph>,
     rows: Option<Vec<(ConfigurationId, Overlay)>>,
+    readings: Readings,
     replaying: bool,
 }
 
@@ -1077,7 +1078,7 @@ impl Document {
 
         for edit in transaction.edits() {
             if let Edit::MoveFeature { id, index } = edit {
-                document.check_move_order(*id, *index)?;
+                document.check_move_order(*id, *index, &mut graph.readings)?;
             }
             document.apply_edit(edit.clone(), &mut graph)?;
         }
@@ -1086,12 +1087,30 @@ impl Document {
 
     fn apply_edit(&mut self, edit: Edit, graph: &mut ParameterGraph) -> Result<Edit, EditError> {
         let followed = followed_value(&edit);
+        let rereads = self.changes_readings(&edit);
         let undo = self.apply_bare_edit(edit, graph)?;
 
+        if rereads {
+            graph.readings.changed();
+        }
         if let Some(value) = followed {
             self.follow_active_configuration(value);
         }
         Ok(undo)
+    }
+
+    fn changes_readings(&self, edit: &Edit) -> bool {
+        let measures = |id: &FeatureId| {
+            self.feature(*id)
+                .is_some_and(|feature| feature.kind.measurement().is_some())
+        };
+        match edit {
+            Edit::RemoveParameter { .. } | Edit::SetParameterExpression { .. } => true,
+            Edit::InsertFeature { feature, .. } => feature.kind.measurement().is_some(),
+            Edit::RemoveFeature { id } => measures(id),
+            Edit::SetFeatureKind { id, kind } => kind.measurement().is_some() || measures(id),
+            _ => false,
+        }
     }
 
     fn apply_bare_edit(
@@ -1111,10 +1130,12 @@ impl Document {
             Edit::MoveParameter { id, index } => self.move_parameter(id, index),
             Edit::SetParameterNote { id, note } => self.set_parameter_note(id, note),
             Edit::SetParameterOwner { id, owner } => self.set_parameter_owner(id, owner),
-            Edit::InsertFeature { index, feature } => self.insert_feature(index, feature),
+            Edit::InsertFeature { index, feature } => {
+                self.insert_feature(index, feature, &mut graph.readings)
+            }
             Edit::RemoveFeature { id } => self.remove_feature(id),
             Edit::RenameFeature { id, name } => self.rename_feature(id, name),
-            Edit::MoveFeature { id, index } => self.move_feature(id, index),
+            Edit::MoveFeature { id, index } => self.move_feature(id, index, &mut graph.readings),
             Edit::SetFeatureHidden { id, hidden } => self.set_feature_hidden(id, hidden),
             Edit::SetFeatureSuppressed { id, suppressed } => {
                 self.set_feature_suppressed(id, suppressed)
@@ -1139,7 +1160,9 @@ impl Document {
                 graph.rows_changed();
                 self.set_active_configuration(active)
             }
-            Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
+            Edit::SetFeatureKind { id, kind } => {
+                self.set_feature_kind(id, kind, &mut graph.readings)
+            }
             Edit::SetSketchPlacement {
                 feature,
                 plane,
@@ -1328,7 +1351,12 @@ impl Document {
         Ok(())
     }
 
-    fn set_feature_kind(&mut self, id: FeatureId, kind: FeatureKind) -> Result<Edit, EditError> {
+    fn set_feature_kind(
+        &mut self,
+        id: FeatureId,
+        kind: FeatureKind,
+        readings: &mut Readings,
+    ) -> Result<Edit, EditError> {
         let kind = settled_kind(kind);
         let index = self.feature_position(id)?;
         let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
@@ -1377,7 +1405,11 @@ impl Document {
 
         changed.kind = kind.clone();
         self.check_feature_references(&kind, index)?;
-        self.check_measurement_order(&Feature::new(id, name.clone(), kind.clone()), index)?;
+        self.check_measurement_order(
+            &Feature::new(id, name.clone(), kind.clone()),
+            index,
+            readings,
+        )?;
         self.reserve_past_references(&kind);
         if !changed.makes_body() {
             let users = self.users_of_bodies_made_by(id);
@@ -1525,7 +1557,7 @@ impl Document {
         self.check_parameter_name(&parameter.name, None)?;
         check_note(&parameter.note)?;
         self.check_references(&parameter.expression)?;
-        self.check_reading_order(parameter.id(), &parameter.expression)?;
+        self.check_reading_order(parameter.id(), &parameter.expression, &mut graph.readings)?;
 
         let id = parameter.id();
 
@@ -1626,7 +1658,7 @@ impl Document {
     ) -> Result<Edit, EditError> {
         self.parameter_position(id)?;
         self.check_references(&expression)?;
-        self.check_reading_order(id, &expression)?;
+        self.check_reading_order(id, &expression, &mut graph.readings)?;
         if let Some(cycle) = graph.of(self).cycle(id, &expression) {
             return Err(EditError::Cycle {
                 name: self.parameter_name(id).unwrap_or_default().to_owned(),
@@ -1666,6 +1698,7 @@ impl Document {
         &mut self,
         index: usize,
         mut feature: Arc<Feature>,
+        readings: &mut Readings,
     ) -> Result<Edit, EditError> {
         if self.feature(feature.id()).is_some() {
             return Err(EditError::DuplicateId);
@@ -1691,7 +1724,7 @@ impl Document {
         }
         self.check_feature_references(&feature.kind, index)?;
         self.check_users_below(&feature, index)?;
-        self.check_measurement_order(&feature, index)?;
+        self.check_measurement_order(&feature, index, readings)?;
 
         let appearance = feature.appearance.clone().settled();
 
@@ -2144,13 +2177,18 @@ impl Document {
         Ok(())
     }
 
-    fn move_feature(&mut self, id: FeatureId, index: usize) -> Result<Edit, EditError> {
+    fn move_feature(
+        &mut self,
+        id: FeatureId,
+        index: usize,
+        readings: &mut Readings,
+    ) -> Result<Edit, EditError> {
         let from = self.feature_position(id)?;
 
         if index >= self.features.len() {
             return Err(EditError::OutOfRange(index));
         }
-        self.check_passing(id, index, Measured::features_read_by)?;
+        self.check_passing(id, index, Readings::features_read_by, readings)?;
         self.features.move_to(from, index);
         Ok(Edit::MoveFeature { id, index: from })
     }
@@ -2160,12 +2198,12 @@ impl Document {
         id: FeatureId,
         index: usize,
         relation: Relation,
+        readings: &mut Readings,
     ) -> Result<(), EditError> {
         let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
         let name = moving.name.clone();
-        let measured = Measured::of(self);
 
-        let mut uses = relation(&measured, &moving.kind);
+        let mut uses = relation(readings, self, &moving.kind);
 
         uses.remove(&id);
 
@@ -2180,7 +2218,7 @@ impl Document {
         }
         if let Some(user) = above
             .iter()
-            .find(|other| relation(&measured, &other.kind).contains(&id))
+            .find(|other| relation(readings, self, &other.kind).contains(&id))
         {
             return Err(EditError::BelowDependent {
                 name,
@@ -2190,8 +2228,13 @@ impl Document {
         Ok(())
     }
 
-    fn check_move_order(&self, id: FeatureId, index: usize) -> Result<(), EditError> {
-        self.check_passing(id, index, Measured::dependencies_of)?;
+    fn check_move_order(
+        &self,
+        id: FeatureId,
+        index: usize,
+        readings: &mut Readings,
+    ) -> Result<(), EditError> {
+        self.check_passing(id, index, Readings::dependencies_of, readings)?;
 
         let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
         let name = moving.name.clone();
@@ -2272,19 +2315,19 @@ impl Document {
         &self,
         parameter: ParameterId,
         expression: &Expression,
+        readings: &mut Readings,
     ) -> Result<(), EditError> {
         let used = expression.parameters();
 
-        if used.is_empty() {
+        if used.is_empty() || self.features.measures_nothing() {
             return Ok(());
         }
 
-        let measured = Measured::of(self);
         let read: Vec<(ParameterId, FeatureId)> = used
             .into_iter()
             .flat_map(|used| {
-                measured
-                    .measurements_read(used)
+                readings
+                    .of(self, used)
                     .into_iter()
                     .map(move |measurement| (used, measurement))
             })
@@ -2293,7 +2336,7 @@ impl Document {
         if read.is_empty() {
             return Ok(());
         }
-        for user in reading_users(self, parameter) {
+        for user in self.reading_users(parameter) {
             let at = self.feature_index(user.id()).unwrap_or(usize::MAX);
             let below = read.iter().find(|(_, measurement)| {
                 self.feature_index(*measurement)
@@ -2316,15 +2359,18 @@ impl Document {
 
     pub(crate) fn check_measurements_above(
         &self,
-        measured: &Measured,
+        readings: &mut Readings,
         user: &str,
         id: FeatureId,
         used: impl IntoIterator<Item = ParameterId>,
         index: usize,
     ) -> Result<(), EditError> {
+        if self.features.measures_nothing() {
+            return Ok(());
+        }
         for parameter in used {
-            let below = measured
-                .measurements_read(parameter)
+            let below = readings
+                .of(self, parameter)
                 .into_iter()
                 .filter(|other| *other != id)
                 .find(|measurement| {
@@ -2340,17 +2386,21 @@ impl Document {
         Ok(())
     }
 
-    fn check_measurement_order(&self, feature: &Feature, index: usize) -> Result<(), EditError> {
+    fn check_measurement_order(
+        &self,
+        feature: &Feature,
+        index: usize,
+        readings: &mut Readings,
+    ) -> Result<(), EditError> {
         let used = feature.kind.parameters();
 
         if used.is_empty() && feature.kind.measurement().is_none() {
             return Ok(());
         }
 
-        let measured = Measured::of(self);
         let id = feature.id();
 
-        self.check_measurements_above(&measured, &feature.name, id, used, index)?;
+        self.check_measurements_above(readings, &feature.name, id, used, index)?;
 
         let Some(parameter) = feature
             .kind
@@ -2360,7 +2410,7 @@ impl Document {
             return Ok(());
         };
 
-        if let Some(other) = measured.measurement(parameter).filter(|other| *other != id) {
+        if let Some(other) = self.measured_by(parameter).filter(|other| *other != id) {
             return Err(EditError::ParameterMeasuredTwice {
                 parameter: self
                     .parameter_name(parameter)
@@ -2376,7 +2426,8 @@ impl Document {
             .map(Feature::id)
             .filter(|other| *other != id)
             .collect();
-        let Some(user) = reading_users(self, parameter)
+        let Some(user) = self
+            .reading_users(parameter)
             .into_iter()
             .find(|user| above.contains(&user.id()))
         else {

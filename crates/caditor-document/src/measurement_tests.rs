@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use caditor_expression::{Dimension, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3};
@@ -8,7 +8,10 @@ use caditor_kernel::{
 };
 use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch};
 
-use crate::*;
+use crate::{
+    measurement::{Measured, Readings},
+    *,
+};
 
 const CLOSE: f64 = 1e-9;
 
@@ -895,5 +898,223 @@ fn reading_a_body_quantity_of_anything_else_fails_in_words() {
         failure(&evaluation, position)
             .reason()
             .contains("has no position")
+    );
+}
+
+fn origin_gap(parameter: ParameterId) -> FeatureKind {
+    FeatureKind::from(Measurement {
+        reading: Reading::Between {
+            quantity: Between::Distance,
+            first: MeasuredItem::Point(PointReference::Origin),
+            second: MeasuredItem::Plane(PlaneReference::Principal(PrincipalPlane::Xy)),
+        },
+        parameter: Some(parameter),
+    })
+}
+
+fn offset_point(parameter: ParameterId) -> FeatureKind {
+    FeatureKind::Datum(Datum::Point(DatumPoint {
+        base: PointReference::Origin,
+        offset: [
+            Expression::Parameter(parameter),
+            millimetres(0.0),
+            millimetres(0.0),
+        ],
+    }))
+}
+
+fn scanned_reading_users(document: &Document, parameter: ParameterId) -> Vec<FeatureId> {
+    let mut reading = BTreeSet::from([parameter]);
+
+    for _ in document.parameters() {
+        for other in document.parameters() {
+            if other
+                .expression
+                .parameters()
+                .iter()
+                .any(|used| reading.contains(used))
+            {
+                reading.insert(other.id());
+            }
+        }
+    }
+    document
+        .features()
+        .filter(|feature| {
+            feature
+                .kind
+                .parameters()
+                .iter()
+                .any(|used| reading.contains(used))
+        })
+        .map(Feature::id)
+        .collect()
+}
+
+fn walks_agree_with_scans(document: &Document) {
+    let measured = Measured::of(document);
+    let mut readings = Readings::default();
+
+    for parameter in document.parameters() {
+        let id = parameter.id();
+        let users: Vec<FeatureId> = document
+            .reading_users(id)
+            .into_iter()
+            .map(Feature::id)
+            .collect();
+
+        assert_eq!(
+            readings.of(document, id),
+            measured.measurements_read(id),
+            "{}",
+            parameter.name
+        );
+        assert_eq!(
+            users,
+            scanned_reading_users(document, id),
+            "{}",
+            parameter.name
+        );
+        assert_eq!(document.measured_by(id), measured.measurement(id));
+    }
+}
+
+#[test]
+fn readings_walked_through_the_indexes_match_the_scans_they_replace() {
+    let mut document = Document::default();
+
+    let mut transaction = document.transaction("Build");
+
+    let first = transaction.add_parameter("first", millimetres(0.0));
+    let second = transaction.add_parameter("second", millimetres(0.0));
+    let left = transaction.add_parameter("left", transaction.parse("first + 1 mm").unwrap());
+    let right = transaction.add_parameter("right", transaction.parse("first * 2").unwrap());
+    let both = transaction.add_parameter("both", transaction.parse("left + right").unwrap());
+    let mixed = transaction.add_parameter("mixed", transaction.parse("both + second").unwrap());
+    let plain = transaction.add_parameter("plain", millimetres(3.0));
+
+    let measuring_first = transaction.add_feature("Measurement 1", origin_gap(first));
+
+    transaction.add_feature("Measurement 2", origin_gap(second));
+    transaction.add_feature("Reads both", offset_point(both));
+    transaction.add_feature("Reads mixed", offset_point(mixed));
+    transaction.add_feature("Reads plain", offset_point(plain));
+    document.apply(transaction.finish()).unwrap();
+
+    walks_agree_with_scans(&document);
+
+    let mut transaction = document.transaction("Change");
+
+    transaction.edit(Edit::SetParameterExpression {
+        id: right,
+        expression: transaction.parse("plain * 2").unwrap(),
+    });
+    transaction.add_feature("Reads left", offset_point(left));
+    transaction.edit(Edit::RemoveFeature {
+        id: measuring_first,
+    });
+    document.apply(transaction.finish()).unwrap();
+
+    walks_agree_with_scans(&document);
+
+    let mut transaction = document.transaction("Measure again");
+
+    transaction.edit(Edit::InsertFeature {
+        index: 0,
+        feature: Arc::new(Feature::new(
+            measuring_first,
+            "Measurement 1".to_owned(),
+            origin_gap(first),
+        )),
+    });
+    document.apply(transaction.finish()).unwrap();
+
+    walks_agree_with_scans(&document);
+}
+
+#[test]
+fn a_measurement_inserted_earlier_in_a_transaction_is_seen_by_its_later_inserts() {
+    let mut document = Document::default();
+
+    let mut transaction = document.transaction("Build");
+
+    let measured = transaction.add_parameter("measured", millimetres(0.0));
+    let derived =
+        transaction.add_parameter("derived", transaction.parse("measured + 1 mm").unwrap());
+
+    let other = transaction.add_parameter("other", millimetres(0.0));
+
+    transaction.add_feature("Measurement 0", origin_gap(other));
+    document.apply(transaction.finish()).unwrap();
+
+    let mut transaction = document.transaction("Insert");
+
+    let reader = transaction.add_feature("Reader", offset_point(derived));
+    let measurement = FeatureId::from_raw(reader.raw() + 1);
+    let above = FeatureId::from_raw(reader.raw() + 2);
+
+    transaction.edit(Edit::InsertFeature {
+        index: 0,
+        feature: Arc::new(Feature::new(
+            measurement,
+            "Measurement 1".to_owned(),
+            origin_gap(measured),
+        )),
+    });
+    transaction.edit(Edit::InsertFeature {
+        index: 0,
+        feature: Arc::new(Feature::new(
+            above,
+            "Above".to_owned(),
+            offset_point(derived),
+        )),
+    });
+
+    let refusal = document
+        .apply(transaction.finish())
+        .unwrap_err()
+        .to_string();
+
+    assert!(
+        refusal.contains("Above → derived → measured → Measurement 1 → Above"),
+        "{refusal}"
+    );
+}
+
+#[test]
+fn an_expression_changed_earlier_in_a_transaction_is_seen_by_its_later_inserts() {
+    let mut document = Document::default();
+
+    let mut transaction = document.transaction("Build");
+
+    let measured = transaction.add_parameter("measured", millimetres(0.0));
+    let plain = transaction.add_parameter("plain", millimetres(2.0));
+
+    transaction.add_feature("Measurement 1", origin_gap(measured));
+    document.apply(transaction.finish()).unwrap();
+
+    let mut transaction = document.transaction("Change");
+
+    transaction.add_feature("Below", offset_point(plain));
+    transaction.edit(Edit::SetParameterExpression {
+        id: plain,
+        expression: transaction.parse("measured * 2").unwrap(),
+    });
+
+    let above = FeatureId::from_raw(document.next_feature_id + 1);
+
+    transaction.edit(Edit::InsertFeature {
+        index: 0,
+        feature: Arc::new(Feature::new(above, "Above".to_owned(), offset_point(plain))),
+    });
+
+    let refusal = document
+        .apply(transaction.finish())
+        .unwrap_err()
+        .to_string();
+
+    assert!(
+        refusal.contains("Above → plain → measured → Measurement 1 → Above"),
+        "{refusal}"
     );
 }

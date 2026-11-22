@@ -1115,6 +1115,9 @@ pub(crate) struct Measured {
 
 impl Measured {
     pub(crate) fn of(document: &Document) -> Self {
+        if document.features.measures_nothing() {
+            return Self::default();
+        }
         Self::among(document, document.features())
     }
 
@@ -1254,34 +1257,138 @@ impl Measured {
     }
 }
 
-pub(crate) fn reading_users(document: &Document, parameter: ParameterId) -> Vec<&Feature> {
-    let mut reading = BTreeSet::from([parameter]);
+#[derive(Debug, Default)]
+pub(crate) struct Readings {
+    read: BTreeMap<ParameterId, BTreeSet<FeatureId>>,
+}
 
-    for id in evaluation_order(document) {
-        let uses = document.parameter(id).is_some_and(|definition| {
-            definition
-                .expression
-                .parameters()
-                .iter()
-                .any(|used| reading.contains(used))
-        });
-        if uses {
-            reading.insert(id);
+impl Readings {
+    pub(crate) fn of(
+        &mut self,
+        document: &Document,
+        parameter: ParameterId,
+    ) -> BTreeSet<FeatureId> {
+        if document.features.measures_nothing() {
+            return BTreeSet::new();
         }
-    }
-    document
-        .features()
-        .filter(|feature| {
-            feature
-                .kind
-                .parameters()
+
+        let mut expanded = BTreeSet::new();
+        let mut pending = vec![parameter];
+
+        while let Some(&id) = pending.last() {
+            if self.read.contains_key(&id) {
+                pending.pop();
+                continue;
+            }
+
+            let Some(definition) = document.parameter(id) else {
+                pending.pop();
+                continue;
+            };
+
+            if let Some(measurement) = document.measured_by(id) {
+                tally::add(1);
+                self.read.insert(id, BTreeSet::from([measurement]));
+                pending.pop();
+                continue;
+            }
+
+            let used = definition.expression.parameters();
+
+            if expanded.insert(id) {
+                tally::add(1);
+                pending.extend(
+                    used.into_iter()
+                        .filter(|next| !self.read.contains_key(next) && !expanded.contains(next)),
+                );
+                continue;
+            }
+
+            let read = used
                 .iter()
-                .any(|used| reading.contains(used))
-        })
-        .collect()
+                .filter_map(|next| self.read.get(next))
+                .flatten()
+                .copied()
+                .collect();
+
+            self.read.insert(id, read);
+            pending.pop();
+        }
+        self.read.get(&parameter).cloned().unwrap_or_default()
+    }
+
+    pub(crate) fn read_by(
+        &mut self,
+        document: &Document,
+        kind: &FeatureKind,
+    ) -> BTreeSet<FeatureId> {
+        if document.features.measures_nothing() {
+            return BTreeSet::new();
+        }
+        kind.parameters()
+            .into_iter()
+            .flat_map(|parameter| self.of(document, parameter))
+            .collect()
+    }
+
+    pub(crate) fn features_read_by(
+        &mut self,
+        document: &Document,
+        kind: &FeatureKind,
+    ) -> BTreeSet<FeatureId> {
+        let mut used = kind.features();
+
+        used.extend(self.read_by(document, kind));
+        used
+    }
+
+    pub(crate) fn dependencies_of(
+        &mut self,
+        document: &Document,
+        kind: &FeatureKind,
+    ) -> BTreeSet<FeatureId> {
+        let mut used = kind.dependencies();
+
+        used.extend(self.read_by(document, kind));
+        used
+    }
+
+    pub(crate) fn changed(&mut self) {
+        self.read.clear();
+    }
 }
 
 impl Document {
+    pub(crate) fn measured_by(&self, parameter: ParameterId) -> Option<FeatureId> {
+        self.features.measurements_of(parameter).last().copied()
+    }
+
+    pub(crate) fn reading_users(&self, parameter: ParameterId) -> Vec<&Feature> {
+        let mut reading = BTreeSet::from([parameter]);
+        let mut pending = vec![parameter];
+
+        while let Some(id) = pending.pop() {
+            tally::add(1);
+
+            for user in self.parameters.users_of(id) {
+                if reading.insert(user) {
+                    pending.push(user);
+                }
+            }
+        }
+
+        let users: BTreeMap<usize, &Feature> = reading
+            .iter()
+            .flat_map(|id| self.features.reading(*id))
+            .filter_map(|user| {
+                tally::add(1);
+
+                Some((self.feature_index(*user)?, self.feature(*user)?))
+            })
+            .collect();
+        users.into_values().collect()
+    }
+
     pub fn measurement_of(&self, parameter: ParameterId) -> Option<&Feature> {
         self.features().find(|feature| {
             feature

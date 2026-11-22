@@ -38,7 +38,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (an insert naming its own id too), an insert landing below a feature already using its id
   (`BelowUser`, found through `FeatureList::users_of`), unknown parameters, parameter cycles, deleting a parameter in
   use, moving a feature past one it uses by `features()` or a measurement it reads (what inserts
-  and kind changes check, `Measured::features_read_by`), two features sharing a name (loading
+  and kind changes check, `Readings::features_read_by`), two features sharing a name (loading
   renames the second, with a report). Weaker ties (`origin_features`, a Combine consuming a used
   body) are not invariants, since inserts and kind changes may break them, so `MoveFeature` does not
   refuse them and the inverse of a move always applies; `move_row` and `move_features` do (Rollback
@@ -52,8 +52,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - At most `MAX_RECORDS` parameters and features together (what a file is opened with; `load.rs` in
   `caditor-file` leaves the rest out). `apply` refuses a transaction leaving more than that, and
   more than before, as `TooManyRecords`, so a model already past it can still shrink.
-- `ParameterList` indexes parameters by ID and name; the `DependencyGraph` survives inserts and
-  removals within an `apply`, keeping version restores and cycle checks near linear. Order is the
+- `ParameterList` indexes parameters by ID and name, and the parameters using each one
+  (`users_of`, gathered on first ask, then kept by inserts, removals and expression changes); the
+  `DependencyGraph` survives inserts and removals within an `apply`, keeping version restores and
+  cycle checks near linear. Order is the
   user's (`MoveParameter`) and changes nothing computed; `note` (`SetParameterNote`, trimmed, at
   most `MAX_PARAMETER_NOTE_CHARS`) is free text.
 - `FeatureList` (`feature_list.rs`) indexes features by ID and names (`name_taken_besides`), kept
@@ -64,7 +66,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   by any change to the list or to a feature's name or kind. The users of each ID by `features()`
   (`users_of`, present or not) are gathered on first ask, then kept by inserts and removals and
   forgotten by any change to a feature's name or kind, so loading and `transaction_to`, which
-  insert every feature, stay linear. Edits of what no index reads (hidden, suppressed, appearance,
+  insert every feature, stay linear. The measurements of each parameter (`measurements_of`,
+  `measures_nothing`) and the features whose kind uses it (`reading`) are kept the same way. Edits of what no index reads (hidden, suppressed, appearance,
   group, pieces, their looks and stand-ins) go through `FeatureList::unindexed_by_id`, which hands
   out only those fields and keeps every index: an import's appearance and group edits between its
   inserts once rebuilt the name and use indexes at each insert, 1.4 s on a 3,970-body import.
@@ -1845,7 +1848,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   stored value is no fallback.
 - `Measured` maps measured parameters to their measurements and every parameter reading one,
   directly or through others, to the measurements it reads (`measurements_read`, from evaluation
-  order). A feature using a measured or derived parameter depends on its measurements
+  order); recompute, the tree and `dependents_of` build it, and nothing at all when no feature
+  measures. Edits never build it: their checks walk from the parameters they touch through the
+  indexes (`Readings::of` up the expressions to the measurements read, stopping at a measured
+  parameter; `Document::reading_users` down through `ParameterList::users_of` to
+  `FeatureList::reading`), give the same answers, and skip when nothing is measured. An `apply`
+  keeps one `Readings` (in its `ParameterGraph`), forgotten after an expression change, a removed
+  parameter or an inserted, removed or changed measurement, so loading, a version restore and a
+  run of moves walk each parameter once between such edits. A feature using a measured or derived parameter depends on its measurements
   (`dependencies_of`, which `dependents_of`, the tree's moves and the app's Uses and Used by take).
   Edits refuse a feature at or above a measurement it reads (a sketch's `SetDimension` and
   `AddSketchConstraint` too), an expression change making a parameter read a measurement some
@@ -1856,9 +1866,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`MeasuredParameterInlined`). A pasted measurement feeds nothing; its references follow a datum's
   paste rules.
 - Scale tests bound cost by `tally.rs` work units (free outside tests): one per feature `Measured`
-  scans, per parameter the evaluation order sorts or `Measured` walks, and per node a cycle search
-  visits. `lib.rs`'s `scale_tests` pin parameter chains as linear and keep inserting features
-  reading measurements as an ignored survey (`PERFORMANCE.md`).
+  scans or a feature or parameter index gathers, per parameter the evaluation order sorts,
+  `Measured` walks or a reading walk visits, per feature `reading_users` finds, and per node a
+  cycle search visits. `lib.rs`'s `scale_tests` pin parameter chains and runs of measurements each
+  followed by a feature reading it as linear.
 
 ### Reference image (`reference_image.rs`, `picture.rs`)
 

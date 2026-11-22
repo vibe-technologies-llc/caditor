@@ -1782,7 +1782,6 @@ mod scale_tests {
     }
 
     #[test]
-    #[ignore = "a survey of PERFORMANCE.md's quadratic loading: each inserted feature rebuilds Measured"]
     fn long_runs_of_measurements_and_readers_insert_in_linear_time() {
         let short = insert_readers(READERS);
         let long = insert_readers(READERS * GROWTH);
