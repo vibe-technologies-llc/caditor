@@ -110,7 +110,7 @@ pub enum ExportRefused {
 }
 
 fn names_the_model(model: &Path, output: &Path) -> bool {
-    caditor_file::same_file(model, output)
+    caditor_file::same_file_blocking(model, output)
 }
 
 struct Variant {

@@ -1477,3 +1477,77 @@ fn the_text_error_scanner_finds_string_errors_outside_tests_only() {
         first_text_error("#[cfg(test)]\nuse x;\nfn f() -> Result<u8, String> { Ok(1) }").is_some()
     );
 }
+
+const BLOCKING_COMPARISON: &str = "same_file_blocking";
+const OFF_THREAD_FUNCTIONS: [&str; 3] =
+    ["use caditor_file", "fn open_file(", "fn check_save_target("];
+const HEADLESS_SOURCE: &str = "headless.rs";
+
+fn enclosing_item(lines: &[&str], index: usize) -> String {
+    lines
+        .get(..=index)
+        .unwrap_or_default()
+        .iter()
+        .rev()
+        .find(|line| line.starts_with(|first: char| first.is_alphabetic()))
+        .map(|line| (*line).to_owned())
+        .unwrap_or_default()
+}
+
+fn blocking_comparisons_outside_jobs(name: &str, source: &str) -> Vec<String> {
+    if name == HEADLESS_SOURCE {
+        return Vec::new();
+    }
+
+    let code = without_test_items(source);
+    let lines: Vec<&str> = code.lines().collect();
+
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.contains(BLOCKING_COMPARISON))
+        .map(|(index, _)| enclosing_item(&lines, index))
+        .filter(|item| {
+            !(name == "files.rs"
+                && OFF_THREAD_FUNCTIONS
+                    .iter()
+                    .any(|allowed| item.contains(allowed)))
+        })
+        .collect()
+}
+
+#[test]
+fn the_interface_thread_never_compares_files_by_identity() {
+    let root = repository();
+    let found: Vec<String> = files_with_extension(&root.join("crates/caditor/src"), "rs")
+        .into_iter()
+        .filter(|path| !is_test_source(path))
+        .flat_map(|path| {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let source = fs::read_to_string(&path).unwrap();
+
+            blocking_comparisons_outside_jobs(&name, &source)
+                .into_iter()
+                .map(move |item| format!("{}: {item}", path.display()))
+        })
+        .collect();
+
+    assert!(
+        found.is_empty(),
+        "same_file_blocking stats the disk, so only the open and Save As jobs and the headless \
+         export call it, never code the interface thread runs, in {found:#?}"
+    );
+}
+
+#[test]
+fn the_identity_comparison_scanner_allows_the_jobs_and_flags_methods() {
+    let jobs = "use caditor_file::{\n    same_file_blocking,\n};\n\nfn open_file(\n    path: &Path,\n) -> Outcome {\n    if same_file_blocking(a, b) {\n    }\n}\n";
+    let method = "impl Files {\n    fn poll(&mut self) {\n        if same_file_blocking(a, b) {\n        }\n    }\n}\n";
+
+    assert!(blocking_comparisons_outside_jobs("files.rs", jobs).is_empty());
+    assert_eq!(
+        blocking_comparisons_outside_jobs("files.rs", method).len(),
+        1
+    );
+    assert_eq!(blocking_comparisons_outside_jobs("model.rs", jobs).len(), 2);
+}

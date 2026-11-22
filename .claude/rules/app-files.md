@@ -105,8 +105,12 @@ paths:
   one shown, and leaves any other notice alone.
 - Open and Save As both resolve the picked path with `canonical_location` (the whole path when it
   exists, else its folder plus the name) and compare it with the open model's by
-  `caditor_file::same_file` (`file-format.md`), so a link or a letter case never makes the open
-  model look like another file.
+  `caditor_file::same_file_blocking` (`file-format.md`), so a link or a letter case never makes the
+  open model look like another file. The comparison runs in the open and Save As check jobs
+  (`open_file`, `check_save_target`), never on the interface thread, which compares the model's
+  path, canonical since Open or Save As, by plain equality (the export-again check, the recovered
+  journals' open check); `the_interface_thread_never_compares_files_by_identity` in
+  `conventions_tests.rs` fails on any other caller in the app.
 - Save As appends `.caditor`, checks the target on the worker (refused while open in another window
   or holding unrecovered changes) and asks before replacing a file the dialog did not name.
 - The open thread and the Save As check wait for the model's storage handover

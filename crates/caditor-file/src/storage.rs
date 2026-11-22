@@ -29,7 +29,7 @@ use crate::{
     recovery::{mark_journal, unmark_journal},
     save::{
         self, KeepVersionError, SaveError, SaveOptions, Saved, remove_orphaned_temporaries,
-        same_file, sync_parent, temporary_sibling,
+        same_file_blocking, sync_parent, temporary_sibling,
     },
 };
 
@@ -1040,9 +1040,13 @@ impl Worker {
         }
     }
 
-    fn save(&mut self, request: Box<SaveRequest>) {
+    fn save(&mut self, mut request: Box<SaveRequest>) {
         self.sync();
-        if !self.is_open_model(&request.path) && self.opened_elsewhere(&request.path) {
+
+        let open_model = self.is_open_model(&request.path);
+
+        request.keep_original &= open_model;
+        if !open_model && self.opened_elsewhere(&request.path) {
             self.report(Report::SaveFailed {
                 ticket: request.ticket,
                 path: request.path,
@@ -1108,19 +1112,21 @@ impl Worker {
     fn is_open_model(&self, path: &Path) -> bool {
         self.file
             .as_deref()
-            .is_some_and(|file| same_file(file, path))
+            .is_some_and(|file| same_file_blocking(file, path))
     }
 
     fn owns(&self, path: &Path) -> bool {
         self.journal.as_ref().is_some_and(|journal| {
-            same_file(&journal.path, path) && holds(&journal.file, &journal.path)
+            same_file_blocking(&journal.path, path) && holds(&journal.file, &journal.path)
         })
     }
 
     fn own_journal_at(&self, path: &Path) -> Option<&File> {
         self.journal
             .as_ref()
-            .filter(|journal| same_file(&journal.path, path) && holds(&journal.file, &journal.path))
+            .filter(|journal| {
+                same_file_blocking(&journal.path, path) && holds(&journal.file, &journal.path)
+            })
             .map(|journal| &journal.file)
     }
 
@@ -1248,7 +1254,7 @@ impl Worker {
         if let Some(stale) = self.journal.take_if(|previous| {
             !candidates
                 .iter()
-                .any(|candidate| same_file(candidate, &previous.path))
+                .any(|candidate| same_file_blocking(candidate, &previous.path))
         }) {
             self.remove_own(&stale);
         }

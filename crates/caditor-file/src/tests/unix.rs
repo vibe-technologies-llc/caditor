@@ -3,7 +3,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use caditor_document::CancelToken;
 
 use super::*;
-use crate::same_file;
+use crate::same_file_blocking;
 
 #[test]
 fn saving_over_a_file_keeps_its_permissions_and_leaves_no_temporary_files() {
@@ -277,21 +277,30 @@ fn a_file_is_the_same_reached_through_a_linked_folder_or_a_linked_name() {
     save(&sample(), &model, false).unwrap();
     std::os::unix::fs::symlink("model.caditor", &alias).unwrap();
 
-    assert!(same_file(&model, &folders.linked.join("model.caditor")));
-    assert!(same_file(&model, &alias));
-    assert!(same_file(&folders.linked.join("alias.caditor"), &model));
-    assert!(!same_file(&model, &folders.real.join("other.caditor")));
+    assert!(same_file_blocking(
+        &model,
+        &folders.linked.join("model.caditor")
+    ));
+    assert!(same_file_blocking(&model, &alias));
+    assert!(same_file_blocking(
+        &folders.linked.join("alias.caditor"),
+        &model
+    ));
+    assert!(!same_file_blocking(
+        &model,
+        &folders.real.join("other.caditor")
+    ));
 }
 
 #[test]
 fn a_file_that_does_not_exist_yet_is_the_same_through_a_linked_folder() {
     let folders = linked_folders();
 
-    assert!(same_file(
+    assert!(same_file_blocking(
         &folders.real.join("new.caditor"),
         &folders.linked.join("new.caditor")
     ));
-    assert!(!same_file(
+    assert!(!same_file_blocking(
         &folders.real.join("new.caditor"),
         &folders.linked.join("newer.caditor")
     ));

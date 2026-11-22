@@ -28,7 +28,7 @@ use caditor_file::{
     Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings,
     SheetExported, SheetFormat, SheetLayout, SketchExported, SketchFormat, TextOutlines,
     UpdateFailure, describe_set_aside, journal_for, load_cancellable, load_listed_version,
-    read_drawing, same_file, scan,
+    read_drawing, same_file_blocking, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -1461,7 +1461,7 @@ impl Files {
         if matches!(model.status(), RecomputeStatus::Running { .. }) {
             return Err(ExportAgainError::WaitingForRecompute);
         }
-        if model.path().is_some_and(|path| same_file(path, &last.path)) {
+        if model.path() == Some(last.path.as_path()) {
             return Err(ExportAgainError::WouldReplaceModel);
         }
         Ok(last)
@@ -2276,12 +2276,9 @@ impl Files {
                 self.check_recent();
                 for recovered in recovered {
                     let settled = self.settled_journals.contains(&recovered.journal);
-                    let open_now = model.path().is_some_and(|path| {
-                        recovered
-                            .file
-                            .as_deref()
-                            .is_some_and(|file| same_file(file, path))
-                    });
+                    let open_now = model
+                        .path()
+                        .is_some_and(|path| recovered.file.as_deref() == Some(path));
 
                     if settled || open_now {
                         log::info!(
@@ -4141,7 +4138,7 @@ fn open_file(
     journals: &Journals<'_>,
     load: impl FnOnce(&Path) -> Result<Loaded, LoadError>,
 ) -> OpenOutcome {
-    if current.is_some_and(|current| same_file(current, path)) {
+    if current.is_some_and(|current| same_file_blocking(current, path)) {
         return OpenOutcome::AlreadyOpen;
     }
 
@@ -4315,7 +4312,7 @@ fn check_save_target(picked: &Path, current: Option<&Path>, journals: &Journals<
     let named = with_extension(picked.to_path_buf());
     let target = canonical_location(&named);
 
-    if current.is_some_and(|current| same_file(current, &target)) {
+    if current.is_some_and(|current| same_file_blocking(current, &target)) {
         return SaveTarget::Ready(target);
     }
     match journals.of(&target) {
