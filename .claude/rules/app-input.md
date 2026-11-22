@@ -103,6 +103,21 @@ paths:
   previews it. Anything else (expression, name, `name = value`, unknown suffix, empty) shows
   `stepping::Refusal::message` inline until the text changes. Arrows are taken from the frame's
   events (`field::take_step`) ahead of the text edit; Ctrl and Alt with them go to the text edit.
+- A value field's property `caption` (`widgets::caption`, which records its label's rect and pass)
+  drags the value sideways while the field is not being edited: `widgets::row_caption` hands the
+  field the caption drawn this pass on its own row, so a row without one never takes the row
+  above's, and `field::caption_drag` senses the drag on that rect (`Sense::DRAG`, not focusable,
+  so the caption adds no Tab stop). A press keeps the text as it was (`Moving::start`) and each
+  point dragged is one `stepping::step_by` step of its last digit, Shift ten (as Shift with Up and
+  Down) and Ctrl a tenth, a digit finer for the rest of the drag (`Pace`, counted from the point
+  the modifier changed so the steps never drift); the field itself keeps click-to-type and
+  drag-to-select. The dragged text is the draft and `typing`, so an open feature previews it and a
+  refused value is told as typed; the release is the field's leaving, so the drag commits once,
+  one undo step, a refused value staying with its error; Escape while dragging is taken by the
+  field before the 3D view's and puts the stored text back (a live field's own text back), the
+  rest of the drag doing nothing. The caption shows the horizontal resize cursor; one whose field
+  holds anything `stepping::steppable` refuses (an expression, a name, `name = value`, empty)
+  senses hover only, with `Refusal::drag_message` as its hover text.
 - A panel that keeps its values as text and reads them every frame (the Gear, sketch Pattern and
   Text panels' values, `field::live_value`; Scale model's factor, `field::live_value_field`) draws
   the same value field over its own `String`: every edit and step is written back at once, nothing

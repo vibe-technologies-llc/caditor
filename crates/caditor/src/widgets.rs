@@ -8,8 +8,8 @@ use std::{
 use egui::{
     Align, Align2, AsIdSalt, AtomExt, Button, Checkbox, Color32, ComboBox, CornerRadius,
     CursorIcon, FocusDirection, Frame, Galley, Grid, Id, IdSalt, InnerResponse, Key, Label, Layout,
-    Margin, Modal, Modifiers, Order, Painter, Popup, RadioButton, Rect, Response, RichText, Role,
-    ScrollArea, Sense, Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, Vec2,
+    Margin, Modal, Modifiers, Order, Painter, Popup, RadioButton, Rangef, Rect, Response, RichText,
+    Role, ScrollArea, Sense, Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, Vec2,
     Widget, WidgetInfo, WidgetText,
     accesskit::{HasPopup, Live},
     collapsing_header::CollapsingState,
@@ -1647,18 +1647,42 @@ pub fn caption(ui: &mut Ui, text: &str) {
     );
     let label = ui.add(Label::new(galley).selectable(false));
     let key = ui.unique_id().with(CAPTION_KEY);
+    let caption = Caption {
+        label: label.id,
+        rect: label.rect,
+        pass: ui.ctx().cumulative_pass_nr(),
+    };
 
-    ui.data_mut(|data| data.insert_temp(key, label.id));
+    ui.data_mut(|data| data.insert_temp(key, caption));
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Caption {
+    label: Id,
+    rect: Rect,
+    pass: u64,
+}
+
+fn last_caption(ui: &Ui) -> Option<Caption> {
+    ui.stack().iter().find_map(|level| {
+        ui.data(|data| data.get_temp::<Caption>(level.unique_id.with(CAPTION_KEY)))
+    })
 }
 
 pub fn tie_to_caption(ui: &Ui, field: &Response) {
-    let caption = ui
-        .stack()
-        .iter()
-        .find_map(|level| ui.data(|data| data.get_temp::<Id>(level.unique_id.with(CAPTION_KEY))));
-    if let Some(caption) = caption {
-        field.clone().labelled_by(caption);
+    if let Some(caption) = last_caption(ui) {
+        field.clone().labelled_by(caption.label);
     }
+}
+
+pub fn row_caption(ui: &Ui) -> Option<Rect> {
+    let row_top = ui.cursor().top();
+    let row = Rangef::new(row_top, row_top + ui.spacing().interact_size.y);
+
+    last_caption(ui)
+        .filter(|caption| caption.pass == ui.ctx().cumulative_pass_nr())
+        .filter(|caption| caption.rect.y_range().intersects(row))
+        .map(|caption| caption.rect)
 }
 
 pub fn section_title(text: &str) -> RichText {

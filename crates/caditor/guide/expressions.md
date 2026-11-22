@@ -53,6 +53,14 @@ take away one unit of its last digit, and Shift with them ten: from 25.4 mm to 2
 13. An open feature previews each step like typing. A field holding an expression or a name is left
 alone and says so; press Enter to keep the stepped value.
 
+Dragging sideways on the caption beside a value field holding a plain number changes it the same
+way, one unit of its last digit for each point dragged, ten with Shift held and a tenth with Ctrl
+held: a 12 mm distance dragged five points to the right becomes 17 mm. The pointer turns into a
+left-right arrow over a caption that drags. An open feature previews the value as you drag, and
+letting go keeps it as one change, undone in one step; Escape before letting go puts the value
+back. Clicking in the field itself still places the cursor and selects text. A caption whose
+field holds an expression or a name does not drag, and its hover text says so.
+
 The values of the [Gear](gear), sketch [Pattern](sketch-patterns) and [Text](text) panels and the
 factor of [Scale model](scale) are value fields too: they step, suggest parameter names and show
 what an expression comes to below the field, and they apply as you type, with no Enter needed.

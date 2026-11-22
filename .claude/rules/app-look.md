@@ -405,7 +405,8 @@ paths:
   Move the rollback bar down and up commands through `PanelState::requested`).
 - Decorative glyphs are hidden from the AccessKit tree (`icon_label`, `decorative`), meaningful ones
   described (`described_icon`); a property `caption` labels the field, combo box or slider after it
-  in its grid (`tie_to_caption`, via `field::commit_field`).
+  in its grid (`tie_to_caption`, via `field::commit_field`), and beside a value field drags its value
+  (`widgets::row_caption`, `app-input.md`).
 
 ## Menu bar, ribbon and status bar
 

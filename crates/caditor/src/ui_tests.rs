@@ -17,7 +17,7 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_render::{Background, ImageError};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{
-    Color32, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
+    Color32, CursorIcon, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
     ViewportCommand, ViewportId, ViewportIdMap, ViewportInfo,
     accesskit::{Node, NodeId, Role},
     epaint::ClippedShape,
@@ -419,6 +419,7 @@ struct Harness {
     hovered_files: Vec<egui::HoveredFile>,
     clipboard: Option<String>,
     repaint_after: Duration,
+    cursor: CursorIcon,
     revealed: Arc<Mutex<Vec<PathBuf>>>,
 }
 
@@ -534,6 +535,7 @@ impl Harness {
             hovered_files: Vec::new(),
             clipboard: None,
             repaint_after: Duration::MAX,
+            cursor: CursorIcon::Default,
             revealed,
         };
 
@@ -652,6 +654,7 @@ impl Harness {
         if let Some(update) = output.platform_output.accesskit_update.take() {
             self.accessible = update.nodes;
         }
+        self.cursor = output.platform_output.cursor_icon;
         app::perform(
             actions,
             &mut self.model,

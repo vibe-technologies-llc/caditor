@@ -5,11 +5,11 @@ use caditor_document::{
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
-use egui::{Event, Id, Key, Modifiers};
+use egui::{CursorIcon, Event, Id, Key, Modifiers, Pos2, vec2};
 
 use super::{
-    CAMERA_SETTLE, Harness, add_peg, draft_volume, drag_screen, extruded_plate, pickable_described,
-    rectangle, run_from_palette,
+    CAMERA_SETTLE, Harness, TOOLTIP_FRAMES, add_peg, draft_volume, drag_screen, extruded_plate,
+    hold_drag, pickable_described, rectangle, release_drag, run_from_palette,
 };
 use crate::{
     combine_panel,
@@ -19,6 +19,8 @@ use crate::{
     reversing::NOTHING_TO_REVERSE,
     scale_panel,
     selection::Pickable,
+    solid_panel,
+    stepping::Refusal,
 };
 
 const ONLY: Handle = Handle::Reach(Reach::Only);
@@ -714,4 +716,165 @@ fn an_unfinished_expression_is_told_calmly_while_it_is_typed() {
     harness.draft_into_field(distance_field(extrude), "nothere");
 
     assert_ne!(calm, harness.color_of(&unknown));
+}
+
+fn distance_caption(harness: &Harness, extrude: FeatureId) -> Pos2 {
+    let field = harness
+        .context
+        .read_response(distance_field(extrude))
+        .expect("the distance field is shown")
+        .rect;
+
+    harness
+        .texts
+        .iter()
+        .find(|(shown, rect)| {
+            shown == solid_panel::DISTANCE
+                && rect.right() <= field.left()
+                && rect.y_range().intersects(field.y_range())
+        })
+        .map(|(_, rect)| rect.center())
+        .expect("the distance has its caption beside it")
+}
+
+fn distance_of(harness: &Harness, extrude: FeatureId) -> f64 {
+    millimetres(harness, &end_distance(harness, extrude))
+}
+
+fn extrusion_at(harness: &mut Harness, distance: &str) -> FeatureId {
+    let extrude = open_extrusion(harness);
+
+    harness.type_into_field(distance_field(extrude), distance);
+    harness.settle();
+    harness.let_animations_finish();
+    extrude
+}
+
+fn caption_dragged(harness: &mut Harness, extrude: FeatureId, by: f32, modifiers: Modifiers) {
+    let from = distance_caption(harness, extrude);
+    let to = from + vec2(by, 0.0);
+
+    harness.hold(modifiers);
+    hold_drag(harness, from, to);
+    release_drag(harness, to);
+    harness.hold(Modifiers::NONE);
+    harness.settle();
+}
+
+#[test]
+fn dragging_a_caption_steps_its_value_per_point_previews_it_and_commits_once_on_release() {
+    let mut harness = Harness::new();
+
+    let extrude = extrusion_at(&mut harness, "12 mm");
+    let steps = harness.model.undo_steps().count();
+    let from = distance_caption(&harness, extrude);
+    let to = from + vec2(5.0, 0.0);
+
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+
+    let hovered_cursor = harness.cursor;
+
+    hold_drag(&mut harness, from, to);
+    harness.wait_until("the dragged distance is previewed", |harness| {
+        draft_volume(harness, extrude).is_some_and(|found| (found - 40.0 * 40.0 * 17.0).abs() < 1.0)
+    });
+
+    assert_eq!(hovered_cursor, CursorIcon::ResizeHorizontal);
+    assert_eq!(harness.cursor, CursorIcon::ResizeHorizontal);
+    assert!(harness.shows("17 mm"));
+    assert_eq!(harness.model.undo_steps().count(), steps);
+    assert!((distance_of(&harness, extrude) - 12.0).abs() < 1e-9);
+
+    release_drag(&mut harness, to);
+    harness.settle();
+
+    assert!((distance_of(&harness, extrude) - 17.0).abs() < 1e-9);
+    assert_eq!(harness.model.undo_steps().count(), steps + 1);
+    assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!((distance_of(&harness, extrude) - 12.0).abs() < 1e-9);
+}
+
+#[test]
+fn shift_drags_a_caption_ten_steps_a_point_and_ctrl_a_tenth_of_one() {
+    let mut harness = Harness::new();
+
+    let extrude = extrusion_at(&mut harness, "12 mm");
+
+    caption_dragged(&mut harness, extrude, 2.0, Modifiers::SHIFT);
+
+    assert!((distance_of(&harness, extrude) - 32.0).abs() < 1e-9);
+
+    caption_dragged(&mut harness, extrude, -3.0, Modifiers::COMMAND);
+
+    assert!((distance_of(&harness, extrude) - 31.7).abs() < 1e-9);
+}
+
+#[test]
+fn escape_while_dragging_a_caption_puts_the_value_back_and_keeps_the_feature_open() {
+    let mut harness = Harness::new();
+
+    let extrude = extrusion_at(&mut harness, "12 mm");
+    let steps = harness.model.undo_steps().count();
+    let from = distance_caption(&harness, extrude);
+    let to = from + vec2(8.0, 0.0);
+
+    hold_drag(&mut harness, from, to);
+    harness.wait_until("the dragged distance is previewed", |harness| {
+        draft_volume(harness, extrude).is_some_and(|found| (found - 40.0 * 40.0 * 20.0).abs() < 1.0)
+    });
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    let shown_after_escape = harness.shows("12 mm");
+
+    harness
+        .events
+        .push(Event::PointerMoved(to + vec2(4.0, 0.0)));
+    harness.frame();
+    release_drag(&mut harness, to + vec2(4.0, 0.0));
+    harness.settle();
+
+    assert!(shown_after_escape);
+    assert!((distance_of(&harness, extrude) - 12.0).abs() < 1e-9);
+    assert_eq!(harness.model.undo_steps().count(), steps);
+    assert_eq!(harness.workspace.editing.solid(), Some(extrude));
+    assert!(draft_volume(&harness, extrude).is_none());
+}
+
+#[test]
+fn a_caption_whose_value_is_an_expression_says_why_it_does_not_drag() {
+    let mut harness = Harness::new();
+
+    let mut transaction = harness.document().transaction("Add depth");
+
+    let depth = transaction.parse("20 mm").unwrap();
+
+    transaction.add_parameter("depth", depth);
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+
+    let extrude = extrusion_at(&mut harness, "depth / 2");
+    let steps = harness.model.undo_steps().count();
+    let held = end_distance(&harness, extrude);
+    let from = distance_caption(&harness, extrude);
+
+    harness.events.push(Event::PointerMoved(from));
+    for _ in 0..TOOLTIP_FRAMES {
+        harness.frame();
+    }
+
+    let explained = harness.shows(Refusal::NotPlain.drag_message());
+    let cursor = harness.cursor;
+
+    caption_dragged(&mut harness, extrude, 6.0, Modifiers::NONE);
+
+    assert!(explained);
+    assert_ne!(cursor, CursorIcon::ResizeHorizontal);
+    assert_eq!(end_distance(&harness, extrude), held);
+    assert_eq!(harness.model.undo_steps().count(), steps);
 }

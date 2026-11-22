@@ -25,6 +25,16 @@ impl Refusal {
             Self::TooLong => "That number is too long to step",
         }
     }
+
+    pub fn drag_message(self) -> &'static str {
+        match self {
+            Self::Empty => "Type a number first; dragging the caption changes a plain number",
+            Self::NotPlain => {
+                "Dragging the caption changes a plain number, not an expression or a name; type the new value instead"
+            }
+            Self::TooLong => "That number is too long to drag",
+        }
+    }
 }
 
 struct Plain<'a> {
@@ -84,29 +94,45 @@ fn plain(text: &str) -> Result<Plain<'_>, Refusal> {
 }
 
 pub fn step(text: &str, direction: Direction, big: bool) -> Result<String, Refusal> {
-    let plain = plain(text)?;
-    let magnitude: i128 = plain.digits.parse().map_err(|_| Refusal::TooLong)?;
+    let size = if big { BIG_STEP } else { 1 };
+    let steps = match direction {
+        Direction::Up => size,
+        Direction::Down => -size,
+    };
+    step_by(text, steps, false)
+}
 
+pub fn steppable(text: &str) -> Result<(), Refusal> {
+    plain(text).map(|_| ())
+}
+
+pub fn step_by(text: &str, steps: i128, finer: bool) -> Result<String, Refusal> {
+    let plain = plain(text)?;
+    let mut digits = plain.digits;
+    let mut decimals = plain.decimals;
+
+    if finer {
+        digits.push('0');
+        decimals += 1;
+    }
+
+    let magnitude: i128 = digits.parse().map_err(|_| Refusal::TooLong)?;
     let value = if plain.negative {
         -magnitude
     } else {
         magnitude
     };
-    let size = if big { BIG_STEP } else { 1 };
 
-    let stepped = match direction {
-        Direction::Up => value + size,
-        Direction::Down => value - size,
-    };
+    let stepped = value.checked_add(steps).ok_or(Refusal::TooLong)?;
     let sign = if stepped < 0 { "-" } else { "" };
     let mut digits = stepped.unsigned_abs().to_string();
 
-    while digits.len() <= plain.decimals {
+    while digits.len() <= decimals {
         digits.insert(0, '0');
     }
 
-    let (whole, fraction) = digits.split_at(digits.len() - plain.decimals);
-    let point = if plain.decimals == 0 { "" } else { "." };
+    let (whole, fraction) = digits.split_at(digits.len() - decimals);
+    let point = if decimals == 0 { "" } else { "." };
     let gap = if plain.unit.is_empty() { "" } else { plain.gap };
     Ok(format!("{sign}{whole}{point}{fraction}{gap}{}", plain.unit))
 }
@@ -150,6 +176,19 @@ mod tests {
         assert_eq!(up("12mm").unwrap(), "13mm");
         assert_eq!(down("45°").unwrap(), "44°");
         assert_eq!(up("1.5 rad").unwrap(), "1.6 rad");
+    }
+
+    #[test]
+    fn many_steps_move_by_the_last_digit_or_a_digit_finer() {
+        assert_eq!(step_by("10 mm", 7, false).unwrap(), "17 mm");
+        assert_eq!(step_by("2.5", -30, false).unwrap(), "-0.5");
+        assert_eq!(step_by("10 mm", 3, true).unwrap(), "10.3 mm");
+        assert_eq!(step_by("0.5", -6, true).unwrap(), "0.44");
+        assert_eq!(step_by("45°", 0, true).unwrap(), "45.0°");
+        assert_eq!(step_by("width", 1, false), Err(Refusal::NotPlain));
+        assert_eq!(steppable("12.5 mm"), Ok(()));
+        assert_eq!(steppable("h = 12"), Err(Refusal::NotPlain));
+        assert_eq!(steppable(""), Err(Refusal::Empty));
     }
 
     #[test]

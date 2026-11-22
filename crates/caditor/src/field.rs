@@ -8,8 +8,8 @@ use caditor_expression::{
 };
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{
-    Align, Event, Id, Key, Label, Margin, Modifiers, Rect, Response, Stroke, StrokeKind, TextEdit,
-    Ui,
+    Align, CursorIcon, Event, Id, Key, Label, Margin, Modifiers, Rect, Response, Sense, Stroke,
+    StrokeKind, TextEdit, Ui,
     text::{CCursor, CCursorRange},
     vec2,
 };
@@ -37,6 +37,10 @@ pub fn text_inset() -> f32 {
 }
 
 const SUGGESTING: &str = "suggesting";
+const CAPTION_DRAG: &str = "caption-drag";
+const TENTHS_PER_STEP: f32 = 10.0;
+const FINE_TENTHS_PER_POINT: f32 = 1.0;
+const COARSE_TENTHS_PER_POINT: f32 = 100.0;
 const ASKED_FOCUS_KEY: &str = "asked-field-focus";
 const ASKED_FOCUS_PASSES: u64 = 30;
 
@@ -455,6 +459,35 @@ fn field<T, E: Display>(
         }
     }
 
+    let dragged = if value && !editing {
+        caption_drag(ui, id, &text)
+    } else {
+        Dragged::Still
+    };
+    let mut dragging = false;
+    let mut drag_ended = false;
+    let mut drag_cancelled = false;
+
+    match dragged {
+        Dragged::Still => {}
+        Dragged::Moved(next) => {
+            dragging = true;
+            stepped |= next != text;
+            text = next;
+        }
+        Dragged::Released(next) => {
+            drag_ended = true;
+            stepped |= next != text;
+            text = next;
+        }
+        Dragged::Cancelled(start) => {
+            drag_ended = true;
+            drag_cancelled = true;
+            stepped |= !reverts && start != text;
+            text = start;
+        }
+    }
+
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
@@ -500,7 +533,7 @@ fn field<T, E: Display>(
 
     let changed = response.changed() || stepped;
     let edited = changed.then(|| text.trim().to_owned());
-    let typing = (focused && text.trim() != stored).then(|| text.trim().to_owned());
+    let typing = ((focused || dragging) && text.trim() != stored).then(|| text.trim().to_owned());
 
     if changed {
         draft = Some(Draft {
@@ -517,12 +550,13 @@ fn field<T, E: Display>(
         });
     }
 
-    let left = response.lost_focus() && !completed.held;
+    let left = (response.lost_focus() && !completed.held) || drag_ended;
     let mut committed = None;
 
     if left {
-        let reverted =
-            reverts && ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape));
+        let reverted = reverts
+            && (drag_cancelled
+                || ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape)));
         if reverted || text.trim() == stored {
             draft = None;
         } else {
@@ -566,6 +600,158 @@ fn field<T, E: Display>(
         left,
         response,
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pace {
+    Fine,
+    Plain,
+    Coarse,
+}
+
+impl Pace {
+    fn of(modifiers: Modifiers) -> Self {
+        if modifiers.command {
+            Self::Fine
+        } else if modifiers.shift {
+            Self::Coarse
+        } else {
+            Self::Plain
+        }
+    }
+
+    fn tenths_per_point(self) -> f32 {
+        match self {
+            Self::Fine => FINE_TENTHS_PER_POINT,
+            Self::Plain => TENTHS_PER_STEP,
+            Self::Coarse => COARSE_TENTHS_PER_POINT,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Moving {
+    start: String,
+    anchor: f32,
+    before_anchor: f32,
+    pace: Pace,
+    finer: bool,
+}
+
+impl Moving {
+    fn to(&mut self, x: f32, pace: Pace) -> String {
+        if pace != self.pace {
+            self.before_anchor += (x - self.anchor) * self.pace.tenths_per_point();
+            self.anchor = x;
+            self.pace = pace;
+        }
+        if pace == Pace::Fine && !self.finer {
+            self.before_anchor = (self.before_anchor / TENTHS_PER_STEP).round() * TENTHS_PER_STEP;
+            self.finer = true;
+        }
+
+        let tenths = self.before_anchor + (x - self.anchor) * pace.tenths_per_point();
+        let steps = if self.finer {
+            tenths
+        } else {
+            tenths / TENTHS_PER_STEP
+        };
+
+        stepping::step_by(&self.start, steps.round() as i128, self.finer)
+            .unwrap_or_else(|_| self.start.clone())
+    }
+}
+
+#[derive(Clone, Debug)]
+enum CaptionDrag {
+    Moving(Moving),
+    Cancelled,
+}
+
+#[derive(Debug)]
+enum Dragged {
+    Still,
+    Moved(String),
+    Released(String),
+    Cancelled(String),
+}
+
+fn caption_drag(ui: &Ui, id: Id, text: &str) -> Dragged {
+    let Some(caption) = widgets::row_caption(ui) else {
+        return Dragged::Still;
+    };
+    let key = id.with(CAPTION_DRAG);
+    let held = ui.data(|data| data.get_temp::<CaptionDrag>(key));
+    let refusal = stepping::steppable(text).err().filter(|_| held.is_none());
+    let sense = if refusal.is_some() {
+        Sense::hover()
+    } else {
+        Sense::DRAG
+    };
+
+    let area = ui.interact(caption, key, sense);
+
+    if let Some(refusal) = refusal {
+        area.on_hover_text(refusal.drag_message());
+        return Dragged::Still;
+    }
+    if area.hovered() || area.dragged() {
+        ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+    }
+
+    let (pointer, origin, modifiers) = ui.input(|input| {
+        (
+            input.pointer.latest_pos(),
+            input.pointer.press_origin(),
+            input.modifiers,
+        )
+    });
+    let pace = Pace::of(modifiers);
+
+    let started = area
+        .drag_started()
+        .then_some(origin.or(pointer))
+        .flatten()
+        .map(|origin| {
+            CaptionDrag::Moving(Moving {
+                start: text.to_owned(),
+                anchor: origin.x,
+                before_anchor: 0.0,
+                pace,
+                finer: false,
+            })
+        });
+    let released = area.drag_stopped();
+    let ended = released || !area.dragged();
+
+    let Some(CaptionDrag::Moving(mut moving)) = started.or(held) else {
+        if ended {
+            ui.data_mut(|data| data.remove::<CaptionDrag>(key));
+        }
+        return Dragged::Still;
+    };
+
+    let escaped = ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape));
+
+    if escaped || (ended && !released) {
+        ui.data_mut(|data| {
+            if ended {
+                data.remove::<CaptionDrag>(key);
+            } else {
+                data.insert_temp(key, CaptionDrag::Cancelled);
+            }
+        });
+        return Dragged::Cancelled(moving.start);
+    }
+
+    let next = moving.to(pointer.map_or(moving.anchor, |pointer| pointer.x), pace);
+
+    if ended {
+        ui.data_mut(|data| data.remove::<CaptionDrag>(key));
+        return Dragged::Released(next);
+    }
+    ui.data_mut(|data| data.insert_temp(key, CaptionDrag::Moving(moving)));
+    Dragged::Moved(next)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1588,6 +1774,25 @@ mod tests {
                 "{text:?} is wrong"
             );
         }
+    }
+
+    #[test]
+    fn a_caption_drag_counts_points_at_the_pace_its_modifiers_give() {
+        let mut moving = Moving {
+            start: "12 mm".to_owned(),
+            anchor: 100.0,
+            before_anchor: 0.0,
+            pace: Pace::Plain,
+            finer: false,
+        };
+
+        assert_eq!(moving.to(103.0, Pace::Plain), "15 mm");
+        assert_eq!(moving.to(104.0, Pace::Coarse), "16 mm");
+        assert_eq!(moving.to(106.0, Pace::Coarse), "36 mm");
+        assert_eq!(moving.to(106.0, Pace::Fine), "36.0 mm");
+        assert_eq!(moving.to(103.0, Pace::Fine), "35.7 mm");
+        assert_eq!(moving.to(100.0, Pace::Plain), "35.4 mm");
+        assert_eq!(moving.to(90.0, Pace::Plain), "25.4 mm");
     }
 
     #[test]
