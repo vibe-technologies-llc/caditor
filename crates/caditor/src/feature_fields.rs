@@ -334,10 +334,7 @@ fn expression_row_with<E: Display>(
         });
 
         if field.error.is_none()
-            && let Some(problem) = &problem
-        {
-            problem.show(ui);
-        } else if field.error.is_none()
+            && problem.is_none()
             && let Some(preview) = field::value_preview(parameters, shown, unit)
         {
             ui.add(Label::new(widgets::muted(preview, ui)).wrap_mode(TextWrapMode::Extend));
@@ -349,14 +346,16 @@ fn expression_row_with<E: Display>(
             (false, false, Some(text)) => validate(&text).ok().map(Some),
         };
         let removed = trailing(ui);
-        (field.committed, field.error, draft, removed)
+        (field.committed, field.error, problem, draft, removed)
     });
     let hovered = row.response.contains_pointer();
-    let (committed, error, draft, removed) = row.inner;
+    let (committed, error, problem, draft, removed) = row.inner;
 
     ui.end_row();
     if let Some(error) = error {
         widgets::error_row(ui, &error);
+    } else if let Some(problem) = problem {
+        problem.row(ui);
     }
     if ui.memory(|memory| memory.has_focus(quantity.id)) {
         draft_failure_row(ui, model, quantity.feature);

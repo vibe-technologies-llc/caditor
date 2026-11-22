@@ -4,7 +4,7 @@ use caditor_document::{Document, FeatureId, FixTarget, TreeRow};
 use caditor_expression::ParameterId;
 use caditor_geometry::Point3;
 use caditor_sketch::ConstraintId;
-use egui::Id;
+use egui::{Event, Id, InputState};
 
 use crate::{
     appearance::{SPACE_L, SPACE_S},
@@ -406,8 +406,11 @@ impl PanelState {
         )
     }
 
-    fn begin_frame(&mut self) {
+    fn begin_frame(&mut self, user_acted: bool) {
         self.reference_rows.begin_frame();
+        if user_acted {
+            self.revealing = None;
+        }
         self.revealing = self.revealing.and_then(|pending| {
             pending
                 .frames_left
@@ -429,6 +432,19 @@ impl PanelState {
     }
 }
 
+fn user_acted(input: &InputState) -> bool {
+    input.events.iter().any(|event| {
+        matches!(
+            event,
+            Event::Key { pressed: true, .. }
+                | Event::Text(_)
+                | Event::Paste(_)
+                | Event::PointerButton { pressed: true, .. }
+                | Event::MouseWheel { .. }
+        )
+    })
+}
+
 pub fn show(
     ui: &mut egui::Ui,
     model: &Model,
@@ -438,7 +454,7 @@ pub fn show(
     room: f32,
     actions: &mut Vec<Action>,
 ) {
-    state.begin_frame();
+    state.begin_frame(ui.input(user_acted));
 
     let pointer_held =
         ui.input(|input| input.pointer.primary_down() || input.pointer.primary_released());

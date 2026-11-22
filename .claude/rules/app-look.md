@@ -712,7 +712,9 @@ paths:
   rows near view format a description or a value.
 - Revealing a row or its edited card (`scroll_into_view`) scrolls it in by the least distance, except
   a card taller than the visible panel, which aligns its top so the status and count pills above its
-  sections are never scrolled away.
+  sections are never scrolled away. A reveal ends early at the user's first key, text, paste,
+  press or wheel (`panels::user_acted`), so a card growing while it is typed in (a live problem row)
+  never scrolls the field or its open suggestion list out from under the pointer.
 - Kind icons are tinted by category (sketches accent, bodies and modifiers text, datums muted;
   inactive or hidden rows muted). A failure shows once, as the status icon and its callout, never by
   recolouring the icon or name; an outdated row the same with a Recompute button. A row a running

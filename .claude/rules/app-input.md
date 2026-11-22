@@ -126,8 +126,11 @@ paths:
   value itself reads. `field::typed_preview` shows `= value` under a text that is an expression.
   The same spot tells a typed text that does not read, in Enter's own words (`field::typed_problem`
   runs the caller's parse, so there is no second parser): `FieldResponse::typing` is the focused
-  field's text while it differs from the stored one, and the feature rows (`expression_row_with`)
-  and the Scale model factor show `field::Problem` in place of the preview. Every other
+  field's text while it differs from the stored one. The Scale model factor shows `field::Problem`
+  in place of the preview; the feature rows (`expression_row_with`) drop the preview beside the
+  field and show it as a grid row under it (`Problem::row`), where the field's error goes, since a
+  note wrapping beside the field in the property grid lays out differently each frame and moves
+  the field and its open suggestion list away from a click on them. Every other
   `value_field` calls `FieldResponse::problem(ui, document, enter)` with the very closure it hands
   the field as its Enter check, so a refusal that comes from the model (a dimension that cannot be
   made, a limit out of range) is told as Enter tells it; the answer is kept per typed text, so the
