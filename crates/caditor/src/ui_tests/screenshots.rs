@@ -876,9 +876,7 @@ fn cloud_send_scenes(gpu: &Gpu, out: &Path, look: Look) {
     harness.click(export::FUSION_LABEL);
     harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
     harness.click("Parts");
-    harness.wait_until("the folder is listed", |harness| {
-        harness.shows("Send and open in Fusion 360")
-    });
+    harness.tab_until_shown("Send and open in Fusion 360");
     harness.click("Send and open in Fusion 360");
     harness.wait_until("the name is asked", |harness| {
         harness.shows("Send and open")

@@ -208,6 +208,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
+- [medium · medium] At an interface scale of 200% the signed-in Home's service header
+  (`home.rs`, `cloud_header`) overlaps and clips: the "Fusion 360" title and its hub and account
+  detail run into the Refresh button, and "Sign out" is cut off at the page's right edge, because
+  `Sides` lays both groups on one line that does not wrap. Let the header wrap its buttons under the
+  title when the width runs out; the ignored `screenshots` test's `home-signed-in-dark-200.png`
+  shows it.
 - [low · medium] When the storage worker cannot be started (no thread can be spawned), Save says to
   try again every time (`model.rs`, `restart_storage`) and has no fallback; a contained
   synchronous save, worded as slow, would still save.

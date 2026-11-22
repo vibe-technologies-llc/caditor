@@ -21,7 +21,9 @@ use egui::{Key, Modifiers, accesskit::Role};
 use jiff::Timestamp;
 use tempfile::TempDir;
 
-use super::{FILE_TIMEOUT, Harness, extruded_plate, no_wake, run_from_palette, sample_document};
+use super::{
+    FILE_TIMEOUT, Harness, Wheel, extruded_plate, no_wake, run_from_palette, sample_document,
+};
 use crate::{
     app::Workspace as App,
     browser::OpenError,
@@ -278,9 +280,7 @@ pub(super) fn open_home(harness: &mut Harness) {
 }
 
 pub(super) fn sign_in(harness: &mut Harness) {
-    harness.wait_until("the sign-in button is shown", |harness| {
-        harness.shows(home::SIGN_IN)
-    });
+    harness.tab_until_shown(home::SIGN_IN);
     harness.click(home::SIGN_IN);
     harness.wait_until("signed in", |harness| {
         harness.workspace.cloud.linked(Service::Fusion).is_some()
@@ -473,6 +473,25 @@ fn signed_out_home_advertises_fusion_and_asks_nothing_of_the_network() {
     assert!(harness.shows(home::TURN_OFF));
     assert!(harness.shows(home::MANAGE));
     assert!(provider.calls().is_empty());
+}
+
+#[test]
+fn the_mouse_wheel_scrolls_home_to_the_sign_in_button_at_200_percent() {
+    let dir = TempDir::new().unwrap();
+    let provider = fusion_provider(b"");
+
+    let mut harness = with_cloud(dir.path(), &provider);
+
+    harness.context.set_zoom_factor(2.0);
+    open_home(&mut harness);
+
+    let over = harness.position_of(home::TITLE);
+
+    assert!(!harness.fully_shown(home::SIGN_IN));
+
+    harness.wheel_until_shown(over, home::SIGN_IN, Wheel::Down);
+
+    assert!(harness.fully_shown(home::SIGN_IN));
 }
 
 #[test]

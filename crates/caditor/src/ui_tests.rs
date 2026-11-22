@@ -236,6 +236,7 @@ const FRAME_SECONDS: f64 = 0.05;
 const ANIMATION_FRAMES: usize = 5;
 const STEADY_TRIES: usize = 100;
 const WHEEL_TRIES: usize = 40;
+const TAB_TRIES: usize = 120;
 const WHEEL_STEP: f32 = 60.0;
 
 #[derive(Clone, Copy, Debug)]
@@ -1331,6 +1332,19 @@ impl Harness {
             self.let_animations_finish();
         }
         panic!("'{label}' never came into view");
+    }
+
+    fn tab_until_shown(&mut self, label: &str) {
+        self.frame();
+        for _ in 0..TAB_TRIES {
+            if self.fully_shown(label) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+            self.key(Key::Tab, Modifiers::NONE);
+            self.let_animations_finish();
+        }
+        panic!("'{label}' never came into view by Tab");
     }
 
     fn panel_rect(&self, id: &str) -> Rect {

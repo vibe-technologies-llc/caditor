@@ -209,6 +209,7 @@ pub fn show(ctx: &egui::Context, area: Rect, view: &HomeView<'_>) -> Vec<Choice>
         .constrain(false)
         .show(ctx, |ui| {
             ui.set_clip_rect(area);
+            ui.allocate_rect(area, Sense::hover());
             ui.painter().rect_filled(area, 0.0, tokens.panel);
             ui.interact(
                 area,
