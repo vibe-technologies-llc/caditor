@@ -48,7 +48,8 @@ paths:
   harness over the sample model, in four shares that run in parallel: none may panic, none may be
   unavailable with an empty reason, and each window one opens (found by the new visible layers)
   is laid out again at 75% and 200% and must stay on screen, with no text cut at the side by its
-  clip and no two texts overlapping. Side panels are not windows; `large_interface.rs` covers them.
+  clip and no two texts overlapping. Side panels and Home's page (`home::page_id`, a page over the
+  view rather than a window) are not windows; `large_interface.rs` covers the panels.
 - `ui_tests/button_sweep.rs` clicks every enabled, fully visible button (by accessible name, once
   each) in the idle sample model and in the sketch editor, each in a fresh harness: none may
   panic, and the dropped-command guard above does the rest, so a button whose command nothing reads

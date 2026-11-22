@@ -199,11 +199,15 @@ pub struct HomeView<'a> {
     pub now: Timestamp,
 }
 
+pub fn page_id() -> Id {
+    Id::unique("home page")
+}
+
 pub fn show(ctx: &egui::Context, area: Rect, view: &HomeView<'_>) -> Vec<Choice> {
     let mut choices = Vec::new();
     let tokens = appearance::tokens_of(ctx);
 
-    Area::new(Id::unique("home page"))
+    Area::new(page_id())
         .order(Order::Middle)
         .fixed_pos(area.min)
         .constrain(false)

@@ -7,7 +7,7 @@ use super::{
     large_interface::{SLACK, overlaps, shown_within},
     sample_document,
 };
-use crate::{app::Workspace, commands::Command};
+use crate::{app::Workspace, commands::Command, home};
 
 const SHARES: usize = 4;
 const SMALLEST: f32 = 0.75;
@@ -31,6 +31,7 @@ fn layers(harness: &Harness) -> Vec<(LayerId, Rect)> {
             .areas()
             .visible_layer_ids()
             .into_iter()
+            .filter(|layer| layer.id != home::page_id())
             .filter_map(|layer| Some((layer, memory.area_rect(layer.id)?)))
             .collect()
     })
