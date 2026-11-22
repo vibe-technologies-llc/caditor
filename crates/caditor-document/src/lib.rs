@@ -354,6 +354,8 @@ mod model_scale_tests;
 #[cfg(test)]
 mod modelled_thread_tests;
 #[cfg(test)]
+mod move_check_tests;
+#[cfg(test)]
 mod move_face_tests;
 #[cfg(test)]
 mod movement_tests;

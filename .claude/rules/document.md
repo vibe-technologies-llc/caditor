@@ -66,8 +66,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   by any change to the list or to a feature's name or kind. The users of each ID by `features()`
   (`users_of`, present or not) are gathered on first ask, then kept by inserts and removals and
   forgotten by any change to a feature's name or kind, so loading and `transaction_to`, which
-  insert every feature, stay linear. The measurements of each parameter (`measurements_of`,
-  `measures_nothing`) and the features whose kind uses it (`reading`) are kept the same way. Edits of what no index reads (hidden, suppressed, appearance,
+  insert every feature, stay linear. The features tied to each maker for moves (`tied_to`: the
+  makers of `dependencies`, `bodies_used` and `consumed_bodies`, itself included) and those
+  consuming a body of it (`consuming`) are kept the same way. The measurements of each parameter
+  (`measurements_of`, `measures_nothing`) and the features whose kind uses it (`reading`) are kept
+  the same way. Edits of what no index reads (hidden, suppressed, appearance,
   group, pieces, their looks and stand-ins) go through `FeatureList::unindexed_by_id`, which hands
   out only those fields and keeps every index: an import's appearance and group edits between its
   inserts once rebuilt the name and use indexes at each insert, 1.4 s on a 3,970-body import.
@@ -433,9 +436,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   bar is rolled back or forward. A refused place returns `AboveDependency` or `BelowDependent`
   naming the feature in the way, or `BelowConsumer` or `AboveConsumedUse` when a feature using a
   body (`bodies_used`) would come below the Combine consuming it. `Document::check_moves` holds
-  these checks, each `MoveFeature` judged in the state the steps before it leave, then checks the
-  transaction as `check` does; the plain edit refuses only the invariant part, so undoing a move
-  that lifted a feature above one holding its faces (left there by an insert) puts it back.
+  these checks, each `MoveFeature` judged in the state the steps before it leave, on one clone it
+  then holds to the record bound as `apply` does; the plain edit refuses only the invariant part,
+  so undoing a move that lifted a feature above one holding its faces (left there by an insert)
+  puts it back.
+- A move is judged against its ties alone (`edit/moves.rs`), never by walking the tree: what it
+  uses through `Readings` and the indexes above (`users_of` for the plain edit, `tied_to` and
+  `consuming` for `check_moves`, `reading_users` of a measurement's parameter), each placed by
+  position and the first in tree order on the wrong side named. `check_moves` builds those indexes
+  on the document before cloning it (`FeatureList::index_ties`), so a drag reuses them and
+  `move_check_tests.rs` bounds a drag of folders through a large tree by `tally`.
 - `move_features` moves several to one gap in tree order as `MoveFeature`s ordered so no step
   passes a feature over one it uses that is moving too: those below the gap rise first, each right
   under it, then those above sink in reverse. Each step is checked like a single move.

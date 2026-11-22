@@ -1,3 +1,4 @@
+mod moves;
 mod sketch;
 
 use std::{
@@ -9,6 +10,7 @@ use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_n
 use caditor_geometry::{Plane, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Gear, SketchError, Text};
 
+use self::moves::Tie;
 use crate::{
     attachment::SketchAttachment,
     blend::ChamferForm,
@@ -784,8 +786,6 @@ fn check_storable(raw: u64) -> Result<(), EditError> {
     Ok(())
 }
 
-type Relation = fn(&mut Readings, &Document, &FeatureKind) -> BTreeSet<FeatureId>;
-
 #[derive(Clone, Copy, Debug)]
 enum FollowedValue {
     Parameter(ParameterId),
@@ -1053,11 +1053,9 @@ impl Document {
             }
         }
 
-        let records = self.records();
-
-        if records > MAX_RECORDS && records > before.records() {
+        if let Err(error) = self.check_records(&before) {
             *self = before;
-            return Err(EditError::TooManyRecords { records });
+            return Err(error);
         }
 
         inverse.reverse();
@@ -1068,11 +1066,22 @@ impl Document {
         self.parameters().len() + self.features().len()
     }
 
+    fn check_records(&self, before: &Self) -> Result<(), EditError> {
+        let records = self.records();
+
+        if records > MAX_RECORDS && records > before.records() {
+            return Err(EditError::TooManyRecords { records });
+        }
+        Ok(())
+    }
+
     pub fn check(&self, transaction: &Transaction) -> Result<(), EditError> {
         self.clone().apply(transaction.clone()).map(|_| ())
     }
 
     pub fn check_moves(&self, transaction: &Transaction) -> Result<(), EditError> {
+        self.features.index_ties();
+
         let mut document = self.clone();
         let mut graph = ParameterGraph::default();
 
@@ -1082,7 +1091,7 @@ impl Document {
             }
             document.apply_edit(edit.clone(), &mut graph)?;
         }
-        self.check(transaction)
+        document.check_records(self)
     }
 
     fn apply_edit(&mut self, edit: Edit, graph: &mut ParameterGraph) -> Result<Edit, EditError> {
@@ -2188,99 +2197,9 @@ impl Document {
         if index >= self.features.len() {
             return Err(EditError::OutOfRange(index));
         }
-        self.check_passing(id, index, Readings::features_read_by, readings)?;
+        self.check_passing(id, index, Tie::Use, readings)?;
         self.features.move_to(from, index);
         Ok(Edit::MoveFeature { id, index: from })
-    }
-
-    fn check_passing(
-        &self,
-        id: FeatureId,
-        index: usize,
-        relation: Relation,
-        readings: &mut Readings,
-    ) -> Result<(), EditError> {
-        let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
-        let name = moving.name.clone();
-
-        let mut uses = relation(readings, self, &moving.kind);
-
-        uses.remove(&id);
-
-        let others: Vec<&Feature> = self.features().filter(|other| other.id() != id).collect();
-        let (above, below) = others.split_at(index.min(others.len()));
-
-        if let Some(needed) = below.iter().find(|other| uses.contains(&other.id())) {
-            return Err(EditError::AboveDependency {
-                name,
-                other: needed.name.clone(),
-            });
-        }
-        if let Some(user) = above
-            .iter()
-            .find(|other| relation(readings, self, &other.kind).contains(&id))
-        {
-            return Err(EditError::BelowDependent {
-                name,
-                other: user.name.clone(),
-            });
-        }
-        Ok(())
-    }
-
-    fn check_move_order(
-        &self,
-        id: FeatureId,
-        index: usize,
-        readings: &mut Readings,
-    ) -> Result<(), EditError> {
-        self.check_passing(id, index, Readings::dependencies_of, readings)?;
-
-        let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
-        let name = moving.name.clone();
-        let others: Vec<&Feature> = self.features().filter(|other| other.id() != id).collect();
-        let (above, below) = others.split_at(index.min(others.len()));
-        let consumed = moving.kind.consumed_bodies();
-
-        let used: Vec<FeatureId> = moving
-            .kind
-            .bodies_used()
-            .into_iter()
-            .filter(|body| !consumed.contains(body))
-            .collect();
-        let consuming_one_of = |other: &Feature, bodies: &[FeatureId]| {
-            other
-                .kind
-                .consumed_bodies()
-                .into_iter()
-                .find(|body| bodies.contains(body))
-        };
-
-        if let Some((consumer, body)) = above
-            .iter()
-            .find_map(|other| Some((other, consuming_one_of(other, &used)?)))
-        {
-            return Err(EditError::BelowConsumer {
-                name,
-                other: consumer.name.clone(),
-                body: self.feature_name(body),
-            });
-        }
-        if let Some((user, body)) = below.iter().find_map(|other| {
-            let body = other
-                .kind
-                .bodies_used()
-                .into_iter()
-                .find(|body| consumed.contains(body))?;
-            Some((other, body))
-        }) {
-            return Err(EditError::AboveConsumedUse {
-                name,
-                other: user.name.clone(),
-                body: self.feature_name(body),
-            });
-        }
-        Ok(())
     }
 
     fn feature_name(&self, id: FeatureId) -> String {

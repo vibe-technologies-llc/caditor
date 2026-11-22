@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ops::Deref,
     sync::{Arc, OnceLock},
 };
@@ -35,6 +35,8 @@ struct Index {
     by_body: OnceLock<Arc<BTreeMap<FeatureId, Vec<FeatureId>>>>,
     by_name: OnceLock<Arc<BTreeMap<String, Vec<FeatureId>>>>,
     by_use: Grouped<FeatureId>,
+    by_tie: Grouped<FeatureId>,
+    by_consumed: Grouped<FeatureId>,
     by_measured: Grouped<ParameterId>,
     by_parameter: Grouped<ParameterId>,
 }
@@ -84,6 +86,26 @@ impl FeatureList {
         lookup(&self.index.by_use, &self.items, features_used, &used)
     }
 
+    pub fn tied_to(&self, maker: FeatureId) -> &[FeatureId] {
+        lookup(&self.index.by_tie, &self.items, makers_tied, &maker)
+    }
+
+    pub fn consuming(&self, maker: FeatureId) -> &[FeatureId] {
+        lookup(
+            &self.index.by_consumed,
+            &self.items,
+            makers_consumed,
+            &maker,
+        )
+    }
+
+    pub fn index_ties(&self) {
+        built(&self.index.by_use, &self.items, features_used);
+        built(&self.index.by_tie, &self.items, makers_tied);
+        built(&self.index.by_consumed, &self.items, makers_consumed);
+        built(&self.index.by_measured, &self.items, parameter_measured);
+    }
+
     pub fn measurements_of(&self, parameter: ParameterId) -> &[FeatureId] {
         lookup(
             &self.index.by_measured,
@@ -94,10 +116,7 @@ impl FeatureList {
     }
 
     pub fn measures_nothing(&self) -> bool {
-        self.index
-            .by_measured
-            .get_or_init(|| Arc::new(grouped(&self.items, parameter_measured)))
-            .is_empty()
+        built(&self.index.by_measured, &self.items, parameter_measured).is_empty()
     }
 
     pub fn reading(&self, parameter: ParameterId) -> &[FeatureId] {
@@ -115,6 +134,8 @@ impl FeatureList {
         self.index.by_body = OnceLock::new();
         self.index.by_name = OnceLock::new();
         self.index.by_use = OnceLock::new();
+        self.index.by_tie = OnceLock::new();
+        self.index.by_consumed = OnceLock::new();
         self.index.by_measured = OnceLock::new();
         self.index.by_parameter = OnceLock::new();
         self.items.get_mut(index)
@@ -153,6 +174,8 @@ impl FeatureList {
                 .push(feature.id());
         }
         enter(&mut self.index.by_use, &feature, features_used);
+        enter(&mut self.index.by_tie, &feature, makers_tied);
+        enter(&mut self.index.by_consumed, &feature, makers_consumed);
         enter(&mut self.index.by_measured, &feature, parameter_measured);
         enter(&mut self.index.by_parameter, &feature, parameters_used);
         self.items.insert(index, feature);
@@ -177,6 +200,8 @@ impl FeatureList {
             }
         }
         leave(&mut self.index.by_use, &feature, features_used);
+        leave(&mut self.index.by_tie, &feature, makers_tied);
+        leave(&mut self.index.by_consumed, &feature, makers_consumed);
         leave(&mut self.index.by_measured, &feature, parameter_measured);
         leave(&mut self.index.by_parameter, &feature, parameters_used);
         self.reindex(index, self.items.len());
@@ -222,6 +247,28 @@ fn features_used(feature: &Feature) -> impl Iterator<Item = FeatureId> + use<> {
         .filter(move |used| *used != id)
 }
 
+fn makers_tied(feature: &Feature) -> impl Iterator<Item = FeatureId> + use<> {
+    let kind = &feature.kind;
+    let mut tied = kind.dependencies();
+
+    tied.extend(kind.bodies_used());
+    tied.extend(kind.consumed_bodies());
+    tied.into_iter()
+        .map(FeatureId::maker)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+}
+
+fn makers_consumed(feature: &Feature) -> impl Iterator<Item = FeatureId> + use<> {
+    feature
+        .kind
+        .consumed_bodies()
+        .into_iter()
+        .map(FeatureId::maker)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+}
+
 fn parameter_measured(feature: &Feature) -> impl Iterator<Item = ParameterId> + use<> {
     feature
         .kind
@@ -240,10 +287,17 @@ fn lookup<'a, K: Ord, I: Iterator<Item = K>>(
     keys: fn(&Feature) -> I,
     key: &K,
 ) -> &'a [FeatureId] {
-    index
-        .get_or_init(|| Arc::new(grouped(items, keys)))
+    built(index, items, keys)
         .get(key)
         .map_or(&[], Vec::as_slice)
+}
+
+fn built<'a, K: Ord, I: Iterator<Item = K>>(
+    index: &'a Grouped<K>,
+    items: &[Arc<Feature>],
+    keys: fn(&Feature) -> I,
+) -> &'a BTreeMap<K, Vec<FeatureId>> {
+    index.get_or_init(|| Arc::new(grouped(items, keys)))
 }
 
 fn grouped<K: Ord, I: Iterator<Item = K>>(
@@ -311,8 +365,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        Between, Datum, DatumPoint, MeasuredItem, Measurement, PlaneReference, PointReference,
-        PrincipalPlane, Reading, document::FeatureKind, removal::Remove,
+        Between, Datum, DatumPoint, MeasuredItem, Measurement, PieceKey, PlaneReference,
+        PointReference, PrincipalPlane, Reading, document::FeatureKind, removal::Remove,
     };
 
     fn feature(raw: u64) -> Arc<Feature> {
@@ -463,6 +517,56 @@ mod tests {
         assert_eq!(inserted, (vec![1, 2], vec![3]));
         assert_eq!(removed, [2]);
         assert_eq!(changed, (vec![2, 3], vec![]));
+    }
+
+    fn tied_to(list: &FeatureList, maker: u64) -> Vec<u64> {
+        list.tied_to(FeatureId::from_raw(maker))
+            .iter()
+            .map(|id| id.raw())
+            .collect()
+    }
+
+    fn consuming(list: &FeatureList, maker: u64) -> Vec<u64> {
+        list.consuming(FeatureId::from_raw(maker))
+            .iter()
+            .map(|id| id.raw())
+            .collect()
+    }
+
+    #[test]
+    fn the_features_tied_to_a_maker_follow_inserts_removals_and_changed_kinds() {
+        let mut list = FeatureList::default();
+        let piece = FeatureId::from_raw(7)
+            .piece(PieceKey::from_raw(3))
+            .unwrap()
+            .raw();
+
+        list.insert(0, removal(1, 7));
+        list.insert(1, removal(2, piece));
+
+        let inserted = (tied_to(&list, 7), consuming(&list, 7));
+
+        list.insert(2, removal(3, 8));
+        list.move_to(2, 0);
+
+        let moved = (tied_to(&list, 8), consuming(&list, 8));
+
+        list.remove(1);
+
+        let removed = (tied_to(&list, 7), consuming(&list, 7));
+
+        if let Some(feature) = list.get_mut_by_id(FeatureId::from_raw(3)) {
+            Arc::make_mut(feature).kind = FeatureKind::Remove(Remove {
+                body: FeatureId::from_raw(7),
+            });
+        }
+
+        let changed = (tied_to(&list, 7), consuming(&list, 8));
+
+        assert_eq!(inserted, (vec![1, 2], vec![1, 2]));
+        assert_eq!(moved, (vec![3], vec![3]));
+        assert_eq!(removed, (vec![2], vec![2]));
+        assert_eq!(changed, (vec![3, 2], vec![]));
     }
 
     #[test]

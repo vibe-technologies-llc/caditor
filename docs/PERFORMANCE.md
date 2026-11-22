@@ -65,12 +65,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Document
 
-- [low · medium] Moving features rebuilds dependency sets for the whole tree three times over
-  (`edit.rs`: `check_passing` builds a relation for every other feature, through the apply's
-  `Readings`, `check_moves` runs `check_move_order`, applies, then `check` clones and applies
-  again), noticeable
-  when dragging folders in large trees. Use the `users_of` index and positions, and skip the second
-  check on the clone the move checks already ran on.
 - [low · medium] Unmeasured: every draft and cache task copies the cache's whole `ResultHistory`
   (`recompute.rs`, `draft_copy`; `history.rs`'s `Holdings` holds an entry per shared kernel buffer
   of every earlier result), and drafts are sent while a value is typed or dragged, so on the VZ330
