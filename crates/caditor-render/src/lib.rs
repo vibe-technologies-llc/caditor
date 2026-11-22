@@ -599,14 +599,12 @@ impl Renderer {
             return;
         }
 
-        let submission = self
-            .gpu
+        self.gpu
             .queue
             .submit(preceding.into_iter().chain([frame.encoder.finish()]));
 
         self.gpu.queue.present(frame.surface_texture);
-        self.viewport
-            .after_submit(&self.gpu.device, &self.wake, submission);
+        self.viewport.after_submit(&self.gpu.device, &self.wake);
     }
 
     pub fn poll_pick(&mut self) -> PickPoll {

@@ -3,8 +3,7 @@ use std::{
         Arc,
         mpsc::{self, Receiver, RecvError, Sender, TryRecvError},
     },
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use parking_lot::Mutex;
@@ -12,7 +11,7 @@ use parking_lot::Mutex;
 use crate::{
     SurfaceSize,
     camera::View,
-    gpu::{self, DeviceLoss, Wake},
+    gpu::{self, DeviceLoss, PolledUntil, Wake},
     scene::Scene,
     viewport::{ImagePlan, ViewportRenderer},
 };
@@ -21,7 +20,6 @@ pub const MAX_IMAGE_SIDE: u32 = 8192;
 pub const TILE_SIDE: u32 = 2048;
 pub const IMAGE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 pub const READBACK_BUFFERS: usize = 3;
-const MAPPING_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const MAPPING_DEADLINE: Duration = Duration::from_secs(60);
 const TEXEL_BYTES: u32 = 4;
 const OPAQUE: u8 = u8::MAX;
@@ -548,34 +546,30 @@ fn wait_until_mapped(
     poll: impl Fn() -> Result<(), wgpu::PollError>,
     limit: Duration,
 ) -> Result<(), ImageError> {
-    let deadline = Instant::now() + limit;
-    loop {
+    let finished = || {
         if let Some(outcome) = mapped.lock().take() {
-            return outcome.map_err(|error| {
+            return Some(outcome.map_err(|error| {
                 log::warn!("reading back an exported image failed: {error}");
                 ImageError::Readback
-            });
+            }));
         }
-        if loss.is_lost() {
-            return Err(ImageError::DeviceLost);
-        }
-        if let Err(error) = poll() {
+        loss.is_lost().then_some(Err(ImageError::DeviceLost))
+    };
+    match gpu::poll_until(poll, finished, limit) {
+        PolledUntil::Finished(outcome) => outcome,
+        PolledUntil::Failed(error) => {
             log::warn!("could not poll the graphics device for an exported image: {error}");
-            return Err(ImageError::Readback);
+            Err(ImageError::Readback)
         }
-        if mapped.lock().is_some() {
-            continue;
-        }
-        if Instant::now() >= deadline {
+        PolledUntil::TimedOut => {
             log::warn!(
                 "the graphics device did not map an exported image's tile within {} seconds",
                 limit.as_secs()
             );
-            return Err(ImageError::ReadbackTimedOut {
+            Err(ImageError::ReadbackTimedOut {
                 seconds: limit.as_secs(),
-            });
+            })
         }
-        thread::sleep(MAPPING_POLL_INTERVAL);
     }
 }
 

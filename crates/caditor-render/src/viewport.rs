@@ -1410,13 +1410,8 @@ impl ViewportRenderer {
         self.mesh_upload_bytes = bytes;
     }
 
-    pub fn after_submit(
-        &mut self,
-        device: &wgpu::Device,
-        wake: &Wake,
-        submission: wgpu::SubmissionIndex,
-    ) {
-        self.picking.after_submit(device, wake, submission);
+    pub fn after_submit(&mut self, device: &wgpu::Device, wake: &Wake) {
+        self.picking.after_submit(device, wake);
         if let Some(targets) = self.targets.as_mut() {
             targets.kept.holding.after_submit();
         }

@@ -5,7 +5,7 @@ use std::{
         mpsc,
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use ahash::AHashMap;
@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 
 use crate::{
     camera::View,
-    gpu::{self, Wake},
+    gpu::{self, PolledUntil, Wake},
     scene::{PickHit, PickId, PickResult},
 };
 
@@ -23,9 +23,7 @@ pub const ID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
 pub const DEPTH_VALUE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
 const TEXEL_BYTES: u32 = 4;
 const MAX_PICK_RADIUS: u32 = 63;
-const WAIT_SLICE: Duration = Duration::from_millis(50);
 const WAIT_LIMIT: Duration = Duration::from_secs(5);
-const IDLE_RECHECK: Duration = Duration::from_millis(1);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PickWindow {
@@ -79,7 +77,6 @@ type MapOutcome = Arc<Mutex<Option<Result<(), wgpu::BufferAsyncError>>>>;
 
 struct Awaited {
     device: wgpu::Device,
-    submission: wgpu::SubmissionIndex,
     settled: Arc<AtomicBool>,
 }
 
@@ -135,22 +132,14 @@ impl Drop for Waiter {
 
 impl Awaited {
     fn wait(&self, retired: &AtomicBool) {
-        let deadline = Instant::now() + WAIT_LIMIT;
-        while !self.settled.load(Ordering::Acquire)
-            && !retired.load(Ordering::Acquire)
-            && Instant::now() < deadline
-        {
-            let polled = self.device.poll(wgpu::PollType::Wait {
-                submission_index: Some(self.submission.clone()),
-                timeout: Some(WAIT_SLICE),
-            });
-            match polled {
-                Ok(_) => thread::sleep(IDLE_RECHECK),
-                Err(wgpu::PollError::Timeout) => {}
-                Err(error) => {
-                    log::warn!("could not wait for the pick readback: {error}");
-                    return;
-                }
+        let finished = || {
+            (self.settled.load(Ordering::Acquire) || retired.load(Ordering::Acquire)).then_some(())
+        };
+        let poll = || self.device.poll(wgpu::PollType::Poll).map(drop);
+        match gpu::poll_until(poll, finished, WAIT_LIMIT) {
+            PolledUntil::Finished(()) | PolledUntil::TimedOut => {}
+            PolledUntil::Failed(error) => {
+                log::warn!("could not poll for the pick readback: {error}");
             }
         }
     }
@@ -332,12 +321,7 @@ impl Picking {
         }
     }
 
-    pub fn after_submit(
-        &mut self,
-        device: &wgpu::Device,
-        wake: &Wake,
-        submission: wgpu::SubmissionIndex,
-    ) {
+    pub fn after_submit(&mut self, device: &wgpu::Device, wake: &Wake) {
         let Some(in_flight) = self.in_flight.as_mut() else {
             return;
         };
@@ -361,7 +345,6 @@ impl Picking {
 
         let awaited = Awaited {
             device: device.clone(),
-            submission,
             settled,
         };
 

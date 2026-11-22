@@ -1,6 +1,10 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
 };
 
 use glam::{Mat4, Vec3};
@@ -11,6 +15,38 @@ use crate::{
 };
 
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
+
+const POLL_INTERVAL: Duration = Duration::from_millis(1);
+
+#[derive(Debug)]
+pub(crate) enum PolledUntil<T> {
+    Finished(T),
+    TimedOut,
+    Failed(wgpu::PollError),
+}
+
+pub(crate) fn poll_until<T>(
+    poll: impl Fn() -> Result<(), wgpu::PollError>,
+    mut finished: impl FnMut() -> Option<T>,
+    limit: Duration,
+) -> PolledUntil<T> {
+    let deadline = Instant::now() + limit;
+    loop {
+        if let Some(outcome) = finished() {
+            return PolledUntil::Finished(outcome);
+        }
+        if let Err(error) = poll() {
+            return PolledUntil::Failed(error);
+        }
+        if let Some(outcome) = finished() {
+            return PolledUntil::Finished(outcome);
+        }
+        if Instant::now() >= deadline {
+            return PolledUntil::TimedOut;
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct DeviceLoss(Arc<AtomicBool>);
@@ -564,6 +600,8 @@ fn fitting_size(length: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
 
     #[test]
@@ -762,5 +800,54 @@ mod tests {
                 wgpu::Backend::Gl
             ]
         );
+    }
+
+    #[test]
+    fn polling_gives_up_at_its_limit_after_polling_at_least_once() {
+        let polls = AtomicUsize::new(0);
+
+        let ended = poll_until(
+            || {
+                polls.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            },
+            || None::<()>,
+            Duration::from_millis(20),
+        );
+
+        assert!(matches!(ended, PolledUntil::TimedOut));
+        assert!(polls.load(Ordering::Relaxed) > 0);
+    }
+
+    #[test]
+    fn polling_stops_once_the_work_has_finished() {
+        let polls = AtomicUsize::new(0);
+        let seen = AtomicUsize::new(0);
+
+        let ended = poll_until(
+            || {
+                polls.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            },
+            || (seen.fetch_add(1, Ordering::Relaxed) >= 3).then_some(7),
+            Duration::from_secs(5),
+        );
+
+        assert!(matches!(ended, PolledUntil::Finished(7)));
+        assert!(polls.load(Ordering::Relaxed) <= 2);
+    }
+
+    #[test]
+    fn a_failing_poll_ends_the_wait() {
+        let ended = poll_until(
+            || Err(wgpu::PollError::Timeout),
+            || None::<()>,
+            Duration::from_secs(5),
+        );
+
+        assert!(matches!(
+            ended,
+            PolledUntil::Failed(wgpu::PollError::Timeout)
+        ));
     }
 }

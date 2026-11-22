@@ -91,11 +91,12 @@ paths:
   bumping `Renderer::generation`. A `Frame` from an older generation, or drawn while the device is
   lost, is dropped by `submit`; a pick in flight polls `Failed`.
 - A pick readback is answered without the app polling: after `submit`, `Picking` maps the readback
-  buffer and hands the device, submission index and a settled flag to its helper thread
-  (`pick-readback`, started on the first pick), which blocks in `Device::poll` (`PollType::Wait`,
-  `WAIT_SLICE` steps) until the map callback ran, then calls the renderer's `Wake` (the renderer
-  knows nothing of winit). It gives up after `WAIT_LIMIT`, on a poll error, or when `Picking` is
-  dropped (its drop joins the thread), and wakes either way; `DeviceLoss` also wakes a lost device.
+  buffer and hands the device and a settled flag to its helper thread (`pick-readback`, started
+  on the first pick), which polls the device with `PollType::Poll` every millisecond
+  (`gpu::poll_until`, shared with image export; never wgpu's blocking wait, which on GL holds the
+  context the UI thread draws with) until the map callback ran, then calls the renderer's `Wake`
+  (the renderer knows nothing of winit). It gives up after `WAIT_LIMIT`, on a poll error, or when
+  `Picking` is dropped (its drop joins the thread), and wakes either way; `DeviceLoss` also wakes a lost device.
   `Picking::is_answered` and `poll` still poll the device themselves, the app's slow fallback timer
   (`app.md`).
 
@@ -648,8 +649,8 @@ paths:
 - Memory is a small multiple of one band (a row of tiles), never the image: `ImageTiles` (kept by
   the `Renderer`) draws tiles in rows from the top into at most `READBACK_BUFFERS` readback buffers,
   and `ImageBands` (`Send`, for the writer's thread) waits for each tile by polling the device every
-  millisecond (never wgpu's blocking wait, which on GL holds the context the UI thread draws with)
-  for at most `MAPPING_DEADLINE`, so a hang that never reports the device lost ends in
+  millisecond (`gpu::poll_until`, never wgpu's blocking wait, which on GL holds the context the UI
+  thread draws with) for at most `MAPPING_DEADLINE`, so a hang that never reports the device lost ends in
   `ReadbackTimedOut` instead of pinning the thread, copies it into the band, returns the buffer and
   wakes the app, whose next frame's `advance_image` draws the next tiles. A finished band is
   straightened and handed out whole rows at a time. Errors after the start reach the bands in

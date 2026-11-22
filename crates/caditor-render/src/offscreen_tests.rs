@@ -265,9 +265,9 @@ fn render_with(
         target.size(),
     );
 
-    let submission = queue.submit([encoder.finish()]);
+    queue.submit([encoder.finish()]);
 
-    renderer.after_submit(device, &no_wake(), submission);
+    renderer.after_submit(device, &no_wake());
     readback.map_async(wgpu::MapMode::Read, .., |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
 
@@ -1393,9 +1393,10 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_wakes_the_app_a
     let wake: crate::gpu::Wake = Arc::new(move || {
         counted.fetch_add(1, Ordering::SeqCst);
     });
-    let submission = queue.submit([encoder.finish()]);
 
-    renderer.picking().after_submit(&device, &wake, submission);
+    queue.submit([encoder.finish()]);
+
+    renderer.picking().after_submit(&device, &wake);
 
     let woken = (0..5_000).any(|_| {
         let woken = wakes.load(Ordering::SeqCst) > 0;
@@ -2781,11 +2782,9 @@ fn a_failed_readback_replaces_the_pick_buffer_and_the_next_pick_is_read() {
             Some(&frame),
         );
 
-        let submission = queue.submit([encoder.finish()]);
+        queue.submit([encoder.finish()]);
 
-        renderer
-            .picking()
-            .after_submit(&device, &no_wake(), submission);
+        renderer.picking().after_submit(&device, &no_wake());
         if lose_readback {
             renderer.picking().destroy_readback();
         }
@@ -4033,9 +4032,9 @@ impl<'a> Bench<'a> {
                 }),
             );
 
-            let submission = queue.submit([encoder.finish()]);
+            queue.submit([encoder.finish()]);
 
-            renderer.after_submit(device, &no_wake(), submission);
+            renderer.after_submit(device, &no_wake());
 
             let submitted = Instant::now();
 

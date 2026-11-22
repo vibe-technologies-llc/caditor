@@ -109,12 +109,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   up to 65 times per pointer move (`paint_selection.rs`), on the UI thread, as do the late click
   and the pick list (`viewport.rs`). Test `crosses_box` against placed bounds in `cap`, and keep CPU
   bounds per batch (as `BatchBounds` does on upload) to skip batches the widened ray misses.
-- [medium · small] On OpenGL the pick readback thread waits with `PollType::Wait` in 50 ms slices
-  (`picking.rs`), and wgpu-hal 30's GL `Device::wait` holds the context lock for the whole
-  timeout, so the UI thread's next acquire, uploads and submit wait for the GPU while a hover pick
-  is in flight: CPU and GPU stop overlapping on the backend weaker machines fall back to.
-  `render.md` already says image export polls for exactly this reason (`image.rs`); the pick
-  thread should poll the same way.
 - [low · small] The interference panel ranks, filters and sorts every checked pair two or three
   times per frame and joins every card's text for Copy whether or not it is pressed
   (`interference_panel.rs`, `ranked`, `unlisted`, called from `app.rs` for `show` and `marks`),

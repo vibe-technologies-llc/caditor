@@ -9599,10 +9599,11 @@ pub mod timing {
                 }),
             );
 
-            let submission = self.queue.submit([encoder.finish()]);
+            self.queue.submit([encoder.finish()]);
+
             let wake: caditor_render::Wake = Arc::new(|| {});
 
-            renderer.after_submit(&self.device, &wake, submission);
+            renderer.after_submit(&self.device, &wake);
 
             let submitted = Instant::now();
 
