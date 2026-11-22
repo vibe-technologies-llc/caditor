@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use caditor_geometry::{Aabb, Point3, Vector3};
 
@@ -259,25 +262,55 @@ fn classify_thin(
         )
 }
 
+#[derive(Default)]
 struct Components {
     parents: BTreeMap<FaceKey, FaceKey>,
+    sizes: BTreeMap<FaceKey, usize>,
 }
 
 impl Components {
-    fn root(&self, mut key: FaceKey) -> FaceKey {
-        while let Some(parent) = self.parents.get(&key)
-            && *parent != key
+    fn root(&mut self, key: FaceKey) -> FaceKey {
+        let mut root = key;
+
+        while let Some(parent) = self.parents.get(&root)
+            && *parent != root
         {
-            key = *parent;
+            root = *parent;
         }
-        key
+
+        let mut walked = key;
+
+        while walked != root {
+            let Some(parent) = self.parents.insert(walked, root) else {
+                break;
+            };
+
+            walked = parent;
+        }
+        root
+    }
+
+    fn size(&self, root: FaceKey) -> usize {
+        self.sizes.get(&root).copied().unwrap_or(1)
     }
 
     fn join(&mut self, first: FaceKey, second: FaceKey) {
         let (first, second) = (self.root(first), self.root(second));
-        if first != second {
-            self.parents.insert(first.max(second), first.min(second));
+
+        if first == second {
+            return;
         }
+
+        let (small, large) = match self.size(first).cmp(&self.size(second)) {
+            Ordering::Less => (first, second),
+            Ordering::Greater => (second, first),
+            Ordering::Equal => (first.max(second), first.min(second)),
+        };
+
+        let joined = self.size(small) + self.size(large);
+
+        self.parents.insert(small, large);
+        self.sizes.insert(large, joined);
     }
 }
 
@@ -292,9 +325,7 @@ fn untouched_components(
         .map(|face| face.key)
         .collect();
     let shared = arrangement.shared_pieces();
-    let mut components = Components {
-        parents: BTreeMap::new(),
-    };
+    let mut components = Components::default();
 
     for operand in Operand::BOTH {
         let solid = input.solid(operand);
@@ -433,7 +464,7 @@ pub(super) fn select(
     split: Vec<SplitFace>,
     operation: BooleanOperation,
 ) -> Result<Vec<KeptFace>, BooleanError> {
-    let components = untouched_components(input, arrangement, &split);
+    let mut components = untouched_components(input, arrangement, &split);
     let extents = Operand::BOTH.map(|operand| extent(input, operand));
     let [first_outlines, second_outlines] = Operand::BOTH.map(|operand| outlines(&split, operand));
     let shared = arrangement.shared_pieces();
@@ -514,4 +545,84 @@ pub(super) fn select(
         }
     }
     Ok(kept)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(index: usize) -> FaceKey {
+        FaceKey {
+            operand: Operand::First,
+            face: FaceId::from_index(index).unwrap(),
+        }
+    }
+
+    fn depth(components: &Components, mut face: FaceKey) -> usize {
+        let mut steps = 0;
+
+        while let Some(parent) = components.parents.get(&face)
+            && *parent != face
+        {
+            face = *parent;
+            steps += 1;
+        }
+        steps
+    }
+
+    fn chain_stays_shallow(order: impl Iterator<Item = usize>, length: usize) {
+        let mut components = Components::default();
+
+        for index in order {
+            components.join(key(index), key(index + 1));
+        }
+
+        let root = components.root(key(0));
+
+        for index in 0..=length {
+            assert_eq!(components.root(key(index)), root);
+        }
+
+        let deepest = (0..=length)
+            .map(|index| depth(&components, key(index)))
+            .max()
+            .unwrap();
+
+        assert!(deepest <= 1, "{deepest}");
+    }
+
+    #[test]
+    fn joins_in_either_chain_order_end_in_one_flat_component() {
+        chain_stays_shallow(0..4096, 4096);
+        chain_stays_shallow((0..4096).rev(), 4096);
+    }
+
+    #[test]
+    fn joins_stay_shallow_before_any_lookup() {
+        let mut components = Components::default();
+
+        for index in 0..4096 {
+            components.join(key(index), key(index + 1));
+        }
+
+        let deepest = (0..=4096)
+            .map(|index| depth(&components, key(index)))
+            .max()
+            .unwrap();
+
+        assert!(deepest <= 13, "{deepest}");
+    }
+
+    #[test]
+    fn separate_components_keep_separate_roots() {
+        let mut components = Components::default();
+
+        components.join(key(0), key(1));
+        components.join(key(2), key(3));
+
+        assert_eq!(components.root(key(0)), components.root(key(1)));
+        assert_eq!(components.root(key(2)), components.root(key(3)));
+        assert_ne!(components.root(key(0)), components.root(key(2)));
+        assert_eq!(components.root(key(9)), key(9));
+    }
 }

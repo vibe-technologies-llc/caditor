@@ -62,12 +62,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
   they bow past the chord (a quadtree) would keep the division local and find narrow features.
-- [low · small] Unmeasured, found by reading: the boolean's union-find (`boolean/select.rs`, `root`
-  and `join`) neither compresses paths nor joins by rank, so on a body of thousands of faces the
-  tool does not touch, root lookups can cost O(F²) map probes; and the tessellation grid
-  (`tessellation/face.rs`) adds a boundary segment to every bucket of its bounding box, so one long
-  straight edge running diagonally in uv across a 1024×1024 grid fills about a million buckets.
-  Compress paths, and rasterise segments along the cells they cross.
 
 ## Document
 

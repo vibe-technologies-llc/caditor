@@ -26,6 +26,7 @@ const JOINT_PARAMETER_GAP: f64 = 1e-6;
 const OFF_POLE_JOINT_PARAMETER_GAP: f64 = 1e-3;
 const GRID_CLEARANCE: f64 = 0.3;
 const GRID_NUDGE: f64 = 1e-6;
+const GRID_BAND_MARGIN: f64 = 1e-9;
 const BESIDE_SHARE: f64 = 1e-6;
 const TINY_COORDINATE: f64 = 1e-30;
 const MAX_GAP_PIECES: f64 = 4096.0;
@@ -876,6 +877,54 @@ fn close_gaps(points: Vec<BoundaryPoint>, density: &Density) -> Vec<BoundaryPoin
     closed
 }
 
+fn clamp_cell(value: f64, cells: usize) -> usize {
+    let index = value.floor();
+    if index.is_finite() && index > 0.0 {
+        (index as usize).min(cells.saturating_sub(1))
+    } else {
+        0
+    }
+}
+
+fn crossed_buckets(start: Point2, end: Point2, columns: usize, rows: usize) -> Vec<usize> {
+    let (low, high) = (start.min(end), start.max(end));
+
+    let (first_row, last_row) = (clamp_cell(low.y, rows), clamp_cell(high.y, rows));
+    let rise = end.y - start.y;
+    let slope = (end.x - start.x) / rise;
+    let rasterised = [start.x, start.y, end.x, end.y, slope]
+        .iter()
+        .all(|value| value.is_finite());
+    let x_at = |y: f64| start.x + (y - start.y) * slope;
+    let mut buckets = Vec::new();
+
+    for row in first_row..=last_row {
+        let (from, to) = if rasterised {
+            let band_low = if row == first_row {
+                low.y
+            } else {
+                (row as f64 - GRID_BAND_MARGIN).max(low.y)
+            };
+            let band_high = if row == last_row {
+                high.y
+            } else {
+                (row as f64 + 1.0 + GRID_BAND_MARGIN).min(high.y)
+            };
+
+            let (a, b) = (x_at(band_low), x_at(band_high));
+
+            (a.min(b) - GRID_BAND_MARGIN, a.max(b) + GRID_BAND_MARGIN)
+        } else {
+            (low.x, high.x)
+        };
+
+        for column in clamp_cell(from, columns)..=clamp_cell(to, columns) {
+            buckets.push(row * columns + column);
+        }
+    }
+    buckets
+}
+
 fn grid_points(
     loops: &[Vec<BoundaryPoint>],
     scaled: &Scaled,
@@ -896,22 +945,11 @@ fn grid_points(
         .collect();
 
     let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); columns * rows];
-    let clamp_cell = |value: f64, cells: usize| {
-        let index = value.floor();
-        if index.is_finite() && index > 0.0 {
-            (index as usize).min(cells - 1)
-        } else {
-            0
-        }
-    };
 
     for (index, (start, end)) in segments.iter().enumerate() {
-        let (low, high) = (start.min(*end), start.max(*end));
-        for column in clamp_cell(low.x, columns)..=clamp_cell(high.x, columns) {
-            for row in clamp_cell(low.y, rows)..=clamp_cell(high.y, rows) {
-                if let Some(bucket) = buckets.get_mut(row * columns + column) {
-                    bucket.push(index);
-                }
+        for bucket in crossed_buckets(*start, *end, columns, rows) {
+            if let Some(bucket) = buckets.get_mut(bucket) {
+                bucket.push(index);
             }
         }
     }
@@ -1209,4 +1247,81 @@ fn vertex_normal(
     surface
         .normal(nudged.x, nudged.y)
         .map_or(Vector3::ZERO, |normal| normal * flip)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+
+    fn crossed(start: (f64, f64), end: (f64, f64), columns: usize, rows: usize) -> BTreeSet<usize> {
+        crossed_buckets(
+            Point2::new(start.0, start.1),
+            Point2::new(end.0, end.1),
+            columns,
+            rows,
+        )
+        .into_iter()
+        .collect()
+    }
+
+    #[test]
+    fn long_diagonal_fills_cells_it_crosses_not_its_box() {
+        let size = 1024;
+        let buckets = crossed((0.5, 0.5), (1023.5, 1023.5), size, size);
+
+        assert!(buckets.len() <= 3 * size, "{}", buckets.len());
+        for cell in 0..size {
+            assert!(buckets.contains(&(cell * size + cell)));
+        }
+    }
+
+    #[test]
+    fn shallow_slope_holds_every_cell_sampled_along_it() {
+        let (columns, rows) = (64, 64);
+        let (start, end) = ((0.2, 3.7), (63.9, 40.3));
+
+        let buckets = crossed(start, end, columns, rows);
+
+        for step in 0..=20_000 {
+            let t = f64::from(step) / 20_000.0;
+            let x = start.0 + (end.0 - start.0) * t;
+            let y = start.1 + (end.1 - start.1) * t;
+
+            assert!(buckets.contains(&(y.floor() as usize * columns + x.floor() as usize)));
+        }
+    }
+
+    #[test]
+    fn passing_through_a_cell_corner_holds_every_touching_cell() {
+        let buckets = crossed((1.0, 1.0), (4.0, 4.0), 6, 6);
+
+        for corner in 1..=4_usize {
+            assert!(buckets.contains(&(corner * 6 + corner)));
+        }
+        for corner in 2..=4_usize {
+            assert!(buckets.contains(&((corner - 1) * 6 + corner - 1)));
+        }
+    }
+
+    #[test]
+    fn segments_along_grid_lines_stay_in_their_cells() {
+        let along_row = crossed((0.5, 3.0), (5.5, 3.0), 8, 8);
+        let along_column = crossed((3.0, 0.5), (3.0, 5.5), 8, 8);
+
+        for column in 0..=5 {
+            assert!(along_row.contains(&(3 * 8 + column)));
+        }
+        for row in 0..=5 {
+            assert!(along_column.contains(&(row * 8 + 3)));
+        }
+    }
+
+    #[test]
+    fn segments_outside_the_grid_clamp_to_its_cells() {
+        let buckets = crossed((-3.0, 2.5), (20.0, 2.5), 8, 8);
+
+        assert_eq!(buckets, (0..8).map(|column| 2 * 8 + column).collect());
+    }
 }
