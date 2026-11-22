@@ -65,10 +65,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Document
 
-- [low · small] Every run clones all `ParameterValues` once or twice for each feature reading a
-  measurement, cached or not (`recompute.rs`, `Key::of` and `compute` through
-  `Measured::overlay`). Overlay only the parameters the feature uses, or cache the overlay per set
-  of measurements read.
 - [low · medium] Moving features rebuilds dependency sets for the whole tree three times over
   (`edit.rs`: `check_passing` builds a relation for every other feature, through the apply's
   `Readings`, `check_moves` runs `check_move_order`, applies, then `check` clones and applies

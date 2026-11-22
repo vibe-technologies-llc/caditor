@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::Arc,
+};
 
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity};
 
@@ -25,13 +28,34 @@ struct Entry {
     value: Result<Quantity, ParameterError>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct ParameterValues {
-    entries: BTreeMap<ParameterId, Entry>,
-    measured: BTreeSet<ParameterId>,
+    entries: Arc<BTreeMap<ParameterId, Entry>>,
+    readings: BTreeMap<ParameterId, Entry>,
+    measured: Arc<BTreeSet<ParameterId>>,
+}
+
+impl PartialEq for ParameterValues {
+    fn eq(&self, other: &Self) -> bool {
+        self.measured == other.measured
+            && self.entries.len() == other.entries.len()
+            && self
+                .entries
+                .keys()
+                .all(|id| self.entry(*id) == other.entry(*id))
+    }
 }
 
 impl ParameterValues {
+    fn entry(&self, id: ParameterId) -> Option<&Entry> {
+        self.readings.get(&id).or_else(|| self.entries.get(&id))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shares_entries_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.entries, &other.entries)
+    }
+
     pub fn evaluate(document: &Document) -> Self {
         let order = EvaluationOrder::of(document);
         let by_id: BTreeMap<ParameterId, &Parameter> = document
@@ -55,7 +79,7 @@ impl ParameterValues {
                 .collect::<Vec<_>>()
                 .join(" → ");
 
-            values.entries.insert(
+            Arc::make_mut(&mut values.entries).insert(
                 id,
                 Entry {
                     name: parameter.name.clone(),
@@ -72,8 +96,8 @@ impl ParameterValues {
             };
 
             if let Some(measurement) = measured.measurement(id) {
-                values.measured.insert(id);
-                values.entries.insert(
+                Arc::make_mut(&mut values.measured).insert(id);
+                Arc::make_mut(&mut values.entries).insert(
                     id,
                     Entry {
                         name: parameter.name.clone(),
@@ -90,7 +114,7 @@ impl ParameterValues {
                 .map_err(ParameterError::Evaluation);
 
             if measured.reads_measurement(id) {
-                values.measured.insert(id);
+                Arc::make_mut(&mut values.measured).insert(id);
                 if let (Err(_), Some(measurement)) =
                     (&value, measured.measurements_read(id).first())
                 {
@@ -99,7 +123,7 @@ impl ParameterValues {
                     });
                 }
             }
-            values.entries.insert(
+            Arc::make_mut(&mut values.entries).insert(
                 id,
                 Entry {
                     name: parameter.name.clone(),
@@ -115,21 +139,21 @@ impl ParameterValues {
         id: ParameterId,
         value: Result<Quantity, ParameterError>,
     ) {
-        if let Some(entry) = self.entries.get_mut(&id) {
-            entry.value = value;
+        if let Some(name) = self.entry(id).map(|entry| entry.name.clone()) {
+            self.readings.insert(id, Entry { name, value });
         }
     }
 
     pub fn take_readings(&mut self, from: &Self) {
-        for id in &self.measured {
-            let reading = from
-                .entries
-                .get(id)
-                .filter(|_| from.measured.contains(id))
-                .map(|entry| entry.value.clone());
-            if let (Some(entry), Some(reading)) = (self.entries.get_mut(id), reading) {
-                entry.value = reading;
-            }
+        let taken: Vec<_> = self
+            .measured
+            .iter()
+            .filter(|id| from.measured.contains(id))
+            .filter_map(|id| Some((*id, from.entry(*id)?.value.clone())))
+            .collect();
+
+        for (id, reading) in taken {
+            self.set_measured(id, reading);
         }
     }
 
@@ -137,17 +161,21 @@ impl ParameterValues {
         let measured: BTreeSet<ParameterId> = self.measured.intersection(used).copied().collect();
         let entries: BTreeMap<ParameterId, Entry> = measured
             .iter()
-            .filter_map(|id| Some((*id, self.entries.get(id)?.clone())))
+            .filter_map(|id| Some((*id, self.entry(*id)?.clone())))
             .collect();
-        (!entries.is_empty()).then_some(Self { entries, measured })
+        (!entries.is_empty()).then(|| Self {
+            entries: Arc::new(entries),
+            readings: BTreeMap::new(),
+            measured: Arc::new(measured),
+        })
     }
 
     pub fn get(&self, id: ParameterId) -> Option<&Result<Quantity, ParameterError>> {
-        self.entries.get(&id).map(|entry| &entry.value)
+        self.entry(id).map(|entry| &entry.value)
     }
 
     pub fn value(&self, id: ParameterId) -> Result<Quantity, EvalError> {
-        let entry = self.entries.get(&id).ok_or(EvalError::ParameterMissing)?;
+        let entry = self.entry(id).ok_or(EvalError::ParameterMissing)?;
         entry.value.clone().map_err(|_| EvalError::ParameterFailed {
             id,
             name: entry.name.clone(),
@@ -164,7 +192,7 @@ impl ParameterValues {
     ) -> Vec<(ParameterId, Option<Quantity>)> {
         used.iter()
             .map(|id| {
-                let value = self.entries.get(id);
+                let value = self.entry(*id);
                 (
                     *id,
                     value.and_then(|entry| entry.value.as_ref().ok().copied()),
@@ -176,8 +204,7 @@ impl ParameterValues {
     pub(crate) fn names(&self, used: &BTreeSet<ParameterId>) -> Vec<String> {
         used.iter()
             .map(|id| {
-                self.entries
-                    .get(id)
+                self.entry(*id)
                     .map(|entry| entry.name.clone())
                     .unwrap_or_default()
             })

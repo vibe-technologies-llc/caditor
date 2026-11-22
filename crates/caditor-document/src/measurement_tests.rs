@@ -1,4 +1,7 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_expression::{Dimension, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3};
@@ -465,6 +468,91 @@ fn a_parameter_derived_from_a_measurement_follows_its_other_inputs_through_the_c
     assert_eq!(quartered.parameters.value(half), Ok(Quantity::length(1.0)));
     assert!((point(&quartered, reader).x - 1.0).abs() < CLOSE);
     assert!(quartered.recomputed().contains(&reader));
+}
+
+#[test]
+fn a_feature_reading_a_measurement_stays_cached_until_the_measurement_changes() {
+    let mut model = model();
+
+    let kept = height_of_corner(&model);
+    let (_, gap) = keep(&mut model, "clearance", kept);
+    let mut transaction = model.document.transaction("Spare");
+
+    let spare = transaction.add_parameter("spare", millimetres(1.0));
+
+    model.document.apply(transaction.finish()).unwrap();
+
+    let reader = reader(&mut model, gap);
+    let mut recompute = Recompute::default();
+
+    let mut run = |document: &Document| {
+        recompute.run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
+    };
+
+    let first = run(&model.document);
+
+    model
+        .document
+        .apply(Transaction::single(
+            "Spare",
+            Edit::SetParameterExpression {
+                id: spare,
+                expression: millimetres(2.0),
+            },
+        ))
+        .unwrap();
+
+    let unrelated = run(&model.document);
+
+    set_height(&mut model, 6.5);
+
+    let measured = run(&model.document);
+
+    assert!(first.recomputed().contains(&reader));
+    assert!(!unrelated.recomputed().contains(&reader));
+    assert!(measured.recomputed().contains(&reader));
+    assert!((point(&unrelated, reader).x - 4.0).abs() < CLOSE);
+    assert!((point(&measured, reader).x - 6.5).abs() < CLOSE);
+}
+
+#[test]
+fn overlaying_readings_shares_the_parameter_values_instead_of_cloning_them() {
+    let mut model = model();
+
+    let kept = height_of_corner(&model);
+    let (measurement, gap) = keep(&mut model, "clearance", kept);
+    let reader = reader(&mut model, gap);
+    let mut transaction = model.document.transaction("Spares");
+
+    for index in 0..50 {
+        transaction.add_parameter(format!("spare{index}"), millimetres(f64::from(index)));
+    }
+    model.document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&model.document);
+    let values = ParameterValues::evaluate(&model.document);
+    let measured = Measured::of(&model.document);
+    let feature = model.document.feature(reader).unwrap();
+    let results: BTreeMap<FeatureId, Arc<FeatureResult>> = [(
+        measurement,
+        evaluation
+            .feature(measurement)
+            .unwrap()
+            .result
+            .clone()
+            .unwrap(),
+    )]
+    .into();
+
+    let overlaid = measured.overlay(&values, feature, &results).unwrap();
+
+    assert!(overlaid.shares_entries_with(&values));
+    assert_eq!(overlaid.value(gap), Ok(Quantity::length(4.0)));
+    assert!(matches!(
+        values.get(gap),
+        Some(Err(ParameterError::Unmeasured { .. }))
+    ));
+    assert_ne!(overlaid, values);
 }
 
 #[test]

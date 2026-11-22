@@ -19,7 +19,9 @@ paths:
 - `ParameterValues` (`values.rs`) evaluates parameters in dependency order and reports cycles. A
   measured parameter (`document.md`, Measurement) and every parameter reading one is `Unmeasured`
   there; the walk overlays the measurements' results into the parameters of each feature using one
-  and re-derives dependent parameters (`Measured::overlay`, `derive`, `compute`). `into_evaluation`
+  and re-derives dependent parameters (`Measured::overlay`, `derive`, `compute`); the values share
+  their entries behind an `Arc` and keep readings in a small overlaid map, so an overlay copies only
+  the measured parameters, never all of them. `into_evaluation`
   does the same for every up-to-date reading, and `take_readings` carries them into the app's
   values and drafts. A feature's used features (`Measured::features_read_by`: its `features()` plus
   the measurements its parameters read) make its key's upstream, its view and its lookahead
