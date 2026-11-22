@@ -3,7 +3,9 @@
 {command:model.split_face} divides faces of a body into pieces without changing its shape, so a
 part line, a stripe of another colour or a piece to draft or round can be had. Select the faces,
 and with them a plane or the curves of a sketch to split along; with nothing else, it opens
-waiting for one to be clicked or picked from the list. It has no ribbon button; use the Model menu or {command:palette}.
+waiting for one to be clicked or picked from the list. With only one body shown, it can be chosen
+first: click a face to split, and it then waits for the plane or sketch as if that face had been
+selected. It has no ribbon button; use the Model menu or {command:palette}.
 
 - **Split along** holds the principal and datum planes, the other bodies made before it and the
   earlier sketches. A plane divides the faces where it crosses them. A sketch of one open chain of

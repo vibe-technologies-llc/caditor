@@ -15,7 +15,9 @@ use crate::{
     feature_tree::count,
     field,
     files::FileCommand,
-    helix_tools, hole_tools, icons,
+    helix_tools,
+    hole_tools::{self, HoleStart},
+    icons,
     last_values::Starts,
     loft_tools, mate_tools,
     menu_bar::MenuEntries,
@@ -650,6 +652,13 @@ fn hole_button(
     let source = context.offers.hole;
     let invoked = commands.invoke(Command::Hole, &source);
     let help = match &source {
+        Ok(HoleStart::ChooseFace) => Ok(commands.with_keys(
+            Command::Hole,
+            &format!(
+                "{}; click its face once it is started",
+                hole_tools::DESCRIPTION
+            ),
+        )),
         Ok(_) => Ok(commands.with_keys(Command::Hole, hole_tools::DESCRIPTION)),
         Err(reason) => Err(Blocked::ToFix {
             what: hole_tools::DESCRIPTION.to_owned(),
@@ -747,7 +756,7 @@ fn thread_offer(
     if commands.invoke(Command::Thread, source)
         && let Ok(source) = source
     {
-        actions.extend(thread_tools::create_actions(
+        actions.extend(thread_tools::start_actions(
             model.document(),
             model.evaluation(),
             *source,

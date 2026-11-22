@@ -3,7 +3,9 @@ use std::sync::LazyLock;
 use caditor_document::{Datum, FeatureKind, SolidFeature};
 use egui::Id;
 
-use crate::{analysis::Kind, commands::Command, editing::Tool, variants::all_variants};
+use crate::{
+    analysis::Kind, commands::Command, editing::Tool, first_pick::FaceTool, variants::all_variants,
+};
 
 const SNIPPET_BEFORE: usize = 40;
 const SNIPPET_LENGTH: usize = 140;
@@ -651,6 +653,7 @@ pub enum Context {
     ChoosingPlane,
     ChoosingBodies,
     ChoosingMirrored,
+    ChoosingFace(FaceTool),
     TreeRow(Page),
 }
 
@@ -663,6 +666,8 @@ impl Context {
             Self::Sketch | Self::ChoosingPlane => Page::Sketches,
             Self::ChoosingBodies => Page::Combine,
             Self::ChoosingMirrored => Page::Mirror,
+            Self::ChoosingFace(FaceTool::Hole) => Page::Hole,
+            Self::ChoosingFace(FaceTool::Thread) => Page::Thread,
         }
     }
 }
@@ -672,6 +677,7 @@ pub struct Situation<'a> {
     pub choosing_plane: bool,
     pub choosing_bodies: bool,
     pub choosing_mirrored: bool,
+    pub awaited_face: Option<FaceTool>,
     pub open_feature: Option<&'a FeatureKind>,
     pub panels: &'a [SidePanel],
     pub tree_row: Option<&'a FeatureKind>,
@@ -695,6 +701,7 @@ pub fn context(situation: &Situation<'_>) -> Option<Context> {
                 .choosing_mirrored
                 .then_some(Context::ChoosingMirrored)
         })
+        .or_else(|| situation.awaited_face.map(Context::ChoosingFace))
         .or_else(|| {
             situation
                 .tree_row
@@ -1196,6 +1203,7 @@ mod tests {
             choosing_plane: false,
             choosing_bodies: false,
             choosing_mirrored: false,
+            awaited_face: None,
             open_feature: None,
             panels: &panels,
             tree_row: None,
@@ -1228,5 +1236,10 @@ mod tests {
         situation.choosing_mirrored = true;
 
         assert_eq!(context(&situation).map(Context::page), Some(Page::Mirror));
+
+        situation.choosing_mirrored = false;
+        situation.awaited_face = Some(FaceTool::Thread);
+
+        assert_eq!(context(&situation).map(Context::page), Some(Page::Thread));
     }
 }

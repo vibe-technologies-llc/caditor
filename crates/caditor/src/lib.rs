@@ -82,6 +82,7 @@ mod field;
 mod file_drops;
 mod files;
 mod filleting;
+mod first_pick;
 mod font_fallbacks;
 mod fonts;
 mod fusion_app;

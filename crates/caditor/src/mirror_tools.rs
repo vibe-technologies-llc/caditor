@@ -11,7 +11,7 @@ use crate::{
     body_selection,
     commands::{Command, Reason},
     datum_tools,
-    editing::{self, EditingCommand},
+    editing::{self, EditingCommand, FirstPick},
     field::{self, CheckError},
     model::{Action, Model, Notice},
     move_tools, pattern_tools,
@@ -375,7 +375,9 @@ pub fn create_actions(model: &Model, source: &MirrorSource) -> Vec<Action> {
 pub fn start_actions(model: &Model, start: &MirrorStart) -> Vec<Action> {
     match start {
         MirrorStart::Source(source) => create_actions(model, source),
-        MirrorStart::ChooseBodies => vec![Action::Editing(EditingCommand::ChooseMirrored)],
+        MirrorStart::ChooseBodies => vec![Action::Editing(EditingCommand::AwaitFirstPick(
+            FirstPick::MirroredBodies,
+        ))],
     }
 }
 

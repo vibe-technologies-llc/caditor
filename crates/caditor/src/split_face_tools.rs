@@ -8,7 +8,7 @@ use caditor_kernel::{FaceId, FaceReference, Solid};
 
 use crate::{
     bodies::{self, FaceKey},
-    body_selection,
+    body_selection::{self, Standing},
     commands::{Command, Reason},
     datum_tools,
     editing::{self, EditingCommand},
@@ -26,6 +26,13 @@ pub const TITLE: &str = "Split face";
 pub enum SplitFaceError {
     #[error("Select the faces of a body to split")]
     ChooseFaces,
+    #[error(
+        "Select the faces of a body to split; with one body shown, they can be clicked after the \
+         tool is started"
+    )]
+    ChooseFacesOfSeveral,
+    #[error("{}", body_selection::NO_BODY_SHOWN)]
+    NoBodyShown,
     #[error("Select faces of one body only")]
     OneBody,
     #[error("{}", Pending::BodyShape)]
@@ -103,9 +110,13 @@ pub fn source(model: &Model, selection: &Selection) -> Result<SplitFaceSource, S
         }
     }
 
-    let body = body.ok_or(SplitFaceError::ChooseFaces)?;
-
-    bodies::shown(model.evaluation(), body).ok_or(SplitFaceError::ChooseFaces)?;
+    let body = match body {
+        Some(body) => {
+            bodies::shown(model.evaluation(), body).ok_or(SplitFaceError::ChooseFaces)?;
+            body
+        }
+        None => only_body(model)?,
+    };
 
     let rest = without_faces(selection);
     let along = split_tools::chosen_along(model, &rest, model.document().bar_index())?
@@ -131,6 +142,17 @@ pub fn source(model: &Model, selection: &Selection) -> Result<SplitFaceSource, S
         along,
         left_out,
     })
+}
+
+fn only_body(model: &Model) -> Result<FeatureId, SplitFaceError> {
+    match body_selection::standing_bodies(model) {
+        Standing::Only(body) => {
+            bodies::shown(model.evaluation(), body).ok_or(SplitFaceError::NoShape { body })?;
+            Ok(body)
+        }
+        Standing::Several => Err(SplitFaceError::ChooseFacesOfSeveral),
+        Standing::None => Err(SplitFaceError::NoBodyShown),
+    }
 }
 
 pub fn create(
@@ -178,7 +200,7 @@ pub fn create_actions(
                      along, so {words}."
                 )))
             });
-            let choosing = source.along.is_none().then(|| {
+            let choosing = (source.along.is_none() && !source.faces.is_empty()).then(|| {
                 Action::Editing(EditingCommand::Pick(Picking::new(
                     feature,
                     Slot::SplitPlane,
@@ -383,6 +405,23 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
             kind: FeatureKind::SplitFace(changed),
         },
     ))
+}
+
+pub fn first_face_actions(model: &Model, feature: FeatureId, face: FaceKey) -> Option<Vec<Action>> {
+    let split = model.document().feature(feature)?.kind.split_face()?;
+
+    if !split.faces.is_empty() || split.along != SplitAlong::Unchosen {
+        return None;
+    }
+
+    let transaction = toggle_face(model, feature, face)?;
+    Some(vec![
+        Action::Apply(transaction),
+        Action::Editing(EditingCommand::Pick(Picking::new(
+            feature,
+            Slot::SplitPlane,
+        ))),
+    ])
 }
 
 pub fn with_selected_faces(

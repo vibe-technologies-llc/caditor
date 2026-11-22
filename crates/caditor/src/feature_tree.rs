@@ -35,8 +35,8 @@ use crate::{
     feature_links,
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, helix_panel, hole_panel, icons, image_panel, import_panel, leaving_out, loft_panel,
-    manipulator, mate_panel, measurement_panel, mirror_panel, mirror_tools,
+    first_pick, fonts, helix_panel, hole_panel, icons, image_panel, import_panel, leaving_out,
+    loft_panel, manipulator, mate_panel, measurement_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_face_panel, move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
@@ -226,7 +226,31 @@ pub fn show(
         });
     });
     combining_card(ui, model, editing, actions);
+    first_pick_card(ui, editing, actions);
 }
+
+fn first_pick_card(ui: &mut Ui, editing: &SketchEditing, actions: &mut Vec<Action>) {
+    let shown = Id::unique("first-pick-card-shown");
+    let Some(tool) = editing.awaited_face() else {
+        ui.data_mut(|data| data.remove_by_type::<FirstPickShown>());
+        return;
+    };
+
+    ui.add_space(SPACE_S);
+
+    let rect = ui
+        .scope(|ui| first_pick::card(ui, tool, actions))
+        .response
+        .rect;
+    let first_frame = ui.data_mut(|data| data.get_temp::<FirstPickShown>(shown).is_none());
+    if first_frame {
+        ui.data_mut(|data| data.insert_temp(shown, FirstPickShown));
+        scroll_into_view(ui, rect);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct FirstPickShown;
 
 fn combining_card(ui: &mut Ui, model: &Model, editing: &SketchEditing, actions: &mut Vec<Action>) {
     let shown = Id::unique("combining-card-shown");

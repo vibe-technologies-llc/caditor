@@ -8,9 +8,11 @@ use caditor_kernel::{FaceReference, Surface};
 
 use crate::{
     bodies::{self, FaceKey},
+    body_selection::{self, Standing},
     commands::{Command, Reason},
-    editing::EditingCommand,
+    editing::{EditingCommand, FirstPick},
     field::{self, CheckError},
+    first_pick::FaceTool,
     model::{Action, Model},
     queued::{self, Pending},
     selection::{Pickable, Selection},
@@ -23,6 +25,13 @@ pub const TITLE: &str = "Thread";
 pub enum ThreadToolError {
     #[error("Select the round face of a bore, shaft or boss to thread")]
     ChooseFace,
+    #[error(
+        "Select the round face of a bore, shaft or boss to thread; with one body shown, it can be \
+         clicked after the tool is started"
+    )]
+    ChooseFaceOfSeveral,
+    #[error("{}", body_selection::NO_BODY_SHOWN)]
+    NoBodyShown,
     #[error("Select one round face only")]
     OneFaceOnly,
     #[error("Select a cylindrical face: a bore, a shaft or a boss")]
@@ -57,6 +66,39 @@ impl Reason for ThreadToolError {
 pub struct ThreadSource {
     pub body: FeatureId,
     pub face: FaceKey,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadStart {
+    Face(ThreadSource),
+    ChooseFace,
+}
+
+pub fn start(model: &Model, selection: &Selection) -> Result<ThreadStart, ThreadToolError> {
+    if !selection.is_empty() {
+        return selected_face(model, selection).map(ThreadStart::Face);
+    }
+    match body_selection::standing_bodies(model) {
+        Standing::Only(body) => {
+            bodies::shown(model.evaluation(), body).ok_or(ThreadToolError::NoShape)?;
+            Ok(ThreadStart::ChooseFace)
+        }
+        Standing::Several => Err(ThreadToolError::ChooseFaceOfSeveral),
+        Standing::None => Err(ThreadToolError::NoBodyShown),
+    }
+}
+
+pub fn start_actions(
+    document: &Document,
+    evaluation: &Evaluation,
+    start: ThreadStart,
+) -> Vec<Action> {
+    match start {
+        ThreadStart::Face(source) => create_actions(document, evaluation, source),
+        ThreadStart::ChooseFace => vec![Action::Editing(EditingCommand::AwaitFirstPick(
+            FirstPick::Face(FaceTool::Thread),
+        ))],
+    }
 }
 
 pub fn selected_face(

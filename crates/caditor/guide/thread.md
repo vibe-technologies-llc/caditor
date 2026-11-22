@@ -1,8 +1,10 @@
 # Thread
 
 {command:model.thread} threads a cylindrical face: a bolt's shaft or a hole's bore. Select one round
-face, then choose Thread. Its designation goes into STEP, 3MF, glTF and OBJ exports, as drawings
-and machinists expect.
+face, then choose Thread. With only one body shown, it can be chosen first: it waits for you to
+click the round face (the view and the end of the feature tree say so; Escape or **Cancel** stops
+without making anything), and a flat face clicked is refused with the reason. Its designation goes
+into STEP, 3MF, glTF and OBJ exports, as drawings and machinists expect.
 
 It starts modelled, as the ISO metric coarse size nearest the face, right-handed and as long as the
 face. The panel sets:

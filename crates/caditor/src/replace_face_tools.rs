@@ -13,7 +13,7 @@ use crate::{
     editing::{self, EditingCommand},
     field::{self, CheckError},
     model::{Action, Model, Notice},
-    offset_face_tools::{FacePurpose, FaceToolError},
+    offset_face_tools::{self, FacePurpose, FaceToolError},
     queued::{self, Pending},
     selection::{Pickable, Selection},
     shell_tools::FaceSource,
@@ -150,6 +150,20 @@ pub fn selected_faces(
         purpose: FacePurpose::Replace,
     };
     let picks = selection.in_pick_order();
+
+    if picks.is_empty() {
+        let body = offset_face_tools::only_body(model, FacePurpose::Replace)?;
+
+        return Ok(ReplaceSource {
+            faces: FaceSource {
+                body,
+                faces: Vec::new(),
+                left_out: Vec::new(),
+            },
+            target: None,
+        });
+    }
+
     let mut groups = by_body(&picks).into_iter();
 
     let replaced = groups.next().ok_or(no_faces)?;

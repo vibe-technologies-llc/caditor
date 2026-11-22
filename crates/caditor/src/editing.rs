@@ -9,6 +9,7 @@ use caditor_sketch::Sketch;
 use crate::{
     combine_tools,
     commands::{Command, Reason},
+    first_pick::FaceTool,
     model::{Action, Model, Notice, NoticeAction, NoticeKind},
     queued::{Queued, Rerun},
     reference_picking::{Picking, Slot},
@@ -288,8 +289,8 @@ pub enum EditingCommand {
     ChooseCombined(Option<FeatureId>),
     CombineWith(FeatureId),
     CancelCombine,
-    ChooseMirrored,
-    CancelMirrored,
+    AwaitFirstPick(FirstPick),
+    CancelFirstPick,
     Enter(FeatureId),
     Finish,
     CancelSketch,
@@ -313,6 +314,7 @@ pub struct Context {
     pub solid: Option<FeatureId>,
     pub choosing_plane: bool,
     pub choosing_bodies: bool,
+    pub choosing_face: bool,
     pub projecting: bool,
     pub intersecting: bool,
     pub selecting: bool,
@@ -331,8 +333,15 @@ impl Context {
         self.sketch.is_none()
             && !self.choosing_plane
             && !self.choosing_bodies
+            && !self.choosing_face
             && (self.choosing_profiles || (self.solid.is_none() && !self.choosing_in_view))
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FirstPick {
+    MirroredBodies,
+    Face(FaceTool),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -437,7 +446,7 @@ pub struct SketchEditing {
     calibration_from: Option<ImageSpot>,
     choosing_plane: bool,
     combining: Option<Combining>,
-    mirroring: bool,
+    first_pick: Option<FirstPick>,
     modes: ShapeModes,
     session: u64,
     switched: Option<Switched>,
@@ -492,6 +501,7 @@ impl SketchEditing {
             solid: self.solid(),
             choosing_plane: self.choosing_plane,
             choosing_bodies: self.choosing_bodies(),
+            choosing_face: self.awaited_face().is_some(),
             projecting: self.active.is_some_and(|active| active.tool.projects()),
             intersecting: self.active.is_some_and(|active| active.tool.intersects()),
             selecting: self
@@ -515,11 +525,22 @@ impl SketchEditing {
     }
 
     pub fn is_choosing_mirrored(&self) -> bool {
-        self.mirroring
+        self.first_pick == Some(FirstPick::MirroredBodies)
+    }
+
+    pub fn first_pick(&self) -> Option<FirstPick> {
+        self.first_pick
+    }
+
+    pub fn awaited_face(&self) -> Option<FaceTool> {
+        match self.first_pick? {
+            FirstPick::Face(tool) => Some(tool),
+            FirstPick::MirroredBodies => None,
+        }
     }
 
     pub fn choosing_bodies(&self) -> bool {
-        self.combining.is_some() || self.mirroring
+        self.combining.is_some() || self.is_choosing_mirrored()
     }
 
     pub fn picking(&self) -> Option<Picking> {
@@ -573,7 +594,7 @@ impl SketchEditing {
                 self.leave_sketch();
                 self.solid = None;
                 self.combining = None;
-                self.mirroring = false;
+                self.first_pick = None;
                 self.choosing_plane = true;
             }
             EditingCommand::CancelNewSketch => self.choosing_plane = false,
@@ -582,20 +603,20 @@ impl SketchEditing {
                 self.solid = None;
                 self.picking = None;
                 self.choosing_plane = false;
-                self.mirroring = false;
+                self.first_pick = None;
                 self.combining = Some(Combining { target });
             }
             EditingCommand::CombineWith(body) => self.combine_with(body, model, since),
             EditingCommand::CancelCombine => self.combining = None,
-            EditingCommand::ChooseMirrored => {
+            EditingCommand::AwaitFirstPick(first) => {
                 self.leave_sketch();
                 self.solid = None;
                 self.picking = None;
                 self.choosing_plane = false;
                 self.combining = None;
-                self.mirroring = true;
+                self.first_pick = Some(first);
             }
-            EditingCommand::CancelMirrored => self.mirroring = false,
+            EditingCommand::CancelFirstPick => self.first_pick = None,
             EditingCommand::Enter(feature) => self.enter(feature, model, since),
             EditingCommand::Finish => self.finish(model),
             EditingCommand::CancelSketch => self.cancel_sketch(model),
@@ -754,7 +775,7 @@ impl SketchEditing {
                 self.picking = None;
                 self.choosing_plane = false;
                 self.combining = None;
-                self.mirroring = false;
+                self.first_pick = None;
                 self.active = Some(ActiveSketch {
                     feature: entered.feature,
                     tool: Tool::Select,
@@ -768,7 +789,7 @@ impl SketchEditing {
                 self.leave_sketch();
                 self.choosing_plane = false;
                 self.combining = None;
-                self.mirroring = false;
+                self.first_pick = None;
                 self.solid = Some(opened);
             }
             Closed::Sketch(_) | Closed::Feature(_) => {}
@@ -881,7 +902,7 @@ impl SketchEditing {
         self.leave_sketch();
         self.choosing_plane = false;
         self.combining = None;
-        self.mirroring = false;
+        self.first_pick = None;
         if self.solid() == Some(feature) {
             return;
         }
@@ -936,7 +957,7 @@ impl SketchEditing {
             self.solid = None;
             self.choosing_plane = false;
             self.combining = None;
-            self.mirroring = false;
+            self.first_pick = None;
             self.switched = None;
         }
 
@@ -981,7 +1002,7 @@ impl SketchEditing {
         match combine_tools::pair(model, target, body) {
             Ok(pair) => {
                 self.combining = None;
-                self.mirroring = false;
+                self.first_pick = None;
 
                 let (transaction, feature) = combine_tools::create(model.document(), pair);
 
@@ -1040,7 +1061,7 @@ impl SketchEditing {
         }
         self.choosing_plane = false;
         self.combining = None;
-        self.mirroring = false;
+        self.first_pick = None;
         self.solid = None;
         if self.entered().map(|entered| entered.feature) != Some(feature) {
             let added = model

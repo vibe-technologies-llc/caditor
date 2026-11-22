@@ -802,6 +802,38 @@ fn only_a_split_along_a_sketch_keeps_how_it_carries_the_curves() {
 }
 
 #[test]
+fn a_split_face_with_no_faces_waits_for_them_before_what_to_split_along() {
+    let mut model = model(|_| SplitAlong::Unchosen);
+
+    let mut emptied = model
+        .document
+        .feature(model.split)
+        .and_then(|feature| feature.kind.split_face())
+        .unwrap()
+        .clone();
+
+    emptied.faces.clear();
+    model
+        .document
+        .apply(Transaction::single(
+            "Leave the faces out",
+            Edit::SetFeatureKind {
+                id: model.split,
+                kind: FeatureKind::SplitFace(emptied),
+            },
+        ))
+        .unwrap();
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(
+        evaluation.feature(model.split).unwrap().state,
+        FeatureState::Waiting(MissingInput::FacesToSplit { body: model.base })
+    );
+}
+
+#[test]
 fn a_split_face_with_nothing_to_split_along_waits_instead_of_failing() {
     let mut model = model(|_| SplitAlong::Unchosen);
 

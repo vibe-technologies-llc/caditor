@@ -677,6 +677,10 @@ pub(crate) fn evaluate(
         return Err(inputs.missing_body(definition.body));
     };
 
+    if definition.faces.is_empty() {
+        return Err(context.no_faces());
+    }
+
     let faces = definition
         .resolve(solid)
         .map_err(|unresolved| context.unresolved(unresolved))?;

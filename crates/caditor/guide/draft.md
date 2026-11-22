@@ -7,8 +7,9 @@ along the pull direction, such as the side of a boss or the wall of a hole, beco
 the circle where it meets the neutral plane: a boss narrows toward the pull, a hole widens toward
 it, and a cone already there takes the new angle (at 0 deg it stands square again). It works on any
 body, an [imported](imported-bodies) one with no history included. Select the faces, such as the
-walls of a block, a pocket or a boss, then choose Draft. It has no ribbon button; use the Model menu or
-{command:palette}.
+walls of a block, a pocket or a boss, then choose Draft; with only one body shown, it can be chosen
+first and the faces clicked after, the first face clicked setting the neutral plane and pull as a
+selected one would. It has no ribbon button; use the Model menu or {command:palette}.
 
 - **Draft angle** is how far each face leans from the pull direction, narrowing the body toward it;
   a negative angle widens it instead. 3 deg to start with, then the angle last used on a draft,

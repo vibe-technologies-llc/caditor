@@ -44,7 +44,7 @@ use crate::{
     editing::{self, EditingCommand, SketchEditing, Tool},
     emboss_tools,
     faceting::FacetLevel,
-    feature_tree,
+    feature_tree, first_pick,
     gearing::GearSettings,
     handle_snap::{self, Guide, Snap},
     hole_placement, hole_tools, icons,
@@ -3025,6 +3025,7 @@ impl ViewportState {
             && editing.picking().is_none()
             && !editing.is_choosing_plane()
             && !editing.choosing_bodies()
+            && editing.awaited_face().is_none()
         {
             if self.paint
                 && self.style.picks_faces()
@@ -5754,6 +5755,7 @@ impl ViewportState {
     fn menu_selects(&self, editing: &SketchEditing) -> bool {
         !editing.is_choosing_plane()
             && !editing.choosing_bodies()
+            && editing.awaited_face().is_none()
             && editing.picking().is_none()
             && editing
                 .active()
@@ -5998,8 +6000,8 @@ impl ViewportState {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
         } else if editing.combining().is_some() {
             actions.push(Action::Editing(EditingCommand::CancelCombine));
-        } else if editing.is_choosing_mirrored() {
-            actions.push(Action::Editing(EditingCommand::CancelMirrored));
+        } else if editing.first_pick().is_some() {
+            actions.push(Action::Editing(EditingCommand::CancelFirstPick));
         } else if editing.picking().is_some() {
             actions.push(Action::Editing(EditingCommand::StopPicking));
         } else if self.drawing.has_heading() {
@@ -6791,6 +6793,11 @@ impl ViewportState {
                 mirror_tools::CHOOSE_BODIES_PROMPT.to_owned(),
                 HintList::parsed(CHOOSE_PLANE_HINT),
             ))
+        } else if let Some(tool) = editing.awaited_face() {
+            Some((
+                tool.prompt().to_owned(),
+                HintList::parsed(CHOOSE_PLANE_HINT),
+            ))
         } else if let Some(picking) = editing.picking() {
             Some((
                 reference_picking::prompt(model, picking),
@@ -7486,6 +7493,13 @@ fn pick_action(
                 .unwrap_or_default(),
         );
     }
+    if let Some(tool) = editing.awaited_face() {
+        return Some(
+            pickable
+                .map(|pickable| first_pick::click(model, editing, tool, pickable))
+                .unwrap_or_default(),
+        );
+    }
     if let Some(active) = editing.active().filter(|active| active.tool.projects()) {
         let target = pickable.filter(|pickable| projecting::projectable(model, active, *pickable));
 
@@ -7515,6 +7529,12 @@ fn pick_action(
 
     if plane.is_some() {
         return plane;
+    }
+
+    if let Some(Pickable::ShellFace { feature, face }) = pickable
+        && let Some(first) = split_face_tools::first_face_actions(model, feature, face)
+    {
+        return Some(first);
     }
 
     let toggled = match pickable {

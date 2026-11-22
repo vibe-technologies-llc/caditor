@@ -218,10 +218,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · medium] Thread, Hole, Draft, Replace face and Split face cannot be started before
-  anything is selected, as Fillet, Shell and the other face tools can with one body shown
-  (`app-modelling.md`): each stores something only its first pick gives (the face, the pull
-  direction, the pick order, the plane), so each needs a waiting state for that pick first.
 - [low · small] An import's unit and scale are not remembered with its centring and plane
   (`app-files.md`): a read drawing does not say whether its file named a unit, so a remembered
   override could silently misread the next file. It needs the reader to report that first.

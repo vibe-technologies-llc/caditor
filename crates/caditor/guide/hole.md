@@ -2,6 +2,11 @@
 
 {command:model.hole} drills holes at the free points and circles of a sketch.
 
+With nothing selected, no sketch with points to drill and only one body shown, it waits for you to
+click the face the hole goes in: the view and the end of the feature tree say so, and the click
+makes the hole just as selecting that face first would. Escape or **Cancel** stops waiting without
+making anything.
+
 - With one flat face selected, it puts a hole on the face, on solid material away from its edges,
   in a hidden sketch. While it is open, drag the square at its centre to move it on the face, or
   an arrow to move it along one direction; the arrow at the bottom of a blind hole drags its

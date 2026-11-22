@@ -12,9 +12,10 @@ use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
     bodies,
-    body_selection::face_boundary,
+    body_selection::{self, Standing, face_boundary},
     commands::{Command, Reason},
-    editing::{self, EditingCommand, SketchEditing},
+    editing::{self, EditingCommand, FirstPick, SketchEditing},
+    first_pick::FaceTool,
     hole_on_curve::{self, CurveHoleError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
@@ -58,6 +59,15 @@ pub enum HoleStartError {
     NoPoints,
     #[error("Make a body to drill into first")]
     NoBody,
+    #[error(
+        "Select a flat face of a body, or draw a sketch on one and place points where the holes \
+         go; with one body shown, its face can be clicked after the tool is started"
+    )]
+    NoSketchOfSeveral,
+    #[error("{}", body_selection::NO_BODY_SHOWN)]
+    NoBodyShown,
+    #[error("{}", Pending::BodyShape)]
+    NoShape,
     #[error(transparent)]
     SweepSource(#[from] SweepSourceError),
 }
@@ -65,6 +75,10 @@ pub enum HoleStartError {
 impl Reason for HoleStartError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::NoShape).then_some(Pending::BodyShape)
     }
 }
 
@@ -113,6 +127,7 @@ pub enum HoleStart {
     Sketch(HoleSource),
     Face(FaceChoice),
     CurvedFace(FaceChoice),
+    ChooseFace,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -260,7 +275,25 @@ pub fn start(
     match face {
         Some(face) if sketch_placement::is_flat(model, face) => Ok(HoleStart::Face(face)),
         Some(face) => Ok(HoleStart::CurvedFace(face)),
-        None => source(model, selection, editing).map(HoleStart::Sketch),
+        None => match source(model, selection, editing) {
+            Err(HoleStartError::NoSketch | HoleStartError::NoPoints)
+                if selection.is_empty() && editing.feature().is_none() =>
+            {
+                face_to_click(model)
+            }
+            source => source.map(HoleStart::Sketch),
+        },
+    }
+}
+
+fn face_to_click(model: &Model) -> Result<HoleStart, HoleStartError> {
+    match body_selection::standing_bodies(model) {
+        Standing::Only(body) => {
+            bodies::shown(model.evaluation(), body).ok_or(HoleStartError::NoShape)?;
+            Ok(HoleStart::ChooseFace)
+        }
+        Standing::Several => Err(HoleStartError::NoSketchOfSeveral),
+        Standing::None => Err(HoleStartError::NoBodyShown),
     }
 }
 
@@ -529,6 +562,9 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
             ],
             Err(error) => vec![queued::refused(Command::Hole, TITLE, &error)],
         },
+        HoleStart::ChooseFace => vec![Action::Editing(EditingCommand::AwaitFirstPick(
+            FirstPick::Face(FaceTool::Hole),
+        ))],
     }
 }
 

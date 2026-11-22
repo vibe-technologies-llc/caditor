@@ -32,15 +32,6 @@ pub enum FacePurpose {
     Replace,
 }
 
-impl FacePurpose {
-    fn starts_before_its_faces(self) -> bool {
-        match self {
-            Self::Move | Self::Delete => true,
-            Self::Draft | Self::Replace => false,
-        }
-    }
-}
-
 impl Display for FacePurpose {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -85,10 +76,7 @@ pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource
     faces_of_one_body(model, selection, FacePurpose::Move)
 }
 
-fn only_body(model: &Model, purpose: FacePurpose) -> Result<FeatureId, FaceToolError> {
-    if !purpose.starts_before_its_faces() {
-        return Err(FaceToolError::NoFaces { purpose });
-    }
+pub fn only_body(model: &Model, purpose: FacePurpose) -> Result<FeatureId, FaceToolError> {
     match body_selection::standing_bodies(model) {
         Standing::Only(body) => {
             bodies::shown(model.evaluation(), body).ok_or(FaceToolError::NoShape)?;

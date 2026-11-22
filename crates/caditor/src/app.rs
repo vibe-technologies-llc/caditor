@@ -1769,6 +1769,7 @@ fn guide_commands(
         choosing_plane: editing.is_choosing_plane(),
         choosing_bodies: editing.combining().is_some(),
         choosing_mirrored: editing.is_choosing_mirrored(),
+        awaited_face: editing.awaited_face(),
         open_feature: editing.solid().and_then(kind_of),
         panels: &side_panels,
         tree_row: basis.panels.selected.and_then(kind_of),

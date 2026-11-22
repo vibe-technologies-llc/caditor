@@ -274,9 +274,25 @@ pub fn drafted_faces(solid: &Solid, draft: &Draft) -> BTreeSet<FaceKey> {
         .collect()
 }
 
-fn with_faces(draft: &Draft, faces: Vec<FaceReference>) -> Draft {
+fn waits_for_its_first_face(draft: &Draft, solid: &Solid) -> bool {
+    let (started_on, started_flipped) = default_neutral(draft.body, solid, &[]);
+
+    draft.faces.is_empty()
+        && draft.own.is_empty()
+        && draft.neutral == started_on
+        && draft.flipped == started_flipped
+}
+
+fn with_faces(draft: &Draft, solid: &Solid, faces: Vec<FaceReference>) -> Draft {
+    let (neutral, flipped) = if waits_for_its_first_face(draft, solid) {
+        default_neutral(draft.body, solid, &resolved(solid, &faces))
+    } else {
+        (draft.neutral.clone(), draft.flipped)
+    };
     Draft {
         faces,
+        neutral,
+        flipped,
         ..draft.clone()
     }
 }
@@ -427,7 +443,10 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let label = if left_out {
         format!("Leave a face out of {}", owner.name)
     } else {
-        changed.faces.push(FaceReference::capture(solid, clicked)?);
+        let mut faces = changed.faces.clone();
+
+        faces.push(FaceReference::capture(solid, clicked)?);
+        changed = with_faces(&changed, solid, faces);
         format!("Draft a face with {}", owner.name)
     };
     Some(Transaction::single(
@@ -478,7 +497,7 @@ pub fn with_selected_faces(
             format!("Draft the selected faces with {}", owner.name),
             Edit::SetFeatureKind {
                 id: feature,
-                kind: FeatureKind::Draft(with_faces(draft, faces)),
+                kind: FeatureKind::Draft(with_faces(draft, solid, faces)),
             },
         )
     })

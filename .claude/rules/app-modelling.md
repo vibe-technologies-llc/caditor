@@ -43,6 +43,7 @@ paths:
   - "crates/caditor/src/hole_placement.rs"
   - "crates/caditor/src/thread_tools.rs"
   - "crates/caditor/src/thread_panel.rs"
+  - "crates/caditor/src/first_pick.rs"
   - "crates/caditor/src/move_panel.rs"
   - "crates/caditor/src/move_manipulator.rs"
   - "crates/caditor/src/manipulator.rs"
@@ -697,16 +698,31 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Fillets, chamfers and shells
 
-- Fillet, Chamfer, Shell, Offset face, Move face and Delete face start before anything is selected
-  when one body stands shown (`body_selection::standing_bodies`): the source names that body with
-  no edges or faces (`blend_tools::edges_clicked_after`, `shell_tools::selected_faces`,
-  `offset_face_tools::faces_of_one_body` for `FacePurpose::Move` and `Delete`), the feature opens in
-  the waiting state the document already has (`MissingInput::Edges`, `FacesToMove`,
-  `FacesToDelete`; a shell with no open face is a closed hollow) and its edges or faces are
-  clicked in the view after. With several bodies shown they refuse in words saying a lone body can
-  be started first, with none they say to make or show one (`body_selection::NO_BODY_SHOWN`).
-  Thread, Hole, Draft, Replace face and Split face still need their first pick: each stores
-  something only that pick gives (the face, the pull direction, the pick order, the plane).
+- Fillet, Chamfer, Shell, Offset face, Move face, Delete face, Draft, Replace face and Split face
+  start before anything is selected when one body stands shown (`body_selection::standing_bodies`):
+  the source names that body with no edges or faces (`blend_tools::edges_clicked_after`,
+  `shell_tools::selected_faces`, `offset_face_tools::faces_of_one_body` and `only_body`,
+  `replace_face_tools::selected_faces`, `split_face_tools::source`), the feature opens in the
+  waiting state the document already has (`MissingInput::Edges`, `FacesToMove`, `FacesToDelete`,
+  `FacesToDraft`, `FacesToReplace`, `FacesToSplit`; a shell with no open face is a closed hollow)
+  and its edges or faces are clicked in the view after. The first face clicked gives what a selected
+  face would have: a waiting draft whose neutral plane is still the one it started with takes
+  `default_neutral` of that face (`draft_tools::with_faces`), and a waiting split face with nothing
+  to split along starts `Slot::SplitPlane` (`split_face_tools::first_face_actions`, routed before
+  the other face toggles). With several bodies shown they refuse in words saying a lone body can be
+  started first, with none they say to make or show one (`body_selection::NO_BODY_SHOWN`).
+- Hole and Thread start the same way, but since the face decides what they are (a hole's hidden
+  sketch, its datum point and plane on a curved face; a thread's face, name and size) no feature
+  exists before it: the command waits for the face in the view (`HoleStart::ChooseFace`,
+  `ThreadStart::ChooseFace`, `EditingCommand::AwaitFirstPick` with `FirstPick::Face`, the same
+  state Mirror waits for its bodies in), the view prompting `first_pick::HOLE_PROMPT` or
+  `THREAD_PROMPT` and a card at the end of the tree saying it waits for a face, with Cancel. The
+  click (`first_pick::click`, routed by `viewport::pick_action`, the keyboard highlight too) runs
+  the tool as if that face had been selected, so a hole on a curved face is made and placed as one
+  selected; a face the tool refuses leaves a warning notice and goes on waiting. Esc, Cancel,
+  opening a sketch or feature end it with nothing made; box selection and the view's menu are off
+  meanwhile, and the guide opens on the tool's page. A hole guesses a sketch first, as before; only
+  when none with points is found does it wait for a face.
 - Fillet, Chamfer and Shell take the selected edges (or faces) of one body and create a feature
   that opens. Fillet and Chamfer also take selected faces, each standing for its boundary edges, and a
   lone body chosen in the tree for every edge of it (`blend_tools::selected_edges`, `Offers::blend`, an
@@ -932,7 +948,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   plane at its foot (from the draft's evaluation while one is shown); a drag's point is projected onto
   the face (`hole_on_curve::moved_to`) and only the datum point moves.
 - Otherwise it takes the sketch as Extrude does (edited, selected, or with nothing selected the opened
-  or last one; else `NOTHING_TO_DRILL`) and needs at least one layout point (`sketch.md`) or circle
+  or last one; else `NOTHING_TO_DRILL`, or with nothing selected and no sketch with points to guess
+  it waits for the face clicked next, see Fillets, chamfers and shells) and needs at least one layout point (`sketch.md`) or circle
   in it (`hole_centres`); its body is the one the sketch is attached to, else the one whose faces are
   selected, else the last body standing. It creates a plain blind hole of 6 mm by 10 mm, hides the
   sketch and opens the panel.
@@ -1230,7 +1247,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 - Thread (Alt+Shift+O) takes the one selected cylindrical face of a shown body
   (`thread_tools::selected_face`; a flat face, several faces or anything else selected with it is
-  refused in words) and creates a `Thread` named "Thread on <the face in words>" (numbered when taken),
+  refused in words; with nothing selected it waits for the face clicked next, see Fillets, chamfers
+  and shells) and creates a `Thread` named "Thread on <the face in words>" (numbered when taken),
   of the ISO metric coarse size nearest the face (minor diameter for a bore, major for a shaft), the
   side's first class, right-handed, the whole face long and `ThreadForm::Modelled`, then opens it.
 - Form (Modelled, Cosmetic, `thread_panel::form_rows`, a segmented row: one undoable change per
@@ -1339,8 +1357,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   a selected datum axis or point, a datum after the bar or several planes are refused. With nothing
   naming a body (no body pick, no tree body, no face taken as the plane) it never picks one itself:
   `mirror_tools::source` answers `MirrorStart::ChooseBodies` and the command enters choosing
-  (`EditingCommand::ChooseMirrored`, `SketchEditing::is_choosing_mirrored`, prompt
-  `CHOOSE_BODIES_PROMPT`, Escape `CancelMirrored`), refused when no body stands; a click on a body
+  (`EditingCommand::AwaitFirstPick(FirstPick::MirroredBodies)`, `SketchEditing::is_choosing_mirrored`, prompt
+  `CHOOSE_BODIES_PROMPT`, Escape `CancelFirstPick`), refused when no body stands; a click on a body
   (`viewport::pick_action`, `mirror_tools::chosen_body_actions`) creates the mirror of it across a
   plane selected beforehand, opens it and goes on choosing on `Slot::MirrorBodies`. While bodies
   are chosen (this, Combine's choosing, or `Slot::MirrorBodies`) the hovered body lights whole

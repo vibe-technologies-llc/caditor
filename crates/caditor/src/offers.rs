@@ -31,7 +31,7 @@ use crate::{
     split_face_tools::{self, SplitFaceError, SplitFaceSource},
     split_tools::{self, SplitError, SplitSource},
     sweep_tools::{self, SweepStart},
-    thread_tools::{self, ThreadSource, ThreadToolError},
+    thread_tools::{self, ThreadStart, ThreadToolError},
     units::Units,
 };
 
@@ -88,7 +88,7 @@ pub struct Offers {
     pub pattern: Result<PatternSource, PatternToolError>,
     pub curve_pattern: Result<PatternSource, SketchSourceError>,
     pub point_pattern: Result<PatternSource, SketchSourceError>,
-    pub thread: Result<ThreadSource, ThreadToolError>,
+    pub thread: Result<ThreadStart, ThreadToolError>,
     pub mate: Result<MateSource, mate_tools::MateError>,
     pub mate_angle: Result<MateSource, mate_tools::MateError>,
     pub hole: Result<HoleStart, HoleStartError>,
@@ -169,7 +169,7 @@ impl Offers {
             mirror_faces: mirror_tools::faces_source(model, selection),
             split: split_tools::source(model, selection, tree),
             scale: scale_tools::selected_body(model, selection, tree),
-            thread: thread_tools::selected_face(model, selection),
+            thread: thread_tools::start(model, selection),
             mate: mate_tools::source(model, selection),
             mate_angle: mate_tools::angle_source(model, selection),
             hole: hole_tools::start(model, selection, editing),
