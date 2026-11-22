@@ -131,8 +131,9 @@ paths:
   panic, to record, flush, save again or fail while a save is in flight (`src/tests/journal_during_saves.rs`).
 - After a write error (`Report::JournalFailed`) it keeps the lock, stops appending and rewrites
   the whole journal until it succeeds (`Report::JournalRestored`), waiting `RETRY_INTERVAL` after
-  the first failure and doubling the wait after each further one up to `RETRY_CEILING` (`Backoff`,
-  reset by a written journal). A rewrite first drops the candidates another window holds and gives
+  the first failure and doubling the wait after each further one up to `RETRY_CEILING` of 30 s
+  (`Backoff`, reset by a written journal; the ceiling is kept short because the journal's promise
+  is a crash losing seconds, so a freed disk is used again within half a minute). A rewrite first drops the candidates another window holds and gives
   up as `JournalFailure::InUseElsewhere` without encoding when none is left, so a location held
   elsewhere costs a lock check, not the whole snapshot. A flush still retries at once. A replaced
   journal is removed only once the new one is written.

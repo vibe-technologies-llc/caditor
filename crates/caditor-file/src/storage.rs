@@ -35,7 +35,7 @@ use crate::{
 
 const PREDECESSOR_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const RETRY_INTERVAL: Duration = Duration::from_secs(5);
-pub(crate) const RETRY_CEILING: Duration = Duration::from_secs(300);
+pub(crate) const RETRY_CEILING: Duration = Duration::from_secs(30);
 const LONGEST_DOUBLING: u32 = 10;
 const REBASE_JOURNAL_AFTER: u64 = 32 << 20;
 
