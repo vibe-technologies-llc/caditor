@@ -247,22 +247,24 @@ fn card_of(document: &Document, pair: Pair, finding: &Finding, unit: Units) -> C
     }
 }
 
-pub fn cards(document: &Document, report: &Report, unit: Units) -> Vec<(Card, Option<Point3>)> {
-    ranked(report)
-        .into_iter()
-        .take(MAX_LISTED)
+fn cards(
+    document: &Document,
+    listed: &[&(Pair, Finding)],
+    unit: Units,
+) -> Vec<(Card, Option<Point3>)> {
+    listed
+        .iter()
         .map(|(pair, finding)| (card_of(document, *pair, finding, unit), finding.place()))
         .collect()
 }
 
-pub fn unlisted(report: &Report) -> usize {
+fn unlisted(report: &Report) -> usize {
     report.contacts().count().saturating_sub(MAX_LISTED)
 }
 
-pub fn marks(document: &Document, report: &Report) -> Vec<Mark> {
-    ranked(report)
-        .into_iter()
-        .take(MAX_LISTED)
+fn marks(document: &Document, listed: &[&(Pair, Finding)]) -> Vec<Mark> {
+    listed
+        .iter()
         .filter_map(|(pair, finding)| {
             let place = finding.place()?;
             let name = pair_name(document, *pair);
@@ -289,6 +291,52 @@ pub fn marks(document: &Document, report: &Report) -> Vec<Mark> {
         .collect()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ListingKey {
+    serial: u64,
+    revision: u64,
+    units: Units,
+}
+
+pub struct Listing {
+    key: ListingKey,
+    summary: Option<(Tone, String)>,
+    scope: String,
+    cards: Vec<(Card, Option<Point3>)>,
+    unlisted: usize,
+    marks: Vec<Mark>,
+}
+
+impl Listing {
+    fn of(key: ListingKey, model: &Model, report: &Report) -> Self {
+        let document = model.document();
+        let mut listed = ranked(report);
+
+        listed.truncate(MAX_LISTED);
+        Self {
+            key,
+            summary: summary(report),
+            scope: scope_text(document, &report.bodies),
+            cards: cards(document, &listed, key.units),
+            unlisted: unlisted(report),
+            marks: marks(document, &listed),
+        }
+    }
+
+    pub fn marks(&self) -> &[Mark] {
+        &self.marks
+    }
+
+    fn everything(&self) -> String {
+        self.summary
+            .iter()
+            .map(|(_, text)| text.clone())
+            .chain(self.cards.iter().map(|(card, _)| card.text()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 pub struct InterferenceContext<'a> {
     pub model: &'a Model,
     pub selection: &'a Selection,
@@ -299,48 +347,58 @@ pub fn refresh(context: &InterferenceContext<'_>, tool: &mut InterferenceTool) {
     let refreshed =
         tool.interference
             .refresh(context.model, context.selection, context.tree_bodies);
+
     if let Some(report) = refreshed {
         tool.report = Some(report);
+        tool.serial = tool.serial.wrapping_add(1);
+    }
+
+    let key = ListingKey {
+        serial: tool.serial,
+        revision: context.model.revision(),
+        units: context.model.units(),
+    };
+    let current = tool.listing.as_ref().map(|listing| listing.key) == Some(key);
+
+    if let Some(report) = &tool.report
+        && !current
+    {
+        tool.listing = Some(Listing::of(key, context.model, report));
+        tool.listings_built += 1;
     }
 }
 
 pub fn show(
     ui: &mut Ui,
-    model: &Model,
     tool: &mut InterferenceTool,
     room: f32,
     commands: &mut CommandFrame<'_>,
 ) -> Option<Point3> {
     let report = tool.report.as_ref()?;
-    let document = model.document();
-    let unit = model.units();
-
-    let cards = cards(document, report, unit);
-    let unlisted = unlisted(report);
-    let summary = summary(report);
-    let scope = scope_text(document, &report.bodies);
+    let listing = tool.listing.as_ref()?;
+    let Listing {
+        summary,
+        scope,
+        cards,
+        unlisted,
+        ..
+    } = listing;
     let mut shown = None;
     let mut stop = false;
     let mut again = false;
 
     let actions = |ui: &mut Ui| {
-        let everything = summary
-            .iter()
-            .map(|(_, text)| text.clone())
-            .chain(cards.iter().map(|(card, _)| card.text()))
-            .collect::<Vec<_>>()
-            .join("\n");
         let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
         if ui
             .add(copy)
             .on_hover_text("Copy every finding in the panel as text")
             .clicked()
         {
-            ui.ctx().copy_text(everything);
+            ui.ctx().copy_text(listing.everything());
         }
     };
     let panel = widgets::side_panel(ui, room, PANEL, &HEADER, actions, |ui| {
-        ui.label(widgets::muted(&scope, ui));
+        ui.label(widgets::muted(scope, ui));
         ui.add_space(SPACE_S);
         if report.is_checking() {
             let total = report.checked() + report.pending;
@@ -372,7 +430,7 @@ pub fn show(
             }
             ui.add_space(SPACE_M);
         }
-        if unlisted > 0 {
+        if *unlisted > 0 {
             ui.label(widgets::muted(
                 format!("{unlisted} more not listed. Select bodies to check fewer at a time."),
                 ui,

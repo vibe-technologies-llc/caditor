@@ -118,6 +118,30 @@ fn centres_of_mass_are_markers_in_the_view_that_can_be_picked_and_measured() {
 }
 
 #[test]
+fn the_interference_panel_lists_a_report_once_however_many_frames_draw_it() {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    add_peg(&mut harness);
+
+    harness.select([]);
+    harness.click(crate::toolbar::INTERFERENCE_LABEL);
+    harness.wait_until("the pair is checked", |harness| {
+        harness.shows("1 pair overlaps.")
+    });
+
+    let built = harness.workspace.interference.listings_built;
+
+    for _ in 0..5 {
+        harness.frame();
+    }
+
+    assert!(built > 0);
+    assert_eq!(harness.workspace.interference.listings_built, built);
+    assert!(harness.shows("Extrude 1 and Peg"));
+}
+
+#[test]
 fn the_interference_panel_finds_bodies_that_overlap_or_touch_and_shows_where() {
     let mut harness = Harness::new();
 

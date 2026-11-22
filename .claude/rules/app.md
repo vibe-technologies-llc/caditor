@@ -402,6 +402,9 @@ paths:
   bodies, revision or evaluation change, and returns a new `Report` only when the basis changed or a
   finding arrived. The panel lists and marks at most `MAX_LISTED` contacts, Measure at most
   `MAX_MASS_CARDS` bodies' masses, each saying how many were left out.
+  The panel ranks and builds its cards, summary and marks once into a `Listing` kept on
+  `InterferenceTool`, rebuilt only when a new report arrives, the model's revision changes or the
+  units do; Copy all joins the cards' text on the click.
 - An overlap is meshed at the model's mesh quality (`BodyMass::of`) and its edges drawn on the front
   layer; every finding with a place gets a marker and label (error for overlaps, the measure colour
   for touches, warning for unchecked pairs) and a Show where button.

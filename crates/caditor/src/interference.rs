@@ -19,6 +19,7 @@ use caditor_kernel::{
 use crate::bodies::Hold;
 use crate::{
     bodies::BodyMass,
+    interference_panel::Listing,
     model::{Model, Waker},
     selection::{Pickable, Selection},
     visibility,
@@ -591,6 +592,9 @@ pub struct InterferenceTool {
     pub open: bool,
     pub interference: Interference,
     pub report: Option<Report>,
+    pub listing: Option<Listing>,
+    pub serial: u64,
+    pub listings_built: usize,
 }
 
 impl InterferenceTool {
@@ -604,5 +608,6 @@ impl InterferenceTool {
     pub fn forget(&mut self) {
         self.interference.forget();
         self.report = None;
+        self.listing = None;
     }
 }

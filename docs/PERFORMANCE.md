@@ -109,11 +109,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   up to 65 times per pointer move (`paint_selection.rs`), on the UI thread, as do the late click
   and the pick list (`viewport.rs`). Test `crosses_box` against placed bounds in `cap`, and keep CPU
   bounds per batch (as `BatchBounds` does on upload) to skip batches the widened ray misses.
-- [low · small] The interference panel ranks, filters and sorts every checked pair two or three
-  times per frame and joins every card's text for Copy whether or not it is pressed
-  (`interference_panel.rs`, `ranked`, `unlisted`, called from `app.rs` for `show` and `marks`),
-  while pairs grow with the square of the bodies shown. Keep the ranking, cards and marks per
-  report, and build the copied text on the click.
 - [low · hard] Each sketch is a kept part (`app.md`), but within one sketch a hover or selection
   change restyles and uploads the whole sketch, about 1.9 ms to rebuild on the 24,000-curve
   `large_sketch` in a release build (`frame_costs_on_a_large_sketch_and_a_large_model`), and each

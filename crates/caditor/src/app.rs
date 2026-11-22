@@ -1047,14 +1047,13 @@ pub fn show(
         };
 
         interference_panel::refresh(&context, interference);
-        if let Some(place) = interference_panel::show(ui, model, interference, room, &mut commands)
-        {
+        if let Some(place) = interference_panel::show(ui, interference, room, &mut commands) {
             viewport.show_place(place);
         }
         interference
-            .report
+            .listing
             .as_ref()
-            .map(|report| interference_panel::marks(model.document(), report))
+            .map(|listing| listing.marks().to_vec())
             .unwrap_or_default()
     } else {
         Vec::new()
