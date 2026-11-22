@@ -551,6 +551,17 @@ paths:
   measured from the eye plane in an orthographic view) is the cap, the nearest one setting
   `Probe::cap_depth`: no hit is recorded at or behind it, reference fills not at all, front-layer
   hits stay, as in the pick pass; an open mesh keeps its far side.
+- `hits_through` skips what the widened ray cannot reach, so the many calls of a paint stroke stay
+  cheap: `cap` and `mesh` test the ray against the instance's placed bounds
+  (`Probe::crosses_placed`, slackened by `BOX_SLACK` so the test only ever errs toward testing), and
+  a batch is tested only when the cursor lies within the pick radius plus its widest mark
+  (`BatchBounds::reach_points`) of its eight corners' screen box (`BatchBounds::is_out_of_reach`; a
+  corner not in front of the near plane leaves the batch tested). The bounds are `BatchBounds`, the
+  upload's own, kept per `Arc<Batch>` in `Scene::batch_bounds` (`KeptBatchBounds`, a `Weak` per
+  batch so a batch changed through `Arc::make_mut` is bounded again; a clone of the scene starts
+  empty). Lines of a skipped batch are never materialised, runs included. The list is the one the
+  unbounded walk gives, same hits and order (`bounds_never_change_what_is_listed_or_its_order`),
+  and a test-only `Work` counts the lines and triangles tested, so a skip is asserted by work done.
 - `kept_span` gives the part of a segment the planes keep as a parameter interval, for callers that
   clip curves to what is shown (box selection of sketch curves, `sectioned_screen.rs`).
 

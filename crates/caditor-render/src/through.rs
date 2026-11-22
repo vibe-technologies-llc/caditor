@@ -7,12 +7,20 @@ use crate::{
     culling::placed_corners,
     mesh::MeshInstance,
     picking::PICK_RADIUS_POINTS,
-    scene::{Layer, PickHit, PickId, Scene, SectionPlane, is_cut_away, section_slack},
+    scene::{Batch, Layer, PickHit, PickId, Scene, SectionPlane, is_cut_away, section_slack},
 };
 
 const PARALLEL: f64 = 1e-12;
 const NEAR_MARGIN: f64 = 1e-9;
 const CAP_TOLERANCE: f64 = 1e-6;
+const BOX_SLACK: f64 = 1e-9;
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Work {
+    lines: usize,
+    triangles: usize,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Found {
@@ -63,29 +71,46 @@ struct Probe<'a> {
     section: &'a [SectionPlane],
     slack: f64,
     cap_depth: f64,
+    bounded: bool,
     found: AHashMap<PickId, Found>,
+    #[cfg(test)]
+    work: Work,
 }
 
 impl Scene {
     pub fn hits_through(&self, view: &View, cursor: DVec2, pixels_per_point: f32) -> Vec<PickHit> {
-        let Some(ray) = view.ray_through(cursor) else {
-            return Vec::new();
-        };
+        self.probed(view, cursor, pixels_per_point, true)
+            .map(Probe::sorted)
+            .unwrap_or_default()
+    }
+
+    fn probed<'a>(
+        &'a self,
+        view: &'a View,
+        cursor: DVec2,
+        pixels_per_point: f32,
+        bounded: bool,
+    ) -> Option<Probe<'a>> {
+        let ray = view.ray_through(cursor)?;
         let pixels_per_point = f64::from(pixels_per_point);
+        let pixels_per_point = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+            pixels_per_point
+        } else {
+            1.0
+        };
 
         let mut probe = Probe {
             view,
             cursor,
             ray,
-            pixels_per_point: if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
-                pixels_per_point
-            } else {
-                1.0
-            },
+            pixels_per_point,
             section: &self.section,
             slack: section_slack(view.viewpoint().distance),
             cap_depth: f64::INFINITY,
+            bounded,
             found: AHashMap::new(),
+            #[cfg(test)]
+            work: Work::default(),
         };
 
         for instance in self
@@ -105,17 +130,20 @@ impl Scene {
         {
             probe.mesh(instance);
         }
-        for line in self.lines() {
+
+        let reachable = self.reachable_batches(&probe);
+
+        for line in reachable.iter().flat_map(|batch| batch.all_lines()) {
             if let Some(id) = line.pick {
                 probe.segment(id, [line.start, line.end], line.width, line.layer);
             }
         }
-        for marker in self.markers() {
+        for marker in reachable.iter().flat_map(|batch| &batch.markers) {
             if let Some(id) = marker.pick {
                 probe.point(id, marker.position, marker.diameter, marker.layer);
             }
         }
-        for fill in self.fills() {
+        for fill in reachable.iter().flat_map(|batch| &batch.fills) {
             if let Some(id) = fill.pick {
                 for triangle in &fill.triangles {
                     probe.triangle(
@@ -126,7 +154,25 @@ impl Scene {
                 }
             }
         }
-        probe.sorted()
+        Some(probe)
+    }
+
+    fn reachable_batches(&self, probe: &Probe<'_>) -> Vec<&Batch> {
+        if !probe.bounded {
+            return self.batches.iter().map(|batch| &**batch).collect();
+        }
+
+        self.batch_bounds
+            .of(&self.batches)
+            .into_iter()
+            .zip(&self.batches)
+            .filter(|(bounds, _)| {
+                bounds.as_ref().is_some_and(|bounds| {
+                    !bounds.is_out_of_reach(probe.view, probe.cursor, probe.pixels_per_point)
+                })
+            })
+            .map(|(_, batch)| &**batch)
+            .collect()
     }
 }
 
@@ -168,6 +214,9 @@ impl Probe<'_> {
         if self.section.is_empty() || !instance.mesh.is_closed() {
             return;
         }
+        if self.bounded && !self.crosses_placed(instance) {
+            return;
+        }
 
         let Some(entry) = self.entry() else {
             return;
@@ -188,6 +237,12 @@ impl Probe<'_> {
                 Some(placement) => corners.map(|corner| placement.apply_point(corner)),
                 None => corners,
             };
+
+            #[cfg(test)]
+            {
+                self.work.triangles += 1;
+            }
+
             let Some(distance) = ray_meets_triangle(&self.ray, corners) else {
                 continue;
             };
@@ -248,12 +303,7 @@ impl Probe<'_> {
             return;
         }
 
-        let Some(bounds) = instance.mesh.bounds() else {
-            return;
-        };
-        let placed = Aabb::from_points(placed_corners(bounds, instance.placement));
-
-        if !placed.is_some_and(|placed| crosses_box(&self.ray, &placed)) {
+        if !self.crosses_placed(instance) {
             return;
         }
         for (face, corners) in instance.mesh.face_triangles() {
@@ -269,11 +319,26 @@ impl Probe<'_> {
         }
     }
 
+    fn crosses_placed(&self, instance: &MeshInstance) -> bool {
+        let Some(bounds) = instance.mesh.bounds() else {
+            return false;
+        };
+        let placed = Aabb::from_points(placed_corners(bounds, instance.placement))
+            .map(|placed| placed.expanded(BOX_SLACK * (1.0 + placed.diagonal())));
+
+        placed.is_some_and(|placed| crosses_box(&self.ray, &placed))
+    }
+
     fn is_cut_away(&self, position: Point3, layer_sectioned: bool) -> bool {
         layer_sectioned && is_cut_away(self.section, position, self.slack)
     }
 
     fn triangle(&mut self, id: PickId, corners: [Point3; 3], (rank, sectioned): (Rank, bool)) {
+        #[cfg(test)]
+        {
+            self.work.triangles += 1;
+        }
+
         let Some(distance) = ray_meets_triangle(&self.ray, corners) else {
             return;
         };
@@ -300,6 +365,11 @@ impl Probe<'_> {
     }
 
     fn segment(&mut self, id: PickId, ends: [Point3; 2], width: f32, layer: Layer) {
+        #[cfg(test)]
+        {
+            self.work.lines += 1;
+        }
+
         let Some([start, end]) = self.clipped(ends) else {
             return;
         };
@@ -466,7 +536,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        camera::Viewpoint,
+        camera::{Projection, Viewpoint},
         mesh::{FaceStyle, MeshFace, MeshPoint, ShadedMesh},
         scene::{Batch, Color, CutFace, Fill, Line, Marker, Stroke},
     };
@@ -761,5 +831,305 @@ mod tests {
         }];
 
         assert_eq!(ids_at_centre(&scene), vec![id(1), id(2), id(11), id(12)]);
+    }
+
+    fn line_between(start: Point3, end: Point3, pick: u32) -> Line {
+        Line {
+            start,
+            end,
+            color: GREY,
+            width: 2.0,
+            layer: Layer::Model,
+            pick: Some(id(pick)),
+            stroke: Stroke::Solid,
+        }
+    }
+
+    fn marker_at(position: Point3, layer: Layer, pick: u32) -> Marker {
+        Marker {
+            position,
+            color: GREY,
+            diameter: 6.0,
+            layer,
+            pick: Some(id(pick)),
+        }
+    }
+
+    fn slab(centre: Point3, height: f64, layer: Layer, pick: u32) -> Fill {
+        Fill::convex(
+            &[
+                centre + Vector3::new(-6.0, -6.0, height),
+                centre + Vector3::new(6.0, -6.0, height),
+                centre + Vector3::new(6.0, 6.0, height),
+                centre + Vector3::new(-6.0, 6.0, height),
+            ],
+            GREY,
+            layer,
+            Some(id(pick)),
+        )
+    }
+
+    fn cluster(centre: Point3, first: u32) -> Arc<Batch> {
+        let spread = |x: f64, y: f64, z: f64| centre + Vector3::new(x, y, z);
+        Arc::new(Batch {
+            lines: vec![
+                line_between(spread(-8.0, 0.0, 1.0), spread(8.0, 0.0, 1.0), first),
+                line_between(spread(0.0, -8.0, -1.0), spread(0.0, 8.0, -1.0), first + 1),
+                line_between(spread(-8.0, -8.0, 2.0), spread(8.0, 8.0, 2.0), first + 2),
+            ],
+            markers: vec![
+                marker_at(spread(0.0, 0.0, 3.0), Layer::Model, first + 3),
+                marker_at(spread(5.0, 5.0, -3.0), Layer::Front, first + 4),
+            ],
+            fills: vec![
+                slab(centre, 0.0, Layer::Model, first + 5),
+                slab(centre, -4.0, Layer::Reference, first + 6),
+            ],
+            runs: Vec::new(),
+        })
+    }
+
+    fn placed_cube(centre: Point3, first: u32, placement: Option<RigidTransform>) -> MeshInstance {
+        MeshInstance {
+            mesh: Arc::new(cube(8.0, centre).with_closed(true)),
+            faces: cube_styles(first).into(),
+            placement,
+        }
+    }
+
+    fn crowded() -> Scene {
+        let moved = RigidTransform::translation(Vector3::new(30.0, -20.0, 0.0)).unwrap();
+        let turned = RigidTransform::translation(Vector3::new(-60.0, 40.0, 10.0)).unwrap();
+        Scene {
+            meshes: vec![
+                placed_cube(Point3::ZERO, 100, None),
+                placed_cube(Point3::new(0.0, 0.0, -30.0), 110, Some(moved)),
+            ],
+            flat_meshes: vec![placed_cube(Point3::new(10.0, 10.0, 0.0), 120, Some(turned))],
+            section: vec![SectionPlane {
+                plane: Plane::new(Point3::new(0.0, 0.0, 4.0), Vector3::Z).unwrap(),
+                cut_face: CutFace::Hatched,
+            }],
+            batches: vec![
+                cluster(Point3::ZERO, 1),
+                cluster(Point3::new(30.0, -20.0, 0.0), 11),
+                cluster(Point3::new(-60.0, 40.0, 5.0), 21),
+                cluster(Point3::new(500.0, 500.0, 0.0), 31),
+                Arc::new(Batch::default()),
+            ],
+            ..Scene::default()
+        }
+    }
+
+    fn views() -> Vec<View> {
+        let looking =
+            |direction: Vector3| Viewpoint::looking_from(direction, Point3::ZERO, 100.0).unwrap();
+        vec![
+            view(),
+            View::new(looking(Vector3::new(1.0, 0.7, 0.5)), 400.0, 300.0),
+            View::new(looking(Vector3::new(-0.3, 1.0, 0.8)), 400.0, 300.0)
+                .with_projection(Projection::Orthographic),
+            View::new(looking(Vector3::new(0.0, 0.0, -1.0)), 400.0, 300.0)
+                .with_projection(Projection::Orthographic),
+        ]
+    }
+
+    fn cursors(view: &View, scene: &Scene) -> Vec<DVec2> {
+        let mut at: Vec<DVec2> = (0..=40)
+            .flat_map(|column| {
+                (0..=30).map(move |row| DVec2::new(f64::from(column) * 10.0, f64::from(row) * 10.0))
+            })
+            .collect();
+
+        for batch in &scene.batches {
+            for line in batch.lines.iter() {
+                at.extend(view.project(line.start));
+                at.extend(view.project(line.end));
+            }
+            for marker in &batch.markers {
+                at.extend(view.project(marker.position));
+            }
+        }
+        for instance in scene.meshes.iter().chain(&scene.flat_meshes) {
+            let Some(bounds) = instance.mesh.bounds() else {
+                continue;
+            };
+
+            at.extend(
+                placed_corners(bounds, instance.placement)
+                    .into_iter()
+                    .filter_map(|corner| view.project(corner)),
+            );
+        }
+        at
+    }
+
+    #[test]
+    fn bounds_never_change_what_is_listed_or_its_order() {
+        let scene = crowded();
+
+        for view in views() {
+            for cursor in cursors(&view, &scene) {
+                let bounded = scene.probed(&view, cursor, 1.0, true).unwrap().sorted();
+                let everything = scene.probed(&view, cursor, 1.0, false).unwrap().sorted();
+
+                assert_eq!(bounded, everything, "{cursor:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_edge_of_the_widened_ray_lists_the_same_with_and_without_bounds() {
+        let view = view();
+        let scene = Scene {
+            batches: vec![Arc::new(Batch {
+                lines: vec![line_between(
+                    Point3::new(-10.0, 0.0, 0.0),
+                    Point3::new(10.0, 0.0, 0.0),
+                    1,
+                )],
+                ..Batch::default()
+            })],
+            ..Scene::default()
+        };
+        let end = view.project(Point3::new(10.0, 0.0, 0.0)).unwrap();
+        let mut listed = Vec::new();
+
+        for step in 0..=160 {
+            let beyond = f64::from(step) * 0.125;
+
+            for cursor in [
+                end + DVec2::new(beyond, 0.0),
+                end + DVec2::new(0.0, beyond),
+                end + DVec2::new(-beyond, -beyond),
+            ] {
+                let bounded = scene.probed(&view, cursor, 1.0, true).unwrap().sorted();
+                let everything = scene.probed(&view, cursor, 1.0, false).unwrap().sorted();
+
+                assert_eq!(bounded, everything, "{cursor:?}");
+
+                listed.push(!bounded.is_empty());
+            }
+        }
+
+        assert!(listed.iter().any(|listed| *listed));
+        assert!(listed.iter().any(|listed| !*listed));
+    }
+
+    #[test]
+    fn a_batch_the_widened_ray_misses_tests_none_of_its_lines_or_triangles() {
+        let view = view();
+        let scene = Scene {
+            batches: vec![
+                cluster(Point3::ZERO, 1),
+                cluster(Point3::new(40.0, 0.0, 0.0), 11),
+                cluster(Point3::new(0.0, 40.0, 0.0), 21),
+            ],
+            ..Scene::default()
+        };
+        let centre = DVec2::new(200.0, 150.0);
+
+        let bounded = scene.probed(&view, centre, 1.0, true).unwrap();
+        let everything = scene.probed(&view, centre, 1.0, false).unwrap();
+
+        assert_eq!(
+            bounded.work,
+            Work {
+                lines: 3,
+                triangles: 4
+            }
+        );
+        assert_eq!(
+            everything.work,
+            Work {
+                lines: 9,
+                triangles: 12
+            }
+        );
+        assert_eq!(bounded.sorted(), everything.sorted());
+    }
+
+    #[test]
+    fn a_batch_reaching_behind_the_eye_is_always_tested() {
+        let view = view();
+        let scene = Scene {
+            batches: vec![Arc::new(Batch {
+                lines: vec![line_between(
+                    Point3::new(0.0, 0.0, 20.0),
+                    Point3::new(0.0, 0.0, 1000.0),
+                    1,
+                )],
+                ..Batch::default()
+            })],
+            ..Scene::default()
+        };
+
+        let bounded = scene
+            .probed(&view, DVec2::new(10.0, 10.0), 1.0, true)
+            .unwrap();
+
+        assert_eq!(bounded.work.lines, 1);
+    }
+
+    #[test]
+    fn a_closed_body_the_ray_misses_is_not_walked_for_a_cap_and_a_placed_one_is_found_where_it_is()
+    {
+        let view = view();
+        let moved = RigidTransform::translation(Vector3::new(200.0, 0.0, 0.0)).unwrap();
+        let mut scene = Scene {
+            meshes: vec![
+                placed_cube(Point3::ZERO, 1, None),
+                placed_cube(Point3::ZERO, 11, Some(moved)),
+            ],
+            section: vec![SectionPlane {
+                plane: Plane::new(Point3::new(0.0, 0.0, 4.0), Vector3::Z).unwrap(),
+                cut_face: CutFace::Hatched,
+            }],
+            ..Scene::default()
+        };
+        let centre = DVec2::new(200.0, 150.0);
+
+        let bounded = scene.probed(&view, centre, 1.0, true).unwrap();
+        let everything = scene.probed(&view, centre, 1.0, false).unwrap();
+
+        assert_eq!(everything.work.triangles - bounded.work.triangles, 12);
+        assert_eq!(bounded.sorted(), everything.sorted());
+
+        scene.meshes[1].placement = None;
+        scene.meshes[0].placement = Some(moved);
+
+        let swapped = scene.probed(&view, centre, 1.0, true).unwrap();
+        let swapped_everything = scene.probed(&view, centre, 1.0, false).unwrap();
+
+        assert_eq!(
+            swapped_everything.work.triangles - swapped.work.triangles,
+            12
+        );
+        assert_eq!(swapped.sorted(), swapped_everything.sorted());
+    }
+
+    #[test]
+    fn a_batch_changed_after_it_was_listed_is_bounded_again() {
+        let view = view();
+        let mut scene = Scene {
+            batches: vec![cluster(Point3::new(0.0, 0.0, 0.0), 1)],
+            ..Scene::default()
+        };
+        let centre = DVec2::new(200.0, 150.0);
+
+        let before = scene.hits_through(&view, centre, 1.0);
+
+        Arc::make_mut(&mut scene.batches[0]).markers.clear();
+        Arc::make_mut(&mut scene.batches[0]).fills.clear();
+        Arc::make_mut(&mut scene.batches[0]).lines = vec![line_between(
+            Point3::new(300.0, 300.0, 0.0),
+            Point3::new(320.0, 300.0, 0.0),
+            9,
+        )];
+
+        let after = scene.hits_through(&view, centre, 1.0);
+
+        assert!(!before.is_empty());
+        assert!(after.is_empty());
     }
 }

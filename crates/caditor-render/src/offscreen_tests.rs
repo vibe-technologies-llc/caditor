@@ -136,6 +136,7 @@ fn scene() -> Scene {
         section: Vec::new(),
         grid: None,
         pictures: Vec::new(),
+        batch_bounds: Default::default(),
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
                 start: Point3::new(-20.0, 0.0, 0.0),
@@ -1187,6 +1188,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
         section: Vec::new(),
         grid: None,
         pictures: Vec::new(),
+        batch_bounds: Default::default(),
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
                 start: Point3::new(-50.0, 0.0, 0.0),

@@ -921,7 +921,7 @@ impl GpuBatch {
     }
 }
 
-fn batch_lines(batch: &Batch) -> Cow<'_, [Line]> {
+pub(crate) fn batch_lines(batch: &Batch) -> Cow<'_, [Line]> {
     match batch.runs.is_empty() {
         true => Cow::Borrowed(&batch.lines),
         false => Cow::Owned(batch.all_lines().collect()),
@@ -1058,10 +1058,10 @@ fn grouped_fill_spans(fills: &[Fill], slot: usize) -> (FillGroups, Vec<FillSpan>
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct BatchBounds {
-    corners: [Point3; 8],
+pub(crate) struct BatchBounds {
+    pub(crate) corners: [Point3; 8],
     size: f64,
-    reach_points: f64,
+    pub(crate) reach_points: f64,
 }
 
 impl BatchBounds {
@@ -1079,7 +1079,7 @@ impl BatchBounds {
         }
     }
 
-    fn of(batch: &Batch, lines: &[Line]) -> Option<Self> {
+    pub(crate) fn of(batch: &Batch, lines: &[Line]) -> Option<Self> {
         let points = lines
             .iter()
             .flat_map(|line| [line.start, line.end])

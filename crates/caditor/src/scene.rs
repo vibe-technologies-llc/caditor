@@ -1459,6 +1459,7 @@ pub fn build_keeping(
                 color: palette.grid,
             }),
             pictures: builder.pictures,
+            ..Scene::default()
         },
         picks: Arc::new(PickTable::of(
             builder.picks,

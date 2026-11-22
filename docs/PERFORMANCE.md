@@ -107,12 +107,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
-- [medium · medium] `Scene::hits_through` (`caditor-render`'s `through.rs`) tests every line of
-  every batch, body edges included, with no batch bounds, and with a section shown `cap` walks
-  every triangle of every closed mesh with no bounds test (`mesh` has one); paint selection calls it
-  up to 65 times per pointer move (`paint_selection.rs`), on the UI thread, as do the late click
-  and the pick list (`viewport.rs`). Test `crosses_box` against placed bounds in `cap`, and keep CPU
-  bounds per batch (as `BatchBounds` does on upload) to skip batches the widened ray misses.
 - [low · hard] Each sketch is a kept part (`app.md`), but within one sketch a hover or selection
   change restyles and uploads the whole sketch, about 1.9 ms to rebuild on the 24,000-curve
   `large_sketch` in a release build (`frame_costs_on_a_large_sketch_and_a_large_model`), and each
