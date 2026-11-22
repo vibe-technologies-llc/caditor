@@ -146,6 +146,15 @@ paths:
   and removes the dead worker's (`Storage::untitled_journal`, `Start::replaces`), so the stop
   leaves one journal to recover, not two. The `test-support` feature adds `Storage::stop`, which
   the app's tests enable as a dev-dependency, to stop a worker on command.
+- When no worker can start (no thread), the model is unprotected (`JournalFailure::WriterUnavailable`)
+  and nothing is journalled: the entries stay in the `Model` and reach the journal only once a
+  worker starts. Each Save tries to start one first; if that fails too, the one exception to the
+  UI thread never touching files applies: `save_without_worker` writes the file on the calling
+  thread through the same `save_with` as a job (same checks, version history, atomic replace),
+  under `catch_unwind` as `SaveError::StoppedUnexpectedly`, without a preview (no frame can draw
+  one while it waits), and the notice says it was saved slowly because the writer could not
+  start. A worker that starts later clears `WriterUnavailable` and takes the saves again
+  (`Model::refuse_storage_worker`, test builds only, makes starting fail).
 - A worker started for another model (`Start::after`, the previous worker's `Closing`) waits up to
   `PREDECESSOR_TIMEOUT`, then completes its `Handover` (`Storage::handover`); anything inspecting
   journals for that model's file waits on it first, since until then the previous worker still

@@ -18,6 +18,9 @@ A crash or any loss of the user's work is a catastrophic failure, not an edge ca
   a panic in a frame resets the interface and keeps the model (`app.md`), a lost surface is
   recreated inside `caditor-render`, a failing feature is contained to that feature. Exit only for
   startup failures and a window failing frame after frame, with the journal kept.
+- Save always writes when it can: with no storage worker able to start, the file is written on the
+  UI thread, contained and announced as slow, the one exception to the UI thread never doing file
+  I/O (`file-journal.md`).
 
 ## Persistence
 

@@ -579,14 +579,11 @@ impl SaveJob {
             plan,
         } = self;
 
-        let options = SaveOptions {
-            keep_original: request.keep_original,
-            history_from: history_from.as_deref(),
-            label: request.label.as_deref(),
-            unless_changed_from: unless_changed_from.as_ref(),
-            retention: request.retention,
-            preview: request.preview.as_ref(),
-        };
+        let options = save_options(
+            &request,
+            history_from.as_deref(),
+            unless_changed_from.as_ref(),
+        );
         let saved = save::save_with(&request.document, &request.path, &options);
         let prepared = saved.as_ref().ok().and_then(|saved| {
             let head = JournalHead {
@@ -603,6 +600,86 @@ impl SaveJob {
             prepared,
         }
     }
+}
+
+pub fn save_without_worker(
+    config: &StorageConfig,
+    file: Option<&Path>,
+    on_disk: Option<&FileDigest>,
+    mut request: SaveRequest,
+) -> Report {
+    let open_model = is_open_model(file, &request.path);
+
+    request.keep_original &= open_model;
+    request.preview = None;
+    if !open_model && opened_elsewhere(&request.path, config.recovery_dir.as_deref(), |_| false) {
+        return save_report(
+            request.ticket,
+            request.path,
+            Err(SaveError::OpenInAnotherWindow),
+        );
+    }
+
+    let unless_changed_from = on_disk.filter(|_| !request.replace_outside_changes);
+    let options = save_options(&request, file, unless_changed_from);
+
+    let saved = panic::catch_unwind(AssertUnwindSafe(|| {
+        save::save_with(&request.document, &request.path, &options)
+    }))
+    .unwrap_or_else(|_| {
+        log::error!("a save without the background writer panicked");
+        Err(SaveError::StoppedUnexpectedly)
+    });
+    save_report(request.ticket, request.path, saved)
+}
+
+fn save_options<'a>(
+    request: &'a SaveRequest,
+    history_from: Option<&'a Path>,
+    unless_changed_from: Option<&'a FileDigest>,
+) -> SaveOptions<'a> {
+    SaveOptions {
+        keep_original: request.keep_original,
+        history_from,
+        label: request.label.as_deref(),
+        unless_changed_from,
+        retention: request.retention,
+        preview: request.preview.as_ref(),
+    }
+}
+
+fn save_report(ticket: u64, path: PathBuf, saved: Result<Saved, SaveError>) -> Report {
+    match saved {
+        Ok(saved) => Report::Saved {
+            ticket,
+            path,
+            backup: saved.backup,
+            dropped_for_size: saved.dropped_for_size,
+            digest: saved.digest,
+            stamp: saved.stamp,
+        },
+        Err(SaveError::ChangedOnDisk) => Report::ChangedOnDisk { ticket, path },
+        Err(error) => Report::SaveFailed {
+            ticket,
+            path,
+            error,
+        },
+    }
+}
+
+fn is_open_model(file: Option<&Path>, path: &Path) -> bool {
+    file.is_some_and(|file| same_file_blocking(file, path))
+}
+
+fn opened_elsewhere(
+    file: &Path,
+    recovery_dir: Option<&Path>,
+    owns: impl Fn(&Path) -> bool,
+) -> bool {
+    paths::journals_for(file, recovery_dir)
+        .iter()
+        .filter(|candidate| !owns(candidate))
+        .any(|candidate| locked_elsewhere(candidate))
 }
 
 struct OwnedHead {
@@ -841,7 +918,7 @@ impl Worker {
         match finished {
             Finished::Saved {
                 request,
-                saved: Ok(saved),
+                saved,
                 prepared,
             } => {
                 let SaveRequest {
@@ -851,38 +928,16 @@ impl Worker {
                     ..
                 } = *request;
 
-                self.file = Some(path.clone());
-                self.on_disk = Some(saved.digest.clone());
-                self.loaded_with_problems = false;
-                self.folded = 0;
-                self.restart_from(document, since);
-                self.install_prepared(prepared);
-                self.report(Report::Saved {
-                    ticket,
-                    path,
-                    backup: saved.backup,
-                    dropped_for_size: saved.dropped_for_size,
-                    digest: saved.digest,
-                    stamp: saved.stamp,
-                });
+                if let Ok(saved) = &saved {
+                    self.file = Some(path.clone());
+                    self.on_disk = Some(saved.digest.clone());
+                    self.loaded_with_problems = false;
+                    self.folded = 0;
+                    self.restart_from(document, since);
+                    self.install_prepared(prepared);
+                }
+                self.report(save_report(ticket, path, saved));
             }
-            Finished::Saved {
-                request,
-                saved: Err(SaveError::ChangedOnDisk),
-                ..
-            } => self.report(Report::ChangedOnDisk {
-                ticket: request.ticket,
-                path: request.path,
-            }),
-            Finished::Saved {
-                request,
-                saved: Err(error),
-                ..
-            } => self.report(Report::SaveFailed {
-                ticket: request.ticket,
-                path: request.path,
-                error,
-            }),
             Finished::Kept {
                 request: KeepRequest {
                     path, index, kept, ..
@@ -906,11 +961,11 @@ impl Worker {
                 });
             }
             Finished::Stopped(Stopped::Save { ticket, path }) => {
-                self.report(Report::SaveFailed {
+                self.report(save_report(
                     ticket,
                     path,
-                    error: SaveError::StoppedUnexpectedly,
-                });
+                    Err(SaveError::StoppedUnexpectedly),
+                ));
             }
             Finished::Stopped(Stopped::Keep { path }) => self.report(Report::KeepFailed {
                 path,
@@ -1045,15 +1100,19 @@ impl Worker {
     fn save(&mut self, mut request: Box<SaveRequest>) {
         self.sync();
 
-        let open_model = self.is_open_model(&request.path);
+        let open_model = is_open_model(self.file.as_deref(), &request.path);
 
         request.keep_original &= open_model;
-        if !open_model && self.opened_elsewhere(&request.path) {
-            self.report(Report::SaveFailed {
-                ticket: request.ticket,
-                path: request.path,
-                error: SaveError::OpenInAnotherWindow,
-            });
+        if !open_model
+            && opened_elsewhere(&request.path, self.recovery_dir.as_deref(), |candidate| {
+                self.owns(candidate)
+            })
+        {
+            self.report(save_report(
+                request.ticket,
+                request.path,
+                Err(SaveError::OpenInAnotherWindow),
+            ));
             return;
         }
 
@@ -1076,7 +1135,7 @@ impl Worker {
 
     fn keep_version(&mut self, request: KeepRequest) {
         self.sync();
-        if !self.is_open_model(&request.path) {
+        if !is_open_model(self.file.as_deref(), &request.path) {
             self.report(Report::KeepFailed {
                 path: request.path,
                 error: KeepVersionError::NotTheOpenModel,
@@ -1102,19 +1161,6 @@ impl Worker {
                 .map(|journal| journal.path.clone()),
             recovery_dir: self.recovery_dir.clone(),
         }
-    }
-
-    fn opened_elsewhere(&self, file: &Path) -> bool {
-        paths::journals_for(file, self.recovery_dir.as_deref())
-            .iter()
-            .filter(|candidate| !self.owns(candidate))
-            .any(|candidate| locked_elsewhere(candidate))
-    }
-
-    fn is_open_model(&self, path: &Path) -> bool {
-        self.file
-            .as_deref()
-            .is_some_and(|file| same_file_blocking(file, path))
     }
 
     fn owns(&self, path: &Path) -> bool {

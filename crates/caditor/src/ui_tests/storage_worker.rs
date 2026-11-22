@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use caditor_file::Inspection;
+use caditor_file::{Inspection, JournalFailure};
 use egui::{Key, Modifiers};
 use tempfile::TempDir;
 
@@ -9,6 +9,7 @@ use crate::files::FileCommand;
 
 const WRITER_STOPPED: &str =
     "Could not save, because the background writer stopped. Try saving again.";
+const SAVED_SLOWLY: &str = "but slowly: the background writer could not start";
 
 fn journals_in(recovery: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(recovery)
@@ -208,4 +209,100 @@ fn quitting_an_unchanged_model_with_the_worker_gone_closes_at_once() {
     harness.key(Key::Q, Modifiers::COMMAND);
     harness.command(FileCommand::Quit);
     harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+}
+
+fn saved_versions(path: &Path) -> usize {
+    caditor_file::history(path).unwrap().versions.len()
+}
+
+fn saved_as_shown(harness: &Harness, path: &Path) -> bool {
+    caditor_file::load(path).unwrap().document == *harness.model.document()
+}
+
+#[test]
+fn a_save_the_stopped_worker_cannot_take_is_written_on_the_spot_when_no_worker_can_start() {
+    let dir = TempDir::new().unwrap();
+    let (mut harness, _) = started(&dir);
+    let path = canonical(&dir).join("plate.caditor");
+
+    harness.model.refuse_storage_worker(true);
+    harness.model.stop_storage_worker();
+    harness.model.save_to(path.clone());
+
+    let notice = harness.model.notice().unwrap().text.clone();
+
+    assert!(!harness.model.has_storage_worker());
+    assert!(!harness.model.is_saving());
+    assert!(!harness.model.is_dirty());
+    assert_eq!(harness.model.path(), Some(path.as_path()));
+    assert_eq!(harness.model.unsaved_journal_entries(), 0);
+    assert!(notice.contains("plate.caditor"), "{notice}");
+    assert!(notice.contains(SAVED_SLOWLY), "{notice}");
+    assert!(saved_as_shown(&harness, &path));
+    assert_eq!(saved_versions(&path), 0);
+
+    harness.edit_width("48 mm");
+    harness.model.save_to(path.clone());
+
+    assert!(!harness.model.has_storage_worker());
+    assert!(!harness.model.is_dirty());
+    assert!(saved_as_shown(&harness, &path));
+    assert_eq!(saved_versions(&path), 1);
+
+    harness.model.refuse_storage_worker(false);
+    harness.edit_width("49 mm");
+    harness.model.save_to(path.clone());
+
+    assert!(harness.model.has_storage_worker());
+    assert!(harness.model.is_saving());
+
+    harness.wait_until("the background save finishes", |harness| {
+        !harness.model.is_saving()
+    });
+
+    assert!(!harness.model.is_dirty());
+    assert!(harness.model.unprotected().is_none());
+    assert!(saved_as_shown(&harness, &path));
+    assert_eq!(saved_versions(&path), 2);
+}
+
+#[test]
+fn saving_with_no_worker_able_to_start_writes_the_file_and_a_later_start_saves_in_the_background() {
+    let dir = TempDir::new().unwrap();
+    let (mut harness, _) = started(&dir);
+    let path = canonical(&dir).join("bracket.caditor");
+
+    harness.model.refuse_storage_worker(true);
+    harness.model.stop_storage_worker();
+    harness.wait_until("the stopped worker is found", |harness| {
+        !harness.model.has_storage_worker()
+    });
+
+    assert_eq!(
+        harness.model.unprotected(),
+        Some(&JournalFailure::WriterUnavailable)
+    );
+
+    harness.edit_width("47 mm");
+    harness.model.save_to(path.clone());
+
+    assert!(!harness.model.is_saving());
+    assert!(!harness.model.is_dirty());
+    assert!(harness.model.notice().unwrap().text.contains(SAVED_SLOWLY));
+    assert!(saved_as_shown(&harness, &path));
+
+    harness.model.refuse_storage_worker(false);
+    harness.edit_width("48 mm");
+    harness.model.save_to(path.clone());
+
+    assert!(harness.model.is_saving());
+    assert!(harness.model.unprotected().is_none());
+
+    harness.wait_until("the background save finishes", |harness| {
+        !harness.model.is_saving()
+    });
+
+    assert!(!harness.model.is_dirty());
+    assert!(saved_as_shown(&harness, &path));
+    assert_eq!(saved_versions(&path), 1);
 }

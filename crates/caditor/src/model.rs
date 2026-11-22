@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeSet, VecDeque},
+    io, iter,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant, SystemTime},
@@ -15,7 +16,8 @@ use caditor_document::{
 pub use caditor_file::crash::PanicFlush;
 use caditor_file::{
     Closing, DiskStamp, FileDigest, Handover, JournalEntry, JournalFailure, KeepRequest,
-    PreviewDrawing, Recovered, Report, Retention, SaveRequest, Start, Storage, StorageConfig,
+    PreviewDrawing, PreviewSlot, Recovered, Report, Retention, SaveRequest, Start, Storage,
+    StorageConfig,
 };
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
@@ -341,6 +343,8 @@ pub struct Model {
     unprotected: Option<JournalFailure>,
     dirty: bool,
     pending_save: Option<PendingSave>,
+    #[cfg(test)]
+    storage_refused: bool,
     save_previews: SavePreviews,
     next_ticket: u64,
     file_events: Vec<FileEvent>,
@@ -404,6 +408,8 @@ impl Model {
             unprotected: None,
             dirty: false,
             pending_save: None,
+            #[cfg(test)]
+            storage_refused: false,
             save_previews: SavePreviews::default(),
             next_ticket: 0,
             file_events: Vec::new(),
@@ -1206,7 +1212,7 @@ impl Model {
         let cuts = draft
             .map(|(evaluation, drafted)| (evaluation, evaluation.cuts(drafted)))
             .into_iter()
-            .chain(std::iter::once((
+            .chain(iter::once((
                 &self.evaluation,
                 self.evaluation.cuts(feature),
             )));
@@ -1889,6 +1895,11 @@ impl Model {
     }
 
     #[cfg(test)]
+    pub fn refuse_storage_worker(&mut self, refused: bool) {
+        self.storage_refused = refused;
+    }
+
+    #[cfg(test)]
     pub fn has_storage_worker(&self) -> bool {
         self.storage.is_some()
     }
@@ -1988,40 +1999,96 @@ impl Model {
         if self.storage.is_none() {
             self.start_storage(None, None);
         }
+        if self.storage.is_none() {
+            self.save_without_worker(path, replace_outside_changes);
+            return;
+        }
 
+        let preview = self
+            .save_previews
+            .request(self.revision(), self.evaluation.bodies().next().is_some());
+        let request = self.save_request(path.clone(), replace_outside_changes, preview);
+        let pending = self.pending(&request);
+
+        let sent = self
+            .storage
+            .as_ref()
+            .is_some_and(|storage| storage.save(request).is_ok());
+
+        if sent {
+            self.pending_save = Some(pending);
+            return;
+        }
+        self.restart_storage();
+        if self.storage.is_none() {
+            self.save_without_worker(path, replace_outside_changes);
+        } else {
+            self.fail_save(Notice::failure(
+                "Could not save, because the background writer stopped. Try saving again.",
+            ));
+            self.file_events.push(FileEvent::SaveFailed);
+        }
+    }
+
+    fn save_request(
+        &mut self,
+        path: PathBuf,
+        replace_outside_changes: bool,
+        preview: Option<PreviewSlot>,
+    ) -> SaveRequest {
         let ticket = self.next_ticket;
 
         self.next_ticket += 1;
-
-        let document = self.editor.document().clone();
-        let request = SaveRequest {
+        SaveRequest {
             ticket,
-            document: document.clone(),
+            document: self.editor.document().clone(),
             keep_original: self.keep_original,
             label: self.editor.undo_label().map(str::to_owned),
             retention: self.retention,
             path,
             replace_outside_changes,
-            preview: self
-                .save_previews
-                .request(self.revision(), self.evaluation.bodies().next().is_some()),
+            preview,
+        }
+    }
+
+    fn pending(&self, request: &SaveRequest) -> PendingSave {
+        PendingSave {
+            ticket: request.ticket,
+            document: request.document.clone(),
+            entries: self.entries.len(),
+        }
+    }
+
+    fn save_without_worker(&mut self, path: PathBuf, replace_outside_changes: bool) {
+        log::warn!("saving on the interface thread, because the storage worker could not start");
+
+        let request = self.save_request(path, replace_outside_changes, None);
+
+        self.pending_save = Some(self.pending(&request));
+
+        let report = caditor_file::save_without_worker(
+            &self.services.storage,
+            self.path.as_deref(),
+            self.on_disk.as_ref(),
+            request,
+        );
+        let slowly = match &report {
+            Report::Saved {
+                path,
+                backup,
+                dropped_for_size,
+                ..
+            } => Some(saved_slowly_notice(
+                path,
+                backup.as_deref(),
+                *dropped_for_size,
+            )),
+            _ => None,
         };
-        let sent = self
-            .storage
-            .as_ref()
-            .is_some_and(|storage| storage.save(request).is_ok());
-        if sent {
-            self.pending_save = Some(PendingSave {
-                ticket,
-                document,
-                entries: self.entries.len(),
-            });
-        } else {
-            self.restart_storage();
-            self.fail_save(Notice::failure(
-                "Could not save, because the background writer stopped. Try saving again.",
-            ));
-            self.file_events.push(FileEvent::SaveFailed);
+
+        self.handle_report(report);
+        if let Some(notice) = slowly {
+            self.set_notice(notice);
         }
     }
 
@@ -2204,10 +2271,12 @@ impl Model {
             after,
         };
         let wake = (self.services.make_waker)();
-        match Storage::spawn(self.services.storage.clone(), start, wake) {
+        match self.spawn_storage(start, wake) {
             Ok(storage) => {
                 *self.services.panic_flush.lock() = Some(storage.flusher());
                 self.storage = Some(storage);
+                self.unprotected
+                    .take_if(|failure| *failure == JournalFailure::WriterUnavailable);
             }
             Err(error) => {
                 log::error!("could not start the storage worker: {error}");
@@ -2219,6 +2288,19 @@ impl Model {
                 ));
             }
         }
+    }
+
+    #[cfg(not(test))]
+    fn spawn_storage(&self, start: Start, wake: impl Fn() + Send + 'static) -> io::Result<Storage> {
+        Storage::spawn(self.services.storage.clone(), start, wake)
+    }
+
+    #[cfg(test)]
+    fn spawn_storage(&self, start: Start, wake: impl Fn() + Send + 'static) -> io::Result<Storage> {
+        if self.storage_refused {
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        Storage::spawn(self.services.storage.clone(), start, wake)
     }
 
     fn record(&mut self, entry: JournalEntry) {
@@ -2435,6 +2517,28 @@ pub fn display_label(path: Option<&Path>) -> Cow<'_, str> {
 }
 
 fn saved_notice(backup: Option<&Path>, dropped_for_size: usize) -> Option<Notice> {
+    let sentences = saved_sentences(backup, dropped_for_size);
+
+    (!sentences.is_empty()).then(|| Notice::warning(format!("Saved. {}", sentences.join(" "))))
+}
+
+fn saved_slowly_notice(path: &Path, backup: Option<&Path>, dropped_for_size: usize) -> Notice {
+    let slowly = format!(
+        "Saved “{}”, but slowly: the background writer could not start, so caditor waited while \
+         the file was written. Changes from now on are not protected against a crash until it \
+         starts, so save often.",
+        display_name(Some(path))
+    );
+
+    Notice::warning(
+        iter::once(slowly)
+            .chain(saved_sentences(backup, dropped_for_size))
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+fn saved_sentences(backup: Option<&Path>, dropped_for_size: usize) -> Vec<String> {
     let backup = backup.map(|backup| {
         format!(
             "The damaged original was kept as “{}”.",
@@ -2453,8 +2557,7 @@ fn saved_notice(backup: Option<&Path>, dropped_for_size: usize) -> Option<Notice
         )),
     };
 
-    let sentences: Vec<String> = backup.into_iter().chain(dropped).collect();
-    (!sentences.is_empty()).then(|| Notice::warning(format!("Saved. {}", sentences.join(" "))))
+    backup.into_iter().chain(dropped).collect()
 }
 
 fn reached_with_body(

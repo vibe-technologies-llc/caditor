@@ -214,9 +214,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `Sides` lays both groups on one line that does not wrap. Let the header wrap its buttons under the
   title when the width runs out; the ignored `screenshots` test's `home-signed-in-dark-200.png`
   shows it.
-- [low · medium] When the storage worker cannot be started (no thread can be spawned), Save says to
-  try again every time (`model.rs`, `restart_storage`) and has no fallback; a contained
-  synchronous save, worded as slow, would still save.
 - [low · medium] Two safe functions of the `unsafe` crates rest on their callers: the Wayland
   `DropTarget::attach` and `ToplevelExport::attach` wrap winit's `wl_display` and keep the window
   alive, but the connection belongs to winit's event loop, so their soundness rests on the drop
