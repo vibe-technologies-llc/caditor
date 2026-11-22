@@ -5,9 +5,10 @@ use std::{
 };
 
 use caditor_geometry::{Plane, RigidTransform, Similarity, Vector3};
+use caditor_kernel::{Interrupted, check_interrupt};
 
 use crate::read::{
-    geometry::{Geometry, MAX_WORK, Work},
+    geometry::{Geometry, Work},
     graph::{Entity, Fields, Graph},
     units::{Units, context_units},
 };
@@ -40,11 +41,12 @@ pub(crate) struct Structure {
     units: BTreeMap<u64, Units>,
     walked: BTreeMap<u64, Walk>,
     walked_placements: usize,
+    work: Work,
     pub truncated: bool,
 }
 
 impl Structure {
-    pub fn read(graph: &Graph<'_>) -> Self {
+    pub fn read(graph: &Graph<'_>, work: &Work) -> Self {
         let mut structure = Self {
             item_representation: BTreeMap::new(),
             contexts: BTreeMap::new(),
@@ -54,6 +56,7 @@ impl Structure {
             units: BTreeMap::new(),
             walked: BTreeMap::new(),
             walked_placements: 0,
+            work: work.clone(),
             truncated: false,
         };
 
@@ -62,9 +65,6 @@ impl Structure {
         }
 
         let definitions = definition_representations(graph);
-
-        structure.names = product_names(graph, &definitions);
-
         let children = assembly_children(graph, &definitions);
         let occurrences = occurrences(graph);
 
@@ -78,7 +78,23 @@ impl Structure {
             structure.relationship(graph, entity, &context);
             structure.mapped_items(graph, entity);
         }
+        structure.names = structure.class_names(product_names(graph, &definitions));
         structure
+    }
+
+    fn class_names(&self, names: BTreeMap<u64, Arc<str>>) -> BTreeMap<u64, Arc<str>> {
+        let mut by_class = BTreeMap::new();
+
+        for (representation, name) in names {
+            by_class
+                .entry(self.classes.key(representation))
+                .or_insert(name);
+        }
+        by_class
+    }
+
+    pub fn classes(&self) -> &Classes {
+        &self.classes
     }
 
     fn representation(&mut self, entity: Entity<'_>) {
@@ -121,10 +137,8 @@ impl Structure {
     }
 
     pub fn name_of(&self, representation: u64) -> Option<&str> {
-        self.classes
-            .of(representation)
-            .iter()
-            .find_map(|member| self.names.get(member))
+        self.names
+            .get(&self.classes.key(representation))
             .map(AsRef::as_ref)
     }
 
@@ -202,13 +216,8 @@ impl Structure {
         let (Ok(origin), Ok(child)) = (map.reference(0), map.reference(1)) else {
             return;
         };
-        let units = self.units_of(graph, parent);
-        let geometry = Geometry::new(*graph, units, Work::new(MAX_WORK));
 
-        let to = frame(&geometry, target).or_else(|| operator(&geometry, target));
-        let transform = frame(&geometry, origin)
-            .zip(to)
-            .map(|(from, to)| from.inverse().then(&to));
+        let transform = self.mapped_transform(graph, (entity.id, parent), origin, target);
 
         self.parents.entry(child).or_default().push(Parent {
             representation: parent,
@@ -218,6 +227,31 @@ impl Structure {
         });
     }
 
+    fn mapped_transform(
+        &mut self,
+        graph: &Graph<'_>,
+        (item, parent): (u64, u64),
+        origin: u64,
+        target: u64,
+    ) -> Option<Similarity> {
+        self.work.charge(item).ok()?;
+
+        let geometry = self.geometry(graph, parent);
+
+        let to = frame(&geometry, target).or_else(|| operator(&geometry, target));
+        frame(&geometry, origin)
+            .zip(to)
+            .map(|(from, to)| from.inverse().then(&to))
+    }
+
+    fn geometry<'g>(&mut self, graph: &Graph<'g>, representation: u64) -> Geometry<'g> {
+        Geometry::new(
+            *graph,
+            self.units_of(graph, representation),
+            self.work.clone(),
+        )
+    }
+
     fn item_transform(
         &mut self,
         graph: &Graph<'_>,
@@ -225,10 +259,12 @@ impl Structure {
         (first, second): (u64, u64),
         child_is_first: bool,
     ) -> Option<Similarity> {
+        self.work.charge(transformation).ok()?;
+
         let entity = graph.entity(transformation).ok()?;
 
         if entity.is("CARTESIAN_TRANSFORMATION_OPERATOR_3D") {
-            let geometry = Geometry::new(*graph, self.units_of(graph, second), Work::new(MAX_WORK));
+            let geometry = self.geometry(graph, second);
             let carried = operator(&geometry, transformation)?;
 
             return Some(if child_is_first {
@@ -240,11 +276,7 @@ impl Structure {
 
         let fields = entity.find("ITEM_DEFINED_TRANSFORMATION")?;
         let mut item = |representation: u64, index: usize| {
-            let geometry = Geometry::new(
-                *graph,
-                self.units_of(graph, representation),
-                Work::new(MAX_WORK),
-            );
+            let geometry = self.geometry(graph, representation);
             frame(&geometry, fields.reference(index).ok()?)
         };
 
@@ -257,32 +289,35 @@ impl Structure {
         })
     }
 
-    pub fn placements(&mut self, representation: u64) -> Placements {
-        Arc::unwrap_or_clone(self.walk(representation, 0))
+    pub fn placements(&mut self, representation: u64) -> Result<Arc<Placements>, Interrupted> {
+        self.walk(representation, 0)
     }
 
-    fn walk(&mut self, representation: u64, depth: usize) -> Arc<Placements> {
+    fn walk(&mut self, representation: u64, depth: usize) -> Result<Arc<Placements>, Interrupted> {
+        check_interrupt()?;
+
         let key = self.classes.key(representation);
 
         match self.walked.get(&key) {
-            Some(Walk::Done(placements)) => return Arc::clone(placements),
+            Some(Walk::Done(placements)) => return Ok(Arc::clone(placements)),
             Some(Walk::InProgress) => {
-                return Arc::new(Placements::unplaced(Unplaced::InsideItself));
+                return Ok(Arc::new(Placements::unplaced(Unplaced::InsideItself)));
             }
             None => {}
         }
 
-        let class = self.classes.of(representation).into_owned();
-        let parents: Vec<Parent> = class
+        let parents: Vec<Parent> = self
+            .classes
+            .of(representation)
             .iter()
             .flat_map(|member| self.parents.get(member).into_iter().flatten())
-            .filter(|parent| !class.contains(&parent.representation))
+            .filter(|parent| !self.classes.same(parent.representation, representation))
             .cloned()
             .collect();
 
         let placements = if parents.is_empty() {
             Placements {
-                paths: vec![class.iter().copied().collect()],
+                paths: vec![vec![key]],
                 ..Placements::at_origin()
             }
         } else if depth >= MAX_DEPTH {
@@ -297,18 +332,20 @@ impl Structure {
                 unplaced: None,
                 left_out: false,
             };
-            let walked_parents: Vec<(Parent, Option<Arc<Placements>>)> = parents
-                .into_iter()
-                .map(|parent| {
-                    let outer = parent
-                        .transform
-                        .is_some()
-                        .then(|| self.walk(parent.representation, depth + 1));
-                    (parent, outer)
-                })
-                .collect();
+            let mut walked_parents: Vec<(Parent, Option<Arc<Placements>>)> =
+                Vec::with_capacity(parents.len());
 
+            for parent in parents {
+                let outer = match parent.transform {
+                    Some(_) => Some(self.walk(parent.representation, depth + 1)?),
+                    None => None,
+                };
+
+                walked_parents.push((parent, outer));
+            }
             for (parent, outer) in walked_parents {
+                check_interrupt()?;
+
                 let (Some(transform), Some(outer)) = (parent.transform, outer) else {
                     placed.left_out = true;
                     continue;
@@ -338,8 +375,7 @@ impl Structure {
                     placed.transforms.push(transform.then(outer));
                     placed.occurrences.push(parent.occurrence.clone());
                     placed.paths.push(
-                        class
-                            .iter()
+                        std::iter::once(&key)
                             .chain(&parent.links)
                             .chain(outer_path)
                             .copied()
@@ -358,12 +394,12 @@ impl Structure {
         let placements = Arc::new(placements);
 
         self.walked.insert(key, Walk::Done(Arc::clone(&placements)));
-        placements
+        Ok(placements)
     }
 }
 
 #[derive(Default)]
-struct Classes {
+pub(crate) struct Classes {
     labels: BTreeMap<u64, usize>,
     members: Vec<BTreeSet<u64>>,
 }
@@ -419,7 +455,7 @@ impl Classes {
         }
     }
 
-    fn key(&self, representation: u64) -> u64 {
+    pub fn key(&self, representation: u64) -> u64 {
         self.labels
             .get(&representation)
             .and_then(|label| self.members.get(*label))
@@ -685,8 +721,10 @@ fn product_names(
 mod tests {
     use std::fmt::Write;
 
+    use caditor_kernel::interruptible;
+
     use super::*;
-    use crate::part21::parse;
+    use crate::{part21::parse, read::geometry::MAX_WORK};
 
     const ORIGIN: &str = "#1=AXIS2_PLACEMENT_3D('',#2,#3,#4);#2=CARTESIAN_POINT('',(0.,0.,0.));\
                           #3=DIRECTION('',(0.,0.,1.));#4=DIRECTION('',(1.,0.,0.));\
@@ -706,6 +744,14 @@ mod tests {
 
     fn file(data: &str) -> String {
         format!("ISO-10303-21;HEADER;ENDSEC;DATA;{ORIGIN}{data}ENDSEC;END-ISO-10303-21;")
+    }
+
+    fn read(graph: &Graph<'_>) -> Structure {
+        Structure::read(graph, &Work::new(MAX_WORK))
+    }
+
+    fn placements_of(structure: &mut Structure, representation: u64) -> Arc<Placements> {
+        structure.placements(representation).unwrap()
     }
 
     #[test]
@@ -766,12 +812,122 @@ mod tests {
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
 
-        let mut structure = Structure::read(&graph);
+        let mut structure = read(&graph);
 
         assert!(structure.classes.same(100, 100 + links));
         assert_eq!(structure.classes.key(100 + links), 100);
         assert_eq!(structure.name_of(100), None);
-        assert!(!structure.placements(100 + links / 2).transforms.is_empty());
+        assert!(
+            !placements_of(&mut structure, 100 + links / 2)
+                .transforms
+                .is_empty()
+        );
+    }
+
+    fn joined_and_mapped(representations: u64, items: u64) -> String {
+        let mut data = String::new();
+
+        for member in 0..representations {
+            data.push_str(&representation(100 + member));
+        }
+        for member in 1..representations {
+            write!(
+                data,
+                "#{}=REPRESENTATION_RELATIONSHIP('','',#{},#{});",
+                1_000_000 + member,
+                99 + member,
+                100 + member
+            )
+            .unwrap();
+        }
+        for item in 0..items {
+            write!(
+                data,
+                "#{map}=REPRESENTATION_MAP(#1,#{child});#{mapped}=MAPPED_ITEM('',#{map},#1);\
+                 #{parent}=SHAPE_REPRESENTATION('',(#{mapped}),#9);",
+                map = 2_000_000 + item,
+                child = 100 + item % representations,
+                mapped = 3_000_000 + item,
+                parent = 4_000_000 + item,
+            )
+            .unwrap();
+        }
+        file(&data)
+    }
+
+    fn ids_in_paths(representations: u64, items: u64) -> usize {
+        let text = joined_and_mapped(representations, items);
+        let exchange = parse(&text).unwrap();
+        let graph = Graph::new(&exchange);
+        let mut structure = read(&graph);
+
+        let first = placements_of(&mut structure, 100);
+        let last = placements_of(&mut structure, 99 + representations);
+
+        assert!(Arc::ptr_eq(&first, &last));
+        assert_eq!(first.transforms.len() as u64, items);
+        assert!(first.paths.iter().all(|path| path.len() == 3));
+
+        first.paths.iter().map(Vec::len).sum()
+    }
+
+    #[test]
+    fn a_large_class_placed_many_times_is_named_by_its_key_so_paths_grow_with_the_placements() {
+        let small = ids_in_paths(1_000, 100);
+        let large = ids_in_paths(4_000, 400);
+
+        assert!(large <= 4 * small, "{small} ids grew to {large}");
+    }
+
+    #[test]
+    fn a_path_holds_the_key_of_each_class_and_the_items_linking_them() {
+        let text = joined_and_mapped(3, 2);
+        let exchange = parse(&text).unwrap();
+        let graph = Graph::new(&exchange);
+        let mut structure = read(&graph);
+
+        let placements = placements_of(&mut structure, 102);
+
+        assert_eq!(
+            placements.paths,
+            [
+                vec![100, 3_000_000, 4_000_000],
+                vec![100, 3_000_001, 4_000_001]
+            ]
+        );
+        assert_eq!(structure.classes().key(102), 100);
+        assert_eq!(structure.classes().key(3_000_001), 3_000_001);
+    }
+
+    #[test]
+    fn an_interrupt_stops_the_walk_of_placements() {
+        let text = joined_and_mapped(10, 10);
+        let exchange = parse(&text).unwrap();
+        let graph = Graph::new(&exchange);
+        let mut structure = read(&graph);
+
+        let stopped = interruptible(Arc::new(|| true), || structure.placements(100));
+
+        assert!(stopped.is_err());
+        assert!(structure.placements(100).is_ok());
+    }
+
+    #[test]
+    fn placements_are_read_against_the_one_budget_of_the_file() {
+        let items = 50;
+        let budget = 20;
+        let text = joined_and_mapped(5, items);
+        let exchange = parse(&text).unwrap();
+        let graph = Graph::new(&exchange);
+        let work = Work::new(budget);
+
+        let mut structure = Structure::read(&graph, &work);
+
+        let placements = placements_of(&mut structure, 100);
+
+        assert_eq!(placements.transforms.len(), budget);
+        assert!(placements.left_out);
+        assert!(work.charge(0).is_err());
     }
 
     #[test]
@@ -805,9 +961,9 @@ mod tests {
         let text = file(&data);
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
-        let mut structure = Structure::read(&graph);
+        let mut structure = read(&graph);
 
-        let placements = structure.placements(100);
+        let placements = placements_of(&mut structure, 100);
 
         assert!(!placements.transforms.is_empty());
         assert!(placements.transforms.len() <= MAX_INSTANCES);
@@ -831,10 +987,10 @@ mod tests {
         let text = file(&data);
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
-        let mut structure = Structure::read(&graph);
+        let mut structure = read(&graph);
 
         assert_eq!(
-            structure.placements(100).unplaced,
+            placements_of(&mut structure, 100).unplaced,
             Some(Unplaced::InsideItself)
         );
 
@@ -842,9 +998,9 @@ mod tests {
         let text = file(&data);
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
-        let mut structure = Structure::read(&graph);
+        let mut structure = read(&graph);
 
-        let placements = structure.placements(100);
+        let placements = placements_of(&mut structure, 100);
 
         assert_eq!(placements.transforms, [Similarity::IDENTITY]);
         assert_eq!(placements.unplaced, None);
@@ -881,18 +1037,18 @@ mod tests {
         let text = file(data);
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
-        let mut structure = Structure::read(&graph);
+        let mut structure = read(&graph);
         let moved = |x: f64, y: f64| {
             Similarity::from(
                 RigidTransform::translation(caditor_geometry::Vector3::new(x, y, 0.0)).unwrap(),
             )
         };
-        let frame = structure.placements(101);
+        let frame = placements_of(&mut structure, 101);
 
         assert_eq!(frame.transforms, [moved(10.0, 0.0)]);
         assert_eq!(frame.occurrences, [Some(Arc::from("Frame:1"))]);
 
-        let bolt = structure.placements(102);
+        let bolt = placements_of(&mut structure, 102);
 
         assert_eq!(bolt.transforms.len(), 1);
 
@@ -903,10 +1059,13 @@ mod tests {
             "{origin}"
         );
         assert_eq!(bolt.occurrences, [Some(Arc::from("Bolt:1"))]);
-        assert_eq!(structure.placements(100).transforms, [Similarity::IDENTITY]);
+        assert_eq!(
+            placements_of(&mut structure, 100).transforms,
+            [Similarity::IDENTITY]
+        );
     }
 
-    fn operated(operator: &str) -> Placements {
+    fn operated(operator: &str) -> Arc<Placements> {
         let data = format!(
             "#20=CARTESIAN_POINT('',(5.,0.,0.));#21=DIRECTION('',(0.,1.,0.));\
              #22=DIRECTION('',(-1.,0.,0.));#30={operator};\
@@ -919,7 +1078,7 @@ mod tests {
         let text = file(&data);
         let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
-        Structure::read(&graph).placements(100)
+        placements_of(&mut read(&graph), 100)
     }
 
     #[test]

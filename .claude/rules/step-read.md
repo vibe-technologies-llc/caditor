@@ -47,12 +47,17 @@ paths:
   (as import does, so no part is lost to the separate-copies cap) and print copies, volumes, notes
   or refusal and time; run it in release against files whose volumes another reader gives.
 - Cancellation: `read_step` and `read_step_copies` poll the kernel interrupt (`kernel.md`) before
-  parsing, per entity and per style visited while the presentation is read, and before each solid, answering `ReadError::Cancelled`; nothing installs one by default. A
+  parsing, per entity and per style visited while the presentation is read, per representation and
+  per parent the placement walk follows (`Structure::placements`), and before each solid, answering
+  `ReadError::Cancelled`; nothing installs one by default. A
   body's build also polls it before each looser healing and before trying without its unreadable
   faces (`healed`, `build_one`), since each retry rebuilds and may mesh the whole body again.
 - Solids are built in parallel (`Builds::of`, `built_together`): each distinct solid (one per shells
   and units) is a job over scoped threads, each with its own geometry memo per units and the caller's
-  interrupt (`current_interrupt`), against the file's one `MAX_WORK` budget (`Work`, atomic). Results
+  interrupt (`current_interrupt`), against the file's one `MAX_WORK` budget (`Work`, atomic, made
+  once in `read_placed`). `Structure::read` charges the same budget one unit per placement it reads
+  (a transformation relationship or `MAPPED_ITEM`), so a file of more placements than the budget
+  leaves the rest out as unreadable and its builds are refused as too intricate. Results
   are taken in file order, so names, notes and refusals match a sequential read. One solid builds on
   the calling thread. `read_step_copies_reporting` hands a `ReadProgress` to a callback the workers
   call.
@@ -68,7 +73,11 @@ paths:
   per parent, so every part is still placed and memory stays bounded, with a note that only the first
   copies were imported. Representations a plain relationship makes identical join one class as the
   relationships are read (`Classes`, smaller into larger, never searched per lookup), and a face
-  loop's fins are peeled from a deque, so a crafted file costs time linear in its size. Names are shared `Arc<str>`, a styled item's context list one `Arc<[u64]>`
+  loop's fins are peeled from a deque, so a crafted file costs time linear in its size. A placement's
+  path names each class by its key (`Classes::key`, its smallest member), never its members, so a
+  path costs its depth however large its classes; product names are kept per class key, and
+  `placements` hands out the memoised `Arc`, copied per solid only for the copies taken. Names are
+  shared `Arc<str>`, a styled item's context list one `Arc<[u64]>`
   (`Instanced::by_context` holds the one id a style adds), repeated style and context references are
   read once (`once_each`). Copies are capped per file in solid order, with the same note:
   `read_step_copies` at `MAX_SHARED_COPIES` (its copies share one solid each), `read_step` at
@@ -111,12 +120,16 @@ paths:
   placing this copy, innermost first. A level stating a colour states its opacity too (opaque without
   a transparency), so a coloured face on a see-through body is opaque; a level stating only a
   transparency leaves the colour to the levels above.
-- Assembly instances: each placement carries its path (`Placements::paths`: its representations, the
-  relationship or `MAPPED_ITEM` of every link and each `NEXT_ASSEMBLY_USAGE_OCCURRENCE`), so a plain
-  style on a `MAPPED_ITEM` or relationship styles the copies it places, and a
-  `CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM` (or `PRESENTATION_STYLE_BY_CONTEXT`) applies only to
-  copies whose path holds every element of its context, the longest context winning. Looks are
-  worked out per placement, shared between copies with the same styled path (`placement_key`).
+- Assembly instances: each placement carries its path (`Placements::paths`: the key of each class of
+  representations it passes, the relationship or `MAPPED_ITEM` of every link and each
+  `NEXT_ASSEMBLY_USAGE_OCCURRENCE`), so a plain style on a `MAPPED_ITEM` or relationship styles the
+  copies it places, and a `CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM` (or
+  `PRESENTATION_STYLE_BY_CONTEXT`) applies only to copies whose path holds every element of its
+  context, the longest context winning. `Presentation::of` reads contexts as class keys and indexes
+  the styled items under their class key (`containers`), so a style naming any representation of a
+  class, or stated on one, counts for every path through that class, as when paths listed every
+  member. Looks are worked out per placement, shared between copies with the same styled path
+  (`placement_key`).
 - The body's look is the first stated by its solid, shells or the links above; when none states
   anything, the colour and opacity most faces share (ties to the first face's) and the finish of the
   first face of that colour, so a part whose faces are all styled (SolidWorks, NX) takes its main

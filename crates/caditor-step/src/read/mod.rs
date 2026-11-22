@@ -317,6 +317,30 @@ pub fn read_step_copies_reporting(
     })
 }
 
+fn taken_placements(
+    placements: &Placements,
+    budget: usize,
+) -> Vec<(Similarity, Option<&str>, &[u64])> {
+    let unnamed = std::iter::repeat(None);
+    let unwalked = std::iter::repeat(&[][..]);
+
+    placements
+        .transforms
+        .iter()
+        .copied()
+        .zip(
+            placements
+                .occurrences
+                .iter()
+                .map(Option::as_deref)
+                .chain(unnamed),
+        )
+        .zip(placements.paths.iter().map(Vec::as_slice).chain(unwalked))
+        .map(|((transform, occurrence), path)| (transform, occurrence, path))
+        .take(budget)
+        .collect()
+}
+
 fn read_placed<T>(
     text: &str,
     reading: &Reading<'_>,
@@ -330,9 +354,12 @@ fn read_placed<T>(
         SyntaxError::TooLarge => ReadError::TooLarge,
     })?;
     let graph = Graph::new(&exchange);
-    let presentation =
-        Presentation::of(&graph, &Work::new(MAX_WORK)).map_err(|_| ReadError::Cancelled)?;
-    let mut structure = Structure::read(&graph);
+    let work = Work::new(MAX_WORK);
+
+    let mut structure = Structure::read(&graph, &work);
+
+    let presentation = Presentation::of(&graph, &Work::new(MAX_WORK), structure.classes())
+        .map_err(|_| ReadError::Cancelled)?;
     let mut model = Read {
         solids: Vec::new(),
         notes: Vec::new(),
@@ -391,7 +418,7 @@ fn read_placed<T>(
 
     check_interrupt().map_err(|_| ReadError::Cancelled)?;
 
-    let mut builds = Builds::of(graph, &wanted, reading);
+    let mut builds = Builds::of(graph, &wanted, (reading, &work));
     let mut budget = reading.copies;
     let mut unplaced = Vec::new();
 
@@ -420,8 +447,10 @@ fn read_placed<T>(
         });
         let name = solid_name(entity, &structure, representation, index, siblings);
         let placements = match representation {
-            Some(representation) => structure.placements(representation),
-            None => Placements::at_origin(),
+            Some(representation) => structure
+                .placements(representation)
+                .map_err(|_| ReadError::Cancelled)?,
+            None => Arc::new(Placements::at_origin()),
         };
 
         if let Some(reason) = placements.unplaced {
@@ -434,36 +463,10 @@ fn read_placed<T>(
         if placements.transforms.len() > budget {
             structure.truncated = true;
         }
-
-        let transforms: Vec<(Similarity, Option<Arc<str>>, Vec<u64>)> = placements
-            .transforms
-            .into_iter()
-            .zip(
-                placements
-                    .occurrences
-                    .into_iter()
-                    .chain(std::iter::repeat(None)),
-            )
-            .zip(
-                placements
-                    .paths
-                    .into_iter()
-                    .chain(std::iter::repeat(Vec::new())),
-            )
-            .map(|((transform, occurrence), path)| (transform, occurrence, path))
-            .take(budget)
-            .collect();
-
-        if transforms.is_empty() {
+        if placements.transforms.is_empty() {
             continue;
         }
 
-        let named_occurrences: BTreeSet<&str> = transforms
-            .iter()
-            .filter_map(|(_, occurrence, _)| occurrence.as_deref())
-            .collect();
-        let occurrences_name_each =
-            transforms.len() > 1 && named_occurrences.len() == transforms.len();
         match builds.take(entity.id) {
             Ok(Built {
                 solid,
@@ -496,7 +499,14 @@ fn read_placed<T>(
                     unchecked_notes.push(unchecked_note(&name, faces));
                 }
 
+                let transforms = taken_placements(&placements, budget);
+                let named_occurrences: BTreeSet<&str> = transforms
+                    .iter()
+                    .filter_map(|(_, occurrence, _)| *occurrence)
+                    .collect();
                 let count = transforms.len();
+
+                let occurrences_name_each = count > 1 && named_occurrences.len() == count;
                 let parts = SolidParts::of(&graph, entity.id);
                 let mut looks: BTreeMap<Vec<u64>, Look> = BTreeMap::new();
                 let mut misplaced = false;
@@ -509,8 +519,8 @@ fn read_placed<T>(
                         continue;
                     };
                     let look = looks
-                        .entry(presentation.placement_key(&path))
-                        .or_insert_with(|| presentation.look(&parts, &faces, &path, &mut consulted))
+                        .entry(presentation.placement_key(path))
+                        .or_insert_with(|| presentation.look(&parts, &faces, path, &mut consulted))
                         .clone();
                     let name = match occurrence {
                         Some(occurrence) if occurrences_name_each => occurrence.to_string(),
@@ -806,7 +816,7 @@ type BuildKey = (SolidShells, [u64; 3]);
 struct Builds(BTreeMap<u64, Result<Built, Problem>>);
 
 impl Builds {
-    fn of(graph: Graph<'_>, wanted: &[(u64, Units)], reading: &Reading<'_>) -> Self {
+    fn of(graph: Graph<'_>, wanted: &[(u64, Units)], reading: (&Reading<'_>, &Work)) -> Self {
         let mut firsts: BTreeMap<BuildKey, u64> = BTreeMap::new();
         let mut keyed: Vec<(u64, Result<BuildKey, Problem>)> = Vec::with_capacity(wanted.len());
         let mut jobs: Vec<Job> = Vec::new();
@@ -903,12 +913,11 @@ struct Job {
 fn built_together(
     graph: Graph<'_>,
     jobs: &[Job],
-    reading: &Reading<'_>,
+    (reading, work): (&Reading<'_>, &Work),
 ) -> Vec<Result<Built, Problem>> {
     let Reading {
         report, crossings, ..
     } = *reading;
-    let work = Work::new(MAX_WORK);
     let finished = AtomicUsize::new(0);
     let total = jobs.len();
 
@@ -935,7 +944,7 @@ fn built_together(
         return jobs
             .iter()
             .map(|job| {
-                let built = build_one(graph, (&work, crossings), &mut geometries, job);
+                let built = build_one(graph, (work, crossings), &mut geometries, job);
 
                 count();
                 built
@@ -950,7 +959,7 @@ fn built_together(
     thread::scope(|scope| {
         let workers: Vec<_> = (0..helpers.count())
             .map(|_| {
-                let (next, work, count, interrupt) = (&next, &work, &count, interrupt.clone());
+                let (next, work, count, interrupt) = (&next, work, &count, interrupt.clone());
                 scope.spawn(move || {
                     let serve = || {
                         let mut geometries = Vec::new();

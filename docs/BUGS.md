@@ -200,13 +200,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   only as facets (three faces meeting so nearly tangentially that their common point lies 0.0115 mm
   along, on the next vertex, so the ellipse edge between them has no length; bending gets within
   2e-6 mm). Reproduce by reading the file with `STEP_CORPUS` in release (about 65 s).
-- [medium · medium] Assembly placement paths copy the whole class of representations per placement
-  (`structure.rs`, `Placements::paths`) and `placements()` copies them again per solid
-  (`Arc::unwrap_or_clone`), so 100k representations joined by plain relationships and placed by
-  10k `MAPPED_ITEM`s (within `MAX_INSTANCES`) need about 10^9 ids from a 15 MB file, with no
-  interrupt polled. Paths should hold the class key and test context membership through `Classes`.
-  The same file starts a fresh `Work::new(MAX_WORK)` per item, not the one budget per file
-  `step-read.md` describes.
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve

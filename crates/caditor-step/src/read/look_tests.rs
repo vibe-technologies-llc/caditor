@@ -263,6 +263,48 @@ fn styles_on_one_copy_in_an_assembly_colour_that_copy_alone() {
     );
 }
 
+#[test]
+fn styles_naming_a_representation_joined_to_a_part_s_style_its_copies() {
+    let plate = fixtures::plate_with_hole();
+    let plain = |name| Body {
+        name,
+        colour: None,
+        opacity: None,
+        faces: Vec::new(),
+    };
+
+    let text = written(&[plain("Left"), plain("Right")], &plate);
+    let root = id_of(&text, "SHAPE_REPRESENTATION(''");
+    let context = text
+        .lines()
+        .find(|line| line.starts_with(&format!("{root}=")))
+        .and_then(|line| line.rsplit_once(',')?.1.strip_suffix(");"))
+        .unwrap();
+    let left = id_of(&text, "ADVANCED_BREP_SHAPE_REPRESENTATION('Left'");
+    let right = id_of(&text, "ADVANCED_BREP_SHAPE_REPRESENTATION('Right'");
+    let left_solid = id_of(&text, "MANIFOLD_SOLID_BREP('Left'");
+    let origin = id_of(&text, "AXIS2_PLACEMENT_3D(");
+    let extra = format!(
+        "{}{}\
+         #950030=SHAPE_REPRESENTATION('',({origin}),{context});\n\
+         #950031=SHAPE_REPRESENTATION_RELATIONSHIP('','',{left},#950030);\n\
+         #950032=SHAPE_REPRESENTATION('',({origin}),{context});\n\
+         #950033=SHAPE_REPRESENTATION_RELATIONSHIP('','',#950032,{right});\n\
+         #950040=STYLED_ITEM('',(#960000),{left_solid});\n\
+         #950041=CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM('',(#961000),{left_solid},#950040,\
+         (#950030));\n\
+         #950042=STYLED_ITEM('',(#960000),#950032);\n",
+        colour_style(960_000, "blue"),
+        colour_style(961_000, "red"),
+    );
+
+    let model = read_step(&inserted(&text, &extra)).unwrap();
+
+    assert!(model.notes.is_empty(), "{:?}", model.notes);
+    assert_eq!(named(&model, "Left").colour, Some(RED));
+    assert_eq!(named(&model, "Right").colour, Some(BLUE));
+}
+
 fn plate_styled(extra: impl Fn(&str) -> String) -> StepModel {
     let plate = fixtures::plate_with_hole();
     let text = written(

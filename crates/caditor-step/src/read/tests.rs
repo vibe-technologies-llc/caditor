@@ -2964,7 +2964,7 @@ fn built_with(
 
     let exchange = crate::part21::parse(text).unwrap();
     let graph = Graph::new(&exchange);
-    let mut structure = Structure::read(&graph);
+    let mut structure = Structure::read(&graph, &Work::new(MAX_WORK));
 
     let representation = structure.representation_of(solid).unwrap();
     let units = structure.units_of(&graph, representation);

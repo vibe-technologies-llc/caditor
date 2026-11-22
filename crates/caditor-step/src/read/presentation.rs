@@ -10,6 +10,7 @@ use crate::read::{
     finish::{Finish, appearance_finish},
     geometry::Work,
     graph::{Entity, Graph},
+    structure::Classes,
     topology::{SolidShells, shell_faces},
 };
 
@@ -167,6 +168,7 @@ pub(crate) struct Presentation {
     layers: BTreeMap<u64, Arc<str>>,
     unread: BTreeMap<u64, Unread>,
     troubles: BTreeMap<u64, BTreeSet<u64>>,
+    containers: BTreeMap<u64, Vec<u64>>,
 }
 
 #[derive(Debug, Default)]
@@ -270,7 +272,7 @@ fn inner_item(graph: &Graph<'_>, item: u64) -> u64 {
 }
 
 impl Presentation {
-    pub fn of(graph: &Graph<'_>, work: &Work) -> Result<Self, Interrupted> {
+    pub fn of(graph: &Graph<'_>, work: &Work, classes: &Classes) -> Result<Self, Interrupted> {
         let mut presentation = Self {
             styles: BTreeMap::new(),
             overrides: BTreeMap::new(),
@@ -278,6 +280,7 @@ impl Presentation {
             layers: BTreeMap::new(),
             unread: BTreeMap::new(),
             troubles: BTreeMap::new(),
+            containers: BTreeMap::new(),
         };
         let mut styled_items = BTreeMap::new();
         let mut resolved: BTreeMap<u64, Resolved> = BTreeMap::new();
@@ -291,6 +294,12 @@ impl Presentation {
 
             styled_items.insert(entity.id, styling.item);
 
+            let context: Option<Arc<[u64]>> = styling.context.map(|context| {
+                context
+                    .iter()
+                    .map(|element| classes.key(*element))
+                    .collect()
+            });
             let item = inner_item(graph, styling.item);
             let mut problems = BTreeMap::new();
             let mut general = Sides::default();
@@ -324,7 +333,7 @@ impl Presentation {
 
                 problems.extend(read.problems.iter().map(|(id, unread)| (*id, *unread)));
                 match read.context {
-                    Some(context) => by_context.push((context, read.sides)),
+                    Some(context) => by_context.push((classes.key(context), read.sides)),
                     None => general.merge(read.sides),
                 }
             }
@@ -337,11 +346,11 @@ impl Presentation {
                 presentation.unread.extend(problems);
             }
 
-            let shared: Arc<[u64]> = styling.context.clone().unwrap_or_else(|| Arc::from([]));
+            let shared: Arc<[u64]> = context.clone().unwrap_or_else(|| Arc::from([]));
             let stated = general.stated();
 
             if stated.states_anything() {
-                match &styling.context {
+                match &context {
                     Some(context) => {
                         presentation.instance(item, entity.id, Arc::clone(context), None, stated);
                     }
@@ -387,7 +396,31 @@ impl Presentation {
                     .or_insert_with(|| Arc::clone(&name));
             }
         }
+        presentation.containers = presentation.containers_by_class(classes);
         Ok(presentation)
+    }
+
+    fn containers_by_class(&self, classes: &Classes) -> BTreeMap<u64, Vec<u64>> {
+        let stating: BTreeSet<u64> = self
+            .styles
+            .keys()
+            .chain(self.overrides.keys())
+            .chain(self.instanced.keys())
+            .chain(self.troubles.keys())
+            .copied()
+            .collect();
+        let mut by_class: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
+
+        for item in stating {
+            by_class.entry(classes.key(item)).or_default().push(item);
+        }
+        by_class
+    }
+
+    fn stating_containers<'p>(&'p self, path: &'p [u64]) -> impl Iterator<Item = u64> + 'p {
+        path.iter()
+            .flat_map(|element| self.containers.get(element).into_iter().flatten())
+            .copied()
     }
 
     fn instance(
@@ -410,14 +443,7 @@ impl Presentation {
         if !self.instanced.is_empty() {
             return path.to_vec();
         }
-        path.iter()
-            .copied()
-            .filter(|item| {
-                self.styles.contains_key(item)
-                    || self.overrides.contains_key(item)
-                    || self.troubles.contains_key(item)
-            })
-            .collect()
+        self.stating_containers(path).collect()
     }
 
     fn stated(&self, item: u64, path: &[u64], consulted: &mut Consulted) -> Stated {
@@ -462,8 +488,8 @@ impl Presentation {
         for shell in &parts.shells {
             above.push(self.stated(*shell, path, consulted));
         }
-        for container in path {
-            above.push(self.stated(*container, path, consulted));
+        for container in self.stating_containers(path) {
+            above.push(self.stated(container, path, consulted));
         }
 
         let above: Vec<Stated> = above
@@ -1011,8 +1037,8 @@ mod tests {
         let one_visit_each = Work::new(ASSIGNMENTS as usize);
         let starved = Work::new(ASSIGNMENTS as usize - 1);
 
-        let read = Presentation::of(&graph, &one_visit_each).unwrap();
-        let cut = Presentation::of(&graph, &starved).unwrap();
+        let read = Presentation::of(&graph, &one_visit_each, &Classes::default()).unwrap();
+        let cut = Presentation::of(&graph, &starved, &Classes::default()).unwrap();
 
         assert!(read.unread.is_empty(), "{:?}", read.unread);
         assert_eq!(cut.unread.len(), 1);
@@ -1030,7 +1056,9 @@ mod tests {
         let graph = Graph::new(&exchange);
         let work = Work::new(usize::MAX);
 
-        let stopped = interruptible(Arc::new(|| true), || Presentation::of(&graph, &work));
+        let stopped = interruptible(Arc::new(|| true), || {
+            Presentation::of(&graph, &work, &Classes::default())
+        });
 
         assert!(stopped.is_err());
     }
