@@ -202,6 +202,10 @@ impl ScreenReach {
         self.low.cmple(view + margin).all() && self.high.cmpge(-margin).all()
     }
 
+    pub fn intersects_view(&self, view: Vector2) -> bool {
+        self.low.cmple(view).all() && self.high.cmpge(Vector2::ZERO).all()
+    }
+
     pub fn collapses(&self) -> bool {
         self.has_length && (self.high - self.low).max_element() < COLLAPSED_BELOW
     }

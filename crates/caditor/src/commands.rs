@@ -260,6 +260,7 @@ pub enum Command {
     ToggleFirstDimensionScales,
     ToggleGlyphs,
     ToggleDimensions,
+    ToggleAutoHideMarks,
     ToggleCentresOfMass,
     ToggleControlPolygons,
     ToggleCosmeticThreads,
@@ -830,6 +831,7 @@ plain_commands! {
     ToggleFirstDimensionScales,
     ToggleGlyphs,
     ToggleDimensions,
+    ToggleAutoHideMarks,
     ToggleCentresOfMass,
     ToggleControlPolygons,
     ToggleCosmeticThreads,
@@ -1340,6 +1342,7 @@ impl Command {
             Self::ToggleFirstDimensionScales => "sketch.toggle_first_dimension_scales",
             Self::ToggleGlyphs => "view.toggle_glyphs",
             Self::ToggleDimensions => "view.toggle_dimensions",
+            Self::ToggleAutoHideMarks => "view.toggle_auto_hide_marks",
             Self::ToggleCentresOfMass => "view.toggle_centres_of_mass",
             Self::ToggleControlPolygons => "view.toggle_control_polygons",
             Self::ToggleCosmeticThreads => "view.toggle_cosmetic_threads",
@@ -1683,6 +1686,7 @@ impl Command {
             Self::ToggleFirstDimensionScales => "Scale the whole sketch on its first dimension",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
             Self::ToggleDimensions => "Show or hide dimensions on the model",
+            Self::ToggleAutoHideMarks => "Auto-hide crowded dimensions and glyphs",
             Self::ToggleCentresOfMass => "Show or hide centres of mass",
             Self::ToggleControlPolygons => "Show or hide spline control polygons",
             Self::ToggleCosmeticThreads => "Show modelled threads as cosmetic",
@@ -2173,6 +2177,7 @@ impl Command {
             | Self::CycleSelectionPriority
             | Self::ToggleGlyphs
             | Self::ToggleDimensions
+            | Self::ToggleAutoHideMarks
             | Self::ToggleCentresOfMass
             | Self::ToggleControlPolygons
             | Self::ToggleCosmeticThreads
@@ -2624,6 +2629,7 @@ impl Command {
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::ToggleDimensions
+            | Self::ToggleAutoHideMarks
             | Self::ToggleCentresOfMass
             | Self::ToggleControlPolygons
             | Self::ToggleCosmeticThreads

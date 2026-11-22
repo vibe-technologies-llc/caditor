@@ -262,6 +262,8 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
 
     harness.wheel_until_shown(over, "Show dimensions on the model", Wheel::Down);
     harness.click("Show dimensions on the model");
+    harness.wheel_until_shown(over, "Auto-hide crowded dimensions and glyphs", Wheel::Down);
+    harness.click("Auto-hide crowded dimensions and glyphs");
     close_preferences(&mut harness);
 
     let viewport = &harness.workspace.viewport;
@@ -269,6 +271,7 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
     assert!(!viewport.glyphs_shown());
     assert!(viewport.grid_snapping());
     assert!(viewport.dimensions_shown());
+    assert!(!viewport.auto_hide_marks());
     assert!(viewport.snapping() && viewport.typed_dimensions());
 
     let before = harness.workspace.viewport.destination();
@@ -297,6 +300,7 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
     assert!(!viewport.glyphs_shown());
     assert!(viewport.grid_snapping());
     assert!(viewport.dimensions_shown());
+    assert!(!viewport.auto_hide_marks());
     assert!(!again.workspace.preferences.sketching.escape_finishes);
 }
 

@@ -359,6 +359,8 @@ impl Section {
                 "snap to the grid",
                 "typed values",
                 "dimensions",
+                "auto-hide",
+                "crowded",
             ],
             Self::GraphicsDisplay => &["vsync", "frame rate"],
             Self::GraphicsQuality => &[

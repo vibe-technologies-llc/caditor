@@ -44,6 +44,7 @@ pub struct Outside<'a> {
     pub subjects: &'a [FeatureId],
     pub highlight: Option<Pickable>,
     pub interactive: bool,
+    pub auto_hide: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,6 +143,7 @@ pub struct ModelDimensions {
     shown: Vec<Pickable>,
     hovered: Option<Pickable>,
     field: Option<OpenValue>,
+    auto_hidden: bool,
 }
 
 pub fn value_field_id(feature: FeatureId, slot: ValueSlot) -> Id {
@@ -286,6 +288,10 @@ impl ModelDimensions {
             .collect()
     }
 
+    pub fn auto_hidden(&self) -> bool {
+        self.auto_hidden
+    }
+
     pub fn held(&self) -> Vec<FeatureId> {
         let value_feature = |pickable: Option<Pickable>| match pickable {
             Some(Pickable::FeatureValue { feature, .. }) => Some(feature),
@@ -396,6 +402,7 @@ impl ModelDimensions {
         let placed = self.place_values(ui, outside);
         let mut taken: Vec<Rect> = placed.iter().map(|target| target.rect).collect();
         let mut shown = Vec::new();
+        let mut auto_hidden = false;
 
         for feature in self.sketches.clone() {
             let Some(plane) = scene::sketch_plane(model.document(), model.evaluation(), feature)
@@ -409,6 +416,7 @@ impl ModelDimensions {
                 feature,
                 interactive: outside.interactive,
                 glyphs: false,
+                auto_hide: outside.auto_hide,
                 highlight: outside.highlight,
                 first_dimension_scales: false,
                 outside: true,
@@ -417,6 +425,7 @@ impl ModelDimensions {
             let annotations = self.annotations.entry(feature).or_default();
 
             annotations.show(ui, model, &surface, selection, actions);
+            auto_hidden |= annotations.auto_hidden().any();
             taken.extend(annotations.label_rects());
             self.hovered = self.hovered.or(annotations.hovered());
             shown.extend(
@@ -436,6 +445,7 @@ impl ModelDimensions {
                 .map(|shown| value_pickable(&shown.value)),
         );
         self.shown = shown;
+        self.auto_hidden = auto_hidden;
         self.paint_values(ui, outside, &placed);
         self.show_field(ui, model, outside, &placed, actions);
     }

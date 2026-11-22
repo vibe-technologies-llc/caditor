@@ -903,6 +903,17 @@ pub fn menu_button(
     )
 }
 
+pub fn button_width(ui: &Ui, glyph: &str, text: &str) -> f32 {
+    let painter = ui.painter();
+    let width = |text: &str, font: FontId| {
+        painter
+            .layout_no_wrap(text.to_owned(), font, Color32::WHITE)
+            .size()
+            .x
+    };
+    width(glyph, icon()) + BUTTON_GAP + width(text, emphasis()) + 2.0 * PADDING.x + 2.0 * BUTTON_GAP
+}
+
 pub fn menu_button_width(ui: &Ui, glyph: &str, text: &str) -> f32 {
     let painter = ui.painter();
     let width = |text: &str, font: FontId| {

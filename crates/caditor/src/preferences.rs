@@ -95,6 +95,7 @@ const SNAPPING_KEY: &str = "sketch.snapping";
 const GRID_SNAPPING_KEY: &str = "sketch.grid_snapping";
 const TYPED_DIMENSIONS_KEY: &str = "sketch.typed_dimensions";
 const MODEL_DIMENSIONS_KEY: &str = "model.dimensions";
+const AUTO_HIDE_MARKS_KEY: &str = "sketch.auto_hide_marks";
 pub const STARTUP_KEY: &str = "files.startup";
 pub const RECENT_LISTED_KEY: &str = "files.recent_listed";
 const DOUBLE_CLICK_KEY: &str = "tree.double_click";
@@ -231,8 +232,8 @@ impl PreferencesTab {
             }
             Self::Sketching => {
                 "Go back to looking at a sketch when it opens, Escape finishing it, constraint \
-                 glyphs, snapping and typed dimensions on, and grid snapping and model dimensions \
-                 off. Only this tab changes"
+                 glyphs, snapping, typed dimensions and auto-hiding crowded marks on, and grid \
+                 snapping and model dimensions off. Only this tab changes"
             }
             Self::Graphics => {
                 "Go back to vsync on, matching the display's frame rate, 4× anti-aliasing, \
@@ -480,6 +481,7 @@ pub struct StartingToggles {
     pub grid_snapping: bool,
     pub typed_dimensions: bool,
     pub model_dimensions: bool,
+    pub auto_hide_marks: bool,
 }
 
 impl Default for StartingToggles {
@@ -490,6 +492,7 @@ impl Default for StartingToggles {
             grid_snapping: false,
             typed_dimensions: true,
             model_dimensions: false,
+            auto_hide_marks: true,
         }
     }
 }
@@ -573,6 +576,7 @@ pub enum PreferenceChange {
     StartWithGridSnapping(bool),
     StartWithTypedDimensions(bool),
     StartWithModelDimensions(bool),
+    StartWithAutoHideMarks(bool),
     Infer(Inference, bool),
     Startup(Startup),
     RecentListed(RecentListed),
@@ -974,6 +978,9 @@ impl Preferences {
             PreferenceChange::StartWithModelDimensions(on) => {
                 self.sketching.at_start.model_dimensions = on;
             }
+            PreferenceChange::StartWithAutoHideMarks(on) => {
+                self.sketching.at_start.auto_hide_marks = on;
+            }
             PreferenceChange::Infer(kind, on) => self.sketching.inferred.set(kind, on),
             PreferenceChange::Startup(startup) => self.startup = startup,
             PreferenceChange::RecentListed(listed) => self.recent_listed = listed,
@@ -1141,6 +1148,7 @@ impl Sketching {
                 grid_snapping: flag(GRID_SNAPPING_KEY, defaults.at_start.grid_snapping),
                 typed_dimensions: flag(TYPED_DIMENSIONS_KEY, defaults.at_start.typed_dimensions),
                 model_dimensions: flag(MODEL_DIMENSIONS_KEY, defaults.at_start.model_dimensions),
+                auto_hide_marks: flag(AUTO_HIDE_MARKS_KEY, defaults.at_start.auto_hide_marks),
             },
             inferred: Self::inferences_from(raw),
         }
@@ -1154,6 +1162,7 @@ impl Sketching {
         settings.set_flag(GRID_SNAPPING_KEY, self.at_start.grid_snapping);
         settings.set_flag(TYPED_DIMENSIONS_KEY, self.at_start.typed_dimensions);
         settings.set_flag(MODEL_DIMENSIONS_KEY, self.at_start.model_dimensions);
+        settings.set_flag(AUTO_HIDE_MARKS_KEY, self.at_start.auto_hide_marks);
         for kind in Inference::ALL {
             settings.set_flag(kind.key(), self.inferred.allows(kind));
         }
@@ -1565,6 +1574,7 @@ mod tests {
             PreferenceChange::StartWithGridSnapping(true),
             PreferenceChange::StartWithTypedDimensions(false),
             PreferenceChange::StartWithModelDimensions(true),
+            PreferenceChange::StartWithAutoHideMarks(false),
             PreferenceChange::Startup(Startup::LastModel),
             PreferenceChange::RecentListed(RecentListed::Five),
             PreferenceChange::DoubleClick(DoubleClick::Rename),

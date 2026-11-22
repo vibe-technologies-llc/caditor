@@ -52,6 +52,11 @@ hover the dot to read the dimension, click it to select it and show its label, o
 to edit the value. A dimension that measures nothing (two points in one place), a selected or
 highlighted one and one in conflict always keep their label.
 
+When a dense sketch puts too many dimensions, constraint glyphs or open-end marks in view at once,
+caditor hides the crowded ones automatically so the geometry stays readable; conflicting marks and
+the marks on selected geometry still show. Zoom in to bring them back, select geometry to see its
+marks, or click the canvas notice (or run {command:view.toggle_auto_hide_marks}) to show them all.
+
 ## Reference dimensions
 
 A dimension measuring a size the sketch already holds, on geometry fully held or not (the width

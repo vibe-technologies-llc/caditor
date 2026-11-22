@@ -21,7 +21,7 @@ use egui::{
 
 use crate::{
     analysis::{Analyses, FaceAnalysis},
-    annotations::{self, Annotations, LabelMoving, Surface},
+    annotations::{self, Annotations, AutoHidden, LabelMoving, Surface},
     blend_tools,
     bodies::{self, BodyMeshes, Ghost, OpenDraft},
     body_picks::{self, BodyPick, Staged},
@@ -47,7 +47,7 @@ use crate::{
     feature_tree,
     gearing::GearSettings,
     handle_snap::{self, Guide, Snap},
-    hole_placement, hole_tools,
+    hole_placement, hole_tools, icons,
     image_tools::{self, CalibrationGuide},
     inference::Inferences,
     interference_panel::{Mark, MarkKind},
@@ -502,6 +502,7 @@ pub struct ViewportState {
     first_dimension_scales: bool,
     glyphs_shown: bool,
     dimensions_shown: bool,
+    auto_hide_marks: bool,
     model_dimensions: ModelDimensions,
     aids: ViewAids,
     section: Vec<SectionPlane>,
@@ -949,6 +950,7 @@ impl ViewportState {
             first_dimension_scales: false,
             glyphs_shown: true,
             dimensions_shown: false,
+            auto_hide_marks: true,
             model_dimensions: ModelDimensions::default(),
             aids: ViewAids::default(),
             section: Vec::new(),
@@ -1145,6 +1147,10 @@ impl ViewportState {
 
     pub fn dimensions_shown(&self) -> bool {
         self.dimensions_shown
+    }
+
+    pub fn auto_hide_marks(&self) -> bool {
+        self.auto_hide_marks
     }
 
     #[cfg(test)]
@@ -1496,6 +1502,7 @@ impl ViewportState {
             self.model_dimensions.clear();
         }
         self.dimensions_shown = toggles.model_dimensions;
+        self.auto_hide_marks = toggles.auto_hide_marks;
     }
 
     fn cube_area(&self, rect: Rect) -> Rect {
@@ -4028,6 +4035,9 @@ impl ViewportState {
                 });
             }
         }
+        if commands.available(Command::ToggleAutoHideMarks) {
+            self.auto_hide_marks = !self.auto_hide_marks;
+        }
         if commands.available(Command::ToggleCentresOfMass) {
             self.aids.centres_of_mass = !self.aids.centres_of_mass;
             if !self.aids.centres_of_mass {
@@ -6047,6 +6057,7 @@ impl ViewportState {
                 subjects: &subjects,
                 highlight: self.keyboard_highlight,
                 interactive: true,
+                auto_hide: self.auto_hide_marks,
             };
 
             self.model_dimensions
@@ -6072,6 +6083,7 @@ impl ViewportState {
                 && !self.modifying.is_active()
                 && self.dimensioning.is_none(),
             glyphs: self.glyphs_shown,
+            auto_hide: self.auto_hide_marks,
             highlight: self.keyboard_highlight,
             first_dimension_scales: self.first_dimension_scales,
             outside: false,
@@ -6301,6 +6313,7 @@ impl ViewportState {
         if let Some(described) = keyboard_description {
             taken.push(self.paint_keyboard_description(ui, key_hints, band, prompt, &described));
         }
+        self.show_crowded_marks_note(ui, rect, editing, cube_corner, &mut taken);
 
         let painter = ui.painter();
         let readout_left = self.bottom_strip_left(rect) + view_cube::TRIAD_WIDTH;
@@ -6398,6 +6411,66 @@ impl ViewportState {
         {
             hints.paint(painter, placed.min);
         }
+    }
+
+    fn show_crowded_marks_note(
+        &mut self,
+        ui: &Ui,
+        rect: Rect,
+        editing: &SketchEditing,
+        cube_corner: Option<Corner>,
+        taken: &mut Vec<Rect>,
+    ) {
+        let hidden = if editing.feature().is_some() {
+            self.annotations.auto_hidden()
+        } else if self.model_dimensions.auto_hidden() {
+            AutoHidden {
+                dimensions: true,
+                ..AutoHidden::default()
+            }
+        } else {
+            AutoHidden::default()
+        };
+        let Some(label) = hidden.label() else {
+            return;
+        };
+        let glyph = icons::command(Command::ToggleAutoHideMarks);
+
+        let width = canvas::button_width(ui, glyph, &label)
+            .min((rect.width() - canvas::MARGIN * 2.0).max(0.0));
+        let left = match cube_corner {
+            Some(Corner::TopLeft) => {
+                (self.display_area.right() - width).max(rect.left() + canvas::MARGIN)
+            }
+            Some(Corner::TopRight | Corner::BottomLeft | Corner::BottomRight) | None => {
+                self.display_area.left()
+            }
+        };
+
+        let wanted = Rect::from_min_size(
+            pos2(left, self.display_area.bottom() + canvas::MARGIN / 2.0),
+            vec2(width, canvas::BUTTON_HEIGHT),
+        );
+        let Some(placed) = canvas_guidance::first_clear(&[wanted], taken, rect) else {
+            return;
+        };
+        let response = canvas::button(
+            ui,
+            placed,
+            Id::unique("crowded-marks-hidden"),
+            glyph,
+            &label,
+        )
+        .on_hover_text(
+            "Too many marks are in view at this zoom, so only problems and marks on selected \
+             geometry are shown. Zoom in, select geometry, or click to show them all.",
+        );
+
+        if response.clicked() {
+            self.auto_hide_marks = false;
+            ui.ctx().request_repaint();
+        }
+        taken.push(placed);
     }
 
     fn show_start_card(
@@ -8550,6 +8623,7 @@ mod tests {
         let context = egui::Context::default();
         let mut state = state_with_cursor();
 
+        state.auto_hide_marks = false;
         state.camera = Camera::new(Viewpoint::facing(
             &Plane::XY,
             Point3::new(10.0, 10.0, 0.0),
@@ -8671,7 +8745,7 @@ mod tests {
         state.camera = Camera::new(Viewpoint::facing(
             &Plane::XY,
             Point3::new(10.0, 10.0, 0.0),
-            40.0,
+            16.0,
         ));
         annotated(&mut state, &context, &model, feature);
 
@@ -8679,6 +8753,153 @@ mod tests {
 
         assert!(clusters.is_empty());
         assert!(rings.len() > 20, "{}", rings.len());
+    }
+
+    #[test]
+    fn excessive_marks_auto_hide_until_zoomed_in_or_selected_and_select_all_keeps_them_hidden() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let mut lines = Vec::new();
+
+        for row in 0..12 {
+            for column in 0..12 {
+                let at = Point2::new(f64::from(column) * 20.0, f64::from(row) * 20.0);
+
+                lines.push(sketch.add_line(at, at + Vector2::new(10.0, 0.0)));
+            }
+        }
+        for [first, second] in lines.as_chunks::<2>().0 {
+            sketch
+                .add_constraint(caditor_sketch::Constraint::Parallel(*first, *second))
+                .unwrap();
+        }
+
+        let dimensions: Vec<_> = lines
+            .iter()
+            .map(|line| {
+                let Some(&Entity::Line { start, end }) = sketch.entity(*line) else {
+                    panic!("expected a line");
+                };
+                sketch
+                    .add_constraint(caditor_sketch::Constraint::HorizontalDistance {
+                        from: start,
+                        to: end,
+                        value: caditor_expression::Expression::Measure(
+                            10.0,
+                            caditor_expression::Unit::Millimetre,
+                        ),
+                    })
+                    .unwrap()
+            })
+            .collect();
+        let redundant = sketch
+            .add_constraint(caditor_sketch::Constraint::Parallel(lines[0], lines[1]))
+            .unwrap();
+        let mut document = Document::default();
+
+        let mut transaction = document.transaction("Add dense sketch");
+
+        let feature = transaction.add_feature("Dense sketch", FeatureKind::from(sketch));
+
+        document.apply(transaction.finish()).unwrap();
+
+        let mut model = model_of(document);
+
+        settle(&mut model);
+
+        let context = egui::Context::default();
+        let mut state = state_with_cursor();
+
+        state.rect = Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1200.0, 900.0)));
+        state.camera = Camera::new(Viewpoint::facing(
+            &Plane::XY,
+            Point3::new(115.0, 110.0, 0.0),
+            650.0,
+        ));
+
+        annotated(&mut state, &context, &model, feature);
+
+        let hidden = state.annotations.auto_hidden();
+
+        assert!(hidden.dimensions && hidden.glyphs && hidden.open_ends);
+        assert!(state.annotations.laid_out().is_empty());
+        assert!(state.annotations.collapsed().is_empty());
+        assert!(
+            state
+                .annotations
+                .glyph_centres()
+                .iter()
+                .all(|(anchor, _)| *anchor == lines[0] || *anchor == lines[1])
+        );
+        assert!(
+            state
+                .annotations
+                .glyph_centres()
+                .iter()
+                .any(|(anchor, _)| *anchor == lines[0])
+        );
+        assert!(state.annotations.open_end_rings().0.is_empty());
+        assert!(state.annotations.open_end_rings().1.is_empty());
+        assert!(
+            model
+                .settled_solution(feature)
+                .and_then(|solution| solution.redundancy(redundant))
+                .is_some()
+        );
+
+        let chosen = lines[40];
+
+        state.selection.replace_with(Pickable::SketchEntity {
+            feature,
+            entity: chosen,
+        });
+        annotated(&mut state, &context, &model, feature);
+
+        assert!(state.annotations.laid_out().contains(&dimensions[40]));
+        assert!(
+            state
+                .annotations
+                .glyph_centres()
+                .iter()
+                .any(|(anchor, _)| *anchor == chosen)
+        );
+        assert_eq!(state.annotations.open_end_rings().0.len(), 2);
+
+        state.selection.clear();
+        for line in &lines {
+            state.selection.toggle(Pickable::SketchEntity {
+                feature,
+                entity: *line,
+            });
+        }
+        annotated(&mut state, &context, &model, feature);
+
+        assert!(state.annotations.laid_out().is_empty());
+        assert!(state.annotations.open_end_rings().0.is_empty());
+
+        state.selection.clear();
+        state.camera = Camera::new(Viewpoint::facing(
+            &Plane::XY,
+            Point3::new(15.0, 10.0, 0.0),
+            90.0,
+        ));
+        annotated(&mut state, &context, &model, feature);
+
+        assert!(!state.annotations.auto_hidden().any());
+        assert!(!state.annotations.laid_out().is_empty());
+        assert!(!state.annotations.glyph_centres().is_empty());
+        assert!(!state.annotations.open_end_rings().0.is_empty());
+
+        state.camera = Camera::new(Viewpoint::facing(
+            &Plane::XY,
+            Point3::new(115.0, 110.0, 0.0),
+            650.0,
+        ));
+        state.auto_hide_marks = false;
+        annotated(&mut state, &context, &model, feature);
+
+        assert!(!state.annotations.auto_hidden().any());
+        assert!(!state.annotations.laid_out().is_empty());
+        assert!(!state.annotations.glyph_centres().is_empty());
     }
 
     #[test]

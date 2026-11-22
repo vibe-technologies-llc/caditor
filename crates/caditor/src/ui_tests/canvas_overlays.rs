@@ -1,13 +1,16 @@
 use caditor_document::FeatureId;
-use caditor_geometry::Vector3;
+use caditor_expression::{Expression, Unit};
+use caditor_geometry::{Plane, Point2, Vector2, Vector3};
+use caditor_sketch::{Constraint, Entity, Sketch};
 use egui::{
     Event, Key, Modifiers, Rect,
     accesskit::{NodeId, Role},
 };
 
-use super::{CAMERA_SETTLE, Harness, with_type_hint};
+use super::{CAMERA_SETTLE, Harness, edit_free_sketch, run_from_palette, with_type_hint};
 use crate::{
     canvas,
+    commands::Command,
     files::FileCommand,
     model::Action,
     preferences::{PreferenceChange, PreferencesCommand},
@@ -232,4 +235,68 @@ fn the_cursor_readout_keeps_clear_of_dimension_labels_and_inside_the_view_at_twi
             assert!(!readout.intersects(*label), "{readout:?} covers {label:?}");
         }
     }
+}
+
+#[test]
+fn crowded_sketch_marks_show_a_canvas_button_that_reveals_them_and_toggles_back() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let mut lines = Vec::new();
+
+    for row in 0..10 {
+        for column in 0..10 {
+            let at = Point2::new(f64::from(column) * 20.0, f64::from(row) * 20.0);
+
+            lines.push(sketch.add_line(at, at + Vector2::new(10.0, 0.0)));
+        }
+    }
+    for [first, second] in lines.as_chunks::<2>().0 {
+        sketch
+            .add_constraint(Constraint::Parallel(*first, *second))
+            .unwrap();
+    }
+    for line in &lines {
+        let Some(&Entity::Line { start, end }) = sketch.entity(*line) else {
+            panic!("expected a line");
+        };
+
+        sketch
+            .add_constraint(Constraint::HorizontalDistance {
+                from: start,
+                to: end,
+                value: Expression::Measure(10.0, Unit::Millimetre),
+            })
+            .unwrap();
+    }
+
+    edit_free_sketch(&mut harness, sketch);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.let_animations_finish();
+
+    let view = harness.workspace.viewport.rect().unwrap();
+    let shown_dimensions = |harness: &Harness| {
+        harness
+            .texts
+            .iter()
+            .filter(|(text, rect)| text == "10 mm" && view.intersects(*rect))
+            .count()
+    };
+
+    assert!(harness.workspace.viewport.auto_hide_marks());
+    assert!(harness.shows("Crowded marks hidden"));
+    assert_eq!(shown_dimensions(&harness), 0);
+
+    harness.click("Crowded marks hidden");
+    harness.frame();
+
+    assert!(!harness.workspace.viewport.auto_hide_marks());
+    assert!(!harness.shows("Crowded marks hidden"));
+    assert!(shown_dimensions(&harness) > 0);
+
+    run_from_palette(&mut harness, &Command::ToggleAutoHideMarks.title());
+    harness.frame();
+
+    assert!(harness.workspace.viewport.auto_hide_marks());
+    assert!(harness.shows("Crowded marks hidden"));
+    assert_eq!(shown_dimensions(&harness), 0);
 }

@@ -74,6 +74,15 @@ const POINTER_REACH: f32 = 64.0;
 const COLLAPSED_RADIUS: f32 = 2.0;
 const COLLAPSED_HIT_SIZE: f32 = 10.0;
 const COLLAPSED_SPACING: f64 = 8.0;
+const AUTO_HIDE_DIMENSIONS: usize = 48;
+const AUTO_SHOW_DIMENSIONS: usize = 36;
+const AUTO_HIDE_GLYPHS: usize = 80;
+const AUTO_SHOW_GLYPHS: usize = 60;
+const AUTO_HIDE_OPEN_ENDS: usize = 64;
+const AUTO_SHOW_OPEN_ENDS: usize = 48;
+const AUTO_HIDE_BEYOND: usize = 48;
+const AUTO_SHOW_BEYOND: usize = 36;
+const MAX_KEPT_ENTITIES: usize = 24;
 const MAX_MEASURED_TEXTS: usize = 1 << 16;
 const EDIT_HINT: &str = "Double-click to change it, or drag its label to move it.";
 const COLLAPSED_HINT: &str = "Click to show its label, or double-click to change it.";
@@ -388,9 +397,55 @@ impl SketchKey {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AutoHidden {
+    pub dimensions: bool,
+    pub glyphs: bool,
+    pub open_ends: bool,
+    pub beyond: bool,
+}
+
+impl AutoHidden {
+    pub fn any(self) -> bool {
+        self.dimensions || self.glyphs || self.open_ends || self.beyond
+    }
+
+    pub fn label(self) -> Option<String> {
+        let mut parts = Vec::new();
+
+        if self.dimensions {
+            parts.push("dimensions");
+        }
+        if self.glyphs {
+            parts.push("glyphs");
+        }
+        if self.open_ends {
+            parts.push("open ends");
+        }
+        if self.beyond {
+            parts.push("points beyond");
+        }
+        match parts.as_slice() {
+            [] => None,
+            [only] => Some(format!("Crowded {only} hidden")),
+            [first, second] => Some(format!("Crowded {first} and {second} hidden")),
+            _ => Some("Crowded marks hidden".to_owned()),
+        }
+    }
+}
+
+fn hide_limit(was_hidden: bool, hide_above: usize, show_below: usize) -> usize {
+    if was_hidden { show_below } else { hide_above }
+}
+
+fn should_auto_hide(count: usize, was_hidden: bool, hide_above: usize, show_below: usize) -> bool {
+    count > hide_limit(was_hidden, hide_above, show_below)
+}
+
 #[derive(Clone, Debug)]
 struct MeasuredDimension {
     constraint: ConstraintId,
+    entities: Vec<EntityId>,
     measured: Measured,
     lane: usize,
     frame: Option<LabelFrame>,
@@ -405,8 +460,8 @@ struct Measures {
     dimensions: Vec<MeasuredDimension>,
     groups: Vec<GlyphGroup>,
     centre: Option<Point2>,
-    open_ends: Vec<Point2>,
-    beyond: Vec<[Point2; 2]>,
+    open_ends: Vec<(EntityId, Point2)>,
+    beyond: Vec<(EntityId, [Point2; 2])>,
 }
 
 impl Measures {
@@ -418,7 +473,11 @@ impl Measures {
 
         for (id, constraint) in definition.constraints() {
             if constraint.dimension().is_some() {
-                measured.push((id, annotation::measured(shown, constraint)));
+                measured.push((
+                    id,
+                    constraint.entities(),
+                    annotation::measured(shown, constraint),
+                ));
                 continue;
             }
             if key.outside {
@@ -437,17 +496,18 @@ impl Measures {
             |id: ConstraintId| key.dragged == Some(id) || definition.label_offset(id).is_some();
         let unplaced: Vec<_> = measured
             .iter()
-            .map(|(id, measured)| measured.filter(|_| !placed(*id)))
+            .map(|(id, _, measured)| measured.filter(|_| !placed(*id)))
             .collect();
         let lanes = annotation::lanes(&unplaced, centre, extent_of(shown));
         let dimensions = measured
             .into_iter()
             .zip(lanes)
-            .filter_map(|((constraint, measured), lane)| {
+            .filter_map(|((constraint, entities, measured), lane)| {
                 let measured = measured?;
                 let frame = annotation_layout::label_frame(&measured);
                 Some(MeasuredDimension {
                     constraint,
+                    entities,
                     measured,
                     lane,
                     frame,
@@ -462,12 +522,17 @@ impl Measures {
         let open_ends = result
             .into_iter()
             .flat_map(|result| &result.open_ends)
-            .filter_map(|end| shown.point(*end))
+            .filter_map(|end| Some((*end, shown.point(*end)?)))
             .collect();
         let beyond = result
             .into_iter()
             .flat_map(|result| &result.beyond)
-            .filter_map(|beyond| Some([shown.nearest_end(*beyond)?, shown.point(beyond.point)?]))
+            .filter_map(|beyond| {
+                Some((
+                    beyond.point,
+                    [shown.nearest_end(*beyond)?, shown.point(beyond.point)?],
+                ))
+            })
             .collect();
         Self {
             key,
@@ -498,6 +563,7 @@ struct ViewKey {
     forced: Vec<ConstraintId>,
     kept: Vec<EntityId>,
     glyphs: bool,
+    auto_hide: bool,
     taken: Vec<Rect>,
 }
 
@@ -511,8 +577,16 @@ impl ViewKey {
         }
     }
 
+    fn is_kept(&self, entity: EntityId) -> bool {
+        self.kept.binary_search(&entity).is_ok()
+    }
+
+    fn touches_kept(&self, entities: &[EntityId]) -> bool {
+        !self.kept.is_empty() && entities.iter().any(|entity| self.is_kept(*entity))
+    }
+
     fn group_thinning(&self, group: &GlyphGroup) -> Thinning {
-        let kept = self.kept.binary_search(&group.anchor).is_ok()
+        let kept = self.is_kept(group.anchor)
             || group
                 .items
                 .iter()
@@ -533,6 +607,134 @@ struct Marks {
     glyphs: Vec<GlyphMark>,
     open_ends: OpenEndMarks,
     beyond: Vec<[Vector2; 2]>,
+    auto_hidden: AutoHidden,
+}
+
+fn excessive_dimensions(
+    dimensions: &[MeasuredDimension],
+    screen: &impl Screen,
+    key: &ViewKey,
+    view: Vector2,
+    was_hidden: bool,
+) -> (bool, bool) {
+    if !key.auto_hide {
+        return (false, true);
+    }
+
+    let limit = hide_limit(was_hidden, AUTO_HIDE_DIMENSIONS, AUTO_SHOW_DIMENSIONS);
+    let mut in_view = 0_usize;
+
+    for dimension in dimensions {
+        if key.thinning(dimension.constraint) == Thinning::Never
+            || dimension.standing == Standing::Conflicting
+        {
+            continue;
+        }
+
+        let placed = dimension
+            .frame
+            .zip(dimension.offset)
+            .map(|(frame, offset)| (frame, frame.place(offset)));
+        if dimension
+            .reach
+            .and_then(|reach| reach.on_screen(placed, screen))
+            .is_some_and(|on_screen| on_screen.intersects_view(view))
+        {
+            in_view += 1;
+            if in_view > limit {
+                break;
+            }
+        }
+    }
+    if in_view <= limit {
+        return (false, true);
+    }
+
+    let mut redundant_in_view = 0_usize;
+
+    for dimension in dimensions {
+        if dimension.standing != Standing::Redundant {
+            continue;
+        }
+
+        let placed = dimension
+            .frame
+            .zip(dimension.offset)
+            .map(|(frame, offset)| (frame, frame.place(offset)));
+        if dimension
+            .reach
+            .and_then(|reach| reach.on_screen(placed, screen))
+            .is_some_and(|on_screen| on_screen.intersects_view(view))
+        {
+            redundant_in_view += 1;
+            if redundant_in_view > AUTO_HIDE_DIMENSIONS {
+                return (true, false);
+            }
+        }
+    }
+    (true, true)
+}
+
+fn excessive_glyphs(
+    groups: &[GlyphGroup],
+    screen: &impl Screen,
+    key: &ViewKey,
+    view: Vector2,
+    was_hidden: bool,
+) -> (bool, bool) {
+    if !key.glyphs || !key.auto_hide {
+        return (false, true);
+    }
+
+    let limit = hide_limit(was_hidden, AUTO_HIDE_GLYPHS, AUTO_SHOW_GLYPHS);
+    let mut in_view = 0_usize;
+
+    for group in groups {
+        if key.group_thinning(group) == Thinning::Never
+            || group
+                .items
+                .iter()
+                .any(|item| item.standing == Standing::Conflicting)
+        {
+            continue;
+        }
+        if group
+            .site
+            .and_then(|site| site.on_screen(screen))
+            .is_some_and(|anchor| annotation_layout::within_view(anchor, view).is_some())
+        {
+            in_view += group.items.len().min(MAX_STACKED);
+            if in_view > limit {
+                break;
+            }
+        }
+    }
+    if in_view <= limit {
+        return (false, true);
+    }
+
+    let mut redundant_in_view = 0_usize;
+
+    for group in groups {
+        if !group
+            .items
+            .iter()
+            .any(|item| item.standing == Standing::Redundant)
+        {
+            continue;
+        }
+        if group
+            .site
+            .and_then(|site| site.on_screen(screen))
+            .is_some_and(|anchor| annotation_layout::within_view(anchor, view).is_some())
+        {
+            redundant_in_view += group.items.len().min(MAX_STACKED);
+            if redundant_in_view > AUTO_HIDE_GLYPHS {
+                return (true, false);
+            }
+        }
+    }
+    (true, true)
 }
 
 impl Marks {
@@ -542,11 +744,20 @@ impl Marks {
         measures: &Measures,
         sketches: [&Sketch; 2],
         key: ViewKey,
+        previous: AutoHidden,
         texts: &mut LabelTexts,
     ) -> Self {
         let [definition, shown] = sketches;
         let screen = &key.screen.projector();
         let view = Vector2::new(f64::from(key.rect.width()), f64::from(key.rect.height()));
+
+        let (hide_dimensions, keep_redundant_dimensions) = excessive_dimensions(
+            &measures.dimensions,
+            screen,
+            &key,
+            view,
+            previous.dimensions,
+        );
         let (kept, thinned): (Vec<_>, Vec<_>) = measures
             .dimensions
             .iter()
@@ -571,6 +782,18 @@ impl Marks {
 
         for (dimension, thinning) in ordered {
             let id = dimension.constraint;
+            let crowding = thinning == Thinning::WhenCrowded;
+            let selected_entity = key.touches_kept(&dimension.entities);
+
+            if hide_dimensions
+                && crowding
+                && !selected_entity
+                && dimension.standing != Standing::Conflicting
+                && !(dimension.standing == Standing::Redundant && keep_redundant_dimensions)
+            {
+                continue;
+            }
+
             let offset = match key.dragged {
                 Some(offset) if measures.key.dragged == Some(id) => Some(offset),
                 _ => dimension.offset,
@@ -579,7 +802,6 @@ impl Marks {
                 .frame
                 .zip(offset)
                 .map(|(frame, offset)| (frame, frame.place(offset)));
-            let crowding = thinning == Thinning::WhenCrowded;
 
             let on_screen = dimension
                 .reach
@@ -590,7 +812,10 @@ impl Marks {
                 if !on_screen.near_view(dimension.lane, view) {
                     continue;
                 }
-                if on_screen.collapses() && dimension.standing.collapsible() {
+                if on_screen.collapses()
+                    && dimension.standing.collapsible()
+                    && !(hide_dimensions && selected_entity)
+                {
                     collapsed.push(CollapsedMark {
                         constraint: id,
                         center: on_screen.centre(),
@@ -651,6 +876,9 @@ impl Marks {
         }
         dimensions.sort_by_key(|mark| mark.constraint);
 
+        let (hide_glyphs, keep_redundant_glyphs) =
+            excessive_glyphs(&measures.groups, screen, &key, view, previous.glyphs);
+
         let glyphs = if key.glyphs {
             let mut blocked = annotation_layout::obstacles();
 
@@ -659,7 +887,14 @@ impl Marks {
             }
 
             let screen_centre = measures.centre.and_then(|centre| screen.to_screen(centre));
-            place_glyphs(&measures.groups, screen, &key, screen_centre, blocked)
+            place_glyphs(
+                &measures.groups,
+                screen,
+                &key,
+                screen_centre,
+                blocked,
+                (hide_glyphs, keep_redundant_glyphs),
+            )
         } else {
             Vec::new()
         };
@@ -669,21 +904,59 @@ impl Marks {
         collapsed.retain(|mark: &CollapsedMark| in_view(&mark.center) && spaced.take(mark.center));
         collapsed.sort_by_key(|mark| mark.constraint);
 
-        let open_ends = open_end_marks(
+        let all_open_ends = open_end_marks(
             measures
                 .open_ends
                 .iter()
-                .filter_map(|end| screen.to_screen(*end))
+                .filter_map(|(_, end)| screen.to_screen(*end))
                 .filter(in_view),
             view,
         );
-        let beyond = measures
+        let hide_open_ends = key.auto_hide
+            && should_auto_hide(
+                all_open_ends.rings.len() + all_open_ends.clusters.len(),
+                previous.open_ends,
+                AUTO_HIDE_OPEN_ENDS,
+                AUTO_SHOW_OPEN_ENDS,
+            );
+
+        let open_ends = if hide_open_ends {
+            if key.kept.is_empty() {
+                OpenEndMarks::default()
+            } else {
+                open_end_marks(
+                    measures
+                        .open_ends
+                        .iter()
+                        .filter(|(entity, _)| key.is_kept(*entity))
+                        .filter_map(|(_, end)| screen.to_screen(*end))
+                        .filter(in_view),
+                    view,
+                )
+            }
+        } else {
+            all_open_ends
+        };
+        let all_beyond: Vec<(EntityId, [Vector2; 2])> = measures
             .beyond
             .iter()
-            .filter_map(|[end, at]| {
+            .filter_map(|(entity, [end, at])| {
                 let (end, at) = (screen.to_screen(*end)?, screen.to_screen(*at)?);
-                (in_view(&at) || in_view(&end)).then_some([end, at])
+                (in_view(&at) || in_view(&end)).then_some((*entity, [end, at]))
             })
+            .collect();
+        let hide_beyond = key.auto_hide
+            && should_auto_hide(
+                all_beyond.len(),
+                previous.beyond,
+                AUTO_HIDE_BEYOND,
+                AUTO_SHOW_BEYOND,
+            );
+
+        let beyond = all_beyond
+            .into_iter()
+            .filter(|(entity, _)| !hide_beyond || key.is_kept(*entity))
+            .map(|(_, segment)| segment)
             .collect();
         Self {
             key,
@@ -692,6 +965,12 @@ impl Marks {
             glyphs,
             open_ends,
             beyond,
+            auto_hidden: AutoHidden {
+                dimensions: hide_dimensions,
+                glyphs: hide_glyphs,
+                open_ends: hide_open_ends,
+                beyond: hide_beyond,
+            },
         }
     }
 
@@ -814,6 +1093,7 @@ fn place_glyphs(
     key: &ViewKey,
     screen_centre: Option<Vector2>,
     mut blocked: Obstacles,
+    (hide_glyphs, keep_redundant): (bool, bool),
 ) -> Vec<GlyphMark> {
     let half = Vector2::splat(f64::from(GLYPH_SIZE / 2.0 + GLYPH_CLEARANCE));
     let view = Vector2::new(f64::from(key.rect.width()), f64::from(key.rect.height()));
@@ -832,6 +1112,16 @@ fn place_glyphs(
     let mut glyphs = Vec::new();
 
     for (group, thinning) in ordered {
+        if hide_glyphs && thinning == Thinning::WhenCrowded {
+            let problem = group.items.iter().any(|item| {
+                item.standing == Standing::Conflicting
+                    || (item.standing == Standing::Redundant && keep_redundant)
+            });
+            if !problem {
+                continue;
+            }
+        }
+
         let Some(anchor) = group.site.and_then(|site| site.on_screen(screen)) else {
             continue;
         };
@@ -1023,6 +1313,7 @@ pub struct Surface<'a> {
     pub feature: FeatureId,
     pub interactive: bool,
     pub glyphs: bool,
+    pub auto_hide: bool,
     pub highlight: Option<Pickable>,
     pub first_dimension_scales: bool,
     pub outside: bool,
@@ -1125,6 +1416,12 @@ impl PointerReach {
 impl Annotations {
     pub fn hovered(&self) -> Option<Pickable> {
         self.hovered
+    }
+
+    pub fn auto_hidden(&self) -> AutoHidden {
+        self.marks
+            .as_ref()
+            .map_or_else(AutoHidden::default, |marks| marks.auto_hidden)
     }
 
     pub fn label_place(&self, feature: FeatureId, constraint: ConstraintId) -> Option<LabelPlace> {
@@ -1249,18 +1546,31 @@ impl Annotations {
         forced
     }
 
-    fn kept(selection: &Selection, feature: FeatureId) -> Vec<EntityId> {
-        let mut kept: Vec<EntityId> = selection
-            .iter()
-            .filter_map(|pickable| match pickable {
-                Pickable::SketchEntity {
-                    feature: owner,
-                    entity,
-                } if owner == feature => Some(entity),
-                _ => None,
-            })
-            .collect();
+    fn kept(selection: &Selection, feature: FeatureId, definition: &Sketch) -> Vec<EntityId> {
+        let mut chosen = 0_usize;
+        let mut kept = Vec::new();
 
+        for pickable in selection.iter() {
+            let Pickable::SketchEntity {
+                feature: owner,
+                entity,
+            } = pickable
+            else {
+                continue;
+            };
+
+            if owner != feature {
+                continue;
+            }
+            chosen += 1;
+            if chosen > MAX_KEPT_ENTITIES {
+                return Vec::new();
+            }
+            kept.push(entity);
+            if let Some(item) = definition.entity(entity) {
+                kept.extend(item.points());
+            }
+        }
         kept.sort_unstable();
         kept.dedup();
         kept
@@ -1300,14 +1610,21 @@ impl Annotations {
             dragged: dragged.map(|(_, offset)| offset),
             editing: self.field.map(|open| open.constraint),
             forced: self.forced(selection, surface),
-            kept: Self::kept(selection, surface.feature),
+            kept: Self::kept(selection, surface.feature, definition),
             glyphs: surface.glyphs,
+            auto_hide: surface.auto_hide,
             taken: surface.taken.to_vec(),
         };
 
         let marks = match self.marks.take() {
             Some(marks) if marks.key == key => marks,
-            _ => {
+            prior => {
+                let previous = prior
+                    .filter(|marks| {
+                        marks.key.sketch.feature == surface.feature && marks.key.auto_hide
+                    })
+                    .map_or_else(AutoHidden::default, |marks| marks.auto_hidden);
+
                 #[cfg(test)]
                 {
                     self.layouts += 1;
@@ -1318,6 +1635,7 @@ impl Annotations {
                     &measures,
                     [definition, &shown],
                     key,
+                    previous,
                     &mut self.texts,
                 )
             }
@@ -2209,6 +2527,69 @@ mod tests {
             Hover::OpenEnds(12)
                 .describe(&Sketch::new(caditor_geometry::Plane::XY), false)
                 .starts_with("12 open ends here")
+        );
+    }
+
+    #[test]
+    fn auto_hide_hysteresis_holds_its_state_between_the_show_and_hide_thresholds() {
+        assert!(!should_auto_hide(
+            AUTO_HIDE_DIMENSIONS,
+            false,
+            AUTO_HIDE_DIMENSIONS,
+            AUTO_SHOW_DIMENSIONS,
+        ));
+        assert!(should_auto_hide(
+            AUTO_HIDE_DIMENSIONS + 1,
+            false,
+            AUTO_HIDE_DIMENSIONS,
+            AUTO_SHOW_DIMENSIONS,
+        ));
+        assert!(should_auto_hide(
+            AUTO_SHOW_DIMENSIONS + 1,
+            true,
+            AUTO_HIDE_DIMENSIONS,
+            AUTO_SHOW_DIMENSIONS,
+        ));
+        assert!(!should_auto_hide(
+            AUTO_SHOW_DIMENSIONS,
+            true,
+            AUTO_HIDE_DIMENSIONS,
+            AUTO_SHOW_DIMENSIONS,
+        ));
+    }
+
+    #[test]
+    fn auto_hidden_label_names_one_or_two_crowded_kinds_and_summarises_more() {
+        assert_eq!(AutoHidden::default().label(), None);
+        assert_eq!(
+            AutoHidden {
+                dimensions: true,
+                ..AutoHidden::default()
+            }
+            .label()
+            .as_deref(),
+            Some("Crowded dimensions hidden")
+        );
+        assert_eq!(
+            AutoHidden {
+                dimensions: true,
+                glyphs: true,
+                ..AutoHidden::default()
+            }
+            .label()
+            .as_deref(),
+            Some("Crowded dimensions and glyphs hidden")
+        );
+        assert_eq!(
+            AutoHidden {
+                dimensions: true,
+                glyphs: true,
+                open_ends: true,
+                beyond: false,
+            }
+            .label()
+            .as_deref(),
+            Some("Crowded marks hidden")
         );
     }
 }

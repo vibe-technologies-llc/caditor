@@ -910,6 +910,7 @@ impl Menus<'_> {
                 |ui| {
                     self.choice(ui, Command::ToggleGlyphs);
                     self.choice(ui, Command::ToggleDimensions);
+                    self.choice(ui, Command::ToggleAutoHideMarks);
                     self.choice(ui, Command::ToggleCentresOfMass);
                     self.choice(ui, Command::ToggleControlPolygons);
                     self.choice(ui, Command::ToggleCosmeticThreads);

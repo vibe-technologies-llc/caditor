@@ -1000,7 +1000,21 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   never makes a frame walk a line's full length. An entity shows at most `MAX_STACKED` glyphs: past
   that the last slot is a "+N" mark whose hover lists the rest and whose click selects the first.
   Show or hide constraint glyphs (Alt+G, `ViewportState::glyphs_shown`, shown at start unless
-  Preferences › Sketching says otherwise) hides them all, dimensions staying. Labels use `canvas::body` on the canvas backdrop, glyph letters `canvas::emphasis`.
+  Preferences › Sketching says otherwise) hides them all, dimensions staying. Auto-hide crowded
+  dimensions and glyphs (`Command::ToggleAutoHideMarks`, `ViewportState::auto_hide_marks`, on at
+  start unless Preferences › Sketching turns it off; `Surface::auto_hide`, `ViewKey::auto_hide`)
+  hides dimensions, constraint glyphs, open-end marks and points beyond curves independently once
+  too many are in view (`AUTO_HIDE_DIMENSIONS` / `AUTO_SHOW_DIMENSIONS`, `AUTO_HIDE_GLYPHS` /
+  `AUTO_SHOW_GLYPHS`, `AUTO_HIDE_OPEN_ENDS` / `AUTO_SHOW_OPEN_ENDS`, `AUTO_HIDE_BEYOND` /
+  `AUTO_SHOW_BEYOND`, with hysteresis so zooming or panning at the edge does not blink): selected,
+  highlighted, dragged, inline-edited and field-waiting constraints, conflicting constraints,
+  non-excessive redundant constraints, and marks on up to `MAX_KEPT_ENTITIES` selected entities
+  (including their defining points, so selecting a circle shows its centre's constraints and
+  dimensions) stay visible, while Select All on a huge sketch stays hidden. While any kind is
+  auto-hidden (`Annotations::auto_hidden`, `AutoHidden`; `ModelDimensions::auto_hidden` outside
+  sketch editing), `ViewportState::show_crowded_marks_note` draws a clickable canvas button under
+  the display style picker naming what is hidden and turning `auto_hide_marks` off for the session
+  when clicked. Labels use `canvas::body` on the canvas backdrop, glyph letters `canvas::emphasis`.
 - Labels show the expression in the document's naming, followed by its value when not a literal;
   conflicting and redundant constraints take the error and warning colours. Label texts are cached per
   sketch (`annotations::LabelTexts`), their measured sizes by text across revisions (`SizesKey`, at

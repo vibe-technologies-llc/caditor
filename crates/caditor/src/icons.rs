@@ -308,6 +308,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleFirstDimensionScales => phosphor::RESIZE,
         Command::ToggleGlyphs => phosphor::SHAPES,
         Command::ToggleDimensions => phosphor::ARROWS_OUT_LINE_HORIZONTAL,
+        Command::ToggleAutoHideMarks => HIDE,
         Command::ToggleCentresOfMass => phosphor::TARGET,
         Command::ToggleControlPolygons => phosphor::POLYGON,
         Command::ToggleCosmeticThreads => phosphor::LIGHTNING,

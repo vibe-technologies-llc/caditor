@@ -66,6 +66,9 @@ them; one you have selected stays.
 ## View aids
 
 {command:view.toggle_glyphs} hides the constraint marks of the edited sketch, keeping dimensions.
+{command:view.toggle_auto_hide_marks} turns automatic hiding of crowded dimensions, constraint
+glyphs and open-end marks on or off; while on, zooming in or selecting geometry brings them back,
+and a canvas button appears whenever crowded marks are hidden.
 {command:view.toggle_centres_of_mass} marks the centre of mass of each shown body; [Measure](measure)
 reads distances to it.
 

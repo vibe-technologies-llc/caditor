@@ -139,9 +139,9 @@ See [moving around the view](navigation).
   start on. An unticked kind is neither offered while drawing or dragging nor made a constraint;
   the constraint tools still add it by hand. See [snapping](snapping).
 - **On when caditor starts**: constraint glyphs, snapping, snapping to the grid, keeping typed
-  values as dimensions, and dimensions shown on the model. Each can still be turned on or off
-  while you work; changing one here changes it now too. See [snapping](snapping) and
-  [dimensions](dimensions).
+  values as dimensions, dimensions shown on the model, and auto-hiding crowded dimensions and
+  glyphs. Each can still be turned on or off while you work; changing one here changes it now too.
+  See [snapping](snapping) and [dimensions](dimensions).
 
 ## Graphics
 

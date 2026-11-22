@@ -263,6 +263,17 @@ pub fn sketching(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
                     command,
                 );
             });
+            widgets::property(ui, "Crowded marks", |ui| {
+                toggle(
+                    ui,
+                    at_start.auto_hide_marks,
+                    "Auto-hide crowded dimensions and glyphs",
+                    "Hide dimensions, constraint glyphs and open-end marks when too many fill the \
+                     view; zoom in or select geometry to see them",
+                    PreferenceChange::StartWithAutoHideMarks,
+                    command,
+                );
+            });
         },
     );
 }
