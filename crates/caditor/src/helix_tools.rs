@@ -234,25 +234,72 @@ pub fn can_add_pitch_row(helix: &Helix) -> bool {
 
 pub fn with_pitch_row_added(model: &Model, helix: &Helix) -> Helix {
     let turns = covered_turns(model, helix);
-    let last = helix.pitch_table.last();
+    let mut pitch_table = helix.pitch_table.clone();
+
+    let last = pitch_table.last();
     let after = last
         .and_then(|row| number(model, &row.turns))
         .unwrap_or(0.0);
 
-    let row = PitchRow::new(
-        Expression::number((0.5 * (after + turns.max(after)) * 100.0).round() / 100.0),
-        last.map_or_else(
-            || Expression::measure(DEFAULT_PITCH, Unit::Millimetre),
-            |row| row.pitch.clone(),
-        ),
-    );
-    let mut pitch_table = helix.pitch_table.clone();
+    let ends_the_helix = last.is_some() && turns - after < TURN_STEP;
 
-    pitch_table.push(row);
+    match ends_the_helix
+        .then(|| row_before_last(model, helix))
+        .flatten()
+    {
+        Some(between) => pitch_table.insert(pitch_table.len() - 1, between),
+        None => pitch_table.push(PitchRow::new(
+            Expression::number(rounded_turns(0.5 * (after + turns.max(after)))),
+            last.map_or_else(
+                || Expression::measure(DEFAULT_PITCH, Unit::Millimetre),
+                |row| row.pitch.clone(),
+            ),
+        )),
+    }
     Helix {
         pitch_table,
         ..helix.clone()
     }
+}
+
+const TURN_STEP: f64 = 0.01;
+const PITCH_STEP: f64 = 0.001;
+
+fn rounded_turns(turns: f64) -> f64 {
+    (turns / TURN_STEP).round() * TURN_STEP
+}
+
+fn row_before_last(model: &Model, helix: &Helix) -> Option<PitchRow> {
+    let pitch_of = |row: &PitchRow| value(model, Some(&row.pitch), Dimension::LENGTH);
+    let (last, earlier) = helix.pitch_table.split_last()?;
+
+    let end = PitchStop {
+        turns: number(model, &last.turns)?,
+        pitch: pitch_of(last)?,
+    };
+    let start = match earlier.last() {
+        Some(row) => PitchStop {
+            turns: number(model, &row.turns)?,
+            pitch: pitch_of(row)?,
+        },
+        None => PitchStop {
+            turns: 0.0,
+            pitch: coil_tools::evaluated_span(model, &helix.length)?.pitch,
+        },
+    };
+
+    let turns = rounded_turns(0.5 * (start.turns + end.turns));
+
+    if turns - start.turns < TURN_STEP || end.turns - turns < TURN_STEP {
+        return None;
+    }
+
+    let share = (turns - start.turns) / (end.turns - start.turns);
+    let pitch = start.pitch + (end.pitch - start.pitch) * share;
+    Some(PitchRow::new(
+        Expression::number(turns),
+        Expression::measure((pitch / PITCH_STEP).round() * PITCH_STEP, Unit::Millimetre),
+    ))
 }
 
 pub fn with_last_pitch_row_removed(helix: &Helix) -> Helix {

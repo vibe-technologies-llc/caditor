@@ -656,7 +656,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   half the turns between the ends and twice it at all of them (`covered_turns`), clearing the
   final pitch, and while tabled a "Row n at turn" and "Row n pitch" field per row,
   `Rule::AboveZero`, with add (`ADD_PITCH_ROW`, halfway between the last row and the end of the
-  covered turns at the last pitch, up to `MAX_PITCH_ROWS`) and remove-last (`REMOVE_PITCH_ROW`,
+  covered turns at the last pitch, or, when the last row already stands at that end (as the
+  starting table's does) and a row past it would fail, inserted halfway between the last row and
+  the one before it (the start at the start pitch) at the pitch the line between them has there,
+  `row_before_last`, so the shape stays; up to `MAX_PITCH_ROWS`) and remove-last (`REMOVE_PITCH_ROW`,
   keeping one) buttons; `with_progression` clears the table, closing the ends leaves it) and Ends
   (`ENDS`, Open or Closed, `helix_tools::with_closed_ends` setting `ClosedEnds::default`, and
   while closed End turns, `Rule::ZeroOrMore`, End pitch and End change, `Rule::AboveZero`; Taper

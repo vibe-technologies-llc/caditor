@@ -119,7 +119,9 @@ each row says the turn the helix has reached its pitch at: **Row 1 at turn** 2 w
 3 mm means the pitch changes evenly from the start pitch to 3 mm over the first two turns. Between
 rows the pitch changes evenly; after the last row it stays at the last row's pitch. Two rows at
 first, the second at the helix's last turn. **Add a row** under the rows adds one halfway between
-the last row and the helix's end, at the last row's pitch; **Remove the last row** removes it (one row stays). Turns
+the last row and the helix's end, at the last row's pitch; when the last row is already at the
+end, the new row goes halfway between it and the row before, at the pitch the helix already has
+there, so the helix keeps its shape. **Remove the last row** removes the last row (one row stays). Turns
 must grow from row to row, the first after the start and the last within the turns the helix
 makes, and a helix takes at most 24 rows; a row out of place fails the helix saying which.
 

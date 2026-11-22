@@ -23,11 +23,11 @@ fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
 
     assert!(harness.workspace.palette.is_open());
 
-    harness.type_text("thread");
+    harness.type_text("combine");
 
     assert!(harness.shows(&format!(
-        "Thread is not available: {}.",
-        crate::thread_tools::ThreadToolError::ChooseFace
+        "Combine is not available: {}.",
+        crate::combine_tools::CombineError::NeedTwo
     )));
 
     harness.key(Key::Enter, Modifiers::NONE);
@@ -39,7 +39,7 @@ fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
         harness
             .model
             .notice()
-            .is_some_and(|notice| notice.text.starts_with("Thread is not available"))
+            .is_some_and(|notice| notice.text.starts_with("Combine is not available"))
     );
 
     harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);

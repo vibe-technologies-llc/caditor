@@ -488,10 +488,14 @@ fn a_table_of_pitches_is_chosen_edited_grown_and_shrunk_in_the_panel_in_undoable
         12.0
     );
 
+    let end_before = helix_end(&harness, helix);
+
     harness.click(helix_panel::ADD_PITCH_ROW);
     harness.settle();
 
     assert_eq!(helix_of(&harness, helix).pitch_table.len(), 3);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(helix_end(&harness, helix).distance(end_before) < 1e-6);
 
     harness.click(helix_panel::REMOVE_PITCH_ROW);
     harness.settle();
@@ -502,6 +506,13 @@ fn a_table_of_pitches_is_chosen_edited_grown_and_shrunk_in_the_panel_in_undoable
 
     assert!(helix_of(&harness, helix).pitch_table.is_empty());
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+fn helix_end(harness: &Harness, helix: FeatureId) -> caditor_geometry::Point3 {
+    helix_tools::points(harness.model.evaluation(), helix)
+        .last()
+        .copied()
+        .expect("the helix is built")
 }
 
 fn spiral_reach(harness: &Harness, spiral: FeatureId) -> f64 {
