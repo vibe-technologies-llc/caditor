@@ -7,8 +7,8 @@ use caditor_sketch::Sketch;
 use egui::{Event, Id, Key, Modifiers, Pos2, accesskit::Role};
 
 use super::{
-    CAMERA_SETTLE, Harness, click_with, extruded_plate, feature_named, feature_names, hold_drag,
-    pickable_described, rectangle, release_drag, run_from_palette, top_edge_along_x,
+    CAMERA_SETTLE, Harness, Wheel, click_with, extruded_plate, feature_named, feature_names,
+    hold_drag, pickable_described, rectangle, release_drag, run_from_palette, top_edge_along_x,
 };
 use crate::{
     app::Workspace,
@@ -17,6 +17,7 @@ use crate::{
     model::Action,
     panels::{Focus, REVEAL_FRAMES},
     selection::Pickable,
+    solid_panel,
 };
 
 #[test]
@@ -935,4 +936,73 @@ fn an_empty_tree_offers_a_new_sketch_and_the_samples() {
 
     assert!(choosing);
     assert!(harness.workspace.welcome_open);
+}
+
+const SKETCHES_BELOW: usize = 40;
+
+fn extrusion_scrolled_out_of_view(harness: &mut Harness) {
+    let (extrude, _) = extruded_plate(harness);
+
+    harness.perform(Action::Editing(EditingCommand::CloseSolid));
+    harness.settle();
+    for index in 0..SKETCHES_BELOW {
+        let along = index as f64 * 50.0;
+        let mut sketch = Sketch::new(Plane::XY);
+
+        rectangle(
+            &mut sketch,
+            Point2::new(along, 0.0),
+            Point2::new(along + 40.0, 40.0),
+        );
+        harness.add_sketch(sketch);
+    }
+    harness.select([]);
+    harness.settle();
+
+    let last = harness
+        .document()
+        .features()
+        .last()
+        .map(|feature| feature.name.clone())
+        .unwrap();
+    let over_the_tree = harness.position_of("Extrude 1");
+
+    harness.wheel_until_shown(over_the_tree, &last, Wheel::Down);
+    harness.hold_still();
+    harness.workspace.panels.choose_only(extrude);
+    harness.frame();
+}
+
+#[test]
+fn a_feature_opened_by_its_key_is_scrolled_into_view() {
+    let mut harness = Harness::new();
+
+    extrusion_scrolled_out_of_view(&mut harness);
+
+    let out_of_view = !harness.fully_shown("Extrude 1");
+
+    harness.key(Key::E, Modifiers::NONE);
+    harness.settle();
+    harness.hold_still();
+
+    assert!(out_of_view);
+    assert!(harness.workspace.editing.solid().is_some());
+    assert!(harness.fully_shown(solid_panel::DISTANCE));
+}
+
+#[test]
+fn a_feature_opened_from_the_palette_is_scrolled_into_view() {
+    let mut harness = Harness::new();
+
+    extrusion_scrolled_out_of_view(&mut harness);
+
+    let out_of_view = !harness.fully_shown("Extrude 1");
+
+    run_from_palette(&mut harness, "Edit feature");
+    harness.settle();
+    harness.hold_still();
+
+    assert!(out_of_view);
+    assert!(harness.workspace.editing.solid().is_some());
+    assert!(harness.fully_shown(solid_panel::DISTANCE));
 }
